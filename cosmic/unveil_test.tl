@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local unveil = require("cosmic.unveil")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -32,7 +32,7 @@ local function test_fail_closed_when_unavailable()
     return
   end
   local dir = fs.join(tmpdir, "fc")
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   local ok, err = unveil.allow(dir, "r")
   assert(not ok, "allow must fail when unveil is unsupported")
   assert(type(err) == "string" and err:match("unsupported"),
@@ -61,7 +61,7 @@ local function test_unveil_restricts_paths()
   end
 
   local allowed_dir = fs.join(tmpdir, "vis")
-  fs.makedirs(allowed_dir)
+  fs.make_dirs(allowed_dir)
   local allowed_file = fs.join(allowed_dir, "unveiled.txt")
   local hidden_file = fs.join(tmpdir, "secret.txt")
   fs.write(allowed_file, "visible")
@@ -97,7 +97,7 @@ else
 end
 ]], allowed_dir, allowed_file, hidden_file))
 
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   local s = out or ""

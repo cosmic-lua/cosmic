@@ -98,7 +98,7 @@ local function normalize(src: string, cwd: string): string | nil, string
     -- in at zero: the same "ratchet holds nothing" failure the mapping
     -- above exists to fix, for 14 of this repo's own modules.
     for _, source in ipairs({zipped .. ".tl", zipped .. "/init.tl"}) do
-      if not is_excluded(source) and fs.isfile(source) then
+      if not is_excluded(source) and fs.is_file(source) then
         return source, p
       end
     end
@@ -120,13 +120,13 @@ local function normalize(src: string, cwd: string): string | nil, string
     local rel = p:sub(3)
     local tl_path = rel:gsub("%.lua$", ".tl")
     for _, source in ipairs({tl_path, rel}) do
-      if not is_excluded(source) and fs.isfile(source) then
+      if not is_excluded(source) and fs.is_file(source) then
         return source, p
       end
     end
     return nil
   end
-  if (p:match("%.tl$") or p:match("%.lua$")) and fs.isfile(p) then
+  if (p:match("%.tl$") or p:match("%.lua$")) and fs.is_file(p) then
     return p, p
   end
   return nil
@@ -330,7 +330,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
   local cov_files: {string} = {}
   local src_files: {string} = {}
   for _, p in ipairs(paths) do
-    if fs.isdir(p) then
+    if fs.is_dir(p) then
       scan_dir(p, cov_files, src_files)
     elseif p:match("%.cov$") then
       cov_files[#cov_files + 1] = p
@@ -352,7 +352,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
   -- dumps missing is the second.
   io.stderr:write(string.format("coverage: read %d .cov files\n", #cov_files))
 
-  local cwd = fs.getcwd() or ""
+  local cwd = fs.cwd() or ""
   local entries: {string: FileEntry} = {}
   for _, path in ipairs(cov_files) do
     local hits, err = read_cov(path)
@@ -373,7 +373,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
       local compiled = "o/" .. s:gsub("%.tl$", ".lua")
       entries[s] = {
         display = s,
-        parse = fs.isfile(compiled) and compiled or s,
+        parse = fs.is_file(compiled) and compiled or s,
         hits = {},
       }
     end

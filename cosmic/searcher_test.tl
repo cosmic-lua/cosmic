@@ -22,7 +22,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- reachable without disturbing the real tree.
 local function fixture(name: string, source: string): string
   local dir = fs.join(tmpdir, "searcher")
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   assert(fs.write(fs.join(dir, name .. ".tl"), source))
   local env = require("cosmic.env")
   assert(env.set("TL_PATH", fs.join(dir, "?.tl")))

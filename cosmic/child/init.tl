@@ -1,6 +1,6 @@
 --- Child process management.
 ---
---- The high-level spawn API. `spawn` starts a process and hands back a
+--- The high-level spawn API. `start` starts a process and hands back a
 --- `Handle` you can `kill`, `wait` on (with an optional timeout), poll with
 --- `try_wait`, or stream from with `read`. `run` is the one-shot form that
 --- spawns, waits, and returns a structured `Result`. Low-level syscall
@@ -10,7 +10,7 @@
 --- A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so a
 --- second `wait` returns the same value instead of failing. An abandoned
 --- handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap an
---- un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
+--- un-waited child and close its pipes, so `local h <close> = start{...}` (or
 --- simply dropping the handle) never leaves a zombie. Side effect: requiring
 --- cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child closing
 --- stdin early gets EPIPE on the write, not a dead parent).
@@ -91,7 +91,7 @@ end
 local function prepare_zip_exec(zip_path: string): integer | nil, string
   local fd, err = unix.open(zip_path, unix.O_RDONLY)
   if not fd then
-    return nil, errno.str(err, "open zip path: " .. zip_path)
+    return nil, errno.wrap(err, "open zip path: " .. zip_path)
   end
   return fd
 end
@@ -154,7 +154,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     end
     local ok, err = unix.kill(self.pid, sig or unix.SIGTERM)
     if not ok then
-      return false, errno.str(err, "kill")
+      return false, errno.wrap(err, "kill")
     end
     return true
   end
@@ -201,7 +201,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     end
     local chunk, err = childio.read_retry(fd, size or 65536)
     if chunk == nil then
-      return nil, errno.str(err, "read")
+      return nil, errno.wrap(err, "read")
     end
     if chunk == "" then
       return nil -- end of file (api-review-2, #589)
@@ -220,7 +220,7 @@ end
 --- @param argv {string} Command and arguments
 --- @param opts Options? Spawn options
 --- @return Handle | nil, string? Process handle or nil + error
-local function spawn(argv: {string}, opts?: Options): Handle | nil, string
+local function start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
 
   -- Resolve caller-provided Handles to raw descriptors once, at the
@@ -432,7 +432,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   if pid == nil then
     for _, fd in ipairs(opened) do unix.close(fd) end
-    return nil, errno.str(ferr, "fork")
+    return nil, errno.wrap(ferr, "fork")
   end
 
   -- Parent: close the ends the child owns, then wait on the exec handshake.
@@ -451,8 +451,8 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     if not stdin_is_fd then unix.close(stdin_w) end
     if not stdout_is_fd then unix.close(stdout_r) end
     if not stderr_is_fd then unix.close(stderr_r) end
-    if exec_msg == nil then return nil, errno.str(exec_rerr, "exec status read failed") end
-    return nil, errno.str(exec_msg, "exec failed")
+    if exec_msg == nil then return nil, errno.wrap(exec_rerr, "exec status read failed") end
+    return nil, errno.wrap(exec_msg, "exec failed")
   end
 
   return parent_handle(pid)
@@ -465,7 +465,7 @@ end
 --- @param opts Options? Spawn options
 --- @return Result spawn_error set when the spawn itself failed
 local function run(argv: {string}, opts?: Options): Result
-  local h, err = spawn(argv, opts)
+  local h, err = start(argv, opts)
   if not h then
     return {ok = false, spawn_error = err or "spawn failed", stdout = "", stderr = ""}
   end
@@ -484,13 +484,16 @@ local record ChildModule
   type StdioMode = childio.StdioMode -- Options' stdio mode, from the io shard
 
   -- High-level spawn API
+  start: function(argv: {string}, opts?: Options): Handle | nil, string
+  --- DEPRECATED alias for start() (api-review-8 pin-advance transition)
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
   run: function(argv: {string}, opts?: Options): Result
 
 end
 
 local M: ChildModule = {
-  spawn = spawn,
+  start = start,
+  spawn = start,
   run = run,
 }
 

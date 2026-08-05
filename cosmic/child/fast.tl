@@ -126,7 +126,7 @@ local function spawn(prog: string, argv: {string}, envp: {string} | nil,
     return nil
   end
   if pid == nil then
-    return nil, errno.str(serr, "exec failed")
+    return nil, errno.wrap(serr, "exec failed")
   end
   return pid
 end

@@ -76,11 +76,12 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **source language**: Teal (`.tl` files) — typed Lua that compiles to Lua 5.4
 - **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
-- **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
+- **naming**: the ten-rule charter is [D20](docs/decisions/d20-naming-charter.md); a
+  deviation in new code is a bug. Headlines: `snake_case` spelled out, units in the
+  identifier (`_ms`), `is_*` predicates, `Options`/`opts`, lowercase constructors.
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check fmt`
-- **column width**: 90 columns is house style, and the one style rule
-  that is NOT a gate — the tree has roughly 800+ lines over it. Write
-  to 90; do not expect a failure if you do not.
+- **column width**: 90 columns is house style and the one style rule that is NOT a
+  gate (the tree has ~800 lines over it). Write to 90; expect no failure if you don't.
 - **warnings are errors**: `--check types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
 - **file length**: all files must be ≤500 lines. no exceptions. enforced
   by `cosmic --check lint`, which is what both `--make lint` and
@@ -175,7 +176,7 @@ end
 
 Errors are strings: failed `cosmo.unix` calls return `nil, err, errno` (a
 formatted string plus the numeric errno), wrappers add context with
-`errno.str(err, prefix)`, and branch on the numeric errno via
+`errno.wrap(err, prefix)`, and branch on the numeric errno via
 `errno.is(errno_value, "EINTR")`.
 
 **Narrowing record/map unions.** Teal (0.24.8) does not flow-narrow record

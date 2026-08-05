@@ -24,7 +24,7 @@
 ---   c  create and remove paths    (matches pledge "cpath")
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 local seal_coverage = require("cosmic._seal_coverage").seal_coverage
 
 --- The permission strings `allow` accepts: every combination of r/w/x/c

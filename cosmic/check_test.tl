@@ -6,15 +6,15 @@ local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Wrap the spawn+read in one helper that narrows the handle via check.must.
 -- Returns stdout..stderr so assertions see diagnostics (hints go to stderr).
-local function check_run(argv: {string}, opts?: spawn.Options): boolean | string, string
-  local h = check.must(spawn.spawn(argv, opts))
+local function check_run(argv: {string}, opts?: child.Options): boolean | string, string
+  local h = check.must(child.start(argv, opts))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout .. __r1.stderr
   return ok, out
@@ -156,7 +156,7 @@ test_check_strict_mode()
 local function test_check_with_tl_path()
   -- Write a type definition file in a custom directory
   local typedir = fs.join(tmpdir, "mytypes")
-  fs.makedirs(typedir, 0x1ed) -- 0755
+  fs.make_dirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "mymod.d.tl")
   fs.write(deffile, [[
 local record mymod
@@ -194,7 +194,7 @@ test_check_with_tl_path()
 local function test_check_with_tl_path_double_semicolon()
   -- Write a type definition file in a custom directory
   local typedir = fs.join(tmpdir, "mytypes2")
-  fs.makedirs(typedir, 0x1ed) -- 0755
+  fs.make_dirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "mymod2.d.tl")
   fs.write(deffile, [[
 local record mymod2

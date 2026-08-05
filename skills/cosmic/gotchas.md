@@ -154,14 +154,14 @@ the interpreter path lives at `arg[-1]`, and because `arg` is typed
 **wrong:**
 ```teal
 local child = require("cosmic.child")
-local h = child.spawn({arg[0], "worker.tl"})  -- spawns /zip/main.lua: fails
+local h = child.start({arg[0], "worker.tl"})  -- spawns /zip/main.lua: fails
 ```
 
 **right:**
 ```teal
 local child = require("cosmic.child")
 local cosmic_bin = rawget(arg, -1) as string  -- e.g. "./cosmic"
-local h = child.spawn({cosmic_bin, "worker.tl"})
+local h = child.start({cosmic_bin, "worker.tl"})
 ```
 
 ## 8. `print(f(...))` prints every return value

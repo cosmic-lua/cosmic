@@ -108,7 +108,7 @@ local function bounding_read(cap: string): boolean | nil, string
   if n == nil then return nil, nerr end
   local r, err = unix.prctl(unix.PR_CAPBSET_READ, n)
   if r == nil then
-    return nil, errno.str(err, "PR_CAPBSET_READ " .. cap)
+    return nil, errno.wrap(err, "PR_CAPBSET_READ " .. cap)
   end
   return r == 1
 end
@@ -125,7 +125,7 @@ local function bounding_drop(cap: string): boolean, string
   if n == nil then return false, nerr end
   local rc, err = unix.prctl(unix.PR_CAPBSET_DROP, n)
   if rc == nil then
-    return false, errno.str(err, "PR_CAPBSET_DROP " .. cap)
+    return false, errno.wrap(err, "PR_CAPBSET_DROP " .. cap)
   end
   return true
 end
@@ -177,7 +177,7 @@ local function drop_bounding(opts?: DropOptions): boolean, string
           return false,
           "caps: PR_CAPBSET_DROP unsupported on this host (ENOSYS)"
         else
-          return false, errno.str(err,
+          return false, errno.wrap(err,
             "caps: PR_CAPBSET_DROP " .. tostring(c))
         end
       end

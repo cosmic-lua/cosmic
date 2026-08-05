@@ -214,7 +214,7 @@ local function dump(dir?: string): boolean, string
   if not d then
     return false, "coverage: no output directory"
   end
-  local ok, err = fs.makedirs(d)
+  local ok, err = fs.make_dirs(d)
   if not ok then
     return false, "coverage: " .. (err or "cannot create " .. d)
   end

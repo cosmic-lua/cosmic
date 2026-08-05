@@ -20,7 +20,7 @@
 --- Deep-operation semantics, frozen here so they never re-open:
 --- deep_copy copies table keys and values recursively and preserves
 --- shared references and cycles within the input; metatables are NOT
---- copied or attached — the result is plain tables. deep_eq compares
+--- copied or attached — the result is plain tables. deep_equal compares
 --- structurally (same key sets, deep-equal values); table-valued keys
 --- are matched by identity, not structure. deep_merge recurses where
 --- both sides hold tables and lets the override win otherwise —
@@ -93,7 +93,7 @@ end
 --- @param a any First value
 --- @param b any Second value
 --- @return boolean True when a and b are structurally equal
-local function deep_eq(a: any, b: any): boolean
+local function deep_equal(a: any, b: any): boolean
   return eq_impl(a, b, {})
 end
 
@@ -170,7 +170,7 @@ end
 
 local record TableModule
   deep_copy: function(value: any): any
-  deep_eq: function(a: any, b: any): boolean
+  deep_equal: function(a: any, b: any): boolean
   deep_merge: function(base: {any: any}, override: {any: any}): {any: any}
   map: function<T, U>(list: {T}, fn: function(T): U): {U}
   filter: function<T>(list: {T}, fn: function(T): boolean): {T}
@@ -179,7 +179,7 @@ end
 
 local M: TableModule = {
   deep_copy = deep_copy,
-  deep_eq = deep_eq,
+  deep_equal = deep_equal,
   deep_merge = deep_merge,
   map = map,
   filter = filter,

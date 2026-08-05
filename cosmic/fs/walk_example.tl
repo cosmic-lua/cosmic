@@ -9,11 +9,11 @@ local function Example_walk()
   local types = require("cosmic.fs.types")
 
   -- Build a small tree under a temp directory.
-  local tmpdir = fs.mkdtemp("/tmp/walk_ex_XXXXXX")
-  assert(tmpdir, "mkdtemp failed")
+  local tmpdir = fs.temp_dir("/tmp/walk_ex_XXXXXX")
+  assert(tmpdir, "temp_dir failed")
 
   local subdir = fs.join(tmpdir, "conf")
-  assert(fs.makedirs(subdir))
+  assert(fs.make_dirs(subdir))
   assert(fs.write(fs.join(subdir, "app.ini"), "[app]\nname=test\n"))
   assert(fs.write(fs.join(tmpdir, "README"), "readme\n"))
 
@@ -31,7 +31,7 @@ local function Example_walk()
     print(line)
   end
 
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   -- Output:
   -- dir conf
   -- file README
@@ -43,11 +43,11 @@ local function Example_collect()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
-  local tmpdir = fs.mkdtemp("/tmp/collect_ex_XXXXXX")
-  assert(tmpdir, "mkdtemp failed")
+  local tmpdir = fs.temp_dir("/tmp/collect_ex_XXXXXX")
+  assert(tmpdir, "temp_dir failed")
 
   local subdir = fs.join(tmpdir, "src")
-  assert(fs.makedirs(subdir))
+  assert(fs.make_dirs(subdir))
   assert(fs.write(fs.join(subdir, "main.lua"), "-- main\n"))
   assert(fs.write(fs.join(subdir, "util.lua"), "-- util\n"))
   assert(fs.write(fs.join(tmpdir, "README.txt"), "readme\n"))
@@ -61,7 +61,7 @@ local function Example_collect()
     print(fs.basename(p))
   end
 
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   -- Output:
   -- main.lua
   -- util.lua
@@ -72,8 +72,8 @@ local function Example_files()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
-  local tmpdir = fs.mkdtemp("/tmp/files_ex_XXXXXX")
-  assert(tmpdir, "mkdtemp failed")
+  local tmpdir = fs.temp_dir("/tmp/files_ex_XXXXXX")
+  assert(tmpdir, "temp_dir failed")
 
   assert(fs.write(fs.join(tmpdir, "a.txt"), "a\n"))
   assert(fs.write(fs.join(tmpdir, "b.txt"), "b\n"))
@@ -89,7 +89,7 @@ local function Example_files()
     print(n)
   end
 
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   -- Output:
   -- a.txt
   -- b.txt

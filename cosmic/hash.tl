@@ -7,7 +7,7 @@
 ---   local digest = hash.sha256_hex("hello")
 ---   local d = hash.digest("sha512", "hello")
 ---   local tag = hash.hmac("sha256", "secret", "message")
----   local encoded = hash.password("password123")
+---   local encoded = hash.hash_password("password123")
 ---   local valid = hash.verify_password(encoded, "password123")
 ---
 --- Digest and HMAC functions return raw bytes; hex-encode with
@@ -164,7 +164,7 @@ end
 --- @param opts PasswordOptions? Optional configuration for the hash
 --- @return string? The encoded hash string, or nil on error
 --- @return string? Error message if hashing failed
-local function password(pwd: string, opts?: PasswordOptions): string | nil, string
+local function hash_password(pwd: string, opts?: PasswordOptions): string | nil, string
   -- Build config from opts
   -- Default m_cost to 19456 KiB (19 MiB) per OWASP minimum recommendation.
   local config: argon2.Config = {m_cost = 19456}
@@ -222,7 +222,7 @@ local record HashModule
   sha256_hex: function(data: string): string
   hmac_sha256: function(key: string, data: string): string | nil, string
   constant_time_equal: function(a: string, b: string): boolean
-  password: function(pwd: string, opts?: PasswordOptions): string | nil, string
+  hash_password: function(pwd: string, opts?: PasswordOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
 
@@ -233,7 +233,7 @@ local M: HashModule = {
   sha256_hex = sha256_hex,
   hmac_sha256 = hmac_sha256,
   constant_time_equal = constant_time_equal,
-  password = password,
+  hash_password = hash_password,
   verify_password = verify_password,
 }
 

@@ -147,7 +147,7 @@ local function load_cached(script_path: string, content: string,
     return nil
   end
   local path = cache_file(script_path, content, mode)
-  if not fs.isfile(path) then
+  if not fs.is_file(path) then
     return nil
   end
   return (fs.read(path))
@@ -166,7 +166,7 @@ local function store(script_path: string, content: string, code: string,
     -- 0700 at creation, not chmod after: a window in which the
     -- directory exists group-writable is a window in which an entry
     -- can be planted.
-    if not fs.makedirs(dir, OWNER_ONLY) then
+    if not fs.make_dirs(dir, OWNER_ONLY) then
       return
     end
   end

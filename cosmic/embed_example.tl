@@ -13,11 +13,11 @@ local function Example_embed_directory()
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
 
   -- Create a simple app directory with a main.lua entry point
   local appdir = fs.join(tmpdir, "myapp")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"), 'print("hello from myapp")\n')
 
   -- Build it
@@ -27,7 +27,7 @@ local function Example_embed_directory()
 
   -- Run it
   r = check.must(spawn.run({output}))
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   print(r.stdout)
   -- Output:
   -- hello from myapp
@@ -40,7 +40,7 @@ local function Example_extract_roundtrip()
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
 
   -- Extract the running executable's zip contents
   local extractdir = fs.join(tmpdir, "extracted")
@@ -48,8 +48,8 @@ local function Example_extract_roundtrip()
   assert(r.ok, r.stderr)
 
   -- The extracted directory contains main.lua and all bundled files
-  local main_exists = fs.isfile(fs.join(extractdir, "main.lua"))
-  fs.rmrf(tmpdir)
+  local main_exists = fs.is_file(fs.join(extractdir, "main.lua"))
+  fs.remove_all(tmpdir)
   print("main.lua extracted:", main_exists)
   -- Output:
   -- main.lua extracted:	true
@@ -62,11 +62,11 @@ local function Example_embed_with_libraries()
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
 
   -- Create an app that uses cosmic.child (a bundled library)
   local appdir = fs.join(tmpdir, "app")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"), [[
 local child = require("cosmic.child")
 local r = child.run({"echo", "it works"})
@@ -78,7 +78,7 @@ io.write(r.stdout)
   assert(r.ok, r.stderr)
 
   r = check.must(spawn.run({output}))
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   print(r.stdout)
   -- Output:
   -- it works
@@ -93,9 +93,9 @@ local function Example_embed_from_teal()
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
   local appdir = fs.join(tmpdir, "myapp")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "main.tl")
@@ -115,7 +115,7 @@ local function Example_embed_from_teal()
   assert(r.ok, r.stderr)
 
   r = check.must(spawn.run({output}))
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   print(r.stdout)
   -- Output:
   -- hello from teal

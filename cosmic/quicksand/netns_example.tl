@@ -23,7 +23,7 @@ end
 -- because the result depends on whether the host allows
 -- unprivileged user-namespace creation.
 local function Example_unshare_in_subprocess()
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
 local ns = require("cosmic.quicksand.netns")
@@ -31,7 +31,7 @@ if not ns.unshare_user() then return end
 assert(ns.unshare())
 assert(ns.bring_up("lo"))
 ]]
-  local h = check.must(spawn.spawn({cosmic, "-e", script}))
+  local h = check.must(child.start({cosmic, "-e", script}))
   h:wait()
 end
 

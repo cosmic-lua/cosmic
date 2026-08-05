@@ -39,7 +39,7 @@ sources in it, discovered, never declared), and the closed recipe
 vocabulary removes the argv ambiguity behind the second. The third is a
 policy the `lint` verb inherits: **tracked plus untracked-not-ignored**.
 
-Two primitives the design needed already existed: `child.spawn`'s
+Two primitives the design needed already existed: `child.start`'s
 `"inherit"` stdio mode (#798), which is how a recipe step streams while
 it runs, and `--test`'s argv slicing (#804), which the `test` verb keeps.
 
@@ -49,7 +49,7 @@ Landed, except the fence default: the closed verb vocabulary, the
 trailing-`;` sentinel that makes `SHELL` interception real at all,
 `exec`'s pinned-only resolution, grants derived per verb, and
 `SHELL := $(bootstrap_cosmic)`. recipe output streams via
-`child.spawn`'s `"inherit"` mode (#798), so no new stdio machinery.
+`child.start`'s `"inherit"` mode (#798), so no new stdio machinery.
 spawn cost measured at 6.4 ms per line (assimilated ELF), the same one
 spawn the recipes already paid.
 

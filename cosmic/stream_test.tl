@@ -96,7 +96,7 @@ end
 test_socket_zero_byte_datagram_stays_empty()
 
 local function test_child_handle_conforms()
-  local h = check.must(child.spawn({lua_bin, "-e", "io.write('child bytes'); io.flush()"}))
+  local h = check.must(child.start({lua_bin, "-e", "io.write('child bytes'); io.flush()"}))
   check_reader(h, "child bytes", "child.Handle")
   h:wait()
 end

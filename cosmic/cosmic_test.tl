@@ -2,7 +2,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -79,7 +79,7 @@ local function test_cosmic_main_runs_fn_and_exits_with_its_code()
           '  end)',
           'io.stdout:write("returned\\n")',
         }, "\n") .. "\n"))
-  local h = check.must(spawn.spawn({bin_path(), script}))
+  local h = check.must(child.start({bin_path(), script}))
   local r = check.must(h:wait())
   assert(r.code == 3,
     "exits with the code fn returned, got " .. tostring(r.code))

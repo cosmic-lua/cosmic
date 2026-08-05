@@ -26,7 +26,7 @@ local function embedded_modules(): {string}
       local lua = string.match(name, "^(.+)%.lua$")
       if lua and lua ~= "init" then
         found[#found + 1] = "cosmic." .. lua
-      elseif not lua and fs.isdir(EMBEDDED .. "/" .. name) then
+      elseif not lua and fs.is_dir(EMBEDDED .. "/" .. name) then
         found[#found + 1] = "cosmic." .. name
       end
     end

@@ -3,7 +3,7 @@
 --- under the 500-line cap; the public surface is unchanged —
 --- require("cosmic.proc") exposes these as before.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 
 local type Rusage = unix.Rusage
 

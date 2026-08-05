@@ -144,7 +144,7 @@ local function test_text_for_returns_the_rendered_baseline()
   local fs = require("cosmic.fs")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local empty = fs.join(tmpdir, "text-for-empty")
-  assert(fs.makedirs(empty))
+  assert(fs.make_dirs(empty))
   local text, err = baseline.text_for({empty})
   assert(not text, "no coverage data means no baseline: " .. tostring(text))
   assert(err and err ~= "", "and the refusal says why")
@@ -236,11 +236,11 @@ test_render_without_a_floor_records_the_run()
 -- one line naming every declining file, printed last, survives that.
 local function test_a_failing_ratchet_names_the_rows_that_moved()
   local fs = require("cosmic.fs")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local root = fs.join(tmpdir, "ratchet-says")
-  fs.rmrf(root)
-  assert(fs.makedirs(fs.join(root, "lib")))
+  fs.remove_all(root)
+  assert(fs.make_dirs(fs.join(root, "lib")))
   local src = fs.join(root, "lib/a.tl")
   assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))
   -- One real `.cov`, because compute refuses a run with none; the
@@ -252,7 +252,7 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
 
   -- A child, because the report goes to this process's stderr.
   local cosmic = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
-  if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
+  if not check.needs("a built cosmic at " .. cosmic, fs.is_file(cosmic)) then
     os.exit(check.EXIT_SKIP)
   end
   -- A SCRIPT file, not `-e`: only the script path arms line coverage,
@@ -262,7 +262,7 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
       'os.exit(require("cosmic.coverage.baseline").gate(' ..
       string.format("%q", floor) .. ', "", {' ..
       string.format("%q", root) .. '}))\n'))
-  local r = check.must(spawn.run({cosmic, script}))
+  local r = check.must(child.run({cosmic, script}))
   local err = r.stderr or ""
   assert(r.code == 1, "a declining floor must fail, got " .. tostring(r.code))
   assert(err:find("coverage declined 100.0% -> 0.0%", 1, true),

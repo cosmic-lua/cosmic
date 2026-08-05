@@ -39,7 +39,7 @@ local function test_run_creates_parent_dirs()
   assert(err ~= nil, "expected .err file to exist")
 
   -- Cleanup
-  fs.rmrf(fs.join(TEST_TMPDIR, "nested"))
+  fs.remove_all(fs.join(TEST_TMPDIR, "nested"))
 end
 test_run_creates_parent_dirs()
 

@@ -2,7 +2,7 @@
 -- test cosmic.example module
 
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local example = require("cosmic.example")
 local check = require("cosmic.check")
 
@@ -230,7 +230,7 @@ local function Example_cmd()
   -- works
 end
 ]])
-  local h = check.must(spawn.spawn({cosmic, "--check", "example", input}))
+  local h = check.must(child.start({cosmic, "--check", "example", input}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --check example should succeed")
@@ -247,7 +247,7 @@ local function Example_cmd()
   -- expected
 end
 ]])
-  local h = check.must(spawn.spawn({cosmic, "--check", "example", input}))
+  local h = check.must(child.start({cosmic, "--check", "example", input}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(not ok, "cosmic --check example should fail")
@@ -260,7 +260,7 @@ local function test_cosmic_example_skip()
   local input = write_temp("cmd_skip.tl", [[
 local x = 1
 ]])
-  local r = check.must(spawn.run({cosmic, "--check", "example", input}))
+  local r = check.must(child.run({cosmic, "--check", "example", input}))
   assert(r.code == 2, "should return skip code 2")
   assert(r.stdout:find("SKIP"), "output should show SKIP")
 end

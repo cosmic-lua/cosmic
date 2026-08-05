@@ -9,7 +9,7 @@
 --- `rawget(arg, -1) as string` to pass the strict type checker.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 
 --- Process resource usage statistics (the generated unix.Rusage record):
 --- CPU time, memory usage, I/O, and context switch counters.
@@ -119,22 +119,22 @@ local exit: function(exitcode?: integer) = unix.exit
 
 -- Exec (replace current process) --
 
---- Performs $PATH lookup of executable.
+--- Performs $PATH lookup of executable (which(1)).
 --- On Windows, programs should be installed without .exe/.com suffix for discovery.
 --- @param prog string The program name to search for
 --- @return string | nil The absolute path to the executable
 --- @return string | nil Error message when not found (names the errno, so
 --- not-found and permission-denied are distinguishable)
-local function commandv(prog: string): string | nil, string
+local function which(prog: string): string | nil, string
   local p, err = unix.commandv(prog)
   if not p then
-    return nil, errstr(err, "commandv")
+    return nil, errstr(err, "which")
   end
   return p
 end
 
 --- Replaces current process with new program; never returns on success.
---- prog must be an absolute path (use commandv for PATH search).
+--- prog must be an absolute path (use which() for PATH search).
 --- @param prog string Absolute path to the executable
 --- @param args {string} Argument vector passed to the program
 --- @param env {string} Environment variables (KEY=value format)
@@ -287,6 +287,9 @@ local record ProcModule
   exit: function(exitcode?: integer)
 
   -- Exec
+  which: function(prog: string): string | nil, string
+  --- DEPRECATED alias for which() (api-review-8 transition; tooling
+  --- executes under the pinned binary until the pin advances)
   commandv: function(prog: string): string | nil, string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
@@ -366,7 +369,8 @@ local M: ProcModule = {
   exit = exit,
 
   -- Exec
-  commandv = commandv,
+  which = which,
+  commandv = which,
   execve = execve,
   execvp = execvp,
   execvpe = execvpe,

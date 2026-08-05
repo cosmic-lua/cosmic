@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Tests for fs file operations: copy, move, touch, write_atomic, tmpfile.
+--- Tests for fs file operations: copy, move, touch, write_atomic, temp_file.
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local cfd = require("cosmic.fd")
@@ -8,13 +8,13 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
   local test_dir = fs.join(TEST_TMPDIR, "fs_ops_test")
-  fs.makedirs(test_dir)
+  fs.make_dirs(test_dir)
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.rmrf(test_dir)
+    fs.remove_all(test_dir)
   end
 end
 
@@ -72,7 +72,7 @@ test_copy_missing_source()
 -- own EINTR test, just exercised through fs.copy() instead of cfd
 -- directly.
 local function test_copy_retries_eintr_on_read()
-  if not fs.isdir("/proc/self/fd") then
+  if not fs.is_dir("/proc/self/fd") then
     return -- the /proc/self/fd reopen trick needs procfs; skip elsewhere
   end
   local signal = require("cosmic.signal")
@@ -114,7 +114,7 @@ end
 test_copy_retries_eintr_on_read()
 
 local function test_copy_retries_eintr_on_write()
-  if not fs.isdir("/proc/self/fd") then
+  if not fs.is_dir("/proc/self/fd") then
     return -- the /proc/self/fd reopen trick needs procfs; skip elsewhere
   end
   local signal = require("cosmic.signal")
@@ -199,7 +199,7 @@ local function test_touch_creates_and_updates()
 
   local ok, err = fs.touch(p)
   assert(ok, "touch should create the file: " .. (err or ""))
-  assert(fs.isfile(p), "touch should create a regular file")
+  assert(fs.is_file(p), "touch should create a regular file")
 
   -- Backdate mtime, then touch again: mtime must move forward.
   assert(fs.set_times(p, {atime = {secs = 1000}, mtime = {secs = 1000}}))
@@ -235,7 +235,7 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
   assert(after:mtim() > before:mtim(), "and move its mtime")
 
   local dir = fs.join(test_dir, "adir")
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   assert(fs.set_times(dir, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   local dbefore = check.must(fs.stat(dir), "stat should succeed")
   local dok, derr = fs.touch(dir)
@@ -303,12 +303,12 @@ test_write_atomic_failure_keeps_original()
 
 local function test_tmpfile_success_contract()
   local test_dir = setup()
-  local tf, err = fs.tmpfile(fs.join(test_dir, "fs_ops_XXXXXX"))
-  local t = check.must(tf, "tmpfile should succeed: " .. tostring(err))
+  local tf, err = fs.temp_file(fs.join(test_dir, "fs_ops_XXXXXX"))
+  local t = check.must(tf, "temp_file should succeed: " .. tostring(err))
   assert(t.path:match("fs_ops_"), "the record carries the path")
   assert(err == nil, "error slot should be nil on success")
   local st = fs.fstat(t.handle:fd())
-  assert(st, "fstat on tmpfile fd should succeed")
+  assert(st, "fstat on temp_file fd should succeed")
   t.handle:close()
   teardown(test_dir)
 end
@@ -451,25 +451,25 @@ local function test_set_times_fd_bad_fd()
 end
 test_set_times_fd_bad_fd()
 
--- rmrf failure path: a path whose parent component is a
+-- remove_all failure path: a path whose parent component is a
 -- regular file fails with ENOTDIR regardless of privileges.
 
 local function test_rmrf_failure_reports_error()
   local test_dir = setup()
   local blocker = fs.join(test_dir, "afile")
   touch(blocker, "x")
-  local ok, err = fs.rmrf(fs.join(blocker, "child"))
-  assert(not ok, "rmrf through a file component should fail")
+  local ok, err = fs.remove_all(fs.join(blocker, "child"))
+  assert(not ok, "remove_all through a file component should fail")
   assert(err and err:match("ENOTDIR"), "error should name ENOTDIR: " .. (err or ""))
-  assert(fs.isfile(blocker), "the blocking file must be untouched")
+  assert(fs.is_file(blocker), "the blocking file must be untouched")
   teardown(test_dir)
 end
 test_rmrf_failure_reports_error()
 
 local function test_tmpfile_failure_contract()
   -- One record on success; the error in slot 2 on failure.
-  local tf, err = fs.tmpfile("/no/such/dir/fs_ops_XXXXXX")
-  assert(tf == nil, "tmpfile should fail in a missing directory")
+  local tf, err = fs.temp_file("/no/such/dir/fs_ops_XXXXXX")
+  assert(tf == nil, "temp_file should fail in a missing directory")
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
 end
 test_tmpfile_failure_contract()

@@ -17,7 +17,7 @@ end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.rmrf(test_dir)
+    fs.remove_all(test_dir)
   end
 end
 
@@ -99,19 +99,19 @@ end
 test_exists_nonexistent()
 
 local function test_isfile_directory()
-  local result = fs.isfile(".")
+  local result = fs.is_file(".")
   assert(result == false, "expected false for directory")
 end
 test_isfile_directory()
 
 local function test_isdir_current()
-  local result = fs.isdir(".")
+  local result = fs.is_dir(".")
   assert(result == true, "expected true for current directory")
 end
 test_isdir_current()
 
 local function test_islink_regular_dir()
-  local result = fs.islink(".")
+  local result = fs.is_link(".")
   assert(result == false, "expected false for regular directory")
 end
 test_islink_regular_dir()
@@ -127,8 +127,8 @@ end
 
 local function setup_walk(): string
   local walk_dir = fs.join(TEST_TMPDIR, "walk_test")
-  fs.makedirs(fs.join(walk_dir, "subdir"))
-  fs.makedirs(fs.join(walk_dir, "subdir/nested"))
+  fs.make_dirs(fs.join(walk_dir, "subdir"))
+  fs.make_dirs(fs.join(walk_dir, "subdir/nested"))
 
   touch(fs.join(walk_dir, "file1.lua"))
   touch(fs.join(walk_dir, "file2.txt"))
@@ -243,11 +243,11 @@ test_files_iterator_all()
 
 local function test_walk_empty_directory()
   local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
-  fs.makedirs(empty_dir)
+  fs.make_dirs(empty_dir)
   -- cast: or fallback does not narrow
   local found = (fs.collect(empty_dir, "*.lua") or {}) as {string}
   assert(#found == 0, "expected 0 files, got " .. #found)
-  fs.rmrf(empty_dir)
+  fs.remove_all(empty_dir)
 end
 test_walk_empty_directory()
 
@@ -345,7 +345,7 @@ test_normalize_multiple_up_and_down()
 
 -- abspath tests
 
-local cwd = fs.getcwd()
+local cwd = fs.cwd()
 
 local function test_abspath_relative()
   local result = fs.abspath("foo")

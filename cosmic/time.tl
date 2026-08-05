@@ -106,9 +106,9 @@ local function sleep(seconds: integer, nanos?: integer): integer | nil, integer,
     end
     return math.floor(remaining / 1000000000),
     remaining % 1000000000,
-    errno.str(rem_ns, "sleep")
+    errno.wrap(rem_ns, "sleep")
   end
-  return nil, nil, errno.str(rem_ns, "sleep")
+  return nil, nil, errno.wrap(rem_ns, "sleep")
 end
 
 --- Sleep for the specified number of milliseconds.

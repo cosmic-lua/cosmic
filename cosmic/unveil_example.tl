@@ -10,7 +10,7 @@
 -- host" instead of pretending to restrict.
 local function Example_allow()
   local check = require("cosmic.check")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
 local unveil = require("cosmic.unveil")
@@ -23,7 +23,7 @@ else
 end
 io.write("done\n")
 ]]
-  local r = check.must(spawn.run({cosmic, "-e", script}))
+  local r = check.must(child.run({cosmic, "-e", script}))
   io.write(r.stdout)
   -- Output:
   -- done

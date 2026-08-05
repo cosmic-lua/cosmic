@@ -48,7 +48,7 @@ end
 --- @return string The manifest path
 local function manifest(name: string, lines: {string}): string, string
   local root = fs.join(tmp, "st-" .. name)
-  assert(fs.makedirs(root))
+  assert(fs.make_dirs(root))
   local path = fs.join(root, "m")
   assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
   return root, path
@@ -95,7 +95,7 @@ test_the_searcher_misses_without_a_manifest()
 -- via a second call that must not grow the chain further.
 local function test_install_lands_ahead_of_the_file_searcher()
   local root, path = manifest("install", {"root " .. tmp, "build o"})
-  assert(fs.isdir(root))
+  assert(fs.is_dir(root))
   local before = #package.searchers
   assert(searcher.install_tree(path), "a well-formed manifest installs")
   assert(#package.searchers - before <= 1, "at most one searcher is added")
@@ -113,7 +113,7 @@ test_install_lands_ahead_of_the_file_searcher()
 -- loaded from the file the graph built, verbatim.
 local function test_the_closure_layer_loads_the_built_file()
   local root = fs.join(tmp, "st-layers")
-  assert(fs.makedirs(fs.join(root, "o", "pkg")))
+  assert(fs.make_dirs(fs.join(root, "o", "pkg")))
   assert(fs.write(fs.join(root, "o", "pkg", "db.lua"), 'return "BUILT"\n'))
   local path = fs.join(root, "m")
   assert(fs.write(path, "root " .. root .. "\nbuild o\nmod pkg.db "
@@ -140,7 +140,7 @@ test_the_build_layer_covers_what_no_closure_names()
 -- An `init.lua` is its package, the same way `init.tl` is.
 local function test_an_init_is_its_package()
   local root = fs.join(tmp, "st-layers")
-  assert(fs.makedirs(fs.join(root, "o", "deep")))
+  assert(fs.make_dirs(fs.join(root, "o", "deep")))
   assert(fs.write(fs.join(root, "o", "deep", "init.lua"), 'return "INIT"\n'))
   local got = searcher.tree("deep")
   local loader = check.must(loader_of(got))
@@ -203,7 +203,7 @@ test_a_module_in_no_layer_misses()
 -- the stale copy this whole mechanism exists to stop answering with.
 local function test_a_broken_closure_entry_is_loud()
   local root = fs.join(tmp, "st-broken")
-  assert(fs.makedirs(root))
+  assert(fs.make_dirs(root))
   local path = fs.join(root, "m")
   assert(fs.write(path, "root " .. root .. "\nbuild o\nmod gone "
       .. fs.join(root, "o", "gone.lua") .. "\n"))
@@ -220,7 +220,7 @@ test_a_broken_closure_entry_is_loud()
 -- bootstrap in progress" instead of that one file's own error.
 local function test_compiling_guard_clears_after_a_throw()
   local root = fs.join(tmp, "st-throw")
-  assert(fs.makedirs(root))
+  assert(fs.make_dirs(root))
   assert(fs.write(fs.join(root, "boom.tl"), "return 1\n"))
   local path = fs.join(root, "m")
   assert(fs.write(path, "root " .. root .. "\nbuild o\n"))

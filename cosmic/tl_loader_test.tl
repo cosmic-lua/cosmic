@@ -3,7 +3,7 @@
 -- (it recompiles .tl sources when TL_PATH is set)
 
 local check = require("cosmic.check")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local fstypes = require("cosmic.fs.types")
 
@@ -55,7 +55,7 @@ else
 end
 ]])
 
-  local h1 = check.must(spawn.spawn({cosmic, script}))
+  local h1 = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "script should succeed: " .. tostring(out))
@@ -74,7 +74,7 @@ local function test_tl_loader_still_available()
   -- Lua searcher consults package.path FIRST and would loadfile the
   -- raw .tl as Lua).
   local moddir = fs.join(tmpdir, "tlonly")
-  fs.makedirs(moddir)
+  fs.make_dirs(moddir)
   fs.write(fs.join(moddir, "mymod.tl"), [[
 local answer: integer = 42
 return { answer = answer }
@@ -88,7 +88,7 @@ print("answer=" .. tostring(mymod.answer))
   -- keep PATH: a replacement env with no PATH strands the APE stub —
   -- it can't find the staged `ape` loader and falls back to extracting
   -- into ${TMPDIR:-${HOME:-.}}, none of which the test sandbox grants
-  local h2 = check.must(spawn.spawn({cosmic, script}, {
+  local h2 = check.must(child.start({cosmic, script}, {
         env = {"TL_PATH=" .. moddir .. "/?.tl", "PATH=" .. os.getenv("PATH")},
       }))
   local __r2 = check.must(h2:wait())
@@ -111,7 +111,7 @@ else
 end
 ]])
 
-  local h3 = check.must(spawn.spawn({cosmic, check_script}))
+  local h3 = check.must(child.start({cosmic, check_script}))
   local __r3 = check.must(h3:wait())
   local ok2, out2 = __r3.ok, __r3.stdout
   assert(ok2, "check script should succeed: " .. tostring(out2))
@@ -125,7 +125,7 @@ test_tl_loader_still_available()
 --- generated code anyway, silently running broken modules.
 local function test_require_fails_on_compile_error()
   local baddir = fs.join(tmpdir, "tlbad")
-  fs.makedirs(baddir)
+  fs.make_dirs(baddir)
   fs.write(fs.join(baddir, "badmod.tl"), [[
 local x: string = 42
 return { x = x }
@@ -138,7 +138,7 @@ print("should not get here: " .. tostring(badmod))
   -- replacement env without it strands the APE stub away from the
   -- staged `ape` loader, and its ./.ape-* fallback is denied under the
   -- test sandbox
-  local h = check.must(spawn.spawn({cosmic, script}, {
+  local h = check.must(child.start({cosmic, script}, {
         env = {"TL_PATH=" .. baddir .. "/?.tl", "PATH=" .. os.getenv("PATH")},
       }))
   local r = check.must(h:wait())
@@ -156,7 +156,7 @@ test_require_fails_on_compile_error()
 --- script's require tree compiles once per content+build, not per run.
 local function test_require_uses_compile_cache()
   local gooddir = fs.join(tmpdir, "tlgood")
-  fs.makedirs(gooddir)
+  fs.make_dirs(gooddir)
   fs.write(fs.join(gooddir, "goodmod.tl"), [[
 local value: string = "cached"
 return { value = value }
@@ -165,7 +165,7 @@ return { value = value }
 print("value=" .. require("goodmod").value)
 ]])
   local cachedir = fs.join(tmpdir, "tlcache")
-  local h = check.must(spawn.spawn({cosmic, script}, {
+  local h = check.must(child.start({cosmic, script}, {
         env = {
           "TL_PATH=" .. gooddir .. "/?.tl",
           "COSMIC_TL_CACHE_DIR=" .. cachedir,

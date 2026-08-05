@@ -3,7 +3,7 @@ local netns = require("cosmic.quicksand.netns")
 local quicksand = require("cosmic.quicksand")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -62,7 +62,7 @@ local up, uerr = ns.bring_up("lo")
 if not up then io.stderr:write("bring_up: " .. tostring(uerr) .. "\n"); os.exit(1) end
 io.write("ok\n")
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on unshare.

@@ -1,7 +1,7 @@
 --- Terminal (TTY) utilities.
 --- Wraps cosmo.unix for terminal detection, window size, and terminal modes.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 
 --- Terminal I/O settings (the generated unix.Termios record).
 local type Termios = unix.Termios

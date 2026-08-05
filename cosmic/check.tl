@@ -23,7 +23,7 @@ end
 --- @param a any First value
 --- @param b any Second value
 --- @return boolean True when a and b are deeply equal
-local function deep_eq(a: any, b: any): boolean
+local function deep_equal(a: any, b: any): boolean
   if a == b then
     return true
   end
@@ -33,12 +33,12 @@ local function deep_eq(a: any, b: any): boolean
   local ta = a as {any: any} -- cast: from any
   local tb = b as {any: any} -- cast: from any
   for k, v in pairs(ta) do
-    if not deep_eq(v, tb[k]) then
+    if not deep_equal(v, tb[k]) then
       return false
     end
   end
   for k, v in pairs(tb) do
-    if not deep_eq(ta[k], v) then
+    if not deep_equal(ta[k], v) then
       return false
     end
   end
@@ -55,7 +55,7 @@ end
 --- @param expected T The value it should equal
 --- @param label string? Optional label prepended to the failure message
 local function eq<T>(actual: T, expected: T, label?: string)
-  if deep_eq(actual, expected) then
+  if deep_equal(actual, expected) then
     return
   end
   local msg = string.format("eq failed: expected %s, got %s",
@@ -73,7 +73,7 @@ end
 --- @param expected T The value it should not equal
 --- @param label string? Optional label prepended to the failure message
 local function ne<T>(actual: T, expected: T, label?: string)
-  if not deep_eq(actual, expected) then
+  if not deep_equal(actual, expected) then
     return
   end
   local msg = string.format("ne failed: expected values to differ, but both are %s",
@@ -201,7 +201,7 @@ end
 --- above closes for the printed line and reopens for the grade. The
 --- exit code is the only thing the runner reads:
 ---
----     if not check.needs("the make engine", fs.isfile(make_bin)) then
+---     if not check.needs("the make engine", fs.is_file(make_bin)) then
 ---       os.exit(check.EXIT_SKIP)
 ---     end
 ---

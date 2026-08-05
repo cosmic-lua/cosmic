@@ -87,7 +87,7 @@ local function test_spawn_pipe_failure_cleans_up()
   -- spawn() must unwind cleanly and return an error, not leak fds or crash.
   local real_pipe = rawget(unix, "pipe")
   rawset(unix, "pipe", function(): number, number return nil, nil end)
-  local handle, err = child.spawn({lua_bin, "-e", "print('x')"})
+  local handle, err = child.start({lua_bin, "-e", "print('x')"})
   rawset(unix, "pipe", real_pipe)
   assert(handle == nil, "expected nil handle on pipe failure, got: " .. tostring(handle))
   assert(type(err) == "string" and err:find("pipe", 1, true),
@@ -104,7 +104,7 @@ local function test_spawn_exec_status_read_failure()
   childio.read_retry = function(_fd: integer, _bufsiz: integer): string, string
     return nil, "read: EIO: Input/output error"
   end
-  local handle, err = child.spawn({lua_bin, "-e", "print('x')"}, {cwd = "."})
+  local handle, err = child.start({lua_bin, "-e", "print('x')"}, {cwd = "."})
   childio.read_retry = real_read_retry
   assert(handle == nil, "expected nil handle when the exec-status read fails")
   assert(err ~= nil and err:find("EIO", 1, true),
@@ -118,7 +118,7 @@ local function test_wait_reports_io_error()
   -- genuine mid-pump I/O failure, so this injects the (documented
   -- internal) state directly, the same way test_spawn_pipe_failure_cleans_up
   -- injects a pipe failure above.
-  local h = check.must(child.spawn({lua_bin, "-e", "os.exit(0)"}))
+  local h = check.must(child.start({lua_bin, "-e", "os.exit(0)"}))
   h._st.io_err = "read: EIO: Input/output error"
   local r = check.must(h:wait())
   assert(r.ok == false, "a Result with an io_error must not be ok")

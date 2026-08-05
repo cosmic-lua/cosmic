@@ -62,31 +62,31 @@ local function test_trim_preserves_inner()
 end
 test_trim_preserves_inner()
 
--- ltrim tests
+-- trim_left tests
 
 local function test_ltrim_basic()
-  assert(str.ltrim("  hello  ") == "hello  ", "expected 'hello  '")
-  assert(str.ltrim("hello") == "hello", "expected hello unchanged")
+  assert(str.trim_left("  hello  ") == "hello  ", "expected 'hello  '")
+  assert(str.trim_left("hello") == "hello", "expected hello unchanged")
 end
 test_ltrim_basic()
 
 local function test_ltrim_empty()
-  assert(str.ltrim("") == "", "expected empty string")
-  assert(str.ltrim("   ") == "", "expected empty string from whitespace")
+  assert(str.trim_left("") == "", "expected empty string")
+  assert(str.trim_left("   ") == "", "expected empty string from whitespace")
 end
 test_ltrim_empty()
 
--- rtrim tests
+-- trim_right tests
 
 local function test_rtrim_basic()
-  assert(str.rtrim("  hello  ") == "  hello", "expected '  hello'")
-  assert(str.rtrim("hello") == "hello", "expected hello unchanged")
+  assert(str.trim_right("  hello  ") == "  hello", "expected '  hello'")
+  assert(str.trim_right("hello") == "hello", "expected hello unchanged")
 end
 test_rtrim_basic()
 
 local function test_rtrim_empty()
-  assert(str.rtrim("") == "", "expected empty string")
-  assert(str.rtrim("   ") == "", "expected empty string from whitespace")
+  assert(str.trim_right("") == "", "expected empty string")
+  assert(str.trim_right("   ") == "", "expected empty string from whitespace")
 end
 test_rtrim_empty()
 

@@ -6,10 +6,10 @@ local tbl = require("cosmic.table")
 local function test_deep_copy_is_independent()
   local orig: {string: any} = {a = 1, nested = {b = {2, 3}}}
   local copy = tbl.deep_copy(orig) as {string: any} -- cast: from any
-  assert(tbl.deep_eq(orig, copy), "copy differs from original")
+  assert(tbl.deep_equal(orig, copy), "copy differs from original")
   local copy_nested = copy.nested as {string: any} -- cast: from any
   copy_nested.b = "mutated"
-  assert(tbl.deep_eq((orig.nested as {string: any}).b, {2, 3}), -- cast: from any
+  assert(tbl.deep_equal((orig.nested as {string: any}).b, {2, 3}), -- cast: from any
     "mutating the copy leaked into the original")
 end
 test_deep_copy_is_independent()
@@ -48,7 +48,7 @@ local function test_deep_copy_copies_table_keys()
   assert(copy[key] == nil, "table key was not copied")
   local found = false
   for k, v in pairs(copy) do
-    assert(tbl.deep_eq(k, key), "copied key differs")
+    assert(tbl.deep_equal(k, key), "copied key differs")
     assert(v == "v")
     found = true
   end
@@ -56,26 +56,26 @@ local function test_deep_copy_copies_table_keys()
 end
 test_deep_copy_copies_table_keys()
 
--- deep_eq
+-- deep_equal
 
 local function test_deep_eq_nested()
-  assert(tbl.deep_eq({a = {1, {2}}, b = "x"}, {a = {1, {2}}, b = "x"}))
-  assert(not tbl.deep_eq({a = {1, {2}}}, {a = {1, {3}}}))
+  assert(tbl.deep_equal({a = {1, {2}}, b = "x"}, {a = {1, {2}}, b = "x"}))
+  assert(not tbl.deep_equal({a = {1, {2}}}, {a = {1, {3}}}))
 end
 test_deep_eq_nested()
 
 local function test_deep_eq_key_sets_must_match()
-  assert(not tbl.deep_eq({a = 1}, {a = 1, b = 2}), "extra key in b")
-  assert(not tbl.deep_eq({a = 1, b = 2}, {a = 1}), "extra key in a")
-  assert(tbl.deep_eq({}, {}), "empty tables differ")
+  assert(not tbl.deep_equal({a = 1}, {a = 1, b = 2}), "extra key in b")
+  assert(not tbl.deep_equal({a = 1, b = 2}, {a = 1}), "extra key in a")
+  assert(tbl.deep_equal({}, {}), "empty tables differ")
 end
 test_deep_eq_key_sets_must_match()
 
 local function test_deep_eq_scalars_and_mixed()
-  assert(tbl.deep_eq(1, 1))
-  assert(not tbl.deep_eq(1, "1"))
-  assert(not tbl.deep_eq({1}, 1))
-  assert(not tbl.deep_eq(nil, {}))
+  assert(tbl.deep_equal(1, 1))
+  assert(not tbl.deep_equal(1, "1"))
+  assert(not tbl.deep_equal({1}, 1))
+  assert(not tbl.deep_equal(nil, {}))
 end
 test_deep_eq_scalars_and_mixed()
 
@@ -84,10 +84,10 @@ local function test_deep_eq_handles_cycles()
   a.self = a
   local b: {string: any} = {v = 1}
   b.self = b
-  assert(tbl.deep_eq(a, b), "equal cyclic tables compared unequal")
+  assert(tbl.deep_equal(a, b), "equal cyclic tables compared unequal")
   local c: {string: any} = {v = 2}
   c.self = c
-  assert(not tbl.deep_eq(a, c), "unequal cyclic tables compared equal")
+  assert(not tbl.deep_equal(a, c), "unequal cyclic tables compared equal")
 end
 test_deep_eq_handles_cycles()
 
@@ -103,7 +103,7 @@ local function test_deep_merge_recurses_and_overrides()
     debug = true,
   }
   local merged = tbl.deep_merge(base, override)
-  assert(tbl.deep_eq(merged, {
+  assert(tbl.deep_equal(merged, {
         host = "localhost",
         limits = {mem = 128, cpu = 1},
         debug = true,
@@ -113,9 +113,9 @@ test_deep_merge_recurses_and_overrides()
 
 local function test_deep_merge_override_wins_on_type_conflict()
   local merged = tbl.deep_merge({a = {nested = true}}, {a = "flat"})
-  assert(tbl.deep_eq(merged, {a = "flat"}))
+  assert(tbl.deep_equal(merged, {a = "flat"}))
   local merged2 = tbl.deep_merge({a = "flat"}, {a = {nested = true}})
-  assert(tbl.deep_eq(merged2, {a = {nested = true}}))
+  assert(tbl.deep_equal(merged2, {a = {nested = true}}))
 end
 test_deep_merge_override_wins_on_type_conflict()
 
@@ -123,8 +123,8 @@ local function test_deep_merge_mutates_neither_input()
   local base: {string: any} = {limits = {mem = 64}}
   local override: {string: any} = {limits = {cpu = 2}}
   local merged = tbl.deep_merge(base, override)
-  assert(tbl.deep_eq(base, {limits = {mem = 64}}), "base mutated")
-  assert(tbl.deep_eq(override, {limits = {cpu = 2}}), "override mutated")
+  assert(tbl.deep_equal(base, {limits = {mem = 64}}), "base mutated")
+  assert(tbl.deep_equal(override, {limits = {cpu = 2}}), "override mutated")
   local merged_limits = merged.limits as {string: any} -- cast: from any
   merged_limits.mem = 999
   assert((base.limits as {string: any}).mem == 64, -- cast: from any
@@ -134,7 +134,7 @@ test_deep_merge_mutates_neither_input()
 
 local function test_deep_merge_arrays_merge_by_index()
   local merged = tbl.deep_merge({list = {1, 2, 3}}, {list = {9}})
-  assert(tbl.deep_eq(merged, {list = {9, 2, 3}}),
+  assert(tbl.deep_equal(merged, {list = {9, 2, 3}}),
     "documented by-index array semantics changed")
 end
 test_deep_merge_arrays_merge_by_index()
@@ -145,11 +145,11 @@ local function test_map()
   local out = tbl.map({1, 2, 3}, function(n: number): number
       return n * n
     end)
-  assert(tbl.deep_eq(out, {1, 4, 9}))
+  assert(tbl.deep_equal(out, {1, 4, 9}))
   local strs = tbl.map({1, 2}, function(n: number): string
       return "#" .. tostring(n)
     end)
-  assert(tbl.deep_eq(strs, {"#1", "#2"}))
+  assert(tbl.deep_equal(strs, {"#1", "#2"}))
 end
 test_map()
 
@@ -157,7 +157,7 @@ local function test_filter()
   local out = tbl.filter({1, 2, 3, 4, 5}, function(n: number): boolean
       return n % 2 == 0
     end)
-  assert(tbl.deep_eq(out, {2, 4}))
+  assert(tbl.deep_equal(out, {2, 4}))
 end
 test_filter()
 
@@ -174,8 +174,8 @@ end
 test_reduce()
 
 local function test_map_filter_reduce_empty_list()
-  assert(tbl.deep_eq(tbl.map({}, function(n: number): number return n end), {}))
-  assert(tbl.deep_eq(tbl.filter({}, function(_: number): boolean return true end), {}))
+  assert(tbl.deep_equal(tbl.map({}, function(n: number): number return n end), {}))
+  assert(tbl.deep_equal(tbl.filter({}, function(_: number): boolean return true end), {}))
   local acc = tbl.reduce({}, function(a: number, n: number): number return a + n end, 7)
   assert(acc == 7, "reduce of empty list changed init")
 end
@@ -186,6 +186,6 @@ local function test_inputs_not_mutated_by_list_transforms()
   tbl.map(input, function(n: number): number return -n end)
   tbl.filter(input, function(n: number): boolean return n > 1 end)
   tbl.reduce(input, function(a: number, n: number): number return a + n end, 0)
-  assert(tbl.deep_eq(input, {3, 1, 2}), "a transform mutated its input")
+  assert(tbl.deep_equal(input, {3, 1, 2}), "a transform mutated its input")
 end
 test_inputs_not_mutated_by_list_transforms()

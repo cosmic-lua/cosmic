@@ -175,7 +175,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
         -- Interrupted by a signal: leave the fd registered; the next poll
         -- round retries (the signal-safety wave).
         if errno.is(reno, "EINTR") then return end
-        state.io_err = state.io_err or errno.str(rerr, "read")
+        state.io_err = state.io_err or errno.wrap(rerr, "read")
         p:remove(fd); unix.close(fd)
         if which == "out" then state.stdout_fd = nil else state.stderr_fd = nil end
       elseif chunk == "" then
@@ -190,7 +190,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
     end
   end
 
-  while not p:empty() do
+  while not p:is_empty() do
     local timeout: integer = -1
     if deadline_ms then
       local rem = deadline_ms - now_ms()
@@ -226,7 +226,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
           -- The child stopped reading stdin; stop feeding it (not an error).
           p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
         else
-          state.io_err = state.io_err or errno.str(werr, "write stdin")
+          state.io_err = state.io_err or errno.wrap(werr, "write stdin")
           p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
         end
       elseif ev and (ev.error or ev.hangup or ev.invalid) then

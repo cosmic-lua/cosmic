@@ -4,7 +4,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local cenv = require("cosmic.env")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local zip = require("cosmic.zip")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -14,7 +14,7 @@ local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
   local dir = fs.dirname(filepath)
   if dir ~= tmpdir then
-    fs.makedirs(dir)
+    fs.make_dirs(dir)
   end
   fs.write(filepath, content)
   return filepath
@@ -35,7 +35,7 @@ local function test_embed_via_env()
   env[#env + 1] = "COSMIC_OUTPUT=" .. output
 
   -- Invoke without --embed or --output flags
-  local __r1 = check.must(check.must(spawn.spawn({cosmic}, {env = env})):wait())
+  local __r1 = check.must(check.must(child.start({cosmic}, {env = env})):wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic with COSMIC_EMBED env should succeed: " .. (out or ""))
 
@@ -66,12 +66,12 @@ local function test_extract_via_env()
   env[#env + 1] = "COSMIC_EXTRACT=" .. extractdir
 
   -- Invoke without --extract flag
-  local __r2 = check.must(check.must(spawn.spawn({cosmic}, {env = env})):wait())
+  local __r2 = check.must(check.must(child.start({cosmic}, {env = env})):wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic with COSMIC_EXTRACT env should succeed: " .. (out or ""))
 
   -- main.lua should be extracted
-  assert(fs.isfile(fs.join(extractdir, "main.lua")), "main.lua should be extracted via env var")
+  assert(fs.is_file(fs.join(extractdir, "main.lua")), "main.lua should be extracted via env var")
 end
 test_extract_via_env()
 
@@ -91,7 +91,7 @@ local function test_cli_priority_over_env()
   env[#env + 1] = "COSMIC_OUTPUT=" .. output
 
   -- Pass --embed via CLI (should override env)
-  local __r3 = check.must(check.must(spawn.spawn({cosmic, "--embed", cli_input, "--output", output}, {env = env})):wait())
+  local __r3 = check.must(check.must(child.start({cosmic, "--embed", cli_input, "--output", output}, {env = env})):wait())
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --embed with env override should succeed: " .. (out or ""))
 

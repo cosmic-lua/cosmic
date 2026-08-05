@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local landlock = require("cosmic.landlock")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -72,7 +72,7 @@ local function test_restrict_denies_outside_allowlist()
   -- denied file is a sibling left outside it (both exist, so the denial is
   -- a real landlock effect rather than a missing path).
   local allowed_dir = fs.join(tmpdir, "allowed")
-  fs.makedirs(allowed_dir)
+  fs.make_dirs(allowed_dir)
   local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "denied.txt")
   fs.write(allowed, "allowed-content")
@@ -103,7 +103,7 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   -- an outer sandbox is blocking an otherwise-supported mechanism — a
   -- strict skip that the enforce lane (COSMIC_ENFORCE=1, no outer sandbox)
   -- turns into a hard failure.
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   -- Under an outer seccomp/pledge filter the landlock syscall may be
@@ -139,7 +139,7 @@ local function test_restrict_single_file_rule()
   end
 
   local dir = fs.join(tmpdir, "filerule")
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   local target = fs.join(dir, "target.txt")
   local sibling = fs.join(dir, "sibling.txt")
   fs.write(target, "target-content")
@@ -159,7 +159,7 @@ local g = io.open(%q, "r")
 if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked\n") end
 ]], target, target, sibling))
 
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   if not ok then

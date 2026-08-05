@@ -5,11 +5,11 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/envd_test"
-fs.makedirs(tmpdir)
+fs.make_dirs(tmpdir)
 
 local function make_envd(name: string): string
   local dir = fs.join(tmpdir, name)
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   return dir
 end
 
@@ -442,7 +442,7 @@ local function test_errors_collect_unreadable_entries()
   fs.write(fs.join(dir, "00-good"), "COSMIC_ENVD_ERR_TEST_B=1\n")
   -- A subdirectory inside env.d cannot be slurped (EISDIR): the load
   -- must still apply the readable files and report the failure.
-  fs.makedirs(fs.join(dir, "10-subdir"))
+  fs.make_dirs(fs.join(dir, "10-subdir"))
   env.unset("COSMIC_ENVD_ERR_TEST_B")
 
   local result = envd.load_dir(dir)

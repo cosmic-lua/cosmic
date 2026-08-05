@@ -38,7 +38,7 @@ end
 -- subprocess because the restriction cannot be undone; no output check
 -- is attached because behavior depends on kernel support.
 local function Example_restrict()
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
 local ll = require("cosmic.landlock")
@@ -50,7 +50,7 @@ assert(ll.restrict{
   },
 })
 ]]
-  local h = check.must(spawn.spawn({cosmic, "-e", script}))
+  local h = check.must(child.start({cosmic, "-e", script}))
   local _ = h:wait()
 end
 

@@ -4,7 +4,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local time = require("cosmic.time")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local zip = require("cosmic.zip")
 local embed = require("cosmic.embed")
 
@@ -15,20 +15,20 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 local function test_extract()
   local extractdir = fs.join(tmpdir, "extracted")
 
-  local __r1 = check.must(check.must(spawn.spawn({cosmic, "--extract", extractdir})):wait())
+  local __r1 = check.must(check.must(child.start({cosmic, "--extract", extractdir})):wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- The entry and its argv, which every cosmic artifact carries.
-  assert(fs.isfile(fs.join(extractdir, "main.lua")), "main.lua should be extracted")
-  assert(fs.isfile(fs.join(extractdir, ".args")), ".args should be extracted")
+  assert(fs.is_file(fs.join(extractdir, "main.lua")), "main.lua should be extracted")
+  assert(fs.is_file(fs.join(extractdir, ".args")), ".args should be extracted")
 
   -- A directory, so extraction is shown to rebuild the tree and not
   -- just the root. `cosmic/` is the artifact's own modules; the base's
   -- `.lua/` is NOT the thing to assert here, because what a base
   -- contributes is the strip floor's business and a cosmic built on a
   -- bare runtime drops it.
-  assert(fs.isdir(fs.join(extractdir, "cosmic")), "cosmic/ should be extracted")
+  assert(fs.is_dir(fs.join(extractdir, "cosmic")), "cosmic/ should be extracted")
 end
 test_extract()
 
@@ -36,7 +36,7 @@ test_extract()
 local function test_extract_embed_roundtrip()
   -- Extract the cosmic binary
   local extractdir = fs.join(tmpdir, "roundtrip-extract")
-  local __r2 = check.must(check.must(spawn.spawn({cosmic, "--extract", extractdir})):wait())
+  local __r2 = check.must(check.must(child.start({cosmic, "--extract", extractdir})):wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "extract should succeed: " .. (out or ""))
 
@@ -53,7 +53,7 @@ local function test_extract_embed_roundtrip()
 
   -- Re-embed the extracted directory
   local output = fs.join(tmpdir, "roundtrip-output")
-  local __r3 = check.must(check.must(spawn.spawn({cosmic, "--embed", extractdir, "--output", output})):wait())
+  local __r3 = check.must(check.must(child.start({cosmic, "--embed", extractdir, "--output", output})):wait())
   ok, out = __r3.ok, __r3.stdout
   assert(ok, "re-embed should succeed: " .. (out or ""))
 
@@ -70,7 +70,7 @@ test_extract_embed_roundtrip()
 local function test_extract_modify_embed()
   -- Extract
   local extractdir = fs.join(tmpdir, "modify-extract")
-  local __r4 = check.must(check.must(spawn.spawn({cosmic, "--extract", extractdir})):wait())
+  local __r4 = check.must(check.must(child.start({cosmic, "--extract", extractdir})):wait())
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "extract should succeed: " .. (out or ""))
 
@@ -79,19 +79,19 @@ local function test_extract_modify_embed()
   -- Overwriting a wrapper would destroy the boot the artifact needs, and
   -- embed refuses that combination rather than silently accepting it.
   local entry = fs.join(extractdir, "main.user.lua")
-  if not fs.isfile(entry) then
+  if not fs.is_file(entry) then
     entry = fs.join(extractdir, "main.lua")
   end
   fs.write(entry, 'io.write("modified\\n")\n')
 
   -- Re-embed
   local output = fs.join(tmpdir, "modified-cosmic")
-  local __r5 = check.must(check.must(spawn.spawn({cosmic, "--embed", extractdir, "--output", output})):wait())
+  local __r5 = check.must(check.must(child.start({cosmic, "--embed", extractdir, "--output", output})):wait())
   ok, out = __r5.ok, __r5.stdout
   assert(ok, "embed modified should succeed: " .. (out or ""))
 
   -- Run the modified executable
-  local __r6 = check.must(check.must(spawn.spawn({output})):wait())
+  local __r6 = check.must(check.must(child.start({output})):wait())
   ok, out = __r6.ok, __r6.stdout
   assert(ok, "modified executable should run: " .. (out or ""))
   assert(out:match("modified"), "should print modified output, got: " .. (out or ""))
@@ -114,11 +114,11 @@ local function test_embed_overwrites_cleanly()
 
   -- Embed a directory that overrides main.lua
   local appdir = fs.join(tmpdir, "overwrite-app")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"), 'print("new")\n')
 
   local output = fs.join(tmpdir, "cosmic-overwrite")
-  local __r7 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", output})):wait())
+  local __r7 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
@@ -145,7 +145,7 @@ test_embed_overwrites_cleanly()
 -- Test that file modes are preserved in the zip archive
 local function test_embed_preserves_file_modes()
   local appdir = fs.join(tmpdir, "modeapp")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
 
   -- Create files with different modes
   local script = fs.join(appdir, "run.sh")
@@ -162,7 +162,7 @@ local function test_embed_preserves_file_modes()
   fs.chmod(secret, tonumber("600", 8))
 
   local output = fs.join(tmpdir, "cosmic-modes")
-  local __r8 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", output})):wait())
+  local __r8 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
@@ -194,7 +194,7 @@ test_embed_preserves_file_modes()
 local function test_extract_preserves_file_modes()
   -- First embed files with specific modes
   local appdir = fs.join(tmpdir, "extract-modeapp")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
 
   local script = fs.join(appdir, "run.sh")
   local secret = fs.join(appdir, "secret.key")
@@ -206,13 +206,13 @@ local function test_extract_preserves_file_modes()
   fs.chmod(secret, tonumber("600", 8))
 
   local embedded = fs.join(tmpdir, "cosmic-extract-modes")
-  local __r9 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", embedded})):wait())
+  local __r9 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", embedded})):wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Extract to a new directory
   local extractdir = fs.join(tmpdir, "extracted-modes")
-  local __r10 = check.must(check.must(spawn.spawn({embedded, "--extract", extractdir})):wait())
+  local __r10 = check.must(check.must(child.start({embedded, "--extract", extractdir})):wait())
   ok, out = __r10.ok, __r10.stdout
   assert(ok, "extract should succeed: " .. (out or ""))
 
@@ -240,7 +240,7 @@ test_extract_preserves_file_modes()
 local function test_embed_does_not_corrupt_running_process()
   -- Create a program that sleeps, then exercises code pages
   local appdir = fs.join(tmpdir, "running-app")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"), [[
 local time = require("cosmic.time")
 -- Sleep to give the test time to overwrite the binary
@@ -254,19 +254,19 @@ io.write("OK:" .. #result)
 ]])
 
   local binary = fs.join(tmpdir, "cosmic-running")
-  local __r11 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", binary})):wait())
+  local __r11 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", binary})):wait())
   local ok, out = __r11.ok, __r11.stdout
   assert(ok, "initial embed should succeed: " .. (out or ""))
 
   -- Start the binary as a subprocess
-  local handle = check.must(spawn.spawn({binary}))
+  local handle = check.must(child.start({binary}))
 
   -- Wait briefly for the process to start and mmap its pages
   time.sleep(0, 100000000) -- 100ms
 
   -- Re-embed over the same path while the process is running.
   -- Without atomic write, this would corrupt the running process.
-  local __r12 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", binary})):wait())
+  local __r12 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", binary})):wait())
   local ok2, out2 = __r12.ok, __r12.stdout
   assert(ok2, "re-embed should succeed: " .. (out2 or ""))
 
@@ -304,7 +304,7 @@ local function test_extract_rejects_path_traversal()
 
   -- The escaping file must not have been written next to the target dir.
   local escaped = fs.join(tmpdir, "escaped.txt")
-  assert(not fs.isfile(escaped), "traversal file should not be written outside target")
+  assert(not fs.is_file(escaped), "traversal file should not be written outside target")
 end
 test_extract_rejects_path_traversal()
 
@@ -312,13 +312,13 @@ test_extract_rejects_path_traversal()
 -- A symlink loop inside the embed dir must terminate without error.
 local function test_embed_symlink_loop_terminates()
   local appdir = fs.join(tmpdir, "symlinkloop")
-  fs.makedirs(fs.join(appdir, "sub"))
+  fs.make_dirs(fs.join(appdir, "sub"))
   fs.write(fs.join(appdir, "sub", "real.txt"), "data")
   -- Create a cycle: sub/loop -> ..  (points back to appdir)
   fs.symlink("..", fs.join(appdir, "sub", "loop"))
 
   -- embed.collect_dir is called internally; run via the module directly
-  local result = embed.run({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkloop"), exe_path = cosmic})
+  local result = embed.embed({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkloop"), exe_path = cosmic})
   assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
   -- Only real.txt should be embedded, not any path through the loop
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkloop"))
@@ -338,12 +338,12 @@ local function test_embed_symlink_to_outside_file_skipped()
   fs.write(outside, "secret-content")
 
   local appdir = fs.join(tmpdir, "symlinkoutside")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"), 'print("hi")\n')
   -- Symlink inside the embed dir pointing outside
   fs.symlink(outside, fs.join(appdir, "leaked.txt"))
 
-  local result = embed.run({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkoutside"), exe_path = cosmic})
+  local result = embed.embed({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkoutside"), exe_path = cosmic})
   assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
   -- "leaked.txt" (the symlink) must not appear in the zip
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkoutside"))
@@ -362,19 +362,19 @@ test_embed_symlink_to_outside_file_skipped()
 -- order is free: --exe is collected before early-returning options.
 local function test_exe_flag_extract_and_layer()
   local appdir = fs.join(tmpdir, "exeapp")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"),
     'print("v1", io.open("/zip/extra.txt") and "extra" or "noextra")\n')
   fs.write(fs.join(appdir, "tool.sh"), "#!/bin/sh\necho t\n")
   fs.chmod(fs.join(appdir, "tool.sh"), tonumber("755", 8))
 
   local app1 = fs.join(tmpdir, "exe-app1")
-  local __e1 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", app1})):wait())
+  local __e1 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", app1})):wait())
   assert(__e1.ok, "embed app1: " .. tostring(__e1.stderr))
 
   -- Extract FROM the app (--exe after the early-returning --extract).
   local x = fs.join(tmpdir, "exe-x")
-  local __e2 = check.must(check.must(spawn.spawn({cosmic, "--extract", x, "--exe", app1})):wait())
+  local __e2 = check.must(check.must(child.start({cosmic, "--extract", x, "--exe", app1})):wait())
   assert(__e2.ok, "extract --exe: " .. tostring(__e2.stderr))
   local wrapper = fs.read(fs.join(x, "main.lua"))
   assert(wrapper and string.find(wrapper, "cosmic-embed searcher wrapper", 1, true),
@@ -390,9 +390,9 @@ local function test_exe_flag_extract_and_layer()
   fs.write(extra, "x")
   local app2 = fs.join(tmpdir, "exe-app2")
   local __e3 = check.must(check.must(
-      spawn.spawn({cosmic, "--embed", extra, "--output", app2, "--exe", app1})):wait())
+      child.start({cosmic, "--embed", extra, "--output", app2, "--exe", app1})):wait())
   assert(__e3.ok, "layer --exe: " .. tostring(__e3.stderr))
-  local __e4 = check.must(check.must(spawn.spawn({app2})):wait())
+  local __e4 = check.must(check.must(child.start({app2})):wait())
   assert(__e4.ok and tostring(__e4.stdout):match("v1"),
     "layered app should run its entry: " .. tostring(__e4.stdout))
 end

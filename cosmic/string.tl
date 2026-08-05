@@ -34,14 +34,14 @@ end
 --- Trim whitespace from the left side of a string.
 --- @param s string The string to trim
 --- @return string The left-trimmed string
-local function ltrim(s: string): string
+local function trim_left(s: string): string
   return s:match("^%s*(.*)$") or s
 end
 
 --- Trim whitespace from the right side of a string.
 --- @param s string The string to trim
 --- @return string The right-trimmed string
-local function rtrim(s: string): string
+local function trim_right(s: string): string
   return s:match("^(.-)%s*$") or s
 end
 
@@ -363,8 +363,8 @@ end
 local record StringModule
   capitalize: function(s: string): string
   trim: function(s: string): string
-  ltrim: function(s: string): string
-  rtrim: function(s: string): string
+  trim_left: function(s: string): string
+  trim_right: function(s: string): string
   split: function(s: string, sep: string): {string}
   starts_with: function(s: string, prefix: string): boolean
   ends_with: function(s: string, suffix: string): boolean
@@ -385,8 +385,8 @@ end
 local M: StringModule = {
   capitalize = capitalize,
   trim = trim,
-  ltrim = ltrim,
-  rtrim = rtrim,
+  trim_left = trim_left,
+  trim_right = trim_right,
   split = split,
   starts_with = starts_with,
   ends_with = ends_with,

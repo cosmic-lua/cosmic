@@ -48,11 +48,11 @@ test_bytes_statistical_sanity()
 -- Fast pseudo-random tests (non-cryptographic).
 
 local function test_rand64()
-  local n = rand.rand64()
-  assert(math.type(n) == "integer", "rand64 should return integer, got " .. type(n))
+  local n = rand.insecure64()
+  assert(math.type(n) == "integer", "insecure64 should return integer, got " .. type(n))
   -- Two calls should almost certainly differ (false positive rate: 1/2^64)
-  local n2 = rand.rand64()
-  assert(n ~= n2, "rand64 should return different values each call")
+  local n2 = rand.insecure64()
+  assert(n ~= n2, "insecure64 should return different values each call")
 end
 test_rand64()
 

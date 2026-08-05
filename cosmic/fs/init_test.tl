@@ -7,13 +7,13 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
   local test_dir = fs.join(TEST_TMPDIR, "fs_test")
-  fs.makedirs(test_dir)
+  fs.make_dirs(test_dir)
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.rmrf(test_dir)
+    fs.remove_all(test_dir)
   end
 end
 
@@ -132,10 +132,10 @@ local function test_makedirs()
   local test_dir = setup()
   local nested = fs.join(test_dir, "a", "b", "c")
 
-  local ok, err = fs.makedirs(nested)
-  assert(ok, "makedirs should succeed: " .. (err or ""))
+  local ok, err = fs.make_dirs(nested)
+  assert(ok, "make_dirs should succeed: " .. (err or ""))
 
-  local st = check.must(fs.stat(nested), "stat should succeed after makedirs")
+  local st = check.must(fs.stat(nested), "stat should succeed after make_dirs")
   assert(st:is_dir(), "expected directory")
 
   teardown(test_dir)
@@ -175,18 +175,18 @@ test_mkdir_eexist_error()
 local function test_makedirs_error_message()
   local test_dir = setup()
 
-  -- Create a regular file, then try to makedirs through it
+  -- Create a regular file, then try to make_dirs through it
   local blocker = fs.join(test_dir, "blocker")
   local f = io.open(blocker, "w")
   if f then f:close() end
 
   local through_file = fs.join(blocker, "subdir")
-  local ok, err = fs.makedirs(through_file)
-  assert(not ok, "makedirs should fail when path component is a file")
+  local ok, err = fs.make_dirs(through_file)
+  assert(not ok, "make_dirs should fail when path component is a file")
   assert(err, "should return error message")
   assert(err:find(through_file, 1, true), "error should contain path, got: " .. err)
   -- Error should contain errno details, not just a generic message
-  assert(not err:match("^makedirs: " .. through_file:gsub("[%-]", "%%-") .. "$"),
+  assert(not err:match("^make_dirs: " .. through_file:gsub("[%-]", "%%-") .. "$"),
     "error should include errno details, got: " .. err)
 
   teardown(test_dir)
@@ -209,16 +209,16 @@ end
 test_rmdir()
 
 local function test_getcwd_and_chdir()
-  local original_cwd = fs.getcwd()
-  assert(original_cwd, "getcwd should succeed")
+  local original_cwd = fs.cwd()
+  assert(original_cwd, "cwd should succeed")
 
   local test_dir = setup()
 
   local ok, err = fs.chdir(test_dir)
   assert(ok, "chdir should succeed: " .. (err or ""))
 
-  local new_cwd = fs.getcwd()
-  assert(new_cwd, "getcwd should succeed after chdir")
+  local new_cwd = fs.cwd()
+  assert(new_cwd, "cwd should succeed after chdir")
   -- Use realpath to normalize both paths (handles symlinks in /tmp on some systems)
   local resolved_test = fs.realpath(test_dir)
   local resolved_cwd = fs.realpath(new_cwd)
@@ -343,12 +343,12 @@ test_realpath()
 local function test_rmrf()
   local test_dir = setup()
   local nested = fs.join(test_dir, "a", "b", "c")
-  fs.makedirs(nested)
+  fs.make_dirs(nested)
   touch(fs.join(nested, "file.txt"))
   touch(fs.join(test_dir, "a", "file.txt"))
 
-  local ok, err = fs.rmrf(fs.join(test_dir, "a"))
-  assert(ok, "rmrf should succeed: " .. (err or ""))
+  local ok, err = fs.remove_all(fs.join(test_dir, "a"))
+  assert(ok, "remove_all should succeed: " .. (err or ""))
 
   assert(fs.stat(fs.join(test_dir, "a")) == nil, "directory tree should not exist")
 
@@ -395,18 +395,18 @@ test_chmod()
 local tmp_base = os.getenv("TEST_TMPDIR") or os.getenv("TMPDIR") or "/tmp"
 
 local function test_mkdtemp()
-  local tmpdir = check.must(fs.mkdtemp(fs.join(tmp_base, "fs_test_XXXXXX")))
+  local tmpdir = check.must(fs.temp_dir(fs.join(tmp_base, "fs_test_XXXXXX")))
   assert(string.match(tmpdir, "fs_test_"), "expected fs_test_ in path")
 
   local st = check.must(fs.stat(tmpdir), "temp dir should exist")
   assert(st:is_dir(), "expected directory")
 
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
 end
 test_mkdtemp()
 
 local function test_tmpfile()
-  local tf = check.must(fs.tmpfile(fs.join(tmp_base, "fs_test_XXXXXX")))
+  local tf = check.must(fs.temp_file(fs.join(tmp_base, "fs_test_XXXXXX")))
   local hh = tf.handle
 
   assert(tf.path:match("fs_test_"), "expected fs_test_ in path")
@@ -419,11 +419,11 @@ end
 test_tmpfile()
 
 local function test_tmpfd()
-  local fd, err = fs.tmpfd()
-  assert(fd, "tmpfd should succeed: " .. (err or ""))
+  local fd, err = fs.temp_fd()
+  assert(fd, "temp_fd should succeed: " .. (err or ""))
 
   local st = fs.fstat(fd)
-  assert(st, "fstat should succeed on tmpfd")
+  assert(st, "fstat should succeed on temp_fd")
 
   unix.close(fd)
 end

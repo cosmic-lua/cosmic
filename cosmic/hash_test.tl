@@ -73,7 +73,7 @@ test_sha256_hex_known_value()
 -- Password hashing tests
 
 local function test_password_returns_encoded_string()
-  local encoded, err = hash.password("password123")
+  local encoded, err = hash.hash_password("password123")
   assert(encoded, "password should succeed: " .. tostring(err))
   assert(type(encoded) == "string", "password should return a string")
   assert(#encoded > 0, "password should return non-empty string")
@@ -81,8 +81,8 @@ end
 test_password_returns_encoded_string()
 
 local function test_password_different_each_call()
-  local encoded1, err1 = hash.password("password123")
-  local encoded2, err2 = hash.password("password123")
+  local encoded1, err1 = hash.hash_password("password123")
+  local encoded2, err2 = hash.hash_password("password123")
   assert(encoded1, "first password should succeed: " .. tostring(err1))
   assert(encoded2, "second password should succeed: " .. tostring(err2))
   assert(encoded1 ~= encoded2, "password should use different salt each time")
@@ -90,7 +90,7 @@ end
 test_password_different_each_call()
 
 local function test_verify_password_correct()
-  local encoded, err = hash.password("correct_password")
+  local encoded, err = hash.hash_password("correct_password")
   assert(encoded, "password should succeed: " .. tostring(err))
   local valid = hash.verify_password(encoded, "correct_password")
   assert(valid == true, "verify_password should return true for correct password")
@@ -98,7 +98,7 @@ end
 test_verify_password_correct()
 
 local function test_verify_password_wrong()
-  local encoded, err = hash.password("correct_password")
+  local encoded, err = hash.hash_password("correct_password")
   assert(encoded, "password should succeed: " .. tostring(err))
   local valid = hash.verify_password(encoded, "wrong_password")
   assert(valid == false, "verify_password should return false for wrong password")
@@ -106,7 +106,7 @@ end
 test_verify_password_wrong()
 
 local function test_password_with_options()
-  local encoded, err = hash.password("password", {
+  local encoded, err = hash.hash_password("password", {
       m_cost = 2048,
       t_cost = 2,
       parallelism = 1,
@@ -120,7 +120,7 @@ test_password_with_options()
 
 local function test_password_empty()
   -- Empty passwords should be allowed (useful for testing, user validation should be done elsewhere)
-  local encoded, err = hash.password("")
+  local encoded, err = hash.hash_password("")
   assert(encoded, "password should handle empty password: " .. tostring(err))
   local valid = hash.verify_password(encoded, "")
   assert(valid == true, "verify_password should verify empty password")
@@ -128,7 +128,7 @@ end
 test_password_empty()
 
 local function test_password_unicode()
-  local encoded, err = hash.password("пароль")
+  local encoded, err = hash.hash_password("пароль")
   assert(encoded, "password should handle unicode: " .. tostring(err))
   local valid = hash.verify_password(encoded, "пароль")
   assert(valid == true, "verify_password should verify unicode password")
@@ -139,7 +139,7 @@ test_password_unicode()
 -- just the invalid-variant guard below.
 
 local function test_password_argon2i_roundtrip()
-  local encoded = check.must(hash.password("pw-i", {
+  local encoded = check.must(hash.hash_password("pw-i", {
         variant = "argon2i", m_cost = 2048, t_cost = 1, parallelism = 1,
       }))
   assert(string.match(encoded, "^%$argon2i%$"),
@@ -152,7 +152,7 @@ end
 test_password_argon2i_roundtrip()
 
 local function test_password_argon2d_roundtrip()
-  local encoded = check.must(hash.password("pw-d", {
+  local encoded = check.must(hash.hash_password("pw-d", {
         variant = "argon2d", m_cost = 2048, t_cost = 1, parallelism = 1,
       }))
   assert(string.match(encoded, "^%$argon2d%$"),
@@ -167,7 +167,7 @@ test_password_argon2d_roundtrip()
 local function test_password_invalid_variant()
   -- cast: deliberate invalid input past Variant enum, for runtime guard
   local bad = {variant = "invalid"} as hash.PasswordOptions
-  local encoded, err = hash.password("password", bad)
+  local encoded, err = hash.hash_password("password", bad)
   assert(encoded == nil, "password should fail with invalid variant")
   assert(err and err:match("invalid variant"), "error should mention invalid variant")
 end
@@ -182,7 +182,7 @@ end
 test_verify_password_malformed_hash()
 
 local function test_verify_password_returns_two_values_on_mismatch()
-  local encoded = hash.password("correct")
+  local encoded = hash.hash_password("correct")
   local ok, err = hash.verify_password(encoded, "wrong")
   assert(ok == false, "verify_password should return false for wrong password")
   assert(err == nil, "verify_password should NOT return error for clean mismatch (wrong password)")
@@ -191,7 +191,7 @@ test_verify_password_returns_two_values_on_mismatch()
 
 -- FIX 2: default m_cost should be 19456 (OWASP minimum 19 MiB)
 local function test_password_default_mcost_is_19456()
-  local encoded, err = hash.password("password", {t_cost = 1})
+  local encoded, err = hash.hash_password("password", {t_cost = 1})
   if not encoded then error("password with default m_cost should succeed: " .. tostring(err)) end
   assert(string.match(encoded, "m=19456"), "default m_cost should be 19456, encoded string: " .. encoded)
 end

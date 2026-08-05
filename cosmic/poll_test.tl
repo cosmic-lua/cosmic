@@ -19,11 +19,11 @@ test_poll_constants()
 local function test_poller_new()
   local p = poll.new()
   assert(p ~= nil, "new() returned nil")
-  assert(p.empty ~= nil, "empty method missing")
+  assert(p.is_empty ~= nil, "is_empty method missing")
   assert(p.add ~= nil, "add method missing")
   assert(p.remove ~= nil, "remove method missing")
   assert(p.wait ~= nil, "wait method missing")
-  assert(p:empty(), "new poller should be empty")
+  assert(p:is_empty(), "new poller should be empty")
   assert(p:count() == 0, "new poller count should be 0")
 end
 test_poller_new()
@@ -32,7 +32,7 @@ local function test_poller_add_remove_raw_fd()
   local p = poll.new()
   -- Add a raw fd number
   p:add(1, poll.POLLOUT) -- stdout
-  assert(not p:empty(), "poller should not be empty after add")
+  assert(not p:is_empty(), "poller should not be empty after add")
   assert(p:count() == 1, "count should be 1")
 
   p:add(2, poll.POLLOUT) -- stderr
@@ -42,7 +42,7 @@ local function test_poller_add_remove_raw_fd()
   assert(p:count() == 1, "count should be 1 after remove")
 
   p:clear()
-  assert(p:empty(), "poller should be empty after clear")
+  assert(p:is_empty(), "poller should be empty after clear")
 end
 test_poller_add_remove_raw_fd()
 
@@ -164,7 +164,7 @@ test_poll_with_socket()
 local function test_poll_with_child_pipes()
   -- Redirect the child's stdout into a pipe we own, then poll the read end.
   local pp = check.must(cfd.pipe())
-  local h = check.must(child.spawn({"echo", "hello"}, {stdout = pp.writer}))
+  local h = check.must(child.start({"echo", "hello"}, {stdout = pp.writer}))
   pp.writer:close()
 
   local p = poll.new()
@@ -253,7 +253,7 @@ local function test_add_bad_fd_errors()
   local ok2, err2 = p:add(-1, poll.POLLIN)
   assert(not ok2, "add(-1) must fail: a closed fd.Handle reports -1")
   assert(err2 and err2:find("-1", 1, true), "error names the fd: " .. tostring(err2))
-  assert(p:empty(), "failed adds register nothing")
+  assert(p:is_empty(), "failed adds register nothing")
 end
 test_add_bad_fd_errors()
 

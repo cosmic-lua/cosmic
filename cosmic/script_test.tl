@@ -3,13 +3,13 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Create a unique subdirectory for this test run to avoid conflicts
-local test_subdir = fs.mkdtemp(fs.join(tmpdir, "cosmic_script_test_XXXXXX"))
+local test_subdir = fs.temp_dir(fs.join(tmpdir, "cosmic_script_test_XXXXXX"))
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(test_subdir, name)
@@ -29,7 +29,7 @@ local x: number = 42
 print("answer=" .. x)
 ]])
 
-  local h1 = check.must(spawn.spawn({cosmic, script}))
+  local h1 = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic should execute .tl file")
@@ -44,7 +44,7 @@ local x = 99
 print("value=" .. x)
 ]])
 
-  local h2 = check.must(spawn.spawn({cosmic, script}))
+  local h2 = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic should execute .lua file")
@@ -60,7 +60,7 @@ print(x)
 ]])
 
   -- the type-error diagnostic lands on stderr
-  local h3 = check.must(spawn.spawn({cosmic, script}))
+  local h3 = check.must(child.start({cosmic, script}))
   local __r3 = check.must(h3:wait())
   local ok, out = __r3.ok, __r3.stderr
   assert(not ok, "cosmic should fail on .tl file with type error")
@@ -74,7 +74,7 @@ local function test_teal_syntax_error()
 if if if
 ]])
 
-  local h4 = check.must(spawn.spawn({cosmic, script}))
+  local h4 = check.must(child.start({cosmic, script}))
   local __r4 = check.must(h4:wait())
   local ok = __r4.ok
   assert(not ok, "cosmic should fail on .tl file with syntax error")
@@ -93,7 +93,7 @@ local p: Point = { x = 10, y = 20 }
 print("point=" .. p.x .. "," .. p.y)
 ]])
 
-  local h5 = check.must(spawn.spawn({cosmic, script}))
+  local h5 = check.must(child.start({cosmic, script}))
   local __r5 = check.must(h5:wait())
   local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic should execute .tl file with records")
@@ -110,7 +110,7 @@ end
 print("result=" .. identity(123))
 ]])
 
-  local h6 = check.must(spawn.spawn({cosmic, script}))
+  local h6 = check.must(child.start({cosmic, script}))
   local __r6 = check.must(h6:wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic should execute .tl file with generics")
@@ -126,7 +126,7 @@ local data: string = cosmo.Slurp("/dev/null") or ""
 print("bytes=" .. #data)
 ]])
 
-  local h7 = check.must(spawn.spawn({cosmic, script}))
+  local h7 = check.must(child.start({cosmic, script}))
   local __r7 = check.must(h7:wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic should execute .tl file with cosmic module requires")
@@ -142,7 +142,7 @@ print("arg1=" .. (arg[1] or "nil"))
 print("arg2=" .. (arg[2] or "nil"))
 ]])
 
-  local h8 = check.must(spawn.spawn({cosmic, script, "first", "second"}))
+  local h8 = check.must(child.start({cosmic, script, "first", "second"}))
   local __r8 = check.must(h8:wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic should execute .tl file with args")
@@ -159,7 +159,7 @@ print("arg0=" .. arg[0])
 print("arg1=" .. (arg[1] or "nil"))
 ]])
 
-  local h9 = check.must(spawn.spawn({cosmic, script, "test"}))
+  local h9 = check.must(child.start({cosmic, script, "test"}))
   local __r9 = check.must(h9:wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic should execute .lua file with args")
@@ -179,7 +179,7 @@ print("shebang=" .. x)
   local verify = check.must(fs.read(script))
   assert(verify:find("shebang="), "script file should contain shebang test code, got: " .. verify:sub(1, 100))
 
-  local h10 = check.must(spawn.spawn({cosmic, script}))
+  local h10 = check.must(child.start({cosmic, script}))
   local __r10 = check.must(h10:wait())
   local ok, out = __r10.ok, __r10.stdout .. __r10.stderr
   assert(ok, "cosmic should execute .tl file with shebang, got: " .. tostring(out))
@@ -200,7 +200,7 @@ print("value=" .. x)
 ]])
 
   for _ = 1, 2 do
-    local h11 = check.must(spawn.spawn({cosmic, script}))
+    local h11 = check.must(child.start({cosmic, script}))
     local __r11 = check.must(h11:wait())
     local ok, out = __r11.ok, __r11.stdout
     assert(ok, "cosmic should execute .tl file: " .. tostring(out))
@@ -213,7 +213,7 @@ print("value=" .. x)
 local x: number = 2
 print("value=" .. x)
 ]])
-  local h12 = check.must(spawn.spawn({cosmic, script}))
+  local h12 = check.must(child.start({cosmic, script}))
   local __r12 = check.must(h12:wait())
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "cosmic should execute changed .tl file: " .. tostring(out))
@@ -246,7 +246,7 @@ local function plant(dir: string, script: string, code: string)
   -- wrong file is worse than one that fails.
   local expr = 'io.write(require("cosmic._script_cache").key(' ..
   string.format("%q", script) .. ", " .. string.format("%q", content) .. "))"
-  local h = check.must(spawn.spawn({cosmic, "-e", expr}, {env = {
+  local h = check.must(child.start({cosmic, "-e", expr}, {env = {
           "PATH=" .. (os.getenv("PATH") or ""),
           "COSMIC_TL_CACHE_DIR=" .. dir,
         }}))
@@ -263,7 +263,7 @@ local function run_cached(dir: string, script: string): string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn({cosmic, script}, {env = env}))
+  local h = check.must(child.start({cosmic, script}, {env = env}))
   local r = check.must(h:wait())
   return (r.stdout or "") .. (r.stderr or "")
 end
@@ -271,7 +271,7 @@ end
 local function test_cache_refuses_a_shared_directory()
   local script = write_temp("cached.tl", 'print("compiled fresh")\n')
   local dir = fs.join(test_subdir, "cache")
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   plant(dir, script, 'print("PLANTED")\n')
 
   assert(fs.chmod(dir, tonumber("700", 8) as integer)) -- cast: octal is integral

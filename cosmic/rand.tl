@@ -6,7 +6,7 @@
 ---   local rand = require("cosmic.rand")
 ---   local key, err = rand.bytes(32)     -- cryptographically secure
 ---   local roll = rand.int(1, 6)         -- crypto-grade, unbiased
----   local n = rand.rand64()             -- fast pseudo-random (not secure)
+---   local n = rand.insecure64()             -- fast pseudo-random (not secure)
 local cosmo = require("cosmo")
 
 --- Generate cryptographically secure random bytes.
@@ -24,7 +24,7 @@ end
 --- Generate a fast 64-bit pseudo-random integer (non-cryptographic).
 --- Note: result is a signed 64-bit Lua integer; may appear negative if high bit is set.
 --- @return integer Random 64-bit integer
-local function rand64(): integer
+local function insecure64(): integer
   return cosmo.Rand64()
 end
 
@@ -150,7 +150,7 @@ local record RandModule
   choice: function(list: {any}): any, string
   shuffle: function(list: {any}): {any} | nil, string
   token: function(len?: integer): string | nil, string
-  rand64: function(): integer
+  insecure64: function(): integer
 end
 
 local M: RandModule = {
@@ -160,7 +160,7 @@ local M: RandModule = {
   choice = choice,
   shuffle = shuffle,
   token = token,
-  rand64 = rand64,
+  insecure64 = insecure64,
 }
 
 return M

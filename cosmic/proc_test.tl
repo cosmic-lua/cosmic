@@ -41,13 +41,13 @@ test_getppid_different_from_pid()
 -- commandv tests --
 
 local function test_commandv_finds_ls()
-  local path_to_ls = check.must(proc.commandv("ls"), "expected to find 'ls' command")
+  local path_to_ls = check.must(proc.which("ls"), "expected to find 'ls' command")
   assert(path_to_ls:find("/", 1, true), "expected absolute path, got " .. tostring(path_to_ls))
 end
 test_commandv_finds_ls()
 
 local function test_commandv_returns_nil_for_nonexistent()
-  local result = proc.commandv("nonexistent_command_xyz_12345")
+  local result = proc.which("nonexistent_command_xyz_12345")
   assert(result == nil, "expected nil for nonexistent command, got " .. tostring(result))
 end
 test_commandv_returns_nil_for_nonexistent()
@@ -368,7 +368,7 @@ end
 test_wnohang_returns_zero_for_running_process()
 
 local function test_posix_spawn_returns_pid()
-  local ls_path = proc.commandv("ls")
+  local ls_path = proc.which("ls")
   if ls_path then
     local pid = check.must(proc.posix_spawn(ls_path, {"ls"}))
     assert(pid > 0, "expected positive pid, got " .. tostring(pid))

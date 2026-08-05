@@ -11,7 +11,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 --   root/src/x.lua  root/src/y.txt
 --   root/src/deep/z.lua
 local root = fs.join(TEST_TMPDIR, "glob_root")
-assert(fs.makedirs(fs.join(root, "src", "deep")))
+assert(fs.make_dirs(fs.join(root, "src", "deep")))
 for _, p in ipairs({"a.lua", "b.lua", "c.txt", ".hidden.lua", "src/x.lua", "src/y.txt", "src/deep/z.lua"}) do
   assert(fs.write(fs.join(root, p), "-- " .. p))
 end
@@ -128,4 +128,4 @@ local function test_walk_unlimited_by_default()
 end
 test_walk_unlimited_by_default()
 
-fs.rmrf(root)
+fs.remove_all(root)

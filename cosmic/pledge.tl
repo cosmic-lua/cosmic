@@ -127,7 +127,7 @@ local function apply(promises: string, opts?: ApplyOptions): boolean, string
   seal_coverage(opts and opts.keep_coverage)
   local ok, err = unix.pledge(promises, opts and opts.exec)
   if not ok then
-    return false, errno.str(err, "pledge")
+    return false, errno.wrap(err, "pledge")
   end
   return true
 end
