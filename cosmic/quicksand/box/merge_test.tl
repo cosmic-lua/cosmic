@@ -64,14 +64,25 @@ test_env_set_and_keep()
 
 local function test_nested_proc_scalars()
   local out = m.merge(
-    {proc = {uid = 1000, gid = 1000, pledge = "stdio"}},
+    {proc = {uid = 1000, gid = 1000, no_new_privs = true}},
     {proc = {uid = 2000}})
   local p = out.proc as {string: any} -- cast: from any
   assert(p.uid == 2000, "later wins")
   assert(p.gid == 1000, "gid preserved")
-  assert(p.pledge == "stdio", "pledge preserved")
+  assert(p.no_new_privs == true, "no_new_privs preserved")
 end
 test_nested_proc_scalars()
+
+-- sys is a section like fs: scalars in it overlay per key.
+local function test_nested_sys_scalars()
+  local out = m.merge(
+    {sys = {promises = "stdio rpath"}},
+    {sys = {exec = "stdio"}})
+  local s = out.sys as {string: any} -- cast: from any
+  assert(s.promises == "stdio rpath", "promises preserved")
+  assert(s.exec == "stdio", "exec overlay applied")
+end
+test_nested_sys_scalars()
 
 local function test_nil_table_skipped()
   local a: {string: any} = {hostname = "x"}

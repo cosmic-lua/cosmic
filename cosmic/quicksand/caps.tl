@@ -16,8 +16,9 @@
 --- would make subsequent PR_CAPBSET_DROP calls fail with EPERM).
 ---
 --- Linux-only. On non-Linux hosts (or a cosmos build without the CAP_*
---- constants) the constants are nil; drop_bounding() is then a
---- successful no-op and supported() returns false.
+--- constants) the constants are nil; supported() returns false and
+--- drop_bounding() fails closed — `best_effort = true` opts into a
+--- successful no-op instead.
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 
@@ -42,6 +43,10 @@ local NAMES: {string} = {
 --- Options for drop_bounding().
 local record DropOptions
   keep: {string} -- capability names to retain in the bounding set
+  --- Turn an unsupported host into a successful no-op instead of an
+  --- error — the explicit fail-open escape hatch, matching
+  --- cosmic.pledge / cosmic.unveil / cosmic.landlock.
+  best_effort: boolean
 end
 
 --- Resolve a capability name (e.g. "CAP_NET_RAW") to its integer number
@@ -134,18 +139,21 @@ end
 --- Must run while the caller still holds CAP_SETPCAP (e.g. immediately
 --- after unshare(CLONE_NEWUSER) with a uid map, before proc.drop_privs
 --- clears the capability set). A cap number the kernel does not know
---- (EINVAL) is skipped; ENOSYS ends the sweep successfully. On a host
---- without the CAP_* constants (non-Linux) this is a successful no-op.
+--- (EINVAL) is skipped. Fail-closed: on a host that cannot drop at all
+--- (no CAP_* constants, or ENOSYS from PR_CAPBSET_DROP) this returns
+--- `false, "caps: ... unsupported on this host"` instead of reporting
+--- a drop that did not happen; `best_effort = true` opts into treating
+--- that as a successful no-op.
 ---
---- @param opts DropOptions? optional keep-set
+--- @param opts DropOptions? optional keep-set and best_effort flag
 --- @return boolean true on success
 --- @return string? error message on failure
 local function drop_bounding(opts?: DropOptions): boolean, string
   local last = unix.CAP_LAST_CAP
   if last == nil then
-    -- No capability constants (non-Linux, or a cosmos without them):
-    -- there is nothing to drop.
-    return true
+    -- No capability constants (non-Linux, or a cosmos without them).
+    if opts and opts.best_effort then return true end
+    return false, "caps: capability bounding set unsupported on this host"
   end
   local keep: {integer: boolean} = {}
   if opts and opts.keep then
@@ -162,11 +170,15 @@ local function drop_bounding(opts?: DropOptions): boolean, string
         if errno.is(eno, "EINVAL") then
           -- Capability number unknown to this kernel; skip it.
         elseif errno.is(eno, "ENOSYS") then
-          -- Capabilities unsupported on this host; done.
-          return true
+          -- Capabilities unsupported on this host. Reporting success
+          -- here would claim a drop that did not happen — and worse,
+          -- mid-sweep it would claim a PARTIAL drop as complete.
+          if opts and opts.best_effort then return true end
+          return false,
+          "caps: PR_CAPBSET_DROP unsupported on this host (ENOSYS)"
         else
           return false, errno.str(err,
-            "PR_CAPBSET_DROP " .. tostring(c))
+            "caps: PR_CAPBSET_DROP " .. tostring(c))
         end
       end
     end

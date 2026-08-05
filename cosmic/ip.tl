@@ -170,11 +170,13 @@ local record Cidr
   --- Number of addresses in the block (including network/broadcast).
   --- @return integer The block size
   size: function(Cidr): integer
-  --- Check whether the block contains an address.
-  --- @param a Addr | string The address (typed or dotted quad)
-  --- @return boolean True when contained; false (plus an error
-  --- message) when a string address does not parse
-  contains: function(Cidr, Addr | string): boolean, string
+  --- Check whether the block contains an address. Takes the typed
+  --- Addr only: a raw string would make an unparseable input
+  --- indistinguishable from a non-member — the fail-open direction
+  --- for an allowlist check. Parse first and handle the error there.
+  --- @param a Addr The address
+  --- @return boolean True when contained
+  contains: function(Cidr, Addr): boolean
   --- Format as "addr/bits" (same as tostring()).
   --- @return string The CIDR notation
   format: function(Cidr): string
@@ -208,18 +210,8 @@ local function cidr_size(self: Cidr): integer
   return 1 << (32 - self._bits)
 end
 
-local function cidr_contains(self: Cidr, a: Addr | string): boolean, string
-  local n: integer
-  if a is string then
-    local parsed, err = parse(a)
-    if not parsed then
-      return false, err
-    end
-    n = (parsed as Addr):int() -- cast: record union after guard
-  else
-    n = (a as Addr):int() -- cast: record union in is-else branch
-  end
-  return (n & cidr_mask(self._bits)) == self._n
+local function cidr_contains(self: Cidr, a: Addr): boolean
+  return (a:int() & cidr_mask(self._bits)) == self._n
 end
 
 local function cidr_format(self: Cidr): string

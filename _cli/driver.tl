@@ -136,15 +136,25 @@ local function fence(verb: string, args: {string}): string | nil
   -- every fenced recipe then reports only the lines it ran before the
   -- fence landed. The dumps are all there and all nearly empty, which
   -- is why it read as a code regression rather than a lost measurement.
-  local ok, err = sandbox.apply({
+  local enforced, err = sandbox.apply({
       fs = fs_policy,
       best_effort = true,
       keep_coverage = true,
     })
-  if not ok then
-    return "fence for '" .. verb .. "' failed: " .. (err or "unknown error")
+  if enforced is sandbox.Availability then
+    -- best_effort can no longer skip silently: apply reports what it
+    -- enforced. A host that cannot enforce runs unfenced by design
+    -- (see above) — say so when the caller explicitly asked for the
+    -- fence (COSMIC_FENCE set), and stay quiet on the implicit
+    -- default, where a per-recipe warning would drown a whole build
+    -- on such hosts.
+    if not enforced.fs and os.getenv("COSMIC_FENCE") ~= nil then
+      io.stderr:write("fence: unenforceable on this host; '"
+        .. verb .. "' runs unfenced\n")
+    end
+    return nil
   end
-  return nil
+  return "fence for '" .. verb .. "' failed: " .. (err or "unknown error")
 end
 
 --- Run one driver entry with line coverage armed.

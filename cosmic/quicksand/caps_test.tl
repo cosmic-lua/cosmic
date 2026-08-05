@@ -84,13 +84,36 @@ test_bounding_read()
 -- drop_bounding validates the keep-set BEFORE touching the bounding set,
 -- so an unknown keep name returns false + err and drops nothing. This is
 -- safe to run in-process precisely because it never reaches a real drop.
+-- On a host without the capability API the unsupported gate fires first;
+-- that branch is asserted below instead.
 local function test_drop_bounding_bad_keep()
+  if not caps.supported() then
+    check.skip("capabilities unsupported on this host")
+    return
+  end
   local ok, err = caps.drop_bounding({keep = {"CAP_BOGUS"}})
   assert(not ok, "bad keep name should fail")
   assert(type(err) == "string" and err:find("CAP_BOGUS"),
     "error should name the bad capability: " .. tostring(err))
 end
 test_drop_bounding_bad_keep()
+
+-- Fail-closed on an unsupported host: drop_bounding must not report a
+-- drop that did not happen. best_effort is the explicit opt-in to a
+-- successful no-op, matching pledge/unveil/landlock.
+local function test_drop_bounding_fails_closed_when_unsupported()
+  if caps.supported() then
+    check.skip("capabilities supported here; unsupported path not exercisable")
+    return
+  end
+  local ok, err = caps.drop_bounding()
+  assert(not ok, "unsupported host must fail closed")
+  assert(type(err) == "string" and err:find("unsupported", 1, true),
+    "error should say unsupported: " .. tostring(err))
+  assert(caps.drop_bounding({best_effort = true}),
+    "best_effort must turn unsupported into a successful no-op")
+end
+test_drop_bounding_fails_closed_when_unsupported()
 
 -- The real, irreversible drop path is exercised in a subprocess so it
 -- cannot strip this test runner's own bounding set. After a successful

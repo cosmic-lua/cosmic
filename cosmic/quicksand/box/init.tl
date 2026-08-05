@@ -8,7 +8,7 @@
 ---
 ---     local quicksand = require("cosmic.quicksand")
 ---     local box = quicksand.Box.new{
----       fs = { ro = { "/usr" }, rw = { "/tmp" } },
+---       fs = { exec = { "/usr" }, rw = { "/tmp" } },
 ---       net = { allow = { ["api.example.com:443"] = {} } },
 ---       proc = { no_new_privs = true },
 ---       cwd = "/tmp",
@@ -23,6 +23,7 @@
 --- fork / exec orchestration lives in cosmic.quicksand.box.run and is
 --- required on demand from `run()` so construction stays cheap.
 local box_merge = require("cosmic.quicksand.box.merge")
+local sandbox = require("cosmic.sandbox")
 local types = require("cosmic.quicksand.types")
 
 --- The policy schema lives in cosmic.quicksand.types (shared with the
@@ -71,29 +72,27 @@ local function validate(opts: BoxOptions): boolean, string
     if proc.gid ~= nil and type(proc.gid) ~= "number" then
       return false, "proc.gid must be a number"
     end
-    if proc.pledge ~= nil and type(proc.pledge) ~= "string" then
-      return false, "proc.pledge must be a string"
-    end
     if proc.keep_caps ~= nil and type(proc.keep_caps) ~= "table" then
       return false, "proc.keep_caps must be a list of capability names"
+    end
+    -- The pledge string moved to opts.sys (cosmic.sandbox's Sys
+    -- schema); catch the retired spelling with a migration message.
+    if (proc as {string: any}).pledge ~= nil then -- cast: probe for removed field
+      return false, "proc.pledge was removed: use sys = { promises = ... }"
+      .. " (cosmic.sandbox's Sys schema)"
     end
   end
   local net = opts.net
   if net and net.allow ~= nil and type(net.allow) ~= "table" then
     return false, "net.allow must be a table"
   end
-  local fs = opts.fs
-  if fs then
-    if (fs as {string: any}).deny ~= nil then -- cast: probe for removed field
-      return false, "fs.deny was removed: the fs policy is an allowlist,"
-      .. " every path not in fs.ro/rw/exec is already denied"
-    end
-    for _, name in ipairs({"ro", "rw", "exec"}) do
-      local v = (fs as {string: any})[name] -- cast: dynamic key into record
-      if v ~= nil and type(v) ~= "table" then
-        return false, "fs." .. name .. " must be a list"
-      end
-    end
+  -- fs and sys are cosmic.sandbox's own schemas; its validator is the
+  -- single source of truth for their shape (including promise-token
+  -- validation), so a typo'd promise fails here at Box.new instead of
+  -- post-fork as an opaque exit 126.
+  if opts.fs ~= nil or opts.sys ~= nil then
+    local sok, serr = sandbox.validate({fs = opts.fs, sys = opts.sys})
+    if not sok then return false, serr end
   end
   return true
 end
@@ -116,13 +115,14 @@ local function preflight(opts: BoxOptions): boolean, string
     if opts.hostname and not c.uts_ns then
       return false, "quicksand: UTS namespace unavailable (hostname requested)"
     end
-    local fs = opts.fs
-    local has_fs = fs and (fs.ro or fs.rw or fs.exec)
-    if has_fs and not c.landlock then
+    -- A present fs section IS a policy (validate() rejects an empty
+    -- one), so its presence alone requires landlock — matching
+    -- sandbox.apply, where fs = { ro = {} } is a real deny-all.
+    if opts.fs and not c.landlock then
       return false, "quicksand: landlock unavailable (fs policy requested)"
     end
-    if opts.proc and opts.proc.pledge and not c.pledge then
-      return false, "quicksand: pledge unavailable"
+    if opts.sys and not c.pledge then
+      return false, "quicksand: pledge unavailable (sys policy requested)"
     end
     local pr = opts.proc
     local wants_caps = pr and (pr.drop_caps or (pr.keep_caps and #pr.keep_caps > 0))

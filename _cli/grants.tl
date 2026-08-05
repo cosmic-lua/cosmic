@@ -319,6 +319,8 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- have yet (docs/design/make/engine.md). Until then the honest
     -- boundary is the one above, stated rather than implied.
     ro[#ro + 1] = "."
+    -- ...and EXEC (ro is read-only now): tests exec project binaries.
+    ex[#ex + 1] = "."
     -- And the RUNTIME, because a test is arbitrary code that uses the
     -- operating system on purpose: this repo's own tests allocate ptys
     -- (`/dev/ptmx`), count their file descriptors (`/proc/self/fd`),
@@ -438,10 +440,8 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
       rw[#rw + 1] = cov
     end
   end
-  for _, dev in ipairs({"/dev/null"}) do
-    if fs.exists(dev) then
-      rw[#rw + 1] = dev
-    end
+  if fs.exists("/dev/null") then
+    rw[#rw + 1] = "/dev/null"
   end
   for _, dev in ipairs({"/dev/random", "/dev/urandom"}) do
     if fs.exists(dev) then

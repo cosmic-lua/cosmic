@@ -36,7 +36,6 @@ local qproc = require("cosmic.quicksand.proc")
 local qcaps = require("cosmic.quicksand.caps")
 local proxy = require("cosmic.quicksand.proxy")
 local sandbox = require("cosmic.sandbox")
-local pledge = require("cosmic.pledge")
 local box_env = require("cosmic.quicksand.box.env")
 local types = require("cosmic.quicksand.types")
 local cenv = require("cosmic.env")
@@ -109,10 +108,11 @@ local function workload_setup(opts: BoxOptions): string
     if not ok then return "chdir: " .. tostring(err) end
   end
   local fs = opts and opts.fs
-  if fs and (fs.ro or fs.rw or fs.exec) then
+  if fs then
     -- The fs policy is cosmic.sandbox's Fs schema; the facade picks the
     -- mechanism (landlock here — Box is Linux-only) and its errors are
-    -- already prefixed "sandbox: fs: ...".
+    -- already prefixed "sandbox: fs: ...". A present section is a real
+    -- policy — fs = { ro = {} } denies everything — matching apply.
     local ok, err = sandbox.apply({fs = fs})
     if not ok then return tostring(err) end
   end
@@ -133,9 +133,13 @@ local function workload_setup(opts: BoxOptions): string
     local ok, err = qproc.drop_privs(pr.uid, gid)
     if not ok then return "drop_privs: " .. tostring(err) end
   end
-  if pr and pr.pledge then
-    local ok, err = pledge.apply(pr.pledge)
-    if not ok then return "pledge: " .. tostring(err) end
+  -- The sys (pledge) policy applies LAST — after the privilege drops
+  -- above, whose setresuid/capset calls a pledge filter could block —
+  -- through the same facade as fs, so validation, ordering and error
+  -- prefixes have one home. Box.new already validated the tokens.
+  if opts and opts.sys then
+    local ok, err = sandbox.apply({sys = opts.sys})
+    if not ok then return tostring(err) end
   end
   return nil
 end

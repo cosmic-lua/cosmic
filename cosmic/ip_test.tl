@@ -265,33 +265,33 @@ local function test_cidr_netmask_broadcast_size()
 end
 test_cidr_netmask_broadcast_size()
 
+-- contains takes the typed Addr only: a raw string would make an
+-- unparseable input indistinguishable from a non-member — fail-open
+-- for an allowlist check. Callers parse first, so the parse error has
+-- somewhere to go.
 local function test_cidr_contains()
   local c = check.must(ip.cidr("192.168.1.0/24"))
-  assert(c:contains("192.168.1.1"), "expected member")
-  assert(c:contains("192.168.1.0"), "expected network address contained")
-  assert(c:contains("192.168.1.255"), "expected broadcast address contained")
-  assert(not c:contains("192.168.2.1"), "expected non-member")
-  assert(not c:contains("10.0.0.1"), "expected non-member")
-
-  local a = assert(ip.parse("192.168.1.42"))
-  assert(c:contains(a), "expected typed Addr accepted")
+  local function member(s: string): boolean
+    local a = check.must(ip.parse(s))
+    return c:contains(a)
+  end
+  assert(member("192.168.1.1"), "expected member")
+  assert(member("192.168.1.0"), "expected network address contained")
+  assert(member("192.168.1.255"), "expected broadcast address contained")
+  assert(not member("192.168.2.1"), "expected non-member")
+  assert(not member("10.0.0.1"), "expected non-member")
 
   local all = check.must(ip.cidr("0.0.0.0/0"))
-  assert(all:contains("8.8.8.8"), "expected /0 to contain everything")
+  local everyone = check.must(ip.parse("8.8.8.8"))
+  assert(all:contains(everyone), "expected /0 to contain everything")
 
   local host = check.must(ip.cidr("1.2.3.4/32"))
-  assert(host:contains("1.2.3.4"), "expected /32 to contain itself")
-  assert(not host:contains("1.2.3.5"), "expected /32 to exclude neighbors")
+  local self_addr = check.must(ip.parse("1.2.3.4"))
+  local neighbor = check.must(ip.parse("1.2.3.5"))
+  assert(host:contains(self_addr), "expected /32 to contain itself")
+  assert(not host:contains(neighbor), "expected /32 to exclude neighbors")
 end
 test_cidr_contains()
-
-local function test_cidr_contains_bad_string()
-  local c = check.must(ip.cidr("10.0.0.0/8"))
-  local ok, err = c:contains("not-an-ip")
-  assert(ok == false, "expected false for unparseable address")
-  assert(err ~= nil, "expected an error message")
-end
-test_cidr_contains_bad_string()
 
 local function test_cidr_equality()
   local a = check.must(ip.cidr("10.0.0.0/8"))

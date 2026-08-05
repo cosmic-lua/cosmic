@@ -14,6 +14,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 local function test_module_exports()
   assert(type(sandbox.apply) == "function", "apply should be a function")
   assert(type(sandbox.available) == "function", "available should be a function")
+  assert(type(sandbox.validate) == "function", "validate should be a function")
   assert(type(sandbox.plan_landlock) == "function", "plan_landlock should be a function")
 end
 test_module_exports()
@@ -53,6 +54,21 @@ local function test_validation_rejects_before_enforcing()
   ok, err = apply_any({fs = {ro = "x"}})
   assert(not ok and err:find("fs.ro", 1, true),
     "non-list fs group must be rejected: " .. tostring(err))
+
+  -- A groupless fs section is ambiguous (deny-all or forgot-the-key?)
+  -- and must be spelled explicitly: fs = { ro = {} } to deny, or no
+  -- fs at all.
+  ok, err = apply_any({fs = {}})
+  assert(not ok and err:find("no groups", 1, true),
+    "groupless fs must be rejected: " .. tostring(err))
+
+  -- validate() is the same checker without enforcement, for callers
+  -- (Box) that carry a policy across a process boundary.
+  local vok, verr = sandbox.validate({sys = {promises = "stdio bogus_promise"}})
+  assert(not vok and verr:find("bogus_promise", 1, true),
+    "validate must reject what apply rejects: " .. tostring(verr))
+  assert(sandbox.validate({fs = {ro = {"/tmp"}}}),
+    "validate must accept a valid policy")
 
   ok, err = apply_any({sys = {promises = "stdio bogus_promise"}})
   assert(not ok and err:find("bogus_promise", 1, true),
@@ -107,8 +123,11 @@ local function test_fail_closed_when_unavailable()
     local ok2, err2 = apply_any({fs = {ro = {"/tmp"}}, sys = {promises = "stdio"}})
     assert(not ok2 and err2:find("unsupported", 1, true),
       "combined policy must fail closed on the missing section: " .. tostring(err2))
-    assert(sandbox.apply({fs = {ro = {"/tmp"}}, best_effort = true}),
-      "best_effort must skip the unenforceable fs section")
+    -- best_effort skips the unenforceable section — and the returned
+    -- report SAYS so, instead of a bare success.
+    local enforced = check.must(
+      sandbox.apply({fs = {ro = {"/tmp"}}, best_effort = true}))
+    check.eq(enforced.fs, false, "the report must show fs was skipped")
   end
   if not avail.sys then
     local ok, err = apply_any({sys = {promises = "stdio"}})
@@ -131,10 +150,20 @@ end
 local function test_plan_landlock_mapping()
   local plan_any = sandbox.plan_landlock
 
-  local opts = plan_any({ro = {"/usr"}})
-  local r = find_rule(opts.rules, "/usr")
+  -- ro means READ and nothing else: a directory of untrusted input
+  -- must not become executable because its grant said "read-only".
+  local opts = plan_any({ro = {"/srv/uploads"}})
+  local r = find_rule(opts.rules, "/srv/uploads")
+  assert(r, "expected /srv/uploads rule")
+  check.eq(r.access, landlock.READ, "ro -> READ only")
+  assert((r.access as integer & landlock.EXEC) == 0, -- cast: from any
+    "ro must not grant EXEC")
+
+  -- exec is the group that runs things: READ|EXEC.
+  opts = plan_any({exec = {"/usr"}})
+  r = find_rule(opts.rules, "/usr")
   assert(r, "expected /usr rule")
-  check.eq(r.access, landlock.READ | landlock.EXEC, "ro -> READ|EXEC")
+  check.eq(r.access, landlock.READ | landlock.EXEC, "exec -> READ|EXEC")
 
   opts = plan_any({rw = {"/tmp"}})
   r = find_rule(opts.rules, "/tmp")
@@ -143,7 +172,7 @@ local function test_plan_landlock_mapping()
   assert((landlock.RW & landlock.EXEC) == 0, "RW must not include EXEC")
 
   -- A path in several groups gets the union of their masks.
-  opts = plan_any({ro = {"/shared"}, rw = {"/shared"}})
+  opts = plan_any({exec = {"/shared"}, rw = {"/shared"}})
   r = find_rule(opts.rules, "/shared")
   assert(r, "expected /shared rule")
   check.eq(r.access, (landlock.READ | landlock.EXEC) | landlock.RW,

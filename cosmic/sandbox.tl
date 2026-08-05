@@ -12,15 +12,17 @@
 ---
 ---     local sandbox = require("cosmic.sandbox")
 ---     assert(sandbox.apply{
----       fs = { ro = { "/usr" }, rw = { "/tmp" } },
+---       fs = { exec = { "/usr" }, ro = { "/etc" }, rw = { "/tmp" } },
 ---       sys = { promises = "stdio rpath wpath" },
 ---     })
 ---
 --- Like the mechanism modules, the facade is fail-closed: a section
 --- that cannot be enforced on this host makes `apply` return
---- `false, "sandbox: ... unsupported on this host"` before anything is
+--- `nil, "sandbox: ... unsupported on this host"` before anything is
 --- applied, unless `best_effort = true` opts into skipping unenforceable
---- sections. `available()` reports what this host can enforce.
+--- sections — in which case the returned Availability record reports
+--- which sections actually enforced. `available()` reports what this
+--- host can enforce.
 ---
 --- Applying is irreversible and process-wide; policies can only be
 --- narrowed by further calls. `cosmic.quicksand.Box` consumes the same
@@ -31,11 +33,15 @@ local pledge = require("cosmic.pledge")
 local unveil = require("cosmic.unveil")
 
 --- Filesystem policy: path allowlists. Everything not listed is denied
---- once the policy applies. `ro` paths are readable *and executable*
---- (so binaries under read-only roots can run); `rw` paths are
---- readable and writable, including creating and removing entries, but
---- never executable; `exec` is an alias of `ro` that documents intent.
---- A path listed in several groups gets the union of their access.
+--- once the policy applies. The three groups mean three things: `ro`
+--- paths are readable and nothing else — a directory of untrusted
+--- input stays non-executable; `exec` paths are readable *and*
+--- executable, for binaries and libraries that must run; `rw` paths
+--- are readable and writable, including creating and removing entries,
+--- but never executable. A path listed in several groups gets the
+--- union of their access. A present-but-empty group is a real policy
+--- (`fs = { ro = {} }` denies everything); a policy with no group at
+--- all is rejected — omit `fs` entirely to skip filesystem policy.
 local record Fs
   ro: {string}
   rw: {string}
@@ -66,8 +72,11 @@ local record Policy
   keep_coverage: boolean
 end
 
---- What this host can enforce: `fs` (landlock on Linux, unveil on
---- OpenBSD) and `sys` (pledge).
+--- Per-section enforcement report: `fs` (landlock on Linux, unveil on
+--- OpenBSD) and `sys` (pledge). `available()` returns what this host
+--- *can* enforce; a successful `apply` returns what it *did* enforce,
+--- so a `best_effort` caller can see exactly which sections were
+--- skipped instead of flying blind.
 local record Availability
   fs: boolean
   sys: boolean
@@ -81,8 +90,9 @@ local record SandboxModule
   type Sys = Sys
   type Policy = Policy
   type Availability = Availability
-  apply: function(policy: Policy): boolean, string
+  apply: function(policy: Policy): Availability | nil, string
   available: function(): Availability
+  validate: function(policy: Policy): boolean, string
   plan_landlock: function(fs: Fs, keep_coverage?: boolean): RestrictOptions
 end
 
@@ -149,7 +159,7 @@ end
 local function plan_landlock(fs: Fs, keep_coverage?: boolean): RestrictOptions
   local rules: {Rule} = {}
   local seen: {string: integer} = {}
-  add_rules(rules, seen, fs and fs.ro or nil, landlock.READ | landlock.EXEC)
+  add_rules(rules, seen, fs and fs.ro or nil, landlock.READ)
   add_rules(rules, seen, fs and fs.rw or nil, landlock.RW)
   add_rules(rules, seen, fs and fs.exec or nil, landlock.READ | landlock.EXEC)
   return {
@@ -160,11 +170,12 @@ local function plan_landlock(fs: Fs, keep_coverage?: boolean): RestrictOptions
   }
 end
 
--- The unveil equivalents of the landlock group masks: ro/exec expose
--- read + execute, rw exposes read + write + create/remove.
+-- The unveil equivalents of the landlock group masks: ro exposes read
+-- only, exec exposes read + execute, rw exposes read + write +
+-- create/remove.
 local function apply_fs_unveil(fs: Fs, keep_coverage?: boolean): boolean, string
   local groups: {{{string}, unveil.Perm}} = {
-    {fs.ro, "rx"},
+    {fs.ro, "r"},
     {fs.rw, "rwc"},
     {fs.exec, "rx"},
   }
@@ -219,6 +230,10 @@ local function check_policy(policy: Policy): string
         return "sandbox: fs." .. name .. " must be a list of paths"
       end
     end
+    if fs.ro == nil and fs.rw == nil and fs.exec == nil then
+      return "sandbox: fs policy has no groups — pass fs = { ro = {} }"
+      .. " to deny everything, or omit fs to skip filesystem policy"
+    end
   end
   local sys = policy.sys
   if sys then
@@ -233,6 +248,21 @@ local function check_policy(policy: Policy): string
   return nil
 end
 
+--- Validate a policy's structure without enforcing anything: section
+--- shapes, path-list types, and promise tokens. `apply` runs this
+--- itself; it is exported so a policy carried across a process
+--- boundary (e.g. cosmic.quicksand.Box) can be rejected at
+--- construction time instead of dying post-fork.
+---
+--- @param policy Policy the policy to check
+--- @return boolean True when structurally valid
+--- @return string? Error message on failure
+local function validate(policy: Policy): boolean, string
+  local verr = check_policy(policy)
+  if verr then return false, verr end
+  return true
+end
+
 --- Apply a sandbox policy to the current process. Irreversible.
 ---
 --- The policy is validated and this host's enforceability checked for
@@ -243,46 +273,50 @@ end
 --- filesystem-sandbox syscalls.
 ---
 --- Fail-closed: a requested section this host cannot enforce returns
---- `false, "sandbox: ... unsupported on this host"`. With
---- `best_effort = true` unenforceable sections are skipped instead and
---- apply reports success for the sections that did enforce.
+--- `nil, "sandbox: ... unsupported on this host"`. With
+--- `best_effort = true` unenforceable sections are skipped instead —
+--- and the return value says so: on success apply returns an
+--- Availability record of what was actually enforced, so a
+--- best_effort caller can log or refuse when `.fs`/`.sys` came back
+--- false rather than believing in a sandbox that is not there.
 ---
 --- @param policy Policy fs and/or sys sections, best_effort flag
---- @return boolean True on success
+--- @return Availability? What was enforced, on success
 --- @return string? Error message on failure
-local function apply(policy: Policy): boolean, string
+local function apply(policy: Policy): Availability | nil, string
   local verr = check_policy(policy)
-  if verr then return false, verr end
+  if verr then return nil, verr end
   local do_fs = policy.fs ~= nil
   local do_sys = policy.sys ~= nil
   if do_fs and not fs_available() then
     if not policy.best_effort then
-      return false, "sandbox: fs policy unsupported on this host"
+      return nil, "sandbox: fs policy unsupported on this host"
       .. " (needs landlock on Linux, or OpenBSD)"
     end
     do_fs = false
   end
   if do_sys and not pledge.available() then
     if not policy.best_effort then
-      return false, "sandbox: sys policy unsupported on this host"
+      return nil, "sandbox: sys policy unsupported on this host"
     end
     do_sys = false
   end
   if do_fs then
     local ok, err = apply_fs(policy.fs, policy.keep_coverage)
-    if not ok then return false, "sandbox: fs: " .. tostring(err) end
+    if not ok then return nil, "sandbox: fs: " .. tostring(err) end
   end
   if do_sys then
     local ok, err = pledge.apply(policy.sys.promises,
-      {exec = policy.sys.exec})
-    if not ok then return false, "sandbox: sys: " .. tostring(err) end
+      {exec = policy.sys.exec, keep_coverage = policy.keep_coverage})
+    if not ok then return nil, "sandbox: sys: " .. tostring(err) end
   end
-  return true
+  return {fs = do_fs, sys = do_sys}
 end
 
 local M: SandboxModule = {
   apply = apply,
   available = available,
+  validate = validate,
   plan_landlock = plan_landlock,
 }
 
