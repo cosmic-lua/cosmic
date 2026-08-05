@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- reads: .github/workflows
 -- Ratchets over the workflow files themselves.
 --
 -- CI's environment is a build input, pinned three times over: a

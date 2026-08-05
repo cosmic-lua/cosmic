@@ -19,6 +19,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local deps = require("_make.deps")
+local imports = require("_make.imports")
 local project = require("_make.project")
 local stamp = require("_make.stamp")
 local types = require("_make.types")
@@ -132,8 +133,9 @@ end
 --- every value is a file that exists, spelled relative to the root.
 --- @param proj Project The scanned project
 --- @param cosmic string Absolute path to the cosmic binary
---- @return string The contents of o/project.mk
-local function project_mk(proj: Project, cosmic: string): string
+--- @return string | nil The contents of o/project.mk
+--- @return string The refusal when a reads declaration is stale
+local function project_mk(proj: Project, cosmic: string): string | nil, string
   local tl_sources: {string} = {}
   local lua_sources: {string} = {}
   local fmt_sources: {string} = {}
@@ -212,8 +214,18 @@ local function project_mk(proj: Project, cosmic: string): string
     -- read. The model already says so — a rule cannot ask for a closure
     -- nobody emitted, and `cosmic.mk` asks for all three.
     if runs_against_the_stage[f.kind] then
-      dep_lines[#dep_lines + 1] = assign("deps_" .. stem,
-        deps.built_paths(deps.closure(proj, f, by_import)))
+      -- Declared reads (`--- reads: <path>`) join the closure: one
+      -- declaration is prerequisite, content key, and fence grant.
+      local built = deps.built_paths(deps.closure(proj, f, by_import))
+      local extra, rerr = imports.reads_of_file(proj.root, f.path)
+      if not extra then
+        return nil, "make: " .. (rerr or "bad reads declaration")
+      end
+      -- cast: narrowing does not survive the early-exit guard above
+      for _, r in ipairs(extra as {string}) do
+        built[#built + 1] = r
+      end
+      dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
     end
   end
   table.sort(dep_lines)
@@ -263,8 +275,10 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   if not ok then
     return nil, err
   end
+  local mk, mkerr = project_mk(proj, cosmic)
+  if not mk then return nil, mkerr end
   ok, err = write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
-    project_mk(proj, cosmic))
+    mk as string) -- cast: scalar narrowing after the guard
   if not ok then
     return nil, err
   end
@@ -460,7 +474,7 @@ local record GraphModule
   extract_make: function(to: string): boolean, string
   JOBS_ENV: string
   RULES_ZIP: string
-  project_mk: function(proj: Project, cosmic: string): string
+  project_mk: function(proj: Project, cosmic: string): string | nil, string
   materialize: function(proj: Project, cosmic: string): string | nil, string
   find_make: function(): string | nil, string
   jobs_flag: function(): string

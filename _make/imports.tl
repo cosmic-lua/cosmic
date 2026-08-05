@@ -136,15 +136,73 @@ local function of_file(path: string): {string}
   return found
 end
 
+--- Non-import files a test declares it READS, from `--- reads: <path>`
+--- doc-comment lines. The D18 content key hashes only declared inputs,
+--- and a ratchet test's subject (docs/decisions, .github/workflows) is
+--- no import — undeclared, an edit to it replayed the test's cached
+--- verdict (d18-step-skip.md, amended). Paths are relative to the
+--- project root; a directory declares every file under it.
+--- @param src string The file's contents
+--- @return {string} Declared read paths, in file order
+local function reads_scan(src: string): {string}
+  local out: {string} = {}
+  for line in (src .. "\n"):gmatch("([^\n]*)\n") do
+    local path = line:match("^%-%-%- reads: (%S+)%s*$")
+    if path then
+      out[#out + 1] = path
+    end
+  end
+  return out
+end
+
+--- The declared reads of a source file, expanded: each declared
+--- directory becomes the sorted list of files under it, so the make
+--- prerequisites and the content key see files, not directories
+--- (a directory's mtime misses edits — the exact lie D18 exists to
+--- stop). A declared path that does not exist fails the scan loudly:
+--- an input that cannot be hashed is a declaration gone stale.
+--- @param root string Absolute project root
+--- @param path string Source file path relative to root
+--- @return {string} | nil Sorted file paths relative to root
+--- @return string The error when a declaration names a missing path
+local function reads_of_file(root: string, path: string): {string} | nil, string
+  local content = fs.read(fs.join(root, path))
+  if not content then
+    return {}
+  end
+  local out: {string} = {}
+  for _, declared in ipairs(reads_scan(content as string)) do -- cast: scalar narrowing
+    local abs = fs.join(root, declared)
+    if fs.isdir(abs) then
+      -- cast: `or` keeps the nil in the union
+      local under = (fs.collect(abs, "*") or {}) as {string}
+      for _, f in ipairs(under) do
+        -- collect returns root-joined paths; keep them root-relative
+        -- like every other project.mk entry
+        out[#out + 1] = (f:sub(1, #root + 1) == root .. "/") and f:sub(#root + 2) or f
+      end
+    elseif fs.isfile(abs) then
+      out[#out + 1] = declared
+    else
+      return nil, path .. " declares `reads: " .. declared ..
+      "`, which does not exist"
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 local record ImportsModule
   scan: function(src: string): {string}
   of_file: function(path: string): {string}
+  reads_of_file: function(root: string, path: string): {string} | nil, string
   forget: function()
 end
 
 local M: ImportsModule = {
   scan = scan,
   of_file = of_file,
+  reads_of_file = reads_of_file,
   forget = forget,
 }
 
