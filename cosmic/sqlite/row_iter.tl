@@ -16,7 +16,7 @@ local lsqlite3 = require("cosmo.lsqlite3")
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
   metamethod __close: function(self: Rows)
-  err: function(self: Rows): string
+  err: function(self: Rows): string | nil
   close: function(self: Rows)
 end
 
@@ -47,7 +47,10 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
     done = true
     if on_close then
       on_close(raw_stmt)
-    else
+    elseif raw_stmt:isopen() then
+      -- isopen guard: the binding finalizes statements when the
+      -- database closes, and finalize on that dead vm throws — from
+      -- __gc, no less. Never raise from a release path.
       local _ = raw_stmt:finalize()
     end
   end
@@ -87,7 +90,7 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
         release()
       end,
     })
-  iter.err = function(_: Rows): string return step_err end
+  iter.err = function(_: Rows): string | nil return step_err end
   iter.close = function(_: Rows)
     release()
   end

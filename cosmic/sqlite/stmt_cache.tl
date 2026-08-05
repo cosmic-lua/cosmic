@@ -4,7 +4,16 @@
 --- and finalizing a fresh one every time.
 
 local bind_mod = require("cosmic.sqlite.bind")
+local sqltext = require("cosmic.sqlite.sqltext")
 local lsqlite3 = require("cosmo.lsqlite3")
+
+-- sqlite compiles only the FIRST statement of a multi-statement string,
+-- so running one through the parameterized paths would silently execute
+-- a prefix and report success. Rejected instead — and only on the
+-- prepare (cache-miss) path, so the hot cached path never re-scans.
+local MULTI_ERR < const > =
+"multi-statement sql is not supported here; run each statement"
+.. " separately (only exec without parameters runs multi-statement sql)"
 
 -- Named alias (shared through cosmic.sqlite.bind) so a function-typed
 -- return value never appears as an inline literal in a multi-return
@@ -37,6 +46,9 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     local cached = cache[sql]
     if cached then
       return cached
+    end
+    if sqltext.has_multiple_statements(sql) then
+      return nil, MULTI_ERR
     end
     local raw_stmt = raw_db:prepare(sql)
     if not raw_stmt then
@@ -84,6 +96,9 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     if cached and not checked_out[sql] then
       checked_out[sql] = true
       return cached, function(_: lsqlite3.Statement) checked_out[sql] = nil end
+    end
+    if not cached and sqltext.has_multiple_statements(sql) then
+      return nil, nil, MULTI_ERR
     end
     local raw_stmt = raw_db:prepare(sql)
     if not raw_stmt then

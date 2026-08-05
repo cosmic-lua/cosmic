@@ -4,14 +4,24 @@
 --- live together here. Lives in its own file so cosmic/sqlite.tl stays
 --- under the 500-line cap.
 
+local sqltext = require("cosmic.sqlite.sqltext")
+
 -- Mirrors of cosmic.sqlite's records (Teal records are nominal, so the
 -- boundary crosses through `any`; same convention as sqlite_stmt_cache).
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
   metamethod __close: function(self: Rows)
-  err: function(self: Rows): string
+  err: function(self: Rows): string | nil
   close: function(self: Rows)
 end
+
+-- Same rejection as cosmic.sqlite.stmt_cache: prepare compiles only the
+-- first statement, so a parameterized multi-statement call would
+-- silently run a prefix. These paths prepare fresh every call, so the
+-- scan runs per call — they are the documented slow path.
+local MULTI_ERR < const > =
+"multi-statement sql is not supported here; run each statement"
+.. " separately (only exec without parameters runs multi-statement sql)"
 
 local record Stmt
   bind_list: function(self: Stmt, values: {any}): boolean, string
@@ -62,7 +72,7 @@ local function make_query_iter(stmt: Stmt): Rows
         release()
       end,
     })
-  iter.err = function(_: Rows): string return raw_iter:err() end
+  iter.err = function(_: Rows): string | nil return raw_iter:err() end
   iter.close = function(_: Rows)
     release()
   end
@@ -79,6 +89,9 @@ local function attach(db_any: any)
   --- Execute SQL with parameters from a list (table). The count is derived
   --- from the SQL itself, so nil values in the table are handled correctly.
   function db:exec_list(sql: string, values: {any}): boolean, string
+    if sqltext.has_multiple_statements(sql) then
+      return false, MULTI_ERR
+    end
     local stmt, err = self:prepare(sql)
     if not stmt then
       return false, err or "prepare failed"
@@ -99,6 +112,9 @@ local function attach(db_any: any)
   --- Execute SQL with named parameters.
   --- SQL should use :name placeholders. Table keys are names without the colon.
   function db:exec_named(sql: string, params: {string: any}): boolean, string
+    if sqltext.has_multiple_statements(sql) then
+      return false, MULTI_ERR
+    end
     local stmt, err = self:prepare(sql)
     if not stmt then
       return false, err or "prepare failed"
@@ -120,6 +136,9 @@ local function attach(db_any: any)
   --- The parameter count is derived from the SQL itself, so nil values
   --- in the table are handled correctly.
   function db:query_list(sql: string, values: {any}): Rows | nil, string
+    if sqltext.has_multiple_statements(sql) then
+      return nil, MULTI_ERR
+    end
     local stmt, err = self:prepare(sql)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
@@ -138,6 +157,9 @@ local function attach(db_any: any)
   --- Query with named parameters.
   --- SQL should use :name placeholders. Table keys are names without the colon.
   function db:query_named(sql: string, params: {string: any}): Rows | nil, string
+    if sqltext.has_multiple_statements(sql) then
+      return nil, MULTI_ERR
+    end
     local stmt, err = self:prepare(sql)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")

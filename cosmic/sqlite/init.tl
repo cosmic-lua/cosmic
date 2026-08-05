@@ -44,7 +44,7 @@ local record Rows
   metamethod __call: function(self: Rows): {string: any}
   metamethod __close: function(self: Rows)
   --- Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Rows): string
+  err: function(self: Rows): string | nil
   --- Release the underlying prepared statement early (idempotent).
   close: function(self: Rows)
 end
@@ -62,8 +62,13 @@ end
 --- iter()`, one row at a time) when column 1 may be NULL.
 local record Values
   metamethod __call: function(self: Values): any ...
+  metamethod __close: function(self: Values)
   --- Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Values): string
+  err: function(self: Values): string | nil
+  --- End iteration early (idempotent); also runs on scope exit via
+  --- to-be-closed. Does not finalize the owning Statement — that is
+  --- Statement:close()'s job, since the Statement may be reused.
+  close: function(self: Values)
 end
 
 --- Statement handle with automatic cleanup.
@@ -121,7 +126,8 @@ local record Database
   query_value: function(self: Database, sql: string, ...: any): any, string
   --- Execute sql with positional `?` parameters; use for statements
   --- that return no rows (INSERT/UPDATE/DELETE/DDL). Multi-statement
-  --- sql is only supported in the no-parameter form.
+  --- sql runs only in the no-parameter form; with parameters it is
+  --- REJECTED (sqlite would silently run just the first statement).
   exec: function(self: Database, sql: string, ...: any): boolean, string
   --- exec() with parameters in a list, so nil holes bind as NULL.
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
@@ -129,20 +135,25 @@ local record Database
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
   --- Run fn inside BEGIN IMMEDIATE .. COMMIT. Rolls back when fn
   --- raises, returns false, or returns nil plus an error; returning
-  --- nothing commits.
-  transaction: function(self: Database, fn: function(Database)): boolean, string
+  --- nothing (or true) commits. The callback is typed variadic
+  --- (Teal cannot express optional returns), so a typed
+  --- `function(db): boolean` rollback needs no cast; see
+  --- cosmic.sqlite.extras.
+  transaction: function(self: Database, fn: function(Database): any ...): boolean, string
   --- Run fn in a nestable savepoint with transaction's rollback rules;
   --- see cosmic.sqlite.extras.
-  savepoint: function(self: Database, fn: function(Database)): boolean, string
+  savepoint: function(self: Database, fn: function(Database): any ...): boolean, string
   --- rowid of the most recent successful INSERT (0 if closed).
   last_insert_rowid: function(self: Database): integer
   --- Rows modified by the most recent INSERT/UPDATE/DELETE (0 if closed).
   changes: function(self: Database): integer
   --- Close the database and its cached statements (idempotent); also
-  --- runs on scope exit via to-be-closed. Returns false plus sqlite's
-  --- error message if the raw close fails (e.g. SQLITE_BUSY from a
-  --- still-open user-prepared Statement) -- the database is left open
-  --- in that case, so a caller that must know can retry or clean up.
+  --- runs on scope exit via to-be-closed. Live user-prepared
+  --- Statements do not block it: the binding finalizes them during
+  --- close. Returns false plus sqlite's message if the raw close ever
+  --- fails — the handle is NOT marked closed then, so the database
+  --- stays usable and a retry is a real retry, not a stale-flag
+  --- success.
   close: function(self: Database): boolean, string
 end
 
@@ -221,10 +232,14 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
   -- iterator directly one row at a time (`local a, b, c = iter()`) does.
   function stmt:values(): Values
     local step_err: string
+    local done = false
     local col_count = raw_stmt:columns()
 
     local iter = setmetatable({} as Values, { -- cast: empty table into callable record
         __call = function(_: Values): any ...
+          if done then
+            return nil
+          end
           local rc = raw_stmt:step()
           if rc == sqlite3.ROW then
             local vals: {integer: any} = {}
@@ -238,10 +253,13 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
           if rc ~= sqlite3.DONE then
             step_err = raw_db:errmsg()
           end
+          done = true
           return nil
         end,
+        __close = function(self: Values) self:close() end,
       })
-    iter.err = function(_: Values): string return step_err end
+    iter.err = function(_: Values): string | nil return step_err end
+    iter.close = function(_: Values) done = true end
     return iter
   end
 
@@ -268,11 +286,20 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
   stmt.close = function(_: Statement)
     if closed then return end
     closed = true
-    local _ = raw_stmt:finalize()
+    -- The binding finalizes outstanding statements when the DATABASE
+    -- closes; finalize on such a dead vm throws. Guard so close (and
+    -- the __gc/__close paths that reach it) never raises.
+    if raw_stmt:isopen() then
+      local _ = raw_stmt:finalize()
+    end
   end
 
+  -- __gc is the backstop for an abandoned user Statement, matching the
+  -- Rows iterator: without it a dropped db:prepare() handle leaks its
+  -- raw statement — the very SQLITE_BUSY that makes db:close() fail.
   return setmetatable(stmt, {
-      __close = function(self: Statement) self:close() end
+      __close = function(self: Statement) self:close() end,
+      __gc = function(self: Statement) self:close() end,
     })
 end
 
@@ -337,8 +364,8 @@ local function make_database(raw_db: lsqlite3.Database): Database
 
   -- exec_list, exec_named, query_list, query_named live in
   -- cosmic.sqlite.params (same prepare/bind/consume shape, split out to
-  -- keep this file under the 500-line cap); query_value and savepoint
-  -- live in cosmic.sqlite.extras for the same reason.
+  -- keep this file under the 500-line cap); query_value, transaction
+  -- and savepoint live in cosmic.sqlite.extras for the same reason.
   params_mod.attach(db)
   extras_mod.attach(db)
 
@@ -368,38 +395,6 @@ local function make_database(raw_db: lsqlite3.Database): Database
     return first
   end
 
-  --- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
-  --- cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
-  --- returned `false`, or `nil` plus an error (nothing returned still commits).
-  --- A failing COMMIT (e.g. a deferred foreign-key violation) also rolls
-  --- back, so the connection is never left inside an open transaction.
-  function db:transaction(fn: function(Database)): boolean, string
-    local ok, err = self:exec("BEGIN IMMEDIATE")
-    if not ok then
-      return false, err or "begin failed"
-    end
-    -- cast: pcall variadic returns
-    local success, result, result_err = pcall(fn, self) as (boolean, any, any)
-    if not success then
-      self:exec("ROLLBACK")
-      return false, (result as string) or "transaction failed" -- cast: from any
-    end
-    if result == false or (result == nil and result_err ~= nil) then
-      self:exec("ROLLBACK")
-      return false, (result_err as string) or "transaction rolled back" -- cast: from any
-    end
-    local commit_ok, commit_err = self:exec("COMMIT")
-    if not commit_ok then
-      local rollback_ok, rollback_err = self:exec("ROLLBACK")
-      if not rollback_ok then
-        return false, (commit_err or "commit failed") ..
-        "; rollback also failed: " .. (rollback_err or "unknown error")
-      end
-      return false, commit_err or "commit failed"
-    end
-    return true
-  end
-
   function db:last_insert_rowid(): integer
     if closed then
       return 0
@@ -418,12 +413,19 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if closed then
       return true
     end
-    closed = true
+    -- Mark closed only AFTER the raw close succeeds: marking first
+    -- made a failed close unrecoverable — the retry hit the guard
+    -- above and reported success while sqlite's handle stayed open.
+    -- (lsqlite3 finalizes outstanding statements itself, so a failure
+    -- here is defensive rather than reachable today.) close_all is
+    -- idempotent (it clears as it finalizes), so a retry re-runs it
+    -- harmlessly.
     stmt_cache:close_all()
     local rc = raw_db:close()
     if rc ~= sqlite3.OK then
       return false, raw_db:errmsg()
     end
+    closed = true
     return true
   end
 

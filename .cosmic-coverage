@@ -73,7 +73,7 @@ cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
 cosmic/ansi.tl 86 86
-cosmic/benchmark.tl 180 212
+cosmic/benchmark.tl 146 173
 cosmic/check.tl 110 113
 cosmic/child/fast.tl 40 52
 cosmic/child/init.tl 0 212
@@ -123,7 +123,7 @@ cosmic/hash.tl 71 74
 cosmic/html.tl 6 6
 cosmic/init.tl 16 17
 cosmic/instrument.tl 69 74
-cosmic/ip.tl 116 116
+cosmic/ip.tl 109 109
 cosmic/json.tl 23 24
 cosmic/landlock.tl 58 102
 cosmic/literal.tl 222 238
@@ -136,8 +136,8 @@ cosmic/proc.tl 39 77
 cosmic/quicksand/box/env.tl 27 27
 cosmic/quicksand/box/init.tl 0 70
 cosmic/quicksand/box/merge.tl 66 67
-cosmic/quicksand/box/run.tl 0 166
-cosmic/quicksand/caps.tl 59 77
+cosmic/quicksand/box/run.tl 0 165
+cosmic/quicksand/caps.tl 59 79
 cosmic/quicksand/init.tl 0 49
 cosmic/quicksand/netns.tl 37 55
 cosmic/quicksand/proc.tl 91 131
@@ -160,6 +160,7 @@ cosmic/sqlite/extras.tl 40 45
 cosmic/sqlite/init.tl 184 201
 cosmic/sqlite/params.tl 65 77
 cosmic/sqlite/row_iter.tl 49 56
+cosmic/sqlite/sqltext.tl 29 41
 cosmic/sqlite/stmt_cache.tl 57 67
 cosmic/sse.tl 98 103
 cosmic/stream.tl 0 2
@@ -179,4 +180,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13751 18129
+total 13739 18125

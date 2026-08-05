@@ -255,7 +255,8 @@ local function test_query_step_error_surfaced()
   for _ in iter do end
   local err = iter:err()
   assert(err ~= nil, "step error must be surfaced, not swallowed as end-of-rows")
-  assert(err:find("overflow"), "error should mention overflow: " .. tostring(err))
+  assert(string.find(err, "overflow"),
+    "error should mention overflow: " .. tostring(err))
   db:close()
 end
 test_query_step_error_surfaced()
