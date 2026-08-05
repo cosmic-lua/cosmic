@@ -50,7 +50,6 @@ local record UnveilModule
   allow: function(path: string, permissions: Perm, opts?: Options): boolean, string
   commit: function(opts?: Options): boolean, string
   available: function(): boolean
-  apply: function(path: string, permissions: string): boolean, string
 end
 ```
 
@@ -104,26 +103,6 @@ function commit(opts?: Options): boolean, string
 
  Commit the unveil policy: the allowlist becomes final and further
  unveil calls are rejected. Fail-closed like `allow`.
-
-**Returns:**
-
-- boolean - True on success
-- string? - Error message on failure
-
-### apply
-
-```teal
-function apply(path: string, permissions: string): boolean, string
-```
-
- DEPRECATED compatibility shim: delegates to `allow(path,
- permissions)`, or to `commit()` when both arguments are nil. New
- code should call allow/commit directly.
-
-**Parameters:**
-
-- `path` (string|nil) - Path to unveil (nil to commit)
-- `permissions` (string|nil) - Permission string (nil to commit)
 
 **Returns:**
 

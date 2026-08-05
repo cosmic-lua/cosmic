@@ -38,8 +38,9 @@ end
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
+  --  Internal, exported for its own unit tests: pure decision function
+  --  over a binding value; never syscalls.
   probe: function(fn: any): boolean
-  probe_ns: function(): boolean
   Box: BoxIface
 end
 ```
@@ -71,30 +72,6 @@ function probe(fn: any): boolean
 **Returns:**
 
 - boolean - true when the syscall is wired up on this host
-
-### probe_ns
-
-```teal
-function probe_ns(): boolean
-```
-
- Probe whether the Box namespace trio can actually be entered: a
- scratch child attempts unshare(CLONE_NEWUSER | CLONE_NEWNET |
- CLONE_NEWNS) followed by the uid_map / gid_map writes — exactly the
- setup sequence Box:run's supervisor performs — and reports the
- outcome over a pipe. unshare is irreversible for the caller, so the
- attempt must never run in this process.
- CLONE_NEWUSER exists as a compile-time constant on every Linux
- build, but hosts routinely disable unprivileged user namespaces
- (sysctls, seccomp, AppArmor), and others allow the unshare while
- blocking the /proc/self/*_map writes; testing the constant reported
- user_ns = true on such hosts and Box:run then failed partway
- through setup with EPERM. Any probe failure (pipe, fork, unshare,
- map writes) reports unavailable — fail-closed.
-
-**Returns:**
-
-- boolean - true when the Box userns setup sequence works here
 
 ### capabilities
 

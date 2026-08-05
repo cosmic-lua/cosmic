@@ -91,28 +91,10 @@ end
 local record ChildModule
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
   run: function(argv: {string}, opts?: Options): Result
-  prepare_zip_exec: function(zip_path: string): integer | nil, string
 end
 ```
 
 ## Functions
-
-### prepare_zip_exec
-
-```teal
-function prepare_zip_exec(zip_path: string): integer | nil, string
-```
-
- Prepares an executable fd from a /zip/ path for fexecve.
-
-**Parameters:**
-
-- `zip_path` (string) - Path starting with /zip/
-
-**Returns:**
-
-- integer - | nil The file descriptor ready for fexecve
-- string - Error message on failure
 
 ### spawn
 

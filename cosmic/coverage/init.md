@@ -52,6 +52,12 @@ local record CoverageModule
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
   report: function(paths: {string}): integer
+  --  Ratchet a run against a committed baseline file (exit-code result).
+  gate: function(baseline_path: string, only: string, paths: {string}): integer
+  --  Render fresh baseline text from .cov dirs (+ previous floor).
+  baseline_text: function(paths: {string}, previous?: string): string | nil, string
+  --  Rows a fresh baseline lowers relative to the committed one.
+  baseline_lowered: function(before: string, after: string): {string}
 end
 ```
 

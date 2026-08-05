@@ -14,8 +14,6 @@ local record DocModule
   parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): string | nil, string
-  serialize: function(doc: ModuleDoc): string
-  serialize_index: function(index: DocIndex): string
   load_index: function(source: string): DocIndex | nil, string
   run: function(query?: string): DocsResult
   has_docs: function(): boolean
@@ -69,20 +67,6 @@ function render_file(file_path: string): string | nil, string
  (the markdown), not a fallible effect: the old boolean, string shape
  made slot 2 the payload on success and the error on failure, so
  every caller branched on which meaning it held.
-
-### serialize
-
-```teal
-function serialize(doc: ModuleDoc): string
-```
-
- Serialize a ModuleDoc to Lua source code.
-
-### serialize_index
-
-```teal
-function serialize_index(index: DocIndex): string
-```
 
 ### load_index
 

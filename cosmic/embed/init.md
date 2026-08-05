@@ -143,7 +143,6 @@ end
 ```teal
 local record EmbedModule
   EPOCH: integer
-  FLOOR: {string}
   run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean

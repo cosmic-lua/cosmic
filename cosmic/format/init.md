@@ -7,20 +7,6 @@
 
 ## Types
 
-### Issue
-
- A formatting issue (syntax error preventing formatting).
-
-```teal
-local record Issue
-  file: string
-  line: integer
-  column: integer
-  message: string
-  severity: string
-end
-```
-
 ### FormatResult
 
  Result from formatting a file.
@@ -96,11 +82,3 @@ function format_file(input_path: string): FormatResult
 **Returns:**
 
 - FormatResult - Result with ok status, formatted code, and any errors
-
-### format_issues
-
-```teal
-function format_issues(issues: {Issue}): string
-```
-
- Format issues for human-readable output.
