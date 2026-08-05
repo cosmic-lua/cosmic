@@ -73,6 +73,8 @@ jobs:
   # below for the trust boundary.
   ci:
     runs-on: ubuntu-latest
+    # A green run takes ~2 minutes; anything near this ceiling is a hang.
+    timeout-minutes: 12
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
@@ -145,14 +147,16 @@ jobs:
       #
       # timeout: a recipe child dying mid-test can leave forked test
       # parents blocked on accept/wait, wedging make. Convert a hang into
-      # a failure so the dump step below fires.
+      # a failure so the dump step below fires. 8 minutes is ~4x the
+      # slowest green run on a warm cache and still generous for a cold
+      # one; a hang used to idle out the full 20 before reporting.
       # One command, because the gate converges on its own: `--make ci`
       # in a project that builds its own toolchain builds first and
       # re-execs into what it built, until the artifact stops changing
       # (_make/converge.tl). Building here rather than in the build lane
       # keeps it fenced.
       - name: the gate, with network denied
-        timeout-minutes: 20
+        timeout-minutes: 8
         shell: bash
         env:
           NETNS: |
@@ -230,6 +234,8 @@ jobs:
   # earlier: it needs only this job's artifact, not the repro rebuild.
   build:
     runs-on: ubuntu-latest
+    # A green run takes ~2 minutes; anything near this ceiling is a hang.
+    timeout-minutes: 12
     # Pinned container, identical to the gate lane's; see there.
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
@@ -318,6 +324,8 @@ jobs:
   repro:
     needs: build
     runs-on: ubuntu-latest
+    # A green run takes ~2 minutes; anything near this ceiling is a hang.
+    timeout-minutes: 12
     # Pinned container, identical to the gate lane's; see there.
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
@@ -391,6 +399,8 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # A green run takes ~2 minutes; anything near this ceiling is a hang.
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
