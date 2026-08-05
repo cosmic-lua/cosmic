@@ -42,8 +42,9 @@ end
 -- test it spawned: the child emits, the parent parses its stderr.
 local function Example_parse()
   local instrument = require("cosmic.instrument")
-  local data = instrument.parse_line(
-    "cosmic: op=test file=fs_test.tl exit=0 wall_ms=42 cpu_ms=37 maxrss_kb=8192")
+  local check = require("cosmic.check")
+  local data = check.must(instrument.parse_line(
+      "cosmic: op=test file=fs_test.tl exit=0 wall_ms=42 cpu_ms=37 maxrss_kb=8192"))
   print(data.op, data.file, data.exit, data.wall_ms, data.maxrss_kb)
   print(instrument.parse_line("ordinary stderr output"))
   -- Output:

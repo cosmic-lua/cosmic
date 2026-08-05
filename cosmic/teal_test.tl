@@ -172,7 +172,7 @@ local function test_strict_compile_codegen()
   local sc = teal.compile(closer, {strict = true})
   assert(sc.ok, "strict compile of <close> should pass: "
     .. (sc.ok and "" or teal.format_issues(sc.errors)))
-  assert(sc.code:find("<close>", 1, true),
+  assert(string.find(sc.code or "", "<close>", 1, true),
     "strict compile must keep the 5.4 <close> attribute")
 end
 test_strict_compile_codegen()
@@ -187,13 +187,13 @@ local function test_compile_gen_compat_wired()
   local off = teal.compile(pack_file, {gen_target = "5.3", gen_compat = "off"})
   assert(off.ok, "gen_compat=off compile should succeed: "
     .. (off.ok and "" or teal.format_issues(off.errors)))
-  assert(not off.code:find("_tl_table_pack", 1, true),
+  assert(not string.find(off.code or "", "_tl_table_pack", 1, true),
     "gen_compat=off must not add compat shims")
 
   local required = teal.compile(pack_file, {gen_target = "5.3", gen_compat = "required"})
   assert(required.ok, "gen_compat=required compile should succeed: "
     .. (required.ok and "" or teal.format_issues(required.errors)))
-  assert(required.code:find("_tl_table_pack", 1, true),
+  assert(string.find(required.code or "", "_tl_table_pack", 1, true),
     "gen_compat=required must add a table.pack compat shim when targeting 5.3")
 end
 test_compile_gen_compat_wired()

@@ -80,8 +80,7 @@ test_getsid_returns_number()
 -- getrusage tests --
 
 local function test_getrusage_returns_rusage()
-  local rusage = proc.getrusage(proc.RUSAGE_SELF)
-  assert(rusage ~= nil, "expected rusage object")
+  local rusage = check.must(proc.getrusage(proc.RUSAGE_SELF))
   local utime_sec, utime_nsec = rusage:utime()
   assert(type(utime_sec) == "number", "expected utime seconds to be number")
   assert(type(utime_nsec) == "number", "expected utime nanos to be number")
@@ -89,7 +88,7 @@ end
 test_getrusage_returns_rusage()
 
 local function test_getrusage_maxrss()
-  local rusage = proc.getrusage(proc.RUSAGE_SELF)
+  local rusage = check.must(proc.getrusage(proc.RUSAGE_SELF))
   local maxrss = rusage:maxrss()
   assert(type(maxrss) == "number", "expected maxrss to be number")
   assert(maxrss >= 0, "expected non-negative maxrss")

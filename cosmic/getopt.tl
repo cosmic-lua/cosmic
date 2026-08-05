@@ -186,13 +186,13 @@ end
 
 local record GetoptModule
   --- Type for defining long options
-  LongOpt: LongOpt
+  type LongOpt = LongOpt
   --- Type for a single recognized option
-  Option: Option
+  type Option = Option
   --- Type for the parse result
-  Result: Result
+  type Result = Result
   --- Type for the stateful parser
-  Parser: Parser
+  type Parser = Parser
   --- Parse a command-line argument vector in one shot
   parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   --- Create a stateful parser (compatibility shim over parse)

@@ -211,8 +211,8 @@ local function events(reader: stream.Reader): Stream
 end
 
 local record sse
-  Event: Event
-  Stream: Stream
+  type Event = Event
+  type Stream = Stream
   events: function(reader: stream.Reader): Stream
 end
 

@@ -270,7 +270,7 @@ local function cidr(str: string): Cidr | nil, string
 end
 
 local record IpModule
-  Addr: Addr
+  type Addr = Addr
   type Category = Category
   type Family = Family
   type Cidr = Cidr

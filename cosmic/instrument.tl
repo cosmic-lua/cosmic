@@ -98,7 +98,7 @@ end
 --- @param span Span The span from begin()
 --- @param exit_code integer The exit code of the operation
 --- @return string? The formatted line, or nil if disabled
-local function finish_span(span: Span, exit_code: integer): string
+local function finish_span(span: Span, exit_code: integer): string | nil
   if not is_enabled() then
     return nil
   end
@@ -140,7 +140,7 @@ end
 --- Returns nil if the line is not a valid cosmic: instrumentation line.
 --- @param line string A line from stderr
 --- @return InstrumentData?
-local function parse_line(line: string): InstrumentData
+local function parse_line(line: string): InstrumentData | nil
   if not line:match("^cosmic: ") then
     return nil
   end
@@ -180,8 +180,8 @@ end
 local record InstrumentModule
   enabled: function(): boolean
   begin: function(op: string, file: string): Span
-  finish: function(span: Span, exit_code: integer): string
-  parse_line: function(line: string): InstrumentData
+  finish: function(span: Span, exit_code: integer): string | nil
+  parse_line: function(line: string): InstrumentData | nil
   parse_lines: function(content: string): {InstrumentData}
 end
 

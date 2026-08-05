@@ -263,9 +263,9 @@ local function pin_source(is_fd: boolean, target: integer, alt: integer,
 end
 
 local record ChildIoModule
-  StdioMode: StdioMode
-  PumpState: PumpState
-  Stdio: Stdio
+  type StdioMode = StdioMode
+  type PumpState = PumpState
+  type Stdio = Stdio
   pump: function(state: PumpState, deadline_ms: number): boolean
   now_ms: function(): number
   read_retry: function(fd: integer, bufsiz: integer): string | nil, string | nil

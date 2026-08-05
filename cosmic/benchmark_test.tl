@@ -94,7 +94,7 @@ test_run_no_benchmarks()
 local function test_run_missing_file()
   local result = benchmark.run("/nonexistent/file.tl")
   assert(result.exit_code == 1, "should fail")
-  assert(result.error:find("cannot open"), "should have error message")
+  assert(string.find(result.error or "", "cannot open"), "should have error message")
 end
 test_run_missing_file()
 
@@ -165,7 +165,7 @@ end
 ]])
   local result = benchmark.run(input, nil, TINY)
   assert(result.exit_code == 1, "should fail on runtime error")
-  assert(result.results[1].error:find("runtime error"), "should capture error")
+  assert(string.find(result.results[1].error or "", "runtime error"), "should capture error")
 end
 test_runtime_error()
 
@@ -202,7 +202,7 @@ end
 ]])
   local result = benchmark.run(input, "nonexistent")
   assert(result.exit_code == 2, "should return skip code")
-  assert(result.error:find("no benchmarks matching"), "should show filter error")
+  assert(string.find(result.error or "", "no benchmarks matching"), "should show filter error")
 end
 test_filter_no_match()
 

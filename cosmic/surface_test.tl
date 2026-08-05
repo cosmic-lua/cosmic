@@ -23,7 +23,7 @@ local function embedded_modules(): {string}
     local name = d:read()
     if not name then break end
     if name ~= "." and name ~= ".." then
-      local lua = name:match("^(.+)%.lua$")
+      local lua = string.match(name, "^(.+)%.lua$")
       if lua and lua ~= "init" then
         found[#found + 1] = "cosmic." .. lua
       elseif not lua and fs.isdir(EMBEDDED .. "/" .. name) then

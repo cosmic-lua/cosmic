@@ -120,12 +120,17 @@ local exit: function(exitcode?: integer) = unix.exit
 -- Exec (replace current process) --
 
 --- Performs $PATH lookup of executable.
---- Returns the absolute path to the executable if found, nil otherwise.
 --- On Windows, programs should be installed without .exe/.com suffix for discovery.
 --- @param prog string The program name to search for
---- @return string | nil The absolute path to the executable, or nil if not found
-local function commandv(prog: string): string | nil
-  return (unix.commandv(prog))
+--- @return string | nil The absolute path to the executable
+--- @return string | nil Error message when not found (names the errno, so
+--- not-found and permission-denied are distinguishable)
+local function commandv(prog: string): string | nil, string
+  local p, err = unix.commandv(prog)
+  if not p then
+    return nil, errstr(err, "commandv")
+  end
+  return p
 end
 
 --- Replaces current process with new program; never returns on success.
@@ -239,91 +244,9 @@ local WIFSIGNALED: function(status: integer): boolean = unix.WIFSIGNALED
 --- The terminating signal number (valid when WIFSIGNALED is true).
 local WTERMSIG: function(status: integer): integer = unix.WTERMSIG
 
--- Resource Usage --
-
---- Gets resource usage statistics.
---- @param who integer? Who to query: RUSAGE_SELF (default), RUSAGE_CHILDREN, RUSAGE_THREAD, RUSAGE_BOTH
---- @return Rusage Resource usage statistics
-local function getrusage(who?: integer): Rusage
-  return (unix.getrusage(who))
-end
-
--- Resource Limits --
-
---- Gets resource limits for the current process.
---- Returns the soft and hard limits for the specified resource.
---- @param resource integer The RLIMIT_* constant identifying the resource
---- @return integer | nil Soft limit (can be exceeded, may generate signal), or nil on failure
---- @return integer Hard limit (cannot be exceeded by unprivileged processes)
---- @return string? Error message on failure
-local function getrlimit(resource: integer): integer | nil, integer, string
-  local soft, hard = unix.getrlimit(resource)
-  if soft == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the second slot, where the hard limit would have been.
-    return nil, nil, errstr(hard, "getrlimit")
-  end
-  return soft, hard
-end
-
---- Sets resource limits for the current process.
---- The soft limit can be raised up to the hard limit.
---- Only privileged processes can raise the hard limit.
---- @param resource integer The RLIMIT_* constant identifying the resource
---- @param soft integer New soft limit
---- @param hard integer? New hard limit (defaults to soft if not provided)
---- @return boolean True on success
---- @return string? Error message on failure
-local function setrlimit(resource: integer, soft: integer, hard?: integer): boolean, string
-  local ok, err = unix.setrlimit(resource, soft, hard)
-  if not ok then
-    return false, errstr(err, "setrlimit")
-  end
-  return true
-end
-
--- Process Priority --
-
---- Adjusts the nice value (scheduling priority) of the calling process.
---- The nice value ranges from -20 (highest priority) to 19 (lowest priority).
---- Only privileged processes can lower the nice value (increase priority).
---- @param inc integer Value to add to current nice value
---- @return integer | nil The new nice value, or nil on failure
---- @return string? Error message on failure
-local function nice(inc: integer): integer | nil, string
-  local val, err = unix.nice(inc)
-  if val == nil then
-    return nil, errstr(err, "nice")
-  end
-  return val
-end
-
---- Gets the scheduling priority of a process, process group, or user.
---- @param which integer What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
---- @param who integer The id to query (0 = calling process/group/user)
---- @return integer | nil The priority value (-20 to 19), or nil on failure
---- @return string? Error message on failure
-local function getpriority(which: integer, who: integer): integer | nil, string
-  local prio, err = unix.getpriority(which, who)
-  if prio == nil then
-    return nil, errstr(err, "getpriority")
-  end
-  return prio
-end
-
---- Sets the scheduling priority of a process, process group, or user.
---- @param which integer What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
---- @param who integer The id to modify (0 = calling process/group/user)
---- @param prio integer New priority value (-20 to 19, lower = higher priority)
---- @return boolean True on success
---- @return string? Error message on failure
-local function setpriority(which: integer, who: integer, prio: integer): boolean, string
-  local ok, err = unix.setpriority(which, who, prio)
-  if not ok then
-    return false, errstr(err, "setpriority")
-  end
-  return true
-end
+-- Resource usage, limits and priority live in cosmic.proc.rusage
+-- (an internal shard; the public surface is unchanged).
+local rusage_mod = require("cosmic.proc.rusage")
 
 -- Scheduling --
 
@@ -342,6 +265,10 @@ local sched_yield: function() = unix.sched_yield
 local is_main: function(): boolean = cosmo.is_main
 
 local record ProcModule
+  --- getrusage's result record, re-exported so callers can name it
+  --- without requiring cosmo.unix (which examples/tests must not).
+  type Rusage = Rusage
+
   -- Identity
   getpid: function(): integer
   getppid: function(): integer
@@ -359,7 +286,7 @@ local record ProcModule
   exit: function(exitcode?: integer)
 
   -- Exec
-  commandv: function(prog: string): string | nil
+  commandv: function(prog: string): string | nil, string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
@@ -377,7 +304,7 @@ local record ProcModule
   WTERMSIG: function(status: integer): integer
 
   -- Resource usage
-  getrusage: function(who?: integer): Rusage
+  getrusage: function(who?: integer): Rusage | nil, string
 
   -- Resource limits
   getrlimit: function(resource: integer): integer | nil, integer, string
@@ -455,16 +382,16 @@ local M: ProcModule = {
   WTERMSIG = WTERMSIG,
 
   -- Resource usage
-  getrusage = getrusage,
+  getrusage = rusage_mod.getrusage,
 
   -- Resource limits
-  getrlimit = getrlimit,
-  setrlimit = setrlimit,
+  getrlimit = rusage_mod.getrlimit,
+  setrlimit = rusage_mod.setrlimit,
 
   -- Priority
-  nice = nice,
-  getpriority = getpriority,
-  setpriority = setpriority,
+  nice = rusage_mod.nice,
+  getpriority = rusage_mod.getpriority,
+  setpriority = rusage_mod.setpriority,
 
   -- Scheduling
   sched_yield = sched_yield,

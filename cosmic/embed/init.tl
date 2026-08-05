@@ -447,6 +447,11 @@ local function run(paths: {string}, output?: string, exe_path?: string,
 end
 
 local record EmbedModule
+  --- Exported so callers can name options and results; type aliases,
+  --- not runtime values.
+  type Options = Options
+  type EmbedResult = EmbedResult
+
   EPOCH: integer
   FLOOR: {string}
   run: function(paths: {string}, output?: string, exe_path?: string, opts?: Options): EmbedResult

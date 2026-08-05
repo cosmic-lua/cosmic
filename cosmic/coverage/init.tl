@@ -284,7 +284,7 @@ end
 --- Arm collection from the COSMIC_COVERAGE variable, if it names a
 --- directory. The CLI calls this before running a script.
 --- @return function() | nil A dump callback when armed, nil otherwise
-local function enable_from_env(): function()
+local function enable_from_env(): function() | nil
   local dir = dir_from_env()
   if not dir then
     return nil
@@ -328,7 +328,7 @@ local record CoverageModule
   seal: function()
   enable: function(dir: string)
   dir_from_env: function(): string | nil
-  enable_from_env: function(): function()
+  enable_from_env: function(): function() | nil
   report: function(paths: {string}): integer
 end
 

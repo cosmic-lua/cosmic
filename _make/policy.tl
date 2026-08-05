@@ -148,7 +148,12 @@ local function fix(proj: Project, paths: {string}): integer
       io.stderr:write(fmt.format_issues(result.errors) .. "\n")
       return stage.verdict("fmt", false, f.path)
     end
-    local code = result.code as string -- cast: set whenever ok
+    local code = result.code
+    if code == nil then
+      -- ok without code would be a formatter bug; refuse rather than cast.
+      io.stderr:write("fmt: no output for " .. f.path .. "\n")
+      return stage.verdict("fmt", false, f.path)
+    end
     if fs.read(f.path) ~= code then
       local ok, werr = fs.write(f.path, code)
       if not ok then
