@@ -77,10 +77,10 @@ local function test_the_fence_denies_an_undeclared_write()
       "f:write('x')\n f:close()\n"))
 
   local envlist = env.list({set = {
-    TMPDIR = root,
-    COSMIC_EXEC_ROOT = fs.dirname(fs.abspath(cosmic)),
-    COSMIC_FENCE = "1",
-  }})
+        TMPDIR = root,
+        COSMIC_EXEC_ROOT = fs.dirname(fs.abspath(cosmic)),
+        COSMIC_FENCE = "1",
+      }})
 
   -- A: unfenced, the write lands.
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))

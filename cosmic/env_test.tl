@@ -115,9 +115,9 @@ local function test_list_edits()
   env.set("COSMIC_TEST_DROP_ME", "x")
   env.set("COSMIC_TEST_KEEP_ME", "old")
   local entries = env.list({
-    drop = {"COSMIC_TEST_DROP_ME"},
-    set = {COSMIC_TEST_KEEP_ME = "new", COSMIC_TEST_ADDED = "fresh"},
-  })
+      drop = {"COSMIC_TEST_DROP_ME"},
+      set = {COSMIC_TEST_KEEP_ME = "new", COSMIC_TEST_ADDED = "fresh"},
+    })
   local seen: {string: string} = {}
   for _, entry in ipairs(entries) do
     local eq = entry:find("=", 1, true)

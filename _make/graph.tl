@@ -390,8 +390,8 @@ end
 --- @return {string} The environment, as NAME=VALUE entries
 local function clean_env(): {string}
   return env.list({drop = {
-    "MAKEFLAGS", "MAKELEVEL", "MFLAGS", "MAKE_TERMOUT", "MAKE_TERMERR",
-  }})
+        "MAKEFLAGS", "MAKELEVEL", "MFLAGS", "MAKE_TERMOUT", "MAKE_TERMERR",
+      }})
 end
 
 local function run(proj: Project, target: string, overrides: {string},
