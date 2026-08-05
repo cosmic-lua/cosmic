@@ -80,30 +80,6 @@ local function test_default_column_width()
 end
 test_default_column_width()
 
-local function test_check_column_length_under()
-  local lines = {"short line"}
-  local diags = style.check_column_length("test.tl", lines, 90)
-  assert(#diags == 0, "expected no diagnostic for line under limit")
-end
-test_check_column_length_under()
-
-local function test_check_column_length_at_limit()
-  local line = string.rep("x", 90)
-  local diags = style.check_column_length("test.tl", {line}, 90)
-  assert(#diags == 0, "expected no diagnostic for line at limit")
-end
-test_check_column_length_at_limit()
-
-local function test_check_column_length_over()
-  local line = string.rep("x", 91)
-  local diags = style.check_column_length("test.tl", {line}, 90)
-  assert(#diags == 1, "expected diagnostic for line over limit")
-  assert(diags[1].rule == "column-length", "expected column-length rule")
-  assert(diags[1].col == 91, "expected col to be limit+1")
-  assert(diags[1].line == 1, "expected line number 1")
-end
-test_check_column_length_over()
-
 -- cosmo-require: the forbidden pattern is spelled via concatenation below so
 -- this file's own fixtures don't trip the rule (it is allowlisted anyway).
 local REQ_COSMO = 'require("cosmo' .. '")'
@@ -155,7 +131,7 @@ test_cosmo_require_honors_allowlist()
 -- assertion that matters is that `--check lint` and `--make lint` run
 -- THIS composition -- there is no second lint any more.
 local function test_the_pure_checks_come_from_style()
-  assert(style.check_file_length and style.check_column_length,
+  assert(style.check_file_length,
     "the pure checks are cosmic.style's")
   assert(lint.lint_file and lint.check_call_after_define
     and lint.check_cast_justification and lint.check_cosmo_require,
@@ -330,5 +306,31 @@ local function test_check_kinds_are_named_when_wrong()
   assert(chk.run("types", "", {}) == 1, "a missing file fails")
 end
 test_check_kinds_are_named_when_wrong()
+
+-- The visibility rule: a shard require from outside cosmic/ is
+-- flagged; the public parent, files inside cosmic/, and generators
+-- are not. The fixture strings are concatenated so this file does not
+-- flag itself.
+local function test_visibility_flags_shard_requires_outside_cosmic()
+  local vis = require("_cli.visibility")
+  local shard = 'local t = require("cosmic.' .. 'fs.types")'
+  local under = 'local s = require("cosmic.' .. '_seal_coverage")'
+  local parent = 'local f = require("cosmic.' .. 'fs")'
+  assert(#vis.check_shard_require("_make/x.tl", {shard}) == 1,
+    "a shard require from _make/ is flagged")
+  assert(#vis.check_shard_require("_make/x.tl", {under}) == 1,
+    "an underscore module require from _make/ is flagged")
+  assert(#vis.check_shard_require("_make/x.tl", {parent}) == 0,
+    "the public parent is exactly what outside callers should use")
+  assert(#vis.check_shard_require("cosmic/net/init.tl", {shard}) == 0,
+    "a shard exists to be required by its siblings inside cosmic/")
+  assert(#vis.check_shard_require("cmd/cosmic/embed_gen.tl", {shard}) == 0,
+    "a generator runs under the current binary and keeps its surface")
+  local d = vis.check_shard_require("_make/x.tl", {shard})[1]
+  assert(d.rule == "visibility", "rule name is visibility")
+  assert(d.message:find("cosmic." .. "fs.types", 1, true),
+    "the message names the shard")
+end
+test_visibility_flags_shard_requires_outside_cosmic()
 
 print("all lint tests passed")

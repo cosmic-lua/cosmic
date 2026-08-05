@@ -79,9 +79,8 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check fmt`
 - **column width**: 90 columns is house style, and the one style rule
-  that is NOT a gate — the tree has roughly 800+ lines over it and the gate never
-  checked (`cosmic.style.check_column_length` is exported and unused by
-  `--check lint`). Write to 90; do not expect a failure if you do not.
+  that is NOT a gate — the tree has roughly 800+ lines over it. Write
+  to 90; do not expect a failure if you do not.
 - **warnings are errors**: `--check types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
 - **file length**: all files must be ≤500 lines. no exceptions. enforced
   by `cosmic --check lint`, which is what both `--make lint` and
@@ -397,7 +396,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | sse | Server-Sent Events parser |
 | stream | the byte-stream Reader/Writer contract every producer and consumer composes over |
 | string | trim, split, capitalize, starts_with, etc. |
-| style | pure style checks — only file length is actually behind `--check lint`; column width is exported but unenforced, and test-call ordering (`call-after-define`) lives in `_cli/lint.tl`, not here |
+| style | pure style checks: file length (the `--check lint` gate) and the house limits; the lexer-based rules (`call-after-define`, `visibility`, ...) live in `_cli/`, not here |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | table | deep copy/merge/equality and map/filter/reduce for tables |

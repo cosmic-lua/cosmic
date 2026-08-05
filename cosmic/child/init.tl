@@ -487,14 +487,11 @@ local record ChildModule
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
   run: function(argv: {string}, opts?: Options): Result
 
-  -- Zip binary helper
-  prepare_zip_exec: function(zip_path: string): integer | nil, string
 end
 
 local M: ChildModule = {
   spawn = spawn,
   run = run,
-  prepare_zip_exec = prepare_zip_exec,
 }
 
 return M

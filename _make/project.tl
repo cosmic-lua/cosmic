@@ -14,11 +14,10 @@
 --- a symlinked source is invisible rather than ambiguously staged.
 
 local fs = require("cosmic.fs")
-local fstypes = require("cosmic.fs.types")
 local imports = require("_make.imports")
 local types = require("_make.types")
 
-local type WalkStat = fstypes.WalkStat
+local type WalkStat = fs.WalkStat
 local type WalkAction = fs.WalkAction
 local type File = types.File
 local type Binary = types.Binary

@@ -318,6 +318,11 @@ local function report(paths: {string}): integer
   return rep.report(paths)
 end
 
+-- The ratchet half, re-exported here so build tooling outside cosmic/
+-- reaches it through the PUBLIC module (the visibility rule forbids
+-- requiring the cosmic.coverage.baseline shard from outside cosmic/).
+local baseline_mod = require("cosmic.coverage.baseline")
+
 local record CoverageModule
   start: function()
   stop: function()
@@ -330,6 +335,13 @@ local record CoverageModule
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
   report: function(paths: {string}): integer
+
+  --- Ratchet a run against a committed baseline file (exit-code result).
+  gate: function(baseline_path: string, only: string, paths: {string}): integer
+  --- Render fresh baseline text from .cov dirs (+ previous floor).
+  baseline_text: function(paths: {string}, previous?: string): string | nil, string
+  --- Rows a fresh baseline lowers relative to the committed one.
+  baseline_lowered: function(before: string, after: string): {string}
 end
 
 local M: CoverageModule = {
@@ -344,6 +356,9 @@ local M: CoverageModule = {
   dir_from_env = dir_from_env,
   enable_from_env = enable_from_env,
   report = report,
+  gate = baseline_mod.gate,
+  baseline_text = baseline_mod.text_for,
+  baseline_lowered = baseline_mod.lowered,
 }
 
 return M

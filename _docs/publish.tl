@@ -1,6 +1,5 @@
 -- docs-publish: publish generated docs to a git branch
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
 
@@ -17,7 +16,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
   local function scan(dir: string)
     local handle0 = fs.opendir(dir)
     if not handle0 then return end
-    local handle = handle0 as fs_types.Dir -- cast: record union after guard
+    local handle = handle0 as fs.Dir -- cast: record union after guard
 
     while true do
       local name = handle:read()
@@ -26,7 +25,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
         local full_path = fs.join(dir, name)
         local st0 = fs.stat(full_path)
         if st0 then
-          local st = st0 as fs_types.Stat -- cast: mixed-representation Stat
+          local st = st0 as fs.Stat -- cast: mixed-representation Stat
           if st:is_dir() then
             scan(full_path)
           elseif string.match(name, "%.md$") and name ~= "README.md" then
@@ -90,7 +89,7 @@ end
 -- Remove internal doc pages from a generated docs tree in place.
 local function prune_internal(docs_dir: string)
   local internal: {string} = {}
-  fs.walk(docs_dir, function(path: string, name: string, st: fs_types.Stat, acc: {string})
+  fs.walk(docs_dir, function(path: string, name: string, st: fs.Stat, acc: {string})
       if not st:is_dir() and name:match("%.md$") then
         local rel_path = path:sub(#docs_dir + 2)
         if rel_path ~= "README.md" and not is_public_page(rel_path) then
@@ -238,7 +237,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   -- clear working directory
   local dir0 = fs.opendir(".")
   if dir0 then
-    local dir = dir0 as fs_types.Dir -- cast: record union after guard
+    local dir = dir0 as fs.Dir -- cast: record union after guard
     while true do
       local name = dir:read()
       if not name then break end

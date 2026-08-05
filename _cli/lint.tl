@@ -17,6 +17,7 @@
 local fs = require("cosmic.fs")
 local style = require("cosmic.style")
 local tl = require("tl")
+local visibility = require("_cli.visibility")
 
 local type Diagnostic = style.Diagnostic
 
@@ -446,6 +447,9 @@ local function lint_file(path: string): {Diagnostic} | nil, string
       diagnostics[#diagnostics + 1] = d
     end
     for _, d in ipairs(check_needs_exit(path, lines)) do
+      diagnostics[#diagnostics + 1] = d
+    end
+    for _, d in ipairs(visibility.check_shard_require(path, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
   end

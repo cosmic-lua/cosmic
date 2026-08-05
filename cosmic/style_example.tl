@@ -19,18 +19,6 @@ local function Example_check_file_length()
   -- file-length
 end
 
--- Example_check_column_length demonstrates the column-width rule, which
--- reports one diagnostic per offending line with the column it starts
--- overflowing at.
-local function Example_check_column_length()
-  local style = require("cosmic.style")
-  local lines = {"local x = 1", string.rep("x", 100)}
-  local diags = style.check_column_length("wide.tl", lines, 90)
-  print(#diags, diags[1].line, diags[1].rule)
-  -- Output:
-  -- 1	2	column-length
-end
-
 -- Example_defaults demonstrates the limits the CLI applies when a
 -- caller does not name its own.
 local function Example_defaults()
@@ -41,5 +29,4 @@ local function Example_defaults()
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_check_file_length, Example_check_column_length,
-  Example_defaults}
+local _ = {Example_check_file_length, Example_defaults}

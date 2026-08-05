@@ -8,13 +8,12 @@ local tl = require("tl")
 local rules = require("cosmic.format.rules")
 
 --- A formatting issue (syntax error preventing formatting).
-local record Issue
-  file: string
-  line: integer
-  column: integer
-  message: string
-  severity: string
-end
+-- One Issue record and one renderer for the whole toolchain: the
+-- checker's (cosmic.teal), which this module reuses instead of keeping
+-- a nominally-incompatible twin (api-review-7).
+local teal = require("cosmic.teal")
+
+local type Issue = teal.Issue
 
 --- Result from formatting a file.
 local record FormatResult
@@ -363,18 +362,7 @@ local function format_file(input_path: string): FormatResult
 end
 
 --- Format issues for human-readable output.
-local function format_issues(issues: {Issue}): string
-  local out: {string} = {}
-  for _, issue in ipairs(issues) do
-    out[#out + 1] = string.format("%s:%d:%d: %s: %s",
-      issue.file,
-      issue.line,
-      issue.column,
-      issue.severity,
-      issue.message)
-  end
-  return table.concat(out, "\n")
-end
+local format_issues = teal.format_issues
 
 local record FormatModule
   --- Exported so callers can name results; type aliases, not values.

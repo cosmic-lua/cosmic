@@ -28,7 +28,6 @@
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local proc = require("cosmic.proc")
 local help = require("_make.help")
 local project = require("_make.project")
@@ -132,7 +131,7 @@ local function stamp_of(path: string): string
   if not info then
     return ""
   end
-  local st = info as fs_types.Stat -- cast: mixed-representation Stat
+  local st = info as fs.Stat -- cast: mixed-representation Stat
   local secs, nsecs = st:mtim()
   return tostring(st:size()) .. "-" .. tostring(secs) .. "." ..
   tostring(nsecs)

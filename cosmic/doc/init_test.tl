@@ -285,7 +285,7 @@ end
 test_render_file_missing()
 
 -- Note: --doc CLI flag has been removed. Use the doc.render_file() function directly
--- or the gendoc.tl script for build-time documentation generation.
+-- for build-time documentation generation.
 
 -- Test function without doc comment
 local function test_function_no_doc()

@@ -25,7 +25,6 @@
 
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local project = require("_make.project")
 local types = require("_make.types")
 local validate = require("_make.validate")
@@ -213,7 +212,7 @@ local function generated_payload(root: string, unit: string, out: {Staged})
     return
   end
   fs.walk(dir, function(path: string, _name: string,
-        st: fs_types.WalkStat): fs.WalkAction
+        st: fs.WalkStat): fs.WalkAction
       if st:is_file() then
         local inside = path:sub(#dir + 2)
         out[#out + 1] = {source = fs.join(rel, inside), stored = inside}

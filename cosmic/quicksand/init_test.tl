@@ -40,14 +40,11 @@ test_capabilities_cached()
 -- report agrees with a fresh probe, and that the probe is exported and
 -- deterministic.
 local function test_user_ns_agrees_with_scratch_probe()
-  assert(type(quicksand.probe_ns) == "function", "probe_ns should be a function")
-  local fresh = quicksand.probe_ns()
-  assert(type(fresh) == "boolean", "probe_ns() should return a boolean")
+  -- probe_ns is no longer exported (it forks on every call); the
+  -- scratch-unshare result is observable only through capabilities().
   local c = quicksand.capabilities()
-  if c.linux then
-    check.eq(c.user_ns, fresh,
-      "capabilities().user_ns must agree with a fresh scratch unshare probe")
-  else
+  assert(type(c.user_ns) == "boolean", "user_ns should be a boolean")
+  if not c.linux then
     check.eq(c.user_ns, false, "user_ns must be false off Linux")
   end
 end

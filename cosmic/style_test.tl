@@ -38,7 +38,9 @@ test_style_valid()
 -- on one would fail the gate on the tree that documents the rule. The
 -- check stays exported for a project that wants it, and enforcing it
 -- here is its own change with its own multi-hundred-line diff.
-local function test_style_long_line_is_reported_not_enforced()
+local function test_style_long_line_is_not_enforced()
+  -- Column width is house style (90, style.DEFAULT_COLUMN_WIDTH), not a
+  -- gate: the dead check_column_length export is gone (api-review-7).
   local long_line = string.rep("x", 91)
   local input = write_temp("style_long.tl", long_line .. "\n")
 
@@ -46,13 +48,8 @@ local function test_style_long_line_is_reported_not_enforced()
   local __r2 = check.must(h:wait())
   local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "a long line must not fail the style gate")
-
-  local lines = {long_line}
-  local diags = style.check_column_length("x.tl", lines,
-    style.DEFAULT_COLUMN_WIDTH)
-  assert(#diags == 1, "and the check still reports it, got " .. #diags)
-  assert(diags[1].rule == "column-length", "got: " .. diags[1].rule)
+  assert(style.DEFAULT_COLUMN_WIDTH == 90, "the house width is documented")
 end
-test_style_long_line_is_reported_not_enforced()
+test_style_long_line_is_not_enforced()
 
 print("All style tests passed!")

@@ -15,7 +15,6 @@
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local records = require("cosmic.records")
 local work = require("_cli.build.work")
 
@@ -93,14 +92,14 @@ local function do_assert_marker(args: {string}): integer
   local function scan(d: string): boolean
     local dir0 = fs.opendir(d)
     if not dir0 then return false end
-    local dh = dir0 as fs_types.Dir -- cast: record union after guard
+    local dh = dir0 as fs.Dir -- cast: record union after guard
     while true do
       local name = dh:read()
       if not name then break end
       if name ~= "." and name ~= ".." then
         local p = fs.join(d, name)
         local st = fs.stat(p)
-        if st and (st as fs_types.Stat):is_dir() then -- cast: mixed-representation Stat
+        if st and (st as fs.Stat):is_dir() then -- cast: mixed-representation Stat
           if scan(p) then return true end
         else
           local content = fs.read(p)
@@ -213,7 +212,7 @@ local function do_copy(args: {string}): integer
     return fail("stat " .. src .. " failed")
   end
   -- cast: mixed-representation Stat
-  local mode = (st as fs_types.Stat):mode() % 512 -- permission bits (0777)
+  local mode = (st as fs.Stat):mode() % 512 -- permission bits (0777)
   fs.makedirs(fs.dirname(dst))
   local ok, werr = fs.write(dst, content, mode)
   if not ok then

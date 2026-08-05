@@ -43,26 +43,9 @@ local function check_file_length(file: string, n: integer, limit: integer): {Dia
   return {}
 end
 
-local function check_column_length(file: string, lines: {string}, limit: integer): {Diagnostic}
-  local diagnostics: {Diagnostic} = {}
-  for i, line in ipairs(lines) do
-    if #line > limit then
-      table.insert(diagnostics, {
-          file = file,
-          line = i,
-          col = limit + 1,
-          rule = "column-length",
-          message = string.format("%s:%d has %d columns (limit: %d)", file, i, #line, limit),
-        })
-    end
-  end
-  return diagnostics
-end
-
 return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
   DEFAULT_COLUMN_WIDTH = DEFAULT_COLUMN_WIDTH,
   check_file_length = check_file_length,
-  check_column_length = check_column_length,
 }

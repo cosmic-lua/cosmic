@@ -13,7 +13,6 @@
 local child = require("cosmic.child")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local hash = require("cosmic.hash")
 local build = require("_cli.build")
 local modules = require("_cli.build.modules")
@@ -101,8 +100,8 @@ local function fresh(proj: Project, src: string, built: string): boolean
     return false
   end
   -- cast: mixed-representation Stat
-  local osec, onsec = (out as fs_types.Stat):mtim()
-  local isec, insec = (into as fs_types.Stat):mtim() -- cast: same
+  local osec, onsec = (out as fs.Stat):mtim()
+  local isec, insec = (into as fs.Stat):mtim() -- cast: same
   if osec ~= isec then
     return osec > isec
   end
@@ -300,7 +299,7 @@ local function digest_of(dir: string): string
     return "empty"
   end
   local names: {string} = {}
-  for rel in pairs(found as {string: fs_types.FileInfo}) do -- cast: narrowing does not survive the guard above
+  for rel in pairs(found as {string: fs.FileInfo}) do -- cast: narrowing does not survive the guard above
     names[#names + 1] = rel
   end
   table.sort(names)
