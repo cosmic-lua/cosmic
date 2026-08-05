@@ -22,7 +22,7 @@ local record Regex
   --  not an error: it returns a single bare nil. A genuine engine
   --  failure (e.g. out of memory) returns nil, err — the error string
   --  arrives in the second position, mirroring the cosmo.re binding.
-  search: function(self: Regex, text: string, flags?: integer): string, {string}, string | nil
+  search: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
 end
 ```
 

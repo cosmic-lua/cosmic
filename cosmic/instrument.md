@@ -57,8 +57,8 @@ end
 local record InstrumentModule
   enabled: function(): boolean
   begin: function(op: string, file: string): Span
-  finish: function(span: Span, exit_code: integer): string
-  parse_line: function(line: string): InstrumentData
+  finish: function(span: Span, exit_code: integer): string | nil
+  parse_line: function(line: string): InstrumentData | nil
   parse_lines: function(content: string): {InstrumentData}
 end
 ```
@@ -68,7 +68,7 @@ end
 ### parse_line
 
 ```teal
-function parse_line(line: string): InstrumentData
+function parse_line(line: string): InstrumentData | nil
 ```
 
  Parse a single instrumentation line.

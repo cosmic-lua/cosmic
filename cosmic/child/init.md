@@ -63,12 +63,11 @@ end
 
  Options for spawning a process.
  stdout/stderr Handles (cosmic.fd) become the child's fd 1/2 (the
- corresponding Result field is then ""). spawn does not take ownership:
+ matching Result field is then ""); spawn does not take ownership —
  the child gets its own copy, so close your end when done (see
  Example_run_pipe). Raw integer fds are not part of this surface
- (api-review-2); wrap one with fd.wrap() first. stdout/stderr also
- accept "inherit": the child writes to THIS process's fd 1/2 so output
- streams as it runs; Result then stays "".
+ (api-review-2); wrap one with fd.wrap() first. "inherit" writes to
+ THIS process's fd 1/2 so output streams as it runs; Result stays "".
 
 ```teal
 local record Options

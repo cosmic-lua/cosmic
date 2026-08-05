@@ -25,7 +25,6 @@ end
 
 ```teal
 local record UrlModule
-  Url: Url
   encode: function(str: string): string
   decode: function(str: string): string | nil, string
   parse: function(url: string): Url | nil, string

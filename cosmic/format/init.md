@@ -28,7 +28,8 @@ end
 ```teal
 local record FormatResult
   ok: boolean
-  code: string
+  --  nil when ok is false — the type admits it.
+  code: string | nil
   errors: {Issue}
 end
 ```

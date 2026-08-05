@@ -41,7 +41,6 @@ end
 
 ```teal
 local record NetModule
-  Interface: Interface
   socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
   socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string

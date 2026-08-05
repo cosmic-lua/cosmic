@@ -57,12 +57,14 @@ end
 
 ### CompileResult
 
- Result from compiling a Teal file.
+ Result from compiling a Teal file. `code` is nil when ok is
+ false — the type says so instead of forcing a cast at every
+ consumer.
 
 ```teal
 local record CompileResult
   ok: boolean
-  code: string
+  code: string | nil
   errors: {Issue}
 end
 ```

@@ -28,7 +28,7 @@ local record ExampleResult
   passed: boolean
   expected: string
   actual: string
-  error: string
+  error: string | nil
 end
 ```
 
@@ -40,7 +40,7 @@ end
 local record RunResult
   exit_code: integer
   results: {ExampleResult}
-  error: string
+  error: string | nil
 end
 ```
 

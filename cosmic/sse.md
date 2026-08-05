@@ -44,8 +44,6 @@ end
 
 ```teal
 local record sse
-  Event: Event
-  Stream: Stream
   events: function(reader: stream.Reader): Stream
 end
 ```

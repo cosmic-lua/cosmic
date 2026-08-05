@@ -50,7 +50,7 @@ local record CoverageModule
   seal: function()
   enable: function(dir: string)
   dir_from_env: function(): string | nil
-  enable_from_env: function(): function()
+  enable_from_env: function(): function() | nil
   report: function(paths: {string}): integer
 end
 ```
@@ -177,7 +177,7 @@ function dir_from_env(): string | nil
 ### enable_from_env
 
 ```teal
-function enable_from_env(): function()
+function enable_from_env(): function() | nil
 ```
 
  Arm collection from the COSMIC_COVERAGE variable, if it names a

@@ -40,7 +40,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](cosmic/net/init.md) |  Networking and socket utilities. |
 | [pledge](cosmic/pledge.md) |  Restrict the system calls available to the current process. |
 | [poll](cosmic/poll.md) |  Typed interface for polling file descriptors. |
-| [proc](cosmic/proc.md) |  Current process management. |
+| [init](cosmic/proc/init.md) |  Current process management. |
 | [init](cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
 | [rand](cosmic/rand.md) |  Random number generation. |
 | [re](cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |

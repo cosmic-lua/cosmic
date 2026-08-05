@@ -71,7 +71,6 @@ end
 
 ```teal
 local record IpModule
-  Addr: Addr
   addr: function(n: integer): Addr
   parse: function(str: string): Addr | nil, string
   cidr: function(str: string): Cidr | nil, string

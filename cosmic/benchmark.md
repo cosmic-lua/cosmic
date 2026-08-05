@@ -28,7 +28,7 @@ local record BenchmarkResult
   iterations: integer
   ns_per_op: number
   total_ns: number
-  error: string
+  error: string | nil
 end
 ```
 
@@ -40,7 +40,7 @@ end
 local record RunResult
   exit_code: integer
   results: {BenchmarkResult}
-  error: string
+  error: string | nil
 end
 ```
 
