@@ -15,7 +15,7 @@
 
 ```teal
 local record CompressOptions
-  --  output framing; defaults to "zlib"
+  --  output framing; defaults to "zlib" ("auto" is rejected)
   format: Format
 end
 ```
@@ -27,7 +27,7 @@ end
 ```teal
 local record DecompressOptions
   --  input framing; defaults to "zlib"
-  format: DecompressFormat
+  format: Format
   --  cap on the decompressed size in bytes (default 64 MiB)
   max_output: integer
 end
@@ -37,7 +37,7 @@ end
 
 ```teal
 local record CompressModule
-  compress: function(data: string, opts?: CompressOptions): string
+  compress: function(data: string, opts?: CompressOptions): string | nil, string
   decompress: function(data: string, opts?: DecompressOptions): string | nil, string
 end
 ```
@@ -47,13 +47,15 @@ end
 ### compress
 
 ```teal
-function compress(data: string, opts?: CompressOptions): string
+function compress(data: string, opts?: CompressOptions): string | nil, string
 ```
 
  Compress data using a standard framing.
  zlib (default) and gzip carry their own integrity checks and can be
  decompressed without knowing the original size. Raw is headerless
  DEFLATE, suitable for embedding into formats like ZIP files.
+ binding failure — the old infallible signature hid the error()
+ this used to throw from library code)
 
 **Parameters:**
 
@@ -62,7 +64,8 @@ function compress(data: string, opts?: CompressOptions): string
 
 **Returns:**
 
-- string - The compressed data
+- string - | nil The compressed data
+- string? - Error message on failure ("auto" format, or a
 
 ### decompress
 

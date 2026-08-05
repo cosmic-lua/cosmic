@@ -39,8 +39,11 @@ end
 
 ```teal
 local record Poller
-  --  Add a file descriptor to the set.
-  add: function(Poller, integer, integer)
+  --  Add a file descriptor to the set. Fallible instead of throwing:
+  --  a nil or negative fd (e.g. an unchecked open, or a closed
+  --  fd.Handle's -1) is a caller bug that would otherwise silently
+  --  turn every wait into a timeout.
+  add: function(Poller, integer, integer): boolean, string
   --  Remove a file descriptor from the set.
   remove: function(Poller, integer)
   --  Clear all file descriptors from the set.
@@ -50,9 +53,13 @@ local record Poller
   --  EINTR is retried internally by reissuing the same timeoutms, so the
   --  deadline is not preserved across retries: repeated signals can make
   --  the effective wait exceed timeoutms. On a hard poll error the
-  --  iterator is empty and the error string is returned as the second
-  --  value.
-  wait: function(Poller, integer): function(): (integer, Events), string
+  --  iterator is empty; check err() after the loop — the old second
+  --  return was consumed as loop state by the generic `for`, so no
+  --  caller ever saw it (the Rows:err() pattern, for the same reason).
+  wait: function(Poller, integer): function(): (integer, Events)
+  --  The error from the last wait(), or nil when it polled cleanly.
+  --  Cleared by the next wait().
+  err: function(Poller): string | nil
   --  Poll and return count of ready descriptors. EINTR is retried
   --  internally by reissuing the same timeoutms (the deadline is not
   --  preserved across retries).

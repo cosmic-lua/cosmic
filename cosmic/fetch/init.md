@@ -98,7 +98,8 @@ end
 local record Reader
   __close: function(self: Reader)
   read: function(self: Reader): string | nil, string
-  close: function(self: Reader): boolean
+  --  Close the reader; boolean, string like every stdlib close.
+  close: function(self: Reader): boolean, string
   closed: function(self: Reader): boolean
   lines: function(self: Reader): function(): string | nil, string
 end
@@ -184,14 +185,10 @@ function reader:read(): string | nil, string
 ### reader:close
 
 ```teal
-function reader:close(): boolean
+function reader:close(): boolean, string
 ```
 
- Close the reader. Idempotent.
-
-**Returns:**
-
-- boolean - always true
+ Close the reader. Idempotent; cannot fail today.
 
 ### reader:closed
 

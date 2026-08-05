@@ -10,6 +10,20 @@
 
 ## Types
 
+### Pair
+
+ A connected socket pair, as returned by socketpair(). A record
+ rather than (Socket, Socket, err) returns: the old shape typed slot
+ 2 as a non-nil Socket while returning nil there on failure, and put
+ the error in slot 3 where `local a, b = ...` silently lost it.
+
+```teal
+local record Pair
+  a: Socket
+  b: Socket
+end
+```
+
 ### ListenOptions
 
  Socket options for listen_tcp: the hidden SO_REUSEADDR is now an
@@ -42,9 +56,9 @@ end
 ```teal
 local record NetModule
   socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
-  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
+  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
-  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
+  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: integer): Socket | nil, string
   dial: function(host: string, port: integer): Socket | nil, string
@@ -147,7 +161,7 @@ function socket(family?: integer, socktype?: integer, protocol?: integer): Socke
 ### socketpair
 
 ```teal
-function socketpair(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
+function socketpair(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
 ```
 
  Create a pair of connected sockets.
@@ -160,8 +174,7 @@ function socketpair(family?: integer, socktype?: integer, protocol?: integer): S
 
 **Returns:**
 
-- Socket - | nil First socket of the pair
-- Socket - Second socket of the pair
+- Pair - | nil Both sockets, on success
 - string - Error message on failure
 
 ### listen_unix
@@ -245,23 +258,26 @@ function dial(host: string, port: integer): Socket | nil, string
 ### listen_tcp
 
 ```teal
-function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
+function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
 ```
 
  Create a TCP socket, bind it to addr:port, and start listening.
- Passing port 0 lets the OS assign an ephemeral port; the actual port is
- returned as the second value so callers never need a separate getsockname
- call. The address may be a dotted-quad string, a raw integer, or an
- ip.Addr (0 binds all interfaces). IPv6 is not supported.
+ Passing port 0 lets the OS assign an ephemeral port; read it with
+ getsockname().port. The address may be a dotted-quad string, a raw
+ integer, or an ip.Addr (0 binds all interfaces). IPv6 is not
+ supported.
  Example — listen on an OS-assigned port:
    local net = require("cosmic.net")
-   local srv, port, err = net.listen_tcp("127.0.0.1", 0)
-   -- port is now the OS-assigned port, e.g. 54321
+   local srv = assert(net.listen_tcp("127.0.0.1", 0))
+   local port = assert(srv:getsockname()).port
    local client = net.connect_tcp("127.0.0.1", port)
- Recorded decision (api-review-2): the (Socket, port, err) return
- order — the bound port between the value and the error slot — is
- deliberate port-0 ergonomics, kept as-is rather than reshuffled to the
- usual value-then-error order.
+ Amends the api-review-2 recorded decision: the (Socket, port, err)
+ triple's slot-3 error was invisible to `check.must` and to
+ `local s, err = ...` — every misuse type-checked and crashed at
+ runtime. Error-in-slot-2 wins over the port convenience.
+ was requested, read the OS-assigned port with
+ `s:getsockname().port` (the old (Socket, port, err) triple put the
+ error in slot 3, where `check.must` and `local s, err = ...` lost it)
 
 **Parameters:**
 
@@ -272,8 +288,7 @@ function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: List
 
 **Returns:**
 
-- Socket - | nil Listening socket ready to accept
-- integer - Actual bound port (useful when port 0 was requested)
+- Socket - | nil Listening socket ready to accept; when port 0
 - string - Error message on failure
 
 ### nb_connect
