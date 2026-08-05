@@ -336,7 +336,6 @@ test_embed_stores_lua()
 -- output directory. cosmic executables also extract on Windows, so the
 -- guard treats "\" as a separator and rejects drive-letter roots too.
 local function test_extract_rejects_zip_slip()
-  local embed = require("cosmic.embed")
   local unsafe = {
     "/etc/passwd", -- POSIX absolute
     "../evil", -- POSIX traversal
@@ -359,13 +358,13 @@ local function test_extract_rejects_zip_slip()
     "tab\there", -- any other control character
   }
   for _, name in ipairs(unsafe) do
-    assert(embed.unsafe_entry(name), "should reject unsafe entry: " .. name)
+    assert(fs.unsafe_entry_name(name), "should reject unsafe entry: " .. name)
   end
   local safe = {
     "main.lua", "sub/dir/file.txt", "a..b/c", "...", "a/b..c/d",
   }
   for _, name in ipairs(safe) do
-    assert(not embed.unsafe_entry(name), "should accept safe entry: " .. name)
+    assert(not fs.unsafe_entry_name(name), "should accept safe entry: " .. name)
   end
 end
 test_extract_rejects_zip_slip()
