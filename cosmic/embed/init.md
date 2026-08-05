@@ -70,54 +70,6 @@ local record Options
 end
 ```
 
-### AddOptions
-
- Options for adding files to a ZIP archive.
-
-```teal
-local record AddOptions
-  mode: integer
-  method: string
-  mtime: integer
-end
-```
-
-### ZipAppender
-
- Appender interface for modifying a ZIP archive in-place.
-
-```teal
-local record ZipAppender
-  add: function(self: ZipAppender, name: string, content: string, options?: AddOptions): boolean, string
-  remove: function(self: ZipAppender, name: string): boolean, string
-  close: function(self: ZipAppender)
-end
-```
-
-### ZipEntry
-
- Directory entry returned by ZipReader:list().
-
-```teal
-local record ZipEntry
-  name: string
-  size: integer
-  mode: integer
-end
-```
-
-### ZipReader
-
- Reader interface for reading files from a ZIP archive.
-
-```teal
-local record ZipReader
-  list: function(self: ZipReader): {ZipEntry}
-  read: function(self: ZipReader, name: string): string | nil, string | nil
-  close: function(self: ZipReader)
-end
-```
-
 ### DirEntry
 
 ```teal
@@ -147,7 +99,6 @@ local record EmbedModule
   --  DEPRECATED alias for embed() (api-review-8 transition)
   run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
-  unsafe_entry: function(name: string): boolean
 end
 ```
 
