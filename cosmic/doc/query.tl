@@ -70,8 +70,8 @@ local function list_guide_topics(): {string}
   while true do
     local name = d:read()
     if not name then break end
-    if name ~= "SKILL.md" and name:match("%.md$") then
-      topics[#topics + 1] = name:sub(1, #name - 3)
+    if name ~= "SKILL.md" and string.match(name, "%.md$") then
+      topics[#topics + 1] = string.sub(name, 1, #name - 3)
     end
   end
   d:close()

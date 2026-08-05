@@ -217,7 +217,7 @@ test_run_no_examples()
 local function test_run_missing_file()
   local result = example.run("/nonexistent/file.tl")
   assert(result.exit_code == 1, "should fail")
-  assert(result.error:find("cannot open"), "should have error message")
+  assert(string.find(result.error or "", "cannot open"), "should have error message")
 end
 test_run_missing_file()
 
@@ -362,7 +362,7 @@ end
 ]])
   local result = example.run(input)
   assert(result.exit_code == 1, "should fail on runtime error")
-  assert(result.results[1].error:find("runtime error"), "should capture error")
+  assert(string.find(result.results[1].error or "", "runtime error"), "should capture error")
 end
 test_runtime_error()
 

@@ -30,14 +30,14 @@ local record BenchmarkResult
   iterations: integer
   ns_per_op: number
   total_ns: number
-  error: string
+  error: string | nil
 end
 
 --- Result from running all benchmarks in a file.
 local record RunResult
   exit_code: integer
   results: {BenchmarkResult}
-  error: string
+  error: string | nil
 end
 
 --- Parse a .tl file and extract Benchmark_* functions.

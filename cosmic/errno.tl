@@ -46,8 +46,8 @@ end
 --- if the host does not define it. A thin lookup over `unix.E*`.
 ---
 --- @param name string errno constant name
---- @return integer? errno number
-local function code(name: string): integer
+--- @return integer | nil errno number, nil when the host does not define it
+local function code(name: string): integer | nil
   return (unix as {string: any})[name] as integer -- cast: dynamic E* lookup, from any
 end
 

@@ -20,9 +20,10 @@ local record Regex
   --- arrives in the second position, mirroring the cosmo.re binding.
   --- @param text string The text to search
   --- @param flags integer? Optional flags: NOTBOL, NOTEOL
-  --- @return string The matched substring, or nil if no match
-  --- @return {string} Capture groups on match (error string on engine failure)
-  search: function(self: Regex, text: string, flags?: integer): string, {string}, string | nil
+  --- @return string | nil The matched substring, or nil if no match
+  --- @return {string} | nil Capture groups on match (error string on engine failure)
+  --- @return string | nil Error message on engine failure
+  search: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
 end
 
 --- Compile a regular expression pattern.

@@ -315,7 +315,7 @@ local record NetModule
   type Socket = Socket
   type Address = Address
   type ListenOptions = ListenOptions
-  Interface: Interface
+  type Interface = Interface
   socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
   socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string

@@ -133,6 +133,8 @@ end
 local record SysModule
   -- Exported so callers can name/cast the fallible uname result.
   type Uname = Uname
+  --- host_os()'s closed enum, exported so callers can hold one.
+  type HostOs = HostOs
 
   -- sysconf(3) name constants
   SC_ARG_MAX: integer

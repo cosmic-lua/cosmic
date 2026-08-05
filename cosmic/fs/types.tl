@@ -86,7 +86,7 @@ local record fs_types
     --- Reads next directory entry. Returns nil when done. The second
     --- return is the dirent d_type (unix.DT_DIR / DT_REG / DT_LNK / ... /
     --- DT_UNKNOWN where the filesystem does not expose it).
-    read: function(self): string, integer
+    read: function(self): string | nil, integer
     --- Closes directory handle.
     close: function(self)
   end
@@ -95,11 +95,12 @@ local record fs_types
   --- Supports automatic cleanup with `<close>` attribute.
   record Dir
     metamethod __close: function(self: Dir)
-    --- Reads next directory entry. Returns nil when done. The second
-    --- return is the dirent d_type (fs.DT_DIR / DT_REG / DT_LNK / ... /
-    --- DT_UNKNOWN where the filesystem does not expose it), so callers
-    --- can classify entries without a stat(2) per entry.
-    read: function(self: Dir): string, integer
+    --- Reads next directory entry. Returns nil when done — and the
+    --- type says so. The second return is the dirent d_type (fs.DT_DIR
+    --- / DT_REG / DT_LNK / ... / DT_UNKNOWN where the filesystem does
+    --- not expose it), so callers can classify entries without a
+    --- stat(2) per entry.
+    read: function(self: Dir): string | nil, integer
     --- Closes directory handle.
     close: function(self: Dir)
     --- Returns file descriptor for this directory.

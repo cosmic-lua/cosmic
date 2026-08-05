@@ -219,6 +219,17 @@ local record FsModule
   --- Iterator over file paths, as returned by files().
   type FileIter = FileIter
 
+  --- The types this module's own signatures return, exported so
+  --- callers can name them without importing the cosmic.fs.types
+  --- shard: `local st: fs.Stat`, `function f(d: fs.Dir)`.
+  type Stat = Stat
+  type Statfs = Statfs
+  type Dir = Dir
+  type FileInfo = FileInfo
+  type WalkStat = WalkStat
+  --- fd.Handle, as returned by tmpfile()/tmpfd().
+  type Handle = Handle
+
   --- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
   type WalkAction = WalkAction
 

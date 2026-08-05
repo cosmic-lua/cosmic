@@ -29,7 +29,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
           local st = st0 as fs_types.Stat -- cast: mixed-representation Stat
           if st:is_dir() then
             scan(full_path)
-          elseif name:match("%.md$") and name ~= "README.md" then
+          elseif string.match(name, "%.md$") and name ~= "README.md" then
             -- Read first paragraph after the header for description
             local content = fs.read(full_path)
             local description = ""
@@ -44,7 +44,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
 
             -- Get relative path from docs_dir
             local rel_path = full_path:sub(#docs_dir + 2)
-            local mod_name = name:gsub("%.md$", "")
+            local mod_name = string.gsub(name, "%.md$", "")
 
             table.insert(docs, {
                 path = rel_path,

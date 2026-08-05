@@ -38,13 +38,13 @@ test_signal_constants()
 
 local function test_sigset()
   -- Test Sigset constructor
-  local set = signal.Sigset(signal.SIGTERM, signal.SIGINT)
+  local set = signal.sigset(signal.SIGTERM, signal.SIGINT)
   assert(set:contains(signal.SIGTERM), "set should contain SIGTERM")
   assert(set:contains(signal.SIGINT), "set should contain SIGINT")
   assert(not set:contains(signal.SIGHUP), "set should not contain SIGHUP")
 
   -- Test Sigset with single signal
-  local set2 = signal.Sigset(signal.SIGUSR1)
+  local set2 = signal.sigset(signal.SIGUSR1)
   assert(set2:contains(signal.SIGUSR1), "set2 should contain SIGUSR1")
 
   -- Test add/remove
@@ -63,7 +63,7 @@ test_sigset()
 
 local function test_sigprocmask()
   -- Block SIGUSR1, then verify we can unblock it
-  local mask = signal.Sigset(signal.SIGUSR1)
+  local mask = signal.sigset(signal.SIGUSR1)
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, mask)
   assert(oldmask ~= nil, "sigprocmask should return old mask")
 
@@ -90,7 +90,7 @@ local function test_sigaction_handler()
   local received_signal: number = 0
 
   -- Block SIGUSR1 first so we can control when it's delivered
-  local blockmask = signal.Sigset(signal.SIGUSR1)
+  local blockmask = signal.sigset(signal.SIGUSR1)
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   -- Install handler
@@ -147,7 +147,7 @@ local function test_setitimer()
   local received = false
 
   -- Block SIGALRM so we control delivery
-  local blockmask = signal.Sigset(signal.SIGALRM)
+  local blockmask = signal.sigset(signal.SIGALRM)
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   -- Install handler
@@ -210,7 +210,7 @@ end
 test_setitimer_error_names_errno()
 
 local function test_sigprocmask_error_names_errno()
-  local mask = signal.Sigset(signal.SIGUSR1)
+  local mask = signal.sigset(signal.SIGUSR1)
   local old, err = signal.sigprocmask(999999, mask)
   assert(old == nil, "sigprocmask with bad how should return nil")
   assert(type(err) == "string" and err:match("EINVAL"),
@@ -229,7 +229,7 @@ local function test_sigsuspend_returns_eintr()
       intervalsec = 0,
       intervalns = 0,
     })
-  local mask = signal.Sigset(signal.SIGUSR2)
+  local mask = signal.sigset(signal.SIGUSR2)
   local _, err = signal.sigsuspend(mask)
   assert(type(err) == "string" and err:match("EINTR"),
     "sigsuspend should return an EINTR error, got: " .. tostring(err))

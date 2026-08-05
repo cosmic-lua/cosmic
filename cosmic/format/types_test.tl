@@ -13,6 +13,7 @@
 -- Nothing here is caught by the gate; only by these.
 
 local fmt = require("cosmic.format")
+local check = require("cosmic.check")
 
 local function assert_format(input: string, expected: string, msg: string,
     filename?: string)
@@ -181,14 +182,14 @@ local function test_a_wrapped_function_type_does_not_dedent()
   "  after = 1,\n" ..
   "}\n" ..
   "return t\n"
-  local out = fmt.format(nested, "test.tl").code
+  local out = check.must(fmt.format(nested, "test.tl").code)
   assert(out:find("\n  after = 1,\n", 1, true),
     "the sibling after a wrapped definition is back at one level: " .. out)
   assert(out:find("\n}\n", 1, true),
     "and the table closes at column 0: " .. out)
   assert(out:find("\nreturn t\n", 1, true),
     "and the file continues at column 0: " .. out)
-  local again = fmt.format(out, "test.tl").code
+  local again = check.must(fmt.format(out, "test.tl").code)
   assert(again == out, "and formatting is idempotent: " .. again)
 end
 test_a_wrapped_function_type_does_not_dedent()

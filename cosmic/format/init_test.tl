@@ -2,6 +2,7 @@
 -- test cosmic.format module
 
 local fmt = require("cosmic.format")
+local check = require("cosmic.check")
 
 local function assert_format(input: string, expected: string, msg: string, filename?: string)
   filename = filename or "test.lua"
@@ -9,7 +10,7 @@ local function assert_format(input: string, expected: string, msg: string, filen
   assert(result.ok, msg .. ": format failed: " .. (result.errors and #result.errors > 0
       and result.errors[1].message or "unknown error"))
   if result.code ~= expected then
-    error(msg .. ":\n  expected:\n" .. expected .. "\n  got:\n" .. result.code)
+    error(msg .. ":\n  expected:\n" .. expected .. "\n  got:\n" .. (result.code or "<nil>"))
   end
 end
 
@@ -24,10 +25,11 @@ local function assert_idempotent(input: string, msg: string, filename?: string)
   filename = filename or "test.lua"
   local r1 = fmt.format(input, filename)
   assert(r1.ok, msg .. ": first format failed")
-  local r2 = fmt.format(r1.code, filename)
+  local r2 = fmt.format(check.must(r1.code), filename)
   assert(r2.ok, msg .. ": second format failed")
   if r1.code ~= r2.code then
-    error(msg .. ": not idempotent:\n  first:\n" .. r1.code .. "\n  second:\n" .. r2.code)
+    error(msg .. ": not idempotent:\n  first:\n" .. (r1.code or "<nil>")
+      .. "\n  second:\n" .. (r2.code or "<nil>"))
   end
 end
 

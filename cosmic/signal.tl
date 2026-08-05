@@ -24,10 +24,10 @@ end
 --- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
 --- This mirror is deliberate: the generated unix record cannot re-export
 --- the Sigset record type because its `Sigset` name is taken by the
---- constructor function field, so the binding's type is unnameable here.
---- Sigset is PascalCase because it is a record constructor: cosmic names
---- functions snake_case and reserves PascalCase for records and the
---- functions that construct them.
+--- constructor function field there. Here the constructor is
+--- `sigset(...)` (lowercase), so the TYPE name Sigset stays free to
+--- export — a Teal record cannot hold a value field and a type alias
+--- under one name.
 local record Sigset
   --- Adds signal to bitset.
   add: function(self: Sigset, sig: integer)
@@ -96,9 +96,12 @@ local record SignalModule
   ITIMER_VIRTUAL: integer
   ITIMER_PROF: integer
 
+  --- The signal-set type, nameable as `signal.Sigset`.
+  type Sigset = Sigset
+
   --- Create a new signal set containing the specified signals.
   --- The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
-  Sigset: function(...: integer): Sigset
+  sigset: function(...: integer): Sigset
 
   --- Register a signal handler for the specified signal.
   --- The handler can be a Lua function, SIG_IGN, or SIG_DFL.
@@ -292,7 +295,7 @@ end
 local M = {} as SignalModule -- cast: record built incrementally
 
 -- cast: function shape for nominal Sigset
-M.Sigset = unix.Sigset as function(...: integer): Sigset
+M.sigset = unix.Sigset as function(...: integer): Sigset
 M.sigaction = sigaction
 M.sigprocmask = sigprocmask
 M.sigsuspend = sigsuspend

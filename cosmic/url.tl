@@ -257,7 +257,7 @@ local function escape_ip(str: string): string
 end
 
 local record UrlModule
-  Url: Url
+  type Url = Url
 
   encode: function(str: string): string
   decode: function(str: string): string | nil, string

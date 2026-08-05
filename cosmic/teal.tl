@@ -38,10 +38,12 @@ local record CheckOptions
   werror: boolean
 end
 
---- Result from compiling a Teal file.
+--- Result from compiling a Teal file. `code` is nil when ok is
+--- false — the type says so instead of forcing a cast at every
+--- consumer.
 local record CompileResult
   ok: boolean
-  code: string
+  code: string | nil
   errors: {Issue}
 end
 
@@ -453,6 +455,14 @@ local function compile_cached(input_path: string,
 end
 
 local record TealModule
+  --- Exported so callers can name options and results; type aliases,
+  --- not runtime values.
+  type Issue = Issue
+  type CompileOptions = CompileOptions
+  type CheckOptions = CheckOptions
+  type CompileResult = CompileResult
+  type CheckResult = CheckResult
+
   DEFAULT_GEN_TARGET: string
   DEFAULT_GEN_COMPAT: string
   BUILD_INCLUDE_DIRS: {string}

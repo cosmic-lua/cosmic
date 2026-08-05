@@ -19,7 +19,8 @@ end
 --- Result from formatting a file.
 local record FormatResult
   ok: boolean
-  code: string
+  --- nil when ok is false — the type admits it.
+  code: string | nil
   errors: {Issue}
 end
 
@@ -376,6 +377,10 @@ local function format_issues(issues: {Issue}): string
 end
 
 local record FormatModule
+  --- Exported so callers can name results; type aliases, not values.
+  type Issue = Issue
+  type FormatResult = FormatResult
+
   format: function(input: string, filename: string): FormatResult
   format_file: function(input_path: string): FormatResult
   format_issues: function(issues: {Issue}): string

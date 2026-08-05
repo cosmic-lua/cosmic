@@ -18,14 +18,14 @@ local record ExampleResult
   passed: boolean
   expected: string
   actual: string
-  error: string
+  error: string | nil
 end
 
 --- Result from running all examples in a file.
 local record RunResult
   exit_code: integer
   results: {ExampleResult}
-  error: string
+  error: string | nil
 end
 
 --- Parse a .tl file and extract Example_* functions with their expected output.

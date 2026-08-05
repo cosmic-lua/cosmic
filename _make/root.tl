@@ -226,7 +226,7 @@ local function resolve_self(argv0: string): string | nil
   if fs.isfile(abs) then
     return abs
   end
-  return proc.commandv(argv0)
+  return (proc.commandv(argv0))
 end
 
 local record RootModule

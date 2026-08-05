@@ -11,7 +11,7 @@ local function Example_handler()
   local time = require("cosmic.time")
 
   local received: number = 0
-  local blockmask = signal.Sigset(signal.SIGUSR1)
+  local blockmask = signal.sigset(signal.SIGUSR1)
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   local old_handler = signal.sigaction(signal.SIGUSR1, function(sig: number)
@@ -44,7 +44,7 @@ end
 -- seeds the set and add/remove/contains manage it.
 local function Example_sigset()
   local signal = require("cosmic.signal")
-  local set = signal.Sigset(signal.SIGINT)
+  local set = signal.sigset(signal.SIGINT)
   print(set:contains(signal.SIGINT), set:contains(signal.SIGTERM))
   set:add(signal.SIGTERM)
   set:remove(signal.SIGINT)

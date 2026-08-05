@@ -381,6 +381,9 @@ local function parse_iso8601(str: string): integer | nil, string
 end
 
 local record TimeModule
+  --- Exported so callers can name gmtime()/localtime()'s result.
+  type DateTime = DateTime
+
   -- Clock constants
   CLOCK_REALTIME: integer
   CLOCK_MONOTONIC: integer

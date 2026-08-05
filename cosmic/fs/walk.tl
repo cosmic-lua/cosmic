@@ -190,7 +190,7 @@ local function glob_level(dir: string, lua_pattern: string, out: {string}): stri
   while true do
     local entry = h:read()
     if not entry then break end
-    if entry ~= "." and entry ~= ".." and entry:match(lua_pattern) then
+    if entry ~= "." and entry ~= ".." and string.match(entry, lua_pattern) then
       table.insert(out, cosmo_path.join(dir, entry))
     end
   end
@@ -338,7 +338,7 @@ end
 --- same (result, first-subtree-error) pairing walk()/collect() return,
 --- just delayed until the iterator itself is spent rather than bundled
 --- with a single return value up front.
-local type FileIter = function(): string, string
+local type FileIter = function(): string | nil, string
 
 --- Iterate over files matching a pattern.
 --- Returns an iterator that yields file paths. The fourth return value
@@ -429,7 +429,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
         elseif kind ~= unix.DT_UNKNOWN then
           -- Definitely not a directory: files() never needs stat data,
           -- only the path, so just check the pattern without stat(2).
-          if entry:match(lua_pattern) then
+          if string.match(entry, lua_pattern) then
             return full_path
           end
         else
@@ -441,7 +441,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
             -- cast: record union after guard
             if unix.S_ISDIR((st as unix.Stat):mode()) then
               push_subdir(full_path)
-            elseif entry:match(lua_pattern) then
+            elseif string.match(entry, lua_pattern) then
               return full_path
             end
           elseif not errbox[1] then
