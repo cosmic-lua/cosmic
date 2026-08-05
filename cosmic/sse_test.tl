@@ -31,7 +31,7 @@ local function mock_reader(content: string, fail_with?: string): fetch.Reader
     return chunk
   end
 
-  function reader:close(): boolean
+  function reader:close(): boolean, string
     is_closed = true
     return true
   end
@@ -356,10 +356,8 @@ local function test_events_from_socket_backed_reader()
   local net = require("cosmic.net")
   local fd = require("cosmic.fd")
 
-  local s1, s2, serr = net.socketpair()
-  assert(s1 ~= nil and s2 ~= nil, "socketpair failed: " .. tostring(serr))
-  local a = check.must(s1)
-  local b = s2
+  local sp = check.must(net.socketpair())
+  local a, b = sp.a, sp.b
 
   assert(a:send("data: from a socket\n\nevent: ping\ndata: second\n\n"))
   a:close()

@@ -26,8 +26,9 @@ end
 --- any other reason, SIGALRM's default action kills the child so
 --- proc.wait() can never hang the suite.
 local function serve(responses: {string}): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     signal.setitimer({

@@ -32,7 +32,7 @@ local function Example_extract()
   local archive = fs.join(dir, "release.tar.gz")
   local tarball = block("notes.txt", "hello from a tarball\n")
   .. string.rep("\0", 1024)
-  assert(fs.write(archive, compress.compress(tarball, {format = "gzip"})))
+  assert(fs.write(archive, (check.must(compress.compress(tarball, {format = "gzip"})))))
 
   assert(tar.extract(archive, fs.join(dir, "out")))
   print(check.must(fs.read(fs.join(dir, "out/notes.txt"))))

@@ -16,8 +16,9 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 
 --- Fork a loopback server answering n requests with RESPONSE.
 local function serve(n: integer): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     for _ = 1, n do

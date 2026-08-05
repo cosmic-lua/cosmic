@@ -142,7 +142,7 @@ end
 --- @param optstring string Short options specification
 --- @param longopts {LongOpt}|nil Long option definitions
 --- @return Parser A parser instance for iterating through options
-local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
+local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser | nil, string
   if legacy.new then
     -- Older cosmos: use the native iterator directly.
     -- cast: from any
@@ -150,7 +150,13 @@ local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Par
   end
 
   -- Newer cosmos: replay parse() results through an iterator interface.
-  local r = parse(args, optstring, longopts) as Result -- cast: record union, nil handled
+  local raw_r, perr = parse(args, optstring, longopts)
+  if raw_r == nil then
+    -- The old code swallowed this and returned an empty Parser — a
+    -- parse failure was indistinguishable from an empty argv.
+    return nil, perr
+  end
+  local r = raw_r as Result -- cast: record union after guard
   local stream: {Option} = {}
   if r then
     for _, o in ipairs(r.opts) do
@@ -196,7 +202,7 @@ local record GetoptModule
   --- Parse a command-line argument vector in one shot
   parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   --- Create a stateful parser (compatibility shim over parse)
-  new: function(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
+  new: function(args: {string}, optstring: string, longopts?: {LongOpt}): Parser | nil, string
 end
 
 local M: GetoptModule = {

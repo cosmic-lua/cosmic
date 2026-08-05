@@ -38,10 +38,15 @@ end
 
 --- Poll set for monitoring multiple file descriptors.
 local record Poller
-  --- Add a file descriptor to the set.
+  --- Add a file descriptor to the set. Fallible instead of throwing:
+  --- a nil or negative fd (e.g. an unchecked open, or a closed
+  --- fd.Handle's -1) is a caller bug that would otherwise silently
+  --- turn every wait into a timeout.
   --- @param fd integer File descriptor number
   --- @param events integer Event mask (POLLIN, POLLOUT, etc.)
-  add: function(Poller, integer, integer)
+  --- @return boolean True when registered
+  --- @return string? Error message for a nil or negative fd
+  add: function(Poller, integer, integer): boolean, string
   --- Remove a file descriptor from the set.
   --- @param fd integer The file descriptor to remove
   remove: function(Poller, integer)
@@ -52,12 +57,15 @@ local record Poller
   --- EINTR is retried internally by reissuing the same timeoutms, so the
   --- deadline is not preserved across retries: repeated signals can make
   --- the effective wait exceed timeoutms. On a hard poll error the
-  --- iterator is empty and the error string is returned as the second
-  --- value.
+  --- iterator is empty; check err() after the loop — the old second
+  --- return was consumed as loop state by the generic `for`, so no
+  --- caller ever saw it (the Rows:err() pattern, for the same reason).
   --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return function Iterator yielding (fd: integer, events: Events)
-  --- @return string? Error message when the underlying poll failed
-  wait: function(Poller, integer): function(): (integer, Events), string
+  wait: function(Poller, integer): function(): (integer, Events)
+  --- The error from the last wait(), or nil when it polled cleanly.
+  --- Cleared by the next wait().
+  err: function(Poller): string | nil
   --- Poll and return count of ready descriptors. EINTR is retried
   --- internally by reissuing the same timeoutms (the deadline is not
   --- preserved across retries).
@@ -102,16 +110,23 @@ end
 local function new(): Poller
   local fds: {integer: integer} = {}
   local results: {integer: integer} = {}
+  local wait_err: string = nil
 
   local poller: Poller = {}
 
-  poller.add = function(_self: Poller, fd: integer, events: integer)
+  poller.add = function(_self: Poller, fd: integer, events: integer): boolean, string
     if fd == nil then
       -- A nil fd is a caller bug (e.g. an unchecked open); registering
       -- nothing would silently turn every wait into a timeout.
-      error("poll.add: fd must not be nil", 2)
+      return false, "poll.add: fd must not be nil"
+    end
+    if fd < 0 then
+      -- A closed fd.Handle reports -1; registering it would poll fd -1
+      -- forever-quietly, the same silent-timeout failure as nil.
+      return false, "poll.add: fd must be non-negative, got " .. tostring(fd)
     end
     fds[fd] = events
+    return true
   end
 
   poller.remove = function(_self: Poller, fd: integer)
@@ -177,13 +192,15 @@ local function new(): Poller
     return nil
   end
 
-  poller.wait = function(self: Poller, timeoutms: integer): function(): (integer, Events), string
+  poller.wait = function(self: Poller, timeoutms: integer): function(): (integer, Events)
     local n, err = self:poll(timeoutms)
     if n == nil then
+      wait_err = err
       return function(): (integer, Events)
         return nil, nil
-      end, err
+      end
     end
+    wait_err = nil
     local iter_results = results
     local k: integer = nil
     return function(): (integer, Events)
@@ -194,6 +211,10 @@ local function new(): Poller
       end
       return nil, nil
     end
+  end
+
+  poller.err = function(_self: Poller): string | nil
+    return wait_err
   end
 
   return poller

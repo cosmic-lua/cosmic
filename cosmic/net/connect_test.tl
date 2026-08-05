@@ -85,7 +85,7 @@ local function test_unix_domain_socket_bind_connect()
   end
 
   -- Parent: accept connection
-  local raw_client, _, _, accept_err = server:accept()
+  local raw_client, accept_err = server:accept()
   local client = check.must(raw_client, "accept failed: " .. tostring(accept_err))
 
   -- Read data from client
@@ -118,7 +118,7 @@ local function test_listen_unix_connect_unix()
   end
 
   -- Parent: accept connection
-  local raw_client, _, _, accept_err = server:accept()
+  local raw_client, accept_err = server:accept()
   local client = check.must(raw_client, "accept failed: " .. tostring(accept_err))
 
   -- Read data from client
@@ -147,7 +147,7 @@ local function test_nb_connect_loopback()
   ok, err = server:bind("127.0.0.1", 0) -- 127.0.0.1
   assert(ok, "bind failed: " .. tostring(err))
 
-  local _, server_port = server:getsockname()
+  local server_port = check.must(server:getsockname()).port
   assert(server_port > 0, "expected non-zero port")
 
   ok, err = server:listen()
@@ -162,7 +162,7 @@ local function test_nb_connect_loopback()
   assert(ok, "nb_connect failed: " .. tostring(err))
 
   -- Accept the connection on the server side
-  local raw_accepted, _, _, accept_err = server:accept()
+  local raw_accepted, accept_err = server:accept()
   local accepted = check.must(raw_accepted, "accept failed: " .. tostring(accept_err))
 
   -- Verify the connection works by sending data
@@ -227,8 +227,8 @@ test_socket_error_names_errno()
 
 local function test_socketpair_error_names_errno()
   -- socketpair() only supports AF_UNIX; AF_INET fails synchronously.
-  local a, _b, err = net.socketpair(net.AF_INET, net.SOCK_STREAM, 0)
-  assert(a == nil, "socketpair with AF_INET should fail")
+  local pair, err = net.socketpair(net.AF_INET, net.SOCK_STREAM, 0)
+  assert(pair == nil, "socketpair with AF_INET should fail")
   assert(err ~= nil and err:match("E%u+"),
     "socketpair error should name the errno, got: " .. tostring(err))
 end
@@ -244,7 +244,7 @@ local function test_connect_tcp()
   ok, err = server:bind("127.0.0.1", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
-  local _, server_port = server:getsockname()
+  local server_port = check.must(server:getsockname()).port
   assert(server_port > 0, "expected non-zero port")
 
   ok, err = server:listen()
@@ -261,7 +261,7 @@ local function test_connect_tcp()
   end
 
   -- Parent: accept connection
-  local raw_client, _, _, accept_err = server:accept()
+  local raw_client, accept_err = server:accept()
   local client = check.must(raw_client, "accept failed: " .. tostring(accept_err))
 
   -- Read data from client
@@ -275,20 +275,21 @@ end
 test_connect_tcp()
 
 local function test_connect_tcp_accepts_string_and_addr()
-  local raw_server, port, lerr = net.listen_tcp("127.0.0.1", 0)
+  local raw_server, lerr = net.listen_tcp("127.0.0.1", 0)
   local server = check.must(raw_server,
     "listen_tcp with string address failed: " .. tostring(lerr))
+  local port = check.must(server:getsockname()).port
 
   -- connect by dotted-quad string
   local c1 = check.must(net.connect_tcp("127.0.0.1", port))
-  local a1 = check.must((server:accept()))
+  local a1 = check.must(server:accept())
   c1:close()
   a1:close()
 
   -- connect by typed ip.Addr
   local addr = ip.addr(0x7f000001)
   local c2 = check.must(net.connect_tcp(addr, port))
-  local a2 = check.must((server:accept()))
+  local a2 = check.must(server:accept())
   c2:close()
   a2:close()
 
@@ -330,7 +331,7 @@ local function test_bind_error_names_errno()
   local first = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
   assert(first:bind("127.0.0.1", 0))
   assert(first:listen())
-  local _, port = first:getsockname()
+  local port = check.must(first:getsockname()).port
   local second = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
   local ok, berr = second:bind("127.0.0.1", port)
   assert(ok == false, "second bind to same port should fail")
@@ -343,16 +344,17 @@ test_bind_error_names_errno()
 local function test_dial()
   -- dial is the stable name-and-shape entry point (from):
   -- resolution happens inside, for literals and DNS names alike.
-  local srv, port, serr = net.listen_tcp("127.0.0.1", 0)
+  local srv, serr = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed: " .. tostring(serr))
+  local port = check.must(s:getsockname()).port
 
   local c1 = check.must(net.dial("127.0.0.1", port))
-  local a1 = check.must((s:accept()))
+  local a1 = check.must(s:accept())
   c1:close()
   a1:close()
 
   local c2 = check.must(net.dial("localhost", port))
-  local a2 = check.must((s:accept()))
+  local a2 = check.must(s:accept())
   c2:close()
   a2:close()
   s:close()
@@ -367,22 +369,23 @@ test_dial()
 -- listen_tcp socket options are configurable — SO_REUSEADDR stays
 -- the default but can be opted out, and SO_REUSEPORT can be opted in.
 local function test_listen_tcp_socket_options()
-  local s1, port, derr = net.listen_tcp("127.0.0.1", 0)
+  local s1, derr = net.listen_tcp("127.0.0.1", 0)
   local d = check.must(s1, "listen_tcp failed: " .. tostring(derr))
+  local port = check.must(d:getsockname()).port
   assert(port > 0, "expected a bound port")
   local ra = d:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra == true or ra == 1,
     "SO_REUSEADDR should default on, got " .. tostring(ra))
   d:close()
 
-  local s2, _, oerr = net.listen_tcp("127.0.0.1", 0, nil, {reuseaddr = false})
+  local s2, oerr = net.listen_tcp("127.0.0.1", 0, nil, {reuseaddr = false})
   local o = check.must(s2, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
   local ra2 = o:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra2 == false or ra2 == 0,
     "reuseaddr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
   o:close()
 
-  local s3, _, perr = net.listen_tcp("127.0.0.1", 0, nil, {reuseport = true})
+  local s3, perr = net.listen_tcp("127.0.0.1", 0, nil, {reuseport = true})
   local p = check.must(s3, "listen_tcp with reuseport failed: " .. tostring(perr))
   local rp = p:getsockopt(net.SOL_SOCKET, net.SO_REUSEPORT)
   assert(rp == true or rp == 1,

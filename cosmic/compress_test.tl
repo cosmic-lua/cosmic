@@ -6,7 +6,7 @@ local compress = require("cosmic.compress")
 
 local function test_roundtrip_default_zlib()
   local data = "Hello, World! This is a test of zlib compression.\x00\xff"
-  local compressed = compress.compress(data)
+  local compressed = check.must(compress.compress(data))
   assert(#compressed > 0, "expected non-empty output")
   assert(compressed ~= data, "expected different output")
   local result, err = compress.decompress(compressed)
@@ -19,9 +19,9 @@ local function test_roundtrip_explicit_formats()
   local data = "format round-trip \x00\xff\x10\x20 payload"
   local formats: {compress.Format} = {"zlib", "gzip", "raw"}
   for _, format in ipairs(formats) do
-    local compressed = compress.compress(data, {format = format})
+    local compressed = check.must(compress.compress(data, {format = format}))
     -- cast: enum widening
-    local result, err = compress.decompress(compressed, {format = format as compress.DecompressFormat})
+    local result, err = compress.decompress(compressed, {format = format})
     assert(err == nil, format .. " roundtrip failed: " .. (err or ""))
     assert(result == data, format .. " roundtrip mismatch")
   end
@@ -31,9 +31,9 @@ test_roundtrip_explicit_formats()
 local function test_roundtrip_empty_per_format()
   local formats: {compress.Format} = {"zlib", "gzip", "raw"}
   for _, format in ipairs(formats) do
-    local compressed = compress.compress("", {format = format})
+    local compressed = check.must(compress.compress("", {format = format}))
     -- cast: enum widening
-    local result, err = compress.decompress(compressed, {format = format as compress.DecompressFormat})
+    local result, err = compress.decompress(compressed, {format = format})
     assert(err == nil, format .. " empty roundtrip failed: " .. (err or ""))
     assert(result == "", format .. ": expected empty string")
   end
@@ -42,7 +42,7 @@ test_roundtrip_empty_per_format()
 
 local function test_compress_large()
   local data = string.rep("hello world, ", 1000)
-  local compressed = compress.compress(data)
+  local compressed = check.must(compress.compress(data))
   assert(#compressed < #data, "expected compression ratio for repetitive data")
 end
 test_compress_large()
@@ -51,13 +51,13 @@ test_compress_large()
 -- interoperate with other tooling.
 
 local function test_zlib_magic_bytes()
-  local compressed = compress.compress("hello", {format = "zlib"})
+  local compressed = check.must(compress.compress("hello", {format = "zlib"}))
   assert(string.byte(compressed, 1) == 0x78, "expected zlib CMF byte 0x78")
 end
 test_zlib_magic_bytes()
 
 local function test_gzip_magic_bytes()
-  local compressed = compress.compress("hello", {format = "gzip"})
+  local compressed = check.must(compress.compress("hello", {format = "gzip"}))
   local b1, b2, b3 = string.byte(compressed, 1, 3)
   assert(b1 == 0x1f and b2 == 0x8b, "expected gzip magic 1f 8b")
   assert(b3 == 0x08, "expected deflate compression method byte 0x08")
@@ -68,11 +68,11 @@ local function test_raw_has_no_header()
   -- Raw is headerless DEFLATE: no zlib or gzip magic, and strictly
   -- smaller than the framed encodings of the same input.
   local data = "hello, raw deflate"
-  local raw = compress.compress(data, {format = "raw"})
+  local raw = check.must(compress.compress(data, {format = "raw"}))
   local b1, b2 = string.byte(raw, 1, 2)
   assert(not (b1 == 0x1f and b2 == 0x8b), "raw output must not carry gzip magic")
   assert(b1 ~= 0x78, "raw output must not carry zlib header")
-  assert(#raw < #compress.compress(data, {format = "zlib"}), "raw must be smaller than zlib")
+  assert(#raw < #check.must(compress.compress(data, {format = "zlib"})), "raw must be smaller than zlib")
 end
 test_raw_has_no_header()
 
@@ -95,7 +95,7 @@ local function test_auto_detects_zlib_and_gzip()
   local data = "auto-detected payload"
   local formats: {compress.Format} = {"zlib", "gzip"}
   for _, format in ipairs(formats) do
-    local compressed = compress.compress(data, {format = format})
+    local compressed = check.must(compress.compress(data, {format = format}))
     local result, err = compress.decompress(compressed, {format = "auto"})
     assert(err == nil, "auto failed on " .. format .. ": " .. (err or ""))
     assert(result == data, "auto mismatch on " .. format)
@@ -105,7 +105,7 @@ test_auto_detects_zlib_and_gzip()
 
 local function test_auto_rejects_raw()
   -- Raw streams carry no header, so auto detection cannot identify them.
-  local raw = compress.compress("headerless", {format = "raw"})
+  local raw = check.must(compress.compress("headerless", {format = "raw"}))
   local result, err = compress.decompress(raw, {format = "auto"})
   assert(result == nil, "auto must not accept a headerless raw stream")
   assert(err ~= nil, "expected error message")
@@ -122,7 +122,7 @@ end
 test_decompress_invalid()
 
 local function test_decompress_wrong_format()
-  local gz = compress.compress("cross-format", {format = "gzip"})
+  local gz = check.must(compress.compress("cross-format", {format = "gzip"}))
   local result, err = compress.decompress(gz, {format = "zlib"})
   assert(result == nil, "gzip input must not decompress as zlib")
   assert(err ~= nil, "expected error message")
@@ -130,7 +130,7 @@ end
 test_decompress_wrong_format()
 
 local function test_decompress_truncated()
-  local compressed = compress.compress(string.rep("truncate me, ", 100))
+  local compressed = check.must(compress.compress(string.rep("truncate me, ", 100)))
   local result, err = compress.decompress(compressed:sub(1, #compressed // 2))
   assert(result == nil, "truncated input must fail")
   assert(err ~= nil, "expected error message")
@@ -142,13 +142,13 @@ test_decompress_truncated()
 
 local function test_max_output_bound_per_format()
   local data = string.rep("x", 2000)
-  local formats: {compress.DecompressFormat} = {"zlib", "gzip", "raw", "auto"}
+  local formats: {compress.Format} = {"zlib", "gzip", "raw", "auto"}
   for _, format in ipairs(formats) do
     local cformat: compress.Format = "gzip"
     if format ~= "auto" then
       cformat = format as compress.Format -- cast: enum narrowing after guard
     end
-    local compressed = compress.compress(data, {format = cformat})
+    local compressed = check.must(compress.compress(data, {format = cformat}))
     local result, err = compress.decompress(compressed, {format = format, max_output = 100})
     assert(result == nil, format .. ": output beyond max_output must be rejected")
     assert(err ~= nil, format .. ": expected error message")

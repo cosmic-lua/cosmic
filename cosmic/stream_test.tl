@@ -50,10 +50,8 @@ end
 test_fd_handle_conforms()
 
 local function test_socket_recv_eof_is_nil()
-  local s1, s2, err = net.socketpair()
-  assert(s1 ~= nil and s2 ~= nil, "socketpair failed: " .. tostring(err))
-  local a = check.must(s1)
-  local b = check.must(s2)
+  local sp = check.must(net.socketpair())
+  local a, b = sp.a, sp.b
 
   assert(a:send("socket bytes"))
   a:close()
@@ -80,10 +78,8 @@ test_socket_recv_eof_is_nil()
 local function test_socket_zero_byte_datagram_stays_empty()
   -- "" is reserved for the one honest case: a zero-byte datagram on a
   -- message socket. It must NOT be collapsed into nil.
-  local s1, s2, err = net.socketpair(nil, net.SOCK_DGRAM)
-  assert(s1 ~= nil and s2 ~= nil, "dgram socketpair failed: " .. tostring(err))
-  local a = check.must(s1)
-  local b = check.must(s2)
+  local sp = check.must(net.socketpair(nil, net.SOCK_DGRAM))
+  local a, b = sp.a, sp.b
 
   assert(a:send(""))
   local dgram, derr = b:recv(4096)
@@ -108,8 +104,9 @@ test_child_handle_conforms()
 
 --- Fork a loopback server answering one request, closing right after.
 local function serve_once(response: string): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     local conn = s:accept()

@@ -10,8 +10,9 @@ local check = require("cosmic.check")
 --- Fork a loopback server answering one request per response string,
 --- closing the connection right after each send.
 local function serve(responses: {string}): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     for _, resp in ipairs(responses) do
