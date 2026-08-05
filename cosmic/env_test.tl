@@ -111,6 +111,31 @@ local function test_list_includes_set_variable()
 end
 test_list_includes_set_variable()
 
+local function test_list_edits()
+  env.set("COSMIC_TEST_DROP_ME", "x")
+  env.set("COSMIC_TEST_KEEP_ME", "old")
+  local entries = env.list({
+      drop = {"COSMIC_TEST_DROP_ME"},
+      set = {COSMIC_TEST_KEEP_ME = "new", COSMIC_TEST_ADDED = "fresh"},
+    })
+  local seen: {string: string} = {}
+  for _, entry in ipairs(entries) do
+    local eq = entry:find("=", 1, true)
+    if eq then
+      seen[entry:sub(1, eq - 1)] = entry:sub(eq + 1)
+    end
+  end
+  assert(seen["COSMIC_TEST_DROP_ME"] == nil, "drop removes the variable")
+  assert(seen["COSMIC_TEST_KEEP_ME"] == "new", "set overrides in place")
+  assert(seen["COSMIC_TEST_ADDED"] == "fresh", "set appends missing names")
+  -- the edits touch only the returned copy
+  assert(env.get("COSMIC_TEST_DROP_ME") == "x", "parent env is untouched")
+  assert(env.get("COSMIC_TEST_KEEP_ME") == "old", "parent env is untouched")
+  env.unset("COSMIC_TEST_DROP_ME")
+  env.unset("COSMIC_TEST_KEEP_ME")
+end
+test_list_edits()
+
 local function test_set_empty_value()
   local ok = env.set("COSMIC_TEST_EMPTY", "")
   assert(ok, "set with empty value should succeed")

@@ -142,21 +142,9 @@ end
 --- silently. `cosmic.tar` and `cosmic.embed` refuse the same class at
 --- the same point; the three guards protect one operation, so they do
 --- not get to disagree.
-local function unsafe_entry(name: string): boolean
-  if name == "" then return true end
-  if name:find("%c") then return true end
-  -- Absolute roots escape the destination directory.
-  if name:sub(1, 1) == "/" or name:sub(1, 1) == "\\" then return true end
-  if name:match("^%a:") then return true end
-  -- Normalize backslashes so ".." traversal is caught on either
-  -- separator ("..\evil" like "../evil").
-  local slashed = name:gsub("\\", "/")
-  if slashed == ".." or slashed:match("^%.%./") or slashed:match("/%.%./")
-  or slashed:match("/%.%.$") then
-    return true
-  end
-  return false
-end
+-- THE guard is fs.unsafe_entry_name — one definition for zip, tar and
+-- embed, which protect the same operation and do not get to disagree.
+local unsafe_entry = fs.unsafe_entry_name
 
 --- Extract every entry of an open reader into destdir, refusing archives
 --- that attempt zip-slip. All entry names (and sizes, when

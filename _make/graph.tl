@@ -389,19 +389,9 @@ end
 --- This process's environment with make's own variables removed.
 --- @return {string} The environment, as NAME=VALUE entries
 local function clean_env(): {string}
-  local drop: {string: boolean} = {
-    MAKEFLAGS = true, MAKELEVEL = true, MFLAGS = true,
-    MAKE_TERMOUT = true, MAKE_TERMERR = true,
-  }
-  local out: {string} = {}
-  for _, entry in ipairs(env.list()) do
-    local eq = entry:find("=", 1, true)
-    local name = eq and entry:sub(1, eq - 1) or entry
-    if not drop[name] then
-      out[#out + 1] = entry
-    end
-  end
-  return out
+  return env.list({drop = {
+        "MAKEFLAGS", "MAKELEVEL", "MFLAGS", "MAKE_TERMOUT", "MAKE_TERMERR",
+      }})
 end
 
 local function run(proj: Project, target: string, overrides: {string},

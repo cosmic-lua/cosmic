@@ -192,7 +192,7 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
   proc.wait(worker)
   -- The upstream is still parked in accept() and always will be --
   -- that is the point -- so kill it rather than waiting on it.
-  proc.kill(pid, signal.SIGKILL)
+  signal.kill(pid, signal.SIGKILL)
   proc.wait(pid)
 
   assert(not resp:find(UPSTREAM_BODY, 1, true),

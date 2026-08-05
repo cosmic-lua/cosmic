@@ -4,6 +4,7 @@
 --- 500-line cap; init wires everything together.
 local cosmo = require("cosmo")
 local url_mod = require("cosmic.url")
+local stream = require("cosmic.stream")
 local json_mod = require("cosmic.json")
 local codec = require("cosmic.codec")
 local rand = require("cosmic.rand")
@@ -374,15 +375,11 @@ local function make(fetch_fn: function(string, any): any,
       end
       if not chunk then break end
       local c = chunk as string -- cast: method syntax defeats narrowing
-      local off = 0
-      while off < #c do
-        local n, werr = h:write(c:sub(off + 1))
-        if not n then
-          h:close()
-          fs.unlink(path)
-          return fail_with("download: write: " .. tostring(werr))
-        end
-        off = off + math.floor(n)
+      local wok, werr = stream.write_all(h, c)
+      if not wok then
+        h:close()
+        fs.unlink(path)
+        return fail_with("download: write: " .. tostring(werr))
       end
     end
     res.reader:close()

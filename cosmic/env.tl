@@ -93,15 +93,54 @@ local function all(): {string: string}
   return result
 end
 
---- Get all environment variables as a list.
---- Returns a list of "KEY=VALUE" strings suitable for passing to
---- child.spawn or execve.
+--- Options for list(): edits applied to the current environment.
+local record ListOptions
+  --- variable names to remove
+  drop: {string}
+  --- names to set or override; applied after drop, appended in
+  --- sorted-name order so the result is deterministic
+  set: {string: string}
+end
+
+--- Get the environment as a list of "KEY=VALUE" strings, optionally
+--- edited — the shape `child.Options.env` and execve take. This is
+--- the one place to build "the current environment, minus these
+--- variables, plus those" instead of hand-rolling a filter loop:
+---   env.list({drop = {"LUA_PATH"}, set = {NO_COLOR = "1"}})
+--- @param opts ListOptions? drop: names to remove; set: names to set/override
 --- @return {string} A list of "KEY=VALUE" strings
-local function list(): {string}
-  local entries = unix.environ()
+local function list(opts?: ListOptions): {string}
+  local drop: {string: boolean} = {}
+  if opts and opts.drop then
+    for _, name in ipairs(opts.drop) do
+      drop[name] = true
+    end
+  end
+  local override = opts and opts.set
   local result: {string} = {}
-  for _, entry in ipairs(entries) do
-    table.insert(result, entry)
+  local seen: {string: integer} = {}
+  for _, entry in ipairs(unix.environ()) do
+    local eq = entry:find("=", 1, true)
+    local name = eq and entry:sub(1, eq - 1) or entry
+    if not drop[name] then
+      if override and override[name] ~= nil then
+        entry = name .. "=" .. override[name]
+      end
+      result[#result + 1] = entry
+      seen[name] = #result
+    end
+  end
+  if override then
+    local missing: {string} = {}
+    for name in pairs(override) do
+      if not seen[name] then
+        missing[#missing + 1] = name
+      end
+    end
+    table.sort(missing)
+    for _, name in ipairs(missing) do
+      result[#result + 1] = name .. "=" .. override[name]
+    end
   end
   return result
 end
@@ -113,7 +152,8 @@ local record EnvModule
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
   all: function(): {string: string}
-  list: function(): {string}
+  type ListOptions = ListOptions
+  list: function(opts?: ListOptions): {string}
 end
 
 local M: EnvModule = {

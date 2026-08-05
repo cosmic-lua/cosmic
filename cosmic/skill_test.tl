@@ -9,14 +9,9 @@ local cenv = require("cosmic.env")
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
+-- drop LUA_PATH so the test exercises the bundled libraries, not the repo
 local function clean_env(): {string}
-  local env: {string} = {}
-  for _, entry in ipairs(cenv.list()) do
-    if not entry:match("^LUA_PATH=") and not entry:match("^LUA_CPATH=") then
-      env[#env + 1] = entry
-    end
-  end
-  return env
+  return cenv.list({drop = {"LUA_PATH", "LUA_CPATH"}})
 end
 
 local function test_skill_writes_file()

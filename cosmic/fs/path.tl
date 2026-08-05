@@ -418,7 +418,40 @@ local function expanduser(p: string): string
   return cosmo_path.join(dir, p:sub(3))
 end
 
+--- Reject archive entry names that would escape an extraction root.
+--- THE zip-slip guard: cosmic.zip, cosmic.tar and cosmic.embed all
+--- extract archive-controlled names under a destination, and the three
+--- private copies of this predicate had already drifted apart (empty
+--- names, backslash policy). One definition, one place to fix the next
+--- traversal variant.
+---
+--- Unsafe: empty names, absolute roots (/ or \ or a drive-letter
+--- prefix), any ".." component on either separator ("..\evil" like
+--- "../evil"), and control characters — a name with one travels into
+--- line-oriented records (`--make fetch` logs unpack products one per
+--- line), where a newline forges entries. Backslashes are otherwise
+--- treated as separators, not refused: Windows-made archives use them
+--- legitimately.
+--- @param name string Archive entry name
+--- @return boolean true when the entry is unsafe to extract
+local function unsafe_entry_name(name: string): boolean
+  if name == "" then return true end
+  if name:find("%c") then return true end
+  -- Absolute roots escape the destination directory.
+  if name:sub(1, 1) == "/" or name:sub(1, 1) == "\\" then return true end
+  if name:match("^%a:") then return true end
+  -- Normalize backslashes so ".." traversal is caught on either
+  -- separator ("..\evil" like "../evil").
+  local slashed = name:gsub("\\", "/")
+  if slashed == ".." or slashed:match("^%.%./") or slashed:match("/%.%./")
+  or slashed:match("/%.%.$") then
+    return true
+  end
+  return false
+end
+
 local record FsPathModule
+  unsafe_entry_name: function(name: string): boolean
   dirname: function(str: string): string
   basename: function(str: string): string
   join: function(...: string): string
@@ -437,6 +470,7 @@ local record FsPathModule
 end
 
 local M: FsPathModule = {
+  unsafe_entry_name = unsafe_entry_name,
   dirname = dirname,
   basename = basename,
   join = join,

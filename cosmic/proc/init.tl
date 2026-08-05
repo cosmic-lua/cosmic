@@ -233,15 +233,6 @@ local function wait(pid?: integer, options?: integer): WaitResult | nil, string
   return {pid = wpid, status = status, rusage = rusage}
 end
 
---- Sends a signal to a process.
---- @param pid integer Process id to signal
---- @param sig integer Signal number (e.g. SIGTERM, SIGKILL)
---- @return boolean True on success, false + error on failure
-local function kill(pid: integer, sig: integer): boolean, string
-  local ok, err = unix.kill(pid, sig); if not ok then return false, errstr(err, "kill") end
-  return true
-end
-
 --- True if the child exited normally.
 local WIFEXITED: function(status: integer): boolean = unix.WIFEXITED
 
@@ -308,7 +299,6 @@ local record ProcModule
   posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
   type WaitResult = WaitResult
   wait: function(pid?: integer, options?: integer): WaitResult | nil, string
-  kill: function(pid: integer, sig: integer): boolean, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
   WIFSIGNALED: function(status: integer): boolean
@@ -387,7 +377,6 @@ local M: ProcModule = {
   posix_spawn = posix_spawn,
   posix_spawnp = posix_spawnp,
   wait = wait,
-  kill = kill,
   WIFEXITED = WIFEXITED,
   WEXITSTATUS = WEXITSTATUS,
   WIFSIGNALED = WIFSIGNALED,

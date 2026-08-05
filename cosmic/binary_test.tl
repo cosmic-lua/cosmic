@@ -8,16 +8,10 @@ local spawn = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 
--- helper to create clean environment without LUA_PATH
--- this ensures we test the bundled libraries, not the repo
+-- a clean environment without LUA_PATH ensures we test the bundled
+-- libraries, not the repo
 local function clean_env(): {string}
-  local env: {string} = {}
-  for _, entry in ipairs(cenv.list()) do
-    if not entry:match("^LUA_PATH=") and not entry:match("^LUA_CPATH=") then
-      env[#env + 1] = entry
-    end
-  end
-  return env
+  return cenv.list({drop = {"LUA_PATH", "LUA_CPATH"}})
 end
 
 local function test_cosmic_child()

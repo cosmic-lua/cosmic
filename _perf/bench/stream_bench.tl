@@ -155,7 +155,7 @@ end
 
 local function cleanup()
   if server_pid and server_pid > 0 then
-    proc.kill(server_pid, signal.SIGKILL)
+    signal.kill(server_pid, signal.SIGKILL)
     proc.wait(server_pid)
     server_pid = nil
   end

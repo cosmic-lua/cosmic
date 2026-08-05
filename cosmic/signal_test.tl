@@ -125,6 +125,16 @@ local function test_kill()
 end
 test_kill()
 
+local function test_kill_error_names_errno()
+  -- A pid this large should never be in use: kill(pid, 0) just probes
+  -- for existence and must fail with ESRCH instead of dropping the error.
+  local ok, err = signal.kill(999999999, 0)
+  assert(ok == false, "kill of a nonexistent pid should fail")
+  assert(type(err) == "string" and err:match("ESRCH"),
+    "kill error should name ESRCH, got: " .. tostring(err))
+end
+test_kill_error_names_errno()
+
 local function test_raise()
   -- Set up handler for SIGUSR2
   local received = false

@@ -8,12 +8,8 @@ local records = require("cosmic.records")
 local time = require("cosmic.time")
 
 --- The output grammar lives in `cosmic.records`, which is where every
---- printer and every asserting test reads it from. These two are
---- re-exported because they were this module's public surface before
---- the grammar had a home; they are the same definitions, not a second
---- one.
-local STATUS_ICONS < const >: {string: string} = records.ICONS
-local status_of = records.status_of
+--- printer and every asserting test reads it from (api-review: the
+--- STATUS_ICONS/status_of re-exports are gone; require cosmic.records).
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
@@ -249,7 +245,7 @@ local function report(paths: {string}): integer
         end
       end
 
-      local status = status_of(exit_code)
+      local status = records.status_of(exit_code)
       if status == "pass" then
         passed = passed + 1
       elseif status == "skip" then
@@ -362,15 +358,11 @@ local _ = Example_makefile
 local record TestrunModule
   run: function(argv: {string}, output_base: string): integer
   report: function(paths: {string}): integer
-  status_of: function(exit_code: integer): string
-  STATUS_ICONS: {string: string}
 end
 
 local M: TestrunModule = {
   run = run,
   report = report,
-  status_of = status_of,
-  STATUS_ICONS = STATUS_ICONS,
 }
 
 return M
