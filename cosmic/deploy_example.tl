@@ -15,18 +15,18 @@
 local function Example_shebang()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
   local script = fs.join(tmpdir, "greet.tl")
 
   -- Write a script with a shebang line
   fs.write(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
 
   -- Run it via cosmic (portable across all platforms)
-  local r = check.must(spawn.run({cosmic, script}))
-  fs.rmrf(tmpdir)
+  local r = check.must(child.run({cosmic, script}))
+  fs.remove_all(tmpdir)
   assert(r.ok, r.stderr)
   print(r.stdout)
   -- Output:
@@ -39,10 +39,10 @@ end
 local function Example_script_args()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
   local script = fs.join(tmpdir, "greet.tl")
 
   -- A script that reads arguments from the arg table
@@ -52,13 +52,13 @@ print("hello " .. name)
 ]])
 
   -- Run with an argument
-  local r = check.must(spawn.run({cosmic, script, "alice"}))
+  local r = check.must(child.run({cosmic, script, "alice"}))
   assert(r.ok, r.stderr)
   io.write(r.stdout)
 
   -- Run without arguments to use the default
-  r = check.must(spawn.run({cosmic, script}))
-  fs.rmrf(tmpdir)
+  r = check.must(child.run({cosmic, script}))
+  fs.remove_all(tmpdir)
   assert(r.ok, r.stderr)
   io.write(r.stdout)
   -- Output:
@@ -72,14 +72,14 @@ end
 local function Example_install_to_path()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
 
   -- Create a local bin directory (simulating ~/bin or ~/.local/bin)
   local bindir = fs.join(tmpdir, "bin")
-  fs.makedirs(bindir)
+  fs.make_dirs(bindir)
 
   -- Write a script
   local script = fs.join(bindir, "mytool")
@@ -87,8 +87,8 @@ local function Example_install_to_path()
   fs.chmod(script, 0x1ED) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
-  local r = check.must(spawn.run({cosmic, script}))
-  fs.rmrf(tmpdir)
+  local r = check.must(child.run({cosmic, script}))
+  fs.remove_all(tmpdir)
   assert(r.ok, r.stderr)
   print(r.stdout)
   -- Output:
@@ -101,33 +101,33 @@ end
 local function Example_portable_executable()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "app.tl")
   fs.write(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
 
   -- Compile .tl to .lua (--embed requires plain Lua)
-  local r = check.must(spawn.run({cosmic, "--compile", tl_file}))
+  local r = check.must(child.run({cosmic, "--compile", tl_file}))
   assert(r.ok, r.stderr)
   local lua_source = r.stdout
 
   -- Create app directory with compiled entry point
   local appdir = fs.join(tmpdir, "pkg")
-  fs.makedirs(appdir)
+  fs.make_dirs(appdir)
   fs.write(fs.join(appdir, "main.lua"), lua_source)
 
   -- Build a standalone executable
   local output = fs.join(tmpdir, "myapp")
-  r = check.must(spawn.run({cosmic, "--embed", appdir, "--output", output}))
+  r = check.must(child.run({cosmic, "--embed", appdir, "--output", output}))
   assert(r.ok, r.stderr)
 
   -- Run the standalone binary — no cosmic needed on the target machine
-  r = check.must(spawn.run({output}))
-  fs.rmrf(tmpdir)
+  r = check.must(child.run({output}))
+  fs.remove_all(tmpdir)
   assert(r.ok, r.stderr)
   print(r.stdout)
   -- Output:

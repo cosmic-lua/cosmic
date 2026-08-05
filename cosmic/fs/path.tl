@@ -40,10 +40,10 @@ end
 --- Check if path is a regular file.
 --- Symbolic links are followed (uses stat), matching POSIX `test -f`,
 --- Python, and Node: a symlink to a regular file counts as a regular
---- file. Use islink() to detect the symlink itself. Returns false on error.
+--- file. Use is_link() to detect the symlink itself. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a regular file
-local function isfile(p: string): boolean
+local function is_file(p: string): boolean
   local st = unix.stat(p)
   -- cast: record union after guard
   return st ~= nil and unix.S_ISREG((st as unix.Stat):mode())
@@ -52,10 +52,10 @@ end
 --- Check if path is a directory.
 --- Symbolic links are followed (uses stat), matching POSIX `test -d`,
 --- Python, and Node: a symlink to a directory counts as a directory.
---- Use islink() to detect the symlink itself. Returns false on error.
+--- Use is_link() to detect the symlink itself. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a directory
-local function isdir(p: string): boolean
+local function is_dir(p: string): boolean
   local st = unix.stat(p)
   -- cast: record union after guard
   return st ~= nil and unix.S_ISDIR((st as unix.Stat):mode())
@@ -65,7 +65,7 @@ end
 --- Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a symbolic link
-local function islink(p: string): boolean
+local function is_link(p: string): boolean
   return cosmo_path.islink(p)
 end
 
@@ -458,9 +458,9 @@ local record FsPathModule
   home: function(): string | nil, string
   expanduser: function(p: string): string
   exists: function(path: string): boolean
-  isfile: function(path: string): boolean
-  isdir: function(path: string): boolean
-  islink: function(path: string): boolean
+  is_file: function(path: string): boolean
+  is_dir: function(path: string): boolean
+  is_link: function(path: string): boolean
   is_absolute: function(p: string): boolean
   normalize: function(p: string): string
   abspath: function(p: string): string
@@ -477,9 +477,9 @@ local M: FsPathModule = {
   home = home,
   expanduser = expanduser,
   exists = exists,
-  isfile = isfile,
-  isdir = isdir,
-  islink = islink,
+  is_file = is_file,
+  is_dir = is_dir,
+  is_link = is_link,
   is_absolute = is_absolute,
   normalize = normalize,
   abspath = abspath,

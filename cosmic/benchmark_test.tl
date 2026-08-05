@@ -105,7 +105,7 @@ local function Benchmark_cmd()
   local x = 1 + 1
 end
 ]])
-  local h1 = check.must(spawn.spawn({cosmic, "--benchmark", input}))
+  local h1 = check.must(spawn.start({cosmic, "--benchmark", input}))
   local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --benchmark should succeed")
@@ -302,7 +302,7 @@ local function Benchmark_beta()
   local y = 2
 end
 ]])
-  local h2 = check.must(spawn.spawn({cosmic, "--benchmark", input .. ":alpha"}))
+  local h2 = check.must(spawn.start({cosmic, "--benchmark", input .. ":alpha"}))
   local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --benchmark with filter should succeed")

@@ -3,7 +3,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local style = require("cosmic.style")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -24,7 +24,7 @@ end
 add(1, 2)
 ]])
 
-  local h = check.must(spawn.spawn({cosmic, "--check", "lint", input}))
+  local h = check.must(child.start({cosmic, "--check", "lint", input}))
   local __r1 = check.must(h:wait())
   local ok, _ = __r1.ok, __r1.stdout
   assert(ok, "cosmic --check lint should succeed on valid file")
@@ -44,7 +44,7 @@ local function test_style_long_line_is_not_enforced()
   local long_line = string.rep("x", 91)
   local input = write_temp("style_long.tl", long_line .. "\n")
 
-  local h = check.must(spawn.spawn({cosmic, "--check", "lint", input}))
+  local h = check.must(child.start({cosmic, "--check", "lint", input}))
   local __r2 = check.must(h:wait())
   local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "a long line must not fail the style gate")

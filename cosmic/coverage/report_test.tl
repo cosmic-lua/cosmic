@@ -37,7 +37,7 @@ end
 test_normalize_maps_compiled_artifact_to_source()
 
 local function test_normalize_strips_cwd_prefix()
-  local cwd = check.must(fs.getcwd(), "getcwd failed")
+  local cwd = check.must(fs.cwd(), "cwd failed")
   local display = report.normalize("@" .. cwd .. "/o/cosmic/codec.lua", cwd)
   assert(display == "cosmic/codec.tl", "got: " .. tostring(display))
   -- a ./-prefixed spelling of the same chunk must merge into the same row
@@ -72,7 +72,7 @@ test_normalize_maps_embedded_directory_modules()
 -- fixture and `_make/testdata/luaonly/`): when a staged `o/x.lua` has
 -- no matching `x.tl`, the source IS `x.lua` and must not be dropped.
 local function test_normalize_maps_lua_only_source_with_no_tl()
-  local saved = check.must(fs.getcwd(), "getcwd failed")
+  local saved = check.must(fs.cwd(), "cwd failed")
   assert(fs.write(fs.join(tmpdir, "greet.lua"), "print('hi')\n"))
   assert(fs.chdir(tmpdir))
   local display, parse = report.normalize("@o/greet.lua", "")
@@ -85,7 +85,7 @@ test_normalize_maps_lua_only_source_with_no_tl()
 local function test_normalize_accepts_existing_tl_script()
   -- a directly-run script records a cwd-relative source; absolute
   -- sources normalize only when they sit under the given cwd
-  local saved = check.must(fs.getcwd(), "getcwd failed")
+  local saved = check.must(fs.cwd(), "cwd failed")
   assert(fs.write(fs.join(tmpdir, "direct.tl"), "local x = 1\nreturn x\n"))
   assert(fs.chdir(tmpdir))
   local display, parse = report.normalize("@direct.tl", "")
@@ -131,7 +131,7 @@ test_read_cov_rejects_garbage_and_bad_version()
 
 local function test_report_returns_error_without_data()
   local empty = fs.join(tmpdir, "empty_covroot")
-  assert(fs.makedirs(empty))
+  assert(fs.make_dirs(empty))
   local code = report.report({empty})
   assert(code == 1, "no .cov files must exit 1, got " .. code)
 end
@@ -139,7 +139,7 @@ test_report_returns_error_without_data()
 
 local function test_report_renders_merged_data()
   local covroot = fs.join(tmpdir, "covroot")
-  assert(fs.makedirs(covroot))
+  assert(fs.make_dirs(covroot))
   -- two processes hitting the same repo file merge into one row
   for i, hits in ipairs({{[9] = 1}, {[9] = 2, [10] = 1}}) do
     local body = check.must(codec.encode_lua({

@@ -9,7 +9,7 @@ local signal = require("cosmic.signal")
 -- signal interrupts it, so it returns bare nil at the child's EOF
 -- instead of surfacing EINTR mid-wait.
 local function test_read_retries_eintr()
-  local h = check.must(child.spawn({"sleep", "0.3"}))
+  local h = check.must(child.start({"sleep", "0.3"}))
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Interval timer: fires several times while read blocks on the silent
   -- child, each one interrupting the read.

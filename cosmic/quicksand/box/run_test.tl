@@ -11,7 +11,7 @@
 --- uid_map write that needs privileges this test does not have).
 local quicksand = require("cosmic.quicksand")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -20,10 +20,10 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- Run `script` in a fresh cosmic subprocess. Returns the Result, or nil
 -- after registering a strict skip when the subprocess was killed by a
 -- signal (an outer seccomp filter SIGSYS-ing a namespace syscall).
-local function run_script(name: string, body: string): spawn.Result
+local function run_script(name: string, body: string): child.Result
   local script = fs.join(tmpdir, name)
   fs.write(script, body)
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if r.signal ~= nil then
     check.skip("box subprocess killed by signal " .. tostring(r.signal)

@@ -9,7 +9,7 @@
 --- convention instead of throwing, and residual binding throws are
 --- pcall-translated.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 local errno_is = require("cosmic.errno").is
 
 local WORD = 8

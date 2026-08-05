@@ -176,7 +176,7 @@ local function extract(r: Reader, destdir: string, opts?: ExtractOptions): boole
   local made_dirs: {string: boolean} = {}
   local function ensure_dir(dir: string): boolean, string
     if made_dirs[dir] then return true end
-    local ok, err = fs.makedirs(dir)
+    local ok, err = fs.make_dirs(dir)
     if not ok then
       return false, "cannot create directory '" .. dir .. "': " .. (err or "unknown error")
     end

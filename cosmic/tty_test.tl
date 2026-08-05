@@ -2,7 +2,7 @@
 local cfd = require("cosmic.fd")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local tty = require("cosmic.tty")
 
 -- Test module exports
@@ -181,7 +181,7 @@ end
 local cosmic_bin = fs.join(check.must(os.getenv("TEST_BIN")), "cosmic")
 
 local function test_getpass_non_tty_reads_one_line()
-  local h = check.must(spawn.spawn({cosmic_bin, getpass_script}, {stdin = "sekrit\nsecond\n"}),
+  local h = check.must(child.start({cosmic_bin, getpass_script}, {stdin = "sekrit\nsecond\n"}),
     "getpass child should spawn")
   local r = check.must(h:wait())
   assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
@@ -193,7 +193,7 @@ end
 test_getpass_non_tty_reads_one_line()
 
 local function test_getpass_non_tty_eof()
-  local h = check.must(spawn.spawn({cosmic_bin, getpass_script}, {stdin = ""}),
+  local h = check.must(child.start({cosmic_bin, getpass_script}, {stdin = ""}),
     "getpass child should spawn")
   local r = check.must(h:wait())
   assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))

@@ -19,7 +19,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 -- (a) kill a long-running child; wait() reports the terminating signal.
 local function test_kill_reports_signal()
-  local h = check.must(child.spawn({"sleep", "10"}))
+  local h = check.must(child.start({"sleep", "10"}))
   assert(h:kill(), "kill (default SIGTERM) should succeed")
   local r = check.must(h:wait())
   assert(r.signal == signal.SIGTERM,
@@ -32,7 +32,7 @@ test_kill_reports_signal()
 
 -- (b) wait() is idempotent: the reaped Result is cached and returned again.
 local function test_wait_idempotent()
-  local h = check.must(child.spawn({lua_bin, "-e", "os.exit(3)"}))
+  local h = check.must(child.start({lua_bin, "-e", "os.exit(3)"}))
   local r1 = check.must(h:wait())
   local r2 = check.must(h:wait())
   assert(r1 == r2, "second wait() must return the same cached Result")
@@ -43,7 +43,7 @@ test_wait_idempotent()
 -- (c) wait(timeout_ms) returns nil, "timeout" for a child that has not exited;
 -- the handle stays usable so we can then kill and reap it.
 local function test_wait_timeout()
-  local h = check.must(child.spawn({"sleep", "10"}))
+  local h = check.must(child.start({"sleep", "10"}))
   local r, err = h:wait(100)
   assert(r == nil, "expected nil Result on timeout")
   assert(err == "timeout", "expected 'timeout', got " .. tostring(err))
@@ -56,7 +56,7 @@ test_wait_timeout()
 -- (d) a missing executable makes spawn() itself fail with a visible ENOENT,
 -- not a bogus exit code from a later wait().
 local function test_exec_failure_visible()
-  local h, err = child.spawn({"/no/such/bin"})
+  local h, err = child.start({"/no/such/bin"})
   assert(h == nil, "spawn should fail for a missing executable")
   assert(err ~= nil and err:match("ENOENT"),
     "expected ENOENT in error, got " .. tostring(err))
@@ -83,7 +83,7 @@ end
 test_run_simple()
 
 local function test_command_not_found()
-  local h, err = child.spawn({"nonexistent_command_12345"})
+  local h, err = child.start({"nonexistent_command_12345"})
   assert(h == nil, "handle should be nil for nonexistent command")
   assert(err:find("command not found", 1, true), "expected 'command not found' in error: " .. tostring(err))
 end
@@ -118,7 +118,7 @@ test_run_cwd_option()
 -- === Handle-level methods: try_wait, read, kill-after-reap ===
 
 local function test_try_wait()
-  local h = check.must(child.spawn({"sleep", "10"}))
+  local h = check.must(child.start({"sleep", "10"}))
   assert(h:try_wait() == nil, "try_wait on a running child returns nil")
   h:kill(signal.SIGKILL)
   local res: child.Result = nil
@@ -133,7 +133,7 @@ end
 test_try_wait()
 
 local function test_read_streaming()
-  local h = check.must(child.spawn({lua_bin, "-e", "io.write('abcdef'); io.flush()"}))
+  local h = check.must(child.start({lua_bin, "-e", "io.write('abcdef'); io.flush()"}))
   local chunk = check.must(h:read(3))
   assert(#chunk >= 1, "streaming read should return bytes, got " .. tostring(chunk))
   local r = check.must(h:wait())
@@ -149,7 +149,7 @@ local function test_abandoned_handle_reaped()
   -- returns the pid is gone (kill(pid, 0) fails with ESRCH).
   local pid: integer = 0
   do
-    local h = check.must(child.spawn({"sleep", "30"}))
+    local h = check.must(child.start({"sleep", "30"}))
     pid = h.pid
   end
   collectgarbage("collect")
@@ -160,7 +160,7 @@ end
 test_abandoned_handle_reaped()
 
 local function test_kill_after_reap_fails()
-  local h = check.must(child.spawn({lua_bin, "-e", "os.exit(0)"}))
+  local h = check.must(child.start({lua_bin, "-e", "os.exit(0)"}))
   h:wait()
   local ok, err = h:kill()
   assert(not ok, "kill after reap should fail")
@@ -219,7 +219,7 @@ local function test_spawn_fork_failure()
   rawset(unix, "fork", function(): number, string
       return nil, "fork: EAGAIN: Resource temporarily unavailable"
     end)
-  local handle, err = child.spawn({lua_bin, "-e", "print('x')"}, {cwd = "."})
+  local handle, err = child.start({lua_bin, "-e", "print('x')"}, {cwd = "."})
   rawset(unix, "fork", real_fork)
   assert(handle == nil, "expected nil handle on fork failure, got: " .. tostring(handle))
   assert(type(err) == "string", "expected error string on fork failure, got: " .. type(err))
@@ -235,7 +235,7 @@ local function test_spawn_fast_failure()
   rawset(unix, "spawn", function(): number, string, number
       return nil, "spawn: EAGAIN: Resource temporarily unavailable", 11
     end)
-  local handle, err = child.spawn({lua_bin, "-e", "print('x')"})
+  local handle, err = child.start({lua_bin, "-e", "print('x')"})
   rawset(unix, "spawn", real_spawn)
   assert(handle == nil, "expected nil handle on spawn failure, got: " .. tostring(handle))
   assert(err ~= nil and err:find("exec failed", 1, true),
@@ -263,7 +263,7 @@ test_run_no_deadlock_large_stderr()
 -- === /zip/ binary execution via fexecve ===
 
 local function test_spawn_zip_nonexistent_path()
-  local handle, err = child.spawn({"/zip/nonexistent_binary_12345"})
+  local handle, err = child.start({"/zip/nonexistent_binary_12345"})
   assert(handle == nil, "handle should be nil for nonexistent /zip/ path")
   assert(err, "should have error message")
   assert(err:find("zip", 1, true) or err:find("not found", 1, true),
@@ -274,7 +274,7 @@ test_spawn_zip_nonexistent_path()
 local function test_spawn_zip_non_executable()
   -- /zip/main.lua exists but is not an ELF binary, so fexecve fails. With the
   -- exec-status pipe, that failure surfaces from spawn itself, not a fake 127.
-  local handle, err = child.spawn({"/zip/main.lua"})
+  local handle, err = child.start({"/zip/main.lua"})
   assert(handle == nil, "spawn should fail: fexecve of a non-binary is an exec error")
   assert(err ~= nil and err:find("exec failed", 1, true),
     "expected an 'exec failed' error, got: " .. tostring(err))
@@ -286,7 +286,7 @@ local function test_spawn_zip_embedded_binary()
   local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 
   local bin_dir = fs.join(tmpdir, "embed", ".bin")
-  fs.makedirs(bin_dir)
+  fs.make_dirs(bin_dir)
   local echo_data = fs.read("/bin/echo")
   assert(echo_data, "should read /bin/echo")
   fs.write(fs.join(bin_dir, "echo"), echo_data)
@@ -350,7 +350,7 @@ test_spawn_many_captures_correct()
 
 local function test_spawn_does_not_mutate_argv()
   local argv = {"echo", "x"}
-  local h = check.must(child.spawn(argv))
+  local h = check.must(child.start(argv))
   h:wait()
   assert(argv[1] == "echo",
     "spawn must not mutate caller's argv[1], got '" .. tostring(argv[1]) .. "'")
@@ -361,9 +361,9 @@ local function test_spawn_overlap_no_stdin_leak()
   -- CLOEXEC pipes stop a later child from inheriting an earlier child's stdin
   -- write end. Spawn A (reads stdin to EOF), then a long-lived B; A must see
   -- EOF once the parent closes its write end and finish without waiting on B.
-  local a = check.must(child.spawn({lua_bin, "-e", "io.write(io.read('*a') or '')"},
+  local a = check.must(child.start({lua_bin, "-e", "io.write(io.read('*a') or '')"},
       {stdin = "hello"}))
-  local b = check.must(child.spawn({lua_bin, "-e", "require('cosmic.time').sleep(10)"}))
+  local b = check.must(child.start({lua_bin, "-e", "require('cosmic.time').sleep(10)"}))
 
   local s0, n0 = time.monotonic()
   local r = check.must(a:wait())
@@ -386,7 +386,7 @@ test_spawn_overlap_no_stdin_leak()
 -- capture is then empty for that stream.
 local function test_spawn_stdout_handle()
   local p = check.must(cfd.pipe())
-  local h = check.must(child.spawn({"echo", "via-handle"}, {stdout = p.writer}))
+  local h = check.must(child.start({"echo", "via-handle"}, {stdout = p.writer}))
   p.writer:close()
   local out = check.must(p.reader:read())
   p.reader:close()
@@ -399,7 +399,7 @@ test_spawn_stdout_handle()
 -- stderr as a Handle.
 local function test_spawn_stderr_handle()
   local p = check.must(cfd.pipe())
-  local h = check.must(child.spawn({"sh", "-c", "echo err-via-handle >&2"}, {stderr = p.writer}))
+  local h = check.must(child.start({"sh", "-c", "echo err-via-handle >&2"}, {stderr = p.writer}))
   p.writer:close()
   local out = check.must(p.reader:read())
   p.reader:close()
@@ -439,7 +439,7 @@ test_spawn_stdout_file_handle()
 local function test_spawn_closed_handle_fails()
   local p = check.must(cfd.pipe())
   p:close()
-  local h, err = child.spawn({"echo", "x"}, {stdout = p.writer})
+  local h, err = child.start({"echo", "x"}, {stdout = p.writer})
   assert(h == nil, "spawn with a closed Handle should fail")
   assert(err ~= nil and err:find("closed", 1, true),
     "expected a 'closed' error, got: " .. tostring(err))

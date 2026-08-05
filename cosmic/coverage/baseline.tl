@@ -228,7 +228,7 @@ local function gate(baseline_path: string, only: string, paths: {string}): integ
     io.write("coverage ratchet skipped (only=" .. only .. ")\n")
     return 0
   end
-  if not fs.isfile(baseline_path) then
+  if not fs.is_file(baseline_path) then
     io.write("coverage ratchet skipped: no " .. baseline_path ..
       "; run 'cosmic --make coverage --baseline' to start it\n")
     return 0

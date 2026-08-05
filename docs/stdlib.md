@@ -182,12 +182,12 @@ h:close()
 local fs = require("cosmic.fs")
 
 fs.exists("/tmp/test")              -- true/false
-fs.isdir("/tmp")                    -- true/false
+fs.is_dir("/tmp")                    -- true/false
 fs.join("/usr", "local", "bin")     -- "/usr/local/bin"
 fs.basename("/usr/local/bin")       -- "bin"
 fs.dirname("/usr/local/bin")        -- "/usr/local"
-fs.makedirs("/tmp/a/b/c")          -- create parents
-fs.rmrf("/tmp/test")               -- recursive delete
+fs.make_dirs("/tmp/a/b/c")          -- create parents
+fs.remove_all("/tmp/test")               -- recursive delete
 
 -- walk directory tree
 for path in fs.files("src", "*.tl") do

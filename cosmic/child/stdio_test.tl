@@ -27,7 +27,7 @@ local function run_capturing(name: string, src: string): child.Result, string
   fs.write(script, src)
   local outfile = fs.join(TEST_TMPDIR, name .. ".out")
   local out_h = check.must(cfd.open(outfile, WRONLY_CREAT_TRUNC, tonumber("644", 8)))
-  local h = check.must(child.spawn({lua_bin, script, lua_bin},
+  local h = check.must(child.start({lua_bin, script, lua_bin},
       {stdout = out_h}))
   local r = check.must(h:wait())
   out_h:close()
@@ -43,7 +43,7 @@ end
 local function test_inherit_reaches_the_real_descriptor()
   local r, written = run_capturing("inherit_child", [[
 local child = require("cosmic.child")
-local h = assert(child.spawn({arg[1], "-e", "print('MARKER')"},
+local h = assert(child.start({arg[1], "-e", "print('MARKER')"},
   {stdout = "inherit"}))
 local r = assert(h:wait())
 io.stderr:write("captured=[" .. (r.stdout or "") .. "]\n")
@@ -64,7 +64,7 @@ test_inherit_reaches_the_real_descriptor()
 local function test_inherit_leaves_our_descriptor_open()
   local r, written = run_capturing("inherit_reuse", [[
 local child = require("cosmic.child")
-local h = assert(child.spawn({arg[1], "-e", "print('FIRST')"},
+local h = assert(child.start({arg[1], "-e", "print('FIRST')"},
   {stdout = "inherit"}))
 assert(h:wait())
 io.write("STILL_OPEN\n")
@@ -85,7 +85,7 @@ test_inherit_leaves_our_descriptor_open()
 local function test_inherit_stderr_is_separate_from_stdout()
   local r, written = run_capturing("inherit_stderr", [[
 local child = require("cosmic.child")
-local h = assert(child.spawn(
+local h = assert(child.start(
   {arg[1], "-e", "io.stderr:write('ERRMARK')"},
   {stderr = "inherit"}))
 local r = assert(h:wait())
@@ -106,7 +106,7 @@ test_inherit_stderr_is_separate_from_stdout()
 local function test_default_still_captures()
   local r, written = run_capturing("inherit_default", [[
 local child = require("cosmic.child")
-local h = assert(child.spawn({arg[1], "-e", "print('CAPTURED')"}))
+local h = assert(child.start({arg[1], "-e", "print('CAPTURED')"}))
 local r = assert(h:wait())
 io.stderr:write("got=[" .. (r.stdout or ""):gsub("%s+$", "") .. "]\n")
 ]])
@@ -130,7 +130,7 @@ local function test_stderr_fd_wrap_does_not_clobber_captured_stdout()
   local r, written = run_capturing("swap_stderr", [[
 local child = require("cosmic.child")
 local cfd = require("cosmic.fd")
-local h = assert(child.spawn({"sh", "-c", "echo OUT; echo ERR >&2"},
+local h = assert(child.start({"sh", "-c", "echo OUT; echo ERR >&2"},
   {stderr = cfd.wrap(1)}))
 local r = assert(h:wait())
 io.stderr:write("stdout=[" .. (r.stdout or "") .. "]\n")
@@ -153,7 +153,7 @@ local function test_full_stdio_swap_routes_each_stream_correctly()
   local r, written = run_capturing("swap_full", [[
 local child = require("cosmic.child")
 local cfd = require("cosmic.fd")
-local h = assert(child.spawn({"sh", "-c", "echo OUT; echo ERR >&2"},
+local h = assert(child.start({"sh", "-c", "echo OUT; echo ERR >&2"},
   {stdout = cfd.wrap(2), stderr = cfd.wrap(1)}))
 local r = assert(h:wait())
 io.stderr:write("stdout=[" .. (r.stdout or "") .. "] stderr=[" ..

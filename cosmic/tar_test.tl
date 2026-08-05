@@ -219,7 +219,7 @@ local function test_truncated_archive_is_refused()
   tar_entry("b.txt", "two\n", oct("644"), "0", "")
   assert(fs.write(path, (check.must(compress.compress(body, {format = "gzip"})))))
 
-  fs.rmrf(dest)
+  fs.remove_all(dest)
   local ok, err = untar.extract(path, dest)
   assert(not ok, "an unterminated archive must be refused")
   assert(err and err:match("no end%-of%-archive"),

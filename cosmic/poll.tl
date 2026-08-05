@@ -78,7 +78,7 @@ local record Poller
   --- @return Events | nil The events for this fd, or nil if not ready
   events: function(Poller, integer): Events | nil
   --- Returns true if the poller has no registered fds.
-  empty: function(Poller): boolean
+  is_empty: function(Poller): boolean
   --- Returns the number of registered fds.
   count: function(Poller): integer
 end
@@ -141,7 +141,7 @@ local function new(): Poller
     results = {}
   end
 
-  poller.empty = function(_self: Poller): boolean
+  poller.is_empty = function(_self: Poller): boolean
     return next(fds) == nil
   end
 
@@ -174,7 +174,7 @@ local function new(): Poller
       -- unconditionally, so a stale or nil table there would crash the
       -- next events() call instead of just reporting no events.
       results = {}
-      return nil, errno.str(err, "poll")
+      return nil, errno.wrap(err, "poll")
     end
     results = res
     local ready = 0

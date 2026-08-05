@@ -38,7 +38,7 @@ end
 local function Example_kill()
   local check = require("cosmic.check")
   local child = require("cosmic.child")
-  local h = check.must(child.spawn({"sleep", "10"}))
+  local h = check.must(child.start({"sleep", "10"}))
   h:kill()
   local r = check.must(h:wait())
   print("signal:", r.signal)
@@ -52,7 +52,7 @@ end
 local function Example_wait_timeout()
   local check = require("cosmic.check")
   local child = require("cosmic.child")
-  local h = check.must(child.spawn({"sleep", "10"}))
+  local h = check.must(child.start({"sleep", "10"}))
   local r, err = h:wait(50)
   print(r, err)
   h:kill()
@@ -81,7 +81,7 @@ local function Example_run_pipe()
   local pp = check.must(cfd.pipe())
 
   -- Spawn echo, redirecting its stdout into the write end of the pipe.
-  local h = check.must(child.spawn({"echo", "from pipe"}, {stdout = pp.writer}))
+  local h = check.must(child.start({"echo", "from pipe"}, {stdout = pp.writer}))
 
   -- Close the write end in the parent so the reader sees EOF when the child exits.
   pp.writer:close()

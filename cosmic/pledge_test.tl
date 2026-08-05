@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local pledge = require("cosmic.pledge")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -55,7 +55,7 @@ if not ok then
 end
 io.write("pledged\n")
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   local s = out or ""
@@ -92,7 +92,7 @@ if f then
 end
 io.write("restricted\n")
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   local s = out or ""

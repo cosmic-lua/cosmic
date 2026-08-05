@@ -2,14 +2,14 @@
 ---
 --- Failed `cosmo.unix` calls return `nil, err, errno`: a formatted string
 --- (`"open: ENOENT: No such file or directory"`) plus the numeric errno.
---- This module provides the canonical formatter (`str`) that most
+--- This module provides the canonical formatter (`wrap`) that most
 --- `cosmic.*` wrappers use to add operation context, and helpers for
 --- programmatic errno handling (`is`, `code`, and the `constants`
 --- name -> number table), so error messages share one shape across the
 --- stdlib:
 ---
 ---     local ok, err = unix.mkdir(path, mode)
----     if not ok then return false, errno.str(err, "mkdir: " .. path) end
+---     if not ok then return false, errno.wrap(err, "mkdir: " .. path) end
 ---     -- -> "mkdir: /x: EACCES: Permission denied"
 local unix = require("cosmo.unix")
 
@@ -25,7 +25,7 @@ local unix = require("cosmo.unix")
 --- @param err any the error value (a string, or nil)
 --- @param prefix? string operation/context to prepend
 --- @return string canonical error string
-local function str(err: any, prefix?: string): string
+local function wrap(err: any, prefix?: string): string
   local msg: string
   if err == nil then
     msg = "unknown error"
@@ -122,7 +122,7 @@ for _, name in ipairs(ERRNO_NAMES) do
 end
 
 return {
-  str = str,
+  wrap = wrap,
   code = code,
   is = is,
   name_of = name_of,

@@ -58,7 +58,7 @@ test_interfaces_format()
 local sock_base = os.getenv("TMPDIR") or "/tmp"
 
 local function test_unix_domain_socket_bind_connect()
-  local tmpdir = assert(fs.mkdtemp(fs.join(sock_base, "cosmic_net_XXXXXX")))
+  local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
   local path = tmpdir .. "/test.sock"
 
   -- Create server socket
@@ -101,7 +101,7 @@ end
 test_unix_domain_socket_bind_connect()
 
 local function test_listen_unix_connect_unix()
-  local tmpdir = assert(fs.mkdtemp(fs.join(sock_base, "cosmic_net_XXXXXX")))
+  local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
   local path = tmpdir .. "/test.sock"
 
   -- Use module-level listen_unix helper

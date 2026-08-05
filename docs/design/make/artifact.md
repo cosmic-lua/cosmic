@@ -63,7 +63,7 @@ tests inside a stripped artifact.
 ## Reproducibility
 
 Entries carry a fixed mtime (`SOURCE_DATE_EPOCH`, else the DOS floor
-315532800) rather than the staging file's. Plumbed through `embed.run`
+315532800) rather than the staging file's. Plumbed through `embed.embed`
 and DEFAULTED there, so `--embed` is reproducible too and not only the
 `--make` path that passes one explicitly. Gate: build
 the same fixture twice into different paths, compare sha256.

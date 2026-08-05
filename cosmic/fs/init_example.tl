@@ -6,7 +6,7 @@ local function Example_basic()
   local fs = require("cosmic.fs")
 
   -- Create a temp directory
-  local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/fs_example_XXXXXX")
   if not tmpdir then
     print("failed to create temp dir")
     return
@@ -18,7 +18,7 @@ local function Example_basic()
   local ok, err = fs.mkdir(subdir)
   if not ok then
     print("mkdir failed:", err)
-    fs.rmrf(tmpdir)
+    fs.remove_all(tmpdir)
     return
   end
 
@@ -39,7 +39,7 @@ local function Example_basic()
   end
 
   -- Clean up
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
   print("cleaned up")
 
   -- Output:

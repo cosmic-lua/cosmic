@@ -337,18 +337,18 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
     -- close it.
     local fd, serr = unix.socket(unix.AF_INET,
       (unix.SOCK_STREAM) | (unix.SOCK_CLOEXEC), 0)
-    if not fd then return nil, errno.str(serr, "socket") end
+    if not fd then return nil, errno.wrap(serr, "socket") end
     local lfd = fd
     unix.setsockopt(lfd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
     local bok, berr = unix.bind(lfd, bind_ip, bind_port)
     if not bok then
       unix.close(lfd)
-      return nil, errno.str(berr, "bind")
+      return nil, errno.wrap(berr, "bind")
     end
     local lok, lerr2 = unix.listen(lfd, backlog)
     if not lok then
       unix.close(lfd)
-      return nil, errno.str(lerr2, "listen")
+      return nil, errno.wrap(lerr2, "listen")
     end
     -- Refresh bind_port if the caller asked for an ephemeral port.
     local _, got_port = unix.getsockname(lfd)
@@ -361,7 +361,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
 
   local function accept(): integer | nil, string
     local cli, aerr = unix.accept(listen_fd)
-    if not cli then return nil, errno.str(aerr, "accept") end
+    if not cli then return nil, errno.wrap(aerr, "accept") end
     return cli
   end
 

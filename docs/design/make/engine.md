@@ -101,7 +101,7 @@ cosmic verb or `exec`.
   one nobody has checked:
 
   - The floor handed Landlock `/zip/.types`, a path *inside the
-    executable*, where `fs.isdir` says yes and the kernel knows
+    executable*, where `fs.is_dir` says yes and the kernel knows
     nothing — so the whole policy failed to construct with `EBADFD`. A
     fence that cannot be built is worse than one that is too wide: it
     fails on correct input.

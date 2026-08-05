@@ -5,11 +5,11 @@
 --- `require`, no reading the environment — because the grammar admits
 --- values and nothing else.
 
--- Example_of_source demonstrates reading a literal table, including
+-- Example_parse demonstrates reading a literal table, including
 -- nested tables and ["key"] entries.
-local function Example_of_source()
+local function Example_parse()
   local literal = require("cosmic.literal")
-  local raw = literal.of_source([[
+  local raw = literal.parse([[
 return {
   name = "app",
   port = 8080,
@@ -28,7 +28,7 @@ end
 -- on. dofile() would have run it.
 local function Example_refuses_code()
   local literal = require("cosmic.literal")
-  local cfg, err = literal.of_source(
+  local cfg, err = literal.parse(
     'return {home = os.getenv("HOME")}\n', {file = "config.tl"})
   print(cfg)
   print(err)
@@ -41,11 +41,11 @@ end
 -- how `cosmic --make` makes the same grammar complain about "a pin".
 local function Example_noun()
   local literal = require("cosmic.literal")
-  local _, err = literal.of_source("return 1\n", {file = "dep_pin.tl", noun = "pin"})
+  local _, err = literal.parse("return 1\n", {file = "dep_pin.tl", noun = "pin"})
   print(err)
   -- Output:
   -- dep_pin.tl: a pin must return a table literal
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_of_source, Example_refuses_code, Example_noun}
+local _ = {Example_parse, Example_refuses_code, Example_noun}

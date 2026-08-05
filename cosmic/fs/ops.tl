@@ -5,14 +5,14 @@ local cfd = require("cosmic.fd")
 local stream = require("cosmic.stream")
 local types = require("cosmic.fs.types")
 local errno = require("cosmic.errno")
-local errstr = errno.str
+local errstr = errno.wrap
 local Statfs = types.Statfs
 local type Handle = cfd.Handle
 
 -- File operations
 
 --- Remove a file or symbolic link.
---- Does not remove directories; use rmdir() or rmrf() for that.
+--- Does not remove directories; use rmdir() or remove_all() for that.
 --- @param path string Path to the file to remove
 --- @return boolean True on success
 --- @return string Error message if failed
@@ -197,10 +197,10 @@ end
 --- @param path string Path to the directory to remove
 --- @return boolean True on success
 --- @return string Error message if failed
-local function rmrf(path: string): boolean, string
+local function remove_all(path: string): boolean, string
   local ok, err = unix.rmrf(path)
   if not ok then
-    return false, errstr(err, "rmrf: " .. path)
+    return false, errstr(err, "remove_all: " .. path)
   end
   return true
 end
@@ -313,10 +313,10 @@ end
 --- @param template string Path template ending in XXXXXX
 --- @return string | nil Path to the created directory, or nil on error
 --- @return string Error message if failed
-local function mkdtemp(template: string): string | nil, string
+local function temp_dir(template: string): string | nil, string
   local path, err = unix.mkdtemp(template)
   if not path then
-    return nil, errstr(err, "mkdtemp: " .. template)
+    return nil, errstr(err, "temp_dir: " .. template)
   end
   return path
 end
@@ -328,7 +328,7 @@ local record TmpFile
   --- Open handle to the created file; the Handle owns the descriptor.
   handle: Handle
   --- Path to the created file. NOT unlinked automatically — remove it
-  --- when done. For an anonymous descriptor, use tmpfd() + fd.wrap().
+  --- when done. For an anonymous descriptor, use temp_fd() + fd.wrap().
   path: string
 end
 
@@ -336,12 +336,12 @@ end
 --- @param template string Path template ending in XXXXXX (default: $TMPDIR/cosmic_XXXXXX)
 --- @return TmpFile | nil The handle and path, or nil on error
 --- @return string Error message if failed
-local function tmpfile(template?: string): TmpFile | nil, string
+local function temp_file(template?: string): TmpFile | nil, string
   template = template or ((os.getenv("TMPDIR") or "/tmp") .. "/cosmic_XXXXXX")
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
   if not fd then
-    return nil, errstr(path, "tmpfile: " .. template)
+    return nil, errstr(path, "temp_file: " .. template)
   end
   return {handle = cfd.wrap(fd), path = path}
 end
@@ -349,10 +349,10 @@ end
 --- Create a temporary file descriptor.
 --- @return integer | nil File descriptor, or nil on error
 --- @return string Error message if failed
-local function tmpfd(): integer | nil, string
+local function temp_fd(): integer | nil, string
   local fd, err = unix.tmpfd()
   if not fd then
-    return nil, errstr(err, "tmpfd")
+    return nil, errstr(err, "temp_fd")
   end
   return fd
 end
@@ -416,7 +416,7 @@ local record FsOpsModule
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
-  rmrf: function(path: string): boolean, string
+  remove_all: function(path: string): boolean, string
   access: function(path: string, mode?: integer): boolean
   chmod: function(path: string, mode: integer): boolean, string
   chown: function(path: string, uid: integer, gid: integer): boolean, string
@@ -424,10 +424,10 @@ local record FsOpsModule
   type Times = Times
   set_times: function(path: string, times: Times): boolean, string
   set_times_fd: function(fd: integer, times: Times): boolean, string
-  mkdtemp: function(template: string): string | nil, string
+  temp_dir: function(template: string): string | nil, string
   type TmpFile = TmpFile
-  tmpfile: function(template?: string): TmpFile | nil, string
-  tmpfd: function(): integer | nil, string
+  temp_file: function(template?: string): TmpFile | nil, string
+  temp_fd: function(): integer | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: integer): Statfs | nil, string
   sync: function()
@@ -449,15 +449,15 @@ local M: FsOpsModule = {
   symlink = symlink,
   readlink = readlink,
   realpath = realpath,
-  rmrf = rmrf,
+  remove_all = remove_all,
   access = access,
   chmod = chmod,
   chown = chown,
   set_times = set_times,
   set_times_fd = set_times_fd,
-  mkdtemp = mkdtemp,
-  tmpfile = tmpfile,
-  tmpfd = tmpfd,
+  temp_dir = temp_dir,
+  temp_file = temp_file,
+  temp_fd = temp_fd,
   statfs = statfs,
   fstatfs = fstatfs,
   sync = sync,

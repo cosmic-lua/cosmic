@@ -3,7 +3,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -17,7 +17,7 @@ end
 -- Setup: create a custom type definition directory with a module
 local function setup_custom_types(): string, string
   local typedir = fs.join(tmpdir, "customtypes")
-  fs.makedirs(typedir, 0x1ed) -- 0755
+  fs.make_dirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "custommod.d.tl")
   fs.write(deffile, [[
 local record custommod
@@ -40,7 +40,7 @@ print(s)
 
   -- Without --include-dir, compilation should still succeed (lax mode)
   -- but with it, types are resolved properly
-  local h1 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--compile", input}))
+  local h1 = check.must(child.start({cosmic, "--include-dir", typedir, "--compile", input}))
   local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "compile with --include-dir should succeed: " .. tostring(out))
@@ -59,13 +59,13 @@ print(s)
 ]])
 
   -- Without --include-dir, check should fail (strict mode, module not found)
-  local h2 = check.must(spawn.spawn({cosmic, "--check", "types", input}))
+  local h2 = check.must(child.start({cosmic, "--check", "types", input}))
   local __r2 = check.must(h2:wait())
   local ok_without, _ = __r2.ok, __r2.stdout
   assert(not ok_without, "check should fail without --include-dir for custom module")
 
   -- With --include-dir, check should succeed
-  local h3 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--check", "types", input}))
+  local h3 = check.must(child.start({cosmic, "--include-dir", typedir, "--check", "types", input}))
   local __r3 = check.must(h3:wait())
   local ok_with, out = __r3.ok, __r3.stdout
   assert(ok_with, "check with --include-dir should succeed: " .. tostring(out))
@@ -75,7 +75,7 @@ test_check_types_include_dir()
 -- Test multiple --include-dir flags
 local function test_multiple_include_dirs()
   local typedir1 = fs.join(tmpdir, "types1")
-  fs.makedirs(typedir1, 0x1ed)
+  fs.make_dirs(typedir1, 0x1ed)
   fs.write(fs.join(typedir1, "mod_a.d.tl"), [[
 local record mod_a
   hello: function(): string
@@ -84,7 +84,7 @@ return mod_a
 ]])
 
   local typedir2 = fs.join(tmpdir, "types2")
-  fs.makedirs(typedir2, 0x1ed)
+  fs.make_dirs(typedir2, 0x1ed)
   fs.write(fs.join(typedir2, "mod_b.d.tl"), [[
 local record mod_b
   world: function(): string
@@ -98,7 +98,7 @@ local mod_b = require("mod_b")
 print(mod_a.hello() .. mod_b.world())
 ]])
 
-  local h = check.must(spawn.spawn({
+  local h = check.must(child.start({
         cosmic,
         "--include-dir", typedir1,
         "--include-dir", typedir2,
@@ -119,7 +119,7 @@ print(custommod.greet("test"))
 ]])
   local output = fs.join(tmpdir, "include_dir_output.lua")
 
-  local h = check.must(spawn.spawn({
+  local h = check.must(child.start({
         cosmic, "--write-if-changed",
         "--output", output,
         "--include-dir", typedir,
@@ -150,7 +150,7 @@ local p: string = fs.join("a", "b")
 print(s, p)
 ]])
 
-  local h4 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--check", "types", input}))
+  local h4 = check.must(child.start({cosmic, "--include-dir", typedir, "--check", "types", input}))
   local __r6 = check.must(h4:wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "check with --include-dir should still find built-in types: " .. tostring(out))

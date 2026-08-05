@@ -48,7 +48,7 @@ What it settled:
   would be a validator opinion the artifact contradicts — and the
   contradiction would be invisible, since both copies load fine.
 - **the floor stays a positive keep-list; claims subtract from it.**
-  `embed.run` takes the claimed namespaces and `in_floor` consults
+  `embed.embed` takes the claimed namespaces and `in_floor` consults
   them, rather than the artifact assembling a bespoke floor. A base that
   grows a directory still cannot silently start shipping it, which is
   the property the keep-list exists for. Only `cosmic` has a floor entry
@@ -135,7 +135,7 @@ What it settled:
   The doc index derived a module's name by stripping `^lib/` and
   `^types/` (now only `^_types/`, since everything else names itself);
   `makefile_test` asserted the tree-only `TL_PATH` contained `/lib/`
-  (now the root itself, via `getcwd`); `help_test` required a bare
+  (now the root itself, via `cwd`); `help_test` required a bare
   module name that resolved through a directory-specific path entry.
   None was wrong — each was reading the layout as it was.
 

@@ -4,7 +4,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local cenv = require("cosmic.env")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 
@@ -14,7 +14,7 @@ local function clean_env(): {string}
 end
 
 local function test_guide_no_topic()
-  local __r1 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide"}, {env = clean_env()})):wait())
+  local __r1 = check.must(check.must(child.start({cosmic, "--docs", "guide"}, {env = clean_env()})):wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --docs guide should succeed")
   local s = out
@@ -24,7 +24,7 @@ end
 test_guide_no_topic()
 
 local function test_guide_testing()
-  local __r2 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.testing"}, {env = clean_env()})):wait())
+  local __r2 = check.must(check.must(child.start({cosmic, "--docs", "guide.testing"}, {env = clean_env()})):wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --docs guide.testing should succeed")
   local s = out
@@ -34,7 +34,7 @@ end
 test_guide_testing()
 
 local function test_guide_checking()
-  local __r3 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.checking"}, {env = clean_env()})):wait())
+  local __r3 = check.must(check.must(child.start({cosmic, "--docs", "guide.checking"}, {env = clean_env()})):wait())
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --docs guide.checking should succeed")
   local s = out
@@ -43,7 +43,7 @@ end
 test_guide_checking()
 
 local function test_guide_formatting()
-  local __r4 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.formatting"}, {env = clean_env()})):wait())
+  local __r4 = check.must(check.must(child.start({cosmic, "--docs", "guide.formatting"}, {env = clean_env()})):wait())
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic --docs guide.formatting should succeed")
   local s = out
@@ -57,7 +57,7 @@ test_guide_formatting()
 -- behind it must fail like any other unknown one -- a guide that still
 -- resolves is how a feature nobody ships keeps getting used.
 local function test_guide_makefile_is_retired()
-  local r = check.must(spawn.run(
+  local r = check.must(child.run(
       {cosmic, "--docs", "guide.makefile"}, {env = clean_env()}))
   assert(not r.ok, "guide.makefile should no longer resolve")
   local said = (r.stdout or "") .. (r.stderr or "")
@@ -69,7 +69,7 @@ end
 test_guide_makefile_is_retired()
 
 local function test_guide_modules()
-  local __r6 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.modules"}, {env = clean_env()})):wait())
+  local __r6 = check.must(check.must(child.start({cosmic, "--docs", "guide.modules"}, {env = clean_env()})):wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic --docs guide.modules should succeed")
   local s = out
@@ -79,7 +79,7 @@ end
 test_guide_modules()
 
 local function test_guide_docs()
-  local __r7 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.docs"}, {env = clean_env()})):wait())
+  local __r7 = check.must(check.must(child.start({cosmic, "--docs", "guide.docs"}, {env = clean_env()})):wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic --docs guide.docs should succeed")
   local s = out
@@ -88,7 +88,7 @@ end
 test_guide_docs()
 
 local function test_guide_make()
-  local __r8 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.make"}, {env = clean_env()})):wait())
+  local __r8 = check.must(check.must(child.start({cosmic, "--docs", "guide.make"}, {env = clean_env()})):wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic --docs guide.make should succeed")
   local s = out
@@ -99,7 +99,7 @@ end
 test_guide_make()
 
 local function test_guide_platforms()
-  local __r10 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.platforms"}, {env = clean_env()})):wait())
+  local __r10 = check.must(check.must(child.start({cosmic, "--docs", "guide.platforms"}, {env = clean_env()})):wait())
   local ok, out = __r10.ok, __r10.stdout
   assert(ok, "cosmic --docs guide.platforms should succeed")
   local s = out
@@ -110,7 +110,7 @@ end
 test_guide_platforms()
 
 local function test_guide_unknown()
-  local r = check.must(spawn.run(
+  local r = check.must(child.run(
       {cosmic, "--docs", "guide.nonexistent"}, {env = clean_env()}))
   local ok, code = r.ok, r.code
   assert(not ok, "cosmic --docs guide.nonexistent should fail")
@@ -135,7 +135,7 @@ end
 test_strip_frontmatter_without_frontmatter()
 
 local function test_default_guide_no_frontmatter()
-  local __r9 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide"}, {env = clean_env()})):wait())
+  local __r9 = check.must(check.must(child.start({cosmic, "--docs", "guide"}, {env = clean_env()})):wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic --docs guide should succeed")
   local s = out

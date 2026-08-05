@@ -3,7 +3,7 @@ local proc = require("cosmic.quicksand.proc")
 local quicksand = require("cosmic.quicksand")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -40,7 +40,7 @@ else
   io.write("skipped: " .. err .. "\n")
 end
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   if not ok then
@@ -90,7 +90,7 @@ if not ok then
 end
 io.write("ok\n")
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on prctl.
@@ -138,7 +138,7 @@ b:wait()
 unix.wait(pid)
 io.write("done\n")
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local __r3 = check.must(h:wait())
   local ok, out = __r3.ok, __r3.stdout
   -- Signal death under an outer sandbox counts as skip.
@@ -199,7 +199,7 @@ unix.wait(pid)
 io.write("ok=" .. tostring(ok) .. " err=" .. tostring(werr)
   .. " elapsed=" .. tostring(elapsed) .. "\n")
 ]])
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if not r.ok then
     check.skip("barrier EINTR retry: child died before reporting (outer sandbox)")
@@ -256,7 +256,7 @@ end
 local function run_init(name: string, body: string): string
   local script = fs.join(tmpdir, name .. ".lua")
   fs.write(script, init_preamble .. body)
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if not r.ok then
     return nil

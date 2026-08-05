@@ -437,7 +437,7 @@ end
 --- @param opts Options? where: file name for messages; noun: file kind in errors
 --- @return {string: any}|nil The declared table
 --- @return string The error message when the file is not a literal
-local function of_source(source: string, opts?: Options): {string: any} | nil, string
+local function parse(source: string, opts?: Options): {string: any} | nil, string
   local where = (opts and opts.file) or "literal"
   local what = (opts and opts.noun) or "literal"
   local lexed, lex_err = lex(source, where)
@@ -472,25 +472,29 @@ end
 --- @param opts Options? noun: file kind in errors (where is always the path)
 --- @return {string: any}|nil The declared table
 --- @return string The error message when unreadable or not a literal
-local function of_file(path: string, opts?: Options): {string: any} | nil, string
+local function parse_file(path: string, opts?: Options): {string: any} | nil, string
   local source, rerr = fs.read(path)
   if not source then
     return nil, "cannot read " .. path .. ": " .. (rerr or "unknown error")
   end
   local noun = opts and opts.noun
   -- cast: scalar narrowing after the guard
-  return of_source(source as string, {file = path, noun = noun})
+  return parse(source as string, {file = path, noun = noun})
 end
 
 local record LiteralModule
   type Options = Options
+  parse: function(source: string, opts?: Options): {string: any} | nil, string
+  parse_file: function(path: string, opts?: Options): {string: any} | nil, string
+  --- DEPRECATED aliases (api-review-8 pin-advance transition)
   of_source: function(source: string, opts?: Options): {string: any} | nil, string
   of_file: function(path: string, opts?: Options): {string: any} | nil, string
 end
 
 local M: LiteralModule = {
-  of_source = of_source,
-  of_file = of_file,
+  parse = parse,
+  parse_file = parse_file,
+  of_source = parse, of_file = parse_file,
 }
 
 return M

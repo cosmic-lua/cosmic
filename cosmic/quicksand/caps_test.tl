@@ -137,7 +137,7 @@ local function test_drop_bounding_child()
     return
   end
   local cosmic = fs.join(test_bin, "cosmic")
-  local h = check.must(spawn.spawn({cosmic, "-e", CHILD_DROP}))
+  local h = check.must(spawn.start({cosmic, "-e", CHILD_DROP}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   if not ok then

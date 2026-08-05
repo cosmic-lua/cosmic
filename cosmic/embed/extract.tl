@@ -61,7 +61,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   local count = 0
   -- Archive entries are frequently many files under the same directory
   -- (e.g. a whole embedded tree); memoize which output directories have
-  -- already been created so each one gets exactly one makedirs(2) walk
+  -- already been created so each one gets exactly one make_dirs(2) walk
   -- instead of one per file.
   local made_dirs: {string: boolean} = {}
 
@@ -77,7 +77,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
     if name:sub(-1) == "/" then
       local dir_path = fs.join(output_dir, name)
       if not made_dirs[dir_path] then
-        fs.makedirs(dir_path)
+        fs.make_dirs(dir_path)
         made_dirs[dir_path] = true
       end
     else
@@ -90,7 +90,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
       local filepath = fs.join(output_dir, name)
       local dir = fs.dirname(filepath)
       if not made_dirs[dir] then
-        fs.makedirs(dir)
+        fs.make_dirs(dir)
         made_dirs[dir] = true
       end
 

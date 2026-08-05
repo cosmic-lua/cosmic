@@ -17,7 +17,7 @@
 --- O_NONBLOCK plus poll, or close the descriptor from the handler.
 --- The full policy and its exceptions live in cosmic.stream.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 local errno_is = require("cosmic.errno").is
 local stream = require("cosmic.stream")
 
@@ -254,7 +254,7 @@ local function pipe(flags?: integer): Pipe | nil, string
 end
 
 --- Wrap an already-open raw file descriptor in a Handle.
---- Lets fds from fs.tmpfd() (or any other source) enter the
+--- Lets fds from fs.temp_fd() (or any other source) enter the
 --- Handle world: h:read()/h:write()/h:close(), plus automatic cleanup
 --- via the __close metamethod. The Handle takes ownership: closing it
 --- closes the fd.

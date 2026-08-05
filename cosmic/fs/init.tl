@@ -2,7 +2,7 @@
 --- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs.types")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
@@ -106,7 +106,7 @@ end
 -- Directory operations
 
 --- Create a directory.
---- Parent directories must exist. Use makedirs() to create parents.
+--- Parent directories must exist. Use make_dirs() to create parents.
 --- @param path string Path to the directory to create
 --- @param mode integer Permission bits (default 0755)
 --- @return boolean True on success
@@ -125,11 +125,11 @@ end
 --- @param mode integer Permission bits (default 0755)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function makedirs(path: string, mode?: integer): boolean, string
+local function make_dirs(path: string, mode?: integer): boolean, string
   mode = mode or tonumber("755", 8)
   local ok, err = unix.makedirs(path, mode)
   if not ok then
-    return false, errstr(err, "makedirs: " .. path)
+    return false, errstr(err, "make_dirs: " .. path)
   end
   return true
 end
@@ -161,12 +161,12 @@ end
 --- Get current working directory.
 --- @return string | nil Current working directory path
 --- @return string Error message if failed
-local function getcwd(): string | nil, string
-  local cwd, err = unix.getcwd()
-  if not cwd then
-    return nil, errstr(err, "getcwd")
+local function cwd(): string | nil, string
+  local dir, err = unix.getcwd()
+  if not dir then
+    return nil, errstr(err, "cwd")
   end
-  return cwd
+  return dir
 end
 
 --- Open a directory for reading.
@@ -227,8 +227,8 @@ local record FsModule
   type Dir = Dir
   type FileInfo = FileInfo
   type WalkStat = WalkStat
-  --- fd.Handle, as wrapped by tmpfd() + fd.wrap(); TmpFile is
-  --- tmpfile()'s handle+path record.
+  --- fd.Handle, as wrapped by temp_fd() + fd.wrap(); TmpFile is
+  --- temp_file()'s handle+path record.
   type Handle = Handle
   type TmpFile = fs_ops.TmpFile
 
@@ -247,9 +247,9 @@ local record FsModule
   --- Expand a leading "~" or "~/" to the home directory.
   expanduser: function(p: string): string
   exists: function(path: string): boolean
-  isfile: function(path: string): boolean
-  isdir: function(path: string): boolean
-  islink: function(path: string): boolean
+  is_file: function(path: string): boolean
+  is_dir: function(path: string): boolean
+  is_link: function(path: string): boolean
   --- True for POSIX ("/x"), drive-letter ("C:/x", "C:\x"), and UNC
   --- ("\\server\share") absolute paths.
   is_absolute: function(p: string): boolean
@@ -268,10 +268,10 @@ local record FsModule
 
   -- Directory operations
   mkdir: function(path: string, mode?: integer): boolean, string
-  makedirs: function(path: string, mode?: integer): boolean, string
+  make_dirs: function(path: string, mode?: integer): boolean, string
   rmdir: function(path: string): boolean, string
   chdir: function(path: string): boolean, string
-  getcwd: function(): string | nil, string
+  cwd: function(): string | nil, string
   opendir: function(path: string): Dir | nil, string
   fdopendir: function(fd: integer): Dir | nil, string
 
@@ -291,8 +291,8 @@ local record FsModule
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
-  rmrf: function(path: string): boolean, string
-  copytree: function(src: string, dst: string): boolean, string
+  remove_all: function(path: string): boolean, string
+  copy_tree: function(src: string, dst: string): boolean, string
 
   -- Permission operations
   access: function(path: string, mode?: integer): boolean
@@ -306,9 +306,9 @@ local record FsModule
   set_times_fd: function(fd: integer, times: fs_ops.Times): boolean, string
 
   -- Temporary file operations
-  mkdtemp: function(template: string): string | nil, string
-  tmpfile: function(template?: string): fs_ops.TmpFile | nil, string
-  tmpfd: function(): integer | nil, string
+  temp_dir: function(template: string): string | nil, string
+  temp_file: function(template?: string): fs_ops.TmpFile | nil, string
+  temp_fd: function(): integer | nil, string
 
   -- Filesystem statistics
   statfs: function(path: string): Statfs | nil, string
@@ -358,6 +358,18 @@ local record FsModule
   DT_REG: integer
   DT_SOCK: integer
   DT_UNKNOWN: integer
+
+  -- DEPRECATED aliases (api-review-8 transition; see bottom of file)
+  isfile: function(path: string): boolean
+  isdir: function(path: string): boolean
+  islink: function(path: string): boolean
+  makedirs: function(path: string, mode?: integer): boolean, string
+  rmrf: function(path: string): boolean, string
+  copytree: function(src: string, dst: string): boolean, string
+  getcwd: function(): string | nil, string
+  mkdtemp: function(template: string): string | nil, string
+  tmpfile: function(template?: string): fs_ops.TmpFile | nil, string
+  tmpfd: function(): integer | nil, string
 end
 
 local M: FsModule = {
@@ -368,9 +380,9 @@ local M: FsModule = {
   home = fs_path.home,
   expanduser = fs_path.expanduser,
   exists = fs_path.exists,
-  isfile = fs_path.isfile,
-  isdir = fs_path.isdir,
-  islink = fs_path.islink,
+  is_file = fs_path.is_file,
+  is_dir = fs_path.is_dir,
+  is_link = fs_path.is_link,
   is_absolute = fs_path.is_absolute,
   unsafe_entry_name = fs_path.unsafe_entry_name,
   normalize = fs_path.normalize,
@@ -386,10 +398,10 @@ local M: FsModule = {
 
   -- Directory operations
   mkdir = mkdir,
-  makedirs = makedirs,
+  make_dirs = make_dirs,
   rmdir = rmdir,
   chdir = chdir,
-  getcwd = getcwd,
+  cwd = cwd,
   opendir = opendir,
   fdopendir = fdopendir,
 
@@ -409,8 +421,8 @@ local M: FsModule = {
   symlink = fs_ops.symlink,
   readlink = fs_ops.readlink,
   realpath = fs_ops.realpath,
-  rmrf = fs_ops.rmrf,
-  copytree = fs_tree.copytree,
+  remove_all = fs_ops.remove_all,
+  copy_tree = fs_tree.copy_tree,
 
   -- Permission operations (re-exported from fs_ops)
   access = fs_ops.access,
@@ -422,9 +434,9 @@ local M: FsModule = {
   set_times_fd = fs_ops.set_times_fd,
 
   -- Temporary file operations (re-exported from fs_ops)
-  mkdtemp = fs_ops.mkdtemp,
-  tmpfile = fs_ops.tmpfile,
-  tmpfd = fs_ops.tmpfd,
+  temp_dir = fs_ops.temp_dir,
+  temp_file = fs_ops.temp_file,
+  temp_fd = fs_ops.temp_fd,
 
   -- Filesystem statistics (re-exported from fs_ops)
   statfs = fs_ops.statfs,
@@ -458,5 +470,22 @@ local M: FsModule = {
   DT_SOCK = unix.DT_SOCK,
   DT_UNKNOWN = unix.DT_UNKNOWN,
 }
+
+-- DEPRECATED transitional aliases for the api-review-8 renames, typed
+-- so build tooling (_cli/_make/...) can keep calling them: the pinned
+-- cosmic that cold-starts a build EXECUTES tree tooling against its
+-- own embedded (pre-rename) cosmic.*, so tooling may only use names
+-- both generations share. Tooling flips to the new names — and these
+-- aliases are deleted — once a release carrying them is bin/cosmic.pin.
+M.isfile = fs_path.is_file
+M.isdir = fs_path.is_dir
+M.islink = fs_path.is_link
+M.makedirs = M.make_dirs
+M.rmrf = fs_ops.remove_all
+M.copytree = fs_tree.copy_tree
+M.getcwd = M.cwd
+M.mkdtemp = fs_ops.temp_dir
+M.tmpfile = fs_ops.temp_file
+M.tmpfd = fs_ops.temp_fd
 
 return M

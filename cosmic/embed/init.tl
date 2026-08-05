@@ -42,7 +42,7 @@
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 local fs_types = require("cosmic.fs.types")
 local Stat = fs_types.Stat
 local floor = require("cosmic.embed.floor")
@@ -286,7 +286,7 @@ end
 --- @param paths {string} List of file or directory paths to embed
 --- @param opts Options? output, exe_path, stripping, reproducibility
 --- @return EmbedResult Result with ok status, message, and file count
-local function run(paths: {string}, opts?: Options): EmbedResult
+local function embed(paths: {string}, opts?: Options): EmbedResult
   opts = opts or {}
   local output = opts.output or "cosmic"
   local exe_path = opts.exe_path or arg[-1]
@@ -303,7 +303,7 @@ local function run(paths: {string}, opts?: Options): EmbedResult
   local files_to_embed: {FileToEmbed} = {}
 
   for _, p in ipairs(paths) do
-    if fs.isdir(p) then
+    if fs.is_dir(p) then
       local dir_files, err = collect_dir(p)
       if not dir_files then
         return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
@@ -455,6 +455,8 @@ local record EmbedModule
   type EmbedResult = EmbedResult
 
   EPOCH: integer
+  embed: function(paths: {string}, opts?: Options): EmbedResult
+  --- DEPRECATED alias for embed() (api-review-8 transition)
   run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean
@@ -462,7 +464,8 @@ end
 
 local M: EmbedModule = {
   EPOCH = floor.epoch(),
-  run = run,
+  embed = embed,
+  run = embed,
   extract = extract_mod.extract,
   unsafe_entry = extract_mod.unsafe_entry,
 }

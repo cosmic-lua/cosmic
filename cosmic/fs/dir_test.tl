@@ -9,13 +9,13 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
   local test_dir = fs.join(TEST_TMPDIR, "fs_dir_test")
-  fs.makedirs(test_dir)
+  fs.make_dirs(test_dir)
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.rmrf(test_dir)
+    fs.remove_all(test_dir)
   end
 end
 

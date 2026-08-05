@@ -10,7 +10,7 @@ local function Example_extract()
   local fs = require("cosmic.fs")
   local tar = require("cosmic.tar")
 
-  local dir = check.must(fs.mkdtemp("/tmp/tar_example_XXXXXX"))
+  local dir = check.must(fs.temp_dir("/tmp/tar_example_XXXXXX"))
 
   -- One ustar header block (name, mode, size, checksum) plus its
   -- payload, padded to the 512-byte block size, then two zero blocks.
@@ -36,7 +36,7 @@ local function Example_extract()
 
   assert(tar.extract(archive, fs.join(dir, "out")))
   print(check.must(fs.read(fs.join(dir, "out/notes.txt"))))
-  fs.rmrf(dir)
+  fs.remove_all(dir)
   -- Output:
   -- hello from a tarball
 end

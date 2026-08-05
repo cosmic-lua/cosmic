@@ -11,7 +11,7 @@ local function Example_load_dir()
 
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local dir = fs.join(tmpdir, "envd_example")
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   fs.write(fs.join(dir, "00-defaults"), "MY_APP_NAME=cosmic-example\nMY_APP_PORT=8080\n")
   fs.write(fs.join(dir, "01-overrides"), "MY_APP_PORT=9090\n")
 
@@ -37,19 +37,19 @@ end
 local function Example_extract_update_embed()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
-  local spawn = require("cosmic.child")
+  local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.mkdtemp("/tmp/envd_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/envd_example_XXXXXX")
 
   -- 1. extract current executable
   local extractdir = fs.join(tmpdir, "extracted")
-  local r = check.must(spawn.run({cosmic, "--extract", extractdir}))
+  local r = check.must(child.run({cosmic, "--extract", extractdir}))
   assert(r.ok, r.stderr)
 
   -- 2. add env.d with a credential
   local envd_dir = fs.join(extractdir, "embed", "env.d")
-  fs.makedirs(envd_dir)
+  fs.make_dirs(envd_dir)
   fs.write(fs.join(envd_dir, "credentials"), "MY_SECRET_TOKEN=tok-example-12345\n")
 
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
@@ -65,12 +65,12 @@ print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset")
 
   -- 4. build new executable
   local output = fs.join(tmpdir, "myapp")
-  r = check.must(spawn.run({cosmic, "--embed", extractdir, "--output", output}))
+  r = check.must(child.run({cosmic, "--embed", extractdir, "--output", output}))
   assert(r.ok, r.stderr)
 
   -- 5. run it
-  r = check.must(spawn.run({output}))
-  fs.rmrf(tmpdir)
+  r = check.must(child.run({output}))
+  fs.remove_all(tmpdir)
   print(r.stdout)
   -- Output:
   -- envd loaded 1 var(s)

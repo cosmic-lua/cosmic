@@ -5,7 +5,7 @@ local pledge = require("cosmic.pledge")
 local unveil = require("cosmic.unveil")
 local sys = require("cosmic.sys")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -219,7 +219,7 @@ local function test_apply_enforces_fs_and_sys()
   end
 
   local allowed_dir = fs.join(tmpdir, "sbx")
-  fs.makedirs(allowed_dir)
+  fs.make_dirs(allowed_dir)
   local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "outside.txt")
   fs.write(allowed, "allowed-content")
@@ -242,7 +242,7 @@ local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
 ]], allowed_dir, allowed, denied))
 
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if r.signal ~= nil then
     check.skip("sandbox subprocess killed by signal " .. tostring(r.signal)
@@ -274,7 +274,7 @@ local function test_invalid_sys_leaves_fs_unapplied()
   end
 
   local dir = fs.join(tmpdir, "novalid")
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   local outside = fs.join(tmpdir, "still_readable.txt")
   fs.write(outside, "yes")
 
@@ -293,7 +293,7 @@ local f = io.open(%q, "r")
 if f then io.write("unapplied-ok\n"); f:close() else io.write("half-applied\n") end
 ]], dir, outside))
 
-  local h = check.must(spawn.spawn({cosmic, script}))
+  local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if r.signal ~= nil then return end
   local s = r.stdout or ""

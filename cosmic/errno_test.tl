@@ -3,40 +3,40 @@ local errno = require("cosmic.errno")
 
 -- str: nil and plain strings, with and without prefix.
 local function test_str_fallbacks()
-  assert(errno.str(nil) == "unknown error")
-  assert(errno.str(nil, "op") == "op: unknown error")
-  assert(errno.str("boom") == "boom")
-  assert(errno.str("boom", "op") == "op: boom")
-  assert(errno.str("boom", "") == "boom", "empty prefix is ignored")
+  assert(errno.wrap(nil) == "unknown error")
+  assert(errno.wrap(nil, "op") == "op: unknown error")
+  assert(errno.wrap("boom") == "boom")
+  assert(errno.wrap("boom", "op") == "op: boom")
+  assert(errno.wrap("boom", "") == "boom", "empty prefix is ignored")
 end
 test_str_fallbacks()
 
 -- str: a prefix replaces a lowercase `call: ` head so the failing
 -- operation is not stated twice.
 local function test_str_prefix_strips_call_head()
-  local got = errno.str("mkdir: EACCES: Permission denied", "mkdir: /x")
+  local got = errno.wrap("mkdir: EACCES: Permission denied", "mkdir: /x")
   assert(got == "mkdir: /x: EACCES: Permission denied", "got: " .. got)
 end
 test_str_prefix_strips_call_head()
 
 -- str: without a prefix, the message is passed through untouched.
 local function test_str_no_prefix_keeps_call_head()
-  local got = errno.str("mkdir: EACCES: Permission denied")
+  local got = errno.wrap("mkdir: EACCES: Permission denied")
   assert(got == "mkdir: EACCES: Permission denied", "got: " .. got)
 end
 test_str_no_prefix_keeps_call_head()
 
 -- str: uppercase errno names are never mistaken for a call head.
 local function test_str_prefix_keeps_errno_head()
-  local got = errno.str("ENOENT: No such file or directory", "open: /x")
+  local got = errno.wrap("ENOENT: No such file or directory", "open: /x")
   assert(got == "open: /x: ENOENT: No such file or directory", "got: " .. got)
 end
 test_str_prefix_keeps_errno_head()
 
 -- str: non-string values fall back to tostring.
 local function test_str_non_string()
-  assert(errno.str(42) == "42")
-  assert(errno.str(42, "op") == "op: 42")
+  assert(errno.wrap(42) == "42")
+  assert(errno.wrap(42, "op") == "op: 42")
 end
 test_str_non_string()
 

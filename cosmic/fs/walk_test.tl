@@ -11,7 +11,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- Helper: create a directory under tmpdir
 local function mksubdir(name: string): string
   local p = fs.join(tmpdir, name)
-  fs.makedirs(p)
+  fs.make_dirs(p)
   return p
 end
 
@@ -28,7 +28,7 @@ end
 local function test_walk_symlink_cycle_terminates()
   local base = mksubdir("walk_cycle")
   local subdir = fs.join(base, "sub")
-  fs.makedirs(subdir)
+  fs.make_dirs(subdir)
   write_file(fs.join(subdir, "real.txt"), "hello")
   -- Create a symlink cycle: sub/loop -> ..  (points back to base)
   fs.symlink("..", fs.join(subdir, "loop"))
@@ -61,7 +61,7 @@ test_walk_symlink_cycle_terminates()
 local function test_collect_all_symlink_cycle_terminates()
   local base = mksubdir("collect_all_cycle")
   local subdir = fs.join(base, "sub")
-  fs.makedirs(subdir)
+  fs.make_dirs(subdir)
   write_file(fs.join(subdir, "real.txt"), "data")
   fs.symlink("..", fs.join(subdir, "loop"))
 
@@ -81,7 +81,7 @@ test_collect_all_symlink_cycle_terminates()
 local function test_files_symlink_cycle_terminates()
   local base = mksubdir("files_cycle")
   local subdir = fs.join(base, "sub")
-  fs.makedirs(subdir)
+  fs.make_dirs(subdir)
   write_file(fs.join(subdir, "real.lua"), "-- lua")
   fs.symlink("..", fs.join(subdir, "loop"))
 
@@ -170,8 +170,8 @@ local function test_walk_permission_denied_subdir_reports_error()
   local base = mksubdir("walk_denied")
   local open_dir = fs.join(base, "open")
   local locked = fs.join(base, "locked")
-  fs.makedirs(open_dir)
-  fs.makedirs(locked)
+  fs.make_dirs(open_dir)
+  fs.make_dirs(locked)
   write_file(fs.join(open_dir, "seen.txt"), "x")
   write_file(fs.join(locked, "hidden.txt"), "x")
   assert(fs.chmod(locked, 0))
@@ -200,8 +200,8 @@ local function test_files_permission_denied_subdir_reports_error()
   local base = mksubdir("files_denied")
   local open_dir = fs.join(base, "open")
   local locked = fs.join(base, "locked")
-  fs.makedirs(open_dir)
-  fs.makedirs(locked)
+  fs.make_dirs(open_dir)
+  fs.make_dirs(locked)
   write_file(fs.join(open_dir, "seen.txt"), "x")
   write_file(fs.join(locked, "hidden.txt"), "x")
   assert(fs.chmod(locked, 0))
@@ -236,8 +236,8 @@ local function test_walk_skip_prunes_subtree()
   local base = mksubdir("walk_skip")
   local keep = fs.join(base, "keep")
   local prune = fs.join(base, "prune")
-  fs.makedirs(keep)
-  fs.makedirs(prune)
+  fs.make_dirs(keep)
+  fs.make_dirs(prune)
   write_file(fs.join(keep, "a.txt"), "a")
   write_file(fs.join(prune, "b.txt"), "b")
 
@@ -288,7 +288,7 @@ test_walk_stop_ends_walk()
 local function test_walk_stop_in_subtree_aborts_walk()
   local base = mksubdir("walk_stop_deep")
   local subsub = fs.join(base, "sub", "subsub")
-  fs.makedirs(subsub)
+  fs.make_dirs(subsub)
   write_file(fs.join(subsub, "deep.txt"), "x")
   write_file(fs.join(base, "top1.txt"), "x")
   write_file(fs.join(base, "top2.txt"), "x")
@@ -313,7 +313,7 @@ test_walk_stop_in_subtree_aborts_walk()
 local function test_walk_skip_with_symlink_cycle_terminates()
   local base = mksubdir("walk_skip_cycle")
   local sub = fs.join(base, "sub")
-  fs.makedirs(sub)
+  fs.make_dirs(sub)
   write_file(fs.join(sub, "real.txt"), "hello")
   fs.symlink("..", fs.join(sub, "loop"))
 
@@ -354,13 +354,13 @@ local function count_open_fds(): integer
 end
 
 local function test_files_early_break_closes_handles()
-  if not fs.isdir("/proc/self/fd") then
+  if not fs.is_dir("/proc/self/fd") then
     return -- fd accounting needs procfs; skip elsewhere
   end
   local base = mksubdir("files_close")
   for i = 1, 3 do
     local sub = fs.join(base, "sub" .. i)
-    fs.makedirs(sub)
+    fs.make_dirs(sub)
     write_file(fs.join(sub, "f" .. i .. ".txt"), "x")
   end
 

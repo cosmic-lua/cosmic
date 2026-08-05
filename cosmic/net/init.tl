@@ -8,7 +8,7 @@
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
-local errstr = require("cosmic.errno").str
+local errstr = require("cosmic.errno").wrap
 local errno_is = require("cosmic.errno").is
 
 --- Socket handle for network I/O (see cosmic.net.socket for the methods).

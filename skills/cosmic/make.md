@@ -151,7 +151,7 @@ full one would. half a tree cannot make a whole artifact.
 ## Test isolation
 
 each test gets its own scratch directory *inside its own build step* —
-`TEST_TMPDIR` points at a fresh `mkdtemp` under `o/<test>.test.tmp.d`,
+`TEST_TMPDIR` points at a fresh `temp_dir` under `o/<test>.test.tmp.d`,
 not at a shared `/tmp`. tests cannot collide through the temp
 directory, on any platform.
 
