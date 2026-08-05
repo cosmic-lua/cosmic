@@ -42,6 +42,10 @@ local DEFAULT_SIGNALS: {string} = {"SIGINT", "SIGTERM", "SIGHUP"}
 --- @return boolean true on success
 --- @return string? error message on failure
 local function no_new_privs(): boolean, string
+  if unix.prctl == nil or unix.PR_SET_NO_NEW_PRIVS == nil then
+    -- Calling a nil binding would throw; report the absence instead.
+    return false, "no_new_privs unsupported on this host"
+  end
   local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
   if not ok then return false, errno.str(err, "no_new_privs") end
   return true

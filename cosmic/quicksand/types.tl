@@ -58,10 +58,15 @@ local record ProcOptions
   no_new_privs: boolean
   uid: integer
   gid: integer
-  pledge: string
   drop_caps: boolean -- drop the entire capability bounding set before exec
   keep_caps: {string} -- capability names to retain (implies drop_caps)
 end
+
+--- The system-call policy is cosmic.sandbox's Sys schema (pledge
+--- promises, plus the promises retained after execve) — the same
+--- vocabulary as the in-process facade, validated at Box.new and
+--- applied via sandbox.apply in the workload, after privilege drops.
+local type SysOpts = sandbox.Sys
 
 --- Env policy for the boxed workload: `keep` names inherit from the
 --- parent environment (everything else is dropped), `set` overrides /
@@ -77,6 +82,7 @@ end
 local record BoxOptions
   hostname: string
   fs: FsOpts
+  sys: SysOpts
   net: NetOptions
   proc: ProcOptions
   env: EnvOptions
@@ -110,6 +116,7 @@ local record TypesModule
   type NetRule = NetRule
   type NetOptions = NetOptions
   type FsOpts = FsOpts
+  type SysOpts = SysOpts
   type ProcOptions = ProcOptions
   type EnvOptions = EnvOptions
   type BoxOptions = BoxOptions

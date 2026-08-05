@@ -107,33 +107,46 @@ io.write("ok exit=0\n")
 end
 test_run_survives_eintr_during_wait()
 
+-- A typo'd sys policy must be rejected at Box.new — construction time,
+-- before any fork — with an error naming the bad promise. This used to
+-- die post-fork as an opaque exit 126; sys now goes through
+-- cosmic.sandbox's validator at new().
+local function test_bogus_sys_promise_rejected_at_new()
+  local new_any = quicksand.Box.new as function(any): any, any -- cast: deliberate invalid input
+  local j, err = new_any({sys = {promises = "stdio bogus_promise"}})
+  assert(j == nil, "bogus promise must be rejected at new()")
+  assert(err and (err as string):find("bogus_promise", 1, true), -- cast: from any
+    "error should name the bad promise: " .. tostring(err))
+end
+test_bogus_sys_promise_rejected_at_new()
+
 -- Setup failures must come back on the error channel as nil + message,
 -- not masquerade as a workload exit code (a 126 with the reason only on
--- stderr is indistinguishable from the workload itself failing). A
--- bogus pledge promise fails workload_setup after the fork; run() must
--- return nil and an error naming the pledge step.
+-- stderr is indistinguishable from the workload itself failing). A cwd
+-- that does not exist fails workload_setup after the fork; run() must
+-- return nil and an error naming the chdir step.
 local function test_setup_failure_returns_error_not_exit_code()
   local c = quicksand.capabilities()
-  if not (c.linux and c.user_ns and c.net_ns and c.pledge) then
-    check.skip("box namespaces or pledge unavailable on this host")
+  if not (c.linux and c.user_ns and c.net_ns) then
+    check.skip("box namespaces unavailable on this host")
     return
   end
 
-  local r = run_script("box_bogus_pledge.lua", [[
+  local r = run_script("box_bad_cwd.lua", [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Box.new({ proc = { pledge = "bogus_promise" } })
+local j, nerr = qs.Box.new({ cwd = "/nonexistent-quicksand-run-test" })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/true"})
 if code ~= nil then
   io.stderr:write("expected nil, got exit=" .. tostring(code) .. "\n"); os.exit(1)
 end
-if not (type(rerr) == "string" and rerr:find("pledge")) then
-  io.stderr:write("error should name pledge: " .. tostring(rerr) .. "\n"); os.exit(1)
+if not (type(rerr) == "string" and rerr:find("chdir")) then
+  io.stderr:write("error should name chdir: " .. tostring(rerr) .. "\n"); os.exit(1)
 end
 io.write("ok nil-error: " .. tostring(rerr) .. "\n")
 ]])
   if not r then return end
-  assert(r.ok, "bogus pledge must return nil + pledge error: "
+  assert(r.ok, "bad cwd must return nil + chdir error: "
     .. tostring(r.stdout) .. tostring(r.stderr))
   assert(r.stdout:find("ok nil%-error"),
     "expected nil-error report, got: " .. tostring(r.stdout))

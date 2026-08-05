@@ -253,16 +253,34 @@ sock:close()
 
 ### Sandboxing
 
-`cosmic.quicksand.Box` composes the Linux namespace primitives,
-landlock, pledge, and an allowlist HTTP proxy into a single declarative
-policy + `run(argv)` call. Policy is a plain table, composable with
-`Box.merge(base, over)`:
+`cosmic.sandbox` is the one to reach for in-process: a single
+declarative policy over filesystem (`fs`) and system-call (`sys`)
+restriction, fail-closed, mechanism picked per OS (landlock on Linux,
+unveil on OpenBSD, pledge for `sys`). The `fs` groups mean three
+things: `ro` is read-only (no execute), `exec` is read + execute, `rw`
+is read + write (never execute). A successful `apply` returns a report
+of what was actually enforced:
+
+```teal
+local sandbox = require("cosmic.sandbox")
+assert(sandbox.apply{
+  fs = { exec = {"/usr"}, ro = {"/etc"}, rw = {"/tmp"} },
+  sys = { promises = "stdio rpath wpath" },
+})
+```
+
+`cosmic.quicksand.Box` composes the Linux namespace primitives, the
+same sandbox policy, and an allowlist HTTP proxy into a declarative
+policy + `run(argv)` call for a *child* workload. Policy is a plain
+table, composable with `Box.merge(base, over)`; the `fs` and `sys`
+sections are cosmic.sandbox's own schemas:
 
 ```teal
 local quicksand = require("cosmic.quicksand")
 
 local box = assert(quicksand.Box.new({
-  fs   = { ro = {"/usr", "/etc/ssl/certs"}, rw = {"/tmp"} },
+  fs   = { exec = {"/usr"}, ro = {"/etc/ssl/certs"}, rw = {"/tmp"} },
+  sys  = { promises = "stdio rpath wpath cpath proc exec" },
   net  = { allow = { ["api.example.com:443"] = {} } },
   proc = { no_new_privs = true, uid = 1000 },
   env  = { keep = {"PATH", "HOME"}, set = { CI = "1" } },
@@ -271,20 +289,22 @@ local box = assert(quicksand.Box.new({
 os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 ```
 
-`Box.new` validates shape and runs a capability preflight so
-misconfiguration surfaces before any syscall. `run` forks a supervisor
-that unshares `USER|NET|NS` (+`UTS` if `hostname` is set), writes
-uid/gid maps, brings up loopback, optionally starts the allowlist
-proxy (injecting `HTTP(S)_PROXY` into the workload env unless
-`net.proxy_env == false`), then forks the workload which applies
-landlock, no_new_privs, drop_privs, pledge, chdir and `execvpe(argv,
-env)`. The returned integer is the workload's exit code (or
-`128+signo` on signal).
+`Box.new` validates shape (including `sys` promise tokens, via
+cosmic.sandbox's validator); `run` performs the capability preflight,
+then forks a supervisor that unshares `USER|NET|NS` (+`UTS` if
+`hostname` is set), writes uid/gid maps, brings up loopback,
+optionally starts the allowlist proxy (injecting `HTTP(S)_PROXY` into
+the workload env unless `net.proxy_env == false`), then forks the
+workload which applies chdir, the fs policy, no_new_privs, capability
+drops, drop_privs, the sys policy, and `execvpe(argv, env)`. The
+returned integer is the workload's exit code (or `128+signo` on
+signal).
 
 For finer control the underlying primitives are still available:
 
 - `cosmic.landlock` / `cosmic.pledge` / `cosmic.unveil` for
-  self-restriction in the current process
+  mechanism-specific self-restriction in the current process (custom
+  handled masks, incremental unveil)
 - `cosmic.quicksand.netns` / `.proc` / `.proxy` for manually assembling
   a box
 

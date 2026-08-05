@@ -22,6 +22,7 @@
 --- `cosmic.pledge` on Linux and is complementary to `cosmic.quicksand`
 --- network isolation.
 local unix = require("cosmo.unix")
+local seal_coverage = require("cosmic._seal_coverage").seal_coverage
 
 local EXECUTE < const > = unix.LANDLOCK_ACCESS_FS_EXECUTE
 local WRITE_FILE < const > = unix.LANDLOCK_ACCESS_FS_WRITE_FILE
@@ -91,6 +92,10 @@ local record RestrictOptions
   --- below, so the process reports what it does after restricting
   --- rather than only what it did before.
   keep_coverage: boolean
+  --- Turn an unsupported host into a successful no-op instead of an
+  --- error — the explicit fail-open escape hatch, matching
+  --- cosmic.pledge and cosmic.unveil.
+  best_effort: boolean
 end
 
 local record LandlockModule
@@ -118,7 +123,7 @@ local record LandlockModule
   ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
-  restrict: function(opts: RestrictOptions): boolean, string
+  restrict: function(opts?: RestrictOptions): boolean, string
 end
 
 --- Per-ABI "max access" mask. Categories above the kernel's supported
@@ -132,14 +137,30 @@ local function abi_mask(abi_version: integer): integer
   return mask
 end
 
+-- The kernel's ABI answer cannot change within a process; probe once
+-- and cache, matching pledge.available() / unveil.available().
+local abi_cached: integer = nil
+local abi_cached_err: string = nil
+local abi_probed: boolean = false
+
 --- Returns the kernel's supported landlock ABI version (>= 1 when
 --- landlock is enabled). Returns nil + error on ENOSYS or non-Linux.
+--- Probed once and cached.
 local function abi(): integer | nil, string
-  local v, err = unix.landlock_create_ruleset()
-  if not v then
-    return nil, err and tostring(err) or "landlock unavailable"
+  if not abi_probed then
+    abi_probed = true
+    local v, err = unix.landlock_create_ruleset()
+    if v then
+      abi_cached = v
+    else
+      abi_cached_err = err and ("landlock: " .. tostring(err))
+      or "landlock unsupported on this host"
+    end
   end
-  return v
+  if abi_cached == nil then
+    return nil, abi_cached_err
+  end
+  return abi_cached
 end
 
 --- True when abi() >= 1. Gate box setup on this.
@@ -161,15 +182,24 @@ end
 --- outside its allowlist. (Cosmopolitan's C unveil path plugs this with
 --- a seccomp filter; this module does not.) Pair with `cosmic.pledge`
 --- — truncate is governed by its "wpath" group — where that matters.
-local function restrict(opts: RestrictOptions): boolean, string
+local function restrict(opts?: RestrictOptions): boolean, string
   opts = opts or {}
-  local abi_version, aerr = abi()
-  if not abi_version then return false, aerr end
-  if abi_version < 1 then return false, "landlock unavailable" end
+  if not available() then
+    if opts.best_effort then return true end
+    return false, "landlock unsupported on this host"
+  end
+  local abi_version = abi()
+  if abi_version == nil then
+    -- Unreachable past the available() gate; kept so the narrowing is
+    -- honest rather than cast.
+    return false, "landlock unsupported on this host"
+  end
   local mask = abi_mask(abi_version)
   local handled = (opts.handled or ALL) & mask
   local rs, cerr = unix.landlock_create_ruleset(handled, 0)
-  if not rs then return false, tostring(cerr) end
+  if not rs then
+    return false, "landlock: create_ruleset: " .. tostring(cerr)
+  end
   local rsfd = rs
   local function fail(msg: string): boolean, string
     unix.close(rsfd)
@@ -177,13 +207,14 @@ local function restrict(opts: RestrictOptions): boolean, string
   end
   for i, rule in ipairs(opts.rules or {}) do
     if not rule.path then
-      return fail(string.format("rule[%d] missing path", i))
+      return fail(string.format("landlock: rule[%d] missing path", i))
     end
     local access = (rule.access or 0) & mask
     local pfd, perr = unix.open(rule.path,
       (unix.O_PATH) | (unix.O_CLOEXEC))
     if not pfd then
-      return fail(string.format("open(%q): %s", rule.path, tostring(perr)))
+      return fail(string.format("landlock: open(%q): %s",
+          rule.path, tostring(perr)))
     end
     -- Directory-only rights on a non-directory rule are an EINVAL from
     -- the kernel; strip them so file paths accept the composite masks
@@ -198,38 +229,30 @@ local function restrict(opts: RestrictOptions): boolean, string
       local ok, rerr = unix.landlock_add_rule(rsfd, pfd, access, 0)
       if not ok then
         unix.close(pfd)
-        return fail(string.format("add_rule(%q): %s", rule.path, tostring(rerr)))
+        return fail(string.format("landlock: add_rule(%q): %s",
+            rule.path, tostring(rerr)))
       end
     end
     unix.close(pfd)
   end
   if opts.no_new_privs ~= false then
     local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
-    if not ok then return fail("PR_SET_NO_NEW_PRIVS: " .. tostring(err)) end
+    if not ok then
+      return fail("landlock: PR_SET_NO_NEW_PRIVS: " .. tostring(err))
+    end
   end
   -- Flush line-coverage data before rights drop: once the ruleset
   -- lands, the coverage directory MAY no longer be writable, and
-  -- sealing is the only safe answer to "may".
-  --
-  -- `keep_coverage` is a caller that has removed the doubt. The recipe
-  -- fence grants its own coverage directory (see `_cli/grants.tl`), so
-  -- for it the dump at exit works and sealing here is pure loss: it
-  -- reports what the process did BEFORE restricting and discards
-  -- everything it was actually restricted to do. That is not a small
-  -- loss — it read as `_cli/build/steps.tl` at 14%, and as a code
-  -- regression, because the dumps were all present and all nearly
-  -- empty.
-  if not opts.keep_coverage then
-    local cov = package.loaded["cosmic.coverage"]
-    if cov ~= nil then
-      -- cast: from any; function shape
-      local seal = (cov as {string: any})["seal"] as function()
-      seal()
-    end
-  end
+  -- sealing is the only safe answer to "may". `keep_coverage` is a
+  -- caller that has removed the doubt (the recipe fence grants its own
+  -- coverage directory — see `_cli/grants.tl`); the seal-vs-keep rule
+  -- itself lives in cosmic._seal_coverage, shared with pledge/unveil.
+  seal_coverage(opts.keep_coverage)
   local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
   unix.close(rsfd)
-  if not ok then return false, "restrict_self: " .. tostring(rerr) end
+  if not ok then
+    return false, "landlock: restrict_self: " .. tostring(rerr)
+  end
   return true
 end
 

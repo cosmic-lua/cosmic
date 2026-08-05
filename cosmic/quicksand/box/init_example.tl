@@ -11,8 +11,9 @@ local function Example_new_and_close()
   local Box = require("cosmic.quicksand.box")
   local check = require("cosmic.check")
   local box = check.must(Box.new({
-        fs = {ro = {"/usr"}, rw = {"/tmp"}},
+        fs = {exec = {"/usr"}, rw = {"/tmp"}},
         net = {allow = {["api.example.com:443"] = {}}},
+        sys = {promises = "stdio rpath exec"},
         proc = {no_new_privs = true},
         cwd = "/tmp",
       }))
@@ -26,7 +27,7 @@ end
 -- data, overlay them with Box.merge, and feed the result into new().
 local function Example_merge()
   local Box = require("cosmic.quicksand.box")
-  local base = {fs = {ro = {"/usr", "/etc/ssl/certs"}}}
+  local base = {fs = {exec = {"/usr"}, ro = {"/etc/ssl/certs"}}}
   local network = {net = {allow = {["api.example.com:443"] = {}}}}
   local policy = Box.merge(base, network, {cwd = "/work"})
   io.write(tostring(policy.cwd) .. "\n")

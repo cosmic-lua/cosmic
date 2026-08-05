@@ -72,9 +72,12 @@ local PROMISES: {Promise} = {
 --- Options for `apply`. `exec` sets the promises children keep after
 --- execve. `best_effort` turns an unsupported host into a successful
 --- no-op instead of an error — the explicit fail-open escape hatch.
+--- `keep_coverage` skips the pre-pledge coverage seal — set it only
+--- when the promises still permit the coverage dump at exit.
 local record ApplyOptions
   exec: string
   best_effort: boolean
+  keep_coverage: boolean
 end
 
 local avail: boolean = nil
@@ -121,7 +124,7 @@ local function apply(promises: string, opts?: ApplyOptions): boolean, string
     if opts and opts.best_effort then return true end
     return false, "pledge unsupported on this host"
   end
-  seal_coverage()
+  seal_coverage(opts and opts.keep_coverage)
   local ok, err = unix.pledge(promises, opts and opts.exec)
   if not ok then
     return false, errno.str(err, "pledge")
