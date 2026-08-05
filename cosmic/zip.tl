@@ -247,14 +247,6 @@ local record ZipModule
   append: function(path: string, opts?: OpenOptions): Appender | nil, string
   open_bytes: function(data: string, opts?: OpenOptions): Archive | nil, string
   extract: function(archive: Archive, destdir: string, opts?: ExtractOptions): boolean, string
-
-  -- DEPRECATED aliases (api-review-8 pin-advance transition)
-  type Reader = Archive
-  type Writer = Builder
-  reader: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
-  writer: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
-  appender: function(path: string, opts?: OpenOptions): Appender | nil, string
-  from: function(data: string, opts?: OpenOptions): Archive | nil, string
 end
 
 local M: ZipModule = {
@@ -263,10 +255,6 @@ local M: ZipModule = {
   append = append,
   open_bytes = open_bytes,
   extract = extract,
-  reader = open,
-  writer = create,
-  appender = append,
-  from = open_bytes,
 }
 
 return M

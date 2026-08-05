@@ -47,7 +47,7 @@ local function run(_proj: Project, _paths: {string},
     if KEEP[fs.basename(path)] then
       kept = kept + 1
     else
-      local ok, err = fs.rmrf(path)
+      local ok, err = fs.remove_all(path)
       if not ok then
         io.stderr:write("make: cannot remove " .. path .. ": " ..
           (err or "unknown error") .. "\n")
@@ -61,7 +61,7 @@ local function run(_proj: Project, _paths: {string},
   -- an empty `o/` would be a difference with no meaning that every
   -- caller then has to know about.
   if kept == 0 then
-    local ok, err = fs.rmrf(project.BUILD_DIR)
+    local ok, err = fs.remove_all(project.BUILD_DIR)
     if not ok then
       io.stderr:write("make: cannot remove " .. project.BUILD_DIR .. ": " ..
         (err or "unknown error") .. "\n")

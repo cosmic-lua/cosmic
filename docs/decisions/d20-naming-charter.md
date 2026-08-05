@@ -43,10 +43,15 @@
   modules carry typed DEPRECATED aliases under the old names, and
   tooling keeps calling the old names, until a release carrying the
   new names becomes `bin/cosmic.pin`. Then a cleanup change flips
-  tooling to the new names and deletes the aliases. The aliased set:
+  tooling to the new names and deletes the aliases. That cleanup
+  landed with the 2026-08-05 pin advance: the aliased set —
   `fs.isfile/isdir/islink/makedirs/rmrf/copytree/getcwd/mkdtemp/
-  tmpfile/tmpfd`, `child.spawn`, `embed.run`, `doc.run`,
-  `literal.of_source/of_file`, `proc.commandv`.
+  tmpfile/tmpfd/collect/collect_all/files`, `tty.isatty` and the three
+  per-stream wrappers, `zip.reader/writer/appender/from` and the
+  `Reader`/`Writer` type aliases, `child.spawn`, `embed.run`,
+  `doc.run`, `literal.of_source/of_file`, `proc.commandv` — is gone,
+  and tooling calls the charter names everywhere. The protocol above
+  remains the template for any future public rename.
 - **consequences:** the rename wave landed in two parts — the
   mechanical applications of rules 1–4 and 8–9 (this record), with the
   semantic redesigns (re subject-first argument order and match/find

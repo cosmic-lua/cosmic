@@ -32,7 +32,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local repo = fs.abspath(".")
@@ -41,7 +41,7 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 --- Copy one file, creating the destination's directory.
 local function copy(from: string, to: string)
   local body = check.must(fs.read(from))
-  assert(fs.makedirs(fs.dirname(to)))
+  assert(fs.make_dirs(fs.dirname(to)))
   assert(fs.write(to, body))
   local st = fs.stat(from)
   if st then
@@ -57,7 +57,7 @@ end
 --- the copy larger, never the assertion weaker.
 --- @param dest string Directory to populate
 local function copy_tree(dest: string)
-  assert(fs.makedirs(dest))
+  assert(fs.make_dirs(dest))
   local failure: string = nil
   fs.walk(repo, function(path: string, entry: string,
         st: fs.WalkStat): fs.WalkAction
@@ -74,7 +74,7 @@ local function copy_tree(dest: string)
         return "stop"
       end
       local out = fs.join(dest, rel)
-      if not fs.makedirs(fs.dirname(out)) or not fs.write(out, body) then
+      if not fs.make_dirs(fs.dirname(out)) or not fs.write(out, body) then
         failure = "cannot write " .. rel
         return "stop"
       end
@@ -105,7 +105,7 @@ local function seed_pins(dest: string): boolean
     -- writes (`o/staged/**` is the retired candidate) is not a
     -- fallback, it is a branch that can only ever return nil.
     local from = fs.join(repo, w[3])
-    if not fs.isfile(from) then
+    if not fs.is_file(from) then
       return false
     end
     copy(from, fs.join(dest, w[3]))
@@ -135,7 +135,7 @@ local function build_with(bin: string, dir: string): integer, string
     -- unrecorded precondition that holds only while both generations
     -- happen to be stamped the same way.
   }
-  local h = check.must(spawn.spawn({bin, "--make", "build"},
+  local h = check.must(child.start({bin, "--make", "build"},
       {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
@@ -153,7 +153,7 @@ local function run(bin: string, ...: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {env = env}))
+  local h = check.must(child.start(argv, {env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -164,7 +164,7 @@ end
 --- @return string The path to the produced binary
 local function generation(label: string, with: string): string
   local dir = fs.join(tmpdir, "fixpoint-" .. label)
-  fs.rmrf(dir)
+  fs.remove_all(dir)
   copy_tree(dir)
   -- The version as a tree input. `copy_tree` skips dotfiles, so this is
   -- the copy's own declaration and never the developer's.
@@ -174,7 +174,7 @@ local function generation(label: string, with: string): string
   local code, out = build_with(with, dir)
   assert(code == 0, label .. ": --make build should succeed:\n" .. out)
   local built = fs.join(dir, "o/bin/cosmic")
-  assert(fs.isfile(built), label .. ": no artifact at o/bin/cosmic:\n" .. out)
+  assert(fs.is_file(built), label .. ": no artifact at o/bin/cosmic:\n" .. out)
   return built
 end
 
@@ -192,9 +192,9 @@ end
 -- Both halves need the pinned inputs. Skipping when they are absent
 -- keeps a cold checkout usable; in CI they are always there, because
 -- the lane runs after the ordinary build.
-check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic))
+check.needs("a built cosmic at " .. cosmic, fs.is_file(cosmic))
 check.needs("fetched pins to seed from",
-  fs.isfile(fs.join(repo, "o/3p/tl/tl.lua")))
+  fs.is_file(fs.join(repo, "o/3p/tl/tl.lua")))
 
 -- gen2: the product works. Every check here is a capability the binary
 -- only has if its payload arrived -- running a `.tl` needs tl.lua,

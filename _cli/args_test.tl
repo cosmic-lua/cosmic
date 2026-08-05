@@ -3,7 +3,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -19,7 +19,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h1 = check.must(spawn.spawn({cosmic, script, "foo", "bar", "baz"}))
+  local h1 = check.must(child.start({cosmic, script, "foo", "bar", "baz"}))
   local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic should succeed")
@@ -41,7 +41,7 @@ for i = 1, #arg do
 end
 ]])
 
-  local h2 = check.must(spawn.spawn({cosmic, script, "alpha", "beta"}))
+  local h2 = check.must(child.start({cosmic, script, "alpha", "beta"}))
   local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic should succeed")
@@ -65,7 +65,7 @@ for i = 1, #arg do
 end
 ]])
 
-  local h3 = check.must(spawn.spawn({cosmic, script, "x", "y", "z"}))
+  local h3 = check.must(child.start({cosmic, script, "x", "y", "z"}))
   local __r3 = check.must(h3:wait())
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic should succeed")
@@ -94,7 +94,7 @@ end
 os.exit(main(...))
 ]])
 
-  local h4 = check.must(spawn.spawn({cosmic, script, "one", "two"}))
+  local h4 = check.must(child.start({cosmic, script, "one", "two"}))
   local __r4 = check.must(h4:wait())
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic should succeed")
@@ -118,14 +118,14 @@ os.exit(main(...))
 ]])
 
   -- Test with argument
-  local h5 = check.must(spawn.spawn({cosmic, script, "custom"}))
+  local h5 = check.must(child.start({cosmic, script, "custom"}))
   local __r5 = check.must(h5:wait())
   local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic should succeed")
   assert(out:find("param=custom"), "param should be custom")
 
   -- Test with no argument (should use default)
-  local h6 = check.must(spawn.spawn({cosmic, script}))
+  local h6 = check.must(child.start({cosmic, script}))
   local __r6 = check.must(h6:wait())
   ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic should succeed")
@@ -143,7 +143,7 @@ print("arg_count=" .. #arg)
 print("arg[0]=" .. tostring(arg[0]))
 ]])
 
-  local h7 = check.must(spawn.spawn({cosmic, script}))
+  local h7 = check.must(child.start({cosmic, script}))
   local __r7 = check.must(h7:wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic should succeed")
@@ -163,7 +163,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h8 = check.must(spawn.spawn({cosmic, script, "hello world", "foo bar"}))
+  local h8 = check.must(child.start({cosmic, script, "hello world", "foo bar"}))
   local __r8 = check.must(h8:wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic should succeed")
@@ -182,7 +182,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h9 = check.must(spawn.spawn({cosmic, script, "--", "--flag", "-x", "value=123"}))
+  local h9 = check.must(child.start({cosmic, script, "--", "--flag", "-x", "value=123"}))
   local __r9 = check.must(h9:wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic should succeed")
@@ -210,7 +210,7 @@ if proc.is_main() then
 end
 ]])
 
-  local h10 = check.must(spawn.spawn({cosmic, script, "test1", "test2"}))
+  local h10 = check.must(child.start({cosmic, script, "test1", "test2"}))
   local __r10 = check.must(h10:wait())
   local ok, out = __r10.ok, __r10.stdout
   assert(ok, "cosmic should succeed")
@@ -230,7 +230,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h11 = check.must(spawn.spawn({cosmic, script, "--version"}))
+  local h11 = check.must(child.start({cosmic, script, "--version"}))
   local __r11 = check.must(h11:wait())
   local ok, out = __r11.ok, __r11.stdout
   assert(ok, "cosmic should succeed")
@@ -250,7 +250,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h12 = check.must(spawn.spawn({cosmic, script, "--help"}))
+  local h12 = check.must(child.start({cosmic, script, "--help"}))
   local __r12 = check.must(h12:wait())
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "cosmic should succeed")
@@ -270,7 +270,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h13 = check.must(spawn.spawn({cosmic, script, "-v"}))
+  local h13 = check.must(child.start({cosmic, script, "-v"}))
   local __r13 = check.must(h13:wait())
   local ok, out = __r13.ok, __r13.stdout
   assert(ok, "cosmic should succeed")
@@ -291,7 +291,7 @@ end
 ]])
 
   -- cosmic -e before script, then script gets --version
-  local h14 = check.must(spawn.spawn({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"}))
+  local h14 = check.must(child.start({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"}))
   local __r14 = check.must(h14:wait())
   local ok, out = __r14.ok, __r14.stdout
   assert(ok, "cosmic should succeed")
@@ -313,7 +313,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h15 = check.must(spawn.spawn({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"}))
+  local h15 = check.must(child.start({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"}))
   local __r15 = check.must(h15:wait())
   local ok, out = __r15.ok, __r15.stdout
   assert(ok, "cosmic should succeed")
@@ -337,7 +337,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local h16 = check.must(spawn.spawn({cosmic, script, "--", "arg1", "arg2"}))
+  local h16 = check.must(child.start({cosmic, script, "--", "arg1", "arg2"}))
   local __r16 = check.must(h16:wait())
   local ok, out = __r16.ok, __r16.stdout
   assert(ok, "cosmic should succeed")
@@ -363,7 +363,7 @@ end
 print("No --version flag found")
 ]])
 
-  local h17 = check.must(spawn.spawn({cosmic, script, "--version"}))
+  local h17 = check.must(child.start({cosmic, script, "--version"}))
   local __r17 = check.must(h17:wait())
   local ok, out = __r17.ok, __r17.stdout
   assert(ok, "cosmic should succeed")
@@ -377,7 +377,7 @@ local function test_help_includes_all_options()
   local cli = require("_cli.args")
 
   -- Run cosmic --help and capture output
-  local h18 = check.must(spawn.spawn({cosmic, "--help"}))
+  local h18 = check.must(child.start({cosmic, "--help"}))
   local __r18 = check.must(h18:wait())
   local ok, out = __r18.ok, __r18.stdout
   assert(ok, "cosmic --help should succeed")
@@ -424,7 +424,7 @@ local function test_double_dash_reaches_the_script()
 print("n=" .. #arg)
 for i = 1, #arg do print("a[" .. i .. "]=" .. arg[i]) end
 ]])
-  local h = check.must(spawn.spawn({cosmic, script, "one", "--", "two", "--", "three"}))
+  local h = check.must(child.start({cosmic, script, "one", "--", "two", "--", "three"}))
   local r = check.must(h:wait())
   assert(r.ok, "cosmic should succeed: " .. (r.stderr or ""))
   local out = r.stdout or ""

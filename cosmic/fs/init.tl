@@ -335,17 +335,14 @@ local record FsModule
   --- Expand a glob pattern without recursing; components ("src/*.lua")
   --- are each globs, and matches of every entry type are returned sorted.
   glob: function(dir: string, pattern: string): {string} | nil, string
-  --- Recursively collect files under dir whose names match a glob
-  --- pattern (collect's pattern is ALWAYS a glob).
   type FindOptions = fs_walk.FindOptions
+  --- Recursively collect files under dir; opts selects basenames by
+  --- glob or Lua pattern (default: all files).
   find: function(dir: string, opts?: fs_walk.FindOptions): {string} | nil, string
-  --- Recursively collect files under dir whose names match a Lua pattern.
+  --- Iterate files under dir lazily; same selection as find().
   find_iter: function(dir: string, opts?: fs_walk.FindOptions): FileIter | nil, string, any, any
+  --- Recursively collect files under dir with their FileInfo (mode).
   find_info: function(dir: string): {string: FileInfo} | nil, string
-  -- DEPRECATED aliases (api-review-8 pin-advance transition)
-  collect: function(dir: string, pattern: string): {string} | nil, string
-  collect_all: function(dir: string): {string: FileInfo} | nil, string
-  files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
 
   -- Access mode constants
   F_OK: integer
@@ -362,18 +359,6 @@ local record FsModule
   DT_REG: integer
   DT_SOCK: integer
   DT_UNKNOWN: integer
-
-  -- DEPRECATED aliases (api-review-8 transition; see bottom of file)
-  isfile: function(path: string): boolean
-  isdir: function(path: string): boolean
-  islink: function(path: string): boolean
-  makedirs: function(path: string, mode?: integer): boolean, string
-  rmrf: function(path: string): boolean, string
-  copytree: function(src: string, dst: string): boolean, string
-  getcwd: function(): string | nil, string
-  mkdtemp: function(template: string): string | nil, string
-  tmpfile: function(template?: string): fs_ops.TmpFile | nil, string
-  tmpfd: function(): integer | nil, string
 end
 
 local M: FsModule = {
@@ -473,27 +458,5 @@ local M: FsModule = {
   DT_SOCK = unix.DT_SOCK,
   DT_UNKNOWN = unix.DT_UNKNOWN,
 }
-
--- DEPRECATED transitional aliases (api-review-8): the pinned cosmic
--- that cold-starts a build EXECUTES tree tooling against its embedded
--- pre-rename cosmic.*, so tooling may only use names both generations
--- share. Tooling flips and these die once the pin carries the renames.
-M.collect = function(dir: string, pattern: string): {string} | nil, string
-  return fs_walk.find(dir, {glob = pattern})
-end
-M.collect_all = fs_walk.find_info
-M.files = function(dir: string, pattern?: string): FileIter | nil, string, any, any
-  return fs_walk.find_iter(dir, {glob = pattern or "*"})
-end
-M.isfile = fs_path.is_file
-M.isdir = fs_path.is_dir
-M.islink = fs_path.is_link
-M.makedirs = M.make_dirs
-M.rmrf = fs_ops.remove_all
-M.copytree = fs_tree.copy_tree
-M.getcwd = M.cwd
-M.mkdtemp = fs_ops.temp_dir
-M.tmpfile = fs_ops.temp_file
-M.tmpfd = fs_ops.temp_fd
 
 return M

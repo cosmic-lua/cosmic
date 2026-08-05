@@ -139,7 +139,7 @@ local function run_into(argv: {string}, out: string): integer
     end
     return 0
   end
-  fs.makedirs(fs.dirname(out))
+  fs.make_dirs(fs.dirname(out))
   local ok, werr = fs.write(out, r.stdout)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
@@ -261,7 +261,7 @@ local function do_record(args: {string}): integer
     local label: {string} = {"record"}
     local inputs: {string} = {}
     for i = 2, #argv do
-      if fs.isfile(argv[i]) then
+      if fs.is_file(argv[i]) then
         inputs[#inputs + 1] = argv[i]
       else
         label[#label + 1] = argv[i]
@@ -287,11 +287,11 @@ local function do_record(args: {string}): integer
   modules.attach(argv, out, fs.abspath("."), deps)
   local scratch = fs.abspath(out .. ".tmp.d")
   env.set("TMP", scratch)
-  fs.makedirs(scratch)
+  fs.make_dirs(scratch)
   fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
   local testrun = require("cosmic.testrun")
   testrun.run(argv, out)
-  if not fs.isfile(out .. ".got") then
+  if not fs.is_file(out .. ".got") then
     return fail("record " .. out .. ": no result recorded")
   end
   if key is string and got_pass(out .. ".got") then

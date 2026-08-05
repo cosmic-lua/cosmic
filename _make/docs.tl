@@ -67,7 +67,7 @@ local function render(proj: Project, paths?: {string}): integer, string
       return written, "make: " .. f.path .. ": " .. tostring(rerr)
     end
     local out = page_of(f.path)
-    if not fs.makedirs(fs.dirname(out)) then
+    if not fs.make_dirs(fs.dirname(out)) then
       return written, "make: cannot create " .. fs.dirname(out)
     end
     local wok, werr = fs.write(out, output)

@@ -14,7 +14,7 @@ local fs = require("cosmic.fs")
 local graph = require("_make.graph")
 local project = require("_make.project")
 local stamp = require("_make.stamp")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local types = require("_make.types")
 
 local type Project = types.Project
@@ -26,16 +26,16 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- build_test): a cold checkout stays usable, CI treats absence as
 -- provisioning broken.
 local cosmic_bin = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
-check.needs("a built cosmic at " .. cosmic_bin, fs.isfile(cosmic_bin))
+check.needs("a built cosmic at " .. cosmic_bin, fs.is_file(cosmic_bin))
 
 --- Build a fixture tree and scan it.
 local function fixture(name: string, files: {string: string}): Project
   local root = fs.join(tmpdir, "stamp-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   local proj = check.must(project.scan(root))
@@ -44,7 +44,7 @@ end
 
 --- Run fn with cwd inside dir, restoring it afterward.
 local function in_dir<T>(dir: string, fn: function(): T): T
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   assert(fs.chdir(dir))
   local got = fn()
   assert(fs.chdir(cwd))
@@ -152,7 +152,7 @@ local function test_boot_list_covers_a_live_child()
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn({cosmic_bin, script}, {env = env}))
+  local h = check.must(child.start({cosmic_bin, script}, {env = env}))
   local r = check.must(h:wait())
   assert(r.ok, "the child must run: " .. (r.stderr or ""))
   local listed: {string: boolean} = {}
@@ -161,7 +161,7 @@ local function test_boot_list_covers_a_live_child()
   end
   for name in (r.stdout or ""):gmatch("[^\n]+") do
     local zipped = "/zip/" .. name:gsub("%.", "/") .. ".lua"
-    assert(listed[name] or not fs.isfile(zipped),
+    assert(listed[name] or not fs.is_file(zipped),
       name .. " is loaded at boot but missing from BOOT_MODULES; " ..
       "add it in _make/stamp.tl or every stamp under-approximates")
   end

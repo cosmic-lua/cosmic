@@ -115,7 +115,7 @@ test_probe_passes_against_shim()
 -- warnings-as-errors policy; type ERRORS are the conformance signal.
 local function test_probe_passes_against_staged_tl()
   local staged = staged_tl_dir()
-  assert(fs.isfile(fs.join(staged, "tl.tl")),
+  assert(fs.is_file(fs.join(staged, "tl.tl")),
     "staged tl source missing at " .. staged .. " (run `cosmic --make fetch`)")
   local r = teal.check(probe_path, {include_dirs = {staged}, werror = false})
   assert(#r.errors == 0,

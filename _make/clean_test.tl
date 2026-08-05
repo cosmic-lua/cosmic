@@ -10,7 +10,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -23,7 +23,7 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
 -- a build; CI always provisions the engine, so its absence there means
 -- provisioning broke -- and the whole `--make` graph-test surface
 -- silently becoming green skips is the failure this guards (029).
-check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 local record Run
   code: integer
@@ -34,19 +34,19 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "clean-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   -- A directory is not a project until it says so. Fixtures that
   -- declare a root themselves keep theirs; the rest get the marker
   -- that means "yes, this one" so the fixture tests what it is about.
-  if not fs.isfile(fs.join(root, "main.tl"))
-  and not fs.isfile(fs.join(root, "main.lua"))
-  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+  if not fs.is_file(fs.join(root, "main.tl"))
+  and not fs.is_file(fs.join(root, "main.lua"))
+  and not fs.is_file(fs.join(root, ".cosmicignore")) then
     assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   end
   return root
@@ -65,7 +65,7 @@ local function make(dir: string, ...: string): Run
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
+  local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return {code = r.code or 128, out = r.stdout or "", err = r.stderr or ""}
 end
@@ -89,7 +89,7 @@ end
 local function test_clean_removes_the_build_directory()
   local root = app("clean")
   assert(make(root, "build").code == 0, "build first")
-  assert(fs.isdir(fs.join(root, "o")), "o/ should exist")
+  assert(fs.is_dir(fs.join(root, "o")), "o/ should exist")
   local r = make(root, "clean")
   assert(r.code == 0, "clean should succeed: " .. r.err)
   assert(not fs.exists(fs.join(root, "o")), "o/ should be gone")
@@ -108,12 +108,12 @@ local function test_clean_keeps_the_verified_bootstrap()
   local root = app("cleanboot")
   assert(make(root, "build").code == 0, "build first")
   local boot = fs.join(root, "o/bootstrap")
-  assert(fs.makedirs(boot))
+  assert(fs.make_dirs(boot))
   assert(fs.write(fs.join(boot, "cosmic"), "pretend binary\n"))
 
   local r = make(root, "clean")
   assert(r.code == 0, "clean should succeed: " .. r.err)
-  assert(fs.isfile(fs.join(boot, "cosmic")),
+  assert(fs.is_file(fs.join(boot, "cosmic")),
     "the verified bootstrap survives: " .. r.out)
   assert(r.out:find("kept the verified bootstrap", 1, true),
     "and clean says so: " .. r.out)

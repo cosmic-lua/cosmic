@@ -197,10 +197,10 @@ local function test_walk_with_visitor()
 end
 test_walk_with_visitor()
 
-local function test_collect_all()
+local function test_find_info()
   local walk_dir = setup_walk()
   local collected = fs.find_info(walk_dir)
-  assert(collected, "collect_all should succeed")
+  assert(collected, "find_info should succeed")
   local found = collected as {string: fs_types.FileInfo} -- cast: record union after guard
 
   assert(found["file1.lua"] ~= nil, "expected file1.lua")
@@ -210,7 +210,7 @@ local function test_collect_all()
   assert(found["file1.lua"].mode ~= nil, "expected mode property")
   teardown(walk_dir)
 end
-test_collect_all()
+test_find_info()
 
 local function test_files_iterator()
   local walk_dir = setup_walk()

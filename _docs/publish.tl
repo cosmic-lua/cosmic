@@ -1,7 +1,7 @@
 -- docs-publish: publish generated docs to a git branch
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local record DocInfo
   path: string
@@ -98,7 +98,7 @@ local function prune_internal(docs_dir: string)
       end
     end, internal)
   for _, path in ipairs(internal) do
-    fs.rmrf(path)
+    fs.remove_all(path)
   end
 end
 
@@ -185,7 +185,7 @@ local function make_readme(docs_dir: string): string
 end
 
 local function run(argv: {string}): boolean, string
-  local r = spawn.run(argv)
+  local r = child.run(argv)
   if r.spawn_error then
     return nil, r.spawn_error
   end
@@ -201,10 +201,10 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   end
 
   -- copy docs to temp before switching branches (checkout will clear working dir)
-  local temp_dir = fs.mkdtemp("/tmp/docs-publish-XXXXXX")
+  local temp_dir = fs.temp_dir("/tmp/docs-publish-XXXXXX")
   local ok, err = run({"cp", "-r", docs_dir .. "/.", temp_dir})
   if not ok then
-    fs.rmrf(temp_dir)
+    fs.remove_all(temp_dir)
     return nil, err
   end
 
@@ -218,9 +218,9 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   if not ok then return nil, err end
 
   -- fetch and checkout docs branch, or create orphan
-  local fetch_res = spawn.run({"git", "fetch", "origin", branch})
+  local fetch_res = child.run({"git", "fetch", "origin", branch})
   -- cast: record union after nil check
-  local fetch_ok = fetch_res ~= nil and (fetch_res as spawn.Result).ok
+  local fetch_ok = fetch_res ~= nil and (fetch_res as child.Result).ok
 
   if fetch_ok then
     ok, err = run({"git", "switch", branch})
@@ -232,7 +232,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   end
 
   -- remove old content (ignore errors for empty repos)
-  local _ = spawn.run({"git", "rm", "-rf", "."})
+  local _ = child.run({"git", "rm", "-rf", "."})
 
   -- clear working directory
   local dir0 = fs.opendir(".")
@@ -242,14 +242,14 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
       local name = dir:read()
       if not name then break end
       if name ~= "." and name ~= ".." and name ~= ".git" then
-        fs.rmrf(name)
+        fs.remove_all(name)
       end
     end
   end
 
   -- copy docs from temp
   ok, err = run({"cp", "-r", temp_dir .. "/.", "."})
-  fs.rmrf(temp_dir)
+  fs.remove_all(temp_dir)
   if not ok then return nil, err end
 
   -- write readme with doc table
@@ -261,9 +261,9 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   if not ok then return nil, err end
 
   -- check if there are changes
-  local diff_res = spawn.run({"git", "diff", "--staged", "--quiet"})
+  local diff_res = child.run({"git", "diff", "--staged", "--quiet"})
   -- cast: record union after nil check
-  if diff_res ~= nil and (diff_res as spawn.Result).ok then
+  if diff_res ~= nil and (diff_res as child.Result).ok then
     io.stderr:write("no documentation changes detected\n")
     return true
   end

@@ -72,10 +72,10 @@ end
 local function source_of(proj: Project, built: string): string | nil, string
   local rel = built:sub(#project.BUILD_DIR + 2)
   local tl = (rel:gsub("%.lua$", ".tl"))
-  if fs.isfile(fs.join(proj.root, tl)) then
+  if fs.is_file(fs.join(proj.root, tl)) then
     return tl, "compile"
   end
-  if fs.isfile(fs.join(proj.root, rel)) then
+  if fs.is_file(fs.join(proj.root, rel)) then
     return rel, "copy"
   end
   return nil, ""
@@ -229,13 +229,13 @@ local function run_generator(proj: Project, gen: string, dest: string,
     return true
   end
   if fs.exists(at) then
-    local rok, rerr = fs.rmrf(at)
+    local rok, rerr = fs.remove_all(at)
     if not rok then
       return false, "make: cannot clear " .. dest .. ": " ..
       (rerr or "unknown error")
     end
   end
-  local mok, merr = fs.makedirs(at)
+  local mok, merr = fs.make_dirs(at)
   if not mok then
     return false, "make: cannot create " .. dest .. ": " ..
     (merr or "unknown error")
@@ -291,7 +291,7 @@ local TYPES_STAMP < const > = TYPES_GEN_DIR .. ".stamp"
 --- @return string Hex digest; a fixed sentinel when the directory has
 --- nothing (absent, or a project with no generator at all)
 local function digest_of(dir: string): string
-  local found = fs.collect_all(dir)
+  local found = fs.find_info(dir)
   if not found then
     return "empty"
   end
@@ -330,7 +330,7 @@ local function stamp_types(proj: Project): boolean, string
   if fs.read(path) == content then
     return true
   end
-  if not fs.makedirs(fs.dirname(path)) then
+  if not fs.make_dirs(fs.dirname(path)) then
     return false, "make: cannot create " .. fs.dirname(TYPES_STAMP)
   end
   local wok, werr = fs.write(path, content)
@@ -399,7 +399,7 @@ end
 ---
 --- Asks the MODEL, not the disk: `proj.files` is what `.cosmicignore`
 --- and every other scan rule already filtered, so a payload generator
---- excluded there stays excluded here too. Probing `fs.isfile` directly
+--- excluded there stays excluded here too. Probing `fs.is_file` directly
 --- would run a generator the model does not know about -- silently, on
 --- output the engine can't attribute to any project file.
 --- @param proj Project The scanned project

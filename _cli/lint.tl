@@ -359,7 +359,7 @@ local function lint_file(path: string): {Diagnostic} | nil, string
   -- same as unreadable, which stays a failure below — the linter it
   -- replaced counted a directory as zero lines and reported it clean,
   -- which is the fail-open shape this distinction exists to avoid.
-  if not fs.isfile(path) then
+  if not fs.is_file(path) then
     return {}
   end
   local f, oerr = io.open(path, "r")

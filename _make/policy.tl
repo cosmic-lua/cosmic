@@ -67,7 +67,7 @@ local function run_coverage(v: Verb, proj: Project, paths: {string},
   if not ok then
     return stage.verdict(v.name, false, detail)
   end
-  if not fs.isfile(BASELINE) then
+  if not fs.is_file(BASELINE) then
     io.write("coverage: no " .. BASELINE ..
       "; write one with `--make coverage --baseline` to start a ratchet\n")
     return stage.verdict(v.name, true, detail)

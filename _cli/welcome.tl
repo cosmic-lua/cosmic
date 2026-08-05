@@ -39,7 +39,7 @@ end
 --- @return boolean True when the config-dir marker or an embedded /zip marker exists
 local function was_shown(): boolean
   local dir = config_dir()
-  if dir and fs.isfile(fs.join(dir, MARKER)) then
+  if dir and fs.is_file(fs.join(dir, MARKER)) then
     return true
   end
   return fs.read("/zip/.cosmic/" .. MARKER) ~= nil
@@ -54,7 +54,7 @@ local function mark_shown()
   if not dir then
     return
   end
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   fs.write(fs.join(dir, MARKER), "")
 end
 

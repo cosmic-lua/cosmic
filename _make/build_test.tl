@@ -17,7 +17,7 @@ local check = require("cosmic.check")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local mk = require("_make")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -30,7 +30,7 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
 -- a build; CI always provisions the engine, so its absence there means
 -- provisioning broke -- and the whole `--make` graph-test surface
 -- silently becoming green skips is the failure this guards (029).
-check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 local record Run
   code: integer
@@ -41,19 +41,19 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "build-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   -- A directory is not a project until it says so. Fixtures that
   -- declare a root themselves keep theirs; the rest get the marker
   -- that means "yes, this one" so the fixture tests what it is about.
-  if not fs.isfile(fs.join(root, "main.tl"))
-  and not fs.isfile(fs.join(root, "main.lua"))
-  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+  if not fs.is_file(fs.join(root, "main.tl"))
+  and not fs.is_file(fs.join(root, "main.lua"))
+  and not fs.is_file(fs.join(root, ".cosmicignore")) then
     assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   end
   return root
@@ -72,7 +72,7 @@ local function make(dir: string, ...: string): Run
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
+  local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return {code = r.code or 128, out = r.stdout or "", err = r.stderr or ""}
 end
@@ -106,7 +106,7 @@ local function test_build_compiles_the_tree()
   for _, rel in ipairs({"o/cmd/build-compile/main.lua", "o/db/init.lua",
       "o/db/db_test.lua",
       "o/legacy.lua", "o/cosmic.mk", "o/project.mk"}) do
-    assert(fs.isfile(fs.join(root, rel)), "expected " .. rel)
+    assert(fs.is_file(fs.join(root, rel)), "expected " .. rel)
   end
   -- schema.sql is not a module, so the graph does not compile it -- and
   -- it is not under `embed/`, so it does not ship either. Shipping is
@@ -178,7 +178,7 @@ local function test_a_failing_test_does_not_stop_the_run()
   -- Every test ran: three .got files, not one and an abort.
   for _, rel in ipairs({"o/db/bad_test.tl.test.got", "o/db/also_test.tl.test.got",
       "o/db/db_test.tl.test.got"}) do
-    assert(fs.isfile(fs.join(root, rel)), "expected " .. rel .. " to exist")
+    assert(fs.is_file(fs.join(root, rel)), "expected " .. rel .. " to exist")
   end
 end
 test_a_failing_test_does_not_stop_the_run()
@@ -238,7 +238,7 @@ test_validation_gates_the_graph()
 -- is asserted in pin_test.tl, which needs no engine for it.)
 local function test_build_never_resolves_a_pin()
   local root = app("pinned")
-  assert(fs.makedirs(fs.join(root, "3p")))
+  assert(fs.make_dirs(fs.join(root, "3p")))
   assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return {\n  url = "http://127.0.0.1:1/blob.bin",\n' ..
       '  sha256 = "e0997b6447e07ef18b6304a2b88ded9b24106e5bd67b40fab' ..
@@ -258,7 +258,7 @@ test_build_never_resolves_a_pin()
 local function test_builds_with_no_engine_named()
   local root = app("embedded")
   local argv: {string} = {cosmic, "--make", "build"}
-  local h = check.must(spawn.spawn(argv, {
+  local h = check.must(child.start(argv, {
         cwd = root,
         -- PATH stays: the extracted engine is a fat APE whose shell
         -- stub needs a POSIX environment to reach its loader. What is
@@ -271,9 +271,9 @@ local function test_builds_with_no_engine_named()
   local r = check.must(h:wait())
   local out = (r.stdout or "") .. (r.stderr or "")
   assert(r.code == 0, "a build with no engine named must work: " .. out)
-  assert(fs.isfile(fs.join(root, "o/make")),
+  assert(fs.is_file(fs.join(root, "o/make")),
     "the engine should have extracted itself to o/make")
-  assert(fs.isfile(fs.join(root, "o/bin/build-embedded")),
+  assert(fs.is_file(fs.join(root, "o/bin/build-embedded")),
     "…and produced the artifact")
 end
 test_builds_with_no_engine_named()
@@ -429,7 +429,7 @@ test_a_test_gets_its_own_scratch_directory()
 -- --make ci` from a committed binary), which is why it is asserted
 -- rather than left to the CLI tests, where the path is absolute.
 local function in_process(root: string, ...: string): integer
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   cenv.set("COSMIC_MAKE", make_bin)
   local argv: {string} = {}
@@ -456,7 +456,7 @@ local function test_a_variant_base_ships_the_payload_twice()
   -- The base lives in the binary's OWN payload-gen dir, which for a
   -- cmd/<name> unit is o/cmd/<name>/embed_gen, not the root's o/embed_gen.
   local gendir = fs.join(root, "o/cmd/build-variant/embed_gen")
-  assert(fs.makedirs(gendir))
+  assert(fs.make_dirs(gendir))
   for _, name in ipairs({"base", "base-debug"}) do
     local path = fs.join(gendir, name)
     assert(fs.write(path, runtime))
@@ -466,8 +466,8 @@ local function test_a_variant_base_ships_the_payload_twice()
   assert(in_process(root, "build") == 0, "build should succeed")
   for _, rel in ipairs({"o/bin/build-variant", "o/bin/build-variant-debug"}) do
     local path = fs.join(root, rel)
-    assert(fs.isfile(path), rel .. " should be built")
-    local done = check.must(check.must(spawn.spawn({path})):wait())
+    assert(fs.is_file(path), rel .. " should be built")
+    local done = check.must(check.must(child.start({path})):wait())
     assert(done.ok and (done.stdout or ""):find("ran", 1, true),
       rel .. " should run its payload, got: " .. tostring(done.stdout))
   end

@@ -100,7 +100,7 @@ local function write_if_changed(path: string, content: string): boolean, string
   if fs.read(path) == content then
     return true
   end
-  local ok, err = fs.makedirs(fs.dirname(path))
+  local ok, err = fs.make_dirs(fs.dirname(path))
   if not ok then
     return false, "make: cannot create " .. fs.dirname(path) .. ": " ..
     (err or "unknown error")
@@ -305,7 +305,7 @@ local function extract_make(to: string): boolean, string
   if not bytes then
     return false, "make: this cosmic carries no engine at " .. MAKE_ZIP
   end
-  local ok, merr = fs.makedirs(fs.dirname(to))
+  local ok, merr = fs.make_dirs(fs.dirname(to))
   if not ok then
     return false, "make: cannot create " .. fs.dirname(to) .. ": " ..
     (merr or "unknown error")
@@ -329,7 +329,7 @@ local function extract_make(to: string): boolean, string
     fs.unlink(tmp)
     -- Losing the race is not a failure: the winner installed the same
     -- embedded bytes this process was about to.
-    if fs.isfile(to) then
+    if fs.is_file(to) then
       return true
     end
     return false, "make: cannot install " .. to .. ": " .. (rerr or "unknown error")
@@ -349,13 +349,13 @@ local function find_make(): string | nil, string
   local named = os.getenv(MAKE_ENV)
   if named and named ~= "" then
     local abs = fs.abspath(named)
-    if not fs.isfile(abs) then
+    if not fs.is_file(abs) then
       return nil, "make: " .. MAKE_ENV .. " names no such file: " .. named
     end
     return abs
   end
   local extracted = fs.abspath(fs.join(project.BUILD_DIR, "make"))
-  if fs.isfile(extracted) then
+  if fs.is_file(extracted) then
     return extracted
   end
   local ok, err = extract_make(extracted)
@@ -447,7 +447,7 @@ local function run(proj: Project, target: string, overrides: {string},
   -- target list, and it stopped with "no rule to make target" naming a
   -- file in a project it had never heard of. A nested `--make` is a
   -- different project's build, not a recursive step of this one.
-  local h, serr = child.spawn(argv, {
+  local h, serr = child.start(argv, {
       cwd = proj.root,
       stdout = "inherit",
       stderr = "inherit",

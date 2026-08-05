@@ -44,7 +44,7 @@ local function find_bin(): string
   local test_bin = os.getenv("TEST_BIN")
   if test_bin and #test_bin > 0 then
     local p = fs.join(test_bin, "cosmic")
-    if fs.isfile(p) then
+    if fs.is_file(p) then
       return p
     end
   end
@@ -72,7 +72,7 @@ local function scenarios(): {pt.Scenario}, string
   if bin == nil or #bin == 0 then
     return nil, "cannot locate cosmic binary (set PERF_BIN)"
   end
-  local dir, derr = fs.mkdtemp(fs.join(tmp_base(), "perf-startup-XXXXXX"))
+  local dir, derr = fs.temp_dir(fs.join(tmp_base(), "perf-startup-XXXXXX"))
   if dir == nil then
     return nil, "mkdtemp: " .. tostring(derr)
   end
@@ -143,7 +143,7 @@ end
 
 local function cleanup()
   if tmpdir then
-    fs.rmrf(tmpdir)
+    fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

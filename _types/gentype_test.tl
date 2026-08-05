@@ -401,7 +401,7 @@ test_valid_types_pass_validation()
 local function test_generated_valid_teal()
   for _, m in ipairs(gentype.get_modules()) do
     local path = generated_path(m)
-    assert(fs.isfile(path), path .. " was not generated — the graph runs "
+    assert(fs.is_file(path), path .. " was not generated — the graph runs "
       .. "_types/types_gen.tl before anything reads cosmo.*")
     local result = teal.check(path, {include_dirs = {"o/_types/types_gen"}})
     assert(result.ok, "generated " .. path .. " is not valid Teal:\n"

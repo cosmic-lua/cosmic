@@ -3,7 +3,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local benchmark = require("cosmic.benchmark")
 local env = require("cosmic.env")
 
@@ -105,7 +105,7 @@ local function Benchmark_cmd()
   local x = 1 + 1
 end
 ]])
-  local h1 = check.must(spawn.start({cosmic, "--benchmark", input}))
+  local h1 = check.must(child.start({cosmic, "--benchmark", input}))
   local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --benchmark should succeed")
@@ -119,7 +119,7 @@ local function test_cosmic_benchmark_skip()
   local input = write_temp("cmd_bench_skip.tl", [[
 local x = 1
 ]])
-  local r = check.must(spawn.run({cosmic, "--benchmark", input}))
+  local r = check.must(child.run({cosmic, "--benchmark", input}))
   assert(r.code == 2, "should return skip code 2")
   assert(r.stdout:find("SKIP"), "output should show SKIP")
 end
@@ -302,7 +302,7 @@ local function Benchmark_beta()
   local y = 2
 end
 ]])
-  local h2 = check.must(spawn.start({cosmic, "--benchmark", input .. ":alpha"}))
+  local h2 = check.must(child.start({cosmic, "--benchmark", input .. ":alpha"}))
   local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --benchmark with filter should succeed")

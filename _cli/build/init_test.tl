@@ -57,7 +57,7 @@ test_link_replaces()
 -- fixture is just a source and an output path.
 local function compile_fixture(name: string, content: string): string, string
   local dir = fs.join(tmpdir, name)
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   local src = fs.join(dir, "mod.tl")
   local out = fs.join(dir, "mod.lua")
   assert(fs.write(src, content))
@@ -191,7 +191,7 @@ test_list_write_if_changed()
 
 local function test_require_marker()
   local dir = fs.join(tmpdir, "markers/nested")
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   assert(fs.write(fs.join(dir, "probe.err"), "x enforce-ran: pledge\n"))
   local code = run_driver("assert-marker", "enforce-ran:", fs.join(tmpdir, "markers"))
   assert(code == 0, "marker present must pass")
@@ -224,17 +224,17 @@ local function test_remove()
   assert(fs.write(target, "x"))
   assert(fs.symlink(target, link))
   assert(fs.unlink(target), "target goes first, leaving the link dangling")
-  assert(fs.islink(link) and not fs.exists(link), "precondition: dangling")
+  assert(fs.is_link(link) and not fs.exists(link), "precondition: dangling")
   local code = run_driver("remove", a, fs.join(tmpdir, "rm-missing"), link)
   assert(code == 0, "remove must succeed, missing files ignored")
   assert(not fs.stat(a), "existing file removed")
-  assert(not fs.islink(link), "dangling symlink removed")
+  assert(not fs.is_link(link), "dangling symlink removed")
 end
 test_remove()
 
 local function test_verdict()
   local o_dir = fs.join(tmpdir, "verdict")
-  fs.makedirs(o_dir)
+  fs.make_dirs(o_dir)
   -- pass: clean summary + marker; launder: clean summary, NO marker;
   -- bad: failing summary; ghost: no summary at all
   assert(fs.write(fs.join(o_dir, "good-summary.txt"), "good: 2 checks: 2 passed, 0 failed\n"))

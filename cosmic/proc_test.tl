@@ -38,13 +38,13 @@ local function test_getppid_different_from_pid()
 end
 test_getppid_different_from_pid()
 
--- commandv tests --
+-- which tests --
 
-local function test_commandv_finds_ls()
+local function test_which_finds_ls()
   local path_to_ls = check.must(proc.which("ls"), "expected to find 'ls' command")
   assert(path_to_ls:find("/", 1, true), "expected absolute path, got " .. tostring(path_to_ls))
 end
-test_commandv_finds_ls()
+test_which_finds_ls()
 
 local function test_commandv_returns_nil_for_nonexistent()
   local result = proc.which("nonexistent_command_xyz_12345")

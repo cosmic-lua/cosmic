@@ -11,7 +11,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 -- Absolute: TEST_BIN is relative to the repo root under `make test`,
 -- and the --make test below runs a child with a different cwd.
@@ -31,7 +31,7 @@ local function cli(...: string): Run
   for _, a in ipairs({...}) do
     argv[#argv + 1] = a
   end
-  local h = check.must(spawn.spawn(argv))
+  local h = check.must(child.start(argv))
   local r = check.must(h:wait())
   -- code is nil when the child was signaled; report that as non-zero
   -- so callers can treat "did not exit cleanly" uniformly.
@@ -149,13 +149,13 @@ test_examples_miss_fails()
 
 local function test_make_dispatches_verb_and_paths()
   local dir = fs.join(tmpdir, "mk-src")
-  fs.makedirs(dir)
+  fs.make_dirs(dir)
   -- A directory declares itself a project; an ordinary directory of
   -- Teal files is a package inside one, and `--make` refuses it.
   fs.write(fs.join(dir, ".cosmicignore"), "")
   fs.write(fs.join(dir, "a.tl"), "local x: integer = 1\nprint(x)\n")
   fs.write(fs.join(dir, "b.tl"), "return {}\n")
-  local h = check.must(spawn.spawn({cosmic, "--make", "check", "a.tl"},
+  local h = check.must(child.start({cosmic, "--make", "check", "a.tl"},
       {cwd = dir}))
   local r = check.must(h:wait())
   assert(r.code == 0, "--make check should pass here, got " ..

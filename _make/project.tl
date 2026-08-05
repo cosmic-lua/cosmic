@@ -358,7 +358,7 @@ end
 --- @return string An error message when the scan failed
 local function scan(root: string): Project | nil, string
   local abs = fs.abspath(root)
-  if not fs.isdir(abs) then
+  if not fs.is_dir(abs) then
     return nil, "make: not a directory: " .. root
   end
   -- A scan is the start of a model build, and the import memo's

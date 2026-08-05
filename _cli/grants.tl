@@ -168,7 +168,7 @@ local function nearest_existing(path: string): string
     if p == "" or p == "." then
       return "."
     end
-    if fs.isdir(p) then
+    if fs.is_dir(p) then
       return p
     end
     p = fs.dirname(p)
@@ -263,7 +263,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- (`verdict <o_dir>`, `assert-marker <marker> <dir>`), which is why
   -- the two are separated rather than filtered together.
   for _, p in ipairs(ro_rest) do
-    if fs.isfile(p) then
+    if fs.is_file(p) then
       ro[#ro + 1] = p
     end
   end
@@ -289,7 +289,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- fence at all.
     local dir = fs.dirname(p)
     if dir ~= "" and dir ~= "." then
-      local ok, merr = fs.makedirs(dir)
+      local ok, merr = fs.make_dirs(dir)
       if not ok then
         return nil, "cannot create " .. dir .. ": "
         .. (merr or "unknown error")
@@ -373,7 +373,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
       ro[#ro + 1] = dir
     end
     local root = os.getenv("COSMIC_EXEC_ROOT") or "o"
-    if fs.isdir(root) then
+    if fs.is_dir(root) then
       rw[#rw + 1] = root
     end
   end
@@ -385,7 +385,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- fence denies every real compile, which is the concrete reason it
   -- could not become the default.
   if compiles[verb] then
-    if fs.isfile(TLCONFIG) then
+    if fs.is_file(TLCONFIG) then
       ro[#ro + 1] = TLCONFIG
     end
     -- Required HERE rather than at the top of the module: acquiring
@@ -396,13 +396,13 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     for _, dir in ipairs(teal.get_default_include_dirs()) do
       -- Real host paths only. Two of the include dirs live INSIDE the
       -- executable's own zip (`/zip/.types`, `/zip/.tl`), where
-      -- `fs.isdir` answers yes -- cosmic's own syscall shims see them
+      -- `fs.is_dir` answers yes -- cosmic's own syscall shims see them
       -- -- and the kernel knows nothing at all. Handing one to Landlock
       -- fails the whole policy with EBADFD, which took the fenced
       -- compile down entirely rather than denying anything. They need
       -- no grant either way: they are bytes in a file the exec grant
       -- already covers.
-      if not in_zip(dir) and fs.isdir(dir) then
+      if not in_zip(dir) and fs.is_dir(dir) then
         ro[#ro + 1] = dir
       end
     end
@@ -413,7 +413,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- /dev/urandom or exec an APE dies, which is exactly how the enforce,
   -- build, and offline lanes went red when this shipped without one.
   local tmp = os.getenv("TMPDIR") or "/tmp"
-  if fs.isdir(tmp) then
+  if fs.is_dir(tmp) then
     rw[#rw + 1] = tmp
   end
   -- Coverage output, created before it is granted for the same reason
@@ -435,8 +435,8 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- project root. One definition of that rule, and it is over there.
   local cov = require("cosmic.coverage").dir_from_env()
   if cov ~= nil then
-    fs.makedirs(cov)
-    if fs.isdir(cov) then
+    fs.make_dirs(cov)
+    if fs.is_dir(cov) then
       rw[#rw + 1] = cov
     end
   end
@@ -465,12 +465,12 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- above): the driver seeds $HOME's loaders into it before fencing
   -- (see driver.tl), because execve caches TMPDIR/HOME at process
   -- startup and a NESTED driver cannot read $HOME to find one here.
-  if fs.isdir(tmp) then
+  if fs.is_dir(tmp) then
     ex[#ex + 1] = tmp
   end
   local loaders: {string} = {"/usr/bin/ape"}
   for _, base in ipairs({tmp, os.getenv("HOME") or "", "."}) do
-    if base ~= "" and fs.isdir(base) then
+    if base ~= "" and fs.is_dir(base) then
       local found = fs.glob(base, ".ape-*")
       if found ~= nil then
         for _, f in ipairs(found as {string}) do -- cast: nil-checked above
@@ -480,7 +480,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     end
   end
   for _, f in ipairs(loaders) do
-    if fs.isfile(f) then
+    if fs.is_file(f) then
       ex[#ex + 1] = f
     end
   end

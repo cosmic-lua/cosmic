@@ -84,7 +84,7 @@ test_a_pin_cannot_be_code()
 --- Write a pin file and read it.
 local function read_pin(name: string, body: string): pin.Pin | nil, string
   local dir = fs.join(tmpdir, "pin-" .. name)
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   local path = fs.join(dir, name .. "_pin.tl")
   assert(fs.write(path, body))
   return pin.read(path)
@@ -155,8 +155,8 @@ end
 --- A project holding one pin pointing at `url`.
 local function pinned(name: string, url: string, sha: string): string
   local root = fs.join(tmpdir, "fetch-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(fs.join(root, "3p")))
+  fs.remove_all(root)
+  assert(fs.make_dirs(fs.join(root, "3p")))
   assert(fs.write(fs.join(root, "main.tl"), "print('x')\n"))
   assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return {\n  url = "' .. url .. '",\n  sha256 = "' .. sha .. '",\n}\n'))
@@ -165,7 +165,7 @@ end
 
 --- Run a verb in process against a named root.
 local function run(root: string, ...: string): integer
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   local argv: {string} = {}
   for _, a in ipairs({...}) do
@@ -240,7 +240,7 @@ local function test_a_satisfied_pin_does_not_fetch()
   local body = "already here\n"
   local root = pinned("satisfied", "http://127.0.0.1:1/blob.bin",
     hash.sha256_hex(body))
-  assert(fs.makedirs(fs.join(root, "o/3p")))
+  assert(fs.make_dirs(fs.join(root, "o/3p")))
   assert(fs.write(fs.join(root, "o/3p/blob.bin"), body))
   local code = run(root, "fetch")
   assert(code == 0,
@@ -260,7 +260,7 @@ test_a_satisfied_pin_does_not_fetch()
 -- and this file is the proof of that.
 local function test_only_fetch_can_open_a_socket()
   local networked: {string} = {}
-  local found, cerr = fs.collect("_make", "*.tl")
+  local found, cerr = fs.find("_make", {glob = "*.tl"})
   assert(found, "cannot scan _make: " .. tostring(cerr))
   for _, path in ipairs(found as {string}) do -- cast: record union after the guard
     if not path:find("_test%.tl$") then
@@ -297,7 +297,7 @@ test_selection()
 -- else, which is why fetch needs no compiled tree.
 local function test_resolve_reads_only_the_pin()
   local root = pinned("scope", "https://x.test/a.bin", "abababababababababababababababababababababababababababababababab")
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   assert(fs.chdir(root))
   local proj = check.must(project.scan("."))
   local pins = check.must(mfetch.resolve(project.of_kind(proj, {"pin"})))
@@ -318,7 +318,7 @@ local function test_a_declared_format_is_unpacked()
   -- under a wrapper directory, which is what strip_components exists
   -- for (a release tarball names its wrapper after the tag).
   local archive = fs.join(tmpdir, "payload.zip")
-  local w = check.must(czip.writer(archive))
+  local w = check.must(czip.create(archive))
   assert(w:add("wrapper-1.0/tl.lua", "return 'teal'\n"))
   assert(w:add("wrapper-1.0/deep/other.txt", "x\n"))
   w:close()
@@ -338,9 +338,9 @@ local function test_a_declared_format_is_unpacked()
 
   local got = check.must(fs.read(fs.join(root, "o/3p/tl.lua")))
   assert(got == "return 'teal'\n", "the wrapper directory is stripped away")
-  assert(fs.isfile(fs.join(root, "o/3p/deep/other.txt")),
+  assert(fs.is_file(fs.join(root, "o/3p/deep/other.txt")),
     "and the rest of the tree keeps its shape")
-  assert(fs.isfile(fs.join(root, "o/3p/payload.zip")),
+  assert(fs.is_file(fs.join(root, "o/3p/payload.zip")),
     "the verified archive stays beside what came out of it")
   assert(not fs.exists(fs.join(root, "o/3p/.unpack")),
     "and the staging directory does not survive")
@@ -389,7 +389,7 @@ test_a_pin_may_name_its_digest_per_platform()
 -- over a missing tree.
 local function test_a_missing_unpack_is_redone()
   local archive = fs.join(tmpdir, "redo.zip")
-  local w = check.must(czip.writer(archive))
+  local w = check.must(czip.create(archive))
   assert(w:add("tl.lua", "return 'teal'\n"))
   w:close()
   local body = check.must(fs.read(archive))
@@ -403,15 +403,15 @@ local function test_a_missing_unpack_is_redone()
   assert(run(root, "fetch") == 0, "the first fetch should unpack")
   proc.wait(pid)
   local out = fs.join(root, "o/3p/tl.lua")
-  assert(fs.isfile(out), "unpack produced the tree")
+  assert(fs.is_file(out), "unpack produced the tree")
 
   -- Delete the unpacked tree, keep the archive: the exact poisoned
   -- state a failed unpack leaves behind. No server is listening now,
   -- so a re-download would fail -- repairing from the verified archive
   -- is the assertion.
-  assert(fs.rmrf(out))
+  assert(fs.remove_all(out))
   assert(run(root, "fetch") == 0, "the second fetch should repair, not refetch")
-  assert(fs.isfile(out), "the unpacked tree is restored")
+  assert(fs.is_file(out), "the unpacked tree is restored")
 end
 test_a_missing_unpack_is_redone()
 

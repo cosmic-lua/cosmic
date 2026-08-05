@@ -61,8 +61,8 @@ local function test_require_valid_module_works()
   local unix = require("cosmo.unix")
   assert(unix ~= nil, "require('cosmo.unix') should work")
 
-  local spawn = require("cosmic.child")
-  assert(spawn ~= nil, "require('cosmic.child') should work")
+  local child = require("cosmic.child")
+  assert(child ~= nil, "require('cosmic.child') should work")
 end
 test_require_valid_module_works()
 

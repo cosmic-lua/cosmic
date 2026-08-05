@@ -65,7 +65,7 @@ local function strip_into(from: string, to: string, strip: integer,
       end
       local dest = fs.join(to, stripped)
       out[#out + 1] = stripped
-      local mok, merr = fs.makedirs(fs.dirname(dest))
+      local mok, merr = fs.make_dirs(fs.dirname(dest))
       if not mok then
         failure = "cannot create " .. fs.dirname(dest) .. ": " ..
         (merr or "unknown error")
@@ -109,8 +109,8 @@ end
 local function unpack(archive: string, dest: string, format: string,
     strip: integer): {string} | nil, string
   local staging = fs.join(dest, ".unpack")
-  fs.rmrf(staging)
-  local mok, merr = fs.makedirs(staging)
+  fs.remove_all(staging)
+  local mok, merr = fs.make_dirs(staging)
   if not mok then
     return nil, "make: cannot create " .. staging .. ": " ..
     (merr or "unknown error")
@@ -118,31 +118,31 @@ local function unpack(archive: string, dest: string, format: string,
   local ok: boolean = false
   local err: string = nil
   if format == "zip" then
-    local reader, oerr = zip.reader(archive)
-    if not (reader is zip.Reader) then
-      fs.rmrf(staging)
+    local reader, oerr = zip.open(archive)
+    if not (reader is zip.Archive) then
+      fs.remove_all(staging)
       return nil, "make: cannot open " .. archive .. ": " ..
       (oerr or "unknown error")
     end
     -- cast: narrowing does not survive the early-exit guard above
-    local r = reader as zip.Reader
+    local r = reader as zip.Archive
     ok, err = zip.extract(r, staging)
     r:close()
   elseif format == "tar.gz" then
     ok, err = untar.extract(archive, staging)
   else
-    fs.rmrf(staging)
+    fs.remove_all(staging)
     return nil, "make: " .. archive .. ": unknown format '" .. format ..
     "'; a pin unpacks as zip or tar.gz"
   end
   if not ok then
-    fs.rmrf(staging)
+    fs.remove_all(staging)
     return nil, "make: cannot unpack " .. archive .. ": " ..
     (err or "unknown error")
   end
   local produced: {string} = {}
   local sok, serr = strip_into(staging, dest, strip, produced)
-  fs.rmrf(staging)
+  fs.remove_all(staging)
   if not sok then
     return nil, serr
   end

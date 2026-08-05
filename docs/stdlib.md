@@ -187,10 +187,10 @@ fs.join("/usr", "local", "bin")     -- "/usr/local/bin"
 fs.basename("/usr/local/bin")       -- "bin"
 fs.dirname("/usr/local/bin")        -- "/usr/local"
 fs.make_dirs("/tmp/a/b/c")          -- create parents
-fs.remove_all("/tmp/test")               -- recursive delete
+fs.remove_all("/tmp/test")          -- recursive delete
 
 -- walk directory tree
-for path in fs.files("src", "*.tl") do
+for path in fs.find_iter("src", {glob = "*.tl"}) do
   print(path)
 end
 ```

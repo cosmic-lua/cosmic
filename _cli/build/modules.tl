@@ -110,8 +110,8 @@ local function write(out: string, root: string,
     built: {string}): string | nil
   local path = out .. SUFFIX
   local dir = fs.dirname(path)
-  if dir ~= "" and dir ~= "." and not fs.isdir(dir) then
-    if not fs.makedirs(dir) then
+  if dir ~= "" and dir ~= "." and not fs.is_dir(dir) then
+    if not fs.make_dirs(dir) then
       return nil
     end
   end

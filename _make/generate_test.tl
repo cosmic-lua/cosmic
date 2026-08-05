@@ -17,7 +17,7 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local mk = require("_make")
 local project = require("_make.project")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local types = require("_make.types")
 
 local type Binary = types.Binary
@@ -30,24 +30,24 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- else the copy `--make` extracts from its own binary.
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
-check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "generate-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   -- A directory is not a project until it says so. Fixtures that
   -- declare a root themselves keep theirs; the rest get the marker
   -- that means "yes, this one" so the fixture tests what it is about.
-  if not fs.isfile(fs.join(root, "main.tl"))
-  and not fs.isfile(fs.join(root, "main.lua"))
-  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+  if not fs.is_file(fs.join(root, "main.tl"))
+  and not fs.is_file(fs.join(root, "main.lua"))
+  and not fs.is_file(fs.join(root, ".cosmicignore")) then
     assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   end
   return root
@@ -82,7 +82,7 @@ local function make(dir: string, ...: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
+  local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -104,7 +104,7 @@ local function seed_pins(repo: string): boolean
     {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
-    if not fs.isfile(fs.join(repo, w[3])) then
+    if not fs.is_file(fs.join(repo, w[3])) then
       return false
     end
   end
@@ -121,7 +121,7 @@ local function test_build_runs_the_units_generator()
       ["cmd/tool/embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local out = arg[1]
-assert(fs.makedirs(fs.join(out, "embed")))
+assert(fs.make_dirs(fs.join(out, "embed")))
 assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
 ]],
     })
@@ -132,7 +132,7 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
 
   local produced = fs.join(root,
     "o/cmd/tool/embed_gen/embed/generated.txt")
-  assert(fs.isfile(produced),
+  assert(fs.is_file(produced),
     "the generator wrote into the directory it owns")
 
   local proj = scan(root)
@@ -153,7 +153,7 @@ local function test_base_is_the_units_own_when_it_declares_one()
       ["cmd/tool/main.tl"] = "print('tool')\n",
       ["cmd/lean/main.tl"] = "print('lean')\n",
     })
-  assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed_gen")))
+  assert(fs.make_dirs(fs.join(root, "o/cmd/tool/embed_gen")))
   assert(fs.write(fs.join(root, "o/cmd/tool/embed_gen/base"),
       "not really a runtime\n"))
 
@@ -210,7 +210,7 @@ local function test_the_root_generator_runs_for_cmd_binaries()
       ["embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local out = arg[1]
-assert(fs.makedirs(fs.join(out, "embed")))
+assert(fs.make_dirs(fs.join(out, "embed")))
 assert(fs.write(fs.join(out, "embed/shared.txt"), "from the root generator\n"))
 ]],
       -- Only cmd binaries: no root main.tl at all, which is the shape
@@ -220,7 +220,7 @@ assert(fs.write(fs.join(out, "embed/shared.txt"), "from the root generator\n"))
     })
   local code, out = make(root, "build")
   assert(code == 0, "build should succeed: " .. out)
-  assert(fs.isfile(fs.join(root, "o/embed_gen/embed/shared.txt")),
+  assert(fs.is_file(fs.join(root, "o/embed_gen/embed/shared.txt")),
     "the root generator ran even with no root binary: " .. out)
 
   local proj = scan(root)
@@ -244,7 +244,7 @@ local function test_a_cosmicignored_generator_does_not_run()
       ["cmd/tool/embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local out = arg[1]
-assert(fs.makedirs(fs.join(out, "embed")))
+assert(fs.make_dirs(fs.join(out, "embed")))
 assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
 ]],
     })
@@ -282,12 +282,12 @@ local fs = require("cosmic.fs")
 local note = require("note")
 local mark = require("mark")
 local out = arg[1]
-assert(fs.makedirs(fs.join(out, "embed")))
+assert(fs.make_dirs(fs.join(out, "embed")))
 assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n"))
 ]],
       ["cmd/lean/main.tl"] = "print('lean')\n",
     })
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   cenv.set("COSMIC_MAKE", make_bin)
   local code = mk.run({"build"})
@@ -296,10 +296,10 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   assert(fs.chdir(cwd))
   assert(code == 0, "in-process build should succeed")
   local note = fs.join(root, "o/cmd/tool/embed_gen/embed/note.txt")
-  assert(fs.isfile(note), "build ran the unit's generator")
+  assert(fs.is_file(note), "build ran the unit's generator")
   assert(check.must(fs.read(note)):find("from the generator!", 1, true),
     "and the generator resolved BOTH its imports from the tree")
-  assert(fs.isfile(fs.join(root, "o/mark.lua")),
+  assert(fs.is_file(fs.join(root, "o/mark.lua")),
     "the mini-graph copies a `.lua` closure member rather than skipping it")
   -- Again, with everything already built: the mini-graph's freshness
   -- check is what keeps a no-op verb from paying one subprocess compile
@@ -311,8 +311,8 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   cenv.unset("COSMIC_MAKE")
   assert(fs.chdir(cwd))
   assert(again == 0, "a second in-process build should succeed")
-  assert(fs.isfile(fs.join(root, "o/bin/tool")), "and still produced the binary")
-  assert(fs.isfile(fs.join(root, "o/bin/lean")),
+  assert(fs.is_file(fs.join(root, "o/bin/tool")), "and still produced the binary")
+  assert(fs.is_file(fs.join(root, "o/bin/lean")),
     "a sibling with no generator builds unchanged")
 end
 test_in_process_build_runs_the_generator()
@@ -348,15 +348,15 @@ local function test_the_real_payload_generator()
   local repo = fs.abspath(".")
   local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
   check.needs("the cosmic tree (cmd/cosmic/embed_gen.tl)",
-    fs.isfile(gen))
+    fs.is_file(gen))
   -- The generator reads its pinned inputs from `o/3p/**`, which only
   -- `--make fetch` writes. CI fetches before it gates, so this runs
   -- there; a cold checkout skips rather than failing.
   check.needs("fetched pins", seed_pins(repo))
   local out = fs.join(tmpdir, "real-payload")
-  fs.rmrf(out)
-  assert(fs.makedirs(out))
-  local h = check.must(spawn.spawn({cosmic, gen, out},
+  fs.remove_all(out)
+  assert(fs.make_dirs(out))
+  local h = check.must(child.start({cosmic, gen, out},
       {cwd = repo, env = {"PATH=" .. (os.getenv("PATH") or ""), "NO_COLOR=1"}}))
   local r = check.must(h:wait())
   assert(r.code == 0, "the generator should succeed: " ..
@@ -374,7 +374,7 @@ local function test_the_real_payload_generator()
       "embed/.tl/cosmic/fs/init.tl",
       "embed/.tl/_make/artifact.tl",
     }) do
-    assert(fs.isfile(fs.join(out, want)), "payload is missing " .. want)
+    assert(fs.is_file(fs.join(out, want)), "payload is missing " .. want)
   end
 end
 test_the_real_payload_generator()
@@ -410,7 +410,7 @@ local function test_a_generator_reads_its_helpers_from_the_tree()
   -- A fixture project does not claim the `cosmic` namespace, so it does
   -- not converge: this is ONE pass, and a second could not hide a stale
   -- first one.
-  local h = check.must(spawn.spawn({cosmic, "--make", "build"},
+  local h = check.must(child.start({cosmic, "--make", "build"},
       {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
           "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
   local r = check.must(h:wait())
@@ -444,8 +444,8 @@ local function test_a_lua_module_in_a_generators_closure()
       .. 'fs.write(fs.join(arg[1], "out.txt"), helper.mark())\n',
     })
   -- COLD: nothing built yet, which is the only state that showed it.
-  fs.rmrf(fs.join(root, "o"))
-  local h = check.must(spawn.spawn({cosmic, "--make", "build"},
+  fs.remove_all(fs.join(root, "o"))
+  local h = check.must(child.start({cosmic, "--make", "build"},
       {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
           "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
   local r = check.must(h:wait())
@@ -456,7 +456,7 @@ local function test_a_lua_module_in_a_generators_closure()
   -- The manifest names it, and the mini-graph produced what it names.
   local mf = check.must(fs.read(fs.join(root, "o/thing_gen.modules")))
   assert(mf:find("mod helper ", 1, true), "the manifest names it: " .. mf)
-  assert(fs.isfile(fs.join(root, "o/helper.lua")),
+  assert(fs.is_file(fs.join(root, "o/helper.lua")),
     "and the mini-graph copied it, rather than naming a file it skipped")
 end
 test_a_lua_module_in_a_generators_closure()

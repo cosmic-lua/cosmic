@@ -100,7 +100,7 @@ end
 --- Every skill file, in path order.
 --- @return {string} Paths relative to the repo root
 local function skill_files(): {string}
-  local found = check.must(fs.collect(SKILLS_DIR, "*.md"))
+  local found = check.must(fs.find(SKILLS_DIR, {glob = "*.md"}))
   table.sort(found)
   assert(#found > 0, "no skill files found under " .. SKILLS_DIR)
   return found

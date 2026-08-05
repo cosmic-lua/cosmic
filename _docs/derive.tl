@@ -48,7 +48,7 @@ end
 local function records(): {Record}, {string}
   local found: {Record} = {}
   local bad: {string} = {}
-  local listed = fs.collect(DECISIONS, "*.md")
+  local listed = fs.find(DECISIONS, {glob = "*.md"})
   if listed == nil then
     return found, {DECISIONS .. ": cannot be listed"}
   end
