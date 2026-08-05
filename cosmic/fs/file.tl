@@ -3,6 +3,8 @@
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
+local cfd = require("cosmic.fd")
+local stream = require("cosmic.stream")
 local errstr = errno.str
 
 --- Read entire file contents.
@@ -62,25 +64,21 @@ local function write_atomic(path: string, data: string, mode?: integer): boolean
   if not fd then
     return false, errstr(tmp, "write_atomic: mkstemp: " .. path .. ".XXXXXX")
   end
+  -- The Handle owns fd from here; EINTR retries and the short-write
+  -- loop live in fd.Handle + stream.write_all, not a local copy.
+  local h = cfd.wrap(fd)
   local function fail(err: string): boolean, string
-    unix.close(fd)
+    h:close()
     unix.unlink(tmp)
     return false, err
   end
-  local off: integer = 1
-  while off <= #data do
-    local n, werr, weno = unix.write(fd, data:sub(off))
-    while n == nil and errno.is(weno, "EINTR") do
-      n, werr, weno = unix.write(fd, data:sub(off))
-    end
-    if not n then
-      return fail(errstr(werr, "write_atomic: write: " .. tmp))
-    end
-    off = off + math.floor(n)
+  local wok, werr = stream.write_all(h, data)
+  if not wok then
+    return fail("write_atomic: write: " .. tmp .. ": " .. tostring(werr))
   end
-  local synced, serr = unix.fsync(fd)
+  local synced, serr = h:sync()
   if not synced then
-    return fail(errstr(serr, "write_atomic: fsync: " .. tmp))
+    return fail("write_atomic: fsync: " .. tmp .. ": " .. tostring(serr))
   end
   -- mkstemp creates the file 0600; apply the requested bits before the
   -- rename so the destination never appears with the wrong mode.
@@ -88,10 +86,10 @@ local function write_atomic(path: string, data: string, mode?: integer): boolean
   if not chmodded then
     return fail(errstr(cerr, "write_atomic: chmod: " .. tmp))
   end
-  local closed, clerr = unix.close(fd)
+  local closed, clerr = h:close()
   if not closed then
     unix.unlink(tmp)
-    return false, errstr(clerr, "write_atomic: close: " .. tmp)
+    return false, "write_atomic: close: " .. tmp .. ": " .. tostring(clerr)
   end
   local renamed, rerr = unix.rename(tmp, path, unix.AT_FDCWD, unix.AT_FDCWD)
   if not renamed then

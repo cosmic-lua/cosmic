@@ -334,65 +334,10 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
   --- read error (reset, truncation, TLS failure) the iterator yields
   --- nil plus the error message once — the buffered partial line is
   --- truncated data and is discarded — then plain nil forever.
+  --- The algorithm lives in cosmic.stream.lines; this delegates.
   --- @return function iterator yielding lines without trailing newline
   function reader:lines(): function(): string | nil, string
-    -- Scan-position index into buffer: `pos` is the first unread byte.
-    -- Advancing it instead of slicing off each returned line, and dropping
-    -- the consumed prefix only when we must read more, keeps the whole loop
-    -- linear in the byte count.
-    local buffer = ""
-    local pos = 1
-    local done = false
-    local pending_err: string = nil
-
-    return function(): string | nil, string
-      while true do
-        local newline_pos = buffer:find("\n", pos, true)
-        if newline_pos then
-          local line = buffer:sub(pos, newline_pos - 1)
-          pos = newline_pos + 1
-          return line
-        end
-
-        if pending_err then
-          local err = pending_err
-          pending_err = nil
-          done = true
-          return nil, err
-        end
-
-        if done then
-          -- Clean EOF with a final unterminated line still buffered:
-          -- yield it once.
-          if pos <= #buffer then
-            local remaining = buffer:sub(pos)
-            pos = #buffer + 1
-            return remaining
-          end
-          return nil
-        end
-
-        -- No newline in the unread region; we need more data. Compact away
-        -- the already-returned prefix first so the buffer stays bounded and
-        -- the concat below copies only the unread tail, not the whole buffer.
-        if pos > 1 then
-          buffer = buffer:sub(pos)
-          pos = 1
-        end
-        local chunk, err = self:read()
-        if err then
-          -- The buffered tail has no newline: it is truncated data, not a
-          -- line. Drop it and surface the error on the next iteration.
-          pending_err = err
-          buffer = ""
-          pos = 1
-        elseif not chunk then
-          done = true
-        else
-          buffer = buffer .. chunk
-        end
-      end
-    end
+    return stream_mod.lines(self)
   end
 
   return setmetatable(reader, {

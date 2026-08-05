@@ -55,63 +55,9 @@ local function parse_field(line: string): string, string
   return name, value
 end
 
---- Buffered line iterator over any stream.Reader, with the semantics of
---- fetch.Reader:lines(): complete lines without the trailing newline; on
---- clean EOF a final unterminated line is yielded once, then nil; on a
---- read error the buffered partial line is truncated data and is
---- discarded — the iterator yields nil plus the error once, then plain
---- nil forever. Private to sse until the post-stable buffered-reader
---- battery generalizes it.
-local function line_iter(reader: stream.Reader): function(): string | nil, string
-  -- Scan-position index into buffer: `pos` is the first unread byte
-  -- (same linear-time scheme as fetch.Reader:lines()).
-  local buffer = ""
-  local pos = 1
-  local done = false
-  local pending_err: string = nil
-
-  return function(): string | nil, string
-    while true do
-      local newline_pos = buffer:find("\n", pos, true)
-      if newline_pos then
-        local line = buffer:sub(pos, newline_pos - 1)
-        pos = newline_pos + 1
-        return line
-      end
-
-      if pending_err then
-        local err = pending_err
-        pending_err = nil
-        done = true
-        return nil, err
-      end
-
-      if done then
-        if pos <= #buffer then
-          local remaining = buffer:sub(pos)
-          pos = #buffer + 1
-          return remaining
-        end
-        return nil
-      end
-
-      if pos > 1 then
-        buffer = buffer:sub(pos)
-        pos = 1
-      end
-      local chunk, err = reader:read()
-      if err then
-        pending_err = err
-        buffer = ""
-        pos = 1
-      elseif not chunk then
-        done = true
-      else
-        buffer = buffer .. chunk
-      end
-    end
-  end
-end
+-- Line iteration is cosmic.stream.lines — the same buffered,
+-- error-then-nil algorithm fetch.Reader:lines() delegates to.
+local line_iter = stream.lines
 
 --- Parse SSE events from a streaming reader.
 --- Returns a Stream whose next() yields Event values (iterate with

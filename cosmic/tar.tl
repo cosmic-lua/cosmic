@@ -113,34 +113,13 @@ local function parse_pax(data: string): {string: string}
   return out
 end
 
---- Reject entry names that would escape the extraction root: empty,
---- absolute, backslashed, containing a ".." component, or carrying a
---- control character.
-local function unsafe_path(p: string): boolean
-  if not p or p == "" then return true end
-  if p:sub(1, 1) == "/" then return true end
-  if p:find("\\", 1, true) then return true end
-  -- A control character in an ARCHIVE-CONTROLLED name has no legitimate
-  -- use, and every consumer of an extracted name is a place a newline
-  -- can lie: `--make fetch` records unpack products one per line, so a
-  -- member called `a\nb.txt` extracts fine, is recorded as two names
-  -- neither of which exists, and makes every later fetch decide the pin
-  -- needs repair -- forever, silently. Refusing by name at the guard
-  -- closes the class for every consumer at once rather than hardening
-  -- each format that carries a name onward.
-  if p:find("%c") then return true end
-  -- A drive-letter prefix, which `cosmic.embed`'s sibling guard already
-  -- rejects for the same class of input. Harmless on POSIX (a literal
-  -- `C:` directory), but on Windows a colon component invites
-  -- drive-relative and NTFS alternate-data-stream path semantics. The
-  -- two guards protect the same operation -- writing archive-controlled
-  -- names under a dest -- so they should not disagree.
-  if p:match("^%a:") then return true end
-  for component in (p .. "/"):gmatch("([^/]*)/") do
-    if component == ".." then return true end
-  end
-  return false
-end
+--- Reject entry names that would escape the extraction root. The
+--- predicate is fs.unsafe_entry_name — one guard for zip, tar and
+--- embed. (This drops tar's old blanket backslash refusal: a
+--- backslash now acts as a separator for the traversal check, same as
+--- the other two formats, so `a\b.txt` extracts as a literal file
+--- and `..\evil` is still refused.)
+local unsafe_path = fs.unsafe_entry_name
 
 --- Symlink targets must stay inside the tree: relative, no "..", no
 --- control characters (same reasoning as `unsafe_path`).

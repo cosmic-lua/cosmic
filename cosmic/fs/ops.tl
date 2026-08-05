@@ -2,6 +2,7 @@
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
 local cfd = require("cosmic.fd")
+local stream = require("cosmic.stream")
 local types = require("cosmic.fs.types")
 local errno = require("cosmic.errno")
 local errstr = errno.str
@@ -62,33 +63,16 @@ local function copy(src: string, dst: string): boolean, string
     unix.close(srcfd)
     return false, errstr(derr, "copy: open: " .. dst)
   end
-  while true do
-    local data, rerr, reno = unix.read(srcfd, 65536)
-    while data == nil and errno.is(reno, "EINTR") do
-      data, rerr, reno = unix.read(srcfd, 65536)
-    end
-    if data == nil then
-      unix.close(srcfd)
-      unix.close(dstfd)
-      return false, errstr(rerr, "copy: read: " .. src)
-    end
-    if data == "" then break end
-    local off: integer = 1
-    while off <= #data do
-      local n, werr, weno = unix.write(dstfd, string.sub(data, off))
-      while n == nil and errno.is(weno, "EINTR") do
-        n, werr, weno = unix.write(dstfd, string.sub(data, off))
-      end
-      if not n then
-        unix.close(srcfd)
-        unix.close(dstfd)
-        return false, errstr(werr, "copy: write: " .. dst)
-      end
-      off = off + math.floor(n)
-    end
+  -- The pump is cosmic.stream.copy over fd Handles: one buffered-copy
+  -- algorithm for the whole stdlib, EINTR retried inside fd.Handle.
+  local sh = cfd.wrap(srcfd)
+  local dh = cfd.wrap(dstfd)
+  local copied, pump_err = stream.copy(dh, sh)
+  sh:close()
+  dh:close()
+  if copied == nil then
+    return false, "copy: " .. src .. " -> " .. dst .. ": " .. tostring(pump_err)
   end
-  unix.close(srcfd)
-  unix.close(dstfd)
   -- open()'s mode is masked by the umask; chmod applies the exact bits.
   local ok, cerr = unix.chmod(dst, mode)
   if not ok then

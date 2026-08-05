@@ -155,7 +155,7 @@ local function test_abandoned_handle_reaped()
   collectgarbage("collect")
   collectgarbage("collect")
   time.sleep(0, 100000000) -- 100ms for the kernel to finish teardown
-  assert(not proc.kill(pid, 0), "abandoned child should be killed and reaped, not left alive/zombie")
+  assert(not signal.kill(pid, 0), "abandoned child should be killed and reaped, not left alive/zombie")
 end
 test_abandoned_handle_reaped()
 
@@ -181,17 +181,19 @@ local function test_spawn_inherits_env()
 end
 test_spawn_inherits_env()
 
-local function test_spawn_with_env_map()
-  local sentinel = "cosmic_test_map_" .. tostring(proc.getpid())
-  env.set("COSMIC_TEST_MAP", sentinel)
-  local vars = env.all()
+local function test_spawn_with_env_edits()
+  -- env.list({set = ...}) builds the edited copy; the parent's own
+  -- environment is never touched (the old dual-shape map env is gone).
+  local sentinel = "cosmic_test_set_" .. tostring(proc.getpid())
+  local vars = env.list({set = {COSMIC_TEST_SET = sentinel}})
   local r = check.must(child.run({lua_bin, "-e", [[
-    io.write(os.getenv("COSMIC_TEST_MAP") or "")
-  ]]}, {env = vars as {string}})) -- cast: dual-shape env accepts map
+    io.write(os.getenv("COSMIC_TEST_SET") or "")
+  ]]}, {env = vars}))
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
+  assert(env.get("COSMIC_TEST_SET") == nil, "set edits the copy, not the parent")
 end
-test_spawn_with_env_map()
+test_spawn_with_env_edits()
 
 local function test_spawn_with_env_list()
   local sentinel = "cosmic_test_list_" .. tostring(proc.getpid())

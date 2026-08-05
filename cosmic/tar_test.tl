@@ -231,7 +231,13 @@ local function test_unsafe_path()
   assert(untar.unsafe_path(""), "empty")
   assert(untar.unsafe_path("/abs"), "absolute")
   assert(untar.unsafe_path("a/../b"), "dotdot")
-  assert(untar.unsafe_path("a\\b"), "backslash")
+  -- Backslash policy is now the shared guard's (fs.unsafe_entry_name):
+  -- a backslash is a SEPARATOR for the traversal check, not a blanket
+  -- refusal, matching zip and embed. `a\\b` is a legal (weird) name;
+  -- `..\\evil` is still traversal.
+  assert(not untar.unsafe_path("a\\b"), "plain backslash name is a literal file")
+  assert(untar.unsafe_path("..\\evil"), "backslash traversal")
+  assert(untar.unsafe_path("a\\..\\evil"), "embedded backslash traversal")
   -- The sibling guard in cosmic.embed rejects drive letters, and these
   -- two protect the same operation: writing archive-controlled names
   -- under a dest. On POSIX `C:/evil.txt` is a literal `C:` directory;

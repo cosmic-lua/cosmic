@@ -253,6 +253,8 @@ local record FsModule
   --- True for POSIX ("/x"), drive-letter ("C:/x", "C:\x"), and UNC
   --- ("\\server\share") absolute paths.
   is_absolute: function(p: string): boolean
+  --- THE zip-slip guard shared by zip/tar/embed; see cosmic.fs.path.
+  unsafe_entry_name: function(name: string): boolean
   normalize: function(p: string): string
   abspath: function(p: string): string
   relpath: function(p: string, base?: string): string
@@ -368,6 +370,7 @@ local M: FsModule = {
   isdir = fs_path.isdir,
   islink = fs_path.islink,
   is_absolute = fs_path.is_absolute,
+  unsafe_entry_name = fs_path.unsafe_entry_name,
   normalize = fs_path.normalize,
   abspath = fs_path.abspath,
   relpath = fs_path.relpath,

@@ -69,20 +69,12 @@ local record Options
   stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0
   stdout: cfd.Handle | childio.StdioMode -- child's fd 1, or "inherit"
   stderr: cfd.Handle | childio.StdioMode -- child's fd 2, or "inherit"
+  --- the child's exact environment, as "KEY=VALUE" entries (nil
+  --- inherits this process's). Build edited copies with
+  --- cosmic.env's `list({drop = ..., set = ...})` — the old
+  --- undocumented map shape is gone (api-review-5).
   env: {string}
   cwd: string
-end
-
---- Normalize an env table to a list of "KEY=VALUE" strings.
-local function normalize_env(env: {string}): {string}
-  if env[1] ~= nil then
-    return env
-  end
-  local list: {string} = {}
-  for k, v in pairs(env as {string: string}) do -- cast: env list reused as map
-    table.insert(list, k .. "=" .. v)
-  end
-  return list
 end
 
 --- Checks if a path refers to a /zip/ virtual filesystem entry.
@@ -340,7 +332,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
       local t0 = stdin_is_fd and stdin_fd or stdin_r
       local t1 = stdout_is_fd and stdout_fd or stdout_w
       local t2 = stderr_is_fd and stderr_fd or stderr_w
-      local env = opts.env and normalize_env(opts.env) or nil
+      local env = opts.env
       local fpid, ferr = childfast.spawn(prog, argv, env, t0, t1, t2)
       if ferr then
         return fail(ferr)
@@ -417,7 +409,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
       end
     end
 
-    local env = opts.env and normalize_env(opts.env) or unix.environ()
+    local env = opts.env or unix.environ()
     local eerr: string
     if exec_fd then
       local _, e = unix.fexecve(exec_fd, argv, env)

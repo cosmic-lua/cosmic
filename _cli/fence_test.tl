@@ -76,16 +76,11 @@ local function test_the_fence_denies_an_undeclared_write()
       "if not f then os.exit(9) end\n" ..
       "f:write('x')\n f:close()\n"))
 
-  local envlist: {string} = {}
-  for _, entry in ipairs(env.list()) do
-    if not entry:match("^TMPDIR=") and not entry:match("^COSMIC_EXEC_ROOT=")
-    and not entry:match("^COSMIC_FENCE=") then
-      envlist[#envlist + 1] = entry
-    end
-  end
-  envlist[#envlist + 1] = "TMPDIR=" .. root
-  envlist[#envlist + 1] = "COSMIC_EXEC_ROOT=" .. fs.dirname(fs.abspath(cosmic))
-  envlist[#envlist + 1] = "COSMIC_FENCE=1"
+  local envlist = env.list({set = {
+    TMPDIR = root,
+    COSMIC_EXEC_ROOT = fs.dirname(fs.abspath(cosmic)),
+    COSMIC_FENCE = "1",
+  }})
 
   -- A: unfenced, the write lands.
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))
@@ -127,14 +122,7 @@ local function test_the_fence_confines_a_test_to_its_own_step()
       "if not f then os.exit(9) end\n" ..
       "f:write('x')\n f:close()\n"))
 
-  local envlist: {string} = {}
-  for _, entry in ipairs(env.list()) do
-    if not entry:match("^COSMIC_FENCE=") and not entry:match("^TMPDIR=") then
-      envlist[#envlist + 1] = entry
-    end
-  end
-  envlist[#envlist + 1] = "TMPDIR=" .. root
-  envlist[#envlist + 1] = "COSMIC_FENCE=1"
+  local envlist = env.list({set = {TMPDIR = root, COSMIC_FENCE = "1"}})
 
   -- A: the same script run directly writes the file.
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))
@@ -206,13 +194,7 @@ local function test_the_fence_permits_a_real_compile()
     check.skip("no assimilated cosmic at " .. boot)
     return
   end
-  local permitted: {string} = {}
-  for _, entry in ipairs(env.list()) do
-    if not entry:match("^COSMIC_FENCE=") then
-      permitted[#permitted + 1] = entry
-    end
-  end
-  permitted[#permitted + 1] = "COSMIC_FENCE=1"
+  local permitted = env.list({set = {COSMIC_FENCE = "1"}})
 
   -- The real recipe's shape, which is the point: a compile's import
   -- closure travels as `--deps`, named so the fence can grant it and

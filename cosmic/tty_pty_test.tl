@@ -19,6 +19,7 @@ local fd = require("cosmic.fd")
 local fs = require("cosmic.fs")
 local poll = require("cosmic.poll")
 local proc = require("cosmic.proc")
+local signal = require("cosmic.signal")
 local time = require("cosmic.time")
 local tty = require("cosmic.tty")
 
@@ -244,7 +245,7 @@ local function test_getpass_reads_without_echoing()
 
   local mgr = fd.wrap(pty.manager)
   if not await_echo_off(pty) then
-    proc.kill(pid, 9)
+    signal.kill(pid, 9)
     proc.wait(pid)
     close_pty(pty)
     -- Same discipline as `with_pty`: a timed-out race is a SKIP, and a
@@ -297,7 +298,7 @@ local function test_getpass_restores_echo_afterwards()
 
   local mgr = fd.wrap(pty.manager)
   if not await_echo_off(pty) then
-    proc.kill(pid, 9)
+    signal.kill(pid, 9)
     proc.wait(pid)
     close_pty(pty)
     -- Same discipline as `with_pty`: a timed-out race is a SKIP, and a
