@@ -63,10 +63,6 @@ local record TtyModule
   VMIN: integer
   VTIME: integer
   is_tty: function(fd?: integer): boolean
-  isatty: function(fd: integer): boolean
-  stdin_isatty: function(): boolean
-  stdout_isatty: function(): boolean
-  stderr_isatty: function(): boolean
   winsize: function(fd: integer): WinSize | nil, string
   getattr: function(fd: integer): Termios | nil, string
   setattr: function(fd: integer, action: integer, termios: Termios): boolean, string

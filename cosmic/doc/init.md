@@ -16,9 +16,6 @@ local record DocModule
   render_file: function(file_path: string): string | nil, string
   load_index: function(source: string): DocIndex | nil, string
   query: function(q?: string): DocsResult
-  --  DEPRECATED alias for query() (api-review-8 transition; tooling
-  --  executes under the pinned binary until the pin advances)
-  run: function(q?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
   embedded_index: function(): DocIndex | nil, string

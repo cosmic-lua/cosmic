@@ -96,8 +96,6 @@ end
 local record EmbedModule
   EPOCH: integer
   embed: function(paths: {string}, opts?: Options): EmbedResult
-  --  DEPRECATED alias for embed() (api-review-8 transition)
-  run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
 end
 ```

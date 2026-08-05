@@ -90,8 +90,6 @@ end
 ```teal
 local record ChildModule
   start: function(argv: {string}, opts?: Options): Handle | nil, string
-  --  DEPRECATED alias for start() (api-review-8 pin-advance transition)
-  spawn: function(argv: {string}, opts?: Options): Handle | nil, string
   run: function(argv: {string}, opts?: Options): Result
 end
 ```

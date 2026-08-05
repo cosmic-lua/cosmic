@@ -31,10 +31,6 @@ local record ZipModule
   append: function(path: string, opts?: OpenOptions): Appender | nil, string
   open_bytes: function(data: string, opts?: OpenOptions): Archive | nil, string
   extract: function(archive: Archive, destdir: string, opts?: ExtractOptions): boolean, string
-  reader: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
-  writer: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
-  appender: function(path: string, opts?: OpenOptions): Appender | nil, string
-  from: function(data: string, opts?: OpenOptions): Archive | nil, string
 end
 ```
 
