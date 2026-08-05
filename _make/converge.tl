@@ -131,7 +131,7 @@ local function stamp_of(path: string): string
   if not info then
     return ""
   end
-  local st = info as fs.Stat -- cast: mixed-representation Stat
+  local st = info as fs.Stat -- cast: record union after guard
   local secs, nsecs = st:mtim()
   return tostring(st:size()) .. "-" .. tostring(secs) .. "." ..
   tostring(nsecs)

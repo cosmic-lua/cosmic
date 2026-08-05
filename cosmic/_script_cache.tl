@@ -69,7 +69,7 @@ local function trusted(dir: string): boolean
   if not st then
     return false
   end
-  local info = st as fs_types.Stat -- cast: mixed-representation Stat
+  local info = st as fs_types.Stat -- cast: record union after guard
   if info:uid() ~= user.getuid() then
     return false
   end
@@ -100,7 +100,7 @@ local function build_id(): string
   local self = arg and arg[-1]
   local info = self and fs.stat(self)
   if info then
-    local st = info as fs_types.Stat -- cast: mixed-representation Stat
+    local st = info as fs_types.Stat -- cast: record union after guard
     -- Bound, not inlined: mtim returns seconds AND nanoseconds, and a
     -- multi-return call spreads into the argument list it sits in.
     local secs = st:mtim()

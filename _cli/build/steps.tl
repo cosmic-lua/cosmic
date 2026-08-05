@@ -99,7 +99,7 @@ local function do_assert_marker(args: {string}): integer
       if name ~= "." and name ~= ".." then
         local p = fs.join(d, name)
         local st = fs.stat(p)
-        if st and (st as fs.Stat):is_dir() then -- cast: mixed-representation Stat
+        if st and (st as fs.Stat):is_dir() then -- cast: record union after guard
           if scan(p) then return true end
         else
           local content = fs.read(p)
@@ -211,7 +211,7 @@ local function do_copy(args: {string}): integer
   if not st then
     return fail("stat " .. src .. " failed")
   end
-  -- cast: mixed-representation Stat
+  -- cast: record union after guard
   local mode = (st as fs.Stat):mode() % 512 -- permission bits (0777)
   fs.makedirs(fs.dirname(dst))
   local ok, werr = fs.write(dst, content, mode)

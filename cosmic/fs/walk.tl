@@ -44,8 +44,13 @@ local function walk_entries<T>(dir: string, h: WalkDirHandle,
       -- Use AT_SYMLINK_NOFOLLOW so symlinked dirs are seen as S_ISLNK, not S_ISDIR.
       -- This prevents infinite recursion through symlink cycles.
       local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
+      local wst: WalkStat
+      local werr: string
       if st then
-        local action = visitor(full_path, entry, types.wrap(st), ctx)
+        wst, werr = types.wrap(st)
+      end
+      if wst is WalkStat then
+        local action = visitor(full_path, entry, wst, ctx)
         if action == "stop" then
           h:close()
           return true
@@ -59,7 +64,7 @@ local function walk_entries<T>(dir: string, h: WalkDirHandle,
           end
         end
       elseif not errbox[1] then
-        errbox[1] = errstr(serr, "stat: " .. full_path)
+        errbox[1] = werr or errstr(serr, "stat: " .. full_path)
       end
     end
   end

@@ -33,7 +33,12 @@ local record fs_types
 
   --- File or directory metadata.
   --- Use the is_dir()/is_file()/is_link()/... methods to check file type.
+  --- ONE representation (api-review, fs.Stat unification): always the
+  --- raw cosmo.unix stat userdata, with the is_* predicates installed
+  --- once on the binding's shared metatable — so `st is fs.Stat`
+  --- narrows correctly and no wrapper table is ever allocated.
   record Stat
+    userdata
     --- Returns file size in bytes.
     size: function(self: Stat): integer
     --- Returns file mode (permissions and type bits).
@@ -119,7 +124,10 @@ local record fs_types
   end
 
   --- Wrap a raw cosmo.unix Stat so it carries the type predicates.
-  wrap: function(raw: unix.Stat): Stat
+  --- Fallible only in the one way the unification allows: a runtime
+  --- whose stat metatable cannot take the predicates is refused, not
+  --- papered over with a second representation.
+  wrap: function(raw: unix.Stat): Stat | nil, string
 
 end
 
@@ -141,8 +149,7 @@ local raw_predicates: {string: any} = {
 --- Install the predicates on the raw stat's metatable. Lazy — uses the
 --- first stat wrap() sees, so module load never needs a stat(2) call
 --- (which a sandbox could deny). Returns false if the metatable is not
---- an extensible Lua table, in which case wrap() falls back to the
---- per-call wrapper table below.
+--- an extensible Lua table.
 local function install_predicates(raw: unix.Stat): boolean
   local mt = getmetatable(raw as any) -- cast: userdata boundary
   if type(mt) ~= "table" then
@@ -159,50 +166,24 @@ local function install_predicates(raw: unix.Stat): boolean
   return true
 end
 
---- Fallback wrapper table: holds the raw stat userdata; a shared
---- metatable delegates the accessors and implements the predicates, so
---- wrapping costs one small table per stat call.
-local record Wrapped
-  raw: unix.Stat
-end
-
-local stat_methods: {string: any} = {
-  size = function(self: Wrapped): integer return self.raw:size() end,
-  mode = function(self: Wrapped): integer return self.raw:mode() end,
-  uid = function(self: Wrapped): integer return self.raw:uid() end,
-  gid = function(self: Wrapped): integer return self.raw:gid() end,
-  birthtim = function(self: Wrapped): integer, integer return self.raw:birthtim() end,
-  mtim = function(self: Wrapped): integer, integer return self.raw:mtim() end,
-  atim = function(self: Wrapped): integer, integer return self.raw:atim() end,
-  ctim = function(self: Wrapped): integer, integer return self.raw:ctim() end,
-  blocks = function(self: Wrapped): integer return self.raw:blocks() end,
-  nlink = function(self: Wrapped): integer return self.raw:nlink() end,
-  dev = function(self: Wrapped): integer return self.raw:dev() end,
-  rdev = function(self: Wrapped): integer return self.raw:rdev() end,
-  is_dir = function(self: Wrapped): boolean return unix.S_ISDIR(self.raw:mode()) end,
-  is_file = function(self: Wrapped): boolean return unix.S_ISREG(self.raw:mode()) end,
-  is_link = function(self: Wrapped): boolean return unix.S_ISLNK(self.raw:mode()) end,
-  is_block_device = function(self: Wrapped): boolean return unix.S_ISBLK(self.raw:mode()) end,
-  is_char_device = function(self: Wrapped): boolean return unix.S_ISCHR(self.raw:mode()) end,
-  is_fifo = function(self: Wrapped): boolean return unix.S_ISFIFO(self.raw:mode()) end,
-  is_socket = function(self: Wrapped): boolean return unix.S_ISSOCK(self.raw:mode()) end,
-}
-
-local stat_mt: metatable < Wrapped > = {
-  __index = stat_methods,
-}
-
+-- "unknown" until the first wrap probes; then "direct" or
+-- "unsupported". There is no wrapper-table fallback any more
+-- (api-review, fs.Stat unification): two representations made `is`
+-- unusable and put a justified cast at every Stat use site, to cover a
+-- runtime shape the pinned cosmos has never had. A sealed metatable is
+-- now an honest error from stat/lstat/fstat instead of a silent switch
+-- to a second representation.
 local wrap_mode: string = "unknown"
 
-fs_types.wrap = function(raw: unix.Stat): fs_types.Stat
+fs_types.wrap = function(raw: unix.Stat): fs_types.Stat | nil, string
   if wrap_mode == "unknown" then
-    wrap_mode = install_predicates(raw) and "direct" or "fallback"
+    wrap_mode = install_predicates(raw) and "direct" or "unsupported"
   end
   if wrap_mode == "direct" then
-    return raw as fs_types.Stat -- cast: mixed-representation Stat
+    return raw as fs_types.Stat -- cast: userdata boundary
   end
-  local wrapped: Wrapped = setmetatable({raw = raw}, stat_mt)
-  return wrapped as fs_types.Stat -- cast: mixed-representation Stat
+  return nil, "stat: this runtime's Stat metatable is sealed; " ..
+  "cosmic.fs requires the pinned cosmos runtime"
 end
 
 return fs_types

@@ -86,7 +86,7 @@ local function strip_into(from: string, to: string, strip: integer,
       -- not carry it, so the source is stat'd for the bits.
       local src = fs.stat(path)
       if src then
-        fs.chmod(dest, (src as fs.Stat):mode() & tonumber("777", 8)) -- cast: mixed-representation Stat
+        fs.chmod(dest, (src as fs.Stat):mode() & tonumber("777", 8)) -- cast: record union after guard
       end
       return nil
     end)

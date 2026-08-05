@@ -201,7 +201,7 @@ local function test_major_minor()
   -- Test with /dev/null which should have rdev set
   local st = fs.stat("/dev/null")
   if st then
-    local rdev = (st as fs_types.Stat):rdev() -- cast: mixed-representation Stat
+    local rdev = (st as fs_types.Stat):rdev() -- cast: record union after guard
     local maj = fs.major(rdev)
     local min = fs.minor(rdev)
     -- /dev/null is typically major 1, minor 3
