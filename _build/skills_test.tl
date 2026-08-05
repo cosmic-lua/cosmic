@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- reads: skills/cosmic
 -- Ratchets over the make skill: `skills/cosmic/make.md` teaches the
 -- project model, and it SHIPS inside the binary — a wrong sentence
 -- there is wrong advice delivered by the tool itself. Nothing else

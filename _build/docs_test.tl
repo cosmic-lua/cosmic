@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- reads: docs/decisions
 -- Ratchets over the DERIVED regions of committed documents.
 --
 -- A row that restates something the tree already says is a copy, and a

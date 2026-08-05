@@ -50,3 +50,25 @@
   a `.in` beside its output stands for a prior run of this same
   project state; in CI that means trusting the cache's writer, which
   GitHub scopes to the branch that wrote it.
+- **amendment (2026-08, declared reads):** the key hashed only the
+  step's DECLARED inputs, and a test's declarations were its imports —
+  but the fence deliberately grants tests read access to the whole
+  project, precisely because ratchet tests read things no import names
+  (`_build/docs_test` reads `docs/decisions/`, `_build/workflows_test`
+  reads `.github/workflows`). A test in that gap could be replayed
+  stale: edit the ratchet's subject and the cached verdict stood. The
+  fix is a declaration channel: a `--- reads: <path>` doc-comment line
+  in a test names a non-import input (a directory declares every file
+  under it, expanded at scan time so the key sees bytes and make sees
+  files); the declaration joins the test's `deps_*` closure in
+  `o/project.mk`, which makes it a prerequisite (mtime scheduling), a
+  content-key input, and a fence grant in one stroke. A declaration
+  naming a missing path refuses the build — an input that cannot be
+  hashed is a declaration gone stale. Remaining, stated: reads of
+  `o/`-resident artifacts (e.g. `_types/gentl_test` reading the
+  unpacked pinned tl source) stay undeclared — they change only on a
+  pin bump, which the import of the pin already keys — and the fence's
+  whole-project read grant for tests is unchanged; narrowing it to
+  imports + declared reads is the eventual follow-up that would turn
+  any remaining undeclared read into a loud denial instead of silent
+  staleness.

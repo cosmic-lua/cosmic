@@ -57,7 +57,7 @@ local app = fixture("app", {
 -- cannot encode a rule, which is what keeps the rules constant and
 -- keeps this repo's makefile ratchets from having to scan recipe text.
 local function test_project_mk_is_assignments_only()
-  local text = graph.project_mk(app, "/bin/cosmic")
+  local text = check.must(graph.project_mk(app, "/bin/cosmic"))
   local n = 0
   for line in string.gmatch(text, "[^\n]+") do
     if line:sub(1, 1) ~= "#" then
@@ -78,7 +78,7 @@ test_project_mk_is_assignments_only()
 -- The facts themselves: what the walk found, spelled relative to the
 -- root, sorted so the file is a function of the tree and nothing else.
 local function test_project_mk_facts()
-  local text = graph.project_mk(app, "/bin/cosmic")
+  local text = check.must(graph.project_mk(app, "/bin/cosmic"))
   local function value(name: string): string
     return text:match("\n" .. name .. " := ([^\n]*)") or
     text:match("^" .. name .. " := ([^\n]*)") or ""
@@ -114,7 +114,7 @@ local function test_project_mk_carries_per_test_closures()
       ["db/a_test.tl"] = "local d = require('db')\nreturn d\n",
       ["b_test.tl"] = "assert(true)\n",
     })
-  local text = graph.project_mk(proj, "/bin/cosmic")
+  local text = check.must(graph.project_mk(proj, "/bin/cosmic"))
   assert(text:find("deps_db/a_test := o/db/init.lua o/util.lua", 1, true),
     "the closure is transitive: " .. text)
   assert(text:match("deps_b_test :=%s*\n"),
@@ -133,8 +133,8 @@ test_project_mk_carries_per_test_closures()
 -- Deterministic: same tree, same bytes. Sorting is what makes the file
 -- a function of the project rather than of directory order.
 local function test_project_mk_is_deterministic()
-  local a = graph.project_mk(app, "/bin/cosmic")
-  local b = graph.project_mk(app, "/bin/cosmic")
+  local a = check.must(graph.project_mk(app, "/bin/cosmic"))
+  local b = check.must(graph.project_mk(app, "/bin/cosmic"))
   assert(a == b, "project.mk must not depend on iteration order")
 end
 test_project_mk_is_deterministic()
@@ -321,3 +321,31 @@ end
 test_source_dirs_are_the_compiled_ones()
 
 print("all graph tests passed")
+
+-- `--- reads:` declarations (D18, amended): a test's non-import inputs
+-- join its deps_* closure — prerequisites, content key, fence grant —
+-- and a declaration naming a missing path refuses the build instead of
+-- silently hashing nothing.
+local function test_project_mk_carries_declared_reads()
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "readsXXXXXX")))
+  check.must(fs.make_dirs(fs.join(dir, "cmd", "app")))
+  check.must(fs.make_dirs(fs.join(dir, "notes")))
+  check.must(fs.write(fs.join(dir, "cmd", "app", "main.tl"), "print('x')\n"))
+  check.must(fs.write(fs.join(dir, "notes", "a.md"), "subject\n"))
+  check.must(fs.write(fs.join(dir, "x_test.tl"),
+      "--- reads: notes\nprint('ok')\n"))
+  local proj = check.must(project.scan(dir))
+  local mk = check.must(graph.project_mk(proj, "/bin/cosmic"))
+  assert(mk:find("deps_x_test = notes/a.md", 1, true) or
+    mk:find("notes/a.md", 1, true),
+    "the declared read must appear in the test's closure:\n" .. mk)
+
+  check.must(fs.write(fs.join(dir, "x_test.tl"),
+      "--- reads: gone\nprint('ok')\n"))
+  local proj2 = check.must(project.scan(dir))
+  local bad, err = graph.project_mk(proj2, "/bin/cosmic")
+  assert(bad == nil, "a stale reads declaration must refuse")
+  assert(err and err:find("does not exist", 1, true),
+    "and say why, got: " .. tostring(err))
+end
+test_project_mk_carries_declared_reads()
