@@ -35,11 +35,14 @@
  Options for `apply`. `exec` sets the promises children keep after
  execve. `best_effort` turns an unsupported host into a successful
  no-op instead of an error — the explicit fail-open escape hatch.
+ `keep_coverage` skips the pre-pledge coverage seal — set it only
+ when the promises still permit the coverage dump at exit.
 
 ```teal
 local record ApplyOptions
   exec: string
   best_effort: boolean
+  keep_coverage: boolean
 end
 ```
 

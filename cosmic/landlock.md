@@ -61,6 +61,10 @@ local record RestrictOptions
   --  below, so the process reports what it does after restricting
   --  rather than only what it did before.
   keep_coverage: boolean
+  --  Turn an unsupported host into a successful no-op instead of an
+  --  error — the explicit fail-open escape hatch, matching
+  --  cosmic.pledge and cosmic.unveil.
+  best_effort: boolean
 end
 ```
 
@@ -90,7 +94,7 @@ local record LandlockModule
   ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
-  restrict: function(opts: RestrictOptions): boolean, string
+  restrict: function(opts?: RestrictOptions): boolean, string
 end
 ```
 
@@ -104,6 +108,7 @@ function abi(): integer | nil, string
 
  Returns the kernel's supported landlock ABI version (>= 1 when
  landlock is enabled). Returns nil + error on ENOSYS or non-Linux.
+ Probed once and cached.
 
 ### available
 
@@ -116,7 +121,7 @@ function available(): boolean
 ### restrict
 
 ```teal
-function restrict(opts: RestrictOptions): boolean, string
+function restrict(opts?: RestrictOptions): boolean, string
 ```
 
  Apply a path allowlist to the current thread and all its future

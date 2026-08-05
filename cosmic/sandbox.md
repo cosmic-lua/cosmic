@@ -14,15 +14,17 @@
 
      local sandbox = require("cosmic.sandbox")
      assert(sandbox.apply{
-       fs = { ro = { "/usr" }, rw = { "/tmp" } },
+       fs = { exec = { "/usr" }, ro = { "/etc" }, rw = { "/tmp" } },
        sys = { promises = "stdio rpath wpath" },
      })
 
  Like the mechanism modules, the facade is fail-closed: a section
  that cannot be enforced on this host makes `apply` return
- `false, "sandbox: ... unsupported on this host"` before anything is
+ `nil, "sandbox: ... unsupported on this host"` before anything is
  applied, unless `best_effort = true` opts into skipping unenforceable
- sections. `available()` reports what this host can enforce.
+ sections — in which case the returned Availability record reports
+ which sections actually enforced. `available()` reports what this
+ host can enforce.
 
  Applying is irreversible and process-wide; policies can only be
  narrowed by further calls. `cosmic.quicksand.Box` consumes the same
@@ -33,11 +35,15 @@
 ### Fs
 
  Filesystem policy: path allowlists. Everything not listed is denied
- once the policy applies. `ro` paths are readable *and executable*
- (so binaries under read-only roots can run); `rw` paths are
- readable and writable, including creating and removing entries, but
- never executable; `exec` is an alias of `ro` that documents intent.
- A path listed in several groups gets the union of their access.
+ once the policy applies. The three groups mean three things: `ro`
+ paths are readable and nothing else — a directory of untrusted
+ input stays non-executable; `exec` paths are readable *and*
+ executable, for binaries and libraries that must run; `rw` paths
+ are readable and writable, including creating and removing entries,
+ but never executable. A path listed in several groups gets the
+ union of their access. A present-but-empty group is a real policy
+ (`fs = { ro = {} }` denies everything); a policy with no group at
+ all is rejected — omit `fs` entirely to skip filesystem policy.
 
 ```teal
 local record Fs
@@ -83,8 +89,11 @@ end
 
 ### Availability
 
- What this host can enforce: `fs` (landlock on Linux, unveil on
- OpenBSD) and `sys` (pledge).
+ Per-section enforcement report: `fs` (landlock on Linux, unveil on
+ OpenBSD) and `sys` (pledge). `available()` returns what this host
+ *can* enforce; a successful `apply` returns what it *did* enforce,
+ so a `best_effort` caller can see exactly which sections were
+ skipped instead of flying blind.
 
 ```teal
 local record Availability
@@ -97,8 +106,9 @@ end
 
 ```teal
 local record SandboxModule
-  apply: function(policy: Policy): boolean, string
+  apply: function(policy: Policy): Availability | nil, string
   available: function(): Availability
+  validate: function(policy: Policy): boolean, string
   plan_landlock: function(fs: Fs, keep_coverage?: boolean): RestrictOptions
 end
 ```
@@ -139,10 +149,31 @@ function plan_landlock(fs: Fs, keep_coverage?: boolean): RestrictOptions
 
 - RestrictOptions - options for cosmic.landlock.restrict
 
+### validate
+
+```teal
+function validate(policy: Policy): boolean, string
+```
+
+ Validate a policy's structure without enforcing anything: section
+ shapes, path-list types, and promise tokens. `apply` runs this
+ itself; it is exported so a policy carried across a process
+ boundary (e.g. cosmic.quicksand.Box) can be rejected at
+ construction time instead of dying post-fork.
+
+**Parameters:**
+
+- `policy` (Policy) - the policy to check
+
+**Returns:**
+
+- boolean - True when structurally valid
+- string? - Error message on failure
+
 ### apply
 
 ```teal
-function apply(policy: Policy): boolean, string
+function apply(policy: Policy): Availability | nil, string
 ```
 
  Apply a sandbox policy to the current process. Irreversible.
@@ -153,9 +184,12 @@ function apply(policy: Policy): boolean, string
  (pledge) second — the reverse would let the pledge filter block the
  filesystem-sandbox syscalls.
  Fail-closed: a requested section this host cannot enforce returns
- `false, "sandbox: ... unsupported on this host"`. With
- `best_effort = true` unenforceable sections are skipped instead and
- apply reports success for the sections that did enforce.
+ `nil, "sandbox: ... unsupported on this host"`. With
+ `best_effort = true` unenforceable sections are skipped instead —
+ and the return value says so: on success apply returns an
+ Availability record of what was actually enforced, so a
+ best_effort caller can log or refuse when `.fs`/`.sys` came back
+ false rather than believing in a sandbox that is not there.
 
 **Parameters:**
 
@@ -163,5 +197,5 @@ function apply(policy: Policy): boolean, string
 
 **Returns:**
 
-- boolean - True on success
+- Availability? - What was enforced, on success
 - string? - Error message on failure

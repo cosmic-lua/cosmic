@@ -57,9 +57,11 @@ local record Cidr
   broadcast: function(Cidr): Addr
   --  Number of addresses in the block (including network/broadcast).
   size: function(Cidr): integer
-  --  Check whether the block contains an address.
-  --  message) when a string address does not parse
-  contains: function(Cidr, Addr | string): boolean, string
+  --  Check whether the block contains an address. Takes the typed
+  --  Addr only: a raw string would make an unparseable input
+  --  indistinguishable from a non-member — the fail-open direction
+  --  for an allowlist check. Parse first and handle the error there.
+  contains: function(Cidr, Addr): boolean
   --  Format as "addr/bits" (same as tostring()).
   format: function(Cidr): string
 end
