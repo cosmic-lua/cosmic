@@ -82,6 +82,11 @@ local function parse_record_fields(source: string, body: string, body_start: int
 end
 
 --- Find the end of a record block via record/enum vs end depth tracking.
+--- Skips string literals and comments, and matches full identifiers, so a
+--- keyword inside either never closes the block early: an `end` in a
+--- field's doc comment ("bare nil at end of stream") used to truncate
+--- cosmic.net's Socket record right there, hiding every later field from
+--- the rendered docs and the per-symbol index.
 --- @param text string The text to scan
 --- @param start integer Position just inside the record (after its header line)
 --- @return integer Position of the last body character (before `end`)
@@ -91,15 +96,38 @@ local function find_record_end(text: string, start: integer): integer, integer
   local i = start
   local rec_end = i
   while i <= #text and depth > 0 do
-    local word_start, word_end, word = text:find("(%a+)", i)
-    if word_start == i then
-      if word == "record" or word == "enum" then depth = depth + 1
-      elseif word == "end" then
-        depth = depth - 1
-        if depth == 0 then rec_end = word_start - 1 end
+    local c = text:sub(i, i)
+    if c == '"' or c == "'" then
+      i = i + 1
+      while i <= #text do
+        if text:sub(i, i) == "\\" then
+          i = i + 2
+        elseif text:sub(i, i) == c then
+          i = i + 1
+          break
+        else
+          i = i + 1
+        end
       end
-      i = word_end + 1
-    else i = i + 1 end
+    elseif text:sub(i, i + 1) == "--" then
+      if text:sub(i + 2, i + 3) == "[[" then
+        local close = text:find("]]", i + 4, true)
+        i = close and close + 2 or #text + 1
+      else
+        local newline = text:find("\n", i)
+        i = newline and newline + 1 or #text + 1
+      end
+    else
+      local word_start, word_end, word = text:find("([%a_][%w_]*)", i)
+      if word_start == i then
+        if word == "record" or word == "enum" then depth = depth + 1
+        elseif word == "end" then
+          depth = depth - 1
+          if depth == 0 then rec_end = word_start - 1 end
+        end
+        i = word_end + 1
+      else i = i + 1 end
+    end
   end
   return rec_end, i
 end

@@ -69,6 +69,55 @@ end
 end
 test_parse_record()
 
+-- A keyword inside a field's doc comment must not close the record: an
+-- "end" in a comment used to truncate Socket at that field, dropping
+-- every later field from the docs. Identifiers like end_time must not
+-- count either.
+local function test_parse_record_keyword_in_comment()
+  local source = [[
+--- A stream endpoint.
+local record Conn
+  --- Returns bare nil at end of stream, per the record contract.
+  recv: function(self: Conn): string | nil, string
+  --- Ends after end_time elapses.
+  deadline: function(self: Conn): integer
+  close: function(self: Conn): boolean, string
+end
+]]
+
+  local result = doc.parse(source, "test.tl")
+  assert(#result.records == 1, "should find one record")
+  local rec = result.records[1]
+  assert(#rec.fields == 3, "expected 3 fields, got " .. #rec.fields)
+  assert(rec.fields[3][1] == "close", "field after keyword comments should survive")
+end
+test_parse_record_keyword_in_comment()
+
+-- Keywords inside string literals (nested enum values) and long comments
+-- must not close the record either.
+local function test_parse_record_keyword_in_strings_and_long_comments()
+  local source = [[
+--- Connection settings.
+local record Config
+  --[==[ a long comment: end record enum ]==]
+  enum Mode
+    "fast end"
+    "safe \"end\" mode"
+  end
+  mode: Mode
+  retries: integer
+end
+]]
+  source = source:gsub("%[==%[", "[["):gsub("%]==%]", "]]")
+
+  local result = doc.parse(source, "test.tl")
+  assert(#result.records >= 1, "should find the record")
+  local rec = result.records[1]
+  local last = rec.fields[#rec.fields]
+  assert(last and last[1] == "retries", "fields after strings/comments should survive")
+end
+test_parse_record_keyword_in_strings_and_long_comments()
+
 -- Test parsing Example_* functions
 local function test_parse_example()
   local source = [[
