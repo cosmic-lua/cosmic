@@ -210,6 +210,28 @@ print(add(store, "x"), use(store))
 end
 test_hint_colon_call_on_module_function()
 
+local function test_hint_unannotated_nil_local()
+  -- `local x = nil` infers the type nil itself; the assignment error is
+  -- the shape everyone hits first (the operator shape rides the same
+  -- hint).
+  local msg, hint = first_hinted_error("h_nil_local.tl", [[
+local function lowest(ts: {integer}): integer | nil
+  local earliest = nil
+  for _, t in ipairs(ts) do
+    if not earliest or t < earliest then
+      earliest = t
+    end
+  end
+  return earliest
+end
+print(lowest({3, 1}))
+]])
+  assert(msg:find("expected nil", 1, true) or msg:find("and nil", 1, true),
+    "wrong error: " .. msg)
+  assert(hint:find("type nil forever", 1, true), "wrong hint: " .. hint)
+end
+test_hint_unannotated_nil_local()
+
 local function test_hint_excess_return_values()
   local msg, hint = first_hinted_error("h_excess.tl", [[
 local function f(): string

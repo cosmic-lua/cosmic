@@ -301,7 +301,34 @@ with function fields taking `self` and construct values of it — see how
 `cosmic.fd`'s `Handle` does it. mixing the two (module functions over a
 foreign type) is the common, simpler shape; call them with a dot.
 
-## 13. `os.exit` requires `integer | boolean`, not `number`
+## 13. `local x = nil` means type nil, forever
+
+a local initialized with `= nil` and NO type annotation is inferred as
+the type `nil` — not "unknown yet", not `T | nil`. every later
+assignment and use then fails, no guard helps, and neither error names
+the declaration as the cause:
+
+**wrong:**
+```teal
+local earliest = nil            -- type: nil
+for _, e in ipairs(entries) do
+  if not earliest or e.timestamp < earliest then
+    -- error: cannot use operator '<' for types integer and nil
+    earliest = e.timestamp
+    -- error: in assignment: got integer, expected nil
+  end
+end
+```
+
+**right — annotate the optional at the declaration:**
+```teal
+local earliest: integer | nil = nil
+```
+
+with the annotation, the running-min/max idiom above compiles as
+written — scalars narrow through the `not earliest or ...` guard fine.
+
+## 14. `os.exit` requires `integer | boolean`, not `number`
 
 a `main` function declared to return `number` breaks `os.exit(main())`
 with `got number, expected integer | boolean`.
