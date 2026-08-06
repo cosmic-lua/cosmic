@@ -248,6 +248,14 @@ local function relpath(p: string, base?: string): string
     abs_p = normalize(p)
     abs_base = unix.getcwd() or "."
   else
+    -- Fast path: when p never climbs above cwd, cwd's own components are
+    -- always a strict prefix of normalize(cwd .. "/" .. p) and contribute
+    -- nothing to the result, so the relative path is just normalize(p).
+    -- The guard mirrors normalize()'s own "does this escape upward" check.
+    local norm_p = normalize(p)
+    if norm_p ~= ".." and norm_p:sub(1, 3) ~= "../" then
+      return norm_p
+    end
     local cwd = unix.getcwd() or "."
     abs_p = normalize(cwd .. "/" .. p)
     abs_base = cwd
