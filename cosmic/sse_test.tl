@@ -80,7 +80,7 @@ end
 
 --- Collect every event; return the events, the terminal error (if any),
 --- and the stream's final last_event_id.
-local function collect(content: string, fail_with?: string): {sse.Event}, string, string
+local function collect(content: string, fail_with?: string): {sse.Event}, string, string | nil
   local stream = sse.events(mock_reader(content, fail_with))
   local events_list: {sse.Event} = {}
   local terminal_err: string
@@ -118,6 +118,16 @@ end
 test_event_type()
 
 local function test_event_id()
+
+  -- The honest-nil contract: before any id: line arrives, last_event_id
+  -- is bare nil, and its declared type says so (string | nil) — code
+  -- concatenating it unguarded should fail the checker, not crash at
+  -- runtime on an id-less stream.
+  local function test_last_event_id_nil_before_any_id()
+    local _events, _err, last = collect("data: no ids here\n\n")
+    assert(last == nil, "no id: line seen, last_event_id must return nil")
+  end
+  test_last_event_id_nil_before_any_id()
   local events_list = collect("id: 123\ndata: test\n\n")
   assert(#events_list == 1, "should have 1 event")
   assert(events_list[1].id == "123", "id should be '123', got: " .. tostring(events_list[1].id))
