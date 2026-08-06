@@ -4,11 +4,10 @@
  Identity, session/group control, exec, and resource usage.
 
  The global `arg` table layout when running a script: arg[-1] is the
- cosmic interpreter binary's path (re-invoke it to spawn a child); arg[0]
- is the script path as the runtime sees it (/zip/main.lua when dispatched
- by the embedded entry point — NOT the interpreter path); arg[1..] are
- user arguments. `arg` is typed {string}: negative indices need
- `rawget(arg, -1) as string` to pass the strict type checker.
+ cosmic interpreter binary's path (use interpreter() to reach it
+ typed and resolved); arg[0] is the script path as the runtime sees
+ it (/zip/main.lua when dispatched by the embedded entry point — NOT
+ the interpreter path); arg[1..] are user arguments.
 
 ## Types
 
@@ -43,6 +42,7 @@ local record ProcModule
   setsid: function(): integer | nil, string
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean, string
   exit: function(exitcode?: integer)
+  interpreter: function(): string | nil, string
   which: function(prog: string): string | nil, string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
@@ -222,6 +222,24 @@ function which(prog: string): string | nil, string
 
 - string - | nil The absolute path to the executable
 - string - | nil Error message when not found (names the errno, so
+
+### interpreter
+
+```teal
+function interpreter(): string | nil, string
+```
+
+ Absolute path of the running cosmic interpreter — for re-invoking it
+ to run another script as a child: `child.start({proc.interpreter(),
+ "worker.tl"})`. This is `arg[-1]` resolved, NOT `arg[0]` (the script
+ path as the runtime sees it, `/zip/main.lua` in a packed binary). A
+ bare PATH-invoked argv0 (`cosmic`, the shebang shape) is resolved
+ with a real $PATH search. The result is cached across calls.
+
+**Returns:**
+
+- string - | nil The interpreter's absolute path
+- string? - Error message when argv0 is missing or unresolvable
 
 ### execve
 
