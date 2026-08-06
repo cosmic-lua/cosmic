@@ -128,6 +128,34 @@ what that means for a test author:
 - **DNS and egress do NOT work**. a lookup or outbound connect fails or the child is killed. only write such a call if the test expects the failure (e.g. asserting that a dial to a non-allowed host errors).
 - **process control works**: fork/exec are granted (`proc exec`), so `cosmic.child` spawns are fine — but the child inherits the same sandbox.
 
+### testing the built binary end to end
+
+the sandbox does not wall off the artifact under test. exec is granted
+and binaries are built before tests run, so a test may spawn its own
+project's `o/bin/<name>` and assert on the real stdout and exit code —
+no grant to request, no configuration:
+
+```teal
+#!/usr/bin/env cosmic
+local check = require("cosmic.check")
+local child = require("cosmic.child")
+
+local function test_cli_greets()
+  local r = check.must(child.run({"o/bin/greet", "world"}))
+  check.ok(r.ok, "expected exit zero")
+  check.eq(r.stdout, "hello, world!\n", "stdout")
+end
+test_cli_greets()
+```
+
+for a server binary, have it print a readiness line (`READY <port>`)
+and block on reading it from the handle instead of sleeping — the
+readiness pattern in `cosmic --docs guide.recipes`.
+
+keep logic tests at the library layer, where functions are called
+directly; the binary spawn is for the argv-parsing and
+output-formatting skin that exists only in `cmd/<name>/main.tl`.
+
 ### opting out
 
 two escalation paths exist; prefer the tight default whenever the test can live with it:
