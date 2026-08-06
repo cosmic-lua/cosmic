@@ -63,7 +63,10 @@ the `is` form where the code branches anyway.
 
 ## 3. `arg` elements are `string | nil`
 
-the global `arg` table has type `{string | nil}`. accessing `arg[1]` without a guard may give you `nil`, which causes a type error when used where a `string` is expected.
+the global `arg` table has type `{string | nil}`: accessing `arg[1]`
+without a guard may give you `nil`, a type error where a `string` is
+expected. (a missing argument is `nil` at runtime either way — guard
+before use.)
 
 **wrong:**
 ```teal
@@ -73,13 +76,21 @@ local name = arg[1]:upper() -- error: cannot index nil
 **right:**
 ```teal
 local name = (arg[1] or "default"):upper()
+```
 
--- or with an explicit check:
-if not arg[1] then
-  io.stderr:write("usage: myscript <name>\n")
-  os.exit(1)
-end
-local name = (arg[1] as string):upper()
+inside `cosmic.main`, a usage guard is an early return, and the scalar
+narrows through it for plain (non-method) uses:
+
+```teal
+cosmic.main(function(args: {string}, env: cosmic.Env): number, string
+    local name = args[1]
+    if not name then
+      env.stderr:write("usage: myscript <name>\n")
+      return 1
+    end
+    print("hello, " .. name)
+    return 0
+  end)
 ```
 
 ## 4. multi-return capture — `db:query` and similar
@@ -336,27 +347,14 @@ local earliest: integer | nil = nil
 with the annotation, the running-min/max idiom above compiles as
 written — scalars narrow through the `not earliest or ...` guard fine.
 
-## 14. `os.exit` requires `integer | boolean`, not `number`
+## 14. retired — the taught path never calls `os.exit`
 
-a `main` function declared to return `number` breaks `os.exit(main())`
-with `got number, expected integer | boolean`.
-
-**wrong:**
-```teal
-local function main(): number
-  return 0
-end
-os.exit(main())
-```
-
-**right:**
-```teal
-local function main(): integer
-  return 0
-end
-os.exit(main())
--- or convert at the call site: os.exit(math.tointeger(code) or 1)
-```
+`cosmic.main(fn)` (the entry-point shape the quickstart teaches) does
+the exit itself and accepts any numeric return, so this trap no longer
+appears on the taught path. if you call `os.exit` yourself, it requires
+`integer | boolean`, not `number` — convert at the call site
+(`os.exit(math.tointeger(code) or 1)`); the error-site hint names the
+same fix.
 
 ## 15. `gsub`'s replacement string interprets `%` — dangerous with untrusted values
 

@@ -35,7 +35,10 @@ local function main(fn: function(args: {string}, env: Env): number, string)
   local env: Env = {stderr = io.stderr, stdout = io.stdout}
   local code, err = fn(arg, env)
   if err then env.stderr:write(err .. "\n") end
-  os.exit((code or 0) as integer) -- cast: os.exit wants integer
+  -- Any numeric return exits honestly: a fractional code (a stray
+  -- average, a division) exits 1 instead of throwing at the very end,
+  -- and an error return with no code exits 1, never a clean 0.
+  os.exit(math.tointeger(code or (err and 1 or 0)) or 1)
 end
 
 --- The build-injected version string, or "unknown" outside a packed
@@ -52,6 +55,10 @@ local function version(): string
 end
 
 local record cosmic
+  --- The environment main() hands your function, exported so callers
+  --- can annotate the parameter (`env: cosmic.Env`).
+  type Env = Env
+
   _VERSION: string
   _DESCRIPTION: string
   main: function(fn: function(args: {string}, env: Env): number, string)

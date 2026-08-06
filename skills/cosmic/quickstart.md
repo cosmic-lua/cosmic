@@ -52,23 +52,23 @@ return M
 
 ## the binary
 
-`cmd/greet/main.tl` — guard `arg[1]` (it is `string | nil`), return an
-`integer` from main (`os.exit` rejects `number`):
+`cmd/greet/main.tl` — hand your main function to `cosmic.main`: it
+passes the arguments in, writes your error return to stderr, and exits
+with your code (no `os.exit` bookkeeping in your file):
 
 ```teal
+local cosmic = require("cosmic")
 local text = require("greet.text")
 
-local function main(): integer
-  local name = arg[1]
-  if not name then
-    io.stderr:write("usage: greet <name>\n")
-    return 1
-  end
-  print(text.greeting(name))
-  return 0
-end
-
-os.exit(main())
+cosmic.main(function(args: {string}, env: cosmic.Env): number, string
+    local name = args[1]
+    if not name then
+      env.stderr:write("usage: greet <name>\n")
+      return 1
+    end
+    print(text.greeting(name))
+    return 0
+  end)
 ```
 
 ## the test

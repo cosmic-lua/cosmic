@@ -90,3 +90,41 @@ local function test_cosmic_main_runs_fn_and_exits_with_its_code()
     "the error string goes to stderr, got: " .. tostring(r.stderr))
 end
 test_cosmic_main_runs_fn_and_exits_with_its_code()
+
+-- main is forgiving about number: any numeric return exits honestly
+-- (math.tointeger), a fractional one exits 1 instead of throwing after
+-- the program's real work already happened.
+local function test_cosmic_main_tolerates_a_fractional_code()
+  local script = fs.join(tmpdir, "cosmic_main_frac.tl")
+  assert(fs.write(script, table.concat({
+          'local cosmic = require("cosmic")',
+          'cosmic.main(function(): number, string',
+          '    io.stdout:write("ran\\n")',
+          '    return 1.5',
+          '  end)',
+        }, "\n") .. "\n"))
+  local h = check.must(child.start({bin_path(), script}))
+  local r = check.must(h:wait())
+  assert(r.code == 1, "a fractional code should exit 1, got " .. tostring(r.code))
+  assert(not (r.stderr or ""):find("exit", 1, true),
+    "and never throw from os.exit, got: " .. tostring(r.stderr))
+end
+test_cosmic_main_tolerates_a_fractional_code()
+
+-- An error return with no code must not exit 0: the error already said
+-- the run failed.
+local function test_cosmic_main_error_without_code_exits_nonzero()
+  local script = fs.join(tmpdir, "cosmic_main_err.tl")
+  assert(fs.write(script, table.concat({
+          'local cosmic = require("cosmic")',
+          'cosmic.main(function(): number, string',
+          '    return nil, "boom"',
+          '  end)',
+        }, "\n") .. "\n"))
+  local h = check.must(child.start({bin_path(), script}))
+  local r = check.must(h:wait())
+  assert(r.code == 1, "error with no code should exit 1, got " .. tostring(r.code))
+  assert((r.stderr or ""):find("boom", 1, true),
+    "the error string still reaches stderr, got: " .. tostring(r.stderr))
+end
+test_cosmic_main_error_without_code_exits_nonzero()
