@@ -32,11 +32,16 @@ local record Stream
   --  Iterator over parsed events: yields Event values; on a mid-stream
   --  transport failure yields nil plus the error message once, then
   --  plain nil — so truncation is distinguishable from a graceful close.
+  --  Event is a record, so narrow each yield in a positive branch:
+  --    while true do
+  --      local ev = s.next()
+  --      if ev is sse.Event then handle(ev) else break end
+  --    end
   next: function(): Event | nil, string
   --  The last seen event ID (nil until an id: line is seen), for
   --  reconnecting with a Last-Event-ID request header. Updates as soon
   --  as an id: line is parsed, even when no event is dispatched.
-  last_event_id: function(): string
+  last_event_id: function(): string | nil
 end
 ```
 
