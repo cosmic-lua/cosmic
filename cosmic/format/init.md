@@ -48,6 +48,10 @@ local record FormatModule
 end
 ```
 
+### Issue
+
+alias of `cosmic.teal.Issue` — field and method table: `cosmic --docs cosmic.teal.Issue`
+
 ## Functions
 
 ### format

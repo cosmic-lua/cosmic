@@ -107,6 +107,32 @@ local record FsModule
 end
 ```
 
+### WalkStat
+
+alias of `cosmic.fs.types.WalkStat` — field and method table: `cosmic --docs cosmic.fs.types.WalkStat`
+
+### Handle
+
+alias of `cosmic.fd.Handle` — field and method table: `cosmic --docs cosmic.fd.Handle`
+
+### FileIter
+
+ Iterator over file paths, as returned by files().
+
+alias of `cosmic.fs.walk.FileIter` — field and method table: `cosmic --docs cosmic.fs.walk.FileIter`
+
+### WalkAction
+
+ Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
+
+alias of `cosmic.fs.walk.WalkAction` — field and method table: `cosmic --docs cosmic.fs.walk.WalkAction`
+
+### WalkOptions
+
+ Options for walk() (max_depth).
+
+alias of `cosmic.fs.walk.WalkOptions` — field and method table: `cosmic --docs cosmic.fs.walk.WalkOptions`
+
 ## Functions
 
 ### stat

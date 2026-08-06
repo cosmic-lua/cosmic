@@ -91,6 +91,14 @@ local record ShmModule
 end
 ```
 
+### Memory
+
+alias of `ShmModule.Memory` — field and method table: `cosmic --docs ShmModule.Memory`
+
+### Cmpxchg
+
+alias of `ShmModule.Cmpxchg` — field and method table: `cosmic --docs ShmModule.Cmpxchg`
+
 ## Functions
 
 ### mapshared

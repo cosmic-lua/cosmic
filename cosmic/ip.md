@@ -78,6 +78,14 @@ local record IpModule
 end
 ```
 
+### Category
+
+ Category of an IPv4 address, as reported by categorize().
+ LOOPBACK/PRIVATE/TESTNET/MULTICAST are special-use ranges; the rest
+ name the registry or organization the block is delegated to.
+
+alias of `cosmo.IpCategory` — field and method table: `cosmic --docs cosmo.IpCategory`
+
 ## Functions
 
 ### addr

@@ -170,6 +170,20 @@ local record NetModule
 end
 ```
 
+### Socket
+
+ Socket handle for network I/O (see cosmic.net.socket for the methods).
+ Supports Lua 5.4's to-be-closed via __close metamethod.
+
+alias of `cosmic.net.socket.Socket` — field and method table: `cosmic --docs cosmic.net.socket.Socket`
+
+### Address
+
+ An address a helper accepts: a dotted-quad string ("127.0.0.1") or a
+ typed ip.Addr. Wrap C-boundary integers with ip.addr().
+
+alias of `cosmic.net.socket.Address` — field and method table: `cosmic --docs cosmic.net.socket.Address`
+
 ## Functions
 
 ### socket

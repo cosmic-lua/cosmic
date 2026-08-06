@@ -148,6 +148,12 @@ local record FetchModule
 end
 ```
 
+### Part
+
+ One part of a multipart/form-data request body (see Options.multipart).
+
+alias of `cosmic.fetch.extras.Part` — field and method table: `cosmic --docs cosmic.fetch.extras.Part`
+
 ## Functions
 
 ### stream

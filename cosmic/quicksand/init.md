@@ -45,6 +45,14 @@ local record QuicksandModule
 end
 ```
 
+### Capabilities
+
+ Fine-grained feature availability on the current host; the record
+ definition lives in cosmic.quicksand.types so the Box layers name
+ the same nominal type.
+
+alias of `cosmic.quicksand.types.Capabilities` — field and method table: `cosmic --docs cosmic.quicksand.types.Capabilities`
+
 ## Functions
 
 ### probe

@@ -176,6 +176,12 @@ local record sqlite
 end
 ```
 
+### Options
+
+ Options for opening a database (see cosmic.sqlite.defaults).
+
+alias of `cosmic.sqlite.defaults.Options` — field and method table: `cosmic --docs cosmic.sqlite.defaults.Options`
+
 ## Functions
 
 ### stmt:bind

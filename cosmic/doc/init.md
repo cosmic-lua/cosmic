@@ -30,6 +30,17 @@ local record DocModule
 end
 ```
 
+### Name
+
+alias of `target`
+
+### DocIndex
+
+ A documentation index containing all modules (the shared record from
+ cosmic.doc.types, so extraction and query agree on the type).
+
+alias of `cosmic.doc.types.DocIndex` — field and method table: `cosmic --docs cosmic.doc.types.DocIndex`
+
 ## Functions
 
 ### parse

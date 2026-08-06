@@ -113,6 +113,14 @@ local record SandboxModule
 end
 ```
 
+### Rule
+
+alias of `cosmic.landlock.Rule` — field and method table: `cosmic --docs cosmic.landlock.Rule`
+
+### RestrictOptions
+
+alias of `cosmic.landlock.RestrictOptions` — field and method table: `cosmic --docs cosmic.landlock.RestrictOptions`
+
 ## Functions
 
 ### available

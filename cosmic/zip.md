@@ -34,6 +34,63 @@ local record ZipModule
 end
 ```
 
+### OpenOptions
+
+ Options for opening a ZIP archive: compression level 0-9 (used when
+ writing/appending) and max_file_size limit. The generated
+ cosmo.zip.OpenOptions record.
+
+alias of `cosmo.zip.OpenOptions` — field and method table: `cosmic --docs cosmo.zip.OpenOptions`
+
+### AddOptions
+
+ Options for adding a file to a ZIP archive: method ("store" or
+ "deflate"), mtime, and mode. The generated cosmo.zip.AddOptions record.
+
+alias of `cosmo.zip.AddOptions` — field and method table: `cosmic --docs cosmo.zip.AddOptions`
+
+### Stat
+
+ File metadata within a ZIP archive: size, compressed_size, crc32,
+ mtime, method (0=stored, 8=deflated), and mode. The generated
+ cosmo.zip.Stat record.
+
+alias of `cosmo.zip.Stat` — field and method table: `cosmic --docs cosmo.zip.Stat`
+
+### Entry
+
+ Directory entry returned by Reader:list(): name, size, and mode. The
+ generated cosmo.zip.Entry record.
+
+alias of `cosmo.zip.Entry` — field and method table: `cosmic --docs cosmo.zip.Entry`
+
+### Archive
+
+ Reader for extracting files from a ZIP archive (the generated
+ cosmo.zip.Reader class): list(), stat(name), read(name), close().
+ Entry names come raw from the central directory: an archive built by
+ another tool can contain absolute or "../" names. Validate before
+ using a name as a filesystem path, or use extract().
+ (api-review-8: the public type name is Archive.)
+
+alias of `cosmo.zip.Reader` — field and method table: `cosmic --docs cosmo.zip.Reader`
+
+### Builder
+
+ Builder for creating new ZIP archives (the generated cosmo.zip.Writer
+ class): add(name, content, opts?), close().
+ (api-review-8: the public type name is Builder.)
+
+alias of `cosmo.zip.Writer` — field and method table: `cosmic --docs cosmo.zip.Writer`
+
+### Appender
+
+ Appender for adding files to an existing ZIP archive (the generated
+ cosmo.zip.Appender class): add(name, content, opts?), remove(name),
+ close().
+
+alias of `cosmo.zip.Appender` — field and method table: `cosmic --docs cosmo.zip.Appender`
+
 ## Functions
 
 ### open

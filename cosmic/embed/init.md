@@ -100,6 +100,18 @@ local record EmbedModule
 end
 ```
 
+### EmbedResult
+
+ Result returned from embed and extract operations. The extraction
+ half declares the same shape; this is the one the module surface
+ publishes.
+
+alias of `cosmic.embed.extract.EmbedResult` — field and method table: `cosmic --docs cosmic.embed.extract.EmbedResult`
+
+### EmbedDirHandle
+
+alias of `cosmic.fs.types.DirHandle` — field and method table: `cosmic --docs cosmic.fs.types.DirHandle`
+
 ## Functions
 
 ### embed

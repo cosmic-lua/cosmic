@@ -64,6 +64,21 @@ local record ReModule
 end
 ```
 
+### MatchIterator
+
+ Iterator yielded by gmatch: each call returns the next match and
+ its capture table, then nil when exhausted.
+
+alias of `function`
+
+### Repl
+
+ Replacement for gsub: a literal string (no capture references —
+ "%1" is two plain characters), or a function receiving the matched
+ text and its capture groups; a nil return keeps the match unchanged.
+
+alias of `string`
+
 ## Functions
 
 ### compile

@@ -76,6 +76,12 @@ local record TtyModule
 end
 ```
 
+### Termios
+
+ Terminal I/O settings (the generated unix.Termios record).
+
+alias of `cosmo.unix.Termios` — field and method table: `cosmic --docs cosmo.unix.Termios`
+
 ## Functions
 
 ### openpty

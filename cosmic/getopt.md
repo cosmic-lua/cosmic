@@ -59,6 +59,29 @@ local record GetoptModule
 end
 ```
 
+### Option
+
+ A single recognized option and its argument (the generated
+ cosmo.getopt.Option record).
+ For a long option that has a short alias, `opt` is that short letter; for a
+ long-only option, `opt` is the long name. `arg` is nil when the option takes
+ no argument.
+ @field opt string The option letter or long name
+ @field arg string|nil The option's argument, if any
+
+alias of `cosmo.getopt.Option` — field and method table: `cosmic --docs cosmo.getopt.Option`
+
+### Result
+
+ The outcome of a single `parse` call (the generated
+ cosmo.getopt.Result record).
+ @field opts {Option} Recognized options, in the order encountered
+ @field args {string} Non-option (positional) arguments
+ @field unknown {string} Unrecognized options, each including its dashes
+ @field missing {string} Options that required an argument but got none
+
+alias of `cosmo.getopt.Result` — field and method table: `cosmic --docs cosmo.getopt.Result`
+
 ## Functions
 
 ### parse

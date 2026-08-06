@@ -83,6 +83,13 @@ local record ProcModule
 end
 ```
 
+### Rusage
+
+ Process resource usage statistics (the generated unix.Rusage record):
+ CPU time, memory usage, I/O, and context switch counters.
+
+alias of `cosmo.unix.Rusage` — field and method table: `cosmic --docs cosmo.unix.Rusage`
+
 ## Functions
 
 ### getsid
