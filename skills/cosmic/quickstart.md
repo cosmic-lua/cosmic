@@ -132,6 +132,11 @@ cosmic --make coverage --baseline    # writes .cosmic-coverage
   every rule with its fix
 - `--check types <file>` type-checks one file in isolation — the fast
   inner loop while a file is still taking shape
+- know what each verb does NOT say: `--make build` and `--make test`
+  run neither fmt nor lint, so a tree that builds and tests clean can
+  still fail `ci` on formatting drift or an unjustified `as` cast.
+  `--check fmt <file>` and `--check lint <file>` are those same gates
+  per file — run them in the inner loop too, not first at `ci` time
 
 ## where to go next
 

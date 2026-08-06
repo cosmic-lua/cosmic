@@ -72,6 +72,12 @@ assert(not failed, "should not fail")
 assert(output:find("expected"), "output should contain 'expected'")
 ```
 
+test files pass through the same lint gate as library code: an `as`
+cast in a test needs its `-- cast: <reason>` comment (the cast-justify
+rule in `cosmic --docs guide.lint`), and `--make test` passing says
+nothing about lint — prefer `check.must` for narrowing fallible
+returns in tests, which needs no cast at all.
+
 ## Using TEST_TMPDIR
 
 `cosmic --test` sets the `TEST_TMPDIR` environment variable to an isolated temp directory for each test. tests that create files should use it:
