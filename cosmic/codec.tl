@@ -77,17 +77,21 @@ end
 --- anywhere or padding not confined to the end, so a second, cheaper
 --- scan runs only then to tell which. Shared by decode_base64 and
 --- decode_base64url, which differ only in alphabet and error label.
+--- The alphabet portion is matched but not captured, so validation
+--- doesn't materialize an O(n) copy of it; callers that need the
+--- content (decode_base64url) can slice it from str themselves using
+--- the returned padding length.
 --- @param str string The string to validate
 --- @param content_pattern string Lua pattern for the alphabet, zero or more (e.g. "[A-Za-z0-9+/]*")
 --- @param bad_char_pattern string Lua pattern matching a character outside the alphabet and not "=" (e.g. "[^A-Za-z0-9+/=]")
 --- @param label string Name used in error messages ("base64" or "base64url")
---- @return string | nil The alphabet characters with any "=" padding stripped, or nil if invalid
+--- @return string | nil The trailing "=" padding (empty string if none), or nil if invalid
 --- @return string? Error message if invalid
 local function validate_base64_family(
     str: string, content_pattern: string, bad_char_pattern: string, label: string
   ): string | nil, string
-  local content, padding = str:match("^(" .. content_pattern .. ")(%=*)$")
-  if not content then
+  local padding = str:match("^" .. content_pattern .. "(%=*)$")
+  if not padding then
     if str:match(bad_char_pattern) then
       return nil, "invalid " .. label .. " character"
     end
@@ -96,7 +100,7 @@ local function validate_base64_family(
   if #padding > 2 then
     return nil, "invalid " .. label .. " padding"
   end
-  return content
+  return padding
 end
 
 --- Decode a base64 string to binary data.
@@ -132,10 +136,11 @@ end
 --- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_base64url(str: string): string | nil, string
-  local content, err = validate_base64_family(str, "[A-Za-z0-9%-_]*", "[^A-Za-z0-9%-_=]", "base64url")
+  local padding, err = validate_base64_family(str, "[A-Za-z0-9%-_]*", "[^A-Za-z0-9%-_=]", "base64url")
   if err then
     return nil, err
   end
+  local content = string.sub(str, 1, #str - #padding)
   local b64 = string.gsub(content, "%-", "+")
   b64 = string.gsub(b64, "_", "/")
   return cosmo.DecodeBase64(b64)
