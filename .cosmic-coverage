@@ -11,6 +11,7 @@ _cli/driver.tl 21 34
 _cli/grants.tl 158 168
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
+_cli/lint_render.tl 26 26
 _cli/main_handlers.tl 11 220
 _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
