@@ -130,3 +130,40 @@ function stream(dst: stream.Writer, src: stream.Reader, buf_size?: integer): int
 
 - integer - | nil Bytes copied, or nil on error
 - string? - Error message on failure
+
+### stream
+
+```teal
+function stream(data: string): stream.Reader
+```
+
+ Wrap bytes already in hand as a Reader, so in-memory data (a file
+ read whole, a decompressed buffer, a test fixture) feeds any stream
+ consumer — stream.lines, sse.events, stream.copy — without a
+ hand-rolled adapter. read(n?) returns successive chunks (at most n
+ bytes when n is given, the whole remainder otherwise), then bare
+ nil at end of stream, per the Reader contract; n must be positive
+ when given.
+
+**Parameters:**
+
+- `data` (string) - The bytes to serve
+
+**Returns:**
+
+- Reader - A reader over the bytes
+
+### stream
+
+```teal
+function stream(): stream.Buffer
+```
+
+ Collect writes in memory: the Writer half of from_string. write()
+ appends and reports the chunk fully written; contents() returns
+ everything written so far. Point stream.copy (or any Writer taker)
+ at one to materialize a pipeline's output as a string.
+
+**Returns:**
+
+- Buffer - The in-memory writer
