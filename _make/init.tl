@@ -29,6 +29,7 @@ local generate = require("_make.generate")
 local graph = require("_make.graph")
 local policy = require("_make.policy")
 local stage = require("_make.stage")
+local testrun = require("_make.testrun")
 local types = require("_make.types")
 local validate = require("_make.validate")
 
@@ -179,20 +180,17 @@ end
 --- @return boolean True when the stage is ready
 --- @return string The error message
 local function prepare_stage(proj: Project, cosmic: string): boolean, string
-  if #proj.binaries == 0 then
-    return true, ""
+  if #proj.binaries > 0 then
+    local b = by_name("build") as Verb -- cast: the registry defines it
+    local ok, detail = stage.graph_stage(b, proj, {}, cosmic)
+    if not ok then return false, detail end
+    local aok, adetail = assemble(proj, proj.binaries, cosmic, false)
+    if not aok then return false, adetail end
+    stage.binaries_on_path(proj)
   end
-  local b = by_name("build") as Verb -- cast: the registry defines it
-  local ok, detail = stage.graph_stage(b, proj, {}, cosmic)
-  if not ok then
-    return false, detail
-  end
-  local aok, adetail = assemble(proj, proj.binaries, cosmic, false)
-  if not aok then
-    return false, adetail
-  end
-  stage.binaries_on_path(proj)
-  return true, ""
+  -- The runner is stage too: with root payload, tests exec a cosmic
+  -- that carries it, so `/zip/R` resolves in a test as in the artifact.
+  return testrun.build(proj, cosmic)
 end
 
 local function run_against_stage(v: Verb, proj: Project, paths: {string},
