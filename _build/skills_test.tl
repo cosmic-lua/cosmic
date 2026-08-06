@@ -271,3 +271,41 @@ end
 test_everything_else_teaches_never_embedded()
 
 print("all skill ratchet tests passed")
+
+-- Every teal/lua snippet in the guides must survive being copied into
+-- a gated project: the formatter collapses a trailing comment to one
+-- space after the code, so an aligned comment column in a guide is a
+-- fmt failure shipped as advice (a round-4 eval agent hit exactly
+-- that, from guide.lint's own cast-justify example). Full-line
+-- comments are exempt — they are prose, not trailing.
+local function test_guide_snippets_use_single_space_trailing_comments()
+  local offenders: {string} = {}
+  for _, name in ipairs(check.must(fs.find(SKILLS_DIR, {glob = "*.md"})) as {string}) do -- cast: find returns paths
+    local text = check.must(fs.read(name))
+    local in_code = false
+    local lang = ""
+    local lineno = 0
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+      lineno = lineno + 1
+      local fence = line:match("^```(%w*)")
+      if fence then
+        if in_code then
+          in_code = false
+        else
+          in_code = true
+          lang = fence
+        end
+      elseif in_code and (lang == "teal" or lang == "lua") then
+        local trimmed = line:match("^%s*(.*)$")
+        if not trimmed:match("^%-%-") and line:match("%S%s%s+%-%-") then
+          offenders[#offenders + 1] = name .. ":" .. lineno .. ": " .. line
+        end
+      end
+    end
+  end
+  assert(#offenders == 0,
+    "guide snippet(s) with multi-space trailing comments — the " ..
+    "formatter collapses these to one space, so copying the snippet " ..
+    "fails fmt:\n  " .. table.concat(offenders, "\n  "))
+end
+test_guide_snippets_use_single_space_trailing_comments()

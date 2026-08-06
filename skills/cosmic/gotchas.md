@@ -9,7 +9,7 @@ Teal distinguishes `integer` from `number`. string indices (`string.sub`, `strin
 **wrong:**
 ```teal
 local n: number = 5
-local s = ("hello"):sub(n, n)  -- error: got number, expected integer
+local s = ("hello"):sub(n, n) -- error: got number, expected integer
 ```
 
 **right:**
@@ -35,7 +35,7 @@ local code: number = child.WEXITSTATUS(status)
 **wrong:**
 ```teal
 local data = json.decode(input)
-for _, item in ipairs(data) do  -- error: attempting ipairs on something that's not an array: <any type>
+for _, item in ipairs(data) do -- error: attempting ipairs on something that's not an array: <any type>
 ```
 
 **right — `is` when the shape is uncertain** (narrows in the positive
@@ -67,7 +67,7 @@ the global `arg` table has type `{string | nil}`. accessing `arg[1]` without a g
 
 **wrong:**
 ```teal
-local name = arg[1]:upper()  -- error: cannot index nil
+local name = arg[1]:upper() -- error: cannot index nil
 ```
 
 **right:**
@@ -88,7 +88,7 @@ functions that return `(iterator, state, initial)` (like `db:query`) cannot be w
 
 **wrong:**
 ```teal
-for row in db:query("SELECT * FROM t"), nil, nil do  -- syntax error / wrong returns
+for row in db:query("SELECT * FROM t"), nil, nil do -- syntax error / wrong returns
 ```
 
 **right:**
@@ -116,12 +116,12 @@ end
 ```teal
 -- both are equivalent when mymod.tl is in the same directory:
 local m = require("mymod")
-local m2 = require("./mymod")  -- also works
+local m2 = require("./mymod") -- also works
 ```
 
 if your module is in a subdirectory:
 ```teal
-local m = require("subdir.mymod")   -- loads subdir/mymod.tl
+local m = require("subdir.mymod") -- loads subdir/mymod.tl
 ```
 
 ## 6. naming `cosmic.fd` as `io`
@@ -130,15 +130,15 @@ local m = require("subdir.mymod")   -- loads subdir/mymod.tl
 
 **wrong:**
 ```teal
-local io = require("cosmic.fd")   -- hides io.stderr!
-io.stderr:write("error\n")        -- runtime error: attempt to index nil
+local io = require("cosmic.fd") -- hides io.stderr!
+io.stderr:write("error\n") -- runtime error: attempt to index nil
 ```
 
 **right:**
 ```teal
-local fs = require("cosmic.fs")  -- keep built-in io accessible
+local fs = require("cosmic.fs") -- keep built-in io accessible
 fs.write("out.txt", data)
-io.stderr:write("error: " .. msg .. "\n")  -- standard Lua io still works
+io.stderr:write("error: " .. msg .. "\n") -- standard Lua io still works
 ```
 
 cosmic.fd has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
@@ -154,13 +154,13 @@ the interpreter path lives at `arg[-1]`, and because `arg` is typed
 **wrong:**
 ```teal
 local child = require("cosmic.child")
-local h = child.start({arg[0], "worker.tl"})  -- spawns /zip/main.lua: fails
+local h = child.start({arg[0], "worker.tl"}) -- spawns /zip/main.lua: fails
 ```
 
 **right:**
 ```teal
 local child = require("cosmic.child")
-local cosmic_bin = rawget(arg, -1) as string  -- e.g. "./cosmic"
+local cosmic_bin = rawget(arg, -1) as string -- e.g. "./cosmic"
 local h = child.start({cosmic_bin, "worker.tl"})
 ```
 
@@ -201,17 +201,17 @@ R | nil`, `expression in for loop does not return an iterator`,
 
 **wrong:**
 ```teal
-local db = sqlite.open(path)   -- Database | nil
+local db = sqlite.open(path) -- Database | nil
 if not db then
   return nil, "open failed"
 end
-db:exec(sql)  -- error: cannot index key 'exec' ... Database | nil
+db:exec(sql) -- error: cannot index key 'exec' ... Database | nil
 ```
 
 **right — branch with `is` and do the work inside the positive branch:**
 ```teal
 if db is sqlite.Database then
-  return run(db)   -- run(db: sqlite.Database) receives it narrowed
+  return run(db) -- run(db: sqlite.Database) receives it narrowed
 end
 return nil, "open failed"
 ```
@@ -221,7 +221,7 @@ return nil, "open failed"
 if not db then
   return nil, "open failed"
 end
-local d = db as sqlite.Database  -- cast: record union after guard
+local d = db as sqlite.Database -- cast: record union after guard
 d:exec(sql)
 ```
 
@@ -245,7 +245,7 @@ export a type, nest it inside the module's returned interface record.
 
 **wrong** (`store.tl`):
 ```teal
-local record Task        -- file-local: importers cannot name it
+local record Task -- file-local: importers cannot name it
   id: integer
   text: string
 end
@@ -258,7 +258,7 @@ end
 **right:**
 ```teal
 local record StoreModule
-  record Task            -- nested: importers write store.Task
+  record Task -- nested: importers write store.Task
     id: integer
     text: string
   end
@@ -292,8 +292,8 @@ local record StoreModule
   add: function(db: sqlite.Database, name: string): boolean, string
 end
 
-db:add("alice")     -- error: invalid key 'add' in record 'db' of type sqlite.Database
-store.add(db, "alice")  -- right: module function, dot-called, value first
+db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Database
+store.add(db, "alice") -- right: module function, dot-called, value first
 ```
 
 to get colon-call ergonomics for your own type, declare your own record
