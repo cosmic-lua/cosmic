@@ -151,8 +151,6 @@ local record SignalModule
   raise: function(sig: integer): boolean, string
   --  Get the name of a signal.
   strsignal: function(sig: integer): string
-  --  Send a signal to a process.
-  pid: integer, sig: integer): boolean, string
 end
 ```
 

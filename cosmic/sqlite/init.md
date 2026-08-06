@@ -118,6 +118,52 @@ local record Database
   --  Compile sql into a reusable Statement for manual bind/iterate;
   --  prefer query()/exec() unless you need statement reuse.
   prepare: function(self: Database, sql: string): Statement | nil, string
+  --  Run sql with positional `?` parameters and iterate result rows as
+  --  {column: value} tables: `for row in db:query(...) do ... end`.
+  --  Statements are cached per connection. Check `:err()` after the
+  --  loop (or use `<close>`) per the Rows contract.
+  query: function(self: Database, sql: string, ...: any): Rows | nil, string
+  --  query() with parameters in a list, so nil holes bind as NULL.
+  query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
+  --  query() with :name placeholders bound from a key/value table.
+  query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
+  --  First matching row, or nil (with no error) when no row matches.
+  --  The statement is always finalized, even when rows remain.
+  query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
+  --  First column of the first row (nil + no error when no row matches
+  --  or the value is SQL NULL); see cosmic.sqlite.extras.
+  query_value: function(self: Database, sql: string, ...: any): any, string
+  --  Execute sql with positional `?` parameters; use for statements
+  --  that return no rows (INSERT/UPDATE/DELETE/DDL). Multi-statement
+  --  sql runs only in the no-parameter form; with parameters it is
+  --  REJECTED (sqlite would silently run just the first statement).
+  exec: function(self: Database, sql: string, ...: any): boolean, string
+  --  exec() with parameters in a list, so nil holes bind as NULL.
+  exec_list: function(self: Database, sql: string, values: {any}): boolean, string
+  --  exec() with :name placeholders bound from a key/value table.
+  exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
+  --  Run fn inside BEGIN IMMEDIATE .. COMMIT. Rolls back when fn
+  --  raises, returns false, or returns nil plus an error; returning
+  --  nothing (or true) commits. The callback is typed variadic
+  --  (Teal cannot express optional returns), so a typed
+  --  `function(db): boolean` rollback needs no cast; see
+  --  cosmic.sqlite.extras.
+  transaction: function(self: Database, fn: function(Database): any ...): boolean, string
+  --  Run fn in a nestable savepoint with transaction's rollback rules;
+  --  see cosmic.sqlite.extras.
+  savepoint: function(self: Database, fn: function(Database): any ...): boolean, string
+  --  rowid of the most recent successful INSERT (0 if closed).
+  last_insert_rowid: function(self: Database): integer
+  --  Rows modified by the most recent INSERT/UPDATE/DELETE (0 if closed).
+  changes: function(self: Database): integer
+  --  Close the database and its cached statements (idempotent); also
+  --  runs on scope exit via to-be-closed. Live user-prepared
+  --  Statements do not block it: the binding finalizes them during
+  --  close. Returns false plus sqlite's message if the raw close ever
+  --  fails — the handle is NOT marked closed then, so the database
+  --  stays usable and a retry is a real retry, not a stale-flag
+  --  success.
+  close: function(self: Database): boolean, string
 end
 ```
 

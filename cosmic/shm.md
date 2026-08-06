@@ -88,8 +88,6 @@ end
 ```teal
 local record ShmModule
   mapshared: function(size: integer): Memory | nil, string
-  --  Validate a 0-based word index against the region size.
-  word_index: integer, size: integer, op: string): string
 end
 ```
 

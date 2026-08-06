@@ -64,6 +64,12 @@
  raw cosmic.proc/cosmo.unix passthroughs, which surface errnos
  verbatim.
 
+```teal
+local record stream
+  read: function(self: Reader, n?: number): string | nil, string
+end
+```
+
 ## Functions
 
 ### stream

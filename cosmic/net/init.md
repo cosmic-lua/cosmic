@@ -71,24 +71,6 @@ local record ListenOptions
   --  Set SO_REUSEPORT on the listener (default false): lets several
   --  processes bind the same addr:port and share the accept load.
   reuseport: boolean
-  --  Create a TCP socket, bind it to addr:port, and start listening.
-  --  Passing port 0 lets the OS assign an ephemeral port; read it with
-  --  getsockname().port. The address may be a dotted-quad string, a raw
-  --  integer, or an ip.Addr (0 binds all interfaces). IPv6 is not
-  --  supported.
-  --  Example — listen on an OS-assigned port:
-  --    local net = require("cosmic.net")
-  --    local srv = assert(net.listen_tcp("127.0.0.1", 0))
-  --    local port = assert(srv:getsockname()).port
-  --    local client = net.connect_tcp("127.0.0.1", port)
-  --  Amends the api-review-2 recorded decision: the (Socket, port, err)
-  --  triple's slot-3 error was invisible to `check.must` and to
-  --  `local s, err = ...` — every misuse type-checked and crashed at
-  --  runtime. Error-in-slot-2 wins over the port convenience.
-  --  was requested, read the OS-assigned port with
-  --  `s:getsockname().port` (the old (Socket, port, err) triple put the
-  --  error in slot 3, where `check.must` and `local s, err = ...` lost it)
-  addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
 end
 ```
 

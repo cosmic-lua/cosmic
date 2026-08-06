@@ -60,6 +60,10 @@ local record Handle
   --  returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
   --  child has not finished in time (the handle stays usable). Idempotent.
   wait: function(self: Handle, timeout_ms?: integer): Result | nil, string
+  --  Streaming read of up to `size` bytes (default 65536) from the child's
+  --  stdout. Returns bare nil at end of file (cosmic.stream contract). For
+  --  whole-output capture use `wait`/`run`, which also collect stderr.
+  read: function(self: Handle, size?: integer): string | nil, string
 end
 ```
 
