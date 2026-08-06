@@ -49,7 +49,11 @@ end
 local value: string = nil  -- ERROR: string cannot be nil
 ```
 
-use `?` on parameters to make them optional. for nullable local variables, use the nil-returning pattern from the function signature.
+use `?` on parameters to make them optional. a nullable LOCAL must be
+annotated at its declaration: `local x: integer | nil = nil`. a bare
+`local x = nil` infers the type `nil` itself — every later assignment
+fails with `in assignment: got ..., expected nil`, and no guard can
+recover it.
 
 ### Narrowing and Casting
 
