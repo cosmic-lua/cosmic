@@ -367,9 +367,7 @@ local function handle_check_style(file: string): integer
     instrument.finish(span, 0)
     return 0
   end
-  for _, d in ipairs(diagnostics) do
-    io.stderr:write(string.format("%s:%d:%d: %s: %s\n", d.file, d.line, d.col, d.rule, d.message))
-  end
+  io.stderr:write(require("_cli.lint_render").render_diagnostics(file, diagnostics))
   instrument.finish(span, 1)
   return 1
 end

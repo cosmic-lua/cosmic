@@ -236,3 +236,20 @@ local function test_test_wrapper_needs_no_separator()
     "without `--` a passing check must be 0, got: " .. got_good)
 end
 test_test_wrapper_needs_no_separator()
+
+-- Lint diagnostics carry the offending source line, fmt-style, so a
+-- multi-violation file is fixable from the terminal without opening it
+-- to cross-reference line numbers. file-length stays snippet-less: it
+-- is about the whole file, whose content may not even be text.
+local function test_check_lint_prints_the_offending_line()
+  local bad = fs.join(tmpdir, "snippet_bad.tl")
+  fs.write(bad, "local x: any = {}\n"
+    .. "local y = x as {string: any}\n"
+    .. "print(y)\n")
+  local r = cli("--check", "lint", bad)
+  assert(r.code == 1, "unjustified cast must fail lint")
+  assert(r.err:find("cast-justify", 1, true), "rule named: " .. r.err)
+  assert(r.err:find("| local y = x as {string: any}", 1, true),
+    "the offending line prints under the diagnostic: " .. r.err)
+end
+test_check_lint_prints_the_offending_line()

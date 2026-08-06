@@ -344,3 +344,37 @@ end
 test_visibility_flags_shard_requires_outside_cosmic()
 
 print("all lint tests passed")
+
+-- The diagnostic renderer prints the offending line under each finding
+-- (no snippet for file-length: it is about the whole file, and the
+-- file may not even be text). Long lines truncate so one bad line
+-- cannot flood the terminal.
+local function test_render_diagnostics_snippets()
+  local path = fs.join(tmpdir, "render_me.tl")
+  local long_tail = string.rep("y", 150)
+  fs.write(path, "local a: any = {}\n"
+    .. "local b = a as {string: any}\n"
+    .. "local c = " .. long_tail .. " as string\n"
+    .. "print(b, c)\n")
+  local diagnostics = check.must(lint.lint_file(path))
+  assert(#diagnostics == 2, "two unjustified casts, got " .. #diagnostics)
+  local render = require("_cli.lint_render")
+  local text = render.render_diagnostics(path, diagnostics)
+  assert(text:find("| local b = a as {string: any}", 1, true),
+    "the offending line prints under its diagnostic: " .. text)
+  assert(text:find("%.%.%.\n") ~= nil,
+    "an over-long snippet truncates: " .. text)
+
+  local binpath = fs.join(tmpdir, "notsource")
+  fs.write(binpath, string.rep("\0junk\n", 600))
+  local bindiags = check.must(lint.lint_file(binpath))
+  assert(#bindiags == 1 and bindiags[1].rule == "file-length",
+    "length finding expected")
+  local bintext = render.render_diagnostics(binpath, bindiags)
+  assert(not bintext:find("| ", 1, true),
+    "file-length gets no snippet: " .. bintext)
+
+  assert(render.render_diagnostics(path, {}) == "",
+    "no diagnostics render as nothing")
+end
+test_render_diagnostics_snippets()
