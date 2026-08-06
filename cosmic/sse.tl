@@ -21,11 +21,16 @@ local record Stream
   --- Iterator over parsed events: yields Event values; on a mid-stream
   --- transport failure yields nil plus the error message once, then
   --- plain nil — so truncation is distinguishable from a graceful close.
+  --- Event is a record, so narrow each yield in a positive branch:
+  ---   while true do
+  ---     local ev = s.next()
+  ---     if ev is sse.Event then handle(ev) else break end
+  ---   end
   next: function(): Event | nil, string
   --- The last seen event ID (nil until an id: line is seen), for
   --- reconnecting with a Last-Event-ID request header. Updates as soon
   --- as an id: line is parsed, even when no event is dispatched.
-  last_event_id: function(): string
+  last_event_id: function(): string | nil
 end
 
 --- Parse a single field line into name and value.
@@ -60,13 +65,19 @@ end
 local line_iter = stream.lines
 
 --- Parse SSE events from a streaming reader.
---- Returns a Stream whose next() yields Event values (iterate with
---- `for ev in stream.next do`); when the underlying reader fails
---- mid-body (reset, truncation, TLS error) next() yields nil plus the
---- error message once, then nil — so a truncated stream is
---- distinguishable from a graceful close. A partially accumulated event
---- at end-of-stream is discarded per the SSE spec, not dispatched.
---- stream.last_event_id() exposes the id for reconnects.
+--- Returns a Stream whose next() yields Event values. Event is a
+--- record, so `for ev in s.next do` leaves ev un-narrowed (`Event |
+--- nil`) — iterate with a positive `is` branch instead:
+---   while true do
+---     local ev = s.next()
+---     if ev is sse.Event then handle(ev) else break end
+---   end
+--- When the underlying reader fails mid-body (reset, truncation, TLS
+--- error) next() yields nil plus the error message once, then nil — so
+--- a truncated stream is distinguishable from a graceful close. A
+--- partially accumulated event at end-of-stream is discarded per the
+--- SSE spec, not dispatched. stream.last_event_id() exposes the id for
+--- reconnects.
 --- @param reader stream.Reader the reader to parse events from
 --- @return Stream the open event stream
 local function events(reader: stream.Reader): Stream
@@ -146,7 +157,7 @@ local function events(reader: stream.Reader): Stream
     end
   end
 
-  local function last_event_id(): string
+  local function last_event_id(): string | nil
     return last_id
   end
 
