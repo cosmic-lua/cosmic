@@ -131,6 +131,7 @@ local function rewrite(path: string, head: string,
   end
   local pattern = (current:gsub("%p", "%%%1"))
   local replacement = (rendered:gsub("%%", "%%%%"))
+  -- gsub: replacement %%-escaped on the line above; the needle is a real pattern
   local ok, werr = fs.write(path, (string.gsub(text, pattern, replacement, 1)))
   if not ok then
     return false, path .. ": " .. (werr or "cannot write")
