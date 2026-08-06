@@ -287,6 +287,40 @@ local function test_find_needle_wants_the_intent_stated()
 end
 test_find_needle_wants_the_intent_stated()
 
+local function test_gsub_replacement_wants_the_intent_stated()
+  local bare = 'local x = s:gsub("{{name}}", user_name)\n'
+  assert(#lint.check_gsub_replacement("m.tl", bare, lines_of(bare)) == 1,
+    "a variable replacement is flagged")
+  local diag = lint.check_gsub_replacement("m.tl", bare, lines_of(bare))[1]
+  assert(diag.rule == "gsub-replacement", "rule name")
+  assert(diag.message:find("str.replace", 1, true),
+    "the message names the literal-intent fix")
+
+  for _, ok in ipairs({
+      'local x = s:gsub(pat, "%1!")\n', -- literal: deliberate splicing
+      'local x = s:gsub(pat, "a" .. "b")\n', -- concat of literals
+      'local x = s:gsub("%s+", "")\n', -- empty literal
+      'local x = s:gsub("%d", function(d: string): string return d end)\n',
+      'local x = s:gsub("%a", {a = "b"})\n', -- table form does not interpolate
+      'local x = s:gsub(pat)\n', -- no replacement argument at all
+      'local x = s:gsub(pat, v) -- gsub: v is %%-escaped upstream\n',
+      '-- gsub: v is a deliberate %1 template\nlocal x = s:gsub(pat, v)\n',
+      'local x = list.gsub(t, a, b)\n', -- some other gsub entirely
+    }) do
+    assert(#lint.check_gsub_replacement("m.tl", ok, lines_of(ok)) == 0,
+      "should pass: " .. ok)
+  end
+
+  -- string.gsub passes the subject too, so its replacement is THIRD.
+  local dotted = 'local x = string.gsub(s, pat, v)\n'
+  assert(#lint.check_gsub_replacement("m.tl", dotted, lines_of(dotted)) == 1,
+    "the dot form is checked at its own replacement position")
+  local dotted_lit = 'local x = string.gsub(s, pat, "lit")\n'
+  assert(#lint.check_gsub_replacement("m.tl", dotted_lit, lines_of(dotted_lit)) == 0,
+    "and a literal there passes")
+end
+test_gsub_replacement_wants_the_intent_stated()
+
 -- A `check.needs` guard that returns is the failure the rule is named
 -- for: the file runs on, exits 0, and the runner grades 0 as a pass, so
 -- a test that opted out of running contributes a green tick. Only the

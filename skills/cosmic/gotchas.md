@@ -350,26 +350,16 @@ os.exit(main())
 -- or convert at the call site: os.exit(math.tointeger(code) or 1)
 ```
 
-## 15. `gsub`'s replacement string interprets `%` — dangerous with untrusted values
+## 15. `gsub`'s replacement string interprets `%` — use `str.replace` for literal text
 
-`string.gsub`'s third argument is not plain text: `%1`–`%9` splice in
-captures, `%0` the whole match, and a lone `%` followed by anything
-else is an error. substituting an untrusted value into a template this
-way corrupts output — or crashes — the first time the value contains a
-`%` (a URL-encoded string, a printf format, a literal percentage).
+`string.gsub`'s replacement is not plain text (`%1` splices a capture,
+a lone `%` is a runtime error), so templating an untrusted value in
+breaks on the first `%`. for literal text use `str.replace`
+(cosmic.string) — literal on both sides, nothing to escape. the
+`gsub-replacement` lint flags a non-literal replacement and
+`cosmic --docs guide.lint` documents the deliberate-template escape.
 
-**wrong:**
 ```teal
-local page = template:gsub("{{name}}", user_name)
--- user_name = "50%" → runtime error: invalid use of '%' in replacement string
+local str = require("cosmic.string")
+local page = str.replace(template, "{{name}}", user_name)
 ```
-
-**right — escape `%` in the replacement first:**
-```teal
-local safe = user_name:gsub("%%", "%%%%")
-local page = template:gsub("{{name}}", safe)
-```
-
-(the needle side has the same property — see the find-needle lint rule
-for `find`; on `gsub` both arguments are magic, and only the
-replacement side is fixable by doubling `%`.)

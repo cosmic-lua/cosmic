@@ -104,6 +104,26 @@ s:find("%d+") -- literals are exempt: this reads as a pattern
 there is no plain flag on `match`/`gmatch`/`gsub`, so a variable needle
 there is a pattern by construction; escape it if it isn't one.
 
+## gsub-replacement
+
+`gsub`'s replacement side is magic too: `%1`–`%9` splice in captures,
+`%0` the whole match, and a lone `%` before anything else is a runtime
+error — so templating an untrusted value in corrupts output or crashes
+on the first `%`. when the replacement is not a string literal, say
+what you mean:
+
+```teal
+str.replace(template, "{{name}}", user_name) -- literal on BOTH sides
+-- deliberate template: escape, and say so
+local safe = user_name:gsub("%%", "%%%%")
+local page = template:gsub(pat, safe) -- gsub: safe is %%-escaped above
+```
+
+literals are exempt (a literal `"%1"` reads as deliberate splicing), as
+are function and table replacements — those forms do not interpolate.
+the marker is `-- gsub: <reason>`, trailing or on the line above, same
+positions as `-- cast:`.
+
 ## visibility
 
 a module under `cosmic/` may only be required from outside `cosmic/`
