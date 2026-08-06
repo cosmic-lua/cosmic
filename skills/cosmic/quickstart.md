@@ -137,6 +137,10 @@ cosmic --make coverage --baseline    # writes .cosmic-coverage
   still fail `ci` on formatting drift or an unjustified `as` cast.
   `--check fmt <file>` and `--check lint <file>` are those same gates
   per file — run them in the inner loop too, not first at `ci` time
+- simpler still: make `--make ci` ITSELF the inner loop. every stage
+  skips what already passed, so a warm rerun in a small project costs
+  about a second — rerunning the whole gate after each edit is
+  cheaper than remembering which verb checks what
 
 ## where to go next
 
