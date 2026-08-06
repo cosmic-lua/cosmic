@@ -74,8 +74,9 @@ local function check_cast_justification(file: string, content: string,
         rule = "cast-justify",
         message = string.format(
           "%s:%d: `as` cast without justification: prefer `is` narrowing"
-          .. " or check.must (see AGENTS.md); a deliberate cast takes a"
-          .. " trailing `-- cast: <reason>` (or on the line above)",
+          .. " or check.must (see `cosmic --docs guide.checking`); a"
+          .. " deliberate cast takes a trailing `-- cast: <reason>` (or on"
+          .. " the line above)",
           file, y),
       }
     end
