@@ -111,5 +111,61 @@ and block on `h.stdout:read(64)` instead of sleeping. see
 ## TCP echo pair (net)
 
 see `cosmic --examples net` for a runnable single-process echo exchange:
-`listen_tcp(0x7f000001, 0)` for an OS-assigned port, `connect_tcp`,
-`accept`, then `send`/`recv`. `recv` returns `""` on peer close.
+`listen_tcp("127.0.0.1", 0)` for an OS-assigned port, `connect_tcp`,
+`accept`, then `send`/`recv`. `recv` returns bare nil on peer close
+(end of stream); `""` only ever means a zero-byte datagram.
+
+## HTTP without a framework (net + fetch)
+
+there is no HTTP server module, on purpose: at this scale HTTP/1.1 is a
+request line, a header drain, and a `Content-Length` you compute — serve
+it by hand over a `net` socket, and let `cosmic.fetch` (a full HTTP
+client: retries, redirects, streaming) be the client side. this is the
+sanctioned shape; `cosmic --examples fetch` runs exactly this pair.
+
+```teal
+local check = require("cosmic.check")
+local net = require("cosmic.net")
+
+-- serve one request: read the request line, drain headers, answer
+-- with a computed Content-Length. loop it for a real server.
+local function serve_one(srv: net.Socket): boolean, string
+  local accepted, accept_err = srv:accept()
+  if not accepted then
+    return false, accept_err
+  end
+  local conn = accepted as net.Socket -- cast: record union after guard
+  local request_line = conn:readline()
+  local path = "/"
+  if request_line is string then
+    path = request_line:match("^%u+%s+(%S+)") or "/"
+  end
+  while true do
+    local header = conn:readline()
+    if not header or header == "" then break end -- blank line ends headers
+  end
+  local body = "hello from " .. path .. "\n"
+  local ok, send_err = conn:sendall("HTTP/1.1 200 OK\r\n"
+    .. "Content-Length: " .. #body .. "\r\n"
+    .. "Connection: close\r\n\r\n" .. body)
+  conn:close()
+  return ok, send_err
+end
+
+local srv = check.must(net.listen_tcp("127.0.0.1", 0))
+print("READY " .. check.must(srv:getsockname()).port) -- a test blocks on this line
+serve_one(srv)
+srv:close()
+```
+
+client side, one call: `fetch.fetch("http://127.0.0.1:" .. port ..
+"/status", {allow_private = true})` — `allow_private` opts out of the
+SSRF guard that otherwise blocks loopback/private addresses; the
+returned record carries `status`, `body`, and `headers`. to test the
+pair end to end, spawn the built server binary from a test, block on
+the `READY <port>` line (the readiness pattern above), then point the
+real client at it — the sandbox grants loopback TCP.
+
+note `--docs http` will not find this page's shape: the matches it
+returns (proxy internals, `time.format_http`) are not an HTTP server.
+this recipe is the answer.
