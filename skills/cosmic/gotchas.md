@@ -190,7 +190,46 @@ print(encoded)
 (parenthesizing the call — `print((json.encode(result)))` — also truncates
 to one value, but capturing lets you check the error.)
 
-## 9. `os.exit` requires `integer | boolean`, not `number`
+## 9. records, maps and arrays don't narrow through `if not x`
+
+scalars (`string | nil`, `integer | nil`) narrow through an ordinary
+truthiness guard. records, maps and arrays do not — below the guard the
+value is still `T | nil`. the errors this produces name the un-narrowed
+type but not the cause: `cannot index key 'x' in variable 'r' of type
+R | nil`, `expression in for loop does not return an iterator`,
+`attempting ipairs on something that's not an array: {T} | nil`.
+
+**wrong:**
+```teal
+local db = sqlite.open(path)   -- Database | nil
+if not db then
+  return nil, "open failed"
+end
+db:exec(sql)  -- error: cannot index key 'exec' ... Database | nil
+```
+
+**right — branch with `is` and do the work inside the positive branch:**
+```teal
+if db is sqlite.Database then
+  return run(db)   -- run(db: sqlite.Database) receives it narrowed
+end
+return nil, "open failed"
+```
+
+**right — keep the guard, cast once immediately after it:**
+```teal
+if not db then
+  return nil, "open failed"
+end
+local d = db as sqlite.Database  -- cast: record union after guard
+d:exec(sql)
+```
+
+record fields don't narrow either, even scalar ones — copy the field to
+a local and guard the local. the full pattern set is in
+`cosmic --docs guide.checking`.
+
+## 10. `os.exit` requires `integer | boolean`, not `number`
 
 a `main` function declared to return `number` breaks `os.exit(main())`
 with `got number, expected integer | boolean`.
