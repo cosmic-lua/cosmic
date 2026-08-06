@@ -95,13 +95,13 @@ and every `_perf/bench/*` are embedded, so:
 
 ```
 $ o/bin/cosmic _perf/run.tl … _perf.bench.json_bench     # tree entry
-$ o/bin/cosmic o/_perf/run.lua …                         # OPTIMIZE.md's form
+$ o/bin/cosmic o/_perf/run.lua …                         # SKILL.md's form
 _perf.harness <- @/zip/_perf/harness.lua                 # both
 ```
 
 Edit `_perf/harness.tl` or a scenario, re-run either command, and
 nothing changes. `o/_perf/harness.lua` is sitting right there, built
-and never loaded. `_perf/OPTIMIZE.md` already warns that a benchmark
+and never loaded. `skills/optimize/SKILL.md` already warns that a benchmark
 "cannot tell you it read the wrong subject"; this is that trap one
 level down, below where naming `$BIN` can reach.
 
@@ -287,7 +287,7 @@ cosmic --make run _perf/run.tl --out o/perf/current.json $BENCH
 ```
 
 — and it retires the "measures whatever `o/` happens to hold" warning
-from `_perf/OPTIMIZE.md` by construction: the run is what makes `o/`
+from `skills/optimize/SKILL.md` by construction: the run is what makes `o/`
 fresh. `_docs/publish.tl`, invoked from `docs.yml` as a bare tree
 script, is the other caller: it imports no siblings so nothing is stale
 today, but it is correct only for as long as `bin/cosmic` happens to

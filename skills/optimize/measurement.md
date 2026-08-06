@@ -1,6 +1,7 @@
 # Measurement discipline
 
-chapter of `_perf/OPTIMIZE.md` — read that first.
+chapter of the `optimize` skill (`SKILL.md` in this directory) — read
+that first.
 
 - machine noise is real: nothing else heavy runs during measurement;
   baseline and comparison run on the same machine, same power state.

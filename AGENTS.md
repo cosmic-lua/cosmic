@@ -34,7 +34,7 @@ _cli/                 the dispatcher behind every flag (args, help, run, ...)
 _make/                `cosmic --make`: project model, validator, root, verbs
 _build/               ratchets over what the repo ships and derives
 _docs/                doc publishing
-_perf/                performance benchmark harness (see _perf/OPTIMIZE.md)
+_perf/                performance benchmark harness (see skills/optimize/)
 _types/               cosmo.* type declarations (generated) + gentype generator
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
@@ -468,14 +468,15 @@ bin/cosmic --make run _perf/gate.tl compare BASE.json CUR.json SELFB.json
 bin/cosmic --make run _perf/gate.tl selfcheck A.json B.json  # A/A noise floor
 ```
 
-all performance work follows the loop in `_perf/OPTIMIZE.md`: baseline →
+all performance work follows the loop in the `optimize` skill
+(`skills/optimize/SKILL.md`): baseline →
 hypothesis → change → `--make ci` (correctness/style gate) →
 the compare gate (regression) → keep or revert. never weaken a
 scenario or its check to make numbers pass; never commit `o/perf/*.json`.
 
-the manual is split by chapter: `_perf/optimize/finding.md` (spotting
-cosmic-layer wins), `_perf/optimize/cosmopolitan.md` (the C layer against
-a local whilp/cosmopolitan build), `_perf/optimize/measurement.md` (noise
+the manual is split by chapter: `skills/optimize/finding.md` (spotting
+cosmic-layer wins), `skills/optimize/cosmopolitan.md` (the C layer against
+a local whilp/cosmopolitan build), `skills/optimize/measurement.md` (noise
 discipline). the backlog is GitHub issues labeled `perf`.
 
 ## CI

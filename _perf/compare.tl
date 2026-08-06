@@ -139,7 +139,7 @@ end
 --- scenario (json, sqlite, ...) still fails the gate, and so does a huge
 --- regression in an unstable one. This makes the noise/real call
 --- deterministic instead of a manual judgement (see
---- _perf/optimize/measurement.md).
+--- skills/optimize/measurement.md).
 --- @param base Results Baseline results
 --- @param cur Results Current results
 --- @param noise_a Results First self-check pass (current binary)

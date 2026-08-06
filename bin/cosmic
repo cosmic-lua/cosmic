@@ -39,7 +39,7 @@ set -e
 # benchmark cannot tell you it read the wrong subject. Name the binary
 # when the identity is the experiment: `o/bin/cosmic _perf/run.tl`
 # after a build you just did, or the pinned release explicitly. See
-# _perf/optimize/measurement.md.
+# skills/optimize/measurement.md.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

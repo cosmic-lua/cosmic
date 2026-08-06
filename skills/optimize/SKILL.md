@@ -1,18 +1,31 @@
+---
+name: optimize
+description: >
+  Measurement-driven performance optimization of cosmic: baseline the
+  _perf scenario harness, change one hypothesis at a time, and gate on
+  correctness (--make ci) plus the noise-aware compare. Use when working
+  a perf-labeled issue, judging whether a change regressed performance,
+  or running a research pass to re-seed the hypothesis backlog.
+---
+
 # Optimizing cosmic performance
 
-this document is the operating manual for performance work on cosmic. it
+this skill is the operating manual for performance work on cosmic. it
 defines a measurement-driven loop with hard gates, so optimization can be
 executed mechanically — including by an agent — without risking functional
 or style regressions. read it top to bottom once before changing anything.
+like `agent-eval`, it is repo tooling for developing cosmic itself — not
+embedded in the binary, not part of the published API.
 
-it is the front door of a small set of documents, each kept in its own
-file so no chapter ever fights the repo's 500-line-per-file cap:
+it is the front door of a small set of chapters, each kept in its own
+file in this directory so no chapter ever fights the repo's
+500-line-per-file cap:
 
-- `_perf/OPTIMIZE.md` — this file: the harness, the loop, the rules.
-- `_perf/optimize/finding.md` — how to find cosmic-layer opportunities.
-- `_perf/optimize/cosmopolitan.md` — how to optimize the C layer
+- `SKILL.md` — this file: the harness, the loop, the rules.
+- `finding.md` — how to find cosmic-layer opportunities.
+- `cosmopolitan.md` — how to optimize the C layer
   (whilp/cosmopolitan) with a local build, no release required.
-- `_perf/optimize/measurement.md` — measurement discipline and noise.
+- `measurement.md` — measurement discipline and noise.
 - the hypothesis backlog — GitHub issues labeled `perf` (whilp/cosmic
   for cosmic-layer work, whilp/cosmopolitan for the C layer). see
   "the hypothesis backlog" below.
@@ -28,7 +41,7 @@ makes a workload faster but wrong FAILS the benchmark.
 The harness is scripts, driven through `--make run` by whichever binary
 you are measuring. `$BIN` is the cosmic under test (`o/bin/cosmic`, or a
 build standing on a locally built cosmopolitan lua — see
-`optimize/cosmopolitan.md`).
+`cosmopolitan.md`).
 
 **Go through `--make run`, and name `$BIN` explicitly.** Two different
 identity traps, and both return a number either way:
@@ -43,7 +56,7 @@ identity traps, and both return a number either way:
   one exists and falls back to the pin when it does not, so measuring
   through `bin/cosmic` measures whatever `o/` happens to hold.
 
-Both are the measurement-identity trap in `optimize/measurement.md`,
+Both are the measurement-identity trap in `measurement.md`,
 reachable without touching a single knob.
 
 ```bash
@@ -75,7 +88,7 @@ reproduces against itself still fails. (`_perf/run.tl --compare` is the
 plain, non-retrying diff the gate builds on — it just diffs two files.)
 `gate.tl selfcheck` runs that same A/A control standalone, for
 interactive use or to profile the machine's noise floor before you
-start. `_perf/optimize/measurement.md` has the full playbook.
+start. `measurement.md` has the full playbook.
 
 knobs: `--samples` (default 5), `--min-secs` (default 0.15),
 `--threshold` (regression bar in percent, default 10). `PERF_BIN` is not
@@ -107,12 +120,12 @@ an optimization can land in either:
 
 - **cosmic layer** — pure-Lua work a C binding could do, redundant
   syscalls, dead allocations, missing caches. fixed in `cosmic/*.tl`
-  here. see `optimize/finding.md`.
+  here. see `finding.md`.
 - **cosmopolitan layer** — the C bindings themselves, the Lua runtime,
   the APE loader and zip filesystem (`startup_*` scenarios). fixed in a
   whilp/cosmopolitan checkout and measured against a locally built
   binary by hand — you do NOT need to cut a release to
-  measure a C change. see `optimize/cosmopolitan.md`.
+  measure a C change. see `cosmopolitan.md`.
 
 after ~20 rounds the cheap cosmic-layer wins are thinning out; check the
 open `perf`-labeled issues (`gh issue list --label perf --state open`, in
@@ -126,8 +139,8 @@ work ONE scenario (or one closely related group) at a time.
 1. **baseline** on a quiet machine, from a clean tree: `git status` must
    be clean, then run the harness into `o/perf/baseline.json`.
    (for cosmopolitan-layer work, baseline the unmodified LOCAL build
-   instead — `optimize/cosmopolitan.md` has the exact commands.)
-2. **pick a target** (see `optimize/finding.md` and the backlog). state
+   instead — `cosmopolitan.md` has the exact commands.)
+2. **pick a target** (see `finding.md` and the backlog). state
    a hypothesis: *"X is slow because Y; changing Z should cut ns/op by
    W%."*
 3. **change the code.** smallest diff that tests the hypothesis. follow
@@ -158,7 +171,7 @@ work ONE scenario (or one closely related group) at a time.
      real; do not re-litigate it as noise.
    - want to see the machine's noise floor yourself → `gate.lua
      selfcheck` runs the same A/A control on demand. see
-     `optimize/measurement.md`.
+     `measurement.md`.
 7. **commit**, quoting before/after numbers for the affected scenarios in
    the commit message (copy the `perf-compare` lines), and update the
    backlog issue in the same round — comment the result and close it
@@ -190,12 +203,12 @@ product code. the workflow that has worked (entries 22-27 came out of
 one such pass):
 
 1. run the harness on current main; read every line of the report.
-2. rank suspects by the signal shapes in `optimize/finding.md`
+2. rank suspects by the signal shapes in `finding.md`
    (alloc-per-op sanity math, sibling mismatches, cpu/wall surprises).
 3. for each suspect, spend a few minutes reading the wrapper source —
    most hypotheses die or crystallize within one code read.
 4. for startup/syscall suspects, use the tracing decomposition recipes
-   in `optimize/cosmopolitan.md` (cosmo `--strace` call counting,
+   in `cosmopolitan.md` (cosmo `--strace` call counting,
    kernel `strace -c`, raw-vs-wrapped binary timing).
 5. cheap probes are allowed and encouraged — rebuild a variant
    artifact in a scratch directory and shell-time it (that's how the
