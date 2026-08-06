@@ -107,7 +107,10 @@ cosmic/fd.tl 95 118
 cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
-cosmic/flags.tl 140 142
+cosmic/flags/command.tl 102 105
+cosmic/flags/init.tl 9 9
+cosmic/flags/parse.tl 142 144
+cosmic/flags/types.tl 2 2
 cosmic/format/init.tl 185 224
 cosmic/format/rules.tl 208 220
 cosmic/format/types.tl 98 113

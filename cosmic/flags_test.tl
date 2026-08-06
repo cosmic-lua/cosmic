@@ -163,3 +163,102 @@ local function test_help_rows_align()
   assert(verbose_col == output_col, "descriptions are not column-aligned")
 end
 test_help_rows_align()
+
+-- flags.command: dispatch on argv[1], each command its own Spec.
+local function make_cspec(): flags.CommandSpec
+  return {
+    name = "todo",
+    summary = "manage a todo list",
+    version = "1.0",
+    commands = {
+      {name = "add", summary = "add a task", spec = {
+          usage = "<text...>",
+          options = {},
+        }},
+      {name = "list", summary = "list tasks", spec = {
+          options = {
+            {long = "all", short = "a", help = "include done tasks"},
+          },
+        }},
+    },
+  }
+end
+
+local function test_command_dispatches_with_options()
+  local d = check.must(flags.command(make_cspec(), {"list", "--all"}))
+  assert(d.command == "list", "command: " .. tostring(d.command))
+  assert(d.parsed.flags["all"] == true, "sub-option should parse")
+  assert(not d.help and not d.version, "plain dispatch is not help/version")
+
+  local d2 = check.must(flags.command(make_cspec(), {"add", "buy", "milk"}))
+  assert(d2.command == "add", "command: " .. tostring(d2.command))
+  assert(#d2.parsed.args == 2 and d2.parsed.args[1] == "buy",
+    "positionals reach the subcommand")
+end
+test_command_dispatches_with_options()
+
+local function test_command_errors_name_the_commands()
+  local d, err = flags.command(make_cspec(), {})
+  assert(d == nil, "no command is an error")
+  assert(err:find("add, list", 1, true), "error names the commands: " .. err)
+
+  local d2, err2 = flags.command(make_cspec(), {"frob"})
+  assert(d2 == nil, "unknown command is an error")
+  assert(err2:find("unknown command 'frob'", 1, true), "got: " .. err2)
+
+  -- A sub-parse failure carries the qualified program name, so the
+  -- reader knows which command's options were wrong.
+  local d3, err3 = flags.command(make_cspec(), {"list", "--bogus"})
+  assert(d3 == nil, "unknown sub-option is an error")
+  assert(err3:find("todo list:", 1, true), "qualified name: " .. err3)
+end
+test_command_errors_name_the_commands()
+
+local function test_command_help_and_version_forms()
+  for _, argv in ipairs({{"--help"}, {"-h"}, {"help"}}) do
+    local d = check.must(flags.command(make_cspec(), argv))
+    assert(d.help and d.command == nil, "bare help request")
+  end
+
+  local d = check.must(flags.command(make_cspec(), {"help", "list"}))
+  assert(d.help and d.command == "list", "help for one command")
+
+  local bad, err = flags.command(make_cspec(), {"help", "frob"})
+  assert(bad == nil and err:find("unknown command", 1, true),
+    "help for an unknown command is an error")
+
+  local sub = check.must(flags.command(make_cspec(), {"list", "--help"}))
+  assert(sub.help and sub.command == "list",
+    "a command's own --help propagates")
+
+  local v = check.must(flags.command(make_cspec(), {"--version"}))
+  assert(v.version and not v.help, "top-level --version")
+end
+test_command_help_and_version_forms()
+
+local function test_command_validates_the_spec()
+  local none, err = flags.command({name = "x", commands = {}}, {"y"})
+  assert(none == nil and err:find("no commands", 1, true), "got: " .. tostring(err))
+
+  local dup, err2 = flags.command({name = "x", commands = {
+        {name = "a", spec = {options = {}}},
+        {name = "a", spec = {options = {}}},
+      }}, {"a"})
+  assert(dup == nil and err2:find("duplicate command", 1, true),
+    "got: " .. tostring(err2))
+end
+test_command_validates_the_spec()
+
+local function test_command_help_renders_overview_and_page()
+  local overview = flags.command_help(make_cspec())
+  assert(overview:find("usage: todo <command>", 1, true), "usage line")
+  assert(overview:find("add", 1, true) and overview:find("list tasks", 1, true),
+    "command list with summaries")
+  assert(overview:find("todo help <command>", 1, true), "help pointer")
+
+  local page = flags.command_help(make_cspec(), "list")
+  assert(page:find("usage: todo list", 1, true),
+    "per-command page carries the qualified name: " .. page)
+  assert(page:find("--all", 1, true), "per-command page lists its options")
+end
+test_command_help_renders_overview_and_page()
