@@ -113,6 +113,13 @@ local rr = r as R       -- cast: record union after guard
 print(rr.x)
 ```
 
+scalars narrow through truthiness for plain uses, with one caveat: a
+narrowed scalar cannot be METHOD-called. after a nil-guard on `data:
+string | nil`, `#data` and `data .. s` work but `data:gmatch(...)`
+still fails (`cannot index key 'gmatch' ... string | nil`). use the
+function form (`string.gmatch(data, ...)`) or branch with
+`if data is string then`.
+
 record FIELDS do not narrow either, even when the field is a scalar:
 after `if report.earliest ~= nil then`, `report.earliest` is still
 `integer | nil` at the point of use. copy the field to a local first —

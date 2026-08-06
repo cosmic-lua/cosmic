@@ -226,7 +226,14 @@ d:exec(sql)
 ```
 
 record fields don't narrow either, even scalar ones — copy the field to
-a local and guard the local. the full pattern set is in
+a local and guard the local.
+
+and one scalar caveat: a narrowed scalar still cannot be METHOD-called.
+after `if not data then return end`, plain uses of `data` work, but
+`data:gmatch(...)` fails with `cannot index key 'gmatch' in variable
+'data' of type string | nil`. use the function form on the narrowed
+value (`string.gmatch(data, ...)`), or branch with `if data is string
+then ... end`, which narrows for every use. the full pattern set is in
 `cosmic --docs guide.checking`.
 
 ## 10. a record other files use must be nested in the module's interface record
@@ -273,7 +280,28 @@ check because warnings are errors; rename yours (`load_data`,
 `kind`, ...). the same trap at module level is gotcha #6's `io` example:
 binding `require("cosmic.fd")` to a local named `io` hides `io.stderr`.
 
-## 12. `os.exit` requires `integer | boolean`, not `number`
+## 12. colon-call only works on the value's own record type
+
+`db:exec(sql)` works because `exec` is declared on `sqlite.Database`
+itself. a function YOUR module declares that merely takes such a value
+as its first argument is not a method of that value — calling it with a
+colon fails:
+
+```teal
+local record StoreModule
+  add: function(db: sqlite.Database, name: string): boolean, string
+end
+
+db:add("alice")     -- error: invalid key 'add' in record 'db' of type sqlite.Database
+store.add(db, "alice")  -- right: module function, dot-called, value first
+```
+
+to get colon-call ergonomics for your own type, declare your own record
+with function fields taking `self` and construct values of it — see how
+`cosmic.fd`'s `Handle` does it. mixing the two (module functions over a
+foreign type) is the common, simpler shape; call them with a dot.
+
+## 13. `os.exit` requires `integer | boolean`, not `number`
 
 a `main` function declared to return `number` breaks `os.exit(main())`
 with `got number, expected integer | boolean`.

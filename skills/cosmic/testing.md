@@ -94,7 +94,11 @@ end
 test_write_file()
 ```
 
-`TEST_TMPDIR` is cleaned up automatically after each test.
+`TEST_TMPDIR` is cleaned up automatically after each test FILE — the
+functions within one file share it, in definition order. tests that
+would collide on a shared path should each mint their own subdirectory
+(`fs.temp_dir(fs.join(tmpdir, "case_XXXXXX"))`) rather than reuse one
+well-known name.
 
 ## The Test Sandbox
 
