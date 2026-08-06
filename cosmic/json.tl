@@ -74,6 +74,69 @@ local function encode(value: any, opts?: Options): string | nil, string
   return result, err
 end
 
+-- The shared marker metatable decode() applies to every array it
+-- decodes (and array() applies on demand); objects carry no metatable,
+-- so the marker is what tells the two apart after a decode.
+-- typed any: metatable<T>s for different T are not comparable
+local array_marker: any = getmetatable(cosmo.jsonarray({}))
+
+--- Describe a decoded value's JSON kind, for wrong-shape error messages.
+local function decoded_kind(v: any): string
+  if v == nil then
+    return "null"
+  end
+  local t = type(v)
+  if t ~= "table" then
+    return t
+  end
+  if getmetatable(v) == array_marker then
+    return "array"
+  end
+  return "object"
+end
+
+--- Decode a JSON object into a `{string: any}` map.
+--- Fails when the input is invalid JSON OR valid JSON whose top-level
+--- value is not an object, so the wrong-shape case is a real error
+--- instead of a downstream indexing surprise. Nested values are `any`;
+--- narrow uncertain shapes with `is`. Use decode() for the genuinely
+--- dynamic case.
+--- @param str string The JSON string to decode
+--- @return {string: any} | nil The decoded object
+--- @return string? Error message if decoding failed or the value is not an object
+local function decode_object(str: string): {string: any} | nil, string
+  local result, err = cosmo.DecodeJson(str)
+  if err then
+    return nil, err
+  end
+  if result is {string: any} then
+    if getmetatable(result) ~= array_marker then
+      return result
+    end
+  end
+  return nil, "expected a JSON object, got " .. decoded_kind(result)
+end
+
+--- Decode a JSON array into a `{any}` list.
+--- Fails when the input is invalid JSON OR valid JSON whose top-level
+--- value is not an array. Elements are `any`; narrow uncertain shapes
+--- with `is`. Use decode() for the genuinely dynamic case.
+--- @param str string The JSON string to decode
+--- @return {any} | nil The decoded array
+--- @return string? Error message if decoding failed or the value is not an array
+local function decode_array(str: string): {any} | nil, string
+  local result, err = cosmo.DecodeJson(str)
+  if err then
+    return nil, err
+  end
+  if result is {any} then
+    if getmetatable(result) == array_marker then
+      return result
+    end
+  end
+  return nil, "expected a JSON array, got " .. decoded_kind(result)
+end
+
 --- Mark a table as a JSON array so encode() serializes it as `[]` even
 --- when it is empty (an unmarked empty table encodes as `{}`). decode()
 --- applies the same marker to every array it decodes, which is how an
@@ -89,12 +152,16 @@ local record JsonModule
   type Options = Options
 
   decode: function(str: string): any, string
+  decode_object: function(str: string): {string: any} | nil, string
+  decode_array: function(str: string): {any} | nil, string
   encode: function(value: any, opts?: Options): string | nil, string
   array: function(t?: {any}): {any}
 end
 
 local M: JsonModule = {
   decode = decode,
+  decode_object = decode_object,
+  decode_array = decode_array,
   encode = encode,
   array = array,
 }
