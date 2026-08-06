@@ -94,12 +94,13 @@ rule refuses it from outside `cosmic/`.)
 run another script in a child process and read its output through a pipe.
 
 ```teal
+local check = require("cosmic.check")
 local child = require("cosmic.child")
+local proc = require("cosmic.proc")
 
-local cosmic_bin = rawget(arg, -1) as string -- NOT arg[0]; see gotchas #7
-local h, err = child.start({cosmic_bin, "worker.tl"})
-assert(h, err)
-local _, out = h:read()
+-- proc.interpreter() is arg[-1] resolved — NOT arg[0], the script path
+local h = check.must(child.start({check.must(proc.interpreter()), "worker.tl"}))
+local out = h:read()
 print(out)
 h:wait()
 ```

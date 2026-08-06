@@ -143,13 +143,13 @@ io.stderr:write("error: " .. msg .. "\n") -- standard Lua io still works
 
 cosmic.fd has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
 
-## 7. `arg[0]` is not the interpreter — use `arg[-1]` to re-invoke cosmic
+## 7. `arg[0]` is not the interpreter — use `proc.interpreter()` to re-invoke cosmic
 
-when a script needs to spawn the cosmic binary itself (e.g. to run another
-script as a child process), `arg[0]` is the script path as the runtime sees
-it (`/zip/main.lua` for the embedded entry point), not the interpreter.
-the interpreter path lives at `arg[-1]`, and because `arg` is typed
-`{string}`, negative indices need `rawget` in strict mode.
+when a script needs to spawn the cosmic binary itself (e.g. to run
+another script as a child process), `arg[0]` is the script path as the
+runtime sees it (`/zip/main.lua` for the embedded entry point), not the
+interpreter. `proc.interpreter()` returns the running interpreter's
+absolute path, typed and resolved.
 
 **wrong:**
 ```teal
@@ -159,9 +159,10 @@ local h = child.start({arg[0], "worker.tl"}) -- spawns /zip/main.lua: fails
 
 **right:**
 ```teal
+local check = require("cosmic.check")
 local child = require("cosmic.child")
-local cosmic_bin = rawget(arg, -1) as string -- e.g. "./cosmic"
-local h = child.start({cosmic_bin, "worker.tl"})
+local proc = require("cosmic.proc")
+local h = child.start({check.must(proc.interpreter()), "worker.tl"})
 ```
 
 ## 8. `print(f(...))` prints every return value
