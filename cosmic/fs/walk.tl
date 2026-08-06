@@ -106,9 +106,12 @@ end
 --- IMPORTANT: do NOT join path and name — path is already the full path.
 --- Joining them produces doubled paths like "dir/sub/file.txt/file.txt".
 ---
---- WalkStat is defined in cosmic.fs.types. Import it as:
----   local types = require("cosmic.fs.types")
----   local type WalkStat = types.WalkStat
+--- WalkStat is exported on the public fs module — annotate the visitor's
+--- third parameter as fs.WalkStat:
+---   local fs = require("cosmic.fs")
+---   fs.walk(dir, function(path: string, name: string, st: fs.WalkStat, ctx: any) ... end)
+--- (cosmic.fs.types is an internal shard; requiring it from outside
+--- cosmic/ fails the lint visibility rule.)
 ---
 --- If the root directory cannot be opened, returns nil plus the error.
 --- Failures below the root (unreadable subdirectory, vanished entry) do
