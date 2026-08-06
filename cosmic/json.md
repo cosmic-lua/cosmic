@@ -46,6 +46,8 @@ end
 ```teal
 local record JsonModule
   decode: function(str: string): any, string
+  decode_object: function(str: string): {string: any} | nil, string
+  decode_array: function(str: string): {any} | nil, string
   encode: function(value: any, opts?: Options): string | nil, string
   array: function(t?: {any}): {any}
 end
@@ -95,6 +97,48 @@ function encode(value: any, opts?: Options): string | nil, string
 
 - string - | nil The JSON string representation
 - string? - Error message if encoding failed
+
+### decode_object
+
+```teal
+function decode_object(str: string): {string: any} | nil, string
+```
+
+ Decode a JSON object into a `{string: any}` map.
+ Fails when the input is invalid JSON OR valid JSON whose top-level
+ value is not an object, so the wrong-shape case is a real error
+ instead of a downstream indexing surprise. Nested values are `any`;
+ narrow uncertain shapes with `is`. Use decode() for the genuinely
+ dynamic case.
+
+**Parameters:**
+
+- `str` (string) - The JSON string to decode
+
+**Returns:**
+
+- {string: - any} | nil The decoded object
+- string? - Error message if decoding failed or the value is not an object
+
+### decode_array
+
+```teal
+function decode_array(str: string): {any} | nil, string
+```
+
+ Decode a JSON array into a `{any}` list.
+ Fails when the input is invalid JSON OR valid JSON whose top-level
+ value is not an array. Elements are `any`; narrow uncertain shapes
+ with `is`. Use decode() for the genuinely dynamic case.
+
+**Parameters:**
+
+- `str` (string) - The JSON string to decode
+
+**Returns:**
+
+- {any} - | nil The decoded array
+- string? - Error message if decoding failed or the value is not an array
 
 ### array
 
