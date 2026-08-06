@@ -256,6 +256,37 @@ local function parse(source: string, file_path: string): ModuleDoc
         fields = fields, line = line_num,
       })
   end
+  -- Type aliases: `local type Name = target`. The alias IS the public
+  -- name (api-review-8: zip's Archive aliases the generated
+  -- cosmo.zip.Reader) while the target holds the field/method table, so
+  -- without an entry the public name is invisible in the rendered Types
+  -- section and unresolvable per-symbol. The alias renders as its own
+  -- doc comment plus a pointer at the resolved target's docs.
+  local require_paths: {string: string} = {}
+  for req_name, req_mod in source:gmatch("local%s+([%w_]+)%s*=%s*require%(\"([^\"]+)\"%)") do
+    require_paths[req_name] = req_mod
+  end
+  for alias_start, alias_name, target in source:gmatch("()local%s+type%s+([%w_]+)%s*=%s*([%w_%.]+)") do
+    local alias_doc = extract_doc_comment(source, alias_start)
+    local _, _, alias_description = parse_annotations(alias_doc)
+    local base, rest = target:match("^([%w_]+)%.(.+)$")
+    local resolved = target
+    if base and require_paths[base] then
+      resolved = require_paths[base] .. "." .. rest
+    end
+    local pointer = "alias of `" .. resolved .. "`"
+    if resolved:find(".", 1, true) then
+      pointer = pointer .. " — field and method table: `cosmic --docs " .. resolved .. "`"
+    end
+    local full_description = pointer
+    if alias_description then
+      full_description = alias_description .. "\n\n" .. pointer
+    end
+    table.insert(doc.records, {
+        name = alias_name, description = full_description,
+        fields = {}, line = 0,
+      })
+  end
   -- Examples
   line_num = 1
   last_pos = 1
