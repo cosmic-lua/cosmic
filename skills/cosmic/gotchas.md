@@ -357,3 +357,27 @@ end
 os.exit(main())
 -- or convert at the call site: os.exit(math.tointeger(code) or 1)
 ```
+
+## 15. `gsub`'s replacement string interprets `%` — dangerous with untrusted values
+
+`string.gsub`'s third argument is not plain text: `%1`–`%9` splice in
+captures, `%0` the whole match, and a lone `%` followed by anything
+else is an error. substituting an untrusted value into a template this
+way corrupts output — or crashes — the first time the value contains a
+`%` (a URL-encoded string, a printf format, a literal percentage).
+
+**wrong:**
+```teal
+local page = template:gsub("{{name}}", user_name)
+-- user_name = "50%" → runtime error: invalid use of '%' in replacement string
+```
+
+**right — escape `%` in the replacement first:**
+```teal
+local safe = user_name:gsub("%%", "%%%%")
+local page = template:gsub("{{name}}", safe)
+```
+
+(the needle side has the same property — see the find-needle lint rule
+for `find`; on `gsub` both arguments are magic, and only the
+replacement side is fixable by doubling `%`.)
