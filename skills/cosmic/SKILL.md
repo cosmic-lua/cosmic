@@ -57,7 +57,7 @@ return {greet = greet}
 run `cosmic --docs guide.<topic>` or see the files below for deeper coverage:
 
 - [quickstart](quickstart.md) — your first project: binary + module + test, built and gated
-- [gotchas](gotchas.md) — Teal gotchas for newcomers (integer vs number, any casts, io shadowing)
+- [gotchas](gotchas.md) — Teal gotchas for newcomers (integer vs number, any casts, arg layout)
 - [recipes](recipes.md) — end-to-end patterns (CLI skeleton, walk+hash+sqlite, self-spawn, TCP echo)
 - [testing](testing.md) — writing and running tests (`cosmic --test`, assert patterns)
 - [checking](checking.md) — type checking with `cosmic --check types`

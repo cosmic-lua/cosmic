@@ -15,10 +15,25 @@ all standard library modules are imported as `cosmic.*`:
 ```teal
 local json = require("cosmic.json")
 local fs = require("cosmic.fs")
-local fs = require("cosmic.fs")
 ```
 
 prefer `cosmic.*` modules over raw `cosmo.*` C bindings. use `cosmo.*` only when no `cosmic.*` alternative exists yet.
+
+## Local Modules — `require` path resolution
+
+`require("mymod")` resolves relative to the script's directory, not the
+current working directory. you do not need a `./` prefix (both work).
+
+```teal
+-- both are equivalent when mymod.tl is in the same directory:
+local m = require("mymod")
+local m2 = require("./mymod") -- also works
+```
+
+if your module is in a subdirectory:
+```teal
+local m = require("subdir.mymod") -- loads subdir/mymod.tl
+```
 
 ## Error Handling
 
