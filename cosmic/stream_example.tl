@@ -69,5 +69,20 @@ local function Example_from_string()
   -- beta
 end
 
+-- Example_buffer demonstrates the in-memory Writer: point any
+-- Reader-to-Writer plumbing at it and read the result back as a
+-- string. With from_string on the other end, a whole pipeline runs
+-- without touching a descriptor.
+local function Example_buffer()
+  local check = require("cosmic.check")
+  local stream = require("cosmic.stream")
+
+  local buf = stream.buffer()
+  check.must(stream.copy(buf, stream.from_string("round trip")))
+  print(buf:contents())
+  -- Output:
+  -- round trip
+end
+
 -- Suppress unused warnings for examples
-local _ = {Example_reader, Example_writer, Example_from_string}
+local _ = {Example_reader, Example_writer, Example_from_string, Example_buffer}

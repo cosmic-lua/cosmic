@@ -173,3 +173,21 @@ local function test_from_string_feeds_lines()
   check.eq(iter(), nil, "then nil")
 end
 test_from_string_feeds_lines()
+
+local function test_buffer_collects_writes()
+  local buf = stream.buffer()
+  check.eq(buf:contents(), "", "empty before any write")
+  check.eq(buf:write("collected "), 10, "write reports the chunk written")
+  buf:write("bytes")
+  check.eq(buf:contents(), "collected bytes", "contents is everything written")
+  check.eq(buf:contents(), "collected bytes", "contents is repeatable")
+end
+test_buffer_collects_writes()
+
+local function test_buffer_round_trips_through_copy()
+  local buf = stream.buffer()
+  local copied = check.must(stream.copy(buf, stream.from_string("round trip")))
+  check.eq(copied, 10, "copy reports the byte count")
+  check.eq(buf:contents(), "round trip", "from_string -> buffer round-trips")
+end
+test_buffer_round_trips_through_copy()
