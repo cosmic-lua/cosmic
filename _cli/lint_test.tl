@@ -56,6 +56,59 @@ local function test_lint_file_over_default()
 end
 test_lint_file_over_default()
 
+-- A binary (or any non-Teal/Lua file) over the length limit gets the
+-- .cosmicignore hint: "split this file" is not actionable advice for an
+-- ELF binary the walk swept in.
+local function test_lint_file_hints_cosmicignore_for_binary()
+  local path = fs.join(tmpdir, "toolbinary")
+  local chunk = "\0\1\2ELF junk line\n"
+  fs.write(path, chunk:rep(600))
+
+  local diagnostics = check.must(lint.lint_file(path))
+  assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
+  assert(diagnostics[1].rule == "file-length", "expected file-length rule")
+  assert(diagnostics[1].message:find("a binary file", 1, true),
+    "expected the binary nature named, got: " .. diagnostics[1].message)
+  assert(diagnostics[1].message:find(".cosmicignore", 1, true),
+    "expected a .cosmicignore hint, got: " .. diagnostics[1].message)
+end
+test_lint_file_hints_cosmicignore_for_binary()
+
+local function test_lint_file_hints_cosmicignore_for_non_source_text()
+  local path = fs.join(tmpdir, "data.csv")
+  local lines: {string} = {}
+  for i = 1, 501 do
+    table.insert(lines, "row," .. tostring(i))
+  end
+  fs.write(path, table.concat(lines, "\n") .. "\n")
+
+  local diagnostics = check.must(lint.lint_file(path))
+  assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
+  assert(diagnostics[1].message:find("not Teal/Lua source", 1, true),
+    "expected the nature named, got: " .. diagnostics[1].message)
+  assert(diagnostics[1].message:find(".cosmicignore", 1, true),
+    "expected a .cosmicignore hint, got: " .. diagnostics[1].message)
+end
+test_lint_file_hints_cosmicignore_for_non_source_text()
+
+-- Teal/Lua source over the limit keeps the plain message: the fix for
+-- source really is to split it, and a .cosmicignore hint there would
+-- teach people to ignore their own code.
+local function test_lint_file_no_ignore_hint_for_source()
+  local path = fs.join(tmpdir, "long2.tl")
+  local lines: {string} = {}
+  for i = 1, 501 do
+    table.insert(lines, "-- line " .. tostring(i))
+  end
+  fs.write(path, table.concat(lines, "\n") .. "\n")
+
+  local diagnostics = check.must(lint.lint_file(path))
+  assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
+  assert(not diagnostics[1].message:find(".cosmicignore", 1, true),
+    "source files should not get the ignore hint: " .. diagnostics[1].message)
+end
+test_lint_file_no_ignore_hint_for_source()
+
 local function test_lint_file_skips_dtl()
   -- .d.tl files are type declarations for C bindings and are exempt from length checks
   local path = fs.join(tmpdir, "types.d.tl")
