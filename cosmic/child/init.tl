@@ -1,19 +1,19 @@
 --- Child process management.
 ---
---- The high-level spawn API. `start` starts a process and hands back a
---- `Handle` you can `kill`, `wait` on (with an optional timeout), poll with
---- `try_wait`, or stream from with `read`. `run` is the one-shot form that
---- spawns, waits, and returns a structured `Result`. Low-level syscall
---- passthroughs (fork/wait/kill/posix_spawn, the W* status helpers) live in
---- `cosmic.proc`; this module builds the ergonomic layer on top.
+--- The high-level spawn API: `start` hands back a `Handle` you can `kill`,
+--- `wait` on (with an optional timeout), poll with `try_wait`, or stream
+--- from with `read`; `run` is the one-shot spawn-wait-`Result` form. The
+--- raw syscalls (fork/wait/kill, W* helpers) live in `cosmic.proc`.
 ---
---- A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so a
---- second `wait` returns the same value instead of failing. An abandoned
---- handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap an
---- un-waited child and close its pipes, so `local h <close> = start{...}` (or
---- simply dropping the handle) never leaves a zombie. Side effect: requiring
---- cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child closing
---- stdin early gets EPIPE on the write, not a dead parent).
+--- A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so
+--- a second `wait` returns the same value instead of failing. An abandoned
+--- handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap
+--- an un-waited child and close its pipes, so `local h <close> = start{...}`
+--- (or simply dropping the handle) never leaves a zombie. Side effect:
+--- requiring cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child
+--- closing stdin early gets EPIPE on the write, not a dead parent).
+--- Testing a server you spawn? Have it print `READY <port>` and block on
+--- reading that line — the readiness pattern in `cosmic --docs guide.recipes`.
 local unix = require("cosmo.unix")
 local cfd = require("cosmic.fd")
 local childio = require("cosmic.child.io")
