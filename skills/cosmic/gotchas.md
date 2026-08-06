@@ -4,29 +4,22 @@ common errors that trip up agents and developers new to Teal. each entry shows t
 
 ## 1. integer vs number
 
-Teal distinguishes `integer` from `number`. string indices (`string.sub`, `string.byte`, `table` lookups) and some C bindings require `integer`. arithmetic and C status returns are `number`.
+Teal distinguishes `integer` from `number`: string indices
+(`string.sub`, `string.byte`, table lookups) require `integer`, and
+arithmetic yields `number`. the `got number, expected integer` error
+carries the fix as a hint — annotate the variable `: integer`, or
+convert at the call site with `math.tointeger`.
 
-**wrong:**
 ```teal
-local n: number = 5
-local s = ("hello"):sub(n, n) -- error: got number, expected integer
-```
-
-**right:**
-```teal
--- option A: annotate the literal as integer
 local n: integer = 5
 local s = ("hello"):sub(n, n)
-
--- option B: convert at call site
-local n: number = some_computation()
-local s = ("hello"):sub(math.tointeger(n), math.tointeger(n))
+-- from a computation: convert first
+local m = ("hello"):sub(math.tointeger(x) or 1, 5)
 ```
 
-`WEXITSTATUS` and similar status-decoding functions return `number`, not `integer`:
-```teal
-local code: number = child.WEXITSTATUS(status)
-```
+(bindings that return integral values — exit statuses, fds, pids,
+sizes — are annotated `integer` at the source of truth, so no
+conversion dance is needed on that side.)
 
 ## 2. traversing `any` from json.decode
 
@@ -85,23 +78,12 @@ cosmic.main(function(args: {string}, env: cosmic.Env): number, string
   end)
 ```
 
-## 4. multi-return capture — `db:query` and similar
+## 4. multi-return capture
 
-functions that return `(iterator, state, initial)` (like `db:query`) cannot be wrapped inside another expression — the extra returns are discarded.
+the checker's `excess return values` error carries the fix as a hint:
+capture multiple returns first — `local v, err = f(...)`. wrapping a
+multi-return call inside another expression discards the extra returns.
 
-**wrong:**
-```teal
-for row in db:query("SELECT * FROM t"), nil, nil do -- syntax error / wrong returns
-```
-
-**right:**
-```teal
-for row in db:query("SELECT * FROM t") do
-  print(row.id)
-end
-```
-
-if you need to capture both the iterator and an error return, assign to locals first:
 ```teal
 local rows, err = db:query("SELECT * FROM t")
 if not rows then
@@ -112,39 +94,18 @@ for row in rows do
 end
 ```
 
-## 5. local modules — `require` path resolution
+## 5. retired — moved to guide.modules
 
-`require("mymod")` resolves relative to the script's directory, not the current working directory. you do not need a `./` prefix (both work).
+how `require` resolves local module paths is information, not a trap;
+it now lives in `cosmic --docs guide.modules`.
 
-```teal
--- both are equivalent when mymod.tl is in the same directory:
-local m = require("mymod")
-local m2 = require("./mymod") -- also works
-```
+## 6. retired — the checker prevents it
 
-if your module is in a subdirectory:
-```teal
-local m = require("subdir.mymod") -- loads subdir/mymod.tl
-```
-
-## 6. naming `cosmic.fd` as `io`
-
-`require("cosmic.fd")` returns the cosmic.fd module. if you bind it to a local named `io` you shadow Lua's built-in `io` library and lose access to `io.stderr`, `io.stdin`, `io.stdout`.
-
-**wrong:**
-```teal
-local io = require("cosmic.fd") -- hides io.stderr!
-io.stderr:write("error\n") -- runtime error: attempt to index nil
-```
-
-**right:**
-```teal
-local fs = require("cosmic.fs") -- keep built-in io accessible
-fs.write("out.txt", data)
-io.stderr:write("error: " .. msg .. "\n") -- standard Lua io still works
-```
-
-cosmic.fd has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
+binding a module to a local that shadows a Lua builtin
+(`local io = require("cosmic.fd")`) is a `--check types` error today
+(`variable shadows previous declaration of 'io'`, warnings are errors),
+so the runtime surprise this entry described is unreachable. rename the
+local (`fd`, `fs`, ...); Lua's `io.stderr` stays available.
 
 ## 7. `arg[0]` is not the interpreter — use `proc.interpreter()` to re-invoke cosmic
 
@@ -282,36 +243,25 @@ end
 works when the record must stay standalone for internal reasons — see
 how `cosmic.fs` re-exports `Stat`.)
 
-## 11. shadowing a Lua builtin
+## 11. retired — the checker prevents it
 
-`--check types` warns on any shadowed declaration, including Lua's own
-globals — a `local function load(...)` shadows the builtin `load()`,
-`local type = ...` shadows `type()`. the warning
-(`function shadows previous declaration of 'load'`) fails the strict
-check because warnings are errors; rename yours (`load_data`,
-`kind`, ...). the same trap at module level is gotcha #6's `io` example:
-binding `require("cosmic.fd")` to a local named `io` hides `io.stderr`.
+shadowing any declaration, including Lua builtins (`local function
+load(...)`, `local type = ...`), is a `--check types` error today
+(warnings are errors). the error names the shadowed declaration; rename
+yours (`load_data`, `kind`, ...).
 
 ## 12. colon-call only works on the value's own record type
 
-`db:exec(sql)` works because `exec` is declared on `sqlite.Database`
-itself. a function YOUR module declares that merely takes such a value
-as its first argument is not a method of that value — calling it with a
-colon fails:
+the checker's `invalid key 'add' in record 'db'` error carries the fix
+as a hint: a function on your MODULE's record is dot-called with the
+value first (`store.add(db, ...)`), never colon-called (`db:add(...)`).
+colon-call works only for functions declared on the value's own record
+type (like `db:exec` on `sqlite.Database`).
 
 ```teal
-local record StoreModule
-  add: function(db: sqlite.Database, name: string): boolean, string
-end
-
 db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Database
 store.add(db, "alice") -- right: module function, dot-called, value first
 ```
-
-to get colon-call ergonomics for your own type, declare your own record
-with function fields taking `self` and construct values of it — see how
-`cosmic.fd`'s `Handle` does it. mixing the two (module functions over a
-foreign type) is the common, simpler shape; call them with a dot.
 
 ## 13. `local x = nil` means type nil, forever
 
