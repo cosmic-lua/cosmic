@@ -40,7 +40,9 @@
  CommandSpec — one Spec per subcommand — and dispatch with
  flags.command(cspec, arg); flags.command_help renders the overview
  or a command's page. Same contract as parse: never prints, never
- exits.
+ exits. Options follow the command (`todo add --file x`), and error
+ strings arrive already prefixed with the program name — print them
+ as-is, or a caller's own prefix doubles it.
 
    local cspec: flags.CommandSpec = {
      name = "todo",
