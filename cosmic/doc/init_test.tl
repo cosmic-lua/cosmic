@@ -118,6 +118,29 @@ end
 end
 test_parse_record_keyword_in_strings_and_long_comments()
 
+-- A `local type Name = target` alias is a public name whose fields live
+-- on the target (zip's Archive = cosmo.zip.Reader): it must render as a
+-- Types entry with the target resolved through the file's requires.
+local function test_parse_type_alias_points_at_target()
+  local source = [[
+local zip = require("gen.zip")
+
+--- Reader for extracting files from an archive.
+local type Archive = zip.Reader
+]]
+
+  local result = doc.parse(source, "test.tl")
+  assert(#result.records == 1, "alias should produce a Types entry")
+  local rec = result.records[1]
+  assert(rec.name == "Archive", "alias name")
+  assert(rec.description:find("extracting files", 1, true), "keeps its doc comment")
+  assert(rec.description:find("alias of `gen.zip.Reader`", 1, true),
+    "resolves the local require binding: " .. rec.description)
+  assert(rec.description:find("cosmic --docs gen.zip.Reader", 1, true),
+    "points at the target's own docs")
+end
+test_parse_type_alias_points_at_target()
+
 -- Test parsing Example_* functions
 local function test_parse_example()
   local source = [[
