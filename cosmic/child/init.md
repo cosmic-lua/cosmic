@@ -66,10 +66,13 @@ end
 ### Options
 
  Options for spawning a process.
- stdout/stderr Handles (cosmic.fd) become the child's fd 1/2 (the
- matching Result field is then ""); spawn does not take ownership —
- the child gets its own copy, so close your end when done (see
- Example_run_pipe). Raw integer fds are not part of this surface
+ Leave stdout/stderr nil (the default) and the output is captured for
+ you: wait/run drain the child and return the bytes in Result.stdout
+ and Result.stderr. Set these fields only to send a stream somewhere
+ else. stdout/stderr Handles (cosmic.fd) become the child's fd 1/2
+ (the matching Result field is then ""); spawn does not take
+ ownership — the child gets its own copy, so close your end when done
+ (see Example_run_pipe). Raw integer fds are not part of this surface
  (api-review-2); wrap one with fd.wrap() first. "inherit" writes to
  THIS process's fd 1/2 so output streams as it runs; Result stays "".
 
