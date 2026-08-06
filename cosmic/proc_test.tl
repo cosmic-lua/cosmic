@@ -445,3 +445,25 @@ local function test_execve_error_names_errno()
     "execve error should name the program, got: " .. tostring(err))
 end
 test_execve_error_names_errno()
+
+-- interpreter tests --
+
+local function test_interpreter_resolves_running_binary()
+  local exe = check.must(proc.interpreter())
+  assert(fs.is_absolute(exe), "interpreter path should be absolute, got: " .. exe)
+  assert(fs.is_file(exe), "interpreter path should name a real file, got: " .. exe)
+  assert(exe ~= "/zip/main.lua", "interpreter must not be the embedded script path")
+end
+test_interpreter_resolves_running_binary()
+
+local function test_interpreter_is_cached_and_spawnable()
+  local exe = check.must(proc.interpreter())
+  assert(exe == check.must(proc.interpreter()), "repeat calls should agree")
+  local child = require("cosmic.child")
+  local h = check.must(child.start({exe, "-e", "print('from child')"}))
+  local out = h:read()
+  check.must(h:wait())
+  assert(tostring(out):find("from child", 1, true),
+    "spawned interpreter should run code, got: " .. tostring(out))
+end
+test_interpreter_is_cached_and_spawnable()

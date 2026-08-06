@@ -22,6 +22,7 @@
 
 local fs = require("cosmic.fs")
 local literal = require("cosmic.literal")
+local str = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 --- A resolved pin.
@@ -170,10 +171,10 @@ local function read(path: string, host?: string): Pin | nil, string
   end
   local resolved = url
   if version then
-    resolved = (url:gsub("{version}", version))
+    resolved = str.replace(url, "{version}", version)
   end
   if platform ~= "" then
-    resolved = (resolved:gsub("{platform}", platform))
+    resolved = str.replace(resolved, "{platform}", platform)
   end
   -- The output name comes from the URL, not the pin's position: a pin
   -- fetches a named artifact and its extension matters to whatever

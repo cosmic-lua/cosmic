@@ -48,7 +48,10 @@ trusted. new casts count against the cast ratchet (`_build/casts.txt`).
 
 ## 3. `arg` elements are `string | nil`
 
-the global `arg` table has type `{string | nil}`. accessing `arg[1]` without a guard may give you `nil`, which causes a type error when used where a `string` is expected.
+the global `arg` table has type `{string | nil}`: accessing `arg[1]`
+without a guard may give you `nil`, a type error where a `string` is
+expected. (a missing argument is `nil` at runtime either way — guard
+before use.)
 
 **wrong:**
 ```teal
@@ -58,13 +61,21 @@ local name = arg[1]:upper() -- error: cannot index nil
 **right:**
 ```teal
 local name = (arg[1] or "default"):upper()
+```
 
--- or with an explicit check:
-if not arg[1] then
-  io.stderr:write("usage: myscript <name>\n")
-  os.exit(1)
-end
-local name = (arg[1] as string):upper()
+inside `cosmic.main`, a usage guard is an early return, and the scalar
+narrows through it for plain (non-method) uses:
+
+```teal
+cosmic.main(function(args: {string}, env: cosmic.Env): number, string
+    local name = args[1]
+    if not name then
+      env.stderr:write("usage: myscript <name>\n")
+      return 1
+    end
+    print("hello, " .. name)
+    return 0
+  end)
 ```
 
 ## 4. multi-return capture
@@ -96,13 +107,13 @@ binding a module to a local that shadows a Lua builtin
 so the runtime surprise this entry described is unreachable. rename the
 local (`fd`, `fs`, ...); Lua's `io.stderr` stays available.
 
-## 7. `arg[0]` is not the interpreter — use `arg[-1]` to re-invoke cosmic
+## 7. `arg[0]` is not the interpreter — use `proc.interpreter()` to re-invoke cosmic
 
-when a script needs to spawn the cosmic binary itself (e.g. to run another
-script as a child process), `arg[0]` is the script path as the runtime sees
-it (`/zip/main.lua` for the embedded entry point), not the interpreter.
-the interpreter path lives at `arg[-1]`, and because `arg` is typed
-`{string}`, negative indices need `rawget` in strict mode.
+when a script needs to spawn the cosmic binary itself (e.g. to run
+another script as a child process), `arg[0]` is the script path as the
+runtime sees it (`/zip/main.lua` for the embedded entry point), not the
+interpreter. `proc.interpreter()` returns the running interpreter's
+absolute path, typed and resolved.
 
 **wrong:**
 ```teal
@@ -112,9 +123,10 @@ local h = child.start({arg[0], "worker.tl"}) -- spawns /zip/main.lua: fails
 
 **right:**
 ```teal
+local check = require("cosmic.check")
 local child = require("cosmic.child")
-local cosmic_bin = rawget(arg, -1) as string -- e.g. "./cosmic"
-local h = child.start({cosmic_bin, "worker.tl"})
+local proc = require("cosmic.proc")
+local h = child.start({check.must(proc.interpreter()), "worker.tl"})
 ```
 
 ## 8. `print(f(...))` prints every return value
@@ -278,56 +290,25 @@ local earliest: integer | nil = nil
 with the annotation, the running-min/max idiom above compiles as
 written — scalars narrow through the `not earliest or ...` guard fine.
 
-## 14. `os.exit` requires `integer | boolean`, not `number`
+## 14. retired — the taught path never calls `os.exit`
 
-a `main` function declared to return `number` breaks `os.exit(main())`
-with `got number, expected integer | boolean`.
+`cosmic.main(fn)` (the entry-point shape the quickstart teaches) does
+the exit itself and accepts any numeric return, so this trap no longer
+appears on the taught path. if you call `os.exit` yourself, it requires
+`integer | boolean`, not `number` — convert at the call site
+(`os.exit(math.tointeger(code) or 1)`); the error-site hint names the
+same fix.
 
-**wrong:**
-```teal
-local function main(): number
-  return 0
-end
-os.exit(main())
-```
+## 15. `gsub`'s replacement string interprets `%` — use `str.replace` for literal text
 
-**right:**
-```teal
-local function main(): integer
-  return 0
-end
-os.exit(main())
--- or convert at the call site: os.exit(math.tointeger(code) or 1)
-```
+`string.gsub`'s replacement is not plain text (`%1` splices a capture,
+a lone `%` is a runtime error), so templating an untrusted value in
+breaks on the first `%`. for literal text use `str.replace`
+(cosmic.string) — literal on both sides, nothing to escape. the
+`gsub-replacement` lint flags a non-literal replacement and
+`cosmic --docs guide.lint` documents the deliberate-template escape.
 
-## 15. `gsub`'s replacement string interprets `%` — dangerous with untrusted values
-
-`string.gsub`'s third argument is not plain text: `%1`–`%9` splice in
-captures, `%0` the whole match, and a lone `%` followed by anything
-else is an error. substituting an untrusted value into a template this
-way corrupts output — or crashes — the first time the value contains a
-`%` (a URL-encoded string, a printf format, a literal percentage).
-
-**wrong:**
-```teal
-local page = template:gsub("{{name}}", user_name)
--- user_name = "50%" → runtime error: invalid use of '%' in replacement string
-```
-
-**right — for literal text, use `str.replace`** (both sides literal, no
-magic characters on either):
 ```teal
 local str = require("cosmic.string")
 local page = str.replace(template, "{{name}}", user_name)
 ```
-
-when you genuinely need `gsub` (a real pattern on the needle side),
-escape `%` in the replacement first:
-```teal
-local safe = user_name:gsub("%%", "%%%%")
-local page = template:gsub(needle_pattern, safe)
-```
-
-(the needle side has the same property — see the find-needle lint rule
-for `find`; on `gsub` both arguments are magic, and `str.replace` is the
-literal-on-both-sides answer.)

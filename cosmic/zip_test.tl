@@ -3,6 +3,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
+local str = require("cosmic.string")
 local zip = require("cosmic.zip")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -338,7 +339,7 @@ local function crafted_archive(patch_to: string): string
   w:close()
   local raw = check.must(fs.read(safe))
   assert(#patch_to == #"XX/escaped.txt", "patch must preserve name length")
-  local patched = string.gsub(raw, "XX/escaped%.txt", patch_to)
+  local patched = str.replace(raw, "XX/escaped.txt", patch_to)
   return patched
 end
 
