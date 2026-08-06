@@ -58,7 +58,6 @@ substring.
 
 ```teal
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local hash = require("cosmic.hash")
 local sqlite = require("cosmic.sqlite")
 
@@ -66,15 +65,14 @@ local db = sqlite.open("index.db")
 db:exec("CREATE TABLE IF NOT EXISTS files (" ..
   "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)")
 
-fs.walk("testdata", function(path: string, _name: string, st: any, _ctx: any)
+fs.walk("testdata", function(path: string, _name: string, st: fs.WalkStat, _ctx: any)
     -- path is the FULL path; do not join it with the basename
-    local stat = st as fs_types.Stat
-    if stat:is_file() then
+    if st:is_file() then
       local data = fs.read(path)
       if data then
         db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
           "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..
-          "digest = excluded.digest", path, stat:size(), hash.sha256_hex(data))
+          "digest = excluded.digest", path, st:size(), hash.sha256_hex(data))
       end
     end
   end)
@@ -86,9 +84,10 @@ end
 db:close()
 ```
 
-for the precise `WalkStat` type, import it:
-`local types = require("cosmic.fs.types")` and annotate the visitor's third
-parameter as `types.WalkStat`.
+the visitor's third parameter is `fs.WalkStat`, exported on the public
+`cosmic.fs` module — annotate it directly, as above. (do not require
+`cosmic.fs.types`: that is an internal shard, and the lint visibility
+rule refuses it from outside `cosmic/`.)
 
 ## spawn cosmic as a child (self-reinvocation)
 
