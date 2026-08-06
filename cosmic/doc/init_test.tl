@@ -159,6 +159,27 @@ end
 end
 test_parse_example()
 
+-- Every line of a multi-line Output block must lose its `-- ` prefix:
+-- `.` matches newlines in Lua patterns, so the extraction used to take
+-- the whole rest of the body as line one and leave later lines raw.
+local function test_parse_example_multiline_output()
+  local source = [[
+local function Example_multi()
+  print("a")
+  print("b:", 1)
+  -- Output:
+  -- a
+  -- b:	1
+end
+]]
+
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  local got = result.examples[1].expected_output
+  assert(got == "a\nb:\t1", "prefixes stripped on every line, got: " .. string.format("%q", got))
+end
+test_parse_example_multiline_output()
+
 -- Test that regular `--` comments (not `---`) directly above an
 -- Example_* function are picked up as its description: doc.parse is
 -- the one caller that passes allow_regular_comments=true to
