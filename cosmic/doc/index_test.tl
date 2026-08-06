@@ -225,3 +225,53 @@ return {}
   assert(examples and #examples == 1, "the example merges onto the same page")
 end
 test_example_beside_directory_module()
+
+-- An example file beside an init shard (gizmo/init_example.tl)
+-- documents the directory module: it must land on the normalized
+-- parent entry, not re-register a stranded `.init` module. The shipped
+-- index regressed exactly this way (seven stranded .init entries) when
+-- normalization moved ahead of the example merge.
+local function test_init_example_lands_on_directory_module()
+  local pdir = fs.join(tmpdir, "gizmo")
+  assert(fs.make_dirs(pdir))
+  local init_path = fs.join(pdir, "init.tl")
+  assert(fs.write(init_path, [[
+--- Gizmo module.
+
+--- Turn a gizmo.
+--- @param n number Turns
+--- @return number The turned value
+local function turn(n: number): number
+  return n + 1
+end
+
+return { turn = turn }
+]]))
+  local example_path = fs.join(pdir, "init_example.tl")
+  assert(fs.write(example_path, [[
+--- Examples for gizmo.
+local function Example_turn()
+  print("turned")
+  -- Output:
+  -- turned
+end
+return {}
+]]))
+
+  local encoded = check.must(index.generate(
+      {init_path, example_path},
+      {
+        [init_path] = "gizmo.init",
+        [example_path] = "gizmo.init_example",
+      }))
+  local data = check.must(codec.decode_lua_unsafe(encoded))
+  local modules = (data as {string: any}).modules as {string: any} -- cast: from any
+  assert(modules["gizmo"], "gizmo.init should normalize to gizmo")
+  assert(modules["gizmo.init"] == nil,
+    "the init name must not be re-registered by its example")
+  local parent = modules["gizmo"] as {string: any} -- cast: from any
+  local examples = parent.examples as {any} -- cast: from any
+  assert(examples and #examples == 1,
+    "the init example lands on the directory module's page")
+end
+test_init_example_lands_on_directory_module()

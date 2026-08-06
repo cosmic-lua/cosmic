@@ -221,6 +221,15 @@ local function generate(files: {string},
 
   -- Merge examples from _example files into corresponding modules
   for base_name, example_doc in pairs(example_files) do
+    -- An example beside an init shard (cosmic/fs/init_example.tl)
+    -- documents the DIRECTORY module, whose entry normalize_init just
+    -- renamed to the name users require. Without this retarget the
+    -- orphan branch below re-registers the stranded `.init` name — and
+    -- the example never reaches the module's page.
+    local init_parent = base_name:match("^(.+)%.init$")
+    if init_parent and not modules[base_name] and modules[init_parent] then
+      base_name = init_parent
+    end
     local mod = modules[base_name]
     if mod then
       -- Merge examples into the module's examples
