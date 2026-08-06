@@ -70,8 +70,10 @@ end
 --- argv[1] selects the command; the rest parses against that command's
 --- own Spec. `prog --help`/`prog help` and `prog help <command>` come
 --- back as help requests (never printed here), --version likewise when
---- the spec carries a version. No command, an unknown command, or a
---- failed sub-parse is nil plus a one-line message naming the commands.
+--- the spec carries a version. No command, an unknown command, options
+--- before the command, or a failed sub-parse is nil plus a one-line
+--- message — already prefixed with the program name, so print it
+--- as-is; adding your own prefix doubles it ("todo: todo: ...").
 --- @param cspec CommandSpec The declared interface
 --- @param argv {string} The argument list (typically the global arg)
 --- @return Dispatched | nil The dispatch result, or nil on any error
@@ -103,6 +105,12 @@ local function command(cspec: CommandSpec, argv: {string}): Dispatched | nil, st
   end
   if cspec.version and first == "--version" then
     return {help = false, version = true}
+  end
+  -- An option before any command was the one mistake the generic
+  -- "unknown command '--file'" error obscured; name the ordering.
+  if first:sub(1, 1) == "-" then
+    return nil, pname .. ": options follow the command (" .. pname
+    .. " <command> [options]); commands: " .. command_names(cspec)
   end
   local cmd = find_command(cspec, first)
   if not cmd then

@@ -214,6 +214,18 @@ local function test_command_errors_name_the_commands()
 end
 test_command_errors_name_the_commands()
 
+local function test_command_option_before_command_names_the_order()
+  -- The generic "unknown command '--file'" read like a spec problem;
+  -- the ordering error says what to type instead. --help/-h/--version
+  -- keep their meanings (covered below), so only OTHER leading options
+  -- take this path.
+  local d, err = flags.command(make_cspec(), {"--all", "list"})
+  assert(d == nil, "an option before the command is an error")
+  assert(err:find("options follow the command", 1, true), "got: " .. err)
+  assert(err:find("add, list", 1, true), "the commands are still named: " .. err)
+end
+test_command_option_before_command_names_the_order()
+
 local function test_command_help_and_version_forms()
   for _, argv in ipairs({{"--help"}, {"-h"}, {"help"}}) do
     local d = check.must(flags.command(make_cspec(), argv))
