@@ -156,6 +156,14 @@ keep logic tests at the library layer, where functions are called
 directly; the binary spawn is for the argv-parsing and
 output-formatting skin that exists only in `cmd/<name>/main.tl`.
 
+the spawn is also the ONLY way to test embedded-payload code: a
+`*_test.tl` runs under the toolchain's own zip, so `/zip/...` inside a
+test is cosmic's payload, not your artifact's — `/zip/<your asset>`
+exists only inside the built `o/bin/<name>`, and a unit test calling
+your `/zip`-reading functions directly gets ENOENT. keep the reading
+thin, unit-test the pure logic on either side of it, and cover the
+embedded path by spawning the binary as above.
+
 ### opting out
 
 two escalation paths exist; prefer the tight default whenever the test can live with it:

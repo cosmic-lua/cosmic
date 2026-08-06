@@ -115,6 +115,12 @@ the zip root **is** the module root, so "path relative to the root =
 import path" holds inside the artifact too — `require("db.query")`
 resolves the same way at build time and at run time.
 
+these `/zip/...` paths exist inside the ARTIFACT, and only there: a
+`*_test.tl` executed by `--make test` runs under the toolchain's own
+zip and does not see your `embed/` payload — test embedded-asset code
+by spawning the built `o/bin/<name>` (see `cosmic --docs
+guide.testing`).
+
 each `cmd/<name>` artifact carries the root packages plus its own
 subtree, and nothing from a sibling `cmd/` — the same boundary the
 validator refuses imports across.
