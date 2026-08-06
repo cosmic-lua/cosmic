@@ -383,41 +383,9 @@ local function format_issues(issues: {Issue}): string
   return table.concat(lines, "\n")
 end
 
---- Return a fix-hint line for a known Teal type-check error pattern, or nil.
---- Matches the three most common traps that cost edit-check cycles:
----   1. got number, expected integer (string index/length requires integer)
----   2. got X | nil, expected X (nil not narrowed before use)
----   3. excess return values (multiple returns captured incorrectly)
----   4. <any type> operations (ipairs, index, concat on any)
---- @param msg string The error message to match
---- @return string|nil A short hint string, or nil if no hint applies
-local function hint_for_message(msg: string): string | nil
-  -- Pattern 1: number/integer mismatch
-  if msg:find("got number, expected integer") then
-    return "  hint: annotate the variable `: number`, or convert with math.tointeger; integer is required for string indices/lengths"
-  end
-  -- Pattern 2: nil union not narrowed (X | nil where X expected)
-  if msg:find("%| nil") and msg:find("expected") then
-    return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles"
-  end
-  -- Pattern 3: excess return values (wrong number of returns)
-  if msg:find("excess return values") then
-    return "  hint: capture multiple returns first: `local v, err = f(...)`"
-  end
-  -- Pattern 4a: ipairs on any
-  if msg:find("attempting ipairs on something that's not an array") then
-    return "  hint: cast first, e.g. `local items = data as {any}`"
-  end
-  -- Pattern 4b: concat with any type
-  if msg:find("cannot use operator '%.%.'") and msg:find("<any type>") then
-    return "  hint: cast first, e.g. `local s = val as string`"
-  end
-  -- Pattern 4c: index on any type
-  if msg:find("cannot index") and msg:find("<any type>") then
-    return "  hint: cast first, e.g. `local obj = val as {string: any}`"
-  end
-  return nil
-end
+-- The hint patterns live in their own module for room: this file sits
+-- at the file-length limit and the pattern set is the part that grows.
+local hint_for_message = require("cosmic._teal_hints").hint_for_message
 
 --- Format issues with optional fix-hints for known Teal type-check traps.
 --- Appends one hint line after each matching error. No duplicate hints per error.
