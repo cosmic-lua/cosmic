@@ -51,6 +51,12 @@ make: root=/home/you/myapp
 check: PASS (12 files)
 ```
 
+`ci` is the gate, but warm it is also the inner loop: every stage
+skips what its stamps already proved, so a rerun after a one-file edit
+re-does only that file's work — about a second in a small project.
+rerunning the whole gate after each edit is cheaper than remembering
+which verb checks what.
+
 `clean` spares `o/bootstrap` on purpose: that is the verified copy
 `bin/cosmic` fetched from the pin, and removing it makes the next
 command reach for the network. cleaning a build should not have network
