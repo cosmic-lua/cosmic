@@ -77,6 +77,7 @@ Documentation:
   cosmic --docs guide.quickstart  your first project, end to end
   cosmic --docs guide.testing  show a specific guide
   cosmic --docs guide.gotchas  common pitfalls (integer vs number, any casts, arg)
+  cosmic --docs guide.lint   every lint rule, its failure and its fix
   help(<query>)              look up docs in the REPL (interactive only)
 
 Low-level cosmo.* bindings are available but hidden by default.

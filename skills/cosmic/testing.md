@@ -28,6 +28,12 @@ test_decode_error()
 key rules:
 - shebang `#!/usr/bin/env cosmic` on line 1
 - define a `local function test_*()` then call it on the next line
+  (enforced by lint's `call-after-define` rule, so a failing run names
+  the function)
+- the `test_` prefix is reserved for tests: the linter treats ANY
+  top-level `local function test_*()` in a `*_test.tl` as a test that
+  must call itself. name helpers something else (`make_fixture`,
+  `db_path_for`, ...)
 - use `assert(condition, "message")` for assertions — there is no test framework
 - each test function runs independently at file scope
 - a test fails if any assert fails or the script exits nonzero
