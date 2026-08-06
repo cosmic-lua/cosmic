@@ -19,6 +19,55 @@ local function test_decode_array()
 end
 test_decode_array()
 
+local function test_decode_object_typed()
+  local obj = check.must(json.decode_object('{"a":1,"b":"hello"}'))
+  assert(obj["a"] == 1, "expected a=1")
+  assert(obj["b"] == "hello", "expected b='hello'")
+  local empty = check.must(json.decode_object("{}"))
+  assert(next(empty) == nil, "expected empty object")
+end
+test_decode_object_typed()
+
+local function test_decode_object_wrong_shape()
+  for input, kind in pairs({["[1,2]"] = "array", ["[]"] = "array",
+      ["42"] = "number", ['"s"'] = "string", ["true"] = "boolean",
+      ["null"] = "null"}) do
+    local obj, err = json.decode_object(input)
+    assert(obj == nil, "expected nil for " .. input)
+    assert(err and err:find(kind, 1, true),
+      "error should name the kind '" .. kind .. "', got: " .. tostring(err))
+  end
+  local invalid, invalid_err = json.decode_object("{nope")
+  assert(invalid == nil, "expected nil for invalid JSON")
+  assert(invalid_err ~= nil, "expected a decode error for invalid JSON")
+end
+test_decode_object_wrong_shape()
+
+local function test_decode_array_typed()
+  local items = check.must(json.decode_array('[1,"two",true]'))
+  assert(#items == 3, "expected 3 items")
+  assert(items[1] == 1 and items[2] == "two" and items[3] == true,
+    "elements should decode in order")
+  local empty = check.must(json.decode_array("[]"))
+  assert(#empty == 0, "expected empty array")
+  assert(json.encode(empty) == "[]", "typed empty array should re-encode as []")
+end
+test_decode_array_typed()
+
+local function test_decode_array_wrong_shape()
+  for input, kind in pairs({['{"a":1}'] = "object", ["{}"] = "object",
+      ["42"] = "number", ["null"] = "null"}) do
+    local items, err = json.decode_array(input)
+    assert(items == nil, "expected nil for " .. input)
+    assert(err and err:find(kind, 1, true),
+      "error should name the kind '" .. kind .. "', got: " .. tostring(err))
+  end
+  local invalid, invalid_err = json.decode_array("[nope")
+  assert(invalid == nil, "expected nil for invalid JSON")
+  assert(invalid_err ~= nil, "expected a decode error for invalid JSON")
+end
+test_decode_array_wrong_shape()
+
 local function test_decode_primitives()
   assert(json.decode("42") == 42, "expected 42")
   assert(json.decode('"hello"') == "hello", "expected 'hello'")
