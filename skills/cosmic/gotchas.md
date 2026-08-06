@@ -23,21 +23,16 @@ conversion dance is needed on that side.)
 
 ## 2. traversing `any` from json.decode
 
-`json.decode` returns `any`. you cannot index or iterate `any` directly — you must cast to a concrete type first.
+for the two common top-level shapes, skip `any` entirely:
+`json.decode_object` returns `{string: any} | nil, string` and
+`json.decode_array` returns `{any} | nil, string` — the checker sees a
+concrete type with no cast, and input of the wrong shape is a real
+error instead of a downstream indexing surprise.
 
-**wrong:**
 ```teal
-local data = json.decode(input)
-for _, item in ipairs(data) do -- error: attempting ipairs on something that's not an array: <any type>
-```
-
-**right — `is` when the shape is uncertain** (narrows in the positive
-branch, compiles to one `type()` check, and untrusted input that isn't
-the expected shape takes the other branch instead of misbehaving later):
-```teal
-local data = json.decode(input)
-if data is {any} then
-  for _, raw in ipairs(data) do
+local items = json.decode_array(input)
+if items is {any} then
+  for _, raw in ipairs(items) do
     if raw is {string: any} then
       print(raw["name"] as string)
     end
@@ -45,14 +40,11 @@ if data is {any} then
 end
 ```
 
-**right — `as` when the shape is trusted** (a schema you control):
-```teal
-local obj = json.decode(input) as {string: any}
-local tags = obj["tags"] as {string}
-```
-
-new casts count against the cast ratchet (`_build/casts.txt`); prefer
-the `is` form where the code branches anyway.
+`json.decode` still returns `any`, for the genuinely-dynamic case: you
+cannot index or iterate `any` directly — narrow with `is` where the
+shape is uncertain (as with the nested values above), or cast
+(`local obj = json.decode(input) as {string: any}`) when the shape is
+trusted. new casts count against the cast ratchet (`_build/casts.txt`).
 
 ## 3. `arg` elements are `string | nil`
 

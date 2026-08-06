@@ -26,30 +26,32 @@ local function main(): integer
   if not data then
     die("cannot read '" .. tostring(path) .. "': " .. read_err)
   end
-  local decoded, decode_err = json.decode(data)
-  if decode_err then
-    die("invalid JSON: " .. decode_err)
-  end
-  local items = decoded as {any}
+  local items, decode_err = json.decode_array(data)
+  if items is {any} then
+    -- transform: count the items
+    local result = {count = #items}
 
-  -- transform: count the items
-  local result = {count = #items}
-
-  local encoded, encode_err = json.encode(result)
-  if encode_err then
-    die("encode failed: " .. encode_err)
+    local encoded, encode_err = json.encode(result)
+    if encode_err then
+      die("encode failed: " .. encode_err)
+    end
+    print(encoded)
+    return 0
   end
-  print(encoded)
-  return 0
+  die("invalid JSON: " .. decode_err)
+  return 1
 end
 
 os.exit(main())
 ```
 
-key details: `arg[1]` is `string | nil` (guard before use), `json.decode`
-returns `any` (cast before iterating), capture `encode`'s error return
-instead of passing the call straight to `print`, and `main` returns
-`integer` because `os.exit` rejects `number`.
+key details: `arg[1]` is `string | nil` (guard before use),
+`json.decode_array` returns a typed `{any} | nil` — no cast needed, and a
+top-level value that is not an array is a real error (`decode_object` is
+the sibling for objects; plain `decode` returns `any` for the dynamic
+case) — `is` narrows it in the positive branch, capture `encode`'s error
+return instead of passing the call straight to `print`, and `main`
+returns `integer` because `os.exit` rejects `number`.
 
 ## index files into sqlite (walk + hash + sqlite)
 
