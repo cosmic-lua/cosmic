@@ -39,6 +39,12 @@ local function hint_for_message(msg: string): string | nil
   if msg:find("for loop does not return an iterator", 1, true) then
     return "  hint: often the iterator is still `T | nil` from a fallible call: narrow with `is` or cast after a nil-guard before the loop — see `cosmic --docs guide.checking`"
   end
+  -- Pattern 2d: naming another module's type that is not exported. A
+  -- standalone top-level record is file-local; importers can only name
+  -- types nested in (or aliased into) the module's interface record.
+  if msg:find("unknown type %w+%.%w+") then
+    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.checking`"
+  end
   -- Pattern 3: excess return values (wrong number of returns)
   if msg:find("excess return values") then
     return "  hint: capture multiple returns first: `local v, err = f(...)`"
