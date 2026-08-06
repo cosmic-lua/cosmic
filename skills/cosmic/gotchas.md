@@ -4,29 +4,22 @@ common errors that trip up agents and developers new to Teal. each entry shows t
 
 ## 1. integer vs number
 
-Teal distinguishes `integer` from `number`. string indices (`string.sub`, `string.byte`, `table` lookups) and some C bindings require `integer`. arithmetic and C status returns are `number`.
+Teal distinguishes `integer` from `number`: string indices
+(`string.sub`, `string.byte`, table lookups) require `integer`, and
+arithmetic yields `number`. the `got number, expected integer` error
+carries the fix as a hint — annotate the variable `: integer`, or
+convert at the call site with `math.tointeger`.
 
-**wrong:**
 ```teal
-local n: number = 5
-local s = ("hello"):sub(n, n) -- error: got number, expected integer
-```
-
-**right:**
-```teal
--- option A: annotate the literal as integer
 local n: integer = 5
 local s = ("hello"):sub(n, n)
-
--- option B: convert at call site
-local n: number = some_computation()
-local s = ("hello"):sub(math.tointeger(n), math.tointeger(n))
+-- from a computation: convert first
+local m = ("hello"):sub(math.tointeger(x) or 1, 5)
 ```
 
-`WEXITSTATUS` and similar status-decoding functions return `number`, not `integer`:
-```teal
-local code: number = child.WEXITSTATUS(status)
-```
+(bindings that return integral values — exit statuses, fds, pids,
+sizes — are annotated `integer` at the source of truth, so no
+conversion dance is needed on that side.)
 
 ## 2. traversing `any` from json.decode
 
