@@ -101,8 +101,6 @@ function report(paths: {string}): integer
 Output:
 ```
 exit_code:	0
-  -- ✓ test1
-  --
+✓ test1
   -- 1 checks: 1 passed
-
 ```
