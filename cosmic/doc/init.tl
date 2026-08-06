@@ -275,7 +275,10 @@ local function parse(source: string, file_path: string): ModuleDoc
       if line_end then
         output_pos = line_end + 1
         while true do
-          local cs, _, prefix, content = body:find("^(%s*%-%-%s?)(.*)\n?", output_pos)
+          -- One line per iteration: `.` matches newlines in Lua patterns,
+          -- so a `(.*)` here swallowed the whole remaining body as "line
+          -- one" and every later output line kept its `-- ` prefix.
+          local cs, _, prefix, content = body:find("^(%s*%-%-%s?)([^\n]*)", output_pos)
           if cs == output_pos and prefix then
             table.insert(output_lines, content)
             output_pos = output_pos + #prefix + #content
