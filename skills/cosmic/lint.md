@@ -47,6 +47,13 @@ remove — prefer `is` narrowing where the code branches, or `check.must`
 in tests and examples. the narrowing patterns are in
 `cosmic --docs guide.checking`.
 
+this rule fires at lint time only: `--check types`, `--make build`, and
+`--make test` all accept an unjustified cast, so the first complaint
+comes from `--make lint`/`--make ci` — or from `--check lint <file>`,
+the same gate early. it applies to every file the walk gates, test
+files included: a cast added to satisfy the checker in a `*_test.tl`
+needs its `-- cast:` reason like any other.
+
 ## call-after-define
 
 in a `*_test.tl` file, a top-level `local function test_*()` must be
