@@ -232,27 +232,6 @@ function format_issues(issues: {Issue}): string
 
 - string - Formatted issues, one per line
 
-### hint_for_message
-
-```teal
-function hint_for_message(msg: string): string | nil
-```
-
- Return a fix-hint line for a known Teal type-check error pattern, or nil.
- Matches the three most common traps that cost edit-check cycles:
-   1. got number, expected integer (string index/length requires integer)
-   2. got X | nil, expected X (nil not narrowed before use)
-   3. excess return values (multiple returns captured incorrectly)
-   4. <any type> operations (ipairs, index, concat on any)
-
-**Parameters:**
-
-- `msg` (string) - The error message to match
-
-**Returns:**
-
-- string|nil - A short hint string, or nil if no hint applies
-
 ### format_issues_with_hints
 
 ```teal
