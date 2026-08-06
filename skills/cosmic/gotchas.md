@@ -310,7 +310,7 @@ the declaration as the cause:
 
 **wrong:**
 ```teal
-local earliest = nil            -- type: nil
+local earliest = nil -- type: nil
 for _, e in ipairs(entries) do
   if not earliest or e.timestamp < earliest then
     -- error: cannot use operator '<' for types integer and nil
