@@ -165,6 +165,51 @@ print(label(depmod.make()))
 end
 test_hint_unexported_type()
 
+local function test_hint_scalar_method_call_after_guard()
+  -- Scalars narrow through a nil-guard for plain uses, but not for
+  -- method-call syntax — the same "cannot index ... | nil" error shape
+  -- as records, so it must carry the same hint.
+  local msg, hint = first_hinted_error("h_scalar_method.tl", [[
+local function readish(): string | nil, string
+  return nil, "nope"
+end
+local function use(): integer
+  local data = readish()
+  if not data then
+    return 1
+  end
+  for word in data:gmatch("%a+") do
+    print(word)
+  end
+  return 0
+end
+print(use())
+]])
+  assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
+    "wrong error: " .. msg)
+  assert(hint:find("method%-called", 1, false), "wrong hint: " .. hint)
+end
+test_hint_scalar_method_call_after_guard()
+
+local function test_hint_colon_call_on_module_function()
+  local msg, hint = first_hinted_error("h_colon.tl", [[
+local record Store
+  id: integer
+end
+local function add(store: Store, name: string): string
+  return tostring(store.id) .. name
+end
+local function use(store: Store): string
+  return store:add("alice")
+end
+local store: Store = {id = 1}
+print(add(store, "x"), use(store))
+]])
+  assert(msg:find("invalid key", 1, true), "wrong error: " .. msg)
+  assert(hint:find("dot%-called", 1, false), "wrong hint: " .. hint)
+end
+test_hint_colon_call_on_module_function()
+
 local function test_hint_excess_return_values()
   local msg, hint = first_hinted_error("h_excess.tl", [[
 local function f(): string

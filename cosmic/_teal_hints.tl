@@ -29,9 +29,10 @@ local function hint_for_message(msg: string): string | nil
   end
   -- Pattern 2b: indexing through an un-narrowed nil union. The trap is
   -- that `if not x then return end` narrows scalars but not records,
-  -- maps or arrays, and this error is all the checker says about it.
+  -- maps or arrays — and even a narrowed SCALAR cannot be method-called
+  -- (`data:gmatch(...)` on `string | nil` lands here too).
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
-    return "  hint: `T | nil` does not narrow through `if not x` for records/maps/arrays: branch with `if x is T then ... end`, or cast after the guard (`local v = x as T`) — see `cosmic --docs guide.checking`"
+    return "  hint: `T | nil` does not narrow through `if not x` for records/maps/arrays, and a narrowed scalar cannot be method-called (use `string.gmatch(x, ...)`): branch with `if x is T then ... end`, or cast after the guard (`local v = x as T`) — see `cosmic --docs guide.checking`"
   end
   -- Pattern 2c: for-in over a value the checker cannot call. The message
   -- names no type, and the usual cause is an iterator still `T | nil`
@@ -44,6 +45,11 @@ local function hint_for_message(msg: string): string | nil
   -- types nested in (or aliased into) the module's interface record.
   if msg:find("unknown type %w+%.%w+") then
     return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.checking`"
+  end
+  -- Pattern 2e: colon-calling a name the value's record does not
+  -- declare. Also fires on a plain typo, so the hint covers both.
+  if msg:find("invalid key '[%w_]+' in record") then
+    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs guide.gotchas`"
   end
   -- Pattern 3: excess return values (wrong number of returns)
   if msg:find("excess return values") then
