@@ -20,6 +20,28 @@ local function Example_encode()
   -- {"a":1}
 end
 
+-- Example_decode_object demonstrates typed decoding of a JSON object
+local function Example_decode_object()
+  local json = require("cosmic.json")
+  local obj = json.decode_object('{"name":"ada","age":36}')
+  if obj is {string: any} then
+    print(obj["name"])
+  end
+  -- Output:
+  -- ada
+end
+
+-- Example_decode_array demonstrates typed decoding of a JSON array
+local function Example_decode_array()
+  local json = require("cosmic.json")
+  local items = json.decode_array("[10,20,30]")
+  if items is {any} then
+    print(#items)
+  end
+  -- Output:
+  -- 3
+end
+
 -- Example_decode_error demonstrates error handling for invalid JSON
 local function Example_decode_error()
   local json = require("cosmic.json")
@@ -43,4 +65,5 @@ local function Example_encode_error()
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_decode, Example_encode, Example_decode_error, Example_encode_error}
+local _ = {Example_decode, Example_encode, Example_decode_object,
+  Example_decode_array, Example_decode_error, Example_encode_error}
