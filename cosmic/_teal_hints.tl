@@ -23,6 +23,19 @@ local function hint_for_message(msg: string): string | nil
   if msg:find("got number, expected integer") then
     return "  hint: annotate the variable `: number`, or convert with math.tointeger; integer is required for string indices/lengths"
   end
+  -- Pattern 1b: a local declared `= nil` with no annotation. Its type
+  -- is inferred as nil FOREVER — every later assignment and comparison
+  -- fails, no guard helps, and nothing in either message says the
+  -- declaration is the problem. Two shapes: assigning into it, and
+  -- using it as an operand. The `| nil` exclusion keeps the operand
+  -- shape off honest unions, which are narrowing problems, not
+  -- declaration problems.
+  local nil_operand = (msg:match("for types .+ and nil$") ~= nil
+    or msg:find("for types nil and", 1, true) ~= nil)
+  and not msg:find("| nil", 1, true)
+  if msg:match("in assignment: got .+, expected nil$") or nil_operand then
+    return "  hint: a local declared `= nil` without a type annotation has type nil forever — annotate the optional (`local x: integer | nil = nil`) — see `cosmic --docs guide.checking`"
+  end
   -- Pattern 2: nil union not narrowed (X | nil where X expected)
   if msg:find("%| nil") and msg:find("expected") then
     return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles — see `cosmic --docs guide.checking`"
