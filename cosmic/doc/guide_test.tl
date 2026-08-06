@@ -64,6 +64,18 @@ local function test_guide_lint()
 end
 test_guide_lint()
 
+local function test_guide_quickstart()
+  local __r12 = check.must(check.must(child.start({cosmic, "--docs", "guide.quickstart"}, {env = clean_env()})):wait())
+  local ok, out = __r12.ok, __r12.stdout
+  assert(ok, "cosmic --docs guide.quickstart should succeed")
+  local s = out
+  assert(s:find("Quickstart", 1, true), "quickstart guide should contain Quickstart header")
+  assert(s:find("cmd/greet/main.tl", 1, true), "quickstart guide should lay out a binary")
+  assert(s:find("--make build", 1, true), "quickstart guide should build the project")
+  assert(s:find("--make ci", 1, true), "quickstart guide should run the gate")
+end
+test_guide_quickstart()
+
 -- There is no guide.makefile: one flag, one guide, and the Makefile
 -- generator it would document does not exist. A topic with nothing
 -- behind it must fail like any other unknown one -- a guide that still
