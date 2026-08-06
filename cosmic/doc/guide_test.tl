@@ -52,6 +52,18 @@ local function test_guide_formatting()
 end
 test_guide_formatting()
 
+local function test_guide_lint()
+  local __r11 = check.must(check.must(child.start({cosmic, "--docs", "guide.lint"}, {env = clean_env()})):wait())
+  local ok, out = __r11.ok, __r11.stdout
+  assert(ok, "cosmic --docs guide.lint should succeed")
+  local s = out
+  assert(s:find("Lint Rules", 1, true), "lint guide should contain Lint Rules header")
+  assert(s:find("cast-justify", 1, true), "lint guide should document cast-justify")
+  assert(s:find("call-after-define", 1, true), "lint guide should document call-after-define")
+  assert(s:find("find-needle", 1, true), "lint guide should document find-needle")
+end
+test_guide_lint()
+
 -- There is no guide.makefile: one flag, one guide, and the Makefile
 -- generator it would document does not exist. A topic with nothing
 -- behind it must fail like any other unknown one -- a guide that still
