@@ -156,6 +156,16 @@ keep logic tests at the library layer, where functions are called
 directly; the binary spawn is for the argv-parsing and
 output-formatting skin that exists only in `cmd/<name>/main.tl`.
 
+embedded payload is visible in tests too: with a root `embed/`
+directory, `--make test` runs every test under a runner that carries
+it (`o/.testrun/cosmic` — this cosmic plus the payload at its
+artifact paths), so `/zip/R` resolves inside a test exactly as inside
+the artifact and your `/zip`-reading functions unit-test directly.
+the one payload tests do NOT see is a per-binary
+`cmd/<name>/embed/**`: that is one artifact's private cargo (two
+binaries may store different bytes at one zip path), so cover it by
+spawning `o/bin/<name>` as above.
+
 ### opting out
 
 two escalation paths exist; prefer the tight default whenever the test can live with it:

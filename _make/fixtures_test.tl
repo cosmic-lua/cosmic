@@ -136,6 +136,18 @@ local assets_root = fixture("assets",
   {assets = "asset: shipped\n\nreadme: absent\n"})
 
 local function test_only_declared_payload_ships()
+
+  -- The other side of the payload promise: a TEST sees `/zip/R` too. The
+  -- fixture's note_test.tl reads /zip/data/note.txt directly — under the
+  -- test runner (this cosmic plus the root payload), not by spawning the
+  -- artifact — so `--make test` passing here is the whole claim.
+  local function test_tests_see_the_payload_at_zip()
+    local code, out = make(assets_root, "test")
+    assert(code == 0, "a test reading /zip payload should pass:\n" .. out)
+    assert(fs.is_file(fs.join(assets_root, "o/.testrun/cosmic")),
+      "the payload test runner should exist after --make test")
+  end
+  test_tests_see_the_payload_at_zip()
   local zip = require("cosmic.zip")
   local reader = check.must(zip.open(fs.join(assets_root, "o/bin/assets")))
   local saw: {string: boolean} = {}

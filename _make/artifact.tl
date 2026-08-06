@@ -480,6 +480,7 @@ local record ArtifactModule
   plan: function(proj: Project, binary: Binary): {Staged}
   stage: function(proj: Project, binary: Binary): string | nil, string
   build: function(proj: Project, binary: Binary, cosmic: string): string | nil, string
+  replace_if_changed: function(staged: string, out: string): string | nil
 end
 
 local M: ArtifactModule = {
@@ -488,6 +489,7 @@ local M: ArtifactModule = {
   plan = plan,
   stage = stage,
   build = build,
+  replace_if_changed = replace_if_changed,
 }
 
 return M

@@ -22,6 +22,7 @@ local deps = require("_make.deps")
 local imports = require("_make.imports")
 local project = require("_make.project")
 local stamp = require("_make.stamp")
+local testrun = require("_make.testrun")
 local types = require("_make.types")
 
 local type Kind = types.Kind
@@ -236,11 +237,9 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     "COSMIC := " .. cosmic,
     -- No COSMIC_DEP any more: the rules name per-tool stamp files
     -- (`o/.stamp/<tool>`, written by materialize below) instead of the
-    -- binary, so a rule's result is still only as fresh as its tool --
-    -- a formatter fix still invalidates every formatting verdict --
-    -- without every edit to any embedded module invalidating the whole
-    -- graph. The rationale and the traded edge live in _make/stamp.tl
-    -- and docs/decisions/d17-tool-stamps.md.
+    -- binary, so a result is as fresh as its tool without every edit
+    -- invalidating the whole graph — _make/stamp.tl and d17 have the
+    -- rationale and the traded edge.
     "O := " .. project.BUILD_DIR,
     "project := " .. fs.basename(proj.root),
     assign("tl_sources", tl_sources),
@@ -252,6 +251,8 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     assign("assets", assets),
     assign("lint_sources", lint_sources),
     assign("coverage_dirs", source_dirs(proj)),
+    -- The runner tests exec, and its prerequisite: _make/testrun.tl.
+    testrun.mk_facts(proj),
   }
   for _, l in ipairs(dep_lines) do
     lines[#lines + 1] = l

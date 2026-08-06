@@ -155,15 +155,23 @@ test: $(O)/test-summary.txt
 # case). What IS narrow is the write grant: only the test's own `.got`
 # base and TMPDIR. One answer, two consumers: the argument positions
 # are the declaration.
-$(O)/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+# Tests exec `$(testrun)`: with root `embed/` payload that is
+# `o/.testrun/cosmic` — this cosmic plus the payload at its artifact
+# paths, assembled before the graph runs — so `/zip/R` resolves inside
+# a test exactly as inside the artifact. Without payload it is
+# `$(COSMIC)` and `testrun_dep` is empty: the d17 rule against naming
+# the binary as a prerequisite stands, while the runner file is
+# content-addressed, so as a prerequisite it moves exactly when the
+# toolchain or the payload did.
+$(O)/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) $< --deps $(deps_$*) ;
 
 # A `.lua` test is a test. The marker suffixes are extension-agnostic
 # in the model, so the rules have to be too -- otherwise a Lua-only
 # project's tests are listed and never run, which is worse than not
 # supporting them.
-$(O)/%.lua.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+$(O)/%.lua.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) $< --deps $(deps_$*) ;
 
 $(O)/test-summary.txt: $(test_got)
 	tee $@ $(COSMIC) --report $(test_got) ;
@@ -179,11 +187,11 @@ example: $(O)/example-summary.txt
 # closure, same fence, `Example_*` instead of `test_*`. That is what the
 # model says everywhere else, so the rules say it too — the only
 # difference from the test rules above is the flag.
-$(O)/%.tl.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
+$(O)/%.tl.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) --check example $< --deps $(deps_$*) ;
 
-$(O)/%.lua.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
+$(O)/%.lua.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) --check example $< --deps $(deps_$*) ;
 
 $(O)/example-summary.txt: $(example_got)
 	tee $@ $(COSMIC) --report $(example_got) ;
@@ -200,11 +208,11 @@ benchmark: $(O)/benchmark-summary.txt
 # generation unit — a generator's output is a build INPUT, derived from
 # sources and stale when they change, while a measurement is of one
 # binary on one machine at one moment and is never stale, just old.
-$(O)/%.tl.benchmark.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
+$(O)/%.tl.benchmark.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) --benchmark $< --deps $(deps_$*) ;
 
-$(O)/%.lua.benchmark.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
+$(O)/%.lua.benchmark.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) --benchmark $< --deps $(deps_$*) ;
 
 $(O)/benchmark-summary.txt: $(benchmark_got)
 	tee $@ $(COSMIC) --report $(benchmark_got) ;
@@ -251,11 +259,11 @@ coverage: $(O)/coverage-summary.txt
 # reach, and the reserved set is a rule rather than a word list.
 $(O)/.coverage/%.test.got: export COSMIC_COVERAGE := 1
 
-$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) $< --deps $(deps_$*) ;
 
-$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
-	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
+	record $(basename $@) $(testrun) $< --deps $(deps_$*) ;
 
 $(O)/coverage-summary.txt: $(coverage_got)
 	tee $@ $(COSMIC) --report $(coverage_got) ;
