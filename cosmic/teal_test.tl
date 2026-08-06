@@ -135,6 +135,36 @@ use()
 end
 test_hint_ipairs_on_nil_union()
 
+local function test_hint_unexported_type()
+  -- The dep module declares its record standalone (file-local), so the
+  -- user file's `depmod.Widget` cannot resolve; both land in tmpdir so
+  -- the require resolves relative to the checked file.
+  local ok, werr = fs.write(fs.join(tmpdir, "depmod.tl"), [[
+local record Widget
+  id: integer
+end
+local record DepModule
+  make: function(): Widget
+end
+local function make(): Widget
+  return {id = 1}
+end
+local M: DepModule = {make = make}
+return M
+]])
+  assert(ok, "write depmod.tl: " .. tostring(werr))
+  local msg, hint = first_hinted_error("h_unexported.tl", [[
+local depmod = require("depmod")
+local function label(w: depmod.Widget): string
+  return tostring(w.id)
+end
+print(label(depmod.make()))
+]])
+  assert(msg:find("unknown type", 1, true), "wrong error: " .. msg)
+  assert(hint:find("interface record", 1, true), "wrong hint: " .. hint)
+end
+test_hint_unexported_type()
+
 local function test_hint_excess_return_values()
   local msg, hint = first_hinted_error("h_excess.tl", [[
 local function f(): string

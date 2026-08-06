@@ -229,7 +229,51 @@ record fields don't narrow either, even scalar ones — copy the field to
 a local and guard the local. the full pattern set is in
 `cosmic --docs guide.checking`.
 
-## 10. `os.exit` requires `integer | boolean`, not `number`
+## 10. a record other files use must be nested in the module's interface record
+
+a standalone top-level `local record` is visible only inside its own
+file. another file writing `store.Task` gets `unknown type store.Task` —
+at every use site — even though the value-level API works fine. to
+export a type, nest it inside the module's returned interface record.
+
+**wrong** (`store.tl`):
+```teal
+local record Task        -- file-local: importers cannot name it
+  id: integer
+  text: string
+end
+
+local record StoreModule
+  add: function(path: string, text: string): Task | nil, string
+end
+```
+
+**right:**
+```teal
+local record StoreModule
+  record Task            -- nested: importers write store.Task
+    id: integer
+    text: string
+  end
+  add: function(path: string, text: string): Task | nil, string
+end
+```
+
+(a `type Task = Task` alias member inside the interface record also
+works when the record must stay standalone for internal reasons — see
+how `cosmic.fs` re-exports `Stat`.)
+
+## 11. shadowing a Lua builtin
+
+`--check types` warns on any shadowed declaration, including Lua's own
+globals — a `local function load(...)` shadows the builtin `load()`,
+`local type = ...` shadows `type()`. the warning
+(`function shadows previous declaration of 'load'`) fails the strict
+check because warnings are errors; rename yours (`load_data`,
+`kind`, ...). the same trap at module level is gotcha #6's `io` example:
+binding `require("cosmic.fd")` to a local named `io` hides `io.stderr`.
+
+## 12. `os.exit` requires `integer | boolean`, not `number`
 
 a `main` function declared to return `number` breaks `os.exit(main())`
 with `got number, expected integer | boolean`.
