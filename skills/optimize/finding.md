@@ -1,8 +1,9 @@
 # Finding optimization opportunities (cosmic layer)
 
-chapter of `_perf/OPTIMIZE.md` — read that first. this file covers
-spotting wins in the Teal wrapper layer (`cosmic/*.tl`); for the C
-layer see `cosmopolitan.md` in this directory.
+chapter of the `optimize` skill (`SKILL.md` in this directory) — read
+that first. this file covers spotting wins in the Teal wrapper layer
+(`cosmic/*.tl`); for the C layer see `cosmopolitan.md` in this
+directory.
 
 check the hypothesis backlog first (GitHub issues labeled `perf` in
 whilp/cosmic) — it holds vetted, evidence-backed starting points. to

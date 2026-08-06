@@ -5,7 +5,7 @@ and this repo builds with it. It builds a project **by convention**: the
 tree is the project — no spec file, no `rules.tl`, no `cook.mk` — and
 one binary with no host toolchain does the whole thing.
 
-This design is one chapter per file, the way `_perf/optimize/` is split,
+This design is one chapter per file, the way `skills/optimize/` is split,
 so no chapter has to fight the length cap:
 
 | chapter | what it settles |

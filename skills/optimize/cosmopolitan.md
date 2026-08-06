@@ -1,7 +1,8 @@
 # Optimizing the cosmopolitan layer
 
-chapter of `_perf/OPTIMIZE.md` — read that first. this file makes
-C-layer optimization as mechanical as the cosmic-layer loop: you edit C
+chapter of the `optimize` skill (`SKILL.md` in this directory) — read
+that first. this file makes C-layer optimization as mechanical as the
+cosmic-layer loop: you edit C
 in a whilp/cosmopolitan checkout, rebuild a `lua` binary locally in
 seconds, stand it in as the runtime a cosmic build embeds onto, and
 judge it with the same scenarios and the same compare gate. no release,
@@ -136,7 +137,7 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    over it. Confirm with `gate.lua selfcheck` on the same binary (an A/A
    control): if the flagged scenario swings as much
    comparing the modified binary to itself, it is noise, not your change
-   (entry 21 hit exactly this). `optimize/measurement.md` has the
+   (entry 21 hit exactly this). `measurement.md` has the
    playbook.
 
 7. **land it** (see below) and close the backlog issue (comment the

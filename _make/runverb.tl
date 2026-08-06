@@ -11,7 +11,7 @@
 ---
 --- It is `test`'s shape with a different contract: build the stage, then
 --- spawn the target with its own closure as the resolution set. That is
---- what makes `_perf/OPTIMIZE.md`'s "measures whatever `o/` happens to
+--- what makes `skills/optimize/SKILL.md`'s "measures whatever `o/` happens to
 --- hold" warning retire by construction — the run is what makes `o/`
 --- fresh. See docs/design/make/resolution.md.
 
