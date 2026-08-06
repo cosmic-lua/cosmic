@@ -45,7 +45,7 @@ the preferred way to write assertions is with `cosmic.check`, which produces aut
 ```teal
 local check = require("cosmic.check")
 
-check.eq(result, "expected", "label")      -- equality with diff on failure
+check.eq(result, "expected", "label") -- equality with diff on failure
 check.ne(result, nil, "should not be nil")
 check.ok(result > 0, "expected positive")
 ```

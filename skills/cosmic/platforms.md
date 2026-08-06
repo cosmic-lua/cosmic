@@ -4,7 +4,7 @@ cosmic ships one fat binary that runs on Linux, macOS, Windows, FreeBSD, OpenBSD
 
 ```teal
 local sys = require("cosmic.sys")
-sys.host_os()  -- "linux" | "macos" | "windows" | "freebsd" | "openbsd" | "netbsd"
+sys.host_os() -- "linux" | "macos" | "windows" | "freebsd" | "openbsd" | "netbsd"
 sys.platform() -- "linux-x86_64", "macos-aarch64", ...
 ```
 
@@ -48,7 +48,7 @@ the sandbox family is where OSes differ most. all four modules are **fail-closed
 ```teal
 local sandbox = require("cosmic.sandbox")
 if sandbox.available().fs then
-  assert(sandbox.apply{fs = {ro = {"/usr"}, rw = {"/tmp"}}})
+  assert(sandbox.apply {fs = {ro = {"/usr"}, rw = {"/tmp"}}})
 end
 ```
 

@@ -8,11 +8,13 @@ cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --c
 - LF line endings (no CRLF)
 - consistent spacing around operators and keywords
 - all `.tl` files must be <=500 lines
+- a trailing comment sits ONE space after the code (`x = 1 -- note`);
+  aligned comment columns are collapsed by the formatter
 - no spaces inside table braces:
 
-```teal
-local t = { a = 1 }   -- wrong
-local t = {a = 1}     -- right
+```teal nofmt
+local t = { a = 1 } -- wrong
+local t = {a = 1} -- right
 ```
 
 - a table constructor passed as a function argument indents its contents

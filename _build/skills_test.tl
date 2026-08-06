@@ -271,3 +271,102 @@ end
 test_everything_else_teaches_never_embedded()
 
 print("all skill ratchet tests passed")
+
+-- Every teal/lua snippet in the guides must survive being copied into
+-- a gated project, and the authority on what survives is the FORMATTER
+-- itself, not a hand-kept rule list: every fence that parses must be a
+-- formatter fixpoint. Fragments and deliberate syntax errors do not
+-- parse, so they skip themselves; a fence that deliberately shows
+-- WRONG formatting opts out with a `nofmt` word on its info string
+-- (```teal nofmt). The single textual rule that still runs on every
+-- fence, parseable or not, is trailing-comment spacing — the one a
+-- round-4 eval agent hit from guide.lint's own example.
+local record Fence
+  file: string
+  line: integer
+  lang: string
+  info: string
+  body: string
+end
+
+local function guide_fences(): {Fence}
+  local fences: {Fence} = {}
+  for _, name in ipairs(check.must(fs.find(SKILLS_DIR, {glob = "*.md"})) as {string}) do -- cast: find returns paths
+    local text = check.must(fs.read(name))
+    local in_code = false
+    local lineno = 0
+    local current: Fence = nil
+    local body: {string} = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+      lineno = lineno + 1
+      local lang, info = line:match("^```(%w*)(.*)$")
+      if lang then
+        if in_code then
+          current.body = table.concat(body, "\n")
+          fences[#fences + 1] = current
+          current = nil
+          in_code = false
+        else
+          in_code = true
+          body = {}
+          current = {file = name, line = lineno, lang = lang, info = info}
+        end
+      elseif in_code then
+        body[#body + 1] = line
+      end
+    end
+  end
+  return fences
+end
+
+local function test_guide_snippets_use_single_space_trailing_comments()
+  local offenders: {string} = {}
+  for _, fence in ipairs(guide_fences()) do
+    local applicable = (fence.lang == "teal" or fence.lang == "lua")
+    and not fence.info:find("nofmt", 1, true)
+    if applicable then
+      local n = fence.line
+      for line in (fence.body .. "\n"):gmatch("([^\n]*)\n") do
+        n = n + 1
+        local trimmed = line:match("^%s*(.*)$")
+        if not trimmed:match("^%-%-") and line:match("%S%s%s+%-%-") then
+          offenders[#offenders + 1] = fence.file .. ":" .. n .. ": " .. line
+        end
+      end
+    end
+  end
+  assert(#offenders == 0,
+    "guide snippet(s) with multi-space trailing comments — the " ..
+    "formatter collapses these to one space, so copying the snippet " ..
+    "fails fmt:\n  " .. table.concat(offenders, "\n  "))
+end
+test_guide_snippets_use_single_space_trailing_comments()
+
+local function test_guide_snippets_are_formatter_fixpoints()
+  local format = require("cosmic.format")
+  local offenders: {string} = {}
+  local checked = 0
+  for _, fence in ipairs(guide_fences()) do
+    local applicable = (fence.lang == "teal" or fence.lang == "lua")
+    and not fence.info:find("nofmt", 1, true)
+    if applicable then
+      local ext = fence.lang == "lua" and ".lua" or ".tl"
+      local result = format.format(fence.body .. "\n", "snippet" .. ext)
+      -- A fence that does not parse is a fragment or a deliberate
+      -- syntax-error example; there is nothing to hold it to.
+      if result.ok then
+        checked = checked + 1
+        if result.code ~= fence.body .. "\n" then
+          offenders[#offenders + 1] = fence.file .. ":" .. fence.line ..
+          ": formatter disagrees; formatted form:\n" .. result.code
+        end
+      end
+    end
+  end
+  assert(checked > 0, "no guide fence parsed; the harness is broken")
+  assert(#offenders == 0,
+    "guide snippet(s) the formatter would rewrite — advice must pass " ..
+    "the gate it teaches (mark a deliberate wrong-formatting example " ..
+    "with ```teal nofmt):\n" .. table.concat(offenders, "\n"))
+end
+test_guide_snippets_are_formatter_fixpoints()

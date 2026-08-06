@@ -35,7 +35,7 @@ line directly above when 90 columns will not fit it. one comment covers
 the whole line, however many casts the line holds.
 
 ```teal
-local d = db as sqlite.Database  -- cast: record union after guard
+local d = db as sqlite.Database -- cast: record union after guard
 
 -- cast: from any (json.decode result)
 local obj = json.decode(input) as {string: any}
@@ -89,9 +89,9 @@ meant: `, 1, true` for a plain substring, `, 1, false` to mean the
 pattern.
 
 ```teal
-s:find(path, 1, true)   -- substring: a dash in path stays a dash
-s:find(pat, 1, false)   -- pattern, on purpose
-s:find("%d+")           -- literals are exempt: this reads as a pattern
+s:find(path, 1, true) -- substring: a dash in path stays a dash
+s:find(pat, 1, false) -- pattern, on purpose
+s:find("%d+") -- literals are exempt: this reads as a pattern
 ```
 
 there is no plain flag on `match`/`gmatch`/`gsub`, so a variable needle

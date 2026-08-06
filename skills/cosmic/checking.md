@@ -35,8 +35,8 @@ messages.
 local x: number = 42
 local name: string = "hello"
 local flag: boolean = true
-local items: {string} = {"a", "b"}        -- array of strings
-local map: {string: number} = {x = 1}     -- map
+local items: {string} = {"a", "b"} -- array of strings
+local map: {string: number} = {x = 1} -- map
 ```
 
 ### Optional Types
@@ -46,7 +46,7 @@ local function read(path: string, size?: number): string, string
   -- size is optional (may be nil)
 end
 
-local value: string = nil  -- ERROR: string cannot be nil
+local value: string = nil -- ERROR: string cannot be nil
 ```
 
 use `?` on parameters to make them optional. a nullable LOCAL must be
@@ -64,7 +64,7 @@ to a single `type()` check:
 ```teal
 local sock = net.connect_tcp(host, port) -- Socket | nil
 if sock is net.Socket then
-  sock:send("hello")                     -- narrowed, no cast
+  sock:send("hello") -- narrowed, no cast
 end
 ```
 
@@ -94,18 +94,18 @@ not return an iterator`, `attempting ipairs on something that's not an
 array: {T} | nil`):
 
 ```teal
-local r = make()        -- r: R | nil
+local r = make() -- r: R | nil
 
 -- WRONG: r stays R | nil below this guard
 if not r then
   return nil, "no r"
 end
-print(r.x)              -- error: cannot index key 'x' ... R | nil
+print(r.x) -- error: cannot index key 'x' ... R | nil
 
 -- RIGHT (branching): do the work inside the positive branch, handing
 -- it to a helper that takes the narrowed type
 if r is R then
-  return run(r)         -- run(r: R) receives a plain R
+  return run(r) -- run(r: R) receives a plain R
 end
 return nil, "no r"
 
@@ -113,7 +113,7 @@ return nil, "no r"
 if not r then
   return nil, "no r"
 end
-local rr = r as R       -- cast: record union after guard
+local rr = r as R -- cast: record union after guard
 print(rr.x)
 ```
 
@@ -130,9 +130,9 @@ after `if report.earliest ~= nil then`, `report.earliest` is still
 the local narrows normally:
 
 ```teal
-local earliest = report.earliest   -- integer | nil
+local earliest = report.earliest -- integer | nil
 if earliest ~= nil then
-  print(earliest + 1)              -- narrowed; the field read would not be
+  print(earliest + 1) -- narrowed; the field read would not be
 end
 ```
 
@@ -168,7 +168,7 @@ local record JsonModule
   encode: function(value: any): string, string
 end
 
-local M: JsonModule = { decode = decode, encode = encode }
+local M: JsonModule = {decode = decode, encode = encode}
 return M
 ```
 
@@ -217,7 +217,7 @@ global TEST_BIN: string
 ```teal
 -- WRONG: data might be nil
 local data = fs.read(path)
-print(#data)  -- error if data is nil
+print(#data) -- error if data is nil
 
 -- RIGHT: handle the nil case
 local data, err = fs.read(path)

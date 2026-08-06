@@ -49,7 +49,7 @@ end
 if proc.is_main() then
   print(greet(arg[1] or "world"))
 end
-return { greet = greet }
+return {greet = greet}
 ```
 
 ## Detailed Guides

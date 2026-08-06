@@ -97,7 +97,7 @@ run another script in a child process and read its output through a pipe.
 ```teal
 local child = require("cosmic.child")
 
-local cosmic_bin = rawget(arg, -1) as string  -- NOT arg[0]; see gotchas #7
+local cosmic_bin = rawget(arg, -1) as string -- NOT arg[0]; see gotchas #7
 local h, err = child.start({cosmic_bin, "worker.tl"})
 assert(h, err)
 local _, out = h:read()
