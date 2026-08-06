@@ -81,6 +81,50 @@ local result = json.decode(input) as {string: any}
 local count = value as integer
 ```
 
+the early-exit caveat bites hardest in the most idiomatic-looking shape,
+so here is the fix, concretely. `if not x then return end` narrows
+scalars but NOT records, maps or arrays — below the guard `x` is still
+`T | nil`, and the errors that produces do not say why (`cannot index
+key 'x' in variable 'r' of type R | nil`, `expression in for loop does
+not return an iterator`, `attempting ipairs on something that's not an
+array: {T} | nil`):
+
+```teal
+local r = make()        -- r: R | nil
+
+-- WRONG: r stays R | nil below this guard
+if not r then
+  return nil, "no r"
+end
+print(r.x)              -- error: cannot index key 'x' ... R | nil
+
+-- RIGHT (branching): do the work inside the positive branch, handing
+-- it to a helper that takes the narrowed type
+if r is R then
+  return run(r)         -- run(r: R) receives a plain R
+end
+return nil, "no r"
+
+-- RIGHT (linear): keep the guard, cast once immediately after it
+if not r then
+  return nil, "no r"
+end
+local rr = r as R       -- cast: record union after guard
+print(rr.x)
+```
+
+record FIELDS do not narrow either, even when the field is a scalar:
+after `if report.earliest ~= nil then`, `report.earliest` is still
+`integer | nil` at the point of use. copy the field to a local first —
+the local narrows normally:
+
+```teal
+local earliest = report.earliest   -- integer | nil
+if earliest ~= nil then
+  print(earliest + 1)              -- narrowed; the field read would not be
+end
+```
+
 per-file `as` counts are pinned by the cast ratchet (`_build/casts.txt`,
 enforced by `--make lint`). every cast carries its own `-- cast: <reason>`
 on the line or the line above, so there is no baseline to raise: a cast

@@ -73,6 +73,7 @@ cmd/cosmic/embed_gen.tl 0 166
 cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
+cosmic/_teal_hints.tl 23 23
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 146 173
 cosmic/check.tl 110 113
