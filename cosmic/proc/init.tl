@@ -2,14 +2,14 @@
 --- Identity, session/group control, exec, and resource usage.
 ---
 --- The global `arg` table layout when running a script: arg[-1] is the
---- cosmic interpreter binary's path (re-invoke it to spawn a child); arg[0]
---- is the script path as the runtime sees it (/zip/main.lua when dispatched
---- by the embedded entry point — NOT the interpreter path); arg[1..] are
---- user arguments. `arg` is typed {string}: negative indices need
---- `rawget(arg, -1) as string` to pass the strict type checker.
+--- cosmic interpreter binary's path (use interpreter() to reach it
+--- typed and resolved); arg[0] is the script path as the runtime sees
+--- it (/zip/main.lua when dispatched by the embedded entry point — NOT
+--- the interpreter path); arg[1..] are user arguments.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local errstr = require("cosmic.errno").wrap
+local fs_path = require("cosmic.fs.path")
 
 --- Process resource usage statistics (the generated unix.Rusage record):
 --- CPU time, memory usage, I/O, and context switch counters.
@@ -131,6 +131,41 @@ local function which(prog: string): string | nil, string
     return nil, errstr(err, "which")
   end
   return p
+end
+
+--- Resolved-interpreter cache: argv0 is resolved against the cwd (and
+--- $PATH) of the FIRST call, so a program that chdirs should call
+--- interpreter() before doing so when it was started via a relative path.
+local interpreter_path: string | nil = nil
+
+--- Absolute path of the running cosmic interpreter — for re-invoking it
+--- to run another script as a child: `child.start({proc.interpreter(),
+--- "worker.tl"})`. This is `arg[-1]` resolved, NOT `arg[0]` (the script
+--- path as the runtime sees it, `/zip/main.lua` in a packed binary). A
+--- bare PATH-invoked argv0 (`cosmic`, the shebang shape) is resolved
+--- with a real $PATH search. The result is cached across calls.
+--- @return string | nil The interpreter's absolute path
+--- @return string? Error message when argv0 is missing or unresolvable
+local function interpreter(): string | nil, string
+  if interpreter_path then
+    return interpreter_path
+  end
+  local argv0 = rawget(arg, -1)
+  if argv0 == nil or argv0 == "" then
+    return nil, "interpreter: arg[-1] is not set"
+  end
+  local abs = fs_path.abspath(argv0)
+  if fs_path.is_file(abs) then
+    interpreter_path = abs
+    return abs
+  end
+  -- A bare name found on $PATH (which() reports the errno when not).
+  local found, err = which(argv0)
+  if not found then
+    return nil, "interpreter: cannot resolve '" .. argv0 .. "': " .. tostring(err)
+  end
+  interpreter_path = found
+  return found
 end
 
 --- Replaces current process with new program; never returns on success.
@@ -287,6 +322,7 @@ local record ProcModule
   exit: function(exitcode?: integer)
 
   -- Exec
+  interpreter: function(): string | nil, string
   which: function(prog: string): string | nil, string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
@@ -366,6 +402,7 @@ local M: ProcModule = {
   exit = exit,
 
   -- Exec
+  interpreter = interpreter,
   which = which,
   execve = execve,
   execvp = execvp,
