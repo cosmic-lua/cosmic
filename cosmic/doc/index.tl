@@ -28,6 +28,112 @@ local function normalize_init(modules: {string: any})
   end
 end
 
+--- Append `src`'s entries of `key` (functions/records/examples) onto
+--- `dst`, skipping names `dst` already carries — the parent's own doc
+--- wins over a shard's on a collision. `allowed`, when given, restricts
+--- the merge to entries whose name it contains.
+local function merge_entries(dst: {string: any}, src: {string: any},
+    key: string, allowed?: {string: boolean})
+  local from = src[key] as {any} -- cast: from any
+  if not from or #from == 0 then
+    return
+  end
+  dst[key] = dst[key] or {}
+  local into = dst[key] as {any} -- cast: from any
+  local have: {string: boolean} = {}
+  for _, entry in ipairs(into) do
+    local entry_name = (entry as {string: any}).name -- cast: from any
+    if entry_name is string then
+      have[entry_name] = true
+    end
+  end
+  for _, entry in ipairs(from) do
+    local entry_name = (entry as {string: any}).name -- cast: from any
+    local named = entry_name is string
+    local permitted = not allowed or (named and allowed[entry_name as string]) -- cast: narrowed by named
+    if permitted and (not named or not have[entry_name as string]) then -- cast: narrowed by named
+      table.insert(into, entry)
+    end
+  end
+end
+
+--- The export list a module states in its top-level typed table
+--- literal (`local M: FsModule = { read = fs_file.read, ... }`): the
+--- keys. That literal is the convention every module follows (the
+--- module's API is its returned interface record), so its keys are the
+--- authoritative "what this module exports" — the interface record's
+--- own fields would serve too, but the parser does not extract
+--- function-typed record fields today. nil when the file builds its
+--- module table some other way; callers treat that as "unknown", not
+--- "empty".
+local function scan_exports(source: string): {string: boolean} | nil
+  local names: {string: boolean} = nil
+  local in_table = false
+  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+    if in_table then
+      if line:match("^}") then
+        in_table = false
+      else
+        local key = line:match("^%s*([%w_]+)%s*=")
+        if key then
+          names = names or {}
+          names[key] = true
+        end
+      end
+    elseif line:match("^local%s+[%w_]+%s*:%s*[%w_%.]+%s*=%s*{") then
+      local inline = line:match("{(.*)}%s*$")
+      local rest = inline or line:match("{(.*)$")
+      if rest then
+        for key in rest:gmatch("([%w_]+)%s*=") do
+          names = names or {}
+          names[key] = true
+        end
+      end
+      in_table = inline == nil
+    end
+  end
+  return names
+end
+
+--- Fold directory-module shards into the parent users require.
+--- `cosmic.fs`'s API is implemented and documented across its shards
+--- (`cosmic.fs.ops`, `.file`, `.walk`, `.path`, `.types`), but
+--- `require("cosmic.fs")` is the one name a user sees, and the shards
+--- are internal by the visibility rule — so with only per-file parsing,
+--- `--docs fs` showed a header and `--docs fs.read` found nothing. The
+--- shard docs are copied onto the parent's page (parent wins on name
+--- collisions); the shard entries stay in the index, addressable by
+--- their own names as before. Runs after normalize_init so the parent
+--- is already at the name users require.
+local function flatten_shards(modules: {string: any})
+  local shard_names: {string} = {}
+  for name in pairs(modules) do
+    shard_names[#shard_names + 1] = name
+  end
+  -- Deterministic merge order, so regenerating the index is stable.
+  table.sort(shard_names)
+  for _, name in ipairs(shard_names) do
+    local parent_name = name:match("^(.+)%.[%w_]+$")
+    if parent_name and modules[parent_name] then
+      local parent = modules[parent_name] as {string: any} -- cast: from any
+      local shard = modules[name] as {string: any} -- cast: from any
+      -- Functions are filtered by the parent's own export list where it
+      -- states one, so a shard's private helpers stay off the page;
+      -- records and examples merge whole — signatures name the records,
+      -- and an example is a demo either way.
+      local filter = parent.exports as {string: boolean} -- cast: stored by generate
+      merge_entries(parent, shard, "functions", filter)
+      merge_entries(parent, shard, "records")
+      merge_entries(parent, shard, "examples")
+    end
+  end
+  -- The export lists were carried for this pass only; the index the
+  -- binary ships stays exactly what it documents.
+  for _, name in ipairs(shard_names) do
+    (modules[name] as {string: any}).exports = nil -- cast: from any
+  end
+end
+
 --- Mark each module's visibility by position: public is
 --- exactly cosmic.<name> for a name that does not start with `_`;
 --- every other cosmic.* entry and all repo tooling (_perf.*, ...) is
@@ -95,6 +201,11 @@ local function generate(files: {string},
       local base_name = name:gsub("_example$", "")
       example_files[base_name] = module_doc
     else
+      if not file_path:match("%.d%.tl$") then
+        -- The export list rides along for flatten_shards below, and is
+        -- stripped again before the index is encoded.
+        (module_doc as {string: any}).exports = scan_exports(source) -- cast: from any
+      end
       modules[name] = module_doc
     end
   end
@@ -121,6 +232,7 @@ local function generate(files: {string},
   end
 
   normalize_init(modules)
+  flatten_shards(modules)
   mark_visibility(modules)
 
   return codec.encode_lua({modules = modules})
