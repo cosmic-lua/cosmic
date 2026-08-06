@@ -63,6 +63,78 @@ print(g(f()))
 end
 test_hint_nil_union_not_narrowed()
 
+-- The `if not x then return end` guard narrows scalars but not records,
+-- maps or arrays; the errors it leaves behind name the un-narrowed type
+-- but nothing else, so each shape carries a hint at the fix.
+local function test_hint_index_through_nil_union()
+  local msg, hint = first_hinted_error("h_idx_union.tl", [[
+local record R
+  x: integer
+end
+local function make(): R | nil
+  return nil
+end
+local function use(): integer
+  local r = make()
+  if not r then
+    return 1
+  end
+  return r.x
+end
+print(use())
+]])
+  assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
+    "wrong error: " .. msg)
+  assert(hint:find("does not narrow through", 1, true), "wrong hint: " .. hint)
+  assert(hint:find("guide.checking", 1, true), "wrong hint: " .. hint)
+end
+test_hint_index_through_nil_union()
+
+local function test_hint_for_loop_nil_union_iterator()
+  local msg, hint = first_hinted_error("h_for_union.tl", [[
+local type Iter = function(): string
+local function rows(): Iter | nil
+  return nil
+end
+local function use()
+  local it = rows()
+  if not it then
+    return
+  end
+  for x in it do
+    print(x)
+  end
+end
+use()
+]])
+  assert(msg:find("for loop does not return an iterator", 1, true),
+    "wrong error: " .. msg)
+  assert(hint:find("fallible call", 1, true), "wrong hint: " .. hint)
+end
+test_hint_for_loop_nil_union_iterator()
+
+local function test_hint_ipairs_on_nil_union()
+  local msg, hint = first_hinted_error("h_ipairs_union.tl", [[
+local function list(): {string} | nil
+  return nil
+end
+local function use()
+  local xs = list()
+  if not xs then
+    return
+  end
+  for _, x in ipairs(xs) do
+    print(x)
+  end
+end
+use()
+]])
+  assert(msg:find("attempting ipairs", 1, true) and msg:find("| nil", 1, true),
+    "wrong error: " .. msg)
+  assert(hint:find("does not narrow through", 1, true), "wrong hint: " .. hint)
+end
+test_hint_ipairs_on_nil_union()
+
 local function test_hint_excess_return_values()
   local msg, hint = first_hinted_error("h_excess.tl", [[
 local function f(): string

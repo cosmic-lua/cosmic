@@ -74,8 +74,9 @@ local function check_cast_justification(file: string, content: string,
         rule = "cast-justify",
         message = string.format(
           "%s:%d: `as` cast without justification: prefer `is` narrowing"
-          .. " or check.must (see AGENTS.md); a deliberate cast takes a"
-          .. " trailing `-- cast: <reason>` (or on the line above)",
+          .. " or check.must (see `cosmic --docs guide.checking`); a"
+          .. " deliberate cast takes a trailing `-- cast: <reason>` (or on"
+          .. " the line above)",
           file, y),
       }
     end
@@ -385,6 +386,23 @@ local function lint_file(path: string): {Diagnostic} | nil, string
   end
 
   local diagnostics = style.check_file_length(path, n, style.DEFAULT_FILE_LINES)
+  -- A length failure on something that is not Teal/Lua source is almost
+  -- never fixed by splitting the file: it is a binary or a data file the
+  -- project walk swept in (lint reads bytes, deliberately), and the fix
+  -- the model already provides is `.cosmicignore`. Say so in the
+  -- diagnostic, where the reader is — the rule alone reads as "split
+  -- your 90,000-line file" when the file is an ELF binary.
+  if not (path:match("%.tl$") or path:match("%.lua$")) then
+    local nature = content:find("\0", 1, true)
+    and "a binary file, not text" or "not Teal/Lua source"
+    for _, d in ipairs(diagnostics) do
+      if d.rule == "file-length" then
+        d.message = d.message .. " — " .. nature .. "; lint gates every"
+        .. " file the project walk sees, so if this one should not be"
+        .. " judged, list it in .cosmicignore"
+      end
+    end
+  end
   if path:match("%.tl$") then
     for _, d in ipairs(check_cast_justification(path, content, lines)) do
       diagnostics[#diagnostics + 1] = d

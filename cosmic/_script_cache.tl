@@ -213,7 +213,10 @@ local function compile_cached(input_path: string,
   local result = teal.compile(input_path,
     strict and {strict = true, werror = false} or {})
   if not result.ok then
-    return nil, teal.format_issues(result.errors)
+    -- With hints: a script run is many authors' first contact with the
+    -- checker, and the un-narrowed `T | nil` traps have known fixes the
+    -- bare message does not teach.
+    return nil, teal.format_issues_with_hints(result.errors)
   end
   local generated = result.code as string -- cast: set whenever ok
   store(input_path, source, generated, mode)

@@ -136,7 +136,10 @@ local function handle_compile(file: string, output?: string, write_if_changed?: 
   if result.ok then
     exit_code, err_msg = write_output(result.code, output, write_if_changed)
   else
-    io.stderr:write(teal.format_issues(result.errors) .. "\n")
+    -- With hints, like --check types: `--make build` compiles through
+    -- this path, so it is where a project author actually meets the
+    -- un-narrowed `T | nil` errors.
+    io.stderr:write(teal.format_issues_with_hints(result.errors) .. "\n")
     exit_code = 1
   end
   instrument.finish(span, exit_code)
