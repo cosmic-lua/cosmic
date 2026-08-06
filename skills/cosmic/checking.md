@@ -161,6 +161,12 @@ local M: JsonModule = { decode = decode, encode = encode }
 return M
 ```
 
+a TYPE another file needs must be part of that record too: a standalone
+top-level `local record Task` is visible only inside its own file, so an
+importer writing `store.Task` gets `unknown type store.Task`. nest the
+record inside the interface record (`record StoreModule record Task ...
+end ... end`), or alias it in with a `type Task = Task` member.
+
 ### Function Types
 
 ```teal
