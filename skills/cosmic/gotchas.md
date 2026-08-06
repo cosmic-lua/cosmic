@@ -190,14 +190,18 @@ print(encoded)
 (parenthesizing the call — `print((json.encode(result)))` — also truncates
 to one value, but capturing lets you check the error.)
 
-## 9. records, maps and arrays don't narrow through `if not x`
+## 9. records, maps and arrays don't narrow through `if not x` — or `assert`
 
 scalars (`string | nil`, `integer | nil`) narrow through an ordinary
 truthiness guard. records, maps and arrays do not — below the guard the
-value is still `T | nil`. the errors this produces name the un-narrowed
-type but not the cause: `cannot index key 'x' in variable 'r' of type
-R | nil`, `expression in for loop does not return an iterator`,
-`attempting ipairs on something that's not an array: {T} | nil`.
+value is still `T | nil`. **`assert(x, "msg")` is the same trap**: it
+terminates control flow at runtime, but the checker still sees
+`T | nil` on every line after it — do not expect the narrowing other
+typed languages attach to assert. the errors either shape produces name
+the un-narrowed type but not the cause: `cannot index key 'x' in
+variable 'r' of type R | nil`, `expression in for loop does not return
+an iterator`, `attempting ipairs on something that's not an array:
+{T} | nil`.
 
 **wrong:**
 ```teal
@@ -224,6 +228,10 @@ end
 local d = db as sqlite.Database -- cast: record union after guard
 d:exec(sql)
 ```
+
+(the same cast-after-guard works after an `assert(db, "open failed")`;
+in tests and examples, `local db = check.must(sqlite.open(path))` does
+guard and narrowing in one call, with no cast to justify.)
 
 record fields don't narrow either, even scalar ones — copy the field to
 a local and guard the local.

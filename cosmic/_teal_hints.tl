@@ -41,11 +41,12 @@ local function hint_for_message(msg: string): string | nil
     return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles — see `cosmic --docs guide.checking`"
   end
   -- Pattern 2b: indexing through an un-narrowed nil union. The trap is
-  -- that `if not x then return end` narrows scalars but not records,
-  -- maps or arrays — and even a narrowed SCALAR cannot be method-called
+  -- that `if not x then return end` — and `assert(x)`, which newcomers
+  -- expect to narrow — narrows scalars but not records, maps or arrays;
+  -- and even a narrowed SCALAR cannot be method-called
   -- (`data:gmatch(...)` on `string | nil` lands here too).
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
-    return "  hint: `T | nil` does not narrow through `if not x` for records/maps/arrays, and a narrowed scalar cannot be method-called (use `string.gmatch(x, ...)`): branch with `if x is T then ... end`, or cast after the guard (`local v = x as T`) — see `cosmic --docs guide.checking`"
+    return "  hint: `T | nil` does not narrow through `if not x` or `assert(x)` for records/maps/arrays, and a narrowed scalar cannot be method-called (use `string.gmatch(x, ...)`): branch with `if x is T then ... end`, or cast after the guard (`local v = x as T`) — see `cosmic --docs guide.checking`"
   end
   -- Pattern 2c: for-in over a value the checker cannot call. The message
   -- names no type, and the usual cause is an iterator still `T | nil`
@@ -72,7 +73,7 @@ local function hint_for_message(msg: string): string | nil
   -- `{T} | nil` needs narrowing, a plain `any` needs a cast.
   if msg:find("attempting ipairs on something that's not an array") then
     if msg:find("| nil", 1, true) then
-      return "  hint: `{T} | nil` does not narrow through `if not x`: branch with `is` or cast after the guard (`local xs = v as {T}`) — see `cosmic --docs guide.checking`"
+      return "  hint: `{T} | nil` does not narrow through `if not x` or `assert(x)`: branch with `is` or cast after the guard (`local xs = v as {T}`) — see `cosmic --docs guide.checking`"
     end
     return "  hint: cast first, e.g. `local items = data as {any}`"
   end
