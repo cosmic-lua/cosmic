@@ -74,6 +74,7 @@ Environment variables:
 Documentation:
   cosmic --docs [query]      look up docs from the command line
   cosmic --docs guide        list available guides
+  cosmic --docs guide.quickstart  your first project, end to end
   cosmic --docs guide.testing  show a specific guide
   cosmic --docs guide.gotchas  common pitfalls (integer vs number, any casts, arg)
   help(<query>)              look up docs in the REPL (interactive only)
