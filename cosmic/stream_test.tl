@@ -139,3 +139,37 @@ local function test_fetch_reader_conforms()
   proc.wait(pid)
 end
 test_fetch_reader_conforms()
+
+local function test_from_string_conforms()
+  check_reader(stream.from_string("in-memory bytes"), "in-memory bytes",
+    "stream.from_string")
+end
+test_from_string_conforms()
+
+local function test_from_string_chunks_and_edges()
+  -- n bounds each chunk; the tail chunk may be short.
+  local r = stream.from_string("abcdef")
+  check.eq(r:read(4), "abcd", "first bounded chunk")
+  check.eq(r:read(4), "ef", "short tail chunk")
+  check.eq(r:read(4), nil, "then end of stream")
+
+  -- An empty string is an empty stream: bare nil immediately.
+  local empty = stream.from_string("")
+  local chunk, err = empty:read()
+  assert(chunk == nil and err == nil, "empty string reads as clean EOF")
+
+  -- A non-positive bound is an honest error, not a sneaky EOF.
+  local bad = stream.from_string("data")
+  local got, bad_err = bad:read(0)
+  assert(got == nil and bad_err ~= nil, "n must be positive")
+end
+test_from_string_chunks_and_edges()
+
+local function test_from_string_feeds_lines()
+  local iter = stream.lines(stream.from_string("one\ntwo\nthree"))
+  check.eq(iter(), "one", "first line")
+  check.eq(iter(), "two", "second line")
+  check.eq(iter(), "three", "final unterminated line")
+  check.eq(iter(), nil, "then nil")
+end
+test_from_string_feeds_lines()

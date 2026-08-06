@@ -47,6 +47,7 @@ local record stream
   read_all: function(r: Reader, max?: integer): string | nil, string
   copy: function(dst: Writer, src: Reader, buf_size?: integer): integer | nil, string
   lines: function(r: Reader): function(): string | nil, string
+  from_string: function(data: string): Reader
 end
 
 --- Write all of data, retrying short writes until done. The two
@@ -121,6 +122,37 @@ function stream.copy(dst: stream.Writer, src: stream.Reader, buf_size?: integer)
     end
     copied = copied + #chunk
   end
+end
+
+--- Wrap bytes already in hand as a Reader, so in-memory data (a file
+--- read whole, a decompressed buffer, a test fixture) feeds any stream
+--- consumer — stream.lines, sse.events, stream.copy — without a
+--- hand-rolled adapter. read(n?) returns successive chunks (at most n
+--- bytes when n is given, the whole remainder otherwise), then bare
+--- nil at end of stream, per the Reader contract; n must be positive
+--- when given.
+--- @param data string The bytes to serve
+--- @return Reader A reader over the bytes
+function stream.from_string(data: string): stream.Reader
+  local pos = 1
+  local reader = {
+    read = function(_self: stream.Reader, n?: number): string | nil, string
+      if pos > #data then
+        return nil
+      end
+      local last = #data
+      if n then
+        if n <= 0 then
+          return nil, "read: size must be positive"
+        end
+        last = math.min(last, pos + math.floor(n) - 1)
+      end
+      local chunk = data:sub(pos, last)
+      pos = last + 1
+      return chunk
+    end,
+  }
+  return reader as stream.Reader -- cast: table implements the Reader interface
 end
 
 --- Iterate complete lines from a Reader, buffering partial lines

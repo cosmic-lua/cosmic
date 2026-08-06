@@ -55,5 +55,19 @@ local function Example_writer()
   -- ten bytes!
 end
 
+-- Example_from_string demonstrates wrapping bytes already in hand as a
+-- Reader: in-memory data drives any stream consumer — here the shared
+-- line iterator — without touching a descriptor.
+local function Example_from_string()
+  local stream = require("cosmic.stream")
+
+  local iter = stream.lines(stream.from_string("alpha\nbeta\n"))
+  print(iter())
+  print(iter())
+  -- Output:
+  -- alpha
+  -- beta
+end
+
 -- Suppress unused warnings for examples
-local _ = {Example_reader, Example_writer}
+local _ = {Example_reader, Example_writer, Example_from_string}
