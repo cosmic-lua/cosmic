@@ -55,5 +55,34 @@ local function Example_writer()
   -- ten bytes!
 end
 
+-- Example_from_string demonstrates wrapping bytes already in hand as a
+-- Reader: in-memory data drives any stream consumer — here the shared
+-- line iterator — without touching a descriptor.
+local function Example_from_string()
+  local stream = require("cosmic.stream")
+
+  local iter = stream.lines(stream.from_string("alpha\nbeta\n"))
+  print(iter())
+  print(iter())
+  -- Output:
+  -- alpha
+  -- beta
+end
+
+-- Example_buffer demonstrates the in-memory Writer: point any
+-- Reader-to-Writer plumbing at it and read the result back as a
+-- string. With from_string on the other end, a whole pipeline runs
+-- without touching a descriptor.
+local function Example_buffer()
+  local check = require("cosmic.check")
+  local stream = require("cosmic.stream")
+
+  local buf = stream.buffer()
+  check.must(stream.copy(buf, stream.from_string("round trip")))
+  print(buf:contents())
+  -- Output:
+  -- round trip
+end
+
 -- Suppress unused warnings for examples
-local _ = {Example_reader, Example_writer}
+local _ = {Example_reader, Example_writer, Example_from_string, Example_buffer}

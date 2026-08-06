@@ -43,10 +43,18 @@ local record stream
     write: function(self: Writer, data: string): number | nil, string
   end
 
+  --- A Writer that accumulates in memory (the sink from_string is the
+  --- source of): contents() returns everything written so far.
+  record Buffer is Writer
+    contents: function(self: Buffer): string
+  end
+
   write_all: function(w: Writer, data: string): boolean, string
   read_all: function(r: Reader, max?: integer): string | nil, string
   copy: function(dst: Writer, src: Reader, buf_size?: integer): integer | nil, string
   lines: function(r: Reader): function(): string | nil, string
+  from_string: function(data: string): Reader
+  buffer: function(): Buffer
 end
 
 --- Write all of data, retrying short writes until done. The two
@@ -121,6 +129,56 @@ function stream.copy(dst: stream.Writer, src: stream.Reader, buf_size?: integer)
     end
     copied = copied + #chunk
   end
+end
+
+--- Wrap bytes already in hand as a Reader, so in-memory data (a file
+--- read whole, a decompressed buffer, a test fixture) feeds any stream
+--- consumer — stream.lines, sse.events, stream.copy — without a
+--- hand-rolled adapter. read(n?) returns successive chunks (at most n
+--- bytes when n is given, the whole remainder otherwise), then bare
+--- nil at end of stream, per the Reader contract; n must be positive
+--- when given.
+--- @param data string The bytes to serve
+--- @return Reader A reader over the bytes
+function stream.from_string(data: string): stream.Reader
+  local pos = 1
+  local reader = {
+    read = function(_self: stream.Reader, n?: number): string | nil, string
+      if pos > #data then
+        return nil
+      end
+      local last = #data
+      if n then
+        if n <= 0 then
+          return nil, "read: size must be positive"
+        end
+        last = math.min(last, pos + math.floor(n) - 1)
+      end
+      local chunk = data:sub(pos, last)
+      pos = last + 1
+      return chunk
+    end,
+  }
+  return reader as stream.Reader -- cast: table implements the Reader interface
+end
+
+--- Collect writes in memory: the Writer half of from_string. write()
+--- appends and reports the chunk fully written; contents() returns
+--- everything written so far. Point stream.copy (or any Writer taker)
+--- at one to materialize a pipeline's output as a string.
+--- @return Buffer The in-memory writer
+function stream.buffer(): stream.Buffer
+  local parts: {string} = {}
+  local buf = {
+    write = function(_self: stream.Writer, data: string): number | nil, string
+      parts[#parts + 1] = data
+      return #data
+    end,
+    contents = function(_self: stream.Buffer): string
+      return table.concat(parts)
+    end,
+  }
+  return buf as stream.Buffer -- cast: table implements the Buffer record
 end
 
 --- Iterate complete lines from a Reader, buffering partial lines
