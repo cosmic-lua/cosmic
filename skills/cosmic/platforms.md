@@ -48,7 +48,7 @@ the sandbox family is where OSes differ most. all four modules are **fail-closed
 ```teal
 local sandbox = require("cosmic.sandbox")
 if sandbox.available().fs then
-  assert(sandbox.apply{fs = {ro = {"/usr"}, rw = {"/tmp"}}})
+  assert(sandbox.apply {fs = {ro = {"/usr"}, rw = {"/tmp"}}})
 end
 ```
 

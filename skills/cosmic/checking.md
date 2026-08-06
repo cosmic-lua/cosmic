@@ -168,7 +168,7 @@ local record JsonModule
   encode: function(value: any): string, string
 end
 
-local M: JsonModule = { decode = decode, encode = encode }
+local M: JsonModule = {decode = decode, encode = encode}
 return M
 ```
 

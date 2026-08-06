@@ -12,7 +12,7 @@ cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --c
   aligned comment columns are collapsed by the formatter
 - no spaces inside table braces:
 
-```teal
+```teal nofmt
 local t = { a = 1 } -- wrong
 local t = {a = 1} -- right
 ```
