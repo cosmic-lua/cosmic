@@ -147,3 +147,81 @@ return { spin = spin, internal_only = internal_only }
   assert(shard_mod, "the shard stays addressable under its own name")
 end
 test_shards_flatten_into_parent()
+
+-- A directory module WITH a sibling example file: init must normalize
+-- before examples merge, or the example doc registers itself under the
+-- module's name first, the init rename finds the name taken, and the
+-- page users see is a bare example with every shard helper merged
+-- unfiltered (cosmic.flags was the in-tree case).
+local function test_example_beside_directory_module()
+  local pdir = fs.join(tmpdir, "widgetdir")
+  assert(fs.make_dirs(pdir))
+  local init_path = fs.join(pdir, "init.tl")
+  assert(fs.write(init_path, [[
+--- Widgetdir module.
+local shard = require("widgetdir.shard")
+
+local record WidgetdirModule
+  spin: function(n: number): number
+end
+
+local M: WidgetdirModule = {
+  spin = shard.spin,
+}
+
+return M
+]]))
+  local shard_path = fs.join(pdir, "shard.tl")
+  assert(fs.write(shard_path, [[
+--- Widgetdir internals.
+
+--- Spin a widget.
+--- @param n number Revolutions
+--- @return number The spun value
+local function spin(n: number): number
+  return n * 2
+end
+
+--- Private helper.
+--- @return number Zero
+local function internal_only(): number
+  return 0
+end
+
+return { spin = spin, internal_only = internal_only }
+]]))
+  local example_path = fs.join(tmpdir, "widgetdir_example.tl")
+  assert(fs.write(example_path, [[
+--- Examples for widgetdir.
+local function Example_spin()
+  print("spun")
+  -- Output:
+  -- spun
+end
+return {}
+]]))
+
+  local encoded = check.must(index.generate(
+      {init_path, shard_path, example_path},
+      {
+        [init_path] = "widgetdir.init",
+        [shard_path] = "widgetdir.shard",
+        [example_path] = "widgetdir_example",
+      }))
+  local data = check.must(codec.decode_lua_unsafe(encoded))
+  local modules = (data as {string: any}).modules as {string: any} -- cast: from any
+  local parent = modules["widgetdir"] as {string: any} -- cast: from any
+  assert(parent, "widgetdir.init should normalize to widgetdir")
+  assert(modules["widgetdir.init"] == nil,
+    "the init shard must not survive under its own name")
+  local names: {string: boolean} = {}
+  for _, func in ipairs((parent.functions or {}) as {any}) do -- cast: from any
+    names[(func as {string: any}).name as string] = true -- cast: from any
+  end
+  assert(names["spin"], "the module's real doc reaches the page")
+  assert(not names["internal_only"],
+    "the export filter survives the example merge")
+  local examples = parent.examples as {any} -- cast: from any
+  assert(examples and #examples == 1, "the example merges onto the same page")
+end
+test_example_beside_directory_module()

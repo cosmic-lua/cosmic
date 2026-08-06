@@ -210,6 +210,15 @@ local function generate(files: {string},
     end
   end
 
+  -- Init shards normalize to the name users require BEFORE examples
+  -- merge: a directory module with a sibling example file
+  -- (cosmic/flags/init.tl + cosmic/flags_example.tl) otherwise loses
+  -- the race — the example doc registers itself as `cosmic.flags`, the
+  -- init rename then finds the name taken and skips, and the module's
+  -- real doc is stranded under `cosmic.flags.init` while the page
+  -- users see is the bare example.
+  normalize_init(modules)
+
   -- Merge examples from _example files into corresponding modules
   for base_name, example_doc in pairs(example_files) do
     local mod = modules[base_name]
@@ -231,7 +240,6 @@ local function generate(files: {string},
     end
   end
 
-  normalize_init(modules)
   flatten_shards(modules)
   mark_visibility(modules)
 
