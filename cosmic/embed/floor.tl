@@ -21,6 +21,11 @@ local DOS_EPOCH < const > = 315532800
 --- artifact anyone builds.
 local FLOOR < const >: {string} = {
   "cosmic/", -- the standard library, compiled
+  -- the `cosmic` module itself: cosmic/init.tl flattens to the zip
+  -- root, OUTSIDE the cosmic/ prefix, and without it a stripped
+  -- artifact cannot require("cosmic") (cosmic.main, the taught entry
+  -- point)
+  "cosmic.lua",
   "usr/", -- TLS roots and zoneinfo
   ".args", -- default argv
   ".cosmo", -- cosmopolitan's own marker
@@ -64,9 +69,11 @@ end
 local function in_floor(name: string, provides?: {string: boolean}): boolean
   if provides then
     for ns, prefix in pairs(SUPERSEDABLE) do
+      -- The flattened module file (`cosmic.lua`) is part of the
+      -- namespace a claim supersedes, same as the directory.
       if provides[ns] and
       (name == prefix or name:sub(1, #prefix) == prefix or
-        name == prefix:sub(1, -2)) then
+        name == prefix:sub(1, -2) or name == ns .. ".lua") then
         return false
       end
     end

@@ -384,3 +384,18 @@ local function test_floor_matches_files_exactly()
     "but not a sibling whose name starts the same way")
 end
 test_floor_matches_files_exactly()
+
+-- cosmic/init.tl flattens to cosmic.lua at the zip root — outside the
+-- cosmic/ prefix — and a stripped artifact must still boot cosmic.main.
+local function test_floor_keeps_the_cosmic_module_itself()
+  local floor = require("cosmic.embed.floor")
+  assert(floor.in_floor("cosmic.lua"), "require('cosmic') must survive a strip")
+  assert(not floor.in_floor("cosmic.luaX"), "file-shaped: exact match only")
+  -- A project that provides the namespace supersedes the module file
+  -- along with the directory.
+  assert(not floor.in_floor("cosmic.lua", {cosmic = true}),
+    "a cosmic claim supersedes the flattened module file too")
+  assert(not floor.in_floor("cosmic/fs.lua", {cosmic = true}),
+    "and the directory, as before")
+end
+test_floor_keeps_the_cosmic_module_itself()
