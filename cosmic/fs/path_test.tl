@@ -414,3 +414,57 @@ local function test_relpath_go_up_more()
   assert(result == "../..", "expected '../..', got '" .. result .. "'")
 end
 test_relpath_go_up_more()
+
+-- relpath implicit-base (cwd) tests: p is relative, base is omitted.
+-- These exercise the fast path added for cosmopolitan#928, which returns
+-- normalize(p) directly when p never climbs above cwd.
+
+local function test_relpath_implicit_empty()
+  local result = fs.relpath("")
+  assert(result == ".", "expected '.', got '" .. result .. "'")
+end
+test_relpath_implicit_empty()
+
+local function test_relpath_implicit_dot()
+  local result = fs.relpath(".")
+  assert(result == ".", "expected '.', got '" .. result .. "'")
+end
+test_relpath_implicit_dot()
+
+local function test_relpath_implicit_internal_cancel()
+  local result = fs.relpath("a/../b")
+  assert(result == "b", "expected 'b', got '" .. result .. "'")
+end
+test_relpath_implicit_internal_cancel()
+
+local function test_relpath_implicit_dot_segments()
+  local result = fs.relpath("./a/./b")
+  assert(result == "a/b", "expected 'a/b', got '" .. result .. "'")
+end
+test_relpath_implicit_dot_segments()
+
+local function test_relpath_implicit_trailing_slash()
+  local result = fs.relpath("a/b/")
+  assert(result == "a/b", "expected 'a/b', got '" .. result .. "'")
+end
+test_relpath_implicit_trailing_slash()
+
+local function test_relpath_implicit_plain()
+  local result = fs.relpath("a/b/c")
+  assert(result == "a/b/c", "expected 'a/b/c', got '" .. result .. "'")
+end
+test_relpath_implicit_plain()
+
+-- These must take the slow (walk-up-from-cwd) path: p escapes above cwd.
+
+local function test_relpath_implicit_parent()
+  local result = fs.relpath("..")
+  assert(result == "..", "expected '..', got '" .. result .. "'")
+end
+test_relpath_implicit_parent()
+
+local function test_relpath_implicit_parent_child()
+  local result = fs.relpath("../x")
+  assert(result == "../x", "expected '../x', got '" .. result .. "'")
+end
+test_relpath_implicit_parent_child()
