@@ -48,28 +48,16 @@ local record Poller
   remove: function(Poller, integer)
   --  Clear all file descriptors from the set.
   clear: function(Poller)
-  --  Poll for events with optional timeout.
-  --  Returns an iterator over (fd, events) pairs for ready descriptors.
-  --  EINTR is retried internally by reissuing the same timeout_ms, so the
-  --  deadline is not preserved across retries: repeated signals can make
-  --  the effective wait exceed timeout_ms. On a hard poll error the
-  --  iterator is empty; check err() after the loop — the old second
-  --  return was consumed as loop state by the generic `for`, so no
-  --  caller ever saw it (the Rows:err() pattern, for the same reason).
-  wait: function(Poller, integer): function(): (integer, Events)
-  --  The error from the last wait(), or nil when it polled cleanly.
-  --  Cleared by the next wait().
-  err: function(Poller): string | nil
-  --  Poll and return count of ready descriptors. EINTR is retried
-  --  internally by reissuing the same timeout_ms (the deadline is not
-  --  preserved across retries).
-  poll: function(Poller, integer): integer | nil, string
-  --  Get events for a specific fd after poll().
-  events: function(Poller, integer): Events | nil
+  --  Wait for events, up to timeout_ms. Returns the ready set as a
+  --  {fd: Events} map — an empty map on timeout, `nil, err` on a hard
+  --  poll failure — so `for fd, ev in pairs(ready) do` iterates it and
+  --  the error arrives in slot 2 the house way (the old iterator ate
+  --  it as loop state, patched by a stateful err() sidecar; both are
+  --  gone). EINTR is retried against an absolute deadline, so repeated
+  --  signals can no longer stretch the wait past timeout_ms.
+  wait: function(Poller, timeout_ms?: integer): {integer: Events} | nil, string
   --  Returns true if the poller has no registered fds.
   is_empty: function(Poller): boolean
-  --  Returns the number of registered fds.
-  count: function(Poller): integer
 end
 ```
 
@@ -109,7 +97,8 @@ function new(): Poller
    p:add(sock.fd, poll.POLLIN)           -- net.Socket: .fd field
    p:add(h:fd(), poll.POLLIN)            -- fd.Handle: :fd() method
    p:add(pipe.reader:fd(), poll.POLLIN)  -- fd.Pipe ends are Handles
-   for fd, events in p:wait(30000) do
+   local ready = assert(p:wait(30000))
+   for fd, events in pairs(ready) do
      if events.readable then
        -- read from fd
      end
