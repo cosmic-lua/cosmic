@@ -405,11 +405,11 @@ local function find_suggestions(query: string, index: DocIndex): {string}
       end
     end
   end
-  local similar = fuzzy.find_similar(query, candidates, 3)
+  local similar = fuzzy.find_similar(query, candidates, {max_distance = 3})
   local results: {string} = {}
   local seen: {string: boolean} = {}
-  for _, simple in ipairs(similar) do
-    local fulls = name_to_full[simple]
+  for _, m in ipairs(similar) do
+    local fulls = name_to_full[m.value]
     if fulls then
       for _, full in ipairs(fulls) do
         if not seen[full] then
@@ -435,10 +435,10 @@ local function find_example_suggestions(query: string, index: DocIndex): {string
       end
     end
   end
-  local similar = fuzzy.find_similar(query, candidates, 3)
+  local similar = fuzzy.find_similar(query, candidates, {max_distance = 3})
   local results: {string} = {}
-  for _, simple in ipairs(similar) do
-    if name_to_full[simple] then table.insert(results, name_to_full[simple]) end
+  for _, m in ipairs(similar) do
+    if name_to_full[m.value] then table.insert(results, name_to_full[m.value]) end
   end
   return results
 end

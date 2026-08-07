@@ -1,7 +1,9 @@
 --- String utilities.
 --- Common string manipulation functions for trimming, splitting, searching,
 --- padding, and quoting. All functions are infallible and treat their
---- arguments as plain text (no Lua patterns).
+--- arguments as plain text (no Lua patterns). For pattern-based search
+--- and splitting see cosmic.re; for approximate (edit-distance)
+--- matching see cosmic.fuzzy.
 ---
 --- Example usage:
 ---   local str = require("cosmic.string")
@@ -48,6 +50,8 @@ end
 --- Split a string by a separator.
 --- If separator is empty string, splits into individual characters.
 --- Trailing empty fields (from a trailing separator) are preserved.
+--- The empty string yields one empty field, {""} — the same answer
+--- re.split gives, so the two splits agree on the empty subject.
 --- @param s string The string to split
 --- @param sep string The separator to split on
 --- @return {string} Array of substrings
@@ -62,7 +66,7 @@ local function split(s: string, sep: string): {string}
     return result
   end
   if s == "" then
-    return result
+    return {""}
   end
   local pos = 1
   local sep_len = #sep
@@ -111,13 +115,15 @@ end
 
 --- Count non-overlapping occurrences of a substring.
 --- Plain-text search; the substring is not a Lua pattern.
---- The empty substring counts as zero occurrences.
+--- The empty substring matches before every character and at the end,
+--- so it counts #s + 1 occurrences — agreeing with contains, which
+--- says the empty substring is contained in every string.
 --- @param s string The string to search
 --- @param sub string The substring to count
 --- @return integer Number of non-overlapping occurrences
 local function count(s: string, sub: string): integer
   if sub == "" then
-    return 0
+    return #s + 1
   end
   local n = 0
   local pos = 1
@@ -134,20 +140,38 @@ end
 --- Replace occurrences of a substring with plain text.
 --- Both old and new are treated literally (no Lua patterns, unlike
 --- string.gsub). Replaces all occurrences unless max is given.
---- An empty old string returns s unchanged.
+--- An empty old string matches before every character and at the end,
+--- so new is inserted at each of the #s + 1 boundaries — the same
+--- positions count counts, and what Python and Go do.
 --- @param s string The string to operate on
 --- @param old string The substring to replace
 --- @param new string The replacement text
 --- @param max integer? Maximum number of replacements (default unlimited)
 --- @return string The string with replacements applied
 local function replace(s: string, old: string, new: string, max?: integer): string
-  if old == "" or max == 0 then
+  if max == 0 then
     return s
   end
   local parts: {string} = {}
   local n = 0
   local done = 0
   local pos = 1
+  if old == "" then
+    for i = 1, #s do
+      if not max or done < max then
+        n = n + 1
+        parts[n] = new
+        done = done + 1
+      end
+      n = n + 1
+      parts[n] = s:sub(i, i)
+    end
+    if not max or done < max then
+      n = n + 1
+      parts[n] = new
+    end
+    return table.concat(parts)
+  end
   while true do
     local found = s:find(old, pos, true)
     if not found or (max and done >= max) then
