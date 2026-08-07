@@ -58,7 +58,7 @@ _perf/bench/http_bench.tl 83 114
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
 _perf/bench/re_bench.tl 0 47
-_perf/bench/sqlite_bench.tl 90 106
+_perf/bench/sqlite_bench.tl 90 124
 _perf/bench/startup_bench.tl 73 85
 _perf/bench/stream_bench.tl 0 80
 _perf/bench/time_bench.tl 0 14
