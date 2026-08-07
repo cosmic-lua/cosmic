@@ -5,11 +5,11 @@
  helpers to strip styling and to decide whether a stream should be
  colored at all. All styling functions are pure and infallible:
  they return the wrapped string and never inspect the terminal —
- gate output with enabled() at the call site.
+ gate output with is_enabled() at the call site.
 
  Example usage:
    local ansi = require("cosmic.ansi")
-   if ansi.enabled(1) then
+   if ansi.is_enabled(1) then
      print(ansi.bold(ansi.red("error:")) .. " something broke")
    end
 
@@ -44,7 +44,7 @@ local record AnsiModule
   dim: function(text: string): string
   underline: function(text: string): string
   strip: function(text: string): string
-  enabled: function(fd?: integer): boolean
+  is_enabled: function(fd?: integer): boolean
 end
 ```
 
@@ -265,10 +265,10 @@ function strip(text: string): string
 
 - string - The text with SGR sequences removed
 
-### enabled
+### is_enabled
 
 ```teal
-function enabled(fd?: integer): boolean
+function is_enabled(fd?: integer): boolean
 ```
 
  Decide whether styled output is appropriate for a stream, honoring

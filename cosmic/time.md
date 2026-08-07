@@ -49,6 +49,7 @@ local record TimeModule
   monotonic: function(): integer, integer
   now_ms: function(): integer
   monotonic_ms: function(): integer
+  monotonic_ns: function(): integer
   sleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string
   sleep_ms: function(ms: number): integer | nil, string
   gmtime: function(unixts: integer): DateTime
@@ -139,6 +140,21 @@ function monotonic_ms(): integer
 **Returns:**
 
 - integer - Milliseconds
+
+### monotonic_ns
+
+```teal
+function monotonic_ns(): integer
+```
+
+ Get monotonic time in whole nanoseconds from an unspecified epoch.
+ Use differences between two calls to measure elapsed time. The
+ arithmetic is exact 64-bit integer math (no float rounding), which
+ is what benchmark timing wants.
+
+**Returns:**
+
+- integer - Nanoseconds
 
 ### sleep
 

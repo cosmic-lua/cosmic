@@ -14,7 +14,11 @@
    log.debug("cache miss", {key = "user:42"})
 
  Line format: `<iso8601-utc> <LEVEL> <message> <key=value ...>` with
- fields sorted by key so output is deterministic. Logging is
+ fields sorted by key so output is deterministic. Field values use
+ the shared `key=value` grammar (`cosmic._fields`) — the same one
+ cosmic.instrument emits and parses, so instrument.parse-style
+ readers and `grep key=value` both work on log output: a value
+ never contains a bare space or newline. Logging is
  infallible: emitters return nothing and never throw; a message
  below the threshold costs one map lookup and no formatting.
 
@@ -35,7 +39,7 @@ local record LogModule
   log: function(level: Level, message: string, fields?: {string: any})
   debug: function(message: string, fields?: {string: any})
   info: function(message: string, fields?: {string: any})
-  warn: function(message: string, fields?: {string: any})
+  warning: function(message: string, fields?: {string: any})
   error: function(message: string, fields?: {string: any})
   format: function(level: Level, message: string, fields?: {string: any}): string
   set_level: function(level: Level): boolean, string
@@ -97,10 +101,10 @@ function info(message: string, fields?: {string: any})
 - `message` (string) - The log message
 - `fields` ({string:any}?) - Optional key=value context fields
 
-### warn
+### warning
 
 ```teal
-function warn(message: string, fields?: {string: any})
+function warning(message: string, fields?: {string: any})
 ```
 
  Log a warning message.

@@ -4,12 +4,15 @@
  a span, and get one structured `key=value` line per span on stderr
  when `COSMIC_INSTRUMENTATION` is `1` or `true`.
 
- Both halves are here on purpose. A span EMITS (`begin`/`finish`),
- and `parse_line`/`parse_lines` READ what a child process emitted —
- which is how `cosmic.testrun` attributes wall time, CPU time and
- peak RSS to each test it spawned. Emitting without a reader would
- make the format a private convention between two files; both ends
- being here is what makes it an interface.
+ Both halves are here on purpose. A span EMITS (`begin`/`finish`,
+ with `format_line` as the pure writer), and `parse_line`/
+ `parse_lines` READ what a child process emitted — which is how
+ `cosmic.testrun` attributes wall time, CPU time and peak RSS to
+ each test it spawned. Emitting without a reader would make the
+ format a private convention between two files; both ends being
+ public is what makes it an interface. Field values use the shared
+ `key=value` grammar (`cosmic._fields`), the same one cosmic.log
+ renders with.
 
  Public since 3h, and the caller set is what settled it: the CLI
  dispatcher (`_cli/`) times every operation it runs, and lives
@@ -55,15 +58,47 @@ end
 
 ```teal
 local record InstrumentModule
-  enabled: function(): boolean
+  is_enabled: function(): boolean
   begin: function(op: string, file: string): Span
-  finish: function(span: Span, exit_code: integer): string | nil
+  finish: function(span: Span, exit_code: integer): InstrumentData
+  format_line: function(data: InstrumentData): string
   parse_line: function(line: string): InstrumentData | nil
   parse_lines: function(content: string): {InstrumentData}
 end
 ```
 
 ## Functions
+
+### is_enabled
+
+```teal
+function is_enabled(): boolean
+```
+
+ Check whether instrumentation is enabled.
+ Returns true when COSMIC_INSTRUMENTATION is "1" or "true".
+
+**Returns:**
+
+- boolean
+
+### format_line
+
+```teal
+function format_line(data: InstrumentData): string
+```
+
+ Format an instrumentation line from measured data — the pure
+ inverse of parse_line. Field values are encoded with the shared
+ grammar, so a file path with a space or "%" round-trips whole.
+
+**Parameters:**
+
+- `data` (InstrumentData) - The measurement to render
+
+**Returns:**
+
+- string - The formatted line, without a trailing newline
 
 ### parse_line
 
