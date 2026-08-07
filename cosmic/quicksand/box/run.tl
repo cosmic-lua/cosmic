@@ -301,7 +301,7 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
       status = wstatus
       break
     end
-    if not errno.is_code(weno, "EINTR") then
+    if not errno.is(weno, "EINTR") then
       unix.close(erfd)
       return nil, "quicksand: wait: " .. tostring(wstatus)
     end

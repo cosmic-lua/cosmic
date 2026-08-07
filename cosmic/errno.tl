@@ -4,13 +4,20 @@
 --- (`"open: ENOENT: No such file or directory"`) plus the numeric errno.
 --- This module provides the canonical formatter (`format`) that most
 --- `cosmic.*` wrappers use to add operation context, and helpers for
---- programmatic errno handling (`is_code`, `code_of`, `name_in`, and the
---- `codes` name -> number table), so error messages share one shape
+--- programmatic errno handling (`is_code`, `code_of`, `name_in`, and
+--- the `codes` name -> number table), so error messages share one shape
 --- across the stdlib:
 ---
 ---     local ok, err = unix.mkdir(path, mode)
 ---     if not ok then return false, errno.format(err, "mkdir: " .. path) end
 ---     -- -> "mkdir: /x: EACCES: Permission denied"
+---
+--- The pre-rename names (`wrap`, `is`, `code`, `name_of`, `constants`)
+--- are DEPRECATED aliases carried through the D20 transition: the
+--- pinned bootstrap binary type-checks tree modules against its own
+--- embedded errno record, so in-tree callers flip to the canonical
+--- names only once a release carrying them becomes bin/cosmic.pin;
+--- the aliases are deleted in that same cleanup (#981).
 local unix = require("cosmo.unix")
 
 --- Format an error as one canonical string, optionally prefixed with the
@@ -42,10 +49,8 @@ local function format(err: any, prefix?: string): string
   return msg
 end
 
---- The numeric errno for a named constant (e.g. `code_of("ENOENT")`), or
---- nil if the host does not define it. A thin lookup over `unix.E*`; the
---- inverse direction is `name_in`, which searches a message rather than
---- converting a number.
+--- The numeric errno for a named constant (e.g. `code_of("ENOENT")`), or nil
+--- if the host does not define it. A thin lookup over `unix.E*`.
 ---
 --- @param name string errno constant name
 --- @return integer | nil errno number, nil when the host does not define it
@@ -113,8 +118,8 @@ local ERRNO_NAMES < const >: {string} = {
 
 --- Errno name -> number for every constant the host defines
 --- (`codes.ENOENT`, `codes["EAGAIN"]`, ...). The table form of
---- `code_of`: use it to iterate, to look names up dynamically, or to
---- avoid reaching through `cosmo.unix` for a raw constant.
+--- `code_of`: use it to iterate, to look names up dynamically, or to avoid
+--- reaching through `cosmo.unix` for a raw constant.
 local codes: {string: integer} = {}
 for _, name in ipairs(ERRNO_NAMES) do
   local v = (unix as {string: any})[name] -- cast: dynamic E* lookup
@@ -129,6 +134,14 @@ local record ErrnoModule
   is_code: function(eno: any, name: string): boolean
   name_in: function(msg: string): string | nil
   codes: {string: integer}
+
+  --- DEPRECATED (D20 transition): pre-rename aliases of the five
+  --- canonical names above, deleted at the next pin advance (#981).
+  wrap: function(err: any, prefix?: string): string
+  code: function(name: string): integer | nil
+  is: function(eno: any, name: string): boolean
+  name_of: function(msg: string): string | nil
+  constants: {string: integer}
 end
 
 local M: ErrnoModule = {
@@ -137,6 +150,11 @@ local M: ErrnoModule = {
   is_code = is_code,
   name_in = name_in,
   codes = codes,
+  wrap = format,
+  code = code_of,
+  is = is_code,
+  name_of = name_in,
+  constants = codes,
 }
 
 return M

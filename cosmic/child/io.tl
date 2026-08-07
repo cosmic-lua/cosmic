@@ -104,7 +104,7 @@ end
 --- read (the signal-safety wave). Returns unix.read's (data, err).
 local function read_retry(fd: integer, bufsiz: integer): string | nil, string | nil
   local data, err, eno = unix.read(fd, bufsiz)
-  while data == nil and errno.is_code(eno, "EINTR") do
+  while data == nil and errno.is(eno, "EINTR") do
     data, err, eno = unix.read(fd, bufsiz)
   end
   return data, err
@@ -115,7 +115,7 @@ end
 --- failure pid is nil and the error string sits in the status slot.
 local function wait_retry(pid: integer): integer | nil, integer
   local wpid, status, weno = unix.wait(pid)
-  while wpid == nil and errno.is_code(weno, "EINTR") do
+  while wpid == nil and errno.is(weno, "EINTR") do
     wpid, status, weno = unix.wait(pid)
   end
   return wpid, status
@@ -174,8 +174,8 @@ local function pump(state: PumpState, deadline_ms: number): boolean
       if chunk == nil then
         -- Interrupted by a signal: leave the fd registered; the next poll
         -- round retries (the signal-safety wave).
-        if errno.is_code(reno, "EINTR") then return end
-        state.io_err = state.io_err or errno.format(rerr, "read")
+        if errno.is(reno, "EINTR") then return end
+        state.io_err = state.io_err or errno.wrap(rerr, "read")
         p:remove(fd); unix.close(fd)
         if which == "out" then state.stdout_fd = nil else state.stderr_fd = nil end
       elseif chunk == "" then
@@ -219,14 +219,14 @@ local function pump(state: PumpState, deadline_ms: number): boolean
           if state.stdin_off >= #state.stdin_data then
             p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
           end
-        elseif errno.is_code(weno, "EAGAIN") or errno.is_code(weno, "EINTR") then
+        elseif errno.is(weno, "EAGAIN") or errno.is(weno, "EINTR") then
           -- Not actually writable yet (EAGAIN), or a signal interrupted the
           -- write EINTR: try again on the next poll.
-        elseif errno.is_code(weno, "EPIPE") then
+        elseif errno.is(weno, "EPIPE") then
           -- The child stopped reading stdin; stop feeding it (not an error).
           p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
         else
-          state.io_err = state.io_err or errno.format(werr, "write stdin")
+          state.io_err = state.io_err or errno.wrap(werr, "write stdin")
           p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
         end
       elseif ev and (ev.error or ev.hangup or ev.invalid) then

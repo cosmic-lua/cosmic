@@ -4,7 +4,7 @@
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs.types")
-local errstr = require("cosmic.errno").format
+local errstr = require("cosmic.errno").wrap
 local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 local type WalkDirHandle = types.DirHandle

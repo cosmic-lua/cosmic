@@ -5,7 +5,7 @@ local cfd = require("cosmic.fd")
 local stream = require("cosmic.stream")
 local types = require("cosmic.fs.types")
 local errno = require("cosmic.errno")
-local errstr = errno.format
+local errstr = errno.wrap
 local Statfs = types.Statfs
 local type Handle = cfd.Handle
 
@@ -94,7 +94,7 @@ local function move(oldpath: string, newpath: string): boolean, string
   if ok then
     return true
   end
-  if not errno.is_code(eno, "EXDEV") then
+  if not errno.is(eno, "EXDEV") then
     return false, errstr(err, "move: " .. oldpath .. " -> " .. newpath)
   end
   local copied, cerr = copy(oldpath, newpath)
@@ -202,7 +202,7 @@ end
 local function remove_all(path: string): boolean, string
   local ok, err, eno = unix.rmrf(path)
   if not ok then
-    if errno.is_code(eno, "ENOENT") then
+    if errno.is(eno, "ENOENT") then
       return true
     end
     return false, errstr(err, "remove_all: " .. path)

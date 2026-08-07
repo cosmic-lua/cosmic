@@ -295,7 +295,7 @@ test_write_atomic_failure_keeps_original()
 
 -- write_atomic()'s write loop uses the identical retry construct proven
 -- above for copy() (fs/ops.tl's copy and fs/file.tl's write_atomic share
--- the same errno.is_code(_, "EINTR") pattern). It is not independently forced
+-- the same errno.is(_, "EINTR") pattern). It is not independently forced
 -- here: write_atomic's destination is always a real mkstemp()'d path
 -- (mkstemp creates the file itself from a template), so it cannot be
 -- redirected to a pipe the way copy()'s open()-a-given-path can, and

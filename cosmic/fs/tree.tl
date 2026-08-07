@@ -3,7 +3,7 @@
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local errno = require("cosmic.errno")
-local errstr = errno.format
+local errstr = errno.wrap
 local fs_ops = require("cosmic.fs.ops")
 local fs_types = require("cosmic.fs.types")
 local type TreeDirHandle = fs_types.DirHandle
@@ -43,7 +43,7 @@ local function copy_entries(src: string, dst: string): boolean, string
         -- first (ENOENT means there was nothing to remove) so re-copying
         -- a tree overwrites, matching copy()'s behavior on regular files.
         local unlinked, uerr, ueno = unix.unlink(d)
-        if not unlinked and not errno.is_code(ueno, "ENOENT") then
+        if not unlinked and not errno.is(ueno, "ENOENT") then
           h:close()
           return false, errstr(uerr, "copy_tree: unlink: " .. d)
         end

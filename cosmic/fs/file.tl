@@ -5,7 +5,7 @@ local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 local cfd = require("cosmic.fd")
 local stream = require("cosmic.stream")
-local errstr = errno.format
+local errstr = errno.wrap
 
 --- Read entire file contents.
 --- @param path string Path to the file

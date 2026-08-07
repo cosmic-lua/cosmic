@@ -2,8 +2,8 @@
 --- (an internal shard of cosmic.net; require cosmic.net, not this).
 local unix = require("cosmo.unix")
 local net_socket = require("cosmic.net.socket")
-local errstr = require("cosmic.errno").format
-local errno_is = require("cosmic.errno").is_code
+local errstr = require("cosmic.errno").wrap
+local errno_is = require("cosmic.errno").is
 
 local type Socket = net_socket.Socket
 local type Address = net_socket.Address

@@ -95,7 +95,7 @@ local function sleep(seconds: integer, nanos?: integer): integer | nil, integer,
     -- fills it on EINTR); an uninterrupted sleep's remainder is zero.
     return 0, 0
   end
-  if errno.is_code(eno, "EINTR") then
+  if errno.is(eno, "EINTR") then
     -- The binding discards the kernel's remainder on the error path;
     -- recover it from the monotonic clock instead.
     local t1s, t1n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
@@ -106,9 +106,9 @@ local function sleep(seconds: integer, nanos?: integer): integer | nil, integer,
     end
     return math.floor(remaining / 1000000000),
     remaining % 1000000000,
-    errno.format(rem_ns, "sleep")
+    errno.wrap(rem_ns, "sleep")
   end
-  return nil, nil, errno.format(rem_ns, "sleep")
+  return nil, nil, errno.wrap(rem_ns, "sleep")
 end
 
 --- Sleep for the specified number of milliseconds.

@@ -30,7 +30,7 @@ local errno = require("cosmic.errno")
 local function get_flags(name: string): integer | nil, string
   if #name >= unix.IFNAMSIZ then return nil, "interface name too long" end
   local flags, err = unix.siocgifflags(name)
-  if not flags then return nil, errno.format(err, "SIOCGIFFLAGS") end
+  if not flags then return nil, errno.wrap(err, "SIOCGIFFLAGS") end
   return flags
 end
 
@@ -43,7 +43,7 @@ end
 local function set_flags(name: string, flags: integer): boolean, string
   if #name >= unix.IFNAMSIZ then return false, "interface name too long" end
   local ok, err = unix.siocsifflags(name, flags)
-  if not ok then return false, errno.format(err, "SIOCSIFFLAGS") end
+  if not ok then return false, errno.wrap(err, "SIOCSIFFLAGS") end
   return true
 end
 
@@ -62,7 +62,7 @@ local function open(pid: integer): integer | nil, string
   local tag = pid and tostring(pid) or "self"
   local fd, err = unix.open("/proc/" .. tag .. "/ns/net",
     unix.O_RDONLY | unix.O_CLOEXEC)
-  if not fd then return nil, errno.format(err, "netns.open") end
+  if not fd then return nil, errno.wrap(err, "netns.open") end
   return fd
 end
 
@@ -75,7 +75,7 @@ end
 --- @return string? error message on failure
 local function enter(fd: integer): boolean, string
   local ok, err = unix.setns(fd, unix.CLONE_NEWNET)
-  if not ok then return false, errno.format(err, "setns") end
+  if not ok then return false, errno.wrap(err, "setns") end
   return true
 end
 
@@ -89,7 +89,7 @@ end
 --- @return string? error message on failure
 local function unshare_user(): boolean, string
   local ok, err = unix.unshare(unix.CLONE_NEWUSER)
-  if not ok then return false, errno.format(err, "unshare_user") end
+  if not ok then return false, errno.wrap(err, "unshare_user") end
   return true
 end
 
@@ -101,7 +101,7 @@ end
 --- @return string? error message on failure
 local function unshare(): boolean, string
   local ok, err = unix.unshare(unix.CLONE_NEWNET)
-  if not ok then return false, errno.format(err, "unshare") end
+  if not ok then return false, errno.wrap(err, "unshare") end
   return true
 end
 
@@ -114,7 +114,7 @@ end
 local function bring_up(name: string): boolean, string
   local flags, err = get_flags(name)
   if not flags then
-    return false, errno.format(err, "bring_up " .. name)
+    return false, errno.wrap(err, "bring_up " .. name)
   end
   return set_flags(name, flags | (unix.IFF_UP))
 end
@@ -127,7 +127,7 @@ end
 local function bring_down(name: string): boolean, string
   local flags, err = get_flags(name)
   if not flags then
-    return false, errno.format(err, "bring_down " .. name)
+    return false, errno.wrap(err, "bring_down " .. name)
   end
   return set_flags(name, flags & ~ (unix.IFF_UP))
 end
@@ -139,7 +139,7 @@ end
 --- @return string? error message on failure
 local function close(fd: integer): boolean, string
   local ok, err = unix.close(fd)
-  if not ok then return false, errno.format(err, "close") end
+  if not ok then return false, errno.wrap(err, "close") end
   return true
 end
 

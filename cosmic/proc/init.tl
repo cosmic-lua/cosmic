@@ -8,7 +8,7 @@
 --- the interpreter path); arg[1..] are user arguments.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
-local errstr = require("cosmic.errno").format
+local errstr = require("cosmic.errno").wrap
 local fs_path = require("cosmic.fs.path")
 
 --- Process resource usage statistics (the generated unix.Rusage record):

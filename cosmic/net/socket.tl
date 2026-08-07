@@ -4,8 +4,8 @@
 --- string or an ip.Addr, and return ip.Addr — bare integers are not part
 --- of the public surface (wrap C-boundary integers with ip.addr()).
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").format
-local errno_is = require("cosmic.errno").is_code
+local errstr = require("cosmic.errno").wrap
+local errno_is = require("cosmic.errno").is
 local ip = require("cosmic.ip")
 
 --- An address the socket layer accepts: a dotted-quad string

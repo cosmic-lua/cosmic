@@ -242,7 +242,7 @@ local function pump(a: integer, b: integer)
     if not ready then
       -- A forwarded signal arriving mid-poll is not a real failure;
       -- only a non-EINTR error tears down the tunnel.
-      if not errno.is_code(peno, "EINTR") then return end
+      if not errno.is(peno, "EINTR") then return end
     else
       for fd, ev in pairs(ready) do
         local peer = (fd == a) and b or a

@@ -176,8 +176,8 @@ end
 
 Errors are strings: failed `cosmo.unix` calls return `nil, err, errno` (a
 formatted string plus the numeric errno), wrappers add context with
-`errno.format(err, prefix)`, and branch on the numeric errno via
-`errno.is_code(errno_value, "EINTR")`.
+`errno.wrap(err, prefix)`, and branch on the numeric errno via
+`errno.is(errno_value, "EINTR")`.
 
 **Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
 `T`: truthiness (`if not r then return end`), `assert(r)`, and `== nil`/`~= nil` —
