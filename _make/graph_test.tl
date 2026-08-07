@@ -241,7 +241,7 @@ test_find_make_honors_the_override()
 local function test_the_engine_ships_in_the_binary()
   local bytes = fs.read(graph.MAKE_ZIP)
   assert(bytes, "the binary must carry an engine at " .. graph.MAKE_ZIP)
-  local engine = bytes as string -- cast: scalar narrowing after the guard
+  local engine = bytes
   assert(#engine > 100000, "too small to be an engine: " .. #engine)
 end
 test_the_engine_ships_in_the_binary()

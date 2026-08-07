@@ -129,7 +129,7 @@ local function parse_args(): Options
       break
     elseif a:sub(1, 2) == "--" then
       local opt_name = a:sub(3)
-      -- --make joins them (a): `--make <verb> [paths…]` is a verb plus
+      -- --make joins them a: `--make <verb> [paths…]` is a verb plus
       -- a path list, and a path is a positional getopt would permute
       -- into its own option parse.
       if opt_name == "test" or opt_name == "make"
@@ -194,7 +194,7 @@ local function parse_args(): Options
     opts.error = "cosmic-lua: " .. (perr or "failed to parse arguments")
     return opts
   end
-  local r = r0 as getopt.Result -- cast: record union after guard
+  local r = r0
 
   -- A required argument that's absent lands in `missing` (named without
   -- dashes). Give a targeted usage hint where we have one, else a generic

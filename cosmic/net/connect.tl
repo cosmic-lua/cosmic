@@ -41,7 +41,7 @@ local function with_timeout(s: Socket, addr: Address, port: integer, timeout_ms?
   if not revents then
     return false, errstr(perr, "connect: poll failed")
   end
-  local ev = (revents as {integer: integer})[s.fd] or 0 -- cast: record union after guard
+  local ev = (revents)[s.fd] or 0
   if ev == 0 then return false, "connect: timed out" end
   if ev & unix.POLLERR ~= 0 then
     local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)

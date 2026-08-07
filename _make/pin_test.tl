@@ -133,7 +133,7 @@ local function serve(body: string, status?: integer): integer, integer
         }))
     local conn = s:accept()
     if conn then
-      local c = conn as net.Socket -- cast: record union after guard
+      local c = conn
       local buf = ""
       while not buf:find("\r\n\r\n", 1, true) do
         local data = c:recv(4096)
@@ -262,7 +262,7 @@ local function test_only_fetch_can_open_a_socket()
   local networked: {string} = {}
   local found, cerr = fs.find("_make", {glob = "*.tl"})
   assert(found, "cannot scan _make: " .. tostring(cerr))
-  for _, path in ipairs(found as {string}) do -- cast: record union after the guard
+  for _, path in ipairs(found) do
     if not path:find("_test%.tl$") then
       local src = check.must(fs.read(path))
       if src:find('require("cosmic.fetch")', 1, true) then

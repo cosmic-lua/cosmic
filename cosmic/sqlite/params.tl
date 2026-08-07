@@ -86,7 +86,7 @@ end
 local function attach(db_any: any)
   local db = db_any as Db -- cast: from any
 
-  --- Execute SQL with parameters from a list (table). The count is derived
+  --- Execute SQL with parameters from a list table. The count is derived
   --- from the SQL itself, so nil values in the table are handled correctly.
   function db:exec_list(sql: string, values: {any}): boolean, string
     if sqltext.has_multiple_statements(sql) then
@@ -96,7 +96,7 @@ local function attach(db_any: any)
     if not stmt then
       return false, err or "prepare failed"
     end
-    local st = stmt as Stmt -- cast: record union after guard
+    local st = stmt
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
@@ -119,7 +119,7 @@ local function attach(db_any: any)
     if not stmt then
       return false, err or "prepare failed"
     end
-    local st = stmt as Stmt -- cast: record union after guard
+    local st = stmt
 
     local ok, bind_err = st:bind_named(params)
     if not ok then
@@ -132,7 +132,7 @@ local function attach(db_any: any)
     return exec_ok, exec_err
   end
 
-  --- Query with parameters from a list (table).
+  --- Query with parameters from a list table.
   --- The parameter count is derived from the SQL itself, so nil values
   --- in the table are handled correctly.
   function db:query_list(sql: string, values: {any}): Rows | nil, string
@@ -143,7 +143,7 @@ local function attach(db_any: any)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local st = stmt as Stmt -- cast: record union after guard
+    local st = stmt
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
@@ -164,7 +164,7 @@ local function attach(db_any: any)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local st = stmt as Stmt -- cast: record union after guard
+    local st = stmt
 
     local ok, bind_err = st:bind_named(params)
     if not ok then

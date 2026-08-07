@@ -86,7 +86,7 @@ local function strip_into(from: string, to: string, strip: integer,
       -- not carry it, so the source is stat'd for the bits.
       local src = fs.stat(path)
       if src then
-        local _ok, _err = fs.chmod(dest, (src as fs.Stat):mode() & tonumber("777", 8)) -- cast: record union after guard
+        local _ok, _err = fs.chmod(dest, src:mode() & tonumber("777", 8))
       end
       return nil
     end)
@@ -124,8 +124,7 @@ local function unpack(archive: string, dest: string, format: string,
       return nil, "make: cannot open " .. archive .. ": " ..
       (oerr or "unknown error")
     end
-    -- cast: narrowing does not survive the early-exit guard above
-    local r = reader as zip.Archive
+    local r = reader
     ok, err = zip.extract(r, staging)
     r:close()
   elseif format == "tar.gz" then

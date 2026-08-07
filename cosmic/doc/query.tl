@@ -142,7 +142,7 @@ end
 local function list_topics(include_cosmo?: boolean): {{string, string}}
   local index, _ = embedded_index()
   if not index then return {} end
-  local idx = index as DocIndex -- cast: record union after guard
+  local idx = index
 
   local topics: {{string, string}} = {}
   for name, doc in pairs(idx.modules) do
@@ -170,7 +170,7 @@ local calc_score = docs_lookup.calc_score
 local function search(query: string, include_cosmo?: boolean): {SearchResult}
   local index, _ = embedded_index()
   if not index then return {} end
-  local idx = index as DocIndex -- cast: record union after guard
+  local idx = index
   local results: {SearchResult} = {}
   local query_lower = query:lower()
 
@@ -262,7 +262,7 @@ end
 local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
   local index, _ = embedded_index()
   if not index then return {} end
-  local idx = index as DocIndex -- cast: record union after guard
+  local idx = index
 
   local examples: {ExampleEntry} = {}
   for mod_name, mod_doc in pairs(idx.modules) do
@@ -300,7 +300,7 @@ local function show_module_examples(query: string): DocsResult
   if not index then
     return {ok = false, output = "error: " .. (err or "no documentation embedded")}
   end
-  local idx = index as DocIndex -- cast: record union after guard
+  local idx = index
   -- Resolve bare name (e.g. "child" -> "cosmic.child")
   local resolved = idx.modules[query] and query or (idx.modules["cosmic." .. query] and "cosmic." .. query or nil)
   if resolved then
@@ -374,7 +374,7 @@ local function run(query?: string): DocsResult
       "Build with 'make cosmic' to include documentation.",
     }
   end
-  local idx = index as DocIndex -- cast: record union after guard
+  local idx = index
 
   if not query or query == "" then
     local topics = list_topics()

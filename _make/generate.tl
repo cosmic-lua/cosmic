@@ -17,6 +17,7 @@ local hash = require("cosmic.hash")
 local build = require("_cli.build")
 local modules = require("_cli.build.modules")
 local deps = require("_make.deps")
+local fetch = require("_make.fetch")
 local project = require("_make.project")
 local types = require("_make.types")
 
@@ -99,8 +100,7 @@ local function fresh(proj: Project, src: string, built: string): boolean
   if not into then
     return false
   end
-  -- cast: record union after guard
-  local osec, onsec = (out as fs.Stat):mtim()
+  local osec, onsec = out:mtim()
   local isec, insec = (into as fs.Stat):mtim() -- cast: same
   if osec ~= isec then
     return osec > isec
@@ -163,8 +163,7 @@ local function closure_argv(proj: Project, gen: string, out: string,
     -- would explain why the manifest is missing.
     return {}, "make: " .. gen .. ": not a project file"
   end
-  -- cast: narrowing does not survive the guard above
-  local files = deps.closure(proj, self as File, deps.index(proj))
+  local files = deps.closure(proj, self, deps.index(proj))
   local built = deps.built_paths(files)
   if #built == 0 then
     return {}
@@ -188,7 +187,7 @@ local function closure_argv(proj: Project, gen: string, out: string,
   end
   for _, path in ipairs(built) do
     local src, verb = source_of(proj, path)
-    if src ~= nil and not fresh(proj, src as string, path) then -- cast: guarded
+    if src ~= nil and not fresh(proj, src, path) then
       -- The graph's own steps, called directly rather than
       -- reimplemented: one strict compile (or one copy, for a `.lua`
       -- source) with the write-only-when-changed contract. Going
@@ -196,8 +195,8 @@ local function closure_argv(proj: Project, gen: string, out: string,
       -- spelling of the same step, and that one writes to stdout unless
       -- both flags are given -- a difference nothing would have caught.
       local args: {string} = verb == "compile"
-      and {cosmic, src as string, path, "--include-dir", "."} -- cast: guarded
-      or {src as string, path} -- cast: guarded
+      and {cosmic, src, path, "--include-dir", "."}
+      or {src, path}
       if build.dispatch(verb, args) ~= 0 then
         restore()
         -- LOUD, not a fall-through. Returning no manifest here would
@@ -214,7 +213,7 @@ local function closure_argv(proj: Project, gen: string, out: string,
   if manifest == nil then
     return {}
   end
-  return {"--modules", manifest as string} -- cast: nil ruled out above
+  return {"--modules", manifest}
 end
 
 --- @param proj Project The scanned project
@@ -299,7 +298,7 @@ local function digest_of(dir: string): string
     return "empty"
   end
   local names: {string} = {}
-  for rel in pairs(found as {string: fs.FileInfo}) do -- cast: narrowing does not survive the guard above
+  for rel in pairs(found) do
     names[#names + 1] = rel
   end
   table.sort(names)
@@ -366,6 +365,16 @@ end
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return boolean, string Success, or false plus the reason
 local function sources(proj: Project, cosmic: string): boolean, string
+  -- Carried patches repair first: a cold tree's fetch may have run
+  -- under a pinned release that predates a patch, and the repair is
+  -- local — the digest-verified archive is already on disk (see
+  -- _make.patch). Before the generators, because they read the pinned
+  -- trees this repairs; `fetch` (which applies patches itself) and
+  -- `clean` never reach this phase, so neither pays for it.
+  local rok, rerr = fetch.repair(proj)
+  if not rok then
+    return false, rerr
+  end
   for _, f in ipairs(proj.files) do
     if f.kind == "gen" then
       local dest = project.out_dir(stem_of(f.path))

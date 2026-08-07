@@ -45,7 +45,7 @@ end
 local function kind_of(proj: Project, rel: string, want: Kind): File
   local f = find(proj, rel)
   assert(f, "expected " .. rel .. " in the scan")
-  local got = f as File -- cast: record union after the guard
+  local got = f
   assert(got.kind == want,
     rel .. ": expected kind " .. want .. ", got " .. tostring(got.kind))
   return got

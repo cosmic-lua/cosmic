@@ -142,7 +142,7 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
         -- prevention as the d_type == DT_DIR branch above).
         local st = fs.lstat(full_path)
         if st then
-          local sst = st as Stat -- cast: record union after guard
+          local sst = st
           if sst:is_dir() then
             local walk_err = do_walk(full_path, rel)
             if walk_err then return walk_err end
@@ -196,7 +196,7 @@ local function base_entries(exe_path: string): {string}
   if rd == nil then
     return names
   end
-  local reader = rd as czip.Archive -- cast: record union after guard
+  local reader = rd
   for _, e in ipairs(reader:list()) do
     names[#names + 1] = e.name
   end
@@ -230,7 +230,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   end
   local exe_reader = czip.open(exe_path)
   if exe_reader ~= nil then
-    local rd = exe_reader as czip.Archive -- cast: record union after guard
+    local rd = exe_reader
     local exe_main = rd:read("main.lua")
     rd:close()
     if exe_main == main_entry.content then
@@ -280,7 +280,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
       if not dir_files then
         return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
       end
-      for _, f in ipairs(dir_files as {FileToEmbed}) do -- cast: record union after guard
+      for _, f in ipairs(dir_files) do
         files_to_embed[#files_to_embed + 1] = f
       end
     else
@@ -341,7 +341,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     local _ok, _err = fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
-  local appender = appender_maybe as czip.Appender -- cast: record union after guard
+  local appender = appender_maybe
 
   -- Strip first, so an entry the caller supplies is never removed after
   -- being added. The floor is positive: everything the base carried

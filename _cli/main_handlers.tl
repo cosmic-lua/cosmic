@@ -49,7 +49,7 @@ local function load_script_file(script_path: string): function(...: any): any ..
     if not code then
       return nil, cerr
     end
-    local src = code as string -- cast: nil ruled out by the guard above
+    local src = code
     if src:sub(1, 2) == "#!" then
       src = src:sub((src:find("\n") or 0) + 1)
     end

@@ -131,7 +131,7 @@ local function of_file(path: string): {string}
     return hit
   end
   local content = fs.read(path)
-  local found = content and scan(content as string) or {} -- cast: scalar narrowing
+  local found = content and scan(content) or {}
   cache[path] = found
   return found
 end
@@ -171,7 +171,7 @@ local function reads_of_file(root: string, path: string): {string} | nil, string
     return {}
   end
   local out: {string} = {}
-  for _, declared in ipairs(reads_scan(content as string)) do -- cast: scalar narrowing
+  for _, declared in ipairs(reads_scan(content)) do
     local abs = fs.join(root, declared)
     if fs.is_dir(abs) then
       -- cast: `or` keeps the nil in the union

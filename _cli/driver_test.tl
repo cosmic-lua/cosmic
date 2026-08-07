@@ -298,7 +298,7 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   driver.ensure_build_tmpdir()
   local pinned = env.get("TMPDIR")
   local seeded = pinned ~= nil
-  and fs.is_file(fs.join(pinned as string, ".ape-9.9")) -- cast: guarded
+  and fs.is_file(fs.join(pinned, ".ape-9.9"))
   local p = grants.plan("record", {fs.join(box, "out")})
 
   assert(fs.chdir(cwd))

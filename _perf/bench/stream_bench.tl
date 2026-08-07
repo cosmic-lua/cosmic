@@ -82,7 +82,7 @@ local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()
     if conn then
-      local cc = conn as net.Socket -- cast: record union after guard
+      local cc = conn
       if read_request(cc) then
         send_all(cc, RESPONSE)
       end
@@ -96,12 +96,12 @@ local function scenarios(): {pt.Scenario}, string
   if srv == nil then
     return nil, "listen_tcp: " .. tostring(lerr)
   end
-  local lsock = srv as net.Socket -- cast: record union after guard
+  local lsock = srv
   local ep, eperr = lsock:getsockname()
   if ep == nil then
     return nil, "getsockname: " .. tostring(eperr)
   end
-  local port = (ep as net.Endpoint).port -- cast: record union after guard
+  local port = ep.port
   listener = lsock
   local pid, ferr = proc.fork()
   if pid == 0 then

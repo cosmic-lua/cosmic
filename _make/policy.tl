@@ -103,7 +103,7 @@ local function write_baseline(proj: Project): integer
     io.stderr:write((err or "coverage: no data") .. "\n")
     return stage.verdict("coverage", false, "no data")
   end
-  local fresh = text as string -- cast: scalar narrowing after the guard
+  local fresh = text
   local moved = 0
   if floor then
     for _, row in ipairs(coverage.baseline_lowered(floor, fresh)) do

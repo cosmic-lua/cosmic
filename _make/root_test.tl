@@ -73,7 +73,7 @@ local function test_refusal_names_the_command()
   local cwd = fs.cwd()
   assert(fs.chdir(fs.join(proj, "db")))
   local got, err = root.discover("check")
-  assert(fs.chdir(cwd as string)) -- cast: scalar narrowing through the guard
+  assert(fs.chdir(cwd))
   if saved then
     assert(env.set("COSMIC_MAKE_ROOT", saved))
   end

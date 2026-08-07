@@ -77,7 +77,7 @@ local function test_winsize_structure()
   end
   local ws, _err = tty.winsize(1)
   if ws then
-    local w = ws as tty.WinSize -- cast: record union after guard
+    local w = ws
     assert(w.rows ~= nil, "winsize should have rows field")
     assert(w.cols ~= nil, "winsize should have cols field")
     assert(type(w.rows) == "number", "rows should be a number")
@@ -128,7 +128,7 @@ local function test_getattr_structure()
   end
   local termios, _err = tty.getattr(0)
   if termios then
-    local t = termios as tty.Termios -- cast: record union after guard
+    local t = termios
     assert(t.iflag ~= nil, "termios should have iflag")
     assert(t.oflag ~= nil, "termios should have oflag")
     assert(t.cflag ~= nil, "termios should have cflag")

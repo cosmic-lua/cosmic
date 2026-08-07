@@ -22,9 +22,9 @@ local function resolve_addr(addr: Address): integer | nil, string
     if not a then
       return nil, err
     end
-    return (a as ip.Addr):int() -- cast: record union after guard
+    return a:int()
   end
-  return (addr):int()
+  return addr:int()
 end
 
 --- A local or peer endpoint (getsockname/getpeername), error in slot 2.
@@ -33,7 +33,7 @@ local record Endpoint
   port: integer
 end
 
---- One received datagram (recvfrom): payload plus sender endpoint.
+--- One received datagram recvfrom: payload plus sender endpoint.
 local record Datagram
   data: string
   addr: ip.Addr

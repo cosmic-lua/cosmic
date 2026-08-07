@@ -179,8 +179,12 @@ formatted string plus the numeric errno), wrappers add context with
 `errno.wrap(err, prefix)`, and branch on the numeric errno via
 `errno.is(errno_value, "EINTR")`.
 
-**Narrowing record/map unions.** Teal (0.24.8) does not flow-narrow record
-or map unions through truthiness (`if not x`). Three sanctioned tools:
+**Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
+`T`: truthiness (`if not r then return end`), `assert(r)`, and `== nil`/`~= nil` —
+which is exact, so it narrows boolean unions the other two deliberately skip — via
+the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). What
+still does NOT narrow: record FIELDS (copy the field to a local and guard the
+local) and `is` early-exit guards (`if not (x is Rec) then return end`). The other tools:
 
 - **In tests and examples, use `check.must`** for fallible returns: `local db =
   check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua
@@ -188,24 +192,20 @@ or map unions through truthiness (`if not x`). Three sanctioned tools:
   string. `must` narrows nil only (`false` passes through), and it throws, so it is for
   tests/examples, never library code. Like `assert`, must forwards extra returns past
   the second, so `for p in check.must(fs.find_iter(d)) do` keeps the 4th return (the to-be-
-  closed guard that releases directory handles on early break); a plain `value, err`
-  pair still collapses to the value alone. Never write `assert(x) as T` in a test; that
-  pattern is retired.
-- **Prefer `is` where the code branches, for table-backed records**: `if sock is
-  net.Socket then sock:send(...) end` narrows `Socket | nil` inside the positive branch
-  (compiles to one `type(x) == "table"` check). Also works for dispatch over `any` (`if
-  v is {string: any} then`). A record whose runtime values are userdata needs Teal's
-  `userdata` member in its OWN source (see re.tl's Regex) — then `is` compiles to the
-  correct `type(x) == "userdata"` test everywhere (`fs.Stat` is one: always the raw
-  stat userdata since the representation unification, so `st is fs.Stat` narrows).
-  Caveat: narrowing does NOT survive an early-exit guard (`if not (x is Rec) then
-  return end` does not narrow below). `is` works with required `cosmo.*` classes too — the cosmic searcher is the
-  only loader cosmic installs, and it resolves `.d.tl` markers. The one unsupported path
-  is user code calling `require("tl").loader()`, which shadows it with tl's silent one.
-- **Cast in linear code and at userdata boundaries**: after an assert or
-  early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
-  (`string | nil`) narrow normally, except method-call syntax: use
-  `string.sub(x, …)` not `x:sub(…)` on a narrowed value.
+  closed guard that releases directory handles on early break); a plain `value, err` pair
+  still collapses to the value alone. Never write `assert(x) as T` in a test; that pattern is retired.
+- **Use `is` for dispatch past nil**: `if sock is net.Socket then sock:send(...)
+  end` narrows inside the positive branch (one `type(x) == "table"` check); also
+  dispatch over `any` (`if v is {string: any} then`). A record whose runtime
+  values are userdata needs Teal's `userdata` member in its OWN source (see
+  re.tl's Regex) — then `is` compiles to a `type(x) == "userdata"` test
+  everywhere (`fs.Stat` is one, so `st is fs.Stat` narrows). Caveat: `is`
+  narrowing does NOT survive an early-exit guard (`if not (x is Rec) then return
+  end` does not narrow below — unlike the plain truthiness guard). `is` works
+  with required `cosmo.*` classes too — the cosmic searcher is the only loader
+  cosmic installs, and it resolves `.d.tl` markers. The one unsupported path is
+  user code calling `require("tl").loader()`, which shadows it with tl's silent one.
+- **Cast in linear code and at userdata boundaries**: after an assert, `(x as Rec).field`, `(x as {K:V})[k]`.
 
 Every `as` cast must carry a justification (enforced by `--make lint`):
 a line containing a cast needs `-- cast: <reason>` trailing on the line,

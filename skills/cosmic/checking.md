@@ -57,9 +57,47 @@ recover it.
 
 ### Narrowing and Casting
 
-record and map nil-unions do not narrow through truthiness. where the code
-branches, prefer `is` — it narrows inside the positive branch and compiles
-to a single `type()` check:
+a guard on a plain variable narrows its nil union: truthiness,
+`assert(x)`, and `== nil` / `~= nil` all narrow `T | nil` for records,
+maps, arrays and scalars, in the positive branch and below a negated
+early return alike (the carried tl patch, `3p/tl/tl_patch.tl`):
+
+```teal
+local r = make() -- r: R | nil
+if not r then
+  return nil, "no r"
+end
+print(r.x) -- r is R below the guard
+
+local sock = net.connect_tcp(host, port) -- Socket | nil
+assert(sock, "connect failed")
+sock:send("hello") -- narrowed, method call included
+```
+
+`~= nil` is exact, so it also narrows unions containing `boolean`,
+which truthiness and `assert` deliberately skip (`false` is falsy, so
+truthy does not mean "not nil" there):
+
+```teal
+local b: boolean | nil = flag()
+if b ~= nil then
+  return b -- narrowed to boolean; `if b then` would not narrow
+end
+```
+
+what does NOT narrow: **record FIELDS**, even scalar ones — copy the
+field to a local and guard the local:
+
+```teal
+local earliest = report.earliest -- integer | nil
+if earliest then
+  print(earliest + 1) -- narrowed; the field read would not be
+end
+```
+
+where the code dispatches over shapes (`any`, unions past nil), `is` is
+the tool — it narrows inside the positive branch and compiles to a
+single `type()` check:
 
 ```teal
 local sock = net.connect_tcp(host, port) -- Socket | nil
@@ -70,9 +108,10 @@ end
 
 a record whose runtime values are userdata needs Teal's `userdata` member
 in its own source (see `re.tl`'s Regex) — then `is` compiles to a
-`type() == "userdata"` test everywhere. caveats: narrowing does not
+`type() == "userdata"` test everywhere. caveats: `is` narrowing does not
 survive an early-exit guard (`if not (x is Rec) then return end` does not
-narrow below it); do not use `is` with a required `cosmo.*` class — the
+narrow below it — unlike the plain truthiness guard, which does); do not
+use `is` with a required `cosmo.*` class — the
 runtime tl loader can lax-recompile a module where the required `.d.tl`
 marker doesn't resolve, silently degrading `is` to a table test — keep
 casts at those boundaries; and `is` is wrong for mixed-representation
@@ -83,57 +122,6 @@ type checker:
 ```teal
 local result = json.decode(input) as {string: any}
 local count = value as integer
-```
-
-the early-exit caveat bites hardest in the most idiomatic-looking shape,
-so here is the fix, concretely. `if not x then return end` narrows
-scalars but NOT records, maps or arrays — below the guard `x` is still
-`T | nil`, and the errors that produces do not say why (`cannot index
-key 'x' in variable 'r' of type R | nil`, `expression in for loop does
-not return an iterator`, `attempting ipairs on something that's not an
-array: {T} | nil`):
-
-```teal
-local r = make() -- r: R | nil
-
--- WRONG: r stays R | nil below this guard
-if not r then
-  return nil, "no r"
-end
-print(r.x) -- error: cannot index key 'x' ... R | nil
-
--- RIGHT (branching): do the work inside the positive branch, handing
--- it to a helper that takes the narrowed type
-if r is R then
-  return run(r) -- run(r: R) receives a plain R
-end
-return nil, "no r"
-
--- RIGHT (linear): keep the guard, cast once immediately after it
-if not r then
-  return nil, "no r"
-end
-local rr = r as R -- cast: record union after guard
-print(rr.x)
-```
-
-scalars narrow through truthiness for plain uses, with one caveat: a
-narrowed scalar cannot be METHOD-called. after a nil-guard on `data:
-string | nil`, `#data` and `data .. s` work but `data:gmatch(...)`
-still fails (`cannot index key 'gmatch' ... string | nil`). use the
-function form (`string.gmatch(data, ...)`) or branch with
-`if data is string then`.
-
-record FIELDS do not narrow either, even when the field is a scalar:
-after `if report.earliest ~= nil then`, `report.earliest` is still
-`integer | nil` at the point of use. copy the field to a local first —
-the local narrows normally:
-
-```teal
-local earliest = report.earliest -- integer | nil
-if earliest ~= nil then
-  print(earliest + 1) -- narrowed; the field read would not be
-end
 ```
 
 per-file `as` counts are pinned by the cast ratchet (`_build/casts.txt`,

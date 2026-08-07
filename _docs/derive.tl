@@ -52,7 +52,7 @@ local function records(): {Record}, {string}
   if listed == nil then
     return found, {DECISIONS .. ": cannot be listed"}
   end
-  local names = listed as {string} -- cast: union after the guard
+  local names = listed
   table.sort(names)
   for _, path in ipairs(names) do
     local base = fs.basename(path)

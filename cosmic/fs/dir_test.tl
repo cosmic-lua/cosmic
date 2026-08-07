@@ -36,15 +36,18 @@ local function test_dir_has_close_metamethod()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir -- cast: record union after guard
+  local d = dir
 
   -- Verify __close metamethod exists
   local mt = getmetatable(dir)
   assert(mt, "dir should have a metatable")
   assert(mt.__close, "dir metatable should have __close")
 
-  -- Call __close directly to verify it works
-  mt.__close(dir)
+  -- Call __close directly to verify it works, the way <close> would: a
+  -- plain function call, not a method send (the patched checker narrows
+  -- `dir` here and would flag the method-as-function invocation).
+  local close = mt.__close as function(fs_types.Dir) -- cast: metamethod as plain function
+  close(d)
   assert(d:closed(), "dir should be closed after __close")
 
   teardown(test_dir)
@@ -201,7 +204,7 @@ local function test_major_minor()
   -- Test with /dev/null which should have rdev set
   local st = fs.stat("/dev/null")
   if st then
-    local rdev = (st as fs_types.Stat):rdev() -- cast: record union after guard
+    local rdev = st:rdev()
     local maj = fs.major(rdev)
     local min = fs.minor(rdev)
     -- /dev/null is typically major 1, minor 3

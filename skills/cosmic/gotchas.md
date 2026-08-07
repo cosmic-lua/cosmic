@@ -107,27 +107,13 @@ binding a module to a local that shadows a Lua builtin
 so the runtime surprise this entry described is unreachable. rename the
 local (`fd`, `fs`, ...); Lua's `io.stderr` stays available.
 
-## 7. `arg[0]` is not the interpreter — use `proc.interpreter()` to re-invoke cosmic
+## 7. retired — `proc.interpreter()` is the one-call answer
 
-when a script needs to spawn the cosmic binary itself (e.g. to run
-another script as a child process), `arg[0]` is the script path as the
-runtime sees it (`/zip/main.lua` for the embedded entry point), not the
-interpreter. `proc.interpreter()` returns the running interpreter's
-absolute path, typed and resolved.
-
-**wrong:**
-```teal
-local child = require("cosmic.child")
-local h = child.start({arg[0], "worker.tl"}) -- spawns /zip/main.lua: fails
-```
-
-**right:**
-```teal
-local check = require("cosmic.check")
-local child = require("cosmic.child")
-local proc = require("cosmic.proc")
-local h = child.start({check.must(proc.interpreter()), "worker.tl"})
-```
+`arg[0]` is the script path as the runtime sees it (`/zip/main.lua` in
+a packed binary), not the interpreter. to re-invoke cosmic, call
+`require("cosmic.proc").interpreter()` — typed, resolved, cached; the
+self-reinvocation recipe in `cosmic --docs guide.recipes` shows the
+whole shape.
 
 ## 8. retired — the checker flags discarded errors
 
@@ -141,58 +127,41 @@ literal `nil`). capture the returns — `local v, err = f(...)`, or
 `assert`/`check.must` in tests and examples. the details are in
 `cosmic --docs guide.checking`.
 
-## 9. records, maps and arrays don't narrow through `if not x` — or `assert`
+## 9. record fields don't narrow — copy the field to a local
 
-scalars (`string | nil`, `integer | nil`) narrow through an ordinary
-truthiness guard. records, maps and arrays do not — below the guard the
-value is still `T | nil`. **`assert(x, "msg")` is the same trap**: it
-terminates control flow at runtime, but the checker still sees
-`T | nil` on every line after it — do not expect the narrowing other
-typed languages attach to assert. the errors either shape produces name
-the un-narrowed type but not the cause: `cannot index key 'x' in
-variable 'r' of type R | nil`, `expression in for loop does not return
-an iterator`, `attempting ipairs on something that's not an array:
-{T} | nil`.
+a guard on a plain variable narrows it: truthiness (`if r then`, `if
+not r then return end`), `assert(r, "msg")`, and `== nil` / `~= nil`
+comparisons all narrow `T | nil` for every `T` (the carried tl patch,
+`3p/tl/tl_patch.tl`):
 
-**wrong:**
 ```teal
 local db = sqlite.open(path) -- Database | nil
 if not db then
   return nil, "open failed"
 end
-db:exec(sql) -- error: cannot index key 'exec' ... Database | nil
+db:exec(sql) -- db is Database below the guard
 ```
 
-**right — branch with `is` and do the work inside the positive branch:**
+`~= nil` is exact, so it also narrows unions containing `boolean`,
+where truthiness and `assert` deliberately do nothing (`false` is
+falsy, so truthy does not mean "not nil" there).
+
+what still does NOT narrow is a record FIELD, even a scalar one: after
+`if o.sub then`, `o.sub` is still `Inner | nil` at the use. copy the
+field to a local and guard the local:
+
 ```teal
-if db is sqlite.Database then
-  return run(db) -- run(db: sqlite.Database) receives it narrowed
+local sub = o.sub -- Inner | nil
+if sub then
+  print(sub.x) -- narrowed; the field read would not be
 end
-return nil, "open failed"
 ```
 
-**right — keep the guard, cast once immediately after it:**
-```teal
-if not db then
-  return nil, "open failed"
-end
-local d = db as sqlite.Database -- cast: record union after guard
-d:exec(sql)
-```
-
-(the same cast-after-guard works after an `assert(db, "open failed")`;
-in tests and examples, `local db = check.must(sqlite.open(path))` does
-guard and narrowing in one call, with no cast to justify.)
-
-record fields don't narrow either, even scalar ones — copy the field to
-a local and guard the local.
-
-and one scalar caveat: a narrowed scalar still cannot be METHOD-called.
-after `if not data then return end`, plain uses of `data` work, but
-`data:gmatch(...)` fails with `cannot index key 'gmatch' in variable
-'data' of type string | nil`. use the function form on the narrowed
-value (`string.gmatch(data, ...)`), or branch with `if data is string
-then ... end`, which narrows for every use. the full pattern set is in
+(`is` narrowing also does not survive an early-exit guard — `if not (x
+is Rec) then return end` does not narrow below it; write the plain
+truthiness form instead.) the errors these shapes produce name the
+un-narrowed type but not the cause: `cannot index key 'x' in ... of
+type Inner | nil`. the full pattern set is in
 `cosmic --docs guide.checking`.
 
 ## 10. a record other files use must be nested in the module's interface record
@@ -249,31 +218,13 @@ db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Databa
 store.add(db, "alice") -- right: module function, dot-called, value first
 ```
 
-## 13. `local x = nil` means type nil, forever
+## 13. retired — the lint catches it at the declaration
 
-a local initialized with `= nil` and NO type annotation is inferred as
-the type `nil` — not "unknown yet", not `T | nil`. every later
-assignment and use then fails, no guard helps, and neither error names
-the declaration as the cause:
-
-**wrong:**
-```teal
-local earliest = nil -- type: nil
-for _, e in ipairs(entries) do
-  if not earliest or e.timestamp < earliest then
-    -- error: cannot use operator '<' for types integer and nil
-    earliest = e.timestamp
-    -- error: in assignment: got integer, expected nil
-  end
-end
-```
-
-**right — annotate the optional at the declaration:**
-```teal
-local earliest: integer | nil = nil
-```
-
-with the annotation, the running-min/max idiom above compiles as
+a local initialized with `= nil` and no type annotation is inferred as
+the type `nil` — forever. the `nil-declaration` lint now flags the
+declaration itself with the fix (`local x: integer | nil = nil`), so
+the far-away assignment errors this entry used to explain are never
+reached. with the annotation, the running-min/max idiom compiles as
 written — scalars narrow through the `not earliest or ...` guard fine.
 
 ## 14. retired — the taught path never calls `os.exit`

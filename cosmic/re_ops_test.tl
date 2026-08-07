@@ -10,7 +10,7 @@ local function matches_of(text: string, pat: string, flags?: integer): {string} 
     return nil, err
   end
   local out: {string} = {}
-  for i, sp in ipairs(spans as {re.Span}) do -- cast: record union after guard
+  for i, sp in ipairs(spans) do
     out[i] = sp.m
   end
   return out

@@ -232,7 +232,7 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
   if not sio then
     return nil, sio_err
   end
-  local stdio = sio as childio.Stdio -- cast: record union after guard
+  local stdio = sio
   local stdin_data, stdin_fd = stdio.stdin_data, stdio.stdin_fd
   local stdout_fd, stderr_fd = stdio.stdout_fd, stdio.stderr_fd
 
@@ -472,11 +472,11 @@ local function run(argv: {string}, opts?: Options): Result
   if not h then
     return {ok = false, spawn_error = err or "spawn failed", stdout = "", stderr = ""}
   end
-  local r, werr = (h as Handle):wait() -- cast: record union after guard
+  local r, werr = h:wait()
   if not r then -- no timeout passed, so a reap error; same folded shape
     return {ok = false, spawn_error = werr or "wait failed", stdout = "", stderr = ""}
   end
-  return r as Result -- cast: record union after guard
+  return r
 end
 
 local record ChildModule

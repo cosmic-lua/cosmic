@@ -249,28 +249,28 @@ local function issues(env: any, ast: any, path: string): {Diag}
   if not (env is Node) then
     return diags
   end
-  local reporter = (env as Node)["reporter"] -- cast: record union after guard
+  local reporter = (env)["reporter"]
   if not (reporter is Node) then
     return diags
   end
-  local rep = reporter as Node -- cast: record union after guard
+  local rep = reporter
   -- cast: TypeReporter method, outside the narrowed API
   local get_report = rep["get_report"] as function(any): any
   local report = get_report(rep)
   if not (report is Node) then
     return diags
   end
-  local by_pos = (report as Node)["by_pos"] -- cast: record union after guard
-  local types = (report as Node)["types"] -- cast: record union after guard
+  local by_pos = (report)["by_pos"]
+  local types = (report)["types"]
   if not (by_pos is Node) or not (types is Node) then
     return diags
   end
-  local by = (by_pos as Node)[path] -- cast: record union after guard
+  local by = (by_pos)[path]
   if not (by is Node) then
     return diags
   end
-  local by_file = by as Node -- cast: record union after guard
-  local type_tab = types as Node -- cast: record union after guard
+  local by_file = by
+  local type_tab = types
   walk(ast, by_file, type_tab, path, diags, {}, {})
   table.sort(diags, function(a: Diag, b: Diag): boolean
       if a.line ~= b.line then

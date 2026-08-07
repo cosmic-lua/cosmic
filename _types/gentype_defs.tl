@@ -43,8 +43,7 @@ local function read(): string | nil, string
     return nil, "Failed to open " .. runtime ..
     " (run `cosmic --make fetch`): " .. (oerr or "unknown error")
   end
-  -- cast: Reader | nil, and an early-exit guard does not narrow
-  local source, rerr = (reader as zip.Archive):read(".lua/definitions.lua")
+  local source, rerr = reader:read(".lua/definitions.lua")
   if not source then
     return nil, "Failed to read .lua/definitions.lua from " .. runtime ..
     ": " .. (rerr or "unknown error")

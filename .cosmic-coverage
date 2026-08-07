@@ -1,5 +1,6 @@
 # coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
+3p/tl/tl_patch.tl 0 1
 _build/ratchet.tl 36 36
 _cli/args.tl 0 31
 _cli/build/init.tl 43 47
@@ -29,13 +30,14 @@ _make/converge.tl 34 62
 _make/deps.tl 73 73
 _make/docs.tl 13 31
 _make/extract.tl 51 72
-_make/fetch.tl 102 112
+_make/fetch.tl 118 148
 _make/generate.tl 40 50
 _make/graph.tl 184 210
 _make/help.tl 21 22
 _make/imports.tl 60 63
 _make/init.tl 166 222
 _make/law.tl 54 56
+_make/patch.tl 81 87
 _make/pin.tl 80 81
 _make/policy.tl 45 106
 _make/project.tl 181 193
@@ -192,4 +194,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14296 18785
+total 14393 18909

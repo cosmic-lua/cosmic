@@ -72,7 +72,7 @@ local function resolve_stdio(stdin?: string | cfd.Handle,
   if stdin is string then
     s.stdin_data = stdin
   elseif stdin ~= nil then
-    s.stdin_fd = (stdin):fd()
+    s.stdin_fd = stdin:fd()
     if s.stdin_fd < 0 then return nil, "spawn: stdin handle is closed" end
   end
   -- "inherit" resolves to our own descriptor, which then travels the
@@ -168,7 +168,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
   local function read_ready(fd: integer, buf: {string}, which: string)
     local ev0 = p:events(fd)
     if not ev0 then return end
-    local ev = ev0 as {string: boolean} -- cast: record union after guard
+    local ev = ev0
     if ev.readable then
       local chunk, rerr, reno = unix.read(fd, CHUNK)
       if chunk == nil then
@@ -221,7 +221,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
           end
         elseif errno.is(weno, "EAGAIN") or errno.is(weno, "EINTR") then
           -- Not actually writable yet (EAGAIN), or a signal interrupted the
-          -- write (EINTR): try again on the next poll.
+          -- write EINTR: try again on the next poll.
         elseif errno.is(weno, "EPIPE") then
           -- The child stopped reading stdin; stop feeding it (not an error).
           p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
