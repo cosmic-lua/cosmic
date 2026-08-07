@@ -12,7 +12,11 @@
 ---   log.debug("cache miss", {key = "user:42"})
 ---
 --- Line format: `<iso8601-utc> <LEVEL> <message> <key=value ...>` with
---- fields sorted by key so output is deterministic. Logging is
+--- fields sorted by key so output is deterministic. Field values use
+--- the shared `key=value` grammar (`cosmic._fields`) — the same one
+--- cosmic.instrument emits and parses, so instrument.parse-style
+--- readers and `grep key=value` both work on log output: a value
+--- never contains a bare space or newline. Logging is
 --- infallible: emitters return nothing and never throw; a message
 --- below the threshold costs one map lookup and no formatting.
 ---
@@ -25,13 +29,14 @@
 --- these names for anything else.
 local env = require("cosmic.env")
 local time = require("cosmic.time")
+local fields_grammar = require("cosmic._fields")
 
 --- Severity levels accepted by set_level and log, in increasing
 --- order of severity.
 local enum Level
   "debug"
   "info"
-  "warn"
+  "warning"
   "error"
 end
 
@@ -40,23 +45,23 @@ end
 local severity < total >: {Level: number} = {
   debug = 1,
   info = 2,
-  warn = 3,
+  warning = 3,
   error = 4,
 }
 
 -- Uppercase tags, padded to a fixed width so messages align.
 local tag < total >: {Level: string} = {
-  debug = "DEBUG",
-  info = "INFO ",
-  warn = "WARN ",
-  error = "ERROR",
+  debug = "DEBUG  ",
+  info = "INFO   ",
+  warning = "WARNING",
+  error = "ERROR  ",
 }
 
 local current: Level = "info"
 do
   local initial = env.get("COSMIC_LOG_LEVEL")
   if initial == "debug" or initial == "info"
-  or initial == "warn" or initial == "error" then
+  or initial == "warning" or initial == "error" then
     current = initial
   end
 end
@@ -67,18 +72,10 @@ end
 
 local output: function(line: string) = write_stderr
 
---- Render one field value for a key=value pair. Strings that contain
---- whitespace, quotes, or "=" are quoted with %q so lines stay
---- unambiguous; everything else is tostring'd.
-local function render_value(v: any): string
-  if v is string then
-    if string.find(v, "[%s\"=]") then
-      return string.format("%q", v)
-    end
-    return v
-  end
-  return tostring(v)
-end
+-- Field values render through the shared grammar (tostring, then
+-- percent-encode "%", space and line terminators), so a log line's
+-- fields parse with the same reader instrument lines do.
+local render_value = fields_grammar.render
 
 --- Format a log line without emitting it. Exposed so custom outputs
 --- and tests can reuse the exact format. The timestamp is the current
@@ -135,8 +132,8 @@ end
 --- Log a warning message.
 --- @param message string The log message
 --- @param fields {string:any}? Optional key=value context fields
-local function warn(message: string, fields?: {string: any})
-  log("warn", message, fields)
+local function warning(message: string, fields?: {string: any})
+  log("warning", message, fields)
 end
 
 --- Log an error message.
@@ -156,7 +153,7 @@ end
 local function set_level(level: Level): boolean, string
   if not severity[level] then
     return false, "unknown log level: " .. tostring(level)
-    .. " (expected debug, info, warn, or error)"
+    .. " (expected debug, info, warning, or error)"
   end
   current = level
   return true
@@ -186,7 +183,7 @@ local record LogModule
   log: function(level: Level, message: string, fields?: {string: any})
   debug: function(message: string, fields?: {string: any})
   info: function(message: string, fields?: {string: any})
-  warn: function(message: string, fields?: {string: any})
+  warning: function(message: string, fields?: {string: any})
   error: function(message: string, fields?: {string: any})
 
   format: function(level: Level, message: string, fields?: {string: any}): string
@@ -199,7 +196,7 @@ local M: LogModule = {
   log = log,
   debug = debug_msg,
   info = info,
-  warn = warn,
+  warning = warning,
   error = error_msg,
 
   format = format,

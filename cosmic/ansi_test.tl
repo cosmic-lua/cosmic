@@ -76,8 +76,8 @@ test_reset_constant()
 local function test_enabled_honors_no_color()
   local saved = env.get("NO_COLOR")
   assert(env.set("NO_COLOR", "1"))
-  assert(ansi.enabled(1) == false, "NO_COLOR should disable color")
-  assert(ansi.enabled() == false)
+  assert(ansi.is_enabled(1) == false, "NO_COLOR should disable color")
+  assert(ansi.is_enabled() == false)
   if saved then
     assert(env.set("NO_COLOR", saved))
   else
@@ -91,7 +91,7 @@ local function test_enabled_honors_dumb_term()
   local saved_term = env.get("TERM")
   assert(env.unset("NO_COLOR"))
   assert(env.set("TERM", "dumb"))
-  assert(ansi.enabled(1) == false, "TERM=dumb should disable color")
+  assert(ansi.is_enabled(1) == false, "TERM=dumb should disable color")
   if saved_term then
     assert(env.set("TERM", saved_term))
   else
@@ -110,7 +110,7 @@ local function test_enabled_requires_a_tty()
   local saved_term = env.get("TERM")
   assert(env.unset("NO_COLOR"))
   assert(env.unset("TERM"))
-  assert(ansi.enabled(1) == false, "pipe misdetected as tty")
+  assert(ansi.is_enabled(1) == false, "pipe misdetected as tty")
   if saved_term then
     assert(env.set("TERM", saved_term))
   end

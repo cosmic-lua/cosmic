@@ -6,16 +6,12 @@ local time = require("cosmic.time")
 local scan = require("cosmic.doc.scan")
 local env = require("cosmic.env")
 
---- Read the monotonic wall clock in nanoseconds.
---- Uses CLOCK_MONOTONIC so IO-bound benchmarks (which block rather than
---- burn CPU) are measured by elapsed wall time, not CPU time. Measuring
---- CPU time via os.clock() would leave `elapsed` near zero on such
---- benchmarks and make the calibration loop grow iterations without bound.
---- @return number Monotonic time in nanoseconds
-local function monotonic_ns(): number
-  local secs, nanos = time.monotonic()
-  return secs * 1e9 + nanos
-end
+-- Timing uses time.monotonic_ns (CLOCK_MONOTONIC) so IO-bound
+-- benchmarks (which block rather than burn CPU) are measured by
+-- elapsed wall time, not CPU time. Measuring CPU time via os.clock()
+-- would leave `elapsed` near zero on such benchmarks and make the
+-- calibration loop grow iterations without bound.
+local monotonic_ns = time.monotonic_ns
 
 --- A parsed benchmark function.
 local record Benchmark

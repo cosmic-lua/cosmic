@@ -23,7 +23,7 @@ local function Example_enabled()
   local env = require("cosmic.env")
   assert(env.set("NO_COLOR", "1"))
   local message = "hello"
-  if ansi.enabled(1) then
+  if ansi.is_enabled(1) then
     message = ansi.green(message)
   end
   print(message)

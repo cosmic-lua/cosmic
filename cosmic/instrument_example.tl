@@ -4,18 +4,18 @@
 --- make the format an interface rather than a private convention, so
 --- both are shown here.
 
--- Example_enabled demonstrates the gate. Instrumentation is off unless
--- COSMIC_INSTRUMENTATION is exactly "1" or "true", so an unset or
--- unrecognised value costs nothing at runtime.
-local function Example_enabled()
+-- Example_is_enabled demonstrates the gate. The stderr line is off
+-- unless COSMIC_INSTRUMENTATION is exactly "1" or "true", so an unset
+-- or unrecognised value costs nothing at runtime.
+local function Example_is_enabled()
   local instrument = require("cosmic.instrument")
   local env = require("cosmic.env")
   assert(env.unset("COSMIC_INSTRUMENTATION"))
-  print(instrument.enabled())
+  print(instrument.is_enabled())
   assert(env.set("COSMIC_INSTRUMENTATION", "yes"))
-  print(instrument.enabled())
+  print(instrument.is_enabled())
   assert(env.set("COSMIC_INSTRUMENTATION", "1"))
-  print(instrument.enabled())
+  print(instrument.is_enabled())
   assert(env.unset("COSMIC_INSTRUMENTATION"))
   -- Output:
   -- false
@@ -23,18 +23,40 @@ local function Example_enabled()
   -- true
 end
 
--- Example_span demonstrates timing an operation. finish() returns the
--- line it wrote when instrumentation is enabled, and nil when it is
--- not — so a caller can hand every operation a span without checking
--- the gate itself.
+-- Example_span demonstrates timing an operation. finish() always
+-- returns the measured data — the gate controls only the stderr line —
+-- so a caller can use the numbers (or format_line them) without
+-- checking the gate itself.
 local function Example_span()
   local instrument = require("cosmic.instrument")
   local env = require("cosmic.env")
   assert(env.unset("COSMIC_INSTRUMENTATION"))
-  local quiet = instrument.begin("compile", "hello.tl")
-  print(instrument.finish(quiet, 0))
+  local span = instrument.begin("compile", "hello.tl")
+  local data = instrument.finish(span, 0)
+  print(data.op, data.file, data.exit)
   -- Output:
-  -- nil
+  -- compile	hello.tl	0
+end
+
+-- Example_format_line demonstrates the pure writer half: format_line
+-- renders measured data as the one-line format parse_line reads back.
+local function Example_format_line()
+  local instrument = require("cosmic.instrument")
+  local check = require("cosmic.check")
+  local line = instrument.format_line({
+      op = "test",
+      file = "fs_test.tl",
+      exit = 0,
+      wall_ms = 42,
+      cpu_ms = 37,
+      maxrss_kb = 8192,
+    })
+  print(line)
+  local data = check.must(instrument.parse_line(line))
+  print(data.op, data.wall_ms)
+  -- Output:
+  -- cosmic: op=test file=fs_test.tl exit=0 wall_ms=42 cpu_ms=37 maxrss_kb=8192
+  -- test	42
 end
 
 -- Example_parse demonstrates reading instrumentation back. This is how
@@ -73,4 +95,5 @@ local function Example_parse_lines()
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_enabled, Example_span, Example_parse, Example_parse_lines}
+local _ = {Example_is_enabled, Example_span, Example_format_line,
+  Example_parse, Example_parse_lines}
