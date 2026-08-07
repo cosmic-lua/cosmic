@@ -45,7 +45,7 @@ local function Example_extract_update_embed()
   -- 1. extract current executable
   local extractdir = fs.join(tmpdir, "extracted")
   local r = check.must(child.run({cosmic, "--extract", extractdir}))
-  assert(r.ok, r.stderr)
+  assert(r.ok, r.stderr ~= "" and r.stderr or r.stdout)
 
   -- 2. add env.d with a credential
   local envd_dir = fs.join(extractdir, "embed", "env.d")
@@ -54,7 +54,11 @@ local function Example_extract_update_embed()
 
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
   -- No loader prelude: --embed wraps a custom entry with the cosmic
-  -- runtime searcher, so require() just works.
+  -- runtime searcher, so require() just works. The extracted tree
+  -- carries the wrapper's entry PAIR (main.lua + main.user.lua, #687);
+  -- re-embedding requires replacing the pair, so drop the wrapped
+  -- original alongside writing the new entry.
+  assert(fs.unlink(fs.join(extractdir, "main.user.lua")))
   assert(fs.write(fs.join(extractdir, "main.lua"), [[
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")
@@ -66,7 +70,7 @@ print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset")
   -- 4. build new executable
   local output = fs.join(tmpdir, "myapp")
   r = check.must(child.run({cosmic, "--embed", extractdir, "--output", output}))
-  assert(r.ok, r.stderr)
+  assert(r.ok, r.stderr ~= "" and r.stderr or r.stdout)
 
   -- 5. run it
   r = check.must(child.run({output}))

@@ -41,10 +41,10 @@ local function Example_cmpxchg()
   local shm = require("cosmic.shm")
   local mem = check.must(shm.mapshared(4096))
   assert(mem:store(0, 7))
-  local ok, seen = mem:cmpxchg(0, 7, 8)
-  print(ok, seen, check.must(mem:load(0)))
-  local ok2, seen2 = mem:cmpxchg(0, 7, 9) -- stale expectation: no swap
-  print(ok2, seen2, check.must(mem:load(0)))
+  local r = check.must(mem:cmpxchg(0, 7, 8))
+  print(r.swapped, r.value, check.must(mem:load(0)))
+  local r2 = check.must(mem:cmpxchg(0, 7, 9)) -- stale expectation: no swap
+  print(r2.swapped, r2.value, check.must(mem:load(0)))
   -- Output:
   -- true	7	8
   -- false	8	8
