@@ -250,11 +250,19 @@ local function run_generator(proj: Project, gen: string, dest: string,
   end
   argv[#argv + 1] = gen
   argv[#argv + 1] = dest
-  local r = child.run(argv,
+  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
+  -- #981-class): the pinned binary's child.run returns a Result with
+  -- spawn_error folded in; the tree's returns Result | nil, string.
+  -- cast: transitional dual-shape call
+  local run_dual = child.run as function({string}, child.Options): (any, any)
+  local r_any, rerr = run_dual(argv,
     {stdout = "inherit", stderr = "inherit"})
-  if r.spawn_error then
-    return false, "make: " .. gen .. ": " .. r.spawn_error
+  -- cast: transitional dual-shape probe
+  local spawn_err = r_any ~= nil and (r_any as {string: any}).spawn_error or rerr
+  if r_any == nil or spawn_err ~= nil then
+    return false, "make: " .. gen .. ": " .. tostring(spawn_err or "start failed")
   end
+  local r = r_any as child.Result -- cast: transitional dual-shape result
   if not r.ok then
     return false, "make: " .. gen .. " failed"
   end

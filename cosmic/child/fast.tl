@@ -1,4 +1,4 @@
---- posix_spawn-backed fast path for `cosmic.child.spawn`.
+--- posix_spawn-backed fast path for `cosmic.child.start`.
 ---
 --- `unix.spawn` (posix_spawn) creates the child without forking the Lua
 --- interpreter: no page-table copy, no Lua running in the child, and an

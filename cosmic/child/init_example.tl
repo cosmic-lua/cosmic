@@ -39,7 +39,7 @@ local function Example_kill()
   local check = require("cosmic.check")
   local child = require("cosmic.child")
   local h = check.must(child.start({"sleep", "10"}))
-  assert(h:kill())
+  assert(h:stop())
   local r = check.must(h:wait())
   print("signal:", r.signal)
   -- Output:
@@ -55,7 +55,7 @@ local function Example_wait_timeout()
   local h = check.must(child.start({"sleep", "10"}))
   local r, err = h:wait(50)
   print(r, err)
-  assert(h:kill())
+  assert(h:stop())
   assert(h:wait())
   -- Output:
   -- nil	timeout
@@ -137,9 +137,10 @@ local function Example_supervisor()
       next_command = next_command + 1
     end
     for index, handle in pairs(live) do
-      local finished = handle:try_wait()
-      if not finished and time.monotonic_ms() - started_ms[index] > deadline_ms then
-        assert(handle:kill()) -- SIGTERM; wait() below reaps and reports the signal
+      local tw = check.must(handle:try_wait())
+      local finished = tw.result -- set exactly when tw.finished
+      if not tw.finished and time.monotonic_ms() - started_ms[index] > deadline_ms then
+        assert(handle:stop()) -- SIGTERM; wait() below reaps and reports the signal
         finished = check.must(handle:wait())
       end
       if finished is child.Result then

@@ -349,9 +349,8 @@ local function test_needs_skips_locally_and_fails_in_ci()
       'local check = require("cosmic.check")\n' ..
       'check.needs("an absent fixture", false)\n' ..
       'print("UNREACHED")\n'))
-  local r = child.run({cosmic, script},
-    {env = env.list({drop = {"CI"}})})
-  assert(not r.spawn_error, r.spawn_error)
+  local r = check.must(child.run({cosmic, script},
+      {env = env.list({drop = {"CI"}})}))
   check.equal(r.code, check.EXIT_SKIP, "a missing precondition exits EXIT_SKIP")
   assert(not r.stdout:find("UNREACHED", 1, true),
     "needs must not return when the precondition is missing")

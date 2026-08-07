@@ -20,7 +20,7 @@ _cli/run.tl 28 33
 _cli/visibility.tl 23 23
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
-_docs/publish.tl 116 176
+_docs/publish.tl 115 177
 _make/artifact.tl 161 178
 _make/binaries.tl 24 24
 _make/bytecode.tl 14 16
@@ -92,6 +92,7 @@ cosmic/check.tl 110 113
 cosmic/child/fast.tl 40 52
 cosmic/child/init.tl 0 212
 cosmic/child/io.tl 106 124
+cosmic/child/types.tl 4 4
 cosmic/codec.tl 49 55
 cosmic/compress.tl 19 21
 cosmic/coverage/baseline.tl 136 154
@@ -198,4 +199,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14543 19197
+total 14546 19202

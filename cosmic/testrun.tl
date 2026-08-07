@@ -82,16 +82,24 @@ local function run(argv: {string}, output_base: string): integer
   -- other one (`.got`, `.out`, `.err`, `.tests`) instead of scraped
   -- back out of prose.
   local started_ms = time.monotonic_ms()
-  local r = child.run(argv, {env = child_env})
+  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
+  -- #981-class): the pinned binary's child.run returns a Result with
+  -- spawn_error folded in; the tree's returns Result | nil, string.
+  -- cast: transitional dual-shape call
+  local run_dual = child.run as function({string}, child.Options): (any, any)
+  local r_any, rerr = run_dual(argv, {env = child_env})
   local wall_ms = time.monotonic_ms() - started_ms
-  local stdout_content = r.stdout
-  local stderr_content = r.stderr
+  -- cast: transitional dual-shape probe
+  local spawn_err = r_any ~= nil and (r_any as {string: any}).spawn_error or rerr
+  local r = (r_any or {}) as child.Result -- cast: transitional dual-shape result
+  local stdout_content = r.stdout or ""
+  local stderr_content = r.stderr or ""
   local exit_code: integer = 1
-  if r.spawn_error then
+  if r_any == nil or spawn_err ~= nil then
     -- The executable could not be started (e.g. a missing binary): report the
     -- conventional 127 "command not found" code and surface the error.
     exit_code = 127
-    stderr_content = r.spawn_error
+    stderr_content = tostring(spawn_err or "start failed")
   elseif r.code ~= nil then
     exit_code = r.code
   elseif r.signal ~= nil then

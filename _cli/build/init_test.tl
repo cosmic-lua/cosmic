@@ -16,10 +16,11 @@ local function run_driver(...: string): integer, string, string
   for _, a in ipairs({...}) do
     parts[#parts + 1] = a
   end
-  local r = child.run({test_bin, "-c", table.concat(parts, " ")})
-  if r.spawn_error then
-    return 1, "", r.spawn_error
+  local r0, rerr = child.run({test_bin, "-c", table.concat(parts, " ")})
+  if r0 == nil then
+    return 1, "", tostring(rerr)
   end
+  local r = r0
   local code = 1
   if r.code ~= nil then
     code = r.code
