@@ -117,6 +117,9 @@ local record ProcessResult
   tl_result: TlResult
   shebang: string
   error: Issue
+  --  The tl env the file ran in; strict runs collect a typed position
+  --  report on it for the discarded-error pass.
+  env: any
 end
 ```
 

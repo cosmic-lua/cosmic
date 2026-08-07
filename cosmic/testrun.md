@@ -95,7 +95,7 @@ function report(paths: {string}): integer
   -- Report on the result
   testrun.report({fs.join(tmpdir, "test1")})
 
-  fs.remove_all(tmpdir)
+  local _ok, _err = fs.remove_all(tmpdir)
 ```
 
 Output:
