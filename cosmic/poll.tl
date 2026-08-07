@@ -9,6 +9,7 @@
 --- must never be registered here.
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
+local time = require("cosmic.time")
 
 --- Poll event flags.
 --- Use these to specify which events to monitor.
@@ -52,35 +53,19 @@ local record Poller
   remove: function(Poller, integer)
   --- Clear all file descriptors from the set.
   clear: function(Poller)
-  --- Poll for events with optional timeout.
-  --- Returns an iterator over (fd, events) pairs for ready descriptors.
-  --- EINTR is retried internally by reissuing the same timeout_ms, so the
-  --- deadline is not preserved across retries: repeated signals can make
-  --- the effective wait exceed timeout_ms. On a hard poll error the
-  --- iterator is empty; check err() after the loop — the old second
-  --- return was consumed as loop state by the generic `for`, so no
-  --- caller ever saw it (the Rows:err() pattern, for the same reason).
-  --- @param timeout_ms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
-  --- @return function Iterator yielding (fd: integer, events: Events)
-  wait: function(Poller, integer): function(): (integer, Events)
-  --- The error from the last wait(), or nil when it polled cleanly.
-  --- Cleared by the next wait().
-  err: function(Poller): string | nil
-  --- Poll and return count of ready descriptors. EINTR is retried
-  --- internally by reissuing the same timeout_ms (the deadline is not
-  --- preserved across retries).
-  --- @param timeout_ms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
-  --- @return integer | nil Count of ready descriptors
-  --- @return string Error message on failure
-  poll: function(Poller, integer): integer | nil, string
-  --- Get events for a specific fd after poll().
-  --- @param fd integer The file descriptor
-  --- @return Events | nil The events for this fd, or nil if not ready
-  events: function(Poller, integer): Events | nil
+  --- Wait for events, up to timeout_ms. Returns the ready set as a
+  --- {fd: Events} map — an empty map on timeout, `nil, err` on a hard
+  --- poll failure — so `for fd, ev in pairs(ready) do` iterates it and
+  --- the error arrives in slot 2 the house way (the old iterator ate
+  --- it as loop state, patched by a stateful err() sidecar; both are
+  --- gone). EINTR is retried against an absolute deadline, so repeated
+  --- signals can no longer stretch the wait past timeout_ms.
+  --- @param timeout_ms integer? Timeout in ms; nil blocks forever, 0 polls
+  --- @return {integer: Events} | nil Ready set (empty on timeout)
+  --- @return string? Error message on failure
+  wait: function(Poller, timeout_ms?: integer): {integer: Events} | nil, string
   --- Returns true if the poller has no registered fds.
   is_empty: function(Poller): boolean
-  --- Returns the number of registered fds.
-  count: function(Poller): integer
 end
 
 --- Make Events from raw revents bitmask.
@@ -102,15 +87,14 @@ end
 ---   p:add(sock.fd, poll.POLLIN)           -- net.Socket: .fd field
 ---   p:add(h:fd(), poll.POLLIN)            -- fd.Handle: :fd() method
 ---   p:add(pipe.reader:fd(), poll.POLLIN)  -- fd.Pipe ends are Handles
----   for fd, events in p:wait(30000) do
+---   local ready = assert(p:wait(30000))
+---   for fd, events in pairs(ready) do
 ---     if events.readable then
 ---       -- read from fd
 ---     end
 ---   end
 local function new(): Poller
   local fds: {integer: integer} = {}
-  local results: {integer: integer} = {}
-  local wait_err: string = nil
 
   local poller: Poller = {}
 
@@ -132,89 +116,49 @@ local function new(): Poller
   poller.remove = function(_self: Poller, fd: integer)
     if fd then
       fds[fd] = nil
-      results[fd] = nil
     end
   end
 
   poller.clear = function(_self: Poller)
     fds = {}
-    results = {}
   end
 
   poller.is_empty = function(_self: Poller): boolean
     return next(fds) == nil
   end
 
-  poller.count = function(_self: Poller): integer
-    local n = 0
-    for _ in pairs(fds) do
-      n = n + 1
-    end
-    return n
-  end
-
-  poller.poll = function(_self: Poller, timeout_ms: integer): integer | nil, string
+  poller.wait = function(_self: Poller, timeout_ms?: integer): {integer: Events} | nil, string
     -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
-    -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
-    -- Retrying reissues the same timeout_ms rather than tracking elapsed
-    -- time, so the effective wait can exceed timeout_ms under repeated
-    -- signals (see the doc comment on wait/poll above).
+    -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU. The
+    -- retry reissues the REMAINDER of an absolute deadline, not the full
+    -- timeout, so repeated signals cannot stretch the wait (the posture
+    -- child.io and shm already took).
+    local deadline_ms: integer = nil
+    if timeout_ms and timeout_ms >= 0 then
+      deadline_ms = time.monotonic_ms() + timeout_ms
+    end
     local res: {integer: integer}
     local err: string
     local eno: integer
     while true do
-      res, err, eno = unix.poll(fds, timeout_ms or -1)
+      local wait_ms = -1
+      if deadline_ms then
+        wait_ms = math.max(0, deadline_ms - time.monotonic_ms())
+      end
+      res, err, eno = unix.poll(fds, wait_ms)
       if res ~= nil or not errno.is(eno, "EINTR") then
         break
       end
     end
     if not res then
-      -- Leave results empty rather than nil: events() indexes results
-      -- unconditionally, so a stale or nil table there would crash the
-      -- next events() call instead of just reporting no events.
-      results = {}
       return nil, errno.wrap(err, "poll")
     end
-    results = res
-    local ready = 0
-    for _ in pairs(results) do
-      ready = ready + 1
+    local ready: {integer: Events} = {}
+    for fd, revents in pairs(res) do
+      ready[fd] = make_events(revents)
     end
     return ready
-  end
-
-  poller.events = function(_self: Poller, fd: integer): Events | nil
-    local revents = results[fd]
-    if revents then
-      return make_events(revents)
-    end
-    return nil
-  end
-
-  poller.wait = function(self: Poller, timeout_ms: integer): function(): (integer, Events)
-    local n, err = self:poll(timeout_ms)
-    if n == nil then
-      wait_err = err
-      return function(): (integer, Events)
-        return nil, nil
-      end
-    end
-    wait_err = nil
-    local iter_results = results
-    local k: integer = nil
-    return function(): (integer, Events)
-      local v: integer
-      k, v = next(iter_results, k)
-      if k then
-        return k, make_events(v)
-      end
-      return nil, nil
-    end
-  end
-
-  poller.err = function(_self: Poller): string | nil
-    return wait_err
   end
 
   return poller

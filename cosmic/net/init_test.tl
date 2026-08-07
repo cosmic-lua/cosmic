@@ -169,9 +169,9 @@ local function test_poll_readiness()
 
   local poller = poll.new()
   assert(poller:add(sock2.fd, poll.POLLIN))
-  local ready, poll_err = poller:poll(1000)
-  assert(ready == 1, "expected one ready fd: " .. tostring(poll_err))
-  local ev = check.must(poller:events(sock2.fd))
+  local ready, poll_err = poller:wait(1000)
+  assert(ready ~= nil, "wait failed: " .. tostring(poll_err))
+  local ev = check.must(ready[sock2.fd], "expected one ready fd")
   assert(ev.readable, "expected socket to be readable")
 
   assert(sock1:close())

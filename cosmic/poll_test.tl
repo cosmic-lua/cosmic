@@ -5,6 +5,13 @@ local cfd = require("cosmic.fd")
 local net = require("cosmic.net")
 local child = require("cosmic.child")
 
+-- wait() returns the ready set as {fd: Events}; count entries directly.
+local function ready_count(ready: {integer: poll.Events}): integer
+  local n = 0
+  for _ in pairs(ready) do n = n + 1 end
+  return n
+end
+
 local function test_poll_constants()
   assert(poll.POLLIN ~= nil, "POLLIN not defined")
   assert(poll.POLLOUT ~= nil, "POLLOUT not defined")
@@ -24,23 +31,18 @@ local function test_poller_new()
   assert(p.remove ~= nil, "remove method missing")
   assert(p.wait ~= nil, "wait method missing")
   assert(p:is_empty(), "new poller should be empty")
-  assert(p:count() == 0, "new poller count should be 0")
 end
 test_poller_new()
 
 local function test_poller_add_remove_raw_fd()
   local p = poll.new()
-  -- Add a raw fd number
   assert(p:add(1, poll.POLLOUT)) -- stdout
   assert(not p:is_empty(), "poller should not be empty after add")
-  assert(p:count() == 1, "count should be 1")
-
   assert(p:add(2, poll.POLLOUT)) -- stderr
-  assert(p:count() == 2, "count should be 2")
-
   p:remove(1)
-  assert(p:count() == 1, "count should be 1 after remove")
-
+  p:remove(2)
+  assert(p:is_empty(), "poller should be empty after removing both")
+  assert(p:add(1, poll.POLLOUT))
   p:clear()
   assert(p:is_empty(), "poller should be empty after clear")
 end
@@ -54,19 +56,14 @@ local function test_poll_pipe_readable()
   assert(n == 5, "expected 5 bytes written")
 
   local p = poll.new()
-  -- Add the reader using its fd() method
   assert(p:add(pipe.reader:fd(), poll.POLLIN))
-  assert(p:count() == 1, "count should be 1")
 
-  -- Poll with short timeout - should return immediately since data is available
-  local count = 0
-  for fd, events in p:wait(100) do
-    assert(fd == pipe.reader:fd(), "expected reader fd")
-    assert(events.readable, "expected readable event")
-    assert(not events.error, "unexpected error event")
-    count = count + 1
-  end
-  assert(count == 1, "expected 1 ready fd, got " .. count)
+  -- Short timeout - returns immediately since data is available
+  local ready = check.must(p:wait(100))
+  assert(ready_count(ready) == 1, "expected 1 ready fd")
+  local events = check.must(ready[pipe.reader:fd()], "reader should be ready")
+  assert(events.readable, "expected readable event")
+  assert(not events.error, "unexpected error event")
 
   assert(pipe:close())
 end
@@ -76,16 +73,13 @@ local function test_poll_pipe_writable()
   local pipe = check.must(cfd.pipe())
 
   local p = poll.new()
-  -- Check if writer is writable (should be, since buffer is empty)
+  -- Writer is writable, since the pipe buffer is empty
   assert(p:add(pipe.writer:fd(), poll.POLLOUT))
 
-  local count = 0
-  for fd, events in p:wait(100) do
-    assert(fd == pipe.writer:fd(), "expected writer fd")
-    assert(events.writable, "expected writable event")
-    count = count + 1
-  end
-  assert(count == 1, "expected 1 ready fd")
+  local ready = check.must(p:wait(100))
+  assert(ready_count(ready) == 1, "expected 1 ready fd")
+  local events = check.must(ready[pipe.writer:fd()], "writer should be ready")
+  assert(events.writable, "expected writable event")
 
   assert(pipe:close())
 end
@@ -93,7 +87,6 @@ test_poll_pipe_writable()
 
 local function test_poll_multiple_fds()
   local pipe1 = check.must(cfd.pipe())
-
   local pipe2 = check.must(cfd.pipe())
 
   -- Write to both pipes
@@ -103,16 +96,13 @@ local function test_poll_multiple_fds()
   local p = poll.new()
   assert(p:add(pipe1.reader:fd(), poll.POLLIN))
   assert(p:add(pipe2.reader:fd(), poll.POLLIN))
-  assert(p:count() == 2, "count should be 2")
 
-  local ready_fds: {number: boolean} = {}
-  for fd, events in p:wait(100) do
+  local ready = check.must(p:wait(100))
+  for _, events in pairs(ready) do
     assert(events.readable, "expected readable")
-    ready_fds[fd] = true
   end
-
-  assert(ready_fds[pipe1.reader:fd()], "pipe1 reader should be ready")
-  assert(ready_fds[pipe2.reader:fd()], "pipe2 reader should be ready")
+  assert(ready[pipe1.reader:fd()], "pipe1 reader should be ready")
+  assert(ready[pipe2.reader:fd()], "pipe2 reader should be ready")
 
   assert(pipe1:close())
   assert(pipe2:close())
@@ -123,14 +113,13 @@ local function test_poll_timeout()
   local pipe = check.must(cfd.pipe())
 
   local p = poll.new()
-  -- Poll for read on empty pipe - should timeout
+  -- Poll for read on empty pipe - should time out with an EMPTY map,
+  -- which is a successful wait, not an error.
   assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
-  local count = 0
-  for _, _ in p:wait(10) do -- 10ms timeout
-    count = count + 1
-  end
-  assert(count == 0, "expected no ready fds on timeout")
+  local ready, err = p:wait(10)
+  assert(ready ~= nil, "timeout is not an error: " .. tostring(err))
+  assert(ready_count(ready) == 0, "expected no ready fds on timeout")
 
   assert(pipe:close())
 end
@@ -148,13 +137,10 @@ local function test_poll_with_socket()
   -- Socket has fd field directly
   assert(p:add(sock2.fd, poll.POLLIN))
 
-  local count = 0
-  for fd, events in p:wait(100) do
-    assert(fd == sock2.fd, "expected sock2 fd")
-    assert(events.readable, "expected readable")
-    count = count + 1
-  end
-  assert(count == 1, "expected 1 ready socket")
+  local ready = check.must(p:wait(100))
+  assert(ready_count(ready) == 1, "expected 1 ready socket")
+  local events = check.must(ready[sock2.fd], "sock2 should be ready")
+  assert(events.readable, "expected readable")
 
   assert(sock1:close())
   assert(sock2:close())
@@ -170,42 +156,16 @@ local function test_poll_with_child_pipes()
   local p = poll.new()
   assert(p:add(pp.reader:fd(), poll.POLLIN))
 
-  local count = 0
-  for fd, events in p:wait(1000) do
-    assert(fd == pp.reader:fd(), "expected reader fd")
-    assert(events.readable or events.hangup, "expected readable or hangup")
-    count = count + 1
-  end
-  assert(count >= 1, "expected at least 1 event from child stdout")
+  local ready = check.must(p:wait(1000))
+  assert(ready_count(ready) >= 1, "expected at least 1 event from child stdout")
+  local events = check.must(ready[pp.reader:fd()], "reader should be ready")
+  assert(events.readable or events.hangup, "expected readable or hangup")
+  assert(events.revents ~= nil, "revents should be set")
 
   assert(pp.reader:close())
   assert(h:wait())
 end
 test_poll_with_child_pipes()
-
-local function test_poll_events_method()
-  local pipe = check.must(cfd.pipe())
-
-  assert(pipe.writer:write("test"))
-
-  local p = poll.new()
-  assert(p:add(pipe.reader:fd(), poll.POLLIN))
-
-  local ready, poll_err = p:poll(100)
-  assert(ready ~= nil, "poll failed: " .. tostring(poll_err))
-  assert(ready == 1, "expected 1 ready fd")
-
-  local events = check.must(p:events(pipe.reader:fd()),
-    "raw_events should not be nil for ready fd")
-  assert(events.readable, "expected readable")
-  assert(events.revents ~= nil, "revents should be set")
-
-  local no_events = p:events(999)
-  assert(no_events == nil, "events should be nil for non-ready fd")
-
-  assert(pipe:close())
-end
-test_poll_events_method()
 
 local function test_poll_nonblocking()
   local pipe = check.must(cfd.pipe())
@@ -213,9 +173,10 @@ local function test_poll_nonblocking()
   local p = poll.new()
   assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
-  -- Non-blocking poll (timeout = 0)
-  local ready, _ = p:poll(0)
-  assert(ready == 0, "expected 0 ready fds for non-blocking poll on empty pipe")
+  -- Non-blocking wait (timeout = 0) on an empty pipe: empty map
+  local ready = check.must(p:wait(0))
+  assert(ready_count(ready) == 0, "expected 0 ready fds for non-blocking wait")
+  assert(ready[999] == nil, "an unready fd simply has no entry")
 
   assert(pipe:close())
 end
@@ -230,20 +191,19 @@ local function test_poll_hangup()
   local p = poll.new()
   assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
-  for fd, events in p:wait(100) do
-    assert(fd == pipe.reader:fd(), "expected reader fd")
-    -- When writer closes, reader gets POLLHUP
-    assert(events.hangup or events.readable, "expected hangup or readable on closed pipe")
-  end
+  local ready = check.must(p:wait(100))
+  local events = check.must(ready[pipe.reader:fd()], "reader should report")
+  -- When writer closes, reader gets POLLHUP
+  assert(events.hangup or events.readable, "expected hangup or readable on closed pipe")
 
   assert(pipe.reader:close())
 end
 test_poll_hangup()
 
 -- Error fidelity: add(nil)/add(-1) return false + err instead of
--- silently doing nothing (or, before the error-shape wave, throwing
--- from library code), and wait() surfaces a hard poll error through
--- err() instead of an indistinguishable empty iterator.
+-- silently doing nothing, and wait() surfaces a hard poll error in
+-- slot 2 — the old iterator ate it as loop state, patched by a
+-- stateful err() sidecar; both are gone.
 
 local function test_add_bad_fd_errors()
   local p = poll.new()
@@ -263,25 +223,12 @@ local function test_wait_surfaces_hard_error()
   for i = 1, 100000 do
     assert(p:add(i, poll.POLLIN))
   end
-  local n, perr = p:poll(0)
-  if n ~= nil then
+  local ready, perr = p:wait(0)
+  if ready ~= nil then
     io.stderr:write("SKIP: test_wait_surfaces_hard_error (could not provoke poll failure)\n")
     return
   end
-  assert(perr:match("E%u+"), "poll error should name the errno, got: " .. perr)
-  -- Regression: results must never be left nil after a failed poll --
-  -- events() indexes it unconditionally, so a nil there crashes instead
-  -- of reporting "no events for this fd".
-  local ev = p:events(1)
-  assert(ev == nil, "events() should return nil (not crash) after a failed poll")
-  local iter = p:wait(0)
-  assert(type(iter) == "function", "wait must still return an iterator on error")
-  for _ in iter do
-    assert(false, "the error iterator must be empty")
-  end
-  local werr = p:err()
-  assert(type(werr) == "string" and string.match(werr, "E%u+"),
-    "err() should surface the poll error, got: " .. tostring(werr))
+  assert(perr:match("E%u+"), "wait error should name the errno, got: " .. perr)
 end
 test_wait_surfaces_hard_error()
 
