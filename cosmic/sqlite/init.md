@@ -40,7 +40,7 @@ local record Rows
   __close: function(self: Rows)
   --  Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Rows): string | nil
-  --  Release the underlying prepared statement early (idempotent).
+  --  Release the underlying prepared statement early idempotent.
   close: function(self: Rows)
 end
 ```
@@ -200,7 +200,7 @@ function stmt:bind(...: any): boolean, string
 function stmt:bind_list(values: {any}): boolean, string
 ```
 
- Bind parameters from a list (table). The count is derived from the SQL,
+ Bind parameters from a list table. The count is derived from the SQL,
  so nil values in the table are handled correctly without an explicit count.
  Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
 

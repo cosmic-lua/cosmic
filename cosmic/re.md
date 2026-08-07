@@ -2,7 +2,7 @@
 
  Regular expression matching using POSIX extended regex syntax.
  Wraps cosmo.re for pattern compilation and matching. Module-level
- functions are SUBJECT-FIRST (D20): match(text, pattern), like
+ functions are SUBJECT-FIRST D20: match(text, pattern), like
  string.match. The compiled Regex keeps the binding's own :search
  method name — a userdata metatable is the C layer's to name.
 
