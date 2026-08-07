@@ -2,9 +2,9 @@
 
  Child process management.
 
- The high-level spawn API: `start` hands back a `Handle` you can `kill`,
- `wait` on (with an optional timeout), poll with `try_wait`, or stream
- from with `read`; `run` is the one-shot spawn-wait-`Result` form. The
+ The high-level API: `start` hands back a `Handle` you can `stop`,
+ `wait` on (with an optional timeout), poll with `try_wait`, or
+ stream from with `read`; `run` is the one-shot start-wait form. The
  raw syscalls (fork/wait/kill, W* helpers) live in `cosmic.proc`.
 
  A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so
@@ -14,35 +14,14 @@
  (or simply dropping the handle) never leaves a zombie. Side effect: the
  first start() sets SIGPIPE to SIG_IGN process-wide (EPIPE on the write,
  not a dead parent) — unless you already installed a SIGPIPE handler.
- Testing a server you spawn? Have it print `READY <port>` and block on
+ Testing a server you start? Have it print `READY <port>` and block on
  reading that line — the readiness pattern in `cosmic --docs guide.recipes`.
 
 ## Types
 
-### Result
-
- Structured outcome of a finished child.
- Exactly one of `code`/`signal` is set: `code` when the child
- exited, `signal` when a signal killed it — unless the child never
- started (`spawn_error` set, both nil). `ok` is true only on zero.
-
-```teal
-local record Result
-  code: integer
-  signal: integer
-  ok: boolean
-  stdout: string
-  stderr: string
-  io_error: string
-  --  run() only: why the child never started (the folded-in old
-  --  `Result | nil, string` union); nil once the child ran
-  spawn_error: string
-end
-```
-
 ### Handle
 
- Handle for a spawned process.
+ Handle for a started process.
  Fields prefixed `_` are internal bookkeeping; use the methods.
 
 ```teal
@@ -52,10 +31,15 @@ local record Handle
   _st: childio.PumpState
   _result: Result
   _closed: boolean
-  --  Sends `sig` (default SIGTERM). Fails once reaped (pid may be recycled).
+  --  Sends `sig` (default SIGTERM); start's partner (D20 rule 9).
+  --  Fails once reaped (pid may be recycled).
+  stop: function(self: Handle, sig?: integer): boolean, string
+  --  DEPRECATED alias of stop (D20 transition, #976); deleted at the
+  --  next pin advance (#981-class) once the pinned build engine moves.
   kill: function(self: Handle, sig?: integer): boolean, string
-  --  Non-blocking reap: Result if finished, `nil, nil` if running, or `nil, err` on failure.
-  try_wait: function(self: Handle): Result | nil, string
+  --  Non-blocking reap: TryWait{finished, result} — result set exactly
+  --  when finished — or `nil, err` on a wait failure.
+  try_wait: function(self: Handle): TryWait | nil, string
   --  Runs the child to completion (feeding stdin, draining stdout+stderr) and
   --  returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
   --  child has not finished in time (the handle stays usable). Idempotent.
@@ -67,39 +51,30 @@ local record Handle
 end
 ```
 
-### Options
-
- Options for spawning a process.
- Leave stdout/stderr nil (the default) and the output is captured for
- you: wait/run drain the child and return the bytes in Result.stdout
- and Result.stderr. Set these fields only to send a stream somewhere
- else. stdout/stderr Handles (cosmic.fd) become the child's fd 1/2
- (the matching Result field is then ""); spawn does not take
- ownership — the child gets its own copy, so close your end when done
- (see Example_run_pipe). Raw integer fds are not part of this surface
- (api-review-2); wrap one with fd.wrap() first. "inherit" writes to
- THIS process's fd 1/2 so output streams as it runs; Result stays "".
-
-```teal
-local record Options
-  stdin: string | cfd.Handle
-  stdout: cfd.Handle | childio.StdioMode
-  stderr: cfd.Handle | childio.StdioMode
-  --  the child's exact environment as "KEY=VALUE" entries (nil
-  --  inherits); build edited copies with env.list({drop=..., set=...})
-  env: {string}
-  cwd: string
-end
-```
-
 ### ChildModule
 
 ```teal
 local record ChildModule
   start: function(argv: {string}, opts?: Options): Handle | nil, string
-  run: function(argv: {string}, opts?: Options): Result
+  run: function(argv: {string}, opts?: Options): Result | nil, string
 end
 ```
+
+### Result
+
+ Structured outcome of a finished child.
+ The records (see cosmic.child.types): a finished child's Result,
+ try_wait's TryWait answer, and the start/run Options.
+
+alias of `cosmic.child.types.Result` — field and method table: `cosmic --docs cosmic.child.types.Result`
+
+### TryWait
+
+alias of `cosmic.child.types.TryWait` — field and method table: `cosmic --docs cosmic.child.types.TryWait`
+
+### Options
+
+alias of `cosmic.child.types.Options` — field and method table: `cosmic --docs cosmic.child.types.Options`
 
 ## Functions
 
@@ -109,16 +84,16 @@ end
 function start(argv: {string}, opts?: Options): Handle | nil, string
 ```
 
- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
- Returns a Handle on success. If the program cannot be executed, spawn
+ Starts a child process with I/O control. Uses fexecve for /zip/ paths.
+ Returns a Handle on success. If the program cannot be executed, start
  itself fails with `nil, "exec failed: ENOENT: ..."`, not a bogus exit
- code from a later wait(). To spawn cosmic itself, use cosmic.proc's
+ code from a later wait(). To start cosmic itself, use cosmic.proc's
  `interpreter()` — NOT arg[0] (/zip/main.lua), not the interpreter.
 
 **Parameters:**
 
 - `argv` ({string}) - Command and arguments
-- `opts` (Options?) - Spawn options
+- `opts` (Options?) - Start options
 
 **Returns:**
 
@@ -127,26 +102,26 @@ function start(argv: {string}, opts?: Options): Handle | nil, string
 ### run
 
 ```teal
-function run(argv: {string}, opts?: Options): Result
+function run(argv: {string}, opts?: Options): Result | nil, string
 ```
 
- One-shot spawn: run to completion and return the Result — always a
- Result: a child that never started is `ok = false` with the reason
- in `spawn_error`, so `.ok` needs no nil guard.
+ One-shot start: run the child to completion and return its Result,
+ or `nil, string` when the child never started (or the reap failed)
+ — so `check.must(child.run(...))` means what it says.
 
 **Parameters:**
 
 - `argv` ({string}) - Command and arguments
-- `opts` (Options?) - Spawn options
+- `opts` (Options?) - Start options
 
 **Returns:**
 
-- Result - spawn_error set when the spawn itself failed
+- Result - | nil, string The Result, or nil plus why
 
-### handle:kill
+### handle:stop
 
 ```teal
-function handle:kill(sig?: integer): boolean, string
+function handle:stop(sig?: integer): boolean, string
 ```
 
 ### handle:wait
@@ -158,7 +133,7 @@ function handle:wait(timeout_ms?: integer): Result | nil, string
 ### handle:try_wait
 
 ```teal
-function handle:try_wait(): Result | nil, string
+function handle:try_wait(): TryWait | nil, string
 ```
 
 ### handle:read
