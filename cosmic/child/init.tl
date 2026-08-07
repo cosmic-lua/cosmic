@@ -1,8 +1,8 @@
 --- Child process management.
 ---
---- The high-level spawn API: `start` hands back a `Handle` you can `kill`,
---- `wait` on (with an optional timeout), poll with `try_wait`, or stream
---- from with `read`; `run` is the one-shot spawn-wait-`Result` form. The
+--- The high-level API: `start` hands back a `Handle` you can `stop`,
+--- `wait` on (with an optional timeout), poll with `try_wait`, or
+--- stream from with `read`; `run` is the one-shot start-wait form. The
 --- raw syscalls (fork/wait/kill, W* helpers) live in `cosmic.proc`.
 ---
 --- A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so
@@ -12,32 +12,24 @@
 --- (or simply dropping the handle) never leaves a zombie. Side effect: the
 --- first start() sets SIGPIPE to SIG_IGN process-wide (EPIPE on the write,
 --- not a dead parent) — unless you already installed a SIGPIPE handler.
---- Testing a server you spawn? Have it print `READY <port>` and block on
+--- Testing a server you start? Have it print `READY <port>` and block on
 --- reading that line — the readiness pattern in `cosmic --docs guide.recipes`.
 local unix = require("cosmo.unix")
 local cfd = require("cosmic.fd")
 local childio = require("cosmic.child.io")
 local childfast = require("cosmic.child.fast")
+local ctypes = require("cosmic.child.types")
 local errno = require("cosmic.errno")
 local stream = require("cosmic.stream")
 
 --- Structured outcome of a finished child.
---- Exactly one of `code`/`signal` is set: `code` when the child
---- exited, `signal` when a signal killed it — unless the child never
---- started (`spawn_error` set, both nil). `ok` is true only on zero.
-local record Result
-  code: integer -- exit status; nil if signaled or never started
-  signal: integer -- terminating signal; nil if exited
-  ok: boolean -- code == 0, and no io_error
-  stdout: string
-  stderr: string
-  io_error: string -- a read/write/poll failure while pumping I/O; nil if none
-  --- run() only: why the child never started (the folded-in old
-  --- `Result | nil, string` union); nil once the child ran
-  spawn_error: string
-end
+--- The records (see cosmic.child.types): a finished child's Result,
+--- try_wait's TryWait answer, and the start/run Options.
+local type Result = ctypes.Result
+local type TryWait = ctypes.TryWait
+local type Options = ctypes.Options
 
---- Handle for a spawned process.
+--- Handle for a started process.
 --- Fields prefixed `_` are internal bookkeeping; use the methods.
 local record Handle is stream.Reader
   metamethod __close: function(self: Handle)
@@ -48,10 +40,15 @@ local record Handle is stream.Reader
   _result: Result
   _closed: boolean
 
-  --- Sends `sig` (default SIGTERM). Fails once reaped (pid may be recycled).
+  --- Sends `sig` (default SIGTERM); start's partner (D20 rule 9).
+  --- Fails once reaped (pid may be recycled).
+  stop: function(self: Handle, sig?: integer): boolean, string
+  --- DEPRECATED alias of stop (D20 transition, #976); deleted at the
+  --- next pin advance (#981-class) once the pinned build engine moves.
   kill: function(self: Handle, sig?: integer): boolean, string
-  --- Non-blocking reap: Result if finished, `nil, nil` if running, or `nil, err` on failure.
-  try_wait: function(self: Handle): Result | nil, string
+  --- Non-blocking reap: TryWait{finished, result} — result set exactly
+  --- when finished — or `nil, err` on a wait failure.
+  try_wait: function(self: Handle): TryWait | nil, string
   --- Runs the child to completion (feeding stdin, draining stdout+stderr) and
   --- returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
   --- child has not finished in time (the handle stays usable). Idempotent.
@@ -60,26 +57,6 @@ local record Handle is stream.Reader
   --- stdout. Returns bare nil at end of file (cosmic.stream contract). For
   --- whole-output capture use `wait`/`run`, which also collect stderr.
   read: function(self: Handle, size?: integer): string | nil, string
-end
-
---- Options for spawning a process.
---- Leave stdout/stderr nil (the default) and the output is captured for
---- you: wait/run drain the child and return the bytes in Result.stdout
---- and Result.stderr. Set these fields only to send a stream somewhere
---- else. stdout/stderr Handles (cosmic.fd) become the child's fd 1/2
---- (the matching Result field is then ""); spawn does not take
---- ownership — the child gets its own copy, so close your end when done
---- (see Example_run_pipe). Raw integer fds are not part of this surface
---- (api-review-2); wrap one with fd.wrap() first. "inherit" writes to
---- THIS process's fd 1/2 so output streams as it runs; Result stays "".
-local record Options
-  stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0
-  stdout: cfd.Handle | childio.StdioMode -- child's fd 1, or "inherit"
-  stderr: cfd.Handle | childio.StdioMode -- child's fd 2, or "inherit"
-  --- the child's exact environment as "KEY=VALUE" entries (nil
-  --- inherits); build edited copies with env.list({drop=..., set=...})
-  env: {string}
-  cwd: string
 end
 
 --- Checks if a path refers to a /zip/ virtual filesystem entry.
@@ -151,16 +128,17 @@ local handle_mt: metatable < Handle > = {
 local function make_handle(pid: integer, st: childio.PumpState): Handle
   local handle: Handle = {pid = pid, _st = st}
 
-  function handle:kill(sig?: integer): boolean, string
+  function handle:stop(sig?: integer): boolean, string
     if self._result then
-      return false, "kill: process already reaped"
+      return false, "stop: process already reaped"
     end
     local ok, err = unix.kill(self.pid, sig or unix.SIGTERM)
     if not ok then
-      return false, errno.wrap(err, "kill")
+      return false, errno.wrap(err, "stop")
     end
     return true
   end
+  handle.kill = handle.stop
 
   function handle:wait(timeout_ms?: integer): Result | nil, string
     if self._result then
@@ -181,20 +159,20 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     return finish(self, status)
   end
 
-  function handle:try_wait(): Result | nil, string
+  function handle:try_wait(): TryWait | nil, string
     if self._result then
-      return self._result
+      return {finished = true, result = self._result}
     end
     local wpid, status = unix.wait(self.pid, unix.WNOHANG)
     if wpid == nil then
       return nil, "wait failed: " .. tostring(status)
     end
     if wpid == 0 then
-      return nil -- still running
+      return {finished = false} -- still running
     end
     -- Reaped: the child is gone, so draining hits EOF promptly.
     childio.pump(self._st, nil)
-    return finish(self, status)
+    return {finished = true, result = finish(self, status)}
   end
 
   function handle:read(size?: integer): string | nil, string
@@ -215,13 +193,13 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
   return setmetatable(handle, handle_mt)
 end
 
---- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
---- Returns a Handle on success. If the program cannot be executed, spawn
+--- Starts a child process with I/O control. Uses fexecve for /zip/ paths.
+--- Returns a Handle on success. If the program cannot be executed, start
 --- itself fails with `nil, "exec failed: ENOENT: ..."`, not a bogus exit
---- code from a later wait(). To spawn cosmic itself, use cosmic.proc's
+--- code from a later wait(). To start cosmic itself, use cosmic.proc's
 --- `interpreter()` — NOT arg[0] (/zip/main.lua), not the interpreter.
 --- @param argv {string} Command and arguments
---- @param opts Options? Spawn options
+--- @param opts Options? Start options
 --- @return Handle | nil, string? Process handle or nil + error
 local function start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
@@ -461,20 +439,20 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
   return parent_handle(pid)
 end
 
---- One-shot spawn: run to completion and return the Result — always a
---- Result: a child that never started is `ok = false` with the reason
---- in `spawn_error`, so `.ok` needs no nil guard.
+--- One-shot start: run the child to completion and return its Result,
+--- or `nil, string` when the child never started (or the reap failed)
+--- — so `check.must(child.run(...))` means what it says.
 --- @param argv {string} Command and arguments
---- @param opts Options? Spawn options
---- @return Result spawn_error set when the spawn itself failed
-local function run(argv: {string}, opts?: Options): Result
+--- @param opts Options? Start options
+--- @return Result | nil, string The Result, or nil plus why
+local function run(argv: {string}, opts?: Options): Result | nil, string
   local h, err = start(argv, opts)
   if not h then
-    return {ok = false, spawn_error = err or "spawn failed", stdout = "", stderr = ""}
+    return nil, err or "start failed"
   end
   local r, werr = h:wait()
-  if not r then -- no timeout passed, so a reap error; same folded shape
-    return {ok = false, spawn_error = werr or "wait failed", stdout = "", stderr = ""}
+  if not r then -- no timeout passed, so a reap error
+    return nil, werr or "wait failed"
   end
   return r
 end
@@ -484,11 +462,12 @@ local record ChildModule
   type Handle = Handle
   type Options = Options
   type Result = Result
+  type TryWait = TryWait
   type StdioMode = childio.StdioMode -- Options' stdio mode, from the io shard
 
-  -- High-level spawn API
+  -- High-level API
   start: function(argv: {string}, opts?: Options): Handle | nil, string
-  run: function(argv: {string}, opts?: Options): Result
+  run: function(argv: {string}, opts?: Options): Result | nil, string
 
 end
 

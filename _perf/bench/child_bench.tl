@@ -12,8 +12,8 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "child_spawn_true",
       fn = function(_: any): any
-        local result = child.run({"/bin/true"})
-        assert(not result.spawn_error, result.spawn_error)
+        local result, rerr = child.run({"/bin/true"})
+        assert(result ~= nil, tostring(rerr))
         return result.code
       end,
       check = function(_: any, res: any): boolean, string

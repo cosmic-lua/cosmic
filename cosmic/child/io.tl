@@ -91,7 +91,7 @@ local function resolve_stdio(stdin?: string | cfd.Handle,
     s.stdin_data = stdin
   elseif stdin ~= nil then
     s.stdin_fd = stdin:fd()
-    if s.stdin_fd < 0 then return nil, "spawn: stdin handle is closed" end
+    if s.stdin_fd < 0 then return nil, "start: stdin handle is closed" end
   end
   -- "inherit" resolves to our own descriptor, which then travels the
   -- identical path a caller-supplied Handle does: spawn dups it onto
@@ -100,13 +100,13 @@ local function resolve_stdio(stdin?: string | cfd.Handle,
     s.stdout_fd = 1
   elseif stdout ~= nil then
     s.stdout_fd = stdout:fd()
-    if s.stdout_fd < 0 then return nil, "spawn: stdout handle is closed" end
+    if s.stdout_fd < 0 then return nil, "start: stdout handle is closed" end
   end
   if stderr is StdioMode then
     s.stderr_fd = 2
   elseif stderr ~= nil then
     s.stderr_fd = stderr:fd()
-    if s.stderr_fd < 0 then return nil, "spawn: stderr handle is closed" end
+    if s.stderr_fd < 0 then return nil, "start: stderr handle is closed" end
   end
   return s
 end

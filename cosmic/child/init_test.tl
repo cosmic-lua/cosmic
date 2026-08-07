@@ -20,7 +20,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 -- (a) kill a long-running child; wait() reports the terminating signal.
 local function test_kill_reports_signal()
   local h = check.must(child.start({"sleep", "10"}))
-  assert(h:kill(), "kill (default SIGTERM) should succeed")
+  assert(h:stop(), "stop (default SIGTERM) should succeed")
   local r = check.must(h:wait())
   assert(r.signal == signal.SIGTERM,
     "expected SIGTERM, got signal=" .. tostring(r.signal) .. " code=" .. tostring(r.code))
@@ -47,7 +47,7 @@ local function test_wait_timeout()
   local r, err = h:wait(100)
   assert(r == nil, "expected nil Result on timeout")
   assert(err == "timeout", "expected 'timeout', got " .. tostring(err))
-  assert(h:kill(signal.SIGKILL))
+  assert(h:stop(signal.SIGKILL))
   local r2 = check.must(h:wait())
   assert(r2.signal == signal.SIGKILL, "expected SIGKILL after timeout+kill")
 end
@@ -115,19 +115,24 @@ local function test_run_cwd_option()
 end
 test_run_cwd_option()
 
--- === Handle-level methods: try_wait, read, kill-after-reap ===
+-- === Handle-level methods: try_wait, read, stop-after-reap ===
 
 local function test_try_wait()
   local h = check.must(child.start({"sleep", "10"}))
-  assert(h:try_wait() == nil, "try_wait on a running child returns nil")
-  assert(h:kill(signal.SIGKILL))
+  local tw = check.must(h:try_wait())
+  assert(tw.finished == false, "a running child reports finished=false")
+  assert(tw.result == nil, "result is set exactly when finished")
+  assert(h:stop(signal.SIGKILL))
   local res: child.Result = nil
   for _ = 1, 200 do
-    res = h:try_wait()
-    if res ~= nil then break end
+    local t = check.must(h:try_wait())
+    if t.finished then
+      res = t.result
+      break
+    end
     assert(time.sleep(0, 10000000)) -- 10ms
   end
-  assert(res ~= nil, "try_wait should eventually reap the killed child")
+  assert(res ~= nil, "try_wait should eventually reap the stopped child")
   assert(res.signal == signal.SIGKILL, "expected SIGKILL, got signal=" .. tostring(res.signal))
 end
 test_try_wait()
@@ -159,14 +164,19 @@ local function test_abandoned_handle_reaped()
 end
 test_abandoned_handle_reaped()
 
-local function test_kill_after_reap_fails()
+local function test_stop_after_reap_fails()
   local h = check.must(child.start({lua_bin, "-e", "os.exit(0)"}))
   assert(h:wait())
-  local ok, err = h:kill()
-  assert(not ok, "kill after reap should fail")
-  assert(err ~= nil, "kill after reap should report an error")
+  local ok, err = h:stop()
+  assert(not ok, "stop after reap should fail")
+  assert(err ~= nil, "stop after reap should report an error")
+  -- DEPRECATED alias (D20 transition, #976): kill must stay the same
+  -- function until the pinned build engine moves off it.
+  local h2 = check.must(child.start({"sleep", "10"}))
+  assert(h2:kill(signal.SIGKILL), "the kill alias still stops a child")
+  assert(h2:wait())
 end
-test_kill_after_reap_fails()
+test_stop_after_reap_fails()
 
 -- === Environment ===
 
@@ -375,7 +385,7 @@ local function test_spawn_overlap_no_stdin_leak()
   assert(elapsed < 3,
     "A must finish promptly, not block on B's lifetime (took " .. tostring(elapsed) .. "s)")
 
-  assert(b:kill(signal.SIGKILL))
+  assert(b:stop(signal.SIGKILL))
   assert(b:wait())
 end
 test_spawn_overlap_no_stdin_leak()

@@ -97,8 +97,8 @@ end
 --- @param bin string Binary path
 --- @return string Trimmed stdout
 local function spawn_capture(bin: string): string
-  local r = child.run({bin})
-  assert(not r.spawn_error, r.spawn_error)
+  local r, rerr = child.run({bin})
+  assert(r ~= nil, tostring(rerr))
   assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
   return (r.stdout:gsub("%s+$", ""))
 end

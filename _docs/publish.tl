@@ -185,10 +185,18 @@ local function make_readme(docs_dir: string): string
 end
 
 local function run(argv: {string}): boolean, string
-  local r = child.run(argv)
-  if r.spawn_error then
-    return nil, r.spawn_error
+  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
+  -- #981-class): the pinned binary's child.run returns a Result with
+  -- spawn_error folded in; the tree's returns Result | nil, string.
+  -- cast: transitional dual-shape call
+  local run_dual = child.run as function({string}, child.Options): (any, any)
+  local r_any, rerr = run_dual(argv, nil)
+  -- cast: transitional dual-shape probe
+  local spawn_err = r_any ~= nil and (r_any as {string: any}).spawn_error or rerr
+  if r_any == nil or spawn_err ~= nil then
+    return nil, tostring(spawn_err or "start failed")
   end
+  local r = r_any as child.Result -- cast: transitional dual-shape result
   if not r.ok then
     return nil, table.concat(argv, " ") .. " failed with exit code " .. tostring(r.code)
   end
