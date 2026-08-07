@@ -27,13 +27,17 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
     return {ok = false, message = "error: could not determine executable path", file_count = 0}
   end
 
-  local exe_data = fs.read(exe_path)
-  if not exe_data then
-    return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
-  end
-
-  local archive_maybe = czip.open_bytes(exe_data)
+  -- Open straight from the path: reading the whole executable into a
+  -- Lua string first (czip.open_bytes) cost the binary's size in
+  -- allocation per call. The failure branch re-probes with fs.read to
+  -- keep the two documented messages distinguishable — an unreadable
+  -- file stays "cannot read executable", a readable non-archive stays
+  -- "no zip archive found".
+  local archive_maybe = czip.open(exe_path)
   if not archive_maybe then
+    if not fs.read(exe_path) then
+      return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
+    end
     return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
   end
   local archive = archive_maybe

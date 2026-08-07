@@ -308,6 +308,28 @@ local function test_extract_rejects_path_traversal()
 end
 test_extract_rejects_path_traversal()
 
+-- The two extract failure messages are contract: a missing/unreadable
+-- executable reports "cannot read executable"; a readable file with no
+-- archive reports "no zip archive found". extract() opens by path now,
+-- so both come from its failure-branch classification.
+local function test_extract_failure_messages_distinguish_causes()
+  local outdir = fs.join(tmpdir, "extract-fail-target")
+
+  local missing = fs.join(tmpdir, "does-not-exist.bin")
+  local result = embed.extract(outdir, missing)
+  assert(not result.ok, "extract of a missing path must fail")
+  assert(result.message:find("cannot read executable", 1, true),
+    "missing file reports the read error, got: " .. result.message)
+
+  local notzip = fs.join(tmpdir, "not-an-archive.bin")
+  assert(fs.write(notzip, "just some bytes, no zip here"))
+  local result2 = embed.extract(outdir, notzip)
+  assert(not result2.ok, "extract of a non-archive must fail")
+  assert(result2.message:find("no zip archive found", 1, true),
+    "readable non-archive reports the archive error, got: " .. result2.message)
+end
+test_extract_failure_messages_distinguish_causes()
+
 -- FIX 2: collect_dir must not recurse into symlinked directories.
 -- A symlink loop inside the embed dir must terminate without error.
 local function test_embed_symlink_loop_terminates()
