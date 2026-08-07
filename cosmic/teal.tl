@@ -138,9 +138,8 @@ local record ProcessResult
   tl_result: TlResult
   shebang: string
   error: Issue
-  --- The tl env the file was processed in (opaque in the narrowed
-  --- API); strict runs collect a typed position report on it for the
-  --- discarded-error pass.
+  --- The tl env the file ran in; strict runs collect a typed position
+  --- report on it for the discarded-error pass.
   env: any
 end
 
@@ -283,12 +282,7 @@ local function collect_warnings(result: TlResult, input_path: string): {Issue}
 end
 
 --- Append discarded-error findings (cosmic._teal_discard) as error
---- Issues. Only strict runs collect the position report the pass
---- needs; the require is lazy to keep the pass off the compile path
---- until a strict gate actually runs.
---- @param proc ProcessResult A processed file (strict)
---- @param input_path string The file, as the report keys it
---- @param errors {Issue} The list findings are appended to
+--- Issues; strict-only, required lazily so lax compiles never load it.
 local function collect_discards(proc: ProcessResult, input_path: string,
     errors: {Issue})
   local discard = require("cosmic._teal_discard")
