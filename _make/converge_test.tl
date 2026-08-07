@@ -58,7 +58,7 @@ local function test_only_a_cosmic_converges()
     })
   local found = converge.toolchain_of(tool)
   assert(found, "a project that defines cosmic/ and builds cosmic is one")
-  assert((found as types.Binary).name == "cosmic", -- cast: guard above
+  assert(found.name == "cosmic",
     "and it is the binary the gate would run under")
 end
 test_only_a_cosmic_converges()

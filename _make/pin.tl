@@ -121,7 +121,7 @@ local function read(path: string, host?: string): Pin | nil, string
   if not data then
     return nil, "make: " .. (eerr or "not a pin")
   end
-  local fields = data as {string: any} -- cast: record union after the guard
+  local fields = data
   local row, platform = platform_row(fields, host or sys.platform())
   local plat: {string: any} = {}
   if row is {string: any} then

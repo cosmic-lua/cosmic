@@ -1,6 +1,6 @@
 --- Regular expression matching using POSIX extended regex syntax.
 --- Wraps cosmo.re for pattern compilation and matching. Module-level
---- functions are SUBJECT-FIRST (D20): match(text, pattern), like
+--- functions are SUBJECT-FIRST D20: match(text, pattern), like
 --- string.match. The compiled Regex keeps the binding's own :search
 --- method name — a userdata metatable is the C layer's to name.
 ---
@@ -155,9 +155,9 @@ local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, 
   if not regex then
     return nil, cerr
   end
-  local em = (regex as Regex):search("") -- cast: record union after guard
+  local em = regex:search("")
   if em then
-    return nil, "pattern matches the empty string (unsupported): " .. pattern
+    return nil, "pattern matches the empty string unsupported: " .. pattern
   end
   return regex
 end
@@ -205,14 +205,14 @@ local function find(text: string, pattern: string, flags?: integer): Span | nil,
   if not regex then
     return nil, cerr
   end
-  local m, caps = (regex as Regex):search(text) -- cast: record union after guard
+  local m, caps = regex:search(text)
   if not m then
     if caps then
       return nil, tostring(caps)
     end
     return nil
   end
-  local start = locate(regex as Regex, text, 1, m) -- cast: record union after guard
+  local start = locate(regex, text, 1, m)
   if not start then
     return nil, "failed to locate match position for: " .. m
   end
@@ -238,7 +238,7 @@ local function find_all(text: string, pattern: string, flags?: integer): {Span} 
   if not regex then
     return nil, cerr
   end
-  return all_matches(regex as Regex, text) -- cast: record union after guard
+  return all_matches(regex, text)
 end
 
 --- Iterate every non-overlapping match, like string.gmatch: each step
@@ -259,7 +259,7 @@ local function gmatch(text: string, pattern: string, flags?: integer): MatchIter
   local i = 0
   local iter: MatchIterator = function(): string, {string}
     i = i + 1
-    local sp = (spans as {Span})[i] -- cast: record union after guard
+    local sp = (spans)[i]
     if not sp then
       return nil
     end
@@ -290,7 +290,7 @@ local function split(text: string, pattern: string, flags?: integer): {string} |
   end
   local out: {string} = {}
   local pos = 1
-  for _, sp in ipairs(spans as {Span}) do -- cast: record union after guard
+  for _, sp in ipairs(spans) do
     out[#out + 1] = text:sub(pos, sp.s - 1)
     pos = sp.e + 1
   end
@@ -324,7 +324,7 @@ local function gsub(text: string, pattern: string, repl: Repl, flags?: integer):
   end
   local out: {string} = {}
   local pos = 1
-  for _, sp in ipairs(spans as {Span}) do -- cast: record union after guard
+  for _, sp in ipairs(spans) do
     out[#out + 1] = text:sub(pos, sp.s - 1)
     if repl is string then
       out[#out + 1] = repl

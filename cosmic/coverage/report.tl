@@ -359,8 +359,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
     if not hits then
       io.stderr:write("coverage: " .. path .. ": " .. (err or "unreadable") .. "\n")
     else
-      -- cast: record union after guard
-      for src, lines in pairs(hits as {string: {integer: integer}}) do
+      for src, lines in pairs(hits) do
         local display, parse = normalize(src, cwd)
         if display then
           merge_hits(entries, display, parse, lines)
@@ -398,7 +397,7 @@ local function report(paths: {string}): integer
     io.stderr:write((err or "coverage: no data") .. "\n")
     return 1
   end
-  io.write(render(reports as {FileReport}) .. "\n") -- cast: record union after guard
+  io.write(render(reports) .. "\n")
   return 0
 end
 

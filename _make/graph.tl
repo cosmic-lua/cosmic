@@ -222,8 +222,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       if not extra then
         return nil, "make: " .. (rerr or "bad reads declaration")
       end
-      -- cast: narrowing does not survive the early-exit guard above
-      for _, r in ipairs(extra as {string}) do
+      for _, r in ipairs(extra) do
         built[#built + 1] = r
       end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
@@ -279,7 +278,7 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   local mk, mkerr = project_mk(proj, cosmic)
   if not mk then return nil, mkerr end
   ok, err = write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
-    mk as string) -- cast: scalar narrowing after the guard
+    mk)
   if not ok then
     return nil, err
   end
@@ -427,11 +426,11 @@ local function run(proj: Project, target: string, overrides: {string},
   -- import closure, with the one fact a reader wants buried mid-line.
   -- The driver prints `<verb> <what it writes>` instead.
   local argv: {string} = {
-    mk as string, -- cast: scalar narrowing after the guard
+    mk,
     "--no-builtin-rules",
     "--no-builtin-variables",
     "-s",
-    "-f", rules as string, -- cast: scalar narrowing after the guard
+    "-f", rules,
     jobs_flag(),
   }
   for _, o in ipairs(overrides or {}) do
@@ -455,11 +454,10 @@ local function run(proj: Project, target: string, overrides: {string},
       env = clean_env(),
     })
   if not (h is child.Handle) then
-    return 1, "make: cannot start " .. (mk as string) .. ": " .. -- cast: scalar narrowing after the guard
+    return 1, "make: cannot start " .. (mk) .. ": " ..
     (serr or "unknown error")
   end
-  -- cast: Teal's narrowing does not survive the early-exit guard above
-  local res, werr = (h as child.Handle):wait()
+  local res, werr = h:wait()
   if not (res is child.Result) then
     return 1, "make: " .. (werr or "unknown error")
   end

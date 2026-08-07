@@ -244,7 +244,7 @@ local function pump(a: integer, b: integer)
       -- only a non-EINTR error tears down the tunnel.
       if not errno.is(peno, "EINTR") then return end
     else
-      for fd, ev in pairs(ready as {integer: integer}) do -- cast: record union after guard
+      for fd, ev in pairs(ready) do
         local peer = (fd == a) and b or a
         local evi = ev
         local readable = (evi & (unix.POLLIN)) ~= 0

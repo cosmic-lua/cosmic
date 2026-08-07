@@ -84,7 +84,7 @@ local function products_present(archive: string): boolean
     return false
   end
   local dir = fs.dirname(archive)
-  for line in (listed as string):gmatch("([^\n]+)") do -- cast: scalar narrowing
+  for line in listed:gmatch("([^\n]+)") do
     if not fs.exists(fs.join(dir, line)) then
       return false
     end
@@ -141,13 +141,13 @@ local function unpacked(p: Pin, archive: string): boolean, string
     return false, err
   end
   local wok, werr = fs.write(manifest_of(archive),
-    table.concat(produced as {string}, "\n") .. "\n") -- cast: record union after the guard
+    table.concat(produced, "\n") .. "\n")
   if not wok then
     return false, "make: cannot write " .. manifest_of(archive) .. ": " ..
     (werr or "unknown error")
   end
   if edits then
-    return patch.apply(fs.dirname(archive), edits as {Edit}) -- cast: record union after guard
+    return patch.apply(fs.dirname(archive), edits)
   end
   return true
 end
@@ -178,7 +178,7 @@ local function satisfied(p: Pin): boolean
   if perr then
     return false
   end
-  if edits and not patch.applied(fs.dirname(out), edits as {Edit}) then -- cast: record union after guard
+  if edits and not patch.applied(fs.dirname(out), edits) then
     return false
   end
   return true
@@ -262,7 +262,7 @@ local function repair(proj: Project): boolean, string
       if not p then
         return false, err or ("make: " .. f.path .. ": not a pin")
       end
-      local rp = p as Pin -- cast: record union after the guard
+      local rp = p
       if not satisfied(rp) then
         local out = landing(rp)
         local have = fs.read(out)
@@ -294,7 +294,7 @@ local function resolve(files: {File}): {Pin} | nil, string
     if not p then
       return nil, err or ("make: " .. f.path .. ": not a pin")
     end
-    pins[#pins + 1] = p as Pin -- cast: record union after the guard
+    pins[#pins + 1] = p
   end
   return pins
 end
@@ -323,7 +323,7 @@ local function run(proj: Project, paths: {string}): integer
     io.stderr:write((serr or "make: no such selection") .. "\n")
     return records.verdict("fetch", false, "bad selection")
   end
-  local files = picked as {File} -- cast: record union after the guard
+  local files = picked
 
   local pins, rerr = resolve(files)
   if not pins then
@@ -333,14 +333,14 @@ local function run(proj: Project, paths: {string}): integer
 
   use_system_certs()
   local failed = 0
-  for _, p in ipairs(pins as {Pin}) do -- cast: record union after the guard
+  for _, p in ipairs(pins) do
     local ok, err = one(p)
     if not ok then
       io.stderr:write((err or "make: fetch failed") .. "\n")
       failed = failed + 1
     end
   end
-  local n = #(pins as {Pin}) -- cast: record union after the guard
+  local n = #(pins)
   return records.verdict("fetch", failed == 0, records.detail(failed, n, "pin"))
 end
 

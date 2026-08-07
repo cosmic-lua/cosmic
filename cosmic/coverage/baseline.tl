@@ -186,8 +186,7 @@ local function check(baseline_path: string, paths: {string}): integer
     io.stderr:write("coverage ratchet: " .. (perr or "malformed baseline") .. "\n")
     return 1
   end
-  -- cast: record union after guard
-  local problems = compare(reports as {FileReport}, entries as {string: Entry}, total)
+  local problems = compare(reports, entries, total)
   if #problems > 0 then
     local names: {string} = {}
     for _, p in ipairs(problems) do
@@ -252,8 +251,7 @@ local function text_for(paths: {string},
     return nil, cerr or "coverage: no data"
   end
   local floor = previous and parse(previous)
-  -- cast: record union after guard
-  return render(reports as {FileReport}, floor)
+  return render(reports, floor)
 end
 
 --- Which rows a rewrite would LOWER, and by how much.
@@ -274,8 +272,8 @@ local function lowered(before: string, after: string): {string}
   if not old_rows or not new_rows then
     return {}
   end
-  local olds = old_rows as {string: Entry} -- cast: nil ruled out above
-  local news = new_rows as {string: Entry} -- cast: nil ruled out above
+  local olds = old_rows
+  local news = new_rows
   local paths: {string} = {}
   for path in pairs(olds) do
     paths[#paths + 1] = path

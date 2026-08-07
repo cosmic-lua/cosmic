@@ -141,7 +141,7 @@ local function scenarios(): {pt.Scenario}, string
           for f = 1, FILES_PER_DIR do
             local st, serr = fs.stat(fs.join(tmpdir, "dir-" .. d, "file-" .. f .. ".txt"))
             assert(st, serr)
-            local stt = st as fs.Stat -- cast: record union after guard
+            local stt = st
             size_total = size_total + stt:size()
           end
         end

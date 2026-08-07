@@ -36,8 +36,7 @@ local function test_dir_has_close_metamethod()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
-  -- cast: pin bootstrap (the pinned compiler that cold-builds this tree predates the narrowing patch)
-  local d = dir as fs_types.Dir
+  local d = dir
 
   -- Verify __close metamethod exists
   local mt = getmetatable(dir)
@@ -205,7 +204,7 @@ local function test_major_minor()
   -- Test with /dev/null which should have rdev set
   local st = fs.stat("/dev/null")
   if st then
-    local rdev = (st as fs_types.Stat):rdev() -- cast: record union after guard
+    local rdev = st:rdev()
     local maj = fs.major(rdev)
     local min = fs.minor(rdev)
     -- /dev/null is typically major 1, minor 3

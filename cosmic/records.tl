@@ -219,7 +219,7 @@ local function stage_detail(summary_path: string, total: integer,
   if text == nil then
     return detail(0, total, unit)
   end
-  local passed, failed, skipped = parse_counts(text as string) -- cast: nil ruled out
+  local passed, failed, skipped = parse_counts(text)
   if passed < 0 then
     return detail(0, total, unit)
   end

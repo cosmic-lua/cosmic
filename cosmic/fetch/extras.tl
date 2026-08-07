@@ -13,7 +13,7 @@ local fs = require("cosmic.fs")
 
 --- One part of a multipart/form-data request body.
 local record Part
-  --- Form field name (required).
+  --- Form field name required.
   name: string
   --- Field or file content (required; "" is a valid empty value).
   value: string
@@ -365,7 +365,7 @@ local function make(fetch_fn: function(string, any): any,
     if not handle then
       return fail_with("download: " .. tostring(oerr))
     end
-    local h = handle as fd.Handle -- cast: record union after guard
+    local h = handle
     while true do
       local chunk, rerr = res.reader:read()
       if rerr then
@@ -374,7 +374,7 @@ local function make(fetch_fn: function(string, any): any,
         return fail_with("download: " .. rerr)
       end
       if not chunk then break end
-      local c = chunk as string -- cast: method syntax defeats narrowing
+      local c = chunk
       local wok, werr = stream.write_all(h, c)
       if not wok then
         local _ok, _err = h:close()

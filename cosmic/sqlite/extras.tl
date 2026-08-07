@@ -46,7 +46,7 @@ local function attach(db_any: any)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local st = stmt as Stmt -- cast: record union after guard
+    local st = stmt
     local ok, bind_err = st:bind(...)
     if not ok then
       st:close()

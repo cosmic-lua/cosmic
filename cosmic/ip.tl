@@ -265,7 +265,7 @@ local function cidr(str: string): Cidr | nil, string
     return nil, "invalid CIDR prefix '" .. bp .. "' in: " .. str
   end
   local b = bits
-  local n = (base as Addr):int() & cidr_mask(b) -- cast: record union after guard
+  local n = base:int() & cidr_mask(b)
   return make_cidr(n, b)
 end
 

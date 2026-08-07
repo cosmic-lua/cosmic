@@ -76,7 +76,7 @@ local function begin_span(op: string, file: string): Span
   local ut_s, ut_ns = 0.0, 0.0
   local st_s, st_ns = 0.0, 0.0
   if ru then
-    local r = ru as unix.Rusage -- cast: record union after guard
+    local r = ru
     ut_s, ut_ns = r:utime()
     st_s, st_ns = r:stime()
   end
@@ -109,7 +109,7 @@ local function finish_span(span: Span, exit_code: integer): string | nil
   local st_s, st_ns = 0.0, 0.0
   local maxrss = 0
   if ru then
-    local r = ru as unix.Rusage -- cast: record union after guard
+    local r = ru
     ut_s, ut_ns = r:utime()
     st_s, st_ns = r:stime()
     maxrss = math.floor(r:maxrss()) as integer -- cast: number to integer

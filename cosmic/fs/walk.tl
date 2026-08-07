@@ -322,13 +322,10 @@ local function find_info(dir: string): {string: FileInfo} | nil, string
           -- S_ISDIR, preserving the same cycle prevention as above.
           local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
-            -- cast: record union after guard
-            if unix.S_ISDIR((st as unix.Stat):mode()) then
+            if unix.S_ISDIR(st:mode()) then
               do_walk(full_path, rel_path)
-              -- cast: record union after guard
-            elseif unix.S_ISREG((st as unix.Stat):mode()) then
-              -- cast: record union after guard
-              local mode = (st as unix.Stat):mode() & 0x1ff
+            elseif unix.S_ISREG(st:mode()) then
+              local mode = st:mode() & 0x1ff
               files[rel_path] = {mode = mode}
             end
           elseif not errbox[1] then
@@ -450,8 +447,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
           -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
           local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
-            -- cast: record union after guard
-            if unix.S_ISDIR((st as unix.Stat):mode()) then
+            if unix.S_ISDIR(st:mode()) then
               push_subdir(full_path)
             elseif string.match(entry, lua_pattern) then
               return full_path
@@ -474,7 +470,7 @@ local record FsWalkModule
   --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
   type WalkAction = WalkAction
 
-  --- Options for walk() (max_depth).
+  --- Options for walk() max_depth.
   type WalkOptions = WalkOptions
 
   --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.

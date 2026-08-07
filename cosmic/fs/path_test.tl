@@ -160,8 +160,7 @@ test_collect_with_glob()
 local function test_collect_glob_escapes_brackets()
   -- A glob's [ ] must be literal, not a Lua class: "*[1].lua" matches nothing.
   local walk_dir = setup_walk()
-  -- cast: or fallback does not narrow
-  local found = (fs.find(walk_dir, {glob = "*[1].lua"}) or {}) as {string}
+  local found = (fs.find(walk_dir, {glob = "*[1].lua"}) or {})
   assert(#found == 0, "expected brackets treated literally, got " .. #found)
   teardown(walk_dir)
 end
@@ -201,7 +200,7 @@ local function test_find_info()
   local walk_dir = setup_walk()
   local collected = fs.find_info(walk_dir)
   assert(collected, "find_info should succeed")
-  local found = collected as {string: fs_types.FileInfo} -- cast: record union after guard
+  local found = collected
 
   assert(found["file1.lua"] ~= nil, "expected file1.lua")
   assert(found["file2.txt"] ~= nil, "expected file2.txt")
@@ -244,8 +243,7 @@ test_files_iterator_all()
 local function test_walk_empty_directory()
   local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
   assert(fs.make_dirs(empty_dir))
-  -- cast: or fallback does not narrow
-  local found = (fs.find(empty_dir, {glob = "*.lua"}) or {}) as {string}
+  local found = (fs.find(empty_dir, {glob = "*.lua"}) or {})
   assert(#found == 0, "expected 0 files, got " .. #found)
   assert(fs.remove_all(empty_dir))
 end

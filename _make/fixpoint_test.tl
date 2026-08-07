@@ -45,7 +45,7 @@ local function copy(from: string, to: string)
   assert(fs.write(to, body))
   local st = fs.stat(from)
   if st then
-    assert(fs.chmod(to, (st as fs.Stat):mode() & tonumber("777", 8))) -- cast: record union after guard
+    assert(fs.chmod(to, st:mode() & tonumber("777", 8)))
   end
 end
 

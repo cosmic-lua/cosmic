@@ -463,7 +463,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     -- base's copy as well would ship two standard libraries, with the
     -- project's winning on package.path and the base's riding along.
     local staged_out = out .. ".new"
-    local result = embed.embed({dir as string}, -- cast: scalar narrowing after the guard
+    local result = embed.embed({dir},
       {output = staged_out, exe_path = pair[2], strip = true,
         provides = validate.claims(proj), mtime = embed.EPOCH})
     if not result.ok then

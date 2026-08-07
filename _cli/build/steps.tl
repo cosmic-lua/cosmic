@@ -92,7 +92,7 @@ local function do_assert_marker(args: {string}): integer
   local function scan(d: string): boolean
     local dir0 = fs.opendir(d)
     if not dir0 then return false end
-    local dh = dir0 as fs.Dir -- cast: record union after guard
+    local dh = dir0
     while true do
       local name = dh:read()
       if not name then break end
@@ -181,7 +181,7 @@ local function do_verdict(args: {string}): integer
     local summary = fs.read(fs.join(o_dir, s .. "-summary.txt"))
     if summary then
       io.write(summary)
-      local seen, bad = records.parse_counts(summary as string) -- cast: guarded
+      local seen, bad = records.parse_counts(summary)
       if seen >= 0 and bad > 0 then
         table.insert(failed, s)
       elseif not fs.stat(fs.join(o_dir, "ci-ok-" .. s)) then
@@ -211,8 +211,7 @@ local function do_copy(args: {string}): integer
   if not st then
     return fail("stat " .. src .. " failed")
   end
-  -- cast: record union after guard
-  local mode = (st as fs.Stat):mode() % 512 -- permission bits (0777)
+  local mode = st:mode() % 512 -- permission bits (0777)
   local _ok, _err = fs.make_dirs(fs.dirname(dst))
   local ok, werr = fs.write(dst, content, mode)
   if not ok then
@@ -294,8 +293,7 @@ local function do_exec(args: {string}): integer
   if not (h is child.Handle) then
     return fail("exec " .. program .. ": " .. (serr or "unknown error"))
   end
-  -- cast: Teal's narrowing does not survive the early-exit guard above
-  local res, werr = (h as child.Handle):wait()
+  local res, werr = h:wait()
   if not (res is child.Result) then
     return fail("exec " .. program .. ": " .. (werr or "unknown error"))
   end

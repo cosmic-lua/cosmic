@@ -98,7 +98,7 @@ local function proved_by_graph(proj: Project, f: File,
   if not out then
     return false
   end
-  local bsec, bnsec = (out as fs.Stat):mtim() -- cast: record union after guard
+  local bsec, bnsec = out:mtim()
   local inputs = deps.source_paths(deps.closure(proj, f, by_import))
   inputs[#inputs + 1] = f.path
   inputs[#inputs + 1] = stamp.path_of("compile")
@@ -108,7 +108,7 @@ local function proved_by_graph(proj: Project, f: File,
     if not st then
       return false
     end
-    local isec, insec = (st as fs.Stat):mtim() -- cast: record union after guard
+    local isec, insec = st:mtim()
     if isec > bsec or (isec == bsec and insec > bnsec) then
       return false
     end
@@ -181,7 +181,7 @@ local function run(proj: Project, paths: {string}): integer
     return records.verdict("check", false, "bad selection")
   end
 
-  local selected = files as {File} -- cast: record union after the guard
+  local selected = files
   -- The graph's half first: a file whose strict compile is up to date
   -- against the same inputs is already checked, so re-deriving the
   -- answer in process is pure duplication — measured at 2m40s of a

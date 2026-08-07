@@ -91,7 +91,7 @@ local function count_zip_files(exe_path: string): integer, string
   if not reader then
     return nil, "zip.open_bytes: " .. tostring(zerr)
   end
-  local rr = reader as czip.Archive -- cast: record union after guard
+  local rr = reader
   local count = 0
   for _, entry in ipairs(rr:list()) do
     if entry.name:sub(-1) ~= "/" then
