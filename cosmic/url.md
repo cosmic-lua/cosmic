@@ -44,16 +44,13 @@ local record UrlModule
   parse: function(url: string): Url | nil, string
   format: function(u: Url): string
   parse_query: function(query: string): {string: {string}}
-  format_query: function(params: {string: {string}}): string
+  format_query: function(params: {string: {string} | string}): string
   parse_host: function(hostport: string): HostPort | nil, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string
   escape_fragment: function(str: string): string
-  escape_literal: function(str: string): string
-  escape_user: function(str: string): string
-  escape_pass: function(str: string): string
-  escape_ip: function(str: string): string
+  format_host: function(hp: HostPort): string
 end
 ```
 
@@ -145,17 +142,20 @@ function parse_query(query: string): {string: {string}}
 ### format_query
 
 ```teal
-function format_query(params: {string: {string}}): string
+function format_query(params: {string: {string} | string}): string
 ```
 
  Format a query map back into a query string: the inverse of
  parse_query. Keys are sorted (deterministic output) and each of a
  key's values becomes its own k=v pair, in order; both halves are
- percent-encoded with the param rules (spaces become %20).
+ percent-encoded with the param rules (spaces become %20). A value
+ may be a plain string as well as a list — so a parsed query feeds
+ back in unchanged, and the common one-value-per-key map (e.g.
+ fetch's query option) needs no wrapping.
 
 **Parameters:**
 
-- `params` ({string:{string}}) - Keys, each with all its values in order
+- `params` ({string:{string}) - | string} Keys with one value or all values in order
 
 **Returns:**
 
@@ -286,66 +286,21 @@ function escape_fragment(str: string): string
 
 - string - The escaped fragment
 
-### escape_literal
+### format_host
 
 ```teal
-function escape_literal(str: string): string
+function format_host(hp: HostPort): string
 ```
 
- Escape a string for literal URL matching.
+ Format a HostPort back into a host:port string: the inverse of
+ parse_host. An IPv6 host (any host carrying a colon) is bracketed,
+ which is exactly the rule parse_host knows and callers were left to
+ rediscover; a nil port yields the bare host.
 
 **Parameters:**
 
-- `str` (string) - The string to escape
+- `hp` (HostPort) - The host (port optional)
 
 **Returns:**
 
-- string - The escaped string
-
-### escape_user
-
-```teal
-function escape_user(str: string): string
-```
-
- Escape a username for use in a URL.
-
-**Parameters:**
-
-- `str` (string) - The username to escape
-
-**Returns:**
-
-- string - The escaped username
-
-### escape_pass
-
-```teal
-function escape_pass(str: string): string
-```
-
- Escape a password for use in a URL.
-
-**Parameters:**
-
-- `str` (string) - The password to escape
-
-**Returns:**
-
-- string - The escaped password
-
-### escape_ip
-
-```teal
-function escape_ip(str: string): string
-```
-
- Escape an IP address for use in a URL.
-
-**Parameters:**
-
-- `str` (string) - The IP address to escape
-
-**Returns:**
-
-- string - The escaped IP address
+- string - The host:port string

@@ -50,7 +50,7 @@ High-level utilities and tools built on top of cosmo.
 | [shm](cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](cosmic/signal.md) |  Signal handling utilities. |
 | [init](cosmic/sqlite/init.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
-| [sse](cosmic/sse.md) |  Server-Sent Events parser for streaming HTTP responses. |
+| [sse](cosmic/sse.md) |  Server-Sent Events: parse a stream of them, format one for the wire. |
 | [stream](cosmic/stream.md) |  The stream contract: the byte-stream interfaces every producer and |
 | [string](cosmic/string.md) |  String utilities. |
 | [style](cosmic/style.md) |  The PURE style checks: file length and column width. |

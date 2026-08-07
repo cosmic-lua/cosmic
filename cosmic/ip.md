@@ -2,12 +2,14 @@
 
  IP address parsing, formatting, and classification utilities.
  The typed Addr is the only address currency in public signatures
- (api-review-2): parse and lookup return Addr, sockets accept
+ (api-review-2): parse and resolve return Addr, sockets accept
  and return Addr, and classification lives on Addr methods. The
  implementation is IPv4-only — IPv6 strings are rejected with an
  explicit error — but the shape is ready for IPv6 as a value
  extension: a later "inet6" family is a new Addr value, not a new
  API. Addr:int() exposes the raw v4 integer for the C boundary.
+ The format halves are method-form: Addr:format() and Cidr:format()
+ (or tostring()) invert parse and parse_cidr.
 
 ## Types
 
@@ -41,7 +43,7 @@ end
 ### Cidr
 
  A parsed IPv4 CIDR block (e.g. "10.0.0.0/8"). Compares by value
- and formats with tostring(). Construct with cidr().
+ and formats with tostring(). Construct with parse_cidr().
 
 ```teal
 local record Cidr
@@ -71,10 +73,10 @@ end
 
 ```teal
 local record IpModule
-  addr: function(n: integer): Addr
+  from_int: function(n: integer): Addr
   parse: function(str: string): Addr | nil, string
-  cidr: function(str: string): Cidr | nil, string
-  lookup: function(hostname: string): Addr | nil, string
+  parse_cidr: function(str: string): Cidr | nil, string
+  resolve: function(hostname: string): Addr | nil, string
 end
 ```
 
@@ -88,10 +90,10 @@ alias of `cosmo.IpCategory` — field and method table: `cosmic --docs cosmo.IpC
 
 ## Functions
 
-### addr
+### from_int
 
 ```teal
-function addr(n: integer): Addr
+function from_int(n: integer): Addr
 ```
 
  Wrap a raw integer as a typed Addr.
@@ -127,10 +129,10 @@ function parse(str: string): Addr | nil, string
 - Addr - | nil The typed IP address, or nil on error
 - string - Error message if parsing failed
 
-### lookup
+### resolve
 
 ```teal
-function lookup(hostname: string): Addr | nil, string
+function resolve(hostname: string): Addr | nil, string
 ```
 
  Look up a hostname and return a typed Addr.
@@ -145,17 +147,17 @@ function lookup(hostname: string): Addr | nil, string
 - Addr? - The resolved IP address, or nil on error
 - string? - Error message on failure
 
-### cidr
+### parse_cidr
 
 ```teal
-function cidr(str: string): Cidr | nil, string
+function parse_cidr(str: string): Cidr | nil, string
 ```
 
  Parse an IPv4 CIDR block ("addr/prefix", e.g. "192.168.0.0/16").
  The address part follows parse()'s strict dotted-quad rules; the
  prefix must be a decimal 0-32 without leading zeros. Host bits set
  below the prefix are masked away (like Go's ParseCIDR):
- cidr("10.1.2.3/8") is the 10.0.0.0/8 block.
+ parse_cidr("10.1.2.3/8") is the 10.0.0.0/8 block.
 
 **Parameters:**
 

@@ -180,7 +180,7 @@ alias of `cosmic.net.socket.Socket` — field and method table: `cosmic --docs c
 ### Address
 
  An address a helper accepts: a dotted-quad string ("127.0.0.1") or a
- typed ip.Addr. Wrap C-boundary integers with ip.addr().
+ typed ip.Addr. Wrap C-boundary integers with ip.from_int().
 
 alias of `cosmic.net.socket.Address` — field and method table: `cosmic --docs cosmic.net.socket.Address`
 
