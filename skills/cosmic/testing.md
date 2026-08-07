@@ -45,9 +45,9 @@ the preferred way to write assertions is with `cosmic.check`, which produces aut
 ```teal
 local check = require("cosmic.check")
 
-check.eq(result, "expected", "label") -- equality with diff on failure
-check.ne(result, nil, "should not be nil")
-check.ok(result > 0, "expected positive")
+check.equal(result, "expected", "label") -- equality with diff on failure
+check.not_equal(result, nil, "should not be nil")
+check.truthy(result > 0, "expected positive")
 ```
 
 plain `assert()` also works and is fine for simple checks:
@@ -142,8 +142,8 @@ local child = require("cosmic.child")
 
 local function test_cli_greets()
   local r = check.must(child.run({"o/bin/greet", "world"}))
-  check.ok(r.ok, "expected exit zero")
-  check.eq(r.stdout, "hello, world!\n", "stdout")
+  check.truthy(r.ok, "expected exit zero")
+  check.equal(r.stdout, "hello, world!\n", "stdout")
 end
 test_cli_greets()
 ```

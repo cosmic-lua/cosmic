@@ -23,12 +23,8 @@ local DEFAULT_MIN_SAMPLE_SECS = 0.15
 local MAX_ITERATIONS = 1000000000
 local ALLOC_PROBE_CAP = 1000
 
---- Current monotonic clock reading in nanoseconds.
---- @return number Monotonic nanoseconds
-local function monotonic_ns(): number
-  local secs, nanos = time.monotonic()
-  return secs * 1e9 + nanos
-end
+-- Monotonic nanoseconds; exact integer math via cosmic.time.
+local monotonic_ns = time.monotonic_ns
 
 --- Run fn n times, timing wall clock and CPU time.
 --- @param fn function The per-operation function

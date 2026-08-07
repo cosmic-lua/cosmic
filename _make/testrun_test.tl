@@ -73,7 +73,7 @@ local function test_unchanged_runner_keeps_its_mtime()
   local before = check.must(fs.stat(runner)):mtim()
   check.must(build_in(root))
   local after = check.must(fs.stat(runner)):mtim()
-  check.eq(after, before, "identical payload must not move the runner")
+  check.equal(after, before, "identical payload must not move the runner")
 end
 test_unchanged_runner_keeps_its_mtime()
 

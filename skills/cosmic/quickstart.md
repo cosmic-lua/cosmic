@@ -151,6 +151,6 @@ cosmic --make coverage --baseline    # writes .cosmic-coverage
   (json, sqlite, fs, net, child, ...); `cosmic --docs <module>` for any
   one of them, with runnable examples
 - `cosmic --docs guide.testing` — TEST_TMPDIR, the test sandbox,
-  `check.eq`/`check.must` assertion helpers
+  `check.equal`/`check.must` assertion helpers
 - `cosmic --docs guide.recipes` — worked end-to-end programs (a CLI
   skeleton, sqlite indexing, TCP echo)

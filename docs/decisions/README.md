@@ -34,3 +34,4 @@ than editing the record it replaces.
 | D20 | the naming charter: ten rules, and the renames that applied them | [→](d20-naming-charter.md) |
 | D21 | carried patches: the middle path between pin and fork | [→](d21-carried-tl-patch.md) |
 | D22 | the CSPRNG surface is infallible; a broken one crashes | [→](d22-infallible-csprng.md) |
+| D23 | cosmic.check throws by design; needs/reap may exit | [→](d23-check-throws.md) |

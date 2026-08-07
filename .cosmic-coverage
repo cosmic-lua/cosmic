@@ -54,7 +54,7 @@ _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
 _perf/bench/fs_bench.tl 97 106
 _perf/bench/fuzzy_bench.tl 0 19
-_perf/bench/http_bench.tl 91 125
+_perf/bench/http_bench.tl 83 114
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
 _perf/bench/re_bench.tl 0 47
@@ -64,7 +64,7 @@ _perf/bench/stream_bench.tl 0 80
 _perf/bench/time_bench.tl 0 14
 _perf/compare.tl 105 107
 _perf/gate.tl 95 115
-_perf/harness.tl 138 149
+_perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
@@ -80,17 +80,18 @@ _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 179
 cmd/cosmic/main.tl 0 276
+cosmic/_fields.tl 5 7
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
 cosmic/_teal_hints.tl 32 32
 cosmic/ansi.tl 86 86
-cosmic/benchmark.tl 146 173
+cosmic/benchmark.tl 145 172
 cosmic/check.tl 110 113
 cosmic/child/fast.tl 40 52
 cosmic/child/init.tl 0 212
-cosmic/child/io.tl 108 126
+cosmic/child/io.tl 106 124
 cosmic/codec.tl 49 55
 cosmic/compress.tl 19 21
 cosmic/coverage/baseline.tl 136 154
@@ -115,7 +116,6 @@ cosmic/envd.tl 95 101
 cosmic/errno.tl 17 26
 cosmic/example.tl 129 158
 cosmic/fd.tl 95 118
-cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
@@ -138,12 +138,12 @@ cosmic/getopt.tl 36 56
 cosmic/hash.tl 71 74
 cosmic/html.tl 19 19
 cosmic/init.tl 16 17
-cosmic/instrument.tl 69 74
+cosmic/instrument.tl 76 82
 cosmic/ip.tl 109 109
 cosmic/json.tl 23 24
 cosmic/landlock.tl 58 102
 cosmic/literal.tl 222 238
-cosmic/log.tl 72 74
+cosmic/log.tl 68 70
 cosmic/net/connect.tl 31 37
 cosmic/net/init.tl 0 120
 cosmic/net/socket.tl 228 256
@@ -198,4 +198,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14554 19175
+total 14504 19103

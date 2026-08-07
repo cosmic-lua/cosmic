@@ -304,6 +304,25 @@ print(f())
 end
 test_hint_excess_return_values()
 
+-- A multi-return call in the LAST argument slot spreads its declared
+-- tuple into the argument list, so the call site presents more
+-- arguments than any overload accepts (the check.must-as-last-argument
+-- trap). The hint names the parenthesize fix.
+local function test_hint_multi_return_spread_in_last_argument()
+  local msg, hint = first_hinted_error("h_spread.tl", [[
+local function pair(): string, string
+  return "a", "b"
+end
+local function one(x: string): string
+  return x
+end
+print(one(pair()))
+]])
+  assert(msg:find("wrong number of arguments", 1, true), "wrong error: " .. msg)
+  assert(hint:find("parenthesize", 1, true), "wrong hint: " .. hint)
+end
+test_hint_multi_return_spread_in_last_argument()
+
 local function test_hint_ipairs_on_any()
   local msg, hint = first_hinted_error("h_ipairs.tl", [[
 local function f(v: any)

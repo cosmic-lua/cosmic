@@ -1,10 +1,12 @@
---- Server-Sent Events parser for streaming HTTP responses.
---- Parses SSE format from any stream.Reader (a fetch.Reader, an fd
+--- Server-Sent Events: parse a stream of them, format one for the wire.
+--- parse() reads SSE from any stream.Reader (a fetch.Reader, an fd
 --- Handle wrapping a socket, a child's stdout) and yields complete
 --- events, following the WHATWG event stream processing model:
 --- unterminated events at EOF are discarded, empty-data dispatches
 --- reset the event type buffer, the last event ID updates as soon as
 --- an `id:` line is seen, and `retry:` accepts only ASCII digits.
+--- format() is the serializing half, so a cosmic program can serve SSE
+--- without hand-writing the wire framing.
 
 local stream = require("cosmic.stream")
 
@@ -13,24 +15,25 @@ local record Event
   data: string -- concatenated data: lines (required)
   event: string -- event type, defaults to "message"
   id: string -- last event ID
-  retry: number -- reconnection time in milliseconds
+  retry_ms: integer -- reconnection time in milliseconds
 end
 
 --- An open SSE event stream.
-local record Stream
-  --- Iterator over parsed events: yields Event values; on a mid-stream
-  --- transport failure yields nil plus the error message once, then
-  --- plain nil — so truncation is distinguishable from a graceful close.
-  --- Event is a record, so narrow each yield in a positive branch:
+local record EventStream
+  --- Next parsed event: an Event, or bare nil on a graceful close. On
+  --- a mid-stream transport failure it yields nil plus the error
+  --- message once, then plain nil — so truncation is distinguishable
+  --- from a graceful close. The positive branch narrows the yield
+  --- (a guard before a break does not):
   ---   while true do
-  ---     local ev = s.next()
-  ---     if ev is sse.Event then handle(ev) else break end
+  ---     local ev = s:next()
+  ---     if ev then handle(ev) else break end
   ---   end
-  next: function(): Event | nil, string
+  next: function(self: EventStream): Event | nil, string
   --- The last seen event ID (nil until an id: line is seen), for
   --- reconnecting with a Last-Event-ID request header. Updates as soon
   --- as an id: line is parsed, even when no event is dispatched.
-  last_event_id: function(): string | nil
+  last_event_id: function(self: EventStream): string | nil
 end
 
 --- Parse a single field line into name and value.
@@ -65,30 +68,22 @@ end
 local line_iter = stream.lines
 
 --- Parse SSE events from a streaming reader.
---- Returns a Stream whose next() yields Event values. Event is a
---- record, so `for ev in s.next do` leaves ev un-narrowed (`Event |
---- nil`) — iterate with a positive `is` branch instead:
----   while true do
----     local ev = s.next()
----     if ev is sse.Event then handle(ev) else break end
----   end
---- When the underlying reader fails mid-body (reset, truncation, TLS
---- error) next() yields nil plus the error message once, then nil — so
---- a truncated stream is distinguishable from a graceful close. A
+--- Returns an EventStream whose :next() yields Event values (see the
+--- record for the loop shape and the truncation-vs-close contract). A
 --- partially accumulated event at end-of-stream is discarded per the
---- SSE spec, not dispatched. stream.last_event_id() exposes the id for
+--- SSE spec, not dispatched. :last_event_id() exposes the id for
 --- reconnects.
 --- @param reader stream.Reader the reader to parse events from
---- @return Stream the open event stream
-local function events(reader: stream.Reader): Stream
+--- @return EventStream the open event stream
+local function parse(reader: stream.Reader): EventStream
   local current_data: {string} = {}
   local current_event: string = nil
-  local current_retry: number = nil
+  local current_retry_ms: integer = nil
   local last_id: string = nil
   local lines_iter = line_iter(reader)
   local done = false
 
-  local function next_event(): Event | nil, string
+  local function next_event(_self: EventStream): Event | nil, string
     if done then
       return nil
     end
@@ -119,16 +114,16 @@ local function events(reader: stream.Reader): Stream
           -- dispatch nothing. Otherwise a retry: from this discarded
           -- block would leak into the next dispatched event.
           current_event = nil
-          current_retry = nil
+          current_retry_ms = nil
         else
           local ev: Event = {
             data = data,
             event = current_event or "message",
             id = last_id,
-            retry = current_retry,
+            retry_ms = current_retry_ms,
           }
           current_event = nil
-          current_retry = nil
+          current_retry_ms = nil
           return ev
         end
       else
@@ -147,7 +142,7 @@ local function events(reader: stream.Reader): Stream
           elseif name == "retry" then
             -- digits-only per spec; anything else is ignored
             if value:match("^%d+$") then
-              current_retry = tonumber(value)
+              current_retry_ms = math.tointeger(tonumber(value))
             end
           end
           -- ignore unknown field names per spec
@@ -157,7 +152,7 @@ local function events(reader: stream.Reader): Stream
     end
   end
 
-  local function last_event_id(): string | nil
+  local function last_event_id(_self: EventStream): string | nil
     return last_id
   end
 
@@ -167,14 +162,52 @@ local function events(reader: stream.Reader): Stream
   }
 end
 
-local record sse
-  type Event = Event
-  type Stream = Stream
-  events: function(reader: stream.Reader): Stream
+--- Serialize one Event to its wire form: `event:`/`id:`/`retry:`
+--- fields when present, one `data:` line per newline-separated data
+--- segment, and the dispatching blank line. The inverse of parse for a
+--- dispatchable event (data ~= ""): parse(format(ev)) yields ev back.
+--- Infallible.
+--- @param ev Event the event to serialize
+--- @return string the wire bytes, terminator included
+local function format(ev: Event): string
+  local out: {string} = {}
+  if ev.event and ev.event ~= "message" then
+    out[#out + 1] = "event: " .. ev.event
+  end
+  if ev.id then
+    out[#out + 1] = "id: " .. ev.id
+  end
+  if ev.retry_ms then
+    out[#out + 1] = "retry: " .. tostring(ev.retry_ms)
+  end
+  -- One data: line per segment; a lone trailing newline in data would
+  -- otherwise be silently lost on the round trip.
+  local data = ev.data or ""
+  local pos = 1
+  while true do
+    local nl = data:find("\n", pos, true)
+    if nl then
+      out[#out + 1] = "data: " .. data:sub(pos, nl - 1)
+      pos = nl + 1
+    else
+      out[#out + 1] = "data: " .. data:sub(pos)
+      break
+    end
+  end
+  out[#out + 1] = "\n"
+  return table.concat(out, "\n")
 end
 
-local M: sse = {
-  events = events,
+local record SseModule
+  type Event = Event
+  type EventStream = EventStream
+  parse: function(reader: stream.Reader): EventStream
+  format: function(ev: Event): string
+end
+
+local M: SseModule = {
+  parse = parse,
+  format = format,
 }
 
 return M

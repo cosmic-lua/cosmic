@@ -14,7 +14,7 @@ local function Example_info()
   log.info("server started", {port = 8080, tls = false})
   log.set_output()
   -- Output:
-  -- INFO  server started port=8080 tls=false
+  -- INFO    server started port=8080 tls=false
 end
 
 -- Example_threshold demonstrates level filtering: debug lines are
@@ -31,17 +31,17 @@ local function Example_threshold()
   assert(log.set_level("info"))
   log.set_output()
   -- Output:
-  -- DEBUG cache miss key=user:42
+  -- DEBUG   cache miss key=user:42
 end
 
 -- Example_format demonstrates formatting a line without emitting it,
 -- for feeding cosmic.log's format into another sink.
 local function Example_format()
   local log = require("cosmic.log")
-  local line = log.format("warn", "disk almost full", {pct = 93})
+  local line = log.format("warning", "disk almost full", {pct = 93})
   print((line:gsub("^%S+ ", "")))
   -- Output:
-  -- WARN  disk almost full pct=93
+  -- WARNING disk almost full pct=93
 end
 
 -- Suppress unused warnings for examples
