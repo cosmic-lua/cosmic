@@ -8,12 +8,13 @@
 local lsqlite3 = require("cosmo.lsqlite3")
 
 --- One Params argument covers both binding styles: a non-empty array
---- part binds positionally to `?` placeholders, anything else binds
---- its keys to `:name` placeholders. An empty table binds nothing
---- (unbound placeholders are SQL NULL). The two styles do not mix in
---- one call — a table with both an array part and string keys binds
---- positionally.
-local type Params = {any} | {string: any}
+--- part (`{v1, v2}`) binds positionally to `?` placeholders, anything
+--- else (`{name = v}`) binds its keys to `:name` placeholders. An
+--- empty table binds nothing (unbound placeholders are SQL NULL). The
+--- two styles do not mix in one call — a table with both an array
+--- part and string keys binds positionally. Typed `table` because
+--- Teal cannot union two table types; the shape rule is this doc.
+local type Params = table
 
 --- Marker wrapper produced by `cosmic.sqlite.blob()`. Bind loops detect it
 --- by metatable identity and bind `data` via `bind_blob` instead of `bind`.
@@ -104,11 +105,11 @@ end
 --- @param params Params The parameter table
 --- @return number The first failing bind's result code, or ok_code
 local function bind_params(raw_stmt: lsqlite3.Statement, ok_code: number, params: Params): number
-  local list = params as {any} -- cast: array-part probe of the Params union
+  local list = params as {any} -- cast: array-part probe of the params table
   if #list > 0 then
     return bind_list(raw_stmt, ok_code, list)
   end
-  local named = params as {string: any} -- cast: map view of the Params union
+  local named = params as {string: any} -- cast: map view of the params table
   if next(named) ~= nil then
     return bind_named(raw_stmt, ok_code, named)
   end

@@ -129,7 +129,7 @@ local function test_query_list_params()
 
   local values = {"x"}
   local rows = {}
-  for row in check.must(db:query("SELECT * FROM t WHERE a = ?", {values})) do
+  for row in check.must(db:query("SELECT * FROM t WHERE a = ?", values)) do
     table.insert(rows, row)
   end
   assert(#rows == 1, "should get 1 row")

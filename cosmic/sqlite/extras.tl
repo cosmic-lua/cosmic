@@ -42,11 +42,11 @@ end
 --- @return boolean Whether every bind succeeded
 --- @return string Error message on a failed bind
 local function bind_dispatch(st: Stmt, params: bind_mod.Params): boolean, string
-  local list = params as {any} -- cast: array-part probe of the Params union
+  local list = params as {any} -- cast: array-part probe of the params table
   if #list > 0 then
     return st:bind_list(list)
   end
-  local named = params as {string: any} -- cast: map view of the Params union
+  local named = params as {string: any} -- cast: map view of the params table
   if next(named) ~= nil then
     return st:bind_named(named)
   end
