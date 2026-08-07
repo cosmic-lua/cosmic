@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 --- Lifecycle tests for cosmic.sqlite: close ordering, the Statement
---- garbage-collection backstop, Values early close, and the
+--- garbage-collection backstop, Rows early close, and the
 --- multi-statement rejection on parameterized paths.
 local sqlite = require("cosmic.sqlite")
 local check = require("cosmic.check")
@@ -22,7 +22,7 @@ local function test_close_with_live_statement()
   local db = open_db()
   local stmt = check.must(db:prepare("SELECT name FROM t"))
   assert(db:close(), "close finalizes live statements and succeeds")
-  stmt:close()
+  assert(stmt:close())
   assert(db:close(), "close stays idempotent after success")
 end
 test_close_with_live_statement()
@@ -43,37 +43,38 @@ local function test_statement_gc_backstop()
 end
 test_statement_gc_backstop()
 
--- Values:close ends iteration early (and <close> drives it); it must
--- not finalize the owning Statement, which stays reusable.
-local function test_values_close_ends_iteration()
+-- Rows:close ends iteration early (and <close> drives it); through
+-- Statement:rows() it must not finalize the owning Statement, which
+-- stays reusable.
+local function test_rows_close_ends_iteration()
   local db = open_db()
   local stmt = check.must(db:prepare("SELECT id, name FROM t ORDER BY id"))
   assert(stmt:bind())
   do
-    local vals < close > = stmt:values()
-    local id, name = vals()
-    check.eq(id, 1)
-    check.eq(name, "alice")
-    vals:close()
-    local after = vals()
-    check.eq(after, nil, "a closed Values yields nothing")
-    check.eq(vals:err(), nil, "close is not an error")
+    local rows < close > = stmt:rows()
+    local row = rows()
+    check.eq(row.id, 1)
+    check.eq(row.name, "alice")
+    assert(rows:close())
+    local after = rows()
+    check.eq(after, nil, "a closed Rows yields nothing")
+    check.eq(rows:err(), nil, "close is not an error")
   end
-  -- The Statement survives its Values: rebind and drain it fully.
+  -- The Statement survives its Rows: rebind and drain it fully.
   assert(stmt:bind())
-  local vals2 = stmt:values()
+  local vals2 = stmt:rows()
   local n = 0
   while true do
     local id = vals2()
     if id == nil then break end
     n = n + 1
   end
-  check.eq(n, 2, "statement must be reusable after Values:close")
+  check.eq(n, 2, "statement must be reusable after Rows:close")
   check.eq(vals2:err(), nil)
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
-test_values_close_ends_iteration()
+test_rows_close_ends_iteration()
 
 -- Parameterized exec/query of multi-statement SQL is rejected loudly:
 -- sqlite compiles only the first statement, so the old behavior ran a

@@ -12,7 +12,7 @@ local record Rows
   metamethod __call: function(self: Rows): {string: any}
   metamethod __close: function(self: Rows)
   err: function(self: Rows): string | nil
-  close: function(self: Rows)
+  close: function(self: Rows): boolean, string
 end
 
 -- Same rejection as cosmic.sqlite.stmt_cache: prepare compiles only the
@@ -28,7 +28,7 @@ local record Stmt
   bind_named: function(self: Stmt, params: {string: any}): boolean, string
   exec: function(self: Stmt): boolean, string
   rows: function(self: Stmt): Rows
-  close: function(self: Stmt)
+  close: function(self: Stmt): boolean, string
 end
 
 local record Db
@@ -46,12 +46,14 @@ end
 local function make_query_iter(stmt: Stmt): Rows
   local raw_iter = stmt:rows()
   local done = false
-  local function release()
+  -- Reports the statement's finalize outcome (close() forwards it);
+  -- a repeat call is a clean true.
+  local function release(): boolean, string
     if done then
-      return
+      return true
     end
     done = true
-    stmt:close()
+    return stmt:close()
   end
   local iter = setmetatable({} as Rows, { -- cast: table seeded as record
       __call = function(_: Rows): {string: any}
@@ -60,21 +62,21 @@ local function make_query_iter(stmt: Stmt): Rows
         end
         local row = raw_iter()
         if row == nil then
-          release()
+          local _ok, _err = release()
           return nil
         end
         return row
       end,
       __close = function(_: Rows)
-        release()
+        local _ok, _err = release()
       end,
       __gc = function(_: Rows)
-        release()
+        local _ok, _err = release()
       end,
     })
   iter.err = function(_: Rows): string | nil return raw_iter:err() end
-  iter.close = function(_: Rows)
-    release()
+  iter.close = function(_: Rows): boolean, string
+    return release()
   end
   return iter
 end
@@ -100,12 +102,12 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return false, bind_err or "bind failed"
     end
 
     local exec_ok, exec_err = st:exec()
-    st:close()
+    local _cok, _cerr = st:close()
     return exec_ok, exec_err
   end
 
@@ -123,12 +125,12 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_named(params)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return false, bind_err or "bind failed"
     end
 
     local exec_ok, exec_err = st:exec()
-    st:close()
+    local _cok, _cerr = st:close()
     return exec_ok, exec_err
   end
 
@@ -147,7 +149,7 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 
@@ -168,7 +170,7 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_named(params)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 

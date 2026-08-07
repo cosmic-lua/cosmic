@@ -54,7 +54,7 @@ local function Example_prepared()
   stmt:reset()
   assert(stmt:bind("Bob"))
   assert(stmt:exec())
-  stmt:close()
+  assert(stmt:close())
 
   for row in check.must(db:query("SELECT * FROM users ORDER BY id")) do
     print(row.id, row.name)

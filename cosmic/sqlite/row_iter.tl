@@ -17,7 +17,7 @@ local record Rows
   metamethod __call: function(self: Rows): {string: any}
   metamethod __close: function(self: Rows)
   err: function(self: Rows): string | nil
-  close: function(self: Rows)
+  close: function(self: Rows): boolean, string
 end
 
 -- on_close mirrors stmt_cache:checkout — non-nil returns the shared cached
@@ -40,9 +40,11 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
 
   -- Release exactly once: return the shared cached slot, or finalize a
   -- throwaway. Reached from drain, from close/<close>, and from __gc.
-  local function release()
+  -- Reports a finalize failure (close() forwards it); a repeat call is
+  -- a clean true.
+  local function release(): boolean, string
     if done then
-      return
+      return true
     end
     done = true
     if on_close then
@@ -51,8 +53,12 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
       -- isopen guard: the binding finalizes statements when the
       -- database closes, and finalize on that dead vm throws — from
       -- __gc, no less. Never raise from a release path.
-      local _ = raw_stmt:finalize()
+      local rc = raw_stmt:finalize()
+      if rc ~= 0 then
+        return false, raw_db:errmsg()
+      end
     end
+    return true
   end
 
   local iter = setmetatable({} as Rows, { -- cast: table seeded as record
@@ -80,19 +86,19 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
         if rc ~= done_code then
           step_err = raw_db:errmsg()
         end
-        release()
+        local _ok, _err = release()
         return nil
       end,
       __close = function(_: Rows)
-        release()
+        local _ok, _err = release()
       end,
       __gc = function(_: Rows)
-        release()
+        local _ok, _err = release()
       end,
     })
   iter.err = function(_: Rows): string | nil return step_err end
-  iter.close = function(_: Rows)
-    release()
+  iter.close = function(_: Rows): boolean, string
+    return release()
   end
   return iter
 end
