@@ -71,6 +71,16 @@ local function monotonic_ms(): integer
   return secs * 1000 + math.floor(nanos / 1000000)
 end
 
+--- Get monotonic time in whole nanoseconds from an unspecified epoch.
+--- Use differences between two calls to measure elapsed time. The
+--- arithmetic is exact 64-bit integer math (no float rounding), which
+--- is what benchmark timing wants.
+--- @return integer Nanoseconds
+local function monotonic_ns(): integer
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return secs * 1000000000 + nanos
+end
+
 --- Sleep for the specified duration.
 --- Returns 0, 0 after an uninterrupted sleep. When a signal interrupts
 --- the sleep, returns the remaining seconds and nanoseconds plus an
@@ -400,6 +410,7 @@ local record TimeModule
   monotonic: function(): integer, integer
   now_ms: function(): integer
   monotonic_ms: function(): integer
+  monotonic_ns: function(): integer
   sleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string
   sleep_ms: function(ms: number): integer | nil, string
   gmtime: function(unixts: integer): DateTime
@@ -432,6 +443,7 @@ local M: TimeModule = {
   monotonic = monotonic,
   now_ms = now_ms,
   monotonic_ms = monotonic_ms,
+  monotonic_ns = monotonic_ns,
   sleep = sleep,
   sleep_ms = sleep_ms,
   gmtime = gmtime,

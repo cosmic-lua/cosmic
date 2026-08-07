@@ -71,6 +71,24 @@ local function hint_for_message(msg: string): string | nil
   if msg:find("excess return values") then
     return "  hint: capture multiple returns first: `local v, err = f(...)`"
   end
+  -- Pattern 3b: more arguments than any overload accepts. The usual
+  -- cause is a multi-return call (check.must, a fallible `f()` pair)
+  -- in the LAST argument slot spreading its declared tuple into the
+  -- list; parenthesizing truncates it to one value. Only fires when
+  -- `given` exceeds a closed arity — too FEW arguments is an ordinary
+  -- signature mismatch, and an open ("at least N") arity says nothing.
+  local given_str, expects = msg:match("wrong number of arguments %(given (%d+), expects ([^)]+)%)")
+  if given_str and not expects:find("at least", 1, true) then
+    local given = math.tointeger(tonumber(given_str))
+    local max_arity = 0
+    for n in expects:gmatch("%d+") do
+      local arity = math.tointeger(tonumber(n))
+      if arity and arity > max_arity then max_arity = arity end
+    end
+    if given and given > max_arity and max_arity > 0 then
+      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the value: `f(x, (check.must(g())))` — see `cosmic --docs guide.gotchas`"
+    end
+  end
   -- Pattern 4a: ipairs on a nil union or on any — different fixes: a
   -- `{T} | nil` needs narrowing, a plain `any` needs a cast.
   if msg:find("attempting ipairs on something that's not an array") then

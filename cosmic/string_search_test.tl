@@ -45,7 +45,9 @@ end
 test_count_plain_text()
 
 local function test_count_empty()
-  assert(str.count("hello", "") == 0, "expected 0 for empty substring")
+  -- the empty substring is contained everywhere: #s + 1 boundaries
+  assert(str.count("hello", "") == 6, "expected #s + 1 for empty substring")
+  assert(str.count("", "") == 1, "expected 1 for empty in empty")
   assert(str.count("", "a") == 0, "expected 0 for empty string")
 end
 test_count_empty()
@@ -81,7 +83,10 @@ end
 test_replace_multichar_and_growth()
 
 local function test_replace_empty_old()
-  assert(str.replace("abc", "", "x") == "abc", "expected empty old to be a no-op")
+  -- empty old inserts new at every boundary, like Python and Go
+  assert(str.replace("abc", "", "x") == "xaxbxcx", "expected insertion at boundaries")
+  assert(str.replace("", "", "x") == "x", "expected one insertion in empty string")
+  assert(str.replace("abc", "", "x", 2) == "xaxbc", "expected max to cap insertions")
 end
 test_replace_empty_old()
 

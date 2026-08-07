@@ -2,7 +2,7 @@
 --- Contains the Socket constructor and all Socket method implementations.
 --- Addresses are typed (api-review-2): methods accept a dotted-quad
 --- string or an ip.Addr, and return ip.Addr — bare integers are not part
---- of the public surface (wrap C-boundary integers with ip.addr()).
+--- of the public surface (wrap C-boundary integers with ip.from_int()).
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").wrap
 local errno_is = require("cosmic.errno").is
@@ -326,7 +326,7 @@ local function make_socket(fd: integer): Socket
       -- arrives in the second slot, where the sender ip would have been.
       return nil, errstr(sender, "recvfrom")
     end
-    return {data = data, addr = ip.addr(sender), port = port}
+    return {data = data, addr = ip.from_int(sender), port = port}
   end
 
   function sock:getsockname(): Endpoint | nil, string
@@ -337,7 +337,7 @@ local function make_socket(fd: integer): Socket
       -- arrives in the second slot, where the port would have been.
       return nil, errstr(port, "getsockname")
     end
-    return {addr = ip.addr(raw), port = port}
+    return {addr = ip.from_int(raw), port = port}
   end
 
   function sock:getpeername(): Endpoint | nil, string
@@ -348,7 +348,7 @@ local function make_socket(fd: integer): Socket
       -- arrives in the second slot, where the port would have been.
       return nil, errstr(port, "getpeername")
     end
-    return {addr = ip.addr(raw), port = port}
+    return {addr = ip.from_int(raw), port = port}
   end
 
   function sock:bind(addr?: Address, port?: integer): boolean, string

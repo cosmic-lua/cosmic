@@ -1,11 +1,13 @@
 --- IP address parsing, formatting, and classification utilities.
 --- The typed Addr is the only address currency in public signatures
---- (api-review-2): parse and lookup return Addr, sockets accept
+--- (api-review-2): parse and resolve return Addr, sockets accept
 --- and return Addr, and classification lives on Addr methods. The
 --- implementation is IPv4-only — IPv6 strings are rejected with an
 --- explicit error — but the shape is ready for IPv6 as a value
 --- extension: a later "inet6" family is a new Addr value, not a new
 --- API. Addr:int() exposes the raw v4 integer for the C boundary.
+--- The format halves are method-form: Addr:format() and Cidr:format()
+--- (or tostring()) invert parse and parse_cidr.
 local cosmo = require("cosmo")
 
 --- Category of an IPv4 address, as reported by categorize().
@@ -101,7 +103,7 @@ end
 --- hold an Addr.
 --- @param n integer The IP address as an integer
 --- @return Addr The typed IP address
-local function addr(n: integer): Addr
+local function from_int(n: integer): Addr
   return make_addr(n)
 end
 
@@ -143,7 +145,7 @@ end
 --- @param hostname string The hostname to look up
 --- @return Addr? The resolved IP address, or nil on error
 --- @return string? Error message on failure
-local function lookup(hostname: string): Addr | nil, string
+local function resolve(hostname: string): Addr | nil, string
   local raw, err = cosmo.ResolveIp(hostname)
   if not raw then
     return nil, "dns: lookup failed for " .. hostname .. ": " .. tostring(err)
@@ -152,7 +154,7 @@ local function lookup(hostname: string): Addr | nil, string
 end
 
 --- A parsed IPv4 CIDR block (e.g. "10.0.0.0/8"). Compares by value
---- and formats with tostring(). Construct with cidr().
+--- and formats with tostring(). Construct with parse_cidr().
 local record Cidr
   _n: integer
   _bits: integer
@@ -243,11 +245,11 @@ end
 --- The address part follows parse()'s strict dotted-quad rules; the
 --- prefix must be a decimal 0-32 without leading zeros. Host bits set
 --- below the prefix are masked away (like Go's ParseCIDR):
---- cidr("10.1.2.3/8") is the 10.0.0.0/8 block.
+--- parse_cidr("10.1.2.3/8") is the 10.0.0.0/8 block.
 --- @param str string The CIDR string to parse
 --- @return Cidr | nil The parsed block, or nil on error
 --- @return string Error message if parsing failed
-local function cidr(str: string): Cidr | nil, string
+local function parse_cidr(str: string): Cidr | nil, string
   local addr_part, bits_part = str:match("^([^/]*)/(%d+)$")
   if not addr_part then
     return nil, "invalid CIDR (want addr/prefix): " .. str
@@ -274,17 +276,17 @@ local record IpModule
   type Category = Category
   type Family = Family
   type Cidr = Cidr
-  addr: function(n: integer): Addr
+  from_int: function(n: integer): Addr
   parse: function(str: string): Addr | nil, string
-  cidr: function(str: string): Cidr | nil, string
-  lookup: function(hostname: string): Addr | nil, string
+  parse_cidr: function(str: string): Cidr | nil, string
+  resolve: function(hostname: string): Addr | nil, string
 end
 
 local M: IpModule = {
-  addr = addr,
+  from_int = from_int,
   parse = parse,
-  cidr = cidr,
-  lookup = lookup,
+  parse_cidr = parse_cidr,
+  resolve = resolve,
 }
 
 return M

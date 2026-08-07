@@ -15,7 +15,7 @@ local errstr = require("cosmic.errno").wrap
 local type Socket = net_socket.Socket
 
 --- An address a helper accepts: a dotted-quad string ("127.0.0.1") or a
---- typed ip.Addr. Wrap C-boundary integers with ip.addr().
+--- typed ip.Addr. Wrap C-boundary integers with ip.from_int().
 local type Address = net_socket.Address
 
 local make_socket = net_socket.make_socket
@@ -181,7 +181,7 @@ local function dial(host: string, port: integer, opts?: ConnectOptions): Socket 
   if parsed then
     a = parsed
   else
-    local looked, lerr = ip.lookup(host)
+    local looked, lerr = ip.resolve(host)
     if not looked then
       return nil, "dial " .. host .. ": " .. tostring(lerr)
     end
@@ -293,7 +293,7 @@ local function interfaces(): {Interface} | nil, string
   for i, entry in ipairs(raw as {{string: any}}) do -- cast: from any
     list[i] = {
       name = entry["name"] as string, -- cast: from any
-      ip = ip.addr(entry["ip"] as integer), -- cast: from any
+      ip = ip.from_int(entry["ip"] as integer), -- cast: from any
     }
   end
   return list

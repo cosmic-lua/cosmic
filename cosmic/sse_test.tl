@@ -81,23 +81,24 @@ end
 --- Collect every event; return the events, the terminal error (if any),
 --- and the stream's final last_event_id.
 local function collect(content: string, fail_with?: string): {sse.Event}, string, string | nil
-  local stream = sse.events(mock_reader(content, fail_with))
+  local stream = sse.parse(mock_reader(content, fail_with))
   local events_list: {sse.Event} = {}
   local terminal_err: string
   while true do
-    local event, err = stream.next()
+    local event, err = stream:next()
     if not event then
       terminal_err = err
       break
     end
     table.insert(events_list, event)
   end
-  return events_list, terminal_err, stream.last_event_id()
+  return events_list, terminal_err, stream:last_event_id()
 end
 
 local function test_module_loads()
   assert(sse ~= nil, "sse module should not be nil")
-  assert(type(sse.events) == "function", "sse.events should be a function")
+  assert(type(sse.parse) == "function", "sse.parse should be a function")
+  assert(type(sse.format) == "function", "sse.format should be a function")
 end
 test_module_loads()
 
@@ -137,7 +138,7 @@ test_event_id()
 local function test_retry_field()
   local events_list = collect("retry: 5000\ndata: test\n\n")
   assert(#events_list == 1, "should have 1 event")
-  assert(events_list[1].retry == 5000, "retry should be 5000, got: " .. tostring(events_list[1].retry))
+  assert(events_list[1].retry_ms == 5000, "retry should be 5000, got: " .. tostring(events_list[1].retry_ms))
 end
 test_retry_field()
 
@@ -210,8 +211,8 @@ local function test_empty_data_dispatch_resets_retry()
   -- whole block, undispatched) must not leak into the next event
   local events_list = collect("retry: 5000\n\ndata: hi\n\n")
   assert(#events_list == 1, "should have 1 event")
-  assert(events_list[1].retry == nil,
-    "retry must reset on empty-data dispatch, got: " .. tostring(events_list[1].retry))
+  assert(events_list[1].retry_ms == nil,
+    "retry must reset on empty-data dispatch, got: " .. tostring(events_list[1].retry_ms))
 end
 test_empty_data_dispatch_resets_retry()
 
@@ -225,7 +226,7 @@ test_unknown_fields_ignored()
 local function test_invalid_retry_ignored()
   local events_list = collect("retry: not-a-number\ndata: test\n\n")
   assert(#events_list == 1, "should have 1 event")
-  assert(events_list[1].retry == nil, "invalid retry should be nil")
+  assert(events_list[1].retry_ms == nil, "invalid retry should be nil")
 end
 test_invalid_retry_ignored()
 
@@ -233,8 +234,8 @@ local function test_retry_digits_only()
   -- "3000ms" is not digits-only; tonumber-style prefixes must not pass
   local events_list = collect("retry: 3000ms\ndata: a\n\nretry: 0x10\ndata: b\n\n")
   assert(#events_list == 2, "should have 2 events")
-  assert(events_list[1].retry == nil, "'3000ms' must be ignored")
-  assert(events_list[2].retry == nil, "'0x10' must be ignored")
+  assert(events_list[1].retry_ms == nil, "'3000ms' must be ignored")
+  assert(events_list[2].retry_ms == nil, "'0x10' must be ignored")
 end
 test_retry_digits_only()
 
@@ -292,7 +293,7 @@ local function test_complete_event_with_all_fields()
   assert(#events_list == 1, "should have 1 event")
   assert(events_list[1].event == "update", "event type should be 'update'")
   assert(events_list[1].id == "42", "id should be '42'")
-  assert(events_list[1].retry == 3000, "retry should be 3000")
+  assert(events_list[1].retry_ms == 3000, "retry should be 3000")
   assert(events_list[1].data == "line 1\nline 2", "data should be multiline")
 end
 test_complete_event_with_all_fields()
@@ -329,26 +330,33 @@ end
 test_read_error_propagates()
 
 local function test_read_error_then_iterator_exhausted()
-  local stream = sse.events(mock_reader("data: one\n\n", "boom"))
-  local first = check.must(stream.next())
+  local stream = sse.parse(mock_reader("data: one\n\n", "boom"))
+  local first = check.must(stream:next())
   assert(first.data == "one", "first event expected")
-  local second, err = stream.next()
+  local second, err = stream:next()
   assert(second == nil and err == "boom", "error must be yielded once")
-  local third, err3 = stream.next()
+  local third, err3 = stream:next()
   assert(third == nil and err3 == nil, "after the error the iterator returns plain nil")
 end
 test_read_error_then_iterator_exhausted()
 
-local function test_stream_iterates_with_for_in()
-  local stream = sse.events(mock_reader("data: a\n\ndata: b\n\n"))
+local function test_stream_loops_with_positive_branch()
+  -- The documented loop shape: the POSITIVE branch narrows the yield
+  -- past nil (a guard before a break does not survive the flow join).
+  local stream = sse.parse(mock_reader("data: a\n\ndata: b\n\n"))
   local seen: {string} = {}
-  for event in stream.next do
-    table.insert(seen, check.must(event).data)
+  while true do
+    local event = stream:next()
+    if event then
+      table.insert(seen, event.data)
+    else
+      break
+    end
   end
   assert(#seen == 2 and seen[1] == "a" and seen[2] == "b",
-    "stream.next must work for-in iterator")
+    "the positive-branch loop must see both events")
 end
-test_stream_iterates_with_for_in()
+test_stream_loops_with_positive_branch()
 
 local function test_error_discards_partial_event()
   -- data buffered before the failure belongs to an unterminated event;
@@ -372,15 +380,33 @@ local function test_events_from_socket_backed_reader()
   assert(a:send("data: from a socket\n\nevent: ping\ndata: second\n\n"))
   assert(a:close())
 
-  local stream_events = sse.events(fd.wrap(b.fd))
-  local ev1 = check.must(stream_events.next())
+  local stream_events = sse.parse(fd.wrap(b.fd))
+  local ev1 = check.must(stream_events:next())
   assert(ev1.data == "from a socket", "first event data: " .. tostring(ev1.data))
   assert(ev1.event == "message", "default event type")
-  local ev2 = check.must(stream_events.next())
+  local ev2 = check.must(stream_events:next())
   assert(ev2.data == "second", "second event data: " .. tostring(ev2.data))
   assert(ev2.event == "ping", "explicit event type")
-  local done, derr = stream_events.next()
+  local done, derr = stream_events:next()
   assert(done == nil and derr == nil, "clean close ends the stream")
   assert(b:close())
 end
 test_events_from_socket_backed_reader()
+
+-- format: the serializing half (D20 rule 6 — a pair ships both halves).
+local function test_format_roundtrip()
+  local ev: sse.Event = {data = "line1\nline2", event = "update", id = "7", retry_ms = 250}
+  local wire = sse.format(ev)
+  local back = check.must(sse.parse(mock_reader(wire)):next())
+  assert(back.data == ev.data, "data round-trips, got: " .. back.data)
+  assert(back.event == "update", "event type round-trips")
+  assert(back.id == "7", "id round-trips")
+  assert(back.retry_ms == 250, "retry_ms round-trips")
+end
+test_format_roundtrip()
+
+local function test_format_minimal_event()
+  local wire = sse.format({data = "hi"} as sse.Event) -- cast: partial literal
+  assert(wire == "data: hi\n\n", "minimal event is one data line + blank, got: " .. wire)
+end
+test_format_minimal_event()

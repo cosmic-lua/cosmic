@@ -2,7 +2,6 @@
 --- Intercepts module-not-found errors and suggests similar modules.
 
 local original_require = require
-local fuzzy = original_require("cosmic.fuzzy")
 
 --- Cached module mapping, built lazily on first use.
 local module_map: {string: string} = nil
@@ -105,6 +104,10 @@ local function find_similar(name: string, max_distance?: integer): {string}
   -- Compare against both the short name and the full qualified name.
   -- This catches typos in either the prefix (e.g. "cosm.json") or the
   -- suffix (e.g. "cosmic.jsn" -> "cosmic.json", distance 1).
+  -- cosmic.fuzzy is required lazily, like cosmic.string above: this
+  -- only runs on the require-failure path, and a boot-time require
+  -- would put the module on every invocation's boot surface (#973).
+  local fuzzy = original_require("cosmic.fuzzy")
   for _, pair in ipairs(candidates) do
     local full = pair[1]
     local short = pair[2]

@@ -3,11 +3,11 @@
 --- helpers to strip styling and to decide whether a stream should be
 --- colored at all. All styling functions are pure and infallible:
 --- they return the wrapped string and never inspect the terminal —
---- gate output with enabled() at the call site.
+--- gate output with is_enabled() at the call site.
 ---
 --- Example usage:
 ---   local ansi = require("cosmic.ansi")
----   if ansi.enabled(1) then
+---   if ansi.is_enabled(1) then
 ---     print(ansi.bold(ansi.red("error:")) .. " something broke")
 ---   end
 ---
@@ -204,7 +204,7 @@ end
 --- a terminal.
 --- @param fd integer? File descriptor to check (default 1, stdout)
 --- @return boolean True when it is reasonable to emit styled output
-local function enabled(fd?: integer): boolean
+local function is_enabled(fd?: integer): boolean
   if env.get("NO_COLOR") ~= nil then
     return false
   end
@@ -236,7 +236,7 @@ local record AnsiModule
   underline: function(text: string): string
 
   strip: function(text: string): string
-  enabled: function(fd?: integer): boolean
+  is_enabled: function(fd?: integer): boolean
 end
 
 local M: AnsiModule = {
@@ -257,7 +257,7 @@ local M: AnsiModule = {
   underline = underline,
 
   strip = strip,
-  enabled = enabled,
+  is_enabled = is_enabled,
 }
 
 return M

@@ -53,12 +53,12 @@ local function test_rows_close_ends_iteration()
   do
     local rows < close > = stmt:rows()
     local row = rows()
-    check.eq(row.id, 1)
-    check.eq(row.name, "alice")
+    check.equal(row.id, 1)
+    check.equal(row.name, "alice")
     assert(rows:close())
     local after = rows()
-    check.eq(after, nil, "a closed Rows yields nothing")
-    check.eq(rows:err(), nil, "close is not an error")
+    check.equal(after, nil, "a closed Rows yields nothing")
+    check.equal(rows:err(), nil, "close is not an error")
   end
   -- The Statement survives its Rows: rebind and drain it fully.
   assert(stmt:bind())
@@ -69,8 +69,8 @@ local function test_rows_close_ends_iteration()
     if id == nil then break end
     n = n + 1
   end
-  check.eq(n, 2, "statement must be reusable after Rows:close")
-  check.eq(vals2:err(), nil)
+  check.equal(n, 2, "statement must be reusable after Rows:close")
+  check.equal(vals2:err(), nil)
   assert(stmt:close())
   assert(db:close())
 end
@@ -88,7 +88,7 @@ local function test_multi_statement_rejected_with_params()
   assert(not ok, "parameterized multi-statement exec must be rejected")
   assert(err and err:find("multi-statement", 1, true),
     "error must name the problem: " .. tostring(err))
-  check.eq(db:query_value("SELECT COUNT(*) FROM t"), 2,
+  check.equal(db:query_value("SELECT COUNT(*) FROM t"), 2,
     "nothing may have run")
 
   local ok2, err2 = db:exec(
@@ -127,7 +127,7 @@ local function test_multi_statement_scan_false_positives()
   assert(db:exec("INSERT INTO t (name) VALUES ('a; b')"),
     "semicolon inside a string literal is one statement")
   local v = db:query_value("SELECT name FROM t WHERE name = ?", {"a; b"})
-  check.eq(v, "a; b", "the literal value round-trips")
+  check.equal(v, "a; b", "the literal value round-trips")
   assert(db:exec("INSERT INTO t (name) VALUES ('it''s; fine')"),
     "doubled-quote escape does not end the literal")
 
@@ -140,7 +140,7 @@ local function test_multi_statement_scan_false_positives()
   assert(db:exec_script(
       "INSERT INTO t (name) VALUES ('m1'); INSERT INTO t (name) VALUES ('m2')"),
     "exec_script runs multi-statement sql")
-  check.eq(db:query_value("SELECT COUNT(*) FROM t WHERE name LIKE 'm_'"), 2)
+  check.equal(db:query_value("SELECT COUNT(*) FROM t WHERE name LIKE 'm_'"), 2)
 
   assert(db:close())
 end
@@ -155,14 +155,14 @@ local function test_transaction_callback_typed_rollback()
       return false
     end)
   assert(not ok, "returned false must roll back")
-  check.eq(db:query_value("SELECT COUNT(*) FROM t"), 2, "insert rolled back")
+  check.equal(db:query_value("SELECT COUNT(*) FROM t"), 2, "insert rolled back")
 
   local ok2, err2 = db:transaction(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('kept')"))
       return true
     end)
   assert(ok2, "returned true must commit: " .. tostring(err2))
-  check.eq(db:query_value("SELECT COUNT(*) FROM t"), 3, "insert committed")
+  check.equal(db:query_value("SELECT COUNT(*) FROM t"), 3, "insert committed")
   assert(db:close())
 end
 test_transaction_callback_typed_rollback()
