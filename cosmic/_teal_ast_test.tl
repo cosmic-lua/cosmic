@@ -44,11 +44,11 @@ test_artifact_cache_thaws()
 -- type error at the right place, identically to the parse path.
 local function test_new_env_checks_like_the_parse_path()
   local env = check.must(teal_ast.new_env({
-      feat_lax = "off",
-      feat_arity = "on",
-      gen_target = "5.4",
-      gen_compat = "off",
-    }))
+        feat_lax = "off",
+        feat_arity = "on",
+        gen_target = "5.4",
+        gen_compat = "off",
+      }))
   local code = "local s: string = string.rep(\"x\", \"not a number\")\n"
   local result = tl.process_string(code, false, env, "probe.tl")
   assert(#result.type_errors == 1,
