@@ -84,28 +84,28 @@ local function test_multi_statement_rejected_with_params()
 
   local ok, err = db:exec(
     "INSERT INTO t (name) VALUES (?); INSERT INTO t (name) VALUES ('x')",
-    "carol")
+    {"carol"})
   assert(not ok, "parameterized multi-statement exec must be rejected")
   assert(err and err:find("multi-statement", 1, true),
     "error must name the problem: " .. tostring(err))
   check.equal(db:query_value("SELECT COUNT(*) FROM t"), 2,
     "nothing may have run")
 
-  local ok2, err2 = db:exec_list(
+  local ok2, err2 = db:exec(
     "INSERT INTO t (name) VALUES (?); DELETE FROM t", {"carol"})
   assert(not ok2 and err2:find("multi-statement", 1, true),
-    "exec_list must reject: " .. tostring(err2))
+    "list params must reject: " .. tostring(err2))
 
-  local ok3, err3 = db:exec_named(
+  local ok3, err3 = db:exec(
     "INSERT INTO t (name) VALUES (:n); DELETE FROM t", {n = "carol"})
   assert(not ok3 and err3:find("multi-statement", 1, true),
-    "exec_named must reject: " .. tostring(err3))
+    "named params must reject: " .. tostring(err3))
 
   local rows, qerr = db:query("SELECT name FROM t; DELETE FROM t")
   assert(rows == nil and qerr and qerr:find("multi-statement", 1, true),
     "query must reject a silent second statement: " .. tostring(qerr))
 
-  local rows2, qerr2 = db:query_list("SELECT ?; DELETE FROM t", {1})
+  local rows2, qerr2 = db:query("SELECT ?; DELETE FROM t", {1})
   assert(rows2 == nil and qerr2 and qerr2:find("multi-statement", 1, true),
     "query_list must reject: " .. tostring(qerr2))
 
@@ -118,23 +118,28 @@ test_multi_statement_rejected_with_params()
 local function test_multi_statement_scan_false_positives()
   local db = open_db()
 
-  assert(db:exec("INSERT INTO t (name) VALUES (?);", "semi"),
+  assert(db:exec("INSERT INTO t (name) VALUES (?);", {"semi"}),
     "trailing semicolon is one statement")
-  assert(db:exec("INSERT INTO t (name) VALUES (?); -- note; really\n", "c1"),
+  assert(db:exec("INSERT INTO t (name) VALUES (?); -- note; really\n", {"c1"}),
     "trailing comment after ; is one statement")
-  assert(db:exec("INSERT INTO t (name) VALUES (?); /* a; b */", "c2"),
+  assert(db:exec("INSERT INTO t (name) VALUES (?); /* a; b */", {"c2"}),
     "trailing block comment after ; is one statement")
   assert(db:exec("INSERT INTO t (name) VALUES ('a; b')"),
     "semicolon inside a string literal is one statement")
-  local v = db:query_value("SELECT name FROM t WHERE name = ?", "a; b")
+  local v = db:query_value("SELECT name FROM t WHERE name = ?", {"a; b"})
   check.equal(v, "a; b", "the literal value round-trips")
   assert(db:exec("INSERT INTO t (name) VALUES ('it''s; fine')"),
     "doubled-quote escape does not end the literal")
 
-  -- The no-parameter exec form still runs multi-statement SQL.
-  assert(db:exec(
+  -- exec rejects multi-statement SQL even without parameters; the
+  -- script capability lives in exec_script alone.
+  local sok, serr = db:exec(
+    "INSERT INTO t (name) VALUES ('m1'); INSERT INTO t (name) VALUES ('m2')")
+  assert(not sok and serr:find("multi-statement", 1, true),
+    "parameterless exec must reject multi-statement sql: " .. tostring(serr))
+  assert(db:exec_script(
       "INSERT INTO t (name) VALUES ('m1'); INSERT INTO t (name) VALUES ('m2')"),
-    "no-parameter exec keeps multi-statement support")
+    "exec_script runs multi-statement sql")
   check.equal(db:query_value("SELECT COUNT(*) FROM t WHERE name LIKE 'm_'"), 2)
 
   assert(db:close())
@@ -145,7 +150,7 @@ test_multi_statement_scan_false_positives()
 -- protocol, so a typed boolean return needs no cast.
 local function test_transaction_callback_typed_rollback()
   local db = open_db()
-  local ok = db:transaction(function(d: sqlite.Database): boolean
+  local ok = db:transaction(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('doomed')"))
       return false
     end)

@@ -58,7 +58,7 @@ _perf/bench/http_bench.tl 87 138
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
 _perf/bench/re_bench.tl 0 47
-_perf/bench/sqlite_bench.tl 90 106
+_perf/bench/sqlite_bench.tl 90 124
 _perf/bench/startup_bench.tl 73 85
 _perf/bench/stream_bench.tl 0 80
 _perf/bench/time_bench.tl 0 14
@@ -173,12 +173,11 @@ cosmic/sandbox.tl 85 107
 cosmic/searcher.tl 20 29
 cosmic/shm.tl 127 141
 cosmic/signal.tl 101 109
-cosmic/sqlite/bind.tl 15 15
+cosmic/sqlite/bind.tl 41 44
 cosmic/sqlite/defaults.tl 15 17
-cosmic/sqlite/extras.tl 40 45
-cosmic/sqlite/init.tl 154 170
-cosmic/sqlite/params.tl 75 89
-cosmic/sqlite/row_iter.tl 52 60
+cosmic/sqlite/extras.tl 79 89
+cosmic/sqlite/init.tl 145 163
+cosmic/sqlite/row_iter.tl 51 59
 cosmic/sqlite/sqltext.tl 29 41
 cosmic/sqlite/stmt_cache.tl 57 67
 cosmic/sse.tl 98 103
@@ -199,4 +198,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14567 19190
+total 14543 19197
