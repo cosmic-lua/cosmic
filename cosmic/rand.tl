@@ -2,21 +2,29 @@
 --- Wraps cosmo.GetRandomBytes for cryptographically secure randomness, and
 --- cosmo.Rand64 for fast non-cryptographic use cases.
 ---
+--- Every function here is INFALLIBLE (D22): on every supported platform
+--- the kernel CSPRNG cannot fail once the system has booted, so there is
+--- no runtime failure for a return slot to carry. Out-of-range arguments
+--- are contract violations and throw — the one thing that must never
+--- happen is code limping on without entropy. Callers check nothing.
+---
 --- Example usage:
 ---   local rand = require("cosmic.rand")
----   local key, err = rand.bytes(32)     -- cryptographically secure
+---   local key = rand.bytes(32)          -- cryptographically secure
 ---   local roll = rand.int(1, 6)         -- crypto-grade, unbiased
----   local n = rand.insecure64()             -- fast pseudo-random (not secure)
+---   local n = rand.insecure64()         -- fast pseudo-random (not secure)
 local cosmo = require("cosmo")
 
 --- Generate cryptographically secure random bytes.
 --- @param n integer The number of random bytes to generate (1..4194304)
---- @return string | nil Random bytes, or nil on failure
---- @return string? Error message on failure
-local function bytes(n: integer): string | nil, string
+--- @return string n random bytes
+local function bytes(n: integer): string
   local data, err = cosmo.GetRandomBytes(n)
   if not data then
-    return nil, err or "GetRandomBytes failed"
+    -- A failing CSPRNG is unrecoverable and an error return invites
+    -- proceeding insecurely; the binding only fails on an out-of-range
+    -- n (a contract violation) or a genuinely broken host (D22).
+    error("rand.bytes: " .. (err or "GetRandomBytes failed"), 2)
   end
   return data
 end
@@ -34,19 +42,18 @@ end
 --- The range size (max - min + 1) must not exceed 2^53.
 --- @param min integer Lower bound (inclusive)
 --- @param max integer Upper bound (inclusive)
---- @return integer | nil The random integer, or nil on failure
---- @return string? Error message on failure
-local function int(min: integer, max: integer): integer | nil, string
+--- @return integer The random integer
+local function int(min: integer, max: integer): integer
   if math.type(min) ~= "integer" or math.type(max) ~= "integer" then
-    return nil, "rand.int: min and max must be integers"
+    error("rand.int: min and max must be integers", 2)
   end
   if min > max then
-    return nil, "rand.int: min must be <= max"
+    error("rand.int: min must be <= max", 2)
   end
   local range = max - min + 1
   -- range <= 0 means max - min overflowed the signed 64-bit space.
   if range <= 0 or range > (1 << 53) then
-    return nil, "rand.int: range too large (max 2^53)"
+    error("rand.int: range too large (max 2^53)", 2)
   end
   -- Smallest byte count whose value space covers the range.
   local nbytes = 1
@@ -60,10 +67,7 @@ local function int(min: integer, max: integer): integer | nil, string
   -- accepts with probability > 1/2, so the expected iteration count is < 2.
   local limit = space - (space % range)
   while true do
-    local data, err = bytes(nbytes)
-    if not data then
-      return nil, err
-    end
+    local data = bytes(nbytes)
     local v = 0
     for i = 1, nbytes do
       v = v * 256 + string.byte(data, i)
@@ -76,44 +80,29 @@ end
 
 --- Generate a cryptographically secure uniform float in [0, 1).
 --- Uses 53 random bits, so the result has full double precision.
---- @return number | nil The random float, or nil on failure
---- @return string? Error message on failure
-local function float(): number | nil, string
-  local v, err = int(0, (1 << 53) - 1)
-  if not v then
-    return nil, err
-  end
-  return v / (1 << 53)
+--- @return number The random float
+local function float(): number
+  return int(0, (1 << 53) - 1) / (1 << 53)
 end
 
 --- Pick one element of a list uniformly at random (crypto-grade).
 --- @param list {any} The list to pick from
---- @return any The chosen element, or nil on failure or empty list
---- @return string? Error message on failure or empty list
-local function choice(list: {any}): any, string
+--- @return any The chosen element; nil only when the list is empty
+local function choice(list: {any}): any
   if #list == 0 then
-    return nil, "rand.choice: empty list"
+    return nil
   end
-  local i, err = int(1, #list)
-  if not i then
-    return nil, err
-  end
-  return list[i]
+  return list[int(1, #list)]
 end
 
 --- Shuffle a list in place with an unbiased Fisher-Yates pass
 --- (crypto-grade). Returns the same list for call chaining.
 --- @param list {any} The list to shuffle (mutated in place)
---- @return {any} | nil The shuffled list, or nil on failure
---- @return string? Error message on failure
-local function shuffle(list: {any}): {any} | nil, string
+--- @return {any} The shuffled list
+local function shuffle(list: {any}): {any}
   for i = #list, 2, -1 do
-    local j, err = int(1, i)
-    if not j then
-      return nil, err
-    end
-    local jj = j
-    list[i], list[jj] = list[jj], list[i]
+    local j = int(1, i)
+    list[i], list[j] = list[j], list[i]
   end
   return list
 end
@@ -123,33 +112,28 @@ local TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123
 --- Generate a random alphanumeric token (crypto-grade, unbiased).
 --- Tokens are URL- and filename-safe. Each character carries ~5.95 bits
 --- of entropy, so the default 32 characters give ~190 bits.
---- @param len integer? Token length in characters (default 32)
---- @return string | nil The token, or nil on failure
---- @return string? Error message on failure
-local function token(len?: integer): string | nil, string
+--- @param len integer? Token length in characters (default 32, must be positive)
+--- @return string The token
+local function token(len?: integer): string
   len = len or 32
   if len < 1 then
-    return nil, "rand.token: len must be positive"
+    error("rand.token: len must be positive", 2)
   end
   local chars: {string} = {}
   for i = 1, len do
-    local j, err = int(1, #TOKEN_ALPHABET)
-    if not j then
-      return nil, err
-    end
-    local jj = j
-    chars[i] = TOKEN_ALPHABET:sub(jj, jj)
+    local j = int(1, #TOKEN_ALPHABET)
+    chars[i] = TOKEN_ALPHABET:sub(j, j)
   end
   return table.concat(chars)
 end
 
 local record RandModule
-  bytes: function(n: integer): string | nil, string
-  int: function(min: integer, max: integer): integer | nil, string
-  float: function(): number | nil, string
-  choice: function(list: {any}): any, string
-  shuffle: function(list: {any}): {any} | nil, string
-  token: function(len?: integer): string | nil, string
+  bytes: function(n: integer): string
+  int: function(min: integer, max: integer): integer
+  float: function(): number
+  choice: function(list: {any}): any
+  shuffle: function(list: {any}): {any}
+  token: function(len?: integer): string
   insecure64: function(): integer
 end
 
