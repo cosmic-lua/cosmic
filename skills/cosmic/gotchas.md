@@ -249,3 +249,20 @@ breaks on the first `%`. for literal text use `str.replace`
 local str = require("cosmic.string")
 local page = str.replace(template, "{{name}}", user_name)
 ```
+
+## 16. a multi-return call as the last argument spreads its whole tuple
+
+Lua spreads every return of a call in the LAST argument position into
+the argument list, and the checker counts the declared tuple — so
+`table.insert(parts, check.must(chunk))` presents three arguments
+(`check.must` declares three returns) and fails with `wrong number of
+arguments`. the error-site hint names the fix: parenthesize to
+truncate to one value.
+
+```teal
+table.insert(parts, (check.must(chunk)))
+```
+
+runtime behavior differs from the checker here (a plain `value, err`
+pair collapses to the value alone at runtime), which is why the site
+looks correct until `--check types` runs.

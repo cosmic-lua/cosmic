@@ -24,11 +24,11 @@ local function test_available_agrees_with_mechanisms()
   local avail = sandbox.available()
   assert(type(avail.fs) == "boolean", "available().fs should be boolean")
   assert(type(avail.sys) == "boolean", "available().sys should be boolean")
-  check.eq(avail.sys, pledge.available(), "sys must mirror pledge.available()")
+  check.equal(avail.sys, pledge.available(), "sys must mirror pledge.available()")
   if sys.host_os() == "linux" then
-    check.eq(avail.fs, landlock.available(), "fs must mirror landlock on Linux")
+    check.equal(avail.fs, landlock.available(), "fs must mirror landlock on Linux")
   else
-    check.eq(avail.fs, unveil.available(), "fs must mirror unveil off Linux")
+    check.equal(avail.fs, unveil.available(), "fs must mirror unveil off Linux")
   end
 end
 test_available_agrees_with_mechanisms()
@@ -127,7 +127,7 @@ local function test_fail_closed_when_unavailable()
     -- report SAYS so, instead of a bare success.
     local enforced = check.must(
       sandbox.apply({fs = {ro = {"/tmp"}}, best_effort = true}))
-    check.eq(enforced.fs, false, "the report must show fs was skipped")
+    check.equal(enforced.fs, false, "the report must show fs was skipped")
   end
   if not avail.sys then
     local ok, err = apply_any({sys = {promises = "stdio"}})
@@ -155,7 +155,7 @@ local function test_plan_landlock_mapping()
   local opts = plan_any({ro = {"/srv/uploads"}})
   local r = find_rule(opts.rules, "/srv/uploads")
   assert(r, "expected /srv/uploads rule")
-  check.eq(r.access, landlock.READ, "ro -> READ only")
+  check.equal(r.access, landlock.READ, "ro -> READ only")
   assert((r.access as integer & landlock.EXEC) == 0, -- cast: from any
     "ro must not grant EXEC")
 
@@ -163,34 +163,34 @@ local function test_plan_landlock_mapping()
   opts = plan_any({exec = {"/usr"}})
   r = find_rule(opts.rules, "/usr")
   assert(r, "expected /usr rule")
-  check.eq(r.access, landlock.READ | landlock.EXEC, "exec -> READ|EXEC")
+  check.equal(r.access, landlock.READ | landlock.EXEC, "exec -> READ|EXEC")
 
   opts = plan_any({rw = {"/tmp"}})
   r = find_rule(opts.rules, "/tmp")
   assert(r, "expected /tmp rule")
-  check.eq(r.access, landlock.RW, "rw -> RW (no exec)")
+  check.equal(r.access, landlock.RW, "rw -> RW (no exec)")
   assert((landlock.RW & landlock.EXEC) == 0, "RW must not include EXEC")
 
   -- A path in several groups gets the union of their masks.
   opts = plan_any({exec = {"/shared"}, rw = {"/shared"}})
   r = find_rule(opts.rules, "/shared")
   assert(r, "expected /shared rule")
-  check.eq(r.access, (landlock.READ | landlock.EXEC) | landlock.RW,
+  check.equal(r.access, (landlock.READ | landlock.EXEC) | landlock.RW,
     "overlapping groups OR their masks")
 
   -- Empty policy plans to zero rules (deny-all when applied), full
   -- handled mask, and no_new_privs so it works unprivileged.
   opts = plan_any(nil)
-  check.eq(#opts.rules, 0, "nil fs -> no rules")
-  check.eq(opts.handled, landlock.ALL, "handled is ALL")
-  check.eq(opts.no_new_privs, true, "no_new_privs defaults on")
+  check.equal(#opts.rules, 0, "nil fs -> no rules")
+  check.equal(opts.handled, landlock.ALL, "handled is ALL")
+  check.equal(opts.no_new_privs, true, "no_new_privs defaults on")
 
   -- Rule order follows declaration order.
   opts = plan_any({ro = {"/a", "/b", "/c"}})
   local rules = opts.rules
-  check.eq(rules[1].path, "/a")
-  check.eq(rules[2].path, "/b")
-  check.eq(rules[3].path, "/c")
+  check.equal(rules[1].path, "/a")
+  check.equal(rules[2].path, "/b")
+  check.equal(rules[3].path, "/c")
 end
 test_plan_landlock_mapping()
 
@@ -200,10 +200,10 @@ test_plan_landlock_mapping()
 -- type-check even though the runtime function accepted it.
 local function test_plan_landlock_keep_coverage_param()
   local opts_default = sandbox.plan_landlock({ro = {"/usr"}})
-  check.eq(opts_default.keep_coverage, false, "keep_coverage defaults false")
+  check.equal(opts_default.keep_coverage, false, "keep_coverage defaults false")
 
   local opts_kept = sandbox.plan_landlock({ro = {"/usr"}}, true)
-  check.eq(opts_kept.keep_coverage, true, "keep_coverage=true must reach RestrictOptions")
+  check.equal(opts_kept.keep_coverage, true, "keep_coverage=true must reach RestrictOptions")
 end
 test_plan_landlock_keep_coverage_param()
 

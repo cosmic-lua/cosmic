@@ -45,7 +45,7 @@ local function test_user_ns_agrees_with_scratch_probe()
   local c = quicksand.capabilities()
   assert(type(c.user_ns) == "boolean", "user_ns should be a boolean")
   if not c.linux then
-    check.eq(c.user_ns, false, "user_ns must be false off Linux")
+    check.equal(c.user_ns, false, "user_ns must be false off Linux")
   end
 end
 test_user_ns_agrees_with_scratch_probe()
@@ -81,12 +81,12 @@ end
 -- reports available, and the classification is fail-open. These cases
 -- fail if that regresses.
 local function test_probe_nil_binding_is_unavailable()
-  check.eq(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
+  check.equal(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
 end
 test_probe_nil_binding_is_unavailable()
 
 local function test_probe_success_is_available()
-  check.eq(quicksand.probe(function(): any return true end), true,
+  check.equal(quicksand.probe(function(): any return true end), true,
     "a successful no-op call means the syscall is wired up")
 end
 test_probe_success_is_available()
@@ -94,7 +94,7 @@ test_probe_success_is_available()
 local function test_probe_enosys_is_unavailable()
   local enosys = errno.code("ENOSYS")
   assert(enosys, "ENOSYS must be defined on this host")
-  check.eq(quicksand.probe(
+  check.equal(quicksand.probe(
       mk_fail("prctl: ENOSYS: Function not implemented", enosys)), false,
     "ENOSYS means the syscall is absent -> unavailable (the branch that was dead pre-fix)")
 end
@@ -103,7 +103,7 @@ test_probe_enosys_is_unavailable()
 local function test_probe_policy_error_is_available()
   local eperm = errno.code("EPERM")
   assert(eperm, "EPERM must be defined on this host")
-  check.eq(quicksand.probe(
+  check.equal(quicksand.probe(
       mk_fail("prctl: EPERM: Operation not permitted", eperm)), true,
     "a policy error (EPERM) still proves the syscall is wired up")
 end
@@ -113,7 +113,7 @@ local function test_probe_string_only_failure_is_available()
   -- A failure that carries no numeric errno (third slot nil) cannot be
   -- classified as ENOSYS; the error string alone must never match, so
   -- the probe reports the syscall wired up.
-  check.eq(quicksand.probe(function(): any, string, integer
+  check.equal(quicksand.probe(function(): any, string, integer
         return nil, "prctl: ENOSYS: Function not implemented", nil
       end), true,
     "an error string without a numeric errno is never classified as ENOSYS")
@@ -132,9 +132,9 @@ local function test_real_pledge_unveil_probe()
     check.enforce_skip("quicksand pledge/unveil probe: non-Linux host")
     return
   end
-  check.ok(c.pledge, "capabilities().pledge must be true on Linux (pledge via seccomp)")
+  check.truthy(c.pledge, "capabilities().pledge must be true on Linux (pledge via seccomp)")
   if c.landlock then
-    check.ok(c.unveil, "capabilities().unveil must be true on Linux with landlock")
+    check.truthy(c.unveil, "capabilities().unveil must be true on Linux with landlock")
   else
     check.enforce_skip("quicksand unveil probe: host kernel lacks landlock")
   end
@@ -170,7 +170,7 @@ local function test_unveil_matches_landlock_on_linux()
     check.enforce_skip("unveil/landlock equivalence: non-Linux host")
     return
   end
-  check.eq(c.unveil, c.landlock,
+  check.equal(c.unveil, c.landlock,
     "on Linux unveil is derived from landlock and must equal it")
 end
 test_unveil_matches_landlock_on_linux()

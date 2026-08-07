@@ -1,6 +1,10 @@
 --- Assertion helpers for tests with auto-formatted failure messages.
 --- Functions in this module throw on failure (level 2) so the error points
---- at the caller's line, not inside this module.
+--- at the caller's line, not inside this module. This is the one module
+--- exempt from the never-throw doctrine, and `needs`/`reap` may exit
+--- the process because the runner grades exit codes — the record is
+--- docs/decisions/d23-check-throws.md; no other cosmic.* module may
+--- throw or exit, so never require check from library code.
 local codec = require("cosmic.codec")
 local proc = require("cosmic.proc")
 local records = require("cosmic.records")
@@ -54,11 +58,11 @@ end
 --- @param actual T The value produced by the code under test
 --- @param expected T The value it should equal
 --- @param label string? Optional label prepended to the failure message
-local function eq<T>(actual: T, expected: T, label?: string)
+local function equal<T>(actual: T, expected: T, label?: string)
   if deep_equal(actual, expected) then
     return
   end
-  local msg = string.format("eq failed: expected %s, got %s",
+  local msg = string.format("equal failed: expected %s, got %s",
     render(expected), render(actual))
   if label then
     msg = label .. ": " .. msg
@@ -72,11 +76,11 @@ end
 --- @param actual T The value produced by the code under test
 --- @param expected T The value it should not equal
 --- @param label string? Optional label prepended to the failure message
-local function ne<T>(actual: T, expected: T, label?: string)
+local function not_equal<T>(actual: T, expected: T, label?: string)
   if not deep_equal(actual, expected) then
     return
   end
-  local msg = string.format("ne failed: expected values to differ, but both are %s",
+  local msg = string.format("not_equal failed: expected values to differ, but both are %s",
     render(actual))
   if label then
     msg = label .. ": " .. msg
@@ -88,30 +92,31 @@ end
 --- Throws with a formatted message when the assertion fails.
 --- @param value any The value to test for truthiness
 --- @param label string? Optional label prepended to the failure message
-local function ok(value: any, label?: string)
+local function truthy(value: any, label?: string)
   if value then
     return
   end
-  local msg = string.format("ok failed: expected truthy, got %s", render(value))
+  local msg = string.format("truthy failed: expected truthy, got %s", render(value))
   if label then
     msg = label .. ": " .. msg
   end
   error(msg, 2)
 end
 
---- Assert that a (value, err) pair represents failure (api-review-8:
---- was `err`, which read as a noun and shadowed every local error).
+--- Assert that a (value, err) pair represents failure (api-review-8
+--- renamed it from `err`, which read as a noun and shadowed every
+--- local error; #1000 spelled `fails` out to `failed`).
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
 --- @param value any The first return value (expected to be nil)
---- @param e string The second return value (expected to be a non-empty string)
+--- @param err string The second return value (expected to be a non-empty string)
 --- @param label string? Optional label prepended to the failure message
-local function fails(value: any, e: string, label?: string)
+local function failed(value: any, err: string, label?: string)
   local msg: string
   if value ~= nil then
-    msg = string.format("fails: expected nil value, got %s", render(value))
-  elseif not e or e == "" then
-    msg = "fails: expected non-empty error string, got " .. render(e)
+    msg = string.format("failed: expected nil value, got %s", render(value))
+  elseif not err or err == "" then
+    msg = "failed: expected non-empty error string, got " .. render(err)
   end
   if msg then
     if label then
@@ -134,21 +139,23 @@ end
 --- `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
 --- though, sees the declared three-value tuple: when must is the LAST
 --- argument to another call, parenthesize to truncate it —
---- `table.insert(parts, (check.must(chunk)))`.
---- @param v T? The fallible value (nil on failure)
---- @param e string? Failure message; a `nil, err` pair fills this in
+--- `table.insert(parts, (check.must(chunk)))`. The type checker's
+--- `wrong number of arguments` error at such a site carries this fix
+--- as a hint; `cosmic --docs guide.gotchas` has the entry.
+--- @param value T? The fallible value (nil on failure)
+--- @param err string? Failure message; a `nil, err` pair fills this in
 --- @param ... any Extra returns (iterator state, closing guard, ...)
 --- @return T The value, known non-nil
 --- @return string The second argument, forwarded when extras exist
 --- @return any... The extra returns, forwarded unchanged
-local function must<T>(v: T | nil, e?: string, ...: any): T, string, any ...
-  if v == nil then
-    error(e or "must failed: expected value, got nil", 2)
+local function must<T>(value: T | nil, err?: string, ...: any): T, string, any ...
+  if value == nil then
+    error(err or "must failed: expected value, got nil", 2)
   end
   if select("#", ...) == 0 then
-    return v
+    return value
   end
-  return v, e, ...
+  return value, err, ...
 end
 
 --- Report whether the enforcement lane is active.
@@ -278,11 +285,11 @@ end
 
 local record CheckModule
   EXIT_SKIP: integer
-  eq: function<T>(actual: T, expected: T, label?: string)
-  ne: function<T>(actual: T, expected: T, label?: string)
-  ok: function(value: any, label?: string)
-  must: function<T>(v: T | nil, e?: string, ...: any): T, string, any ...
-  fails: function(value: any, e: string, label?: string)
+  equal: function<T>(actual: T, expected: T, label?: string)
+  not_equal: function<T>(actual: T, expected: T, label?: string)
+  truthy: function(value: any, label?: string)
+  must: function<T>(value: T | nil, err?: string, ...: any): T, string, any ...
+  failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
   needs: function(what: string, present: boolean)
@@ -295,11 +302,11 @@ local M: CheckModule = {
   -- `cosmic.records`, beside the runner that grades it. Re-exported
   -- here so a test names the contract instead of writing `2`.
   EXIT_SKIP = records.EXIT_SKIP,
-  eq = eq,
-  ne = ne,
-  ok = ok,
+  equal = equal,
+  not_equal = not_equal,
+  truthy = truthy,
   must = must,
-  fails = fails,
+  failed = failed,
   enforcing = enforcing,
   enforce_skip = enforce_skip,
   needs = needs,
