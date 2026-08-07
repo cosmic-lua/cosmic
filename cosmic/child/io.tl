@@ -165,10 +165,9 @@ local function pump(state: PumpState, deadline_ms: number): boolean
   -- Read whatever is ready on fd into buf; on EOF, a read error, or a hangup
   -- with no pending data, drop it from the set and close/nil it in `state`.
   -- When both readable and hangup are set, data still remains, so read.
-  local function read_ready(fd: integer, buf: {string}, which: string)
-    local ev0 = p:events(fd)
-    if not ev0 then return end
-    local ev = ev0
+  local function read_ready(ready: {integer: poll.Events}, fd: integer, buf: {string}, which: string)
+    local ev = ready[fd]
+    if not ev then return end
     if ev.readable then
       local chunk, rerr, reno = unix.read(fd, CHUNK)
       if chunk == nil then
@@ -191,26 +190,25 @@ local function pump(state: PumpState, deadline_ms: number): boolean
   end
 
   while not p:is_empty() do
-    local timeout: integer = -1
+    local wait_ms: integer = nil
     if deadline_ms then
       local rem = deadline_ms - now_ms()
       if rem <= 0 then return true end
       -- poll wants an integer millisecond count; floor the remaining time
       -- (any sub-millisecond remainder is caught by the next deadline check).
-      timeout = math.floor(rem)
+      wait_ms = math.floor(rem)
     end
-    local ready, perr = p:poll(timeout)
+    local ready, perr = p:wait(wait_ms)
     if ready == nil then
       state.io_err = state.io_err or perr
       break
     end
-    if ready == 0 then
-      -- poll timed out with nothing ready: the deadline expired.
+    if next(ready) == nil then
+      -- wait timed out with nothing ready: the deadline expired.
       return true
     end
     if state.stdin_fd then
-      -- cast: record union, nil handled
-      local ev = p:events(state.stdin_fd) as {string: boolean}
+      local ev = ready[state.stdin_fd]
       if ev and ev.writable then
         local slice = state.stdin_data:sub(state.stdin_off + 1, state.stdin_off + CHUNK)
         local n, werr, weno = unix.write(state.stdin_fd, slice)
@@ -233,8 +231,8 @@ local function pump(state: PumpState, deadline_ms: number): boolean
         p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
       end
     end
-    if state.stdout_fd then read_ready(state.stdout_fd, state.out, "out") end
-    if state.stderr_fd then read_ready(state.stderr_fd, state.err_out, "err") end
+    if state.stdout_fd then read_ready(ready, state.stdout_fd, state.out, "out") end
+    if state.stderr_fd then read_ready(ready, state.stderr_fd, state.err_out, "err") end
   end
 
   return false

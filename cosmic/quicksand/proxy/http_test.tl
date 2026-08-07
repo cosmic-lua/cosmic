@@ -177,8 +177,8 @@ local function test_pump_relays_data_across_eintr()
 
   local pp = pollmod.new()
   assert(pp:add(u1.fd, pollmod.POLLIN))
-  local n = check.must(pp:poll(2000))
-  assert(n == 1, "pump should have relayed the payload across the EINTR")
+  local ready = check.must(pp:wait(2000))
+  assert(ready[u1.fd], "pump should have relayed the payload across the EINTR")
   local got = u1:recv(64)
   assert(got == payload, "expected relayed payload, got: " .. tostring(got))
 
