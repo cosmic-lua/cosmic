@@ -124,6 +124,20 @@ are function and table replacements — those forms do not interpolate.
 the marker is `-- gsub: <reason>`, trailing or on the line above, same
 positions as `-- cast:`.
 
+## nil-declaration
+
+a local initialized to `nil` with no type annotation is inferred as the
+type `nil` — not "unknown yet" — so every later assignment fails, far
+from the cause. the rule fires at the declaration, where the fix is:
+
+```teal
+local earliest = nil -- flagged: type nil forever
+local earliest: integer | nil = nil -- the honest optional
+```
+
+an all-nil multi declaration (`local a, b = nil, nil`) is flagged too;
+a mixed right-hand side is left to the checker's error-site hint.
+
 ## visibility
 
 a module under `cosmic/` may only be required from outside `cosmic/`
