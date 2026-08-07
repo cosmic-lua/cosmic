@@ -76,13 +76,13 @@ _types/gentype_parse.tl 255 288
 _types/gentype_render.tl 295 311
 _types/gentype_types.tl 2 2
 _types/tlast.tl 160 177
-_types/tlast_gen.tl 163 188
+_types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 179
 cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
-cosmic/_teal_ast.tl 30 30
+cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
 cosmic/_teal_hints.tl 32 32
 cosmic/ansi.tl 86 86
