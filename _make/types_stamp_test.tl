@@ -27,7 +27,7 @@ check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "typestamp-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
@@ -59,11 +59,11 @@ end
 --- One in-process `--make build` against root, restoring cwd after.
 local function build_in_process(root: string): integer
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
-  cenv.set("COSMIC_MAKE", make_bin)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
+  assert(cenv.set("COSMIC_MAKE", make_bin))
   local code = mk.run({"build"})
-  cenv.unset("COSMIC_MAKE_ROOT")
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
+  assert(cenv.unset("COSMIC_MAKE"))
   assert(fs.chdir(cwd))
   return code
 end

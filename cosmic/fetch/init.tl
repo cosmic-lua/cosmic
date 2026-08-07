@@ -251,7 +251,7 @@ end
 
 local function backoff(attempt: integer, base_delay_ms: integer, max_delay_ms: integer)
   -- Full jitter: uniform in [0, min(max_delay_ms, base_delay_ms * 2^(attempt-1))].
-  time.sleep_ms(math.random() * math.min(max_delay_ms, base_delay_ms * 2 ^ (attempt - 1)))
+  local _ok, _err = time.sleep_ms(math.random() * math.min(max_delay_ms, base_delay_ms * 2 ^ (attempt - 1)))
 end
 
 --- Fetch a URL and return a structured result.
@@ -342,7 +342,7 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
   end
 
   return setmetatable(reader, {
-      __close = function(self: Reader) self:close() end
+      __close = function(self: Reader) local _ok, _err = self:close() end
     }) as Reader -- cast: table seeded as record
 end
 

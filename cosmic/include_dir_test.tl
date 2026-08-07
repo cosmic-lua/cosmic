@@ -10,21 +10,21 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 
 -- Setup: create a custom type definition directory with a module
 local function setup_custom_types(): string, string
   local typedir = fs.join(tmpdir, "customtypes")
-  fs.make_dirs(typedir, 0x1ed) -- 0755
+  assert(fs.make_dirs(typedir, 0x1ed)) -- 0755
   local deffile = fs.join(typedir, "custommod.d.tl")
-  fs.write(deffile, [[
+  assert(fs.write(deffile, [[
 local record custommod
   greet: function(name: string): string
 end
 return custommod
-]])
+]]))
   return typedir, deffile
 end
 
@@ -75,22 +75,22 @@ test_check_types_include_dir()
 -- Test multiple --include-dir flags
 local function test_multiple_include_dirs()
   local typedir1 = fs.join(tmpdir, "types1")
-  fs.make_dirs(typedir1, 0x1ed)
-  fs.write(fs.join(typedir1, "mod_a.d.tl"), [[
+  assert(fs.make_dirs(typedir1, 0x1ed))
+  assert(fs.write(fs.join(typedir1, "mod_a.d.tl"), [[
 local record mod_a
   hello: function(): string
 end
 return mod_a
-]])
+]]))
 
   local typedir2 = fs.join(tmpdir, "types2")
-  fs.make_dirs(typedir2, 0x1ed)
-  fs.write(fs.join(typedir2, "mod_b.d.tl"), [[
+  assert(fs.make_dirs(typedir2, 0x1ed))
+  assert(fs.write(fs.join(typedir2, "mod_b.d.tl"), [[
 local record mod_b
   world: function(): string
 end
 return mod_b
-]])
+]]))
 
   local input = write_temp("multi_include.tl", [[
 local mod_a = require("mod_a")

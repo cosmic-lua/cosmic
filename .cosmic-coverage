@@ -13,6 +13,7 @@ _cli/help.tl 46 48
 _cli/lint.tl 190 215
 _cli/lint_render.tl 26 26
 _cli/main_handlers.tl 11 220
+_cli/pattern_args.tl 132 135
 _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
 _cli/visibility.tl 23 23
@@ -76,6 +77,7 @@ cmd/cosmic/embed_gen.tl 0 179
 cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
+cosmic/_teal_discard.tl 130 148
 cosmic/_teal_hints.tl 32 32
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 146 173
@@ -189,4 +191,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 13975 18432
+total 14237 18715

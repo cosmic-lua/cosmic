@@ -20,12 +20,12 @@ local function Example_handler()
   end
   local prev = check.must(signal.sigaction(signal.SIGUSR1, on_usr1))
 
-  signal.raise(signal.SIGUSR1) -- pending: SIGUSR1 is blocked
-  signal.sigprocmask(signal.SIG_SETMASK, oldmask)
-  time.sleep(0, 1000000) -- give delivery a moment
+  assert(signal.raise(signal.SIGUSR1)) -- pending: SIGUSR1 is blocked
+  assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
+  assert(time.sleep(0, 1000000)) -- give delivery a moment
 
   print(received == signal.SIGUSR1)
-  signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask)
+  assert(signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask))
   -- Output:
   -- true
 end
@@ -38,7 +38,7 @@ local function Example_ignore()
   local prev = check.must(signal.sigaction(signal.SIGUSR2, signal.SIG_IGN))
   local ok = signal.raise(signal.SIGUSR2)
   print(ok)
-  signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask)
+  assert(signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask))
   -- Output:
   -- true
 end

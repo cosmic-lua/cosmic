@@ -146,8 +146,8 @@ end
 --- @return boolean timed_out
 local function pump(state: PumpState, deadline_ms: number): boolean
   local p = poll.new()
-  if state.stdout_fd then p:add(state.stdout_fd, poll.POLLIN) end
-  if state.stderr_fd then p:add(state.stderr_fd, poll.POLLIN) end
+  if state.stdout_fd then local _ok, _err = p:add(state.stdout_fd, poll.POLLIN) end
+  if state.stderr_fd then local _ok, _err = p:add(state.stderr_fd, poll.POLLIN) end
 
   -- stdin: watch for writability only while bytes remain; otherwise close it
   -- now so the child sees EOF immediately.
@@ -155,7 +155,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
     if state.stdin_data and state.stdin_off < #state.stdin_data then
       local ok, serr = set_nonblocking(state.stdin_fd)
       if not ok then state.io_err = state.io_err or serr end
-      p:add(state.stdin_fd, poll.POLLOUT)
+      local _ok, _err = p:add(state.stdin_fd, poll.POLLOUT)
     else
       unix.close(state.stdin_fd)
       state.stdin_fd = nil

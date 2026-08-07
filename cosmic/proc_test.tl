@@ -105,14 +105,14 @@ test_is_main_returns_boolean()
 
 local function test_is_main_true_when_run_directly()
   local script_path = fs.join(TEST_TMPDIR, "is_main_direct.lua")
-  fs.write(script_path, [[
+  assert(fs.write(script_path, [[
 local proc = require("cosmic.proc")
 if proc.is_main() then
   os.exit(0)
 else
   os.exit(1)
 end
-]])
+]]))
 
   local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
   local wr = check.must(proc.wait(pid))
@@ -125,14 +125,14 @@ test_is_main_true_when_run_directly()
 
 local function test_proc_is_main_true_when_run_directly()
   local script_path = fs.join(TEST_TMPDIR, "proc_is_main_direct.lua")
-  fs.write(script_path, [[
+  assert(fs.write(script_path, [[
 local proc = require("cosmic.proc")
 if proc.is_main() then
   os.exit(0)
 else
   os.exit(1)
 end
-]])
+]]))
 
   local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
   local wr = check.must(proc.wait(pid))
@@ -145,13 +145,13 @@ test_proc_is_main_true_when_run_directly()
 
 local function test_is_main_false_when_required()
   local mod_path = fs.join(TEST_TMPDIR, "is_main_module.lua")
-  fs.write(mod_path, [[
+  assert(fs.write(mod_path, [[
 local proc = require("cosmic.proc")
 return proc.is_main()
-]])
+]]))
 
   local script_path = fs.join(TEST_TMPDIR, "is_main_requirer.lua")
-  fs.write(script_path, string.format([[
+  assert(fs.write(script_path, string.format([[
 package.path = %q .. "/?.lua;" .. package.path
 local result = require("is_main_module")
 if result == false then
@@ -159,7 +159,7 @@ if result == false then
 else
   os.exit(1)
 end
-]], TEST_TMPDIR))
+]], TEST_TMPDIR)))
 
   local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
   local wr = check.must(proc.wait(pid))
@@ -215,7 +215,7 @@ local function test_setrlimit()
     local nrl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
     assert(nrl.soft == 64, "soft limit should be updated to 64")
     assert(nrl.hard == rl.hard, "hard limit should remain unchanged")
-    proc.setrlimit(proc.RLIMIT_NOFILE, rl.soft, rl.hard)
+    assert(proc.setrlimit(proc.RLIMIT_NOFILE, rl.soft, rl.hard))
   end
 end
 test_setrlimit()
@@ -294,7 +294,7 @@ local function test_fork_success_has_no_error()
   end
   local live_pid = check.must(pid, "fork should succeed: " .. tostring(err))
   assert(err == nil, "successful fork should have no error, got: " .. tostring(err))
-  proc.wait(live_pid)
+  assert(proc.wait(live_pid))
 end
 test_fork_success_has_no_error()
 
@@ -310,12 +310,12 @@ local function test_fork_child_has_different_pid()
     end
     proc.exit(0)
   else
-    proc.wait(pid)
+    assert(proc.wait(pid))
     local f = io.open(marker_file, "r")
     assert(f ~= nil, "expected marker file to exist")
     local child_pid = tonumber(f:read("*a"))
     f:close()
-    os.remove(marker_file)
+    assert(os.remove(marker_file))
     assert(child_pid ~= parent_pid, "expected child to have different pid")
     assert(child_pid == pid, "expected child pid " .. tostring(pid) .. ", got " .. tostring(child_pid))
   end
@@ -340,7 +340,7 @@ test_wexitstatus_values()
 local function test_wifsignaled_on_kill()
   local pid = check.must(proc.fork())
   if pid == 0 then
-    time.sleep(10)
+    assert(time.sleep(10))
     proc.exit(0)
   else
     assert(signal.kill(pid, signal.SIGKILL), "expected kill to succeed")
@@ -355,13 +355,13 @@ test_wifsignaled_on_kill()
 local function test_wnohang_returns_zero_for_running_process()
   local pid = check.must(proc.fork())
   if pid == 0 then
-    time.sleep(0, 100000000) -- 100ms
+    assert(time.sleep(0, 100000000)) -- 100ms
     proc.exit(0)
   else
     local wr = check.must(proc.wait(pid, proc.WNOHANG))
     assert(wr.pid == 0 or wr.pid == pid, "expected 0 or pid, got " .. tostring(wr.pid))
     if wr.pid == 0 then
-      proc.wait(pid)
+      assert(proc.wait(pid))
     end
   end
 end
@@ -372,7 +372,7 @@ local function test_posix_spawn_returns_pid()
   if ls_path then
     local pid = check.must(proc.posix_spawn(ls_path, {"ls"}))
     assert(pid > 0, "expected positive pid, got " .. tostring(pid))
-    proc.wait(pid)
+    assert(proc.wait(pid))
   end
 end
 test_posix_spawn_returns_pid()
@@ -445,3 +445,25 @@ local function test_execve_error_names_errno()
     "execve error should name the program, got: " .. tostring(err))
 end
 test_execve_error_names_errno()
+
+-- interpreter tests --
+
+local function test_interpreter_resolves_running_binary()
+  local exe = check.must(proc.interpreter())
+  assert(fs.is_absolute(exe), "interpreter path should be absolute, got: " .. exe)
+  assert(fs.is_file(exe), "interpreter path should name a real file, got: " .. exe)
+  assert(exe ~= "/zip/main.lua", "interpreter must not be the embedded script path")
+end
+test_interpreter_resolves_running_binary()
+
+local function test_interpreter_is_cached_and_spawnable()
+  local exe = check.must(proc.interpreter())
+  assert(exe == check.must(proc.interpreter()), "repeat calls should agree")
+  local child = require("cosmic.child")
+  local h = check.must(child.start({exe, "-e", "print('from child')"}))
+  local out = h:read()
+  check.must(h:wait())
+  assert(tostring(out):find("from child", 1, true),
+    "spawned interpreter should run code, got: " .. tostring(out))
+end
+test_interpreter_is_cached_and_spawnable()

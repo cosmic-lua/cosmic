@@ -435,7 +435,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- project root. One definition of that rule, and it is over there.
   local cov = require("cosmic.coverage").dir_from_env()
   if cov ~= nil then
-    fs.make_dirs(cov)
+    local _ok, _err = fs.make_dirs(cov)
     if fs.is_dir(cov) then
       rw[#rw + 1] = cov
     end

@@ -14,9 +14,12 @@ local function module_exists(name: string): boolean
   if package.preload[name] then
     return true
   end
-  -- Check package.path for .lua and .tl files
+  -- Check package.path for .lua and .tl files. cosmic.string is
+  -- required lazily: this only runs on the require-failure path, and a
+  -- boot-time require would put the module on the boot surface.
+  local str = original_require("cosmic.string")
   for path_pattern in package.path:gmatch("[^;]+") do
-    local file_path = path_pattern:gsub("%?", (name:gsub("%.", "/")))
+    local file_path = str.replace(path_pattern, "?", (name:gsub("%.", "/")))
     local f = io.open(file_path, "r")
     if f then
       f:close()

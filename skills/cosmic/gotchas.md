@@ -4,47 +4,35 @@ common errors that trip up agents and developers new to Teal. each entry shows t
 
 ## 1. integer vs number
 
-Teal distinguishes `integer` from `number`. string indices (`string.sub`, `string.byte`, `table` lookups) and some C bindings require `integer`. arithmetic and C status returns are `number`.
+Teal distinguishes `integer` from `number`: string indices
+(`string.sub`, `string.byte`, table lookups) require `integer`, and
+arithmetic yields `number`. the `got number, expected integer` error
+carries the fix as a hint — annotate the variable `: integer`, or
+convert at the call site with `math.tointeger`.
 
-**wrong:**
 ```teal
-local n: number = 5
-local s = ("hello"):sub(n, n) -- error: got number, expected integer
-```
-
-**right:**
-```teal
--- option A: annotate the literal as integer
 local n: integer = 5
 local s = ("hello"):sub(n, n)
-
--- option B: convert at call site
-local n: number = some_computation()
-local s = ("hello"):sub(math.tointeger(n), math.tointeger(n))
+-- from a computation: convert first
+local m = ("hello"):sub(math.tointeger(x) or 1, 5)
 ```
 
-`WEXITSTATUS` and similar status-decoding functions return `number`, not `integer`:
-```teal
-local code: number = child.WEXITSTATUS(status)
-```
+(bindings that return integral values — exit statuses, fds, pids,
+sizes — are annotated `integer` at the source of truth, so no
+conversion dance is needed on that side.)
 
 ## 2. traversing `any` from json.decode
 
-`json.decode` returns `any`. you cannot index or iterate `any` directly — you must cast to a concrete type first.
+for the two common top-level shapes, skip `any` entirely:
+`json.decode_object` returns `{string: any} | nil, string` and
+`json.decode_array` returns `{any} | nil, string` — the checker sees a
+concrete type with no cast, and input of the wrong shape is a real
+error instead of a downstream indexing surprise.
 
-**wrong:**
 ```teal
-local data = json.decode(input)
-for _, item in ipairs(data) do -- error: attempting ipairs on something that's not an array: <any type>
-```
-
-**right — `is` when the shape is uncertain** (narrows in the positive
-branch, compiles to one `type()` check, and untrusted input that isn't
-the expected shape takes the other branch instead of misbehaving later):
-```teal
-local data = json.decode(input)
-if data is {any} then
-  for _, raw in ipairs(data) do
+local items = json.decode_array(input)
+if items is {any} then
+  for _, raw in ipairs(items) do
     if raw is {string: any} then
       print(raw["name"] as string)
     end
@@ -52,18 +40,18 @@ if data is {any} then
 end
 ```
 
-**right — `as` when the shape is trusted** (a schema you control):
-```teal
-local obj = json.decode(input) as {string: any}
-local tags = obj["tags"] as {string}
-```
-
-new casts count against the cast ratchet (`_build/casts.txt`); prefer
-the `is` form where the code branches anyway.
+`json.decode` still returns `any`, for the genuinely-dynamic case: you
+cannot index or iterate `any` directly — narrow with `is` where the
+shape is uncertain (as with the nested values above), or cast
+(`local obj = json.decode(input) as {string: any}`) when the shape is
+trusted. new casts count against the cast ratchet (`_build/casts.txt`).
 
 ## 3. `arg` elements are `string | nil`
 
-the global `arg` table has type `{string | nil}`. accessing `arg[1]` without a guard may give you `nil`, which causes a type error when used where a `string` is expected.
+the global `arg` table has type `{string | nil}`: accessing `arg[1]`
+without a guard may give you `nil`, a type error where a `string` is
+expected. (a missing argument is `nil` at runtime either way — guard
+before use.)
 
 **wrong:**
 ```teal
@@ -73,32 +61,29 @@ local name = arg[1]:upper() -- error: cannot index nil
 **right:**
 ```teal
 local name = (arg[1] or "default"):upper()
-
--- or with an explicit check:
-if not arg[1] then
-  io.stderr:write("usage: myscript <name>\n")
-  os.exit(1)
-end
-local name = (arg[1] as string):upper()
 ```
 
-## 4. multi-return capture — `db:query` and similar
+inside `cosmic.main`, a usage guard is an early return, and the scalar
+narrows through it for plain (non-method) uses:
 
-functions that return `(iterator, state, initial)` (like `db:query`) cannot be wrapped inside another expression — the extra returns are discarded.
-
-**wrong:**
 ```teal
-for row in db:query("SELECT * FROM t"), nil, nil do -- syntax error / wrong returns
+cosmic.main(function(args: {string}, env: cosmic.Env): number, string
+    local name = args[1]
+    if not name then
+      env.stderr:write("usage: myscript <name>\n")
+      return 1
+    end
+    print("hello, " .. name)
+    return 0
+  end)
 ```
 
-**right:**
-```teal
-for row in db:query("SELECT * FROM t") do
-  print(row.id)
-end
-```
+## 4. multi-return capture
 
-if you need to capture both the iterator and an error return, assign to locals first:
+the checker's `excess return values` error carries the fix as a hint:
+capture multiple returns first — `local v, err = f(...)`. wrapping a
+multi-return call inside another expression discards the extra returns.
+
 ```teal
 local rows, err = db:query("SELECT * FROM t")
 if not rows then
@@ -109,47 +94,26 @@ for row in rows do
 end
 ```
 
-## 5. local modules — `require` path resolution
+## 5. retired — moved to guide.modules
 
-`require("mymod")` resolves relative to the script's directory, not the current working directory. you do not need a `./` prefix (both work).
+how `require` resolves local module paths is information, not a trap;
+it now lives in `cosmic --docs guide.modules`.
 
-```teal
--- both are equivalent when mymod.tl is in the same directory:
-local m = require("mymod")
-local m2 = require("./mymod") -- also works
-```
+## 6. retired — the checker prevents it
 
-if your module is in a subdirectory:
-```teal
-local m = require("subdir.mymod") -- loads subdir/mymod.tl
-```
+binding a module to a local that shadows a Lua builtin
+(`local io = require("cosmic.fd")`) is a `--check types` error today
+(`variable shadows previous declaration of 'io'`, warnings are errors),
+so the runtime surprise this entry described is unreachable. rename the
+local (`fd`, `fs`, ...); Lua's `io.stderr` stays available.
 
-## 6. naming `cosmic.fd` as `io`
+## 7. `arg[0]` is not the interpreter — use `proc.interpreter()` to re-invoke cosmic
 
-`require("cosmic.fd")` returns the cosmic.fd module. if you bind it to a local named `io` you shadow Lua's built-in `io` library and lose access to `io.stderr`, `io.stdin`, `io.stdout`.
-
-**wrong:**
-```teal
-local io = require("cosmic.fd") -- hides io.stderr!
-io.stderr:write("error\n") -- runtime error: attempt to index nil
-```
-
-**right:**
-```teal
-local fs = require("cosmic.fs") -- keep built-in io accessible
-fs.write("out.txt", data)
-io.stderr:write("error: " .. msg .. "\n") -- standard Lua io still works
-```
-
-cosmic.fd has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
-
-## 7. `arg[0]` is not the interpreter — use `arg[-1]` to re-invoke cosmic
-
-when a script needs to spawn the cosmic binary itself (e.g. to run another
-script as a child process), `arg[0]` is the script path as the runtime sees
-it (`/zip/main.lua` for the embedded entry point), not the interpreter.
-the interpreter path lives at `arg[-1]`, and because `arg` is typed
-`{string}`, negative indices need `rawget` in strict mode.
+when a script needs to spawn the cosmic binary itself (e.g. to run
+another script as a child process), `arg[0]` is the script path as the
+runtime sees it (`/zip/main.lua` for the embedded entry point), not the
+interpreter. `proc.interpreter()` returns the running interpreter's
+absolute path, typed and resolved.
 
 **wrong:**
 ```teal
@@ -159,36 +123,23 @@ local h = child.start({arg[0], "worker.tl"}) -- spawns /zip/main.lua: fails
 
 **right:**
 ```teal
+local check = require("cosmic.check")
 local child = require("cosmic.child")
-local cosmic_bin = rawget(arg, -1) as string -- e.g. "./cosmic"
-local h = child.start({cosmic_bin, "worker.tl"})
+local proc = require("cosmic.proc")
+local h = child.start({check.must(proc.interpreter()), "worker.tl"})
 ```
 
-## 8. `print(f(...))` prints every return value
+## 8. retired — the checker flags discarded errors
 
-most cosmic functions return `(value, error)`. passing such a call directly
-as the last argument to `print` (or any function) passes BOTH returns —
-`print` renders the trailing `nil` as literal text, tab-separated. this
-passes the type checker and only shows up in the output.
-
-**wrong:**
-```teal
-print(json.encode(result))
--- prints: {"count":6}	nil
-```
-
-**right:**
-```teal
-local encoded, err = json.encode(result)
-if err then
-  io.stderr:write("encode failed: " .. err .. "\n")
-  os.exit(1)
-end
-print(encoded)
-```
-
-(parenthesizing the call — `print((json.encode(result)))` — also truncates
-to one value, but capturing lets you check the error.)
+most cosmic functions return `(value, error)`, and the strict checker
+(`--check types`, and the build's strict compile) now flags both ways
+the error used to vanish: a fallible call standing as a bare statement
+(`fs.write(path, data)` on its own line), and a fallible call as the
+final argument of `print` and friends (which rendered the error as a
+literal `nil`). capture the returns — `local v, err = f(...)`, or
+`local _ok, _err = f(...)` for deliberate fire-and-forget — or wrap in
+`assert`/`check.must` in tests and examples. the details are in
+`cosmic --docs guide.checking`.
 
 ## 9. records, maps and arrays don't narrow through `if not x` — or `assert`
 
@@ -278,36 +229,25 @@ end
 works when the record must stay standalone for internal reasons — see
 how `cosmic.fs` re-exports `Stat`.)
 
-## 11. shadowing a Lua builtin
+## 11. retired — the checker prevents it
 
-`--check types` warns on any shadowed declaration, including Lua's own
-globals — a `local function load(...)` shadows the builtin `load()`,
-`local type = ...` shadows `type()`. the warning
-(`function shadows previous declaration of 'load'`) fails the strict
-check because warnings are errors; rename yours (`load_data`,
-`kind`, ...). the same trap at module level is gotcha #6's `io` example:
-binding `require("cosmic.fd")` to a local named `io` hides `io.stderr`.
+shadowing any declaration, including Lua builtins (`local function
+load(...)`, `local type = ...`), is a `--check types` error today
+(warnings are errors). the error names the shadowed declaration; rename
+yours (`load_data`, `kind`, ...).
 
 ## 12. colon-call only works on the value's own record type
 
-`db:exec(sql)` works because `exec` is declared on `sqlite.Database`
-itself. a function YOUR module declares that merely takes such a value
-as its first argument is not a method of that value — calling it with a
-colon fails:
+the checker's `invalid key 'add' in record 'db'` error carries the fix
+as a hint: a function on your MODULE's record is dot-called with the
+value first (`store.add(db, ...)`), never colon-called (`db:add(...)`).
+colon-call works only for functions declared on the value's own record
+type (like `db:exec` on `sqlite.Database`).
 
 ```teal
-local record StoreModule
-  add: function(db: sqlite.Database, name: string): boolean, string
-end
-
 db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Database
 store.add(db, "alice") -- right: module function, dot-called, value first
 ```
-
-to get colon-call ergonomics for your own type, declare your own record
-with function fields taking `self` and construct values of it — see how
-`cosmic.fd`'s `Handle` does it. mixing the two (module functions over a
-foreign type) is the common, simpler shape; call them with a dot.
 
 ## 13. `local x = nil` means type nil, forever
 
@@ -336,48 +276,25 @@ local earliest: integer | nil = nil
 with the annotation, the running-min/max idiom above compiles as
 written — scalars narrow through the `not earliest or ...` guard fine.
 
-## 14. `os.exit` requires `integer | boolean`, not `number`
+## 14. retired — the taught path never calls `os.exit`
 
-a `main` function declared to return `number` breaks `os.exit(main())`
-with `got number, expected integer | boolean`.
+`cosmic.main(fn)` (the entry-point shape the quickstart teaches) does
+the exit itself and accepts any numeric return, so this trap no longer
+appears on the taught path. if you call `os.exit` yourself, it requires
+`integer | boolean`, not `number` — convert at the call site
+(`os.exit(math.tointeger(code) or 1)`); the error-site hint names the
+same fix.
 
-**wrong:**
+## 15. `gsub`'s replacement string interprets `%` — use `str.replace` for literal text
+
+`string.gsub`'s replacement is not plain text (`%1` splices a capture,
+a lone `%` is a runtime error), so templating an untrusted value in
+breaks on the first `%`. for literal text use `str.replace`
+(cosmic.string) — literal on both sides, nothing to escape. the
+`gsub-replacement` lint flags a non-literal replacement and
+`cosmic --docs guide.lint` documents the deliberate-template escape.
+
 ```teal
-local function main(): number
-  return 0
-end
-os.exit(main())
+local str = require("cosmic.string")
+local page = str.replace(template, "{{name}}", user_name)
 ```
-
-**right:**
-```teal
-local function main(): integer
-  return 0
-end
-os.exit(main())
--- or convert at the call site: os.exit(math.tointeger(code) or 1)
-```
-
-## 15. `gsub`'s replacement string interprets `%` — dangerous with untrusted values
-
-`string.gsub`'s third argument is not plain text: `%1`–`%9` splice in
-captures, `%0` the whole match, and a lone `%` followed by anything
-else is an error. substituting an untrusted value into a template this
-way corrupts output — or crashes — the first time the value contains a
-`%` (a URL-encoded string, a printf format, a literal percentage).
-
-**wrong:**
-```teal
-local page = template:gsub("{{name}}", user_name)
--- user_name = "50%" → runtime error: invalid use of '%' in replacement string
-```
-
-**right — escape `%` in the replacement first:**
-```teal
-local safe = user_name:gsub("%%", "%%%%")
-local page = template:gsub("{{name}}", safe)
-```
-
-(the needle side has the same property — see the find-needle lint rule
-for `find`; on `gsub` both arguments are magic, and only the
-replacement side is fixable by doubling `%`.)

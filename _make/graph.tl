@@ -324,10 +324,10 @@ local function extract_make(to: string): boolean, string
   -- write's mode only applies on create, so set it unconditionally: an
   -- engine that is not executable is the one failure mode that reads as
   -- "no make binary" rather than as a permissions problem.
-  fs.chmod(tmp, tonumber("755", 8) as integer) -- cast: octal is integral
+  local _ok, _err = fs.chmod(tmp, tonumber("755", 8) as integer) -- cast: octal is integral
   local rok, rerr = fs.rename(tmp, to)
   if not rok then
-    fs.unlink(tmp)
+    local _ok, _err = fs.unlink(tmp)
     -- Losing the race is not a failure: the winner installed the same
     -- embedded bytes this process was about to.
     if fs.is_file(to) then

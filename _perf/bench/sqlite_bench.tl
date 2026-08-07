@@ -150,11 +150,11 @@ end
 
 local function cleanup()
   if db then
-    db:close()
+    local _ok, _err = db:close()
     db = nil
   end
   if tmpdir then
-    fs.remove_all(tmpdir)
+    local _ok, _err = fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

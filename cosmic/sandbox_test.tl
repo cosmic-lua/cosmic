@@ -77,7 +77,7 @@ local function test_validation_rejects_before_enforcing()
   -- The rejection above must have enforced nothing: this process can
   -- still read its own test tmpdir.
   local probe = fs.join(tmpdir, "validation_probe")
-  fs.write(probe, "ok")
+  assert(fs.write(probe, "ok"))
   local f = io.open(probe, "r")
   assert(f, "validation failures must not half-apply a sandbox")
   f:close()
@@ -219,14 +219,14 @@ local function test_apply_enforces_fs_and_sys()
   end
 
   local allowed_dir = fs.join(tmpdir, "sbx")
-  fs.make_dirs(allowed_dir)
+  assert(fs.make_dirs(allowed_dir))
   local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "outside.txt")
-  fs.write(allowed, "allowed-content")
-  fs.write(denied, "denied-content")
+  assert(fs.write(allowed, "allowed-content"))
+  assert(fs.write(denied, "denied-content"))
 
   local script = fs.join(tmpdir, "sandbox_apply.lua")
-  fs.write(script, string.format([[
+  assert(fs.write(script, string.format([[
 local sandbox = require("cosmic.sandbox")
 local ok, err = sandbox.apply({
   fs = { ro = { %q } },
@@ -240,7 +240,7 @@ local f = io.open(%q, "r")
 if f then io.write("allowed-ok\n"); f:close() else io.write("allowed-fail\n") end
 local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
-]], allowed_dir, allowed, denied))
+]], allowed_dir, allowed, denied)))
 
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
@@ -274,12 +274,12 @@ local function test_invalid_sys_leaves_fs_unapplied()
   end
 
   local dir = fs.join(tmpdir, "novalid")
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   local outside = fs.join(tmpdir, "still_readable.txt")
-  fs.write(outside, "yes")
+  assert(fs.write(outside, "yes"))
 
   local script = fs.join(tmpdir, "sandbox_validate.lua")
-  fs.write(script, string.format([[
+  assert(fs.write(script, string.format([[
 local sandbox = require("cosmic.sandbox")
 local ok, err = sandbox.apply({
   fs = { ro = { %q } },
@@ -291,7 +291,7 @@ if ok or not tostring(err):find("bogus_promise", 1, true) then
 end
 local f = io.open(%q, "r")
 if f then io.write("unapplied-ok\n"); f:close() else io.write("half-applied\n") end
-]], dir, outside))
+]], dir, outside)))
 
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())

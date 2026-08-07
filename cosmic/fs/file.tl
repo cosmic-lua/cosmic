@@ -68,7 +68,7 @@ local function write_atomic(path: string, data: string, mode?: integer): boolean
   -- loop live in fd.Handle + stream.write_all, not a local copy.
   local h = cfd.wrap(fd)
   local function fail(err: string): boolean, string
-    h:close()
+    local _ok, _err = h:close()
     unix.unlink(tmp)
     return false, err
   end

@@ -22,7 +22,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- Build a fixture tree and scan it.
 local function fixture(name: string, files: {string: string}): Project
   local root = fs.join(tmpdir, "graph-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
@@ -186,21 +186,21 @@ test_materialize_does_not_touch_unchanged_files()
 -- host is a build nobody can reproduce.
 local function test_find_make_never_searches_path()
   local box = fs.join(tmpdir, "graph-nomake")
-  fs.remove_all(box)
+  assert(fs.remove_all(box))
   assert(fs.make_dirs(fs.join(box, "bin")))
   assert(fs.write(fs.join(box, "bin", "make"), "#!/bin/sh\nexit 0\n",
       tonumber("755", 8) as integer)) -- cast: octal is integral
   local saved_path = cenv.get("PATH")
   local saved_make = cenv.get("COSMIC_MAKE")
-  cenv.unset("COSMIC_MAKE")
-  cenv.set("PATH", fs.join(box, "bin"))
+  assert(cenv.unset("COSMIC_MAKE"))
+  assert(cenv.set("PATH", fs.join(box, "bin")))
   local found = in_dir(box, function(): string
       local g = graph.find_make()
       return g or ""
     end)
-  cenv.set("PATH", saved_path or "")
+  assert(cenv.set("PATH", saved_path or ""))
   if saved_make then
-    cenv.set("COSMIC_MAKE", saved_make)
+    assert(cenv.set("COSMIC_MAKE", saved_make))
   end
   -- Not "" any more: with the engine embedded, find_make extracts one.
   -- What must never happen is picking up the host's.
@@ -217,19 +217,19 @@ local function test_find_make_honors_the_override()
   local saved = cenv.get("COSMIC_MAKE")
   local real = fs.join(tmpdir, "graph-make-stub")
   assert(fs.write(real, "#!/bin/sh\nexit 0\n"))
-  cenv.set("COSMIC_MAKE", real)
+  assert(cenv.set("COSMIC_MAKE", real))
   local got = check.must(graph.find_make())
   assert(got == fs.abspath(real), "got: " .. got)
 
-  cenv.set("COSMIC_MAKE", fs.join(tmpdir, "graph-no-such-make"))
+  assert(cenv.set("COSMIC_MAKE", fs.join(tmpdir, "graph-no-such-make")))
   local missing, err = graph.find_make()
   assert(not missing, "a named make that is absent must fail")
   assert(err:find("COSMIC_MAKE names no such file", 1, true),
     "got: " .. tostring(err))
 
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE"))
   if saved then
-    cenv.set("COSMIC_MAKE", saved)
+    assert(cenv.set("COSMIC_MAKE", saved))
   end
 end
 test_find_make_honors_the_override()
@@ -251,7 +251,7 @@ test_the_engine_ships_in_the_binary()
 -- permissions problem.
 local function test_extract_make_is_executable()
   local to = fs.join(tmpdir, "graph-engine", "make")
-  fs.remove_all(fs.dirname(to))
+  assert(fs.remove_all(fs.dirname(to)))
   local ok, err = graph.extract_make(to)
   assert(ok, "extraction should succeed: " .. tostring(err))
   assert(fs.is_file(to), "the engine should land at " .. to)
@@ -266,16 +266,16 @@ test_extract_make_is_executable()
 -- the difference between --make being usable and being a demo.
 local function test_find_make_extracts_when_nothing_is_named()
   local box = fs.join(tmpdir, "graph-embedded")
-  fs.remove_all(box)
+  assert(fs.remove_all(box))
   assert(fs.make_dirs(box))
   local saved = cenv.get("COSMIC_MAKE")
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE"))
   local found = in_dir(box, function(): string
       local g = graph.find_make()
       return g or ""
     end)
   if saved then
-    cenv.set("COSMIC_MAKE", saved)
+    assert(cenv.set("COSMIC_MAKE", saved))
   end
   assert(found ~= "", "find_make must extract the embedded engine")
   assert(found == fs.join(box, "o/make"), "got: " .. found)
@@ -286,14 +286,14 @@ test_find_make_extracts_when_nothing_is_named()
 -- Everything is parallel by default; the count is overridable.
 local function test_jobs_flag()
   local saved = cenv.get("COSMIC_JOBS")
-  cenv.set("COSMIC_JOBS", "3")
+  assert(cenv.set("COSMIC_JOBS", "3"))
   assert(graph.jobs_flag() == "-j3", "got: " .. graph.jobs_flag())
-  cenv.set("COSMIC_JOBS", "not a number")
+  assert(cenv.set("COSMIC_JOBS", "not a number"))
   local derived = graph.jobs_flag()
   assert(derived:match("^%-j%d+$"), "got: " .. derived)
-  cenv.unset("COSMIC_JOBS")
+  assert(cenv.unset("COSMIC_JOBS"))
   if saved then
-    cenv.set("COSMIC_JOBS", saved)
+    assert(cenv.set("COSMIC_JOBS", saved))
   end
 end
 test_jobs_flag()

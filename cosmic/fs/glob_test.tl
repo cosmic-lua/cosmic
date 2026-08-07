@@ -128,4 +128,4 @@ local function test_walk_unlimited_by_default()
 end
 test_walk_unlimited_by_default()
 
-fs.remove_all(root)
+assert(fs.remove_all(root))

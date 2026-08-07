@@ -369,23 +369,23 @@ local function make(fetch_fn: function(string, any): any,
     while true do
       local chunk, rerr = res.reader:read()
       if rerr then
-        h:close()
-        fs.unlink(path)
+        local _ok, _err = h:close()
+        local _ok, _err = fs.unlink(path)
         return fail_with("download: " .. rerr)
       end
       if not chunk then break end
       local c = chunk as string -- cast: method syntax defeats narrowing
       local wok, werr = stream.write_all(h, c)
       if not wok then
-        h:close()
-        fs.unlink(path)
+        local _ok, _err = h:close()
+        local _ok, _err = fs.unlink(path)
         return fail_with("download: write: " .. tostring(werr))
       end
     end
     res.reader:close()
     local cok, cerr = h:close()
     if not cok then
-      fs.unlink(path)
+      local _ok, _err = fs.unlink(path)
       out["ok"] = false
       out["error"] = "download: close: " .. tostring(cerr)
     end

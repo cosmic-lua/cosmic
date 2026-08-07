@@ -108,7 +108,7 @@ local function build(proj: Project, cosmic: string): boolean, string
   local result = embed.embed({dir},
     {output = staged_out, exe_path = cosmic, mtime = embed.EPOCH})
   if not result.ok then
-    fs.unlink(staged_out)
+    local _ok, _err = fs.unlink(staged_out)
     return false, "make: test runner: " .. result.message
   end
   local rerr = artifact.replace_if_changed(staged_out, PATH)

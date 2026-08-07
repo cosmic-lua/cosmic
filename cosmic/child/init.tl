@@ -218,8 +218,8 @@ end
 --- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
 --- Returns a Handle on success. If the program cannot be executed, spawn
 --- itself fails with `nil, "exec failed: ENOENT: ..."`, not a bogus exit
---- code from a later wait(). To spawn cosmic itself, use `rawget(arg, -1)`
---- — NOT arg[0], the script path (/zip/main.lua), not the interpreter.
+--- code from a later wait(). To spawn cosmic itself, use cosmic.proc's
+--- `interpreter()` — NOT arg[0] (/zip/main.lua), not the interpreter.
 --- @param argv {string} Command and arguments
 --- @param opts Options? Spawn options
 --- @return Handle | nil, string? Process handle or nil + error

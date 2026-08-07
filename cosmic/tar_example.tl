@@ -36,7 +36,7 @@ local function Example_extract()
 
   assert(tar.extract(archive, fs.join(dir, "out")))
   print(check.must(fs.read(fs.join(dir, "out/notes.txt"))))
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   -- Output:
   -- hello from a tarball
 end

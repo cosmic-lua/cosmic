@@ -22,11 +22,11 @@ local function Example_shebang()
   local script = fs.join(tmpdir, "greet.tl")
 
   -- Write a script with a shebang line
-  fs.write(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
+  assert(fs.write(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n'))
 
   -- Run it via cosmic (portable across all platforms)
   local r = check.must(child.run({cosmic, script}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   assert(r.ok, r.stderr)
   print(r.stdout)
   -- Output:
@@ -46,10 +46,10 @@ local function Example_script_args()
   local script = fs.join(tmpdir, "greet.tl")
 
   -- A script that reads arguments from the arg table
-  fs.write(script, [[#!/usr/bin/env cosmic
+  assert(fs.write(script, [[#!/usr/bin/env cosmic
 local name: string = arg[1] or "world"
 print("hello " .. name)
-]])
+]]))
 
   -- Run with an argument
   local r = check.must(child.run({cosmic, script, "alice"}))
@@ -58,7 +58,7 @@ print("hello " .. name)
 
   -- Run without arguments to use the default
   r = check.must(child.run({cosmic, script}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   assert(r.ok, r.stderr)
   io.write(r.stdout)
   -- Output:
@@ -79,16 +79,16 @@ local function Example_install_to_path()
 
   -- Create a local bin directory (simulating ~/bin or ~/.local/bin)
   local bindir = fs.join(tmpdir, "bin")
-  fs.make_dirs(bindir)
+  assert(fs.make_dirs(bindir))
 
   -- Write a script
   local script = fs.join(bindir, "mytool")
-  fs.write(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n')
-  fs.chmod(script, 0x1ED) -- 0755
+  assert(fs.write(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n'))
+  assert(fs.chmod(script, 0x1ED)) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
   local r = check.must(child.run({cosmic, script}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   assert(r.ok, r.stderr)
   print(r.stdout)
   -- Output:
@@ -108,7 +108,7 @@ local function Example_portable_executable()
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "app.tl")
-  fs.write(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
+  assert(fs.write(tl_file, 'local msg: string = "portable app"\nprint(msg)\n'))
 
   -- Compile .tl to .lua (--embed requires plain Lua)
   local r = check.must(child.run({cosmic, "--compile", tl_file}))
@@ -117,8 +117,8 @@ local function Example_portable_executable()
 
   -- Create app directory with compiled entry point
   local appdir = fs.join(tmpdir, "pkg")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), lua_source)
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), lua_source))
 
   -- Build a standalone executable
   local output = fs.join(tmpdir, "myapp")
@@ -127,7 +127,7 @@ local function Example_portable_executable()
 
   -- Run the standalone binary — no cosmic needed on the target machine
   r = check.must(child.run({output}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   assert(r.ok, r.stderr)
   print(r.stdout)
   -- Output:

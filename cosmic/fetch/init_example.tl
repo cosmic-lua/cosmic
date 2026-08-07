@@ -18,16 +18,16 @@ local function Example_get()
   local pid = check.must(proc.fork())
   if pid == 0 then
     local conn = check.must(s:accept())
-    conn:recv(4096)
-    conn:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
-    conn:close()
+    assert(conn:recv(4096))
+    assert(conn:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"))
+    assert(conn:close())
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
 
   local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/",
     {allow_private = true})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   print(result.status, result.body, result:is_success())
   -- Output:
   -- 200	hello	true
@@ -54,20 +54,20 @@ local function Example_retry()
     }
     for _, resp in ipairs(responses) do
       local conn = check.must(s:accept())
-      conn:recv(4096)
-      conn:send(resp)
-      conn:close()
+      assert(conn:recv(4096))
+      assert(conn:send(resp))
+      assert(conn:close())
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
 
   local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", {
       allow_private = true,
       max_attempts = 2,
       base_delay_ms = 10, -- keep the example fast; default is 500ms
     })
-  proc.wait(pid)
+  assert(proc.wait(pid))
   print(result.status, result.body)
   -- Output:
   -- 200	ok
@@ -88,21 +88,21 @@ local function Example_stream_lines()
   if pid == 0 then
     local body = "alpha\nbeta\ngamma\n"
     local conn = check.must(s:accept())
-    conn:recv(4096)
-    conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #body
-      .. "\r\nConnection: close\r\n\r\n" .. body)
-    conn:close()
+    assert(conn:recv(4096))
+    assert(conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #body
+        .. "\r\nConnection: close\r\n\r\n" .. body))
+    assert(conn:close())
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
 
   local result = fetch.stream("http://127.0.0.1:" .. math.tointeger(port) .. "/",
     {allow_private = true})
   for line in result.reader:lines() do
     print(line)
   end
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
   -- Output:
   -- alpha
   -- beta

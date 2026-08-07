@@ -32,7 +32,7 @@ local function test_fail_closed_when_unavailable()
     return
   end
   local dir = fs.join(tmpdir, "fc")
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   local ok, err = unveil.allow(dir, "r")
   assert(not ok, "allow must fail when unveil is unsupported")
   assert(type(err) == "string" and err:match("unsupported"),
@@ -61,14 +61,14 @@ local function test_unveil_restricts_paths()
   end
 
   local allowed_dir = fs.join(tmpdir, "vis")
-  fs.make_dirs(allowed_dir)
+  assert(fs.make_dirs(allowed_dir))
   local allowed_file = fs.join(allowed_dir, "unveiled.txt")
   local hidden_file = fs.join(tmpdir, "secret.txt")
-  fs.write(allowed_file, "visible")
-  fs.write(hidden_file, "secret")
+  assert(fs.write(allowed_file, "visible"))
+  assert(fs.write(hidden_file, "secret"))
 
   local script = fs.join(tmpdir, "unveil_test.lua")
-  fs.write(script, string.format([[
+  assert(fs.write(script, string.format([[
 local unveil = require("cosmic.unveil")
 local ok, err = unveil.allow(%q, "r")
 if not ok then
@@ -95,7 +95,7 @@ if g then
 else
   io.write("denied-blocked\n")
 end
-]], allowed_dir, allowed_file, hidden_file))
+]], allowed_dir, allowed_file, hidden_file)))
 
   local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())

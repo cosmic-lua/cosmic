@@ -47,17 +47,17 @@ local function serve(responses: {string}): integer, integer
         local c = conn
         local req = read_request(c)
         if resp == "echo" then
-          c:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #req
-            .. "\r\nConnection: close\r\n\r\n" .. req)
+          assert(c:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #req
+              .. "\r\nConnection: close\r\n\r\n" .. req))
         elseif #resp > 0 then
-          c:send(resp)
+          assert(c:send(resp))
         end
-        c:close()
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
@@ -65,7 +65,7 @@ end
 local function echo_request(run: function(string): fetch.Result): string
   local port, pid = serve({"echo"})
   local r = run("http://127.0.0.1:" .. port)
-  proc.wait(math.tointeger(pid))
+  assert(proc.wait(math.tointeger(pid)))
   assert(r.ok, "request failed: " .. tostring(r.error))
   assert(r:is_success(), "expected 2xx, got " .. tostring(r.status))
   return r.body
@@ -199,7 +199,7 @@ test_multipart_validation()
 local function test_result_json()
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{\"answer\": 42}\n"})
   local r = fetch.get("http://127.0.0.1:" .. port, {allow_private = true})
-  proc.wait(math.tointeger(pid))
+  assert(proc.wait(math.tointeger(pid)))
   assert(r.ok, "request failed: " .. tostring(r.error))
   local v = r:json()
   -- cast: from any
@@ -210,7 +210,7 @@ test_result_json()
 local function test_result_json_bad_body()
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nnot-json"})
   local r = fetch.get("http://127.0.0.1:" .. port, {allow_private = true})
-  proc.wait(math.tointeger(pid))
+  assert(proc.wait(math.tointeger(pid)))
   local v, err = r:json()
   assert(v == nil and err ~= nil, "expected decode failure for bad json")
 end
@@ -222,11 +222,11 @@ local function test_download_success()
   local path = fs.join(TEST_TMPDIR, "dl.bin")
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\nfile-content"})
   local r = fetch.download("http://127.0.0.1:" .. port, path, {allow_private = true})
-  proc.wait(math.tointeger(pid))
+  assert(proc.wait(math.tointeger(pid)))
   assert(r.ok and r:is_success(), "download failed: " .. tostring(r.error))
   assert(r.body == "", "expected empty body on download success")
   assert(fs.read(path) == "file-content", "expected file written")
-  fs.unlink(path)
+  assert(fs.unlink(path))
 end
 test_download_success()
 
@@ -234,7 +234,7 @@ local function test_download_non_2xx_writes_nothing()
   local path = fs.join(TEST_TMPDIR, "dl404.bin")
   local port, pid = serve({"HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"})
   local r = fetch.download("http://127.0.0.1:" .. port, path, {allow_private = true})
-  proc.wait(math.tointeger(pid))
+  assert(proc.wait(math.tointeger(pid)))
   assert(r.ok, "expected transport success")
   assert(not r:is_success() and r.status == 404, "expected 404 result")
   assert(r.body == "not found", "expected diagnostic body, got: " .. tostring(r.body))

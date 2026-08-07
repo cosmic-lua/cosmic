@@ -43,9 +43,9 @@ end
 local function test_fd_handle_conforms()
   local p = check.must(fd.pipe())
   assert(p.writer:write("fd bytes"))
-  p.writer:close()
+  assert(p.writer:close())
   check_reader(p.reader, "fd bytes", "fd.Handle")
-  p.reader:close()
+  assert(p.reader:close())
 end
 test_fd_handle_conforms()
 
@@ -54,7 +54,7 @@ local function test_socket_recv_eof_is_nil()
   local a, b = sp.a, sp.b
 
   assert(a:send("socket bytes"))
-  a:close()
+  assert(a:close())
 
   local got = ""
   while true do
@@ -67,7 +67,7 @@ local function test_socket_recv_eof_is_nil()
   -- recv after end of stream stays bare nil
   local again, aerr = b:recv(4096)
   assert(again == nil and aerr == nil, "recv after EOF must stay bare nil")
-  b:close()
+  assert(b:close())
 
   -- and the error channel is intact: recv on a closed socket errors
   local d, cerr = b:recv()
@@ -90,15 +90,15 @@ local function test_socket_zero_byte_datagram_stays_empty()
   local data = b:recv(4096)
   assert(data == "dgram", "datagram payload intact")
 
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_socket_zero_byte_datagram_stays_empty()
 
 local function test_child_handle_conforms()
   local h = check.must(child.start({lua_bin, "-e", "io.write('child bytes'); io.flush()"}))
   check_reader(h, "child bytes", "child.Handle")
-  h:wait()
+  assert(h:wait())
 end
 test_child_handle_conforms()
 
@@ -118,12 +118,12 @@ local function serve_once(response: string): integer, integer
         if not data then break end
         buf = buf .. data
       end
-      c:send(response)
-      c:close()
+      assert(c:send(response))
+      assert(c:close())
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
@@ -135,8 +135,8 @@ local function test_fetch_reader_conforms()
     {allow_private = true})
   assert(result.ok == true, "stream failed: " .. tostring(result.error))
   check_reader(result.reader, body, "fetch.Reader")
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_fetch_reader_conforms()
 
@@ -178,7 +178,7 @@ local function test_buffer_collects_writes()
   local buf = stream.buffer()
   check.eq(buf:contents(), "", "empty before any write")
   check.eq(buf:write("collected "), 10, "write reports the chunk written")
-  buf:write("bytes")
+  assert(buf:write("bytes"))
   check.eq(buf:contents(), "collected bytes", "contents is everything written")
   check.eq(buf:contents(), "collected bytes", "contents is repeatable")
 end

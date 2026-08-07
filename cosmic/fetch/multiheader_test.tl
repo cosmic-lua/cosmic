@@ -31,20 +31,20 @@ local function serve(n: integer): integer, integer
           if not data or #data == 0 then break end
           buf = buf .. data
         end
-        c:send(RESPONSE)
-        c:close()
+        assert(c:send(RESPONSE))
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
 local function test_fetch_repeated_headers_normalized()
   local port, pid = serve(1)
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "fetch should succeed: " .. tostring(result.error))
 
   -- headers: lowercase keys, repeats joined ", " — always a plain string
@@ -82,7 +82,7 @@ local function test_stream_repeated_headers_normalized()
   assert(#result.raw_headers.vary == 2, "stream raw_headers.vary must keep both values")
   -- drain and close so the server child can exit
   while result.reader:read() do end
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_stream_repeated_headers_normalized()

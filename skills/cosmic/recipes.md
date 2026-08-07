@@ -26,30 +26,32 @@ local function main(): integer
   if not data then
     die("cannot read '" .. tostring(path) .. "': " .. read_err)
   end
-  local decoded, decode_err = json.decode(data)
-  if decode_err then
-    die("invalid JSON: " .. decode_err)
-  end
-  local items = decoded as {any}
+  local items, decode_err = json.decode_array(data)
+  if items is {any} then
+    -- transform: count the items
+    local result = {count = #items}
 
-  -- transform: count the items
-  local result = {count = #items}
-
-  local encoded, encode_err = json.encode(result)
-  if encode_err then
-    die("encode failed: " .. encode_err)
+    local encoded, encode_err = json.encode(result)
+    if encode_err then
+      die("encode failed: " .. encode_err)
+    end
+    print(encoded)
+    return 0
   end
-  print(encoded)
-  return 0
+  die("invalid JSON: " .. decode_err)
+  return 1
 end
 
 os.exit(main())
 ```
 
-key details: `arg[1]` is `string | nil` (guard before use), `json.decode`
-returns `any` (cast before iterating), capture `encode`'s error return
-instead of passing the call straight to `print`, and `main` returns
-`integer` because `os.exit` rejects `number`.
+key details: `arg[1]` is `string | nil` (guard before use),
+`json.decode_array` returns a typed `{any} | nil` — no cast needed, and a
+top-level value that is not an array is a real error (`decode_object` is
+the sibling for objects; plain `decode` returns `any` for the dynamic
+case) — `is` narrows it in the positive branch, capture `encode`'s error
+return instead of passing the call straight to `print`, and `main`
+returns `integer` because `os.exit` rejects `number`.
 
 ## index files into sqlite (walk + hash + sqlite)
 
@@ -57,31 +59,32 @@ walk a tree, store path/size/digest with upsert semantics, query by
 substring.
 
 ```teal
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local sqlite = require("cosmic.sqlite")
 
-local db = sqlite.open("index.db")
-db:exec("CREATE TABLE IF NOT EXISTS files (" ..
-  "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)")
+local db = check.must(sqlite.open("index.db"))
+assert(db:exec("CREATE TABLE IF NOT EXISTS files (" ..
+    "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)"))
 
-fs.walk("testdata", function(path: string, _name: string, st: fs.WalkStat, _ctx: any)
-    -- path is the FULL path; do not join it with the basename
-    if st:is_file() then
-      local data = fs.read(path)
-      if data then
-        db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
-          "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..
-          "digest = excluded.digest", path, st:size(), hash.sha256_hex(data))
+check.must(fs.walk("testdata", function(path: string, _name: string, st: fs.WalkStat, _ctx: any)
+      -- path is the FULL path; do not join it with the basename
+      if st:is_file() then
+        local data = fs.read(path)
+        if data then
+          assert(db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
+              "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..
+              "digest = excluded.digest", path, st:size(), hash.sha256_hex(data)))
+        end
       end
-    end
-  end)
+    end))
 
 -- substring query: LIKE uses % as the wildcard, not *
 for row in db:query("SELECT * FROM files WHERE path LIKE ?", "%src%") do
   print(row.path, row.size, row.digest)
 end
-db:close()
+assert(db:close())
 ```
 
 the visitor's third parameter is `fs.WalkStat`, exported on the public
@@ -94,14 +97,15 @@ rule refuses it from outside `cosmic/`.)
 run another script in a child process and read its output through a pipe.
 
 ```teal
+local check = require("cosmic.check")
 local child = require("cosmic.child")
+local proc = require("cosmic.proc")
 
-local cosmic_bin = rawget(arg, -1) as string -- NOT arg[0]; see gotchas #7
-local h, err = child.start({cosmic_bin, "worker.tl"})
-assert(h, err)
-local _, out = h:read()
+-- proc.interpreter() is arg[-1] resolved — NOT arg[0], the script path
+local h = check.must(child.start({check.must(proc.interpreter()), "worker.tl"}))
+local out = h:read()
 print(out)
-h:wait()
+check.must(h:wait())
 ```
 
 for a server child, have it print a readiness line (e.g. `READY <port>`)
@@ -148,14 +152,14 @@ local function serve_one(srv: net.Socket): boolean, string
   local ok, send_err = conn:sendall("HTTP/1.1 200 OK\r\n"
     .. "Content-Length: " .. #body .. "\r\n"
     .. "Connection: close\r\n\r\n" .. body)
-  conn:close()
+  local _ok, _err = conn:close() -- the send result is the verdict, not the close
   return ok, send_err
 end
 
 local srv = check.must(net.listen_tcp("127.0.0.1", 0))
 print("READY " .. check.must(srv:getsockname()).port) -- a test blocks on this line
-serve_one(srv)
-srv:close()
+assert(serve_one(srv))
+assert(srv:close())
 ```
 
 client side, one call: `fetch.fetch("http://127.0.0.1:" .. port ..

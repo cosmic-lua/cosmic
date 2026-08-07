@@ -188,7 +188,7 @@ make_handle = function(fd: integer): Handle
   end
 
   return setmetatable(handle, {
-      __close = function(self: Handle) self:close() end
+      __close = function(self: Handle) local _ok, _err = self:close() end
     })
 end
 
@@ -228,7 +228,7 @@ local function make_pipe(reader: Handle, writer: Handle): Pipe
   end
 
   return setmetatable(p, {
-      __close = function(self: Pipe) self:close() end
+      __close = function(self: Pipe) local _ok, _err = self:close() end
     })
 end
 

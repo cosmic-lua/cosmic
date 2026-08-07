@@ -21,13 +21,13 @@ end
 local function Example_enabled()
   local ansi = require("cosmic.ansi")
   local env = require("cosmic.env")
-  env.set("NO_COLOR", "1")
+  assert(env.set("NO_COLOR", "1"))
   local message = "hello"
   if ansi.enabled(1) then
     message = ansi.green(message)
   end
   print(message)
-  env.unset("NO_COLOR")
+  assert(env.unset("NO_COLOR"))
   -- Output:
   -- hello
 end

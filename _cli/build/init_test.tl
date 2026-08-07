@@ -57,7 +57,7 @@ test_link_replaces()
 -- fixture is just a source and an output path.
 local function compile_fixture(name: string, content: string): string, string
   local dir = fs.join(tmpdir, name)
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   local src = fs.join(dir, "mod.tl")
   local out = fs.join(dir, "mod.lua")
   assert(fs.write(src, content))
@@ -88,7 +88,7 @@ local function test_compile_unchanged_restamps_without_rewriting()
   local s1, n1 = (st1 as fs.Stat):mtim() -- cast: record union after guard
   local body = fs.read(out)
   -- read-only: the second run must not write, only restamp
-  fs.chmod(out, tonumber("444", 8) as integer) -- cast: octal is integral
+  assert(fs.chmod(out, tonumber("444", 8) as integer)) -- cast: octal is integral
   code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "second compile failed")
   local st2 = fs.stat(out)
@@ -191,7 +191,7 @@ test_list_write_if_changed()
 
 local function test_require_marker()
   local dir = fs.join(tmpdir, "markers/nested")
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   assert(fs.write(fs.join(dir, "probe.err"), "x enforce-ran: pledge\n"))
   local code = run_driver("assert-marker", "enforce-ran:", fs.join(tmpdir, "markers"))
   assert(code == 0, "marker present must pass")
@@ -234,7 +234,7 @@ test_remove()
 
 local function test_verdict()
   local o_dir = fs.join(tmpdir, "verdict")
-  fs.make_dirs(o_dir)
+  assert(fs.make_dirs(o_dir))
   -- pass: clean summary + marker; launder: clean summary, NO marker;
   -- bad: failing summary; ghost: no summary at all
   assert(fs.write(fs.join(o_dir, "good-summary.txt"), "good: 2 checks: 2 passed, 0 failed\n"))

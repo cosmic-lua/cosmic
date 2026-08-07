@@ -277,7 +277,7 @@ local function getpass(prompt: string): string | nil, string
     end)
   -- Write newline to stderr since echo is off (regardless of outcome)
   io.stderr:write("\n")
-  restore(0, original)
+  local _ok, _err = restore(0, original)
   if not read_ok then
     -- pcall caught an error: line_or_err is the error message
     return nil, tostring(line_or_err)

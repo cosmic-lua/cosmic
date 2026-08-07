@@ -53,7 +53,7 @@ test_monotonic()
 
 local function test_sleep()
   local before_secs, before_nanos = time.monotonic()
-  time.sleep(0, 1000000) -- sleep 1ms
+  assert(time.sleep(0, 1000000)) -- sleep 1ms
   local after_secs, after_nanos = time.monotonic()
   local before = before_secs + before_nanos / 1000000000
   local after = after_secs + after_nanos / 1000000000
@@ -116,22 +116,22 @@ local function test_sleep_ms_interrupted_returns_ms_remainder()
 
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Single-shot timer: interrupt the sleep after ~50ms.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 50,
-      interval_ms = 0,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 50,
+        interval_ms = 0,
+      }))
 
   local rem, err = sleep_ms(2000)
 
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0,
-      interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0,
+        interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 
   assert(rem ~= nil, "interrupted sleep_ms must return a remainder")
   assert(rem > 0 and rem <= 2000,
@@ -146,7 +146,7 @@ test_sleep_ms_interrupted_returns_ms_remainder()
 
 local function test_sleep_ms()
   local before_secs, before_nanos = time.monotonic()
-  time.sleep_ms(1) -- sleep 1ms
+  assert(time.sleep_ms(1)) -- sleep 1ms
   local after_secs, after_nanos = time.monotonic()
   local before = before_secs + before_nanos / 1000000000
   local after = after_secs + after_nanos / 1000000000
@@ -158,7 +158,7 @@ local function test_sleep_ms_conversion()
   -- Test that 1500ms = 1.5 seconds is handled correctly
   -- We don't actually sleep that long, just verify the function exists
   local before_secs, _ = time.monotonic()
-  time.sleep_ms(0)
+  assert(time.sleep_ms(0))
   local after_secs, _ = time.monotonic()
   assert(after_secs >= before_secs, "monotonic time should not go backwards")
 end
@@ -386,7 +386,7 @@ test_now_ms_matches_now()
 
 local function test_monotonic_ms_advances()
   local t1 = time.monotonic_ms()
-  time.sleep_ms(15)
+  assert(time.sleep_ms(15))
   local t2 = time.monotonic_ms()
   local delta = t2 - t1
   assert(delta >= 10, "expected >= 10ms elapsed across sleep_ms(15), got " .. tostring(delta))

@@ -35,7 +35,7 @@ local function test_lint_file_under_default()
   for i = 1, 100 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for short file, got: " .. tostring(#diagnostics))
@@ -48,7 +48,7 @@ local function test_lint_file_over_default()
   for i = 1, 501 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic for long file, got: " .. tostring(#diagnostics))
@@ -62,7 +62,7 @@ test_lint_file_over_default()
 local function test_lint_file_hints_cosmicignore_for_binary()
   local path = fs.join(tmpdir, "toolbinary")
   local chunk = "\0\1\2ELF junk line\n"
-  fs.write(path, chunk:rep(600))
+  assert(fs.write(path, chunk:rep(600)))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
@@ -80,7 +80,7 @@ local function test_lint_file_hints_cosmicignore_for_non_source_text()
   for i = 1, 501 do
     table.insert(lines, "row," .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
@@ -100,7 +100,7 @@ local function test_lint_file_no_ignore_hint_for_source()
   for i = 1, 501 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
@@ -116,7 +116,7 @@ local function test_lint_file_skips_dtl()
   for i = 1, 600 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for .d.tl file, got: " .. tostring(#diagnostics))
@@ -287,6 +287,40 @@ local function test_find_needle_wants_the_intent_stated()
 end
 test_find_needle_wants_the_intent_stated()
 
+local function test_gsub_replacement_wants_the_intent_stated()
+  local bare = 'local x = s:gsub("{{name}}", user_name)\n'
+  assert(#lint.check_gsub_replacement("m.tl", bare, lines_of(bare)) == 1,
+    "a variable replacement is flagged")
+  local diag = lint.check_gsub_replacement("m.tl", bare, lines_of(bare))[1]
+  assert(diag.rule == "gsub-replacement", "rule name")
+  assert(diag.message:find("str.replace", 1, true),
+    "the message names the literal-intent fix")
+
+  for _, ok in ipairs({
+      'local x = s:gsub(pat, "%1!")\n', -- literal: deliberate splicing
+      'local x = s:gsub(pat, "a" .. "b")\n', -- concat of literals
+      'local x = s:gsub("%s+", "")\n', -- empty literal
+      'local x = s:gsub("%d", function(d: string): string return d end)\n',
+      'local x = s:gsub("%a", {a = "b"})\n', -- table form does not interpolate
+      'local x = s:gsub(pat)\n', -- no replacement argument at all
+      'local x = s:gsub(pat, v) -- gsub: v is %%-escaped upstream\n',
+      '-- gsub: v is a deliberate %1 template\nlocal x = s:gsub(pat, v)\n',
+      'local x = list.gsub(t, a, b)\n', -- some other gsub entirely
+    }) do
+    assert(#lint.check_gsub_replacement("m.tl", ok, lines_of(ok)) == 0,
+      "should pass: " .. ok)
+  end
+
+  -- string.gsub passes the subject too, so its replacement is THIRD.
+  local dotted = 'local x = string.gsub(s, pat, v)\n'
+  assert(#lint.check_gsub_replacement("m.tl", dotted, lines_of(dotted)) == 1,
+    "the dot form is checked at its own replacement position")
+  local dotted_lit = 'local x = string.gsub(s, pat, "lit")\n'
+  assert(#lint.check_gsub_replacement("m.tl", dotted_lit, lines_of(dotted_lit)) == 0,
+    "and a literal there passes")
+end
+test_gsub_replacement_wants_the_intent_stated()
+
 -- A `check.needs` guard that returns is the failure the rule is named
 -- for: the file runs on, exits 0, and the runner grades 0 as a pass, so
 -- a test that opted out of running contributes a green tick. Only the
@@ -352,10 +386,10 @@ print("all lint tests passed")
 local function test_render_diagnostics_snippets()
   local path = fs.join(tmpdir, "render_me.tl")
   local long_tail = string.rep("y", 150)
-  fs.write(path, "local a: any = {}\n"
-    .. "local b = a as {string: any}\n"
-    .. "local c = " .. long_tail .. " as string\n"
-    .. "print(b, c)\n")
+  assert(fs.write(path, "local a: any = {}\n"
+      .. "local b = a as {string: any}\n"
+      .. "local c = " .. long_tail .. " as string\n"
+      .. "print(b, c)\n"))
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 2, "two unjustified casts, got " .. #diagnostics)
   local render = require("_cli.lint_render")
@@ -366,7 +400,7 @@ local function test_render_diagnostics_snippets()
     "an over-long snippet truncates: " .. text)
 
   local binpath = fs.join(tmpdir, "notsource")
-  fs.write(binpath, string.rep("\0junk\n", 600))
+  assert(fs.write(binpath, string.rep("\0junk\n", 600)))
   local bindiags = check.must(lint.lint_file(binpath))
   assert(#bindiags == 1 and bindiags[1].rule == "file-length",
     "length finding expected")

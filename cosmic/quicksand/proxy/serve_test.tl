@@ -50,7 +50,7 @@ local function roundtrip(srv: serve.Server, request: string): string
     if not chunk then break end
     table.insert(parts, (check.must(chunk)))
   end
-  sock:close()
+  assert(sock:close())
   return table.concat(parts)
 end
 
@@ -141,22 +141,22 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
 
   local pid = proc.fork()
   if not pid then
-    ls:close()
+    assert(ls:close())
     check.enforce_skip("ssrf guard: fork unavailable")
     return
   end
   if pid == 0 then
     local conn = ls:accept()
     if conn is net.Socket then
-      conn:recv(65536)
-      conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #UPSTREAM_BODY
-        .. "\r\n\r\n" .. UPSTREAM_BODY)
-      conn:close()
+      assert(conn:recv(65536))
+      assert(conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #UPSTREAM_BODY
+          .. "\r\n\r\n" .. UPSTREAM_BODY))
+      assert(conn:close())
     end
-    ls:close()
+    assert(ls:close())
     os.exit(0)
   end
-  ls:close()
+  assert(ls:close())
 
   local srv = check.must(serve.new({
         bind_port = 0,
@@ -179,7 +179,7 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
   end
   -- Drop the parent's copy or the client never sees EOF once the
   -- worker closes its own.
-  fd.wrap(cfd):close()
+  assert(fd.wrap(cfd):close())
 
   local parts: {string} = {}
   while true do
@@ -187,13 +187,13 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
     if not chunk then break end
     parts[#parts + 1] = chunk
   end
-  sock:close()
+  assert(sock:close())
   local resp = table.concat(parts)
-  proc.wait(worker)
+  assert(proc.wait(worker))
   -- The upstream is still parked in accept() and always will be --
   -- that is the point -- so kill it rather than waiting on it.
-  signal.kill(pid, signal.SIGKILL)
-  proc.wait(pid)
+  assert(signal.kill(pid, signal.SIGKILL))
+  assert(proc.wait(pid))
 
   assert(not resp:find(UPSTREAM_BODY, 1, true),
     "the allowlist must not reach a loopback upstream, got: " .. resp)

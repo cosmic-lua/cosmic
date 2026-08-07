@@ -126,11 +126,11 @@ local function serve(body: string, status?: integer): integer, integer
   local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
-    signal.setitimer({
-        which = signal.ITIMER_REAL,
-        value_ms = 30000,
-        interval_ms = 0,
-      })
+    assert(signal.setitimer({
+          which = signal.ITIMER_REAL,
+          value_ms = 30000,
+          interval_ms = 0,
+        }))
     local conn = s:accept()
     if conn then
       local c = conn as net.Socket -- cast: record union after guard
@@ -141,21 +141,21 @@ local function serve(body: string, status?: integer): integer, integer
         buf = buf .. data
       end
       local code = status or 200
-      c:send("HTTP/1.1 " .. code .. " " ..
-        (code == 200 and "OK" or "Not Found") .. "\r\nContent-Length: " ..
-        #body .. "\r\nConnection: close\r\n\r\n" .. body)
-      c:close()
+      assert(c:send("HTTP/1.1 " .. code .. " " ..
+          (code == 200 and "OK" or "Not Found") .. "\r\nContent-Length: " ..
+          #body .. "\r\nConnection: close\r\n\r\n" .. body))
+      assert(c:close())
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
 --- A project holding one pin pointing at `url`.
 local function pinned(name: string, url: string, sha: string): string
   local root = fs.join(tmpdir, "fetch-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(fs.join(root, "3p")))
   assert(fs.write(fs.join(root, "main.tl"), "print('x')\n"))
   assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
@@ -166,13 +166,13 @@ end
 --- Run a verb in process against a named root.
 local function run(root: string, ...: string): integer
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
   local argv: {string} = {}
   for _, a in ipairs({...}) do
     argv[#argv + 1] = a
   end
   local code = mk.run(argv)
-  cenv.unset("COSMIC_MAKE_ROOT")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(fs.chdir(cwd))
   return code
 end
@@ -200,7 +200,7 @@ local function test_fetch_verifies_and_writes()
   local root = pinned("ok", "http://127.0.0.1:" .. port .. "/blob.bin",
     hash.sha256_hex(body))
   local code = run(root, "fetch")
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(code == 0, "a matching digest should succeed")
   -- Under the build directory, mirroring the pin's position: a fetched
   -- archive is generated content, and beside its pin it would be a file
@@ -220,7 +220,7 @@ local function test_a_mismatch_is_never_written()
   local root = pinned("mismatch", "http://127.0.0.1:" .. port .. "/blob.bin",
     hash.sha256_hex("pinned bytes\n"))
   local code = run(root, "fetch")
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(code == 1, "a digest mismatch must fail")
   -- The LANDING path, under `o/`, not the pin's own directory. This
   -- assertion named `3p/blob.bin` until the landing moved in 6d1e71c,
@@ -333,7 +333,7 @@ local function test_a_declared_format_is_unpacked()
       '  sha256 = "' .. hash.sha256_hex(body) .. '",\n' ..
       '  format = "zip",\n  strip_components = 1,\n}\n'))
   local code = run(root, "fetch")
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(code == 0, "a pin with a format should fetch and unpack")
 
   local got = check.must(fs.read(fs.join(root, "o/3p/tl.lua")))
@@ -401,7 +401,7 @@ local function test_a_missing_unpack_is_redone()
       'return {\n  url = "http://127.0.0.1:' .. port .. '/redo.zip",\n' ..
       '  sha256 = "' .. hash.sha256_hex(body) .. '",\n  format = "zip",\n}\n'))
   assert(run(root, "fetch") == 0, "the first fetch should unpack")
-  proc.wait(pid)
+  assert(proc.wait(pid))
   local out = fs.join(root, "o/3p/tl.lua")
   assert(fs.is_file(out), "unpack produced the tree")
 
@@ -423,7 +423,7 @@ local function test_a_non_2xx_names_the_status()
   local root = pinned("status", "http://127.0.0.1:" .. port .. "/blob.bin",
     hash.sha256_hex("pinned bytes\n"))
   local code, out = run_out(root, "fetch")
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(code == 1, "a 404 must fail")
   assert(out:find("HTTP 404", 1, true),
     "the message names the status, got: " .. out)

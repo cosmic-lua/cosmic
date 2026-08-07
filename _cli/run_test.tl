@@ -39,9 +39,9 @@ test_augment_appends_did_you_mean()
 
 local function test_augment_respects_no_require_hints()
   local err = "s.tl:1:1: module not found: 'cosmic.fss'"
-  env.set("COSMIC_NO_REQUIRE_HINTS", "1")
+  assert(env.set("COSMIC_NO_REQUIRE_HINTS", "1"))
   local out = run.augment_module_errors(err)
-  env.unset("COSMIC_NO_REQUIRE_HINTS")
+  assert(env.unset("COSMIC_NO_REQUIRE_HINTS"))
   assert(out == err,
     "COSMIC_NO_REQUIRE_HINTS must disable augmentation, got: " .. out)
 end
@@ -71,9 +71,9 @@ test_trim_traceback_accepts_non_string_errors()
 --- where the frame happens to be absent -- if /zip/main.lua is not in
 --- the untrimmed traceback there is nothing to trim, and we skip.
 local function test_trim_traceback_cuts_at_the_cosmic_entry_point()
-  env.set("COSMIC_FULL_TRACEBACK", "1")
+  assert(env.set("COSMIC_FULL_TRACEBACK", "1"))
   local full = run.trim_traceback("boom")
-  env.unset("COSMIC_FULL_TRACEBACK")
+  assert(env.unset("COSMIC_FULL_TRACEBACK"))
   if not full:find("/zip/main%.lua:") then
     require("cosmic.check").enforce_skip(
       "traceback trimming: no /zip/main.lua frame in this run")

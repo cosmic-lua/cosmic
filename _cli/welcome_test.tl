@@ -36,7 +36,7 @@ test_help_mentions_welcome()
 -- Test COSMIC_NO_WELCOME suppresses welcome in scripts
 local function test_no_welcome_env()
   local test_script = fs.join(tmpdir, "no_welcome_test.lua")
-  fs.write(test_script, [[
+  assert(fs.write(test_script, [[
 -- Just check the env var is accessible
 local no_welcome = os.getenv("COSMIC_NO_WELCOME")
 if no_welcome then
@@ -44,7 +44,7 @@ if no_welcome then
 else
   print("COSMIC_NO_WELCOME is not set")
 end
-]])
+]]))
 
   -- keep PATH: a replacement env with no PATH strands the APE stub —
   -- it can't find the staged `ape` loader (see tl_loader_test)

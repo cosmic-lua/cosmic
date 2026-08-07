@@ -139,7 +139,7 @@ local function run_into(argv: {string}, out: string): integer
     end
     return 0
   end
-  fs.make_dirs(fs.dirname(out))
+  local _ok, _err = fs.make_dirs(fs.dirname(out))
   local ok, werr = fs.write(out, r.stdout)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
@@ -189,7 +189,7 @@ local function do_compile(args: {string}): integer
       end
     end
   end
-  env.set("LUA_PATH", ";;")
+  local _ok, _err = env.set("LUA_PATH", ";;")
   local argv: {string} = {args[1]}
   for i = 4, #args do
     -- Forwarding an input as an argument was a silent disaster once
@@ -205,7 +205,7 @@ local function do_compile(args: {string}): integer
   if code == 0 and key is string then
     local body = fs.read(out)
     if body is string then
-      fs.write(record_path, "in " .. key .. "\nout " ..
+      local _ok, _err = fs.write(record_path, "in " .. key .. "\nout " ..
         hash.sha256_hex(body) .. "\n")
     end
   end
@@ -286,18 +286,18 @@ local function do_record(args: {string}): integer
   end
   modules.attach(argv, out, fs.abspath("."), deps)
   local scratch = fs.abspath(out .. ".tmp.d")
-  env.set("TMP", scratch)
-  fs.make_dirs(scratch)
-  fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
+  local _ok, _err = env.set("TMP", scratch)
+  local _ok, _err = fs.make_dirs(scratch)
+  local _ok, _err = fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
   local testrun = require("cosmic.testrun")
   testrun.run(argv, out)
   if not fs.is_file(out .. ".got") then
     return fail("record " .. out .. ": no result recorded")
   end
   if key is string and got_pass(out .. ".got") then
-    fs.write(record_path, "in " .. key .. "\n")
+    local _ok, _err = fs.write(record_path, "in " .. key .. "\n")
   else
-    fs.unlink(record_path)
+    local _ok, _err = fs.unlink(record_path)
   end
   return 0
 end

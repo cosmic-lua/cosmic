@@ -163,7 +163,7 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   -- to remove, and that is not this stage's failure to report.
   local summary = fs.join(project.BUILD_DIR,
     (v.target as string) .. "-summary.txt") -- cast: a graph verb has one
-  fs.unlink(summary)
+  local _ok, _err = fs.unlink(summary)
 
   -- cast: a graph verb always has a target (see the registry)
   local code, gerr = graph.run(proj, v.target as string, overrides, cosmic)
@@ -207,14 +207,14 @@ local BIN_ENV < const > = "TEST_BIN"
 --- @param proj Project The scanned project, for its root
 local function binaries_on_path(proj: Project)
   local rel = fs.join(project.BUILD_DIR, "bin")
-  cenv.set(BIN_ENV, rel, true)
+  local _ok, _err = cenv.set(BIN_ENV, rel, true)
   local abs = fs.join(proj.root, rel)
   local sep = sys.host_os() == "windows" and ";" or ":"
   local path = cenv.get("PATH")
   if path == nil or path == "" then
-    cenv.set("PATH", abs, true)
+    local _ok, _err = cenv.set("PATH", abs, true)
   elseif not (sep .. path .. sep):find(sep .. abs .. sep, 1, true) then
-    cenv.set("PATH", abs .. sep .. path, true)
+    local _ok, _err = cenv.set("PATH", abs .. sep .. path, true)
   end
 end
 

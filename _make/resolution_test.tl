@@ -24,7 +24,7 @@ local tmp = os.getenv("TEST_TMPDIR") or "/tmp"
 --- @return string The project root
 local function fixture(name: string): string
   local root = fs.join(tmp, "res-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(fs.join(root, "greet")))
   -- The run target is a binary at cmd/app/, so `run` builds it before
   -- executing o/cmd/app/main.lua; a bare root main.tl is refused. Tests
@@ -190,9 +190,9 @@ local greet = require("greet")
 io.write("SAYS " .. greet.hi("x") .. "\n")
 ]]))
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
   local code = mk.run({"run", "cmd/app/main.tl"})
-  cenv.unset("COSMIC_MAKE_ROOT")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(fs.chdir(cwd))
   assert(code == 0, "an in-process run should succeed")
 end
@@ -204,12 +204,12 @@ local function test_run_refusals_in_process()
   local root = fixture("refuse")
   assert(fs.write(fs.join(root, "cmd/app/main.tl"), 'io.write("x")\n'))
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
   local none = mk.run({"run"})
   local missing = mk.run({"run", "nosuch.tl"})
   local flag_first = mk.run({"run", "--out", "x"})
   local two = mk.run({"run", "cmd/app/main.tl", "greet/init.tl"})
-  cenv.unset("COSMIC_MAKE_ROOT")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(fs.chdir(cwd))
   assert(none ~= 0, "run with no path must fail")
   assert(missing ~= 0, "run with a path that names nothing must fail")
@@ -226,7 +226,7 @@ test_run_refusals_in_process()
 -- was never compiled and died with "cannot open".
 local function test_run_builds_a_target_with_no_binary()
   local root = fs.join(tmp, "res-nobinary")
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(fs.join(root, "greet")))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "greet", "init.tl"), [[
@@ -251,7 +251,7 @@ test_run_builds_a_target_with_no_binary()
 -- than spawning an o/ file the failed build never wrote.
 local function test_run_reports_a_binaryless_build_failure()
   local root = fs.join(tmp, "res-buildfail")
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "bad.tl"),

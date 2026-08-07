@@ -58,7 +58,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "fs_walk_tree",
       fn = function(_: any): any
         local count = 0
-        fs.walk(tmpdir, function(path: string, _name: string, _st: any, _ctx: any)
+        local _ok, _err = fs.walk(tmpdir, function(path: string, _name: string, _st: any, _ctx: any)
             -- Only count the seeded tree so fs_barf_slurp's blob (created
             -- by a sibling scenario) does not change the expected total.
             if path:find("dir-", 1, true) then
@@ -167,7 +167,7 @@ end
 
 local function cleanup()
   if tmpdir then
-    fs.remove_all(tmpdir)
+    local _ok, _err = fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

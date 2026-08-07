@@ -350,9 +350,9 @@ test_eq_error_points_at_caller()
 
 local function with_enforce(on: boolean, f: function())
   local prev = env.get("COSMIC_ENFORCE")
-  if on then env.set("COSMIC_ENFORCE", "1", true) else env.unset("COSMIC_ENFORCE") end
+  if on then assert(env.set("COSMIC_ENFORCE", "1", true)) else assert(env.unset("COSMIC_ENFORCE")) end
   local ok, e = pcall(f as function(): any) -- cast: function shape
-  if prev then env.set("COSMIC_ENFORCE", prev, true) else env.unset("COSMIC_ENFORCE") end
+  if prev then assert(env.set("COSMIC_ENFORCE", prev, true)) else assert(env.unset("COSMIC_ENFORCE")) end
   if not ok then error(e, 0) end
 end
 

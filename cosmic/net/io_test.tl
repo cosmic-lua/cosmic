@@ -17,8 +17,8 @@ local function test_sendall_basic()
   assert(ok, "sendall failed: " .. tostring(err))
   local data = b:recv()
   assert(data == "hello world", "expected payload, got: " .. tostring(data))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_sendall_basic()
 
@@ -26,8 +26,8 @@ local function test_sendall_empty()
   local a, b = pair()
   local ok, err = a:sendall("")
   assert(ok, "sendall of empty string failed: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_sendall_empty()
 
@@ -38,18 +38,18 @@ local function test_sendall_large()
   assert(ok, "sendall failed: " .. tostring(err))
   local data, rerr = b:recv_exact(#payload)
   assert(data == payload, "expected 64KiB round-trip: " .. tostring(rerr))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_sendall_large()
 
 local function test_sendall_closed_socket()
   local a, b = pair()
-  a:close()
+  assert(a:close())
   local ok, err = a:sendall("data")
   assert(not ok, "expected sendall on closed socket to fail")
   assert(err ~= nil, "expected an error message")
-  b:close()
+  assert(b:close())
 end
 test_sendall_closed_socket()
 
@@ -61,8 +61,8 @@ local function test_recv_exact_across_sends()
   assert(a:sendall("world"))
   local data, err = b:recv_exact(10)
   assert(data == "helloworld", "expected coalesced read: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_exact_across_sends()
 
@@ -73,8 +73,8 @@ local function test_recv_exact_leaves_rest()
   assert(head == "abc", "expected first 3 bytes, got: " .. tostring(head))
   local rest = b:recv_exact(3)
   assert(rest == "def", "expected remaining bytes, got: " .. tostring(rest))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_exact_leaves_rest()
 
@@ -82,20 +82,20 @@ local function test_recv_exact_zero()
   local a, b = pair()
   local data, err = b:recv_exact(0)
   assert(data == "", "expected empty string for n=0: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_exact_zero()
 
 local function test_recv_exact_early_close()
   local a, b = pair()
   assert(a:sendall("abc"))
-  a:shutdown()
+  assert(a:shutdown())
   local data, err = b:recv_exact(5)
   assert(data == nil, "expected failure on short stream")
   assert(err and err:find("3 of 5", 1, true), "expected byte counts in error, got: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_exact_early_close()
 
@@ -104,39 +104,39 @@ test_recv_exact_early_close()
 local function test_readline_basic()
   local a, b = pair()
   assert(a:sendall("alpha\nbeta\r\ngamma"))
-  a:shutdown()
+  assert(a:shutdown())
   assert(b:readline() == "alpha", "expected first line")
   assert(b:readline() == "beta", "expected CRLF stripped")
   assert(b:readline() == "gamma", "expected final unterminated line")
   local eof, err = b:readline()
   assert(eof == nil and err == nil, "expected bare nil at end of stream, got: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_readline_basic()
 
 local function test_readline_empty_line()
   local a, b = pair()
   assert(a:sendall("first\n\nsecond\n"))
-  a:shutdown()
+  assert(a:shutdown())
   assert(b:readline() == "first", "expected first line")
   assert(b:readline() == "", "expected empty line preserved")
   assert(b:readline() == "second", "expected second line")
   assert(b:readline() == nil, "expected end of stream")
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_readline_empty_line()
 
 local function test_readline_leaves_rest_for_recv()
   local a, b = pair()
   assert(a:sendall("line\nbinary-tail"))
-  a:shutdown()
+  assert(a:shutdown())
   assert(b:readline() == "line", "expected line")
   local rest = b:recv_exact(11)
   assert(rest == "binary-tail", "expected bytes after newline untouched, got: " .. tostring(rest))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_readline_leaves_rest_for_recv()
 
@@ -147,8 +147,8 @@ local function test_readline_max()
   assert(head == "abc", "expected max-bounded read, got: " .. tostring(head))
   local rest = b:readline()
   assert(rest == "def", "expected remainder line, got: " .. tostring(rest))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_readline_max()
 
@@ -159,8 +159,8 @@ local function test_readline_long_line_multiple_chunks()
   local line = b:readline()
   assert(line == long, "expected 10k line reassembled")
   assert(b:readline() == "next", "expected following line")
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_readline_long_line_multiple_chunks()
 
@@ -173,8 +173,8 @@ local function test_set_timeout_recv_times_out()
   local data, err = b:recv()
   assert(data == nil, "expected recv to time out")
   assert(err ~= nil, "expected a timeout error, not end of stream")
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_set_timeout_recv_times_out()
 
@@ -185,8 +185,8 @@ local function test_set_timeout_clear_restores_blocking()
   assert(a:sendall("ping"))
   local data = b:recv()
   assert(data == "ping", "expected recv to work after clearing timeout")
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_set_timeout_clear_restores_blocking()
 
@@ -196,17 +196,17 @@ local function test_set_timeout_readline_times_out()
   assert(a:sendall("partial-without-newline"))
   local line, err = b:readline()
   assert(line == nil and err ~= nil, "expected readline to time out on missing newline")
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_set_timeout_readline_times_out()
 
 local function test_set_timeout_closed_socket()
   local a, b = pair()
-  a:close()
+  assert(a:close())
   local ok, err = a:set_timeout(100)
   assert(not ok and err ~= nil, "expected set_timeout on closed socket to fail")
-  b:close()
+  assert(b:close())
 end
 test_set_timeout_closed_socket()
 
@@ -221,10 +221,10 @@ local function test_socket_is_stream()
   assert(n == 10, "write failed: " .. tostring(werr))
   local chunk, rerr = r:read()
   assert(chunk == "via stream", "read failed: " .. tostring(rerr))
-  a:close()
+  assert(a:close())
   local eof = r:read()
   assert(eof == nil, "expected bare nil at end of stream")
-  b:close()
+  assert(b:close())
 end
 test_socket_is_stream()
 
@@ -238,30 +238,30 @@ local function test_recv_retries_eintr()
   local on_alarm = function(_: number)
     if not fired then
       fired = true
-      a:sendall("ping")
+      assert(a:sendall("ping"))
     end
   end
   local prev = check.must(signal.sigaction(signal.SIGALRM, on_alarm))
   -- Interval timer: keeps firing until the blocked recv observes a signal,
   -- so the test cannot hang however the timing lands.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 30,
-      interval_ms = 30,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 30,
+        interval_ms = 30,
+      }))
   local data, err = b:recv()
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0,
-      interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0,
+        interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
   assert(data == "ping", "interrupted recv should retry and return the peer's"
     .. " payload, got " .. tostring(data) .. " (err: " .. tostring(err) .. ")")
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_retries_eintr()
 
@@ -275,8 +275,8 @@ local function test_send_offset()
   local got = b:recv()
   assert(got == "hello", "peer should see bytes past the offset, got: "
     .. tostring(got))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_send_offset()
 
@@ -289,8 +289,8 @@ local function test_recv_zero_bufsiz_is_error()
   assert(data == nil, "recv(0) should not return data")
   assert(err ~= nil and err:match("bufsiz"),
     "recv(0) should name bufsiz in the error, got: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_zero_bufsiz_is_error()
 
@@ -300,7 +300,7 @@ local function test_recv_negative_bufsiz_is_error()
   assert(data == nil, "recv(-1) should not return data")
   assert(err ~= nil and err:match("bufsiz"),
     "recv(-1) should name bufsiz in the error, got: " .. tostring(err))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_recv_negative_bufsiz_is_error()

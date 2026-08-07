@@ -12,8 +12,8 @@ end
 
 local function write_doc(docs_dir: string, rel: string, title: string, desc: string)
   local path = fs.join(docs_dir, rel)
-  fs.make_dirs(fs.dirname(path))
-  fs.write(path, "# " .. title .. "\n\n" .. desc .. "\n\n## Types\n")
+  assert(fs.make_dirs(fs.dirname(path)))
+  assert(fs.write(path, "# " .. title .. "\n\n" .. desc .. "\n\n## Types\n"))
 end
 
 -- Build a mock generated-docs tree with public and internal pages.

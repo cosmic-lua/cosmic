@@ -23,12 +23,12 @@ local function Example_reader()
   end
 
   local p = check.must(fd.pipe())
-  p.writer:write("hello, ")
-  p.writer:write("stream")
-  p.writer:close()
+  assert(p.writer:write("hello, "))
+  assert(p.writer:write("stream"))
+  assert(p.writer:close())
 
   print(drain(p.reader))
-  p.reader:close()
+  assert(p.reader:close())
   -- Output:
   -- hello, stream
 end
@@ -47,9 +47,9 @@ local function Example_writer()
 
   local p = check.must(fd.pipe())
   print(put(p.writer, "ten bytes!"))
-  p.writer:close()
-  print(p.reader:read())
-  p.reader:close()
+  assert(p.writer:close())
+  print(check.must(p.reader:read()))
+  assert(p.reader:close())
   -- Output:
   -- 10
   -- ten bytes!
@@ -59,11 +59,12 @@ end
 -- Reader: in-memory data drives any stream consumer — here the shared
 -- line iterator — without touching a descriptor.
 local function Example_from_string()
+  local check = require("cosmic.check")
   local stream = require("cosmic.stream")
 
   local iter = stream.lines(stream.from_string("alpha\nbeta\n"))
-  print(iter())
-  print(iter())
+  print(check.must(iter()))
+  print(check.must(iter()))
   -- Output:
   -- alpha
   -- beta

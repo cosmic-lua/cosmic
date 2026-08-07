@@ -86,7 +86,7 @@ local function strip_into(from: string, to: string, strip: integer,
       -- not carry it, so the source is stat'd for the bits.
       local src = fs.stat(path)
       if src then
-        fs.chmod(dest, (src as fs.Stat):mode() & tonumber("777", 8)) -- cast: record union after guard
+        local _ok, _err = fs.chmod(dest, (src as fs.Stat):mode() & tonumber("777", 8)) -- cast: record union after guard
       end
       return nil
     end)
@@ -109,7 +109,7 @@ end
 local function unpack(archive: string, dest: string, format: string,
     strip: integer): {string} | nil, string
   local staging = fs.join(dest, ".unpack")
-  fs.remove_all(staging)
+  local _ok, _err = fs.remove_all(staging)
   local mok, merr = fs.make_dirs(staging)
   if not mok then
     return nil, "make: cannot create " .. staging .. ": " ..
@@ -120,7 +120,7 @@ local function unpack(archive: string, dest: string, format: string,
   if format == "zip" then
     local reader, oerr = zip.open(archive)
     if not (reader is zip.Archive) then
-      fs.remove_all(staging)
+      local _ok, _err = fs.remove_all(staging)
       return nil, "make: cannot open " .. archive .. ": " ..
       (oerr or "unknown error")
     end
@@ -131,18 +131,18 @@ local function unpack(archive: string, dest: string, format: string,
   elseif format == "tar.gz" then
     ok, err = untar.extract(archive, staging)
   else
-    fs.remove_all(staging)
+    local _ok, _err = fs.remove_all(staging)
     return nil, "make: " .. archive .. ": unknown format '" .. format ..
     "'; a pin unpacks as zip or tar.gz"
   end
   if not ok then
-    fs.remove_all(staging)
+    local _ok, _err = fs.remove_all(staging)
     return nil, "make: cannot unpack " .. archive .. ": " ..
     (err or "unknown error")
   end
   local produced: {string} = {}
   local sok, serr = strip_into(staging, dest, strip, produced)
-  fs.remove_all(staging)
+  local _ok, _err = fs.remove_all(staging)
   if not sok then
     return nil, serr
   end

@@ -69,7 +69,7 @@ local function test_sigprocmask()
   assert(oldmask ~= nil, "sigprocmask should return old mask")
 
   -- Restore old mask
-  signal.sigprocmask(signal.SIG_SETMASK, oldmask)
+  assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
 end
 test_sigprocmask()
 
@@ -82,7 +82,7 @@ local function test_sigaction_ignore()
   assert(ok, "raise should succeed: " .. (err or ""))
 
   -- Restore old handler
-  signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask)
+  assert(signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask))
 end
 test_sigaction_ignore()
 
@@ -101,19 +101,19 @@ local function test_sigaction_handler()
   local prev = check.must(signal.sigaction(signal.SIGUSR1, on_sig))
 
   -- Raise the signal (it will be pending since blocked)
-  signal.raise(signal.SIGUSR1)
+  assert(signal.raise(signal.SIGUSR1))
 
   -- Unblock to deliver the signal
-  signal.sigprocmask(signal.SIG_SETMASK, oldmask)
+  assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
 
   -- Allow time for signal delivery
-  time.sleep(0, 1000000) -- 1ms
+  assert(time.sleep(0, 1000000)) -- 1ms
 
   assert(received_signal == signal.SIGUSR1,
     "handler should have received SIGUSR1, got " .. tostring(received_signal))
 
   -- Restore old handler
-  signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask)
+  assert(signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask))
 end
 test_sigaction_handler()
 
@@ -143,15 +143,15 @@ local function test_raise()
   end
   local prev = check.must(signal.sigaction(signal.SIGUSR2, on_sig))
 
-  signal.raise(signal.SIGUSR2)
+  assert(signal.raise(signal.SIGUSR2))
 
   -- Small delay to ensure signal is delivered
-  time.sleep(0, 1000000) -- 1ms
+  assert(time.sleep(0, 1000000)) -- 1ms
 
   assert(received, "should have received SIGUSR2")
 
   -- Restore old handler
-  signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask)
+  assert(signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask))
 end
 test_raise()
 
@@ -170,27 +170,27 @@ local function test_setitimer()
   local prev = check.must(signal.sigaction(signal.SIGALRM, on_sig))
 
   -- Set single-shot timer: fire in 100ms, no repeat
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 100,
-      interval_ms = 0,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 100,
+        interval_ms = 0,
+      }))
 
   -- Unblock SIGALRM to allow delivery
-  signal.sigprocmask(signal.SIG_SETMASK, oldmask)
+  assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
 
   -- Wait 200ms for signal delivery
-  time.sleep(0, 200000000)
+  assert(time.sleep(0, 200000000))
 
   assert(received, "SIGALRM handler should have been called")
 
   -- Disarm timer and restore old handler
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0,
-      interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0,
+        interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 end
 test_setitimer()
 
@@ -230,20 +230,20 @@ local function test_sigsuspend_returns_eintr()
   -- sigsuspend never succeeds: it returns nil plus EINTR once a signal
   -- is delivered. Arm a short one-shot timer to provide that signal.
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 50,
-      interval_ms = 0,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 50,
+        interval_ms = 0,
+      }))
   local mask = signal.sigset(signal.SIGUSR2)
   local _, err = signal.sigsuspend(mask)
   assert(type(err) == "string" and err:match("EINTR"),
     "sigsuspend should return an EINTR error, got: " .. tostring(err))
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0,
-      interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0,
+        interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 end
 test_sigsuspend_returns_eintr()

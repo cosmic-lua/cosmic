@@ -44,17 +44,17 @@ local function serve(responses: {string}): integer, integer
         local c = conn as net.Socket -- cast: record union after guard
         local req = read_request(c)
         if resp == "echo" then
-          c:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #req
-            .. "\r\nConnection: close\r\n\r\n" .. req)
+          assert(c:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #req
+              .. "\r\nConnection: close\r\n\r\n" .. req))
         elseif #resp > 0 then
-          c:send(resp)
+          assert(c:send(resp))
         end
-        c:close()
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
@@ -88,7 +88,7 @@ local function test_loopback_get()
   local port, pid = serve({body_response("200 OK", "hello loopback")})
   local url = "http://127.0.0.1:" .. port .. "/"
   local result = fetch.fetch(url, {allow_private = true})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "ok should be true, got error: " .. tostring(result.error))
   assert(result.status == 200, "status should be 200, got " .. tostring(result.status))
   assert(result.body == "hello loopback", "body mismatch: " .. tostring(result.body))
@@ -103,7 +103,7 @@ test_loopback_get()
 local function test_http_error_status_is_ok_but_not_success()
   local port, pid = serve({body_response("404 Not Found", "nope")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "ok should be true for HTTP 404: " .. tostring(result.error))
   assert(result.status == 404, "status should be 404, got " .. tostring(result.status))
   assert(result.error == nil, "error should be nil on HTTP success")
@@ -115,7 +115,7 @@ local function test_post_body_reaches_server()
   local port, pid = serve({"echo"})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/submit",
     {allow_private = true, method = "POST", body = "hello=world"})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "POST should succeed: " .. tostring(result.error))
   assert(result.body:find("POST /submit", 1, true) ~= nil,
     "server should have seen the POST request line: " .. tostring(result.body))
@@ -133,7 +133,7 @@ local function test_ssrf_guard_blocks_private_by_default()
   -- unblock the waiting child so the test can reap it
   local unblock = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
   assert(unblock.ok == true, "allow_private fetch should succeed")
-  proc.wait(pid)
+  assert(proc.wait(pid))
 end
 test_ssrf_guard_blocks_private_by_default()
 
@@ -152,7 +152,7 @@ local function test_follow_redirects_false_returns_redirect()
     })
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, follow_redirects = false})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "redirect response should be returned: " .. tostring(result.error))
   assert(result.status == 302, "status should be 302, got " .. tostring(result.status))
   assert(result.headers.location == "http://127.0.0.1:1/next",
@@ -175,20 +175,20 @@ local function test_redirect_followed_reports_final_url()
         local c = conn as net.Socket -- cast: record union after guard
         read_request(c)
         if i == 1 then
-          c:send("HTTP/1.1 302 Found\r\nLocation: " .. final_url
-            .. "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+          assert(c:send("HTTP/1.1 302 Found\r\nLocation: " .. final_url
+              .. "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
         else
-          c:send(body_response("200 OK", "made it"))
+          assert(c:send(body_response("200 OK", "made it")))
         end
-        c:close()
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port2) .. "/",
     {allow_private = true})
-  proc.wait(pid2)
+  assert(proc.wait(pid2))
   assert(result.ok == true, "redirected fetch should succeed: " .. tostring(result.error))
   assert(result.status == 200, "status should be 200 after redirect")
   assert(result.body == "made it", "body should come from the final URL")
@@ -210,17 +210,17 @@ local function test_opts_table_not_mutated()
         local c = conn as net.Socket -- cast: record union after guard
         read_request(c)
         if i == 1 then
-          c:send("HTTP/1.1 303 See Other\r\nLocation: " .. redirect_url
-            .. "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+          assert(c:send("HTTP/1.1 303 See Other\r\nLocation: " .. redirect_url
+              .. "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
         else
-          c:send(body_response("200 OK", "done"))
+          assert(c:send(body_response("200 OK", "done")))
         end
-        c:close()
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   local headers = {["X-Custom"] = "keep", ["Authorization"] = "Bearer secret"}
   local opts: fetch.Options = {
     allow_private = true,
@@ -229,7 +229,7 @@ local function test_opts_table_not_mutated()
     headers = headers,
   }
   local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", opts)
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "303-redirected POST should succeed: " .. tostring(result.error))
   -- a 303 turns the redirected request into a bodyless GET, but the
   -- caller's table must be untouched
@@ -380,7 +380,7 @@ local function test_timeout_option_accepted()
   local port, pid = serve({body_response("200 OK", "quick")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, timeout_ms = 30000})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "fetch with timeout option should succeed: " .. tostring(result.error))
 end
 test_timeout_option_accepted()

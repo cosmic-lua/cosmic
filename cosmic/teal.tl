@@ -5,7 +5,17 @@
 --- checked AST — the build uses it for in-tree sources so nothing ships
 --- that did not typecheck. --check types uses strict mode.
 
-local tl = require("tl")
+-- This module must be absent exactly when the compiler is — a stripped
+-- artifact asserts both fail together, and its searcher relies on that
+-- to answer require misses without blaming tl (_make/artifact_test.tl).
+-- But loading tl parses ~435KB of Lua that a warm-cache script run
+-- never needs (#938). So: prove tl EXISTS at load time without loading
+-- it, and require it only where it runs — package.loaded makes the
+-- repeat cost one lookup.
+if not package.loaded["tl"] and not package.preload["tl"]
+and not package.searchpath("tl", package.path) then
+  error("module 'tl' not found: cosmic.teal needs the Teal compiler", 0)
+end
 
 --- A compiler or type checker issue.
 local record Issue
@@ -128,6 +138,9 @@ local record ProcessResult
   tl_result: TlResult
   shebang: string
   error: Issue
+  --- The tl env the file ran in; strict runs collect a typed position
+  --- report on it for the discarded-error pass.
+  env: any
 end
 
 --- Build a ProcessResult carrying a single top-of-file error.
@@ -145,6 +158,7 @@ end
 --- @return ProcessResult Processing result with tl_result or error
 local function process_file(input_path: string, include_dirs: {string}, lax: boolean,
     gen_target?: string, gen_compat?: string): ProcessResult
+  local tl = require("tl")
   local f, open_err = io.open(input_path, "r")
   if not f then
     return process_error(input_path, "cannot open file: " .. (open_err or "unknown error"))
@@ -181,6 +195,12 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     tl.path = saved_tl_path
     return process_error(input_path, "tl.new_env: " .. (env_err or "unknown error"))
   end
+  -- Strict runs collect the typed position report the discarded-error
+  -- pass (cosmic._teal_discard) reads after the check.
+  if not lax then
+    local env_map = env as {any: any} -- cast: beyond the narrowed API
+    env_map["report_types"] = true
+  end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
   local ok, result_or_err = pcall(tl.process_string, input, false, env, input_path)
@@ -196,7 +216,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     return process_error(input_path, "processing failed")
   end
 
-  return {tl_result = result, shebang = shebang}
+  return {tl_result = result, shebang = shebang, env = env}
 end
 
 --- Collect errors from tl result (syntax_errors and type_errors).
@@ -261,6 +281,17 @@ local function collect_warnings(result: TlResult, input_path: string): {Issue}
   return warnings
 end
 
+--- Append discarded-error findings (cosmic._teal_discard) as error
+--- Issues; strict-only, required lazily so lax compiles never load it.
+local function collect_discards(proc: ProcessResult, input_path: string,
+    errors: {Issue})
+  local discard = require("cosmic._teal_discard")
+  for _, d in ipairs(discard.issues(proc.env, proc.tl_result.ast, input_path)) do
+    table.insert(errors, {file = d.file, line = d.line, column = d.column,
+        message = d.message, severity = "error"})
+  end
+end
+
 --- Merge caller-provided include directories with defaults.
 --- Caller dirs come first (higher priority), followed by default dirs.
 --- @param extra {string} Additional include directories from caller
@@ -288,6 +319,7 @@ end
 --- @param include_dirs? {string} Extra include dirs (defaults merged in)
 --- @return string|nil Path to the found source, or nil
 local function search_module(module_name: string, include_dirs?: {string}): string | nil
+  local tl = require("tl")
   local dirs = merge_include_dirs(include_dirs)
   local saved_tl_path = tl.path
   tl.path = assemble_tl_path(dirs)
@@ -309,6 +341,7 @@ end
 --- @param opts CompileOptions Compilation options (include_dirs, gen_target, gen_compat, strict)
 --- @return CompileResult Result with ok status, generated Lua code, and any errors
 local function compile(input_path: string, opts: CompileOptions): CompileResult
+  local tl = require("tl")
   opts = opts or {}
 
   local dirs = merge_include_dirs(opts.include_dirs)
@@ -322,6 +355,9 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
     for _, w in ipairs(collect_warnings(proc.tl_result, input_path)) do
       table.insert(errors, w)
     end
+  end
+  if opts.strict and #errors == 0 then
+    collect_discards(proc, input_path, errors)
   end
   if #errors > 0 then
     return {ok = false, code = nil, errors = errors}
@@ -361,6 +397,9 @@ local function check(input_path: string, opts: CheckOptions): CheckResult
 
   local errors = collect_errors(proc.tl_result, input_path)
   local warnings = collect_warnings(proc.tl_result, input_path)
+  if #errors == 0 then
+    collect_discards(proc, input_path, errors)
+  end
 
   local ok = #errors == 0 and (not werror or #warnings == 0)
   return {ok = ok, warnings = warnings, errors = errors}

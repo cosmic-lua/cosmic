@@ -7,13 +7,13 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
   local test_dir = fs.join(TEST_TMPDIR, "fs_test")
-  fs.make_dirs(test_dir)
+  assert(fs.make_dirs(test_dir))
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.remove_all(test_dir)
+    assert(fs.remove_all(test_dir))
   end
 end
 
@@ -59,7 +59,7 @@ local function test_stat_symlink()
   local filepath = fs.join(test_dir, "file.txt")
   local linkpath = fs.join(test_dir, "link")
   touch(filepath, "hello")
-  fs.symlink(filepath, linkpath)
+  assert(fs.symlink(filepath, linkpath))
 
   -- stat always follows symlinks
   local s = check.must(fs.stat(linkpath), "stat should succeed")
@@ -196,7 +196,7 @@ test_makedirs_error_message()
 local function test_rmdir()
   local test_dir = setup()
   local newdir = fs.join(test_dir, "newdir")
-  fs.mkdir(newdir)
+  assert(fs.mkdir(newdir))
 
   local ok, err = fs.rmdir(newdir)
   assert(ok, "rmdir should succeed: " .. (err or ""))
@@ -225,7 +225,7 @@ local function test_getcwd_and_chdir()
   assert(resolved_cwd == resolved_test, "expected cwd to match test_dir")
 
   -- Restore original cwd
-  fs.chdir(original_cwd)
+  assert(fs.chdir(original_cwd))
   teardown(test_dir)
 end
 test_getcwd_and_chdir()
@@ -234,7 +234,7 @@ local function test_opendir()
   local test_dir = setup()
   touch(fs.join(test_dir, "file1.txt"))
   touch(fs.join(test_dir, "file2.txt"))
-  fs.mkdir(fs.join(test_dir, "subdir"))
+  assert(fs.mkdir(fs.join(test_dir, "subdir")))
 
   local d = check.must(fs.opendir(test_dir))
 
@@ -326,7 +326,7 @@ test_symlink_and_readlink()
 local function test_realpath()
   local test_dir = setup()
   local subdir = fs.join(test_dir, "subdir")
-  fs.mkdir(subdir)
+  assert(fs.mkdir(subdir))
 
   -- Create a path with .. that should be resolved
   local messy_path = fs.join(subdir, "..", "subdir")
@@ -343,7 +343,7 @@ test_realpath()
 local function test_rmrf()
   local test_dir = setup()
   local nested = fs.join(test_dir, "a", "b", "c")
-  fs.make_dirs(nested)
+  assert(fs.make_dirs(nested))
   touch(fs.join(nested, "file.txt"))
   touch(fs.join(test_dir, "a", "file.txt"))
 
@@ -401,7 +401,7 @@ local function test_mkdtemp()
   local st = check.must(fs.stat(tmpdir), "temp dir should exist")
   assert(st:is_dir(), "expected directory")
 
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
 end
 test_mkdtemp()
 
@@ -413,8 +413,8 @@ local function test_tmpfile()
   local st = fs.fstat(hh:fd())
   assert(st, "fstat should succeed")
 
-  hh:close()
-  fs.unlink(tf.path)
+  assert(hh:close())
+  assert(fs.unlink(tf.path))
 end
 test_tmpfile()
 
@@ -436,7 +436,7 @@ local function test_is_type_functions()
   local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
   local linkpath = fs.join(test_dir, "link")
-  fs.symlink(filepath, linkpath)
+  assert(fs.symlink(filepath, linkpath))
 
   local file_s = check.must(fs.stat(filepath), "stat should succeed")
   assert(file_s:is_file(), "expected is_file true for regular file")

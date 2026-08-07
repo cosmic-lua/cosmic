@@ -86,12 +86,12 @@ local function listen_unix(path: string, backlog?: integer): Socket | nil, strin
   local s = sock as Socket -- cast: record union after guard
   local ok, bind_err = s:bind_unix(path)
   if not ok then
-    s:close()
+    local _ok, _err = s:close()
     return nil, bind_err
   end
   local lok, listen_err = s:listen(backlog)
   if not lok then
-    s:close()
+    local _ok, _err = s:close()
     return nil, listen_err
   end
   return s
@@ -109,7 +109,7 @@ local function connect_unix(path: string): Socket | nil, string
   local s = sock as Socket -- cast: record union after guard
   local ok, conn_err = s:connect_unix(path)
   if not ok then
-    s:close()
+    local _ok, _err = s:close()
     return nil, conn_err
   end
   return s
@@ -145,20 +145,20 @@ local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions):
   if opts and opts.timeout_ms then
     local ok, conn_err = connect_with_timeout(s, addr, port, opts.timeout_ms)
     if not ok then
-      s:close()
+      local _ok, _err = s:close()
       return nil, conn_err
     end
     -- The timeout path connects non-blocking; hand back a normal socket.
     local bok, berr = s:set_nonblocking(false)
     if not bok then
-      s:close()
+      local _ok, _err = s:close()
       return nil, berr
     end
     return s
   end
   local ok, conn_err = s:connect(addr, port)
   if not ok then
-    s:close()
+    local _ok, _err = s:close()
     return nil, conn_err
   end
   return s
@@ -238,25 +238,25 @@ local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): S
   if opts.reuseaddr ~= false then
     local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
     if not ok then
-      s:close()
+      local _ok, _err = s:close()
       return nil, setopt_err
     end
   end
   if opts.reuseport then
     local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEPORT, true)
     if not ok then
-      s:close()
+      local _ok, _err = s:close()
       return nil, setopt_err
     end
   end
   local bok, bind_err = s:bind(addr, port)
   if not bok then
-    s:close()
+    local _ok, _err = s:close()
     return nil, bind_err
   end
   local lok, listen_err = s:listen(opts.backlog)
   if not lok then
-    s:close()
+    local _ok, _err = s:close()
     return nil, listen_err
   end
   return s

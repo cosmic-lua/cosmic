@@ -108,7 +108,7 @@ local function test_multi_statement_rejected_with_params()
   assert(rows2 == nil and qerr2 and qerr2:find("multi-statement", 1, true),
     "query_list must reject: " .. tostring(qerr2))
 
-  db:close()
+  assert(db:close())
 end
 test_multi_statement_rejected_with_params()
 
@@ -136,7 +136,7 @@ local function test_multi_statement_scan_false_positives()
     "no-parameter exec keeps multi-statement support")
   check.eq(db:query_value("SELECT COUNT(*) FROM t WHERE name LIKE 'm_'"), 2)
 
-  db:close()
+  assert(db:close())
 end
 test_multi_statement_scan_false_positives()
 
@@ -157,6 +157,6 @@ local function test_transaction_callback_typed_rollback()
     end)
   assert(ok2, "returned true must commit: " .. tostring(err2))
   check.eq(db:query_value("SELECT COUNT(*) FROM t"), 3, "insert committed")
-  db:close()
+  assert(db:close())
 end
 test_transaction_callback_typed_rollback()

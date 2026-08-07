@@ -17,7 +17,7 @@ end
 -- followed — same cycle policy as walk).
 local function test_copytree()
   local base = fs.join(TEST_TMPDIR, "ct")
-  fs.remove_all(base)
+  assert(fs.remove_all(base))
   local src = fs.join(base, "src")
   assert(fs.make_dirs(fs.join(src, "sub")))
   write_file(fs.join(src, "a.txt"), "alpha", tonumber("755", 8))
@@ -43,7 +43,7 @@ local function test_copytree()
   assert(fs.is_link(fs.join(dst, "sub", "loop")), "cycle symlink recreated")
   assert(not fs.is_dir(fs.join(dst, "sub", "loop", "dst")) or true,
     "loop is a symlink, so no infinite copy happened (we finished)")
-  fs.remove_all(base)
+  assert(fs.remove_all(base))
 end
 test_copytree()
 
@@ -61,7 +61,7 @@ test_copytree_missing_src_errors()
 -- symlinks are overwritten") and copy()'s treatment of regular files.
 local function test_copytree_symlink_overwrite()
   local base = fs.join(TEST_TMPDIR, "ct_link_overwrite")
-  fs.remove_all(base)
+  assert(fs.remove_all(base))
   local src = fs.join(base, "src")
   assert(fs.make_dirs(src))
   write_file(fs.join(src, "a.txt"), "alpha")
@@ -80,7 +80,7 @@ local function test_copytree_symlink_overwrite()
   assert(fs.is_link(fs.join(dst, "link")), "destination is still a symlink")
   assert(fs.readlink(fs.join(dst, "link")) == "a.txt",
     "symlink target should be replaced, got " .. tostring((fs.readlink(fs.join(dst, "link")))))
-  fs.remove_all(base)
+  assert(fs.remove_all(base))
 end
 test_copytree_symlink_overwrite()
 
@@ -89,7 +89,7 @@ test_copytree_symlink_overwrite()
 -- then, and mkdir()'s own mode is umask-filtered on creation either way).
 local function test_copytree_dir_mode_exact()
   local base = fs.join(TEST_TMPDIR, "ct_dir_mode")
-  fs.remove_all(base)
+  assert(fs.remove_all(base))
   local src_mode = tonumber("750", 8)
   local src = fs.join(base, "src")
   assert(fs.make_dirs(src))
@@ -108,7 +108,7 @@ local function test_copytree_dir_mode_exact()
   assert((st:mode() & tonumber("777", 8)) == src_mode,
     "dst dir mode should match src exactly, got "
     .. string.format("%o", st:mode() & tonumber("777", 8)))
-  fs.remove_all(base)
+  assert(fs.remove_all(base))
 end
 test_copytree_dir_mode_exact()
 
@@ -126,7 +126,7 @@ local function test_tmpfile_handle_and_path()
   assert((hh.write as function(any, string): number, string)(h, "via handle"))
   assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.read(path) == "via handle", "fs.read sees what the Handle wrote")
-  fs.unlink(path)
+  assert(fs.unlink(path))
 end
 test_tmpfile_handle_and_path()
 
@@ -140,7 +140,7 @@ local function test_tmpfile_default_template()
   local path = t.path as string -- cast: from any
   assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.is_file(path), "returned path exists")
-  fs.unlink(path)
+  assert(fs.unlink(path))
 end
 test_tmpfile_default_template()
 
@@ -164,7 +164,7 @@ local function test_collect_pattern_is_always_glob()
   local hits = check.must(fs.find(dir, {glob = "%.txt$"}))
   assert(#hits == 1, "glob should match exactly the literal file, got " .. #hits)
   assert(fs.basename(hits[1]) == "%.txt$", "literal-name match")
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
 end
 test_collect_pattern_is_always_glob()
 
@@ -177,7 +177,7 @@ local function test_find_pattern_takes_lua_patterns()
   local hits = check.must(fs.find(dir, {pattern = "%.txt$"}))
   assert(#hits == 1 and fs.basename(hits[1]) == "x.txt",
     "a Lua pattern matches via FindOptions.pattern")
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
 end
 test_find_pattern_takes_lua_patterns()
 
@@ -194,7 +194,7 @@ local function test_files_pattern_is_always_glob()
   end
   assert(seen["foo1.lua"], "glob ? matches one char")
   assert(not seen["foo.lua"], "glob ? must not match zero chars")
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
 end
 test_files_pattern_is_always_glob()
 
@@ -221,7 +221,7 @@ local function test_dir_read_returns_d_type()
     "Dir:read must report DT_DIR for a subdir, got " .. tostring(kinds["subdir"]))
   assert(kinds["plain.txt"] == fsa.DT_REG,
     "Dir:read must report DT_REG for a file, got " .. tostring(kinds["plain.txt"]))
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
 end
 test_dir_read_returns_d_type()
 
@@ -233,6 +233,6 @@ local function test_access_defaults_to_exists()
   assert(access(path) == true, "access(path) with no mode means exists")
   assert(access(fs.join(TEST_TMPDIR, "missing.txt")) == false,
     "access on a missing path is false")
-  fs.unlink(path)
+  assert(fs.unlink(path))
 end
 test_access_defaults_to_exists()

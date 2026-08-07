@@ -45,7 +45,7 @@ local function Example_set_and_get()
     return
   end
   print(env.get("COSMIC_EXAMPLE_VAR"))
-  env.unset("COSMIC_EXAMPLE_VAR")
+  assert(env.unset("COSMIC_EXAMPLE_VAR"))
   -- Output:
   -- hello
 end
@@ -53,8 +53,8 @@ end
 -- Example_unset demonstrates removing an environment variable.
 local function Example_unset()
   local env = require("cosmic.env")
-  env.set("COSMIC_EXAMPLE_TEMP", "temporary")
-  env.unset("COSMIC_EXAMPLE_TEMP")
+  assert(env.set("COSMIC_EXAMPLE_TEMP", "temporary"))
+  assert(env.unset("COSMIC_EXAMPLE_TEMP"))
   print(tostring(env.get("COSMIC_EXAMPLE_TEMP")))
   -- Output:
   -- nil

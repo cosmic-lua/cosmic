@@ -239,7 +239,7 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
   local child = require("cosmic.child")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local root = fs.join(tmpdir, "ratchet-says")
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(fs.join(root, "lib")))
   local src = fs.join(root, "lib/a.tl")
   assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))

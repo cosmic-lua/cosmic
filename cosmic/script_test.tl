@@ -13,7 +13,7 @@ local test_subdir = fs.temp_dir(fs.join(tmpdir, "cosmic_script_test_XXXXXX"))
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(test_subdir, name)
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
 
   -- Verify the file was written correctly
   local written = fs.read(filepath)
@@ -192,7 +192,7 @@ test_teal_with_shebang()
 -- (and so its mtime) invalidates the cache and picks up the new output.
 local function test_script_cache_reuse_and_invalidation()
   local env = require("cosmic.env")
-  env.set("COSMIC_TL_CACHE_DIR", fs.join(test_subdir, "tl-cache"), true)
+  assert(env.set("COSMIC_TL_CACHE_DIR", fs.join(test_subdir, "tl-cache"), true))
 
   local script = write_temp("cached.tl", [[
 local x: number = 1
@@ -209,10 +209,10 @@ print("value=" .. x)
 
   -- Overwrite with different content; the mtime change must invalidate
   -- the cached compiled output from the runs above.
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local x: number = 2
 print("value=" .. x)
-]])
+]]))
   local h12 = check.must(child.start({cosmic, script}))
   local __r12 = check.must(h12:wait())
   local ok, out = __r12.ok, __r12.stdout
