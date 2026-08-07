@@ -30,7 +30,7 @@ local function test_line_format()
   log.info("server started")
   local line = captured[1]
   assert(line:match(iso_pattern), "no ISO timestamp: " .. line)
-  assert(line:find("INFO  server started", 1, true), "got: " .. line)
+  assert(line:find("INFO    server started", 1, true), "got: " .. line)
 end
 test_line_format()
 
@@ -38,26 +38,26 @@ local function test_level_tags()
   reset("debug")
   log.debug("d")
   log.info("i")
-  log.warn("w")
+  log.warning("w")
   log.error("e")
   assert(#captured == 4, "expected 4 lines, got " .. tostring(#captured))
-  assert(captured[1]:find("DEBUG d", 1, true), "got: " .. captured[1])
-  assert(captured[2]:find("INFO  i", 1, true), "got: " .. captured[2])
-  assert(captured[3]:find("WARN  w", 1, true), "got: " .. captured[3])
-  assert(captured[4]:find("ERROR e", 1, true), "got: " .. captured[4])
+  assert(captured[1]:find("DEBUG   d", 1, true), "got: " .. captured[1])
+  assert(captured[2]:find("INFO    i", 1, true), "got: " .. captured[2])
+  assert(captured[3]:find("WARNING w", 1, true), "got: " .. captured[3])
+  assert(captured[4]:find("ERROR   e", 1, true), "got: " .. captured[4])
 end
 test_level_tags()
 
-local function test_error_threshold_suppresses_warn()
+local function test_error_threshold_suppresses_warning()
   reset("error")
   log.debug("hidden")
   log.info("hidden")
-  log.warn("hidden")
+  log.warning("hidden")
   log.error("visible")
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
-  assert(captured[1]:find("ERROR visible", 1, true), "got: " .. captured[1])
+  assert(captured[1]:find("ERROR   visible", 1, true), "got: " .. captured[1])
 end
-test_error_threshold_suppresses_warn()
+test_error_threshold_suppresses_warning()
 
 local function test_fields_sorted_by_key()
   reset("info")
@@ -67,37 +67,42 @@ local function test_fields_sorted_by_key()
 end
 test_fields_sorted_by_key()
 
-local function test_field_values_quoted_when_ambiguous()
+-- Field values render with the shared grammar (cosmic._fields): "%"
+-- and spaces percent-encode, so a value never splits a key=value
+-- token — the same encoding instrument lines use.
+local function test_field_values_use_shared_grammar()
   reset("info")
   log.info("m", {
       plain = "bare",
       spaced = "two words",
       eq = "k=v",
+      pct = "50%",
       n = 42,
       b = false,
     })
   local line = captured[1]
   assert(line:find("plain=bare", 1, true), "got: " .. line)
-  assert(line:find('spaced="two words"', 1, true), "got: " .. line)
-  assert(line:find('eq="k=v"', 1, true), "got: " .. line)
+  assert(line:find("spaced=two%20words", 1, true), "got: " .. line)
+  assert(line:find("eq=k=v", 1, true), "got: " .. line)
+  assert(line:find("pct=50%25", 1, true), "got: " .. line)
   assert(line:find("n=42", 1, true), "got: " .. line)
   assert(line:find("b=false", 1, true), "got: " .. line)
 end
-test_field_values_quoted_when_ambiguous()
+test_field_values_use_shared_grammar()
 
 local function test_generic_log_function()
   reset("info")
-  log.log("warn", "generic", {code = 7})
+  log.log("warning", "generic", {code = 7})
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
-  assert(captured[1]:find("WARN  generic code=7", 1, true), "got: " .. captured[1])
+  assert(captured[1]:find("WARNING generic code=7", 1, true), "got: " .. captured[1])
 end
 test_generic_log_function()
 
 local function test_level_getter_tracks_set_level()
   reset("info")
   assert(log.level() == "info", "got: " .. log.level())
-  assert(log.set_level("warn"))
-  assert(log.level() == "warn", "got: " .. log.level())
+  assert(log.set_level("warning"))
+  assert(log.level() == "warning", "got: " .. log.level())
 end
 test_level_getter_tracks_set_level()
 
@@ -125,7 +130,7 @@ local function test_format_does_not_emit()
   local line = log.format("error", "standalone", {id = 3})
   assert(#captured == 0, "format emitted a line")
   assert(line:match(iso_pattern), "no ISO timestamp: " .. line)
-  assert(line:find("ERROR standalone id=3", 1, true), "got: " .. line)
+  assert(line:find("ERROR   standalone id=3", 1, true), "got: " .. line)
 end
 test_format_does_not_emit()
 

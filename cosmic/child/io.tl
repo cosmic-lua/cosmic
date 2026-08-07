@@ -111,12 +111,9 @@ local function resolve_stdio(stdin?: string | cfd.Handle,
   return s
 end
 
--- Current monotonic time in milliseconds. Used only for relative deadline
--- arithmetic, so the arbitrary epoch does not matter.
-local function now_ms(): number
-  local secs, nanos = time.monotonic()
-  return secs * 1000 + nanos / 1000000
-end
+-- Deadlines are absolute time.monotonic_ms() values: whole-integer
+-- milliseconds, so deadline arithmetic never runs in floats.
+local now_ms = time.monotonic_ms
 
 --- Read up to bufsiz bytes from fd, retrying when a signal interrupts the
 --- read (the signal-safety wave). Returns unix.read's (data, err).
@@ -154,9 +151,10 @@ end
 
 --- Drive `state` forward: feed stdin while draining stdout/stderr, all in one
 --- poll loop so no direction can deadlock on a full pipe buffer. Returns
---- `true` if `deadline_ms` (an absolute `now_ms()` value, or nil for no limit)
---- elapsed before every stream finished — the child may still be running and
---- the caller can resume by calling `pump` again with the same state. Returns
+--- `true` if `deadline_ms` (an absolute `time.monotonic_ms()` value, or nil
+--- for no limit) elapsed before every stream finished — the child may still
+--- be running and the caller can resume by calling `pump` again with the same
+--- state. Returns
 --- `false` once stdin is fully sent and stdout/stderr have both hit EOF; each
 --- fd is closed and nilled in `state` as it completes.
 --- @param state PumpState shared, mutable I/O state
@@ -286,7 +284,7 @@ local record ChildIoModule
   type PumpState = PumpState
   type Stdio = Stdio
   pump: function(state: PumpState, deadline_ms: number): boolean
-  now_ms: function(): number
+  now_ms: function(): integer
   read_retry: function(fd: integer, bufsiz: integer): string | nil, string | nil
   wait_retry: function(pid: integer): integer | nil, integer
   resolve_stdio: function(stdin?: string | cfd.Handle,

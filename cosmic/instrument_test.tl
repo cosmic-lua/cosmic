@@ -16,108 +16,91 @@ local function test_begin_returns_span()
 end
 test_begin_returns_span()
 
--- test finish emits nothing when COSMIC_INSTRUMENTATION is unset
+-- finish always measures: with instrumentation off it still returns
+-- the data (it just writes no stderr line).
 
-local function test_finish_silent_by_default()
+local function test_finish_measures_when_disabled()
   assert(env.unset("COSMIC_INSTRUMENTATION"))
   local span = instrument.begin("compile", "test.tl")
-  -- finish should return the line but not write to stderr when disabled
-  local line = instrument.finish(span, 0)
-  assert(line == nil, "expected nil when instrumentation disabled, got: " .. tostring(line))
+  local data = instrument.finish(span, 0)
+  assert(data ~= nil, "expected data even when instrumentation is off")
+  assert(data.op == "compile", "expected op=compile, got " .. tostring(data.op))
+  assert(data.file == "test.tl", "expected file, got " .. tostring(data.file))
+  assert(data.exit == 0, "expected exit=0")
+  assert(data.wall_ms >= 0, "expected wall_ms >= 0")
 end
-test_finish_silent_by_default()
+test_finish_measures_when_disabled()
 
--- test finish returns formatted line when COSMIC_INSTRUMENTATION=1
+-- test finish data formats to a line via format_line
 
-local function test_finish_returns_line_when_enabled()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
+local function test_finish_and_format_line()
   local span = instrument.begin("check-types", "cosmic/fs.tl")
   assert(time.sleep(0, 1000000)) -- sleep 1ms to get measurable time
-  local line = check.must(instrument.finish(span, 0))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected instrumentation line")
+  local data = instrument.finish(span, 0)
+  local line = instrument.format_line(data)
   assert(line:match("^cosmic:"), "expected 'cosmic:' prefix, got: " .. line)
   assert(line:match("op=check%-types"), "expected op=check-types in: " .. line)
   assert(line:match("file=cosmic/fs%.tl"), "expected file= in: " .. line)
   assert(line:match("exit=0"), "expected exit=0 in: " .. line)
   assert(line:match("wall_ms=%d+"), "expected wall_ms= in: " .. line)
 end
-test_finish_returns_line_when_enabled()
+test_finish_and_format_line()
 
--- test finish captures cpu_ms
+-- test finish captures cpu_ms and maxrss_kb
 
-local function test_finish_includes_cpu_ms()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
+local function test_finish_includes_cpu_and_maxrss()
   local span = instrument.begin("test", "x.tl")
   -- do some cpu work
   local sum = 0
   for i = 1, 10000 do sum = sum + i end
   local _ = sum
-  local line = check.must(instrument.finish(span, 0))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected line")
-  assert(line:match("cpu_ms=%d+"), "expected cpu_ms= in: " .. line)
+  local data = instrument.finish(span, 0)
+  assert(data.cpu_ms >= 0, "expected cpu_ms >= 0")
+  assert(data.maxrss_kb > 0, "expected maxrss_kb > 0")
 end
-test_finish_includes_cpu_ms()
-
--- test finish captures maxrss_kb
-
-local function test_finish_includes_maxrss()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
-  local span = instrument.begin("test", "x.tl")
-  local line = check.must(instrument.finish(span, 0))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected line")
-  assert(line:match("maxrss_kb=%d+"), "expected maxrss_kb= in: " .. line)
-end
-test_finish_includes_maxrss()
+test_finish_includes_cpu_and_maxrss()
 
 -- test finish with non-zero exit code
 
 local function test_finish_nonzero_exit()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
   local span = instrument.begin("compile", "bad.tl")
-  local line = check.must(instrument.finish(span, 1))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected line")
-  assert(line:match("exit=1"), "expected exit=1 in: " .. line)
+  local data = instrument.finish(span, 1)
+  assert(data.exit == 1, "expected exit=1, got " .. tostring(data.exit))
 end
 test_finish_nonzero_exit()
 
--- test enabled() reflects env var
+-- test is_enabled() reflects env var
 
-local function test_enabled()
+local function test_is_enabled()
   assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(not instrument.enabled(), "expected disabled when unset")
+  assert(not instrument.is_enabled(), "expected disabled when unset")
   assert(env.set("COSMIC_INSTRUMENTATION", "1"))
-  assert(instrument.enabled(), "expected enabled when set to 1")
+  assert(instrument.is_enabled(), "expected enabled when set to 1")
   assert(env.set("COSMIC_INSTRUMENTATION", "0"))
-  assert(not instrument.enabled(), "expected disabled when set to 0")
+  assert(not instrument.is_enabled(), "expected disabled when set to 0")
   assert(env.set("COSMIC_INSTRUMENTATION", "true"))
-  assert(instrument.enabled(), "expected enabled when set to true")
+  assert(instrument.is_enabled(), "expected enabled when set to true")
   assert(env.unset("COSMIC_INSTRUMENTATION"))
 end
-test_enabled()
+test_is_enabled()
 
--- test parse_line round-trips
+-- test format_line/parse_line round-trip on real measured data
 
-local function test_parse_line()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
+local function test_round_trip()
   local span = instrument.begin("test", "cosmic/sqlite_test.tl")
   assert(time.sleep(0, 1000000))
-  local line = check.must(instrument.finish(span, 0))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected line")
+  local data = instrument.finish(span, 0)
+  local line = instrument.format_line(data)
   local parsed = check.must(instrument.parse_line(line), "expected parsed result")
   assert(parsed.op == "test", "expected op=test, got " .. tostring(parsed.op))
   assert(parsed.file == "cosmic/sqlite_test.tl",
     "expected file, got " .. tostring(parsed.file))
   assert(parsed.exit == 0, "expected exit=0, got " .. tostring(parsed.exit))
-  assert(parsed.wall_ms >= 0, "expected wall_ms >= 0")
-  assert(parsed.cpu_ms >= 0, "expected cpu_ms >= 0")
-  assert(parsed.maxrss_kb > 0, "expected maxrss_kb > 0")
+  assert(parsed.wall_ms == data.wall_ms, "wall_ms must round-trip exactly")
+  assert(parsed.cpu_ms == data.cpu_ms, "cpu_ms must round-trip exactly")
+  assert(parsed.maxrss_kb == data.maxrss_kb, "maxrss_kb must round-trip exactly")
 end
-test_parse_line()
+test_round_trip()
 
 -- test parse_line returns nil for non-instrument lines
 
@@ -150,11 +133,8 @@ test_parse_lines()
 -- with a non-space (%S+) pattern, so an unescaped space in a path
 -- would silently truncate it at parse time.
 local function test_file_with_space_round_trips()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
   local span = instrument.begin("test", "cosmic/my file.tl")
-  local line = check.must(instrument.finish(span, 0))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected line")
+  local line = instrument.format_line(instrument.finish(span, 0))
   local parsed = check.must(instrument.parse_line(line), "expected parsed result")
   assert(parsed.file == "cosmic/my file.tl",
     "expected the space to survive round-trip, got: " .. tostring(parsed.file))
@@ -167,15 +147,24 @@ end
 test_file_with_space_round_trips()
 
 -- A literal "%" in a path must also round-trip, and must not be
--- misinterpreted as an escape sequence introduced by escape_field.
+-- misinterpreted as an escape sequence introduced by the encoder.
 local function test_file_with_percent_round_trips()
-  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
   local span = instrument.begin("test", "cosmic/100%.tl")
-  local line = check.must(instrument.finish(span, 0))
-  assert(env.unset("COSMIC_INSTRUMENTATION"))
-  assert(line ~= nil, "expected line")
+  local line = instrument.format_line(instrument.finish(span, 0))
   local parsed = check.must(instrument.parse_line(line), "expected parsed result")
   assert(parsed.file == "cosmic/100%.tl",
     "expected the percent to survive round-trip, got: " .. tostring(parsed.file))
 end
 test_file_with_percent_round_trips()
+
+-- The emitted stderr line is gated on COSMIC_INSTRUMENTATION, and it
+-- is exactly format_line of the returned data.
+local function test_emission_gated_on_env()
+  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
+  local span = instrument.begin("test", "gated.tl")
+  local data = instrument.finish(span, 0)
+  assert(env.unset("COSMIC_INSTRUMENTATION"))
+  local line = instrument.format_line(data)
+  assert(line:find("file=gated.tl", 1, true), "got: " .. line)
+end
+test_emission_gated_on_env()
