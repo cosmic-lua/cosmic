@@ -55,6 +55,7 @@ _perf/bench/fuzzy_bench.tl 0 19
 _perf/bench/http_bench.tl 83 114
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
+_perf/bench/re_bench.tl 59 70
 _perf/bench/sqlite_bench.tl 90 106
 _perf/bench/startup_bench.tl 73 85
 _perf/bench/stream_bench.tl 0 80
@@ -191,4 +192,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14237 18715
+total 14296 18785
