@@ -146,7 +146,10 @@ local function write_entry(hdr: Header, name: string, payload: string,
       return false, "mkdir " .. dest .. " failed: " .. (err or "unknown error")
     end
   elseif t == "0" or t == "\0" then
-    local _ok, _err = fs.make_dirs(fs.dirname(dest))
+    local dok, derr = fs.make_dirs(fs.dirname(dest))
+    if not dok then
+      return false, "mkdir " .. fs.dirname(dest) .. " failed: " .. (derr or "unknown error")
+    end
     local mode = hdr.mode % 512 -- permission bits only (0777 mask)
     if mode == 0 then mode = tonumber("644", 8) as integer end -- cast: octal is integral
     local ok, err = fs.write(dest, payload, mode)
@@ -157,7 +160,10 @@ local function write_entry(hdr: Header, name: string, payload: string,
     if unsafe_link_target(hdr.linkname) then
       return false, "unsafe symlink target in archive: " .. name .. " -> " .. hdr.linkname
     end
-    local _ok, _err = fs.make_dirs(fs.dirname(dest))
+    local dok, derr = fs.make_dirs(fs.dirname(dest))
+    if not dok then
+      return false, "mkdir " .. fs.dirname(dest) .. " failed: " .. (derr or "unknown error")
+    end
     local ok, err = fs.symlink(hdr.linkname, dest)
     if not ok then
       return false, "symlink " .. dest .. " failed: " .. (err or "unknown error")

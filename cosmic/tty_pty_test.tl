@@ -159,8 +159,8 @@ local function echo_observed(pty: tty.Pty): boolean
   assert(mgr:write("x"))
   local set = poll.new()
   assert(set:add(pty.manager, poll.POLLIN))
-  local n = set:poll(300)
-  if n and n > 0 then
+  local ready = set:wait(300)
+  if ready and next(ready) ~= nil then
     assert(mgr:read(64))
     return true
   end
@@ -260,8 +260,8 @@ local function test_getpass_reads_without_echoing()
   local set = poll.new()
   assert(set:add(pty.manager, poll.POLLIN))
   while true do
-    local n = set:poll(300)
-    if not n or n == 0 then break end
+    local ready = set:wait(300)
+    if not ready or next(ready) == nil then break end
     local chunk = mgr:read(4096)
     if not chunk or #chunk == 0 then break end
     seen = seen .. chunk

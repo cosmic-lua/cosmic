@@ -1,11 +1,15 @@
 --- Regular expression matching using POSIX extended regex syntax.
 --- Wraps cosmo.re for pattern compilation and matching. Module-level
 --- functions are SUBJECT-FIRST D20: match(text, pattern), like
---- string.match. The compiled Regex keeps the binding's own :search
---- method name — a userdata metatable is the C layer's to name.
+--- string.match. Compile behavior is a CompileOptions record — a search
+--- flag in a compile slot cannot type-check, where the old shared
+--- integer namespace silently ignored it. The compiled Regex keeps the
+--- binding's own :search/:find method names and integer search flags
+--- (NOTBOL/NOTEOL) — a userdata metatable is the C layer's to name, so
+--- renaming them is an upstream change, not a record edit.
 ---
 --- For best performance, compile patterns once and reuse them.
---- The convenience functions (match, test, find, find_all, gmatch,
+--- The convenience functions (match, is_match, find, find_all, gmatch,
 --- split, gsub) take a pattern string per call; a bounded module cache
 --- memoizes their compiled patterns, so repeated calls with the same
 --- pattern skip recompilation. compile() itself is never cached: it is
@@ -48,15 +52,42 @@ local record Regex
   find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
 end
 
+--- Compile behavior. Each field maps to one POSIX cflag; a record
+--- keeps the compile and search namespaces unmixable (the old integer
+--- flags shared one namespace, so a search flag passed at compile time
+--- type-checked and was silently ignored).
+local record CompileOptions
+  --- Basic (obsolete) regex syntax instead of extended.
+  basic: boolean
+  --- Case-insensitive matching.
+  ignore_case: boolean
+  --- Treat newline as special (affects ^ and $).
+  newline: boolean
+  --- Report only success/failure, not match position.
+  no_sub: boolean
+end
+
+--- The binding's integer cflags for a CompileOptions record.
+local function flags_of(opts?: CompileOptions): integer
+  local flags = 0
+  if opts then
+    if opts.basic then flags = flags | re.BASIC end
+    if opts.ignore_case then flags = flags | re.ICASE end
+    if opts.newline then flags = flags | re.NEWLINE end
+    if opts.no_sub then flags = flags | re.NOSUB end
+  end
+  return flags
+end
+
 --- Compile a regular expression pattern.
 --- Compiled patterns can be reused for efficient O(n) matching.
 --- Uses POSIX extended syntax by default.
 --- @param pattern string The regex pattern to compile
---- @param flags integer? Optional flags: BASIC, ICASE, NEWLINE, NOSUB
+--- @param opts CompileOptions? Compile behavior
 --- @return Regex? The compiled regex, or nil on error
 --- @return string? Error message if compilation failed
-local function compile(pattern: string, flags?: integer): Regex | nil, string
-  local result, err = re.compile(pattern, flags)
+local function compile(pattern: string, opts?: CompileOptions): Regex | nil, string
+  local result, err = re.compile(pattern, flags_of(opts))
   if not result then
     return nil, err
   end
@@ -82,22 +113,23 @@ local CACHE_MAX = 64
 local cache: {string: CacheEntry} = {}
 local cache_count = 0
 
---- The memo key. Flags are part of a pattern's identity: the same
---- source compiled with ICASE is a different regex.
+--- The memo key. Options are part of a pattern's identity: the same
+--- source compiled with ignore_case is a different regex.
 --- @param pattern string The regex pattern
---- @param flags integer? Optional compile flags
+--- @param flags integer The resolved compile flags
 --- @return string The cache key
-local function cache_key(pattern: string, flags?: integer): string
-  return tostring(flags or 0) .. "\0" .. pattern
+local function cache_key(pattern: string, flags: integer): string
+  return tostring(flags) .. "\0" .. pattern
 end
 
 --- Get-or-create the memo entry for a pattern, compiling on miss.
 --- Compile failures are cached too, so a bad pattern in a loop pays
 --- one compile, not one per call.
 --- @param pattern string The regex pattern
---- @param flags integer? Optional compile flags
+--- @param opts CompileOptions? Compile behavior
 --- @return CacheEntry The entry (rx set on success, err on failure)
-local function cache_entry(pattern: string, flags?: integer): CacheEntry
+local function cache_entry(pattern: string, opts?: CompileOptions): CacheEntry
+  local flags = flags_of(opts)
   local key = cache_key(pattern, flags)
   local entry = cache[key]
   if entry ~= nil then
@@ -107,7 +139,8 @@ local function cache_entry(pattern: string, flags?: integer): CacheEntry
     cache = {}
     cache_count = 0
   end
-  local rx, cerr = compile(pattern, flags)
+  local rx, cerr = re.compile(pattern, flags) as (Regex | nil, string) -- cast: userdata boundary
+
   if rx is Regex then
     entry = {rx = rx}
   else
@@ -118,50 +151,57 @@ local function cache_entry(pattern: string, flags?: integer): CacheEntry
   return entry
 end
 
+--- One match: the matched text and its parenthesized capture groups
+--- (an empty table when the pattern has none, "" for groups that did
+--- not participate).
+local record Match
+  text: string
+  caps: {string}
+end
+
 --- Match pattern against text (convenience function; subject first).
 --- Compiled patterns are cached - compile() gives explicit reuse.
---- Uses POSIX extended syntax by default.
---- On a match, returns the matched substring plus a table of the
---- parenthesized capture groups (an empty table when the pattern has no
---- groups, "" for groups that did not participate). A no-match returns
---- nil with no error; a bad pattern or an engine failure returns
---- nil, nil, err.
+--- Uses POSIX extended syntax by default. Two slots, three honest
+--- outcomes: a Match on success, bare nil on no match (not an error),
+--- nil + err on a bad pattern or engine failure — the old three-slot
+--- tuple made every call site hand-decode which nil it was looking at.
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
---- @return string | nil The matched substring, or nil on no match or error
---- @return {string} | nil Capture groups on match
+--- @param opts CompileOptions? Compile behavior
+--- @return Match | nil The match, or nil when none (or on error)
 --- @return string | nil Error message if compilation or the engine failed
-local function match(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
-  local entry = cache_entry(pattern, flags)
+local function match(text: string, pattern: string, opts?: CompileOptions): Match | nil, string
+  local entry = cache_entry(pattern, opts)
   local regex, cerr = entry.rx, entry.err
   if regex is Regex then
-    -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
     local m, caps = regex:search(text)
     if not m then
       if caps then
         -- Engine failure: the binding reports nil, err.
-        return nil, nil, tostring(caps)
+        return nil, tostring(caps)
       end
       -- No match is not an error.
       return nil
     end
-    return m, caps
+    return {text = m, caps = caps}
   end
-  return nil, nil, cerr
+  return nil, cerr
 end
 
---- Check if pattern matches anywhere in text (subject first).
---- Convenience predicate returning boolean instead of matched text.
+--- Whether pattern matches anywhere in text (subject first).
+--- Three honest outcomes: true, false on a clean no-match, and
+--- nil + err on a bad pattern — the old boolean shape returned false
+--- for both, so "no match" and "your pattern is invalid" were the
+--- same value. Narrow with `~= nil`, which is exact for boolean unions.
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
---- @return boolean True if pattern matches, false otherwise
+--- @param opts CompileOptions? Compile behavior
+--- @return boolean | nil The verdict, or nil on error
 --- @return string? Error message if compilation or the engine failed
-local function test(text: string, pattern: string, flags?: integer): boolean, string
-  local m, _, err = match(text, pattern, flags)
+local function is_match(text: string, pattern: string, opts?: CompileOptions): boolean | nil, string
+  local m, err = match(text, pattern, opts)
   if err then
-    return false, err
+    return nil, err
   end
   return m ~= nil
 end
@@ -183,8 +223,8 @@ end
 --- the empty string: a zero-length match cannot be advanced past
 --- (its end offset sits before its start, so iteration would not
 --- move).
-local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, string
-  local entry = cache_entry(pattern, flags)
+local function compile_for_iter(pattern: string, opts?: CompileOptions): Regex | nil, string
+  local entry = cache_entry(pattern, opts)
   if entry.rx == nil then
     return nil, entry.err
   end
@@ -235,11 +275,11 @@ end
 --- Patterns that can match the empty string are rejected.
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param opts CompileOptions? Compile behavior
 --- @return Span | nil The first match, or nil when none
 --- @return string? Error message on a bad pattern or engine failure
-local function find(text: string, pattern: string, flags?: integer): Span | nil, string
-  local regex, cerr = compile_for_iter(pattern, flags)
+local function find(text: string, pattern: string, opts?: CompileOptions): Span | nil, string
+  local regex, cerr = compile_for_iter(pattern, opts)
   if not regex then
     return nil, cerr
   end
@@ -268,11 +308,11 @@ end
 --- line.)
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param opts CompileOptions? Compile behavior
 --- @return {Span} | nil The matches (empty when none), or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function find_all(text: string, pattern: string, flags?: integer): {Span} | nil, string
-  local regex, cerr = compile_for_iter(pattern, flags)
+local function find_all(text: string, pattern: string, opts?: CompileOptions): {Span} | nil, string
+  local regex, cerr = compile_for_iter(pattern, opts)
   if not regex then
     return nil, cerr
   end
@@ -281,16 +321,17 @@ end
 
 --- Iterate every non-overlapping match, like string.gmatch: each step
 --- yields the matched text and its capture table. Matching is done up
---- front (the engine reports no offsets, so lazy stepping buys
---- nothing); a bad pattern or engine failure returns nil, err instead
---- of an iterator. Shares find_all's NEWLINE limitation.
+--- front over find_all's spans; a bad pattern or engine failure
+--- returns nil, err instead of an iterator — and the signature now
+--- admits that nil, so `for m in re.gmatch(t, p) do` on a bad pattern
+--- is a check error instead of a runtime crash.
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param opts CompileOptions? Compile behavior
 --- @return function | nil Iterator yielding (match, caps), or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function gmatch(text: string, pattern: string, flags?: integer): MatchIterator, string
-  local spans, err = find_all(text, pattern, flags)
+local function gmatch(text: string, pattern: string, opts?: CompileOptions): MatchIterator | nil, string
+  local spans, err = find_all(text, pattern, opts)
   if not spans then
     return nil, err
   end
@@ -312,11 +353,11 @@ end
 --- Patterns that can match the empty string are rejected.
 --- @param text string The text to split
 --- @param pattern string The regex pattern to split on
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param opts CompileOptions? Compile behavior
 --- @return {string} | nil The fields, or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function split(text: string, pattern: string, flags?: integer): {string} | nil, string
-  local regex, cerr = compile_for_iter(pattern, flags)
+local function split(text: string, pattern: string, opts?: CompileOptions): {string} | nil, string
+  local regex, cerr = compile_for_iter(pattern, opts)
   if not regex then
     return nil, cerr
   end
@@ -344,11 +385,11 @@ local type Repl = string | function(string, {string}): string
 --- @param text string The text to operate on
 --- @param pattern string The regex pattern to match
 --- @param repl Repl A literal replacement string, or function(match, caps)
---- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param opts CompileOptions? Compile behavior
 --- @return string | nil The result, or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function gsub(text: string, pattern: string, repl: Repl, flags?: integer): string | nil, string
-  local regex, cerr = compile_for_iter(pattern, flags)
+local function gsub(text: string, pattern: string, repl: Repl, opts?: CompileOptions): string | nil, string
+  local regex, cerr = compile_for_iter(pattern, opts)
   if not regex then
     return nil, cerr
   end
@@ -381,25 +422,22 @@ local record ReModule
   type Regex = Regex
   type Repl = Repl
   type Span = Span
+  type Match = Match
+  type CompileOptions = CompileOptions
 
   -- Functions (subject first, D20)
-  compile: function(pattern: string, flags?: integer): Regex | nil, string
-  match: function(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
-  test: function(text: string, pattern: string, flags?: integer): boolean, string
-  find: function(text: string, pattern: string, flags?: integer): Span | nil, string
-  find_all: function(text: string, pattern: string, flags?: integer): {Span} | nil, string
+  compile: function(pattern: string, opts?: CompileOptions): Regex | nil, string
+  match: function(text: string, pattern: string, opts?: CompileOptions): Match | nil, string
+  is_match: function(text: string, pattern: string, opts?: CompileOptions): boolean | nil, string
+  find: function(text: string, pattern: string, opts?: CompileOptions): Span | nil, string
+  find_all: function(text: string, pattern: string, opts?: CompileOptions): {Span} | nil, string
   type MatchIterator = MatchIterator
-  gmatch: function(text: string, pattern: string, flags?: integer): MatchIterator, string
-  split: function(text: string, pattern: string, flags?: integer): {string} | nil, string
-  gsub: function(text: string, pattern: string, repl: Repl, flags?: integer): string | nil, string
+  gmatch: function(text: string, pattern: string, opts?: CompileOptions): MatchIterator | nil, string
+  split: function(text: string, pattern: string, opts?: CompileOptions): {string} | nil, string
+  gsub: function(text: string, pattern: string, repl: Repl, opts?: CompileOptions): string | nil, string
 
-  -- Compile flags
-  BASIC: integer -- Use basic (obsolete) regex syntax instead of extended
-  ICASE: integer -- Case-insensitive matching
-  NEWLINE: integer -- Treat newline as special (affects ^ and $)
-  NOSUB: integer -- Report only success/failure, not match position
-
-  -- Search flags
+  -- Search flags for the raw Regex layer (:search/:find), whose method
+  -- names and integer flags belong to the binding's userdata metatable.
   NOTBOL: integer -- First character is not at beginning of line
   NOTEOL: integer -- Last character is not at end of line
 end
@@ -407,18 +445,13 @@ end
 local M: ReModule = {
   compile = compile,
   match = match,
-  test = test,
+  is_match = is_match,
   find = find,
   find_all = find_all,
   gmatch = gmatch,
   split = split,
   gsub = gsub,
 
-  -- Expose flags from cosmo.re
-  BASIC = re.BASIC,
-  ICASE = re.ICASE,
-  NEWLINE = re.NEWLINE,
-  NOSUB = re.NOSUB,
   NOTBOL = re.NOTBOL,
   NOTEOL = re.NOTEOL,
 }

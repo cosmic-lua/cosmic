@@ -46,8 +46,9 @@ local function scenarios(): {pt.Scenario}, string
       -- captures out, every call.
       name = "re_match_log_line",
       fn = function(_: any): any
-        local _m, caps = re.match(LOG_LINE, LOG_PATTERN)
-        return caps
+        local m = re.match(LOG_LINE, LOG_PATTERN)
+        if m == nil then return nil end
+        return m.caps
       end,
       check = function(_: any, res: any): boolean, string
         local caps = res as {string} -- cast: from any

@@ -56,7 +56,7 @@ local function test_blob_bind_and_bind_list()
   local ok, err = stmt:bind(sqlite.blob("x"), "y")
   assert(ok, "bind should succeed: " .. tostring(err))
   assert(stmt:exec(), "exec should succeed")
-  stmt:close()
+  assert(stmt:close())
 
   ok, err = db:exec_list("INSERT INTO t (a, b) VALUES (?, ?)", {sqlite.blob("p"), "q"})
   assert(ok, "exec_list with blob should succeed: " .. tostring(err))

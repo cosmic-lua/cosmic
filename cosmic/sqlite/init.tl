@@ -45,30 +45,10 @@ local record Rows
   metamethod __close: function(self: Rows)
   --- Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Rows): string | nil
-  --- Release the underlying prepared statement early idempotent.
-  close: function(self: Rows)
-end
-
---- Callable positional-value iterator, the `Statement:values()` counterpart
---- to `Rows`. Same `:err()` contract.
----
---- CAVEAT: a row whose FIRST column is SQL NULL returns `nil` as its first
---- (and, to Lua, only visible) value, which a `for ... in` generic-for loop
---- reads as end-of-iteration — the row is silently dropped, `:err()` stays
---- nil, and remaining rows are never stepped. This is inherent to Lua's
---- generic-for protocol (it stops at a nil first return) and the contract
---- cannot change without breaking `local a, b, c = iter()` positional
---- callers. Use `rows()` (or call the iterator directly, `local a, b, c =
---- iter()`, one row at a time) when column 1 may be NULL.
-local record Values
-  metamethod __call: function(self: Values): any ...
-  metamethod __close: function(self: Values)
-  --- Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Values): string | nil
-  --- End iteration early (idempotent); also runs on scope exit via
-  --- to-be-closed. Does not finalize the owning Statement — that is
-  --- Statement:close()'s job, since the Statement may be reused.
-  close: function(self: Values)
+  --- Release the underlying prepared statement early (idempotent; a
+  --- second call returns true). Reports a finalize failure instead of
+  --- swallowing it.
+  close: function(self: Rows): boolean, string
 end
 
 --- Statement handle with automatic cleanup.
@@ -86,11 +66,6 @@ local record Statement
   --- Callable iterator over result rows as {column: value} tables;
   --- check `:err()` after the loop for step errors.
   rows: function(self: Statement): Rows
-  --- Callable iterator yielding each row's column values positionally;
-  --- same `:err()` contract as rows(). CAVEAT: a NULL first column ends a
-  --- `for` loop over this early (see Values above) -- prefer rows() when
-  --- column 1 may be NULL.
-  values: function(self: Statement): Values
   --- Step the statement to completion (for INSERT/UPDATE/DDL).
   exec: function(self: Statement): boolean, string
   --- Reset for re-execution; existing bindings are kept.
@@ -99,9 +74,10 @@ local record Statement
   columns: function(self: Statement): integer
   --- Name of result column n (1-indexed).
   column_name: function(self: Statement, n: integer): string
-  --- Finalize the statement (idempotent); also runs on scope exit via
-  --- to-be-closed.
-  close: function(self: Statement)
+  --- Finalize the statement (idempotent; a second call returns true);
+  --- also runs on scope exit via to-be-closed. Reports a finalize
+  --- failure instead of swallowing it.
+  close: function(self: Statement): boolean, string
 end
 
 --- Database handle with automatic cleanup.
@@ -118,12 +94,17 @@ local record Database
   query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
   --- query() with :name placeholders bound from a key/value table.
   query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
-  --- First matching row, or nil (with no error) when no row matches.
-  --- The statement is always finalized, even when rows remain.
+  --- First matching row. `nil, nil` means NO ROW MATCHED — an ordinary
+  --- empty result, not a failure — so `check.must(db:query_one(...))`
+  --- throws on it; guard with `if row then` instead. `nil, err` is a
+  --- real failure. The statement is always finalized, even when rows
+  --- remain.
   query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
-  --- First column of the first row (nil + no error when no row matches
-  --- or the value is SQL NULL); see cosmic.sqlite.extras.
-  query_value: function(self: Database, sql: string, ...: any): any, string
+  --- First column of the first row, plus a `found` flag that separates
+  --- the three outcomes two slots could not: (value, true) on a row —
+  --- value nil means SQL NULL — (nil, false) when no row matched, and
+  --- (nil, false, err) on failure; see cosmic.sqlite.extras.
+  query_value: function(self: Database, sql: string, ...: any): any, boolean, string
   --- Execute sql with positional `?` parameters; use for statements
   --- that return no rows (INSERT/UPDATE/DELETE/DDL). Multi-statement
   --- sql runs only in the no-parameter form; with parameters it is
@@ -143,10 +124,13 @@ local record Database
   --- Run fn in a nestable savepoint with transaction's rollback rules;
   --- see cosmic.sqlite.extras.
   savepoint: function(self: Database, fn: function(Database): any ...): boolean, string
-  --- rowid of the most recent successful INSERT (0 if closed).
-  last_insert_rowid: function(self: Database): integer
-  --- Rows modified by the most recent INSERT/UPDATE/DELETE (0 if closed).
-  changes: function(self: Database): integer
+  --- rowid of the most recent successful INSERT; nil + error once the
+  --- database is closed (0 is a legitimate live value, so it cannot
+  --- double as the closed marker).
+  last_insert_rowid: function(self: Database): integer | nil, string
+  --- Rows modified by the most recent INSERT/UPDATE/DELETE; nil + error
+  --- once the database is closed.
+  changes: function(self: Database): integer | nil, string
   --- Close the database and its cached statements (idempotent); also
   --- runs on scope exit via to-be-closed. Live user-prepared
   --- Statements do not block it: the binding finalizes them during
@@ -226,43 +210,6 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     return iter as Rows -- cast: row_iter record to public Rows
   end
 
-  -- CAVEAT (see Values above): a `for ... in` loop over this iterator ends
-  -- the moment column 1 comes back NULL, because that's Lua's own signal
-  -- for end-of-iteration. rows() doesn't have this hazard; calling the
-  -- iterator directly one row at a time (`local a, b, c = iter()`) does.
-  function stmt:values(): Values
-    local step_err: string
-    local done = false
-    local col_count = raw_stmt:columns()
-
-    local iter = setmetatable({} as Values, { -- cast: empty table into callable record
-        __call = function(_: Values): any ...
-          if done then
-            return nil
-          end
-          local rc = raw_stmt:step()
-          if rc == sqlite3.ROW then
-            local vals: {integer: any} = {}
-            for idx = 0, col_count - 1 do
-              vals[idx + 1] = raw_stmt:get_value(idx)
-            end
-            -- Bound the unpack: a NULL first column leaves vals[1] == nil,
-            -- and an unbounded unpack would drop the remaining columns.
-            return table.unpack(vals, 1, col_count)
-          end
-          if rc ~= sqlite3.DONE then
-            step_err = raw_db:errmsg()
-          end
-          done = true
-          return nil
-        end,
-        __close = function(self: Values) self:close() end,
-      })
-    iter.err = function(_: Values): string | nil return step_err end
-    iter.close = function(_: Values) done = true end
-    return iter
-  end
-
   function stmt:exec(): boolean, string
     local rc = raw_stmt:step()
     if rc ~= sqlite3.DONE and rc ~= sqlite3.ROW then
@@ -283,23 +230,27 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     return raw_stmt:get_name(n - 1)
   end
 
-  stmt.close = function(_: Statement)
-    if closed then return end
+  stmt.close = function(_: Statement): boolean, string
+    if closed then return true end
     closed = true
     -- The binding finalizes outstanding statements when the DATABASE
     -- closes; finalize on such a dead vm throws. Guard so close (and
     -- the __gc/__close paths that reach it) never raises.
     if raw_stmt:isopen() then
-      local _ = raw_stmt:finalize()
+      local rc = raw_stmt:finalize()
+      if rc ~= sqlite3.OK then
+        return false, raw_db:errmsg()
+      end
     end
+    return true
   end
 
   -- __gc is the backstop for an abandoned user Statement, matching the
   -- Rows iterator: without it a dropped db:prepare() handle leaks its
   -- raw statement — the very SQLITE_BUSY that makes db:close() fail.
   return setmetatable(stmt, {
-      __close = function(self: Statement) self:close() end,
-      __gc = function(self: Statement) self:close() end,
+      __close = function(self: Statement) local _ok, _err = self:close() end,
+      __gc = function(self: Statement) local _ok, _err = self:close() end,
     })
 end
 
@@ -386,7 +337,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
       first = row
       break
     end
-    it:close()
+    local _cok, _cerr = it:close()
     -- Surface a step error rather than a partial row that looks clean.
     local step_err = it:err()
     if step_err then
@@ -395,16 +346,16 @@ local function make_database(raw_db: lsqlite3.Database): Database
     return first
   end
 
-  function db:last_insert_rowid(): integer
+  function db:last_insert_rowid(): integer | nil, string
     if closed then
-      return 0
+      return nil, "database is closed"
     end
     return raw_db:last_insert_rowid()
   end
 
-  function db:changes(): integer
+  function db:changes(): integer | nil, string
     if closed then
-      return 0
+      return nil, "database is closed"
     end
     return raw_db:changes()
   end
@@ -484,7 +435,6 @@ local record sqlite
   type Database = Database
   type Statement = Statement
   type Rows = Rows
-  type Values = Values
 
   open: function(filename: string, opts?: Options): Database | nil, string
   blob: function(data: string): bind_mod.Blob

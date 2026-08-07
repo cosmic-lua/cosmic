@@ -9,9 +9,9 @@
 --- a second `wait` returns the same value instead of failing. An abandoned
 --- handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap
 --- an un-waited child and close its pipes, so `local h <close> = start{...}`
---- (or simply dropping the handle) never leaves a zombie. Side effect:
---- requiring cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child
---- closing stdin early gets EPIPE on the write, not a dead parent).
+--- (or simply dropping the handle) never leaves a zombie. Side effect: the
+--- first start() sets SIGPIPE to SIG_IGN process-wide (EPIPE on the write,
+--- not a dead parent) — unless you already installed a SIGPIPE handler.
 --- Testing a server you spawn? Have it print `READY <port>` and block on
 --- reading that line — the readiness pattern in `cosmic --docs guide.recipes`.
 local unix = require("cosmo.unix")

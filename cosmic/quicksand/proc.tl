@@ -70,6 +70,11 @@ local function drop_privs(uid: integer, gid: integer): boolean, string
   if uid == nil then return true end
   if gid == nil then gid = uid end
   if uid ~= 0 then
+    if unix.prctl == nil or unix.PR_SET_KEEPCAPS == nil then
+      -- Calling a nil binding would throw; report the absence instead
+      -- (the same guard no_new_privs carries above).
+      return false, "drop_privs unsupported on this host"
+    end
     local kok, kerr = unix.prctl(unix.PR_SET_KEEPCAPS, 1)
     if not kok then return false, errno.wrap(kerr, "PR_SET_KEEPCAPS") end
     local gok, gerr = unix.setresgid(gid, gid, gid)
