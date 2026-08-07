@@ -2,7 +2,11 @@
 
  Assertion helpers for tests with auto-formatted failure messages.
  Functions in this module throw on failure (level 2) so the error points
- at the caller's line, not inside this module.
+ at the caller's line, not inside this module. This is the one module
+ exempt from the never-throw doctrine, and `needs`/`reap` may exit
+ the process because the runner grades exit codes — the record is
+ docs/decisions/d23-check-throws.md; no other cosmic.* module may
+ throw or exit, so never require check from library code.
 
 ## Types
 
@@ -11,11 +15,11 @@
 ```teal
 local record CheckModule
   EXIT_SKIP: integer
-  eq: function<T>(actual: T, expected: T, label?: string)
-  ne: function<T>(actual: T, expected: T, label?: string)
-  ok: function(value: any, label?: string)
-  must: function<T>(v: T | nil, e?: string, ...: any): T, string, any ...
-  fails: function(value: any, e: string, label?: string)
+  equal: function<T>(actual: T, expected: T, label?: string)
+  not_equal: function<T>(actual: T, expected: T, label?: string)
+  truthy: function(value: any, label?: string)
+  must: function<T>(value: T | nil, err?: string, ...: any): T, string, any ...
+  failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
   needs: function(what: string, present: boolean)
@@ -26,10 +30,10 @@ end
 
 ## Functions
 
-### eq
+### equal
 
 ```teal
-function eq(actual: T, expected: T, label?: string)
+function equal(actual: T, expected: T, label?: string)
 ```
 
  Assert deep equality between actual and expected.
@@ -45,10 +49,10 @@ function eq(actual: T, expected: T, label?: string)
 - `expected` (T) - The value it should equal
 - `label` (string?) - Optional label prepended to the failure message
 
-### ne
+### not_equal
 
 ```teal
-function ne(actual: T, expected: T, label?: string)
+function not_equal(actual: T, expected: T, label?: string)
 ```
 
  Assert that actual and expected are NOT equal.
@@ -61,10 +65,10 @@ function ne(actual: T, expected: T, label?: string)
 - `expected` (T) - The value it should not equal
 - `label` (string?) - Optional label prepended to the failure message
 
-### ok
+### truthy
 
 ```teal
-function ok(value: any, label?: string)
+function truthy(value: any, label?: string)
 ```
 
  Assert that value is truthy (not nil and not false).
@@ -75,27 +79,28 @@ function ok(value: any, label?: string)
 - `value` (any) - The value to test for truthiness
 - `label` (string?) - Optional label prepended to the failure message
 
-### fails
+### failed
 
 ```teal
-function fails(value: any, e: string, label?: string)
+function failed(value: any, err: string, label?: string)
 ```
 
- Assert that a (value, err) pair represents failure (api-review-8:
- was `err`, which read as a noun and shadowed every local error).
+ Assert that a (value, err) pair represents failure (api-review-8
+ renamed it from `err`, which read as a noun and shadowed every
+ local error; #1000 spelled `fails` out to `failed`).
  Expects value to be nil and err to be a non-nil, non-empty string,
  matching the standard cosmic error-return convention.
 
 **Parameters:**
 
 - `value` (any) - The first return value (expected to be nil)
-- `e` (string) - The second return value (expected to be a non-empty string)
+- `err` (string) - The second return value (expected to be a non-empty string)
 - `label` (string?) - Optional label prepended to the failure message
 
 ### must
 
 ```teal
-function must(v: T | nil, e?: string, ...: any): T, string, any ...
+function must(value: T | nil, err?: string, ...: any): T, string, any ...
 ```
 
  Assert a fallible return and narrow away nil.
@@ -111,12 +116,14 @@ function must(v: T | nil, e?: string, ...: any): T, string, any ...
  `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
  though, sees the declared three-value tuple: when must is the LAST
  argument to another call, parenthesize to truncate it —
- `table.insert(parts, (check.must(chunk)))`.
+ `table.insert(parts, (check.must(chunk)))`. The type checker's
+ `wrong number of arguments` error at such a site carries this fix
+ as a hint; `cosmic --docs guide.gotchas` has the entry.
 
 **Parameters:**
 
-- `v` (T?) - The fallible value (nil on failure)
-- `e` (string?) - Failure message; a `nil, err` pair fills this in
+- `value` (T?) - The fallible value (nil on failure)
+- `err` (string?) - Failure message; a `nil, err` pair fills this in
 - `...` (any) - Extra returns (iterator state, closing guard, ...)
 
 **Returns:**
