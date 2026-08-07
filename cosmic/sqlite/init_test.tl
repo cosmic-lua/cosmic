@@ -296,7 +296,6 @@ local function test_use_after_close()
   assert(not ok and type(exec_err) == "string", "exec after close should error")
   local iter, query_err = db:query("SELECT * FROM t")
   assert(iter == nil and type(query_err) == "string", "query after close should error")
-  -- 0 is a legitimate live value, so closed reports nil, err instead.
   local rowid, rerr = db:last_insert_rowid()
   assert(rowid == nil and type(rerr) == "string", "rowid after close: nil, err")
   local nchanged, cerr = db:changes()
