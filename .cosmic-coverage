@@ -54,7 +54,7 @@ _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
 _perf/bench/fs_bench.tl 97 106
 _perf/bench/fuzzy_bench.tl 0 19
-_perf/bench/http_bench.tl 83 114
+_perf/bench/http_bench.tl 91 125
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
 _perf/bench/re_bench.tl 0 47
@@ -79,13 +79,13 @@ _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 179
-cmd/cosmic/main.tl 0 276
+cmd/cosmic/main.tl 0 275
 cosmic/_fields.tl 5 7
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
-cosmic/_teal_hints.tl 32 32
+cosmic/_teal_hints.tl 42 42
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 145 172
 cosmic/check.tl 110 113
@@ -116,6 +116,7 @@ cosmic/envd.tl 95 101
 cosmic/errno.tl 17 26
 cosmic/example.tl 129 158
 cosmic/fd.tl 95 118
+cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
@@ -198,4 +199,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14504 19103
+total 14567 19190
