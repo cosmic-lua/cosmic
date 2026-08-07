@@ -7,7 +7,11 @@
  method name — a userdata metatable is the C layer's to name.
 
  For best performance, compile patterns once and reuse them.
- The match() convenience function compiles on each call.
+ The convenience functions (match, test, find, find_all, gmatch,
+ split, gsub) take a pattern string per call; a bounded module cache
+ memoizes their compiled patterns, so repeated calls with the same
+ pattern skip recompilation. compile() itself is never cached: it is
+ the explicit-lifetime API, and each call returns a fresh handle.
 
 ## Types
 
@@ -26,6 +30,21 @@ local record Regex
   --  failure (e.g. out of memory) returns nil, err — the error string
   --  arrives in the second position, mirroring the cosmo.re binding.
   search: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+end
+```
+
+### CacheEntry
+
+ One memoized compilation of a convenience-surface pattern. rx/err
+ record the compile outcome; iter_ok/iter_err record the (lazy)
+ empty-match probe compile_for_iter runs on top of it.
+
+```teal
+local record CacheEntry
+  rx: Regex
+  err: string
+  iter_ok: boolean
+  iter_err: string
 end
 ```
 
@@ -108,7 +127,7 @@ function match(text: string, pattern: string, flags?: integer): string | nil, {s
 ```
 
  Match pattern against text (convenience function; subject first).
- Compiles pattern on each call - use compile() for repeated matching.
+ Compiled patterns are cached - compile() gives explicit reuse.
  Uses POSIX extended syntax by default.
  On a match, returns the matched substring plus a table of the
  parenthesized capture groups (an empty table when the pattern has no
