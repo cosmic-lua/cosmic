@@ -184,11 +184,14 @@ example_got := $(patsubst %,$(O)/%.example.got,$(examples))
 example: $(O)/example-summary.txt
 
 # An example is a test with a different contract: same staging, same
-# closure, same fence, `Example_*` instead of `test_*`. That is what the
-# model says everywhere else, so the rules say it too — the only
-# difference from the test rules above is the flag.
+# closure, same fence, `Example_*` instead of `test_*`. Two differences
+# from the test rules above: the flag, and the file handed to the
+# runner. Examples carry their expected output in `-- Output:` comments,
+# which compilation strips, so the runner reads the SOURCE — handing it
+# `$<` silently skipped every output check. The compiled prerequisite
+# still gates the run on a clean typecheck.
 $(O)/%.tl.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
-	record $(basename $@) $(testrun) --check example $< --deps $(deps_$*) ;
+	record $(basename $@) $(testrun) --check example $*.tl --deps $(deps_$*) ;
 
 $(O)/%.lua.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
 	record $(basename $@) $(testrun) --check example $< --deps $(deps_$*) ;

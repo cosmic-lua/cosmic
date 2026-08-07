@@ -9,7 +9,8 @@ local function Example_walk()
   local types = require("cosmic.fs.types")
 
   -- Build a small tree under a temp directory.
-  local tmpdir = fs.temp_dir("/tmp/walk_ex_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = fs.temp_dir(fs.join(base, "walk_ex_XXXXXX"))
   assert(tmpdir, "temp_dir failed")
 
   local subdir = fs.join(tmpdir, "conf")
@@ -43,7 +44,8 @@ local function Example_collect()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
-  local tmpdir = fs.temp_dir("/tmp/collect_ex_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = fs.temp_dir(fs.join(base, "collect_ex_XXXXXX"))
   assert(tmpdir, "temp_dir failed")
 
   local subdir = fs.join(tmpdir, "src")
@@ -72,7 +74,8 @@ local function Example_files()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
-  local tmpdir = fs.temp_dir("/tmp/files_ex_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = fs.temp_dir(fs.join(base, "files_ex_XXXXXX"))
   assert(tmpdir, "temp_dir failed")
 
   assert(fs.write(fs.join(tmpdir, "a.txt"), "a\n"))

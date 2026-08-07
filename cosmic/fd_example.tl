@@ -12,7 +12,8 @@ local function Example_open_write_read()
   local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local fs = require("cosmic.fs")
-  local dir = fs.temp_dir("/tmp/fd_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local dir = check.must(fs.temp_dir(fs.join(base, "fd_example_XXXXXX")))
   local path = fs.join(dir, "note.txt")
 
   local h < close > = check.must(fd.open(path, fd.O_RDWR | fd.O_CREAT, 420))
@@ -32,7 +33,8 @@ local function Example_positional()
   local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local fs = require("cosmic.fs")
-  local dir = fs.temp_dir("/tmp/fd_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local dir = check.must(fs.temp_dir(fs.join(base, "fd_example_XXXXXX")))
   local path = fs.join(dir, "data.txt")
   assert(fs.write(path, "abcdef"))
 

@@ -13,7 +13,8 @@ local function Example_embed_directory()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "embed_example_XXXXXX")))
 
   -- Create a simple app directory with a main.lua entry point
   local appdir = fs.join(tmpdir, "myapp")
@@ -40,7 +41,8 @@ local function Example_extract_roundtrip()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "embed_example_XXXXXX")))
 
   -- Extract the running executable's zip contents
   local extractdir = fs.join(tmpdir, "extracted")
@@ -62,7 +64,8 @@ local function Example_embed_with_libraries()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "embed_example_XXXXXX")))
 
   -- Create an app that uses cosmic.child (a bundled library)
   local appdir = fs.join(tmpdir, "app")
@@ -93,7 +96,8 @@ local function Example_embed_from_teal()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "embed_example_XXXXXX")))
   local appdir = fs.join(tmpdir, "myapp")
   assert(fs.make_dirs(appdir))
 
