@@ -32,7 +32,7 @@ local proc = require("cosmic.quicksand.proc")
 assert(proc.no_new_privs())
 ]]
   local h = check.must(child.start({cosmic, "-e", script}))
-  h:wait()
+  assert(h:wait())
 end
 
 -- Suppress unused warnings for examples

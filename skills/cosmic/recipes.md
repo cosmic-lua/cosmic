@@ -59,31 +59,32 @@ walk a tree, store path/size/digest with upsert semantics, query by
 substring.
 
 ```teal
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local sqlite = require("cosmic.sqlite")
 
-local db = sqlite.open("index.db")
-db:exec("CREATE TABLE IF NOT EXISTS files (" ..
-  "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)")
+local db = check.must(sqlite.open("index.db"))
+assert(db:exec("CREATE TABLE IF NOT EXISTS files (" ..
+    "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)"))
 
-fs.walk("testdata", function(path: string, _name: string, st: fs.WalkStat, _ctx: any)
-    -- path is the FULL path; do not join it with the basename
-    if st:is_file() then
-      local data = fs.read(path)
-      if data then
-        db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
-          "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..
-          "digest = excluded.digest", path, st:size(), hash.sha256_hex(data))
+check.must(fs.walk("testdata", function(path: string, _name: string, st: fs.WalkStat, _ctx: any)
+      -- path is the FULL path; do not join it with the basename
+      if st:is_file() then
+        local data = fs.read(path)
+        if data then
+          assert(db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
+              "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..
+              "digest = excluded.digest", path, st:size(), hash.sha256_hex(data)))
+        end
       end
-    end
-  end)
+    end))
 
 -- substring query: LIKE uses % as the wildcard, not *
 for row in db:query("SELECT * FROM files WHERE path LIKE ?", "%src%") do
   print(row.path, row.size, row.digest)
 end
-db:close()
+assert(db:close())
 ```
 
 the visitor's third parameter is `fs.WalkStat`, exported on the public
@@ -104,7 +105,7 @@ local proc = require("cosmic.proc")
 local h = check.must(child.start({check.must(proc.interpreter()), "worker.tl"}))
 local out = h:read()
 print(out)
-h:wait()
+check.must(h:wait())
 ```
 
 for a server child, have it print a readiness line (e.g. `READY <port>`)
@@ -151,14 +152,14 @@ local function serve_one(srv: net.Socket): boolean, string
   local ok, send_err = conn:sendall("HTTP/1.1 200 OK\r\n"
     .. "Content-Length: " .. #body .. "\r\n"
     .. "Connection: close\r\n\r\n" .. body)
-  conn:close()
+  local _ok, _err = conn:close() -- the send result is the verdict, not the close
   return ok, send_err
 end
 
 local srv = check.must(net.listen_tcp("127.0.0.1", 0))
 print("READY " .. check.must(srv:getsockname()).port) -- a test blocks on this line
-serve_one(srv)
-srv:close()
+assert(serve_one(srv))
+assert(srv:close())
 ```
 
 client side, one call: `fetch.fetch("http://127.0.0.1:" .. port ..

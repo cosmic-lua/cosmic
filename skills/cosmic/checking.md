@@ -229,6 +229,36 @@ print(#data)
 
 **"unknown variable"**: all variables must be declared with `local` or `global`.
 
+## Discarded Errors
+
+the honest-nil convention puts the error in the second return slot, and
+the strict check enforces that callers do not silently drop it. two
+shapes are errors:
+
+- a fallible call — declared returns ending `T | nil, string` or
+  `boolean, string` — standing as a bare statement:
+
+```teal
+fs.write(path, data) -- error: discarded error return
+local ok, err = fs.write(path, data) -- capture it
+local _ok, _err = fs.write(path, data) -- deliberate fire-and-forget
+```
+
+- a fallible call as the FINAL argument of a variadic call, where the
+  error return spills in as an extra argument:
+
+```teal
+print(json.encode(x)) -- error: would print a literal nil after the value
+local encoded, err = json.encode(x) -- capture first
+print((json.encode(x))) -- or parenthesize to truncate
+```
+
+callees that consume the error are exempt from the spill shape:
+`assert(fs.write(path, data))` checks the boolean and reports the
+message, and `check.must(...)` is the sanctioned idiom in tests and
+examples. the rule runs wherever the strict gate runs — `--check
+types`, and the build's strict compile.
+
 ## Include Directories
 
 `cosmic --check types` searches for type definitions in the binary's bundled paths. if your project has its own `.d.tl` type definitions, place them in a `types/` directory and they will be found automatically.

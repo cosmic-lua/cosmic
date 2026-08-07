@@ -171,7 +171,7 @@ local function test_load_results_rejects_garbage()
   local r2, err2 = compare.load_results(tmp)
   assert(r2 == nil and err2 ~= nil and err2:find("results", 1, true),
     "wrong-shape file should be rejected: " .. tostring(err2))
-  os.remove(tmp)
+  assert(os.remove(tmp))
 end
 test_load_results_rejects_garbage()
 

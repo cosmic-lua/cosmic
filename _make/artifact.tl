@@ -211,7 +211,7 @@ local function generated_payload(root: string, unit: string, out: {Staged})
   if not fs.is_dir(dir) then
     return
   end
-  fs.walk(dir, function(path: string, _name: string,
+  local _ok, _err = fs.walk(dir, function(path: string, _name: string,
         st: fs.WalkStat): fs.WalkAction
       if st:is_file() then
         local inside = path:sub(#dir + 2)
@@ -419,12 +419,12 @@ local function replace_if_changed(staged: string, out: string): string | nil
     return staged .. ": " .. (ferr or "cannot read")
   end
   if fs.read(out) == fresh then
-    fs.unlink(staged)
+    local _ok, _err = fs.unlink(staged)
     return nil
   end
   local ok, merr = fs.rename(staged, out)
   if not ok then
-    fs.unlink(staged)
+    local _ok, _err = fs.unlink(staged)
     return out .. ": " .. (merr or "cannot replace")
   end
   return nil
@@ -462,7 +462,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
       {output = staged_out, exe_path = pair[2], strip = true,
         provides = validate.claims(proj), mtime = embed.EPOCH})
     if not result.ok then
-      fs.unlink(staged_out)
+      local _ok, _err = fs.unlink(staged_out)
       return nil, "make: " .. binary.name .. pair[1] .. ": " .. result.message
     end
     local rerr = replace_if_changed(staged_out, out)

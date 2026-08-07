@@ -17,7 +17,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- Make a directory tree, returning its root.
 local function tree(name: string, files: {string: string}): string
   local dir = fs.join(tmpdir, "root-" .. name)
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   assert(fs.make_dirs(dir))
   for rel, content in pairs(files) do
     local path = fs.join(dir, rel)
@@ -69,13 +69,13 @@ local function test_refusal_names_the_command()
       ["db/query.tl"] = "return {}\n",
     })
   local saved = env.get("COSMIC_MAKE_ROOT")
-  env.unset("COSMIC_MAKE_ROOT")
+  assert(env.unset("COSMIC_MAKE_ROOT"))
   local cwd = fs.cwd()
   assert(fs.chdir(fs.join(proj, "db")))
   local got, err = root.discover("check")
   assert(fs.chdir(cwd as string)) -- cast: scalar narrowing through the guard
   if saved then
-    env.set("COSMIC_MAKE_ROOT", saved)
+    assert(env.set("COSMIC_MAKE_ROOT", saved))
   end
   assert(not got, "running inside a project must be refused")
   assert(err:find("ambiguous root", 1, true), "got: " .. tostring(err))
@@ -96,9 +96,9 @@ local function test_override_suppresses_the_guard()
       ["db/query.tl"] = "return {}\n",
     })
   local sub = fs.join(proj, "db")
-  env.set("COSMIC_MAKE_ROOT", sub)
+  assert(env.set("COSMIC_MAKE_ROOT", sub))
   local got, err = root.discover("check")
-  env.unset("COSMIC_MAKE_ROOT")
+  assert(env.unset("COSMIC_MAKE_ROOT"))
   assert(got == sub, "expected " .. sub .. ", got " .. tostring(got) ..
     " (" .. tostring(err) .. ")")
 end
@@ -107,9 +107,9 @@ test_override_suppresses_the_guard()
 -- A named root that is not a directory fails by name, rather than
 -- scanning something surprising.
 local function test_override_must_exist()
-  env.set("COSMIC_MAKE_ROOT", fs.join(tmpdir, "root-no-such"))
+  assert(env.set("COSMIC_MAKE_ROOT", fs.join(tmpdir, "root-no-such")))
   local got, err = root.discover("check")
-  env.unset("COSMIC_MAKE_ROOT")
+  assert(env.unset("COSMIC_MAKE_ROOT"))
   assert(not got, "a missing root must fail")
   assert(err:find("not a directory", 1, true), "got: " .. tostring(err))
 end
@@ -215,9 +215,9 @@ local function test_a_root_with_whitespace_is_refused()
   local dir = tree("has space", {["main.tl"] = "print('x')\n"})
   -- Through the override, because that path skips the declaration
   -- guard: naming a root must not be a way around this one.
-  env.set(root.ROOT_ENV, dir, true)
+  assert(env.set(root.ROOT_ENV, dir, true))
   local found, err = root.discover("build")
-  env.unset(root.ROOT_ENV)
+  assert(env.unset(root.ROOT_ENV))
   assert(not found, "a root make cannot express is not a root")
   assert(err:find("whitespace", 1, true), "and says why, got: " .. err)
   assert(err:find(dir, 1, true), "naming the path, got: " .. err)
@@ -230,9 +230,9 @@ test_a_root_with_whitespace_is_refused()
 -- a project PATH is refused for applies to the root itself.
 local function test_a_root_with_a_metacharacter_is_refused()
   local dir = tree("has(paren)", {["main.tl"] = "print('x')\n"})
-  env.set(root.ROOT_ENV, dir, true)
+  assert(env.set(root.ROOT_ENV, dir, true))
   local found, err = root.discover("build")
-  env.unset(root.ROOT_ENV)
+  assert(env.unset(root.ROOT_ENV))
   assert(not found, "a root make cannot express is not a root")
   assert(err:find("make-significant", 1, true), "and says why, got: " .. err)
   assert(err:find(dir, 1, true), "naming the path, got: " .. err)

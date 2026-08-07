@@ -39,7 +39,7 @@ check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 --- exists to hold.
 local function staged(name: string): string
   local root = fs.join(tmpdir, "fixtures", name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(fs.dirname(root)))
   local ok, err = fs.copy_tree(fs.join(here, name), root)
   assert(ok, "cannot stage fixture " .. name .. ": " .. tostring(err))

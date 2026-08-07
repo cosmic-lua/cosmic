@@ -37,7 +37,7 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "select-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)

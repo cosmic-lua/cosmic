@@ -328,13 +328,13 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
 
   local exe_data = fs.read(exe_path)
   if not exe_data then
-    fs.unlink(tmp_path)
+    local _ok, _err = fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
   local barf_ok = fs.write(tmp_path, exe_data)
   if not barf_ok then
-    fs.unlink(tmp_path)
+    local _ok, _err = fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot write to '" .. tmp_path .. "'", file_count = 0}
   end
   unix.chmod(tmp_path, tonumber("755", 8))
@@ -344,7 +344,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   -- structural twin of it)
   local appender_maybe, appender_err = czip.append(tmp_path)
   if not appender_maybe then
-    fs.unlink(tmp_path)
+    local _ok, _err = fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
   local appender = appender_maybe as czip.Appender -- cast: record union after guard
@@ -361,7 +361,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
       -- markers are zero bytes and are therefore never removed; the
       -- entries beneath them are removed by name.
       if name:sub(-1) ~= "/" and not floor.in_floor(name, opts.provides) then
-        appender:remove(name)
+        local _ok, _err = appender:remove(name)
       end
     end
   end
@@ -381,7 +381,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     -- Distinguishing the two needs an exists() on the appender that
     -- the binding does not offer; until it does, a genuinely failed
     -- removal would surface as the duplicate entry it creates.
-    appender:remove(file_info.stored_name)
+    local _ok, _err = appender:remove(file_info.stored_name)
     local is_lua = file_info.stored_name:sub(-4) == ".lua"
     local add: czip.AddOptions = {
       mode = file_info.mode,
@@ -398,7 +398,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
     if not add_ok then
       appender:close()
-      fs.unlink(tmp_path)
+      local _ok, _err = fs.unlink(tmp_path)
       return {ok = false, message = "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
     end
   end
@@ -409,7 +409,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   -- atomic — any running process with the old inode mmapped keeps its pages.
   local rename_ok, rename_err = fs.rename(tmp_path, output)
   if not rename_ok then
-    fs.unlink(tmp_path)
+    local _ok, _err = fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot rename temp file to '" .. output .. "': " .. tostring(rename_err or "unknown"), file_count = 0}
   end
 

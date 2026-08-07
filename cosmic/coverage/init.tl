@@ -245,7 +245,7 @@ end
 --- after sealing are still collected but never reported.
 local function seal()
   if not sealed and default_dir then
-    dump()
+    local _ok, _err = dump()
   end
   sealed = true
 end
@@ -261,7 +261,7 @@ local function enable(dir: string)
   end
   install_wrappers(function()
       if default_dir then
-        dump()
+        local _ok, _err = dump()
       end
     end)
   start()

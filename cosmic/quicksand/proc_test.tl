@@ -30,7 +30,7 @@ local function test_setup_userns_maps_returns_error_outside_userns()
     return
   end
   local script = fs.join(tmpdir, "userns_maps.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local proc = require("cosmic.quicksand.proc")
 local ok, err = proc.setup_userns_maps(nil, nil)
 if ok then
@@ -39,7 +39,7 @@ else
   assert(type(err) == "string", "err should be a string")
   io.write("skipped: " .. err .. "\n")
 end
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
@@ -80,7 +80,7 @@ local function test_no_new_privs_subprocess()
     return
   end
   local script = fs.join(tmpdir, "nnp.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local proc = require("cosmic.quicksand.proc")
 local ok, err = proc.no_new_privs()
 if not ok then
@@ -89,7 +89,7 @@ if not ok then
   os.exit(0)
 end
 io.write("ok\n")
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
@@ -115,7 +115,7 @@ local function test_barrier_signal_wait()
     return
   end
   local script = fs.join(tmpdir, "barrier.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local unix = require("cosmo.unix")
 local proc = require("cosmic.quicksand.proc")
 local b, err = proc.barrier()
@@ -137,7 +137,7 @@ b:drop_write()
 b:wait()
 unix.wait(pid)
 io.write("done\n")
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local __r3 = check.must(h:wait())
   local ok, out = __r3.ok, __r3.stdout
@@ -168,7 +168,7 @@ local function test_barrier_retries_eintr()
     return
   end
   local script = fs.join(tmpdir, "barrier_eintr.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local unix = require("cosmo.unix")
 local time = require("cosmic.time")
 local proc = require("cosmic.quicksand.proc")
@@ -198,7 +198,7 @@ local elapsed = time.monotonic_ms() - start
 unix.wait(pid)
 io.write("ok=" .. tostring(ok) .. " err=" .. tostring(werr)
   .. " elapsed=" .. tostring(elapsed) .. "\n")
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if not r.ok then
@@ -255,7 +255,7 @@ end
 --- sandbox killing fork/sigaction, which the caller turns into a skip).
 local function run_init(name: string, body: string): string
   local script = fs.join(tmpdir, name .. ".lua")
-  fs.write(script, init_preamble .. body)
+  assert(fs.write(script, init_preamble .. body))
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if not r.ok then

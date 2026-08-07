@@ -11,14 +11,14 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function test_open_memory()
   local db = check.must(sqlite.open(":memory:"))
-  db:close()
+  assert(db:close())
 end
 test_open_memory()
 
 local function test_open_file()
   local dbpath = fs.join(TEST_TMPDIR, "test.db")
   local db = check.must(sqlite.open(dbpath))
-  db:close()
+  assert(db:close())
 end
 test_open_file()
 
@@ -35,7 +35,7 @@ local function test_exec_create_table()
   local db = check.must(sqlite.open(":memory:"))
   local ok, err = db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   assert(ok, "exec should succeed: " .. tostring(err))
-  db:close()
+  assert(db:close())
 end
 test_exec_create_table()
 
@@ -44,35 +44,35 @@ local function test_exec_invalid_sql()
   local ok, err = db:exec("INVALID SQL SYNTAX")
   assert(not ok, "exec should fail on invalid SQL")
   assert(err, "should return error message")
-  db:close()
+  assert(db:close())
 end
 test_exec_invalid_sql()
 
 local function test_last_insert_rowid()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('first')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('first')"))
   assert(db:last_insert_rowid() == 1, "first insert should have rowid 1")
-  db:exec("INSERT INTO t (name) VALUES ('second')")
+  assert(db:exec("INSERT INTO t (name) VALUES ('second')"))
   assert(db:last_insert_rowid() == 2, "second insert should have rowid 2")
-  db:close()
+  assert(db:close())
 end
 test_last_insert_rowid()
 
 local function test_changes()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')"))
   assert(db:changes() == 3, "should report 3 changes")
-  db:exec("DELETE FROM t WHERE id < 3")
+  assert(db:exec("DELETE FROM t WHERE id < 3"))
   assert(db:changes() == 2, "should report 2 changes after delete")
-  db:close()
+  assert(db:close())
 end
 test_changes()
 
 local function test_exec_with_params()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local ok, err = db:exec("INSERT INTO t (name) VALUES (?)", "Alice")
   assert(ok, "exec with param should succeed: " .. tostring(err))
@@ -84,13 +84,13 @@ local function test_exec_with_params()
   ok, err = db:exec("DELETE FROM t WHERE name = ?", "Bob")
   assert(ok, "exec delete should succeed: " .. tostring(err))
   assert(db:changes() == 1, "should have deleted 1 row")
-  db:close()
+  assert(db:close())
 end
 test_exec_with_params()
 
 local function test_exec_multiple_params()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)"))
 
   local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "hello", 42, 3.14)
   assert(ok, "exec with multiple params should succeed: " .. tostring(err))
@@ -100,7 +100,7 @@ local function test_exec_multiple_params()
     assert(row.b == 42, "b should be 42")
     assert(math.abs((row.c as number) - 3.14) < 0.001, "c ~3.14") -- cast: from any
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_multiple_params()
 
@@ -110,7 +110,7 @@ local function test_exec_no_params()
   assert(ok, "exec without params should succeed: " .. tostring(err))
   ok, err = db:exec("INSERT INTO t DEFAULT VALUES")
   assert(ok, "exec without params should succeed: " .. tostring(err))
-  db:close()
+  assert(db:close())
 end
 test_exec_no_params()
 
@@ -118,7 +118,7 @@ test_exec_no_params()
 
 local function test_prepare_bind_exec()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (name) VALUES (?)"))
 
@@ -130,7 +130,7 @@ local function test_prepare_bind_exec()
 
   assert(db:last_insert_rowid() == 1, "should have inserted row")
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_prepare_bind_exec()
 
@@ -139,20 +139,20 @@ local function test_prepare_invalid_sql()
   local stmt, err = db:prepare("INVALID SQL")
   assert(stmt == nil, "should fail on invalid SQL")
   assert(err, "should return error message")
-  db:close()
+  assert(db:close())
 end
 test_prepare_invalid_sql()
 
 local function test_statement_reset()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (name) VALUES (?)"))
-  stmt:bind("first")
-  stmt:exec()
+  assert(stmt:bind("first"))
+  assert(stmt:exec())
   stmt:reset()
-  stmt:bind("second")
-  stmt:exec()
+  assert(stmt:bind("second"))
+  assert(stmt:exec())
   stmt:close()
 
   local count = 0
@@ -160,7 +160,7 @@ local function test_statement_reset()
     count = count + 1
   end
   assert(count == 2, "should have 2 rows after reset and reuse")
-  db:close()
+  assert(db:close())
 end
 test_statement_reset()
 
@@ -168,8 +168,8 @@ test_statement_reset()
 
 local function test_query_rows()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')"))
 
   local names: {string} = {}
   for row in check.must(db:query("SELECT * FROM t ORDER BY id")) do
@@ -180,14 +180,14 @@ local function test_query_rows()
   assert(names[1] == "Alice", "first name should be Alice")
   assert(names[2] == "Bob", "second name should be Bob")
   assert(names[3] == "Carol", "third name should be Carol")
-  db:close()
+  assert(db:close())
 end
 test_query_rows()
 
 local function test_query_with_params()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')"))
 
   local names: {string} = {}
   for row in check.must(db:query("SELECT * FROM t WHERE id > ? ORDER BY id", 1)) do
@@ -197,27 +197,27 @@ local function test_query_with_params()
   assert(#names == 2, "should get 2 rows")
   assert(names[1] == "Bob", "first should be Bob")
   assert(names[2] == "Carol", "second should be Carol")
-  db:close()
+  assert(db:close())
 end
 test_query_with_params()
 
 local function test_query_empty_results()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
 
   local count = 0
   for _ in check.must(db:query("SELECT * FROM t")) do
     count = count + 1
   end
   assert(count == 0, "should get 0 rows from empty table")
-  db:close()
+  assert(db:close())
 end
 test_query_empty_results()
 
 local function test_statement_values()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
-  db:exec("INSERT INTO t VALUES ('hello', 42, 3.14)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)"))
+  assert(db:exec("INSERT INTO t VALUES ('hello', 42, 3.14)"))
 
   local stmt = check.must(db:prepare("SELECT * FROM t"))
   local iter = stmt:values()
@@ -227,7 +227,7 @@ local function test_statement_values()
   assert(b == 42, "second value should be 42")
   assert(math.abs((c as number) - 3.14) < 0.001, "third ~3.14") -- cast: from any
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_statement_values()
 
@@ -238,14 +238,14 @@ local OVERFLOW = "SELECT abs(-9223372036854775808) AS x"
 
 local function test_query_err_nil_on_clean_iteration()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-  db:exec("INSERT INTO t (id) VALUES (1), (2)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+  assert(db:exec("INSERT INTO t (id) VALUES (1), (2)"))
   local iter = check.must(db:query("SELECT * FROM t"))
   local count = 0
   for _ in iter do count = count + 1 end
   assert(count == 2, "should iterate all rows")
   assert(iter:err() == nil, "clean iteration should report no error")
-  db:close()
+  assert(db:close())
 end
 test_query_err_nil_on_clean_iteration()
 
@@ -257,7 +257,7 @@ local function test_query_step_error_surfaced()
   assert(err ~= nil, "step error must be surfaced, not swallowed as end-of-rows")
   assert(string.find(err, "overflow"),
     "error should mention overflow: " .. tostring(err))
-  db:close()
+  assert(db:close())
 end
 test_query_step_error_surfaced()
 
@@ -266,30 +266,30 @@ local function test_query_one_step_error()
   local row, err = db:query_one(OVERFLOW)
   assert(row == nil, "query_one should return nil on a step error")
   assert(type(err) == "string", "query_one should surface the step error")
-  db:close()
+  assert(db:close())
 end
 test_query_one_step_error()
 
 -- values(): a NULL first column must not truncate the row (bounded unpack)
 local function test_values_null_first_column()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
-  db:exec("INSERT INTO t VALUES (NULL, 42, 'z')")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
+  assert(db:exec("INSERT INTO t VALUES (NULL, 42, 'z')"))
   local stmt = check.must(db:prepare("SELECT * FROM t"))
   local a, b, c = stmt:values()()
   assert(a == nil, "first column should be nil")
   assert(b == 42, "second column should survive NULL-first-column unpack")
   assert(c == "z", "third column should survive NULL-first-column unpack")
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_values_null_first_column()
 
 -- Use-after-close returns errors instead of throwing/crashing
 local function test_use_after_close()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER)")
-  db:close()
+  assert(db:exec("CREATE TABLE t (id INTEGER)"))
+  assert(db:close())
   local ok, exec_err = db:exec("INSERT INTO t (id) VALUES (1)")
   assert(not ok and type(exec_err) == "string", "exec after close should error")
   local iter, query_err = db:query("SELECT * FROM t")
@@ -303,18 +303,18 @@ test_use_after_close()
 
 local function test_column_name_1indexed()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (first_col TEXT, second_col INTEGER, third_col REAL)")
-  db:exec("INSERT INTO t VALUES ('a', 1, 1.0)") -- Need a row to step to
+  assert(db:exec("CREATE TABLE t (first_col TEXT, second_col INTEGER, third_col REAL)"))
+  assert(db:exec("INSERT INTO t VALUES ('a', 1, 1.0)")) -- Need a row to step to
 
   local stmt = check.must(db:prepare("SELECT * FROM t"))
   assert(stmt:columns() == 3, "should have 3 columns")
   -- column_name requires step() to be called first (lsqlite3 limitation)
-  stmt:exec() -- Step to first row
+  assert(stmt:exec()) -- Step to first row
   assert(stmt:column_name(1) == "first_col", "column 1 should be 'first_col'")
   assert(stmt:column_name(2) == "second_col", "column 2 should be 'second_col'")
   assert(stmt:column_name(3) == "third_col", "column 3 should be 'third_col'")
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_column_name_1indexed()
 
@@ -322,26 +322,26 @@ test_column_name_1indexed()
 
 local function test_manual_close()
   local db = check.must(sqlite.open(":memory:"))
-  db:close()
+  assert(db:close())
   -- second close should be safe (no error)
-  db:close()
+  assert(db:close())
 end
 test_manual_close()
 
 local function test_auto_close()
   -- Test that db can be opened and closed without issue
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER)")
-  db:close()
+  assert(db:exec("CREATE TABLE t (id INTEGER)"))
+  assert(db:close())
 end
 test_auto_close()
 
 local function test_statement_close()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER)")
+  assert(db:exec("CREATE TABLE t (id INTEGER)"))
   local stmt = check.must(db:prepare("SELECT * FROM t"))
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_statement_close()
 
@@ -350,8 +350,8 @@ local function test_double_close_safe()
   local stmt = check.must(db:prepare("SELECT 1"))
   stmt:close()
   stmt:close()
-  db:close()
-  db:close()
+  assert(db:close())
+  assert(db:close())
 end
 test_double_close_safe()
 
@@ -359,11 +359,11 @@ test_double_close_safe()
 
 local function test_transaction()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
-  db:exec("BEGIN TRANSACTION")
-  db:exec("INSERT INTO t (name) VALUES ('inside tx')")
-  db:exec("ROLLBACK")
+  assert(db:exec("BEGIN TRANSACTION"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('inside tx')"))
+  assert(db:exec("ROLLBACK"))
 
   local count = 0
   for _ in check.must(db:query("SELECT * FROM t")) do
@@ -371,26 +371,26 @@ local function test_transaction()
   end
   assert(count == 0, "should have 0 rows after rollback")
 
-  db:exec("BEGIN TRANSACTION")
-  db:exec("INSERT INTO t (name) VALUES ('committed')")
-  db:exec("COMMIT")
+  assert(db:exec("BEGIN TRANSACTION"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('committed')"))
+  assert(db:exec("COMMIT"))
 
   count = 0
   for _ in check.must(db:query("SELECT * FROM t")) do
     count = count + 1
   end
   assert(count == 1, "should have 1 row after commit")
-  db:close()
+  assert(db:close())
 end
 test_transaction()
 
 local function test_multiple_params()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)"))
-  stmt:bind("hello", 42, 3.14)
-  stmt:exec()
+  assert(stmt:bind("hello", 42, 3.14))
+  assert(stmt:exec())
   stmt:close()
 
   for row in check.must(db:query("SELECT * FROM t")) do
@@ -398,28 +398,28 @@ local function test_multiple_params()
     assert(row.b == 42, "b should be 42")
     assert(math.abs((row.c as number) - 3.14) < 0.001, "c ~3.14") -- cast: from any
   end
-  db:close()
+  assert(db:close())
 end
 test_multiple_params()
 
 local function test_null_values()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES (NULL)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES (NULL)"))
 
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.name == nil, "name should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_null_values()
 
 local function test_nested_queries()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT)")
-  db:exec("INSERT INTO parents (name) VALUES ('Alice'), ('Bob')")
-  db:exec("INSERT INTO children (parent_id, name) VALUES (1, 'Child1'), (1, 'Child2'), (2, 'Child3')")
+  assert(db:exec("CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT)"))
+  assert(db:exec("INSERT INTO parents (name) VALUES ('Alice'), ('Bob')"))
+  assert(db:exec("INSERT INTO children (parent_id, name) VALUES (1, 'Child1'), (1, 'Child2'), (2, 'Child3')"))
 
   local results: {string} = {}
   for parent in check.must(db:query("SELECT * FROM parents ORDER BY id")) do
@@ -433,7 +433,7 @@ local function test_nested_queries()
   assert(results[1] == "Alice->Child1", "first pair")
   assert(results[2] == "Alice->Child2", "second pair")
   assert(results[3] == "Bob->Child3", "third pair")
-  db:close()
+  assert(db:close())
 end
 test_nested_queries()
 
@@ -444,7 +444,7 @@ local function test_query_invalid_sql()
   local iter, err = db:query("INVALID SQL SYNTAX")
   assert(iter == nil, "query should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
-  db:close()
+  assert(db:close())
 end
 test_query_invalid_sql()
 
@@ -453,7 +453,7 @@ local function test_query_list_invalid_sql()
   local iter, err = db:query_list("INVALID SQL SYNTAX", {})
   assert(iter == nil, "query_list should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
-  db:close()
+  assert(db:close())
 end
 test_query_list_invalid_sql()
 
@@ -462,7 +462,7 @@ local function test_query_named_invalid_sql()
   local iter, err = db:query_named("INVALID SQL SYNTAX", {})
   assert(iter == nil, "query_named should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
-  db:close()
+  assert(db:close())
 end
 test_query_named_invalid_sql()
 
@@ -471,7 +471,7 @@ local function test_query_one_invalid_sql()
   local row, err = db:query_one("INVALID SQL SYNTAX")
   assert(row == nil, "query_one should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
-  db:close()
+  assert(db:close())
 end
 test_query_one_invalid_sql()
 
@@ -479,8 +479,8 @@ test_query_one_invalid_sql()
 -- and subsequent queries work (statement leak regression test).
 local function test_query_one_close_after_hit()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('alice')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('alice')"))
 
   -- query_one that returns a row must not leak the iterator/statement
   local row = check.must(db:query_one("SELECT * FROM t WHERE name = ?", "alice"))
@@ -491,6 +491,6 @@ local function test_query_one_close_after_hit()
   assert(row2 ~= nil, "second query_one should still work after first")
 
   -- db:close() must succeed without error (lsqlite3 fails if stmts unfinalized)
-  db:close()
+  assert(db:close())
 end
 test_query_one_close_after_hit()

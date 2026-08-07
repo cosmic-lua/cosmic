@@ -11,7 +11,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- Helper: create a directory under tmpdir
 local function mksubdir(name: string): string
   local p = fs.join(tmpdir, name)
-  fs.make_dirs(p)
+  assert(fs.make_dirs(p))
   return p
 end
 
@@ -28,18 +28,18 @@ end
 local function test_walk_symlink_cycle_terminates()
   local base = mksubdir("walk_cycle")
   local subdir = fs.join(base, "sub")
-  fs.make_dirs(subdir)
+  assert(fs.make_dirs(subdir))
   write_file(fs.join(subdir, "real.txt"), "hello")
   -- Create a symlink cycle: sub/loop -> ..  (points back to base)
-  fs.symlink("..", fs.join(subdir, "loop"))
+  assert(fs.symlink("..", fs.join(subdir, "loop")))
 
   local max_depth_seen = 0
   -- walk the base directory; collect all entries to detect infinite loop
   -- (the test harness has a timeout; if we don't hang this is fine)
   local results: {string} = {}
-  fs_walk.walk(base, function(full_path: string, _entry: string, _st: any, ctx: {string})
-      ctx[#ctx + 1] = full_path
-    end, results)
+  assert(fs_walk.walk(base, function(full_path: string, _entry: string, _st: any, ctx: {string})
+        ctx[#ctx + 1] = full_path
+      end, results))
 
   -- Must NOT contain any path that descends deeper than base/sub/
   -- (i.e. no base/sub/loop/sub/loop/... paths)
@@ -61,9 +61,9 @@ test_walk_symlink_cycle_terminates()
 local function test_find_all_symlink_cycle_terminates()
   local base = mksubdir("find_info_cycle")
   local subdir = fs.join(base, "sub")
-  fs.make_dirs(subdir)
+  assert(fs.make_dirs(subdir))
   write_file(fs.join(subdir, "real.txt"), "data")
-  fs.symlink("..", fs.join(subdir, "loop"))
+  assert(fs.symlink("..", fs.join(subdir, "loop")))
 
   local collected = fs_walk.find_info(base)
   assert(collected, "find_info should succeed")
@@ -81,9 +81,9 @@ test_find_all_symlink_cycle_terminates()
 local function test_find_iter_symlink_cycle_terminates()
   local base = mksubdir("files_cycle")
   local subdir = fs.join(base, "sub")
-  fs.make_dirs(subdir)
+  assert(fs.make_dirs(subdir))
   write_file(fs.join(subdir, "real.lua"), "-- lua")
-  fs.symlink("..", fs.join(subdir, "loop"))
+  assert(fs.symlink("..", fs.join(subdir, "loop")))
 
   local collected: {string} = {}
   for p in check.must(fs_walk.find_iter(base, {glob = "*.lua"})) do
@@ -103,12 +103,12 @@ local function test_walk_symlink_file_visited()
   local base = mksubdir("walk_symlink_file")
   write_file(fs.join(base, "real.txt"), "content")
   -- Symlink to a file in same dir
-  fs.symlink("real.txt", fs.join(base, "alias.txt"))
+  assert(fs.symlink("real.txt", fs.join(base, "alias.txt")))
 
   local found: {string: boolean} = {}
-  fs_walk.walk(base, function(_full_path: string, entry: string, _st: any, ctx: {string: boolean})
-      ctx[entry] = true
-    end, found)
+  assert(fs_walk.walk(base, function(_full_path: string, entry: string, _st: any, ctx: {string: boolean})
+        ctx[entry] = true
+      end, found))
   -- Both the real file and the symlink to a file should be visited
   -- (walk visits entries without distinguishing symlinked files from real ones,
   -- since we only skip recursion into symlinked dirs)
@@ -170,8 +170,8 @@ local function test_walk_permission_denied_subdir_reports_error()
   local base = mksubdir("walk_denied")
   local open_dir = fs.join(base, "open")
   local locked = fs.join(base, "locked")
-  fs.make_dirs(open_dir)
-  fs.make_dirs(locked)
+  assert(fs.make_dirs(open_dir))
+  assert(fs.make_dirs(locked))
   write_file(fs.join(open_dir, "seen.txt"), "x")
   write_file(fs.join(locked, "hidden.txt"), "x")
   assert(fs.chmod(locked, 0))
@@ -200,8 +200,8 @@ local function test_find_iter_permission_denied_subdir_reports_error()
   local base = mksubdir("files_denied")
   local open_dir = fs.join(base, "open")
   local locked = fs.join(base, "locked")
-  fs.make_dirs(open_dir)
-  fs.make_dirs(locked)
+  assert(fs.make_dirs(open_dir))
+  assert(fs.make_dirs(locked))
   write_file(fs.join(open_dir, "seen.txt"), "x")
   write_file(fs.join(locked, "hidden.txt"), "x")
   assert(fs.chmod(locked, 0))
@@ -236,8 +236,8 @@ local function test_walk_skip_prunes_subtree()
   local base = mksubdir("walk_skip")
   local keep = fs.join(base, "keep")
   local prune = fs.join(base, "prune")
-  fs.make_dirs(keep)
-  fs.make_dirs(prune)
+  assert(fs.make_dirs(keep))
+  assert(fs.make_dirs(prune))
   write_file(fs.join(keep, "a.txt"), "a")
   write_file(fs.join(prune, "b.txt"), "b")
 
@@ -288,22 +288,22 @@ test_walk_stop_ends_walk()
 local function test_walk_stop_in_subtree_aborts_walk()
   local base = mksubdir("walk_stop_deep")
   local subsub = fs.join(base, "sub", "subsub")
-  fs.make_dirs(subsub)
+  assert(fs.make_dirs(subsub))
   write_file(fs.join(subsub, "deep.txt"), "x")
   write_file(fs.join(base, "top1.txt"), "x")
   write_file(fs.join(base, "top2.txt"), "x")
 
   local ctx: StopCtx = {count = 0, stopped = false, after = 0}
-  fs_walk.walk(base, function(_p: string, name: string,
-        _st: any, c: StopCtx): WalkAction
-      if c.stopped then
-        c.after = c.after + 1
-      end
-      if name == "deep.txt" then
-        c.stopped = true
-        return "stop"
-      end
-    end, ctx)
+  assert(fs_walk.walk(base, function(_p: string, name: string,
+          _st: any, c: StopCtx): WalkAction
+        if c.stopped then
+          c.after = c.after + 1
+        end
+        if name == "deep.txt" then
+          c.stopped = true
+          return "stop"
+        end
+      end, ctx))
   assert(ctx.stopped, "deep.txt should have been visited")
   assert(ctx.after == 0, "no entry may be visited after stop, got "
     .. tostring(ctx.after))
@@ -313,9 +313,9 @@ test_walk_stop_in_subtree_aborts_walk()
 local function test_walk_skip_with_symlink_cycle_terminates()
   local base = mksubdir("walk_skip_cycle")
   local sub = fs.join(base, "sub")
-  fs.make_dirs(sub)
+  assert(fs.make_dirs(sub))
   write_file(fs.join(sub, "real.txt"), "hello")
-  fs.symlink("..", fs.join(sub, "loop"))
+  assert(fs.symlink("..", fs.join(sub, "loop")))
 
   local ctx: StopCtx = {count = 0, stopped = false, after = 0}
   local got, err = fs_walk.walk(base, function(_p: string, name: string,
@@ -360,7 +360,7 @@ local function test_find_iter_early_break_closes_handles()
   local base = mksubdir("files_close")
   for i = 1, 3 do
     local sub = fs.join(base, "sub" .. i)
-    fs.make_dirs(sub)
+    assert(fs.make_dirs(sub))
     write_file(fs.join(sub, "f" .. i .. ".txt"), "x")
   end
 

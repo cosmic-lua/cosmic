@@ -17,9 +17,9 @@ local function Example_open_write_read()
 
   local h < close > = check.must(fd.open(path, fd.O_RDWR | fd.O_CREAT, 420))
   print(check.must(h:write("hello fd")))
-  h:seek(0, fd.SEEK_SET)
+  assert(h:seek(0, fd.SEEK_SET))
   print(check.must(h:read(5)))
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   -- Output:
   -- 8
   -- hello
@@ -34,12 +34,12 @@ local function Example_positional()
   local fs = require("cosmic.fs")
   local dir = fs.temp_dir("/tmp/fd_example_XXXXXX")
   local path = fs.join(dir, "data.txt")
-  fs.write(path, "abcdef")
+  assert(fs.write(path, "abcdef"))
 
   local h < close > = check.must(fd.open(path, fd.O_RDONLY))
   print(check.must(h:read(3, 2)))
   print(check.must(h:read(2)))
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   -- Output:
   -- cde
   -- ab
@@ -51,7 +51,7 @@ local function Example_pipe()
   local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local p < close > = check.must(fd.pipe())
-  p.writer:write("ping")
+  assert(p.writer:write("ping"))
   print(check.must(p.reader:read(4)))
   -- Output:
   -- ping

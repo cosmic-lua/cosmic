@@ -181,9 +181,9 @@ local function closure_argv(proj: Project, gen: string, out: string,
   local saved = cenv.get("LUA_PATH")
   local function restore()
     if saved == nil then
-      cenv.unset("LUA_PATH")
+      local _ok, _err = cenv.unset("LUA_PATH")
     else
-      cenv.set("LUA_PATH", saved)
+      local _ok, _err = cenv.set("LUA_PATH", saved)
     end
   end
   for _, path in ipairs(built) do

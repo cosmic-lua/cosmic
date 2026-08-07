@@ -22,7 +22,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- signal (an outer seccomp filter SIGSYS-ing a namespace syscall).
 local function run_script(name: string, body: string): child.Result
   local script = fs.join(tmpdir, name)
-  fs.write(script, body)
+  assert(fs.write(script, body))
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if r.signal ~= nil then

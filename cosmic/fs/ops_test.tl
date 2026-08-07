@@ -8,13 +8,13 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
   local test_dir = fs.join(TEST_TMPDIR, "fs_ops_test")
-  fs.make_dirs(test_dir)
+  assert(fs.make_dirs(test_dir))
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.remove_all(test_dir)
+    assert(fs.remove_all(test_dir))
   end
 end
 
@@ -85,30 +85,30 @@ local function test_copy_retries_eintr_on_read()
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
         if not fired then
           fired = true
-          p.writer:write("hello")
-          p.writer:close()
+          assert(p.writer:write("hello"))
+          assert(p.writer:close())
         end
       end))
   -- Interval timer: keeps firing until the blocked read observes a
   -- signal, so the test cannot hang however the timing lands.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 30,
-      interval_ms = 30,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 30,
+        interval_ms = 30,
+      }))
   local ok, err = fs.copy(src, dst)
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0, interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0, interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 
   assert(ok, "copy should retry a read interrupted by a signal: " .. tostring(err))
   assert(fs.read(dst) == "hello",
     "dst should contain the handler's payload, got " .. tostring((fs.read(dst))))
-  p:close()
+  assert(p:close())
   teardown(test_dir)
 end
 test_copy_retries_eintr_on_read()
@@ -137,18 +137,18 @@ local function test_copy_retries_eintr_on_write()
         local got = p.reader:read(65536)
         if got then table.insert(drained, got) end
       end))
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 20,
-      interval_ms = 20,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 20,
+        interval_ms = 20,
+      }))
   local ok, err = fs.copy(src, dst)
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0, interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
-  p.writer:close()
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0, interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
+  assert(p.writer:close())
 
   -- Drain whatever is left buffered in the pipe once copy() is done.
   while true do
@@ -160,7 +160,7 @@ local function test_copy_retries_eintr_on_write()
   assert(ok, "copy should retry a write interrupted by a signal: " .. tostring(err))
   assert(table.concat(drained) == chunk .. chunk .. chunk .. chunk,
     "dst should contain exactly the source bytes, unaffected by the retry")
-  p:close()
+  assert(p:close())
   teardown(test_dir)
 end
 test_copy_retries_eintr_on_write()
@@ -309,7 +309,7 @@ local function test_tmpfile_success_contract()
   assert(err == nil, "error slot should be nil on success")
   local st = fs.fstat(t.handle:fd())
   assert(st, "fstat on temp_file fd should succeed")
-  t.handle:close()
+  assert(t.handle:close())
   teardown(test_dir)
 end
 test_tmpfile_success_contract()
@@ -412,7 +412,7 @@ local function test_set_times_fd_sets_exact_times()
     "atime should be 111.0, got " .. a_s .. "." .. a_ns)
   assert(m_s == 222 and m_ns == 0,
     "mtime should be 222.0, got " .. m_s .. "." .. m_ns)
-  hh:close()
+  assert(hh:close())
 
   teardown(test_dir)
 end
@@ -438,7 +438,7 @@ local function test_set_times_fd_omitted_field_keeps_current()
     "atime must be unchanged when secs is nil, got " .. a_s .. "." .. a_ns)
   assert(m_s == 3333333333 and m_ns == 0,
     "mtime nsecs should default to 0, got " .. m_s .. "." .. m_ns)
-  hh:close()
+  assert(hh:close())
 
   teardown(test_dir)
 end

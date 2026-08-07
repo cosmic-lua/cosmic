@@ -417,7 +417,7 @@ local function run(argv: {string}): integer
   -- same, which is why every test passing absolute paths missed it.
   local named = os.getenv(graph.MAKE_ENV)
   if named and named ~= "" then
-    cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
+    local _ok, _err = cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
   end
 
   -- Both refusals end in a verdict, like every other outcome. The

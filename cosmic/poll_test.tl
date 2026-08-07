@@ -31,11 +31,11 @@ test_poller_new()
 local function test_poller_add_remove_raw_fd()
   local p = poll.new()
   -- Add a raw fd number
-  p:add(1, poll.POLLOUT) -- stdout
+  assert(p:add(1, poll.POLLOUT)) -- stdout
   assert(not p:is_empty(), "poller should not be empty after add")
   assert(p:count() == 1, "count should be 1")
 
-  p:add(2, poll.POLLOUT) -- stderr
+  assert(p:add(2, poll.POLLOUT)) -- stderr
   assert(p:count() == 2, "count should be 2")
 
   p:remove(1)
@@ -55,7 +55,7 @@ local function test_poll_pipe_readable()
 
   local p = poll.new()
   -- Add the reader using its fd() method
-  p:add(pipe.reader:fd(), poll.POLLIN)
+  assert(p:add(pipe.reader:fd(), poll.POLLIN))
   assert(p:count() == 1, "count should be 1")
 
   -- Poll with short timeout - should return immediately since data is available
@@ -68,7 +68,7 @@ local function test_poll_pipe_readable()
   end
   assert(count == 1, "expected 1 ready fd, got " .. count)
 
-  pipe:close()
+  assert(pipe:close())
 end
 test_poll_pipe_readable()
 
@@ -77,7 +77,7 @@ local function test_poll_pipe_writable()
 
   local p = poll.new()
   -- Check if writer is writable (should be, since buffer is empty)
-  p:add(pipe.writer:fd(), poll.POLLOUT)
+  assert(p:add(pipe.writer:fd(), poll.POLLOUT))
 
   local count = 0
   for fd, events in p:wait(100) do
@@ -87,7 +87,7 @@ local function test_poll_pipe_writable()
   end
   assert(count == 1, "expected 1 ready fd")
 
-  pipe:close()
+  assert(pipe:close())
 end
 test_poll_pipe_writable()
 
@@ -97,12 +97,12 @@ local function test_poll_multiple_fds()
   local pipe2 = check.must(cfd.pipe())
 
   -- Write to both pipes
-  pipe1.writer:write("hello")
-  pipe2.writer:write("world")
+  assert(pipe1.writer:write("hello"))
+  assert(pipe2.writer:write("world"))
 
   local p = poll.new()
-  p:add(pipe1.reader:fd(), poll.POLLIN)
-  p:add(pipe2.reader:fd(), poll.POLLIN)
+  assert(p:add(pipe1.reader:fd(), poll.POLLIN))
+  assert(p:add(pipe2.reader:fd(), poll.POLLIN))
   assert(p:count() == 2, "count should be 2")
 
   local ready_fds: {number: boolean} = {}
@@ -114,8 +114,8 @@ local function test_poll_multiple_fds()
   assert(ready_fds[pipe1.reader:fd()], "pipe1 reader should be ready")
   assert(ready_fds[pipe2.reader:fd()], "pipe2 reader should be ready")
 
-  pipe1:close()
-  pipe2:close()
+  assert(pipe1:close())
+  assert(pipe2:close())
 end
 test_poll_multiple_fds()
 
@@ -124,7 +124,7 @@ local function test_poll_timeout()
 
   local p = poll.new()
   -- Poll for read on empty pipe - should timeout
-  p:add(pipe.reader:fd(), poll.POLLIN)
+  assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
   local count = 0
   for _, _ in p:wait(10) do -- 10ms timeout
@@ -132,7 +132,7 @@ local function test_poll_timeout()
   end
   assert(count == 0, "expected no ready fds on timeout")
 
-  pipe:close()
+  assert(pipe:close())
 end
 test_poll_timeout()
 
@@ -142,11 +142,11 @@ local function test_poll_with_socket()
   local sock1 = check.must(raw_sock1)
 
   -- Send data on sock1
-  sock1:send("hello")
+  assert(sock1:send("hello"))
 
   local p = poll.new()
   -- Socket has fd field directly
-  p:add(sock2.fd, poll.POLLIN)
+  assert(p:add(sock2.fd, poll.POLLIN))
 
   local count = 0
   for fd, events in p:wait(100) do
@@ -156,8 +156,8 @@ local function test_poll_with_socket()
   end
   assert(count == 1, "expected 1 ready socket")
 
-  sock1:close()
-  sock2:close()
+  assert(sock1:close())
+  assert(sock2:close())
 end
 test_poll_with_socket()
 
@@ -165,10 +165,10 @@ local function test_poll_with_child_pipes()
   -- Redirect the child's stdout into a pipe we own, then poll the read end.
   local pp = check.must(cfd.pipe())
   local h = check.must(child.start({"echo", "hello"}, {stdout = pp.writer}))
-  pp.writer:close()
+  assert(pp.writer:close())
 
   local p = poll.new()
-  p:add(pp.reader:fd(), poll.POLLIN)
+  assert(p:add(pp.reader:fd(), poll.POLLIN))
 
   local count = 0
   for fd, events in p:wait(1000) do
@@ -178,18 +178,18 @@ local function test_poll_with_child_pipes()
   end
   assert(count >= 1, "expected at least 1 event from child stdout")
 
-  pp.reader:close()
-  h:wait()
+  assert(pp.reader:close())
+  assert(h:wait())
 end
 test_poll_with_child_pipes()
 
 local function test_poll_events_method()
   local pipe = check.must(cfd.pipe())
 
-  pipe.writer:write("test")
+  assert(pipe.writer:write("test"))
 
   local p = poll.new()
-  p:add(pipe.reader:fd(), poll.POLLIN)
+  assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
   local ready, poll_err = p:poll(100)
   assert(ready ~= nil, "poll failed: " .. tostring(poll_err))
@@ -203,7 +203,7 @@ local function test_poll_events_method()
   local no_events = p:events(999)
   assert(no_events == nil, "events should be nil for non-ready fd")
 
-  pipe:close()
+  assert(pipe:close())
 end
 test_poll_events_method()
 
@@ -211,13 +211,13 @@ local function test_poll_nonblocking()
   local pipe = check.must(cfd.pipe())
 
   local p = poll.new()
-  p:add(pipe.reader:fd(), poll.POLLIN)
+  assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
   -- Non-blocking poll (timeout = 0)
   local ready, _ = p:poll(0)
   assert(ready == 0, "expected 0 ready fds for non-blocking poll on empty pipe")
 
-  pipe:close()
+  assert(pipe:close())
 end
 test_poll_nonblocking()
 
@@ -225,10 +225,10 @@ local function test_poll_hangup()
   local pipe = check.must(cfd.pipe())
 
   -- Close the writer to trigger hangup on reader
-  pipe.writer:close()
+  assert(pipe.writer:close())
 
   local p = poll.new()
-  p:add(pipe.reader:fd(), poll.POLLIN)
+  assert(p:add(pipe.reader:fd(), poll.POLLIN))
 
   for fd, events in p:wait(100) do
     assert(fd == pipe.reader:fd(), "expected reader fd")
@@ -236,7 +236,7 @@ local function test_poll_hangup()
     assert(events.hangup or events.readable, "expected hangup or readable on closed pipe")
   end
 
-  pipe.reader:close()
+  assert(pipe.reader:close())
 end
 test_poll_hangup()
 
@@ -261,7 +261,7 @@ local function test_wait_surfaces_hard_error()
   -- Provoke a real poll failure: more fds than RLIMIT_NOFILE is EINVAL.
   local p = poll.new()
   for i = 1, 100000 do
-    p:add(i, poll.POLLIN)
+    assert(p:add(i, poll.POLLIN))
   end
   local n, perr = p:poll(0)
   if n ~= nil then

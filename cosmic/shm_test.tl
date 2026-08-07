@@ -23,7 +23,7 @@ test_mapshared_creates_memory()
 
 local function test_memory_write_read()
   local mem = check.must(shm.mapshared(4096))
-  mem:write("hello") -- writes "hello\0"
+  assert(mem:write("hello")) -- writes "hello\0"
   local data = mem:read() -- reads until null terminator
   assert(data == "hello", "expected 'hello', got '" .. tostring(data) .. "'")
 end
@@ -31,8 +31,8 @@ test_memory_write_read()
 
 local function test_memory_write_read_with_offset()
   local mem = check.must(shm.mapshared(4096))
-  mem:write("hello") -- writes at offset 0
-  mem:write("world") -- overwrites
+  assert(mem:write("hello")) -- writes at offset 0
+  assert(mem:write("world")) -- overwrites
   local data = mem:read()
   assert(data == "world", "expected 'world', got '" .. tostring(data) .. "'")
 end
@@ -42,7 +42,7 @@ test_memory_write_read_with_offset()
 
 local function test_memory_store_load()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 42)
+  assert(mem:store(0, 42))
   local value = mem:load(0)
   assert(value == 42, "expected 42, got " .. tostring(value))
 end
@@ -50,8 +50,8 @@ test_memory_store_load()
 
 local function test_memory_store_load_different_index()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 100)
-  mem:store(1, 200)
+  assert(mem:store(0, 100))
+  assert(mem:store(1, 200))
   local v0 = mem:load(0)
   local v1 = mem:load(1)
   assert(v0 == 100, "expected 100 at index 0, got " .. tostring(v0))
@@ -63,7 +63,7 @@ test_memory_store_load_different_index()
 
 local function test_memory_xchg()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 10)
+  assert(mem:store(0, 10))
   local old = mem:xchg(0, 20)
   assert(old == 10, "xchg should return old value 10, got " .. tostring(old))
   local current = mem:load(0)
@@ -75,7 +75,7 @@ test_memory_xchg()
 
 local function test_memory_cmpxchg_success()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 100)
+  assert(mem:store(0, 100))
   local r = check.must(mem:cmpxchg(0, 100, 200))
   assert(r.swapped == true, "cmpxchg should succeed when old matches")
   assert(r.value == 100, "cmpxchg should return old value 100, got " .. tostring(r.value))
@@ -86,7 +86,7 @@ test_memory_cmpxchg_success()
 
 local function test_memory_cmpxchg_failure()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 100)
+  assert(mem:store(0, 100))
   local r = check.must(mem:cmpxchg(0, 50, 200))
   assert(r.swapped == false, "cmpxchg should fail when old doesn't match")
   assert(r.value == 100, "cmpxchg should return actual value 100, got " .. tostring(r.value))
@@ -99,7 +99,7 @@ test_memory_cmpxchg_failure()
 
 local function test_memory_fetch_add()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 10)
+  assert(mem:store(0, 10))
   local old = mem:fetch_add(0, 5)
   assert(old == 10, "fetch_add should return old value 10, got " .. tostring(old))
   local current = mem:load(0)
@@ -111,7 +111,7 @@ test_memory_fetch_add()
 
 local function test_memory_fetch_and()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 0xFF)
+  assert(mem:store(0, 0xFF))
   local old = mem:fetch_and(0, 0x0F)
   assert(old == 0xFF, "fetch_and should return old value 255, got " .. tostring(old))
   local current = mem:load(0)
@@ -123,7 +123,7 @@ test_memory_fetch_and()
 
 local function test_memory_fetch_or()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 0x0F)
+  assert(mem:store(0, 0x0F))
   local old = mem:fetch_or(0, 0xF0)
   assert(old == 0x0F, "fetch_or should return old value 15, got " .. tostring(old))
   local current = mem:load(0)
@@ -135,7 +135,7 @@ test_memory_fetch_or()
 
 local function test_memory_fetch_xor()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 0xFF)
+  assert(mem:store(0, 0xFF))
   local old = mem:fetch_xor(0, 0x0F)
   assert(old == 0xFF, "fetch_xor should return old value 255, got " .. tostring(old))
   local current = mem:load(0)
@@ -147,7 +147,7 @@ test_memory_fetch_xor()
 
 local function test_memory_wake_no_waiters()
   local mem = check.must(shm.mapshared(4096))
-  mem:store(0, 0)
+  assert(mem:store(0, 0))
   local woken = mem:wake(0, 1)
   -- With no waiters, wake should return 0
   assert(woken == 0, "wake with no waiters should return 0, got " .. tostring(woken))
@@ -240,7 +240,7 @@ test_memory_word_index_out_of_range()
 
 local function test_memory_wait_wrong_expect_returns_eagain()
   local mem = check.must(shm.mapshared(64))
-  mem:store(0, 5)
+  assert(mem:store(0, 5))
   local rc, err = mem:wait(0, 3)
   assert(rc == nil, "wait with mismatched expect should fail immediately")
   assert(type(err) == "string" and err:match("EAGAIN"),
@@ -254,23 +254,23 @@ test_memory_wait_wrong_expect_returns_eagain()
 local function test_memory_wait_retries_eintr_until_deadline()
   local signal = require("cosmic.signal")
   local mem = check.must(shm.mapshared(64))
-  mem:store(0, 0)
+  assert(mem:store(0, 0))
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Interval timer: interrupts the wait several times before the deadline.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 30,
-      interval_ms = 30,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 30,
+        interval_ms = 30,
+      }))
   local rc, err = mem:wait(0, 0, 200)
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0,
-      interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0,
+        interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
   assert(rc == nil, "wait on an unchanged word should time out")
   assert(type(err) == "string" and err:match("ETIMEDOUT"),
     "interrupted wait should retry to the deadline (ETIMEDOUT), got: "

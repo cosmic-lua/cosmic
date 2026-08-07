@@ -115,12 +115,12 @@ local function write_output(content: string, output: string, write_if_changed: b
   unix.close(tmp_fd)
   local ok, err = fs.write(tmp_path, content)
   if not ok then
-    os.remove(tmp_path)
+    local _ok, _err = os.remove(tmp_path)
     return 1, "write-if-changed: failed to write tmp: " .. (err or "")
   end
   local rok, rerr = fs.rename(tmp_path, output)
   if not rok then
-    os.remove(tmp_path)
+    local _ok, _err = os.remove(tmp_path)
     return 1, "write-if-changed: rename failed: " .. (rerr or "")
   end
   return 0

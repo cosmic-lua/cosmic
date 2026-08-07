@@ -47,7 +47,7 @@ local function test_wait_timeout()
   local r, err = h:wait(100)
   assert(r == nil, "expected nil Result on timeout")
   assert(err == "timeout", "expected 'timeout', got " .. tostring(err))
-  h:kill(signal.SIGKILL)
+  assert(h:kill(signal.SIGKILL))
   local r2 = check.must(h:wait())
   assert(r2.signal == signal.SIGKILL, "expected SIGKILL after timeout+kill")
 end
@@ -120,12 +120,12 @@ test_run_cwd_option()
 local function test_try_wait()
   local h = check.must(child.start({"sleep", "10"}))
   assert(h:try_wait() == nil, "try_wait on a running child returns nil")
-  h:kill(signal.SIGKILL)
+  assert(h:kill(signal.SIGKILL))
   local res: child.Result = nil
   for _ = 1, 200 do
     res = h:try_wait()
     if res ~= nil then break end
-    time.sleep(0, 10000000) -- 10ms
+    assert(time.sleep(0, 10000000)) -- 10ms
   end
   assert(res ~= nil, "try_wait should eventually reap the killed child")
   assert(res.signal == signal.SIGKILL, "expected SIGKILL, got signal=" .. tostring(res.signal))
@@ -154,14 +154,14 @@ local function test_abandoned_handle_reaped()
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  time.sleep(0, 100000000) -- 100ms for the kernel to finish teardown
+  assert(time.sleep(0, 100000000)) -- 100ms for the kernel to finish teardown
   assert(not signal.kill(pid, 0), "abandoned child should be killed and reaped, not left alive/zombie")
 end
 test_abandoned_handle_reaped()
 
 local function test_kill_after_reap_fails()
   local h = check.must(child.start({lua_bin, "-e", "os.exit(0)"}))
-  h:wait()
+  assert(h:wait())
   local ok, err = h:kill()
   assert(not ok, "kill after reap should fail")
   assert(err ~= nil, "kill after reap should report an error")
@@ -172,7 +172,7 @@ test_kill_after_reap_fails()
 
 local function test_spawn_inherits_env()
   local sentinel = "cosmic_test_inherit_" .. tostring(proc.getpid())
-  env.set("COSMIC_TEST_SENTINEL", sentinel)
+  assert(env.set("COSMIC_TEST_SENTINEL", sentinel))
   local r = check.must(child.run({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_SENTINEL") or "")
   ]]}))
@@ -197,7 +197,7 @@ test_spawn_with_env_edits()
 
 local function test_spawn_with_env_list()
   local sentinel = "cosmic_test_list_" .. tostring(proc.getpid())
-  env.set("COSMIC_TEST_LIST", sentinel)
+  assert(env.set("COSMIC_TEST_LIST", sentinel))
   local vars = env.list()
   local r = check.must(child.run({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_LIST") or "")
@@ -286,11 +286,11 @@ local function test_spawn_zip_embedded_binary()
   local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 
   local bin_dir = fs.join(tmpdir, "embed", ".bin")
-  fs.make_dirs(bin_dir)
+  assert(fs.make_dirs(bin_dir))
   local echo_data = fs.read("/bin/echo")
   assert(echo_data, "should read /bin/echo")
-  fs.write(fs.join(bin_dir, "echo"), echo_data)
-  fs.chmod(fs.join(bin_dir, "echo"), 493) -- 0755
+  assert(fs.write(fs.join(bin_dir, "echo"), echo_data))
+  assert(fs.chmod(fs.join(bin_dir, "echo"), 493)) -- 0755
 
   local out_bin = fs.join(tmpdir, "cosmic-with-echo")
   local build = check.must(child.run(
@@ -351,7 +351,7 @@ test_spawn_many_captures_correct()
 local function test_spawn_does_not_mutate_argv()
   local argv = {"echo", "x"}
   local h = check.must(child.start(argv))
-  h:wait()
+  assert(h:wait())
   assert(argv[1] == "echo",
     "spawn must not mutate caller's argv[1], got '" .. tostring(argv[1]) .. "'")
 end
@@ -375,8 +375,8 @@ local function test_spawn_overlap_no_stdin_leak()
   assert(elapsed < 3,
     "A must finish promptly, not block on B's lifetime (took " .. tostring(elapsed) .. "s)")
 
-  b:kill(signal.SIGKILL)
-  b:wait()
+  assert(b:kill(signal.SIGKILL))
+  assert(b:wait())
 end
 test_spawn_overlap_no_stdin_leak()
 
@@ -387,9 +387,9 @@ test_spawn_overlap_no_stdin_leak()
 local function test_spawn_stdout_handle()
   local p = check.must(cfd.pipe())
   local h = check.must(child.start({"echo", "via-handle"}, {stdout = p.writer}))
-  p.writer:close()
+  assert(p.writer:close())
   local out = check.must(p.reader:read())
-  p.reader:close()
+  assert(p.reader:close())
   local r = check.must(h:wait())
   assert(out == "via-handle\n", "expected 'via-handle\\n' through the pipe, got '" .. tostring(out) .. "'")
   assert(r.stdout == "", "redirected stdout should leave Result.stdout empty")
@@ -400,9 +400,9 @@ test_spawn_stdout_handle()
 local function test_spawn_stderr_handle()
   local p = check.must(cfd.pipe())
   local h = check.must(child.start({"sh", "-c", "echo err-via-handle >&2"}, {stderr = p.writer}))
-  p.writer:close()
+  assert(p.writer:close())
   local out = check.must(p.reader:read())
-  p.reader:close()
+  assert(p.reader:close())
   local r = check.must(h:wait())
   assert(out == "err-via-handle\n", "expected stderr through the pipe, got '" .. tostring(out) .. "'")
   assert(r.stderr == "", "redirected stderr should leave Result.stderr empty")
@@ -413,10 +413,10 @@ test_spawn_stderr_handle()
 -- string form which stays supported.
 local function test_spawn_stdin_handle()
   local p = check.must(cfd.pipe())
-  p.writer:write("handle stdin data")
-  p.writer:close()
+  assert(p.writer:write("handle stdin data"))
+  assert(p.writer:close())
   local r = check.must(child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = p.reader}))
-  p.reader:close()
+  assert(p.reader:close())
   assert(r.ok, "run with Handle stdin should succeed")
   assert(r.stdout == "handle stdin data",
     "expected 'handle stdin data', got '" .. tostring(r.stdout) .. "'")
@@ -428,7 +428,7 @@ local function test_spawn_stdout_file_handle()
   local path = fs.join(TEST_TMPDIR, "stdout-handle.txt")
   local h = check.must(cfd.open(path, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, 420)) -- 0644
   local r = check.must(child.run({"echo", "to-file"}, {stdout = h}))
-  h:close()
+  assert(h:close())
   assert(r.ok, "run with file Handle stdout should succeed")
   assert(fs.read(path) == "to-file\n", "child output should land in the file")
 end
@@ -438,7 +438,7 @@ test_spawn_stdout_file_handle()
 -- confusing EBADF from the plumbing.
 local function test_spawn_closed_handle_fails()
   local p = check.must(cfd.pipe())
-  p:close()
+  assert(p:close())
   local h, err = child.start({"echo", "x"}, {stdout = p.writer})
   assert(h == nil, "spawn with a closed Handle should fail")
   assert(err ~= nil and err:find("closed", 1, true),
@@ -450,10 +450,10 @@ test_spawn_closed_handle_fails()
 -- for stdout must be rejected by the type checker.
 local function test_options_reject_raw_int_fd()
   local script = fs.join(TEST_TMPDIR, "raw_fd_options.tl")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local child = require("cosmic.child")
 child.run({"echo", "x"}, {stdout = 5})
-]])
+]]))
   local r = check.must(child.run({lua_bin, "--check", "types", script}))
   assert(not r.ok, "a raw integer fd in Options must fail the type check")
   local diag = r.stdout .. r.stderr

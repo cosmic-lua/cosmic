@@ -173,7 +173,7 @@ local function store(script_path: string, content: string, code: string,
   if not trusted(dir) then
     return
   end
-  fs.write(path, code, OWNER_FILE)
+  local _ok, _err = fs.write(path, code, OWNER_FILE)
 end
 
 --- Compile a Teal file, reusing cached output when the source has not

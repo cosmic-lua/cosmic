@@ -80,7 +80,7 @@ end
 test_install_is_idempotent()
 
 local env = require("cosmic.env")
-env.unset("TL_PATH")
+assert(env.unset("TL_PATH"))
 local _ = check
 
 print("all searcher tests passed")

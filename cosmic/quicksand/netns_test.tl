@@ -42,7 +42,7 @@ local function test_unshare_subprocess()
     return
   end
   local script = fs.join(tmpdir, "unshare.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local ns = require("cosmic.quicksand.netns")
 -- Drop into a fresh userns first so unprivileged callers can create a netns.
 -- An outer sandbox (pledge/seccomp) may block unshare entirely; tolerate
@@ -61,7 +61,7 @@ end
 local up, uerr = ns.bring_up("lo")
 if not up then io.stderr:write("bring_up: " .. tostring(uerr) .. "\n"); os.exit(1) end
 io.write("ok\n")
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout

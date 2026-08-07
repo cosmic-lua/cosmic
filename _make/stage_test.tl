@@ -100,7 +100,7 @@ local function test_binaries_go_on_the_path()
   local env = require("cosmic.env")
   local saved_path, saved_bin = env.get("PATH"), env.get("TEST_BIN")
   local proj: types.Project = {root = "/p", binaries = {}, files = {}}
-  env.set("PATH", "/usr/bin", true)
+  assert(env.set("PATH", "/usr/bin", true))
   stage.binaries_on_path(proj)
   local bin = env.get(stage.BIN_ENV)
   assert(bin == fs.join(project.BUILD_DIR, "bin"),
@@ -119,8 +119,8 @@ local function test_binaries_go_on_the_path()
   stage.binaries_on_path(proj)
   assert(env.get("PATH") == once, "a second call must not stack the entry")
 
-  env.set("PATH", saved_path, true)
-  if saved_bin ~= "" then env.set(stage.BIN_ENV, saved_bin, true) end
+  assert(env.set("PATH", saved_path, true))
+  if saved_bin ~= "" then assert(env.set(stage.BIN_ENV, saved_bin, true)) end
 end
 test_binaries_go_on_the_path()
 
@@ -131,13 +131,13 @@ test_binaries_go_on_the_path()
 local function test_binaries_on_path_without_a_path()
   local env = require("cosmic.env")
   local saved = env.get("PATH")
-  env.unset("PATH")
+  assert(env.unset("PATH"))
   local proj: types.Project = {root = "/p", binaries = {}, files = {}}
   stage.binaries_on_path(proj)
   assert(env.get("PATH") == stage.bin_dir(proj),
     "an unset PATH becomes the build's bin dir, got: " ..
     tostring(env.get("PATH")))
-  if saved ~= nil then env.set("PATH", saved, true) end
+  if saved ~= nil then assert(env.set("PATH", saved, true)) end
 end
 test_binaries_on_path_without_a_path()
 
@@ -157,7 +157,7 @@ local function test_a_dead_stage_does_not_report_a_stale_summary()
   local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
   check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
   local root = fs.join(tmpdir, "stage-stale-summary")
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   assert(fs.write(fs.join(root, "mod.tl"), "return {}\n"))
   assert(fs.write(fs.join(root, "a_test.tl"),

@@ -68,8 +68,8 @@ local function copy(src: string, dst: string): boolean, string
   local sh = cfd.wrap(srcfd)
   local dh = cfd.wrap(dstfd)
   local copied, pump_err = stream.copy(dh, sh)
-  sh:close()
-  dh:close()
+  local _ok, _err = sh:close()
+  local _ok, _err = dh:close()
   if copied == nil then
     return false, "copy: " .. src .. " -> " .. dst .. ": " .. tostring(pump_err)
   end
@@ -193,13 +193,18 @@ local function realpath(path: string): string | nil, string
 end
 
 --- Recursively remove a directory and all its contents.
---- Use with caution.
+--- Use with caution. `rm -rf` semantics: a path that does not exist is
+--- already removed, so ENOENT is success — the call ensures absence,
+--- and cleanup stays idempotent.
 --- @param path string Path to the directory to remove
---- @return boolean True on success
+--- @return boolean True on success (including an already-absent path)
 --- @return string Error message if failed
 local function remove_all(path: string): boolean, string
-  local ok, err = unix.rmrf(path)
+  local ok, err, eno = unix.rmrf(path)
   if not ok then
+    if errno.is(eno, "ENOENT") then
+      return true
+    end
     return false, errstr(err, "remove_all: " .. path)
   end
   return true

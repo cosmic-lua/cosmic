@@ -42,7 +42,7 @@ test_fail_closed_when_unavailable()
 
 local function test_stdio_allows_write()
   local script = fs.join(tmpdir, "pledge_stdio.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local pledge = require("cosmic.pledge")
 if not pledge.available() then
   io.write("skipped: pledge unsupported on this host\n")
@@ -54,7 +54,7 @@ if not ok then
   os.exit(1)
 end
 io.write("pledged\n")
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
@@ -73,7 +73,7 @@ local function test_restricts_filesystem()
   -- handle:read(); on Linux a pledge violation raises SIGSYS and kills the
   -- process, so a leak/skip cannot be signalled through the exit code alone.
   local script = fs.join(tmpdir, "pledge_no_fs.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local pledge = require("cosmic.pledge")
 if not pledge.available() then
   io.write("unsupported: pledge unsupported on this host\n")
@@ -91,7 +91,7 @@ if f then
   os.exit(0)
 end
 io.write("restricted\n")
-]])
+]]))
   local h = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout

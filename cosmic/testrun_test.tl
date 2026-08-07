@@ -11,7 +11,7 @@ local function test_run_cosmic_script()
   local script = fs.join(TEST_TMPDIR, "test_script.lua")
   local output_base = fs.join(TEST_TMPDIR, "result_script")
 
-  fs.write(script, [[print("hello from script")]])
+  assert(fs.write(script, [[print("hello from script")]]))
 
   local exit_code = testrun.run({cosmic_bin, script}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
@@ -39,7 +39,7 @@ local function test_run_creates_parent_dirs()
   assert(err ~= nil, "expected .err file to exist")
 
   -- Cleanup
-  fs.remove_all(fs.join(TEST_TMPDIR, "nested"))
+  assert(fs.remove_all(fs.join(TEST_TMPDIR, "nested")))
 end
 test_run_creates_parent_dirs()
 
@@ -48,11 +48,11 @@ local function test_run_captures_output()
   local script = fs.join(TEST_TMPDIR, "test_output.sh")
   local output_base = fs.join(TEST_TMPDIR, "result_output")
 
-  fs.write(script, [[#!/bin/sh
+  assert(fs.write(script, [[#!/bin/sh
 echo "stdout line"
 echo "stderr line" >&2
 exit 0
-]], tonumber("755", 8))
+]], tonumber("755", 8)))
 
   local exit_code = testrun.run({script}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
@@ -74,7 +74,7 @@ local function test_run_sets_test_tmpdir()
   local output_base = fs.join(TEST_TMPDIR, "result_tmpdir")
 
   -- Script checks TEST_TMPDIR exists and is a directory
-  fs.write(script, [[#!/bin/sh
+  assert(fs.write(script, [[#!/bin/sh
 if [ -z "$TEST_TMPDIR" ]; then
   echo "TEST_TMPDIR not set" >&2
   exit 1
@@ -91,7 +91,7 @@ if [ ! -f "$TEST_TMPDIR/test_file" ]; then
 fi
 echo "TEST_TMPDIR works"
 exit 0
-]], tonumber("755", 8))
+]], tonumber("755", 8)))
 
   local exit_code = testrun.run({script}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
@@ -119,9 +119,9 @@ test_run_nonexistent()
 local function test_report_pass()
   local base = fs.join(TEST_TMPDIR, "report_pass")
 
-  fs.write(base .. ".got", "0\n")
-  fs.write(base .. ".out", "")
-  fs.write(base .. ".err", "")
+  assert(fs.write(base .. ".got", "0\n"))
+  assert(fs.write(base .. ".out", ""))
+  assert(fs.write(base .. ".err", ""))
 
   -- Capture stdout by redirecting (would need to capture, skip for now)
   local exit_code = testrun.report({base})
@@ -133,9 +133,9 @@ test_report_pass()
 local function test_report_fail()
   local base = fs.join(TEST_TMPDIR, "report_fail")
 
-  fs.write(base .. ".got", "1\n")
-  fs.write(base .. ".out", "stdout output\n")
-  fs.write(base .. ".err", "error output\n")
+  assert(fs.write(base .. ".got", "1\n"))
+  assert(fs.write(base .. ".out", "stdout output\n"))
+  assert(fs.write(base .. ".err", "error output\n"))
 
   local exit_code = testrun.report({base})
   assert(exit_code == 1, "expected exit code 1 for failing test, got " .. exit_code)
@@ -146,9 +146,9 @@ test_report_fail()
 local function test_report_skip()
   local base = fs.join(TEST_TMPDIR, "report_skip")
 
-  fs.write(base .. ".got", "2\n")
-  fs.write(base .. ".out", "")
-  fs.write(base .. ".err", "")
+  assert(fs.write(base .. ".got", "2\n"))
+  assert(fs.write(base .. ".out", ""))
+  assert(fs.write(base .. ".err", ""))
 
   local exit_code = testrun.report({base})
   assert(exit_code == 0, "expected exit code 0 for skipped test, got " .. exit_code)
@@ -161,17 +161,17 @@ local function test_report_multiple()
   local base2 = fs.join(TEST_TMPDIR, "report_multi_2")
   local base3 = fs.join(TEST_TMPDIR, "report_multi_3")
 
-  fs.write(base1 .. ".got", "0\n")
-  fs.write(base1 .. ".out", "")
-  fs.write(base1 .. ".err", "")
+  assert(fs.write(base1 .. ".got", "0\n"))
+  assert(fs.write(base1 .. ".out", ""))
+  assert(fs.write(base1 .. ".err", ""))
 
-  fs.write(base2 .. ".got", "1\n")
-  fs.write(base2 .. ".out", "failed\n")
-  fs.write(base2 .. ".err", "error\n")
+  assert(fs.write(base2 .. ".got", "1\n"))
+  assert(fs.write(base2 .. ".out", "failed\n"))
+  assert(fs.write(base2 .. ".err", "error\n"))
 
-  fs.write(base3 .. ".got", "2\n")
-  fs.write(base3 .. ".out", "")
-  fs.write(base3 .. ".err", "")
+  assert(fs.write(base3 .. ".got", "2\n"))
+  assert(fs.write(base3 .. ".out", ""))
+  assert(fs.write(base3 .. ".err", ""))
 
   local exit_code = testrun.report({base1, base2, base3})
   assert(exit_code == 1, "expected exit code 1 when any test fails, got " .. exit_code)
@@ -182,9 +182,9 @@ test_report_multiple()
 local function test_report_with_got_extension()
   local base = fs.join(TEST_TMPDIR, "report_ext")
 
-  fs.write(base .. ".got", "0\n")
-  fs.write(base .. ".out", "")
-  fs.write(base .. ".err", "")
+  assert(fs.write(base .. ".got", "0\n"))
+  assert(fs.write(base .. ".out", ""))
+  assert(fs.write(base .. ".err", ""))
 
   -- Pass path with .got extension
   local exit_code = testrun.report({base .. ".got"})

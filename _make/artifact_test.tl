@@ -36,7 +36,7 @@ check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "artifact-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
@@ -195,7 +195,7 @@ local function test_artifact_runs_on_the_floor()
   local root = fixture("runs", {
       ["cmd/artifact-runs/main.tl"] = "local json = require('cosmic.json')\n" ..
       "local greet = require('greet')\n" ..
-      "print(json.encode({said = greet.hello()}))\n",
+      "print((json.encode({said = greet.hello()})))\n",
       ["greet.tl"] = "local record G\n  hello: function(): string\nend\n" ..
       "local M: G = {hello = function(): string return 'hi' end}\nreturn M\n",
     })
@@ -379,11 +379,11 @@ local function test_in_process_build()
       ["cmd/tool/main.tl"] = "print('tool')\n",
     })
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
-  cenv.set("COSMIC_MAKE", make_bin)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
+  assert(cenv.set("COSMIC_MAKE", make_bin))
   local code = mk.run({"build"})
-  cenv.unset("COSMIC_MAKE_ROOT")
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
+  assert(cenv.unset("COSMIC_MAKE"))
   assert(fs.chdir(cwd))
   assert(code == 0, "in-process build should succeed")
   assert(fs.is_file(fs.join(root, "o/bin/artifact-inproc")), "one binary")

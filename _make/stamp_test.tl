@@ -31,7 +31,7 @@ check.needs("a built cosmic at " .. cosmic_bin, fs.is_file(cosmic_bin))
 --- Build a fixture tree and scan it.
 local function fixture(name: string, files: {string: string}): Project
   local root = fs.join(tmpdir, "stamp-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)

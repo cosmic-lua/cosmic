@@ -17,7 +17,7 @@ end
 
 local function teardown(test_dir: string)
   if test_dir then
-    fs.remove_all(test_dir)
+    assert(fs.remove_all(test_dir))
   end
 end
 
@@ -127,8 +127,8 @@ end
 
 local function setup_walk(): string
   local walk_dir = fs.join(TEST_TMPDIR, "walk_test")
-  fs.make_dirs(fs.join(walk_dir, "subdir"))
-  fs.make_dirs(fs.join(walk_dir, "subdir/nested"))
+  assert(fs.make_dirs(fs.join(walk_dir, "subdir")))
+  assert(fs.make_dirs(fs.join(walk_dir, "subdir/nested")))
 
   touch(fs.join(walk_dir, "file1.lua"))
   touch(fs.join(walk_dir, "file2.txt"))
@@ -182,14 +182,14 @@ local function test_walk_with_visitor()
   local walk_dir = setup_walk()
   local ctx: WalkContext = {count = 0, dirs = 0}
 
-  fs.walk(walk_dir, function(_full_path: string, _entry: string, st: any, c: any)
-      local wctx = c as WalkContext -- cast: from any
-      wctx.count = wctx.count + 1
-      local stat_obj = st as WalkStat -- cast: from any
-      if stat_obj:is_dir() then
-        wctx.dirs = wctx.dirs + 1
-      end
-    end, ctx)
+  assert(fs.walk(walk_dir, function(_full_path: string, _entry: string, st: any, c: any)
+        local wctx = c as WalkContext -- cast: from any
+        wctx.count = wctx.count + 1
+        local stat_obj = st as WalkStat -- cast: from any
+        if stat_obj:is_dir() then
+          wctx.dirs = wctx.dirs + 1
+        end
+      end, ctx))
 
   assert(ctx.count > 0, "expected count > 0")
   assert(ctx.dirs == 2, "expected 2 dirs, got " .. ctx.dirs)
@@ -243,11 +243,11 @@ test_files_iterator_all()
 
 local function test_walk_empty_directory()
   local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
-  fs.make_dirs(empty_dir)
+  assert(fs.make_dirs(empty_dir))
   -- cast: or fallback does not narrow
   local found = (fs.find(empty_dir, {glob = "*.lua"}) or {}) as {string}
   assert(#found == 0, "expected 0 files, got " .. #found)
-  fs.remove_all(empty_dir)
+  assert(fs.remove_all(empty_dir))
 end
 test_walk_empty_directory()
 

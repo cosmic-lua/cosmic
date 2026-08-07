@@ -5,20 +5,20 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/envd_test"
-fs.make_dirs(tmpdir)
+assert(fs.make_dirs(tmpdir))
 
 local function make_envd(name: string): string
   local dir = fs.join(tmpdir, name)
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   return dir
 end
 
 local function test_basic_load()
   local dir = make_envd("basic")
-  fs.write(fs.join(dir, "00-base"), "COSMIC_ENVD_TEST_A=value_a\nCOSMIC_ENVD_TEST_B=value_b\n")
+  assert(fs.write(fs.join(dir, "00-base"), "COSMIC_ENVD_TEST_A=value_a\nCOSMIC_ENVD_TEST_B=value_b\n"))
 
-  env.unset("COSMIC_ENVD_TEST_A")
-  env.unset("COSMIC_ENVD_TEST_B")
+  assert(env.unset("COSMIC_ENVD_TEST_A"))
+  assert(env.unset("COSMIC_ENVD_TEST_B"))
 
   local result = envd.load_dir(dir)
   assert(result.count == 2, "expected 2, got " .. tostring(result.count))
@@ -27,42 +27,42 @@ local function test_basic_load()
   assert(env.get("COSMIC_ENVD_TEST_B") == "value_b",
     "expected 'value_b', got '" .. tostring(env.get("COSMIC_ENVD_TEST_B")) .. "'")
 
-  env.unset("COSMIC_ENVD_TEST_A")
-  env.unset("COSMIC_ENVD_TEST_B")
+  assert(env.unset("COSMIC_ENVD_TEST_A"))
+  assert(env.unset("COSMIC_ENVD_TEST_B"))
 end
 test_basic_load()
 
 local function test_no_overwrite()
   local dir = make_envd("nooverwrite")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EXISTING=new_value\n")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EXISTING=new_value\n"))
 
-  env.set("COSMIC_ENVD_TEST_EXISTING", "original_value")
+  assert(env.set("COSMIC_ENVD_TEST_EXISTING", "original_value"))
 
   local result = envd.load_dir(dir)
   assert(result.count == 0, "expected 0, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_EXISTING") == "original_value",
     "should not overwrite existing var")
 
-  env.unset("COSMIC_ENVD_TEST_EXISTING")
+  assert(env.unset("COSMIC_ENVD_TEST_EXISTING"))
 end
 test_no_overwrite()
 
 local function test_comments_skipped()
   local dir = make_envd("comments")
-  fs.write(fs.join(dir, "vars"), "# this is a comment\nCOSMIC_ENVD_TEST_C=works\n# another comment\n")
+  assert(fs.write(fs.join(dir, "vars"), "# this is a comment\nCOSMIC_ENVD_TEST_C=works\n# another comment\n"))
 
-  env.unset("COSMIC_ENVD_TEST_C")
+  assert(env.unset("COSMIC_ENVD_TEST_C"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_C") == "works")
 
-  env.unset("COSMIC_ENVD_TEST_C")
+  assert(env.unset("COSMIC_ENVD_TEST_C"))
 end
 test_comments_skipped()
 
 local function test_comment_only_file_sets_nothing()
   local dir = make_envd("commentonly")
-  fs.write(fs.join(dir, "README"), "# this file is documentation\n# no vars here\n")
+  assert(fs.write(fs.join(dir, "README"), "# this file is documentation\n# no vars here\n"))
 
   local result = envd.load_dir(dir)
   assert(result.count == 0, "comment-only file should set nothing, got " .. tostring(result.count))
@@ -71,71 +71,71 @@ test_comment_only_file_sets_nothing()
 
 local function test_blank_lines_skipped()
   local dir = make_envd("blanks")
-  fs.write(fs.join(dir, "vars"), "\n\nCOSMIC_ENVD_TEST_D=val\n\n")
+  assert(fs.write(fs.join(dir, "vars"), "\n\nCOSMIC_ENVD_TEST_D=val\n\n"))
 
-  env.unset("COSMIC_ENVD_TEST_D")
+  assert(env.unset("COSMIC_ENVD_TEST_D"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_D") == "val")
 
-  env.unset("COSMIC_ENVD_TEST_D")
+  assert(env.unset("COSMIC_ENVD_TEST_D"))
 end
 test_blank_lines_skipped()
 
 local function test_lexical_order_concat()
   local dir = make_envd("order")
   -- 01-first sets a key, 02-second overrides it
-  fs.write(fs.join(dir, "01-first"), "COSMIC_ENVD_TEST_ORDER=first\n")
-  fs.write(fs.join(dir, "02-second"), "COSMIC_ENVD_TEST_ORDER=second\n")
+  assert(fs.write(fs.join(dir, "01-first"), "COSMIC_ENVD_TEST_ORDER=first\n"))
+  assert(fs.write(fs.join(dir, "02-second"), "COSMIC_ENVD_TEST_ORDER=second\n"))
 
-  env.unset("COSMIC_ENVD_TEST_ORDER")
+  assert(env.unset("COSMIC_ENVD_TEST_ORDER"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_ORDER") == "second",
     "later file should win, got '" .. tostring(env.get("COSMIC_ENVD_TEST_ORDER")) .. "'")
 
-  env.unset("COSMIC_ENVD_TEST_ORDER")
+  assert(env.unset("COSMIC_ENVD_TEST_ORDER"))
 end
 test_lexical_order_concat()
 
 local function test_value_with_equals()
   local dir = make_envd("equals")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EQ=foo=bar=baz\n")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EQ=foo=bar=baz\n"))
 
-  env.unset("COSMIC_ENVD_TEST_EQ")
+  assert(env.unset("COSMIC_ENVD_TEST_EQ"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_EQ") == "foo=bar=baz",
     "value after first = should be preserved, got '" .. tostring(env.get("COSMIC_ENVD_TEST_EQ")) .. "'")
 
-  env.unset("COSMIC_ENVD_TEST_EQ")
+  assert(env.unset("COSMIC_ENVD_TEST_EQ"))
 end
 test_value_with_equals()
 
 local function test_empty_value()
   local dir = make_envd("emptyval")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EMPTY=\n")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EMPTY=\n"))
 
-  env.unset("COSMIC_ENVD_TEST_EMPTY")
+  assert(env.unset("COSMIC_ENVD_TEST_EMPTY"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_EMPTY") == "",
     "empty value should be set string, got '" .. tostring(env.get("COSMIC_ENVD_TEST_EMPTY")) .. "'")
 
-  env.unset("COSMIC_ENVD_TEST_EMPTY")
+  assert(env.unset("COSMIC_ENVD_TEST_EMPTY"))
 end
 test_empty_value()
 
 local function test_invalid_key_lines_skipped()
   local dir = make_envd("invalidkey")
-  fs.write(fs.join(dir, "vars"), "123BAD=skip\nhas-dash=skip\nCOSMIC_ENVD_TEST_OK=good\n")
+  assert(fs.write(fs.join(dir, "vars"), "123BAD=skip\nhas-dash=skip\nCOSMIC_ENVD_TEST_OK=good\n"))
 
-  env.unset("COSMIC_ENVD_TEST_OK")
+  assert(env.unset("COSMIC_ENVD_TEST_OK"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_OK") == "good")
 
-  env.unset("COSMIC_ENVD_TEST_OK")
+  assert(env.unset("COSMIC_ENVD_TEST_OK"))
 end
 test_invalid_key_lines_skipped()
 
@@ -170,12 +170,12 @@ test_parse_comments_and_blanks()
 
 local function test_multiple_files_merge()
   local dir = make_envd("merge")
-  fs.write(fs.join(dir, "01-a"), "COSMIC_ENVD_TEST_X=from_a\nCOSMIC_ENVD_TEST_Y=from_a\n")
-  fs.write(fs.join(dir, "02-b"), "COSMIC_ENVD_TEST_Y=from_b\nCOSMIC_ENVD_TEST_Z=from_b\n")
+  assert(fs.write(fs.join(dir, "01-a"), "COSMIC_ENVD_TEST_X=from_a\nCOSMIC_ENVD_TEST_Y=from_a\n"))
+  assert(fs.write(fs.join(dir, "02-b"), "COSMIC_ENVD_TEST_Y=from_b\nCOSMIC_ENVD_TEST_Z=from_b\n"))
 
-  env.unset("COSMIC_ENVD_TEST_X")
-  env.unset("COSMIC_ENVD_TEST_Y")
-  env.unset("COSMIC_ENVD_TEST_Z")
+  assert(env.unset("COSMIC_ENVD_TEST_X"))
+  assert(env.unset("COSMIC_ENVD_TEST_Y"))
+  assert(env.unset("COSMIC_ENVD_TEST_Z"))
 
   local result = envd.load_dir(dir)
   assert(result.count == 3, "expected 3, got " .. tostring(result.count))
@@ -184,22 +184,22 @@ local function test_multiple_files_merge()
     "later file should win for Y, got '" .. tostring(env.get("COSMIC_ENVD_TEST_Y")) .. "'")
   assert(env.get("COSMIC_ENVD_TEST_Z") == "from_b")
 
-  env.unset("COSMIC_ENVD_TEST_X")
-  env.unset("COSMIC_ENVD_TEST_Y")
-  env.unset("COSMIC_ENVD_TEST_Z")
+  assert(env.unset("COSMIC_ENVD_TEST_X"))
+  assert(env.unset("COSMIC_ENVD_TEST_Y"))
+  assert(env.unset("COSMIC_ENVD_TEST_Z"))
 end
 test_multiple_files_merge()
 
 local function test_underscore_prefix_key()
   local dir = make_envd("underscore")
-  fs.write(fs.join(dir, "vars"), "_COSMIC_ENVD_TEST_UNDER=val\n")
+  assert(fs.write(fs.join(dir, "vars"), "_COSMIC_ENVD_TEST_UNDER=val\n"))
 
-  env.unset("_COSMIC_ENVD_TEST_UNDER")
+  assert(env.unset("_COSMIC_ENVD_TEST_UNDER"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("_COSMIC_ENVD_TEST_UNDER") == "val")
 
-  env.unset("_COSMIC_ENVD_TEST_UNDER")
+  assert(env.unset("_COSMIC_ENVD_TEST_UNDER"))
 end
 test_underscore_prefix_key()
 
@@ -213,22 +213,22 @@ end
 test_expand_plain_var()
 
 local function test_expand_undefined_var()
-  env.unset("COSMIC_ENVD_TEST_UNDEF")
+  assert(env.unset("COSMIC_ENVD_TEST_UNDEF"))
   local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_UNDEF}rest\n")
   assert(vars["VAL"] == "rest", "undefined should expand to empty, got '" .. tostring(vars["VAL"]) .. "'")
 end
 test_expand_undefined_var()
 
 local function test_expand_from_env()
-  env.set("COSMIC_ENVD_TEST_FROMENV", "envval")
+  assert(env.set("COSMIC_ENVD_TEST_FROMENV", "envval"))
   local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_FROMENV}\n")
   assert(vars["VAL"] == "envval", "expected 'envval', got '" .. tostring(vars["VAL"]) .. "'")
-  env.unset("COSMIC_ENVD_TEST_FROMENV")
+  assert(env.unset("COSMIC_ENVD_TEST_FROMENV"))
 end
 test_expand_from_env()
 
 local function test_expand_default_unset()
-  env.unset("COSMIC_ENVD_TEST_NOSUCH")
+  assert(env.unset("COSMIC_ENVD_TEST_NOSUCH"))
   local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_NOSUCH:-fallback}\n")
   assert(vars["VAL"] == "fallback", "expected 'fallback', got '" .. tostring(vars["VAL"]) .. "'")
 end
@@ -247,7 +247,7 @@ end
 test_expand_default_set()
 
 local function test_expand_dash_default_unset()
-  env.unset("COSMIC_ENVD_TEST_NOSUCH2")
+  assert(env.unset("COSMIC_ENVD_TEST_NOSUCH2"))
   local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_NOSUCH2-fallback}\n")
   assert(vars["VAL"] == "fallback", "expected 'fallback', got '" .. tostring(vars["VAL"]) .. "'")
 end
@@ -275,11 +275,11 @@ test_expand_with_ctx()
 
 local function test_expand_across_files()
   local dir = make_envd("expand_across")
-  fs.write(fs.join(dir, "01-base"), "COSMIC_ENVD_TEST_BASE=/opt\n")
-  fs.write(fs.join(dir, "02-derived"), "COSMIC_ENVD_TEST_DERIVED=${COSMIC_ENVD_TEST_BASE}/bin\n")
+  assert(fs.write(fs.join(dir, "01-base"), "COSMIC_ENVD_TEST_BASE=/opt\n"))
+  assert(fs.write(fs.join(dir, "02-derived"), "COSMIC_ENVD_TEST_DERIVED=${COSMIC_ENVD_TEST_BASE}/bin\n"))
 
-  env.unset("COSMIC_ENVD_TEST_BASE")
-  env.unset("COSMIC_ENVD_TEST_DERIVED")
+  assert(env.unset("COSMIC_ENVD_TEST_BASE"))
+  assert(env.unset("COSMIC_ENVD_TEST_DERIVED"))
 
   local result = envd.load_dir(dir)
   assert(result.count == 2, "expected 2, got " .. tostring(result.count))
@@ -287,8 +287,8 @@ local function test_expand_across_files()
   assert(env.get("COSMIC_ENVD_TEST_DERIVED") == "/opt/bin",
     "expected '/opt/bin', got '" .. tostring(env.get("COSMIC_ENVD_TEST_DERIVED")) .. "'")
 
-  env.unset("COSMIC_ENVD_TEST_BASE")
-  env.unset("COSMIC_ENVD_TEST_DERIVED")
+  assert(env.unset("COSMIC_ENVD_TEST_BASE"))
+  assert(env.unset("COSMIC_ENVD_TEST_DERIVED"))
 end
 test_expand_across_files()
 
@@ -337,15 +337,15 @@ local function test_load_dir_crlf_file()
   local dir = make_envd("crlf_dir")
   -- Write a CRLF-encoded dotenv file using raw bytes
   local crlf_content = "COSMIC_ENVD_CRLF_C=crvalue\r\n"
-  fs.write(fs.join(dir, "vars"), crlf_content)
+  assert(fs.write(fs.join(dir, "vars"), crlf_content))
 
-  env.unset("COSMIC_ENVD_CRLF_C")
+  assert(env.unset("COSMIC_ENVD_CRLF_C"))
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1 var from CRLF file, got " .. tostring(result.count))
   local val = env.get("COSMIC_ENVD_CRLF_C")
   assert(val == "crvalue",
     "CRLF file: expected 'crvalue', got '" .. tostring(val) .. "'")
-  env.unset("COSMIC_ENVD_CRLF_C")
+  assert(env.unset("COSMIC_ENVD_CRLF_C"))
 end
 test_load_dir_crlf_file()
 
@@ -365,33 +365,33 @@ end
 
 local function test_cosmic_debug_empty_not_enabled()
   local dir = make_envd("debug_empty")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST=value\n")
-  env.unset("COSMIC_ENVD_DEBUG_TEST")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST=value\n"))
+  assert(env.unset("COSMIC_ENVD_DEBUG_TEST"))
 
-  env.set("COSMIC_DEBUG", "")
+  assert(env.set("COSMIC_DEBUG", ""))
   local result, captured = load_dir_capturing_stderr(dir)
-  env.unset("COSMIC_DEBUG")
+  assert(env.unset("COSMIC_DEBUG"))
 
   assert(result.count == 1, "expected 1 with empty COSMIC_DEBUG, got " .. tostring(result.count))
   assert(not captured:match("%[envd%]"),
     "COSMIC_DEBUG='' must not emit debug output, got: " .. captured)
-  env.unset("COSMIC_ENVD_DEBUG_TEST")
+  assert(env.unset("COSMIC_ENVD_DEBUG_TEST"))
 end
 test_cosmic_debug_empty_not_enabled()
 
 local function test_cosmic_debug_nonempty_emits_debug()
   local dir = make_envd("debug_on")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST2=value\n")
-  env.unset("COSMIC_ENVD_DEBUG_TEST2")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST2=value\n"))
+  assert(env.unset("COSMIC_ENVD_DEBUG_TEST2"))
 
-  env.set("COSMIC_DEBUG", "1")
+  assert(env.set("COSMIC_DEBUG", "1"))
   local result, captured = load_dir_capturing_stderr(dir)
-  env.unset("COSMIC_DEBUG")
+  assert(env.unset("COSMIC_DEBUG"))
 
   assert(result.count == 1, "expected 1 with COSMIC_DEBUG=1, got " .. tostring(result.count))
   assert(captured:match("%[envd%] set COSMIC_ENVD_DEBUG_TEST2"),
     "COSMIC_DEBUG=1 must log each set variable, got: " .. captured)
-  env.unset("COSMIC_ENVD_DEBUG_TEST2")
+  assert(env.unset("COSMIC_ENVD_DEBUG_TEST2"))
 end
 test_cosmic_debug_nonempty_emits_debug()
 
@@ -402,9 +402,9 @@ test_cosmic_debug_nonempty_emits_debug()
 -- under COSMIC_DEBUG.
 local function test_debug_set_not_logged_on_failure()
   local dir = make_envd("debug_set_fails")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_FAIL=value\n")
-  env.unset("COSMIC_ENVD_DEBUG_FAIL")
-  env.set("COSMIC_DEBUG", "1")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_FAIL=value\n"))
+  assert(env.unset("COSMIC_ENVD_DEBUG_FAIL"))
+  assert(env.set("COSMIC_DEBUG", "1"))
 
   local real_set = env.set
   env.set = function(_name: string, _value: string, _overwrite?: boolean): boolean, string
@@ -412,7 +412,7 @@ local function test_debug_set_not_logged_on_failure()
   end
   local result, captured = load_dir_capturing_stderr(dir)
   env.set = real_set
-  env.unset("COSMIC_DEBUG")
+  assert(env.unset("COSMIC_DEBUG"))
 
   assert(result.count == 0, "expected 0 vars set when env.set fails, got " .. tostring(result.count))
   assert(#result.errors == 1, "expected 1 error recorded, got " .. tostring(#result.errors))
@@ -426,29 +426,29 @@ test_debug_set_not_logged_on_failure()
 
 local function test_errors_empty_on_clean_load()
   local dir = make_envd("errclean")
-  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_ERR_TEST_A=1\n")
-  env.unset("COSMIC_ENVD_ERR_TEST_A")
+  assert(fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_ERR_TEST_A=1\n"))
+  assert(env.unset("COSMIC_ENVD_ERR_TEST_A"))
 
   local result = envd.load_dir(dir)
   assert(result.errors ~= nil, "LoadResult should carry an errors list")
   assert(#result.errors == 0, "clean load should collect no errors, got: "
     .. tostring(result.errors[1]))
-  env.unset("COSMIC_ENVD_ERR_TEST_A")
+  assert(env.unset("COSMIC_ENVD_ERR_TEST_A"))
 end
 test_errors_empty_on_clean_load()
 
 local function test_errors_collect_unreadable_entries()
   local dir = make_envd("errunreadable")
-  fs.write(fs.join(dir, "00-good"), "COSMIC_ENVD_ERR_TEST_B=1\n")
+  assert(fs.write(fs.join(dir, "00-good"), "COSMIC_ENVD_ERR_TEST_B=1\n"))
   -- A subdirectory inside env.d cannot be slurped (EISDIR): the load
   -- must still apply the readable files and report the failure.
-  fs.make_dirs(fs.join(dir, "10-subdir"))
-  env.unset("COSMIC_ENVD_ERR_TEST_B")
+  assert(fs.make_dirs(fs.join(dir, "10-subdir")))
+  assert(env.unset("COSMIC_ENVD_ERR_TEST_B"))
 
   local result = envd.load_dir(dir)
   assert(result.count == 1, "readable file should still load, got count " .. tostring(result.count))
   assert(#result.errors == 1, "expected 1 collected error, got " .. tostring(#result.errors))
   assert(result.errors[1]:match("10%-subdir"), "error should name the entry, got: " .. result.errors[1])
-  env.unset("COSMIC_ENVD_ERR_TEST_B")
+  assert(env.unset("COSMIC_ENVD_ERR_TEST_B"))
 end
 test_errors_collect_unreadable_entries()

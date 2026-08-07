@@ -180,7 +180,7 @@ local function run(proj: Project, path: string, cosmic: string,
   local stdin0 = fd.wrap(dup0)
   local res = child.run(child_argv,
     {cwd = proj.root, stdout = "inherit", stderr = "inherit", stdin = stdin0})
-  stdin0:close()
+  local _ok, _err = stdin0:close()
   if res.spawn_error then
     return stage.verdict("run", false, res.spawn_error)
   end

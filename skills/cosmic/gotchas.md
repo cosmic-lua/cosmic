@@ -129,31 +129,17 @@ local proc = require("cosmic.proc")
 local h = child.start({check.must(proc.interpreter()), "worker.tl"})
 ```
 
-## 8. `print(f(...))` prints every return value
+## 8. retired — the checker flags discarded errors
 
-most cosmic functions return `(value, error)`. passing such a call directly
-as the last argument to `print` (or any function) passes BOTH returns —
-`print` renders the trailing `nil` as literal text, tab-separated. this
-passes the type checker and only shows up in the output.
-
-**wrong:**
-```teal
-print(json.encode(result))
--- prints: {"count":6}	nil
-```
-
-**right:**
-```teal
-local encoded, err = json.encode(result)
-if err then
-  io.stderr:write("encode failed: " .. err .. "\n")
-  os.exit(1)
-end
-print(encoded)
-```
-
-(parenthesizing the call — `print((json.encode(result)))` — also truncates
-to one value, but capturing lets you check the error.)
+most cosmic functions return `(value, error)`, and the strict checker
+(`--check types`, and the build's strict compile) now flags both ways
+the error used to vanish: a fallible call standing as a bare statement
+(`fs.write(path, data)` on its own line), and a fallible call as the
+final argument of `print` and friends (which rendered the error as a
+literal `nil`). capture the returns — `local v, err = f(...)`, or
+`local _ok, _err = f(...)` for deliberate fire-and-forget — or wrap in
+`assert`/`check.must` in tests and examples. the details are in
+`cosmic --docs guide.checking`.
 
 ## 9. records, maps and arrays don't narrow through `if not x` — or `assert`
 

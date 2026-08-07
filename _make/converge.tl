@@ -175,7 +175,7 @@ local function drives_a_build(path: string): boolean
   end
   local r = (h as child.Handle):wait(PROBE_MS) -- cast: after guard
   if not (r is child.Result) then
-    (h as child.Handle):kill() -- cast: after guard
+    local _ok, _err = (h as child.Handle):kill() -- cast: after guard
     return false
   end
   local res = r as child.Result -- cast: after guard
@@ -221,7 +221,7 @@ local function to_the_tree(proj: Project, argv: {string},
   -- the generation cap: already being the answer is not a failure to
   -- reach it.
   if was_us and stamp_of(built) == before then
-    env.unset(GEN_ENV)
+    local _ok, _err = env.unset(GEN_ENV)
     return true
   end
   if gen >= MAX_GEN then
@@ -245,7 +245,7 @@ local function to_the_tree(proj: Project, argv: {string},
   if not drives_a_build(built) then
     io.stderr:write("make: " .. built .. " is not a cosmic engine " ..
       "(it does not answer `--make help`); gating under this one\n")
-    env.unset(GEN_ENV)
+    local _ok, _err = env.unset(GEN_ENV)
     return true
   end
 
@@ -253,7 +253,7 @@ local function to_the_tree(proj: Project, argv: {string},
   for _, a in ipairs(argv) do
     replay[#replay + 1] = a
   end
-  env.set(GEN_ENV, tostring(gen + 1))
+  local _ok, _err = env.set(GEN_ENV, tostring(gen + 1))
   io.write("make: gating under " .. built .. "\n")
   local _, eerr = proc.execvp(replay[1], replay)
   return false, "make: cannot re-exec " .. replay[1] .. ": " ..

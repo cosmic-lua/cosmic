@@ -44,9 +44,9 @@ local function serve_loop(srv: net.Socket)
     if conn then
       local cc = conn as net.Socket -- cast: record union after guard
       if read_request(cc) then
-        cc:send(RESPONSE)
+        local _ok, _err = cc:send(RESPONSE)
       end
-      cc:close()
+      local _ok, _err = cc:close()
     end
   end
 end
@@ -146,7 +146,7 @@ local function scenarios(): {pt.Scenario}, string
           end
           buf = buf .. data
         end
-        ss:close()
+        local _ok, _err = ss:close()
         return buf
       end,
       check = function(_: any, res: any): boolean, string
@@ -165,12 +165,12 @@ end
 
 local function cleanup()
   if server_pid and server_pid > 0 then
-    signal.kill(server_pid, signal.SIGKILL)
-    proc.wait(server_pid)
+    local _ok, _err = signal.kill(server_pid, signal.SIGKILL)
+    local _ok, _err = proc.wait(server_pid)
     server_pid = nil
   end
   if listener then
-    listener:close()
+    local _ok, _err = listener:close()
     listener = nil
   end
 end

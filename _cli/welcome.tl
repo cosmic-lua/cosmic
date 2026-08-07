@@ -54,8 +54,8 @@ local function mark_shown()
   if not dir then
     return
   end
-  fs.make_dirs(dir)
-  fs.write(fs.join(dir, MARKER), "")
+  local _ok, _err = fs.make_dirs(dir)
+  local _ok, _err = fs.write(fs.join(dir, MARKER), "")
 end
 
 return {was_shown = was_shown, mark_shown = mark_shown}

@@ -22,7 +22,7 @@ end
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 
@@ -156,14 +156,14 @@ test_check_strict_mode()
 local function test_check_with_tl_path()
   -- Write a type definition file in a custom directory
   local typedir = fs.join(tmpdir, "mytypes")
-  fs.make_dirs(typedir, 0x1ed) -- 0755
+  assert(fs.make_dirs(typedir, 0x1ed)) -- 0755
   local deffile = fs.join(typedir, "mymod.d.tl")
-  fs.write(deffile, [[
+  assert(fs.write(deffile, [[
 local record mymod
   greet: function(name: string): string
 end
 return mymod
-]])
+]]))
 
   -- Write a file that uses the custom type
   local input = write_temp("tl_path_check.tl", [[
@@ -194,14 +194,14 @@ test_check_with_tl_path()
 local function test_check_with_tl_path_double_semicolon()
   -- Write a type definition file in a custom directory
   local typedir = fs.join(tmpdir, "mytypes2")
-  fs.make_dirs(typedir, 0x1ed) -- 0755
+  assert(fs.make_dirs(typedir, 0x1ed)) -- 0755
   local deffile = fs.join(typedir, "mymod2.d.tl")
-  fs.write(deffile, [[
+  assert(fs.write(deffile, [[
 local record mymod2
   hello: function(): string
 end
 return mymod2
-]])
+]]))
 
   -- Write a file that uses both the custom module and a built-in module
   local input = write_temp("tl_path_double_semicolon.tl", [[
@@ -336,7 +336,7 @@ test_check_hint_no_duplicates()
 -- precondition is always provisioned, so its absence is a broken lane.
 local function test_needs_skips_locally_and_fails_in_ci()
   local had = os.getenv("CI")
-  env.unset("CI")
+  assert(env.unset("CI"))
 
   -- A met precondition simply returns (api-review-8: needs EXITS the
   -- process itself when the precondition is missing, so the exit path
@@ -356,7 +356,7 @@ local function test_needs_skips_locally_and_fails_in_ci()
   assert(not r.stdout:find("UNREACHED", 1, true),
     "needs must not return when the precondition is missing")
 
-  env.set("CI", "true", true)
+  assert(env.set("CI", "true", true))
   local ok, err = pcall(function(): boolean
       check.needs("an absent fixture", false)
       return true
@@ -366,9 +366,9 @@ local function test_needs_skips_locally_and_fails_in_ci()
     "and say so plainly, got: " .. tostring(err))
   check.needs("a satisfied precondition", true)
 
-  env.unset("CI")
+  assert(env.unset("CI"))
   if had then
-    env.set("CI", had, true)
+    assert(env.set("CI", had, true))
   end
 end
 test_needs_skips_locally_and_fails_in_ci()
@@ -402,7 +402,7 @@ local function test_reap_grades_the_childs_exit_code()
   -- 128+signal stands in for the code it never got to return.
   local killed = proc.fork()
   if killed == 0 then
-    signal.raise(signal.SIGKILL)
+    assert(signal.raise(signal.SIGKILL))
     os.exit(0)
   end
   local kok, kmsg = pcall(function(): string

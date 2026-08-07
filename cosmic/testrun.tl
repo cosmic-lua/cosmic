@@ -63,7 +63,7 @@ local function run(argv: {string}, output_base: string): integer
     -- test process (and any cosmic children it spawns) dumps its .cov
     -- files here, isolated from parallel sibling tests.
     local covdir = output_base .. ".cov.d"
-    fs.remove_all(covdir)
+    local _ok, _err = fs.remove_all(covdir)
     child_env[#child_env + 1] = "COSMIC_COVERAGE=" .. covdir
   end
 
@@ -100,7 +100,7 @@ local function run(argv: {string}, output_base: string): integer
   end
 
   -- Clean up temp directory
-  fs.remove_all(tmpdir)
+  local _ok, _err = fs.remove_all(tmpdir)
 
   -- Write output files
   local ok: boolean
@@ -340,7 +340,7 @@ local function Example_makefile()
   -- Report on the result
   testrun.report({fs.join(tmpdir, "test1")})
 
-  fs.remove_all(tmpdir)
+  local _ok, _err = fs.remove_all(tmpdir)
   -- Output:
   -- exit_code:	0
   -- ✓ test1

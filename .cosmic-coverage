@@ -1,6 +1,5 @@
 # coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
-_build/discard.tl 152 171
 _build/ratchet.tl 36 36
 _cli/args.tl 0 31
 _cli/build/init.tl 43 47
@@ -77,6 +76,7 @@ cmd/cosmic/embed_gen.tl 0 166
 cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 9 10
+cosmic/_teal_discard.tl 130 148
 cosmic/_teal_hints.tl 23 23
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 146 173
@@ -190,4 +190,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14060 18508
+total 14038 18485

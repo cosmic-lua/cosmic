@@ -46,10 +46,10 @@ end
 -- both directions so a gate that accepted everything would fail here.
 
 local formatted = fs.join(tmpdir, "formatted.tl")
-fs.write(formatted, 'local x = 1\nprint(x)\n')
+assert(fs.write(formatted, 'local x = 1\nprint(x)\n'))
 
 local misformatted = fs.join(tmpdir, "misformatted.tl")
-fs.write(misformatted, 'local function f()\n        return 1\nend\nprint(f())\n')
+assert(fs.write(misformatted, 'local function f()\n        return 1\nend\nprint(f())\n'))
 
 local function test_check_format_accepts_formatted_source()
   local r = cli("--check", "fmt", formatted)
@@ -87,7 +87,7 @@ test_check_format_reports_missing_file()
 
 local function test_check_format_rejects_unparseable_source()
   local broken = fs.join(tmpdir, "broken.tl")
-  fs.write(broken, 'local function f(\n')
+  assert(fs.write(broken, 'local function f(\n'))
   local r = cli("--check", "fmt", broken)
   assert(r.code ~= 0, "unparseable source must be rejected, got exit 0")
 end
@@ -149,12 +149,12 @@ test_examples_miss_fails()
 
 local function test_make_dispatches_verb_and_paths()
   local dir = fs.join(tmpdir, "mk-src")
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   -- A directory declares itself a project; an ordinary directory of
   -- Teal files is a package inside one, and `--make` refuses it.
-  fs.write(fs.join(dir, ".cosmicignore"), "")
-  fs.write(fs.join(dir, "a.tl"), "local x: integer = 1\nprint(x)\n")
-  fs.write(fs.join(dir, "b.tl"), "return {}\n")
+  assert(fs.write(fs.join(dir, ".cosmicignore"), ""))
+  assert(fs.write(fs.join(dir, "a.tl"), "local x: integer = 1\nprint(x)\n"))
+  assert(fs.write(fs.join(dir, "b.tl"), "return {}\n"))
   local h = check.must(child.start({cosmic, "--make", "check", "a.tl"},
       {cwd = dir}))
   local r = check.must(h:wait())
@@ -190,9 +190,9 @@ test_make_requires_a_verb()
 -- nothing has ever gone red.
 local function test_test_wrapper_propagates_child_exit_code()
   local bad = fs.join(tmpdir, "wrap_bad.tl")
-  fs.write(bad, 'local function f()\n        return 1\nend\nprint(f())\n')
+  assert(fs.write(bad, 'local function f()\n        return 1\nend\nprint(f())\n'))
   local good = fs.join(tmpdir, "wrap_good.tl")
-  fs.write(good, 'local x = 1\nprint(x)\n')
+  assert(fs.write(good, 'local x = 1\nprint(x)\n'))
 
   local base_bad = fs.join(tmpdir, "wrap_bad.fmt")
   cli("--test", base_bad, "--", cosmic, "--check", "fmt", bad)
@@ -217,9 +217,9 @@ test_test_wrapper_propagates_child_exit_code()
 --- either way and the trap is gone rather than merely documented.
 local function test_test_wrapper_needs_no_separator()
   local bad = fs.join(tmpdir, "nosep_bad.tl")
-  fs.write(bad, 'local function f()\n        return 1\nend\nprint(f())\n')
+  assert(fs.write(bad, 'local function f()\n        return 1\nend\nprint(f())\n'))
   local good = fs.join(tmpdir, "nosep_good.tl")
-  fs.write(good, 'local x = 1\nprint(x)\n')
+  assert(fs.write(good, 'local x = 1\nprint(x)\n'))
 
   local base_bad = fs.join(tmpdir, "nosep_bad.fmt")
   cli("--test", base_bad, cosmic, "--check", "fmt", bad)
@@ -243,9 +243,9 @@ test_test_wrapper_needs_no_separator()
 -- is about the whole file, whose content may not even be text.
 local function test_check_lint_prints_the_offending_line()
   local bad = fs.join(tmpdir, "snippet_bad.tl")
-  fs.write(bad, "local x: any = {}\n"
-    .. "local y = x as {string: any}\n"
-    .. "print(y)\n")
+  assert(fs.write(bad, "local x: any = {}\n"
+      .. "local y = x as {string: any}\n"
+      .. "print(y)\n"))
   local r = cli("--check", "lint", bad)
   assert(r.code == 1, "unjustified cast must fail lint")
   assert(r.err:find("cast-justify", 1, true), "rule named: " .. r.err)

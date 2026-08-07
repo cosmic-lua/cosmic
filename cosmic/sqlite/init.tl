@@ -430,7 +430,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
   end
 
   return setmetatable(db, {
-      __close = function(self: Database) self:close() end
+      __close = function(self: Database) local _ok, _err = self:close() end
     })
 end
 

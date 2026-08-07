@@ -14,7 +14,7 @@ local function Example_open_self()
     return
   end
   io.write("opened\n")
-  netns.close(fd)
+  assert(netns.close(fd))
 end
 
 -- Example_unshare_in_subprocess creates a fresh network namespace
@@ -32,7 +32,7 @@ assert(ns.unshare())
 assert(ns.bring_up("lo"))
 ]]
   local h = check.must(child.start({cosmic, "-e", script}))
-  h:wait()
+  assert(h:wait())
 end
 
 -- Suppress unused warnings for examples

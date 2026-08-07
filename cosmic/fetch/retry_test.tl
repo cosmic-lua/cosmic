@@ -31,11 +31,11 @@ local function serve(responses: {string}): integer, integer
   local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
-    signal.setitimer({
-        which = signal.ITIMER_REAL,
-        value_ms = 30000,
-        interval_ms = 0,
-      })
+    assert(signal.setitimer({
+          which = signal.ITIMER_REAL,
+          value_ms = 30000,
+          interval_ms = 0,
+        }))
     for _, resp in ipairs(responses) do
       local conn = s:accept()
       if conn then
@@ -47,16 +47,16 @@ local function serve(responses: {string}): integer, integer
             if not data or #data == 0 then break end
             buf = buf .. data
           end
-          c:send(resp)
+          assert(c:send(resp))
         else
-          c:recv(1)
+          assert(c:recv(1))
         end
-        c:close()
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
@@ -68,7 +68,7 @@ local function test_default_policy_retries_transport_error()
   local port, pid = serve({"", body_response("200 OK", "recovered")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true,
     "transport error must be retried under the default policy, got: " .. tostring(result.error))
   assert(result.body == "recovered", "second attempt's body expected")
@@ -82,7 +82,7 @@ local function test_default_policy_retries_503()
     })
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true and result.status == 200,
     "503 must be retried under the default policy, got " .. tostring(result.status))
 end
@@ -95,7 +95,7 @@ local function test_default_policy_does_not_retry_post()
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, method = "POST", body = "x",
       max_attempts = 3, base_delay_ms = 10})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true and result.status == 503,
     "POST must not be retried by default, got " .. tostring(result.status))
 end
@@ -105,7 +105,7 @@ local function test_default_policy_does_not_retry_404()
   local port, pid = serve({body_response("404 Not Found", "gone")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 3, base_delay_ms = 10})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true and result.status == 404,
     "404 is not retryable, got " .. tostring(result.status))
 end
@@ -125,7 +125,7 @@ local function test_custom_should_retry_sees_failures()
         return not r.ok
       end,
     })
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == true, "custom retry of a transport error must succeed")
   assert(#seen == 1 and seen[1] == false,
     "should_retry must have been consulted with the failed result")
@@ -144,7 +144,7 @@ local function test_custom_should_retry_false_stops()
         return false
       end,
     })
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.status == 503, "the 503 must be returned as-is")
   assert(attempts == 1, "should_retry must be asked exactly once, got " .. attempts)
 end
@@ -154,7 +154,7 @@ local function test_exhausted_attempts_return_last_failure()
   local port, pid = serve({"", ""})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result.ok == false, "both attempts failed; ok must be false")
   assert(result.error_kind == "connect",
     "the transport failure kind survives, got " .. tostring(result.error_kind))
@@ -168,7 +168,7 @@ local function test_max_attempts_zero_is_clamped_to_one()
   local port, pid = serve({body_response("200 OK", "ok")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 0})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result ~= nil, "fetch must never return nil")
   assert(result.ok == true and result.body == "ok",
     "max_attempts=0 should still make one real attempt, got: " .. tostring(result.error))
@@ -179,7 +179,7 @@ local function test_max_attempts_negative_is_clamped_to_one()
   local port, pid = serve({body_response("200 OK", "ok")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = -5})
-  proc.wait(pid)
+  assert(proc.wait(pid))
   assert(result ~= nil, "fetch must never return nil")
   assert(result.ok == true, "max_attempts=-5 should still make one real attempt")
 end

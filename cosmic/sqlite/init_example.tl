@@ -11,12 +11,12 @@ local function Example_open_file()
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local dbpath = fs.join(tmpdir, "example.db")
   local db = check.must(sqlite.open(dbpath))
-  db:exec("CREATE TABLE t (x TEXT)")
-  db:exec("INSERT INTO t (x) VALUES ('hello')")
+  assert(db:exec("CREATE TABLE t (x TEXT)"))
+  assert(db:exec("INSERT INTO t (x) VALUES ('hello')"))
   local row = check.must(db:query_one("SELECT x FROM t"))
   print(row.x)
-  db:close()
-  os.remove(dbpath)
+  assert(db:close())
+  assert(os.remove(dbpath))
 
   -- Absolute paths work as expected:
   --   local db = sqlite.open("/var/data/app.db")
@@ -31,12 +31,12 @@ local function Example_open()
   local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
-  db:exec("INSERT INTO kv (k, v) VALUES ('hello', 'world')")
+  assert(db:exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)"))
+  assert(db:exec("INSERT INTO kv (k, v) VALUES ('hello', 'world')"))
   for row in check.must(db:query("SELECT * FROM kv")) do
     print(row.k, row.v)
   end
-  db:close()
+  assert(db:close())
   -- Output:
   -- hello	world
 end
@@ -46,20 +46,20 @@ local function Example_prepared()
   local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local stmt = check.must(db:prepare("INSERT INTO users (name) VALUES (?)"))
-  stmt:bind("Alice")
-  stmt:exec()
+  assert(stmt:bind("Alice"))
+  assert(stmt:exec())
   stmt:reset()
-  stmt:bind("Bob")
-  stmt:exec()
+  assert(stmt:bind("Bob"))
+  assert(stmt:exec())
   stmt:close()
 
   for row in check.must(db:query("SELECT * FROM users ORDER BY id")) do
     print(row.id, row.name)
   end
-  db:close()
+  assert(db:close())
   -- Output:
   -- 1	Alice
   -- 2	Bob
@@ -70,15 +70,15 @@ local function Example_query_params()
   local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE nums (n INTEGER)")
+  assert(db:exec("CREATE TABLE nums (n INTEGER)"))
   for i = 1, 5 do
-    db:exec("INSERT INTO nums (n) VALUES (" .. i .. ")")
+    assert(db:exec("INSERT INTO nums (n) VALUES (" .. i .. ")"))
   end
 
   for row in check.must(db:query("SELECT * FROM nums WHERE n > ?", 2)) do
     print(row.n)
   end
-  db:close()
+  assert(db:close())
   -- Output:
   -- 3
   -- 4
@@ -90,16 +90,16 @@ local function Example_exec_params()
   local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE cities (id INTEGER PRIMARY KEY, name TEXT, pop INTEGER)")
+  assert(db:exec("CREATE TABLE cities (id INTEGER PRIMARY KEY, name TEXT, pop INTEGER)"))
 
-  db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Tokyo", 13960000)
-  db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Delhi", 16787941)
-  db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Shanghai", 24870895)
+  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Tokyo", 13960000))
+  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Delhi", 16787941))
+  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Shanghai", 24870895))
 
   for row in check.must(db:query("SELECT * FROM cities ORDER BY pop DESC")) do
     print(row.name, row.pop)
   end
-  db:close()
+  assert(db:close())
   -- Output:
   -- Shanghai	24870895
   -- Delhi	16787941
@@ -112,15 +112,15 @@ local function Example_query_like()
   local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE files (path TEXT)")
-  db:exec("INSERT INTO files (path) VALUES (?)", "src/main.tl")
-  db:exec("INSERT INTO files (path) VALUES (?)", "src/util.tl")
-  db:exec("INSERT INTO files (path) VALUES (?)", "docs/readme.md")
+  assert(db:exec("CREATE TABLE files (path TEXT)"))
+  assert(db:exec("INSERT INTO files (path) VALUES (?)", "src/main.tl"))
+  assert(db:exec("INSERT INTO files (path) VALUES (?)", "src/util.tl"))
+  assert(db:exec("INSERT INTO files (path) VALUES (?)", "docs/readme.md"))
 
   for row in check.must(db:query("SELECT path FROM files WHERE path LIKE ?", "%src%")) do
     print(row.path)
   end
-  db:close()
+  assert(db:close())
   -- Output:
   -- src/main.tl
   -- src/util.tl

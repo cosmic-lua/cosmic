@@ -35,7 +35,7 @@ check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "generate-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
@@ -288,11 +288,11 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
       ["cmd/lean/main.tl"] = "print('lean')\n",
     })
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
-  cenv.set("COSMIC_MAKE", make_bin)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
+  assert(cenv.set("COSMIC_MAKE", make_bin))
   local code = mk.run({"build"})
-  cenv.unset("COSMIC_MAKE_ROOT")
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
+  assert(cenv.unset("COSMIC_MAKE"))
   assert(fs.chdir(cwd))
   assert(code == 0, "in-process build should succeed")
   local note = fs.join(root, "o/cmd/tool/embed_gen/embed/note.txt")
@@ -304,11 +304,11 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   -- Again, with everything already built: the mini-graph's freshness
   -- check is what keeps a no-op verb from paying one subprocess compile
   -- per closure member, so it needs a run where nothing has moved.
-  cenv.set("COSMIC_MAKE_ROOT", root)
-  cenv.set("COSMIC_MAKE", make_bin)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
+  assert(cenv.set("COSMIC_MAKE", make_bin))
   local again = mk.run({"build"})
-  cenv.unset("COSMIC_MAKE_ROOT")
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
+  assert(cenv.unset("COSMIC_MAKE"))
   assert(fs.chdir(cwd))
   assert(again == 0, "a second in-process build should succeed")
   assert(fs.is_file(fs.join(root, "o/bin/tool")), "and still produced the binary")
@@ -354,7 +354,7 @@ local function test_the_real_payload_generator()
   -- there; a cold checkout skips rather than failing.
   check.needs("fetched pins", seed_pins(repo))
   local out = fs.join(tmpdir, "real-payload")
-  fs.remove_all(out)
+  assert(fs.remove_all(out))
   assert(fs.make_dirs(out))
   local h = check.must(child.start({cosmic, gen, out},
       {cwd = repo, env = {"PATH=" .. (os.getenv("PATH") or ""), "NO_COLOR=1"}}))
@@ -444,7 +444,7 @@ local function test_a_lua_module_in_a_generators_closure()
       .. 'fs.write(fs.join(arg[1], "out.txt"), helper.mark())\n',
     })
   -- COLD: nothing built yet, which is the only state that showed it.
-  fs.remove_all(fs.join(root, "o"))
+  assert(fs.remove_all(fs.join(root, "o")))
   local h = check.must(child.start({cosmic, "--make", "build"},
       {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
           "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))

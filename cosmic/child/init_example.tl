@@ -39,7 +39,7 @@ local function Example_kill()
   local check = require("cosmic.check")
   local child = require("cosmic.child")
   local h = check.must(child.start({"sleep", "10"}))
-  h:kill()
+  assert(h:kill())
   local r = check.must(h:wait())
   print("signal:", r.signal)
   -- Output:
@@ -55,8 +55,8 @@ local function Example_wait_timeout()
   local h = check.must(child.start({"sleep", "10"}))
   local r, err = h:wait(50)
   print(r, err)
-  h:kill()
-  h:wait()
+  assert(h:kill())
+  assert(h:wait())
   -- Output:
   -- nil	timeout
 end
@@ -84,11 +84,11 @@ local function Example_run_pipe()
   local h = check.must(child.start({"echo", "from pipe"}, {stdout = pp.writer}))
 
   -- Close the write end in the parent so the reader sees EOF when the child exits.
-  pp.writer:close()
+  assert(pp.writer:close())
 
   -- Read all output from the read end.
   local out = pp.reader:read()
-  pp.reader:close()
+  assert(pp.reader:close())
 
   -- Wait for the child to exit.
   local r = check.must(h:wait())
@@ -139,7 +139,7 @@ local function Example_supervisor()
     for index, handle in pairs(live) do
       local finished = handle:try_wait()
       if not finished and time.monotonic_ms() - started_ms[index] > deadline_ms then
-        handle:kill() -- SIGTERM; wait() below reaps and reports the signal
+        assert(handle:kill()) -- SIGTERM; wait() below reaps and reports the signal
         finished = check.must(handle:wait())
       end
       if finished is child.Result then
@@ -155,7 +155,7 @@ local function Example_supervisor()
         done = done + 1
       end
     end
-    time.sleep(0, 5 * 1000 * 1000) -- 5ms between polls: reap, don't spin
+    assert(time.sleep(0, 5 * 1000 * 1000)) -- 5ms between polls: reap, don't spin
   end
 
   for index, status in ipairs(statuses) do

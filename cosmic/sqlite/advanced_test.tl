@@ -8,7 +8,7 @@ local sqlite = require("cosmic.sqlite")
 
 local function test_exec_trailing_nils()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b TEXT, c TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b TEXT, c TEXT)"))
 
   -- trailing nils should bind as NULL, not be dropped
   local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "hello", nil, nil)
@@ -19,13 +19,13 @@ local function test_exec_trailing_nils()
     assert(row.b == nil, "b should be nil")
     assert(row.c == nil, "c should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_trailing_nils()
 
 local function test_exec_middle_nils()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b TEXT, c TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b TEXT, c TEXT)"))
 
   local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", nil, "middle", nil)
   assert(ok, "exec with middle nils should succeed: " .. tostring(err))
@@ -35,18 +35,18 @@ local function test_exec_middle_nils()
     assert(row.b == "middle", "b should be 'middle'")
     assert(row.c == nil, "c should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_middle_nils()
 
 local function test_bind_trailing_nils()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)"))
   local ok, err = stmt:bind("first", 42, nil)
   assert(ok, "bind with trailing nil should succeed: " .. tostring(err))
-  stmt:exec()
+  assert(stmt:exec())
   stmt:close()
 
   for row in check.must(db:query("SELECT * FROM t")) do
@@ -54,7 +54,7 @@ local function test_bind_trailing_nils()
     assert(row.b == 42, "b should be 42")
     assert(row.c == nil, "c should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_bind_trailing_nils()
 
@@ -62,13 +62,13 @@ test_bind_trailing_nils()
 
 local function test_bind_list()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)"))
   local values = {"hello", nil, "world"}
   local ok, err = stmt:bind_list(values)
   assert(ok, "bind_list should succeed: " .. tostring(err))
-  stmt:exec()
+  assert(stmt:exec())
   stmt:close()
 
   for row in check.must(db:query("SELECT * FROM t")) do
@@ -76,7 +76,7 @@ local function test_bind_list()
     assert(row.b == nil, "b should be nil")
     assert(row.c == "world", "c should be 'world'")
   end
-  db:close()
+  assert(db:close())
 end
 test_bind_list()
 
@@ -84,7 +84,7 @@ test_bind_list()
 
 local function test_exec_list()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b TEXT, c TEXT, d INTEGER)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b TEXT, c TEXT, d INTEGER)"))
 
   local values = {"one", nil, nil, 42}
   local ok, err = db:exec_list(
@@ -98,13 +98,13 @@ local function test_exec_list()
     assert(row.c == nil, "c should be nil")
     assert(row.d == 42, "d should be 42")
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_list()
 
 local function test_exec_list_all_nils()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b TEXT)"))
 
   local values = {nil, nil}
   local ok, err = db:exec_list(
@@ -116,7 +116,7 @@ local function test_exec_list_all_nils()
     assert(row.a == nil, "a should be nil")
     assert(row.b == nil, "b should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_list_all_nils()
 
@@ -124,8 +124,8 @@ test_exec_list_all_nils()
 
 local function test_query_list()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b TEXT)")
-  db:exec("INSERT INTO t VALUES ('x', 'y'), ('a', 'b')")
+  assert(db:exec("CREATE TABLE t (a TEXT, b TEXT)"))
+  assert(db:exec("INSERT INTO t VALUES ('x', 'y'), ('a', 'b')"))
 
   local values = {"x"}
   local rows = {}
@@ -134,7 +134,7 @@ local function test_query_list()
   end
   assert(#rows == 1, "should get 1 row")
   assert(rows[1].a == "x", "a should be 'x'")
-  db:close()
+  assert(db:close())
 end
 test_query_list()
 
@@ -142,35 +142,35 @@ test_query_list()
 
 local function test_query_one_found()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob')"))
 
   local row = check.must(db:query_one("SELECT * FROM t WHERE id = ?", 1),
     "should find row")
   assert(row.name == "Alice", "name should be Alice")
-  db:close()
+  assert(db:close())
 end
 test_query_one_found()
 
 local function test_query_one_not_found()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local row = db:query_one("SELECT * FROM t WHERE id = ?", 999)
   assert(row == nil, "should return nil for no match")
-  db:close()
+  assert(db:close())
 end
 test_query_one_not_found()
 
 local function test_query_one_returns_first()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')"))
 
   local row = check.must(db:query_one("SELECT * FROM t ORDER BY id"),
     "should find a row")
   assert(row.name == "Alice", "should return first row (Alice)")
-  db:close()
+  assert(db:close())
 end
 test_query_one_returns_first()
 
@@ -178,10 +178,10 @@ test_query_one_returns_first()
 
 local function test_transaction_commit()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local ok, err = db:transaction(function(d: sqlite.Database)
-      d:exec("INSERT INTO t (name) VALUES (?)", "inside tx")
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "inside tx"))
     end)
   assert(ok, "transaction should succeed: " .. tostring(err))
 
@@ -190,16 +190,16 @@ local function test_transaction_commit()
     count = count + 1
   end
   assert(count == 1, "should have 1 row after committed transaction")
-  db:close()
+  assert(db:close())
 end
 test_transaction_commit()
 
 local function test_transaction_rollback_on_error()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local ok, err = db:transaction(function(d: sqlite.Database)
-      d:exec("INSERT INTO t (name) VALUES (?)", "will be rolled back")
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "will be rolled back"))
       error("something went wrong")
     end)
   assert(not ok, "transaction should fail")
@@ -210,18 +210,18 @@ local function test_transaction_rollback_on_error()
     count = count + 1
   end
   assert(count == 0, "should have 0 rows after rollback")
-  db:close()
+  assert(db:close())
 end
 test_transaction_rollback_on_error()
 
 local function test_transaction_multiple_ops()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local ok, _ = db:transaction(function(d: sqlite.Database)
-      d:exec("INSERT INTO t (name) VALUES (?)", "Alice")
-      d:exec("INSERT INTO t (name) VALUES (?)", "Bob")
-      d:exec("INSERT INTO t (name) VALUES (?)", "Carol")
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "Alice"))
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "Bob"))
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "Carol"))
     end)
   assert(ok, "transaction should succeed")
 
@@ -230,7 +230,7 @@ local function test_transaction_multiple_ops()
     count = count + 1
   end
   assert(count == 3, "should have 3 rows")
-  db:close()
+  assert(db:close())
 end
 test_transaction_multiple_ops()
 
@@ -239,10 +239,10 @@ local function test_transaction_rollback_on_false()
   -- must roll back. Before the fix, transaction() discarded the returned
   -- error and COMMITted, leaving the row behind.
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local body: function(sqlite.Database): (boolean, string) = function(d: sqlite.Database): (boolean, string)
-    d:exec("INSERT INTO t (name) VALUES (?)", "doomed")
+    assert(d:exec("INSERT INTO t (name) VALUES (?)", "doomed"))
     return false, "boom"
   end
   local ok, err = db:transaction(body)
@@ -254,17 +254,17 @@ local function test_transaction_rollback_on_false()
     count = count + 1
   end
   assert(count == 0, "row must roll back when body returns false, got " .. tostring(count))
-  db:close()
+  assert(db:close())
 end
 test_transaction_rollback_on_false()
 
 local function test_transaction_rollback_on_nil_err()
   -- `nil, err` is the same failure convention and must also roll back.
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local body: function(sqlite.Database): (boolean, string) = function(d: sqlite.Database): (boolean, string)
-    d:exec("INSERT INTO t (name) VALUES (?)", "doomed")
+    assert(d:exec("INSERT INTO t (name) VALUES (?)", "doomed"))
     return nil, "nope"
   end
   local ok, err = db:transaction(body)
@@ -276,17 +276,17 @@ local function test_transaction_rollback_on_nil_err()
     count = count + 1
   end
   assert(count == 0, "row must roll back when body returns nil, err, got " .. tostring(count))
-  db:close()
+  assert(db:close())
 end
 test_transaction_rollback_on_nil_err()
 
 local function test_transaction_commits_on_no_return()
   -- A body that returns nothing (the common case) still commits.
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local ok, err = db:transaction(function(d: sqlite.Database)
-      d:exec("INSERT INTO t (name) VALUES (?)", "kept")
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "kept"))
     end)
   assert(ok, "should commit when body returns nothing: " .. tostring(err))
 
@@ -295,7 +295,7 @@ local function test_transaction_commits_on_no_return()
     count = count + 1
   end
   assert(count == 1, "row must commit when body returns nothing, got " .. tostring(count))
-  db:close()
+  assert(db:close())
 end
 test_transaction_commits_on_no_return()
 
@@ -304,7 +304,7 @@ local function test_nested_transaction_fails_inner_only()
   -- must fail with SQLite's own message, while the outer transaction and
   -- its writes survive. Nesting is what savepoint() is for.
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
   local ok, err = db:transaction(function(d: sqlite.Database)
       local inner_ok, inner_err = d:transaction(function(_d2: sqlite.Database)
@@ -312,13 +312,13 @@ local function test_nested_transaction_fails_inner_only()
       assert(not inner_ok, "an inner transaction must fail")
       assert(inner_err and inner_err:match("within a transaction"),
         "inner error should name the nesting problem, got: " .. tostring(inner_err))
-      d:exec("INSERT INTO t (name) VALUES (?)", "outer-survives")
+      assert(d:exec("INSERT INTO t (name) VALUES (?)", "outer-survives"))
     end)
   assert(ok, "the outer transaction must still commit: " .. tostring(err))
 
   local row = check.must(db:query_one("SELECT COUNT(*) AS c FROM t"))
   assert(row.c == 1, "the outer write must commit, got " .. tostring(row.c))
-  db:close()
+  assert(db:close())
 end
 test_nested_transaction_fails_inner_only()
 
@@ -327,12 +327,12 @@ test_nested_transaction_fails_inner_only()
 -- inside an open transaction.
 local function test_transaction_commit_failure_rolls_back()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
-  db:exec([[CREATE TABLE child (
+  assert(db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
+  assert(db:exec([[CREATE TABLE child (
     id INTEGER PRIMARY KEY,
     parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED
-  )]])
-  db:exec("INSERT INTO parent (id) VALUES (1)")
+  )]]))
+  assert(db:exec("INSERT INTO parent (id) VALUES (1)"))
 
   local ok, err = db:transaction(function(d: sqlite.Database)
       -- Orphan reference: passes at INSERT time (deferred), fails at COMMIT.
@@ -350,8 +350,8 @@ local function test_transaction_commit_failure_rolls_back()
   local begin_ok, begin_err = db:exec("BEGIN IMMEDIATE")
   assert(begin_ok, "connection must not be stuck inside an open transaction: "
     .. tostring(begin_err))
-  db:exec("ROLLBACK")
-  db:close()
+  assert(db:exec("ROLLBACK"))
+  assert(db:close())
 end
 test_transaction_commit_failure_rolls_back()
 
@@ -359,12 +359,12 @@ test_transaction_commit_failure_rolls_back()
 
 local function test_bind_named()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (a, b, c) VALUES (:a, :b, :c)"))
   local ok, err = stmt:bind_named({a = "hello", c = "world"})
   assert(ok, "bind_named should succeed: " .. tostring(err))
-  stmt:exec()
+  assert(stmt:exec())
   stmt:close()
 
   for row in check.must(db:query("SELECT * FROM t")) do
@@ -372,13 +372,13 @@ local function test_bind_named()
     assert(row.b == nil, "b should be nil (unbound)")
     assert(row.c == "world", "c should be 'world'")
   end
-  db:close()
+  assert(db:close())
 end
 test_bind_named()
 
 local function test_exec_named()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
 
   local ok, err = db:exec_named(
     "INSERT INTO t (a, b, c) VALUES (:a, :b, :c)",
@@ -390,13 +390,13 @@ local function test_exec_named()
     assert(row.b == 42, "b should be 42")
     assert(row.c == nil, "c should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_named()
 
 local function test_exec_named_all_nil()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a TEXT, b TEXT)")
+  assert(db:exec("CREATE TABLE t (a TEXT, b TEXT)"))
 
   local ok, err = db:exec_named(
     "INSERT INTO t (a, b) VALUES (:a, :b)", {})
@@ -406,14 +406,14 @@ local function test_exec_named_all_nil()
     assert(row.a == nil, "a should be nil")
     assert(row.b == nil, "b should be nil")
   end
-  db:close()
+  assert(db:close())
 end
 test_exec_named_all_nil()
 
 local function test_query_named()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, city TEXT)")
-  db:exec("INSERT INTO t (name, city) VALUES ('Alice', 'NYC'), ('Bob', 'LA'), ('Carol', 'NYC')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, city TEXT)"))
+  assert(db:exec("INSERT INTO t (name, city) VALUES ('Alice', 'NYC'), ('Bob', 'LA'), ('Carol', 'NYC')"))
 
   local names: {string} = {}
   for row in check.must(db:query_named(
@@ -424,7 +424,7 @@ local function test_query_named()
   assert(#names == 2, "should get 2 rows")
   assert(names[1] == "Alice", "first should be Alice")
   assert(names[2] == "Carol", "second should be Carol")
-  db:close()
+  assert(db:close())
 end
 test_query_named()
 
@@ -435,8 +435,8 @@ test_query_named()
 --- own separate statement instead.
 local function test_same_sql_nested_query_reentrant()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')"))
 
   local pairs_seen: {string} = {}
   for outer in check.must(db:query("SELECT * FROM t ORDER BY id")) do
@@ -457,7 +457,7 @@ local function test_same_sql_nested_query_reentrant()
   -- available again, not left permanently "checked out".
   local row, err = db:query_one("SELECT * FROM t WHERE id = 1")
   assert(row ~= nil, "query after nested reentrant use should still work: " .. tostring(err))
-  db:close()
+  assert(db:close())
 end
 test_same_sql_nested_query_reentrant()
 

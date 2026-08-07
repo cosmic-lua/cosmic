@@ -148,42 +148,42 @@ local function test_pump_relays_data_across_eintr()
 
   local pid = proc.fork()
   if pid == nil then
-    c1:close()
-    c2:close()
-    u1:close()
-    u2:close()
+    assert(c1:close())
+    assert(c2:close())
+    assert(u1:close())
+    assert(u2:close())
     check.enforce_skip("pump EINTR: fork unavailable")
     return
   end
   if pid == 0 then
-    c1:close()
-    u1:close()
-    signal.sigaction(signal.SIGALRM, function() end)
-    signal.setitimer({
-        which = signal.ITIMER_REAL,
-        value_ms = 50,
-        interval_ms = 0,
-      })
+    assert(c1:close())
+    assert(u1:close())
+    assert(signal.sigaction(signal.SIGALRM, function() end))
+    assert(signal.setitimer({
+          which = signal.ITIMER_REAL,
+          value_ms = 50,
+          interval_ms = 0,
+        }))
     http.pump(c2.fd, u2.fd)
     os.exit(0)
   end
 
-  c2:close()
-  u2:close()
-  time.sleep(0, 150000000)
+  assert(c2:close())
+  assert(u2:close())
+  assert(time.sleep(0, 150000000))
   local payload = "hello-through-pump"
   local sent = c1:send(payload)
   assert(sent == #payload, "send failed: " .. tostring(sent))
 
   local pp = pollmod.new()
-  pp:add(u1.fd, pollmod.POLLIN)
+  assert(pp:add(u1.fd, pollmod.POLLIN))
   local n = check.must(pp:poll(2000))
   assert(n == 1, "pump should have relayed the payload across the EINTR")
   local got = u1:recv(64)
   assert(got == payload, "expected relayed payload, got: " .. tostring(got))
 
-  c1:close()
-  u1:close()
-  proc.wait(pid)
+  assert(c1:close())
+  assert(u1:close())
+  assert(proc.wait(pid))
 end
 test_pump_relays_data_across_eintr()
