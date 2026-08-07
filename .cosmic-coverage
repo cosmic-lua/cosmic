@@ -75,6 +75,7 @@ _types/gentype_extract.tl 54 54
 _types/gentype_parse.tl 255 288
 _types/gentype_render.tl 295 311
 _types/gentype_types.tl 2 2
+_types/tlast.tl 160 177
 _types/tlast_gen.tl 163 188
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 179
@@ -196,4 +197,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14334 18886
+total 14684 19279

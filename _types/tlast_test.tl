@@ -1,13 +1,14 @@
 #!/usr/bin/env cosmic
--- The tl AST cache generator: parse the pinned tl's embedded d.tl
+-- The tl AST cache builder: parse the pinned tl's embedded d.tl
 -- sources, serialize, dump bytecode. The artifact-side thaw is pinned
--- by cosmic/_teal_ast_test.tl; this covers the generator itself —
--- that it produces a loadable, deterministic cache whose thawed
--- programs a fresh tl instance accepts as parser output.
+-- by cosmic/_teal_ast_test.tl; this covers the builder itself — that
+-- it produces a loadable, deterministic cache whose thawed programs a
+-- fresh tl instance accepts as parser output. (_types/tlast_gen.tl is
+-- the untestable-by-position generator shim over this module.)
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local tlast_gen = require("_types.tlast_gen")
+local tlast_gen = require("_types.tlast")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"), "TEST_TMPDIR should be set")
 
