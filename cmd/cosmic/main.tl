@@ -357,18 +357,11 @@ local function main(): integer, string
     opts.extract = extract_env
   end
   if opts.version then return handlers.handle_version() end
-  -- _cli.help is required here, not at the top: --help is a
-  -- human-paced branch, and a boot-time require would put the module
-  -- on every invocation's boot surface (#973)
   if opts.help then io.write(require("_cli.help").generate() .. "\n"); return 0 end
   if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
 
-  -- Show welcome on first invocation (skip when --help/--version/--welcome handled above)
-  -- The tty gate runs first: the banner only ever prints to a
-  -- terminal, so headless boots (CI, builds, scripts) skip the
-  -- was-shown lookup and never load _cli.welcome at all (#973).
-  -- Behavior is unchanged: the banner still prints exactly once, on
-  -- the first invocation whose stderr is a tty.
+  -- First-run welcome, tty gate first: the banner only ever prints to a terminal,
+  -- so headless boots never load _cli.welcome (#973). Still once, on the first tty.
   if not os.getenv("COSMIC_NO_WELCOME") then
     local tty = require("cosmic.tty")
     if tty.is_tty(2) then
