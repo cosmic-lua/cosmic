@@ -47,7 +47,7 @@ local function no_new_privs(): boolean, string
     return false, "no_new_privs unsupported on this host"
   end
   local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
-  if not ok then return false, errno.wrap(err, "no_new_privs") end
+  if not ok then return false, errno.format(err, "no_new_privs") end
   return true
 end
 
@@ -71,16 +71,16 @@ local function drop_privs(uid: integer, gid: integer): boolean, string
   if gid == nil then gid = uid end
   if uid ~= 0 then
     local kok, kerr = unix.prctl(unix.PR_SET_KEEPCAPS, 1)
-    if not kok then return false, errno.wrap(kerr, "PR_SET_KEEPCAPS") end
+    if not kok then return false, errno.format(kerr, "PR_SET_KEEPCAPS") end
     local gok, gerr = unix.setresgid(gid, gid, gid)
-    if not gok then return false, errno.wrap(gerr, "setresgid") end
+    if not gok then return false, errno.format(gerr, "setresgid") end
     local uok, uerr = unix.setresuid(uid, uid, uid)
-    if not uok then return false, errno.wrap(uerr, "setresuid") end
+    if not uok then return false, errno.format(uerr, "setresuid") end
   end
   local cok, cerr, ceno = unix.capset(0, 0, 0)
   if not cok then
-    if errno.is(ceno, "ENOSYS") then return true end
-    return false, errno.wrap(cerr, "capset")
+    if errno.is_code(ceno, "ENOSYS") then return true end
+    return false, errno.format(cerr, "capset")
   end
   return true
 end
@@ -121,14 +121,14 @@ local function setup_userns_maps(uid: integer, gid: integer): boolean, string
   if gid == nil then gid = unix.getegid() end
   local ok, err = write_file("/proc/self/uid_map",
     "0 " .. tostring(uid) .. " 1\n")
-  if not ok then return false, errno.wrap(err, "uid_map write") end
+  if not ok then return false, errno.format(err, "uid_map write") end
   local sg, sgerr, sgeno = write_file("/proc/self/setgroups", "deny")
-  if not sg and not errno.is(sgeno, "ENOENT") then
-    return false, errno.wrap(sgerr, "setgroups write")
+  if not sg and not errno.is_code(sgeno, "ENOENT") then
+    return false, errno.format(sgerr, "setgroups write")
   end
   local gok, gerr = write_file("/proc/self/gid_map",
     "0 " .. tostring(gid) .. " 1\n")
-  if not gok then return false, errno.wrap(gerr, "gid_map write") end
+  if not gok then return false, errno.format(gerr, "gid_map write") end
   return true
 end
 
@@ -159,7 +159,7 @@ local function barrier(): Barrier | nil, string
   -- On failure pipe returns nil, err (string), errno; the error string
   -- lands in the second slot where the write fd would have been.
   local r, w = unix.pipe()
-  if not r then return nil, errno.wrap(w, "pipe") end
+  if not r then return nil, errno.format(w, "pipe") end
   local rfd: integer = r
   local wfd: integer = w
   local b: Barrier = {}
@@ -184,10 +184,10 @@ local function barrier(): Barrier | nil, string
         rfd = nil
         return true
       end
-      if not errno.is(reno, "EINTR") then
+      if not errno.is_code(reno, "EINTR") then
         unix.close(rfd)
         rfd = nil
-        return false, errno.wrap(rerr, "barrier wait")
+        return false, errno.format(rerr, "barrier wait")
       end
     end
   end
@@ -223,10 +223,10 @@ end
 local function fork_pidns(): integer | nil, string
   local ok, uerr = unix.unshare(unix.CLONE_NEWPID)
   if not ok then
-    return nil, errno.wrap(uerr, "unshare(CLONE_NEWPID)")
+    return nil, errno.format(uerr, "unshare(CLONE_NEWPID)")
   end
   local pid, ferr = unix.fork()
-  if not pid then return nil, errno.wrap(ferr, "fork") end
+  if not pid then return nil, errno.format(ferr, "fork") end
   return pid
 end
 
@@ -274,7 +274,7 @@ local function become_init(main_pid: integer, opts: InitOptions): integer
     local pid, ws, weno = unix.wait()
     if not pid then
       -- EINTR = a forwarded signal arrived mid-wait; loop and reap.
-      if not errno.is(weno, "EINTR") then
+      if not errno.is_code(weno, "EINTR") then
         return 1
       end
     elseif pid == main_pid then

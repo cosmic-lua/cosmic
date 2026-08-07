@@ -165,7 +165,7 @@ local function new(): Poller
     local eno: integer
     while true do
       res, err, eno = unix.poll(fds, timeout_ms or -1)
-      if res ~= nil or not errno.is(eno, "EINTR") then
+      if res ~= nil or not errno.is_code(eno, "EINTR") then
         break
       end
     end
@@ -174,7 +174,7 @@ local function new(): Poller
       -- unconditionally, so a stale or nil table there would crash the
       -- next events() call instead of just reporting no events.
       results = {}
-      return nil, errno.wrap(err, "poll")
+      return nil, errno.format(err, "poll")
     end
     results = res
     local ready = 0

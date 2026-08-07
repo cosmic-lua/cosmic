@@ -92,7 +92,7 @@ end
 test_probe_success_is_available()
 
 local function test_probe_enosys_is_unavailable()
-  local enosys = errno.code("ENOSYS")
+  local enosys = errno.code_of("ENOSYS")
   assert(enosys, "ENOSYS must be defined on this host")
   check.eq(quicksand.probe(
       mk_fail("prctl: ENOSYS: Function not implemented", enosys)), false,
@@ -101,7 +101,7 @@ end
 test_probe_enosys_is_unavailable()
 
 local function test_probe_policy_error_is_available()
-  local eperm = errno.code("EPERM")
+  local eperm = errno.code_of("EPERM")
   assert(eperm, "EPERM must be defined on this host")
   check.eq(quicksand.probe(
       mk_fail("prctl: EPERM: Operation not permitted", eperm)), true,
