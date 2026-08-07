@@ -473,3 +473,20 @@ local function test_tmpfile_failure_contract()
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
 end
 test_tmpfile_failure_contract()
+
+local function test_write_mode_applies_on_overwrite()
+  -- Barf's mode applies only at creation; fs.write enforces the exact
+  -- bits on overwrite too, so zip and tar extraction agree about the
+  -- permissions of a re-extracted file (#986).
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local path = fs.join(base, "mode_overwrite.txt")
+  assert(fs.write(path, "one", tonumber("644", 8)))
+  assert(fs.write(path, "two", tonumber("600", 8)))
+  local st = check.must(fs.stat(path))
+  local mode = st:mode() & tonumber("777", 8)
+  assert(mode == tonumber("600", 8),
+    string.format("overwrite must apply the mode: got %o", mode))
+  assert(fs.read(path) == "two", "content overwritten")
+  assert(fs.remove_all(path))
+end
+test_write_mode_applies_on_overwrite()
