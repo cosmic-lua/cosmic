@@ -35,7 +35,6 @@ end
 
 local getopt = require("cosmic.getopt")
 local cli_args = require("_cli.args")
-local help = require("_cli.help")
 local handlers = require("_cli.main_handlers")
 
 -- Parsed options record
@@ -358,15 +357,16 @@ local function main(): integer, string
     opts.extract = extract_env
   end
   if opts.version then return handlers.handle_version() end
-  if opts.help then io.write(help.generate() .. "\n"); return 0 end
+  if opts.help then io.write(require("_cli.help").generate() .. "\n"); return 0 end
   if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
 
-  -- Show welcome on first invocation (skip when --help/--version/--welcome handled above)
+  -- First-run welcome, tty gate first: the banner only ever prints to a terminal,
+  -- so headless boots never load _cli.welcome (#973). Still once, on the first tty.
   if not os.getenv("COSMIC_NO_WELCOME") then
-    local welcome = require("_cli.welcome")
-    if not welcome.was_shown() then
-      local tty = require("cosmic.tty")
-      if tty.is_tty(2) then
+    local tty = require("cosmic.tty")
+    if tty.is_tty(2) then
+      local welcome = require("_cli.welcome")
+      if not welcome.was_shown() then
         io.stderr:write(handlers.generate_welcome())
         welcome.mark_shown()
       end
