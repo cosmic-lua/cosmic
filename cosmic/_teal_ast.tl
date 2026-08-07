@@ -6,7 +6,7 @@
 --- that chunk once per process and hands the rebuilt programs to
 --- `tl.new_env` (carried patch, `3p/tl/tl_patch.tl` ast-cache-*),
 --- skipping the parse that dominates a fresh process's first env —
---- ~11 of ~16 ms per compile child (whilp/cosmopolitan#967).
+--- ~11 of ~16 ms per compile child (whilp/cosmic#967).
 ---
 --- Fail-soft everywhere: a missing cache, an unpatched tl, or a chunk
 --- that will not load or run simply yields no programs, and new_env

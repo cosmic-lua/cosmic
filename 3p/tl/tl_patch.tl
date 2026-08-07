@@ -1,7 +1,7 @@
 -- The carried patch riding 3p/tl/tl_pin.tl (see _make/patch.tl for the
 -- mechanism). Two groups of edits.
 --
--- The ast-cache-* group (whilp/cosmopolitan#967) lets an embedder skip
+-- The ast-cache-* group (whilp/cosmic#967) lets an embedder skip
 -- tl's parse of its embedded prelude/stdlib d.tl sources — ~11 of the
 -- ~16 ms every fresh process pays in its first tl.new_env():
 --
@@ -39,7 +39,7 @@
 return {
   ["ast-cache-envoptions-tl-tl"] = {
     file = "tl.tl",
-    note = "whilp/cosmopolitan#967: EnvOptions accepts pre-parsed prelude/stdlib ASTs",
+    note = "whilp/cosmic#967: EnvOptions accepts pre-parsed prelude/stdlib ASTs",
     find = [=====[   record EnvOptions
       defaults: CheckOptions
       predefined_modules: {string}
@@ -48,7 +48,7 @@ return {
     replace = [=====[   record EnvOptions
       defaults: CheckOptions
       predefined_modules: {string}
-      -- cosmic carried patch (whilp/cosmopolitan#967): pre-parsed
+      -- cosmic carried patch (whilp/cosmic#967): pre-parsed
       -- programs for the embedded prelude/stdlib d.tl sources (from
       -- tl.parse of those exact texts); an embedder that caches them
       -- skips the parse that dominates a fresh process's first
@@ -60,7 +60,7 @@ return {
   },
   ["ast-cache-hooks-nodemt"] = {
     file = "tl.lua",
-    note = "whilp/cosmopolitan#967: expose node_mt for AST cache thaw",
+    note = "whilp/cosmic#967: expose node_mt for AST cache thaw",
     find = [=====[   local node_mt = {
       __tostring = function(n)
          return n.f .. ":" .. n.y .. ":" .. n.x .. " " .. n.kind
@@ -73,14 +73,14 @@ return {
       end,
    }
 
-   -- cosmic carried patch (whilp/cosmopolitan#967): the parser's node
+   -- cosmic carried patch (whilp/cosmic#967): the parser's node
    -- metatable, for rebuilding serialized ASTs (see ast_hooks below).
    tl.ast_hooks.node_mt = node_mt
 ]=====],
   },
   ["ast-cache-hooks-typemt"] = {
     file = "tl.lua",
-    note = "whilp/cosmopolitan#967: expose type_mt and new_typeid for AST cache thaw",
+    note = "whilp/cosmic#967: expose type_mt and new_typeid for AST cache thaw",
     find = [=====[local type_mt = {
    __tostring = function(t)
       return show_type(t)
@@ -93,7 +93,7 @@ return {
    end,
 }
 
--- cosmic carried patch (whilp/cosmopolitan#967): the ingredients a
+-- cosmic carried patch (whilp/cosmic#967): the ingredients a
 -- serialized AST needs to be rebuilt as real parser output — the
 -- node/type metatables and the typeid allocator (thawed type nodes
 -- take fresh ids so later parses cannot collide with them).
@@ -102,7 +102,7 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
   },
   ["ast-cache-new-env"] = {
     file = "tl.lua",
-    note = "whilp/cosmopolitan#967: new_env accepts pre-parsed prelude/stdlib ASTs",
+    note = "whilp/cosmic#967: new_env accepts pre-parsed prelude/stdlib ASTs",
     find = [=====[      do
          local program, syntax_errors = tl.parse(prelude, "prelude.d.tl", "tl")
          assert_no_errors(syntax_errors, "prelude contains syntax errors")
@@ -117,7 +117,7 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
          assert_no_errors(result.type_errors, "standard library contains type errors")
       end
 ]=====],
-    replace = [=====[      -- cosmic carried patch (whilp/cosmopolitan#967): a pre-parsed
+    replace = [=====[      -- cosmic carried patch (whilp/cosmic#967): a pre-parsed
       -- program stands in for the parse of the embedded d.tl source;
       -- absent means parse, byte-identical behavior.
       do
@@ -145,7 +145,7 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
   },
   ["ast-cache-new-env-tl-tl"] = {
     file = "tl.tl",
-    note = "whilp/cosmopolitan#967: new_env accepts pre-parsed ASTs (Teal ground truth)",
+    note = "whilp/cosmic#967: new_env accepts pre-parsed ASTs (Teal ground truth)",
     find = [=====[      do
          local program, syntax_errors = tl.parse(prelude, "prelude.d.tl", "tl")
          assert_no_errors(syntax_errors, "prelude contains syntax errors")
@@ -160,7 +160,7 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
          assert_no_errors(result.type_errors, "standard library contains type errors")
       end
 ]=====],
-    replace = [=====[      -- cosmic carried patch (whilp/cosmopolitan#967): a pre-parsed
+    replace = [=====[      -- cosmic carried patch (whilp/cosmic#967): a pre-parsed
       -- program stands in for the parse of the embedded d.tl source;
       -- absent means parse, byte-identical behavior.
       do
