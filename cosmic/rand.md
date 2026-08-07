@@ -4,11 +4,17 @@
  Wraps cosmo.GetRandomBytes for cryptographically secure randomness, and
  cosmo.Rand64 for fast non-cryptographic use cases.
 
+ Every function here is INFALLIBLE (D22): on every supported platform
+ the kernel CSPRNG cannot fail once the system has booted, so there is
+ no runtime failure for a return slot to carry. Out-of-range arguments
+ are contract violations and throw — the one thing that must never
+ happen is code limping on without entropy. Callers check nothing.
+
  Example usage:
    local rand = require("cosmic.rand")
-   local key, err = rand.bytes(32)     -- cryptographically secure
+   local key = rand.bytes(32)          -- cryptographically secure
    local roll = rand.int(1, 6)         -- crypto-grade, unbiased
-   local n = rand.insecure64()             -- fast pseudo-random (not secure)
+   local n = rand.insecure64()         -- fast pseudo-random (not secure)
 
 ## Types
 
@@ -16,12 +22,12 @@
 
 ```teal
 local record RandModule
-  bytes: function(n: integer): string | nil, string
-  int: function(min: integer, max: integer): integer | nil, string
-  float: function(): number | nil, string
-  choice: function(list: {any}): any, string
-  shuffle: function(list: {any}): {any} | nil, string
-  token: function(len?: integer): string | nil, string
+  bytes: function(n: integer): string
+  int: function(min: integer, max: integer): integer
+  float: function(): number
+  choice: function(list: {any}): any
+  shuffle: function(list: {any}): {any}
+  token: function(len?: integer): string
   insecure64: function(): integer
 end
 ```
@@ -31,7 +37,7 @@ end
 ### bytes
 
 ```teal
-function bytes(n: integer): string | nil, string
+function bytes(n: integer): string
 ```
 
  Generate cryptographically secure random bytes.
@@ -42,8 +48,7 @@ function bytes(n: integer): string | nil, string
 
 **Returns:**
 
-- string - | nil Random bytes, or nil on failure
-- string? - Error message on failure
+- string - n random bytes
 
 ### insecure64
 
@@ -61,7 +66,7 @@ function insecure64(): integer
 ### int
 
 ```teal
-function int(min: integer, max: integer): integer | nil, string
+function int(min: integer, max: integer): integer
 ```
 
  Generate a cryptographically secure uniform integer in [min, max]
@@ -76,13 +81,12 @@ function int(min: integer, max: integer): integer | nil, string
 
 **Returns:**
 
-- integer - | nil The random integer, or nil on failure
-- string? - Error message on failure
+- integer - The random integer
 
 ### float
 
 ```teal
-function float(): number | nil, string
+function float(): number
 ```
 
  Generate a cryptographically secure uniform float in [0, 1).
@@ -90,13 +94,12 @@ function float(): number | nil, string
 
 **Returns:**
 
-- number - | nil The random float, or nil on failure
-- string? - Error message on failure
+- number - The random float
 
 ### choice
 
 ```teal
-function choice(list: {any}): any, string
+function choice(list: {any}): any
 ```
 
  Pick one element of a list uniformly at random (crypto-grade).
@@ -107,13 +110,12 @@ function choice(list: {any}): any, string
 
 **Returns:**
 
-- any - The chosen element, or nil on failure or empty list
-- string? - Error message on failure or empty list
+- any - The chosen element; nil only when the list is empty
 
 ### shuffle
 
 ```teal
-function shuffle(list: {any}): {any} | nil, string
+function shuffle(list: {any}): {any}
 ```
 
  Shuffle a list in place with an unbiased Fisher-Yates pass
@@ -125,13 +127,12 @@ function shuffle(list: {any}): {any} | nil, string
 
 **Returns:**
 
-- {any} - | nil The shuffled list, or nil on failure
-- string? - Error message on failure
+- {any} - The shuffled list
 
 ### token
 
 ```teal
-function token(len?: integer): string | nil, string
+function token(len?: integer): string
 ```
 
  Generate a random alphanumeric token (crypto-grade, unbiased).
@@ -140,9 +141,8 @@ function token(len?: integer): string | nil, string
 
 **Parameters:**
 
-- `len` (integer?) - Token length in characters (default 32)
+- `len` (integer?) - Token length in characters (default 32, must be positive)
 
 **Returns:**
 
-- string - | nil The token, or nil on failure
-- string? - Error message on failure
+- string - The token
