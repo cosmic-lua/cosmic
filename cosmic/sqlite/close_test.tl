@@ -17,7 +17,7 @@ local function test_query_close_releases_early()
   local rows = check.must(db:query("SELECT * FROM t ORDER BY id"))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
-  rows:close()
+  assert(rows:close())
   assert(rows() == nil, "closed iterator must yield nil")
   assert(rows:err() == nil, "close is not a step error")
 
@@ -37,12 +37,12 @@ local function test_query_close_idempotent()
   assert(db:exec("INSERT INTO t DEFAULT VALUES"))
 
   local rows = check.must(db:query("SELECT * FROM t"))
-  rows:close()
-  rows:close()
+  assert(rows:close())
+  assert(rows:close())
 
   local drained = check.must(db:query("SELECT * FROM t"))
   while drained() ~= nil do end
-  drained:close()
+  assert(drained:close())
   assert(db:close())
 end
 test_query_close_idempotent()
@@ -103,7 +103,7 @@ local function test_query_list_close_early()
   local rows = check.must(db:query_list("SELECT * FROM t WHERE name != ? ORDER BY id", {"z"}))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
-  rows:close()
+  assert(rows:close())
   assert(rows() == nil, "closed query_list iterator must yield nil")
   assert(db:close())
 end
@@ -133,7 +133,7 @@ local function test_statement_rows_basic_iteration()
   assert(names[1] == "Alice" and names[2] == "Bob" and names[3] == "Carol",
     "rows should be in insertion order, got: " .. table.concat(names, ","))
   assert(rows:err() == nil, "clean iteration should report no step error")
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
 test_statement_rows_basic_iteration()
@@ -147,7 +147,7 @@ local function test_statement_rows_close_does_not_finalize_statement()
   local rows = stmt:rows()
   local first = rows()
   assert(first and first.name == "a", "should get first row")
-  rows:close()
+  assert(rows:close())
   assert(rows() == nil, "closed iterator must yield nil")
   assert(rows:err() == nil, "close is not a step error")
 
@@ -160,7 +160,7 @@ local function test_statement_rows_close_does_not_finalize_statement()
     n = n + 1
   end
   assert(n == 3, "statement must be reusable after rows():close(), got: " .. tostring(n))
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
 test_statement_rows_close_does_not_finalize_statement()
@@ -190,7 +190,7 @@ local function test_statement_rows_to_be_closed_scope()
     n = n + 1
   end
   assert(n == 2, "statement must be reusable after rows() <close>, got: " .. tostring(n))
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
 test_statement_rows_to_be_closed_scope()
@@ -202,9 +202,9 @@ local function test_statement_rows_close_idempotent()
 
   local stmt = check.must(db:prepare("SELECT * FROM t"))
   local rows = stmt:rows()
-  rows:close()
-  rows:close()
-  stmt:close()
+  assert(rows:close())
+  assert(rows:close())
+  assert(stmt:close())
   assert(db:close())
 end
 test_statement_rows_close_idempotent()

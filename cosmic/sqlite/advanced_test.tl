@@ -47,7 +47,7 @@ local function test_bind_trailing_nils()
   local ok, err = stmt:bind("first", 42, nil)
   assert(ok, "bind with trailing nil should succeed: " .. tostring(err))
   assert(stmt:exec())
-  stmt:close()
+  assert(stmt:close())
 
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.a == "first", "a should be 'first'")
@@ -69,7 +69,7 @@ local function test_bind_list()
   local ok, err = stmt:bind_list(values)
   assert(ok, "bind_list should succeed: " .. tostring(err))
   assert(stmt:exec())
-  stmt:close()
+  assert(stmt:close())
 
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.a == "hello", "a should be 'hello'")
@@ -365,7 +365,7 @@ local function test_bind_named()
   local ok, err = stmt:bind_named({a = "hello", c = "world"})
   assert(ok, "bind_named should succeed: " .. tostring(err))
   assert(stmt:exec())
-  stmt:close()
+  assert(stmt:close())
 
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.a == "hello", "a should be 'hello'")

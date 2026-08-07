@@ -4,15 +4,17 @@
 
 -- Mirrors of cosmic.sqlite's records (Teal records are nominal, so the
 -- boundary crosses through `any`; same convention as cosmic.sqlite.params).
-local record Values
-  metamethod __call: function(self: Values): any ...
-  err: function(self: Values): string | nil
+local record Rows
+  metamethod __call: function(self: Rows): {string: any}
+  err: function(self: Rows): string | nil
+  close: function(self: Rows): boolean, string
 end
 
 local record Stmt
   bind: function(self: Stmt, ...: any): boolean, string
-  values: function(self: Stmt): Values
-  close: function(self: Stmt)
+  rows: function(self: Stmt): Rows
+  column_name: function(self: Stmt, n: integer): string
+  close: function(self: Stmt): boolean, string
 end
 
 -- The transaction/savepoint callback: `false` or `nil, err` rolls
@@ -25,7 +27,7 @@ local type TxFn = function(any): any ...
 local record Db
   prepare: function(self: Db, sql: string): Stmt | nil, string
   exec: function(self: Db, sql: string, ...: any): boolean, string
-  query_value: function(self: Db, sql: string, ...: any): any, string
+  query_value: function(self: Db, sql: string, ...: any): any, boolean, string
   transaction: function(self: Db, fn: TxFn): boolean, string
   savepoint: function(self: Db, fn: TxFn): boolean, string
 end
@@ -38,33 +40,41 @@ local function attach(db_any: any)
   local db = db_any as Db -- cast: from any
 
   --- Return the first column of the first row, for scalar lookups like
-  --- COUNT(*) or a single-value SELECT. Returns nil with no error both
-  --- when no row matches and when the value is SQL NULL; use query_one
-  --- when that distinction matters.
-  function db:query_value(sql: string, ...: any): any, string
+  --- COUNT(*) or a single-value SELECT. Three outcomes, three answers:
+  --- (value, true) when a row matched — value nil means the value is
+  --- SQL NULL — (nil, false) when no row matched, and (nil, false, err)
+  --- on failure. The `found` flag is what separates "no row" from
+  --- "NULL value", which two return slots could not.
+  function db:query_value(sql: string, ...: any): any, boolean, string
     local stmt, err = self:prepare(sql)
     if not stmt then
-      return nil, "query failed: " .. (err or "unknown error")
+      return nil, false, "query failed: " .. (err or "unknown error")
     end
     local st = stmt
     local ok, bind_err = st:bind(...)
     if not ok then
-      st:close()
-      return nil, "bind failed: " .. (bind_err or "unknown error")
+      local _ok, _err = st:close()
+      return nil, false, "bind failed: " .. (bind_err or "unknown error")
     end
-    -- Dodges Values' NULL-first-column/generic-for hazard: this calls the
-    -- iterator directly for exactly one row instead of a `for ... in`
-    -- loop, so a NULL column 1 (the common case here -- query_value IS the
-    -- first column) returns cleanly as v == nil rather than being read as
-    -- end-of-iteration.
-    local vals = st:values()
-    local v = vals()
-    st:close()
-    local step_err = vals:err()
-    if step_err then
-      return nil, step_err
+    -- One direct iterator call, not a `for` loop: the row arrives as a
+    -- {column: value} map, so a NULL first column cannot be mistaken
+    -- for end-of-iteration.
+    local rows = st:rows()
+    local row = rows()
+    if row == nil then
+      local step_err = rows:err()
+      local _ok, _err = st:close()
+      if step_err then
+        return nil, false, step_err
+      end
+      return nil, false
     end
-    return v
+    -- column_name is valid only after the first step, which the row
+    -- above performed.
+    local name = st:column_name(1)
+    local _rok, _rerr = rows:close()
+    local _ok, _err = st:close()
+    return row[name], true
   end
 
   --- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns

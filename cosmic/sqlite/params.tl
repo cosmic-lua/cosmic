@@ -51,7 +51,7 @@ local function make_query_iter(stmt: Stmt): Rows
       return
     end
     done = true
-    stmt:close()
+    local _cok, _cerr = stmt:close()
   end
   local iter = setmetatable({} as Rows, { -- cast: table seeded as record
       __call = function(_: Rows): {string: any}
@@ -100,12 +100,12 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return false, bind_err or "bind failed"
     end
 
     local exec_ok, exec_err = st:exec()
-    st:close()
+    local _cok, _cerr = st:close()
     return exec_ok, exec_err
   end
 
@@ -123,12 +123,12 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_named(params)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return false, bind_err or "bind failed"
     end
 
     local exec_ok, exec_err = st:exec()
-    st:close()
+    local _cok, _cerr = st:close()
     return exec_ok, exec_err
   end
 
@@ -147,7 +147,7 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 
@@ -168,7 +168,7 @@ local function attach(db_any: any)
 
     local ok, bind_err = st:bind_named(params)
     if not ok then
-      st:close()
+      local _cok, _cerr = st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 

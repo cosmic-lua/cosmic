@@ -13,8 +13,8 @@ end
 
 local function test_query_value_count()
   local db = open_db()
-  local n, err = db:query_value("SELECT COUNT(*) FROM t")
-  assert(n == 2, "expected 2, got " .. tostring(n) .. " (" .. tostring(err) .. ")")
+  local n, found = db:query_value("SELECT COUNT(*) FROM t")
+  assert(n == 2 and found, "expected 2, got " .. tostring(n))
   assert(db:close())
 end
 test_query_value_count()
@@ -25,6 +25,8 @@ local function test_query_value_with_params()
   assert(name == "bob", "expected bob, got " .. tostring(name))
   local score = db:query_value("SELECT score FROM t WHERE name = ?", "alice")
   assert(score == 1.5, "expected 1.5, got " .. tostring(score))
+  -- The found flag separates "no row" from "NULL value" (three
+  -- outcomes, three answers).
   assert(db:close())
 end
 test_query_value_with_params()
@@ -39,8 +41,9 @@ test_query_value_first_column_first_row()
 
 local function test_query_value_no_rows()
   local db = open_db()
-  local v, err = db:query_value("SELECT name FROM t WHERE id = ?", 999)
+  local v, found, err = db:query_value("SELECT name FROM t WHERE id = ?", 999)
   assert(v == nil, "expected nil for no rows")
+  assert(found == false, "no row must report found = false")
   assert(err == nil, "expected no error for no rows, got " .. tostring(err))
   assert(db:close())
 end
@@ -49,16 +52,18 @@ test_query_value_no_rows()
 local function test_query_value_null()
   local db = open_db()
   assert(db:exec("INSERT INTO t (name, score) VALUES (NULL, 9.0)"))
-  local v, err = db:query_value("SELECT name FROM t WHERE score = 9.0")
+  local v, found, err = db:query_value("SELECT name FROM t WHERE score = 9.0")
   assert(v == nil and err == nil, "expected nil, no error for SQL NULL")
+  assert(found == true, "a matched row with a NULL value must report found = true")
   assert(db:close())
 end
 test_query_value_null()
 
 local function test_query_value_bad_sql()
   local db = open_db()
-  local v, err = db:query_value("SELECT nope FROM missing")
+  local v, found, err = db:query_value("SELECT nope FROM missing")
   assert(v == nil, "expected nil for bad SQL")
+  assert(found == false, "a failure must report found = false")
   assert(err ~= nil, "expected an error message")
   assert(db:close())
 end

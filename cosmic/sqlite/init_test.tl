@@ -129,7 +129,7 @@ local function test_prepare_bind_exec()
   assert(ok, "exec should succeed: " .. tostring(err))
 
   assert(db:last_insert_rowid() == 1, "should have inserted row")
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
 test_prepare_bind_exec()
@@ -153,7 +153,7 @@ local function test_statement_reset()
   stmt:reset()
   assert(stmt:bind("second"))
   assert(stmt:exec())
-  stmt:close()
+  assert(stmt:close())
 
   local count = 0
   for _ in check.must(db:query("SELECT * FROM t")) do
@@ -214,22 +214,25 @@ local function test_query_empty_results()
 end
 test_query_empty_results()
 
-local function test_statement_values()
+local function test_statement_rows_positional_lookup()
+  -- values() is gone (a NULL first column silently ended a generic-for
+  -- over it, #983); rows() plus column_name covers the positional read.
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)"))
   assert(db:exec("INSERT INTO t VALUES ('hello', 42, 3.14)"))
 
   local stmt = check.must(db:prepare("SELECT * FROM t"))
-  local iter = stmt:values()
-  local a, b, c = iter()
+  local rows = stmt:rows()
+  local row = rows()
 
-  assert(a == "hello", "first value should be 'hello'")
-  assert(b == 42, "second value should be 42")
-  assert(math.abs((c as number) - 3.14) < 0.001, "third ~3.14") -- cast: from any
-  stmt:close()
+  assert(row.a == "hello", "first value should be 'hello'")
+  assert(row.b == 42, "second value should be 42")
+  assert(math.abs((row.c as number) - 3.14) < 0.001, "third ~3.14") -- cast: from any
+  assert(stmt:column_name(1) == "a", "column_name maps position to name")
+  assert(stmt:close())
   assert(db:close())
 end
-test_statement_values()
+test_statement_rows_positional_lookup()
 
 -- Iterator error surfacing (step errors must not masquerade as end-of-rows)
 
@@ -270,20 +273,22 @@ local function test_query_one_step_error()
 end
 test_query_one_step_error()
 
--- values(): a NULL first column must not truncate the row (bounded unpack)
-local function test_values_null_first_column()
+-- A NULL first column is an ordinary row through rows(): a map row can
+-- never be mistaken for end-of-iteration (the hazard that killed values()).
+local function test_rows_null_first_column()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
   assert(db:exec("INSERT INTO t VALUES (NULL, 42, 'z')"))
   local stmt = check.must(db:prepare("SELECT * FROM t"))
-  local a, b, c = stmt:values()()
-  assert(a == nil, "first column should be nil")
-  assert(b == 42, "second column should survive NULL-first-column unpack")
-  assert(c == "z", "third column should survive NULL-first-column unpack")
-  stmt:close()
+  local row = stmt:rows()()
+  assert(row ~= nil, "a NULL first column must not end iteration")
+  assert(row.a == nil, "first column should be nil (SQL NULL)")
+  assert(row.b == 42, "second column should survive")
+  assert(row.c == "z", "third column should survive")
+  assert(stmt:close())
   assert(db:close())
 end
-test_values_null_first_column()
+test_rows_null_first_column()
 
 -- Use-after-close returns errors instead of throwing/crashing
 local function test_use_after_close()
@@ -313,7 +318,7 @@ local function test_column_name_1indexed()
   assert(stmt:column_name(1) == "first_col", "column 1 should be 'first_col'")
   assert(stmt:column_name(2) == "second_col", "column 2 should be 'second_col'")
   assert(stmt:column_name(3) == "third_col", "column 3 should be 'third_col'")
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
 test_column_name_1indexed()
@@ -340,7 +345,7 @@ local function test_statement_close()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (id INTEGER)"))
   local stmt = check.must(db:prepare("SELECT * FROM t"))
-  stmt:close()
+  assert(stmt:close())
   assert(db:close())
 end
 test_statement_close()
@@ -348,8 +353,8 @@ test_statement_close()
 local function test_double_close_safe()
   local db = check.must(sqlite.open(":memory:"))
   local stmt = check.must(db:prepare("SELECT 1"))
-  stmt:close()
-  stmt:close()
+  assert(stmt:close())
+  assert(stmt:close())
   assert(db:close())
   assert(db:close())
 end
@@ -391,7 +396,7 @@ local function test_multiple_params()
   local stmt = check.must(db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)"))
   assert(stmt:bind("hello", 42, 3.14))
   assert(stmt:exec())
-  stmt:close()
+  assert(stmt:close())
 
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.a == "hello", "a should be 'hello'")
