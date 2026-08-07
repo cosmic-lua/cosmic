@@ -18,10 +18,10 @@ local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local function test_first_start_keeps_installed_sigpipe_handler()
   -- Must run before any other spawn in this file: SIGPIPE neutralization
   -- decides at the FIRST start(), not at require, and only claims the
-  -- default disposition. Requiring the module left the default in place,
-  -- and a handler installed before the first spawn stays installed.
-  assert(unix.sigaction(unix.SIGPIPE) == unix.SIG_DFL,
-    "requiring cosmic.child changed the SIGPIPE disposition")
+  -- default disposition — a handler installed before that spawn stays
+  -- installed. The inherited disposition is not asserted: ignored
+  -- signals survive exec, so a test child spawned by the build harness
+  -- (itself a cosmic.child user) already arrives with SIGPIPE ignored.
   local function handler(_sig: integer) end
   unix.sigaction(unix.SIGPIPE, handler)
   local r = check.must(child.run({lua_bin, "-e", "os.exit(0)"}))
