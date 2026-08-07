@@ -13,7 +13,7 @@ local lsqlite3 = require("cosmo.lsqlite3")
 -- prepare (cache-miss) path, so the hot cached path never re-scans.
 local MULTI_ERR < const > =
 "multi-statement sql is not supported here; run each statement"
-.. " separately (only exec without parameters runs multi-statement sql)"
+.. " separately, or use db:exec_script for a parameterless script"
 
 -- Named alias (shared through cosmic.sqlite.bind) so a function-typed
 -- return value never appears as an inline literal in a multi-return
@@ -21,7 +21,7 @@ local MULTI_ERR < const > =
 local type OnClose = bind_mod.OnClose
 
 local record StmtCache
-  exec: function(self: StmtCache, sql: string, args: {integer: any}, n: integer): boolean, string
+  exec: function(self: StmtCache, sql: string, params?: bind_mod.Params): boolean, string
   checkout: function(self: StmtCache, sql: string): lsqlite3.Statement | nil, OnClose, string
   close_all: function(self: StmtCache)
 end
@@ -59,10 +59,10 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     return stmt
   end
 
-  local function bind_and_step(raw_stmt: lsqlite3.Statement, args: {integer: any}, n: integer): number
+  local function bind_and_step(raw_stmt: lsqlite3.Statement, params: bind_mod.Params | nil): number
     raw_stmt:reset()
-    for i = 1, n do
-      local rc = bind_mod.bind_at(raw_stmt, i, args[i])
+    if params then
+      local rc = bind_mod.bind_params(raw_stmt, ok_code, params)
       if rc ~= ok_code then
         return rc
       end
@@ -115,16 +115,17 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     return stmt, nil
   end
 
-  --- Execute a parameterized statement once, reusing (or preparing and
-  --- caching) the statement for `sql`. On SQLITE_SCHEMA, drops the stale
-  --- statement and retries once (sqlite3 already retries internally
-  --- before surfacing SCHEMA, so a second failure is a real error).
-  function self:exec(sql: string, args: {integer: any}, n: integer): boolean, string
+  --- Execute a (possibly parameterized) statement once, reusing (or
+  --- preparing and caching) the statement for `sql`. On SQLITE_SCHEMA,
+  --- drops the stale statement and retries once (sqlite3 already
+  --- retries internally before surfacing SCHEMA, so a second failure
+  --- is a real error).
+  function self:exec(sql: string, params?: bind_mod.Params): boolean, string
     local raw_stmt, err = get(sql)
     if not raw_stmt then
       return false, err
     end
-    local rc = bind_and_step(raw_stmt, args, n)
+    local rc = bind_and_step(raw_stmt, params)
     if rc == schema_code then
       cache[sql] = nil
       local _ = raw_stmt:finalize()
@@ -132,7 +133,7 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
       if not raw_stmt then
         return false, err
       end
-      rc = bind_and_step(raw_stmt, args, n)
+      rc = bind_and_step(raw_stmt, params)
     end
     if rc ~= done_code and rc ~= row_code then
       return false, raw_db:errmsg()

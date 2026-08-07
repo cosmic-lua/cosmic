@@ -100,7 +100,7 @@ local function test_query_list_close_early()
   assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
   assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b')"))
 
-  local rows = check.must(db:query_list("SELECT * FROM t WHERE name != ? ORDER BY id", {"z"}))
+  local rows = check.must(db:query("SELECT * FROM t WHERE name != ? ORDER BY id", {"z"}))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
   assert(rows:close())

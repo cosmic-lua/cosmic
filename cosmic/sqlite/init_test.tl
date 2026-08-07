@@ -74,14 +74,14 @@ local function test_exec_with_params()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
-  local ok, err = db:exec("INSERT INTO t (name) VALUES (?)", "Alice")
+  local ok, err = db:exec("INSERT INTO t (name) VALUES (?)", {"Alice"})
   assert(ok, "exec with param should succeed: " .. tostring(err))
   assert(db:last_insert_rowid() == 1, "should have inserted row")
 
-  ok, err = db:exec("UPDATE t SET name = ? WHERE id = ?", "Bob", 1)
+  ok, err = db:exec("UPDATE t SET name = ? WHERE id = ?", {"Bob", 1})
   assert(ok, "exec update should succeed: " .. tostring(err))
 
-  ok, err = db:exec("DELETE FROM t WHERE name = ?", "Bob")
+  ok, err = db:exec("DELETE FROM t WHERE name = ?", {"Bob"})
   assert(ok, "exec delete should succeed: " .. tostring(err))
   assert(db:changes() == 1, "should have deleted 1 row")
   assert(db:close())
@@ -92,7 +92,7 @@ local function test_exec_multiple_params()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)"))
 
-  local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "hello", 42, 3.14)
+  local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", {"hello", 42, 3.14})
   assert(ok, "exec with multiple params should succeed: " .. tostring(err))
 
   for row in check.must(db:query("SELECT * FROM t")) do
@@ -190,7 +190,7 @@ local function test_query_with_params()
   assert(db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')"))
 
   local names: {string} = {}
-  for row in check.must(db:query("SELECT * FROM t WHERE id > ? ORDER BY id", 1)) do
+  for row in check.must(db:query("SELECT * FROM t WHERE id > ? ORDER BY id", {1})) do
     table.insert(names, row.name as string) -- cast: from any
   end
 
@@ -427,7 +427,7 @@ local function test_nested_queries()
 
   local results: {string} = {}
   for parent in check.must(db:query("SELECT * FROM parents ORDER BY id")) do
-    for child in check.must(db:query("SELECT * FROM children WHERE parent_id = ? ORDER BY id", parent.id)) do
+    for child in check.must(db:query("SELECT * FROM children WHERE parent_id = ? ORDER BY id", {parent.id})) do
       -- cast: from any
       table.insert(results, (parent.name as string) .. "->" .. (child.name as string))
     end
@@ -452,23 +452,14 @@ local function test_query_invalid_sql()
 end
 test_query_invalid_sql()
 
-local function test_query_list_invalid_sql()
+local function test_query_params_invalid_sql()
   local db = check.must(sqlite.open(":memory:"))
-  local iter, err = db:query_list("INVALID SQL SYNTAX", {})
-  assert(iter == nil, "query_list should return nil on invalid SQL")
+  local iter, err = db:query("INVALID SQL SYNTAX", {})
+  assert(iter == nil, "query with params should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
   assert(db:close())
 end
-test_query_list_invalid_sql()
-
-local function test_query_named_invalid_sql()
-  local db = check.must(sqlite.open(":memory:"))
-  local iter, err = db:query_named("INVALID SQL SYNTAX", {})
-  assert(iter == nil, "query_named should return nil on invalid SQL")
-  assert(type(err) == "string", "should return error string")
-  assert(db:close())
-end
-test_query_named_invalid_sql()
+test_query_params_invalid_sql()
 
 local function test_query_one_invalid_sql()
   local db = check.must(sqlite.open(":memory:"))
@@ -487,11 +478,11 @@ local function test_query_one_close_after_hit()
   assert(db:exec("INSERT INTO t (name) VALUES ('alice')"))
 
   -- query_one that returns a row must not leak the iterator/statement
-  local row = check.must(db:query_one("SELECT * FROM t WHERE name = ?", "alice"))
+  local row = check.must(db:query_one("SELECT * FROM t WHERE name = ?", {"alice"}))
   assert(row.name == "alice", "row.name should be 'alice'")
 
   -- A subsequent query must still work (leaked stmt could lock the table)
-  local row2 = db:query_one("SELECT * FROM t WHERE name = ?", "alice")
+  local row2 = db:query_one("SELECT * FROM t WHERE name = ?", {"alice"})
   assert(row2 ~= nil, "second query_one should still work after first")
 
   -- db:close() must succeed without error (lsqlite3 fails if stmts unfinalized)

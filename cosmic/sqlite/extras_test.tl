@@ -21,9 +21,9 @@ test_query_value_count()
 
 local function test_query_value_with_params()
   local db = open_db()
-  local name = db:query_value("SELECT name FROM t WHERE id = ?", 2)
+  local name = db:query_value("SELECT name FROM t WHERE id = ?", {2})
   assert(name == "bob", "expected bob, got " .. tostring(name))
-  local score = db:query_value("SELECT score FROM t WHERE name = ?", "alice")
+  local score = db:query_value("SELECT score FROM t WHERE name = ?", {"alice"})
   assert(score == 1.5, "expected 1.5, got " .. tostring(score))
   -- The found flag separates "no row" from "NULL value" (three
   -- outcomes, three answers).
@@ -41,7 +41,7 @@ test_query_value_first_column_first_row()
 
 local function test_query_value_no_rows()
   local db = open_db()
-  local v, found, err = db:query_value("SELECT name FROM t WHERE id = ?", 999)
+  local v, found, err = db:query_value("SELECT name FROM t WHERE id = ?", {999})
   assert(v == nil, "expected nil for no rows")
   assert(found == false, "no row must report found = false")
   assert(err == nil, "expected no error for no rows, got " .. tostring(err))
@@ -85,8 +85,9 @@ end
 
 local function test_savepoint_commit()
   local db = open_db()
-  local ok, err = db:savepoint(function(d: sqlite.Database)
+  local ok, err = db:savepoint(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('carol')"))
+      return true
     end)
   assert(ok, "savepoint failed: " .. tostring(err))
   assert(count(db) == 3, "expected insert to persist")
@@ -96,7 +97,7 @@ test_savepoint_commit()
 
 local function test_savepoint_rollback_on_error()
   local db = open_db()
-  local ok, err = db:savepoint(function(d: sqlite.Database)
+  local ok, err = db:savepoint(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('carol')"))
       error("boom")
     end)
@@ -109,7 +110,7 @@ test_savepoint_rollback_on_error()
 
 local function test_savepoint_rollback_on_false()
   local db = open_db()
-  local ok = db:savepoint(function(d: sqlite.Database): boolean
+  local ok = db:savepoint(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('carol')"))
       return false
     end)
@@ -119,28 +120,32 @@ local function test_savepoint_rollback_on_false()
 end
 test_savepoint_rollback_on_false()
 
-local function test_savepoint_rollback_on_nil_err()
+local function test_savepoint_rejects_nil_verdict()
+  -- nil is not a verdict: the callback contract is explicit, so a
+  -- nil+err return rolls back with an error naming the contract.
   local db = open_db()
   local ok, err = db:savepoint(function(d: sqlite.Database): any, string
       assert(d:exec("INSERT INTO t (name) VALUES ('carol')"))
       return nil, "signaled failure"
     end)
   assert(not ok, "expected savepoint to fail on nil+err")
-  assert(err == "signaled failure", "expected error message, got " .. tostring(err))
+  assert(err and err:find("explicit verdict", 1, true),
+    "should name the verdict contract, got " .. tostring(err))
   assert(count(db) == 2, "expected insert rolled back")
   assert(db:close())
 end
-test_savepoint_rollback_on_nil_err()
+test_savepoint_rejects_nil_verdict()
 
 local function test_savepoint_nested_inner_rollback()
   local db = open_db()
-  local ok, err = db:savepoint(function(d: sqlite.Database)
+  local ok, err = db:savepoint(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('outer')"))
-      local inner_ok = d:savepoint(function(d2: sqlite.Database): boolean
+      local inner_ok = d:savepoint(function(d2: sqlite.Database): boolean, string
           assert(d2:exec("INSERT INTO t (name) VALUES ('inner')"))
           return false
         end)
       assert(not inner_ok, "expected inner savepoint to roll back")
+      return true
     end)
   assert(ok, "outer savepoint failed: " .. tostring(err))
   assert(count(db) == 3, "expected outer insert kept, inner rolled back")
@@ -152,13 +157,14 @@ test_savepoint_nested_inner_rollback()
 
 local function test_savepoint_inside_transaction()
   local db = open_db()
-  local ok, err = db:transaction(function(d: sqlite.Database)
+  local ok, err = db:transaction(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('tx')"))
-      local sp_ok = d:savepoint(function(d2: sqlite.Database): boolean
+      local sp_ok = d:savepoint(function(d2: sqlite.Database): boolean, string
           assert(d2:exec("INSERT INTO t (name) VALUES ('sp')"))
           return false
         end)
       assert(not sp_ok, "the savepoint should report its deliberate rollback")
+      return true
     end)
   assert(ok, "transaction failed: " .. tostring(err))
   assert(count(db) == 3, "expected transaction insert kept, savepoint rolled back")
@@ -178,9 +184,10 @@ local function test_savepoint_release_failure_rolls_back()
   )]]))
   assert(db:exec("INSERT INTO parent (id) VALUES (1)"))
 
-  local ok, err = db:savepoint(function(d: sqlite.Database)
+  local ok, err = db:savepoint(function(d: sqlite.Database): boolean, string
       -- Orphan reference: passes at INSERT time (deferred), fails at RELEASE.
       assert(d:exec("INSERT INTO child (id, parent_id) VALUES (1, 99)"))
+      return true
     end)
   assert(not ok, "savepoint must fail when RELEASE violates a deferred FK")
   assert(err and err:find("FOREIGN KEY", 1, true),

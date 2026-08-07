@@ -1,11 +1,19 @@
 --- Internal helper for cosmic.sqlite: the BLOB value marker and the shared
---- positional bind step. Every bind loop (Statement:bind/bind_list, the
+--- bind step. Every bind loop (Statement:bind/bind_list/bind_named, the
 --- db:exec statement cache, the db:query hot path) funnels through
 --- `bind_at`, so a value wrapped with `blob()` is bound with SQLite blob
 --- affinity everywhere instead of defaulting to TEXT.
 --- Lives in its own file so cosmic/sqlite.tl stays under the 500-line cap.
 
 local lsqlite3 = require("cosmo.lsqlite3")
+
+--- One Params argument covers both binding styles: a non-empty array
+--- part binds positionally to `?` placeholders, anything else binds
+--- its keys to `:name` placeholders. An empty table binds nothing
+--- (unbound placeholders are SQL NULL). The two styles do not mix in
+--- one call — a table with both an array part and string keys binds
+--- positionally.
+local type Params = {any} | {string: any}
 
 --- Marker wrapper produced by `cosmic.sqlite.blob()`. Bind loops detect it
 --- by metatable identity and bind `data` via `bind_blob` instead of `bind`.
@@ -43,8 +51,73 @@ local function bind_at(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
   return raw_stmt:bind(i, v as string | number | boolean) -- cast: from any
 end
 
+--- Bind a positional list. The count comes from the SQL, so nil holes
+--- in the table bind as NULL.
+--- @param raw_stmt lsqlite3.Statement The prepared statement to bind into
+--- @param ok_code number lsqlite3.OK
+--- @param values {any} Positional values for the `?` placeholders
+--- @return number The first failing bind's result code, or ok_code
+local function bind_list(raw_stmt: lsqlite3.Statement, ok_code: number, values: {any}): number
+  local count = raw_stmt:bind_parameter_count()
+  for i = 1, count do
+    local rc = bind_at(raw_stmt, i, values[i])
+    if rc ~= ok_code then
+      return rc
+    end
+  end
+  return ok_code
+end
+
+--- Bind `:name` placeholders from a key/value table (keys without the
+--- colon). Iterates the statement's own parameter list and routes each
+--- value through bind_at, so blob() wrappers get BLOB affinity here
+--- too — the old bind_names path bound the wrapper table itself, which
+--- is why named blobs used to be rejected. A name missing from the
+--- table binds as NULL, matching the positional nil-hole rule.
+--- @param raw_stmt lsqlite3.Statement The prepared statement to bind into
+--- @param ok_code number lsqlite3.OK
+--- @param params {string: any} Values keyed by placeholder name
+--- @return number The first failing bind's result code, or ok_code
+local function bind_named(raw_stmt: lsqlite3.Statement, ok_code: number, params: {string: any}): number
+  local count = raw_stmt:bind_parameter_count()
+  for i = 1, count do
+    local name = raw_stmt:bind_parameter_name(i)
+    local v: any = nil
+    if name then
+      -- The binding reports names with their prefix (":name"); the
+      -- table keys carry none.
+      v = params[name:sub(2)]
+    end
+    local rc = bind_at(raw_stmt, i, v)
+    if rc ~= ok_code then
+      return rc
+    end
+  end
+  return ok_code
+end
+
+--- Bind one Params table, dispatching on its shape: a non-empty array
+--- part binds positionally, other non-empty tables bind by name, an
+--- empty table binds nothing.
+--- @param raw_stmt lsqlite3.Statement The prepared statement to bind into
+--- @param ok_code number lsqlite3.OK
+--- @param params Params The parameter table
+--- @return number The first failing bind's result code, or ok_code
+local function bind_params(raw_stmt: lsqlite3.Statement, ok_code: number, params: Params): number
+  local list = params as {any} -- cast: array-part probe of the Params union
+  if #list > 0 then
+    return bind_list(raw_stmt, ok_code, list)
+  end
+  local named = params as {string: any} -- cast: map view of the Params union
+  if next(named) ~= nil then
+    return bind_named(raw_stmt, ok_code, named)
+  end
+  return ok_code
+end
+
 local record M
   type Blob = Blob
+  type Params = Params
   --- Statement release callback shared by stmt_cache (producer) and
   --- row_iter (consumer) so the two sides name one nominal type.
   type OnClose = function(lsqlite3.Statement)
@@ -52,12 +125,18 @@ local record M
   blob: function(data: string): Blob
   is_blob: function(v: any): boolean
   bind_at: function(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
+  bind_list: function(raw_stmt: lsqlite3.Statement, ok_code: number, values: {any}): number
+  bind_named: function(raw_stmt: lsqlite3.Statement, ok_code: number, params: {string: any}): number
+  bind_params: function(raw_stmt: lsqlite3.Statement, ok_code: number, params: Params): number
 end
 
 local mod: M = {
   blob = blob,
   is_blob = is_blob,
   bind_at = bind_at,
+  bind_list = bind_list,
+  bind_named = bind_named,
+  bind_params = bind_params,
 }
 
 return mod
