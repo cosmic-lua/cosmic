@@ -32,3 +32,4 @@ than editing the record it replaces.
 | D18 | expensive recipe steps skip on input bytes, not just on mtime | [→](d18-step-skip.md) |
 | D19 | what "public" means for toolchain modules, and the visibility lint | [→](d19-toolchain-visibility.md) |
 | D20 | the naming charter: ten rules, and the renames that applied them | [→](d20-naming-charter.md) |
+| D21 | carried patches: the middle path between pin and fork | [→](d21-carried-tl-patch.md) |

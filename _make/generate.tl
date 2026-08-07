@@ -17,6 +17,7 @@ local hash = require("cosmic.hash")
 local build = require("_cli.build")
 local modules = require("_cli.build.modules")
 local deps = require("_make.deps")
+local fetch = require("_make.fetch")
 local project = require("_make.project")
 local types = require("_make.types")
 
@@ -366,6 +367,16 @@ end
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return boolean, string Success, or false plus the reason
 local function sources(proj: Project, cosmic: string): boolean, string
+  -- Carried patches repair first: a cold tree's fetch may have run
+  -- under a pinned release that predates a patch, and the repair is
+  -- local — the digest-verified archive is already on disk (see
+  -- _make.patch). Before the generators, because they read the pinned
+  -- trees this repairs; `fetch` (which applies patches itself) and
+  -- `clean` never reach this phase, so neither pays for it.
+  local rok, rerr = fetch.repair(proj)
+  if not rok then
+    return false, rerr
+  end
   for _, f in ipairs(proj.files) do
     if f.kind == "gen" then
       local dest = project.out_dir(stem_of(f.path))
