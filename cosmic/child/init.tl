@@ -15,7 +15,6 @@
 --- Testing a server you start? Have it print `READY <port>` and block on
 --- reading that line — the readiness pattern in `cosmic --docs guide.recipes`.
 local unix = require("cosmo.unix")
-local cfd = require("cosmic.fd")
 local childio = require("cosmic.child.io")
 local childfast = require("cosmic.child.fast")
 local ctypes = require("cosmic.child.types")
