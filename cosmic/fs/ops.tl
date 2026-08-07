@@ -68,10 +68,18 @@ local function copy(src: string, dst: string): boolean, string
   local sh = cfd.wrap(srcfd)
   local dh = cfd.wrap(dstfd)
   local copied, pump_err = stream.copy(dh, sh)
-  local _ok, _err = sh:close()
-  local _ok, _err = dh:close()
+  local sok, scerr = sh:close()
+  local dok, dcerr = dh:close()
   if copied == nil then
     return false, "copy: " .. src .. " -> " .. dst .. ": " .. tostring(pump_err)
+  end
+  -- A failed close on the destination is how ENOSPC and write-back
+  -- errors surface; reporting success past it hides a truncated copy.
+  if not dok then
+    return false, "copy: close: " .. dst .. ": " .. tostring(dcerr)
+  end
+  if not sok then
+    return false, "copy: close: " .. src .. ": " .. tostring(scerr)
   end
   -- open()'s mode is masked by the umask; chmod applies the exact bits.
   local ok, cerr = unix.chmod(dst, mode)

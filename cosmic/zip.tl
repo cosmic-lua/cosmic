@@ -217,8 +217,6 @@ local function extract(r: Archive, destdir: string, opts?: ExtractOptions): bool
       if not write_ok then
         return false, "cannot write '" .. filepath .. "': " .. (write_err or "unknown error")
       end
-      -- barf's mode only applies on create; force it for overwrites.
-      local _ok, _err = fs.chmod(filepath, file_mode)
     end
   end
   return true

@@ -20,16 +20,29 @@ local function read(path: string): string | nil, string
   return data
 end
 
---- Write data to a file, creating or overwriting it.
+--- Write data to a file, creating or overwriting it. A given `mode` is
+--- applied EXACTLY, whether the file is created or overwritten (and not
+--- masked by the umask) — Barf's own mode applies only at creation,
+--- which left zip and tar extraction disagreeing about the permissions
+--- of an overwritten file. Without `mode`, a new file is created 0644
+--- (umask-masked) and an existing file keeps its permissions.
 --- @param path string Path to the file
 --- @param data string Data to write
---- @param mode integer Permission bits when creating (default 0644)
+--- @param mode integer Permission bits, applied exactly (default 0644 on create)
 --- @return boolean True on success
 --- @return string Error message if failed
 local function write(path: string, data: string, mode?: integer): boolean, string
   local ok, err = cosmo.Barf(path, data, {mode = mode})
   if not ok then
     return false, err or ("failed to write file: " .. path)
+  end
+  if mode then
+    -- Same posture as fs.copy: open()/Barf's mode is masked by the
+    -- umask and skipped on overwrite; chmod applies the exact bits.
+    local cok, cerr = unix.chmod(path, mode)
+    if not cok then
+      return false, errstr(cerr, "write: chmod: " .. path)
+    end
   end
   return true
 end
