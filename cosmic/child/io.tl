@@ -83,6 +83,9 @@ end
 local function resolve_stdio(stdin?: string | cfd.Handle,
     stdout?: cfd.Handle | StdioMode,
     stderr?: cfd.Handle | StdioMode): Stdio | nil, string
+  -- Every start() resolves stdio exactly once, before forking, so this
+  -- is the choke point where the lazy SIGPIPE install runs.
+  neutralize_sigpipe()
   local s: Stdio = {}
   if stdin is string then
     s.stdin_data = stdin
@@ -290,7 +293,6 @@ local record ChildIoModule
   stderr?: cfd.Handle | StdioMode): Stdio | nil, string
   pin_source: function(is_fd: boolean, target: integer, alt: integer,
   own: integer): integer
-  neutralize_sigpipe: function()
 end
 
 local M: ChildIoModule = {
@@ -300,7 +302,6 @@ local M: ChildIoModule = {
   wait_retry = wait_retry,
   resolve_stdio = resolve_stdio,
   pin_source = pin_source,
-  neutralize_sigpipe = neutralize_sigpipe,
 }
 
 return M
