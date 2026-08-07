@@ -6,7 +6,9 @@
 --- integer namespace silently ignored it. The compiled Regex keeps the
 --- binding's own :search/:find method names and integer search flags
 --- (NOTBOL/NOTEOL) — a userdata metatable is the C layer's to name, so
---- renaming them is an upstream change, not a record edit.
+--- renaming them is an upstream change, not a record edit. For exact
+--- plain-text search see cosmic.string; for approximate (edit-distance)
+--- matching see cosmic.fuzzy.
 ---
 --- For best performance, compile patterns once and reuse them.
 --- The convenience functions (match, is_match, find, find_all, gmatch,
