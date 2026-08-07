@@ -185,7 +185,7 @@ local RECORD_FIELDS: {string: {string}} = {
     "feat_lax", "feat_arity", "gen_compat", "gen_target",
     "run_internal_compiler_checks",
   },
-  EnvOptions = {"defaults", "predefined_modules"},
+  EnvOptions = {"defaults", "predefined_modules", "parsed_prelude", "parsed_stdlib"},
 }
 
 local PRELUDE < const > = [[-- GENERATED into o/_types/types_gen/ by _types/types_gen.tl from the pinned tl
@@ -229,10 +229,18 @@ local record tl
   record EnvOptions
     defaults: CheckOptions
     predefined_modules: {string}
+    -- pre-parsed prelude/stdlib ASTs (carried patch, tl_patch.tl
+    -- ast-cache-*): cosmic._teal_ast thaws the artifact's cache into
+    -- these so new_env skips tl's parse of its embedded d.tl sources
+    parsed_prelude: any
+    parsed_stdlib: any
   end
 
   path: string
   warning_kinds: {string: boolean}
+  -- carried-patch surface (tl_patch.tl ast-cache-hooks-*): the node and
+  -- type metatables plus the typeid allocator an AST cache thaw needs
+  ast_hooks: {string: any}
 ]]
 
 --- Generate the full tl.d.tl content from tl source text.

@@ -11,6 +11,7 @@
 ---   .types/**        the generated `cosmo.*` declarations, same reason
 ---   .docs/index.lua  the index `--docs` searches
 ---   tl.lua           the Teal compiler, from the pinned tarball
+---   .tl_ast.luac     its pre-parsed stdlib ASTs (_types/tlast_gen.tl)
 ---   make             the graph engine, from the pinned cosmos zip
 ---   cosmic/_version.lua  the stamp `--version` prints
 ---   sys/**           the static `--help` text
@@ -55,6 +56,7 @@ local UNIT < const > = "cmd/cosmic"
 --- the archive's own layout, so a pin that moves breaks here loudly.
 local PINNED: {{string, string}} = {
   {"tl.lua", "o/3p/tl/tl.lua"},
+  {".tl_ast.luac", "o/_types/tlast_gen/tl_ast.luac"},
   {"make", "o/3p/cosmos/make"},
 }
 
