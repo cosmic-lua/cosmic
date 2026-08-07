@@ -5,7 +5,17 @@
 --- checked AST — the build uses it for in-tree sources so nothing ships
 --- that did not typecheck. --check types uses strict mode.
 
-local tl = require("tl")
+-- This module must be absent exactly when the compiler is — a stripped
+-- artifact asserts both fail together, and its searcher relies on that
+-- to answer require misses without blaming tl (_make/artifact_test.tl).
+-- But loading tl parses ~435KB of Lua that a warm-cache script run
+-- never needs (#938). So: prove tl EXISTS at load time without loading
+-- it, and require it only where it runs — package.loaded makes the
+-- repeat cost one lookup.
+if not package.loaded["tl"] and not package.preload["tl"]
+and not package.searchpath("tl", package.path) then
+  error("module 'tl' not found: cosmic.teal needs the Teal compiler", 0)
+end
 
 --- A compiler or type checker issue.
 local record Issue
@@ -145,6 +155,7 @@ end
 --- @return ProcessResult Processing result with tl_result or error
 local function process_file(input_path: string, include_dirs: {string}, lax: boolean,
     gen_target?: string, gen_compat?: string): ProcessResult
+  local tl = require("tl")
   local f, open_err = io.open(input_path, "r")
   if not f then
     return process_error(input_path, "cannot open file: " .. (open_err or "unknown error"))
@@ -288,6 +299,7 @@ end
 --- @param include_dirs? {string} Extra include dirs (defaults merged in)
 --- @return string|nil Path to the found source, or nil
 local function search_module(module_name: string, include_dirs?: {string}): string | nil
+  local tl = require("tl")
   local dirs = merge_include_dirs(include_dirs)
   local saved_tl_path = tl.path
   tl.path = assemble_tl_path(dirs)
@@ -309,6 +321,7 @@ end
 --- @param opts CompileOptions Compilation options (include_dirs, gen_target, gen_compat, strict)
 --- @return CompileResult Result with ok status, generated Lua code, and any errors
 local function compile(input_path: string, opts: CompileOptions): CompileResult
+  local tl = require("tl")
   opts = opts or {}
 
   local dirs = merge_include_dirs(opts.include_dirs)
