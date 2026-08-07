@@ -1,12 +1,10 @@
---- The cosmic binary's payload — what this artifact carries besides
---- its own modules, and what it carries it on.
----
---- `cosmic --make build` runs `cmd/<name>/embed_gen.tl` with its
---- unit's output directory, then reads two names out of it: `embed/`
---- is staged at the artifact root, and `base` is the runtime the
---- artifact is built onto. So this file is cosmic's own answer to
---- "what is in a cosmic binary", written once, in the unit that ships
---- it:
+--- The cosmic binary's payload — what this artifact carries besides its
+--- own modules, and what it carries it on. `cosmic --make build` runs
+--- `cmd/<name>/embed_gen.tl` with its unit's output directory, then
+--- reads two names out of it: `embed/` is staged at the artifact root,
+--- and `base` is the runtime the artifact is built onto. So this file
+--- is cosmic's own answer to "what is in a cosmic binary", written
+--- once, in the unit that ships it:
 ---
 ---   .tl/**           cosmic's sources, so `--check types` in a user's
 ---                    project can resolve `require("cosmic.fs")`
@@ -19,26 +17,19 @@
 ---   skills/cosmic/** the guides `--docs` reads
 ---
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
---- Naming it is what makes the fixpoint converge. Without it `build`
---- embeds onto the cosmic that is running it, and stripping a base
---- drops its zip entries without reclaiming their bytes — so a cosmic
---- built by a cosmic built by a cosmic grows by ~3.5 MB a generation,
---- measured.
+--- Naming it is what makes the fixpoint converge -- without it `build`
+--- embeds onto the running cosmic, growing every generation.
 ---
 --- `cosmic.mk` is deliberately absent: it is a committed file at
---- `embed/cosmic.mk`, which is the other half of the same convention.
---- A payload file that exists in the tree is committed; one that has
---- to be produced is generated. Both land at the same place, and
---- nothing downstream can tell which was which.
+--- `embed/cosmic.mk` -- a payload file that exists in the tree is
+--- committed, one that has to be produced is generated, both land the same.
 ---
 --- Scope, stated because it is wider than a `*_gen.tl` generation
 --- unit's subtree: a BINARY's payload generator reads the binary's own
---- scope — `.tl/**` is literally that set — plus the pinned bytes
---- `--make fetch` left under `o/`. It writes only into the directory
---- it is handed. The two halves of that sentence are why this is a
---- payload generator and not a generation unit: its inputs are the
---- artifact's inputs, which is the one scope a generator cannot be
---- narrower than.
+--- scope (`.tl/**` is literally that set) plus the pinned bytes
+--- `--make fetch` left under `o/`, and writes only into the directory
+--- it is handed -- its inputs are the artifact's inputs, which is why
+--- this is a payload generator and not a generation unit.
 
 local artifact = require("_make.artifact")
 local codec = require("cosmic.codec")
@@ -82,15 +73,35 @@ local TREES: {string} = {
   "skills/cosmic",
 }
 
---- Copy one file into the payload.
---- @param from string Source path, relative to the project root
---- @param to string Destination path, relative to the payload root
---- @param dest string The payload directory
+--- Compile Lua source to bytecode -- a private copy of `_make.bytecode.
+--- dump` (see it for "why not stripped"; this file runs as a GENERATOR
+--- without `--include-dir .`, so it cannot safely depend on that module).
+local function dump_bytecode(body: string, chunkname: string): string | nil, string
+  local source = body
+  if source:sub(1, 2) == "#!" then
+    source = "--" .. source:sub(3)
+  end
+  local chunk, lerr = load(source, "@" .. chunkname)
+  if not chunk then
+    return nil, chunkname .. ": " .. (lerr or "cannot load")
+  end
+  return string.dump(chunk, false), nil
+end
+
+--- Copy one file into the payload, optionally as Lua bytecode.
+--- @param as_bytecode boolean `to` is a Lua module: dump bytecode
 --- @return boolean, string Success, or false plus the reason
-local function put(from: string, to: string, dest: string): boolean, string
+local function put(from: string, to: string, dest: string, as_bytecode?: boolean): boolean, string
   local body, rerr = fs.read(from)
   if not body then
     return false, from .. ": " .. (rerr or "cannot read")
+  end
+  if as_bytecode then
+    local code, berr = dump_bytecode(body, "/zip/" .. to)
+    if not code then
+      return false, "bytecode " .. berr
+    end
+    body = code
   end
   local out = fs.join(dest, to)
   local mok, merr = fs.make_dirs(fs.dirname(out))
@@ -436,7 +447,9 @@ local function generate(out: string): string
     if not fs.is_file(pair[2]) then
       return pair[2] .. ": missing; run `cosmic --make fetch` first"
     end
-    local ok, err = put(pair[2], pair[1], dest)
+    -- tl.lua is `require`d like any module; make is a native binary.
+    local as_bytecode = pair[1]:sub(-4) == ".lua"
+    local ok, err = put(pair[2], pair[1], dest, as_bytecode)
     if not ok then
       return err
     end
