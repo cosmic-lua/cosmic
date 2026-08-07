@@ -5,10 +5,9 @@
 --- declares it, a scope of inputs that is also its grant set, and an
 --- output path derived from its position. A binary is one of those
 --- units, which is why `scope_of` below is a plain function over the
---- model rather than a special case bolted onto the pack rule: a
---- `cmd/<name>/` directory generates `o/bin/<name>` from (root packages
---- + its own subtree) the same way a `*_gen.tl` directory generates
---- `o/<dir>/**` from its subtree.
+--- model rather than a special case: a `cmd/<name>/` directory
+--- generates `o/bin/<name>` from (root packages + its own subtree) the
+--- same way a `*_gen.tl` directory generates `o/<dir>/**` from its own.
 ---
 --- Layout is derived, never enumerated. One rule:
 ---
@@ -16,13 +15,12 @@
 ---   payload at embed/R             ->  /zip/R
 ---   entry                          ->  /zip/main.user.lua behind the wrapper
 ---
---- so "path relative to the root = import path" holds inside the
---- artifact too, because the zip root IS the module root.
+--- so "path relative to the root = import path" holds here too: the zip root IS the module root.
 ---
---- This file is the STAGING half — everything that runs once per
---- binary. The generation phase, which runs once per project before
---- any binary stages, is `_make.generate`.
+--- This file is the STAGING half, everything that runs once per binary
+--- (`_make.generate` runs once per project, before any binary stages).
 
+local bytecode = require("_make.bytecode")
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
@@ -92,6 +90,8 @@ local record Staged
   stored: string
   --- Literal bytes, for an entry the build derives rather than copies.
   content: string
+  --- Compiled `.lua` module or entry -- see `_make.bytecode`.
+  is_module: boolean
 end
 
 --- The default argv an APE reads at startup: run `/zip/main.lua`, then
@@ -159,7 +159,7 @@ end
 local function stage_entry(f: File, binary: Binary): Staged | nil
   if f.path == binary.entry then
     return {source = fs.join(project.BUILD_DIR, (f.path:gsub("%.tl$", ".lua"))),
-      stored = "main.lua"}
+      stored = "main.lua", is_module = true}
   end
   if f.kind == "payload" then
     return {source = f.path, stored = payload_stored(f.path)}
@@ -168,7 +168,7 @@ local function stage_entry(f: File, binary: Binary): Staged | nil
     return nil
   end
   return {source = fs.join(project.BUILD_DIR, (f.path:gsub("%.tl$", ".lua"))),
-    stored = f.import:gsub("%.", "/") .. ".lua"}
+    stored = f.import:gsub("%.", "/") .. ".lua", is_module = true}
 end
 
 --- The directory a unit's payload generator owns, under `o/`.
@@ -341,6 +341,11 @@ local function stage(proj: Project, binary: Binary): string | nil, string
       end
       content = body
     end
+    local code, berr = bytecode.for_stage(content, s.stored, s.is_module)
+    if not code then
+      return nil, "make: " .. berr
+    end
+    content = code
     local dst = fs.join(dir, s.stored)
     local mok, merr = fs.make_dirs(fs.dirname(dst))
     if not mok then
