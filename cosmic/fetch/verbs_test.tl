@@ -62,11 +62,11 @@ local function serve(responses: {string}): integer, integer
 end
 
 --- Run one echoed request and return the raw request the server saw.
-local function echo_request(run: function(string): fetch.Result): string
+local function echo_request(run: function(string): (fetch.Response, string, fetch.Error)): string
   local port, pid = serve({"echo"})
-  local r = run("http://127.0.0.1:" .. port)
+  local r, err = run("http://127.0.0.1:" .. port)
   assert(proc.wait(math.tointeger(pid)))
-  assert(r.ok, "request failed: " .. tostring(r.error))
+  assert(r ~= nil, "request failed: " .. tostring(err))
   assert(r:is_success(), "expected 2xx, got " .. tostring(r.status))
   return r.body
 end
@@ -74,23 +74,23 @@ end
 -- verb tests
 
 local function test_verbs_set_method()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.get(base .. "/x", {allow_private = true})
     end)
   assert(req:find("^GET /x HTTP/1") ~= nil, "expected GET line, got: " .. req:sub(1, 40))
 
-  req = echo_request(function(base: string): fetch.Result
+  req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.post(base .. "/x", {allow_private = true, body = "hi"})
     end)
   assert(req:find("^POST /x HTTP/1") ~= nil, "expected POST line")
   assert(req:find("\r\n\r\nhi$") ~= nil, "expected body 'hi'")
 
-  req = echo_request(function(base: string): fetch.Result
+  req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.put(base .. "/x", {allow_private = true, body = "data"})
     end)
   assert(req:find("^PUT /x HTTP/1") ~= nil, "expected PUT line")
 
-  req = echo_request(function(base: string): fetch.Result
+  req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.delete(base .. "/x", {allow_private = true})
     end)
   assert(req:find("^DELETE /x HTTP/1") ~= nil, "expected DELETE line")
@@ -100,7 +100,7 @@ test_verbs_set_method()
 -- query tests
 
 local function test_query_appended_sorted_and_encoded()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.get(base .. "/s", {allow_private = true, query = {q = "hello world", a = "1"}})
     end)
   assert(req:find("GET /s?a=1&q=hello%20world HTTP", 1, true) ~= nil,
@@ -109,7 +109,7 @@ end
 test_query_appended_sorted_and_encoded()
 
 local function test_query_appends_to_existing()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.get(base .. "/s?x=1", {allow_private = true, query = {y = "2"}})
     end)
   assert(req:find("GET /s?x=1&y=2 HTTP", 1, true) ~= nil, "expected & continuation")
@@ -119,7 +119,7 @@ test_query_appends_to_existing()
 -- json body tests
 
 local function test_json_body_and_default_post()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       -- No method and no verb helper: a json body must default to POST.
       return fetch.fetch(base .. "/j", {allow_private = true, json = {n = 7}})
     end)
@@ -131,7 +131,7 @@ end
 test_json_body_and_default_post()
 
 local function test_json_respects_caller_content_type()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.post(base .. "/j", {
           allow_private = true,
           json = {n = 1},
@@ -148,7 +148,7 @@ test_json_respects_caller_content_type()
 -- form body tests
 
 local function test_form_body()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.post(base .. "/f", {allow_private = true, form = {b = "two words", a = "1"}})
     end)
   assert(req:lower():find("content-type: application/x-www-form-urlencoded", 1, true) ~= nil,
@@ -160,7 +160,7 @@ test_form_body()
 -- multipart tests
 
 local function test_multipart_body()
-  local req = echo_request(function(base: string): fetch.Result
+  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
       return fetch.post(base .. "/m", {
           allow_private = true,
           multipart = {
@@ -182,15 +182,15 @@ test_multipart_body()
 -- option validation tests
 
 local function test_conflicting_body_options()
-  local r = fetch.post("http://127.0.0.1:1/x", {json = {a = 1}, form = {b = "2"}})
-  assert(not r.ok, "expected conflicting body options to fail")
-  assert(r.error and r.error:find("at most one", 1, true), "expected conflict error, got: " .. tostring(r.error))
+  local r, err = fetch.post("http://127.0.0.1:1/x", {json = {a = 1}, form = {b = "2"}})
+  assert(r == nil, "expected conflicting body options to fail")
+  assert(err and err:find("at most one", 1, true), "expected conflict error, got: " .. tostring(err))
 end
 test_conflicting_body_options()
 
 local function test_multipart_validation()
-  local r = fetch.post("http://127.0.0.1:1/x", {multipart = {{name = 'bad"name', value = "v"}}})
-  assert(not r.ok and r.error ~= nil, "expected bad multipart name rejected")
+  local r, err = fetch.post("http://127.0.0.1:1/x", {multipart = {{name = 'bad"name', value = "v"}}})
+  assert(r == nil and err ~= nil, "expected bad multipart name rejected")
 end
 test_multipart_validation()
 
@@ -198,9 +198,8 @@ test_multipart_validation()
 
 local function test_result_json()
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{\"answer\": 42}\n"})
-  local r = fetch.get("http://127.0.0.1:" .. port, {allow_private = true})
+  local r = check.must(fetch.get("http://127.0.0.1:" .. port, {allow_private = true}))
   assert(proc.wait(math.tointeger(pid)))
-  assert(r.ok, "request failed: " .. tostring(r.error))
   local v = r:json()
   -- cast: from any
   assert((v as {string: any}).answer == 42, "expected decoded json body")
@@ -209,7 +208,7 @@ test_result_json()
 
 local function test_result_json_bad_body()
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nnot-json"})
-  local r = fetch.get("http://127.0.0.1:" .. port, {allow_private = true})
+  local r = check.must(fetch.get("http://127.0.0.1:" .. port, {allow_private = true}))
   assert(proc.wait(math.tointeger(pid)))
   local v, err = r:json()
   assert(v == nil and err ~= nil, "expected decode failure for bad json")
@@ -221,9 +220,10 @@ test_result_json_bad_body()
 local function test_download_success()
   local path = fs.join(TEST_TMPDIR, "dl.bin")
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\nfile-content"})
-  local r = fetch.download("http://127.0.0.1:" .. port, path, {allow_private = true})
+  local r, derr = fetch.download("http://127.0.0.1:" .. port, path, {allow_private = true})
   assert(proc.wait(math.tointeger(pid)))
-  assert(r.ok and r:is_success(), "download failed: " .. tostring(r.error))
+  assert(r ~= nil, "download failed: " .. tostring(derr))
+  assert(r:is_success(), "expected 2xx, got " .. tostring(r.status))
   assert(r.body == "", "expected empty body on download success")
   assert(fs.read(path) == "file-content", "expected file written")
   assert(fs.unlink(path))
@@ -233,10 +233,9 @@ test_download_success()
 local function test_download_non_2xx_writes_nothing()
   local path = fs.join(TEST_TMPDIR, "dl404.bin")
   local port, pid = serve({"HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"})
-  local r = fetch.download("http://127.0.0.1:" .. port, path, {allow_private = true})
+  local r = check.must(fetch.download("http://127.0.0.1:" .. port, path, {allow_private = true}))
   assert(proc.wait(math.tointeger(pid)))
-  assert(r.ok, "expected transport success")
-  assert(not r:is_success() and r.status == 404, "expected 404 result")
+  assert(not r:is_success() and r.status == 404, "expected 404 Response")
   assert(r.body == "not found", "expected diagnostic body, got: " .. tostring(r.body))
   assert(not fs.exists(path), "expected no file for non-2xx")
 end
@@ -244,8 +243,8 @@ test_download_non_2xx_writes_nothing()
 
 local function test_download_transport_failure()
   local path = fs.join(TEST_TMPDIR, "dlfail.bin")
-  local r = fetch.download("http://127.0.0.1:1", path, {allow_private = true, timeout_ms = 2000})
-  assert(not r.ok and r.error ~= nil, "expected connect failure")
+  local r, derr = fetch.download("http://127.0.0.1:1", path, {allow_private = true, timeout_ms = 2000})
+  assert(r == nil and derr ~= nil, "expected connect failure")
   assert(not fs.exists(path), "expected no file on transport failure")
 end
 test_download_transport_failure()

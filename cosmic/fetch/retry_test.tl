@@ -80,11 +80,11 @@ local function test_default_policy_retries_503()
       body_response("503 Service Unavailable", "busy"),
       body_response("200 OK", "fine"),
     })
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
-    {allow_private = true, max_attempts = 2, base_delay_ms = 10})
+  local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/",
+    {allow_private = true, max_attempts = 2, base_delay_ms = 10}))
   assert(proc.wait(pid))
-  assert(result ~= nil and result.status == 200,
-    "503 must be retried under the default policy, got " .. tostring(result and result.status))
+  assert(result.status == 200,
+    "503 must be retried under the default policy, got " .. tostring(result.status))
 end
 test_default_policy_retries_503()
 
@@ -96,8 +96,9 @@ local function test_default_policy_does_not_retry_post()
     {allow_private = true, method = "POST", body = "x",
       max_attempts = 3, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result ~= nil and result.status == 503,
-    "POST must not be retried by default, got " .. tostring(result and result.status))
+  assert(result ~= nil, "the 503 must arrive as a Response")
+  assert(result.status == 503,
+    "POST must not be retried by default, got " .. tostring(result.status))
 end
 test_default_policy_does_not_retry_post()
 
@@ -106,8 +107,9 @@ local function test_default_policy_does_not_retry_404()
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 3, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result ~= nil and result.status == 404,
-    "404 is not retryable, got " .. tostring(result and result.status))
+  assert(result ~= nil, "the 404 must arrive as a Response")
+  assert(result.status == 404,
+    "404 is not retryable, got " .. tostring(result.status))
 end
 test_default_policy_does_not_retry_404()
 
@@ -145,6 +147,7 @@ local function test_custom_should_retry_false_stops()
       end,
     })
   assert(proc.wait(pid))
+  assert(result ~= nil, "the 503 must arrive as a Response")
   assert(result.status == 503, "the 503 must be returned as-is")
   assert(attempts == 1, "should_retry must be asked exactly once, got " .. attempts)
 end
@@ -152,7 +155,7 @@ test_custom_should_retry_false_stops()
 
 local function test_exhausted_attempts_return_last_failure()
   local port, pid = serve({"", ""})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+  local result, _err, errobj = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
   assert(proc.wait(pid))
   assert(result == nil, "both attempts failed; no Response may exist")
