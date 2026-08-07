@@ -5,7 +5,11 @@
 --- method name — a userdata metatable is the C layer's to name.
 ---
 --- For best performance, compile patterns once and reuse them.
---- The match() convenience function compiles on each call.
+--- The convenience functions (match, test, find, find_all, gmatch,
+--- split, gsub) take a pattern string per call; a bounded module cache
+--- memoizes their compiled patterns, so repeated calls with the same
+--- pattern skip recompilation. compile() itself is never cached: it is
+--- the explicit-lifetime API, and each call returns a fresh handle.
 local re = require("cosmo.re")
 
 --- A compiled regular expression pattern.
@@ -44,8 +48,63 @@ local function compile(pattern: string, flags?: integer): Regex | nil, string
   return result as Regex -- cast: userdata boundary
 end
 
+--- One memoized compilation of a convenience-surface pattern. rx/err
+--- record the compile outcome; iter_ok/iter_err record the (lazy)
+--- empty-match probe compile_for_iter runs on top of it.
+local record CacheEntry
+  rx: Regex
+  err: string
+  iter_ok: boolean
+  iter_err: string
+end
+
+--- Bounded pattern-string -> CacheEntry memo for the convenience
+--- functions. Wiped wholesale when full: eviction bookkeeping isn't
+--- worth it for a cache whose hit case is "the same handful of
+--- patterns in a loop", and a wipe only costs the recompiles the cache
+--- was already paying before it filled.
+local CACHE_MAX = 64
+local cache: {string: CacheEntry} = {}
+local cache_count = 0
+
+--- The memo key. Flags are part of a pattern's identity: the same
+--- source compiled with ICASE is a different regex.
+--- @param pattern string The regex pattern
+--- @param flags integer? Optional compile flags
+--- @return string The cache key
+local function cache_key(pattern: string, flags?: integer): string
+  return tostring(flags or 0) .. "\0" .. pattern
+end
+
+--- Get-or-create the memo entry for a pattern, compiling on miss.
+--- Compile failures are cached too, so a bad pattern in a loop pays
+--- one compile, not one per call.
+--- @param pattern string The regex pattern
+--- @param flags integer? Optional compile flags
+--- @return CacheEntry The entry (rx set on success, err on failure)
+local function cache_entry(pattern: string, flags?: integer): CacheEntry
+  local key = cache_key(pattern, flags)
+  local entry = cache[key]
+  if entry ~= nil then
+    return entry
+  end
+  if cache_count >= CACHE_MAX then
+    cache = {}
+    cache_count = 0
+  end
+  local rx, cerr = compile(pattern, flags)
+  if rx is Regex then
+    entry = {rx = rx}
+  else
+    entry = {err = cerr or "regex compile failed"}
+  end
+  cache[key] = entry
+  cache_count = cache_count + 1
+  return entry
+end
+
 --- Match pattern against text (convenience function; subject first).
---- Compiles pattern on each call - use compile() for repeated matching.
+--- Compiled patterns are cached - compile() gives explicit reuse.
 --- Uses POSIX extended syntax by default.
 --- On a match, returns the matched substring plus a table of the
 --- parenthesized capture groups (an empty table when the pattern has no
@@ -59,7 +118,8 @@ end
 --- @return {string} | nil Capture groups on match
 --- @return string | nil Error message if compilation or the engine failed
 local function match(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
-  local regex, cerr = compile(pattern, flags)
+  local entry = cache_entry(pattern, flags)
+  local regex, cerr = entry.rx, entry.err
   if regex is Regex then
     -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
     local m, caps = regex:search(text)
@@ -151,15 +211,22 @@ end
 --- the empty string: without offsets from the engine a zero-length
 --- match cannot be positioned or advanced past.
 local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, string
-  local regex, cerr = compile(pattern, flags)
-  if not regex then
-    return nil, cerr
+  local entry = cache_entry(pattern, flags)
+  if entry.rx == nil then
+    return nil, entry.err
   end
-  local em = (regex as Regex):search("") -- cast: record union after guard
-  if em then
-    return nil, "pattern matches the empty string (unsupported): " .. pattern
+  if entry.iter_err ~= nil then
+    return nil, entry.iter_err
   end
-  return regex
+  if not entry.iter_ok then
+    local em = entry.rx:search("")
+    if em then
+      entry.iter_err = "pattern matches the empty string (unsupported): " .. pattern
+      return nil, entry.iter_err
+    end
+    entry.iter_ok = true
+  end
+  return entry.rx
 end
 
 --- Collect every non-overlapping match of regex in text, leftmost
