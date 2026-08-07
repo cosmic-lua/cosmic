@@ -16,7 +16,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
   local function scan(dir: string)
     local handle0 = fs.opendir(dir)
     if not handle0 then return end
-    local handle = handle0 as fs.Dir -- cast: record union after guard
+    local handle = handle0
 
     while true do
       local name = handle:read()
@@ -25,7 +25,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
         local full_path = fs.join(dir, name)
         local st0 = fs.stat(full_path)
         if st0 then
-          local st = st0 as fs.Stat -- cast: record union after guard
+          local st = st0
           if st:is_dir() then
             scan(full_path)
           elseif string.match(name, "%.md$") and name ~= "README.md" then
@@ -237,7 +237,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   -- clear working directory
   local dir0 = fs.opendir(".")
   if dir0 then
-    local dir = dir0 as fs.Dir -- cast: record union after guard
+    local dir = dir0
     while true do
       local name = dir:read()
       if not name then break end

@@ -146,7 +146,7 @@ local function test_max_output_bound_per_format()
   for _, format in ipairs(formats) do
     local cformat: compress.Format = "gzip"
     if format ~= "auto" then
-      cformat = format as compress.Format -- cast: enum narrowing after guard
+      cformat = format
     end
     local compressed = check.must(compress.compress(data, {format = cformat}))
     local result, err = compress.decompress(compressed, {format = format, max_output = 100})

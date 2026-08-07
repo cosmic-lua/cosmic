@@ -45,7 +45,7 @@ local record Rows
   metamethod __close: function(self: Rows)
   --- Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Rows): string | nil
-  --- Release the underlying prepared statement early (idempotent).
+  --- Release the underlying prepared statement early idempotent.
   close: function(self: Rows)
 end
 
@@ -183,7 +183,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     return true
   end
 
-  --- Bind parameters from a list (table). The count is derived from the SQL,
+  --- Bind parameters from a list table. The count is derived from the SQL,
   --- so nil values in the table are handled correctly without an explicit count.
   --- Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
   function stmt:bind_list(values: {any}): boolean, string
@@ -378,7 +378,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not iter then
       return nil, err
     end
-    local it = iter as Rows -- cast: record union after guard
+    local it = iter
     -- Capture the first row, then close the iterator so the statement is
     -- released deterministically without stepping the remaining rows.
     local first: {string: any} = nil

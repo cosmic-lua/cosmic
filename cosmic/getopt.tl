@@ -156,7 +156,7 @@ local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Par
     -- parse failure was indistinguishable from an empty argv.
     return nil, perr
   end
-  local r = raw_r as Result -- cast: record union after guard
+  local r = raw_r
   local stream: {Option} = {}
   if r then
     for _, o in ipairs(r.opts) do

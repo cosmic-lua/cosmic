@@ -100,7 +100,7 @@ local function build_id(): string
   local self = arg and arg[-1]
   local info = self and fs.stat(self)
   if info then
-    local st = info as fs_types.Stat -- cast: record union after guard
+    local st = info
     -- Bound, not inlined: mtim returns seconds AND nanoseconds, and a
     -- multi-return call spreads into the argument list it sits in.
     local secs = st:mtim()
@@ -203,7 +203,7 @@ local function compile_cached(input_path: string,
   if not content then
     return nil, "cannot read " .. input_path
   end
-  local source = content as string -- cast: scalar narrowing after the guard
+  local source = content
   local mode = strict and "strict" or ""
   local code = load_cached(input_path, source, mode)
   if code then

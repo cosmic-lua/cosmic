@@ -227,7 +227,7 @@ local function noecho(fd: integer): Termios | nil, string
   if not termios then
     return nil, err
   end
-  local t = termios as Termios -- cast: record union after guard
+  local t = termios
   local original = copy_termios(t)
   t.lflag = t.lflag & ~ unix.ECHO
   local ok, set_err = setattr(fd, unix.TCSANOW, t)

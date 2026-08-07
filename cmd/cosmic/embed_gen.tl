@@ -127,7 +127,7 @@ local function put_tree(dir: string, dest: string): boolean, string
   if not found then
     return false, dir .. ": " .. (lerr or "cannot list")
   end
-  local paths = found as {string} -- cast: nil ruled out by the guard above
+  local paths = found
   table.sort(paths)
   for _, from in ipairs(paths) do
     local ok, err = put(from, from, dest)
@@ -224,7 +224,7 @@ local function generated_types(): {string}
   if not found then
     return {}
   end
-  local paths = found as {string} -- cast: nil ruled out by the guard
+  local paths = found
   table.sort(paths)
   return paths
 end
@@ -298,8 +298,7 @@ local function write_index(proj: Project, dest: string): boolean, string
   if not mok then
     return false, fs.dirname(out) .. ": " .. (merr or "cannot create")
   end
-  -- cast: scalar narrowing after the guard
-  local wok, werr = fs.write(out, body as string)
+  local wok, werr = fs.write(out, body)
   if not wok then
     return false, out .. ": " .. (werr or "cannot write")
   end
@@ -385,8 +384,7 @@ local function generate(out: string): string
   if not proj then
     return serr or "cannot scan the project"
   end
-  -- cast: record union after the guard
-  local p = proj as Project
+  local p = proj
   local binary = unit_binary(p)
   if not (binary is Binary) then
     return "no binary at " .. UNIT .. "; this generator has nothing to fill"

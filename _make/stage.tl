@@ -138,7 +138,7 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
     io.stderr:write((serr or "make: no such selection") .. "\n")
     return false, "bad selection"
   end
-  local files = picked as {File} -- cast: record union after the guard
+  local files = picked
 
   local overrides: {string} = {}
   local variable = sel.variable

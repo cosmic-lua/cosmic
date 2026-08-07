@@ -36,7 +36,7 @@ local function test_copy_preserves_mode()
   assert(fs.read(dst) == "#!/bin/sh\n", "copy content")
   local st = fs.stat(dst)
   assert(st, "dst should stat")
-  local mode = (st as fs.Stat):mode() % 512 -- cast: record union after guard
+  local mode = st:mode() % 512
   assert(mode % 2 == 1, "exec bit preserved, mode: " .. string.format("%o", mode))
 end
 test_copy_preserves_mode()
@@ -85,7 +85,7 @@ local function test_compile_unchanged_restamps_without_rewriting()
   assert(code == 0, "first compile failed")
   local st1 = fs.stat(out)
   assert(st1, "output should exist")
-  local s1, n1 = (st1 as fs.Stat):mtim() -- cast: record union after guard
+  local s1, n1 = st1:mtim()
   local body = fs.read(out)
   -- read-only: the second run must not write, only restamp
   assert(fs.chmod(out, tonumber("444", 8) as integer)) -- cast: octal is integral
@@ -178,7 +178,7 @@ local function test_list_write_if_changed()
   assert(fs.read(out) == "a.tl\nb.tl\n", "write-list content")
   local st1 = fs.stat(out)
   assert(st1, "stamp should exist")
-  local s1, n1 = (st1 as fs.Stat):mtim() -- cast: record union after guard
+  local s1, n1 = st1:mtim()
   code = run_driver("write-list", out, "a.tl", "b.tl")
   assert(code == 0, "unchanged list must succeed")
   local s2, n2 = (fs.stat(out) as fs.Stat):mtim() -- cast: record union after guard

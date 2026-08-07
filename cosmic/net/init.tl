@@ -83,7 +83,7 @@ local function listen_unix(path: string, backlog?: integer): Socket | nil, strin
   if not sock then
     return nil, err
   end
-  local s = sock as Socket -- cast: record union after guard
+  local s = sock
   local ok, bind_err = s:bind_unix(path)
   if not ok then
     local _ok, _err = s:close()
@@ -106,7 +106,7 @@ local function connect_unix(path: string): Socket | nil, string
   if not sock then
     return nil, err
   end
-  local s = sock as Socket -- cast: record union after guard
+  local s = sock
   local ok, conn_err = s:connect_unix(path)
   if not ok then
     local _ok, _err = s:close()
@@ -141,7 +141,7 @@ local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions):
   if not sock then
     return nil, err
   end
-  local s = sock as Socket -- cast: record union after guard
+  local s = sock
   if opts and opts.timeout_ms then
     local ok, conn_err = connect_with_timeout(s, addr, port, opts.timeout_ms)
     if not ok then
@@ -179,13 +179,13 @@ local function dial(host: string, port: integer, opts?: ConnectOptions): Socket 
   local a: ip.Addr
   local parsed = ip.parse(host)
   if parsed then
-    a = parsed as ip.Addr -- cast: record union after guard
+    a = parsed
   else
     local looked, lerr = ip.lookup(host)
     if not looked then
       return nil, "dial " .. host .. ": " .. tostring(lerr)
     end
-    a = looked as ip.Addr -- cast: record union after guard
+    a = looked
   end
   return connect_tcp(a, port, opts)
 end
@@ -234,7 +234,7 @@ local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): S
   if not sock then
     return nil, serr
   end
-  local s = sock as Socket -- cast: record union after guard
+  local s = sock
   if opts.reuseaddr ~= false then
     local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
     if not ok then

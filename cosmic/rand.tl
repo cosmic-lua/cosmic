@@ -98,7 +98,7 @@ local function choice(list: {any}): any, string
   if not i then
     return nil, err
   end
-  return list[i as integer] -- cast: nil not narrowed after guard
+  return list[i]
 end
 
 --- Shuffle a list in place with an unbiased Fisher-Yates pass
@@ -112,7 +112,7 @@ local function shuffle(list: {any}): {any} | nil, string
     if not j then
       return nil, err
     end
-    local jj = j as integer -- cast: nil not narrowed after guard
+    local jj = j
     list[i], list[jj] = list[jj], list[i]
   end
   return list

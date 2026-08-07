@@ -86,7 +86,7 @@ local function read(path: string): {Edit} | nil, string
     if not (raw is {string: any}) then
       return nil, where .. ": not a table of fields"
     end
-    local e = raw as {string: any} -- cast: record union after guard
+    local e = raw
     local file = e["file"]
     local find = e["find"]
     local replace = e["replace"]
@@ -97,10 +97,10 @@ local function read(path: string): {Edit} | nil, string
     end
     edits[#edits + 1] = {
       name = name,
-      file = file as string, -- cast: scalar narrowing after guard
-      find = find as string, -- cast: scalar narrowing after guard
-      replace = replace as string, -- cast: scalar narrowing after guard
-      note = note as string, -- cast: scalar narrowing after guard
+      file = file,
+      find = find,
+      replace = replace,
+      note = note,
     }
   end
   if #edits == 0 then
@@ -133,7 +133,7 @@ local function applied(dir: string, edits: {Edit}): boolean
     if not (text is string) then
       return false
     end
-    if not string.find(text as string, e.replace, 1, true) then -- cast: scalar narrowing
+    if not string.find(text, e.replace, 1, true) then
       return false
     end
   end
@@ -151,7 +151,7 @@ local function apply(dir: string, edits: {Edit}): boolean, string
     if not (text is string) then
       return false, "make: patch edit '" .. e.name .. "': cannot read " .. target
     end
-    local body = text as string -- cast: scalar narrowing after guard
+    local body = text
     if string.find(body, e.replace, 1, true) then
       -- Already applied: the idempotent re-fetch path.
     else

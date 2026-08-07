@@ -330,9 +330,9 @@ local function test_stored_path_collisions_are_refused()
   local out, err = artifact.build(proj,
     binary_of(proj, "generate-collide"), cosmic)
   assert(not out, "a colliding plan must not build")
-  assert((err as string):find("pkg/db.lua", 1, true), -- cast: scalar narrowing
+  assert(err:find("pkg/db.lua", 1, true),
     "the message names the stored path, got: " .. tostring(err))
-  assert((err as string):find("embed/pkg/db.lua", 1, true), -- cast: scalar narrowing
+  assert(err:find("embed/pkg/db.lua", 1, true),
     "and both origins, got: " .. tostring(err))
 end
 test_stored_path_collisions_are_refused()

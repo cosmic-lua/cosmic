@@ -78,7 +78,7 @@ test_a_missing_manifest_is_a_miss()
 local function test_the_searcher_misses_without_a_manifest()
   local got = searcher.tree("nothing.at.all")
   assert(got is string, "a miss must be a string, got: " .. type(got))
-  assert((got as string):find("nothing.at.all", 1, true), -- cast: guarded
+  assert(got:find("nothing.at.all", 1, true),
     "the miss must name the module: " .. tostring(got))
 end
 test_the_searcher_misses_without_a_manifest()
@@ -191,7 +191,7 @@ test_a_warning_does_not_fail_the_require()
 local function test_a_module_in_no_layer_misses()
   local got = searcher.tree("no.such.module")
   assert(got is string, "a miss must be a string, got: " .. type(got))
-  assert((got as string):find("no.such.module", 1, true), -- cast: guarded
+  assert(got:find("no.such.module", 1, true),
     "got: " .. tostring(got))
 end
 test_a_module_in_no_layer_misses()

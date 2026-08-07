@@ -32,7 +32,7 @@ local function copy_entries(src: string, dst: string): boolean, string
         h:close()
         return false, errstr(serr, "copy_tree: stat: " .. s)
       end
-      local mode = (st as unix.Stat):mode() -- cast: record union after guard
+      local mode = st:mode()
       if unix.S_ISLNK(mode) then
         local target, rerr = unix.readlink(s)
         if not target then
@@ -76,10 +76,10 @@ copy_tree_into = function(src: string, dst: string): boolean, string
   if not st then
     return false, errstr(serr, "copy_tree: stat: " .. src)
   end
-  if not unix.S_ISDIR((st as unix.Stat):mode()) then -- cast: record union after guard
+  if not unix.S_ISDIR(st:mode()) then
     return false, "copy_tree: not a directory: " .. src
   end
-  local mode = (st as unix.Stat):mode() & tonumber("777", 8) -- cast: record union after guard
+  local mode = st:mode() & tonumber("777", 8)
   local ok, merr = unix.makedirs(dst, mode)
   if not ok then
     return false, errstr(merr, "copy_tree: make_dirs: " .. dst)

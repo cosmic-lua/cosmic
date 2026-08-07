@@ -51,7 +51,7 @@ local function open_project(verb: string): Project | nil, string
   if not dir then
     return nil, derr or "make: cannot determine the project root"
   end
-  local abs = dir as string -- cast: scalar narrowing after the guard
+  local abs = dir
   io.write("make: root=" .. abs .. "\n")
   -- chdir so every path a verb prints, and every path it hands the
   -- checker, is relative to the root the banner just named.
@@ -111,7 +111,7 @@ local function assemble(proj: Project, binaries: {Binary}, cosmic: string,
       return false, b.name .. " failed"
     end
     if announce then
-      io.write("make: " .. (out as string) .. "\n") -- cast: scalar narrowing after the guard
+      io.write("make: " .. (out) .. "\n")
     end
     built = built + 1
   end
@@ -139,7 +139,7 @@ local function run_build(proj: Project, paths: {string},
     io.stderr:write(werr .. "\n")
     return stage.verdict("build", false, "bad selection")
   end
-  local binaries = wanted as {Binary} -- cast: record union after the guard
+  local binaries = wanted
   local v = by_name("build") as Verb -- cast: the registry defines it
   local ok, detail = stage.graph_stage(v, proj, {}, cosmic)
   if not ok then
@@ -371,7 +371,7 @@ local function run(argv: {string}): integer
       io.stderr:write(terr .. "\n")
       return stage.verdict(name, false, "no target")
     end
-    paths[1] = target as string -- cast: nil ruled out by the guard above
+    paths[1] = target
   end
   for i = 2, (passthrough and 1 or #argv) do
     if argv[i] == "--baseline" then
@@ -442,7 +442,7 @@ local function run(argv: {string}): integer
     io.stderr:write((err or "make: failed") .. "\n")
     return stage.verdict(name, false, "no project")
   end
-  local p = proj as Project -- cast: record union after the guard
+  local p = proj
 
   -- The selection, resolved against the model BEFORE anything is built.
   -- `_make.law` states it for every verb at once; running it here is

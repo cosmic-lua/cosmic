@@ -45,8 +45,7 @@ end
 --- @return boolean True if the path is a regular file
 local function is_file(p: string): boolean
   local st = unix.stat(p)
-  -- cast: record union after guard
-  return st ~= nil and unix.S_ISREG((st as unix.Stat):mode())
+  return st ~= nil and unix.S_ISREG(st:mode())
 end
 
 --- Check if path is a directory.
@@ -57,8 +56,7 @@ end
 --- @return boolean True if the path is a directory
 local function is_dir(p: string): boolean
   local st = unix.stat(p)
-  -- cast: record union after guard
-  return st ~= nil and unix.S_ISDIR((st as unix.Stat):mode())
+  return st ~= nil and unix.S_ISDIR(st:mode())
 end
 
 --- Check if path is a symbolic link.
@@ -395,7 +393,7 @@ local function ext(p: string): string
 end
 
 --- Return the current user's home directory.
---- Uses $HOME, falling back to $USERPROFILE (Windows).
+--- Uses $HOME, falling back to $USERPROFILE Windows.
 --- @return string | nil The home directory, or nil when unknown
 --- @return string? Error message when no home directory is set
 local function home(): string | nil, string

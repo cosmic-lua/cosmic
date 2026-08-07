@@ -195,7 +195,7 @@ local function unit_dir(path: string): string
       break
     end
     local gen = fs.glob(at, "*_gen.tl")
-    if gen ~= nil and #(gen as {string}) > 0 then -- cast: record union after the guard
+    if gen ~= nil and #(gen) > 0 then
       return at
     end
     local up = fs.dirname(at)

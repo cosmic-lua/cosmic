@@ -164,8 +164,8 @@ local function identity(tool: string, pins: {string}, cosmic: string): string
     -- a constant stamp, which is what an empty COSMIC_DEP meant.
     return "binary unknown\n"
   end
-  add_all(closed as {string}) -- cast: nil ruled out by the guard above
-  add_all(booted as {string}) -- cast: nil ruled out by the guard above
+  add_all(closed)
+  add_all(booted)
   add_all(BOOT_FILES)
   add_all(EXTRA_FILES[tool] or {})
   add_all(pins)

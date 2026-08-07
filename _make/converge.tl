@@ -131,7 +131,7 @@ local function stamp_of(path: string): string
   if not info then
     return ""
   end
-  local st = info as fs.Stat -- cast: record union after guard
+  local st = info
   local secs, nsecs = st:mtim()
   return tostring(st:size()) .. "-" .. tostring(secs) .. "." ..
   tostring(nsecs)
@@ -173,12 +173,12 @@ local function drives_a_build(path: string): boolean
     local _ = serr
     return false
   end
-  local r = (h as child.Handle):wait(PROBE_MS) -- cast: after guard
+  local r = h:wait(PROBE_MS)
   if not (r is child.Result) then
-    local _ok, _err = (h as child.Handle):kill() -- cast: after guard
+    local _ok, _err = h:kill()
     return false
   end
-  local res = r as child.Result -- cast: after guard
+  local res = r
   return res.ok and (res.stdout or ""):find(PROBE_MARK, 1, true) ~= nil
 end
 
@@ -200,7 +200,7 @@ local function to_the_tree(proj: Project, argv: {string},
     return true
   end
   local built = fs.join(project.BUILD_DIR, "bin",
-    (tool as Binary).name) -- cast: record union after the guard
+    tool.name)
   local gen = math.tointeger(tonumber(env.get_or(GEN_ENV, "0")) or 0) or 0
 
   local was_us = fs.is_file(built) and same_file(built, self)

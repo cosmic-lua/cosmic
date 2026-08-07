@@ -69,7 +69,7 @@ local function parse_args(argv: {string}): Args
     a.err = "argument parse failed: " .. tostring(gerr)
     return a
   end
-  local parser = raw_parser as getopt.Parser -- cast: record union after guard
+  local parser = raw_parser
   while true do
     local opt, optarg = parser:next()
     if opt == nil then

@@ -36,7 +36,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   if not archive_maybe then
     return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
   end
-  local archive = archive_maybe as czip.Archive -- cast: record union after guard
+  local archive = archive_maybe
 
   -- The count czip.extract does not return: every non-directory entry
   -- is written, or the whole extraction fails before partial output.

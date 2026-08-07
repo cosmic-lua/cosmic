@@ -89,7 +89,7 @@ local function scenarios(): {pt.Scenario}, string
         if row == nil then
           return false, "count query failed: " .. tostring(qerr)
         end
-        local r = row as {string: any} -- cast: record union after guard
+        local r = row
         if r.n ~= 0 then
           return false, "scratch table not empty: " .. tostring(r.n)
         end

@@ -444,7 +444,7 @@ local function parse(source: string, opts?: Options): {string: any} | nil, strin
   if not lexed then
     return nil, lex_err
   end
-  local toks = lexed as {Token} -- cast: nil ruled out by the guard above
+  local toks = lexed
   local i = 1
   -- The lexer emits an `$EOF$` sentinel; everything before the `return`
   -- must be nothing at all.
@@ -478,8 +478,7 @@ local function parse_file(path: string, opts?: Options): {string: any} | nil, st
     return nil, "cannot read " .. path .. ": " .. (rerr or "unknown error")
   end
   local noun = opts and opts.noun
-  -- cast: scalar narrowing after the guard
-  return parse(source as string, {file = path, noun = noun})
+  return parse(source, {file = path, noun = noun})
 end
 
 local record LiteralModule

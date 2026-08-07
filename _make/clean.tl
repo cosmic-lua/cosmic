@@ -43,7 +43,7 @@ local function run(_proj: Project, _paths: {string},
   end
   local removed = 0
   local kept = 0
-  for _, path in ipairs(entries as {string}) do -- cast: nil ruled out above
+  for _, path in ipairs(entries) do
     if KEEP[fs.basename(path)] then
       kept = kept + 1
     else
