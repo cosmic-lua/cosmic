@@ -123,6 +123,17 @@ local record fs_types
     mode: integer
   end
 
+  --- One visited entry, as cosmic.fs.visit hands to its visitor: the
+  --- full path (already complete — never join it with name), the
+  --- basename, the entry's Stat, and its depth (entries directly under
+  --- the walk root are depth 1).
+  record Entry
+    path: string
+    name: string
+    stat: Stat
+    depth: integer
+  end
+
   --- Wrap a raw cosmo.unix Stat so it carries the type predicates.
   --- Fallible only in the one way the unification allows: a runtime
   --- whose stat metatable cannot take the predicates is refused, not

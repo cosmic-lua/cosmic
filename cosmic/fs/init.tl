@@ -199,20 +199,26 @@ local function fdopendir(fd: integer): Dir | nil, string
   return nil, errstr(err, "fdopendir")
 end
 
--- Re-export walk functions from fs_walk submodule
+-- Re-export the walker (fs_walk) and the find family (fs_find)
 local fs_walk = require("cosmic.fs.walk")
+local fs_find = require("cosmic.fs.find")
 
 -- Recursive tree operations
 local fs_tree = require("cosmic.fs.tree")
 
 --- Iterator over file paths, as returned by files().
-local type FileIter = fs_walk.FileIter
+local type FileIter = fs_find.FileIter
 
---- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
+--- Visitor verdict for visit()/walk(): nil continues, "skip" prunes,
+--- "stop" ends the walk.
 local type WalkAction = fs_walk.WalkAction
 
---- Options for walk() (max_depth).
+--- Options for visit()/walk() (max_depth).
 local type WalkOptions = fs_walk.WalkOptions
+
+--- One visited entry (path/name/stat/depth), as visit() hands to its
+--- visitor.
+local type Entry = types.Entry
 
 --- Module interface
 local record FsModule
@@ -342,7 +348,9 @@ local record FsModule
   --- Iterate files under dir lazily; same selection as find().
   find_iter: function(dir: string, opts?: fs_walk.FindOptions): FileIter | nil, string, any, any
   --- Recursively collect files under dir with their FileInfo (mode).
-  find_info: function(dir: string): {string: FileInfo} | nil, string
+  --- Matching files with their FileInfo, keyed by FULL path (#987:
+  --- was relative); same options and slots as find.
+  find_info: function(dir: string, opts?: fs_find.FindOptions): {string: FileInfo} | nil, string, {string}
 
   -- Access mode constants
   F_OK: integer
@@ -436,12 +444,13 @@ local M: FsModule = {
   major = fs_ops.major,
   minor = fs_ops.minor,
 
-  -- Directory walking
+  -- Directory walking and the find family
   walk = fs_walk.walk,
-  glob = fs_walk.glob,
-  find = fs_walk.find,
-  find_iter = fs_walk.find_iter,
-  find_info = fs_walk.find_info,
+  visit = fs_walk.visit,
+  glob = fs_find.glob,
+  find = fs_find.find,
+  find_iter = fs_find.find_iter,
+  find_info = fs_find.find_info,
 
   -- Access mode constants (re-exported from fs_ops)
   F_OK = fs_ops.F_OK,
