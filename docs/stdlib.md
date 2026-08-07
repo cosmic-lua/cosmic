@@ -89,7 +89,7 @@ local sqlite = require("cosmic.sqlite")
 | module | description |
 |--------|-------------|
 | `cosmic.re` | POSIX extended regular expressions |
-| `cosmic.fuzzy` | fuzzy string matching (Levenshtein) |
+| `cosmic.fuzzy` | fuzzy string matching (edit distance) |
 | `cosmic.format` | Teal/Lua code formatter |
 
 ### Tooling

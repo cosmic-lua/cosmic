@@ -1,12 +1,14 @@
 --- Fuzzy string matching utilities.
+--- Approximate (edit-distance) matching. For exact plain-text search
+--- see cosmic.string; for pattern-based matching see cosmic.re.
 
---- Compute Levenshtein distance between two strings.
+--- Compute the edit distance between two strings (Levenshtein).
 --- Uses a two-row algorithm with O(min(n,m)) memory and string.byte
 --- for fast character comparison.
 --- @param a string First string
 --- @param b string Second string
 --- @return integer Edit distance
-local function levenshtein(a: string, b: string): integer
+local function distance(a: string, b: string): integer
   local la = #a
   local lb = #b
   if la == 0 then return lb end
@@ -47,14 +49,36 @@ local function levenshtein(a: string, b: string): integer
   return prev[lb]
 end
 
---- Find similar strings from a list using Levenshtein distance.
+--- One similar candidate: the value and the edit distance the search
+--- already computed for it (previously thrown away, which forced the
+--- one caller wanting a ranked score to re-run the DP itself).
+local record Match
+  value: string
+  distance: integer
+end
+
+--- Options for find_similar.
+local record Options
+  --- Maximum edit distance to consider (default 3).
+  max_distance: integer
+  --- Keep at most this many matches (default all).
+  limit: integer
+end
+
+--- Find similar strings from a list by edit distance (case-insensitive,
+--- deduplicated on the lowercased form).
 --- @param query string The search query
 --- @param candidates {string} List of strings to match against
---- @param max_distance integer Maximum edit distance to consider (default 3)
---- @return {string} List of similar values, sorted by distance then alphabetically
-local function find_similar(query: string, candidates: {string}, max_distance?: integer): {string}
-  max_distance = max_distance or 3
-  local results: {{string, integer}} = {} -- {value, distance}
+--- @param opts Options? max_distance (default 3), limit (default all)
+--- @return {Match} Matches with their distances, sorted by distance then value
+local function find_similar(query: string, candidates: {string}, opts?: Options): {Match}
+  local max_distance = 3
+  local limit: integer = nil
+  if opts then
+    if opts.max_distance then max_distance = opts.max_distance end
+    limit = opts.limit
+  end
+  local results: {Match} = {}
   local seen: {string: boolean} = {}
 
   local query_lower = query:lower()
@@ -68,40 +92,48 @@ local function find_similar(query: string, candidates: {string}, max_distance?: 
       -- differs from the query by more than max_distance can never qualify.
       -- Skipping it avoids the O(n*m) DP with no change to the result set.
       if math.abs(#query_lower - #candidate_lower) <= max_distance then
-        local dist = levenshtein(query_lower, candidate_lower)
+        local dist = distance(query_lower, candidate_lower)
         if dist <= max_distance then
           seen[candidate_lower] = true
-          table.insert(results, {candidate, dist})
+          table.insert(results, {value = candidate, distance = dist})
         end
       end
     end
   end
 
-  -- Sort by distance, then alphabetically
-  table.sort(results, function(a: {string, integer}, b: {string, integer}): boolean
-      if a[2] ~= b[2] then
-        return a[2] < b[2]
+  -- Sort by distance, then by value
+  table.sort(results, function(a: Match, b: Match): boolean
+      if a.distance ~= b.distance then
+        return a.distance < b.distance
       end
-      return a[1] < b[1]
+      return a.value < b.value
     end)
 
-  -- Extract just the names
-  local names: {string} = {}
-  for _, r in ipairs(results) do
-    table.insert(names, r[1])
+  if limit and #results > limit then
+    local trimmed: {Match} = {}
+    for i = 1, limit do
+      trimmed[i] = results[i]
+    end
+    return trimmed
   end
-
-  return names
+  return results
 end
 
 local record FuzzyModule
+  type Match = Match
+  type Options = Options
+  distance: function(a: string, b: string): integer
+  find_similar: function(query: string, candidates: {string}, opts?: Options): {Match}
+  --- DEPRECATED (D20 transition, #1002): alias of distance, kept while
+  --- the pinned bootstrap's require_hints still calls it; deleted at
+  --- the next pin advance alongside errno's aliases (#981).
   levenshtein: function(a: string, b: string): integer
-  find_similar: function(query: string, candidates: {string}, max_distance?: integer): {string}
 end
 
 local M: FuzzyModule = {
-  levenshtein = levenshtein,
+  distance = distance,
   find_similar = find_similar,
+  levenshtein = distance,
 }
 
 return M

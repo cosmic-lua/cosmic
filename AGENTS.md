@@ -368,7 +368,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | flags | declarative command-line flag parsing with generated --help |
 | format | Teal/Lua code formatter |
 | fs | filesystem: paths, stat, walk, read/write, mkdir, symlink, tmp |
-| fuzzy | fuzzy string matching (Levenshtein distance) |
+| fuzzy | fuzzy string matching (edit distance) |
 | getopt | command-line option parsing (short + long opts) |
 | hash | SHA-256 digest and Argon2 password hashing |
 | html | HTML escaping |

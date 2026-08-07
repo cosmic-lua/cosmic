@@ -118,8 +118,10 @@ end
 test_split_no_separator()
 
 local function test_split_empty_string()
+  -- one empty field, agreeing with re.split (and Go/Python)
   local parts = str.split("", ",")
-  assert(#parts == 0, "expected 0 parts, got " .. #parts)
+  assert(#parts == 1, "expected 1 part, got " .. #parts)
+  assert(parts[1] == "", "expected the one part to be empty")
 end
 test_split_empty_string()
 
