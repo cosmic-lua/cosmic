@@ -15,6 +15,25 @@ local unix = require("cosmo.unix")
 
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 
+local function test_first_start_keeps_installed_sigpipe_handler()
+  -- Must run before any other spawn in this file: SIGPIPE neutralization
+  -- decides at the FIRST start(), not at require, and only claims the
+  -- default disposition. Requiring the module left the default in place,
+  -- and a handler installed before the first spawn stays installed.
+  assert(unix.sigaction(unix.SIGPIPE) == unix.SIG_DFL,
+    "requiring cosmic.child changed the SIGPIPE disposition")
+  local function handler(_sig: integer) end
+  unix.sigaction(unix.SIGPIPE, handler)
+  local r = check.must(child.run({lua_bin, "-e", "os.exit(0)"}))
+  assert(r.ok, "spawn should succeed")
+  assert(unix.sigaction(unix.SIGPIPE) == handler,
+    "first start() clobbered the installed SIGPIPE handler")
+  -- Hand the rest of the file the disposition the lazy install would have
+  -- chosen from the default: ignored, so the EPIPE tests below stay safe.
+  unix.sigaction(unix.SIGPIPE, unix.SIG_IGN)
+end
+test_first_start_keeps_installed_sigpipe_handler()
+
 local function test_large_stdin_no_deadlock()
   -- 256KB of stdin far exceeds the pipe buffer, and the child echoes it back,
   -- so both directions overflow at once. The pump interleaves the write with
