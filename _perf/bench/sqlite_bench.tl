@@ -34,7 +34,7 @@ local function init_db(): string
   -- WAL with NORMAL sync keeps commit costs realistic while avoiding
   -- fsync dominating every sample with filesystem-dependent noise.
   local pragmas = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;"
-  local ok, err = db:exec(pragmas)
+  local ok, err = db:exec_script(pragmas)
   if not ok then
     return "pragma: " .. tostring(err)
   end
