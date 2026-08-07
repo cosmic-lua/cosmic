@@ -179,12 +179,12 @@ formatted string plus the numeric errno), wrappers add context with
 `errno.wrap(err, prefix)`, and branch on the numeric errno via
 `errno.is(errno_value, "EINTR")`.
 
-**Narrowing nil unions.** Truthiness narrows `T | nil` for every `T` — records,
-maps, arrays and scalars, positive branch and negated early return (`if not r then
-return end`) alike — via the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in
-`_make/patch.tl`). What still does NOT narrow: `assert(x)`, `== nil`/`~= nil`
-comparisons, record FIELDS (copy the field to a local and guard the local), and
-unions containing `boolean`. The other tools:
+**Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
+`T`: truthiness (`if not r then return end`), `assert(r)`, and `== nil`/`~= nil` —
+which is exact, so it narrows boolean unions the other two deliberately skip — via
+the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). What
+still does NOT narrow: record FIELDS (copy the field to a local and guard the
+local) and `is` early-exit guards (`if not (x is Rec) then return end`). The other tools:
 
 - **In tests and examples, use `check.must`** for fallible returns: `local db =
   check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua

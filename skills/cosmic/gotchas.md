@@ -127,10 +127,11 @@ literal `nil`). capture the returns — `local v, err = f(...)`, or
 `assert`/`check.must` in tests and examples. the details are in
 `cosmic --docs guide.checking`.
 
-## 9. `assert(x)` and `== nil` don't narrow a nil union — truthiness does
+## 9. record fields don't narrow — copy the field to a local
 
-an ordinary truthiness guard narrows `T | nil` for every `T` — records,
-maps, arrays and scalars alike (the carried tl patch,
+a guard on a plain variable narrows it: truthiness (`if r then`, `if
+not r then return end`), `assert(r, "msg")`, and `== nil` / `~= nil`
+comparisons all narrow `T | nil` for every `T` (the carried tl patch,
 `3p/tl/tl_patch.tl`):
 
 ```teal
@@ -141,27 +142,27 @@ end
 db:exec(sql) -- db is Database below the guard
 ```
 
-what still does NOT narrow:
+`~= nil` is exact, so it also narrows unions containing `boolean`,
+where truthiness and `assert` deliberately do nothing (`false` is
+falsy, so truthy does not mean "not nil" there).
 
-- **`assert(x, "msg")`**: it terminates control flow at runtime, but the
-  checker still sees `T | nil` on every line after it — do not expect
-  the narrowing other typed languages attach to assert. guard with
-  truthiness instead, or cast once after the assert (`local d = db as
-  sqlite.Database`). in tests and examples, `local db =
-  check.must(sqlite.open(path))` does guard and narrowing in one call,
-  with no cast to justify.
-- **`== nil` / `~= nil` comparisons**: `if r ~= nil then r.x end` still
-  errors. write the truthiness form (`if r then`).
-- **record fields**, even scalar ones — copy the field to a local and
-  guard the local.
-- **unions containing `boolean`** — `false` is falsy, so truthy does not
-  mean "not nil" there; branch with `is` instead.
+what still does NOT narrow is a record FIELD, even a scalar one: after
+`if o.sub then`, `o.sub` is still `Inner | nil` at the use. copy the
+field to a local and guard the local:
 
-the errors these shapes produce name the un-narrowed type but not the
-cause: `cannot index key 'x' in variable 'r' of type R | nil`,
-`expression in for loop does not return an iterator`, `attempting
-ipairs on something that's not an array: {T} | nil`. the full pattern
-set is in `cosmic --docs guide.checking`.
+```teal
+local sub = o.sub -- Inner | nil
+if sub then
+  print(sub.x) -- narrowed; the field read would not be
+end
+```
+
+(`is` narrowing also does not survive an early-exit guard — `if not (x
+is Rec) then return end` does not narrow below it; write the plain
+truthiness form instead.) the errors these shapes produce name the
+un-narrowed type but not the cause: `cannot index key 'x' in ... of
+type Inner | nil`. the full pattern set is in
+`cosmic --docs guide.checking`.
 
 ## 10. a record other files use must be nested in the module's interface record
 

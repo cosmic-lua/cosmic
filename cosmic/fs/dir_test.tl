@@ -36,15 +36,19 @@ local function test_dir_has_close_metamethod()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir -- cast: record union after guard
+  -- cast: pin bootstrap (the pinned compiler that cold-builds this tree predates the narrowing patch)
+  local d = dir as fs_types.Dir
 
   -- Verify __close metamethod exists
   local mt = getmetatable(dir)
   assert(mt, "dir should have a metatable")
   assert(mt.__close, "dir metatable should have __close")
 
-  -- Call __close directly to verify it works
-  mt.__close(dir)
+  -- Call __close directly to verify it works, the way <close> would: a
+  -- plain function call, not a method send (the patched checker narrows
+  -- `dir` here and would flag the method-as-function invocation).
+  local close = mt.__close as function(fs_types.Dir) -- cast: metamethod as plain function
+  close(d)
   assert(d:closed(), "dir should be closed after __close")
 
   teardown(test_dir)

@@ -20,10 +20,10 @@
   on disk is the source), which is also what bootstraps a patch through
   CI's pinned-release fetch. Patches ride archive pins only: editing a
   formatless pin's single output would fail its own digest forever.
-  The first cargo is the tl truthiness-narrowing edit
-  (`3p/tl/tl_patch.tl`), with its own canary test
-  (`cosmic/teal_test.tl`) so a lost patch fails as one named test, not
-  a hundred downstream type errors.
+  The first cargo is the tl narrowing patch (`3p/tl/tl_patch.tl`:
+  truthiness, then `assert(x)` and `== nil`/`~= nil`), with its own
+  canary test (`cosmic/teal_test.tl`) so a lost patch fails as one
+  named test, not a hundred downstream type errors.
 - **rejected:** forking tl for one edit (a compiler of maintenance for
   a function of change); waiting for upstream (unbounded, and the scar
   tissue compounds while waiting); diff files and an external patch

@@ -10,9 +10,10 @@
 --- Matches the most common traps:
 ---   1. got number, expected integer (string index/length requires integer)
 ---   2. X | nil used un-narrowed: passed where X is expected, indexed,
----      or looped over — truthiness (`if not x`) narrows a nil union
----      (the carried tl patch, 3p/tl/tl_patch.tl), but `assert(x)` and
----      `== nil` comparisons do not, and nothing else tells the author
+---      or looped over — truthiness, `assert(x)` and `== nil` all
+---      narrow a plain variable (the carried tl patch,
+---      3p/tl/tl_patch.tl), but record FIELDS never narrow, and
+---      nothing else tells the author
 ---   3. excess return values (multiple returns captured incorrectly)
 ---   4. <any type> operations (ipairs, index, concat on any)
 
@@ -41,19 +42,19 @@ local function hint_for_message(msg: string): string | nil
   if msg:find("%| nil") and msg:find("expected") then
     return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles — see `cosmic --docs guide.checking`"
   end
-  -- Pattern 2b: indexing through an un-narrowed nil union. Truthiness
-  -- (`if x`, `if not x then return end`) narrows a nil union since the
-  -- carried tl patch (3p/tl/tl_patch.tl), so what lands here is the
-  -- shapes that still do not narrow: `assert(x)` and `== nil` /
-  -- `~= nil` comparisons, which newcomers expect to narrow.
+  -- Pattern 2b: indexing through an un-narrowed nil union. A guard on
+  -- a plain variable — truthiness, `assert(x)`, `== nil` — narrows it
+  -- since the carried tl patch (3p/tl/tl_patch.tl), so what lands here
+  -- is a record FIELD (guarding `o.sub` never narrows `o.sub`) or a
+  -- value that was never guarded at all.
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
-    return "  hint: `assert(x)` and `== nil` comparisons do not narrow `T | nil` — guard with truthiness (`if not x then return end`), branch with `if x is T then ... end`, or cast (`local v = x as T`) — see `cosmic --docs guide.checking`"
+    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.checking`"
   end
   -- Pattern 2c: for-in over a value the checker cannot call. The message
   -- names no type, and the usual cause is an iterator still `T | nil`
   -- from a fallible call.
   if msg:find("for loop does not return an iterator", 1, true) then
-    return "  hint: often the iterator is still `T | nil` from a fallible call: guard with truthiness (`if not it then return end`) before the loop — `assert(it)` does not narrow — see `cosmic --docs guide.checking`"
+    return "  hint: often the iterator is still `T | nil` from a fallible call: guard it before the loop (`if not it then return end`, or `assert(it)`) — see `cosmic --docs guide.checking`"
   end
   -- Pattern 2d: naming another module's type that is not exported. A
   -- standalone top-level record is file-local; importers can only name
@@ -74,7 +75,7 @@ local function hint_for_message(msg: string): string | nil
   -- `{T} | nil` needs narrowing, a plain `any` needs a cast.
   if msg:find("attempting ipairs on something that's not an array") then
     if msg:find("| nil", 1, true) then
-      return "  hint: `assert(xs)` does not narrow `{T} | nil` — guard with truthiness (`if not xs then return end`), branch with `is`, or cast (`local xs = v as {T}`) — see `cosmic --docs guide.checking`"
+      return "  hint: `{T} | nil` needs its guard before the loop (`if not xs then return end`, or `assert(xs)`); a record FIELD does not narrow — copy it to a local and guard the local — see `cosmic --docs guide.checking`"
     end
     return "  hint: cast first, e.g. `local items = data as {any}`"
   end
