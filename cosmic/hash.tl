@@ -6,13 +6,13 @@
 ---   local hash = require("cosmic.hash")
 ---   local digest = hash.sha256_hex("hello")
 ---   local d = hash.digest("sha512", "hello")
+---   local d_hex = hash.digest_hex("sha512", "hello")
 ---   local tag = hash.hmac("sha256", "secret", "message")
 ---   local encoded = hash.hash_password("password123")
 ---   local valid = hash.verify_password(encoded, "password123")
 ---
---- Digest and HMAC functions return raw bytes; hex-encode with
---- cosmic.codec.encode_hex if needed. For CRC-32 checksums, see
---- cosmic.codec.crc32. For random bytes, use cosmic.rand.bytes(n).
+--- Every raw-bytes function has a `_hex` twin. For CRC-32 checksums,
+--- see cosmic.codec.crc32. For random bytes, use cosmic.rand.bytes(n).
 ---
 --- Reserved name: hash.new(algo): Hasher — a streaming digest object
 --- API (update/final) is reserved for a post-stable battery. Do not
@@ -46,19 +46,28 @@ local valid_algos < total >: {Algo: boolean} = {
   blake2b256 = true,
 }
 
+--- Argon2 variants accepted by hash_password. A cosmic-owned enum
+--- (rule 10): the generated cosmo.argon2.Variant stays an internal
+--- detail of the binding boundary.
+local enum Variant
+  "argon2id"
+  "argon2i"
+  "argon2d"
+end
+
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
-local record PasswordOptions
+local record Options
   --- Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
-  m_cost: integer
-  --- Time cost / iterations (default: 3)
-  t_cost: integer
+  memory_kb: integer
+  --- Iteration count / Argon2 time cost (default: 3)
+  iterations: integer
   --- Parallelism factor (default: 1)
   parallelism: integer
   --- Output hash length in bytes (default: 32)
-  hash_len: integer
+  hash_bytes: integer
   --- Variant: "argon2id" (default), "argon2i", or "argon2d"
-  variant: argon2.Variant
+  variant: Variant
 end
 
 --- Compute SHA-256 hash of data.
@@ -80,40 +89,53 @@ local function sha256_hex(data: string): string
 end
 
 --- Compute a message digest of data with the given algorithm.
---- Returns raw bytes; hex-encode with cosmic.codec.encode_hex if
---- needed. For the common case, sha256 / sha256_hex are equivalent
---- conveniences. MD5 and SHA-1 are provided for interoperability with
---- existing formats only — do not use them for new security purposes.
+--- Returns raw bytes; digest_hex is the hex twin. For the common case,
+--- sha256 / sha256_hex are equivalent conveniences. MD5 and SHA-1 are
+--- provided for interoperability with existing formats only — do not
+--- use them for new security purposes.
+---
+--- Infallible: `algo` is the typed enum, so the checker already rejects
+--- every bad value; a value smuggled past it through a cast is a
+--- contract violation and throws (D22).
 --- @param algo Algo The digest algorithm
 --- @param data string The data to hash
---- @return string | nil The digest as raw bytes, or nil on error
---- @return string? Error message if the algorithm is unknown
-local function digest(algo: Algo, data: string): string | nil, string
+--- @return string The digest as raw bytes
+local function digest(algo: Algo, data: string): string
   if not valid_algos[algo] then
-    return nil, "unknown hash algorithm: " .. tostring(algo)
+    error("hash.digest: unknown algorithm: " .. tostring(algo), 2)
   end
   local d, err = cosmo.GetCryptoHash(
     string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening
   if not d then
-    return nil, err
+    error("hash.digest: " .. tostring(err), 2)
   end
   return d
 end
 
+--- Compute a message digest and return it as a lowercase hex string.
+--- The hex twin of digest.
+--- @param algo Algo The digest algorithm
+--- @param data string The data to hash
+--- @return string The digest as a hex string
+local function digest_hex(algo: Algo, data: string): string
+  return codec.encode_hex(digest(algo, data))
+end
+
 --- Compute an HMAC (RFC 2104) of data with a secret key using the
---- given digest algorithm. Returns raw bytes; hex-encode with
---- cosmic.codec.encode_hex if needed. Compare MACs with
---- constant_time_equal, not ==. The key must be non-empty: the C
---- binding treats an empty key as "no key" and would silently compute
---- a plain digest instead of an HMAC.
+--- given digest algorithm. Returns raw bytes; hmac_hex is the hex
+--- twin. Compare MACs with is_equal_constant_time, not ==. The key
+--- must be non-empty: the C binding treats an empty key as "no key"
+--- and would silently compute a plain digest instead of an HMAC —
+--- and keys arrive from config at runtime, so the empty key reports
+--- as an error rather than throwing.
 --- @param algo Algo The digest algorithm
 --- @param key string The secret key (must be non-empty)
 --- @param data string The message to authenticate
 --- @return string | nil The HMAC tag as raw bytes, or nil on error
---- @return string? Error message if the algorithm is unknown or the key is empty
+--- @return string? Error message when the key is empty
 local function hmac(algo: Algo, key: string, data: string): string | nil, string
   if not valid_algos[algo] then
-    return nil, "unknown hash algorithm: " .. tostring(algo)
+    error("hash.hmac: unknown algorithm: " .. tostring(algo), 2)
   end
   if #key == 0 then
     return nil, "hmac: key must be non-empty"
@@ -126,17 +148,19 @@ local function hmac(algo: Algo, key: string, data: string): string | nil, string
   return d
 end
 
---- Compute HMAC-SHA256 of data with a secret key (RFC 2104).
---- Returns raw bytes (32 bytes); hex-encode with cosmic.codec.encode_hex
---- if needed. Compare MACs with constant_time_equal, not ==. The key
---- must be non-empty: the C binding treats an empty key as "no key"
---- and would silently compute a plain digest instead of an HMAC.
+--- Compute an HMAC and return it as a lowercase hex string.
+--- The hex twin of hmac.
+--- @param algo Algo The digest algorithm
 --- @param key string The secret key (must be non-empty)
 --- @param data string The message to authenticate
---- @return string | nil The HMAC-SHA256 tag as raw bytes, or nil on error
---- @return string? Error message if the key is empty
-local function hmac_sha256(key: string, data: string): string | nil, string
-  return hmac("sha256", key, data)
+--- @return string | nil The HMAC tag as a hex string, or nil on error
+--- @return string? Error message when the key is empty
+local function hmac_hex(algo: Algo, key: string, data: string): string | nil, string
+  local d, err = hmac(algo, key, data)
+  if not d then
+    return nil, err
+  end
+  return codec.encode_hex(d)
 end
 
 --- Compare two strings in constant time (for digests and MACs).
@@ -147,7 +171,7 @@ end
 --- @param a string First string
 --- @param b string Second string
 --- @return boolean True when a and b are equal
-local function constant_time_equal(a: string, b: string): boolean
+local function is_equal_constant_time(a: string, b: string): boolean
   if #a ~= #b then
     return false
   end
@@ -161,25 +185,25 @@ end
 --- Hash a password using Argon2.
 --- Returns an encoded string suitable for storage.
 --- @param pwd string The password to hash
---- @param opts PasswordOptions? Optional configuration for the hash
+--- @param opts Options? Optional configuration for the hash
 --- @return string? The encoded hash string, or nil on error
 --- @return string? Error message if hashing failed
-local function hash_password(pwd: string, opts?: PasswordOptions): string | nil, string
+local function hash_password(pwd: string, opts?: Options): string | nil, string
   -- Build config from opts
-  -- Default m_cost to 19456 KiB (19 MiB) per OWASP minimum recommendation.
+  -- Default memory to 19456 KiB (19 MiB) per OWASP minimum recommendation.
   local config: argon2.Config = {m_cost = 19456}
   if opts then
-    if opts.m_cost then config.m_cost = opts.m_cost end
-    if opts.t_cost then config.t_cost = opts.t_cost end
+    if opts.memory_kb then config.m_cost = opts.memory_kb end
+    if opts.iterations then config.t_cost = opts.iterations end
     if opts.parallelism then config.parallelism = opts.parallelism end
-    if opts.hash_len then config.hash_len = opts.hash_len end
+    if opts.hash_bytes then config.hash_len = opts.hash_bytes end
     if opts.variant then
-      -- The generated argon2.Variant enum checks literals statically;
-      -- runtime strings smuggled in through casts still get nil, err
-      -- rather than the binding's raise (never throw from library code).
+      -- The Variant enum checks literals statically; runtime strings
+      -- smuggled in through casts still get nil, err rather than the
+      -- binding's raise (never throw from library code).
       if opts.variant == "argon2id" or opts.variant == "argon2i"
       or opts.variant == "argon2d" then
-        config.variant = opts.variant
+        config.variant = opts.variant as argon2.Variant -- cast: same literal set
       else
         return nil, "invalid variant: " .. tostring(opts.variant)
         .. " (expected argon2id, argon2i, or argon2d)"
@@ -196,43 +220,48 @@ local function hash_password(pwd: string, opts?: PasswordOptions): string | nil,
 end
 
 --- Verify a password against an Argon2 encoded hash.
---- Returns true on match, false (no error) on clean mismatch, or
---- false plus an error string when the hash is malformed or the binding
---- reports an error (e.g. "Decoding failed").
---- @param encoded string The encoded hash string (from password)
+--- Three honest outcomes, no conflation: `true` on match, `false` (no
+--- error) on a clean mismatch, and `nil` plus an error string when the
+--- stored hash is malformed or the binding reports an error — so
+--- `if hash.verify_password(stored, input) then` can never treat a
+--- corrupt credential store as a failed login.
+--- @param encoded string The encoded hash string (from hash_password)
 --- @param pwd string The password to verify
---- @return boolean True if the password matches, false otherwise
---- @return string? Error message if the hash is malformed or another error occurred
-local function verify_password(encoded: string, pwd: string): boolean, string
+--- @return boolean | nil True on match, false on mismatch, nil on error
+--- @return string? Error message when the hash is malformed
+local function verify_password(encoded: string, pwd: string): boolean | nil, string
   local ok, err = argon2.verify(encoded, pwd)
   if err then
     -- Malformed encoded string or another binding error.
-    return false, err
+    return nil, err
   end
   return ok
 end
 
 local record HashModule
   type Algo = Algo
-  type PasswordOptions = PasswordOptions
+  type Variant = Variant
+  type Options = Options
 
-  digest: function(algo: Algo, data: string): string | nil, string
+  digest: function(algo: Algo, data: string): string
+  digest_hex: function(algo: Algo, data: string): string
   hmac: function(algo: Algo, key: string, data: string): string | nil, string
+  hmac_hex: function(algo: Algo, key: string, data: string): string | nil, string
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
-  hmac_sha256: function(key: string, data: string): string | nil, string
-  constant_time_equal: function(a: string, b: string): boolean
-  hash_password: function(pwd: string, opts?: PasswordOptions): string | nil, string
-  verify_password: function(encoded: string, pwd: string): boolean, string
+  is_equal_constant_time: function(a: string, b: string): boolean
+  hash_password: function(pwd: string, opts?: Options): string | nil, string
+  verify_password: function(encoded: string, pwd: string): boolean | nil, string
 end
 
 local M: HashModule = {
   digest = digest,
+  digest_hex = digest_hex,
   hmac = hmac,
+  hmac_hex = hmac_hex,
   sha256 = sha256,
   sha256_hex = sha256_hex,
-  hmac_sha256 = hmac_sha256,
-  constant_time_equal = constant_time_equal,
+  is_equal_constant_time = is_equal_constant_time,
   hash_password = hash_password,
   verify_password = verify_password,
 }
