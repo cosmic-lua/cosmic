@@ -136,3 +136,18 @@ local function test_scalar_false_in_a_survives_absent_b_key()
   assert(proc.uid == 1000, "uid preserved")
 end
 test_scalar_false_in_a_survives_absent_b_key()
+
+local function test_proc_keep_caps_merges_as_list()
+  -- Regression: absent from the list schema, keep_caps fell into the
+  -- recursive branch and merged BY INDEX — {CAP_A,CAP_B} over {CAP_C}
+  -- yielded {CAP_C,CAP_B}, silently retaining a capability the overlay
+  -- never granted. It concatenates and dedupes like every other list.
+  local out = m.merge(
+    {proc = {keep_caps = {"CAP_NET_BIND_SERVICE", "CAP_CHOWN"}}},
+    {proc = {keep_caps = {"CAP_CHOWN", "CAP_SETUID"}}})
+  local caps = (out.proc as {string: any}).keep_caps as {string} -- cast: from any
+  assert(#caps == 3, "got: " .. tostring(#caps))
+  assert(caps[1] == "CAP_NET_BIND_SERVICE" and caps[2] == "CAP_CHOWN"
+    and caps[3] == "CAP_SETUID", "order+dedupe wrong for keep_caps")
+end
+test_proc_keep_caps_merges_as_list()
