@@ -199,40 +199,43 @@ local function pump(state: PumpState, deadline_ms: number): boolean
       wait_ms = math.floor(rem)
     end
     local ready, perr = p:wait(wait_ms)
-    if ready == nil then
+    -- The POSITIVE branch is what narrows `ready` past nil (a `== nil`
+    -- guard before a `break` does not survive the loop's flow join).
+    if ready ~= nil then
+      if next(ready) == nil then
+        -- wait timed out with nothing ready: the deadline expired.
+        return true
+      end
+      if state.stdin_fd then
+        local ev = ready[state.stdin_fd]
+        if ev and ev.writable then
+          local slice = state.stdin_data:sub(state.stdin_off + 1, state.stdin_off + CHUNK)
+          local n, werr, weno = unix.write(state.stdin_fd, slice)
+          if n ~= nil then
+            state.stdin_off = state.stdin_off + (n)
+            if state.stdin_off >= #state.stdin_data then
+              p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
+            end
+          elseif errno.is(weno, "EAGAIN") or errno.is(weno, "EINTR") then
+            -- Not actually writable yet (EAGAIN), or a signal interrupted the
+            -- write EINTR: try again on the next poll.
+          elseif errno.is(weno, "EPIPE") then
+            -- The child stopped reading stdin; stop feeding it (not an error).
+            p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
+          else
+            state.io_err = state.io_err or errno.wrap(werr, "write stdin")
+            p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
+          end
+        elseif ev and (ev.error or ev.hangup or ev.invalid) then
+          p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
+        end
+      end
+      if state.stdout_fd then read_ready(ready, state.stdout_fd, state.out, "out") end
+      if state.stderr_fd then read_ready(ready, state.stderr_fd, state.err_out, "err") end
+    else
       state.io_err = state.io_err or perr
       break
     end
-    if next(ready) == nil then
-      -- wait timed out with nothing ready: the deadline expired.
-      return true
-    end
-    if state.stdin_fd then
-      local ev = ready[state.stdin_fd]
-      if ev and ev.writable then
-        local slice = state.stdin_data:sub(state.stdin_off + 1, state.stdin_off + CHUNK)
-        local n, werr, weno = unix.write(state.stdin_fd, slice)
-        if n ~= nil then
-          state.stdin_off = state.stdin_off + (n)
-          if state.stdin_off >= #state.stdin_data then
-            p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
-          end
-        elseif errno.is(weno, "EAGAIN") or errno.is(weno, "EINTR") then
-          -- Not actually writable yet (EAGAIN), or a signal interrupted the
-          -- write EINTR: try again on the next poll.
-        elseif errno.is(weno, "EPIPE") then
-          -- The child stopped reading stdin; stop feeding it (not an error).
-          p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
-        else
-          state.io_err = state.io_err or errno.wrap(werr, "write stdin")
-          p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
-        end
-      elseif ev and (ev.error or ev.hangup or ev.invalid) then
-        p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
-      end
-    end
-    if state.stdout_fd then read_ready(ready, state.stdout_fd, state.out, "out") end
-    if state.stderr_fd then read_ready(ready, state.stderr_fd, state.err_out, "err") end
   end
 
   return false

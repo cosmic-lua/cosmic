@@ -37,10 +37,10 @@ local function Example_pipe_readiness()
   -- ping
 end
 
--- Example_wait_iterator demonstrates wait(), which yields each ready
--- fd with its resolved Events record instead of requiring a follow-up
--- events() lookup per descriptor.
-local function Example_wait_iterator()
+-- Example_wait_ready_set demonstrates wait(), which returns the ready
+-- set as a {fd: Events} map: iterate it with pairs, or index a specific
+-- descriptor directly.
+local function Example_wait_ready_set()
   local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local poll = require("cosmic.poll")
@@ -50,7 +50,8 @@ local function Example_wait_iterator()
 
   local set = poll.new()
   assert(set:add(p.reader:fd(), poll.POLLIN))
-  for ready_fd, ev in set:wait(0) do
+  local ready = check.must(set:wait(0))
+  for ready_fd, ev in pairs(ready) do
     print(ready_fd == p.reader:fd(), ev.readable)
   end
   assert(p:close())
@@ -59,4 +60,4 @@ local function Example_wait_iterator()
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_pipe_readiness, Example_wait_iterator}
+local _ = {Example_pipe_readiness, Example_wait_ready_set}
