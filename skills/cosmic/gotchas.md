@@ -127,59 +127,41 @@ literal `nil`). capture the returns — `local v, err = f(...)`, or
 `assert`/`check.must` in tests and examples. the details are in
 `cosmic --docs guide.checking`.
 
-## 9. records, maps and arrays don't narrow through `if not x` — or `assert`
+## 9. `assert(x)` and `== nil` don't narrow a nil union — truthiness does
 
-scalars (`string | nil`, `integer | nil`) narrow through an ordinary
-truthiness guard. records, maps and arrays do not — below the guard the
-value is still `T | nil`. **`assert(x, "msg")` is the same trap**: it
-terminates control flow at runtime, but the checker still sees
-`T | nil` on every line after it — do not expect the narrowing other
-typed languages attach to assert. the errors either shape produces name
-the un-narrowed type but not the cause: `cannot index key 'x' in
-variable 'r' of type R | nil`, `expression in for loop does not return
-an iterator`, `attempting ipairs on something that's not an array:
-{T} | nil`.
+an ordinary truthiness guard narrows `T | nil` for every `T` — records,
+maps, arrays and scalars alike (the carried tl patch,
+`3p/tl/tl_patch.tl`):
 
-**wrong:**
 ```teal
 local db = sqlite.open(path) -- Database | nil
 if not db then
   return nil, "open failed"
 end
-db:exec(sql) -- error: cannot index key 'exec' ... Database | nil
+db:exec(sql) -- db is Database below the guard
 ```
 
-**right — branch with `is` and do the work inside the positive branch:**
-```teal
-if db is sqlite.Database then
-  return run(db) -- run(db: sqlite.Database) receives it narrowed
-end
-return nil, "open failed"
-```
+what still does NOT narrow:
 
-**right — keep the guard, cast once immediately after it:**
-```teal
-if not db then
-  return nil, "open failed"
-end
-local d = db as sqlite.Database -- cast: record union after guard
-d:exec(sql)
-```
+- **`assert(x, "msg")`**: it terminates control flow at runtime, but the
+  checker still sees `T | nil` on every line after it — do not expect
+  the narrowing other typed languages attach to assert. guard with
+  truthiness instead, or cast once after the assert (`local d = db as
+  sqlite.Database`). in tests and examples, `local db =
+  check.must(sqlite.open(path))` does guard and narrowing in one call,
+  with no cast to justify.
+- **`== nil` / `~= nil` comparisons**: `if r ~= nil then r.x end` still
+  errors. write the truthiness form (`if r then`).
+- **record fields**, even scalar ones — copy the field to a local and
+  guard the local.
+- **unions containing `boolean`** — `false` is falsy, so truthy does not
+  mean "not nil" there; branch with `is` instead.
 
-(the same cast-after-guard works after an `assert(db, "open failed")`;
-in tests and examples, `local db = check.must(sqlite.open(path))` does
-guard and narrowing in one call, with no cast to justify.)
-
-record fields don't narrow either, even scalar ones — copy the field to
-a local and guard the local.
-
-and one scalar caveat: a narrowed scalar still cannot be METHOD-called.
-after `if not data then return end`, plain uses of `data` work, but
-`data:gmatch(...)` fails with `cannot index key 'gmatch' in variable
-'data' of type string | nil`. use the function form on the narrowed
-value (`string.gmatch(data, ...)`), or branch with `if data is string
-then ... end`, which narrows for every use. the full pattern set is in
-`cosmic --docs guide.checking`.
+the errors these shapes produce name the un-narrowed type but not the
+cause: `cannot index key 'x' in variable 'r' of type R | nil`,
+`expression in for loop does not return an iterator`, `attempting
+ipairs on something that's not an array: {T} | nil`. the full pattern
+set is in `cosmic --docs guide.checking`.
 
 ## 10. a record other files use must be nested in the module's interface record
 

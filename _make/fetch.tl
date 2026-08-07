@@ -14,12 +14,14 @@ local env = require("cosmic.env")
 local extract = require("_make.extract")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
+local patch = require("_make.patch")
 local pin = require("_make.pin")
 local project = require("_make.project")
 local records = require("cosmic.records")
 local selection = require("_make.select")
 local types = require("_make.types")
 
+local type Edit = patch.Edit
 local type File = types.File
 local type Pin = pin.Pin
 local type Project = types.Project
@@ -90,15 +92,43 @@ local function products_present(archive: string): boolean
   return true
 end
 
+--- The pin's carried patch, read, or nil when it carries none.
+---
+--- A patch is only admitted on a pin that unpacks: a formatless pin's
+--- single output IS the content-addressed file, so editing it would
+--- fail its own digest check on every later fetch, forever. The
+--- archive/products split is what makes patching sound — the archive
+--- stays pristine and verifiable, and the products are re-derivable
+--- from it at any time.
+--- @param p Pin The resolved pin
+--- @return {Edit}|nil The edits, when the pin carries a readable patch
+--- @return string The error when the patch is unreadable or misplaced
+local function patch_of(p: Pin): {Edit} | nil, string
+  local pp = patch.of_pin(p.source)
+  if not pp then
+    return nil
+  end
+  if not p.format then
+    return nil, "make: " .. pp .. ": a patch rides an archive pin only — " ..
+    "editing a bare pinned file would fail its own digest check forever"
+  end
+  return patch.read(pp)
+end
+
 --- Unpack a pin that declares a format, beside the archive.
 ---
 --- Only after the digest matched: an archive is a program for a
 --- decompressor, and running one on unverified bytes is what pinning
---- exists to prevent.
+--- exists to prevent. A carried patch applies last, onto the pristine
+--- products this unpack just produced.
 --- @param p Pin The resolved pin
 --- @param archive string The verified archive's path
 --- @return boolean, string Success, or false plus the reason
 local function unpacked(p: Pin, archive: string): boolean, string
+  local edits, perr = patch_of(p)
+  if perr then
+    return false, perr
+  end
   if not p.format then
     return true
   end
@@ -115,6 +145,9 @@ local function unpacked(p: Pin, archive: string): boolean, string
   if not wok then
     return false, "make: cannot write " .. manifest_of(archive) .. ": " ..
     (werr or "unknown error")
+  end
+  if edits then
+    return patch.apply(fs.dirname(archive), edits as {Edit}) -- cast: record union after guard
   end
   return true
 end
@@ -135,6 +168,17 @@ local function satisfied(p: Pin): boolean
     return false
   end
   if p.format and not products_present(out) then
+    return false
+  end
+  -- A patch is part of the pin's contract: products missing its edits
+  -- are as unsatisfied as products missing outright, and the repair is
+  -- the same — re-unpack pristine, then apply. An unreadable or
+  -- misplaced patch also lands here, so the repair path reports it.
+  local edits, perr = patch_of(p)
+  if perr then
+    return false
+  end
+  if edits and not patch.applied(fs.dirname(out), edits as {Edit}) then -- cast: record union after guard
     return false
   end
   return true
@@ -198,6 +242,41 @@ local function one(p: Pin): boolean, string
     (werr or "unknown error")
   end
   return unpacked(p, out)
+end
+
+--- Repair carried patches locally, without a network.
+---
+--- The bootstrap: a cold tree's fetch may have run under the PINNED
+--- release, which can predate a patch (or the mechanism itself). The
+--- archive it landed is pristine and digest-verified, so applying the
+--- patch needs no network — every graph-touching verb calls this, and
+--- the first build under the tree's own code patches what the pinned
+--- fetch could not. Pins without a patch cost nothing here; a missing
+--- or mismatched archive is left for `fetch` to report.
+--- @param proj Project The scanned project
+--- @return boolean, string Success, or false plus the reason
+local function repair(proj: Project): boolean, string
+  for _, f in ipairs(project.of_kind(proj, {"pin"})) do
+    if patch.of_pin(f.path) then
+      local p, err = pin.read(f.path)
+      if not p then
+        return false, err or ("make: " .. f.path .. ": not a pin")
+      end
+      local rp = p as Pin -- cast: record union after the guard
+      if not satisfied(rp) then
+        local out = landing(rp)
+        local have = fs.read(out)
+        if have and hash.sha256_hex(have) == rp.sha256 then
+          io.write("patch " .. rp.output .. "\n")
+          local uok, uerr = unpacked(rp, out)
+          if not uok then
+            return false, uerr
+          end
+        end
+      end
+    end
+  end
+  return true
 end
 
 --- Every pin in the project, resolved.
@@ -267,12 +346,14 @@ end
 
 local record FetchModule
   satisfied: function(p: Pin): boolean
+  repair: function(proj: Project): boolean, string
   resolve: function(files: {File}): {Pin} | nil, string
   run: function(proj: Project, paths: {string}): integer
 end
 
 local M: FetchModule = {
   satisfied = satisfied,
+  repair = repair,
   resolve = resolve,
   run = run,
 }
