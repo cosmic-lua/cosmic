@@ -152,6 +152,58 @@ local function test_stream_reader_close_idempotent()
 end
 test_stream_reader_close_idempotent()
 
+local function test_read_until_multibyte_and_mixing()
+  -- "alpha\r\n\r\nbravo\r\ncharlie": a multi-byte delimiter, adjacent
+  -- delimiters yielding an empty field, then read() draining the C
+  -- carry-over in order — bytes must continue exactly after the last
+  -- consumed delimiter, never reordered or dropped.
+  local port, pid = serve({body_response("alpha\r\n\r\nbravo\r\ncharlie")})
+  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
+  assert(result.ok == true, "stream opens: " .. tostring(result.error))
+  local first, err1 = result.reader:read_until("\r\n")
+  assert(first == "alpha" and err1 == nil,
+    "bytes before the first delimiter, got: " .. tostring(first))
+  local second, err2 = result.reader:read_until("\r\n")
+  assert(second == "" and err2 == nil,
+    "adjacent delimiters yield an empty field, got: " .. tostring(second))
+  local rest: {string} = {}
+  while true do
+    local chunk, rerr = result.reader:read()
+    assert(rerr == nil, "no read error expected, got: " .. tostring(rerr))
+    if not chunk then break end
+    table.insert(rest, chunk)
+  end
+  assert(table.concat(rest) == "bravo\r\ncharlie",
+    "read() drains the carry-over in order, got: " .. table.concat(rest))
+  assert(result.reader:close())
+  assert(proc.wait(pid))
+end
+test_read_until_multibyte_and_mixing()
+
+local function test_read_until_remainder_guards_and_close()
+  -- A delimiter-free body arrives whole as the EOF remainder, once;
+  -- the empty-delimiter guard returns nil + message (never throws);
+  -- read_until after close is the same error read() gives.
+  local port, pid = serve({body_response("no newline here")})
+  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
+  assert(result.ok == true, "stream opens: " .. tostring(result.error))
+  local bad, baderr = result.reader:read_until("")
+  assert(bad == nil and baderr ~= nil
+    and baderr:find("non-empty", 1, true) ~= nil,
+    "empty delimiter is nil + message, got: " .. tostring(baderr))
+  local whole, werr = result.reader:read_until("\n")
+  assert(whole == "no newline here" and werr == nil,
+    "delimiter-free body returned whole as remainder, got: " .. tostring(whole))
+  local after, aerr = result.reader:read_until("\n")
+  assert(after == nil and aerr == nil, "EOF after the remainder stays clean nil")
+  assert(result.reader:close())
+  local closed, cerr = result.reader:read_until("\n")
+  assert(closed == nil and cerr == "reader closed",
+    "read_until after close errors like read, got: " .. tostring(cerr))
+  assert(proc.wait(pid))
+end
+test_read_until_remainder_guards_and_close()
+
 local function test_stream_validation_and_error_kind()
   local result = fetch.stream("ftp://example.com/x")
   assert(result.ok == false, "ftp scheme must be rejected")

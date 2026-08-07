@@ -49,6 +49,17 @@ local record stream
     contents: function(self: Buffer): string
   end
 
+  --- Optional capability: a Reader that can scan for a delimiter
+  --- natively (fetch.Reader buffers it in C). read_until(delim)
+  --- returns the bytes before the next occurrence of delim, consuming
+  --- the delimiter (never included); at end of stream an unterminated
+  --- remainder is returned once, then bare nil; nil plus an error
+  --- message on failure. lines() prefers this over its own buffering,
+  --- so line iteration costs no per-chunk Lua rebuilds.
+  interface DelimReader is Reader
+    read_until: function(self: DelimReader, delim: string): string | nil, string
+  end
+
   write_all: function(w: Writer, data: string): boolean, string
   read_all: function(r: Reader, max?: integer): string | nil, string
   copy: function(dst: Writer, src: Reader, buf_size?: integer): integer | nil, string
@@ -181,15 +192,45 @@ function stream.buffer(): stream.Buffer
   return buf as stream.Buffer -- cast: table implements the Buffer record
 end
 
+--- Line iteration over a DelimReader: one C-buffered read_until("\n")
+--- per line, so no Lua-side chunk buffering at all. Same contract as
+--- the buffering path below: unterminated final line yielded once,
+--- nil + error once on failure, then plain nil forever.
+--- @param dr DelimReader The source
+--- @return function Iterator yielding lines without the trailing newline
+local function lines_via_read_until(dr: stream.DelimReader): function(): string | nil, string
+  local done = false
+  return function(): string | nil, string
+    if done then
+      return nil
+    end
+    local line, err = dr:read_until("\n")
+    if err then
+      done = true
+      return nil, err
+    end
+    if line == nil then
+      done = true
+      return nil
+    end
+    return line
+  end
+end
+
 --- Iterate complete lines from a Reader, buffering partial lines
 --- across chunks. On clean EOF a final unterminated line is yielded
 --- once, then nil. On a read error the buffered partial line is
 --- truncated data and is discarded — the iterator yields nil plus the
 --- error once, then plain nil forever. (Promoted from fetch.Reader's
---- lines(); cosmic.sse consumes the same iterator.)
+--- lines(); cosmic.sse consumes the same iterator.) A reader carrying
+--- the DelimReader capability skips the Lua buffering entirely.
 --- @param r Reader The source
 --- @return function Iterator yielding lines without the trailing newline
 function stream.lines(r: stream.Reader): function(): string | nil, string
+  local dr = r as stream.DelimReader -- cast: duck-typed capability probe
+  if type(dr.read_until) == "function" then
+    return lines_via_read_until(dr)
+  end
   -- Scan-position index into buffer: `pos` is the first unread byte.
   -- Advancing it instead of slicing off each returned line, and
   -- dropping the consumed prefix only when we must read more, keeps

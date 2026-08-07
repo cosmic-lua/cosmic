@@ -108,6 +108,8 @@ end
 local record Reader is stream_mod.Reader
   metamethod __close: function(self: Reader)
   read: function(self: Reader): string | nil, string
+  --- Read up to (and consuming) the next delim; stream.DelimReader.
+  read_until: function(self: Reader, delim: string): string | nil, string
   --- Close the reader; boolean, string like every stdlib close.
   close: function(self: Reader): boolean, string
   closed: function(self: Reader): boolean
@@ -312,6 +314,28 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
       return nil, err
     end
     return chunk
+  end
+
+  --- Read the bytes before the next occurrence of delim, consuming
+  --- the delimiter (multi-byte allowed, never included in the result).
+  --- Buffered in C by cosmo.StreamReader, so per-line consumers pay no
+  --- per-chunk Lua rebuilds; this is the stream.DelimReader capability
+  --- lines() rides. At end of stream an unterminated remainder is
+  --- returned once, then bare nil. Mixing with read() is safe: read()
+  --- drains the C carry-over first, so bytes are never reordered.
+  --- @param delim string non-empty delimiter to scan for
+  --- @return string | nil bytes before the delimiter, or nil on EOF or failure
+  --- @return string error message on failure (nil on clean EOF)
+  function reader:read_until(delim: string): string | nil, string
+    if is_closed then
+      return nil, "reader closed"
+    end
+    if delim == "" then
+      -- The C binding rejects an empty delimiter by throwing; keep the
+      -- library contract of nil + message instead.
+      return nil, "read_until: delimiter must be non-empty"
+    end
+    return raw_reader:read_until(delim)
   end
 
   --- Close the reader. Idempotent; cannot fail today.
