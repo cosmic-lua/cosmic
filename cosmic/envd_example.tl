@@ -11,20 +11,20 @@ local function Example_load_dir()
 
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local dir = fs.join(tmpdir, "envd_example")
-  fs.make_dirs(dir)
-  fs.write(fs.join(dir, "00-defaults"), "MY_APP_NAME=cosmic-example\nMY_APP_PORT=8080\n")
-  fs.write(fs.join(dir, "01-overrides"), "MY_APP_PORT=9090\n")
+  assert(fs.make_dirs(dir))
+  assert(fs.write(fs.join(dir, "00-defaults"), "MY_APP_NAME=cosmic-example\nMY_APP_PORT=8080\n"))
+  assert(fs.write(fs.join(dir, "01-overrides"), "MY_APP_PORT=9090\n"))
 
-  env.unset("MY_APP_NAME")
-  env.unset("MY_APP_PORT")
+  assert(env.unset("MY_APP_NAME"))
+  assert(env.unset("MY_APP_PORT"))
 
   local result = envd.load_dir(dir)
   print("loaded " .. tostring(result.count) .. " variable(s)")
   print("MY_APP_NAME=" .. tostring(env.get("MY_APP_NAME")))
   print("MY_APP_PORT=" .. tostring(env.get("MY_APP_PORT")))
 
-  env.unset("MY_APP_NAME")
-  env.unset("MY_APP_PORT")
+  assert(env.unset("MY_APP_NAME"))
+  assert(env.unset("MY_APP_PORT"))
   -- Output:
   -- loaded 2 variable(s)
   -- MY_APP_NAME=cosmic-example
@@ -49,19 +49,19 @@ local function Example_extract_update_embed()
 
   -- 2. add env.d with a credential
   local envd_dir = fs.join(extractdir, "embed", "env.d")
-  fs.make_dirs(envd_dir)
-  fs.write(fs.join(envd_dir, "credentials"), "MY_SECRET_TOKEN=tok-example-12345\n")
+  assert(fs.make_dirs(envd_dir))
+  assert(fs.write(fs.join(envd_dir, "credentials"), "MY_SECRET_TOKEN=tok-example-12345\n"))
 
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
   -- No loader prelude: --embed wraps a custom entry with the cosmic
   -- runtime searcher, so require() just works.
-  fs.write(fs.join(extractdir, "main.lua"), [[
+  assert(fs.write(fs.join(extractdir, "main.lua"), [[
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")
 local result = envd.load()
 print("envd loaded " .. result.count .. " var(s)")
 print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset"))
-]])
+]]))
 
   -- 4. build new executable
   local output = fs.join(tmpdir, "myapp")
@@ -70,7 +70,7 @@ print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset")
 
   -- 5. run it
   r = check.must(child.run({output}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   print(r.stdout)
   -- Output:
   -- envd loaded 1 var(s)

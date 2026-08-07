@@ -153,7 +153,7 @@ end
 
 local function cleanup()
   if tmpdir then
-    fs.remove_all(tmpdir)
+    local _ok, _err = fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

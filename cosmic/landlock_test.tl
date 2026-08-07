@@ -72,14 +72,14 @@ local function test_restrict_denies_outside_allowlist()
   -- denied file is a sibling left outside it (both exist, so the denial is
   -- a real landlock effect rather than a missing path).
   local allowed_dir = fs.join(tmpdir, "allowed")
-  fs.make_dirs(allowed_dir)
+  assert(fs.make_dirs(allowed_dir))
   local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "denied.txt")
-  fs.write(allowed, "allowed-content")
-  fs.write(denied, "denied-content")
+  assert(fs.write(allowed, "allowed-content"))
+  assert(fs.write(denied, "denied-content"))
 
   local script = fs.join(tmpdir, "landlock_restrict.lua")
-  fs.write(script, string.format([[
+  assert(fs.write(script, string.format([[
 local ll = require("cosmic.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then
@@ -97,7 +97,7 @@ if f then io.write("allowed-ok\n"); f:close() else io.write("allowed-fail\n") en
 -- Reading the sibling outside the allowed directory must fail.
 local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
-]], allowed_dir, allowed, denied))
+]], allowed_dir, allowed, denied)))
 
   -- landlock probed available here, so any failure to enforce below means
   -- an outer sandbox is blocking an otherwise-supported mechanism — a
@@ -139,14 +139,14 @@ local function test_restrict_single_file_rule()
   end
 
   local dir = fs.join(tmpdir, "filerule")
-  fs.make_dirs(dir)
+  assert(fs.make_dirs(dir))
   local target = fs.join(dir, "target.txt")
   local sibling = fs.join(dir, "sibling.txt")
-  fs.write(target, "target-content")
-  fs.write(sibling, "sibling-content")
+  assert(fs.write(target, "target-content"))
+  assert(fs.write(sibling, "sibling-content"))
 
   local script = fs.join(tmpdir, "landlock_filerule.lua")
-  fs.write(script, string.format([[
+  assert(fs.write(script, string.format([[
 local ll = require("cosmic.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then
@@ -157,7 +157,7 @@ local f = io.open(%q, "r")
 if f then io.write("file-ok\n"); f:close() else io.write("file-fail\n") end
 local g = io.open(%q, "r")
 if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked\n") end
-]], target, target, sibling))
+]], target, target, sibling)))
 
   local h = check.must(child.start({cosmic, script}))
   local __r2 = check.must(h:wait())

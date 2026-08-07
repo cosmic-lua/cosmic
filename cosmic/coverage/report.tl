@@ -139,7 +139,7 @@ end
 --- @param cov_files {string} Collects .cov file paths
 --- @param src_files {string} Collects .tl source paths
 local function scan_dir(dir: string, cov_files: {string}, src_files: {string})
-  fs.walk(dir, function(path: string, _name: string, st: types.WalkStat, _ctx: {boolean})
+  local _ok, _err = fs.walk(dir, function(path: string, _name: string, st: types.WalkStat, _ctx: {boolean})
       if st:is_dir() then
         return
       end

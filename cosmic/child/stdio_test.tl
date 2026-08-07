@@ -24,13 +24,13 @@ local WRONLY_CREAT_TRUNC = cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC
 --- the cosmic path as arg[1] so it can spawn a grandchild.
 local function run_capturing(name: string, src: string): child.Result, string
   local script = fs.join(TEST_TMPDIR, name .. ".lua")
-  fs.write(script, src)
+  assert(fs.write(script, src))
   local outfile = fs.join(TEST_TMPDIR, name .. ".out")
   local out_h = check.must(cfd.open(outfile, WRONLY_CREAT_TRUNC, tonumber("644", 8)))
   local h = check.must(child.start({lua_bin, script, lua_bin},
       {stdout = out_h}))
   local r = check.must(h:wait())
-  out_h:close()
+  assert(out_h:close())
   -- parenthesised: must forwards extra returns, which would overflow
   -- this function's declared two
   return r, (check.must(fs.read(outfile)))

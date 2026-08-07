@@ -168,7 +168,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
 
   -- Reply with a canned response and close the client socket.
   local function refuse(client_fd: integer, response: string)
-    http.send_all(client_fd, response)
+    local _ok, _err = http.send_all(client_fd, response)
     unix.close(client_fd)
   end
 

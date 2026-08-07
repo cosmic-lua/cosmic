@@ -25,7 +25,7 @@ check.must(env.set("COSMIC_BENCHMARK_MIN_MS", tostring(TINY_MS)))
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 

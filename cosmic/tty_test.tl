@@ -18,10 +18,10 @@ test_module_exports()
 
 local function test_is_tty_regular_file_is_false()
   local test_file = fs.join(check.must(os.getenv("TEST_TMPDIR")), "not_a_tty")
-  fs.write(test_file, "x")
+  assert(fs.write(test_file, "x"))
   local h = check.must(cfd.open(test_file, cfd.O_RDONLY), "should open the scratch file")
   assert(tty.is_tty(h:fd()) == false, "a regular file fd is not a tty")
-  h:close()
+  assert(h:close())
 end
 test_is_tty_regular_file_is_false()
 
@@ -38,7 +38,7 @@ local function test_is_tty_pty_master_is_true()
   end
   local h = check.must(cfd.open("/dev/ptmx", cfd.O_RDWR))
   assert(tty.is_tty(h:fd()) == true, "a pty master must report as a tty")
-  h:close()
+  assert(h:close())
 end
 test_is_tty_pty_master_is_true()
 
@@ -164,7 +164,7 @@ test_noecho_non_tty()
 -- piped (non-tty) stdin, instead of only checking the export exists.
 
 local getpass_script = fs.join(check.must(os.getenv("TEST_TMPDIR")), "getpass_child.lua")
-fs.write(getpass_script, [[
+assert(fs.write(getpass_script, [[
 local tty = require("cosmic.tty")
 local line, err = tty.getpass("pw: ")
 if line == nil then
@@ -172,7 +172,7 @@ if line == nil then
 else
   io.write("GOT:" .. line)
 end
-]])
+]]))
 local cosmic_bin = fs.join(check.must(os.getenv("TEST_BIN")), "cosmic")
 
 local function test_getpass_non_tty_reads_one_line()
@@ -281,6 +281,6 @@ local function test_restore_accepts_action()
   local ok, err = tty.restore(p.reader:fd(), t, tty.DRAIN)
   assert(not ok, "restore on a non-tty fd should fail")
   assert(type(err) == "string", "expected an error message")
-  p:close()
+  assert(p:close())
 end
 test_restore_accepts_action()

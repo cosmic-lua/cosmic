@@ -18,7 +18,7 @@ local function Example_basic()
   local ok, err = fs.mkdir(subdir)
   if not ok then
     print("mkdir failed:", err)
-    fs.remove_all(tmpdir)
+    assert(fs.remove_all(tmpdir))
     return
   end
 
@@ -39,7 +39,7 @@ local function Example_basic()
   end
 
   -- Clean up
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   print("cleaned up")
 
   -- Output:

@@ -21,7 +21,7 @@ local function test_open_read_write_close()
   assert(data == content, "read failed: " .. (rerr or "") .. " got '" .. tostring(data) .. "'")
   assert(fh:close(), "close failed")
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_open_read_write_close()
 
@@ -48,7 +48,7 @@ local function test_seek()
   assert(pos == 10, "seek SEEK_END failed, pos=" .. tostring(pos))
 
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_seek()
 
@@ -67,7 +67,7 @@ local function test_handle_truncate()
   assert(data == "01234", "expected '01234' got '" .. data .. "'")
 
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_handle_truncate()
 
@@ -88,7 +88,7 @@ local function test_truncate()
   assert(data == "012", "expected '012' got '" .. data .. "'")
   assert(f:close())
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_truncate()
 
@@ -108,7 +108,7 @@ local function test_dup()
 
   assert(f:close())
   assert(f2h:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_dup()
 
@@ -140,7 +140,7 @@ local function test_sync()
   assert(ok, "sync failed: " .. (err or ""))
 
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_sync()
 
@@ -189,7 +189,7 @@ local function test_fcntl()
   assert(ok ~= nil, "fcntl F_SETFD failed: " .. (err or ""))
 
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_fcntl()
 
@@ -216,7 +216,7 @@ local function test_append_mode()
   assert(data == "hello world", "append mode failed: got '" .. data .. "'")
   assert(f:close())
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_append_mode()
 
@@ -231,7 +231,7 @@ local function test_read_write_roundtrip()
   data, err = fs.read(filepath)
   assert(data == content, "fs.read failed: " .. (err or "") .. " got '" .. tostring(data) .. "'")
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_read_write_roundtrip()
 
@@ -277,7 +277,7 @@ local function test_tmpfile_handle()
   assert(tf.handle:write("via temp_file"))
   assert(tf.handle:close())
   assert(fs.read(tf.path) == "via temp_file", "data lands in the temp_file")
-  fs.unlink(tf.path)
+  assert(fs.unlink(tf.path))
 end
 test_tmpfile_handle()
 
@@ -304,7 +304,7 @@ local function test_write_error_names_errno()
   assert(n == nil, "write to O_RDONLY handle should fail")
   assert(err:match("EBADF"), "write error should name EBADF, got: " .. err)
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_write_error_names_errno()
 
@@ -325,7 +325,7 @@ local function test_closed_handle()
 
   assert(f:close(), "close should be idempotent")
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_closed_handle()
 
@@ -339,7 +339,7 @@ local function test_fd_method()
   assert(f:close())
   assert(f:fd() == -1, "fd should be -1 after close")
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_fd_method()
 
@@ -356,7 +356,7 @@ local function test_close_metamethod_exists()
   end
   assert(f:closed(), "handle should be closed after __close")
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_close_metamethod_exists()
 
@@ -413,7 +413,7 @@ local function test_read_write_with_offset()
   assert(data == "01ABC56789", "write with offset result: got '" .. data .. "'")
 
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_read_write_with_offset()
 
@@ -427,7 +427,7 @@ local function test_write_with_mode()
   local data = assert(fs.read(filepath))
   assert(data == content, "content mismatch after fs.write with mode")
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_write_with_mode()
 
@@ -441,7 +441,7 @@ local function test_datasync()
   assert(ok, "datasync failed: " .. (err or ""))
 
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_datasync()
 
@@ -466,6 +466,6 @@ local function test_close_returns_boolean_and_is_idempotent()
   assert(ok == true, "second close (idempotent) should return true, got: " .. tostring(ok))
   assert(err == nil, "second close should have no error, got: " .. tostring(err))
 
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_close_returns_boolean_and_is_idempotent()

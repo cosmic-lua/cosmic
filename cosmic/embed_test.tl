@@ -13,9 +13,9 @@ local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
   local dir = fs.dirname(filepath)
   if dir ~= tmpdir then
-    fs.make_dirs(dir)
+    assert(fs.make_dirs(dir))
   end
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 
@@ -82,7 +82,7 @@ test_embed_multiple_files()
 local function test_embed_custom_output()
   local input = write_temp("custom.txt", "custom content")
   local output = fs.join(tmpdir, "subdir/myapp")
-  fs.make_dirs(fs.dirname(output))
+  assert(fs.make_dirs(fs.dirname(output)))
 
   local __r3 = check.must(check.must(child.start({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r3.ok, __r3.stdout
@@ -145,10 +145,10 @@ test_embed_binary_file()
 local function test_embed_directory()
   -- Create a directory structure
   local appdir = fs.join(tmpdir, "testapp")
-  fs.make_dirs(fs.join(appdir, "lib"))
-  fs.write(fs.join(appdir, "main.lua"), 'print("hello")\n')
-  fs.write(fs.join(appdir, "lib/util.lua"), 'return {x=1}\n')
-  fs.write(fs.join(appdir, "data.txt"), "some data")
+  assert(fs.make_dirs(fs.join(appdir, "lib")))
+  assert(fs.write(fs.join(appdir, "main.lua"), 'print("hello")\n'))
+  assert(fs.write(fs.join(appdir, "lib/util.lua"), 'return {x=1}\n'))
+  assert(fs.write(fs.join(appdir, "data.txt"), "some data"))
 
   local output = fs.join(tmpdir, "cosmic-dir")
   local __r7 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
@@ -181,10 +181,10 @@ test_embed_directory()
 -- Test embedding a directory with nested subdirectories
 local function test_embed_nested_directory()
   local appdir = fs.join(tmpdir, "nested")
-  fs.make_dirs(fs.join(appdir, "a/b/c"))
-  fs.write(fs.join(appdir, "top.txt"), "top")
-  fs.write(fs.join(appdir, "a/mid.txt"), "mid")
-  fs.write(fs.join(appdir, "a/b/c/deep.txt"), "deep")
+  assert(fs.make_dirs(fs.join(appdir, "a/b/c")))
+  assert(fs.write(fs.join(appdir, "top.txt"), "top"))
+  assert(fs.write(fs.join(appdir, "a/mid.txt"), "mid"))
+  assert(fs.write(fs.join(appdir, "a/b/c/deep.txt"), "deep"))
 
   local output = fs.join(tmpdir, "cosmic-nested")
   local __r8 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
@@ -204,8 +204,8 @@ test_embed_nested_directory()
 -- Test mixing directory and file embedding
 local function test_embed_mixed()
   local appdir = fs.join(tmpdir, "mixapp")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), 'print("mixed")\n')
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), 'print("mixed")\n'))
 
   local extra = write_temp("extra.txt", "extra content")
   local output = fs.join(tmpdir, "cosmic-mixed")
@@ -230,8 +230,8 @@ test_embed_mixed()
 -- Test that embedded directory produces a working executable
 local function test_embed_directory_executable()
   local appdir = fs.join(tmpdir, "runapp")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), 'io.write("it works\\n")\n')
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), 'io.write("it works\\n")\n'))
 
   local output = fs.join(tmpdir, "cosmic-runapp")
   local __r10 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
@@ -252,16 +252,16 @@ test_embed_directory_executable()
 -- the require with the compile issue (the guarantee, in-app).
 local function test_embed_app_local_requires()
   local appdir = fs.join(tmpdir, "localmods")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "greet.tl"),
-    'local function hi(n: string): string\n  return "hi " .. n\nend\n'
-    .. "return { hi = hi }\n")
-  fs.write(fs.join(appdir, "util.lua"), 'return { v = "lua-mod" }\n')
-  fs.write(fs.join(appdir, "bad.tl"), "local x: string = 42\nreturn { x = x }\n")
-  fs.write(fs.join(appdir, "main.lua"),
-    'print(require("greet").hi("zip"), require("util").v)\n'
-    .. 'local ok, err = pcall(require, "bad")\n'
-    .. 'print("bad:", ok, err)\n')
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "greet.tl"),
+      'local function hi(n: string): string\n  return "hi " .. n\nend\n'
+      .. "return { hi = hi }\n"))
+  assert(fs.write(fs.join(appdir, "util.lua"), 'return { v = "lua-mod" }\n'))
+  assert(fs.write(fs.join(appdir, "bad.tl"), "local x: string = 42\nreturn { x = x }\n"))
+  assert(fs.write(fs.join(appdir, "main.lua"),
+      'print(require("greet").hi("zip"), require("util").v)\n'
+      .. 'local ok, err = pcall(require, "bad")\n'
+      .. 'print("bad:", ok, err)\n'))
 
   local output = fs.join(tmpdir, "cosmic-localmods")
   local __r12 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())

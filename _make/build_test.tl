@@ -41,7 +41,7 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "build-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
@@ -430,15 +430,15 @@ test_a_test_gets_its_own_scratch_directory()
 -- rather than left to the CLI tests, where the path is absolute.
 local function in_process(root: string, ...: string): integer
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
-  cenv.set("COSMIC_MAKE", make_bin)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
+  assert(cenv.set("COSMIC_MAKE", make_bin))
   local argv: {string} = {}
   for _, a in ipairs({...}) do
     argv[#argv + 1] = a
   end
   local code = mk.run(argv)
-  cenv.unset("COSMIC_MAKE_ROOT")
-  cenv.unset("COSMIC_MAKE")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
+  assert(cenv.unset("COSMIC_MAKE"))
   assert(fs.chdir(cwd))
   return code
 end

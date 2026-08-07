@@ -138,6 +138,9 @@ local record ProcessResult
   tl_result: TlResult
   shebang: string
   error: Issue
+  --- The tl env the file ran in; strict runs collect a typed position
+  --- report on it for the discarded-error pass.
+  env: any
 end
 
 --- Build a ProcessResult carrying a single top-of-file error.
@@ -192,6 +195,12 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     tl.path = saved_tl_path
     return process_error(input_path, "tl.new_env: " .. (env_err or "unknown error"))
   end
+  -- Strict runs collect the typed position report the discarded-error
+  -- pass (cosmic._teal_discard) reads after the check.
+  if not lax then
+    local env_map = env as {any: any} -- cast: beyond the narrowed API
+    env_map["report_types"] = true
+  end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
   local ok, result_or_err = pcall(tl.process_string, input, false, env, input_path)
@@ -207,7 +216,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     return process_error(input_path, "processing failed")
   end
 
-  return {tl_result = result, shebang = shebang}
+  return {tl_result = result, shebang = shebang, env = env}
 end
 
 --- Collect errors from tl result (syntax_errors and type_errors).
@@ -270,6 +279,17 @@ local function collect_warnings(result: TlResult, input_path: string): {Issue}
     end
   end
   return warnings
+end
+
+--- Append discarded-error findings (cosmic._teal_discard) as error
+--- Issues; strict-only, required lazily so lax compiles never load it.
+local function collect_discards(proc: ProcessResult, input_path: string,
+    errors: {Issue})
+  local discard = require("cosmic._teal_discard")
+  for _, d in ipairs(discard.issues(proc.env, proc.tl_result.ast, input_path)) do
+    table.insert(errors, {file = d.file, line = d.line, column = d.column,
+        message = d.message, severity = "error"})
+  end
 end
 
 --- Merge caller-provided include directories with defaults.
@@ -336,6 +356,9 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
       table.insert(errors, w)
     end
   end
+  if opts.strict and #errors == 0 then
+    collect_discards(proc, input_path, errors)
+  end
   if #errors > 0 then
     return {ok = false, code = nil, errors = errors}
   end
@@ -374,6 +397,9 @@ local function check(input_path: string, opts: CheckOptions): CheckResult
 
   local errors = collect_errors(proc.tl_result, input_path)
   local warnings = collect_warnings(proc.tl_result, input_path)
+  if #errors == 0 then
+    collect_discards(proc, input_path, errors)
+  end
 
   local ok = #errors == 0 and (not werror or #warnings == 0)
   return {ok = ok, warnings = warnings, errors = errors}

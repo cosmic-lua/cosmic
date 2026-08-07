@@ -18,7 +18,7 @@ local function test_read_eof_returns_nil()
   assert(data == nil, "read at EOF should return nil, got '" .. tostring(data) .. "'")
   assert(err == nil, "EOF is not an error, got: " .. tostring(err))
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_read_eof_returns_nil()
 
@@ -30,7 +30,7 @@ local function test_read_empty_file_returns_nil()
   assert(data == nil, "first read of an empty file should return nil, got '" .. tostring(data) .. "'")
   assert(err == nil, "EOF is not an error, got: " .. tostring(err))
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_read_empty_file_returns_nil()
 
@@ -49,7 +49,7 @@ local function test_read_loop_terminates_on_nil()
   end
   assert(table.concat(parts) == "0123456789", "chunked loop reassembles the file")
   assert(f:close())
-  os.remove(filepath)
+  assert(os.remove(filepath))
 end
 test_read_loop_terminates_on_nil()
 
@@ -60,7 +60,7 @@ local function test_nonblocking_pipe_read_names_eagain()
   local data, err = p.reader:read(10)
   assert(data == nil, "empty nonblocking pipe read should return nil")
   assert(err and err:match("EAGAIN"), "error should name EAGAIN, got: " .. tostring(err))
-  p:close()
+  assert(p:close())
 end
 test_nonblocking_pipe_read_names_eagain()
 
@@ -75,28 +75,28 @@ local function test_blocking_read_retries_eintr()
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
         if not fired then
           fired = true
-          p.writer:write("x")
+          assert(p.writer:write("x"))
         end
       end))
   -- Interval timer: keeps firing until the blocked read observes a signal,
   -- so the test cannot hang however the timing lands.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 30,
-      interval_ms = 30,
-    })
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 30,
+        interval_ms = 30,
+      }))
   local data, err = p.reader:read(10)
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
-  signal.setitimer({
-      which = signal.ITIMER_REAL,
-      value_ms = 0,
-      interval_ms = 0,
-    })
-  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
+  assert(signal.setitimer({
+        which = signal.ITIMER_REAL,
+        value_ms = 0,
+        interval_ms = 0,
+      }))
+  assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
   assert(data == "x", "interrupted read should retry and return the handler's"
     .. " payload, got " .. tostring(data) .. " (err: " .. tostring(err) .. ")")
-  p:close()
+  assert(p:close())
 end
 test_blocking_read_retries_eintr()
 

@@ -45,8 +45,8 @@ local function with_pty(): tty.Pty
 end
 
 local function close_pty(pty: tty.Pty)
-  fd.wrap(pty.manager):close()
-  fd.wrap(pty.subordinate):close()
+  assert(fd.wrap(pty.manager):close())
+  assert(fd.wrap(pty.subordinate):close())
 end
 
 --- The premise every other test rests on: the subordinate really is a
@@ -158,10 +158,10 @@ local function echo_observed(pty: tty.Pty): boolean
   local mgr = fd.wrap(pty.manager)
   assert(mgr:write("x"))
   local set = poll.new()
-  set:add(pty.manager, poll.POLLIN)
+  assert(set:add(pty.manager, poll.POLLIN))
   local n = set:poll(300)
   if n and n > 0 then
-    mgr:read(64)
+    assert(mgr:read(64))
     return true
   end
   return false
@@ -219,7 +219,7 @@ local function await_echo_off(pty: tty.Pty): boolean
     if t is tty.Termios and t.lflag & tty.ECHO == 0 then
       return true
     end
-    time.sleep_ms(10)
+    assert(time.sleep_ms(10))
   end
   return false
 end
@@ -234,18 +234,18 @@ local function test_getpass_reads_without_echoing()
     -- tty and getpass takes the echo-suppressing branch.
     local ok, lerr = tty.login_tty(pty.subordinate)
     if not ok then
-      fs.write(result, "LOGIN_TTY_FAILED:" .. tostring(lerr))
+      assert(fs.write(result, "LOGIN_TTY_FAILED:" .. tostring(lerr)))
       os.exit(0)
     end
     local pw, err = tty.getpass("Password: ")
-    fs.write(result, pw or ("ERR:" .. tostring(err)))
+    assert(fs.write(result, pw or ("ERR:" .. tostring(err))))
     os.exit(0)
   end
 
   local mgr = fd.wrap(pty.manager)
   if not await_echo_off(pty) then
-    signal.kill(pid, 9)
-    proc.wait(pid)
+    assert(signal.kill(pid, 9))
+    assert(proc.wait(pid))
     close_pty(pty)
     -- Same discipline as `with_pty`: a timed-out race is a SKIP, and a
     -- skip must exit EXIT_SKIP, not `return` and leave the file to exit
@@ -253,12 +253,12 @@ local function test_getpass_reads_without_echoing()
     check.needs("getpass disabling echo before the race timeout", false)
   end
   assert(mgr:write("hunter2\n"))
-  proc.wait(pid)
+  assert(proc.wait(pid))
 
   -- Everything the terminal sent back while the child was reading.
   local seen = ""
   local set = poll.new()
-  set:add(pty.manager, poll.POLLIN)
+  assert(set:add(pty.manager, poll.POLLIN))
   while true do
     local n = set:poll(300)
     if not n or n == 0 then break end
@@ -290,14 +290,14 @@ local function test_getpass_restores_echo_afterwards()
   if pid == 0 then
     if not tty.login_tty(pty.subordinate) then os.exit(1) end
     local pw = tty.getpass("pw: ")
-    fs.write(result, pw or "")
+    assert(fs.write(result, pw or ""))
     os.exit(0)
   end
 
   local mgr = fd.wrap(pty.manager)
   if not await_echo_off(pty) then
-    signal.kill(pid, 9)
-    proc.wait(pid)
+    assert(signal.kill(pid, 9))
+    assert(proc.wait(pid))
     close_pty(pty)
     -- Same discipline as `with_pty`: a timed-out race is a SKIP, and a
     -- skip must exit EXIT_SKIP, not `return` and leave the file to exit
@@ -305,7 +305,7 @@ local function test_getpass_restores_echo_afterwards()
     check.needs("getpass disabling echo before the race timeout", false)
   end
   assert(mgr:write("secret\n"))
-  proc.wait(pid)
+  assert(proc.wait(pid))
 
   local after = check.must(tty.getattr(pty.subordinate))
   assert(after.lflag & tty.ECHO ~= 0,

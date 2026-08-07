@@ -479,7 +479,7 @@ local function make_socket(fd: integer): Socket
   end
 
   return setmetatable(sock, {
-      __close = function(self: Socket) self:close() end
+      __close = function(self: Socket) local _ok, _err = self:close() end
     })
 end
 

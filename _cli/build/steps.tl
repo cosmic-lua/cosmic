@@ -46,7 +46,7 @@ local function do_tee(args: {string}): integer
     io.stderr:write(r.stderr)
   end
   io.write(r.stdout)
-  fs.make_dirs(fs.dirname(out))
+  local _ok, _err = fs.make_dirs(fs.dirname(out))
   local ok, werr = fs.write(out, r.stdout)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
@@ -73,7 +73,7 @@ local function do_write_list(args: {string}): integer
   if existing == content then
     return 0
   end
-  fs.make_dirs(fs.dirname(out))
+  local _ok, _err = fs.make_dirs(fs.dirname(out))
   local ok, werr = fs.write(out, content)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
@@ -213,12 +213,12 @@ local function do_copy(args: {string}): integer
   end
   -- cast: record union after guard
   local mode = (st as fs.Stat):mode() % 512 -- permission bits (0777)
-  fs.make_dirs(fs.dirname(dst))
+  local _ok, _err = fs.make_dirs(fs.dirname(dst))
   local ok, werr = fs.write(dst, content, mode)
   if not ok then
     return fail("write " .. dst .. " failed: " .. (werr or "unknown error"))
   end
-  fs.chmod(dst, mode) -- write's mode only applies on create
+  local _ok, _err = fs.chmod(dst, mode) -- write's mode only applies on create
   return 0
 end
 
@@ -228,8 +228,8 @@ local function do_link(args: {string}): integer
   if not linkpath then
     return fail("usage: link <target> <linkpath>")
   end
-  fs.make_dirs(fs.dirname(linkpath))
-  fs.unlink(linkpath)
+  local _ok, _err = fs.make_dirs(fs.dirname(linkpath))
+  local _ok, _err = fs.unlink(linkpath)
   local ok, lerr = fs.symlink(target, linkpath)
   if not ok then
     return fail("symlink " .. linkpath .. " -> " .. target .. " failed: "

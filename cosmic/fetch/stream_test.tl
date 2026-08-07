@@ -26,14 +26,14 @@ local function serve(responses: {string}): integer, integer
           buf = buf .. data
         end
         if #resp > 0 then
-          c:send(resp)
+          assert(c:send(resp))
         end
-        c:close()
+        assert(c:close())
       end
     end
     os.exit(0)
   end
-  s:close()
+  assert(s:close())
   return math.tointeger(port), pid
 end
 
@@ -58,8 +58,8 @@ local function test_stream_reads_body_and_reports_url()
     table.insert(chunks, chunk)
   end
   assert(table.concat(chunks) == "streamed body", "body should arrive intact")
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_stream_reads_body_and_reports_url()
 
@@ -74,8 +74,8 @@ local function test_stream_lines_iterates()
   assert(#lines == 3, "expected 3 lines, got " .. #lines)
   assert(lines[1] == "one" and lines[2] == "two" and lines[3] == "three",
     "lines must arrive in order; final unterminated line included")
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_stream_lines_iterates()
 
@@ -88,8 +88,8 @@ local function test_stream_204_is_clean_eof()
   local chunk, err = result.reader:read()
   assert(chunk == nil, "204 has no body")
   assert(err == nil, "204 EOF must not be an error, got: " .. tostring(err))
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_stream_204_is_clean_eof()
 
@@ -111,8 +111,8 @@ local function test_stream_truncated_body_surfaces_error()
     if not chunk then break end
   end
   assert(saw_error ~= nil, "a truncated body must surface a read error, not clean EOF")
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_stream_truncated_body_surfaces_error()
 
@@ -133,8 +133,8 @@ local function test_stream_lines_propagates_error_then_stops()
   assert(err2 ~= nil, "the error must be yielded, not swallowed EOF")
   local third, err3 = iter()
   assert(third == nil and err3 == nil, "after the error, the iterator is exhausted")
-  result.reader:close()
-  proc.wait(pid)
+  assert(result.reader:close())
+  assert(proc.wait(pid))
 end
 test_stream_lines_propagates_error_then_stops()
 
@@ -148,7 +148,7 @@ local function test_stream_reader_close_idempotent()
   assert(result.reader:closed(), "reader should be closed after close()")
   local chunk, err = result.reader:read()
   assert(chunk == nil and err == "reader closed", "read after close is an error")
-  proc.wait(pid)
+  assert(proc.wait(pid))
 end
 test_stream_reader_close_idempotent()
 

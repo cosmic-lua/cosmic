@@ -10,7 +10,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 
@@ -117,7 +117,7 @@ print("result=" .. add(2, 3))
   local ok, lua_code = __r7.ok, __r7.stdout
   assert(ok, "compilation should succeed")
 
-  fs.write(output, lua_code)
+  assert(fs.write(output, lua_code))
 
   local h8 = check.must(child.start({cosmic, output}))
   local __r8 = check.must(h8:wait())
@@ -278,7 +278,7 @@ test_format_write_if_changed()
 local function test_output_after_compile_reaches_the_file()
   local input = write_temp("after.tl", "local x: number = 7\nprint(x)\n")
   local out_path = fs.join(tmpdir, "after_out.lua")
-  fs.unlink(out_path)
+  local _ok, _err = fs.unlink(out_path) -- ensure absent; may not exist yet
   local h = check.must(child.start({cosmic, "--compile", input,
         "--output", out_path, "--write-if-changed"}))
   local r = check.must(h:wait())

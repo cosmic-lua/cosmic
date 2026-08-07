@@ -14,14 +14,14 @@ local function Example_echo()
   -- accept's error is in slot 2 now, so must() forwards it directly.
   local conn = check.must(srv:accept())
 
-  client:send("hello")
+  assert(client:send("hello"))
   local msg = check.must(conn:recv())
-  conn:send("echo: " .. msg)
+  assert(conn:send("echo: " .. msg))
   print(check.must(client:recv()))
 
-  client:close()
-  conn:close()
-  srv:close()
+  assert(client:close())
+  assert(conn:close())
+  assert(srv:close())
   -- Output:
   -- echo: hello
 end
@@ -38,13 +38,13 @@ local function Example_recv_eof()
   local client = check.must(net.connect_tcp("127.0.0.1", port))
   local conn = check.must(srv:accept())
 
-  client:close()
+  assert(client:close())
   local data, recv_err = conn:recv()
   assert(recv_err == nil)
   print(data == nil and "eof" or "data")
 
-  conn:close()
-  srv:close()
+  assert(conn:close())
+  assert(srv:close())
   -- Output:
   -- eof
 end

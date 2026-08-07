@@ -12,7 +12,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function test_blob_bind_affinity()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (v BLOB)")
+  assert(db:exec("CREATE TABLE t (v BLOB)"))
   local payload = "\0\1\2\255"
   local ok, err = db:exec("INSERT INTO t (v) VALUES (?)", sqlite.blob(payload))
   assert(ok, "blob insert should succeed: " .. tostring(err))
@@ -21,17 +21,17 @@ local function test_blob_bind_affinity()
     "should read the row back")
   assert(row.ty == "blob", "typeof should be blob, got " .. tostring(row.ty))
   assert(row.v == payload, "blob bytes should round-trip")
-  db:close()
+  assert(db:close())
 end
 test_blob_bind_affinity()
 
 local function test_plain_string_stays_text()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (v BLOB)")
-  db:exec("INSERT INTO t (v) VALUES (?)", "\0\1\2")
+  assert(db:exec("CREATE TABLE t (v BLOB)"))
+  assert(db:exec("INSERT INTO t (v) VALUES (?)", "\0\1\2"))
   local row = check.must(db:query_one("SELECT typeof(v) AS ty FROM t"))
   assert(row.ty == "text", "bare string should keep text affinity")
-  db:close()
+  assert(db:close())
 end
 test_plain_string_stays_text()
 
@@ -44,13 +44,13 @@ local function test_blob_in_query_params()
   local row = iter()
   assert(row and row.ty == "blob", "query param should bind as blob")
   while iter() ~= nil do end
-  db:close()
+  assert(db:close())
 end
 test_blob_in_query_params()
 
 local function test_blob_bind_and_bind_list()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (a BLOB, b BLOB)")
+  assert(db:exec("CREATE TABLE t (a BLOB, b BLOB)"))
 
   local stmt = check.must(db:prepare("INSERT INTO t (a, b) VALUES (?, ?)"))
   local ok, err = stmt:bind(sqlite.blob("x"), "y")
@@ -69,17 +69,17 @@ local function test_blob_bind_and_bind_list()
     assert(row.tb == "text", "column b should be text")
   end
   assert(n == 2, "should have inserted 2 rows, got " .. n)
-  db:close()
+  assert(db:close())
 end
 test_blob_bind_and_bind_list()
 
 local function test_blob_named_rejected()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (v BLOB)")
+  assert(db:exec("CREATE TABLE t (v BLOB)"))
   local ok, err = db:exec_named("INSERT INTO t (v) VALUES (:v)", {v = sqlite.blob("x")})
   assert(not ok, "blob via named parameters should be rejected")
   assert(err and err:match("positional"), "error should point at positional binding, got: " .. tostring(err))
-  db:close()
+  assert(db:close())
 end
 test_blob_named_rejected()
 
@@ -91,17 +91,17 @@ local function test_busy_timeout_applied()
   local row = check.must(db:query_one("PRAGMA busy_timeout"),
     "pragma should return a row")
   assert(row.timeout == 5000, "default busy timeout should be 5000ms, got " .. tostring(row.timeout))
-  db:close()
+  assert(db:close())
 
   db = check.must(sqlite.open(":memory:", {busy_timeout_ms = 123}))
   row = check.must(db:query_one("PRAGMA busy_timeout"))
   assert(row.timeout == 123, "busy_timeout_ms option should apply, got " .. tostring(row.timeout))
-  db:close()
+  assert(db:close())
 
   db = check.must(sqlite.open(":memory:", {busy_timeout_ms = 0}))
   row = check.must(db:query_one("PRAGMA busy_timeout"))
   assert(row.timeout == 0, "busy_timeout_ms=0 should disable waiting, got " .. tostring(row.timeout))
-  db:close()
+  assert(db:close())
 end
 test_busy_timeout_applied()
 
@@ -110,9 +110,9 @@ test_busy_timeout_applied()
 local function test_read_only_open()
   local path = fs.join(TEST_TMPDIR, "readonly_test.db")
   local db = check.must(sqlite.open(path))
-  db:exec("CREATE TABLE t (v TEXT)")
-  db:exec("INSERT INTO t (v) VALUES (?)", "hello")
-  db:close()
+  assert(db:exec("CREATE TABLE t (v TEXT)"))
+  assert(db:exec("INSERT INTO t (v) VALUES (?)", "hello"))
+  assert(db:close())
 
   local rdb = check.must(sqlite.open(path, {read_only = true}))
   local row = check.must(rdb:query_one("SELECT v FROM t"))
@@ -120,7 +120,7 @@ local function test_read_only_open()
   local ok, err = rdb:exec("INSERT INTO t (v) VALUES (?)", "nope")
   assert(not ok, "write through read-only handle should fail")
   assert(err, "read-only write failure should carry an error message")
-  rdb:close()
+  assert(rdb:close())
 end
 test_read_only_open()
 
@@ -137,7 +137,7 @@ test_read_only_missing_file_fails()
 
 local function test_unique_constraint_violation()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (u TEXT UNIQUE)")
+  assert(db:exec("CREATE TABLE t (u TEXT UNIQUE)"))
   assert(db:exec("INSERT INTO t (u) VALUES (?)", "dup"))
   local ok, err = db:exec("INSERT INTO t (u) VALUES (?)", "dup")
   assert(not ok, "duplicate insert should fail")
@@ -145,18 +145,18 @@ local function test_unique_constraint_violation()
     "error should name the UNIQUE constraint, got: " .. tostring(err))
   local row = check.must(db:query_one("SELECT COUNT(*) AS c FROM t"))
   assert(row.c == 1, "the failed insert must not add a row")
-  db:close()
+  assert(db:close())
 end
 test_unique_constraint_violation()
 
 local function test_not_null_constraint_violation()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (n TEXT NOT NULL)")
+  assert(db:exec("CREATE TABLE t (n TEXT NOT NULL)"))
   local ok, err = db:exec("INSERT INTO t (n) VALUES (?)", nil)
   assert(not ok, "NULL insert into NOT NULL column should fail")
   assert(err and err:match("NOT NULL constraint failed"),
     "error should name the NOT NULL constraint, got: " .. tostring(err))
-  db:close()
+  assert(db:close())
 end
 test_not_null_constraint_violation()
 
@@ -166,7 +166,7 @@ test_not_null_constraint_violation()
 local function test_busy_second_connection_write_blocked()
   local path = fs.join(TEST_TMPDIR, "busy_test.db")
   local a = check.must(sqlite.open(path))
-  a:exec("CREATE TABLE k (v TEXT)")
+  assert(a:exec("CREATE TABLE k (v TEXT)"))
   -- busy_timeout_ms=0: fail immediately instead of stalling the test.
   local b = check.must(sqlite.open(path, {busy_timeout_ms = 0}))
 
@@ -181,7 +181,7 @@ local function test_busy_second_connection_write_blocked()
   assert(a:exec("COMMIT"))
   local ok2, err2 = b:exec("INSERT INTO k (v) VALUES (?)", "after")
   assert(ok2, "write after the lock is released should succeed: " .. tostring(err2))
-  a:close()
-  b:close()
+  assert(a:close())
+  assert(b:close())
 end
 test_busy_second_connection_write_blocked()

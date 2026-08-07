@@ -82,7 +82,7 @@ local function test_extract_modify_embed()
   if not fs.is_file(entry) then
     entry = fs.join(extractdir, "main.lua")
   end
-  fs.write(entry, 'io.write("modified\\n")\n')
+  assert(fs.write(entry, 'io.write("modified\\n")\n'))
 
   -- Re-embed
   local output = fs.join(tmpdir, "modified-cosmic")
@@ -114,8 +114,8 @@ local function test_embed_overwrites_cleanly()
 
   -- Embed a directory that overrides main.lua
   local appdir = fs.join(tmpdir, "overwrite-app")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), 'print("new")\n')
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), 'print("new")\n'))
 
   local output = fs.join(tmpdir, "cosmic-overwrite")
   local __r7 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
@@ -145,21 +145,21 @@ test_embed_overwrites_cleanly()
 -- Test that file modes are preserved in the zip archive
 local function test_embed_preserves_file_modes()
   local appdir = fs.join(tmpdir, "modeapp")
-  fs.make_dirs(appdir)
+  assert(fs.make_dirs(appdir))
 
   -- Create files with different modes
   local script = fs.join(appdir, "run.sh")
   local config = fs.join(appdir, "config.txt")
   local secret = fs.join(appdir, "secret.key")
 
-  fs.write(script, "#!/bin/sh\necho hello\n")
-  fs.write(config, "setting=value\n")
-  fs.write(secret, "private-key-data\n")
+  assert(fs.write(script, "#!/bin/sh\necho hello\n"))
+  assert(fs.write(config, "setting=value\n"))
+  assert(fs.write(secret, "private-key-data\n"))
 
   -- Set specific modes
-  fs.chmod(script, tonumber("755", 8))
-  fs.chmod(config, tonumber("644", 8))
-  fs.chmod(secret, tonumber("600", 8))
+  assert(fs.chmod(script, tonumber("755", 8)))
+  assert(fs.chmod(config, tonumber("644", 8)))
+  assert(fs.chmod(secret, tonumber("600", 8)))
 
   local output = fs.join(tmpdir, "cosmic-modes")
   local __r8 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
@@ -194,16 +194,16 @@ test_embed_preserves_file_modes()
 local function test_extract_preserves_file_modes()
   -- First embed files with specific modes
   local appdir = fs.join(tmpdir, "extract-modeapp")
-  fs.make_dirs(appdir)
+  assert(fs.make_dirs(appdir))
 
   local script = fs.join(appdir, "run.sh")
   local secret = fs.join(appdir, "secret.key")
 
-  fs.write(script, "#!/bin/sh\necho hello\n")
-  fs.write(secret, "private-key-data\n")
+  assert(fs.write(script, "#!/bin/sh\necho hello\n"))
+  assert(fs.write(secret, "private-key-data\n"))
 
-  fs.chmod(script, tonumber("755", 8))
-  fs.chmod(secret, tonumber("600", 8))
+  assert(fs.chmod(script, tonumber("755", 8)))
+  assert(fs.chmod(secret, tonumber("600", 8)))
 
   local embedded = fs.join(tmpdir, "cosmic-extract-modes")
   local __r9 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", embedded})):wait())
@@ -240,8 +240,8 @@ test_extract_preserves_file_modes()
 local function test_embed_does_not_corrupt_running_process()
   -- Create a program that sleeps, then exercises code pages
   local appdir = fs.join(tmpdir, "running-app")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), [[
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), [[
 local time = require("cosmic.time")
 -- Sleep to give the test time to overwrite the binary
 time.sleep(1)
@@ -251,7 +251,7 @@ for i = 1, 100 do t[i] = string.format("item_%04d", i) end
 local result = table.concat(t, ",")
 -- Signal success
 io.write("OK:" .. #result)
-]])
+]]))
 
   local binary = fs.join(tmpdir, "cosmic-running")
   local __r11 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", binary})):wait())
@@ -262,7 +262,7 @@ io.write("OK:" .. #result)
   local handle = check.must(child.start({binary}))
 
   -- Wait briefly for the process to start and mmap its pages
-  time.sleep(0, 100000000) -- 100ms
+  assert(time.sleep(0, 100000000)) -- 100ms
 
   -- Re-embed over the same path while the process is running.
   -- Without atomic write, this would corrupt the running process.
@@ -290,12 +290,12 @@ local function test_extract_rejects_path_traversal()
   -- valid). "XX/escaped.txt" -> "../escaped.txt".
   local safe = fs.join(tmpdir, "patched.zip")
   local w = check.must(zip.create(safe), "should open zip for writing")
-  w:add("XX/escaped.txt", "pwned")
+  assert(w:add("XX/escaped.txt", "pwned"))
   w:close()
   local raw = check.must(fs.read(safe))
   local patched = raw:gsub("XX/escaped%.txt", "../escaped.txt")
   local malicious = fs.join(tmpdir, "malicious.zip")
-  fs.write(malicious, patched)
+  assert(fs.write(malicious, patched))
 
   local outdir = fs.join(tmpdir, "extract-target")
   local result = embed.extract(outdir, malicious)
@@ -312,10 +312,10 @@ test_extract_rejects_path_traversal()
 -- A symlink loop inside the embed dir must terminate without error.
 local function test_embed_symlink_loop_terminates()
   local appdir = fs.join(tmpdir, "symlinkloop")
-  fs.make_dirs(fs.join(appdir, "sub"))
-  fs.write(fs.join(appdir, "sub", "real.txt"), "data")
+  assert(fs.make_dirs(fs.join(appdir, "sub")))
+  assert(fs.write(fs.join(appdir, "sub", "real.txt"), "data"))
   -- Create a cycle: sub/loop -> ..  (points back to appdir)
-  fs.symlink("..", fs.join(appdir, "sub", "loop"))
+  assert(fs.symlink("..", fs.join(appdir, "sub", "loop")))
 
   -- embed.collect_dir is called internally; run via the module directly
   local result = embed.embed({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkloop"), exe_path = cosmic})
@@ -335,13 +335,13 @@ test_embed_symlink_loop_terminates()
 local function test_embed_symlink_to_outside_file_skipped()
   -- Create a file outside the embed dir
   local outside = fs.join(tmpdir, "outside_secret.txt")
-  fs.write(outside, "secret-content")
+  assert(fs.write(outside, "secret-content"))
 
   local appdir = fs.join(tmpdir, "symlinkoutside")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), 'print("hi")\n')
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), 'print("hi")\n'))
   -- Symlink inside the embed dir pointing outside
-  fs.symlink(outside, fs.join(appdir, "leaked.txt"))
+  assert(fs.symlink(outside, fs.join(appdir, "leaked.txt")))
 
   local result = embed.embed({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkoutside"), exe_path = cosmic})
   assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
@@ -362,11 +362,11 @@ test_embed_symlink_to_outside_file_skipped()
 -- order is free: --exe is collected before early-returning options.
 local function test_exe_flag_extract_and_layer()
   local appdir = fs.join(tmpdir, "exeapp")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"),
-    'print("v1", io.open("/zip/extra.txt") and "extra" or "noextra")\n')
-  fs.write(fs.join(appdir, "tool.sh"), "#!/bin/sh\necho t\n")
-  fs.chmod(fs.join(appdir, "tool.sh"), tonumber("755", 8))
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"),
+      'print("v1", io.open("/zip/extra.txt") and "extra" or "noextra")\n'))
+  assert(fs.write(fs.join(appdir, "tool.sh"), "#!/bin/sh\necho t\n"))
+  assert(fs.chmod(fs.join(appdir, "tool.sh"), tonumber("755", 8)))
 
   local app1 = fs.join(tmpdir, "exe-app1")
   local __e1 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", app1})):wait())
@@ -387,7 +387,7 @@ local function test_exe_flag_extract_and_layer()
 
   -- Layer a file onto the existing app.
   local extra = fs.join(tmpdir, "extra.txt")
-  fs.write(extra, "x")
+  assert(fs.write(extra, "x"))
   local app2 = fs.join(tmpdir, "exe-app2")
   local __e3 = check.must(check.must(
       child.start({cosmic, "--embed", extra, "--output", app2, "--exe", app1})):wait())

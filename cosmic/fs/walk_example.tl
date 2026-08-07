@@ -19,19 +19,19 @@ local function Example_walk()
 
   -- Collect entries and sort for deterministic output.
   local entries: {string} = {}
-  fs.walk(tmpdir, function(_path: string, name: string, st: types.WalkStat, ctx: {string})
-      -- path is the full path; name is just the basename.
-      -- Never do fs.join(path, name) — that would double the path.
-      local kind = st:is_dir() and "dir" or "file"
-      table.insert(ctx, kind .. " " .. name)
-    end, entries)
+  assert(fs.walk(tmpdir, function(_path: string, name: string, st: types.WalkStat, ctx: {string})
+        -- path is the full path; name is just the basename.
+        -- Never do fs.join(path, name) — that would double the path.
+        local kind = st:is_dir() and "dir" or "file"
+        table.insert(ctx, kind .. " " .. name)
+      end, entries))
 
   table.sort(entries)
   for _, line in ipairs(entries) do
     print(line)
   end
 
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   -- Output:
   -- dir conf
   -- file README
@@ -61,7 +61,7 @@ local function Example_collect()
     print(fs.basename(p))
   end
 
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   -- Output:
   -- main.lua
   -- util.lua
@@ -89,7 +89,7 @@ local function Example_files()
     print(n)
   end
 
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   -- Output:
   -- a.txt
   -- b.txt

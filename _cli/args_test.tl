@@ -11,13 +11,13 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- Test script that uses only varargs (...)
 local function test_varargs_only()
   local script = fs.join(tmpdir, "varargs.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("varargs_count=" .. #args)
 for i, v in ipairs(args) do
   print("vararg[" .. i .. "]=" .. tostring(v))
 end
-]])
+]]))
 
   local h1 = check.must(child.start({cosmic, script, "foo", "bar", "baz"}))
   local __r1 = check.must(h1:wait())
@@ -33,13 +33,13 @@ test_varargs_only()
 -- Test script that uses only global arg table
 local function test_arg_table_only()
   local script = fs.join(tmpdir, "argtable.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 print("arg_count=" .. #arg)
 print("arg[0]=" .. tostring(arg[0]))
 for i = 1, #arg do
   print("arg[" .. i .. "]=" .. tostring(arg[i]))
 end
-]])
+]]))
 
   local h2 = check.must(child.start({cosmic, script, "alpha", "beta"}))
   local __r2 = check.must(h2:wait())
@@ -55,7 +55,7 @@ test_arg_table_only()
 -- Test that both varargs and arg table work together and match
 local function test_varargs_and_arg_table()
   local script = fs.join(tmpdir, "both.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local varargs = {...}
 print("varargs_count=" .. #varargs)
 print("arg_count=" .. #arg)
@@ -63,7 +63,7 @@ print("match=" .. tostring(#varargs == #arg))
 for i = 1, #arg do
   print("match[" .. i .. "]=" .. tostring(arg[i] == varargs[i]))
 end
-]])
+]]))
 
   local h3 = check.must(child.start({cosmic, script, "x", "y", "z"}))
   local __r3 = check.must(h3:wait())
@@ -81,7 +81,7 @@ test_varargs_and_arg_table()
 -- Test the common pattern: function main(...) os.exit(main(...))
 local function test_main_function_with_varargs()
   local script = fs.join(tmpdir, "main_varargs.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local function main(...)
   local args = {...}
   print("main_varargs_count=" .. #args)
@@ -92,7 +92,7 @@ local function main(...)
 end
 
 os.exit(main(...))
-]])
+]]))
 
   local h4 = check.must(child.start({cosmic, script, "one", "two"}))
   local __r4 = check.must(h4:wait())
@@ -107,7 +107,7 @@ test_main_function_with_varargs()
 -- Test function main(param) with single optional parameter
 local function test_main_function_with_single_param()
   local script = fs.join(tmpdir, "main_param.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local function main(dir)
   dir = dir or "default"
   print("param=" .. dir)
@@ -115,7 +115,7 @@ local function main(dir)
 end
 
 os.exit(main(...))
-]])
+]]))
 
   -- Test with argument
   local h5 = check.must(child.start({cosmic, script, "custom"}))
@@ -136,12 +136,12 @@ test_main_function_with_single_param()
 -- Test script with no arguments
 local function test_no_arguments()
   local script = fs.join(tmpdir, "noargs.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("varargs_count=" .. #args)
 print("arg_count=" .. #arg)
 print("arg[0]=" .. tostring(arg[0]))
-]])
+]]))
 
   local h7 = check.must(child.start({cosmic, script}))
   local __r7 = check.must(h7:wait())
@@ -156,12 +156,12 @@ test_no_arguments()
 -- Test arguments containing spaces
 local function test_arguments_with_spaces()
   local script = fs.join(tmpdir, "spaces.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h8 = check.must(child.start({cosmic, script, "hello world", "foo bar"}))
   local __r8 = check.must(h8:wait())
@@ -175,12 +175,12 @@ test_arguments_with_spaces()
 -- Test arguments with special characters (use -- to separate from cosmic options)
 local function test_arguments_with_special_chars()
   local script = fs.join(tmpdir, "special.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h9 = check.must(child.start({cosmic, script, "--", "--flag", "-x", "value=123"}))
   local __r9 = check.must(h9:wait())
@@ -195,7 +195,7 @@ test_arguments_with_special_chars()
 -- Test that cosmo.is_main() still works with new varargs approach
 local function test_cosmo_is_main_compatibility()
   local script = fs.join(tmpdir, "is_main.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local proc = require("cosmic.proc")
 
 local function main(...)
@@ -208,7 +208,7 @@ end
 if proc.is_main() then
   os.exit(main(...))
 end
-]])
+]]))
 
   local h10 = check.must(child.start({cosmic, script, "test1", "test2"}))
   local __r10 = check.must(h10:wait())
@@ -222,13 +222,13 @@ test_cosmo_is_main_compatibility()
 -- Test that --version after script name is passed to script (not consumed by cosmic)
 local function test_version_flag_after_script()
   local script = fs.join(tmpdir, "version_arg.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h11 = check.must(child.start({cosmic, script, "--version"}))
   local __r11 = check.must(h11:wait())
@@ -242,13 +242,13 @@ test_version_flag_after_script()
 -- Test that --help after script name is passed to script (not consumed by cosmic)
 local function test_help_flag_after_script()
   local script = fs.join(tmpdir, "help_arg.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h12 = check.must(child.start({cosmic, script, "--help"}))
   local __r12 = check.must(h12:wait())
@@ -262,13 +262,13 @@ test_help_flag_after_script()
 -- Test that -v after script name is passed to script (not consumed by cosmic)
 local function test_v_flag_after_script()
   local script = fs.join(tmpdir, "v_arg.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h13 = check.must(child.start({cosmic, script, "-v"}))
   local __r13 = check.must(h13:wait())
@@ -282,13 +282,13 @@ test_v_flag_after_script()
 -- Test cosmic options before script and script options after
 local function test_mixed_cosmic_and_script_options()
   local script = fs.join(tmpdir, "mixed.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   -- cosmic -e before script, then script gets --version
   local h14 = check.must(child.start({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"}))
@@ -305,13 +305,13 @@ test_mixed_cosmic_and_script_options()
 -- Test multiple option-like arguments after script name
 local function test_multiple_option_like_args()
   local script = fs.join(tmpdir, "multi_opts.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h15 = check.must(child.start({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"}))
   local __r15 = check.must(h15:wait())
@@ -329,13 +329,13 @@ test_multiple_option_like_args()
 -- Test that -- separator works without script options after it
 local function test_separator_with_no_following_options()
   local script = fs.join(tmpdir, "separator_simple.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 local args = {...}
 print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]])
+]]))
 
   local h16 = check.must(child.start({cosmic, script, "--", "arg1", "arg2"}))
   local __r16 = check.must(h16:wait())
@@ -352,7 +352,7 @@ test_separator_with_no_following_options()
 -- Test real-world nvim-like case: script.lua --version
 local function test_nvim_version_pattern()
   local script = fs.join(tmpdir, "nvim_like.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 -- Simulate nvim-like wrapper that checks for --version
 for i = 1, #arg do
   if arg[i] == "--version" then
@@ -361,7 +361,7 @@ for i = 1, #arg do
   end
 end
 print("No --version flag found")
-]])
+]]))
 
   local h17 = check.must(child.start({cosmic, script, "--version"}))
   local __r17 = check.must(h17:wait())
@@ -420,10 +420,10 @@ test_help_includes_all_options()
 -- dispatcher used to strip every `--` after the script name.
 local function test_double_dash_reaches_the_script()
   local script = fs.join(tmpdir, "dashes.lua")
-  fs.write(script, [[
+  assert(fs.write(script, [[
 print("n=" .. #arg)
 for i = 1, #arg do print("a[" .. i .. "]=" .. arg[i]) end
-]])
+]]))
   local h = check.must(child.start({cosmic, script, "one", "--", "two", "--", "three"}))
   local r = check.must(h:wait())
   assert(r.ok, "cosmic should succeed: " .. (r.stderr or ""))

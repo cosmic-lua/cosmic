@@ -12,7 +12,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 
@@ -74,11 +74,11 @@ local function test_tl_loader_still_available()
   -- Lua searcher consults package.path FIRST and would loadfile the
   -- raw .tl as Lua).
   local moddir = fs.join(tmpdir, "tlonly")
-  fs.make_dirs(moddir)
-  fs.write(fs.join(moddir, "mymod.tl"), [[
+  assert(fs.make_dirs(moddir))
+  assert(fs.write(fs.join(moddir, "mymod.tl"), [[
 local answer: integer = 42
 return { answer = answer }
-]])
+]]))
 
   local script = write_temp("use_tlonly.tl", [[
 local mymod = require("mymod")
@@ -125,11 +125,11 @@ test_tl_loader_still_available()
 --- generated code anyway, silently running broken modules.
 local function test_require_fails_on_compile_error()
   local baddir = fs.join(tmpdir, "tlbad")
-  fs.make_dirs(baddir)
-  fs.write(fs.join(baddir, "badmod.tl"), [[
+  assert(fs.make_dirs(baddir))
+  assert(fs.write(fs.join(baddir, "badmod.tl"), [[
 local x: string = 42
 return { x = x }
-]])
+]]))
   local script = write_temp("use_bad.tl", [[
 local badmod = require("badmod")
 print("should not get here: " .. tostring(badmod))
@@ -156,11 +156,11 @@ test_require_fails_on_compile_error()
 --- script's require tree compiles once per content+build, not per run.
 local function test_require_uses_compile_cache()
   local gooddir = fs.join(tmpdir, "tlgood")
-  fs.make_dirs(gooddir)
-  fs.write(fs.join(gooddir, "goodmod.tl"), [[
+  assert(fs.make_dirs(gooddir))
+  assert(fs.write(fs.join(gooddir, "goodmod.tl"), [[
 local value: string = "cached"
 return { value = value }
-]])
+]]))
   local script = write_temp("use_good.tl", [[
 print("value=" .. require("goodmod").value)
 ]])

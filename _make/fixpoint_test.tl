@@ -45,7 +45,7 @@ local function copy(from: string, to: string)
   assert(fs.write(to, body))
   local st = fs.stat(from)
   if st then
-    fs.chmod(to, (st as fs.Stat):mode() & tonumber("777", 8)) -- cast: record union after guard
+    assert(fs.chmod(to, (st as fs.Stat):mode() & tonumber("777", 8))) -- cast: record union after guard
   end
 end
 
@@ -59,27 +59,27 @@ end
 local function copy_tree(dest: string)
   assert(fs.make_dirs(dest))
   local failure: string = nil
-  fs.walk(repo, function(path: string, entry: string,
-        st: fs.WalkStat): fs.WalkAction
-      local rel = path:sub(#repo + 2)
-      if entry:sub(1, 1) == "." or rel == "o" then
-        return "skip"
-      end
-      if not st:is_file() then
+  assert(fs.walk(repo, function(path: string, entry: string,
+          st: fs.WalkStat): fs.WalkAction
+        local rel = path:sub(#repo + 2)
+        if entry:sub(1, 1) == "." or rel == "o" then
+          return "skip"
+        end
+        if not st:is_file() then
+          return nil
+        end
+        local body = fs.read(path)
+        if not body then
+          failure = "cannot read " .. rel
+          return "stop"
+        end
+        local out = fs.join(dest, rel)
+        if not fs.make_dirs(fs.dirname(out)) or not fs.write(out, body) then
+          failure = "cannot write " .. rel
+          return "stop"
+        end
         return nil
-      end
-      local body = fs.read(path)
-      if not body then
-        failure = "cannot read " .. rel
-        return "stop"
-      end
-      local out = fs.join(dest, rel)
-      if not fs.make_dirs(fs.dirname(out)) or not fs.write(out, body) then
-        failure = "cannot write " .. rel
-        return "stop"
-      end
-      return nil
-    end)
+      end))
   assert(not failure, failure)
 end
 
@@ -164,7 +164,7 @@ end
 --- @return string The path to the produced binary
 local function generation(label: string, with: string): string
   local dir = fs.join(tmpdir, "fixpoint-" .. label)
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   copy_tree(dir)
   -- The version as a tree input. `copy_tree` skips dotfiles, so this is
   -- the copy's own declaration and never the developer's.

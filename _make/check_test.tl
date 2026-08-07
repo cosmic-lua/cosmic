@@ -36,7 +36,7 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "check-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
@@ -339,13 +339,13 @@ test_root_override()
 -- caller can use twice.
 local function in_process(root: string, ...: string): integer
   local cwd = check.must(fs.cwd())
-  cenv.set("COSMIC_MAKE_ROOT", root)
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
   local argv: {string} = {}
   for _, a in ipairs({...}) do
     argv[#argv + 1] = a
   end
   local code = mk.run(argv)
-  cenv.unset("COSMIC_MAKE_ROOT")
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(fs.chdir(cwd))
   return code
 end

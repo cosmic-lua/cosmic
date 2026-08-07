@@ -89,7 +89,7 @@ end
 -- Remove internal doc pages from a generated docs tree in place.
 local function prune_internal(docs_dir: string)
   local internal: {string} = {}
-  fs.walk(docs_dir, function(path: string, name: string, st: fs.Stat, acc: {string})
+  local _ok, _err = fs.walk(docs_dir, function(path: string, name: string, st: fs.Stat, acc: {string})
       if not st:is_dir() and name:match("%.md$") then
         local rel_path = path:sub(#docs_dir + 2)
         if rel_path ~= "README.md" and not is_public_page(rel_path) then
@@ -98,7 +98,7 @@ local function prune_internal(docs_dir: string)
       end
     end, internal)
   for _, path in ipairs(internal) do
-    fs.remove_all(path)
+    local _ok, _err = fs.remove_all(path)
   end
 end
 
@@ -204,7 +204,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   local temp_dir = fs.temp_dir("/tmp/docs-publish-XXXXXX")
   local ok, err = run({"cp", "-r", docs_dir .. "/.", temp_dir})
   if not ok then
-    fs.remove_all(temp_dir)
+    local _ok, _err = fs.remove_all(temp_dir)
     return nil, err
   end
 
@@ -242,19 +242,19 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
       local name = dir:read()
       if not name then break end
       if name ~= "." and name ~= ".." and name ~= ".git" then
-        fs.remove_all(name)
+        local _ok, _err = fs.remove_all(name)
       end
     end
   end
 
   -- copy docs from temp
   ok, err = run({"cp", "-r", temp_dir .. "/.", "."})
-  fs.remove_all(temp_dir)
+  local _ok, _err = fs.remove_all(temp_dir)
   if not ok then return nil, err end
 
   -- write readme with doc table
   local readme_content = make_readme(".")
-  fs.write("README.md", readme_content)
+  local _ok, _err = fs.write("README.md", readme_content)
 
   -- stage all changes
   ok, err = run({"git", "add", "-A"})

@@ -17,8 +17,8 @@ local function Example_embed_directory()
 
   -- Create a simple app directory with a main.lua entry point
   local appdir = fs.join(tmpdir, "myapp")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), 'print("hello from myapp")\n')
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), 'print("hello from myapp")\n'))
 
   -- Build it
   local output = fs.join(tmpdir, "hello")
@@ -27,7 +27,7 @@ local function Example_embed_directory()
 
   -- Run it
   r = check.must(child.run({output}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   print(r.stdout)
   -- Output:
   -- hello from myapp
@@ -49,7 +49,7 @@ local function Example_extract_roundtrip()
 
   -- The extracted directory contains main.lua and all bundled files
   local main_exists = fs.is_file(fs.join(extractdir, "main.lua"))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   print("main.lua extracted:", main_exists)
   -- Output:
   -- main.lua extracted:	true
@@ -66,19 +66,19 @@ local function Example_embed_with_libraries()
 
   -- Create an app that uses cosmic.child (a bundled library)
   local appdir = fs.join(tmpdir, "app")
-  fs.make_dirs(appdir)
-  fs.write(fs.join(appdir, "main.lua"), [[
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), [[
 local child = require("cosmic.child")
 local r = child.run({"echo", "it works"})
 io.write(r.stdout)
-]])
+]]))
 
   local output = fs.join(tmpdir, "myapp")
   local r = check.must(child.run({cosmic, "--embed", appdir, "--output", output}))
   assert(r.ok, r.stderr)
 
   r = check.must(child.run({output}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   print(r.stdout)
   -- Output:
   -- it works
@@ -95,11 +95,11 @@ local function Example_embed_from_teal()
 
   local tmpdir = fs.temp_dir("/tmp/embed_example_XXXXXX")
   local appdir = fs.join(tmpdir, "myapp")
-  fs.make_dirs(appdir)
+  assert(fs.make_dirs(appdir))
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "main.tl")
-  fs.write(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
+  assert(fs.write(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n'))
 
   -- Compile .tl to .lua using cosmic --compile
   local r = check.must(child.run({cosmic, "--compile", tl_file}))
@@ -107,7 +107,7 @@ local function Example_embed_from_teal()
   local lua_source = r.stdout
 
   -- Write the compiled Lua as the entry point
-  fs.write(fs.join(appdir, "main.lua"), lua_source)
+  assert(fs.write(fs.join(appdir, "main.lua"), lua_source))
 
   -- Embed and run
   local output = fs.join(tmpdir, "from_teal")
@@ -115,7 +115,7 @@ local function Example_embed_from_teal()
   assert(r.ok, r.stderr)
 
   r = check.must(child.run({output}))
-  fs.remove_all(tmpdir)
+  assert(fs.remove_all(tmpdir))
   print(r.stdout)
   -- Output:
   -- hello from teal

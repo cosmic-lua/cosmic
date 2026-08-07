@@ -86,7 +86,7 @@ local function serve_loop(srv: net.Socket)
       if read_request(cc) then
         send_all(cc, RESPONSE)
       end
-      cc:close()
+      local _ok, _err = cc:close()
     end
   end
 end
@@ -131,7 +131,7 @@ local function scenarios(): {pt.Scenario}, string
           count = count + 1
           last = line
         end
-        reader:close()
+        local _ok, _err = reader:close()
         local stats: LineStats = {count = count, last = last}
         return stats
       end,
@@ -155,12 +155,12 @@ end
 
 local function cleanup()
   if server_pid and server_pid > 0 then
-    signal.kill(server_pid, signal.SIGKILL)
-    proc.wait(server_pid)
+    local _ok, _err = signal.kill(server_pid, signal.SIGKILL)
+    local _ok, _err = proc.wait(server_pid)
     server_pid = nil
   end
   if listener then
-    listener:close()
+    local _ok, _err = listener:close()
     listener = nil
   end
 end

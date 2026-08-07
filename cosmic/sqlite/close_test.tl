@@ -11,8 +11,8 @@ local sqlite = require("cosmic.sqlite")
 
 local function test_query_close_releases_early()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')"))
 
   local rows = check.must(db:query("SELECT * FROM t ORDER BY id"))
   local first = rows()
@@ -27,14 +27,14 @@ local function test_query_close_releases_early()
     n = n + 1
   end
   assert(n == 3, "re-query after close should see all rows, got: " .. tostring(n))
-  db:close()
+  assert(db:close())
 end
 test_query_close_releases_early()
 
 local function test_query_close_idempotent()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-  db:exec("INSERT INTO t DEFAULT VALUES")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+  assert(db:exec("INSERT INTO t DEFAULT VALUES"))
 
   local rows = check.must(db:query("SELECT * FROM t"))
   rows:close()
@@ -43,14 +43,14 @@ local function test_query_close_idempotent()
   local drained = check.must(db:query("SELECT * FROM t"))
   while drained() ~= nil do end
   drained:close()
-  db:close()
+  assert(db:close())
 end
 test_query_close_idempotent()
 
 local function test_query_to_be_closed_scope()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b')"))
 
   -- The repo build compiles Teal targeting 5.3 syntax, so exercise the
   -- __close metamethod directly instead of a `local rows <close> = ...`
@@ -69,14 +69,14 @@ local function test_query_to_be_closed_scope()
     n = n + 1
   end
   assert(n == 2, "re-query after <close> should see all rows, got: " .. tostring(n))
-  db:close()
+  assert(db:close())
 end
 test_query_to_be_closed_scope()
 
 local function test_query_abandoned_iterator_collected()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-  db:exec("INSERT INTO t DEFAULT VALUES")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+  assert(db:exec("INSERT INTO t DEFAULT VALUES"))
 
   do
     local rows = check.must(db:query("SELECT * FROM t"))
@@ -91,21 +91,21 @@ local function test_query_abandoned_iterator_collected()
     n = n + 1
   end
   assert(n == 1, "query after GC of abandoned iterator should work")
-  db:close()
+  assert(db:close())
 end
 test_query_abandoned_iterator_collected()
 
 local function test_query_list_close_early()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b')"))
 
   local rows = check.must(db:query_list("SELECT * FROM t WHERE name != ? ORDER BY id", {"z"}))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
   rows:close()
   assert(rows() == nil, "closed query_list iterator must yield nil")
-  db:close()
+  assert(db:close())
 end
 test_query_list_close_early()
 
@@ -120,8 +120,8 @@ test_query_list_close_early()
 
 local function test_statement_rows_basic_iteration()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')"))
 
   local stmt = check.must(db:prepare("SELECT * FROM t ORDER BY id"))
   local rows = stmt:rows()
@@ -134,14 +134,14 @@ local function test_statement_rows_basic_iteration()
     "rows should be in insertion order, got: " .. table.concat(names, ","))
   assert(rows:err() == nil, "clean iteration should report no step error")
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_statement_rows_basic_iteration()
 
 local function test_statement_rows_close_does_not_finalize_statement()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')"))
 
   local stmt = check.must(db:prepare("SELECT * FROM t ORDER BY id"))
   local rows = stmt:rows()
@@ -161,14 +161,14 @@ local function test_statement_rows_close_does_not_finalize_statement()
   end
   assert(n == 3, "statement must be reusable after rows():close(), got: " .. tostring(n))
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_statement_rows_close_does_not_finalize_statement()
 
 local function test_statement_rows_to_be_closed_scope()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-  db:exec("INSERT INTO t (name) VALUES ('a'), ('b')")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+  assert(db:exec("INSERT INTO t (name) VALUES ('a'), ('b')"))
 
   local stmt = check.must(db:prepare("SELECT * FROM t ORDER BY id"))
   local rows = stmt:rows()
@@ -191,20 +191,20 @@ local function test_statement_rows_to_be_closed_scope()
   end
   assert(n == 2, "statement must be reusable after rows() <close>, got: " .. tostring(n))
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_statement_rows_to_be_closed_scope()
 
 local function test_statement_rows_close_idempotent()
   local db = check.must(sqlite.open(":memory:"))
-  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-  db:exec("INSERT INTO t DEFAULT VALUES")
+  assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+  assert(db:exec("INSERT INTO t DEFAULT VALUES"))
 
   local stmt = check.must(db:prepare("SELECT * FROM t"))
   local rows = stmt:rows()
   rows:close()
   rows:close()
   stmt:close()
-  db:close()
+  assert(db:close())
 end
 test_statement_rows_close_idempotent()

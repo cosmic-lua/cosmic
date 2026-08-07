@@ -35,7 +35,7 @@ local function test_lint_file_under_default()
   for i = 1, 100 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for short file, got: " .. tostring(#diagnostics))
@@ -48,7 +48,7 @@ local function test_lint_file_over_default()
   for i = 1, 501 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic for long file, got: " .. tostring(#diagnostics))
@@ -62,7 +62,7 @@ test_lint_file_over_default()
 local function test_lint_file_hints_cosmicignore_for_binary()
   local path = fs.join(tmpdir, "toolbinary")
   local chunk = "\0\1\2ELF junk line\n"
-  fs.write(path, chunk:rep(600))
+  assert(fs.write(path, chunk:rep(600)))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
@@ -80,7 +80,7 @@ local function test_lint_file_hints_cosmicignore_for_non_source_text()
   for i = 1, 501 do
     table.insert(lines, "row," .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
@@ -100,7 +100,7 @@ local function test_lint_file_no_ignore_hint_for_source()
   for i = 1, 501 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
@@ -116,7 +116,7 @@ local function test_lint_file_skips_dtl()
   for i = 1, 600 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  fs.write(path, table.concat(lines, "\n") .. "\n")
+  assert(fs.write(path, table.concat(lines, "\n") .. "\n"))
 
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for .d.tl file, got: " .. tostring(#diagnostics))
@@ -386,10 +386,10 @@ print("all lint tests passed")
 local function test_render_diagnostics_snippets()
   local path = fs.join(tmpdir, "render_me.tl")
   local long_tail = string.rep("y", 150)
-  fs.write(path, "local a: any = {}\n"
-    .. "local b = a as {string: any}\n"
-    .. "local c = " .. long_tail .. " as string\n"
-    .. "print(b, c)\n")
+  assert(fs.write(path, "local a: any = {}\n"
+      .. "local b = a as {string: any}\n"
+      .. "local c = " .. long_tail .. " as string\n"
+      .. "print(b, c)\n"))
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 2, "two unjustified casts, got " .. #diagnostics)
   local render = require("_cli.lint_render")
@@ -400,7 +400,7 @@ local function test_render_diagnostics_snippets()
     "an over-long snippet truncates: " .. text)
 
   local binpath = fs.join(tmpdir, "notsource")
-  fs.write(binpath, string.rep("\0junk\n", 600))
+  assert(fs.write(binpath, string.rep("\0junk\n", 600)))
   local bindiags = check.must(lint.lint_file(binpath))
   assert(#bindiags == 1 and bindiags[1].rule == "file-length",
     "length finding expected")

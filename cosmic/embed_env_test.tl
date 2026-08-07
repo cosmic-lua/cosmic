@@ -14,9 +14,9 @@ local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
   local dir = fs.dirname(filepath)
   if dir ~= tmpdir then
-    fs.make_dirs(dir)
+    assert(fs.make_dirs(dir))
   end
-  fs.write(filepath, content)
+  assert(fs.write(filepath, content))
   return filepath
 end
 

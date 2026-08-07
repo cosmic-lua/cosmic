@@ -370,7 +370,7 @@ local function test_events_from_socket_backed_reader()
   local a, b = sp.a, sp.b
 
   assert(a:send("data: from a socket\n\nevent: ping\ndata: second\n\n"))
-  a:close()
+  assert(a:close())
 
   local stream_events = sse.events(fd.wrap(b.fd))
   local ev1 = check.must(stream_events.next())
@@ -381,6 +381,6 @@ local function test_events_from_socket_backed_reader()
   assert(ev2.event == "ping", "explicit event type")
   local done, derr = stream_events.next()
   assert(done == nil and derr == nil, "clean close ends the stream")
-  b:close()
+  assert(b:close())
 end
 test_events_from_socket_backed_reader()

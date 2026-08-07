@@ -87,12 +87,12 @@ local function test_record_skips_only_a_pass()
     "identical inputs and a recorded pass must SKIP the child")
 
   local saved = cenv.get("COSMIC_FIXPOINT")
-  cenv.set("COSMIC_FIXPOINT", "1")
+  assert(cenv.set("COSMIC_FIXPOINT", "1"))
   assert(work.record(args) == 0, "record under a flipped switch")
   if saved == nil then
-    cenv.unset("COSMIC_FIXPOINT")
+    assert(cenv.unset("COSMIC_FIXPOINT"))
   else
-    cenv.set("COSMIC_FIXPOINT", saved)
+    assert(cenv.set("COSMIC_FIXPOINT", saved))
   end
   assert(mtime_of(out .. ".in") ~= key1,
     "a behavior switch is part of the key, so the child must re-run")

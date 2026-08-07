@@ -263,9 +263,9 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
   local dir = fs.join(tmpdir, "apedir")
   assert(fs.make_dirs(dir))
   local prev = env.get("TMPDIR")
-  env.set("TMPDIR", dir, true)
+  assert(env.set("TMPDIR", dir, true))
   local p = grants.plan("exec", {fs.join(dir, "tool")})
-  if prev then env.set("TMPDIR", prev, true) else env.unset("TMPDIR") end
+  if prev then assert(env.set("TMPDIR", prev, true)) else assert(env.unset("TMPDIR")) end
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.rw, dir), "the loader needs somewhere to be extracted")
   assert(has(p.exec, dir),
@@ -292,8 +292,8 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   local cwd = assert(fs.cwd())
   local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
   assert(fs.chdir(box))
-  env.unset("TMPDIR")
-  env.set("HOME", home, true)
+  assert(env.unset("TMPDIR"))
+  assert(env.set("HOME", home, true))
 
   driver.ensure_build_tmpdir()
   local pinned = env.get("TMPDIR")
@@ -302,8 +302,8 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   local p = grants.plan("record", {fs.join(box, "out")})
 
   assert(fs.chdir(cwd))
-  if prev_t ~= nil then env.set("TMPDIR", prev_t, true) else env.unset("TMPDIR") end
-  if prev_h ~= nil then env.set("HOME", prev_h, true) else env.unset("HOME") end
+  if prev_t ~= nil then assert(env.set("TMPDIR", prev_t, true)) else assert(env.unset("TMPDIR")) end
+  if prev_h ~= nil then assert(env.set("HOME", prev_h, true)) else assert(env.unset("HOME")) end
 
   assert(pinned ~= nil, "an unset TMPDIR must be pinned, got nil")
   local pin = pinned as string -- cast: asserted non-nil on the line above
@@ -331,12 +331,12 @@ local function test_an_existing_home_loader_is_granted_as_a_file_only()
   local scratch = fs.join(tmpdir, "loader-scratch")
   assert(fs.make_dirs(scratch))
   local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
-  env.set("TMPDIR", scratch, true)
-  env.set("HOME", home, true)
+  assert(env.set("TMPDIR", scratch, true))
+  assert(env.set("HOME", home, true))
   local p = grants.plan("copy",
     {touch("loader-src"), fs.join(tmpdir, "loader-dst")})
-  if prev_t ~= nil then env.set("TMPDIR", prev_t, true) else env.unset("TMPDIR") end
-  if prev_h ~= nil then env.set("HOME", prev_h, true) else env.unset("HOME") end
+  if prev_t ~= nil then assert(env.set("TMPDIR", prev_t, true)) else assert(env.unset("TMPDIR")) end
+  if prev_h ~= nil then assert(env.set("HOME", prev_h, true)) else assert(env.unset("HOME")) end
   assert(p is sandbox.Fs, "copy must plan a policy")
   assert(has(p.exec, loader), "the existing home loader file is exec-granted")
   assert(not has(p.rw, home) and not has(p.exec, home),
@@ -364,19 +364,19 @@ local function test_the_coverage_directory_is_granted_before_it_exists()
   -- at exit is denied — so it surfaced as three recipe-path files
   -- losing most of their coverage at once.
   local cov = fs.join(tmpdir, "cov-not-yet", "deeper")
-  fs.remove_all(fs.dirname(cov))
+  assert(fs.remove_all(fs.dirname(cov)))
   local prev = env.get("COSMIC_COVERAGE")
-  env.set("COSMIC_COVERAGE", cov, true)
+  assert(env.set("COSMIC_COVERAGE", cov, true))
   local p = grants.plan("write-list", {fs.join(tmpdir, "out.txt")})
   -- `1` is the OTHER meaning of the variable — collect, but name no
   -- directory — which is what the coverage make rules set. Taken as a
   -- path it creates `./1` in the project root.
-  env.set("COSMIC_COVERAGE", "1", true)
+  assert(env.set("COSMIC_COVERAGE", "1", true))
   local flagged = grants.plan("write-list", {fs.join(tmpdir, "out.txt")})
   if prev then
-    env.set("COSMIC_COVERAGE", prev, true)
+    assert(env.set("COSMIC_COVERAGE", prev, true))
   else
-    env.unset("COSMIC_COVERAGE")
+    assert(env.unset("COSMIC_COVERAGE"))
   end
   assert(p is sandbox.Fs, "write-list must plan a policy")
   assert(has(p.rw, cov), "the coverage directory must be writable")

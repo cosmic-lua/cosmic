@@ -108,7 +108,7 @@ local function test_stage_detail_reads_the_summary()
   -- A stage that failed before writing one has no per-target counts.
   -- Inventing them would be worse than saying how big the stage was.
   local missing = fs.join(tmpdir, "records-absent.txt")
-  fs.remove_all(missing)
+  assert(fs.remove_all(missing))
   assert(records.stage_detail(missing, 7, "file") == "7 files",
     "no summary falls back to the size, without claiming a failure count")
 end

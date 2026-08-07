@@ -10,13 +10,13 @@
 local function Example_enabled()
   local instrument = require("cosmic.instrument")
   local env = require("cosmic.env")
-  env.unset("COSMIC_INSTRUMENTATION")
+  assert(env.unset("COSMIC_INSTRUMENTATION"))
   print(instrument.enabled())
-  env.set("COSMIC_INSTRUMENTATION", "yes")
+  assert(env.set("COSMIC_INSTRUMENTATION", "yes"))
   print(instrument.enabled())
-  env.set("COSMIC_INSTRUMENTATION", "1")
+  assert(env.set("COSMIC_INSTRUMENTATION", "1"))
   print(instrument.enabled())
-  env.unset("COSMIC_INSTRUMENTATION")
+  assert(env.unset("COSMIC_INSTRUMENTATION"))
   -- Output:
   -- false
   -- false
@@ -30,7 +30,7 @@ end
 local function Example_span()
   local instrument = require("cosmic.instrument")
   local env = require("cosmic.env")
-  env.unset("COSMIC_INSTRUMENTATION")
+  assert(env.unset("COSMIC_INSTRUMENTATION"))
   local quiet = instrument.begin("compile", "hello.tl")
   print(instrument.finish(quiet, 0))
   -- Output:

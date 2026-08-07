@@ -18,7 +18,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- A scanned project from a file map.
 local function scan(name: string, files: {string: string}): types.Project
   local root = fs.join(tmpdir, "converge-" .. name)
-  fs.remove_all(root)
+  assert(fs.remove_all(root))
   assert(fs.make_dirs(root))
   for rel, body in pairs(files) do
     local path = fs.join(root, rel)
@@ -96,7 +96,7 @@ local function test_the_probe_reads_the_answer()
 
   -- A look-alike: succeeds, says nothing an engine says.
   local dir = fs.join(tmpdir, "converge-probe")
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   assert(fs.make_dirs(dir))
   local fake = fs.join(dir, "lookalike")
   assert(fs.write(fake, "#!/bin/sh\necho 'usage: lookalike [options]'\nexit 0\n"))
@@ -144,7 +144,7 @@ end
 --- A scratch directory that is a project root and a working directory.
 local function scratch(name: string): string
   local dir = fs.join(tmpdir, "converge-" .. name)
-  fs.remove_all(dir)
+  assert(fs.remove_all(dir))
   assert(fs.make_dirs(dir))
   return dir
 end
@@ -204,9 +204,9 @@ local function test_a_build_that_never_settles_refuses()
   assert(fs.make_dirs(fs.join(dir, "o/bin")))
   assert(fs.write(fs.join(dir, "o/bin/cosmic"), "not the running binary\n"))
 
-  cenv.set("COSMIC_MAKE_GEN", "2", true)
+  assert(cenv.set("COSMIC_MAKE_GEN", "2", true))
   local ok, err, why = converge_in(dir, toolchain("no-fixpoint-proj"), self)
-  cenv.unset("COSMIC_MAKE_GEN")
+  assert(cenv.unset("COSMIC_MAKE_GEN"))
   assert(not ok, "a build that never settles must refuse")
   assert(why == "not a fixpoint",
     "and say which refusal it is, got: " .. tostring(why))
@@ -227,7 +227,7 @@ local function test_a_look_alike_toolchain_carries_on()
   script(fs.join(dir, "o/bin/cosmic"),
     "echo 'usage: mytool [options]'\nexit 0\n")
 
-  cenv.unset("COSMIC_MAKE_GEN")
+  assert(cenv.unset("COSMIC_MAKE_GEN"))
   local ok, err = converge_in(dir, toolchain("carry-on-proj"), self)
   assert(ok, "a look-alike must not fail the gate: " .. tostring(err))
 end

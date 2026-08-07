@@ -80,7 +80,7 @@ local function test_unix_domain_socket_bind_connect()
     if not connect_ok then os.exit(check.EXIT_SKIP) end
     local sent = client:send("hello from unix client")
     if not sent then os.exit(3) end
-    client:close()
+    assert(client:close())
     os.exit(0)
   end
 
@@ -92,11 +92,11 @@ local function test_unix_domain_socket_bind_connect()
   local data, recv_err = client:recv()
   assert(data == "hello from unix client", "expected 'hello from unix client', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
-  client:close()
-  server:close()
+  assert(client:close())
+  assert(server:close())
   check.reap(pid, "the unix-socket client")
-  os.remove(path)
-  os.remove(tmpdir)
+  assert(os.remove(path))
+  assert(os.remove(tmpdir))
 end
 test_unix_domain_socket_bind_connect()
 
@@ -113,7 +113,7 @@ local function test_listen_unix_connect_unix()
     local client = check.must(net.connect_unix(path))
     local sent = client:send("hello from connect_unix")
     if not sent then os.exit(check.EXIT_SKIP) end
-    client:close()
+    assert(client:close())
     os.exit(0)
   end
 
@@ -129,11 +129,11 @@ local function test_listen_unix_connect_unix()
   local mt = getmetatable(client)
   assert(mt ~= nil and mt.__close ~= nil, "expected accepted unix socket to have __close")
 
-  client:close()
-  server:close()
+  assert(client:close())
+  assert(server:close())
   check.reap(pid, "the unix-socket client")
-  os.remove(path)
-  os.remove(tmpdir)
+  assert(os.remove(path))
+  assert(os.remove(tmpdir))
 end
 test_listen_unix_connect_unix()
 
@@ -157,9 +157,9 @@ local function test_connect_with_timeout_loopback()
   local data, recv_err = accepted:recv(100)
   assert(data == "nb_hello", "expected 'nb_hello', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
-  client:close()
-  accepted:close()
-  server:close()
+  assert(client:close())
+  assert(accepted:close())
+  assert(server:close())
 end
 test_connect_with_timeout_loopback()
 
@@ -232,7 +232,7 @@ local function test_connect_tcp()
     local client = check.must(net.connect_tcp("127.0.0.1", server_port))
     local sent = client:send("hello from connect_tcp")
     if not sent then os.exit(check.EXIT_SKIP) end
-    client:close()
+    assert(client:close())
     os.exit(0)
   end
 
@@ -244,8 +244,8 @@ local function test_connect_tcp()
   local data, recv_err = client:recv()
   assert(data == "hello from connect_tcp", "expected 'hello from connect_tcp', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
-  client:close()
-  server:close()
+  assert(client:close())
+  assert(server:close())
   check.reap(pid, "the tcp client")
 end
 test_connect_tcp()
@@ -259,17 +259,17 @@ local function test_connect_tcp_accepts_string_and_addr()
   -- connect by dotted-quad string
   local c1 = check.must(net.connect_tcp("127.0.0.1", port))
   local a1 = check.must(server:accept())
-  c1:close()
-  a1:close()
+  assert(c1:close())
+  assert(a1:close())
 
   -- connect by typed ip.Addr
   local addr = ip.addr(0x7f000001)
   local c2 = check.must(net.connect_tcp(addr, port))
   local a2 = check.must(server:accept())
-  c2:close()
-  a2:close()
+  assert(c2:close())
+  assert(a2:close())
 
-  server:close()
+  assert(server:close())
 end
 test_connect_tcp_accepts_string_and_addr()
 
@@ -295,7 +295,7 @@ local function test_connect_error_message()
   -- Should start with "connect: " prefix (Errno pattern) rather than generic "connect failed"
   assert(conn_err:sub(1, 9) == "connect: ", "expected 'connect: ' prefix, got: " .. conn_err)
 
-  sock:close()
+  assert(sock:close())
 end
 test_connect_error_message()
 
@@ -312,8 +312,8 @@ local function test_bind_error_names_errno()
   local ok, berr = second:bind("127.0.0.1", port)
   assert(ok == false, "second bind to same port should fail")
   assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
-  second:close()
-  first:close()
+  assert(second:close())
+  assert(first:close())
 end
 test_bind_error_names_errno()
 
@@ -326,14 +326,14 @@ local function test_dial()
 
   local c1 = check.must(net.dial("127.0.0.1", port))
   local a1 = check.must(s:accept())
-  c1:close()
-  a1:close()
+  assert(c1:close())
+  assert(a1:close())
 
   local c2 = check.must(net.dial("localhost", port))
   local a2 = check.must(s:accept())
-  c2:close()
-  a2:close()
-  s:close()
+  assert(c2:close())
+  assert(a2:close())
+  assert(s:close())
 
   local bad, berr = net.dial("this.host.does.not.exist.invalid", 80)
   assert(bad == nil, "dial to unresolvable host must fail")
@@ -352,20 +352,20 @@ local function test_listen_tcp_socket_options()
   local ra = d:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra == true or ra == 1,
     "SO_REUSEADDR should default on, got " .. tostring(ra))
-  d:close()
+  assert(d:close())
 
   local s2, oerr = net.listen_tcp("127.0.0.1", 0, {reuseaddr = false})
   local o = check.must(s2, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
   local ra2 = o:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra2 == false or ra2 == 0,
     "reuseaddr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
-  o:close()
+  assert(o:close())
 
   local s3, perr = net.listen_tcp("127.0.0.1", 0, {reuseport = true})
   local p = check.must(s3, "listen_tcp with reuseport failed: " .. tostring(perr))
   local rp = p:getsockopt(net.SOL_SOCKET, net.SO_REUSEPORT)
   assert(rp == true or rp == 1,
     "reuseport=true should set SO_REUSEPORT, got " .. tostring(rp))
-  p:close()
+  assert(p:close())
 end
 test_listen_tcp_socket_options()

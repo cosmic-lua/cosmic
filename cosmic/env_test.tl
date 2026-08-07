@@ -24,7 +24,7 @@ end
 test_set_and_get()
 
 local function test_set_overwrite_true()
-  env.set("COSMIC_TEST_OVERWRITE", "original")
+  assert(env.set("COSMIC_TEST_OVERWRITE", "original"))
   local ok = env.set("COSMIC_TEST_OVERWRITE", "updated", true)
   assert(ok, "set with overwrite=true should succeed")
   local value = env.get("COSMIC_TEST_OVERWRITE")
@@ -33,7 +33,7 @@ end
 test_set_overwrite_true()
 
 local function test_set_overwrite_false()
-  env.set("COSMIC_TEST_NO_OVERWRITE", "original")
+  assert(env.set("COSMIC_TEST_NO_OVERWRITE", "original"))
   local ok = env.set("COSMIC_TEST_NO_OVERWRITE", "should_not_change", false)
   assert(ok, "set with overwrite=false should succeed even when not overwriting")
   local value = env.get("COSMIC_TEST_NO_OVERWRITE")
@@ -42,7 +42,7 @@ end
 test_set_overwrite_false()
 
 local function test_unset()
-  env.set("COSMIC_TEST_TO_UNSET", "will_be_removed")
+  assert(env.set("COSMIC_TEST_TO_UNSET", "will_be_removed"))
   local value = env.get("COSMIC_TEST_TO_UNSET")
   assert(value == "will_be_removed", "variable should be set before unset")
 
@@ -74,13 +74,13 @@ end
 test_all()
 
 local function test_all_includes_set_variable()
-  env.set("COSMIC_TEST_ALL_CHECK", "check_value")
+  assert(env.set("COSMIC_TEST_ALL_CHECK", "check_value"))
   local vars = env.all()
   assert(type(vars) == "table", "all() should return a table")
   -- all() should parse KEY=VALUE entries into a proper map
   assert(vars["COSMIC_TEST_ALL_CHECK"] == "check_value",
     "expected 'check_value', got '" .. tostring(vars["COSMIC_TEST_ALL_CHECK"]) .. "'")
-  env.unset("COSMIC_TEST_ALL_CHECK")
+  assert(env.unset("COSMIC_TEST_ALL_CHECK"))
 end
 test_all_includes_set_variable()
 
@@ -97,7 +97,7 @@ end
 test_list()
 
 local function test_list_includes_set_variable()
-  env.set("COSMIC_TEST_LIST_CHECK", "list_value")
+  assert(env.set("COSMIC_TEST_LIST_CHECK", "list_value"))
   local entries = env.list()
   local found = false
   for _, entry in ipairs(entries) do
@@ -107,13 +107,13 @@ local function test_list_includes_set_variable()
     end
   end
   assert(found, "list() should include COSMIC_TEST_LIST_CHECK=list_value")
-  env.unset("COSMIC_TEST_LIST_CHECK")
+  assert(env.unset("COSMIC_TEST_LIST_CHECK"))
 end
 test_list_includes_set_variable()
 
 local function test_list_edits()
-  env.set("COSMIC_TEST_DROP_ME", "x")
-  env.set("COSMIC_TEST_KEEP_ME", "old")
+  assert(env.set("COSMIC_TEST_DROP_ME", "x"))
+  assert(env.set("COSMIC_TEST_KEEP_ME", "old"))
   local entries = env.list({
       drop = {"COSMIC_TEST_DROP_ME"},
       set = {COSMIC_TEST_KEEP_ME = "new", COSMIC_TEST_ADDED = "fresh"},
@@ -131,8 +131,8 @@ local function test_list_edits()
   -- the edits touch only the returned copy
   assert(env.get("COSMIC_TEST_DROP_ME") == "x", "parent env is untouched")
   assert(env.get("COSMIC_TEST_KEEP_ME") == "old", "parent env is untouched")
-  env.unset("COSMIC_TEST_DROP_ME")
-  env.unset("COSMIC_TEST_KEEP_ME")
+  assert(env.unset("COSMIC_TEST_DROP_ME"))
+  assert(env.unset("COSMIC_TEST_KEEP_ME"))
 end
 test_list_edits()
 
@@ -141,7 +141,7 @@ local function test_set_empty_value()
   assert(ok, "set with empty value should succeed")
   local value = env.get("COSMIC_TEST_EMPTY")
   assert(value == "", "expected empty string, got '" .. tostring(value) .. "'")
-  env.unset("COSMIC_TEST_EMPTY")
+  assert(env.unset("COSMIC_TEST_EMPTY"))
 end
 test_set_empty_value()
 
@@ -151,12 +151,12 @@ test_set_empty_value()
 -- around unix.clearenv() and is tested indirectly through the other tests.
 
 -- Clean up test variables
-env.unset("COSMIC_TEST_VAR")
-env.unset("COSMIC_TEST_OVERWRITE")
-env.unset("COSMIC_TEST_NO_OVERWRITE")
+assert(env.unset("COSMIC_TEST_VAR"))
+assert(env.unset("COSMIC_TEST_OVERWRITE"))
+assert(env.unset("COSMIC_TEST_NO_OVERWRITE"))
 
 local function test_get_default_when_unset()
-  env.unset("COSMIC_TEST_DEFAULT")
+  assert(env.unset("COSMIC_TEST_DEFAULT"))
   local value = env.get_or("COSMIC_TEST_DEFAULT", "fallback")
   assert(value == "fallback", "expected default, got '" .. tostring(value) .. "'")
   assert(env.get("COSMIC_TEST_DEFAULT") == nil,
@@ -165,18 +165,18 @@ end
 test_get_default_when_unset()
 
 local function test_get_default_ignored_when_set()
-  env.set("COSMIC_TEST_DEFAULT", "real")
+  assert(env.set("COSMIC_TEST_DEFAULT", "real"))
   local value = env.get_or("COSMIC_TEST_DEFAULT", "fallback")
   assert(value == "real", "set value should win over default, got '" .. tostring(value) .. "'")
-  env.unset("COSMIC_TEST_DEFAULT")
+  assert(env.unset("COSMIC_TEST_DEFAULT"))
 end
 test_get_default_ignored_when_set()
 
 local function test_get_default_empty_value_wins()
-  env.set("COSMIC_TEST_DEFAULT", "")
+  assert(env.set("COSMIC_TEST_DEFAULT", ""))
   local value = env.get_or("COSMIC_TEST_DEFAULT", "fallback")
   assert(value == "", "empty string is set, default must not apply")
-  env.unset("COSMIC_TEST_DEFAULT")
+  assert(env.unset("COSMIC_TEST_DEFAULT"))
 end
 test_get_default_empty_value_wins()
 

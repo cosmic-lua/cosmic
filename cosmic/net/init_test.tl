@@ -7,11 +7,11 @@ local function test_socket_creation()
   -- Test TCP socket creation
   local tcp = check.must(net.socket())
   assert(tcp.fd > 0, "expected valid fd, got " .. tostring(tcp.fd))
-  tcp:close()
+  assert(tcp:close())
 
   -- Test UDP socket creation
   local udp = check.must(net.socket({family = net.AF_INET, socktype = net.SOCK_DGRAM}))
-  udp:close()
+  assert(udp:close())
 end
 test_socket_creation()
 
@@ -26,8 +26,8 @@ local function test_socketpair()
   local data, recv_err = sock2:recv(100)
   assert(data == "hello", "expected 'hello', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
-  sock1:close()
-  sock2:close()
+  assert(sock1:close())
+  assert(sock2:close())
 end
 test_socketpair()
 
@@ -37,7 +37,7 @@ local function test_send_to_closed_peer_returns_error()
   -- unambiguous red before send() ORed in MSG_NOSIGNAL).
   local pair = check.must(net.socketpair())
   local a, b = pair.a, pair.b
-  b:close()
+  assert(b:close())
 
   -- Loop so a kernel that accepts the first write into the buffer before
   -- reporting EPIPE still exercises the error path; without the fix the
@@ -49,7 +49,7 @@ local function test_send_to_closed_peer_returns_error()
   end
   assert(n == nil, "send to closed peer should return nil, got " .. tostring(n))
   assert(serr and serr:match("EPIPE"), "send error should name EPIPE, got: " .. tostring(serr))
-  a:close()
+  assert(a:close())
 end
 test_send_to_closed_peer_returns_error()
 
@@ -64,7 +64,7 @@ local function test_bind_and_getsockname()
   assert(ep.addr.family == "inet", "local address must be a typed Addr")
   assert(ep.port > 0, "expected non-zero port, got " .. tostring(ep.port))
 
-  sock:close()
+  assert(sock:close())
 end
 test_bind_and_getsockname()
 
@@ -102,7 +102,7 @@ local function test_listen_accept_connect()
     if not sent then
       os.exit(3)
     end
-    client:close()
+    assert(client:close())
     os.exit(0)
   end
 
@@ -124,8 +124,8 @@ local function test_listen_accept_connect()
   local peer2 = check.must(client:getpeername())
   assert(peer2.port == peer.port, "peer port mismatch")
 
-  client:close()
-  server:close()
+  assert(client:close())
+  assert(server:close())
 
   -- Wait for child
   check.reap(pid, "the tcp client")
@@ -152,8 +152,8 @@ local function test_shutdown()
   assert(data == nil, "expected nil after shutdown, got '" .. tostring(data) .. "'")
   assert(recv_err == nil, "EOF must carry no error, got: " .. tostring(recv_err))
 
-  sock1:close()
-  sock2:close()
+  assert(sock1:close())
+  assert(sock2:close())
 end
 test_shutdown()
 
@@ -165,17 +165,17 @@ local function test_poll_readiness()
   local sock1, sock2 = pair.a, pair.b
 
   -- Send data on sock1
-  sock1:send("hello")
+  assert(sock1:send("hello"))
 
   local poller = poll.new()
-  poller:add(sock2.fd, poll.POLLIN)
+  assert(poller:add(sock2.fd, poll.POLLIN))
   local ready, poll_err = poller:poll(1000)
   assert(ready == 1, "expected one ready fd: " .. tostring(poll_err))
   local ev = check.must(poller:events(sock2.fd))
   assert(ev.readable, "expected socket to be readable")
 
-  sock1:close()
-  sock2:close()
+  assert(sock1:close())
+  assert(sock2:close())
 end
 test_poll_readiness()
 
@@ -203,8 +203,8 @@ local function test_udp_sendto_recvfrom()
   assert(dg.addr:format() == "127.0.0.1", "expected loopback sender, got " .. dg.addr:format())
   assert(dg.port > 0, "expected sender port")
 
-  sender:close()
-  receiver:close()
+  assert(sender:close())
+  assert(receiver:close())
 end
 test_udp_sendto_recvfrom()
 
@@ -221,14 +221,14 @@ local function test_socket_options()
   local val, getopt_err = sock:getsockopt(net.SOL_TCP, net.TCP_NODELAY)
   if val == nil and tostring(getopt_err):find("EPERM") then
     check.enforce_skip("getsockopt TCP_NODELAY denied by sandbox")
-    sock:close()
+    assert(sock:close())
     return
   end
   assert(val ~= nil, "getsockopt TCP_NODELAY failed: " .. tostring(getopt_err))
   -- Value should be truthy (1 or true)
   assert(val == 1 or val == true, "expected TCP_NODELAY to be set")
 
-  sock:close()
+  assert(sock:close())
 end
 test_socket_options()
 
@@ -276,7 +276,7 @@ local function test_socket_closed_method()
   assert(sock:closed() == false, "expected socket to not be closed initially")
 
   -- Close the socket
-  sock:close()
+  assert(sock:close())
 
   -- Socket should be closed now
   assert(sock:closed() == true, "expected socket to be closed after close()")
@@ -290,7 +290,7 @@ test_socket_closed_method()
 
 local function test_socket_methods_after_close()
   local sock = check.must(net.socket())
-  sock:close()
+  assert(sock:close())
 
   -- Every operation on a closed socket must return its error shape, never
   -- throw from the C binding (unix.send(nil, ...) etc.).
@@ -345,8 +345,8 @@ local function test_socketpair_has_close_metamethod()
   assert(mt1 ~= nil and mt1.__close ~= nil, "expected sock1 to have __close")
   assert(mt2 ~= nil and mt2.__close ~= nil, "expected sock2 to have __close")
 
-  sock1:close()
-  sock2:close()
+  assert(sock1:close())
+  assert(sock2:close())
 end
 test_socketpair_has_close_metamethod()
 
@@ -372,8 +372,8 @@ local function test_accept_socket_has_close_metamethod()
     local client = check.must(raw_client)
     local connect_ok = client:connect("127.0.0.1", server_port)
     if not connect_ok then os.exit(check.EXIT_SKIP) end
-    client:send("test")
-    client:close()
+    assert(client:send("test"))
+    assert(client:close())
     os.exit(0)
   end
 
@@ -388,8 +388,8 @@ local function test_accept_socket_has_close_metamethod()
   local data = client:recv()
   assert(data == "test", "expected 'test', got '" .. tostring(data) .. "'")
 
-  client:close()
-  server:close()
+  assert(client:close())
+  assert(server:close())
   check.reap(pid, "the connecting client")
 end
 test_accept_socket_has_close_metamethod()
@@ -401,7 +401,7 @@ local function test_listen_tcp_ephemeral_port()
   local srv = check.must(raw_srv)
   local port = check.must(srv:getsockname()).port
   assert(port > 0, "expected non-zero port, got " .. tostring(port))
-  srv:close()
+  assert(srv:close())
 end
 test_listen_tcp_ephemeral_port()
 
@@ -421,8 +421,8 @@ local function test_listen_tcp_connect_to_returned_port()
       os.exit(1)
     end
     local csock = check.must(raw_csock)
-    csock:send("hi")
-    csock:close()
+    assert(csock:send("hi"))
+    assert(csock:close())
     os.exit(0)
   end
 
@@ -431,8 +431,8 @@ local function test_listen_tcp_connect_to_returned_port()
   local conn = check.must(raw_conn)
   local data = conn:recv()
   assert(data == "hi", "expected 'hi', got '" .. tostring(data) .. "'")
-  conn:close()
-  srv:close()
+  assert(conn:close())
+  assert(srv:close())
   check.reap(pid, "the ephemeral-port client")
 end
 test_listen_tcp_connect_to_returned_port()
@@ -452,7 +452,7 @@ local function test_listen_tcp_double_bind_same_port_fails()
   assert(srv2 == nil, "expected second listen_tcp to fail on same port")
   assert(serr2 ~= nil, "expected error message from second listen_tcp")
 
-  srv:close()
+  assert(srv:close())
 end
 test_listen_tcp_double_bind_same_port_fails()
 

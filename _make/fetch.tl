@@ -104,7 +104,7 @@ local function unpacked(p: Pin, archive: string): boolean, string
   end
   -- Clear any previous run's manifest first, so a re-unpack that fails
   -- cannot leave the old claim standing over a tree it did not produce.
-  fs.remove_all(manifest_of(archive))
+  local _ok, _err = fs.remove_all(manifest_of(archive))
   local produced, err = extract.unpack(archive, fs.dirname(archive), p.format,
     p.strip_components)
   if not produced then
@@ -230,7 +230,7 @@ end
 --- on. `overwrite = false`: an operator who set it to 0 deliberately
 --- keeps that.
 local function use_system_certs()
-  env.set("SSL_USE_SYSTEM_CERTS", "1", false)
+  local _ok, _err = env.set("SSL_USE_SYSTEM_CERTS", "1", false)
 end
 
 --- Run `fetch` over the selected pins.

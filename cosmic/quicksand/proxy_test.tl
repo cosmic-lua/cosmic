@@ -18,14 +18,14 @@ test_module_exports()
 -- server sends back before closing.
 local function roundtrip(port: integer, request: string): string
   local sock = check.must(net.connect_tcp(LOOPBACK_STR, port))
-  sock:send(request)
+  assert(sock:send(request))
   local resp = ""
   while true do
     local chunk = sock:recv(4096)
     if not chunk or chunk == "" then break end
     resp = resp .. chunk
   end
-  sock:close()
+  assert(sock:close())
   return resp
 end
 
@@ -74,7 +74,7 @@ local function test_start_stop_lifecycle()
   -- establish a TCP connection — verify by opening a client socket.
   local sock = check.must(net.connect_tcp(LOOPBACK_STR, h.port),
     "failed to connect to proxy on port " .. tostring(h.port))
-  sock:close()
+  assert(sock:close())
 
   h:stop()
   assert(h.pid == 0, "stop() should zero the pid")

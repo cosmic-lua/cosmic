@@ -23,11 +23,11 @@ end
 --- Collect .cov file paths under a directory.
 local function cov_files_in(dir: string): {string}
   local found: {string} = {}
-  fs.walk(dir, function(path: string, _name: string, st: types.WalkStat, ctx: {string})
-      if not st:is_dir() and path:match("%.cov$") then
-        ctx[#ctx + 1] = path
-      end
-    end, found)
+  assert(fs.walk(dir, function(path: string, _name: string, st: types.WalkStat, ctx: {string})
+        if not st:is_dir() and path:match("%.cov$") then
+          ctx[#ctx + 1] = path
+        end
+      end, found))
   return found
 end
 
@@ -112,7 +112,7 @@ local function test_dir_from_env()
     ["o/cov.d"] = true,
   }
   for val, want_dir in pairs(cases) do
-    env.set("COSMIC_COVERAGE", val)
+    assert(env.set("COSMIC_COVERAGE", val))
     local got = coverage.dir_from_env()
     if want_dir then
       assert(got == val, val .. ": expected directory, got " .. tostring(got))
@@ -120,10 +120,10 @@ local function test_dir_from_env()
       assert(got == nil, val .. ": expected nil, got " .. tostring(got))
     end
   end
-  env.unset("COSMIC_COVERAGE")
+  assert(env.unset("COSMIC_COVERAGE"))
   assert(coverage.dir_from_env() == nil, "unset: expected nil")
   if saved then
-    env.set("COSMIC_COVERAGE", saved)
+    assert(env.set("COSMIC_COVERAGE", saved))
   end
 end
 test_dir_from_env()

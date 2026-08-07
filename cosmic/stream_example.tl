@@ -23,12 +23,12 @@ local function Example_reader()
   end
 
   local p = check.must(fd.pipe())
-  p.writer:write("hello, ")
-  p.writer:write("stream")
-  p.writer:close()
+  assert(p.writer:write("hello, "))
+  assert(p.writer:write("stream"))
+  assert(p.writer:close())
 
   print(drain(p.reader))
-  p.reader:close()
+  assert(p.reader:close())
   -- Output:
   -- hello, stream
 end
@@ -47,9 +47,9 @@ local function Example_writer()
 
   local p = check.must(fd.pipe())
   print(put(p.writer, "ten bytes!"))
-  p.writer:close()
+  assert(p.writer:close())
   print(check.must(p.reader:read()))
-  p.reader:close()
+  assert(p.reader:close())
   -- Output:
   -- 10
   -- ten bytes!

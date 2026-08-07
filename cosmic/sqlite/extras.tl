@@ -80,11 +80,11 @@ local function attach(db_any: any)
     -- cast: pcall variadic returns
     local success, result, result_err = pcall(fn, self) as (boolean, any, any)
     if not success then
-      self:exec("ROLLBACK")
+      local _ok, _err = self:exec("ROLLBACK")
       return false, (result as string) or "transaction failed" -- cast: from any
     end
     if result == false or (result == nil and result_err ~= nil) then
-      self:exec("ROLLBACK")
+      local _ok, _err = self:exec("ROLLBACK")
       return false, (result_err as string) or "transaction rolled back" -- cast: from any
     end
     local commit_ok, commit_err = self:exec("COMMIT")
@@ -121,13 +121,13 @@ local function attach(db_any: any)
     -- cast: pcall multi-return shape
     local success, result, result_err = pcall(fn, self) as (boolean, any, any)
     if not success then
-      self:exec("ROLLBACK TO " .. name)
-      self:exec("RELEASE " .. name)
+      local _ok, _err = self:exec("ROLLBACK TO " .. name)
+      local _ok, _err = self:exec("RELEASE " .. name)
       return false, (result as string) or "savepoint failed" -- cast: from any
     end
     if result == false or (result == nil and result_err ~= nil) then
-      self:exec("ROLLBACK TO " .. name)
-      self:exec("RELEASE " .. name)
+      local _ok, _err = self:exec("ROLLBACK TO " .. name)
+      local _ok, _err = self:exec("RELEASE " .. name)
       return false, (result_err as string) or "savepoint rolled back" -- cast: from any
     end
     local release_ok, release_err = self:exec("RELEASE " .. name)
@@ -137,7 +137,7 @@ local function attach(db_any: any)
         return false, (release_err or "release failed") ..
         "; rollback also failed: " .. (rollback_err or "unknown error")
       end
-      self:exec("RELEASE " .. name)
+      local _ok, _err = self:exec("RELEASE " .. name)
       return false, release_err or "release failed"
     end
     return true
