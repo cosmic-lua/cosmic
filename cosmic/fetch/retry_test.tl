@@ -63,14 +63,14 @@ end
 local function test_default_policy_retries_transport_error()
   -- first connection is accepted then closed without a response (a
   -- transport error, kind "connect"); the second attempt gets a 200.
-  -- A retry loop that consults should_retry only when result.ok is
+  -- A retry loop that consults should_retry only when the attempt
   -- true can never recover from this.
   local port, pid = serve({"", body_response("200 OK", "recovered")})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+  local result, err = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result.ok == true,
-    "transport error must be retried under the default policy, got: " .. tostring(result.error))
+  assert(result ~= nil,
+    "transport error must be retried under the default policy, got: " .. tostring(err))
   assert(result.body == "recovered", "second attempt's body expected")
 end
 test_default_policy_retries_transport_error()
@@ -83,8 +83,8 @@ local function test_default_policy_retries_503()
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result.ok == true and result.status == 200,
-    "503 must be retried under the default policy, got " .. tostring(result.status))
+  assert(result ~= nil and result.status == 200,
+    "503 must be retried under the default policy, got " .. tostring(result and result.status))
 end
 test_default_policy_retries_503()
 
@@ -96,8 +96,8 @@ local function test_default_policy_does_not_retry_post()
     {allow_private = true, method = "POST", body = "x",
       max_attempts = 3, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result.ok == true and result.status == 503,
-    "POST must not be retried by default, got " .. tostring(result.status))
+  assert(result ~= nil and result.status == 503,
+    "POST must not be retried by default, got " .. tostring(result and result.status))
 end
 test_default_policy_does_not_retry_post()
 
@@ -106,8 +106,8 @@ local function test_default_policy_does_not_retry_404()
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 3, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result.ok == true and result.status == 404,
-    "404 is not retryable, got " .. tostring(result.status))
+  assert(result ~= nil and result.status == 404,
+    "404 is not retryable, got " .. tostring(result and result.status))
 end
 test_default_policy_does_not_retry_404()
 
@@ -120,13 +120,13 @@ local function test_custom_should_retry_sees_failures()
       allow_private = true,
       max_attempts = 2,
       base_delay_ms = 10,
-      should_retry = function(r: fetch.Result): boolean
-        table.insert(seen, r.ok)
-        return not r.ok
+      should_retry = function(r: fetch.Response, _e: fetch.Error): boolean
+        table.insert(seen, r ~= nil)
+        return r == nil
       end,
     })
   assert(proc.wait(pid))
-  assert(result.ok == true, "custom retry of a transport error must succeed")
+  assert(result ~= nil, "custom retry of a transport error must succeed")
   assert(#seen == 1 and seen[1] == false,
     "should_retry must have been consulted with the failed result")
 end
@@ -139,7 +139,7 @@ local function test_custom_should_retry_false_stops()
       allow_private = true,
       max_attempts = 5,
       base_delay_ms = 10,
-      should_retry = function(_: fetch.Result): boolean
+      should_retry = function(_: fetch.Response, _e: fetch.Error): boolean
         attempts = attempts + 1
         return false
       end,
@@ -155,23 +155,21 @@ local function test_exhausted_attempts_return_last_failure()
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
   assert(proc.wait(pid))
-  assert(result.ok == false, "both attempts failed; ok must be false")
-  assert(result.error_kind == "connect",
-    "the transport failure kind survives, got " .. tostring(result.error_kind))
+  assert(result == nil, "both attempts failed; no Response may exist")
+  assert(errobj and errobj.kind == "connect",
+    "the transport failure kind survives, got " .. tostring(errobj and errobj.kind))
 end
 test_exhausted_attempts_return_last_failure()
 
 -- FIX 15: max_attempts <= 0 used to skip the fetch loop entirely and
--- return a bare nil from Fetch(), which is declared to return a plain
--- (non-nilable) Result. It is now clamped to 1 real attempt.
+-- skip the attempt loop entirely. It is clamped to 1 real attempt.
 local function test_max_attempts_zero_is_clamped_to_one()
   local port, pid = serve({body_response("200 OK", "ok")})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+  local result, err = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 0})
   assert(proc.wait(pid))
-  assert(result ~= nil, "fetch must never return nil")
-  assert(result.ok == true and result.body == "ok",
-    "max_attempts=0 should still make one real attempt, got: " .. tostring(result.error))
+  assert(result ~= nil and result.body == "ok",
+    "max_attempts=0 should still make one real attempt, got: " .. tostring(err))
 end
 test_max_attempts_zero_is_clamped_to_one()
 
@@ -180,19 +178,19 @@ local function test_max_attempts_negative_is_clamped_to_one()
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = -5})
   assert(proc.wait(pid))
-  assert(result ~= nil, "fetch must never return nil")
-  assert(result.ok == true, "max_attempts=-5 should still make one real attempt")
+  assert(result ~= nil, "max_attempts=-5 should still make one real attempt")
 end
 test_max_attempts_negative_is_clamped_to_one()
 
-local function test_validation_error_has_no_kind_and_default_never_retries()
-  -- validation failures carry no error_kind, so the default policy's
-  -- retryable-kind check can never match them
-  local result = fetch.fetch("ftp://example.com/",
+local function test_validation_error_is_invalid_request_and_never_retries()
+  -- validation failures carry kind invalid_request, which the retry
+  -- table pins to false, so the default policy can never retry them
+  local result, err, errobj = fetch.fetch("ftp://example.com/",
     {max_attempts = 3, base_delay_ms = 10})
-  assert(result.ok == false, "validation failure expected")
-  assert(result.error_kind == nil, "validation failures have no error_kind")
-  assert(result.error:find("unsupported URL scheme") ~= nil,
+  assert(result == nil, "validation failure expected")
+  assert(errobj and errobj.kind == "invalid_request",
+    "validation failures carry kind invalid_request")
+  assert(err:find("unsupported URL scheme") ~= nil,
     "the validation error must survive retries untouched")
 end
-test_validation_error_has_no_kind_and_default_never_retries()
+test_validation_error_is_invalid_request_and_never_retries()

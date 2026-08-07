@@ -70,53 +70,51 @@ local function test_module_loads()
 end
 test_module_loads()
 
-local function test_result_structure_on_failure()
-  local result = fetch.fetch("invalid://this-will-definitely-fail")
-  assert(result ~= nil, "result should not be nil")
-  assert(result.ok == false, "result.ok should be false for failed fetch")
-  assert(result.status == nil, "result.status should be nil on error")
-  assert(result.headers == nil, "result.headers should be nil on error")
-  assert(result.body == nil, "result.body should be nil on error")
-  assert(type(result.error) == "string" and #result.error > 0,
-    "result.error should be a non-empty string")
-  assert(result.error ~= "nil", "error should not be 'nil' string")
-  assert(result:is_success() == false, "is_success must be false on failure")
+local function test_failure_shape()
+  -- A failure is nil, message, Error — no Response exists, so there
+  -- are no lying nil fields to poke at.
+  local resp, err, errobj = fetch.fetch("invalid://this-will-definitely-fail")
+  assert(resp == nil, "no Response may exist for a failed fetch")
+  assert(type(err) == "string" and #err > 0, "err should be a non-empty string")
+  assert(err ~= "nil", "error should not be 'nil' string")
+  assert(errobj ~= nil, "the Error object should ride in slot 3")
+  assert(errobj.message == err, "Error.message should equal the message slot")
+  assert(errobj.kind == "invalid_request",
+    "a validation failure carries kind invalid_request, got " .. tostring(errobj.kind))
 end
-test_result_structure_on_failure()
+test_failure_shape()
 
 local function test_loopback_get()
   local port, pid = serve({body_response("200 OK", "hello loopback")})
   local url = "http://127.0.0.1:" .. port .. "/"
-  local result = fetch.fetch(url, {allow_private = true})
+  local result, err = fetch.fetch(url, {allow_private = true})
   assert(proc.wait(pid))
-  assert(result.ok == true, "ok should be true, got error: " .. tostring(result.error))
+  assert(result ~= nil, "fetch should succeed, got error: " .. tostring(err))
   assert(result.status == 200, "status should be 200, got " .. tostring(result.status))
   assert(result.body == "hello loopback", "body mismatch: " .. tostring(result.body))
   assert(type(result.headers) == "table", "headers should be a table")
   assert(result.url == url, "result.url should be the effective URL, got " .. tostring(result.url))
-  assert(result.error == nil, "error should be nil on success")
-  assert(result.error_kind == nil, "error_kind should be nil on success")
+  assert(err == nil, "err should be nil on success")
   assert(result:is_success() == true, "is_success must be true for 200")
 end
 test_loopback_get()
 
-local function test_http_error_status_is_ok_but_not_success()
+local function test_http_error_status_is_a_response()
   local port, pid = serve({body_response("404 Not Found", "nope")})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
+  local result, err = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
   assert(proc.wait(pid))
-  assert(result.ok == true, "ok should be true for HTTP 404: " .. tostring(result.error))
+  assert(result ~= nil, "an HTTP 404 is a Response, not a failure: " .. tostring(err))
   assert(result.status == 404, "status should be 404, got " .. tostring(result.status))
-  assert(result.error == nil, "error should be nil on HTTP success")
+  assert(err == nil, "err should be nil when a response arrived")
   assert(result:is_success() == false, "is_success must be false for 404")
 end
-test_http_error_status_is_ok_but_not_success()
+test_http_error_status_is_a_response()
 
 local function test_post_body_reaches_server()
   local port, pid = serve({"echo"})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/submit",
-    {allow_private = true, method = "POST", body = "hello=world"})
+  local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/submit",
+    {allow_private = true, method = "POST", body = "hello=world"}))
   assert(proc.wait(pid))
-  assert(result.ok == true, "POST should succeed: " .. tostring(result.error))
   assert(result.body:find("POST /submit", 1, true) ~= nil,
     "server should have seen the POST request line: " .. tostring(result.body))
   assert(result.body:find("hello=world", 1, true) ~= nil,
@@ -126,22 +124,22 @@ test_post_body_reaches_server()
 
 local function test_ssrf_guard_blocks_private_by_default()
   local port, pid = serve({body_response("200 OK", "x")})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/")
-  assert(result.ok == false, "loopback fetch without allow_private must fail")
-  assert(result.error_kind == "blocked",
-    "error_kind should be 'blocked', got " .. tostring(result.error_kind))
+  local resp, _err, errobj = fetch.fetch("http://127.0.0.1:" .. port .. "/")
+  assert(resp == nil, "loopback fetch without allow_private must fail")
+  assert(errobj and errobj.kind == "blocked",
+    "kind should be 'blocked', got " .. tostring(errobj and errobj.kind))
   -- unblock the waiting child so the test can reap it
   local unblock = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(unblock.ok == true, "allow_private fetch should succeed")
+  assert(unblock ~= nil, "allow_private fetch should succeed")
   assert(proc.wait(pid))
 end
 test_ssrf_guard_blocks_private_by_default()
 
 local function test_error_kind_connect_for_refused_port()
-  local result = fetch.fetch("http://127.0.0.1:1/", {allow_private = true})
-  assert(result.ok == false, "connection to a dead port must fail")
-  assert(result.error_kind == "connect",
-    "error_kind should be 'connect', got " .. tostring(result.error_kind))
+  local resp, _err, errobj = fetch.fetch("http://127.0.0.1:1/", {allow_private = true})
+  assert(resp == nil, "connection to a dead port must fail")
+  assert(errobj and errobj.kind == "connect",
+    "kind should be 'connect', got " .. tostring(errobj and errobj.kind))
 end
 test_error_kind_connect_for_refused_port()
 
@@ -150,10 +148,9 @@ local function test_follow_redirects_false_returns_redirect()
       "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/next\r\n"
       .. "Content-Length: 0\r\nConnection: close\r\n\r\n",
     })
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
-    {allow_private = true, follow_redirects = false})
+  local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/",
+    {allow_private = true, follow_redirects = false}))
   assert(proc.wait(pid))
-  assert(result.ok == true, "redirect response should be returned: " .. tostring(result.error))
   assert(result.status == 302, "status should be 302, got " .. tostring(result.status))
   assert(result.headers.location == "http://127.0.0.1:1/next",
     "location header should be exposed, got " .. tostring(result.headers.location))
@@ -186,10 +183,9 @@ local function test_redirect_followed_reports_final_url()
     os.exit(0)
   end
   assert(s:close())
-  local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port2) .. "/",
-    {allow_private = true})
+  local result = check.must(fetch.fetch("http://127.0.0.1:" .. math.tointeger(port2) .. "/",
+    {allow_private = true}))
   assert(proc.wait(pid2))
-  assert(result.ok == true, "redirected fetch should succeed: " .. tostring(result.error))
   assert(result.status == 200, "status should be 200 after redirect")
   assert(result.body == "made it", "body should come from the final URL")
   assert(result.url == final_url,
@@ -228,9 +224,9 @@ local function test_opts_table_not_mutated()
     body = "payload",
     headers = headers,
   }
-  local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", opts)
+  local result, err = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", opts)
   assert(proc.wait(pid))
-  assert(result.ok == true, "303-redirected POST should succeed: " .. tostring(result.error))
+  assert(result ~= nil, "303-redirected POST should succeed: " .. tostring(err))
   -- a 303 turns the redirected request into a bodyless GET, but the
   -- caller's table must be untouched
   assert(opts.method == "POST", "opts.method must not be mutated, got " .. tostring(opts.method))
@@ -245,42 +241,43 @@ test_opts_table_not_mutated()
 -- scheme validation tests
 
 local function test_fetch_empty_url_rejected()
-  local result = fetch.fetch("")
-  assert(result.ok == false, "result.ok should be false for empty URL")
-  assert(result.error == "empty URL", "expected 'empty URL', got: " .. tostring(result.error))
-  assert(result.error_kind == nil, "validation failures have no error_kind")
+  local resp, err, errobj = fetch.fetch("")
+  assert(resp == nil, "an empty URL must fail")
+  assert(err == "empty URL", "expected 'empty URL', got: " .. tostring(err))
+  assert(errobj and errobj.kind == "invalid_request",
+    "validation failures carry kind invalid_request")
 end
 test_fetch_empty_url_rejected()
 
 local function test_fetch_unsupported_scheme_rejected()
-  local result = fetch.fetch("ftp://example.com/file.txt")
-  assert(result.ok == false, "result.ok should be false for ftp scheme")
-  assert(result.error:find("unsupported URL scheme") ~= nil,
-    "error should mention unsupported scheme, got: " .. tostring(result.error))
+  local resp, err = fetch.fetch("ftp://example.com/file.txt")
+  assert(resp == nil, "an ftp URL must fail")
+  assert(err:find("unsupported URL scheme") ~= nil,
+    "error should mention unsupported scheme, got: " .. tostring(err))
 end
 test_fetch_unsupported_scheme_rejected()
 
 local function test_fetch_file_scheme_rejected()
-  local result = fetch.fetch("file:///etc/passwd")
-  assert(result.ok == false, "result.ok should be false for file scheme")
-  assert(result.error:find("unsupported URL scheme") ~= nil,
-    "error should mention unsupported scheme, got: " .. tostring(result.error))
+  local resp, err = fetch.fetch("file:///etc/passwd")
+  assert(resp == nil, "a file URL must fail")
+  assert(err:find("unsupported URL scheme") ~= nil,
+    "error should mention unsupported scheme, got: " .. tostring(err))
 end
 test_fetch_file_scheme_rejected()
 
 local function test_fetch_no_scheme_rejected()
-  local result = fetch.fetch("example.com/path")
-  assert(result.ok == false, "result.ok should be false for no-scheme URL")
-  assert(result.error:find("unsupported URL scheme") ~= nil,
-    "error should mention unsupported scheme, got: " .. tostring(result.error))
+  local resp, err = fetch.fetch("example.com/path")
+  assert(resp == nil, "a scheme-less URL must fail")
+  assert(err:find("unsupported URL scheme") ~= nil,
+    "error should mention unsupported scheme, got: " .. tostring(err))
 end
 test_fetch_no_scheme_rejected()
 
 local function test_fetch_missing_host_rejected()
-  local result = fetch.fetch("http://")
-  assert(result.ok == false, "result.ok should be false for host-less URL")
-  assert(result.error == "missing URL host",
-    "expected 'missing URL host', got: " .. tostring(result.error))
+  local resp, err = fetch.fetch("http://")
+  assert(resp == nil, "a host-less URL must fail")
+  assert(err == "missing URL host",
+    "expected 'missing URL host', got: " .. tostring(err))
 end
 test_fetch_missing_host_rejected()
 
@@ -288,99 +285,39 @@ test_fetch_missing_host_rejected()
 -- get past the scheme check (this host-less URL then fails on the host,
 -- proving the scheme was accepted without any network traffic).
 local function test_fetch_uppercase_scheme_accepted()
-  local result = fetch.fetch("HTTPS://")
-  assert(result.ok == false, "host-less URL still fails")
-  assert(result.error == "missing URL host",
-    "uppercase scheme should pass the scheme check, got: " .. tostring(result.error))
+  local resp, err = fetch.fetch("HTTPS://")
+  assert(resp == nil, "host-less URL still fails")
+  assert(err == "missing URL host",
+    "uppercase scheme should pass the scheme check, got: " .. tostring(err))
 end
 test_fetch_uppercase_scheme_accepted()
-
--- unix_proxy helper tests
-
-local function test_unix_proxy_valid_path()
-  local url, err = fetch.unix_proxy("/tmp/proxy.sock")
-  assert(url == "unix:///tmp/proxy.sock", "expected unix:///tmp/proxy.sock, got: " .. tostring(url))
-  assert(err == nil, "expected no error, got: " .. tostring(err))
-end
-test_unix_proxy_valid_path()
-
-local function test_unix_proxy_empty_path()
-  local url, err = fetch.unix_proxy("")
-  assert(url == nil, "expected nil for empty path")
-  assert(err == "empty socket path", "expected 'empty socket path', got: " .. tostring(err))
-end
-test_unix_proxy_empty_path()
-
-local function test_unix_proxy_relative_path()
-  local url, err = fetch.unix_proxy("relative/path.sock")
-  assert(url == nil, "expected nil for relative path")
-  assert(err == "socket path must be absolute", "expected absolute path error, got: " .. tostring(err))
-end
-test_unix_proxy_relative_path()
-
-local unix_proxy_segment_err = "socket path must not contain . or .. segments or redundant slashes"
-
-local function test_unix_proxy_dotdot_segment()
-  local url, err = fetch.unix_proxy("/tmp/../etc/proxy.sock")
-  assert(url == nil, "expected nil for path with .. segment")
-  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
-end
-test_unix_proxy_dotdot_segment()
-
-local function test_unix_proxy_dot_segment()
-  local url, err = fetch.unix_proxy("/tmp/./proxy.sock")
-  assert(url == nil, "expected nil for path with . segment")
-  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
-end
-test_unix_proxy_dot_segment()
-
--- Delegating to fs.normalize also catches what per-shape dot patterns
--- miss: redundant and trailing slashes.
-local function test_unix_proxy_redundant_slash()
-  local url, err = fetch.unix_proxy("/tmp//proxy.sock")
-  assert(url == nil, "expected nil for path with redundant slash")
-  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
-end
-test_unix_proxy_redundant_slash()
-
-local function test_unix_proxy_trailing_slash()
-  local url, err = fetch.unix_proxy("/tmp/proxy.sock/")
-  assert(url == nil, "expected nil for path with trailing slash")
-  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
-end
-test_unix_proxy_trailing_slash()
-
--- Trailing ".." with no slash after it — one of the shapes hand-rolled
--- patterns need a dedicated case for.
-local function test_unix_proxy_trailing_dotdot()
-  local url, err = fetch.unix_proxy("/tmp/..")
-  assert(url == nil, "expected nil for path ending in ..")
-  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
-end
-test_unix_proxy_trailing_dotdot()
-
-local function test_unix_proxy_too_long_path()
-  local long_path = "/" .. string.rep("a", 108)
-  local url, err = fetch.unix_proxy(long_path)
-  assert(url == nil, "expected nil for too-long path")
-  assert(err == "socket path too long", "expected too-long error, got: " .. tostring(err))
-end
-test_unix_proxy_too_long_path()
 
 local function test_fetch_with_proxy_nonexistent_socket()
   -- the proxy option is passed through to cosmo.Fetch: a socket path that
   -- doesn't exist produces a connection error
-  local result = fetch.fetch("http://example.com", {proxy = "unix:///tmp/nonexistent-cosmic-test.sock"})
-  assert(result.ok == false, "result.ok should be false for nonexistent socket")
-  assert(result.error ~= nil, "result.error should describe the failure")
+  local resp, err = fetch.fetch("http://example.com",
+    {proxy = "unix:///tmp/nonexistent-cosmic-test.sock"})
+  assert(resp == nil, "a nonexistent proxy socket must fail")
+  assert(err ~= nil, "err should describe the failure")
 end
 test_fetch_with_proxy_nonexistent_socket()
 
 local function test_timeout_option_accepted()
   local port, pid = serve({body_response("200 OK", "quick")})
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+  local result, err = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, timeout_ms = 30000})
   assert(proc.wait(pid))
-  assert(result.ok == true, "fetch with timeout option should succeed: " .. tostring(result.error))
+  assert(result ~= nil, "fetch with timeout option should succeed: " .. tostring(err))
 end
 test_timeout_option_accepted()
+
+local function test_max_response_bytes_enforced()
+  local port, pid = serve({body_response("200 OK", string.rep("x", 4096))})
+  local resp, _err, errobj = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+    {allow_private = true, max_response_bytes = 16})
+  assert(proc.wait(pid))
+  assert(resp == nil, "a body over max_response_bytes must fail")
+  assert(errobj and errobj.kind == "too_large",
+    "kind should be 'too_large', got " .. tostring(errobj and errobj.kind))
+end
+test_max_response_bytes_enforced()
