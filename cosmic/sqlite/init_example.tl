@@ -75,7 +75,7 @@ local function Example_query_params()
     assert(db:exec("INSERT INTO nums (n) VALUES (" .. i .. ")"))
   end
 
-  for row in check.must(db:query("SELECT * FROM nums WHERE n > ?", 2)) do
+  for row in check.must(db:query("SELECT * FROM nums WHERE n > ?", {2})) do
     print(row.n)
   end
   assert(db:close())
@@ -92,9 +92,9 @@ local function Example_exec_params()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE cities (id INTEGER PRIMARY KEY, name TEXT, pop INTEGER)"))
 
-  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Tokyo", 13960000))
-  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Delhi", 16787941))
-  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Shanghai", 24870895))
+  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", {"Tokyo", 13960000}))
+  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", {"Delhi", 16787941}))
+  assert(db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", {"Shanghai", 24870895}))
 
   for row in check.must(db:query("SELECT * FROM cities ORDER BY pop DESC")) do
     print(row.name, row.pop)
@@ -113,11 +113,11 @@ local function Example_query_like()
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE files (path TEXT)"))
-  assert(db:exec("INSERT INTO files (path) VALUES (?)", "src/main.tl"))
-  assert(db:exec("INSERT INTO files (path) VALUES (?)", "src/util.tl"))
-  assert(db:exec("INSERT INTO files (path) VALUES (?)", "docs/readme.md"))
+  assert(db:exec("INSERT INTO files (path) VALUES (?)", {"src/main.tl"}))
+  assert(db:exec("INSERT INTO files (path) VALUES (?)", {"src/util.tl"}))
+  assert(db:exec("INSERT INTO files (path) VALUES (?)", {"docs/readme.md"}))
 
-  for row in check.must(db:query("SELECT path FROM files WHERE path LIKE ?", "%src%")) do
+  for row in check.must(db:query("SELECT path FROM files WHERE path LIKE ?", {"%src%"})) do
     print(row.path)
   end
   assert(db:close())

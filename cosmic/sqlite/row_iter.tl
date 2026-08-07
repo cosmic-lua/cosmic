@@ -103,23 +103,23 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
   return iter
 end
 
---- Reset + positional-bind a raw statement, then return its row iterator.
---- Resets first (even with no args) so a reused cached statement is cleared.
---- On a bind failure the statement is released and (nil, message) returned.
+--- Reset + bind a raw statement from a Params table, then return its
+--- row iterator. Resets first (even with no params) so a reused cached
+--- statement is cleared. On a bind failure the statement is released
+--- and (nil, message) returned.
 --- @param raw_stmt lsqlite3.Statement The checked-out statement
 --- @param raw_db lsqlite3.Database The owning database (for errmsg)
 --- @param on_close OnClose Release callback, or nil to finalize
 --- @param ok_code number sqlite3.OK
 --- @param row_code number sqlite3.ROW
 --- @param done_code number sqlite3.DONE
---- @param ... any Positional bind parameters
+--- @param params bind_mod.Params? Positional or named bind parameters
 --- @return Rows | nil The row iterator, or nil on bind failure
 --- @return string Error message when binding failed
-local function query(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_close: OnClose, ok_code: number, row_code: number, done_code: number, ...: any): Rows | nil, string
+local function query(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_close: OnClose, ok_code: number, row_code: number, done_code: number, params?: bind_mod.Params): Rows | nil, string
   raw_stmt:reset()
-  local n = select("#", ...)
-  for i = 1, n do
-    local rc = bind_mod.bind_at(raw_stmt, i, (select(i, ...)))
+  if params then
+    local rc = bind_mod.bind_params(raw_stmt, ok_code, params)
     if rc ~= ok_code then
       local bind_err = raw_db:errmsg()
       if on_close then

@@ -3,12 +3,14 @@
 ---
 --- Prefer `db:exec()`, `db:query()`, `db:query_one()`, and
 --- `db:transaction()` over manual preparation, binding, and stepping.
+--- Parameters travel in one table: a list binds `?` placeholders
+--- positionally, a keyed table binds `:name` placeholders.
 ---
 ---     local sqlite = require("cosmic.sqlite")
 ---     local db = sqlite.open(":memory:")
 ---     db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
----     db:exec("INSERT INTO users (name) VALUES (?)", "alice")
----     for row in db:query("SELECT * FROM users WHERE name = ?", "alice") do
+---     db:exec("INSERT INTO users (name) VALUES (?)", {"alice"})
+---     for row in db:query("SELECT * FROM users WHERE name = :n", {n = "alice"}) do
 ---       print(row.id, row.name)
 ---     end
 ---     db:close()
@@ -24,12 +26,16 @@ local defaults_mod = require("cosmic.sqlite.defaults")
 local stmt_cache_mod = require("cosmic.sqlite.stmt_cache")
 local row_iter = require("cosmic.sqlite.row_iter")
 local bind_mod = require("cosmic.sqlite.bind")
-local params_mod = require("cosmic.sqlite.params")
 local extras_mod = require("cosmic.sqlite.extras")
 
 -- The raw lsqlite3 surface is fully typed since the 2026.07.13 pin;
 -- the wrapper uses the generated types directly (no Raw* mirrors).
 local sqlite3 = lsqlite3
+
+--- One parameter table for query/exec: a list binds `?` placeholders
+--- positionally, a keyed table binds `:name` placeholders (see
+--- cosmic.sqlite.bind).
+local type Params = bind_mod.Params
 
 --- Callable row iterator with an out-of-band error channel. Use it in a
 --- `for row in ... do` loop, then call `:err()` afterward to detect a step
@@ -60,8 +66,8 @@ local record Statement
   --- SQL, so nil holes in the table bind as NULL.
   bind_list: function(self: Statement, values: {any}): boolean, string
   --- Bind :name placeholders from a key/value table (keys without the
-  --- colon). `sqlite.blob()` wrappers are rejected — use positional
-  --- binding for blobs.
+  --- colon). `sqlite.blob()` wrappers bind with BLOB affinity, same as
+  --- positional binding; a name missing from the table binds as NULL.
   bind_named: function(self: Statement, params: {string: any}): boolean, string
   --- Callable iterator over result rows as {column: value} tables;
   --- check `:err()` after the loop for step errors.
@@ -85,45 +91,43 @@ local record Database
   --- Compile sql into a reusable Statement for manual bind/iterate;
   --- prefer query()/exec() unless you need statement reuse.
   prepare: function(self: Database, sql: string): Statement | nil, string
-  --- Run sql with positional `?` parameters and iterate result rows as
-  --- {column: value} tables: `for row in db:query(...) do ... end`.
-  --- Statements are cached per connection. Check `:err()` after the
-  --- loop (or use `<close>`) per the Rows contract.
-  query: function(self: Database, sql: string, ...: any): Rows | nil, string
-  --- query() with parameters in a list, so nil holes bind as NULL.
-  query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
-  --- query() with :name placeholders bound from a key/value table.
-  query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
+  --- Run sql and iterate result rows as {column: value} tables:
+  --- `for row in db:query(...) do ... end`. params is one table: a
+  --- list binds `?` placeholders positionally (nil holes bind NULL), a
+  --- keyed table binds `:name` placeholders. Statements are cached per
+  --- connection. Check `:err()` after the loop (or use `<close>`) per
+  --- the Rows contract.
+  query: function(self: Database, sql: string, params?: Params): Rows | nil, string
   --- First matching row. `nil, nil` means NO ROW MATCHED — an ordinary
   --- empty result, not a failure — so `check.must(db:query_one(...))`
   --- throws on it; guard with `if row then` instead. `nil, err` is a
   --- real failure. The statement is always finalized, even when rows
   --- remain.
-  query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
+  query_one: function(self: Database, sql: string, params?: Params): {string: any} | nil, string
   --- First column of the first row, plus a `found` flag that separates
   --- the three outcomes two slots could not: (value, true) on a row —
   --- value nil means SQL NULL — (nil, false) when no row matched, and
   --- (nil, false, err) on failure; see cosmic.sqlite.extras.
-  query_value: function(self: Database, sql: string, ...: any): any, boolean, string
-  --- Execute sql with positional `?` parameters; use for statements
-  --- that return no rows (INSERT/UPDATE/DELETE/DDL). Multi-statement
-  --- sql runs only in the no-parameter form; with parameters it is
-  --- REJECTED (sqlite would silently run just the first statement).
-  exec: function(self: Database, sql: string, ...: any): boolean, string
-  --- exec() with parameters in a list, so nil holes bind as NULL.
-  exec_list: function(self: Database, sql: string, values: {any}): boolean, string
-  --- exec() with :name placeholders bound from a key/value table.
-  exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
-  --- Run fn inside BEGIN IMMEDIATE .. COMMIT. Rolls back when fn
-  --- raises, returns false, or returns nil plus an error; returning
-  --- nothing (or true) commits. The callback is typed variadic
-  --- (Teal cannot express optional returns), so a typed
-  --- `function(db): boolean` rollback needs no cast; see
-  --- cosmic.sqlite.extras.
-  transaction: function(self: Database, fn: function(Database): any ...): boolean, string
-  --- Run fn in a nestable savepoint with transaction's rollback rules;
+  query_value: function(self: Database, sql: string, params?: Params): any, boolean, string
+  --- Execute one statement that returns no rows (INSERT/UPDATE/DELETE/
+  --- DDL), with the same one-table params as query(). Statements are
+  --- cached per connection. Multi-statement sql is REJECTED here
+  --- (sqlite would silently run just the first statement) — run a
+  --- parameterless script with exec_script().
+  exec: function(self: Database, sql: string, params?: Params): boolean, string
+  --- Run a multi-statement SQL script (no parameters, no result rows):
+  --- schema setup, migrations, PRAGMA batches. The one method that
+  --- executes more than one statement per call.
+  exec_script: function(self: Database, sql: string): boolean, string
+  --- Run fn inside BEGIN IMMEDIATE .. COMMIT, with an explicit
+  --- verdict: `return true` commits, `return false, why` rolls back,
+  --- and a raise rolls back. Any other return also rolls back — with
+  --- an error naming the contract — so a callback that forgets its
+  --- verdict cannot commit by accident; see cosmic.sqlite.extras.
+  transaction: function(self: Database, fn: function(Database): boolean, string): boolean, string
+  --- Run fn in a nestable savepoint with transaction's verdict rules;
   --- see cosmic.sqlite.extras.
-  savepoint: function(self: Database, fn: function(Database): any ...): boolean, string
+  savepoint: function(self: Database, fn: function(Database): boolean, string): boolean, string
   --- rowid of the most recent successful INSERT; nil + error once the
   --- database is closed (0 is a legitimate live value, so it cannot
   --- double as the closed marker).
@@ -184,18 +188,12 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
 
   --- Bind named parameters from a key/value table.
   --- SQL should use :name placeholders (e.g. ":foo", ":bar").
-  --- Table keys are names without the colon prefix.
-  --- `sqlite.blob()` wrappers are not supported here: the underlying
-  --- bind_names call binds the wrapper table itself, silently losing BLOB
-  --- affinity, so they are rejected — use positional binding for blobs.
+  --- Table keys are names without the colon prefix. Values route
+  --- through the shared bind step, so `sqlite.blob()` wrappers bind
+  --- with BLOB affinity here too.
   function stmt:bind_named(params: {string: any}): boolean, string
     raw_stmt:reset()
-    for name, v in pairs(params) do
-      if bind_mod.is_blob(v) then
-        return false, "blob value for :" .. name .. " requires positional binding"
-      end
-    end
-    local rc = raw_stmt:bind_names(params)
+    local rc = bind_mod.bind_named(raw_stmt, sqlite3.OK, params)
     if rc ~= sqlite3.OK then
       return false, raw_db:errmsg()
     end
@@ -272,7 +270,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     return make_statement(raw_stmt, raw_db)
   end
 
-  function db:query(sql: string, ...: any): Rows | nil, string
+  function db:query(sql: string, params?: Params): Rows | nil, string
     if closed then
       return nil, "query failed: database is closed"
     end
@@ -284,48 +282,49 @@ local function make_database(raw_db: lsqlite3.Database): Database
     -- bind and iterate the raw statement directly (see cosmic.sqlite.row_iter).
     local iter, bind_err = row_iter.query(
       raw_stmt, raw_db, on_close,
-      sqlite3.OK, sqlite3.ROW, sqlite3.DONE, ...)
+      sqlite3.OK, sqlite3.ROW, sqlite3.DONE, params)
     if not iter then
       return nil, bind_err
     end
     return iter as Rows -- cast: row_iter record to public Rows
   end
 
-  function db:exec(sql: string, ...: any): boolean, string
+  function db:exec(sql: string, params?: Params): boolean, string
     if closed then
       return false, "database is closed"
     end
-    local n = select("#", ...)
-    if n == 0 then
-      -- no params: use raw exec (faster for DDL)
-      local rc = raw_db:exec(sql)
-      if rc ~= sqlite3.OK then
-        return false, raw_db:errmsg()
-      end
-      return true
-    end
-
-    -- has params: reuse a cached prepared statement (see cosmic.sqlite.stmt_cache)
-    local args: {integer: any} = {}
-    for i = 1, n do
-      args[i] = select(i, ...)
-    end
-    return stmt_cache:exec(sql, args, n)
+    -- Always through the statement cache: repeated calls with the same
+    -- SQL reuse the prepared statement, and the cache rejects
+    -- multi-statement sql on the miss path (exec_script is the
+    -- explicit multi-statement method).
+    return stmt_cache:exec(sql, params)
   end
 
-  -- exec_list, exec_named, query_list, query_named live in
-  -- cosmic.sqlite.params (same prepare/bind/consume shape, split out to
-  -- keep this file under the 500-line cap); query_value, transaction
-  -- and savepoint live in cosmic.sqlite.extras for the same reason.
-  params_mod.attach(db)
+  --- Run a multi-statement script. No parameters and no result rows:
+  --- this is sqlite's raw exec, which runs every statement in the
+  --- string — the capability exec() deliberately does not have.
+  function db:exec_script(sql: string): boolean, string
+    if closed then
+      return false, "database is closed"
+    end
+    local rc = raw_db:exec(sql)
+    if rc ~= sqlite3.OK then
+      return false, raw_db:errmsg()
+    end
+    return true
+  end
+
+  -- query_value, transaction and savepoint live in
+  -- cosmic.sqlite.extras (same attach shape, split out to keep this
+  -- file under the 500-line cap).
   extras_mod.attach(db)
 
   --- Return the first row matching a query, or nil if no rows match.
   --- Convenience method for single-row lookups.
   --- The underlying prepared statement is always finalized before returning,
   --- even when only the first row is consumed, preventing statement leaks.
-  function db:query_one(sql: string, ...: any): {string: any} | nil, string
-    local iter, err = self:query(sql, ...)
+  function db:query_one(sql: string, params?: Params): {string: any} | nil, string
+    local iter, err = self:query(sql, params)
     if not iter then
       return nil, err
     end
@@ -428,6 +427,7 @@ end
 local record sqlite
   type Blob = bind_mod.Blob
   type Options = Options
+  type Params = Params
   --- Exported so callers can name the handles open() and its methods
   --- return; these are type aliases, not runtime values. A
   --- `Database: Database` field spelling would declare phantom fields
