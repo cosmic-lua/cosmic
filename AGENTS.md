@@ -226,11 +226,7 @@ are exempt — `s:find("%d+")` reads as a pattern already. There is no
 pattern by construction; escape it if it isn't one.
 
 rules:
-- never throw from library code — `cosmic.check` is the one exempt
-  module ([D23](docs/decisions/d23-check-throws.md)): its assertions
-  throw by design, and `needs`/`reap` may exit because the runner
-  grades exit codes; CSPRNG contract violations also throw
-  ([D22](docs/decisions/d22-infallible-csprng.md))
+- never throw from library code — `cosmic.check` alone is exempt ([D23](docs/decisions/d23-check-throws.md)); D22's CSPRNG throws are the only others
 - never silently discard errors
 - be consistent within a module — pick one pattern and use it throughout
 - infallible functions (encoding, compression, escaping) return just a value

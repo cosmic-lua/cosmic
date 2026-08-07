@@ -79,10 +79,10 @@ local function hint_for_message(msg: string): string | nil
   -- signature mismatch, and an open ("at least N") arity says nothing.
   local given_str, expects = msg:match("wrong number of arguments %(given (%d+), expects ([^)]+)%)")
   if given_str and not expects:find("at least", 1, true) then
-    local given = tonumber(given_str)
+    local given = math.tointeger(tonumber(given_str))
     local max_arity = 0
     for n in expects:gmatch("%d+") do
-      local arity = tonumber(n)
+      local arity = math.tointeger(tonumber(n))
       if arity and arity > max_arity then max_arity = arity end
     end
     if given and given > max_arity and max_arity > 0 then
