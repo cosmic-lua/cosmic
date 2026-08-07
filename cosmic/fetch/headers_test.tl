@@ -21,13 +21,13 @@ end
 test_rejects_crlf_in_header_value()
 
 local function test_rejects_lf_only_in_header_value()
-  local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\nb"}})
+  local result, _err = fetch.fetch(dead, {headers = {["X-Test"] = "a\nb"}})
   assert(result == nil, "a bare LF in a header value must be rejected")
 end
 test_rejects_lf_only_in_header_value()
 
 local function test_rejects_cr_only_in_header_value()
-  local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\rb"}})
+  local result, _err = fetch.fetch(dead, {headers = {["X-Test"] = "a\rb"}})
   assert(result == nil, "a bare CR in a header value must be rejected")
 end
 test_rejects_cr_only_in_header_value()

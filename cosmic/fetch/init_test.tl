@@ -113,7 +113,7 @@ test_http_error_status_is_a_response()
 local function test_post_body_reaches_server()
   local port, pid = serve({"echo"})
   local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/submit",
-    {allow_private = true, method = "POST", body = "hello=world"}))
+      {allow_private = true, method = "POST", body = "hello=world"}))
   assert(proc.wait(pid))
   assert(result.body:find("POST /submit", 1, true) ~= nil,
     "server should have seen the POST request line: " .. tostring(result.body))
@@ -149,7 +149,7 @@ local function test_follow_redirects_false_returns_redirect()
       .. "Content-Length: 0\r\nConnection: close\r\n\r\n",
     })
   local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/",
-    {allow_private = true, follow_redirects = false}))
+      {allow_private = true, follow_redirects = false}))
   assert(proc.wait(pid))
   assert(result.status == 302, "status should be 302, got " .. tostring(result.status))
   assert(result.headers.location == "http://127.0.0.1:1/next",
@@ -184,7 +184,7 @@ local function test_redirect_followed_reports_final_url()
   end
   assert(s:close())
   local result = check.must(fetch.fetch("http://127.0.0.1:" .. math.tointeger(port2) .. "/",
-    {allow_private = true}))
+      {allow_private = true}))
   assert(proc.wait(pid2))
   assert(result.status == 200, "status should be 200 after redirect")
   assert(result.body == "made it", "body should come from the final URL")
