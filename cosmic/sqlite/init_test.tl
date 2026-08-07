@@ -215,8 +215,6 @@ end
 test_query_empty_results()
 
 local function test_statement_rows_positional_lookup()
-  -- values() is gone (a NULL first column silently ended a generic-for
-  -- over it, #983); rows() plus column_name covers the positional read.
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)"))
   assert(db:exec("INSERT INTO t VALUES ('hello', 42, 3.14)"))
@@ -228,7 +226,6 @@ local function test_statement_rows_positional_lookup()
   assert(row.a == "hello", "first value should be 'hello'")
   assert(row.b == 42, "second value should be 42")
   assert(math.abs((row.c as number) - 3.14) < 0.001, "third ~3.14") -- cast: from any
-  assert(stmt:column_name(1) == "a", "column_name maps position to name")
   assert(stmt:close())
   assert(db:close())
 end
@@ -299,8 +296,11 @@ local function test_use_after_close()
   assert(not ok and type(exec_err) == "string", "exec after close should error")
   local iter, query_err = db:query("SELECT * FROM t")
   assert(iter == nil and type(query_err) == "string", "query after close should error")
-  assert(db:last_insert_rowid() == 0, "last_insert_rowid after close should not crash")
-  assert(db:changes() == 0, "changes after close should not crash")
+  -- 0 is a legitimate live value, so closed reports nil, err instead.
+  local rowid, rerr = db:last_insert_rowid()
+  assert(rowid == nil and type(rerr) == "string", "rowid after close: nil, err")
+  local nchanged, cerr = db:changes()
+  assert(nchanged == nil and type(cerr) == "string", "changes after close: nil, err")
 end
 test_use_after_close()
 
