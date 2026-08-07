@@ -3,7 +3,9 @@
  String utilities.
  Common string manipulation functions for trimming, splitting, searching,
  padding, and quoting. All functions are infallible and treat their
- arguments as plain text (no Lua patterns).
+ arguments as plain text (no Lua patterns). For pattern-based search
+ and splitting see cosmic.re; for approximate (edit-distance)
+ matching see cosmic.fuzzy.
 
  Example usage:
    local str = require("cosmic.string")
@@ -119,6 +121,8 @@ function split(s: string, sep: string): {string}
  Split a string by a separator.
  If separator is empty string, splits into individual characters.
  Trailing empty fields (from a trailing separator) are preserved.
+ The empty string yields one empty field, {""} — the same answer
+ re.split gives, so the two splits agree on the empty subject.
 
 **Parameters:**
 
@@ -190,7 +194,9 @@ function count(s: string, sub: string): integer
 
  Count non-overlapping occurrences of a substring.
  Plain-text search; the substring is not a Lua pattern.
- The empty substring counts as zero occurrences.
+ The empty substring matches before every character and at the end,
+ so it counts #s + 1 occurrences — agreeing with contains, which
+ says the empty substring is contained in every string.
 
 **Parameters:**
 
@@ -210,7 +216,9 @@ function replace(s: string, old: string, new: string, max?: integer): string
  Replace occurrences of a substring with plain text.
  Both old and new are treated literally (no Lua patterns, unlike
  string.gsub). Replaces all occurrences unless max is given.
- An empty old string returns s unchanged.
+ An empty old string matches before every character and at the end,
+ so new is inserted at each of the #s + 1 boundaries — the same
+ positions count counts, and what Python and Go do.
 
 **Parameters:**
 
