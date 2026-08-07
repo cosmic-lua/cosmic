@@ -326,16 +326,10 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   end
   unix.close(tmp_fd)
 
-  local exe_data = fs.read(exe_path)
-  if not exe_data then
+  local copy_ok, copy_err = fs.copy(exe_path, tmp_path)
+  if not copy_ok then
     fs.unlink(tmp_path)
-    return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
-  end
-
-  local barf_ok = fs.write(tmp_path, exe_data)
-  if not barf_ok then
-    fs.unlink(tmp_path)
-    return {ok = false, message = "error: cannot write to '" .. tmp_path .. "'", file_count = 0}
+    return {ok = false, message = "error: cannot copy '" .. exe_path .. "' to '" .. tmp_path .. "': " .. (copy_err or "unknown error"), file_count = 0}
   end
   unix.chmod(tmp_path, tonumber("755", 8))
 
