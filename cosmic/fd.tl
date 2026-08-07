@@ -17,8 +17,8 @@
 --- O_NONBLOCK plus poll, or close the descriptor from the handler.
 --- The full policy and its exceptions live in cosmic.stream.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
-local errno_is = require("cosmic.errno").is
+local errstr = require("cosmic.errno").format
+local errno_is = require("cosmic.errno").is_code
 local stream = require("cosmic.stream")
 
 --- File handle for I/O operations.

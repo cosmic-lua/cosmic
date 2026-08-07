@@ -8,7 +8,7 @@
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 
 --- Socket handle for network I/O (see cosmic.net.socket for the methods).
 --- Supports Lua 5.4's to-be-closed via __close metamethod.

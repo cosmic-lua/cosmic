@@ -5,7 +5,7 @@
 --- a fallback. Use env.all() to get all variables as a {string:string} map
 --- parsed from unix.environ().
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 
 --- Get the value of an environment variable, or nil when it is not set.
 ---

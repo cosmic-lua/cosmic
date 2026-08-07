@@ -2,7 +2,7 @@
 --- Wraps cosmo system functions for OS and architecture queries.
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 
 --- Operating system and hardware identification returned by `uname`.
 local record Uname
