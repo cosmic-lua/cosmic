@@ -113,3 +113,19 @@ local function test_constants_excludes_termios()
   end
 end
 test_constants_excludes_termios()
+
+-- The canonical names (D20 rename, #981): same functions, one grammar.
+-- The old names are transition aliases until the pin advance.
+local function test_canonical_names_and_aliases()
+  assert(errno.format("mkdir: EACCES: denied", "mkdir: /x")
+    == "mkdir: /x: EACCES: denied")
+  assert(errno.is_code(errno.code_of("ENOENT"), "ENOENT"))
+  assert(errno.name_in("open: ENOENT: No such file or directory") == "ENOENT")
+  assert(errno.codes.ENOENT == errno.code_of("ENOENT"))
+  assert(errno.wrap == errno.format, "wrap aliases format")
+  assert(errno.is == errno.is_code, "is aliases is_code")
+  assert(errno.code == errno.code_of, "code aliases code_of")
+  assert(errno.name_of == errno.name_in, "name_of aliases name_in")
+  assert(errno.constants == errno.codes, "constants aliases codes")
+end
+test_canonical_names_and_aliases()
