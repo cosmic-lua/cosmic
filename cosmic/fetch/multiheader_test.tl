@@ -43,9 +43,8 @@ end
 
 local function test_fetch_repeated_headers_normalized()
   local port, pid = serve(1)
-  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
+  local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   assert(proc.wait(pid))
-  assert(result.ok == true, "fetch should succeed: " .. tostring(result.error))
 
   -- headers: lowercase keys, repeats joined ", " — always a plain string
   assert(type(result.headers.vary) == "string",
@@ -73,8 +72,7 @@ test_fetch_repeated_headers_normalized()
 
 local function test_stream_repeated_headers_normalized()
   local port, pid = serve(1)
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "stream should succeed: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   assert(type(result.headers.vary) == "string",
     "stream headers.vary must be a string")
   assert(result.headers.vary == "Accept, Origin",

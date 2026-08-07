@@ -120,9 +120,9 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "stream_lines_iterate",
       fn = function(_: any): any
-        local res = fetch.stream(url, {allow_private = true})
-        if not res.ok then
-          return {count = -1, last = tostring(res.error)}
+        local res, serr = fetch.stream(url, {allow_private = true})
+        if res == nil then
+          return {count = -1, last = tostring(serr)}
         end
         local reader = res.reader
         local count = 0

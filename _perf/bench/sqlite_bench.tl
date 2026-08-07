@@ -34,22 +34,23 @@ local function init_db(): string
   -- WAL with NORMAL sync keeps commit costs realistic while avoiding
   -- fsync dominating every sample with filesystem-dependent noise.
   local pragmas = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;"
-  local ok, err = db:exec(pragmas)
+  local ok, err = db:exec_script(pragmas)
   if not ok then
     return "pragma: " .. tostring(err)
   end
-  ok, err = db:exec([[
+  ok, err = db:exec_script([[
     CREATE TABLE kv (id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL NOT NULL);
     CREATE TABLE scratch (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, score REAL NOT NULL);
   ]])
   if not ok then
     return "create: " .. tostring(err)
   end
-  local tok, terr = db:transaction(function(tx: sqlite.Database)
+  local tok, terr = db:transaction(function(tx: sqlite.Database): boolean, string
       for i = 1, ROWS do
         assert(tx:exec("INSERT INTO kv (id, name, score) VALUES (?, ?, ?)",
-            i, "row-" .. i, i * 0.25))
+            {i, "row-" .. i, i * 0.25}))
       end
+      return true
     end)
   if not tok then
     return "seed: " .. tostring(terr)
@@ -71,12 +72,13 @@ local function scenarios(): {pt.Scenario}, string
       -- database stays the same size and samples remain comparable.
       name = "sqlite_insert_delete_tx",
       fn = function(_: any): any
-        local ok, err = db:transaction(function(tx: sqlite.Database)
+        local ok, err = db:transaction(function(tx: sqlite.Database): boolean, string
             for i = 1, INSERT_BATCH do
               assert(tx:exec("INSERT INTO scratch (name, score) VALUES (?, ?)",
-                  "s-" .. i, i * 1.5))
+                  {"s-" .. i, i * 1.5}))
             end
             assert(tx:exec("DELETE FROM scratch"))
+            return true
           end)
         assert(ok, err)
         return ok
@@ -100,7 +102,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "sqlite_point_query",
       fn = function(_: any): any
         query_id = (query_id % ROWS) + 1
-        local row, err = db:query_one("SELECT id, name, score FROM kv WHERE id = ?", query_id)
+        local row, err = db:query_one("SELECT id, name, score FROM kv WHERE id = ?", {query_id})
         assert(row, err)
         return row
       end,

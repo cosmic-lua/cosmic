@@ -3,7 +3,7 @@
 --- producer honors the one EOF convention — read returns a chunk, bare
 --- nil (no error) at end of stream, and keeps returning bare nil after
 --- EOF; failures return nil plus an error message. Run against
---- fd.Handle, net.Socket, fetch.Reader, and child.Handle.
+--- fd.Handle, net.Socket, fetch.Body, and child.Handle.
 local check = require("cosmic.check")
 local stream = require("cosmic.stream")
 local fd = require("cosmic.fd")
@@ -131,10 +131,10 @@ local function test_fetch_reader_conforms()
   local body = "fetch bytes"
   local port, pid = serve_once("HTTP/1.1 200 OK\r\nContent-Length: " .. #body
     .. "\r\nConnection: close\r\n\r\n" .. body)
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/",
+  local result, serr = fetch.stream("http://127.0.0.1:" .. port .. "/",
     {allow_private = true})
-  assert(result.ok == true, "stream failed: " .. tostring(result.error))
-  check_reader(result.reader, body, "fetch.Reader")
+  assert(result ~= nil, "stream failed: " .. tostring(serr))
+  check_reader(result.reader, body, "fetch.Body")
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
