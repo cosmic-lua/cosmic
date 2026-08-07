@@ -17,7 +17,7 @@ local function Example_echo()
   client:send("hello")
   local msg = check.must(conn:recv())
   conn:send("echo: " .. msg)
-  print(client:recv())
+  print(check.must(client:recv()))
 
   client:close()
   conn:close()

@@ -15,13 +15,13 @@ local function Example_pipe_readiness()
   set:add(p.writer:fd(), poll.POLLOUT)
   set:add(p.reader:fd(), poll.POLLIN)
 
-  print(set:poll(0)) -- only the writer is ready
+  print(check.must(set:poll(0))) -- only the writer is ready
   p.writer:write("ping")
-  print(set:poll(0)) -- now the reader is ready too
+  print(check.must(set:poll(0))) -- now the reader is ready too
 
   local ev = check.must(set:events(p.reader:fd()))
   print(ev.readable)
-  print(p.reader:read(4))
+  print(check.must(p.reader:read(4)))
   p:close()
   -- Output:
   -- 1
