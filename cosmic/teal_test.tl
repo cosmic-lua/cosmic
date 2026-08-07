@@ -63,12 +63,14 @@ print(g(f()))
 end
 test_hint_nil_union_not_narrowed()
 
--- The carried tl patch's canary (3p/tl/tl_patch.tl): truthiness narrows
--- a nil union of records, maps and arrays, positive branch and negated
--- early-return alike. A tl pin bump that lands without the patch — or a
+-- The carried tl patch's canary (3p/tl/tl_patch.tl): a plain variable's
+-- nil union narrows through truthiness (positive branch and negated
+-- early-return alike), through `assert(x)`, and through `== nil` /
+-- `~= nil` — which is exact, so it narrows boolean unions truthiness
+-- cannot touch. A tl pin bump that lands without the patch — or a
 -- patch whose anchor drifted — fails HERE, not as a hundred downstream
 -- type errors.
-local function test_truthiness_narrows_nil_union()
+local function test_narrowing_canary()
   local path = fs.join(tmpdir, "narrow_ok.tl")
   assert(fs.write(path, [[
 local record R
@@ -102,31 +104,52 @@ local function arr(): integer
   end
   return sum
 end
-print(early() + positive() + arr())
-]]))
-  local result = teal.check(path)
-  assert(result.ok, "truthiness must narrow a nil union (carried tl patch): "
-    .. (result.ok and "" or teal.format_issues(result.errors)))
-end
-test_truthiness_narrows_nil_union()
-
--- `assert(x)` and `== nil` comparisons still do NOT narrow; the errors
--- they leave behind name the un-narrowed type but nothing else, so each
--- shape carries a hint at the fix.
-local function test_hint_index_through_nil_union()
-  local msg, hint = first_hinted_error("h_idx_union.tl", [[
-local record R
-  x: integer
-end
-local function make(): R | nil
-  return nil
-end
-local function use(): integer
+local function via_assert(): integer
   local r = make()
-  assert(r)
+  assert(r, "make failed")
   return r.x
 end
-print(use())
+local function via_eq_nil(): integer
+  local r = make()
+  if r == nil then
+    return 0
+  end
+  return r.x
+end
+local function via_ne_nil_boolean(): integer
+  local b: boolean | nil = false
+  if b ~= nil then
+    return b and 1 or 2
+  end
+  return 0
+end
+print(early() + positive() + arr() + via_assert() + via_eq_nil()
+  + via_ne_nil_boolean())
+]]))
+  local result = teal.check(path)
+  assert(result.ok, "guards must narrow a nil union (carried tl patch): "
+    .. (result.ok and "" or teal.format_issues(result.errors)))
+end
+test_narrowing_canary()
+
+-- Record FIELDS still do not narrow — a guard on `o.sub` leaves `o.sub`
+-- un-narrowed at the use; the error names the type but not the cause,
+-- so the shape carries a hint at the fix (copy the field to a local).
+local function test_hint_index_through_nil_union()
+  local msg, hint = first_hinted_error("h_idx_union.tl", [[
+local record Inner
+  x: integer
+end
+local record Outer
+  sub: Inner | nil
+end
+local function use(o: Outer): integer
+  if o.sub then
+    return o.sub.x
+  end
+  return 0
+end
+print(use({}))
 ]])
   assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
     "wrong error: " .. msg)
@@ -143,7 +166,6 @@ local function rows(): Iter | nil
 end
 local function use()
   local it = rows()
-  assert(it)
   for x in it do
     print(x)
   end
@@ -163,7 +185,6 @@ local function list(): {string} | nil
 end
 local function use()
   local xs = list()
-  assert(xs)
   for _, x in ipairs(xs) do
     print(x)
   end
@@ -206,18 +227,17 @@ print(label(depmod.make()))
 end
 test_hint_unexported_type()
 
-local function test_hint_scalar_method_call_after_assert()
-  -- A truthiness guard narrows the scalar and the method call works;
-  -- after `assert(data)` the value is still `string | nil`, and the
-  -- method call is the use that fails first — the same "cannot index
-  -- ... | nil" error shape as records, so it carries the same hint.
+local function test_hint_scalar_method_call_unguarded()
+  -- Any guard on the variable narrows it and the method call works;
+  -- with no guard at all the method call is the use that fails first —
+  -- the same "cannot index ... | nil" error shape as records, so it
+  -- carries the same hint.
   local msg, hint = first_hinted_error("h_scalar_method.tl", [[
 local function readish(): string | nil, string
   return nil, "nope"
 end
 local function use(): integer
   local data = readish()
-  assert(data)
   for word in data:gmatch("%a+") do
     print(word)
   end
@@ -229,7 +249,7 @@ print(use())
     "wrong error: " .. msg)
   assert(hint:find("do not narrow", 1, true), "wrong hint: " .. hint)
 end
-test_hint_scalar_method_call_after_assert()
+test_hint_scalar_method_call_unguarded()
 
 local function test_hint_colon_call_on_module_function()
   local msg, hint = first_hinted_error("h_colon.tl", [[

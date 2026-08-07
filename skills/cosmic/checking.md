@@ -57,9 +57,10 @@ recover it.
 
 ### Narrowing and Casting
 
-truthiness narrows a nil union: records, maps, arrays and scalars all
-narrow through an ordinary guard, in the positive branch and below a
-negated early return alike (the carried tl patch, `3p/tl/tl_patch.tl`):
+a guard on a plain variable narrows its nil union: truthiness,
+`assert(x)`, and `== nil` / `~= nil` all narrow `T | nil` for records,
+maps, arrays and scalars, in the positive branch and below a negated
+early return alike (the carried tl patch, `3p/tl/tl_patch.tl`):
 
 ```teal
 local r = make() -- r: R | nil
@@ -69,23 +70,23 @@ end
 print(r.x) -- r is R below the guard
 
 local sock = net.connect_tcp(host, port) -- Socket | nil
-if sock then
-  sock:send("hello") -- narrowed, method call included
+assert(sock, "connect failed")
+sock:send("hello") -- narrowed, method call included
+```
+
+`~= nil` is exact, so it also narrows unions containing `boolean`,
+which truthiness and `assert` deliberately skip (`false` is falsy, so
+truthy does not mean "not nil" there):
+
+```teal
+local b: boolean | nil = flag()
+if b ~= nil then
+  return b -- narrowed to boolean; `if b then` would not narrow
 end
 ```
 
-what does NOT narrow:
-
-- **`assert(x, "msg")`** — it terminates control flow at runtime, but
-  the checker still sees `T | nil` on every line after it. guard with
-  truthiness instead, cast once after the assert, or in tests and
-  examples use `check.must`, which guards and narrows in one call.
-- **`== nil` / `~= nil` comparisons** — `if r ~= nil then r.x end`
-  still errors. write the truthiness form (`if r then`).
-- **unions containing `boolean`** — `false` is falsy, so truthy does
-  not mean "not nil" there; branch with `is`.
-- **record FIELDS**, even scalar ones — copy the field to a local and
-  guard the local:
+what does NOT narrow: **record FIELDS**, even scalar ones — copy the
+field to a local and guard the local:
 
 ```teal
 local earliest = report.earliest -- integer | nil
