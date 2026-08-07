@@ -147,11 +147,7 @@ local function encode_multipart(parts: {Part}): string | nil, string
   if #parts == 0 then
     return nil, "multipart: no parts"
   end
-  local raw, rerr = rand.bytes(12)
-  if not raw then
-    return nil, rerr
-  end
-  local boundary = "cosmic" .. codec.encode_hex(raw)
+  local boundary = "cosmic" .. codec.encode_hex(rand.bytes(12))
   local out: {string} = {}
   for _, part in ipairs(parts) do
     if not part.name or part.name == "" then

@@ -3,8 +3,7 @@ local check = require("cosmic.check")
 local rand = require("cosmic.rand")
 
 local function test_bytes_returns_requested_length()
-  local b, err = rand.bytes(16)
-  assert(b, "bytes(16) failed: " .. tostring(err))
+  local b = rand.bytes(16)
   assert(#b == 16, "bytes(16) should return 16 bytes, got " .. #b)
 end
 test_bytes_returns_requested_length()
@@ -18,8 +17,7 @@ test_bytes_different_each_call()
 
 local function test_bytes_various_sizes()
   for _, size in ipairs({1, 8, 16, 32, 64, 128}) do
-    local b, err = rand.bytes(size)
-    assert(b, "bytes(" .. size .. ") failed: " .. tostring(err))
+    local b = rand.bytes(size)
     assert(#b == size, "bytes(" .. size .. ") should return " .. size .. " bytes, got " .. #b)
   end
 end
@@ -97,17 +95,18 @@ end
 test_int_wide_range()
 
 local function test_int_invalid_args()
-  local n, err = rand.int(10, 1)
-  assert(n == nil, "min > max should fail")
-  assert(err and err:match("min"), "expected min/max error, got: " .. tostring(err))
+  -- Contract violations throw (D22): a caller error is not a runtime
+  -- failure, so it does not get a return slot.
+  local ok, err = pcall(rand.int, 10, 1)
+  assert(not ok, "min > max must throw")
+  assert(tostring(err):match("min"), "expected min/max error, got: " .. tostring(err))
 
-  n, err = rand.int(1.5 as integer, 3) -- cast: deliberate invalid input
-  assert(n == nil, "non-integer min should fail")
-  assert(err, "expected error for non-integer min")
+  ok = pcall(rand.int, 1.5 as integer, 3) -- cast: deliberate invalid input
+  assert(not ok, "non-integer min must throw")
 
-  n, err = rand.int(math.mininteger, math.maxinteger)
-  assert(n == nil, "full 64-bit span should be rejected")
-  assert(err and err:match("range"), "expected range error, got: " .. tostring(err))
+  ok, err = pcall(rand.int, math.mininteger, math.maxinteger)
+  assert(not ok, "overflowing range must throw")
+  assert(tostring(err):match("range"), "expected range error, got: " .. tostring(err))
 end
 test_int_invalid_args()
 
@@ -151,8 +150,8 @@ test_choice_covers_all()
 
 local function test_choice_single_and_empty()
   assert(rand.choice({42}) == 42, "single-element choice must return it")
-  local v, err = rand.choice({})
-  assert(v == nil and err ~= nil, "empty list should fail with an error")
+  local v = rand.choice({})
+  assert(v == nil, "empty list yields nil, the one nil this module returns")
 end
 test_choice_single_and_empty()
 
@@ -222,7 +221,8 @@ end
 test_token_length_and_uniqueness()
 
 local function test_token_invalid_length()
-  local t, err = rand.token(0)
-  assert(t == nil and err ~= nil, "token(0) should fail")
+  local ok, err = pcall(rand.token, 0)
+  assert(not ok, "token(0) must throw")
+  assert(tostring(err):match("positive"), "got: " .. tostring(err))
 end
 test_token_invalid_length()
