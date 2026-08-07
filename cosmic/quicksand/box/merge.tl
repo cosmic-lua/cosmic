@@ -5,8 +5,8 @@
 --- new policy table. No syscalls, no side effects.
 ---
 --- Field classes:
----   scalar   hostname, cwd, uid, gid, pledge, log_level, ...
----   list     fs.ro, fs.rw, fs.exec, env.keep
+---   scalar   hostname, cwd, uid, gid, log_level, ...
+---   list     fs.ro, fs.rw, fs.exec, env.keep, proc.keep_caps
 ---   map      net.allow, env.set
 ---
 --- Merge rules:
@@ -28,6 +28,10 @@ local schema: Schema = {
     ["fs.rw"] = true,
     ["fs.exec"] = true,
     ["env.keep"] = true,
+    -- Absent from the schema, keep_caps fell into the recursive branch and
+    -- merged BY INDEX: {A,B} over {C} yielded {C,B}, silently retaining a
+    -- capability the overlay never granted.
+    ["proc.keep_caps"] = true,
   },
   maps = {
     ["net.allow"] = true,
