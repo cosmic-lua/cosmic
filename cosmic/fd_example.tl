@@ -16,9 +16,9 @@ local function Example_open_write_read()
   local path = fs.join(dir, "note.txt")
 
   local h < close > = check.must(fd.open(path, fd.O_RDWR | fd.O_CREAT, 420))
-  print(h:write("hello fd"))
+  print(check.must(h:write("hello fd")))
   h:seek(0, fd.SEEK_SET)
-  print(h:read(5))
+  print(check.must(h:read(5)))
   fs.remove_all(dir)
   -- Output:
   -- 8
@@ -37,8 +37,8 @@ local function Example_positional()
   fs.write(path, "abcdef")
 
   local h < close > = check.must(fd.open(path, fd.O_RDONLY))
-  print(h:read(3, 2))
-  print(h:read(2))
+  print(check.must(h:read(3, 2)))
+  print(check.must(h:read(2)))
   fs.remove_all(dir)
   -- Output:
   -- cde
@@ -52,7 +52,7 @@ local function Example_pipe()
   local fd = require("cosmic.fd")
   local p < close > = check.must(fd.pipe())
   p.writer:write("ping")
-  print(p.reader:read(4))
+  print(check.must(p.reader:read(4)))
   -- Output:
   -- ping
 end
