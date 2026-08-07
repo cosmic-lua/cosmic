@@ -144,7 +144,7 @@ end
 
 --- Wrap bytes already in hand as a Reader, so in-memory data (a file
 --- read whole, a decompressed buffer, a test fixture) feeds any stream
---- consumer — stream.lines, sse.events, stream.copy — without a
+--- consumer — stream.lines, sse.parse, stream.copy — without a
 --- hand-rolled adapter. read(n?) returns successive chunks (at most n
 --- bytes when n is given, the whole remainder otherwise), then bare
 --- nil at end of stream, per the Reader contract; n must be positive

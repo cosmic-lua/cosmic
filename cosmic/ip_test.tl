@@ -95,14 +95,14 @@ local function test_addr_equality()
   -- they were produced.
   assert(p("10.0.0.1") == p("10.0.0.1"), "equal addresses must be ==")
   assert(p("10.0.0.1") ~= p("10.0.0.2"), "different addresses must be ~=")
-  assert(p("127.0.0.1") == ip.addr(2130706433), "parse and addr agree")
+  assert(p("127.0.0.1") == ip.from_int(2130706433), "parse and addr agree")
 end
 test_addr_equality()
 
 local function test_addr_family()
   local a = p("8.8.8.8")
   assert(a.family == "inet", "family is 'inet' for IPv4")
-  local b = ip.addr(0)
+  local b = ip.from_int(0)
   assert(b.family == "inet", "constructed Addr carries family too")
 end
 test_addr_family()
@@ -187,7 +187,7 @@ test_is_public()
 -- lookup tests
 
 local function test_lookup_localhost()
-  local a, err = ip.lookup("localhost")
+  local a, err = ip.resolve("localhost")
   assert(a, "expected Addr for localhost, got nil: " .. tostring(err))
   assert(err == nil, "expected nil error, got " .. tostring(err))
   local aa = check.must(a)
@@ -197,7 +197,7 @@ end
 test_lookup_localhost()
 
 local function test_lookup_invalid_returns_nil()
-  local a, err = ip.lookup("this.host.does.not.exist.invalid")
+  local a, err = ip.resolve("this.host.does.not.exist.invalid")
   assert(a == nil, "expected nil for invalid hostname")
   assert(err ~= nil, "expected error message for invalid hostname")
   assert(err:find("lookup failed"), "expected 'lookup failed' in error: " .. tostring(err))
@@ -207,13 +207,13 @@ test_lookup_invalid_returns_nil()
 -- addr constructor (the int-to-Addr escape hatch for the C boundary)
 
 local function test_addr_int()
-  local a = ip.addr(2130706433)
+  local a = ip.from_int(2130706433)
   assert(a:int() == 2130706433, "expected 2130706433, got " .. tostring(a:int()))
 end
 test_addr_int()
 
 local function test_addr_methods()
-  local a = ip.addr(p("127.0.0.1"):int())
+  local a = ip.from_int(p("127.0.0.1"):int())
   assert(a:format() == "127.0.0.1", "expected '127.0.0.1', got '" .. a:format() .. "'")
   assert(a:categorize() == "LOOPBACK", "expected 'LOOPBACK', got '" .. a:categorize() .. "'")
   assert(a:is_loopback() == true, "expected loopback")
@@ -222,7 +222,7 @@ end
 test_addr_methods()
 
 local function test_lookup_returns_addr_with_methods()
-  local aa = check.must(ip.lookup("localhost"))
+  local aa = check.must(ip.resolve("localhost"))
   assert(aa:format() == "127.0.0.1", "expected '127.0.0.1', got '" .. aa:format() .. "'")
   assert(aa:is_loopback() == true, "expected loopback")
   assert(tostring(aa) == "127.0.0.1", "expected tostring '127.0.0.1'")
@@ -232,7 +232,7 @@ test_lookup_returns_addr_with_methods()
 -- CIDR tests
 
 local function test_cidr_parse()
-  local c = check.must(ip.cidr("192.168.0.0/16"))
+  local c = check.must(ip.parse_cidr("192.168.0.0/16"))
   assert(c:bits() == 16, "expected 16 bits")
   assert(tostring(c:network()) == "192.168.0.0", "expected network 192.168.0.0")
   assert(tostring(c) == "192.168.0.0/16", "expected tostring 192.168.0.0/16")
@@ -241,24 +241,24 @@ end
 test_cidr_parse()
 
 local function test_cidr_masks_host_bits()
-  local c = check.must(ip.cidr("10.1.2.3/8"))
+  local c = check.must(ip.parse_cidr("10.1.2.3/8"))
   assert(tostring(c:network()) == "10.0.0.0", "expected host bits masked away")
   assert(tostring(c) == "10.0.0.0/8", "expected canonical form")
 end
 test_cidr_masks_host_bits()
 
 local function test_cidr_netmask_broadcast_size()
-  local c = check.must(ip.cidr("192.168.1.0/24"))
+  local c = check.must(ip.parse_cidr("192.168.1.0/24"))
   assert(tostring(c:netmask()) == "255.255.255.0", "expected /24 netmask")
   assert(tostring(c:broadcast()) == "192.168.1.255", "expected broadcast")
   assert(c:size() == 256, "expected 256 addresses, got " .. tostring(c:size()))
 
-  local host = check.must(ip.cidr("1.2.3.4/32"))
+  local host = check.must(ip.parse_cidr("1.2.3.4/32"))
   assert(tostring(host:netmask()) == "255.255.255.255", "expected /32 netmask")
   assert(tostring(host:broadcast()) == "1.2.3.4", "expected /32 broadcast = itself")
   assert(host:size() == 1, "expected single address")
 
-  local all = check.must(ip.cidr("0.0.0.0/0"))
+  local all = check.must(ip.parse_cidr("0.0.0.0/0"))
   assert(tostring(all:netmask()) == "0.0.0.0", "expected /0 netmask")
   assert(tostring(all:broadcast()) == "255.255.255.255", "expected /0 broadcast")
   assert(all:size() == 4294967296, "expected 2^32 addresses")
@@ -270,7 +270,7 @@ test_cidr_netmask_broadcast_size()
 -- for an allowlist check. Callers parse first, so the parse error has
 -- somewhere to go.
 local function test_cidr_contains()
-  local c = check.must(ip.cidr("192.168.1.0/24"))
+  local c = check.must(ip.parse_cidr("192.168.1.0/24"))
   local function member(s: string): boolean
     local a = check.must(ip.parse(s))
     return c:contains(a)
@@ -281,11 +281,11 @@ local function test_cidr_contains()
   assert(not member("192.168.2.1"), "expected non-member")
   assert(not member("10.0.0.1"), "expected non-member")
 
-  local all = check.must(ip.cidr("0.0.0.0/0"))
+  local all = check.must(ip.parse_cidr("0.0.0.0/0"))
   local everyone = check.must(ip.parse("8.8.8.8"))
   assert(all:contains(everyone), "expected /0 to contain everything")
 
-  local host = check.must(ip.cidr("1.2.3.4/32"))
+  local host = check.must(ip.parse_cidr("1.2.3.4/32"))
   local self_addr = check.must(ip.parse("1.2.3.4"))
   local neighbor = check.must(ip.parse("1.2.3.5"))
   assert(host:contains(self_addr), "expected /32 to contain itself")
@@ -294,9 +294,9 @@ end
 test_cidr_contains()
 
 local function test_cidr_equality()
-  local a = check.must(ip.cidr("10.0.0.0/8"))
-  local b = check.must(ip.cidr("10.9.9.9/8"))
-  local c = check.must(ip.cidr("10.0.0.0/9"))
+  local a = check.must(ip.parse_cidr("10.0.0.0/8"))
+  local b = check.must(ip.parse_cidr("10.9.9.9/8"))
+  local c = check.must(ip.parse_cidr("10.0.0.0/9"))
   assert(a == b, "expected same masked block to compare equal")
   assert(a ~= c, "expected different prefix to differ")
 end
@@ -316,7 +316,7 @@ local function test_cidr_invalid()
     "", -- empty
   }
   for _, s in ipairs(cases) do
-    local c, err = ip.cidr(s)
+    local c, err = ip.parse_cidr(s)
     assert(c == nil, "expected failure for '" .. s .. "'")
     assert(err ~= nil, "expected error message for '" .. s .. "'")
   end

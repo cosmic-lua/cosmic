@@ -403,36 +403,6 @@ local function test_escape_fragment_with_spaces()
 end
 test_escape_fragment_with_spaces()
 
-local function test_escape_literal_basic()
-  local result = url.escape_literal("test")
-  assert(result == "test", "expected 'test', got '" .. result .. "'")
-end
-test_escape_literal_basic()
-
-local function test_escape_user_with_special_chars()
-  local result = url.escape_user("user@domain")
-  assert(result:match("%%40") or result:match("%%2540"), "expected @ to be encoded")
-end
-test_escape_user_with_special_chars()
-
-local function test_escape_pass_with_special_chars()
-  local result = url.escape_pass("p@ss:word")
-  assert(result:match("%%"), "expected special chars to be encoded")
-end
-test_escape_pass_with_special_chars()
-
-local function test_escape_ip_ipv4()
-  local result = url.escape_ip("192.168.1.1")
-  assert(result == "192.168.1.1", "expected '192.168.1.1', got '" .. result .. "'")
-end
-test_escape_ip_ipv4()
-
-local function test_escape_ip_ipv6()
-  local result = url.escape_ip("::1")
-  assert(result:match("::1") or result:match("%%3A"), "expected ipv6 to be handled, got '" .. result .. "'")
-end
-test_escape_ip_ipv6()
-
 -- parse must preserve percent-encoding in the query field: ?a=x%26y has
 -- ONE param (key=a, value=x&y); the reconstructed query must not turn %26
 -- into a literal & (which would look like two params).
@@ -456,3 +426,23 @@ local function test_parse_query_field_flag_param()
   assert(not result.query:match("flag=$"), "query must not end with 'flag='")
 end
 test_parse_query_field_flag_param()
+
+-- format_host: the inverse parse_host was missing — reassembling
+-- host:port requires the IPv6 bracketing rule only parse_host knew.
+local function test_format_host_roundtrip()
+  local hp = check.must(url.parse_host("example.com:8080"))
+  assert(url.format_host(hp) == "example.com:8080")
+  local v6 = check.must(url.parse_host("[::1]:443"))
+  assert(url.format_host(v6) == "[::1]:443", "IPv6 hosts re-bracket")
+  local bare = check.must(url.parse_host("example.com"))
+  assert(url.format_host(bare) == "example.com", "nil port yields bare host")
+end
+test_format_host_roundtrip()
+
+-- format_query accepts plain-string values beside lists, so a parsed
+-- query and fetch's one-value map both feed it without wrapping.
+local function test_format_query_string_values()
+  assert(url.format_query({b = "2", a = "1"}) == "a=1&b=2")
+  assert(url.format_query({k = {"1", "2"}, s = "x"}) == "k=1&k=2&s=x")
+end
+test_format_query_string_values()
