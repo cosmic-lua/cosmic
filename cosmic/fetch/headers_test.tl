@@ -11,76 +11,76 @@ local fetch = require("cosmic.fetch")
 local dead = "http://127.0.0.1:1"
 
 local function test_rejects_crlf_in_header_value()
-  local result = fetch.fetch(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
-  assert(result.ok == false, "result.ok should be false for CRLF in header value")
-  assert(result.error ~= nil and result.error:find("X%-Test") ~= nil,
-    "error should name the offending header, got: " .. tostring(result.error))
-  assert(result.error:find("CR, LF, or NUL") ~= nil,
-    "error should explain the forbidden bytes, got: " .. tostring(result.error))
+  local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
+  assert(result == nil, "a CRLF in a header value must fail the fetch")
+  assert(err ~= nil and err:find("X%-Test") ~= nil,
+    "error should name the offending header, got: " .. tostring(err))
+  assert(err:find("CR, LF, or NUL") ~= nil,
+    "error should explain the forbidden bytes, got: " .. tostring(err))
 end
 test_rejects_crlf_in_header_value()
 
 local function test_rejects_lf_only_in_header_value()
-  local result = fetch.fetch(dead, {headers = {["X-Test"] = "a\nb"}})
-  assert(result.ok == false, "a bare LF in a header value must be rejected")
+  local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\nb"}})
+  assert(result == nil, "a bare LF in a header value must be rejected")
 end
 test_rejects_lf_only_in_header_value()
 
 local function test_rejects_cr_only_in_header_value()
-  local result = fetch.fetch(dead, {headers = {["X-Test"] = "a\rb"}})
-  assert(result.ok == false, "a bare CR in a header value must be rejected")
+  local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\rb"}})
+  assert(result == nil, "a bare CR in a header value must be rejected")
 end
 test_rejects_cr_only_in_header_value()
 
 local function test_rejects_crlf_in_header_name()
-  local result = fetch.fetch(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
-  assert(result.ok == false, "result.ok should be false for CRLF in header name")
-  assert(result.error ~= nil and result.error:find("header name") ~= nil,
-    "error should mention the header name, got: " .. tostring(result.error))
+  local result, err = fetch.fetch(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
+  assert(result == nil, "a CRLF in a header name must fail the fetch")
+  assert(err ~= nil and err:find("header name") ~= nil,
+    "error should mention the header name, got: " .. tostring(err))
 end
 test_rejects_crlf_in_header_name()
 
 local function test_rejects_nul_in_header_value()
-  local result = fetch.fetch(dead, {headers = {["X-Test"] = "a\0b"}})
-  assert(result.ok == false, "a NUL in a header value must be rejected")
-  assert(result.error ~= nil and result.error:find("CR, LF, or NUL") ~= nil,
-    "error should explain the forbidden bytes, got: " .. tostring(result.error))
+  local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\0b"}})
+  assert(result == nil, "a NUL in a header value must be rejected")
+  assert(err ~= nil and err:find("CR, LF, or NUL") ~= nil,
+    "error should explain the forbidden bytes, got: " .. tostring(err))
 end
 test_rejects_nul_in_header_value()
 
 local function test_rejects_empty_header_name()
-  local result = fetch.fetch(dead, {headers = {[""] = "value"}})
-  assert(result.ok == false, "an empty header name must be rejected")
-  assert(result.error ~= nil and result.error:find("empty") ~= nil,
-    "error should mention the empty name, got: " .. tostring(result.error))
+  local result, err = fetch.fetch(dead, {headers = {[""] = "value"}})
+  assert(result == nil, "an empty header name must be rejected")
+  assert(err ~= nil and err:find("empty") ~= nil,
+    "error should mention the empty name, got: " .. tostring(err))
 end
 test_rejects_empty_header_name()
 
 local function test_allows_clean_headers()
   -- Well-formed headers must pass validation; the connection to the dead
   -- port then fails, but never with a header-validation error.
-  local result = fetch.fetch(dead, {
+  local result, err = fetch.fetch(dead, {
       headers = {["X-Test"] = "clean-value", ["Accept"] = "application/json"},
     })
-  if not result.ok then
-    assert(result.error:find("header") == nil,
-      "clean headers must pass validation, got: " .. tostring(result.error))
+  if result == nil then
+    assert(err:find("header") == nil,
+      "clean headers must pass validation, got: " .. tostring(err))
   end
 end
 test_allows_clean_headers()
 
 local function test_stream_rejects_crlf_in_header_value()
-  local result = fetch.stream(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
-  assert(result.ok == false, "stream should reject CRLF in a header value")
-  assert(result.error ~= nil and result.error:find("CR, LF, or NUL") ~= nil,
-    "stream error should explain the forbidden bytes, got: " .. tostring(result.error))
+  local result, err = fetch.stream(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
+  assert(result == nil, "stream should reject CRLF in a header value")
+  assert(err ~= nil and err:find("CR, LF, or NUL") ~= nil,
+    "stream error should explain the forbidden bytes, got: " .. tostring(err))
 end
 test_stream_rejects_crlf_in_header_value()
 
 local function test_stream_rejects_crlf_in_header_name()
-  local result = fetch.stream(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
-  assert(result.ok == false, "stream should reject CRLF in a header name")
-  assert(result.error ~= nil and result.error:find("header name") ~= nil,
-    "stream error should mention the header name, got: " .. tostring(result.error))
+  local result, err = fetch.stream(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
+  assert(result == nil, "stream should reject CRLF in a header name")
+  assert(err ~= nil and err:find("header name") ~= nil,
+    "stream error should mention the header name, got: " .. tostring(err))
 end
 test_stream_rejects_crlf_in_header_name()

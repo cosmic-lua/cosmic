@@ -6,14 +6,14 @@ local fetch = require("cosmic.fetch")
 --- Create a mock reader over a string. When fail_with is given, read()
 --- returns nil, fail_with after the content is consumed — a mid-stream
 --- transport failure — instead of a clean EOF.
-local function mock_reader(content: string, fail_with?: string): fetch.Reader
+local function mock_reader(content: string, fail_with?: string): fetch.Body
   local pos = 1
   local is_closed = false
   local failed = false
 
-  local reader: fetch.Reader = {}
+  local reader: fetch.Body = {}
 
-  function reader:read(): string | nil, string
+  function reader:read(_n?: integer): string | nil, string
     if is_closed then
       return nil, "reader closed"
     end
@@ -362,7 +362,7 @@ test_error_discards_partial_event()
 
 local function test_events_from_socket_backed_reader()
   -- The stream contract: sse consumes ANY stream.Reader, not just
-  -- fetch.Reader — here a socket wrapped as an fd Handle.
+  -- fetch.Body — here a socket wrapped as an fd Handle.
   local net = require("cosmic.net")
   local fd = require("cosmic.fd")
 
