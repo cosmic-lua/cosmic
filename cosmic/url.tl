@@ -78,10 +78,13 @@ end
 --- Format a query map back into a query string: the inverse of
 --- parse_query. Keys are sorted (deterministic output) and each of a
 --- key's values becomes its own k=v pair, in order; both halves are
---- percent-encoded with the param rules (spaces become %20).
---- @param params {string:{string}} Keys, each with all its values in order
+--- percent-encoded with the param rules (spaces become %20). A value
+--- may be a plain string as well as a list — so a parsed query feeds
+--- back in unchanged, and the common one-value-per-key map (e.g.
+--- fetch's query option) needs no wrapping.
+--- @param params {string:{string} | string} Keys with one value or all values in order
 --- @return string The query string (no leading ?)
-local function format_query(params: {string: {string}}): string
+local function format_query(params: {string: {string} | string}): string
   local keys: {string} = {}
   for k in pairs(params) do
     keys[#keys + 1] = k
@@ -89,8 +92,13 @@ local function format_query(params: {string: {string}}): string
   table.sort(keys)
   local out: {string} = {}
   for _, k in ipairs(keys) do
-    for _, v in ipairs(params[k]) do
+    local v = params[k]
+    if v is string then
       out[#out + 1] = escape_param(k) .. "=" .. escape_param(v)
+    else
+      for _, item in ipairs(v) do
+        out[#out + 1] = escape_param(k) .. "=" .. escape_param(item)
+      end
     end
   end
   return table.concat(out, "&")
@@ -276,32 +284,21 @@ local function escape_fragment(str: string): string
   return cosmo.EscapeFragment(str)
 end
 
---- Escape a string for literal URL matching.
---- @param str string The string to escape
---- @return string The escaped string
-local function escape_literal(str: string): string
-  return cosmo.EscapeLiteral(str)
-end
-
---- Escape a username for use in a URL.
---- @param str string The username to escape
---- @return string The escaped username
-local function escape_user(str: string): string
-  return cosmo.EscapeUser(str)
-end
-
---- Escape a password for use in a URL.
---- @param str string The password to escape
---- @return string The escaped password
-local function escape_pass(str: string): string
-  return cosmo.EscapePass(str)
-end
-
---- Escape an IP address for use in a URL.
---- @param str string The IP address to escape
---- @return string The escaped IP address
-local function escape_ip(str: string): string
-  return cosmo.EscapeIp(str)
+--- Format a HostPort back into a host:port string: the inverse of
+--- parse_host. An IPv6 host (any host carrying a colon) is bracketed,
+--- which is exactly the rule parse_host knows and callers were left to
+--- rediscover; a nil port yields the bare host.
+--- @param hp HostPort The host (port optional)
+--- @return string The host:port string
+local function format_host(hp: HostPort): string
+  local host = hp.host
+  if host:find(":", 1, true) then
+    host = "[" .. host .. "]"
+  end
+  if hp.port then
+    return host .. ":" .. tostring(hp.port)
+  end
+  return host
 end
 
 local record UrlModule
@@ -314,16 +311,13 @@ local record UrlModule
   parse: function(url: string): Url | nil, string
   format: function(u: Url): string
   parse_query: function(query: string): {string: {string}}
-  format_query: function(params: {string: {string}}): string
+  format_query: function(params: {string: {string} | string}): string
   parse_host: function(hostport: string): HostPort | nil, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string
   escape_fragment: function(str: string): string
-  escape_literal: function(str: string): string
-  escape_user: function(str: string): string
-  escape_pass: function(str: string): string
-  escape_ip: function(str: string): string
+  format_host: function(hp: HostPort): string
 end
 
 local M: UrlModule = {
@@ -339,10 +333,7 @@ local M: UrlModule = {
   escape_path = escape_path,
   escape_segment = escape_segment,
   escape_fragment = escape_fragment,
-  escape_literal = escape_literal,
-  escape_user = escape_user,
-  escape_pass = escape_pass,
-  escape_ip = escape_ip,
+  format_host = format_host,
 }
 
 return M

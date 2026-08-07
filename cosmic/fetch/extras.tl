@@ -106,24 +106,12 @@ local function unix_proxy(path: string): string | nil, string
   return "unix://" .. path
 end
 
---- Percent-encode params as k=v pairs joined with "&", keys sorted so
---- the encoding is deterministic. Spaces become %20 (not "+").
-local function encode_pairs(params: {string: string}): string
-  local keys: {string} = {}
-  for k in pairs(params) do
-    table.insert(keys, k)
-  end
-  table.sort(keys)
-  local out: {string} = {}
-  for _, k in ipairs(keys) do
-    table.insert(out, url_mod.escape_param(k) .. "=" .. url_mod.escape_param(params[k]))
-  end
-  return table.concat(out, "&")
-end
-
 --- Append query params to a URL, honoring an existing query string.
 local function append_query(url: string, params: {string: string}): string
-  local qs = encode_pairs(params)
+  -- url.format_query is the one percent-encoder for query maps; it
+  -- accepts plain-string values, so fetch's one-value map feeds it
+  -- directly (sorted keys, %20 spaces).
+  local qs = url_mod.format_query(params)
   if qs == "" then
     return url
   end
@@ -263,7 +251,7 @@ local function prepare<T>(url: string, opts_in: T): string, T, string
     set_default_content_type(prepared, "application/json")
   elseif opts.form then
     prepared.form = nil
-    prepared.body = encode_pairs(opts.form)
+    prepared.body = url_mod.format_query(opts.form)
     set_default_content_type(prepared, "application/x-www-form-urlencoded")
   elseif opts.multipart then
     local body, ctype_or_err = encode_multipart(opts.multipart)

@@ -27,7 +27,7 @@ local function test_interfaces()
     if iface.name == "lo" then
       has_loopback = true
       -- Loopback should be 127.0.0.1; Addr compares by value (__eq)
-      assert(iface.ip == ip.addr(0x7f000001),
+      assert(iface.ip == ip.from_int(0x7f000001),
         "loopback should have 127.0.0.1, got " .. iface.ip:format())
     end
   end
@@ -263,7 +263,7 @@ local function test_connect_tcp_accepts_string_and_addr()
   assert(a1:close())
 
   -- connect by typed ip.Addr
-  local addr = ip.addr(0x7f000001)
+  local addr = ip.from_int(0x7f000001)
   local c2 = check.must(net.connect_tcp(addr, port))
   local a2 = check.must(server:accept())
   assert(c2:close())

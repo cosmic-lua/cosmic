@@ -253,7 +253,9 @@ end
 
 local function backoff(attempt: integer, base_delay_ms: integer, max_delay_ms: integer)
   -- Full jitter: uniform in [0, min(max_delay_ms, base_delay_ms * 2^(attempt-1))].
-  local _ok, _err = time.sleep_ms(math.random() * math.min(max_delay_ms, base_delay_ms * 2 ^ (attempt - 1)))
+  -- Durations are integer milliseconds (D20 rule 2); floor the jitter.
+  local _ok, _err = time.sleep_ms(math.floor(
+    math.random() * math.min(max_delay_ms, base_delay_ms * 2 ^ (attempt - 1))))
 end
 
 --- Fetch a URL and return a structured result.
