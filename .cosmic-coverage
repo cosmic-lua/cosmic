@@ -129,12 +129,13 @@ cosmic/format/init.tl 185 224
 cosmic/format/rules.tl 208 220
 cosmic/format/types.tl 98 113
 cosmic/fs/file.tl 28 46
+cosmic/fs/find.tl 111 134
 cosmic/fs/init.tl 61 91
 cosmic/fs/ops.tl 97 138
 cosmic/fs/path.tl 151 162
 cosmic/fs/tree.tl 37 64
 cosmic/fs/types.tl 16 51
-cosmic/fs/walk.tl 149 183
+cosmic/fs/walk.tl 41 55
 cosmic/fuzzy.tl 48 50
 cosmic/getopt.tl 36 56
 cosmic/hash.tl 71 74
@@ -199,4 +200,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14546 19202
+total 14549 19208

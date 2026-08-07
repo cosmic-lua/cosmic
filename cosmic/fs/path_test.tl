@@ -202,11 +202,14 @@ local function test_find_info()
   assert(collected, "find_info should succeed")
   local found = collected
 
-  assert(found["file1.lua"] ~= nil, "expected file1.lua")
-  assert(found["file2.txt"] ~= nil, "expected file2.txt")
-  assert(found["subdir/file3.lua"] ~= nil, "expected subdir/file3.lua")
-  assert(found["subdir/nested/file4.lua"] ~= nil, "expected subdir/nested/file4.lua")
-  assert(found["file1.lua"].mode ~= nil, "expected mode property")
+  -- Keys are FULL paths (#987), like every find sibling.
+  assert(found[fs.join(walk_dir, "file1.lua")] ~= nil, "expected file1.lua")
+  assert(found[fs.join(walk_dir, "file2.txt")] ~= nil, "expected file2.txt")
+  assert(found[fs.join(walk_dir, "subdir/file3.lua")] ~= nil,
+    "expected subdir/file3.lua")
+  assert(found[fs.join(walk_dir, "subdir/nested/file4.lua")] ~= nil,
+    "expected subdir/nested/file4.lua")
+  assert(found[fs.join(walk_dir, "file1.lua")].mode ~= nil, "expected mode property")
   teardown(walk_dir)
 end
 test_find_info()
