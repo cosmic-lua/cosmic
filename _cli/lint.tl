@@ -249,6 +249,90 @@ local function check_call_after_define(file: string, content: string,
   return diagnostics
 end
 
+--- Declarations of the form `local x = nil` with no type annotation.
+---
+--- Teal infers such a local as the type `nil` — not "unknown yet", not
+--- `T | nil` — so every later assignment and comparison fails, no
+--- guard helps, and neither downstream error names the declaration as
+--- the cause (gotcha 13). Flagging the declaration itself turns a
+--- confusing far-away error into a one-line fix at the actual defect.
+---
+--- Scope: an unannotated declaration whose whole right-hand side is
+--- `nil` (single or multi). A `:` anywhere before the `=` is an
+--- annotation and passes; a mixed RHS (`local a, b = nil, 1`) is left
+--- to the checker's error-site hint. Token-exact, so fixtures quoting
+--- the trap inside strings never count.
+--- @param file string Path, for the diagnostic
+--- @param content string The file's bytes
+--- @return {Diagnostic} One per nil-typed declaration
+local function check_nil_declaration(file: string, content: string): {Diagnostic}
+  local tokens = tl.lex(content, file)
+  if not tokens then
+    return {}
+  end
+  local diagnostics: {Diagnostic} = {}
+  local i = 1
+  while i <= #tokens do
+    local t = tokens[i]
+    if t.tk == "local" then
+      -- Walk the declaration head: names, commas, and <attribute>
+      -- groups. A `:` is an annotation (pass); anything else that is
+      -- not a plain name list (local function, local record, ...) is
+      -- some other statement (pass).
+      local j = i + 1
+      local head_ok = true
+      while j <= #tokens do
+        local tk = tokens[j].tk
+        if tk == "=" then
+          break
+        elseif tk == ":" then
+          head_ok = false
+          break
+        elseif tokens[j].kind == "identifier" or tk == ","
+        or tk == "<" or tk == ">" or tk == "const" or tk == "close" then
+          j = j + 1
+        else
+          head_ok = false
+          break
+        end
+      end
+      if head_ok and j <= #tokens and tokens[j].tk == "=" then
+        -- The RHS, on the declaration's own line: all-nil means the
+        -- inferred type is nil forever.
+        local line = tokens[j].y
+        local k = j + 1
+        local saw_nil = false
+        local all_nil = true
+        while k <= #tokens and tokens[k].y == line do
+          local tk = tokens[k].tk
+          if tk == "nil" then
+            saw_nil = true
+          elseif tk ~= "," then
+            all_nil = false
+            break
+          end
+          k = k + 1
+        end
+        if saw_nil and all_nil then
+          diagnostics[#diagnostics + 1] = {
+            file = file,
+            line = t.y,
+            col = 1,
+            rule = "nil-declaration",
+            message = string.format(
+              "%s:%d: a local initialized to nil with no type annotation"
+              .. " has type nil FOREVER — every later assignment fails;"
+              .. " annotate the optional: `local x: T | nil = nil`",
+              file, t.y),
+          }
+        end
+      end
+    end
+    i = i + 1
+  end
+  return diagnostics
+end
+
 --- Every style check, for one file.
 ---
 --- `.d.tl` declarations are exempt: they describe C binding interfaces
@@ -324,6 +408,9 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(check_gsub_replacement(path, content, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(check_nil_declaration(path, content)) do
+      diagnostics[#diagnostics + 1] = d
+    end
     for _, d in ipairs(visibility.check_shard_require(path, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
@@ -337,6 +424,7 @@ local record LintModule
   check_call_after_define: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_find_needle: function(file: string, content: string): {Diagnostic}
   check_gsub_replacement: function(file: string, content: string, lines: {string}): {Diagnostic}
+  check_nil_declaration: function(file: string, content: string): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -346,6 +434,7 @@ local M: LintModule = {
   check_call_after_define = check_call_after_define,
   check_find_needle = check_find_needle,
   check_gsub_replacement = check_gsub_replacement,
+  check_nil_declaration = check_nil_declaration,
   lint_file = lint_file,
 }
 

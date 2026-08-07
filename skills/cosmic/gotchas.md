@@ -107,27 +107,13 @@ binding a module to a local that shadows a Lua builtin
 so the runtime surprise this entry described is unreachable. rename the
 local (`fd`, `fs`, ...); Lua's `io.stderr` stays available.
 
-## 7. `arg[0]` is not the interpreter — use `proc.interpreter()` to re-invoke cosmic
+## 7. retired — `proc.interpreter()` is the one-call answer
 
-when a script needs to spawn the cosmic binary itself (e.g. to run
-another script as a child process), `arg[0]` is the script path as the
-runtime sees it (`/zip/main.lua` for the embedded entry point), not the
-interpreter. `proc.interpreter()` returns the running interpreter's
-absolute path, typed and resolved.
-
-**wrong:**
-```teal
-local child = require("cosmic.child")
-local h = child.start({arg[0], "worker.tl"}) -- spawns /zip/main.lua: fails
-```
-
-**right:**
-```teal
-local check = require("cosmic.check")
-local child = require("cosmic.child")
-local proc = require("cosmic.proc")
-local h = child.start({check.must(proc.interpreter()), "worker.tl"})
-```
+`arg[0]` is the script path as the runtime sees it (`/zip/main.lua` in
+a packed binary), not the interpreter. to re-invoke cosmic, call
+`require("cosmic.proc").interpreter()` — typed, resolved, cached; the
+self-reinvocation recipe in `cosmic --docs guide.recipes` shows the
+whole shape.
 
 ## 8. retired — the checker flags discarded errors
 
@@ -249,31 +235,13 @@ db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Databa
 store.add(db, "alice") -- right: module function, dot-called, value first
 ```
 
-## 13. `local x = nil` means type nil, forever
+## 13. retired — the lint catches it at the declaration
 
-a local initialized with `= nil` and NO type annotation is inferred as
-the type `nil` — not "unknown yet", not `T | nil`. every later
-assignment and use then fails, no guard helps, and neither error names
-the declaration as the cause:
-
-**wrong:**
-```teal
-local earliest = nil -- type: nil
-for _, e in ipairs(entries) do
-  if not earliest or e.timestamp < earliest then
-    -- error: cannot use operator '<' for types integer and nil
-    earliest = e.timestamp
-    -- error: in assignment: got integer, expected nil
-  end
-end
-```
-
-**right — annotate the optional at the declaration:**
-```teal
-local earliest: integer | nil = nil
-```
-
-with the annotation, the running-min/max idiom above compiles as
+a local initialized with `= nil` and no type annotation is inferred as
+the type `nil` — forever. the `nil-declaration` lint now flags the
+declaration itself with the fix (`local x: integer | nil = nil`), so
+the far-away assignment errors this entry used to explain are never
+reached. with the annotation, the running-min/max idiom compiles as
 written — scalars narrow through the `not earliest or ...` guard fine.
 
 ## 14. retired — the taught path never calls `os.exit`

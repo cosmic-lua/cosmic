@@ -288,6 +288,34 @@ end
 test_find_needle_wants_the_intent_stated()
 
 local function test_gsub_replacement_wants_the_intent_stated()
+
+  -- nil-declaration: `local x = nil` with no annotation is the type nil
+  -- forever (gotcha 13); the rule fires at the declaration, where the fix
+  -- is. The trap spelled inside a string fixture must never count.
+  local function test_nil_declaration_flags_the_bare_form()
+    local diags = lint.check_nil_declaration("m.tl", "local earliest = nil\n")
+    assert(#diags == 1, "the bare form is flagged")
+    assert(diags[1].rule == "nil-declaration", "rule name")
+    assert(diags[1].line == 1, "flagged at the declaration")
+    assert(diags[1].message:find("nil FOREVER", 1, true),
+      "the message names the trap")
+
+    local multi = lint.check_nil_declaration("m.tl", "local a, b = nil, nil\n")
+    assert(#multi == 1, "an all-nil multi declaration is flagged")
+
+    for _, ok in ipairs({
+        "local x: integer | nil = nil\n", -- annotated: the honest optional
+        "local x = nil_value\n", -- an identifier, not the nil keyword
+        "local x = nil and true\n", -- an expression, inferred boolean
+        "local a, b = nil, 1\n", -- mixed RHS: the checker's hint covers it
+        "local x = 1\n",
+        "local function f()\nend\nf()\n",
+        'local s = "local x = nil"\n', -- the trap quoted in a string
+      }) do
+      assert(#lint.check_nil_declaration("m.tl", ok) == 0, "should pass: " .. ok)
+    end
+  end
+  test_nil_declaration_flags_the_bare_form()
   local bare = 'local x = s:gsub("{{name}}", user_name)\n'
   assert(#lint.check_gsub_replacement("m.tl", bare, lines_of(bare)) == 1,
     "a variable replacement is flagged")
