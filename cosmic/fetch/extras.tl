@@ -81,31 +81,6 @@ local function validate_headers(headers: {string: string}): string
   return nil
 end
 
---- Build a unix domain socket proxy URL from a socket path.
---- @param path string Absolute path to the unix domain socket
---- @return string | nil proxy URL in unix:// format
---- @return string? Error message if path is invalid
-local function unix_proxy(path: string): string | nil, string
-  if not path or path == "" then
-    return nil, "empty socket path"
-  end
-  if path:sub(1, 1) ~= "/" then
-    return nil, "socket path must be absolute"
-  end
-  -- Delegate segment logic to fs.normalize instead of hand-rolled dot
-  -- patterns: a path that is not already normal carries a
-  -- "." or ".." segment or a redundant slash, and is rejected rather
-  -- than silently rewritten.
-  if fs.normalize(path) ~= path then
-    return nil, "socket path must not contain . or .. segments or redundant slashes"
-  end
-  -- unix(7) sockaddr_un sun_path is typically 108 bytes
-  if #path >= 108 then
-    return nil, "socket path too long"
-  end
-  return "unix://" .. path
-end
-
 --- Append query params to a URL, honoring an existing query string.
 local function append_query(url: string, params: {string: string}): string
   -- url.format_query is the one percent-encoder for query maps; it
@@ -264,35 +239,34 @@ local function prepare<T>(url: string, opts_in: T): string, T, string
   return url, o as T, nil -- cast: copied map back to generic T
 end
 
--- Mirrors of the stream result surface download consumes.
+-- Mirrors of the stream Response surface download consumes.
 local record Reader
   read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
 end
 
 local record StreamRes
-  ok: boolean
   status: integer
   headers: {string: string}
   raw_headers: {string: {string}}
   url: string
-  error: string
   reader: Reader
 end
 
 --- The verb helpers and download, built around init's fetch/stream so
---- no require cycle forms. wrap attaches init's result metatable
---- (is_success/json) to download's synthesized results.
+--- no require cycle forms. wrap attaches init's Response metatable
+--- (is_success/json) to download's synthesized responses; fail_make
+--- builds init's (nil, message, Error) failure triple.
 local record Made
-  get: function(string, any): any
-  post: function(string, any): any
-  put: function(string, any): any
-  delete: function(string, any): any
-  download: function(string, string, any): any
+  get: function(string, any): any, any, any
+  post: function(string, any): any, any, any
+  put: function(string, any): any, any, any
+  delete: function(string, any): any, any, any
+  download: function(string, string, any): any, any, any
 end
 
-local function verb(fetch_fn: function(string, any): any, method: string): function(string, any): any
-  return function(url: string, opts_any: any): any
+local function verb(fetch_fn: function(string, any): (any, any, any), method: string): function(string, any): (any, any, any)
+  return function(url: string, opts_any: any): (any, any, any)
     local o: {string: any} = {}
     if opts_any then
       for k, v in pairs(opts_any as {string: any}) do -- cast: from any
@@ -304,9 +278,10 @@ local function verb(fetch_fn: function(string, any): any, method: string): funct
   end
 end
 
-local function make(fetch_fn: function(string, any): any,
-    stream_fn: function(string, any): any,
-    wrap: function(any): any): Made
+local function make(fetch_fn: function(string, any): (any, any, any),
+    stream_fn: function(string, any): (any, any, any),
+    wrap: function(any): any,
+    fail_make: function(string): (any, any, any)): Made
   local made: Made = {
     get = verb(fetch_fn, "GET"),
     post = verb(fetch_fn, "POST"),
@@ -314,25 +289,24 @@ local function make(fetch_fn: function(string, any): any,
     delete = verb(fetch_fn, "DELETE"),
   }
 
-  made.download = function(url: string, path: string, opts_any: any): any
-    local res_any = stream_fn(url, opts_any)
-    local res = res_any as StreamRes -- cast: from any
-    if not res.ok then
-      return res_any
+  made.download = function(url: string, path: string, opts_any: any): (any, any, any)
+    local res_any, serr, serrobj = stream_fn(url, opts_any)
+    if res_any == nil then
+      return nil, serr, serrobj
     end
+    local res = res_any as StreamRes -- cast: from any
     local out: {string: any} = {
-      ok = true, status = res.status, headers = res.headers,
+      status = res.status, headers = res.headers,
       raw_headers = res.raw_headers, url = res.url, body = "",
     }
-    local function fail_with(err: string): any
+    local function fail_with(err: string): (any, any, any)
       res.reader:close()
-      out["ok"] = false
-      out["error"] = err
-      return wrap(out)
+      return fail_make(err)
     end
     if not (res.status >= 200 and res.status < 300) then
       -- Nothing is written for a non-2xx response; drain a bounded
-      -- diagnostic body instead so callers can see the error page.
+      -- diagnostic body instead so callers can see the error page. A
+      -- non-2xx status is a Response, not a failure.
       local parts: {string} = {}
       local total = 0
       while total < 65536 do
@@ -354,7 +328,7 @@ local function make(fetch_fn: function(string, any): any,
       local chunk, rerr = res.reader:read()
       if rerr then
         local _ok, _err = h:close()
-        local _ok, _err = fs.unlink(path)
+        local _ok2, _err2 = fs.unlink(path)
         return fail_with("download: " .. rerr)
       end
       if not chunk then break end
@@ -362,7 +336,7 @@ local function make(fetch_fn: function(string, any): any,
       local wok, werr = stream.write_all(h, c)
       if not wok then
         local _ok, _err = h:close()
-        local _ok, _err = fs.unlink(path)
+        local _ok2, _err2 = fs.unlink(path)
         return fail_with("download: write: " .. tostring(werr))
       end
     end
@@ -370,8 +344,7 @@ local function make(fetch_fn: function(string, any): any,
     local cok, cerr = h:close()
     if not cok then
       local _ok, _err = fs.unlink(path)
-      out["ok"] = false
-      out["error"] = "download: close: " .. tostring(cerr)
+      return fail_make("download: close: " .. tostring(cerr))
     end
     return wrap(out)
   end
@@ -384,17 +357,16 @@ local record ExtrasModule
   type Made = Made
   validate_url: function(url: string): string
   validate_headers: function(headers: {string: string}): string
-  unix_proxy: function(path: string): string | nil, string
   prepare: function<T>(url: string, opts_in: T): string, T, string
-  make: function(fetch_fn: function(string, any): any,
-  stream_fn: function(string, any): any,
-  wrap: function(any): any): Made
+  make: function(fetch_fn: function(string, any): (any, any, any),
+  stream_fn: function(string, any): (any, any, any),
+  wrap: function(any): any,
+  fail_make: function(string): (any, any, any)): Made
 end
 
 local M: ExtrasModule = {
   validate_url = validate_url,
   validate_headers = validate_headers,
-  unix_proxy = unix_proxy,
   prepare = prepare,
   make = make,
 }

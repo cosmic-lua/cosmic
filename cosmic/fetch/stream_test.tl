@@ -45,8 +45,7 @@ end
 local function test_stream_reads_body_and_reports_url()
   local port, pid = serve({body_response("streamed body")})
   local url = "http://127.0.0.1:" .. port .. "/"
-  local result = fetch.stream(url, {allow_private = true})
-  assert(result.ok == true, "stream should succeed: " .. tostring(result.error))
+  local result = check.must(fetch.stream(url, {allow_private = true}))
   assert(result.status == 200, "status should be 200")
   assert(result.url == url, "result.url should be the effective URL")
   assert(result:is_success() == true, "is_success must be true for 200")
@@ -65,8 +64,7 @@ test_stream_reads_body_and_reports_url()
 
 local function test_stream_lines_iterates()
   local port, pid = serve({body_response("one\ntwo\nthree")})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "stream should succeed: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local lines: {string} = {}
   for line in result.reader:lines() do
     table.insert(lines, line)
@@ -82,8 +80,7 @@ test_stream_lines_iterates()
 local function test_stream_204_is_clean_eof()
   -- a bodyless 204 must read as EOF (nil, no error), not "reader closed"
   local port, pid = serve({"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "204 stream should succeed: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   assert(result.status == 204, "status should be 204")
   local chunk, err = result.reader:read()
   assert(chunk == nil, "204 has no body")
@@ -99,8 +96,7 @@ local function test_stream_truncated_body_surfaces_error()
   local truncated = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n"
   .. "partial line no end\r\n"
   local port, pid = serve({truncated})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "response head arrived; stream opens: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local saw_error: string = nil
   while true do
     local chunk, err = result.reader:read()
@@ -122,8 +118,7 @@ local function test_stream_lines_propagates_error_then_stops()
   local truncated = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n"
   .. "complete line\npartial"
   local port, pid = serve({truncated})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "stream opens: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local iter = result.reader:lines()
   local first, err1 = iter()
   assert(first == "complete line", "the complete line arrives first, got: " .. tostring(first))
@@ -140,8 +135,7 @@ test_stream_lines_propagates_error_then_stops()
 
 local function test_stream_reader_close_idempotent()
   local port, pid = serve({body_response("x")})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "stream should succeed")
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   assert(not result.reader:closed(), "reader should not be closed initially")
   assert(result.reader:close() == true, "first close should return true")
   assert(result.reader:close() == true, "second close should also return true")
@@ -158,8 +152,7 @@ local function test_read_until_multibyte_and_mixing()
   -- carry-over in order — bytes must continue exactly after the last
   -- consumed delimiter, never reordered or dropped.
   local port, pid = serve({body_response("alpha\r\n\r\nbravo\r\ncharlie")})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "stream opens: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local first, err1 = result.reader:read_until("\r\n")
   assert(first == "alpha" and err1 == nil,
     "bytes before the first delimiter, got: " .. tostring(first))
@@ -185,8 +178,7 @@ local function test_read_until_remainder_guards_and_close()
   -- the empty-delimiter guard returns nil + message (never throws);
   -- read_until after close is the same error read() gives.
   local port, pid = serve({body_response("no newline here")})
-  local result = fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true})
-  assert(result.ok == true, "stream opens: " .. tostring(result.error))
+  local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local bad, baderr = result.reader:read_until("")
   assert(bad == nil and baderr ~= nil
     and baderr:find("non-empty", 1, true) ~= nil,
@@ -205,18 +197,21 @@ end
 test_read_until_remainder_guards_and_close()
 
 local function test_stream_validation_and_error_kind()
-  local result = fetch.stream("ftp://example.com/x")
-  assert(result.ok == false, "ftp scheme must be rejected")
-  assert(result.error:find("unsupported URL scheme") ~= nil,
-    "validation error expected, got: " .. tostring(result.error))
+  local result, verr, verrobj = fetch.stream("ftp://example.com/x")
+  assert(result == nil, "ftp scheme must be rejected")
+  assert(verr:find("unsupported URL scheme") ~= nil,
+    "validation error expected, got: " .. tostring(verr))
+  assert(verrobj and verrobj.kind == "invalid_request",
+    "validation failures carry kind invalid_request")
 
-  local refused = fetch.stream("http://127.0.0.1:1/", {allow_private = true})
-  assert(refused.ok == false, "dead port must fail")
-  assert(refused.error_kind == "connect",
-    "stream error_kind should be 'connect', got " .. tostring(refused.error_kind))
+  local refused, _rerr, rerrobj = fetch.stream("http://127.0.0.1:1/", {allow_private = true})
+  assert(refused == nil, "dead port must fail")
+  assert(rerrobj and rerrobj.kind == "connect",
+    "stream kind should be 'connect', got " .. tostring(rerrobj and rerrobj.kind))
 
-  local blocked = fetch.stream("http://127.0.0.1:1/")
-  assert(blocked.ok == false and blocked.error_kind == "blocked",
-    "SSRF guard applies to streams, got " .. tostring(blocked.error_kind))
+  local blocked, _berr, berrobj = fetch.stream("http://127.0.0.1:1/")
+  assert(blocked == nil, "SSRF guard applies to streams")
+  assert(berrobj and berrobj.kind == "blocked",
+    "kind should be 'blocked', got " .. tostring(berrobj and berrobj.kind))
 end
 test_stream_validation_and_error_kind()

@@ -216,27 +216,49 @@ local function one(p: Pin): boolean, string
   -- pinning is for, and the guard would block it. The threat the guard
   -- addresses is absent here by construction; the case it breaks is
   -- real.
-  local result = cfetch.fetch(p.url,
-    {allow_private = true, max_attempts = ATTEMPTS, maxresponse = MAX_BODY})
-  if not result.ok then
+  -- TRANSITIONAL SHAPE DISPATCH — delete at the next pin advance
+  -- (alongside errno's #981 aliases). This file executes under the
+  -- PINNED binary at cold start, where cosmic.fetch's record still
+  -- says fetch returns the old Result (ok/status/body and the
+  -- maxresponse option), while the tree's fetch returns
+  -- Response | nil, err (and reads max_response_bytes). The casts
+  -- erase the signature so both generations type-check; the options
+  -- table carries both size keys so each implementation honors its
+  -- own; the result dispatch reads whichever shape arrived.
+  local fetch_opts: {string: any} = {
+    allow_private = true, max_attempts = ATTEMPTS,
+    maxresponse = MAX_BODY, max_response_bytes = MAX_BODY,
+  }
+  -- cast: transitional dual-shape call (pin Result vs tree Response)
+  local do_fetch = cfetch.fetch as function(string, any): (any, any)
+  local r1, r2 = do_fetch(p.url, fetch_opts)
+  if r1 == nil then
     return false, "make: " .. p.source .. ": " .. p.url .. ": " ..
-    (result.error or ("status " .. tostring(result.status)))
+    tostring(r2 or "fetch failed")
   end
-  -- `Result.ok` is transport-level: a 404 error page arrives "ok", so
-  -- the status is checked before hashing. Without that, the commonest
+  local result = r1 as {string: any} -- cast: transitional dual-shape result
+  if result.ok == false then
+    -- Pinned-era Result carrying a transport failure.
+    return false, "make: " .. p.source .. ": " .. p.url .. ": " ..
+    tostring(result.error or "fetch failed")
+  end
+  local status = result.status as integer -- cast: transitional dual-shape field
+  local body = result.body as string -- cast: transitional dual-shape field
+  -- An HTTP error page is a response, not a transport failure, so the
+  -- status is checked before hashing. Without that, the commonest
   -- failure -- a typo'd version in the url -- reports itself as a
   -- sha256 mismatch against the hash of an HTML page, pointing at the
   -- digest, which is fine, instead of at the url.
-  if result.status < 200 or result.status >= 300 then
+  if status < 200 or status >= 300 then
     return false, "make: " .. p.source .. ": " .. p.url .. ": HTTP " ..
-    tostring(result.status)
+    tostring(status)
   end
-  local got = hash.sha256_hex(result.body)
+  local got = hash.sha256_hex(body)
   if got ~= p.sha256 then
     return false, "make: " .. p.source .. ": sha256 mismatch for " .. p.url ..
     "\n  want " .. p.sha256 .. "\n  got  " .. got
   end
-  local wok, werr = fs.write(out, result.body)
+  local wok, werr = fs.write(out, body)
   if not wok then
     return false, "make: cannot write " .. out .. ": " ..
     (werr or "unknown error")

@@ -54,7 +54,7 @@ _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
 _perf/bench/fs_bench.tl 97 106
 _perf/bench/fuzzy_bench.tl 0 19
-_perf/bench/http_bench.tl 83 114
+_perf/bench/http_bench.tl 87 138
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
 _perf/bench/re_bench.tl 0 47
@@ -116,7 +116,8 @@ cosmic/envd.tl 95 101
 cosmic/errno.tl 17 26
 cosmic/example.tl 129 158
 cosmic/fd.tl 95 118
-cosmic/fetch/extras.tl 183 206
+cosmic/fetch/body.tl 45 67
+cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
 cosmic/flags/command.tl 102 105
@@ -197,4 +198,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14481 19074
+total 14543 19197

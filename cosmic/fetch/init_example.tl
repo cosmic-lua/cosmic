@@ -25,8 +25,9 @@ local function Example_get()
   end
   assert(s:close())
 
-  local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/",
-    {allow_private = true})
+  local result = check.must(fetch.fetch(
+      "http://127.0.0.1:" .. math.tointeger(port) .. "/",
+      {allow_private = true}))
   assert(proc.wait(pid))
   print(result.status, result.body, result:is_success())
   -- Output:
@@ -62,11 +63,12 @@ local function Example_retry()
   end
   assert(s:close())
 
-  local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", {
-      allow_private = true,
-      max_attempts = 2,
-      base_delay_ms = 10, -- keep the example fast; default is 500ms
-    })
+  local result = check.must(fetch.fetch(
+      "http://127.0.0.1:" .. math.tointeger(port) .. "/", {
+        allow_private = true,
+        max_attempts = 2,
+        base_delay_ms = 10, -- keep the example fast; default is 500ms
+      }))
   assert(proc.wait(pid))
   print(result.status, result.body)
   -- Output:
@@ -96,8 +98,9 @@ local function Example_stream_lines()
   end
   assert(s:close())
 
-  local result = fetch.stream("http://127.0.0.1:" .. math.tointeger(port) .. "/",
-    {allow_private = true})
+  local result = check.must(fetch.stream(
+      "http://127.0.0.1:" .. math.tointeger(port) .. "/",
+      {allow_private = true}))
   for line in result.reader:lines() do
     print(line)
   end

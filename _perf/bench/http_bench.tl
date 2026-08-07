@@ -80,15 +80,19 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "http_fetch_get",
       fn = function(_: any): any
-        return fetch.fetch(url, {allow_private = true})
+        local resp, err = fetch.fetch(url, {allow_private = true})
+        if resp == nil then
+          return "fetch failed: " .. tostring(err)
+        end
+        return resp
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as fetch.Result -- cast: from any
+        if res is string then
+          return false, res
+        end
+        local r = res as fetch.Response -- cast: from any
         if r == nil then
           return false, "no result"
-        end
-        if not r.ok then
-          return false, "fetch failed: " .. tostring(r.error)
         end
         if r.status ~= 200 then
           return false, "status " .. tostring(r.status)
@@ -105,21 +109,25 @@ local function scenarios(): {pt.Scenario}, string
       -- headers, so that scenario never touches this code path at all).
       name = "http_fetch_get_with_headers",
       fn = function(_: any): any
-        return fetch.fetch(url, {
+        local resp, err = fetch.fetch(url, {
             allow_private = true,
             headers = {
               ["Accept"] = "application/json",
               ["X-Test"] = "a moderately realistic header value, not just a few bytes",
             },
           })
+        if resp == nil then
+          return "fetch failed: " .. tostring(err)
+        end
+        return resp
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as fetch.Result -- cast: from any
+        if res is string then
+          return false, res
+        end
+        local r = res as fetch.Response -- cast: from any
         if r == nil then
           return false, "no result"
-        end
-        if not r.ok then
-          return false, "fetch failed: " .. tostring(r.error)
         end
         if r.status ~= 200 then
           return false, "status " .. tostring(r.status)
