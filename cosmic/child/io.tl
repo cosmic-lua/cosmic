@@ -14,9 +14,24 @@ local time = require("cosmic.time")
 
 -- Writing to a pipe whose read end has already closed raises SIGPIPE, whose
 -- default action terminates the process. A library that writes to a child's
--- stdin must never let the child's early exit kill its parent, so neutralize
--- SIGPIPE process-wide; the write then fails with EPIPE, which pump handles.
-unix.sigaction(unix.SIGPIPE, unix.SIG_IGN)
+-- stdin must never let the child's early exit kill its parent — but doing
+-- this at require() made importing the module silently change process-wide
+-- signal state before any child existed. Installed at first start()
+-- instead, and only while the disposition is still the default, so a
+-- handler the caller installed stays theirs (their handler runs and the
+-- write still fails with EPIPE, which pump handles). Children inherit
+-- SIG_IGN across exec exactly as they did under the require-time install.
+local sigpipe_checked = false
+local function neutralize_sigpipe()
+  if sigpipe_checked then
+    return
+  end
+  sigpipe_checked = true
+  local prev = unix.sigaction(unix.SIGPIPE)
+  if prev == unix.SIG_DFL then
+    unix.sigaction(unix.SIGPIPE, unix.SIG_IGN)
+  end
+end
 
 local CHUNK = 65536
 
@@ -68,6 +83,9 @@ end
 local function resolve_stdio(stdin?: string | cfd.Handle,
     stdout?: cfd.Handle | StdioMode,
     stderr?: cfd.Handle | StdioMode): Stdio | nil, string
+  -- Every start() resolves stdio exactly once, before forking, so this
+  -- is the choke point where the lazy SIGPIPE install runs.
+  neutralize_sigpipe()
   local s: Stdio = {}
   if stdin is string then
     s.stdin_data = stdin
