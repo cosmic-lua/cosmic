@@ -226,7 +226,11 @@ are exempt — `s:find("%d+")` reads as a pattern already. There is no
 pattern by construction; escape it if it isn't one.
 
 rules:
-- never throw from library code
+- never throw from library code — `cosmic.check` is the one exempt
+  module ([D23](docs/decisions/d23-check-throws.md)): its assertions
+  throw by design, and `needs`/`reap` may exit because the runner
+  grades exit codes; CSPRNG contract violations also throw
+  ([D22](docs/decisions/d22-infallible-csprng.md))
 - never silently discard errors
 - be consistent within a module — pick one pattern and use it throughout
 - infallible functions (encoding, compression, escaping) return just a value
@@ -353,7 +357,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 |--------|-------------|
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
 | benchmark | benchmark runner with `Benchmark_*` functions (`--make benchmark`) |
-| check | assertion helpers for tests/examples (`eq`, `ok`, `must`) plus environment-gating helpers (`needs`, `enforce_skip`, `enforcing`) |
+| check | assertion helpers for tests/examples (`equal`, `truthy`, `must`) plus environment-gating helpers (`needs`, `enforce_skip`, `enforcing`) |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |

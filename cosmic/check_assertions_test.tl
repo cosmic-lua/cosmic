@@ -13,222 +13,222 @@ local function must_fail(f: function(): string): boolean, string
   return true, tostring(raw)
 end
 
--- eq: passing cases
+-- equal: passing cases
 
-local function test_eq_numbers()
-  check.eq(1, 1)
-  check.eq(0, 0)
-  check.eq(-5, -5)
+local function test_equal_numbers()
+  check.equal(1, 1)
+  check.equal(0, 0)
+  check.equal(-5, -5)
 end
-test_eq_numbers()
+test_equal_numbers()
 
-local function test_eq_strings()
-  check.eq("hello", "hello")
-  check.eq("", "")
+local function test_equal_strings()
+  check.equal("hello", "hello")
+  check.equal("", "")
 end
-test_eq_strings()
+test_equal_strings()
 
-local function test_eq_booleans()
-  check.eq(true, true)
-  check.eq(false, false)
+local function test_equal_booleans()
+  check.equal(true, true)
+  check.equal(false, false)
 end
-test_eq_booleans()
+test_equal_booleans()
 
-local function test_eq_nil()
-  check.eq(nil, nil)
+local function test_equal_nil()
+  check.equal(nil, nil)
 end
-test_eq_nil()
+test_equal_nil()
 
-local function test_eq_tables_shallow()
-  check.eq({1, 2, 3}, {1, 2, 3})
-  check.eq({a = 1, b = 2}, {a = 1, b = 2})
+local function test_equal_tables_shallow()
+  check.equal({1, 2, 3}, {1, 2, 3})
+  check.equal({a = 1, b = 2}, {a = 1, b = 2})
 end
-test_eq_tables_shallow()
+test_equal_tables_shallow()
 
-local function test_eq_tables_nested()
-  check.eq({a = {b = {c = 42}}}, {a = {b = {c = 42}}})
+local function test_equal_tables_nested()
+  check.equal({a = {b = {c = 42}}}, {a = {b = {c = 42}}})
 end
-test_eq_tables_nested()
+test_equal_tables_nested()
 
-local function test_eq_with_label()
-  check.eq(7, 7, "score check")
+local function test_equal_with_label()
+  check.equal(7, 7, "score check")
 end
-test_eq_with_label()
+test_equal_with_label()
 
--- eq: failing cases
+-- equal: failing cases
 
-local function test_eq_fails_on_number_mismatch()
-  local threw, msg = must_fail(function(): string check.eq(3, 4) return "" end)
-  assert(threw, "expected eq to throw")
-  assert(msg:match("eq failed"), "expected 'eq failed' in message, got: " .. msg)
+local function test_equal_fails_on_number_mismatch()
+  local threw, msg = must_fail(function(): string check.equal(3, 4) return "" end)
+  assert(threw, "expected equal to throw")
+  assert(msg:match("equal failed"), "expected 'equal failed' in message, got: " .. msg)
   assert(msg:match("expected 4"), "expected '4' in message, got: " .. msg)
   assert(msg:match("got 3"), "expected '3' in message, got: " .. msg)
 end
-test_eq_fails_on_number_mismatch()
+test_equal_fails_on_number_mismatch()
 
-local function test_eq_fails_on_string_mismatch()
-  local threw, msg = must_fail(function(): string check.eq("actual", "expected") return "" end)
-  assert(threw, "expected eq to throw")
-  assert(msg:match("eq failed"), "expected 'eq failed' in message")
+local function test_equal_fails_on_string_mismatch()
+  local threw, msg = must_fail(function(): string check.equal("actual", "expected") return "" end)
+  assert(threw, "expected equal to throw")
+  assert(msg:match("equal failed"), "expected 'equal failed' in message")
 end
-test_eq_fails_on_string_mismatch()
+test_equal_fails_on_string_mismatch()
 
-local function test_eq_fails_with_label_prefix()
-  local threw, msg = must_fail(function(): string check.eq(1, 2, "my label") return "" end)
-  assert(threw, "expected eq to throw")
+local function test_equal_fails_with_label_prefix()
+  local threw, msg = must_fail(function(): string check.equal(1, 2, "my label") return "" end)
+  assert(threw, "expected equal to throw")
   assert(msg:match("my label"), "expected label in message, got: " .. msg)
-  assert(msg:match("eq failed"), "expected 'eq failed' in message, got: " .. msg)
+  assert(msg:match("equal failed"), "expected 'equal failed' in message, got: " .. msg)
 end
-test_eq_fails_with_label_prefix()
+test_equal_fails_with_label_prefix()
 
-local function test_eq_fails_on_table_mismatch()
-  local threw, msg = must_fail(function(): string check.eq({a = 1}, {a = 2}) return "" end)
-  assert(threw, "expected eq to throw for table mismatch")
-  assert(msg:match("eq failed"), "expected 'eq failed' in message")
+local function test_equal_fails_on_table_mismatch()
+  local threw, msg = must_fail(function(): string check.equal({a = 1}, {a = 2}) return "" end)
+  assert(threw, "expected equal to throw for table mismatch")
+  assert(msg:match("equal failed"), "expected 'equal failed' in message")
 end
-test_eq_fails_on_table_mismatch()
+test_equal_fails_on_table_mismatch()
 
-local function test_eq_fails_nil_vs_value()
-  local threw, msg = must_fail(function(): string check.eq(nil, 42) return "" end)
-  assert(threw, "expected eq to throw when nil vs 42")
-  assert(msg:match("eq failed"), "expected 'eq failed' in message")
+local function test_equal_fails_nil_vs_value()
+  local threw, msg = must_fail(function(): string check.equal(nil, 42) return "" end)
+  assert(threw, "expected equal to throw when nil vs 42")
+  assert(msg:match("equal failed"), "expected 'equal failed' in message")
 end
-test_eq_fails_nil_vs_value()
+test_equal_fails_nil_vs_value()
 
--- ne: passing cases
+-- not_equal: passing cases
 
-local function test_ne_numbers()
-  check.ne(1, 2)
-  check.ne(0, -1)
+local function test_not_equal_numbers()
+  check.not_equal(1, 2)
+  check.not_equal(0, -1)
 end
-test_ne_numbers()
+test_not_equal_numbers()
 
-local function test_ne_strings()
-  check.ne("hello", "world")
-  check.ne("", "nonempty")
+local function test_not_equal_strings()
+  check.not_equal("hello", "world")
+  check.not_equal("", "nonempty")
 end
-test_ne_strings()
+test_not_equal_strings()
 
-local function test_ne_different_types()
-  -- cast: cross-type ne is a check-time error; exercise runtime
-  check.ne(1 as any, "1")
-  check.ne(nil, false)
+local function test_not_equal_different_types()
+  -- cast: cross-type not_equal is a check-time error; exercise runtime
+  check.not_equal(1 as any, "1")
+  check.not_equal(nil, false)
 end
-test_ne_different_types()
+test_not_equal_different_types()
 
-local function test_ne_tables_different_content()
-  check.ne({a = 1}, {a = 2})
+local function test_not_equal_tables_different_content()
+  check.not_equal({a = 1}, {a = 2})
 end
-test_ne_tables_different_content()
+test_not_equal_tables_different_content()
 
-local function test_ne_with_label()
-  check.ne(1, 2, "value check")
+local function test_not_equal_with_label()
+  check.not_equal(1, 2, "value check")
 end
-test_ne_with_label()
+test_not_equal_with_label()
 
--- ne: failing cases
+-- not_equal: failing cases
 
-local function test_ne_fails_when_equal()
-  local threw, msg = must_fail(function(): string check.ne(5, 5) return "" end)
-  assert(threw, "expected ne to throw")
-  assert(msg:match("ne failed"), "expected 'ne failed' in message, got: " .. msg)
+local function test_not_equal_fails_when_equal()
+  local threw, msg = must_fail(function(): string check.not_equal(5, 5) return "" end)
+  assert(threw, "expected not_equal to throw")
+  assert(msg:match("not_equal failed"), "expected 'not_equal failed' in message, got: " .. msg)
   assert(msg:match("5"), "expected value in message")
 end
-test_ne_fails_when_equal()
+test_not_equal_fails_when_equal()
 
-local function test_ne_fails_when_tables_equal()
-  local threw, msg = must_fail(function(): string check.ne({x = 1}, {x = 1}) return "" end)
-  assert(threw, "expected ne to throw for equal tables")
-  assert(msg:match("ne failed"), "expected 'ne failed' in message")
+local function test_not_equal_fails_when_tables_equal()
+  local threw, msg = must_fail(function(): string check.not_equal({x = 1}, {x = 1}) return "" end)
+  assert(threw, "expected not_equal to throw for equal tables")
+  assert(msg:match("not_equal failed"), "expected 'not_equal failed' in message")
 end
-test_ne_fails_when_tables_equal()
+test_not_equal_fails_when_tables_equal()
 
-local function test_ne_fails_with_label()
-  local threw, msg = must_fail(function(): string check.ne("same", "same", "tag") return "" end)
-  assert(threw, "expected ne to throw")
+local function test_not_equal_fails_with_label()
+  local threw, msg = must_fail(function(): string check.not_equal("same", "same", "tag") return "" end)
+  assert(threw, "expected not_equal to throw")
   assert(msg:match("tag"), "expected label in message")
-  assert(msg:match("ne failed"), "expected 'ne failed' in message")
+  assert(msg:match("not_equal failed"), "expected 'not_equal failed' in message")
 end
-test_ne_fails_with_label()
+test_not_equal_fails_with_label()
 
--- ok: passing cases
+-- truthy: passing cases
 
-local function test_ok_truthy_values()
-  check.ok(true)
-  check.ok(1)
-  check.ok("nonempty")
-  check.ok({})
-  check.ok(0) -- 0 is truthy in Lua
+local function test_truthy_truthy_values()
+  check.truthy(true)
+  check.truthy(1)
+  check.truthy("nonempty")
+  check.truthy({})
+  check.truthy(0) -- 0 is truthy in Lua
 end
-test_ok_truthy_values()
+test_truthy_truthy_values()
 
-local function test_ok_with_label()
-  check.ok(true, "must be set")
+local function test_truthy_with_label()
+  check.truthy(true, "must be set")
 end
-test_ok_with_label()
+test_truthy_with_label()
 
--- ok: failing cases
+-- truthy: failing cases
 
-local function test_ok_fails_on_nil()
-  local threw, msg = must_fail(function(): string check.ok(nil) return "" end)
-  assert(threw, "expected ok to throw for nil")
-  assert(msg:match("ok failed"), "expected 'ok failed' in message, got: " .. msg)
+local function test_truthy_fails_on_nil()
+  local threw, msg = must_fail(function(): string check.truthy(nil) return "" end)
+  assert(threw, "expected truthy to throw for nil")
+  assert(msg:match("truthy failed"), "expected 'truthy failed' in message, got: " .. msg)
   assert(msg:match("nil"), "expected nil in message")
 end
-test_ok_fails_on_nil()
+test_truthy_fails_on_nil()
 
-local function test_ok_fails_on_false()
-  local threw, msg = must_fail(function(): string check.ok(false) return "" end)
-  assert(threw, "expected ok to throw for false")
-  assert(msg:match("ok failed"), "expected 'ok failed' in message")
+local function test_truthy_fails_on_false()
+  local threw, msg = must_fail(function(): string check.truthy(false) return "" end)
+  assert(threw, "expected truthy to throw for false")
+  assert(msg:match("truthy failed"), "expected 'truthy failed' in message")
   assert(msg:match("false"), "expected false in message")
 end
-test_ok_fails_on_false()
+test_truthy_fails_on_false()
 
-local function test_ok_fails_with_label()
-  local threw, msg = must_fail(function(): string check.ok(nil, "result") return "" end)
-  assert(threw, "expected ok to throw")
+local function test_truthy_fails_with_label()
+  local threw, msg = must_fail(function(): string check.truthy(nil, "result") return "" end)
+  assert(threw, "expected truthy to throw")
   assert(msg:match("result"), "expected label in message")
-  assert(msg:match("ok failed"), "expected 'ok failed' in message")
+  assert(msg:match("truthy failed"), "expected 'truthy failed' in message")
 end
-test_ok_fails_with_label()
+test_truthy_fails_with_label()
 
 -- err: passing cases
 
-local function test_fails_nil_with_message()
-  check.fails(nil, "something went wrong")
+local function test_failed_nil_with_message()
+  check.failed(nil, "something went wrong")
 end
-test_fails_nil_with_message()
+test_failed_nil_with_message()
 
-local function test_fails_with_label()
-  check.fails(nil, "oops", "network call")
+local function test_failed_with_label()
+  check.failed(nil, "oops", "network call")
 end
-test_fails_with_label()
+test_failed_with_label()
 
 -- err: failing cases
 
-local function test_fails_when_value_is_non_nil()
-  local threw, msg = must_fail(function(): string check.fails(42, "some error") return "" end)
+local function test_failed_when_value_is_non_nil()
+  local threw, msg = must_fail(function(): string check.failed(42, "some error") return "" end)
   assert(threw, "expected err to throw when value is 42")
-  assert(msg:match("fails:"), "expected 'fails:' in message, got: " .. msg)
+  assert(msg:match("failed:"), "expected 'failed:' in message, got: " .. msg)
   assert(msg:match("42"), "expected value in message")
 end
-test_fails_when_value_is_non_nil()
+test_failed_when_value_is_non_nil()
 
-local function test_fails_when_error_string_is_empty()
-  local threw, msg = must_fail(function(): string check.fails(nil, "") return "" end)
+local function test_failed_when_error_string_is_empty()
+  local threw, msg = must_fail(function(): string check.failed(nil, "") return "" end)
   assert(threw, "expected err to throw for empty error string")
-  assert(msg:match("fails:"), "expected 'fails:' in message, got: " .. msg)
+  assert(msg:match("failed:"), "expected 'failed:' in message, got: " .. msg)
 end
-test_fails_when_error_string_is_empty()
+test_failed_when_error_string_is_empty()
 
-local function test_fails_reports_with_label()
-  local threw, msg = must_fail(function(): string check.fails("whoops", "err msg", "ctx") return "" end)
-  assert(threw, "expected fails to throw")
+local function test_failed_reports_with_label()
+  local threw, msg = must_fail(function(): string check.failed("whoops", "err msg", "ctx") return "" end)
+  assert(threw, "expected failed to throw")
   assert(msg:match("ctx"), "expected label in message")
-  assert(msg:match("fails:"), "expected 'fails:' in message")
+  assert(msg:match("failed:"), "expected 'failed:' in message")
 end
-test_fails_reports_with_label()
+test_failed_reports_with_label()
 
 -- must: passing cases
 
@@ -247,21 +247,21 @@ local function test_must_narrows_record_union()
   -- the point of must: the result is a plain Widget, fields usable
   -- with no `as` cast and no assert
   local w = check.must(make_widget(false))
-  check.eq(w.name, "gear")
+  check.equal(w.name, "gear")
 end
 test_must_narrows_record_union()
 
 local function test_must_narrows_scalar_with_method_syntax()
   local s: string | nil = "hello"
   local narrowed = check.must(s)
-  check.eq(narrowed:upper(), "HELLO")
+  check.equal(narrowed:upper(), "HELLO")
 end
 test_must_narrows_scalar_with_method_syntax()
 
 local function test_must_passes_false_through()
   -- must narrows nil only; false is a real value, unlike assert()
   local b: boolean | nil = false
-  check.eq(check.must(b), false)
+  check.equal(check.must(b), false)
 end
 test_must_passes_false_through()
 
@@ -288,15 +288,15 @@ end
 local function test_must_single_pair_collapses()
   -- a plain value, err pair yields exactly one value: no trailing nil
   -- in print()/varargs contexts
-  check.eq(select("#", check.must(make_widget(false))), 1)
+  check.equal(select("#", check.must(make_widget(false))), 1)
 end
 test_must_single_pair_collapses()
 
 local function test_must_forwards_extra_returns()
   local guard: any = {}
-  check.eq(select("#", check.must(fake_files(false, guard))), 4)
+  check.equal(select("#", check.must(fake_files(false, guard))), 4)
   local _iter, _e, _ctl, g = check.must(fake_files(false, guard))
-  check.ok(rawequal(g, guard), "4th return must be the same guard value")
+  check.truthy(rawequal(g, guard), "4th return must be the same guard value")
 end
 test_must_forwards_extra_returns()
 
@@ -308,7 +308,7 @@ local function test_must_keeps_closing_guard_in_for()
   for _ in check.must(fake_files(false, guard)) do
     break
   end
-  check.ok(closed, "early break must close the forwarded guard")
+  check.truthy(closed, "early break must close the forwarded guard")
 end
 test_must_keeps_closing_guard_in_for()
 
@@ -339,12 +339,12 @@ test_must_default_message()
 
 -- caller line attribution: error level 2 means throw points at caller
 
-local function test_eq_error_points_at_caller()
-  local threw, msg = must_fail(function(): string check.eq(1, 2) return "" end)
+local function test_equal_error_points_at_caller()
+  local threw, msg = must_fail(function(): string check.equal(1, 2) return "" end)
   assert(threw, "expected throw")
   assert(type(msg) == "string", "expected string error, got: " .. tostring(msg))
 end
-test_eq_error_points_at_caller()
+test_equal_error_points_at_caller()
 
 -- enforcing / skip / enforced: enforcement-lane helpers
 
@@ -357,8 +357,8 @@ local function with_enforce(on: boolean, f: function())
 end
 
 local function test_enforcing_reflects_env()
-  with_enforce(false, function() check.eq(check.enforcing(), false, "unset") end)
-  with_enforce(true, function() check.eq(check.enforcing(), true, "set") end)
+  with_enforce(false, function() check.equal(check.enforcing(), false, "unset") end)
+  with_enforce(true, function() check.equal(check.enforcing(), true, "set") end)
 end
 test_enforcing_reflects_env()
 

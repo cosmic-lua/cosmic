@@ -7,6 +7,6 @@ local fs = require("cosmic.fs")
 
 local function test_payload_visible_at_zip()
   local note = check.must(fs.read("/zip/data/note.txt"))
-  check.eq(note, "shipped\n", "payload bytes at their artifact path")
+  check.equal(note, "shipped\n", "payload bytes at their artifact path")
 end
 test_payload_visible_at_zip()
