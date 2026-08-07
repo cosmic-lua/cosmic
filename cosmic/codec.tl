@@ -109,11 +109,15 @@ end
 --- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_base64(str: string): string | nil, string
-  local _, err = validate_base64_family(str, "[A-Za-z0-9+/]*", "[^A-Za-z0-9+/=]", "base64")
-  if err then
-    return nil, err
+  -- Happy path: one C-speed structural scan instead of the Lua pattern
+  -- scan (which measured 2/3 of the whole decode round trip). The Lua
+  -- validation runs only on the failure branch, to classify the error
+  -- with the documented messages.
+  if cosmo.IsBase64(str) then
+    return cosmo.DecodeBase64(str)
   end
-  return cosmo.DecodeBase64(str)
+  local _, err = validate_base64_family(str, "[A-Za-z0-9+/]*", "[^A-Za-z0-9+/=]", "base64")
+  return nil, err or "invalid base64"
 end
 
 --- Encode binary data as base64url (RFC 4648 section 5).
@@ -136,14 +140,15 @@ end
 --- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_base64url(str: string): string | nil, string
-  local padding, err = validate_base64_family(str, "[A-Za-z0-9%-_]*", "[^A-Za-z0-9%-_=]", "base64url")
-  if err then
-    return nil, err
+  -- Same failure-branch-only Lua validation as decode_base64. On the
+  -- happy path no alphabet translation is needed either: DecodeBase64
+  -- reads the url-safe alphabet natively, and IsBase64(str, true) has
+  -- already rejected mid-string padding and cross-alphabet characters.
+  if cosmo.IsBase64(str, true) then
+    return cosmo.DecodeBase64(str)
   end
-  local content = string.sub(str, 1, #str - #padding)
-  local b64 = string.gsub(content, "%-", "+")
-  b64 = string.gsub(b64, "_", "/")
-  return cosmo.DecodeBase64(b64)
+  local _, err = validate_base64_family(str, "[A-Za-z0-9%-_]*", "[^A-Za-z0-9%-_=]", "base64url")
+  return nil, err or "invalid base64url"
 end
 
 --- Encode binary data as base32.

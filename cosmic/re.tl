@@ -31,6 +31,21 @@ local record Regex
   --- @return {string} | nil Capture groups on match (error string on engine failure)
   --- @return string | nil Error message on engine failure
   search: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+
+  --- Like search, but reports WHERE: absolute 1-based inclusive start
+  --- and end offsets into text, plus the capture table. init starts
+  --- the search at that offset while keeping the returned offsets
+  --- absolute, which is what lets iteration advance in O(n) instead of
+  --- re-slicing the subject per match. A no-match is a single bare
+  --- nil; an engine failure puts the error string in the second
+  --- position.
+  --- @param text string The text to search
+  --- @param flags integer? Optional flags: NOTBOL, NOTEOL
+  --- @param init integer? 1-based offset to start searching at
+  --- @return integer | nil Absolute start offset, or nil
+  --- @return integer | string | nil End offset (error string when start is nil)
+  --- @return {string} Capture groups on match
+  find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
 end
 
 --- Compile a regular expression pattern.
@@ -164,52 +179,10 @@ local record Span
   caps: {string}
 end
 
---- Locate the absolute start of a match whose text is m, at or after
---- pos. The binding reports matched text without offsets, so candidate
---- positions (plain-text occurrences of m) are verified by re-running
---- the pattern anchored to exactly that window, with NOTBOL/NOTEOL
---- supplying the line-boundary context. The engine's leftmost-match
---- guarantee makes the first verified candidate the true position.
----
---- KNOWN LIMITATION: the verification window is exactly #m characters
---- (found .. found + #m - 1), so it never includes the character before
---- or after a candidate. Under the NEWLINE compile flag, `^` and `$`
---- can be satisfied by an EMBEDDED newline rather than true text
---- start/end ("regardless of NOTBOL/NOTEOL" per POSIX) -- but that
---- newline byte falls outside this window, so the re-verification
---- search can never see it and always fails to confirm. The result
---- is not a silent undercount: all_matches gives up entirely (its
---- caller sees nil, "failed to locate ..."/a short match count)
---- as soon as a NEWLINE-anchored match past the first line is hit.
---- See find_all's doc for the concrete case. A fix needs the
---- verification window widened to include that neighboring byte,
---- which reintroduces its own edge case (an off-by-one window can
---- itself contain another literal occurrence of m); not attempted here.
-local function locate(regex: Regex, text: string, pos: integer, m: string): integer | nil
-  local q = pos
-  while true do
-    local found = text:find(m, q, true)
-    if not found then
-      return nil
-    end
-    local vflags: integer = 0
-    if found > 1 then
-      vflags = vflags | re.NOTBOL
-    end
-    if found + #m - 1 < #text then
-      vflags = vflags | re.NOTEOL
-    end
-    local vm = regex:search(text:sub(found, found + #m - 1), vflags)
-    if vm == m then
-      return found
-    end
-    q = found + 1
-  end
-end
-
 --- Compile a pattern for iteration and reject patterns that can match
---- the empty string: without offsets from the engine a zero-length
---- match cannot be positioned or advanced past.
+--- the empty string: a zero-length match cannot be advanced past
+--- (its end offset sits before its start, so iteration would not
+--- move).
 local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, string
   local entry = cache_entry(pattern, flags)
   if entry.rx == nil then
@@ -230,8 +203,10 @@ local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, 
 end
 
 --- Collect every non-overlapping match of regex in text, leftmost
---- first, as absolute spans. Returns nil + error on engine failure or
---- when a match cannot be located.
+--- first, as absolute spans. The engine reports offsets directly
+--- (Regex:find with init), so each step is one search from the
+--- previous match's end -- no subject re-slicing, no relocation pass.
+--- Returns nil + error on engine failure.
 local function all_matches(regex: Regex, text: string): {Span} | nil, string
   local spans: {Span} = {}
   local pos = 1
@@ -240,20 +215,16 @@ local function all_matches(regex: Regex, text: string): {Span} | nil, string
     if pos > 1 then
       sflags = re.NOTBOL
     end
-    local m, caps = regex:search(text:sub(pos), sflags)
-    if not m then
-      if caps then
-        return nil, tostring(caps)
+    local s, e, caps = regex:find(text, sflags, pos)
+    if s == nil then
+      if e is string then
+        return nil, e
       end
       break
     end
-    local s = locate(regex, text, pos, m)
-    if not s then
-      return nil, "failed to locate match position for: " .. m
-    end
-    local si = s
-    spans[#spans + 1] = {s = si, e = si + #m - 1, m = m, caps = caps}
-    pos = si + #m
+    local ei = e as integer -- cast: tuple element (integer whenever start is non-nil)
+    spans[#spans + 1] = {s = s, e = ei, m = text:sub(s, ei), caps = caps}
+    pos = ei + 1
   end
   return spans
 end
@@ -272,29 +243,29 @@ local function find(text: string, pattern: string, flags?: integer): Span | nil,
   if not regex then
     return nil, cerr
   end
-  local m, caps = regex:search(text)
-  if not m then
-    if caps then
-      return nil, tostring(caps)
+  -- Explicit flags and init: also keeps the lexer-based find-needle
+  -- lint (which cannot know the receiver is a Regex, not a string)
+  -- from reading this as a two-argument string find.
+  local s, e, caps = regex:find(text, 0, 1)
+  if s == nil then
+    if e is string then
+      return nil, e
     end
     return nil
   end
-  local start = locate(regex, text, 1, m)
-  if not start then
-    return nil, "failed to locate match position for: " .. m
-  end
-  return {s = start, e = start + #m - 1, m = m, caps = caps}
+  local ei = e as integer -- cast: tuple element (integer whenever start is non-nil)
+  return {s = s, e = ei, m = text:sub(s, ei), caps = caps}
 end
 
 --- Every non-overlapping match of pattern in text, leftmost first, as
 --- Spans. Patterns that can match the empty string are rejected.
 ---
---- KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
---- match via an embedded newline (not the true start/end of text) fail
---- to be re-confirmed past the first line (see locate's doc), so
---- find_all("foo\nfoo", "^foo", re.NEWLINE) returns nil, "failed to
---- locate match position for: foo" instead of two spans -- use
---- split plus a per-line match instead when this matters.
+--- Under the NEWLINE compile flag, `^`/`$` anchors match at embedded
+--- newlines as POSIX specifies: find_all("foo\nfoo", "^foo",
+--- re.NEWLINE) returns both spans. (The engine reports offsets
+--- directly, which removed the relocation pass whose verification
+--- window historically could not see those anchors past the first
+--- line.)
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
@@ -339,8 +310,6 @@ end
 --- are kept verbatim, including empty ones from adjacent or
 --- leading/trailing matches; text with no match yields one field.
 --- Patterns that can match the empty string are rejected.
---- Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
---- past the first line (see find_all's doc).
 --- @param text string The text to split
 --- @param pattern string The regex pattern to split on
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
@@ -372,8 +341,6 @@ local type Repl = string | function(string, {string}): string
 
 --- Replace every non-overlapping match of pattern in text.
 --- Patterns that can match the empty string are rejected.
---- Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
---- past the first line (see find_all's doc).
 --- @param text string The text to operate on
 --- @param pattern string The regex pattern to match
 --- @param repl Repl A literal replacement string, or function(match, caps)
