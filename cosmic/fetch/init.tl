@@ -10,7 +10,6 @@ local fetch_headers = require("cosmic.fetch.headers")
 local fetch_body = require("cosmic.fetch.body")
 local fetch_extras = require("cosmic.fetch.extras")
 local json_mod = require("cosmic.json")
-local stream_mod = require("cosmic.stream")
 local time = require("cosmic.time")
 
 local validate_url = fetch_extras.validate_url

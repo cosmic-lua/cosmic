@@ -54,7 +54,7 @@ _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
 _perf/bench/fs_bench.tl 97 106
 _perf/bench/fuzzy_bench.tl 0 19
-_perf/bench/http_bench.tl 83 114
+_perf/bench/http_bench.tl 91 125
 _perf/bench/json_bench.tl 66 76
 _perf/bench/micro_bench.tl 110 120
 _perf/bench/re_bench.tl 0 47
@@ -90,8 +90,8 @@ cosmic/benchmark.tl 146 173
 cosmic/check.tl 110 113
 cosmic/child/fast.tl 40 52
 cosmic/child/init.tl 0 212
-cosmic/child/io.tl 102 119
-cosmic/codec.tl 52 57
+cosmic/child/io.tl 108 126
+cosmic/codec.tl 49 55
 cosmic/compress.tl 19 21
 cosmic/coverage/baseline.tl 136 154
 cosmic/coverage/init.tl 54 139
@@ -112,9 +112,10 @@ cosmic/embed/floor.tl 33 38
 cosmic/embed/init.tl 149 187
 cosmic/env.tl 24 34
 cosmic/envd.tl 95 101
-cosmic/errno.tl 17 25
+cosmic/errno.tl 17 26
 cosmic/example.tl 129 158
 cosmic/fd.tl 95 118
+cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
@@ -157,7 +158,7 @@ cosmic/quicksand/box/run.tl 0 165
 cosmic/quicksand/caps.tl 59 79
 cosmic/quicksand/init.tl 0 49
 cosmic/quicksand/netns.tl 37 55
-cosmic/quicksand/proc.tl 92 133
+cosmic/quicksand/proc.tl 91 133
 cosmic/quicksand/proxy.tl 48 84
 cosmic/quicksand/proxy/dial.tl 22 33
 cosmic/quicksand/proxy/http.tl 133 164
@@ -174,9 +175,9 @@ cosmic/signal.tl 101 109
 cosmic/sqlite/bind.tl 15 15
 cosmic/sqlite/defaults.tl 15 17
 cosmic/sqlite/extras.tl 40 45
-cosmic/sqlite/init.tl 184 201
+cosmic/sqlite/init.tl 154 170
 cosmic/sqlite/params.tl 75 89
-cosmic/sqlite/row_iter.tl 49 56
+cosmic/sqlite/row_iter.tl 52 60
 cosmic/sqlite/sqltext.tl 29 41
 cosmic/sqlite/stmt_cache.tl 57 67
 cosmic/sse.tl 98 103
@@ -186,7 +187,7 @@ cosmic/style.tl 17 19
 cosmic/sys.tl 14 22
 cosmic/syslog.tl 15 15
 cosmic/table.tl 75 75
-cosmic/tar.tl 114 122
+cosmic/tar.tl 116 126
 cosmic/teal.tl 185 193
 cosmic/testrun.tl 144 188
 cosmic/time.tl 142 155
@@ -197,4 +198,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14684 19279
+total 14554 19175

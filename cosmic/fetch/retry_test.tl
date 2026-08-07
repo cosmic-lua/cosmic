@@ -81,7 +81,7 @@ local function test_default_policy_retries_503()
       body_response("200 OK", "fine"),
     })
   local result = check.must(fetch.fetch("http://127.0.0.1:" .. port .. "/",
-    {allow_private = true, max_attempts = 2, base_delay_ms = 10}))
+      {allow_private = true, max_attempts = 2, base_delay_ms = 10}))
   assert(proc.wait(pid))
   assert(result.status == 200,
     "503 must be retried under the default policy, got " .. tostring(result.status))
