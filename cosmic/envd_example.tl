@@ -40,7 +40,8 @@ local function Example_extract_update_embed()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/envd_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "envd_example_XXXXXX")))
 
   -- 1. extract current executable
   local extractdir = fs.join(tmpdir, "extracted")

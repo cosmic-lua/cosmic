@@ -6,7 +6,8 @@ local function Example_basic()
   local fs = require("cosmic.fs")
 
   -- Create a temp directory
-  local tmpdir = fs.temp_dir("/tmp/fs_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = fs.temp_dir(fs.join(base, "fs_example_XXXXXX"))
   if not tmpdir then
     print("failed to create temp dir")
     return

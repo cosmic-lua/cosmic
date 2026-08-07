@@ -18,7 +18,8 @@ local function Example_shebang()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "deploy_example_XXXXXX")))
   local script = fs.join(tmpdir, "greet.tl")
 
   -- Write a script with a shebang line
@@ -42,7 +43,8 @@ local function Example_script_args()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "deploy_example_XXXXXX")))
   local script = fs.join(tmpdir, "greet.tl")
 
   -- A script that reads arguments from the arg table
@@ -75,7 +77,8 @@ local function Example_install_to_path()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "deploy_example_XXXXXX")))
 
   -- Create a local bin directory (simulating ~/bin or ~/.local/bin)
   local bindir = fs.join(tmpdir, "bin")
@@ -104,7 +107,8 @@ local function Example_portable_executable()
   local child = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = fs.temp_dir("/tmp/deploy_example_XXXXXX")
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local tmpdir = check.must(fs.temp_dir(fs.join(base, "deploy_example_XXXXXX")))
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "app.tl")

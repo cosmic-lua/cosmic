@@ -10,7 +10,8 @@ local function Example_extract()
   local fs = require("cosmic.fs")
   local tar = require("cosmic.tar")
 
-  local dir = check.must(fs.temp_dir("/tmp/tar_example_XXXXXX"))
+  local base = os.getenv("TEST_TMPDIR") or "/tmp"
+  local dir = check.must(fs.temp_dir(fs.join(base, "tar_example_XXXXXX")))
 
   -- One ustar header block (name, mode, size, checksum) plus its
   -- payload, padded to the 512-byte block size, then two zero blocks.
