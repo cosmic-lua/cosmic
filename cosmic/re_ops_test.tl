@@ -80,35 +80,29 @@ local function test_anchor_caret_only_start()
 end
 test_anchor_caret_only_start()
 
--- DOCUMENTED LIMITATION (see re.tl locate/find_all doc comments): a
--- `^`/`$` anchor satisfied only via an embedded newline under the
--- NEWLINE flag (not true text start/end) cannot be re-confirmed by
--- locate()'s exact-width verification window, so all_matches gives up
--- as soon as it hits one. This pins today's (regrettable but known)
--- behavior for both flag states, so a future fix changes this test
--- deliberately instead of silently regressing an untested path.
-local function test_newline_anchor_past_first_line_is_a_known_limitation()
+-- The NEWLINE flag's `^`/`$` anchors at embedded newlines now behave
+-- as POSIX specifies. This was a DOCUMENTED LIMITATION of the old
+-- locate()-based iteration (its exact-width verification window could
+-- not see the newline byte, so all_matches gave up or undercounted);
+-- the engine reporting offsets directly (Regex:find) deleted that
+-- machinery, and this test changed deliberately with it, as the old
+-- test's comment asked.
+local function test_newline_anchor_matches_past_first_line()
   -- Without NEWLINE, `^` only matches true text start: one match.
   local ms = check.must(matches_of("foo\nfoo", "^foo"))
   assert(#ms == 1 and ms[1] == "foo", "expected a single match without NEWLINE")
 
-  -- With NEWLINE, `^` should also match right after the embedded \n
-  -- (regardless of NOTBOL, per POSIX) -- but locate() cannot verify
-  -- that second candidate, so the whole call fails instead of
-  -- returning {"foo", "foo"}.
-  local ms2, err2 = matches_of("foo\nfoo", "^foo", re.NEWLINE)
-  assert(ms2 == nil, "expected the known limitation to surface as nil, not a silent undercount")
-  assert(err2 and err2:find("failed to locate", 1, true),
-    "expected a 'failed to locate' error, got: " .. tostring(err2))
+  -- With NEWLINE, `^` also matches right after the embedded \n
+  -- (regardless of NOTBOL, per POSIX): both lines match.
+  local ms2 = check.must(matches_of("foo\nfoo", "^foo", re.NEWLINE))
+  assert(#ms2 == 2 and ms2[1] == "foo" and ms2[2] == "foo",
+    "expected both NEWLINE-anchored matches, got " .. #ms2)
 
-  -- The symmetric $ case fails differently (a short list, not nil),
-  -- which is exactly why this is documented rather than papered over
-  -- with one special case.
-  local ms3, err3 = matches_of("foo\nfoo\nfoo", "foo$", re.NEWLINE)
-  assert(ms3 ~= nil and #ms3 == 1, "expected the documented undercount, got: "
-    .. tostring(ms3) .. " " .. tostring(err3))
+  -- The symmetric $ case: every line end matches.
+  local ms3 = check.must(matches_of("foo\nfoo\nfoo", "foo$", re.NEWLINE))
+  assert(#ms3 == 3, "expected all three $-anchored matches, got " .. #ms3)
 end
-test_newline_anchor_past_first_line_is_a_known_limitation()
+test_newline_anchor_matches_past_first_line()
 
 -- split tests
 
