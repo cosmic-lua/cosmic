@@ -8,13 +8,13 @@
    local hash = require("cosmic.hash")
    local digest = hash.sha256_hex("hello")
    local d = hash.digest("sha512", "hello")
+   local d_hex = hash.digest_hex("sha512", "hello")
    local tag = hash.hmac("sha256", "secret", "message")
    local encoded = hash.hash_password("password123")
    local valid = hash.verify_password(encoded, "password123")
 
- Digest and HMAC functions return raw bytes; hex-encode with
- cosmic.codec.encode_hex if needed. For CRC-32 checksums, see
- cosmic.codec.crc32. For random bytes, use cosmic.rand.bytes(n).
+ Every raw-bytes function has a `_hex` twin. For CRC-32 checksums,
+ see cosmic.codec.crc32. For random bytes, use cosmic.rand.bytes(n).
 
  Reserved name: hash.new(algo): Hasher — a streaming digest object
  API (update/final) is reserved for a post-stable battery. Do not
@@ -22,23 +22,23 @@
 
 ## Types
 
-### PasswordOptions
+### Options
 
  Options for password hashing with Argon2.
  All fields are optional and have sensible defaults.
 
 ```teal
-local record PasswordOptions
+local record Options
   --  Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
-  m_cost: integer
-  --  Time cost / iterations (default: 3)
-  t_cost: integer
+  memory_kb: integer
+  --  Iteration count / Argon2 time cost (default: 3)
+  iterations: integer
   --  Parallelism factor (default: 1)
   parallelism: integer
   --  Output hash length in bytes (default: 32)
-  hash_len: integer
+  hash_bytes: integer
   --  Variant: "argon2id" (default), "argon2i", or "argon2d"
-  variant: argon2.Variant
+  variant: Variant
 end
 ```
 
@@ -46,14 +46,15 @@ end
 
 ```teal
 local record HashModule
-  digest: function(algo: Algo, data: string): string | nil, string
+  digest: function(algo: Algo, data: string): string
+  digest_hex: function(algo: Algo, data: string): string
   hmac: function(algo: Algo, key: string, data: string): string | nil, string
+  hmac_hex: function(algo: Algo, key: string, data: string): string | nil, string
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
-  hmac_sha256: function(key: string, data: string): string | nil, string
-  constant_time_equal: function(a: string, b: string): boolean
-  hash_password: function(pwd: string, opts?: PasswordOptions): string | nil, string
-  verify_password: function(encoded: string, pwd: string): boolean, string
+  is_equal_constant_time: function(a: string, b: string): boolean
+  hash_password: function(pwd: string, opts?: Options): string | nil, string
+  verify_password: function(encoded: string, pwd: string): boolean | nil, string
 end
 ```
 
@@ -96,14 +97,17 @@ function sha256_hex(data: string): string
 ### digest
 
 ```teal
-function digest(algo: Algo, data: string): string | nil, string
+function digest(algo: Algo, data: string): string
 ```
 
  Compute a message digest of data with the given algorithm.
- Returns raw bytes; hex-encode with cosmic.codec.encode_hex if
- needed. For the common case, sha256 / sha256_hex are equivalent
- conveniences. MD5 and SHA-1 are provided for interoperability with
- existing formats only — do not use them for new security purposes.
+ Returns raw bytes; digest_hex is the hex twin. For the common case,
+ sha256 / sha256_hex are equivalent conveniences. MD5 and SHA-1 are
+ provided for interoperability with existing formats only — do not
+ use them for new security purposes.
+ Infallible: `algo` is the typed enum, so the checker already rejects
+ every bad value; a value smuggled past it through a cast is a
+ contract violation and throws (D22).
 
 **Parameters:**
 
@@ -112,8 +116,25 @@ function digest(algo: Algo, data: string): string | nil, string
 
 **Returns:**
 
-- string - | nil The digest as raw bytes, or nil on error
-- string? - Error message if the algorithm is unknown
+- string - The digest as raw bytes
+
+### digest_hex
+
+```teal
+function digest_hex(algo: Algo, data: string): string
+```
+
+ Compute a message digest and return it as a lowercase hex string.
+ The hex twin of digest.
+
+**Parameters:**
+
+- `algo` (Algo) - The digest algorithm
+- `data` (string) - The data to hash
+
+**Returns:**
+
+- string - The digest as a hex string
 
 ### hmac
 
@@ -122,11 +143,12 @@ function hmac(algo: Algo, key: string, data: string): string | nil, string
 ```
 
  Compute an HMAC (RFC 2104) of data with a secret key using the
- given digest algorithm. Returns raw bytes; hex-encode with
- cosmic.codec.encode_hex if needed. Compare MACs with
- constant_time_equal, not ==. The key must be non-empty: the C
- binding treats an empty key as "no key" and would silently compute
- a plain digest instead of an HMAC.
+ given digest algorithm. Returns raw bytes; hmac_hex is the hex
+ twin. Compare MACs with is_equal_constant_time, not ==. The key
+ must be non-empty: the C binding treats an empty key as "no key"
+ and would silently compute a plain digest instead of an HMAC —
+ and keys arrive from config at runtime, so the empty key reports
+ as an error rather than throwing.
 
 **Parameters:**
 
@@ -137,34 +159,32 @@ function hmac(algo: Algo, key: string, data: string): string | nil, string
 **Returns:**
 
 - string - | nil The HMAC tag as raw bytes, or nil on error
-- string? - Error message if the algorithm is unknown or the key is empty
+- string? - Error message when the key is empty
 
-### hmac_sha256
+### hmac_hex
 
 ```teal
-function hmac_sha256(key: string, data: string): string | nil, string
+function hmac_hex(algo: Algo, key: string, data: string): string | nil, string
 ```
 
- Compute HMAC-SHA256 of data with a secret key (RFC 2104).
- Returns raw bytes (32 bytes); hex-encode with cosmic.codec.encode_hex
- if needed. Compare MACs with constant_time_equal, not ==. The key
- must be non-empty: the C binding treats an empty key as "no key"
- and would silently compute a plain digest instead of an HMAC.
+ Compute an HMAC and return it as a lowercase hex string.
+ The hex twin of hmac.
 
 **Parameters:**
 
+- `algo` (Algo) - The digest algorithm
 - `key` (string) - The secret key (must be non-empty)
 - `data` (string) - The message to authenticate
 
 **Returns:**
 
-- string - | nil The HMAC-SHA256 tag as raw bytes, or nil on error
-- string? - Error message if the key is empty
+- string - | nil The HMAC tag as a hex string, or nil on error
+- string? - Error message when the key is empty
 
-### constant_time_equal
+### is_equal_constant_time
 
 ```teal
-function constant_time_equal(a: string, b: string): boolean
+function is_equal_constant_time(a: string, b: string): boolean
 ```
 
  Compare two strings in constant time (for digests and MACs).
@@ -185,7 +205,7 @@ function constant_time_equal(a: string, b: string): boolean
 ### hash_password
 
 ```teal
-function hash_password(pwd: string, opts?: PasswordOptions): string | nil, string
+function hash_password(pwd: string, opts?: Options): string | nil, string
 ```
 
  Hash a password using Argon2.
@@ -194,7 +214,7 @@ function hash_password(pwd: string, opts?: PasswordOptions): string | nil, strin
 **Parameters:**
 
 - `pwd` (string) - The password to hash
-- `opts` (PasswordOptions?) - Optional configuration for the hash
+- `opts` (Options?) - Optional configuration for the hash
 
 **Returns:**
 
@@ -204,20 +224,22 @@ function hash_password(pwd: string, opts?: PasswordOptions): string | nil, strin
 ### verify_password
 
 ```teal
-function verify_password(encoded: string, pwd: string): boolean, string
+function verify_password(encoded: string, pwd: string): boolean | nil, string
 ```
 
  Verify a password against an Argon2 encoded hash.
- Returns true on match, false (no error) on clean mismatch, or
- false plus an error string when the hash is malformed or the binding
- reports an error (e.g. "Decoding failed").
+ Three honest outcomes, no conflation: `true` on match, `false` (no
+ error) on a clean mismatch, and `nil` plus an error string when the
+ stored hash is malformed or the binding reports an error — so
+ `if hash.verify_password(stored, input) then` can never treat a
+ corrupt credential store as a failed login.
 
 **Parameters:**
 
-- `encoded` (string) - The encoded hash string (from password)
+- `encoded` (string) - The encoded hash string (from hash_password)
 - `pwd` (string) - The password to verify
 
 **Returns:**
 
-- boolean - True if the password matches, false otherwise
-- string? - Error message if the hash is malformed or another error occurred
+- boolean - | nil True on match, false on mismatch, nil on error
+- string? - Error message when the hash is malformed
