@@ -4,8 +4,8 @@ local check = require("cosmic.check")
 
 --- The old findall shape, over find_all: every match's text, in order.
 --- Also exercises Span fields via the m projection.
-local function matches_of(text: string, pat: string, flags?: integer): {string} | nil, string
-  local spans, err = re.find_all(text, pat, flags)
+local function matches_of(text: string, pat: string, opts?: re.CompileOptions): {string} | nil, string
+  local spans, err = re.find_all(text, pat, opts)
   if not spans then
     return nil, err
   end
@@ -45,7 +45,7 @@ end
 test_find_all_leftmost_longest()
 
 local function test_find_all_icase_flag()
-  local ms = check.must(matches_of("Foo foo FOO", "foo", re.ICASE))
+  local ms = check.must(matches_of("Foo foo FOO", "foo", {ignore_case = true}))
   assert(#ms == 3, "expected 3 case-insensitive matches, got " .. #ms)
   assert(ms[1] == "Foo" and ms[3] == "FOO", "expected original casing in results")
 end
@@ -94,12 +94,12 @@ local function test_newline_anchor_matches_past_first_line()
 
   -- With NEWLINE, `^` also matches right after the embedded \n
   -- (regardless of NOTBOL, per POSIX): both lines match.
-  local ms2 = check.must(matches_of("foo\nfoo", "^foo", re.NEWLINE))
+  local ms2 = check.must(matches_of("foo\nfoo", "^foo", {newline = true}))
   assert(#ms2 == 2 and ms2[1] == "foo" and ms2[2] == "foo",
     "expected both NEWLINE-anchored matches, got " .. #ms2)
 
   -- The symmetric $ case: every line end matches.
-  local ms3 = check.must(matches_of("foo\nfoo\nfoo", "foo$", re.NEWLINE))
+  local ms3 = check.must(matches_of("foo\nfoo\nfoo", "foo$", {newline = true}))
   assert(#ms3 == 3, "expected all three $-anchored matches, got " .. #ms3)
 end
 test_newline_anchor_matches_past_first_line()
