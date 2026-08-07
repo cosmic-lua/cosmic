@@ -30,6 +30,14 @@ local record Regex
   --  failure (e.g. out of memory) returns nil, err — the error string
   --  arrives in the second position, mirroring the cosmo.re binding.
   search: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+  --  Like search, but reports WHERE: absolute 1-based inclusive start
+  --  and end offsets into text, plus the capture table. init starts
+  --  the search at that offset while keeping the returned offsets
+  --  absolute, which is what lets iteration advance in O(n) instead of
+  --  re-slicing the subject per match. A no-match is a single bare
+  --  nil; an engine failure puts the error string in the second
+  --  position.
+  find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
 end
 ```
 
@@ -197,12 +205,12 @@ function find_all(text: string, pattern: string, flags?: integer): {Span} | nil,
 
  Every non-overlapping match of pattern in text, leftmost first, as
  Spans. Patterns that can match the empty string are rejected.
- KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
- match via an embedded newline (not the true start/end of text) fail
- to be re-confirmed past the first line (see locate's doc), so
- find_all("foo\nfoo", "^foo", re.NEWLINE) returns nil, "failed to
- locate match position for: foo" instead of two spans -- use
- split plus a per-line match instead when this matters.
+ Under the NEWLINE compile flag, `^`/`$` anchors match at embedded
+ newlines as POSIX specifies: find_all("foo\nfoo", "^foo",
+ re.NEWLINE) returns both spans. (The engine reports offsets
+ directly, which removed the relocation pass whose verification
+ window historically could not see those anchors past the first
+ line.)
 
 **Parameters:**
 
@@ -248,8 +256,6 @@ function split(text: string, pattern: string, flags?: integer): {string} | nil, 
  are kept verbatim, including empty ones from adjacent or
  leading/trailing matches; text with no match yields one field.
  Patterns that can match the empty string are rejected.
- Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
- past the first line (see find_all's doc).
 
 **Parameters:**
 
@@ -270,8 +276,6 @@ function gsub(text: string, pattern: string, repl: Repl, flags?: integer): strin
 
  Replace every non-overlapping match of pattern in text.
  Patterns that can match the empty string are rejected.
- Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
- past the first line (see find_all's doc).
 
 **Parameters:**
 
