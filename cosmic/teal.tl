@@ -183,13 +183,13 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   -- Options-form env construction: feature flags are explicit rather than
   -- inherited from tl's version-dependent defaults. feat_arity stays "on"
   -- (0.24 default) so function-arity mismatches are checked in strict mode.
-  local env, env_err = tl.new_env({
-      defaults = {
-        feat_lax = lax and "on" or "off",
-        feat_arity = "on",
-        gen_target = gen_target or DEFAULT_GEN_TARGET,
-        gen_compat = gen_compat or DEFAULT_GEN_COMPAT,
-      },
+  -- The env rides the artifact's pre-parsed stdlib ASTs when present
+  -- (cosmic._teal_ast), skipping tl's parse of its embedded d.tl sources.
+  local env, env_err = require("cosmic._teal_ast").new_env({
+      feat_lax = lax and "on" or "off",
+      feat_arity = "on",
+      gen_target = gen_target or DEFAULT_GEN_TARGET,
+      gen_compat = gen_compat or DEFAULT_GEN_COMPAT,
     })
   if not env then
     tl.path = saved_tl_path
