@@ -403,7 +403,7 @@ local function test_generated_valid_teal()
     local path = generated_path(m)
     assert(fs.is_file(path), path .. " was not generated — the graph runs "
       .. "_types/types_gen.tl before anything reads cosmo.*")
-    local result = teal.check(path, {include_dirs = {"o/_types/types_gen"}})
+    local result = teal.check_file(path, {include_dirs = {"o/_types/types_gen"}})
     assert(result.ok, "generated " .. path .. " is not valid Teal:\n"
       .. teal.format_issues(result.errors)
       .. "\nFix the renderer in _types/gentype_render.tl.")
