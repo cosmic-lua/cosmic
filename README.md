@@ -15,10 +15,10 @@ High-level utilities and tools built on top of cosmo.
 | [codec](cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [compress](cosmic/compress.md) |  Compression and decompression utilities. |
 | [init](cosmic/coverage/init.md) |  Line coverage collection for cosmic programs. |
+| [deep](cosmic/deep.md) |  Deep table operations. |
 | [init](cosmic/doc/init.md) |  Extract documentation from Teal files and render as markdown. |
 | [init](cosmic/embed/init.md) |  Embed files and directories into a cosmic executable. |
 | [env](cosmic/env.md) |  Environment variable utilities. |
-| [envd](cosmic/envd.md) |  Load environment variables from an embedded env.d directory. |
 | [errno](cosmic/errno.md) |  Error information from system calls. |
 | [example](cosmic/example.md) |  Go-style executable example testing. |
 | [fd](cosmic/fd.md) |  File descriptor I/O operations. |
@@ -52,8 +52,6 @@ High-level utilities and tools built on top of cosmo.
 | [string](cosmic/string.md) |  String utilities. |
 | [style](cosmic/style.md) |  The PURE style checks: file length and column width. |
 | [sys](cosmic/sys.md) |  System information utilities. |
-| [syslog](cosmic/syslog.md) |  System logging. |
-| [table](cosmic/table.md) |  Table utilities. |
 | [tar](cosmic/tar.md) |  |
 | [teal](cosmic/teal.md) |  Teal compilation and type-checking. |
 | [testrun](cosmic/testrun.md) |  Test runner for cosmic executables. |

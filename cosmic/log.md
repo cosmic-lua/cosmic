@@ -4,8 +4,9 @@
  A small structured logger for scripts and services: four severity
  levels, a module-wide threshold, and optional key=value fields per
  line. Lines go to stderr by default; redirect with set_output (for
- tests, or to ship lines elsewhere). For writing to the system log
- daemon instead, see cosmic.syslog.
+ tests, or to ship lines elsewhere). To write to the system log
+ daemon instead, install the bundled sink (#994: was cosmic.syslog):
+ log.set_output(log.syslog_output).
 
  Example usage:
    local log = require("cosmic.log")
@@ -44,9 +45,19 @@ local record LogModule
   format: function(level: Level, message: string, fields?: {string: any}): string
   set_level: function(level: Level): boolean, string
   level: function(): Level
-  set_output: function(out?: function(line: string))
+  set_output: function(out?: Sink)
+  syslog_output: Sink
 end
 ```
+
+### Sink
+
+ An output sink: receives each formatted line (without a trailing
+ newline) together with its severity, so a destination that speaks
+ severities — the system log, a filtering shim — need not re-parse
+ the line. A sink that only wants the line just takes one parameter.
+
+alias of `function`
 
 ## Functions
 
@@ -149,13 +160,13 @@ function level(): Level
 ### set_output
 
 ```teal
-function set_output(out?: function(line: string))
+function set_output(out?: Sink)
 ```
 
- Redirect where formatted lines go. The function receives each line
- without a trailing newline. Call with no argument to restore the
- default stderr output.
+ Redirect where formatted lines go. The sink receives each line
+ without a trailing newline, plus the line's level. Call with no
+ argument to restore the default stderr output.
 
 **Parameters:**
 
-- `out` (function(line:) - string)? The new output, or nil for stderr
+- `out` (Sink?) - The new output, or nil for stderr
