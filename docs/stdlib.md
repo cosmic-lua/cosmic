@@ -44,7 +44,7 @@ local sqlite = require("cosmic.sqlite")
 | module | description |
 |--------|-------------|
 | `cosmic.sqlite` | SQLite with query/exec/transaction API |
-| `cosmic.codec` | hex encoding/decoding, Lua serialization |
+| `cosmic.codec` | hex/base64/base32/Latin-1 encoding and CRC-32 checksums |
 | `cosmic.compress` | zlib/gzip/raw compress/decompress |
 | `cosmic.html` | HTML entity escaping |
 | `cosmic.zip` | ZIP archive reading and writing |
@@ -98,7 +98,7 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.embed` | create custom executables |
 | `cosmic.coverage` | line coverage collection for cosmic programs (the ratchet is toolchain-internal) |
 | `cosmic.instrument` | timing/resource spans: emit key=value lines to stderr, and parse them back |
-| `cosmic.literal` | read a Teal/Lua file as data: one `return { … }` of literals, never executed |
+| `cosmic.literal` | read/write a Teal/Lua file as data: one `return { … }` of literals, never executed |
 
 ## Error Handling Patterns
 

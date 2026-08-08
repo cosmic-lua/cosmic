@@ -74,9 +74,9 @@ _perf/stats.tl 67 67
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 151 161
 _tool/coverage/lines.tl 65 71
-_tool/coverage/report.tl 199 218
+_tool/coverage/report.tl 203 224
 _tool/doc/comments.tl 53 53
-_tool/doc/index.tl 120 127
+_tool/doc/index.tl 119 126
 _tool/doc/init.tl 225 251
 _tool/doc/render.tl 114 192
 _tool/doc/scan.tl 67 67
@@ -97,6 +97,7 @@ _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 180
 cmd/cosmic/main.tl 0 229
 cosmic/_fields.tl 5 7
+cosmic/_literal_format.tl 8 14
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37
@@ -153,7 +154,7 @@ cosmic/init.tl 16 17
 cosmic/instrument.tl 76 82
 cosmic/ip.tl 109 109
 cosmic/json.tl 23 24
-cosmic/literal.tl 222 238
+cosmic/literal.tl 211 233
 cosmic/log.tl 68 70
 cosmic/net/connect.tl 31 37
 cosmic/net/init.tl 0 120
@@ -205,4 +206,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14834 19480
+total 14834 19494

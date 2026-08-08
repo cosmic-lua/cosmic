@@ -29,7 +29,7 @@
 --- under `o/`, and writes only into the directory it is handed.
 
 local artifact = require("_make.artifact")
-local codec = require("cosmic.codec")
+local cosmo = require("cosmo")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 -- TRANSITIONAL dual require (#992, delete at the pin advance): the pin
@@ -359,10 +359,10 @@ local function write_version(dest: string): boolean, string
   end
   -- cast: the literal reader returns a plain table
   local cosmos = (pin as {string: any}).version
-  -- `return`, because this one is `require`d: the doc index next door
-  -- is `load`ed by a reader that supplies the keyword itself, and a
-  -- module cannot be.
-  local stamp = "return " .. codec.encode_lua({
+  -- `return`, because this one is `require`d. cosmo.EncodeLua directly
+  -- (#1001: codec no longer wraps it): a C binding, so the stamp bytes
+  -- are identical whichever generation runs this generator.
+  local stamp = "return " .. cosmo.EncodeLua({
       cosmic = declared_version(),
       cosmos = cosmos is string and cosmos or "unknown",
     }) .. "\n"

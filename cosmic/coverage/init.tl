@@ -14,7 +14,7 @@
 ---
 --- start/stop nest: a script that exercises coverage itself while
 --- running under coverage leaves the outer collection running.
-local codec = require("cosmic.codec")
+local literal = require("cosmic.literal")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
@@ -216,7 +216,9 @@ local function dump(dir?: string): boolean, string
   if ccov then
     hits = ccov.snapshot()
   end
-  local body, enc_err = codec.encode_lua({version = 1, hits = hits})
+  -- literal.format includes the `return` prefix (#1001); the reader
+  -- (_tool.coverage.report) loads the body as-is.
+  local body, enc_err = literal.format({version = 1, hits = hits})
   if not body then
     return false, "coverage: " .. (enc_err or "encode failed")
   end

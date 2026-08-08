@@ -359,7 +359,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
 | check | assertion helpers for tests/examples (`equal`, `truthy`, `must`) plus environment-gating helpers (`needs`, `enforce_skip`, `enforcing`) |
 | child | child process spawning with I/O control |
-| codec | hex encoding/decoding, Lua serialization |
+| codec | hex/base64/base32/Latin-1 encoding and CRC-32 checksums |
 | compress | zlib compression/decompression |
 | coverage | line coverage collection for cosmic programs (`--make coverage`) |
 | deep | deep copy/merge/structural equality for nested tables |
@@ -386,7 +386,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | re | POSIX extended regular expressions |
 | sandbox | the in-process containment door: one fail-closed fs + sys policy (landlock/unveil/pledge are its internal shards) |
 | searcher | the runtime `.tl` package searcher every artifact installs at boot |
-| literal | read a Teal/Lua file as data: `return { … }` of literals, never executed |
+| literal | read/write a Teal/Lua file as data: `return { … }` of literals, never executed |
 | quicksand | out-of-process containment: Linux namespace + allowlist-proxy boxes via quicksand.new |
 | shm | shared memory with atomic ops and futexes |
 | signal | signal handling, timers, sigsets |

@@ -3,9 +3,24 @@
 
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
-local codec = require("cosmic.codec")
 local index = require("_tool.doc.index")
 local check = require("cosmic.check")
+
+--- Load a generated index the way the doc reader does (#1001: codec's
+--- decode_lua_unsafe is gone): the index ships without a `return`
+--- prefix — the reader supplies the keyword — and loads with an empty
+--- environment.
+local function decode_index(encoded: string): any, string
+  local chunk, lerr = load("return " .. encoded, "=(index)", "t", {})
+  if not chunk then
+    return nil, lerr
+  end
+  local pok, data = pcall(chunk)
+  if not pok then
+    return nil, tostring(data)
+  end
+  return data
+end
 
 local tmpdir = env.get("TEST_TMPDIR")
 assert(tmpdir, "TEST_TMPDIR must be set")
@@ -46,7 +61,7 @@ return {}
 
 local function generate_modules(files: {string}): {string: any}
   local encoded = check.must(index.generate(files))
-  local data, derr = codec.decode_lua_unsafe(encoded)
+  local data, derr = decode_index(encoded)
   assert(data, "index should decode: " .. tostring(derr))
   return (data as {string: any}).modules as {string: any} -- cast: from any
 end
@@ -131,7 +146,7 @@ return { spin = spin, internal_only = internal_only }
 
   local encoded = check.must(index.generate({init_path, shard_path},
       {[init_path] = "gadget.init", [shard_path] = "gadget.shard"}))
-  local data = check.must(codec.decode_lua_unsafe(encoded))
+  local data = check.must(decode_index(encoded))
   local modules = (data as {string: any}).modules as {string: any} -- cast: from any
   local parent = modules["gadget"] as {string: any} -- cast: from any
   assert(parent, "gadget.init should normalize to gadget")
@@ -208,7 +223,7 @@ return {}
         [shard_path] = "widgetdir.shard",
         [example_path] = "widgetdir_example",
       }))
-  local data = check.must(codec.decode_lua_unsafe(encoded))
+  local data = check.must(decode_index(encoded))
   local modules = (data as {string: any}).modules as {string: any} -- cast: from any
   local parent = modules["widgetdir"] as {string: any} -- cast: from any
   assert(parent, "widgetdir.init should normalize to widgetdir")
@@ -264,7 +279,7 @@ return {}
         [init_path] = "gizmo.init",
         [example_path] = "gizmo.init_example",
       }))
-  local data = check.must(codec.decode_lua_unsafe(encoded))
+  local data = check.must(decode_index(encoded))
   local modules = (data as {string: any}).modules as {string: any} -- cast: from any
   assert(modules["gizmo"], "gizmo.init should normalize to gizmo")
   assert(modules["gizmo.init"] == nil,
