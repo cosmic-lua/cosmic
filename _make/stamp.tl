@@ -59,7 +59,7 @@ local BOOT_MODULES < const >: {string} = {
   "_cli.args", "_cli.help", "_cli.main_handlers", "_cli.require_hints",
   "_cli.run", "_cli.welcome",
   "cosmic._fields", "cosmic.env", "cosmic.errno", "cosmic.fd", "cosmic.fs",
-  "cosmic.fs.file", "cosmic.fs.ops", "cosmic.fs.path", "cosmic.fs.tree",
+  "cosmic.fs.file", "cosmic.fs.find", "cosmic.fs.ops", "cosmic.fs.path", "cosmic.fs.tree",
   "cosmic.fs.types", "cosmic.fs.walk", "cosmic.fuzzy", "cosmic.getopt",
   "cosmic.instrument", "cosmic.searcher", "cosmic.stream", "cosmic.sys",
   "cosmic.tty",

@@ -1,12 +1,11 @@
---- Examples for the cosmic.fs.walk module.
---- Demonstrates walk(), collect(), and files() for directory traversal.
+--- Examples for directory traversal: visit() with its Entry record,
+--- find() for collection, find_iter() for streaming.
 
--- Example_walk demonstrates walking a directory tree.
--- The visitor receives the FULL path as the first argument and the basename
--- as the second. Do not join them — path is already complete.
-local function Example_walk()
+-- Example_visit demonstrates walking a directory tree. The visitor
+-- receives an fs.Entry: e.path is the FULL path (already complete),
+-- e.name the basename, e.stat the entry's Stat, e.depth the depth.
+local function Example_visit()
   local fs = require("cosmic.fs")
-  local types = require("cosmic.fs.types")
 
   -- Build a small tree under a temp directory.
   local base = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -20,11 +19,9 @@ local function Example_walk()
 
   -- Collect entries and sort for deterministic output.
   local entries: {string} = {}
-  assert(fs.walk(tmpdir, function(_path: string, name: string, st: types.WalkStat, ctx: {string})
-        -- path is the full path; name is just the basename.
-        -- Never do fs.join(path, name) — that would double the path.
-        local kind = st:is_dir() and "dir" or "file"
-        table.insert(ctx, kind .. " " .. name)
+  assert(fs.visit(tmpdir, function(e: fs.Entry, ctx: {string})
+        local kind = e.stat:is_dir() and "dir" or "file"
+        table.insert(ctx, kind .. " " .. e.name .. " depth=" .. e.depth)
       end, entries))
 
   table.sort(entries)
@@ -34,13 +31,13 @@ local function Example_walk()
 
   assert(fs.remove_all(tmpdir))
   -- Output:
-  -- dir conf
-  -- file README
-  -- file app.ini
+  -- dir conf depth=1
+  -- file README depth=1
+  -- file app.ini depth=2
 end
 
--- Example_collect demonstrates collecting files matching a glob pattern.
-local function Example_collect()
+-- Example_find demonstrates collecting files matching a glob pattern.
+local function Example_find()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
@@ -54,10 +51,9 @@ local function Example_collect()
   assert(fs.write(fs.join(subdir, "util.lua"), "-- util\n"))
   assert(fs.write(fs.join(tmpdir, "README.txt"), "readme\n"))
 
-  -- collect returns full paths (or nil if the root could not be opened);
-  -- sort for deterministic output.
-  local luafiles = check.must(fs.find(tmpdir, {glob = "*.lua"}))
-  table.sort(luafiles)
+  -- find returns full paths, or nil plus the error if the root could
+  -- not be opened; sorted = true makes the output deterministic.
+  local luafiles = check.must(fs.find(tmpdir, {glob = "*.lua", sorted = true}))
   for _, p in ipairs(luafiles) do
     -- print only the basename so output is not path-dependent.
     print(fs.basename(p))
@@ -69,8 +65,8 @@ local function Example_collect()
   -- util.lua
 end
 
--- Example_files demonstrates the files() iterator for streaming traversal.
-local function Example_files()
+-- Example_find_iter demonstrates the streaming iterator.
+local function Example_find_iter()
   local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
@@ -82,8 +78,8 @@ local function Example_files()
   assert(fs.write(fs.join(tmpdir, "b.txt"), "b\n"))
 
   local names: {string} = {}
-  -- files() returns nil, err if the root cannot be opened; must passes
-  -- the iterator and its closing guard through on success.
+  -- find_iter returns nil, err if the root cannot be opened; must
+  -- passes the iterator and its closing guard through on success.
   for p in check.must(fs.find_iter(tmpdir, {glob = "*.txt"})) do
     table.insert(names, fs.basename(p))
   end
@@ -98,4 +94,4 @@ local function Example_files()
   -- b.txt
 end
 
-local _ = {Example_walk, Example_collect, Example_files}
+local _ = {Example_visit, Example_find, Example_find_iter}

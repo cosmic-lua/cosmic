@@ -1,7 +1,9 @@
 #!/usr/bin/env cosmic
---- Tests for fs_walk module (symlink cycle safety)
+--- Tests for the walker (cosmic.fs.walk) and the find family
+--- (cosmic.fs.find): symlink cycle safety, error slots, options.
 local check = require("cosmic.check")
 local fs_walk = require("cosmic.fs.walk")
+local fs_find = require("cosmic.fs.find")
 local fs = require("cosmic.fs")
 local user = require("cosmic.user")
 local type WalkAction = fs_walk.WalkAction
@@ -65,15 +67,15 @@ local function test_find_all_symlink_cycle_terminates()
   write_file(fs.join(subdir, "real.txt"), "data")
   assert(fs.symlink("..", fs.join(subdir, "loop")))
 
-  local collected = fs_walk.find_info(base)
+  local collected = fs_find.find_info(base)
   assert(collected, "find_info should succeed")
   local files = collected
-  -- Should contain sub/real.txt but NOT any path with loop/ in it
-  for rel_path in pairs(files) do
-    assert(not rel_path:match("loop"),
-      "find_info should not recurse into symlink loop, found: " .. rel_path)
+  -- Keys are FULL paths (#987); none may contain loop/
+  for full_path in pairs(files) do
+    assert(not full_path:match("loop"),
+      "find_info should not recurse into symlink loop, found: " .. full_path)
   end
-  assert(files["sub/real.txt"] ~= nil, "real.txt should be found")
+  assert(files[fs.join(base, "sub/real.txt")] ~= nil, "real.txt should be found")
 end
 test_find_all_symlink_cycle_terminates()
 
@@ -86,7 +88,7 @@ local function test_find_iter_symlink_cycle_terminates()
   assert(fs.symlink("..", fs.join(subdir, "loop")))
 
   local collected: {string} = {}
-  for p in check.must(fs_walk.find_iter(base, {glob = "*.lua"})) do
+  for p in check.must(fs_find.find_iter(base, {glob = "*.lua"})) do
     collected[#collected + 1] = p
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
@@ -132,7 +134,7 @@ test_walk_missing_root_errors()
 
 local function test_find_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local results, err = fs_walk.find(missing, {glob = "*.lua"})
+  local results, err = fs_find.find(missing, {glob = "*.lua"})
   assert(results == nil, "collect of a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "collect error should name ENOENT: " .. tostring(err))
@@ -141,7 +143,7 @@ test_find_missing_root_errors()
 
 local function test_find_all_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local results, err = fs_walk.find_info(missing)
+  local results, err = fs_find.find_info(missing)
   assert(results == nil, "find_info of a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "find_info error should name ENOENT: " .. tostring(err))
@@ -152,7 +154,7 @@ local function test_find_iter_missing_root_errors()
   -- #558a: strict, like collect — a typo'd directory must be an error,
   -- not an iterator that silently yields zero files.
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local iter, err = fs_walk.find_iter(missing)
+  local iter, err = fs_find.find_iter(missing)
   assert(iter == nil, "files() on a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "files error should name ENOENT: " .. tostring(err))
@@ -206,7 +208,7 @@ local function test_find_iter_permission_denied_subdir_reports_error()
   write_file(fs.join(locked, "hidden.txt"), "x")
   assert(fs.chmod(locked, 0))
 
-  local iter = check.must(fs_walk.find_iter(base))
+  local iter = check.must(fs_find.find_iter(base))
   local seen: {string: boolean} = {}
   local f = iter()
   while f do
@@ -216,12 +218,12 @@ local function test_find_iter_permission_denied_subdir_reports_error()
   assert(fs.chmod(locked, tonumber("755", 8)))
 
   assert(seen["seen.txt"], "readable entries must still be yielded")
-  -- The loop above already ran the terminating (nil, err) call; the
-  -- iterator stays exhausted, so calling it again just reports the
-  -- same first error rather than resuming anything.
-  local _, suberr = iter()
-  assert(suberr and suberr:match("EACCES"),
-    "files() must surface the denied subdir once exhausted: " .. tostring(suberr))
+  -- The exhausted iterator reports the subtree-error LIST from then
+  -- on; calling it again re-reports rather than resuming anything.
+  local _, suberrs = iter()
+  assert(suberrs and suberrs[1] and suberrs[1]:match("EACCES"),
+    "find_iter must surface the denied subdir once exhausted: "
+    .. tostring(suberrs and suberrs[1]))
 end
 test_find_iter_permission_denied_subdir_reports_error()
 
@@ -334,9 +336,10 @@ test_walk_skip_with_symlink_cycle_terminates()
 local function test_find_success_has_no_error()
   local base = mksubdir("collect_ok")
   write_file(fs.join(base, "one.lua"), "-- 1")
-  local results, err = fs_walk.find(base, {glob = "*.lua"})
-  assert(results, "collect should succeed")
-  assert(err == nil, "no error expected on a clean walk, got " .. tostring(err))
+  local results, err, suberrs = fs_find.find(base, {glob = "*.lua"})
+  assert(results, "find should succeed")
+  assert(err == nil, "slot 2 is nil unless the root failed, got " .. tostring(err))
+  assert(suberrs == nil, "slot 3 is nil on a clean walk")
   assert(#(results) == 1, "expected exactly one match")
 end
 test_find_success_has_no_error()
@@ -347,7 +350,7 @@ test_find_success_has_no_error()
 local function count_open_fds(): integer
   -- Exhausting the iterator closes its own handle as it goes.
   local n = 0
-  local iter = check.must(fs_walk.find_iter("/proc/self/fd"))
+  local iter = check.must(fs_find.find_iter("/proc/self/fd"))
   for _ in iter do n = n + 1 end
   return n
 end
@@ -364,7 +367,7 @@ local function test_find_iter_early_break_closes_handles()
   end
 
   local before = count_open_fds()
-  for p in check.must(fs_walk.find_iter(base, {glob = "*.txt"})) do
+  for p in check.must(fs_find.find_iter(base, {glob = "*.txt"})) do
     assert(p, "expected a path")
     break -- abandon the iterator with directories still open
   end
@@ -374,3 +377,95 @@ local function test_find_iter_early_break_closes_handles()
       before, after))
 end
 test_find_iter_early_break_closes_handles()
+
+-- visit(): the Entry record carries path/name/stat/depth, and the
+-- subtree-error list rides slot 3 — never beside the result in slot 2.
+
+local function test_visit_entry_and_depth()
+  local base = mksubdir("visit_entry")
+  local sub = fs.join(base, "sub")
+  assert(fs.make_dirs(sub))
+  write_file(fs.join(sub, "deep.txt"), "x")
+  write_file(fs.join(base, "top.txt"), "x")
+
+  local depths: {string: integer} = {}
+  local ctx, err, suberrs = fs.visit(base, function(e: fs.Entry, c: {string: integer})
+      assert(e.path:sub(1, #base) == base, "Entry.path is the full path")
+      c[e.name] = e.depth
+    end, depths)
+  assert(ctx ~= nil, "visit should succeed: " .. tostring(err))
+  assert(suberrs == nil, "clean walk carries no subtree errors")
+  assert(depths["top.txt"] == 1, "top-level entries are depth 1")
+  assert(depths["sub"] == 1, "the subdir itself is depth 1")
+  assert(depths["deep.txt"] == 2, "entries one level down are depth 2")
+end
+test_visit_entry_and_depth()
+
+local function test_visit_denied_subdir_lands_in_slot_three()
+  if user.geteuid() == 0 then
+    return -- root bypasses permission checks; nothing to observe
+  end
+  local base = mksubdir("visit_denied")
+  local locked = fs.join(base, "locked")
+  assert(fs.make_dirs(locked))
+  assert(fs.chmod(locked, 0))
+  local ctx, err, suberrs = fs.visit(base, function(_e: fs.Entry, _c: {string}) end, {})
+  assert(fs.chmod(locked, tonumber("755", 8)))
+  assert(ctx ~= nil, "a denied subdir must not abort the walk")
+  assert(err == nil, "slot 2 means the ROOT failed, and it did not")
+  assert(suberrs and suberrs[1] and suberrs[1]:match("EACCES"),
+    "the denied subdir must land in slot 3: " .. tostring(suberrs and suberrs[1]))
+end
+test_visit_denied_subdir_lands_in_slot_three()
+
+-- FindOptions: depth bounds, directory inclusion, sorting.
+
+local function setup_depth_tree(): string
+  local base = mksubdir("find_opts")
+  local sub = fs.join(base, "bdir")
+  assert(fs.make_dirs(sub))
+  write_file(fs.join(base, "a.txt"), "x")
+  write_file(fs.join(sub, "c.txt"), "x")
+  return base
+end
+
+local function test_find_max_depth_and_recursive()
+  local base = setup_depth_tree()
+  local all = check.must(fs.find(base, {glob = "*.txt"}))
+  assert(#all == 2, "unbounded find sees both files")
+  local top = check.must(fs.find(base, {glob = "*.txt", max_depth = 1}))
+  assert(#top == 1 and top[1]:match("a%.txt$"), "max_depth = 1 stays at the top")
+  local flat = check.must(fs.find(base, {glob = "*.txt", recursive = false}))
+  assert(#flat == 1, "recursive = false equals max_depth = 1")
+end
+test_find_max_depth_and_recursive()
+
+local function test_find_include_dirs_and_sorted()
+  local base = setup_depth_tree()
+  local everything = check.must(fs.find(base, {include_dirs = true, sorted = true}))
+  assert(#everything == 3, "include_dirs adds the directory itself")
+  assert(everything[1]:match("a%.txt$"), "sorted: a.txt first")
+  assert(everything[2]:match("bdir$"), "sorted: bdir second")
+  assert(everything[3]:match("c%.txt$"), "sorted: c.txt last")
+end
+test_find_include_dirs_and_sorted()
+
+local function test_find_iter_honors_depth_and_dirs()
+  local base = setup_depth_tree()
+  local names: {string: boolean} = {}
+  for p in check.must(fs_find.find_iter(base, {include_dirs = true, max_depth = 1})) do
+    names[fs.basename(p)] = true
+  end
+  assert(names["a.txt"] and names["bdir"], "top level yielded, dirs included")
+  assert(not names["c.txt"], "max_depth = 1 must not descend")
+end
+test_find_iter_honors_depth_and_dirs()
+
+local function test_find_info_full_paths_and_options()
+  local base = setup_depth_tree()
+  local info = check.must(fs.find_info(base, {glob = "*.txt", max_depth = 1}))
+  assert(info[fs.join(base, "a.txt")], "keys are full paths")
+  assert(info[fs.join(base, "bdir/c.txt")] == nil, "max_depth bounds find_info too")
+  assert(info[fs.join(base, "a.txt")].mode ~= nil, "FileInfo carries mode")
+end
+test_find_info_full_paths_and_options()
