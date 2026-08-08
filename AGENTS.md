@@ -81,7 +81,7 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **source language**: Teal (`.tl` files) — typed Lua that compiles to Lua 5.4
 - **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
-- **naming**: the ten-rule charter is [D20](docs/decisions/d20-naming-charter.md); a
+- **naming**: the charter is [D20](docs/decisions/d20-naming-charter.md); a
   deviation in new code is a bug. Headlines: `snake_case` spelled out, units in the
   identifier (`_ms`), `is_*` predicates, `Options`/`opts`, lowercase constructors.
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check fmt`

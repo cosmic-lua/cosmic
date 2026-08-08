@@ -239,9 +239,8 @@ end
 --- @return integer Status word (interpret with WIFEXITED/WEXITSTATUS/...)
 --- @return Rusage Resource usage for the reaped child
 --- @return string? Error message on failure
---- What wait(2) reaped. A record rather than (pid, status, rusage,
---- err) returns: the old shape put the error in slot 4, unreachable
---- from `local pid, err = ...` and from check.must.
+--- What wait(2) reaped; a record per D20 rule 11 (the error stays
+--- reachable in slot 2).
 local record WaitResult
   pid: integer
   --- Raw status word; decode with WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG.
