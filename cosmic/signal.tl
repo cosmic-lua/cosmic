@@ -19,25 +19,13 @@ end
 --- timer never reads as the 0 that would disarm it when passed back.
 
 --- Signal set for blocking, unblocking, and waiting on signals.
---- Wraps unix.sigset for use with sigprocmask, sigaction, and sigsuspend.
---- This mirror is transitional: the generated unix record cannot yet
---- re-export the Sigset record type, because the pinned cosmos still
---- carries `Sigset` as a constructor FIELD and a Teal record cannot
---- hold a value field and a type alias under one name.
---- whilp/cosmopolitan#246 removed that field, so the mirror and the
---- casts below go at the cosmos pin bump that carries it.
-local record Sigset
-  --- Adds signal to bitset.
-  add: function(self: Sigset, sig: integer)
-  --- Removes signal from bitset.
-  remove: function(self: Sigset, sig: integer)
-  --- Sets all bits in signal bitset to true.
-  fill: function(self: Sigset)
-  --- Sets all bits in signal bitset to false.
-  clear: function(self: Sigset)
-  --- Returns true if signal is in the bitset.
-  contains: function(self: Sigset, sig: integer): boolean
-end
+--- The binding's own record (add/remove/fill/clear/contains), built by
+--- sigset() and passed to sigprocmask, sigaction and sigsuspend. This
+--- was a hand-written mirror until whilp/cosmopolitan#246 freed the
+--- name: the generated unix record spent `Sigset` on the constructor
+--- FIELD, and a Teal record cannot hold a value field and a type alias
+--- under one name, so the type could not be re-exported.
+local type Sigset = unix.Sigset
 
 --- Signal handling module.
 --- Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
@@ -234,15 +222,13 @@ local function setitimer(opts: SetitimerOptions): SetitimerOptions | nil, string
   }
 end
 
--- The binding's Sigset is a distinct nominal record the generated
--- declarations do not export, so calls go through casts that mirror its
--- signature — but never ones that erase the error slots.
--- cast: function shape for nominal Sigset
-local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, flags?: integer, mask?: Sigset): (any, any, any)
--- cast: function shape for nominal Sigset
-local raw_sigprocmask = unix.sigprocmask as function(integer, Sigset): (Sigset, any)
--- cast: function shape for nominal Sigset
-local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any, any)
+-- Two of the three casts that stood here are gone: Sigset is the
+-- binding's own type now (whilp/cosmopolitan#246), so sigprocmask and
+-- sigsuspend are ordinary calls. This one survives for an unrelated
+-- reason -- the wrapper below takes `handler` as `any`, because the
+-- formatter cannot parse a bare `function | integer` union in a
+-- function statement, and `any` does not pass to the binding's union.
+local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, flags?: integer, mask?: Sigset): (any, any, any) -- cast: handler union
 
 --- Register a signal handler for the specified signal.
 --- Lua handlers run deferred in ordinary VM context (see the
@@ -283,7 +269,7 @@ end
 --- @return Sigset | nil The previous signal mask, or nil on failure
 --- @return string? Error message on failure
 local function sigprocmask(how: integer, set: Sigset): Sigset | nil, string
-  local old, err = raw_sigprocmask(how, set)
+  local old, err = unix.sigprocmask(how, set)
   if old == nil then
     return nil, errstr(err, "sigprocmask")
   end
@@ -296,7 +282,7 @@ end
 --- @return string? Error message on any errno other than EINTR
 --- @return string Error message: EINTR after a signal was handled
 local function sigsuspend(mask?: Sigset): boolean, string
-  local _, err, eno = raw_sigsuspend(mask)
+  local _, err, eno = unix.sigsuspend(mask)
   if errno_is(eno, "EINTR") then
     return true
   end
@@ -305,8 +291,7 @@ end
 
 local M = {} as SignalModule -- cast: record built incrementally
 
--- cast: function shape for nominal Sigset
-M.sigset = unix.sigset as function(...: integer): Sigset
+M.sigset = unix.sigset
 M.sigaction = sigaction
 M.sigprocmask = sigprocmask
 M.sigsuspend = sigsuspend
