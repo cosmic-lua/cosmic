@@ -1,10 +1,10 @@
 --- Networking and socket utilities.
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
---- Addresses are typed (api-review-2): every public signature
---- takes a dotted-quad string or an ip.Addr and returns ip.Addr — bare
---- integers are not addresses. IPv4 only: IPv6 strings are rejected
---- with an explicit "IPv6 not supported" error, and lands later as a
---- new Addr family, not a new API.
+--- Addresses are typed: every public signature takes a dotted-quad
+--- string or an ip.Addr and returns ip.Addr — bare integers are not
+--- addresses. IPv4 only: IPv6 strings are rejected with an explicit
+--- "IPv6 not supported" error, and lands later as a new Addr family,
+--- not a new API.
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
@@ -20,8 +20,7 @@ local type Address = net_socket.Address
 
 local make_socket = net_socket.make_socket
 
---- Options for socket() and socketpair(): named fields replace the old
---- three positional magic ints (api-review-6).
+--- Options for socket() and socketpair().
 local record SocketOptions
   --- AF_INET (socket default), AF_UNIX (socketpair default).
   family: integer
@@ -122,9 +121,7 @@ local connect_with_timeout = require("cosmic.net.connect").with_timeout
 local record ConnectOptions
   --- Bound the connect attempt: fail with an error after this many
   --- milliseconds instead of waiting on the kernel's own (much longer)
-  --- timeout. The returned socket is BLOCKING either way (api-review-8:
-  --- this option absorbs the old nb_connect, whose manually-managed
-  --- socket + non-blocking aftermath was the module's sharpest edge).
+  --- timeout. The returned socket is BLOCKING either way.
   timeout_ms: integer
 end
 
@@ -165,11 +162,10 @@ local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions):
 end
 
 --- Open a TCP connection to host:port. This name and shape are the
---- stable dial contract (api-review-2, and reserved since): host
---- is a dotted-quad literal or a DNS name — resolution happens inside —
---- and the result is a connected Socket. Future address families and
---- richer endpoint forms extend the values dial accepts, never the
---- signature.
+--- stable dial contract: host is a dotted-quad literal or a DNS name —
+--- resolution happens inside — and the result is a connected Socket.
+--- Future address families and richer endpoint forms extend the values
+--- dial accepts, never the signature.
 --- @param host string Host to connect to: dotted-quad literal or DNS name
 --- @param port integer Remote TCP port
 --- @param opts ConnectOptions? timeout_ms bounds the connect attempt
@@ -192,8 +188,7 @@ end
 
 --- Options for listen_tcp.
 local record ListenOptions
-  --- Maximum pending connections (default 128); the old positional
-  --- between port and the options record, folded in (api-review-6).
+  --- Maximum pending connections (default 128).
   backlog: integer
   --- Set SO_REUSEADDR on the listener (default true: rebinding a
   --- just-closed address must not fail with EADDRINUSE).
@@ -215,18 +210,11 @@ end
 ---   local port = assert(srv:getsockname()).port
 ---   local client = net.connect_tcp("127.0.0.1", port)
 ---
---- Amends the api-review-2 recorded decision: the (Socket, port, err)
---- triple's slot-3 error was invisible to `check.must` and to
---- `local s, err = ...` — every misuse type-checked and crashed at
---- runtime. Error-in-slot-2 wins over the port convenience.
----
 --- @param addr Address Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 --- @param port integer Local port to bind; use 0 for an OS-assigned ephemeral port
 --- @param opts ListenOptions? backlog (default 128), reuseaddr (default true), reuseport (default false)
 --- @return Socket | nil Listening socket ready to accept; when port 0
---- was requested, read the OS-assigned port with
---- `s:getsockname().port` (the old (Socket, port, err) triple put the
---- error in slot 3, where `check.must` and `local s, err = ...` lost it)
+--- was requested, read the OS-assigned port with `s:getsockname().port`
 --- @return string Error message on failure
 local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   opts = opts or {}

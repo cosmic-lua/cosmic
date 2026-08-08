@@ -1,9 +1,8 @@
 --- Extracting an executable's zip contents.
 ---
 --- Split out of cosmic.embed for the 500-line cap. The extraction
---- itself is czip.extract (api-review: embed no longer reimplements
---- the loop or re-declares zip's records) — the zip-slip guard, the
---- upfront validation, and the mode masking all live there, once.
+--- itself is czip.extract — the zip-slip guard, the upfront
+--- validation, and the mode masking all live there, once.
 
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")

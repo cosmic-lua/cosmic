@@ -261,7 +261,7 @@ local function parse(source: string, file_path: string): ModuleDoc
       })
   end
   -- Type aliases: `local type Name = target`. The alias IS the public
-  -- name (api-review-8: zip's Archive aliases the generated
+  -- name (zip's Archive aliases the generated
   -- cosmo.zip.Reader) while the target holds the field/method table, so
   -- without an entry the public name is invisible in the rendered Types
   -- section and unresolvable per-symbol. The alias renders as its own

@@ -418,12 +418,10 @@ local function parse_table(toks: {Token}, i: integer, where: string,
 end
 
 --- Options for parse/parse_file: how errors talk about the file.
---- (api-review-6: these were two message-wording positionals. The
---- field is `file`, not `where`: `where` opens a record invariant
---- clause in Teal and cannot name a field.)
+--- (The field is `file`, not `where`, which Teal reserves.)
 local record Options
-  --- File name to prefix messages with (parse only — parse_file
-  --- always uses the path it read). Default "literal".
+  --- File name to prefix messages with. Default "literal" for parse;
+  --- parse_file defaults it to the path it read.
   file: string
   --- What to call the file in errors — `cosmic --make` reads pins with
   --- noun "pin", so the same grammar complains about "a pin". Default
@@ -433,7 +431,7 @@ end
 
 --- Read the literal a file returns, without running it.
 --- @param source string The file's contents
---- @param opts Options? where: file name for messages; noun: file kind in errors
+--- @param opts Options? file: name for messages; noun: file kind in errors
 --- @return {string: any}|nil The declared table
 --- @return string The error message when the file is not a literal
 local function parse(source: string, opts?: Options): {string: any} | nil, string
@@ -468,7 +466,8 @@ end
 
 --- Read a file as a literal table, without running it.
 --- @param path string Path to the file
---- @param opts Options? noun: file kind in errors (where is always the path)
+--- @param opts Options? noun: file kind in errors; file: message label
+--- (defaults to the path)
 --- @return {string: any}|nil The declared table
 --- @return string The error message when unreadable or not a literal
 local function parse_file(path: string, opts?: Options): {string: any} | nil, string
@@ -477,7 +476,8 @@ local function parse_file(path: string, opts?: Options): {string: any} | nil, st
     return nil, "cannot read " .. path .. ": " .. (rerr or "unknown error")
   end
   local noun = opts and opts.noun
-  return parse(source, {file = path, noun = noun})
+  local label = (opts and opts.file) or path
+  return parse(source, {file = label, noun = noun})
 end
 
 local record LiteralModule

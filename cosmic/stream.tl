@@ -1,6 +1,6 @@
 --- The stream contract: byte-stream Reader/Writer interfaces.
 --- Every producer and consumer in the standard library composes over
---- them (api-review-2).
+--- them.
 ---
 --- Reader is the one EOF convention: read() returns a non-empty chunk,
 --- or bare nil (no error) at end of stream, or nil plus an error message
@@ -52,8 +52,7 @@ local record stream
 
   --- What lines() returns: each call yields the next line without its
   --- trailing newline, then nil + the error once on a read failure,
-  --- then plain nil forever (api-review #996: the type was inline at
-  --- every signature; exported so consumers can name it).
+  --- then plain nil forever (exported so consumers can name it).
   type LineIter = function(): string | nil, string
 
   --- Optional capability: a Reader that can scan for a delimiter
@@ -157,8 +156,7 @@ end
 --- hand-rolled adapter. read(n?) returns successive chunks (at most n
 --- bytes when n is given, the whole remainder otherwise), then bare
 --- nil at end of stream, per the Reader contract; n must be positive
---- when given. (api-review #996: was `from_string`; rule 5 names
---- constructors `new_*`, pairing it with new_buffer.)
+--- when given.
 --- @param data string The bytes to serve
 --- @return Reader A reader over the bytes
 function stream.new_reader(data: string): stream.Reader
@@ -187,7 +185,6 @@ end
 --- appends and reports the chunk fully written; contents() returns
 --- everything written so far. Point stream.copy (or any Writer taker)
 --- at one to materialize a pipeline's output as a string.
---- (api-review #996: was `buffer`; rule 5 names constructors `new_*`.)
 --- @return Buffer The in-memory writer
 function stream.new_buffer(): stream.Buffer
   local parts: {string} = {}

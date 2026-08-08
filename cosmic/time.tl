@@ -1,7 +1,7 @@
 --- Time and clock utilities.
 --- Wraps cosmo.unix time functions for timestamps, sleeping, and time breakdown.
 ---
---- Recorded decision (api-review-2): the formatting surface stays the
+--- Recorded decision: the formatting surface stays the
 --- curated trio — format_http/parse_http (RFC 7231), format_date/parse_date
 --- (YYYY-MM-DD), format_iso8601/parse_iso8601 — plus timegm. A general
 --- strftime passthrough (time.format(fmt, ts)) is deferred to post-stable

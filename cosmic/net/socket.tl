@@ -1,6 +1,6 @@
 --- Socket implementation for the networking module.
 --- Contains the Socket constructor and all Socket method implementations.
---- Addresses are typed (api-review-2): methods accept a dotted-quad
+--- Addresses are typed: methods accept a dotted-quad
 --- string or an ip.Addr, and return ip.Addr — bare integers are not part
 --- of the public surface (wrap C-boundary integers with ip.from_int()).
 local unix = require("cosmo.unix")
@@ -231,15 +231,15 @@ local function make_socket(fd: integer): Socket
         dgram = self:getsockopt(unix.SOL_SOCKET, unix.SO_TYPE) == unix.SOCK_DGRAM
       end
       if not dgram then
-        return nil -- peer closed: end of stream (api-review-2, #589)
+        return nil -- peer closed: end of stream (#589)
       end
     end
     return data
   end
 
   -- The stream.Reader/Writer contract is exactly recv/send's: recv
-  -- returns bare nil at end of stream (api-review-2) and send
-  -- returns bytes written. Alias rather than wrap.
+  -- returns bare nil at end of stream and send returns bytes
+  -- written. Alias rather than wrap.
   sock.read = sock.recv
   sock.write = sock.send
 

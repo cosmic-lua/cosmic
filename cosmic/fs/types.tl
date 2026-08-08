@@ -64,7 +64,7 @@ local record fs_types
 
   --- File or directory metadata.
   --- Use the is_dir()/is_file()/is_link()/... methods to check file type.
-  --- ONE representation (api-review, fs.Stat unification): always the
+  --- ONE representation: always the
   --- raw cosmo.unix stat userdata, with the is_* predicates installed
   --- once on the binding's shared metatable — so `st is fs.Stat`
   --- narrows correctly and no wrapper table is ever allocated.
@@ -282,7 +282,7 @@ end
 
 -- "unknown" until the first wrap probes; then "direct" or
 -- "unsupported". There is no wrapper-table fallback any more
--- (api-review, fs.Stat unification): two representations made `is`
+-- (the Stat unification): two representations made `is`
 -- unusable and put a justified cast at every Stat use site, to cover a
 -- runtime shape the pinned cosmos has never had. A sealed metatable is
 -- now an honest error from stat/lstat/fstat instead of a silent switch

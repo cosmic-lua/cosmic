@@ -18,8 +18,7 @@ local fs = require("cosmic.fs")
 local type AddOptions = zip.AddOptions
 
 --- File metadata within a ZIP archive: size, compressed_size, crc32,
---- mtime, method (0=stored, 8=deflated), and mode (api-review #996:
---- was `Stat`, which collided with fs.Stat at call sites).
+--- mtime, method (0=stored, 8=deflated), and mode.
 local type EntryStat = zip.Stat
 
 --- Directory entry returned by Archive:list(): name, size, and mode. The
@@ -41,7 +40,7 @@ local record OpenOptions
   --- Compression level 0-9, for write/append.
   level: integer
   --- Refuse any member whose declared uncompressed size exceeds this
-  --- many bytes (api-review #996: was the binding's `max_file_size`).
+  --- many bytes.
   max_file_size_bytes: integer
 end
 
@@ -203,8 +202,8 @@ local function open(path: string | integer, opts?: OpenOptions): Archive | nil, 
 end
 
 --- Open a ZIP archive from in-memory data, always in read mode
---- (api-review #996: was `open_bytes` — rule 2 reserves `_bytes` for
---- counts; `_string` is the bytes-not-path sibling spelling).
+--- (`_string` is the bytes-not-path sibling spelling; `_bytes` is
+--- reserved for counts).
 --- @param data string The ZIP archive data
 --- @param opts OpenOptions? max_file_size_bytes (mode is always read)
 --- @return Archive | nil The archive, or nil on error

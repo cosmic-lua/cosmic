@@ -5,8 +5,8 @@ local errstr = require("cosmic.errno").wrap
 local errno_is = require("cosmic.errno").is
 
 --- Options for setitimer: which timer, initial fire time, repeat interval.
---- Durations are integer milliseconds (api-review-6: was four s+ns
---- fields); 0 value_ms disarms the timer, 0 interval_ms means one-shot.
+--- Durations are integer milliseconds; 0 value_ms disarms the timer,
+--- 0 interval_ms means one-shot.
 local record SetitimerOptions
   which: integer
   value_ms: integer

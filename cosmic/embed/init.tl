@@ -339,8 +339,7 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
   unix.chmod(tmp_path, tonumber("755", 8))
 
   -- Open the copy in append mode to modify its zip in-place
-  -- (api-review: cosmic.zip's own Archive — embed no longer keeps a
-  -- structural twin of it)
+  -- (cosmic.zip's own Archive)
   local appender_maybe, appender_err = czip.open(tmp_path, {mode = "append"})
   if not appender_maybe then
     local _ok, _err = fs.remove(tmp_path)

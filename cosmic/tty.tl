@@ -104,8 +104,7 @@ local function login_tty(fd: integer): boolean, string
   return true
 end
 
---- Checks if a file descriptor refers to a terminal (api-review-8:
---- one is_tty(fd?) replaces isatty plus the three per-stream wrappers).
+--- Checks if a file descriptor refers to a terminal.
 --- @param fd integer? File descriptor to check: 0=stdin, 1=stdout
 --- (the default — "is my output a terminal" is the common question),
 --- 2=stderr
