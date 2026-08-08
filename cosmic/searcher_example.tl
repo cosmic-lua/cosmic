@@ -18,18 +18,16 @@ local function Example_install()
   -- installed
 end
 
--- Example_miss demonstrates what a miss looks like. A searcher that
--- declines returns a STRING rather than raising, which is what lets
--- require() go on to report its own "module not found" listing every
--- path it tried.
+-- Example_miss demonstrates what a miss looks like from require's
+-- side: every installed searcher — this module's included — declines
+-- with a string rather than raising, so the require fails cleanly.
+-- (searcher_test asserts the decline message itself.)
 local function Example_miss()
-  local searcher = require("cosmic.searcher")
-  local why = searcher.searcher("no_such_module_anywhere")
-  print(type(why))
-  print((why as string):match("^no %.tl source found") ~= nil) -- cast: a miss returns a string
+  -- The name is computed so the checker never resolves it.
+  local ok = pcall(require, "no_such_" .. "module_anywhere")
+  print(ok)
   -- Output:
-  -- string
-  -- true
+  -- false
 end
 
 -- Suppress unused warnings for examples
