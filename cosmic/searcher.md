@@ -53,7 +53,7 @@
 ```teal
 local record TealSearch
   search_module: function(module_name: string): string | nil
-  compile_cached: function(input_path: string, strict?: boolean): string | nil, string
+  compile_cached: function(input_path: string, opts?: {string: boolean}): string | nil, string
 end
 ```
 
