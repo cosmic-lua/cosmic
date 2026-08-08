@@ -23,9 +23,9 @@ end
 -- caller does not name its own.
 local function Example_defaults()
   local style = require("cosmic.style")
-  print(style.DEFAULT_FILE_LINES, style.DEFAULT_COLUMN_WIDTH)
+  print(style.DEFAULT_FILE_LINES)
   -- Output:
-  -- 500	90
+  -- 500
 end
 
 -- Suppress unused warnings for examples

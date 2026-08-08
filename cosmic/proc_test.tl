@@ -2,6 +2,7 @@
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local check = require("cosmic.check")
+local child = require("cosmic.child")
 
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -114,11 +115,8 @@ else
 end
 ]]))
 
-  local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local wr = check.must(proc.wait(pid))
-  local status = wr.status
-  assert(proc.WIFEXITED(status), "expected normal exit")
-  local exit_code = proc.WEXITSTATUS(status)
+  local r = check.must(child.run({lua_bin, script_path}))
+  local exit_code = r.code
   assert(exit_code == 0, "expected is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
 end
 test_is_main_true_when_run_directly()
@@ -134,11 +132,8 @@ else
 end
 ]]))
 
-  local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local wr = check.must(proc.wait(pid))
-  local status = wr.status
-  assert(proc.WIFEXITED(status), "expected normal exit")
-  local exit_code = proc.WEXITSTATUS(status)
+  local r = check.must(child.run({lua_bin, script_path}))
+  local exit_code = r.code
   assert(exit_code == 0, "expected proc.is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
 end
 test_proc_is_main_true_when_run_directly()
@@ -161,11 +156,8 @@ else
 end
 ]], TEST_TMPDIR)))
 
-  local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local wr = check.must(proc.wait(pid))
-  local status = wr.status
-  assert(proc.WIFEXITED(status), "expected normal exit")
-  local exit_code = proc.WEXITSTATUS(status)
+  local r = check.must(child.run({lua_bin, script_path}))
+  local exit_code = r.code
   assert(exit_code == 0, "expected is_main to return false when script is required, got exit code " .. tostring(exit_code))
 end
 test_is_main_false_when_required()
@@ -367,32 +359,6 @@ local function test_wnohang_returns_zero_for_running_process()
 end
 test_wnohang_returns_zero_for_running_process()
 
-local function test_posix_spawn_returns_pid()
-  local ls_path = proc.which("ls")
-  if ls_path then
-    local pid = check.must(proc.posix_spawn(ls_path, {"ls"}))
-    assert(pid > 0, "expected positive pid, got " .. tostring(pid))
-    assert(proc.wait(pid))
-  end
-end
-test_posix_spawn_returns_pid()
-
-local function test_posix_spawn_nonexistent_names_errno()
-  local pid, err = proc.posix_spawn("/nonexistent/binary/xyz", {"/nonexistent/binary/xyz"})
-  assert(pid == nil, "posix_spawn of a nonexistent program should fail")
-  assert(err ~= nil and err:match("ENOENT"),
-    "posix_spawn error should name ENOENT, got: " .. tostring(err))
-end
-test_posix_spawn_nonexistent_names_errno()
-
-local function test_posix_spawnp_nonexistent_names_errno()
-  local pid, err = proc.posix_spawnp("nonexistent_command_xyz_12345", {"nonexistent_command_xyz_12345"})
-  assert(pid == nil, "posix_spawnp of a nonexistent program should fail")
-  assert(err ~= nil and err:match("E%u+"),
-    "posix_spawnp error should name the errno, got: " .. tostring(err))
-end
-test_posix_spawnp_nonexistent_names_errno()
-
 local function test_wait_option_constants_defined()
   assert(type(proc.WNOHANG) == "number", "WNOHANG should be a number")
   assert(type(proc.WUNTRACED) == "number", "WUNTRACED should be a number")
@@ -459,7 +425,6 @@ test_interpreter_resolves_running_binary()
 local function test_interpreter_is_cached_and_spawnable()
   local exe = check.must(proc.interpreter())
   assert(exe == check.must(proc.interpreter()), "repeat calls should agree")
-  local child = require("cosmic.child")
   local h = check.must(child.start({exe, "-e", "print('from child')"}))
   local out = h:read()
   check.must(h:wait())

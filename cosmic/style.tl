@@ -28,7 +28,6 @@ local record Diagnostic
 end
 
 local DEFAULT_FILE_LINES < const > = 500
-local DEFAULT_COLUMN_WIDTH < const > = 90
 
 local function check_file_length(file: string, n: integer, limit: integer): {Diagnostic}
   if n > limit then
@@ -46,6 +45,5 @@ end
 return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
-  DEFAULT_COLUMN_WIDTH = DEFAULT_COLUMN_WIDTH,
   check_file_length = check_file_length,
 }

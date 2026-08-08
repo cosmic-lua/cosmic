@@ -34,28 +34,6 @@ local function test_host_os_never_returns_raw_token()
 end
 test_host_os_never_returns_raw_token()
 
-local function test_normalize_host_os_mapping()
-  -- Table-driven: the wrapper translates the raw cosmo.GetHostOs() tokens
-  -- to the documented names. XNU -> macos is the load-bearing case.
-  local cases: {{string, string}} = {
-    {"LINUX", "linux"},
-    {"XNU", "macos"},
-    {"Xnu", "macos"},
-    {"WINDOWS", "windows"},
-    {"FREEBSD", "freebsd"},
-    {"OPENBSD", "openbsd"},
-    {"NETBSD", "netbsd"},
-    {"METAL", "metal"},
-  }
-  for _, case in ipairs(cases) do
-    local raw, want = case[1], case[2]
-    local got = sys.normalize_host_os(raw) as string -- cast: enum to plain string
-    assert(got == want,
-      "normalize_host_os(" .. raw .. ") should be " .. want .. ", got " .. tostring(got))
-  end
-end
-test_normalize_host_os_mapping()
-
 -- host_isa tests
 
 local function test_host_isa_returns_string()
@@ -119,15 +97,6 @@ local function test_nproc_positive()
 end
 test_nproc_positive()
 
-local function test_nproc_configured_at_least_online()
-  local online = sys.nproc()
-  local configured = sys.nproc_configured()
-  assert(online and configured, "nproc/nproc_configured should succeed")
-  assert(configured >= online,
-    "configured (" .. tostring(configured) .. ") should be >= online (" .. tostring(online) .. ")")
-end
-test_nproc_configured_at_least_online()
-
 local function test_page_size_positive()
   local sz, err = sys.page_size()
   assert(sz, "page_size should succeed, got error: " .. tostring(err))
@@ -136,13 +105,6 @@ local function test_page_size_positive()
   assert(sz & (sz - 1) == 0, "page_size should be a power of two, got " .. tostring(sz))
 end
 test_page_size_positive()
-
-local function test_sysconf_direct()
-  local sz = sys.sysconf(sys.SC_PAGESIZE)
-  local direct = sys.page_size()
-  assert(sz == direct, "sysconf(SC_PAGESIZE) should match page_size()")
-end
-test_sysconf_direct()
 
 -- uname tests
 

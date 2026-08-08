@@ -258,25 +258,26 @@ local function test_max_archive_bytes_caps_decompression()
 end
 test_max_archive_bytes_caps_decompression()
 
-local function test_unsafe_path()
-  assert(untar.unsafe_path(""), "empty")
-  assert(untar.unsafe_path("/abs"), "absolute")
-  assert(untar.unsafe_path("a/../b"), "dotdot")
-  -- Backslash policy is now the shared guard's (fs.is_unsafe_entry_name):
-  -- a backslash is a SEPARATOR for the traversal check, not a blanket
-  -- refusal, matching zip and embed. `a\\b` is a legal (weird) name;
-  -- `..\\evil` is still traversal.
-  assert(not untar.unsafe_path("a\\b"), "plain backslash name is a literal file")
-  assert(untar.unsafe_path("..\\evil"), "backslash traversal")
-  assert(untar.unsafe_path("a\\..\\evil"), "embedded backslash traversal")
-  -- The sibling guard in cosmic.embed rejects drive letters, and these
-  -- two protect the same operation: writing archive-controlled names
-  -- under a dest. On POSIX `C:/evil.txt` is a literal `C:` directory;
-  -- on Windows a colon component invites drive-relative and NTFS
-  -- alternate-data-stream semantics.
-  assert(untar.unsafe_path("C:/evil.txt"), "drive letter")
-  assert(untar.unsafe_path("c:evil.txt"), "drive letter, no slash")
-  assert(not untar.unsafe_path("a/b.txt"), "plain path is safe")
-  assert(not untar.unsafe_path("ab:c.txt"), "a colon that is not a drive is fine")
+local function test_entry_name_guard()
+  -- The guard is fs.is_unsafe_entry_name (tar.unsafe_path was a
+  -- byte-identical re-export, deleted in #993); these tar-motivated
+  -- cases keep exercising it from the extraction side.
+  local fs_mod = require("cosmic.fs")
+  local unsafe = fs_mod.is_unsafe_entry_name
+  assert(unsafe(""), "empty")
+  assert(unsafe("/abs"), "absolute")
+  assert(unsafe("a/../b"), "dotdot")
+  -- Backslash policy is the shared guard's: a backslash is a SEPARATOR
+  -- for the traversal check, not a blanket refusal, matching zip and
+  -- embed. `a\b` is a legal (weird) name; `..\evil` is still traversal.
+  assert(not unsafe("a\\b"), "plain backslash name is a literal file")
+  assert(unsafe("..\\evil"), "backslash traversal")
+  assert(unsafe("a\\..\\evil"), "embedded backslash traversal")
+  -- On POSIX `C:/evil.txt` is a literal `C:` directory; on Windows a
+  -- colon component invites drive-relative and ADS semantics.
+  assert(unsafe("C:/evil.txt"), "drive letter")
+  assert(unsafe("c:evil.txt"), "drive letter, no slash")
+  assert(not unsafe("a/b.txt"), "plain path is safe")
+  assert(not unsafe("ab:c.txt"), "a colon that is not a drive is fine")
 end
-test_unsafe_path()
+test_entry_name_guard()

@@ -236,6 +236,15 @@ local function set_mode(path: string, mode: integer): boolean, string
   return true
 end
 
+--- Set the file mode creation mask, returning the previous one
+--- (#993: moved from cosmic.user — the mask governs fs creation modes
+--- for open()/make_dir(), which is filesystem policy, not identity).
+--- @param mask integer The new file mode creation mask
+--- @return integer The previous mask
+local function set_umask(mask: integer): integer
+  return unix.umask(mask)
+end
+
 --- Change file owner and group (#988: was `chown`).
 --- @param path string Path to the file
 --- @param uid integer New owner user ID
@@ -405,6 +414,7 @@ local record FsOpsModule
   remove_all: function(path: string): boolean, string
   is_accessible: function(path: string, mode: integer): boolean
   set_mode: function(path: string, mode: integer): boolean, string
+  set_umask: function(mask: integer): integer
   set_owner: function(path: string, uid: integer, gid: integer): boolean, string
   type Timespec = Timespec
   type Times = Times
@@ -445,6 +455,7 @@ local M: FsOpsModule = {
   remove_all = remove_all,
   is_accessible = is_accessible,
   set_mode = set_mode,
+  set_umask = set_umask,
   set_owner = set_owner,
   set_times = set_times,
   set_times_fd = set_times_fd,

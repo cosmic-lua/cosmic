@@ -151,6 +151,9 @@ local record FsModule
   is_accessible: function(path: string, mode: integer): boolean
   --- Set permission bits (#988: was chmod).
   set_mode: function(path: string, mode: integer): boolean, string
+  --- Set the file mode creation mask, returning the previous one
+  --- (#993: moved from cosmic.user).
+  set_umask: function(mask: integer): integer
   --- Set owner and group (#988: was chown).
   set_owner: function(path: string, uid: integer, gid: integer): boolean, string
 
@@ -301,6 +304,7 @@ local M: FsModule = {
   -- Permission operations (re-exported from fs_ops)
   is_accessible = fs_ops.is_accessible,
   set_mode = fs_ops.set_mode,
+  set_umask = fs_ops.set_umask,
   set_owner = fs_ops.set_owner,
 
   -- Timestamp operations (re-exported from fs_ops)

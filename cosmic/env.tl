@@ -66,18 +66,6 @@ local function unset(name: string): boolean, string
   return true
 end
 
---- Clear all environment variables.
---- Warning: This removes ALL environment variables from the process.
---- @return boolean True on success
---- @return string? Error message if clearing failed
-local function clear(): boolean, string
-  local ok, err = unix.clearenv()
-  if not ok then
-    return false, errstr(err, "clearenv")
-  end
-  return true
-end
-
 --- Get all environment variables.
 --- Returns a table mapping variable names to their values.
 --- @return {string:string} A table of all environment variables
@@ -150,7 +138,6 @@ local record EnvModule
   get_or: function(name: string, default: string): string
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
-  clear: function(): boolean, string
   all: function(): {string: string}
   type ListOptions = ListOptions
   list: function(opts?: ListOptions): {string}
@@ -161,7 +148,6 @@ local M: EnvModule = {
   get_or = get_or,
   set = set,
   unset = unset,
-  clear = clear,
   all = all,
   list = list,
 }

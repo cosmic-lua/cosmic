@@ -155,7 +155,7 @@ end
 
 --- Stop collecting line hits (nestable).
 --- Removes the line hook when the last nested start is balanced.
---- Collected counts are kept; use reset() to discard them.
+--- Collected counts are kept.
 local function stop()
   if depth == 0 then
     return
@@ -188,16 +188,6 @@ local function snapshot(): {string: {integer: integer}}
     out[src] = t
   end
   return out
-end
-
---- Discard all collected counts.
-local function reset()
-  if ccov then
-    ccov.reset()
-  end
-  counts = {}
-  cur_src = nil
-  cur = nil
 end
 
 --- Write collected counts as a .cov file into a directory.
@@ -347,7 +337,6 @@ local record CoverageModule
   stop: function()
   running: function(): boolean
   snapshot: function(): {string: {integer: integer}}
-  reset: function()
   dump: function(dir?: string): boolean, string
   seal: function()
   keep_on_restrict: function()
@@ -370,7 +359,6 @@ local M: CoverageModule = {
   stop = stop,
   running = running,
   snapshot = snapshot,
-  reset = reset,
   dump = dump,
   seal = seal,
   keep_on_restrict = keep_on_restrict,

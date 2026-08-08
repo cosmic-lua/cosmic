@@ -490,3 +490,11 @@ local function test_write_mode_applies_on_overwrite()
   assert(fs.remove_all(path))
 end
 test_write_mode_applies_on_overwrite()
+
+local function test_set_umask_round_trips()
+  local original = fs.set_umask(0)
+  local prev = fs.set_umask(tonumber("022", 8))
+  assert(prev == 0, "the previous mask comes back, got " .. tostring(prev))
+  fs.set_umask(original)
+end
+test_set_umask_round_trips()
