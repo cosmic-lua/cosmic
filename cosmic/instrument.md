@@ -7,7 +7,7 @@
  Both halves are here on purpose. A span EMITS (`begin`/`finish`,
  with `format_line` as the pure writer), and `parse_line`/
  `parse_lines` READ what a child process emitted — which is how
- `cosmic.testrun` attributes wall time, CPU time and peak RSS to
+ `_tool.testrun` attributes wall time, CPU time and peak RSS to
  each test it spawned. Emitting without a reader would make the
  format a private convention between two files; both ends being
  public is what makes it an interface. Field values use the shared

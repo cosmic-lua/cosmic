@@ -221,7 +221,7 @@ function reap(pid: integer, what: string)
    the wrong end of the connection.
  A skip ends the FILE rather than the test, by the same argument
  `needs` makes: the parent is asserting on half a conversation, and
- `records.status_of` reads only the exit code.
+ the runner's grading reads only the exit code.
 
 **Parameters:**
 
