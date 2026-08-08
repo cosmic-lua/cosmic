@@ -33,10 +33,10 @@ local codec = require("cosmic.codec")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 -- TRANSITIONAL dual require (#992, delete at the pin advance): the pin
--- predates `_tool/`, and a generator resolves only what the running
--- binary embeds — the pin's path computed so the checker never sees it.
-local iok, index_m = pcall(require, "_tool.doc.index")
-if not iok then iok, index_m = pcall(require, "cosmic.doc" .. ".index") end
+-- predates `_tool/`; its path is computed so the checker never sees it.
+-- cast: transitional dual-shape probe (pcall returns retyped loosely)
+local idx_ok, index_m = pcall(require, "_tool.doc.index") as (boolean, any)
+if not idx_ok then idx_ok, index_m = pcall(require, "cosmic.doc" .. ".index") end
 local literal = require("cosmic.literal")
 local project = require("_make.project")
 local types = require("_make.types")
@@ -289,7 +289,7 @@ local function write_index(proj: Project, dest: string): boolean, string
   -- ignores it and falls back to naming by path — which is why the
   -- release, and the gate, build twice.
   -- cast: dual-shape module (#992); the signature may predate names
-  local generate_index = (assert(iok and index_m, "no doc index generator") as {string: any}).generate as
+  local generate_index = (assert(idx_ok and index_m, "no doc index generator") as {string: any}).generate as
   function(files: {string}, names: {string: string}): string | nil, string
   local body, err = generate_index(documented(proj), declared_names())
   if not body then
