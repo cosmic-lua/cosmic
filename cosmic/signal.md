@@ -19,32 +19,6 @@ local record SetitimerOptions
 end
 ```
 
-### Sigset
-
- Signal set for blocking, unblocking, and waiting on signals.
- Wraps unix.sigset for use with sigprocmask, sigaction, and sigsuspend.
- This mirror is transitional: the generated unix record cannot yet
- re-export the Sigset record type, because the pinned cosmos still
- carries `Sigset` as a constructor FIELD and a Teal record cannot
- hold a value field and a type alias under one name.
- whilp/cosmopolitan#246 removed that field, so the mirror and the
- casts below go at the cosmos pin bump that carries it.
-
-```teal
-local record Sigset
-  --  Adds signal to bitset.
-  add: function(self: Sigset, sig: integer)
-  --  Removes signal from bitset.
-  remove: function(self: Sigset, sig: integer)
-  --  Sets all bits in signal bitset to true.
-  fill: function(self: Sigset)
-  --  Sets all bits in signal bitset to false.
-  clear: function(self: Sigset)
-  --  Returns true if signal is in the bitset.
-  contains: function(self: Sigset, sig: integer): boolean
-end
-```
-
 ### PrevAction
 
  Signal handling module.
@@ -139,6 +113,18 @@ local record SignalModule
   strsignal: function(sig: integer): string
 end
 ```
+
+### Sigset
+
+ Signal set for blocking, unblocking, and waiting on signals.
+ The binding's own record (add/remove/fill/clear/contains), built by
+ sigset() and passed to sigprocmask, sigaction and sigsuspend. This
+ was a hand-written mirror until whilp/cosmopolitan#246 freed the
+ name: the generated unix record spent `Sigset` on the constructor
+ FIELD, and a Teal record cannot hold a value field and a type alias
+ under one name, so the type could not be re-exported.
+
+alias of `cosmo.unix.Sigset` — field and method table: `cosmic --docs cosmo.unix.Sigset`
 
 ## Functions
 
