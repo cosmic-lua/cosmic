@@ -9,7 +9,6 @@
 
 local records = require("_tool.records")
 
-
 -- A row names the SOURCE. Eleven files in this tree are called
 -- `init_test.tl`, so a basename names none of them.
 local function test_display_names_the_source()

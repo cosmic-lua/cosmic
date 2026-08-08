@@ -350,24 +350,28 @@ local function handle_check_style(file: string): integer
     return 1
   end
   f:close()
-  -- `_cli.lint`, not `_tool.lint`: the lexer-based checks cannot live
-  -- in the strip floor. One entry point, so `--check lint` and
+  -- `_cli.lint` is the one entry point, so `--check lint` and
   -- `--make lint` cannot disagree about what the style gate is.
   local lint = require("_cli.lint")
-  local style_types = require("_tool.lint")
   local found, lerr = lint.lint_file(file)
   if not found then
     io.stderr:write(file .. ": " .. (lerr or "cannot lint") .. "\n")
     instrument.finish(span, 1)
     return 1
   end
-  local diagnostics = found as {style_types.Diagnostic} -- cast: record union after the guard
+  -- Name no generation's Diagnostic record (#992): the pin boot-checks
+  -- this file against ITS embedded _cli.lint/_cli.lint_render (cosmic.
+  -- style's Diagnostic), the tree against _tool.lint's. Retype at the pin advance.
+  local diagnostics = found as {any} -- cast: pin-safe type erasure (#992)
   if #diagnostics == 0 then
     io.write("Style check passed\n")
     instrument.finish(span, 0)
     return 0
   end
-  io.stderr:write(require("_cli.lint_render").render_diagnostics(file, diagnostics))
+  local render = require("_cli.lint_render").render_diagnostics
+  -- cast: pin-safe type erasure (#992)
+  as function(string, {any}): string
+  io.stderr:write(render(file, diagnostics))
   instrument.finish(span, 1)
   return 1
 end
