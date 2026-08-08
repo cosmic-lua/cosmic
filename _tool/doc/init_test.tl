@@ -438,10 +438,10 @@ end
 test_embed_has_module_doc()
 
 local function test_embed_has_type_descriptions()
-  -- EmbedResult is declared in the extraction half; init.tl aliases it.
+  -- ExtractOptions is declared in the extraction half; init.tl aliases it.
   local md = check.must(doc.render_file("cosmic/embed/extract.tl"), "should read embed/extract.tl")
-  -- EmbedResult should have a description, not just a bare header
-  assert(md:find("### EmbedResult\n\n[^#]"), "EmbedResult should have description")
+  -- ExtractOptions should have a description, not just a bare header
+  assert(md:find("### ExtractOptions\n\n[^#]"), "ExtractOptions should have description")
 end
 test_embed_has_type_descriptions()
 

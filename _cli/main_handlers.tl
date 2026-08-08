@@ -2,12 +2,6 @@
 --- Each handler implements one CLI command flag.
 local instrument = require("cosmic.instrument")
 
---- Result from running docs command.
-local record DocsRunResult
-  ok: boolean
-  output: string
-end
-
 --- Generate welcome message for first-run experience.
 --- @return string The welcome message text
 local function generate_welcome(): string
@@ -57,25 +51,6 @@ local function load_script_file(script_path: string): function(...: any): any ..
   else
     return loadfile(script_path)
   end
-end
-
---- Run docs command with smart matching.
---- @param query string The query string
---- @return DocsRunResult Result with ok status and output text
-local function run_docs(query: string): DocsRunResult
-  local docs = require("cosmic.doc")
-  local doc_compat = require("_cli.doc_compat")
-  local out, qerr = doc_compat.query(query)
-  if out then
-    return {ok = true, output = out}
-  end
-
-  local results = docs.search(query)
-  if #results > 0 then
-    return {ok = true, output = docs.render_search_results(results, query)}
-  end
-
-  return {ok = false, output = qerr}
 end
 
 --- Handle --version flag.
@@ -263,18 +238,26 @@ end
 
 --- Handle --embed flag.
 local function handle_embed(paths: {string}, output: string, exe?: string): integer
-  local embed = require("cosmic.embed")
-  local result = embed.embed(paths, {output = output, exe_path = exe})
-  io.write(result.message .. "\n")
-  return result.ok and 0 or 1
+  local embed = require("_cli.embed_compat")
+  local n, werr = embed.write(paths, {output = output, exe_path = exe})
+  if not n then
+    io.write((werr or "error: embed failed") .. "\n")
+    return 1
+  end
+  io.write("embedded " .. n .. " file(s) into " .. (output or "cosmic") .. "\n")
+  return 0
 end
 
 --- Handle --extract flag.
 local function handle_extract(dir: string, exe?: string): integer
-  local embed = require("cosmic.embed")
-  local result = embed.extract(dir, exe)
-  io.write(result.message .. "\n")
-  return result.ok and 0 or 1
+  local embed = require("_cli.embed_compat")
+  local n, xerr = embed.extract(dir, exe)
+  if not n then
+    io.write((xerr or "error: extract failed") .. "\n")
+    return 1
+  end
+  io.write("extracted " .. n .. " file(s) to " .. dir .. "\n")
+  return 0
 end
 
 --- Handle --check example flag.
@@ -321,22 +304,26 @@ local function handle_benchmark(spec: string): integer
   return result.exit_code
 end
 
---- Handle --docs flag.
+--- Handle --docs flag: exact lookup first, then search fallback.
 local function handle_docs(query: string): integer
-  if query == "" then
-    local docs = require("_cli.doc_compat")
-    local out, qerr = docs.query("")
-    io.write((out or qerr) .. "\n")
-    return out and 0 or 1
-  else
-    local result = run_docs(query)
-    if result.ok then
-      io.write(result.output .. "\n")
-      return 0
-    else
-      io.stderr:write(result.output .. "\n")
-      return 1
+  local doc_compat = require("_cli.doc_compat")
+  local out, qerr = doc_compat.query(query)
+  if not out and query ~= "" then
+    local docs = require("cosmic.doc")
+    local results = docs.search(query)
+    if #results > 0 then
+      out = docs.render_search_results(results, query)
     end
+  end
+  if out then
+    io.write(out .. "\n")
+    return 0
+  elseif query == "" then
+    io.write((qerr or "error: no documentation found") .. "\n")
+    return 1
+  else
+    io.stderr:write((qerr or "error: no documentation found") .. "\n")
+    return 1
   end
 end
 
@@ -459,7 +446,6 @@ local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
   load_script_file: function(script_path: string): function(...: any): any ... | nil, string
-  run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
   handle_compile: function(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   handle_format: function(file: string, output?: string, write_if_changed?: boolean): integer, string
@@ -480,7 +466,6 @@ local M: HandlersModule = {
   generate_welcome = generate_welcome,
   run_repl = run_repl,
   load_script_file = load_script_file,
-  run_docs = run_docs,
   handle_version = handle_version,
   handle_compile = handle_compile,
   handle_format = handle_format,

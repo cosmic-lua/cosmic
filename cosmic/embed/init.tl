@@ -48,7 +48,7 @@ local Stat = fs_types.Stat
 local floor = require("cosmic.embed.floor")
 local extract_mod = require("cosmic.embed.extract")
 
---- Options for run().
+--- Options for write().
 local record Options
   --- Output path for the new executable (default "cosmic").
   output: string
@@ -69,11 +69,6 @@ local record Options
   --- one tree agree byte-for-byte.
   mtime: integer
 end
-
---- Result returned from embed and extract operations. The extraction
---- half declares the same shape; this is the one the module surface
---- publishes.
-local type EmbedResult = extract_mod.EmbedResult
 
 local type EmbedDirHandle = fs_types.DirHandle
 
@@ -264,18 +259,21 @@ end
 --- with their given path (leading / stripped).
 --- @param paths {string} List of file or directory paths to embed
 --- @param opts Options? output, exe_path, stripping, reproducibility
---- @return EmbedResult Result with ok status, message, and file count
-local function embed(paths: {string}, opts?: Options): EmbedResult
+--- @return integer | nil The embedded file count, or nil on failure (#1001:
+--- was `embed` returning EmbedResult — the module-name stutter and the
+--- success-or-error-text-by-flag record leave together)
+--- @return string? Error message on failure
+local function write(paths: {string}, opts?: Options): integer | nil, string
   opts = opts or {}
   local output = opts.output or "cosmic"
   local exe_path = opts.exe_path or arg[-1]
 
   if not exe_path then
-    return {ok = false, message = "error: could not determine executable path", file_count = 0}
+    return nil, "error: could not determine executable path"
   end
 
   if #paths == 0 then
-    return {ok = false, message = "error: no files specified", file_count = 0}
+    return nil, "error: no files specified"
   end
 
   -- Collect all files to embed, resolving directories recursively
@@ -285,7 +283,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     if fs.is_dir(p) then
       local dir_files, err = collect_dir(p)
       if not dir_files then
-        return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
+        return nil, "error: " .. (err or "unknown error")
       end
       for _, f in ipairs(dir_files) do
         files_to_embed[#files_to_embed + 1] = f
@@ -293,7 +291,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     else
       local content, open_err = fs.read(p)
       if not content then
-        return {ok = false, message = "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error"), file_count = 0}
+        return nil, "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error")
       end
 
       local stored_name = p:gsub("^/+", "")
@@ -315,12 +313,12 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   end
 
   if #files_to_embed == 0 then
-    return {ok = false, message = "error: no files found to embed", file_count = 0}
+    return nil, "error: no files found to embed"
   end
 
   local wrap_err = wrap_user_main(files_to_embed, exe_path)
   if wrap_err then
-    return {ok = false, message = wrap_err, file_count = 0}
+    return nil, wrap_err
   end
 
   -- Build in a temp file, then atomically rename into place.
@@ -329,14 +327,14 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   -- mappings for code pages; overwriting the file invalidates those pages).
   local tmp_fd, tmp_path = unix.mkstemp(output .. ".XXXXXX")
   if not tmp_fd then
-    return {ok = false, message = "error: cannot create temp file near '" .. output .. "'", file_count = 0}
+    return nil, "error: cannot create temp file near '" .. output .. "'"
   end
   unix.close(tmp_fd)
 
   local copy_ok, copy_err = fs.copy(exe_path, tmp_path)
   if not copy_ok then
     local _ok, _err = fs.remove(tmp_path)
-    return {ok = false, message = "error: cannot copy '" .. exe_path .. "' to '" .. tmp_path .. "': " .. (copy_err or "unknown error"), file_count = 0}
+    return nil, "error: cannot copy '" .. exe_path .. "' to '" .. tmp_path .. "': " .. (copy_err or "unknown error")
   end
   unix.chmod(tmp_path, tonumber("755", 8))
 
@@ -346,7 +344,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   local appender_maybe, appender_err = czip.open(tmp_path, {mode = "append"})
   if not appender_maybe then
     local _ok, _err = fs.remove(tmp_path)
-    return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
+    return nil, "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error")
   end
   local appender = appender_maybe
 
@@ -400,7 +398,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     if not add_ok then
       appender:close()
       local _ok, _err = fs.remove(tmp_path)
-      return {ok = false, message = "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
+      return nil, "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error")
     end
   end
 
@@ -411,30 +409,26 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   local rename_ok, rename_err = fs.move(tmp_path, output)
   if not rename_ok then
     local _ok, _err = fs.remove(tmp_path)
-    return {ok = false, message = "error: cannot rename temp file to '" .. output .. "': " .. tostring(rename_err or "unknown"), file_count = 0}
+    return nil, "error: cannot rename temp file to '" .. output .. "': " .. tostring(rename_err or "unknown")
   end
 
-  return {
-    ok = true,
-    message = "embedded " .. #files_to_embed .. " file(s) into " .. output,
-    file_count = #files_to_embed,
-  }
+  return #files_to_embed
 end
 
 local record EmbedModule
   --- Exported so callers can name options and results; type aliases,
   --- not runtime values.
   type Options = Options
-  type EmbedResult = EmbedResult
+  type ExtractOptions = extract_mod.ExtractOptions
 
-  EPOCH: integer
-  embed: function(paths: {string}, opts?: Options): EmbedResult
-  extract: function(output_dir: string, exe_path?: string): EmbedResult
+  EPOCH_SECONDS: integer
+  write: function(paths: {string}, opts?: Options): integer | nil, string
+  extract: function(output_dir: string, opts?: extract_mod.ExtractOptions): integer | nil, string
 end
 
 local M: EmbedModule = {
-  EPOCH = floor.epoch(),
-  embed = embed,
+  EPOCH_SECONDS = floor.epoch(),
+  write = write,
   extract = extract_mod.extract,
 }
 

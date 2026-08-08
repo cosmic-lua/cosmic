@@ -1,6 +1,6 @@
---- Startup of an embed.embed()-produced executable.
+--- Startup of an embed.write()-produced executable.
 ---
---- embed.embed() bundles a user app into a copy of the cosmic binary; the
+--- embed.write() bundles a user app into a copy of the cosmic binary; the
 --- produced executable boots into the embedded main.lua, which loads the
 --- app's other embedded .lua modules. Whatever compression those modules
 --- carry is paid back as inflate() calls on every launch of the app — the
@@ -126,9 +126,9 @@ local function scenarios(): {pt.Scenario}, string
   -- Build the embedded executable once: the per-op cost is its startup,
   -- not the (fixed, megabyte-scale) embed operation.
   packed_exe = fs.join(tmpdir, "packed")
-  local res = embed.embed({appdir}, {output = packed_exe, exe_path = bin})
-  if not res.ok then
-    return nil, "embed.embed: " .. tostring(res.message)
+  local count, werr = embed.write({appdir}, {output = packed_exe, exe_path = bin})
+  if not count then
+    return nil, "embed.write: " .. tostring(werr)
   end
 
   local want = SENTINEL .. ":" .. tostring(expected_sum)

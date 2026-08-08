@@ -298,9 +298,9 @@ local function test_extract_rejects_path_traversal()
   assert(fs.write(malicious, patched))
 
   local outdir = fs.join(tmpdir, "extract-target")
-  local result = embed.extract(outdir, malicious)
-  assert(not result.ok, "extract should reject path traversal entry")
-  assert(result.message:match("unsafe path"), "expected unsafe path error, got: " .. result.message)
+  local count, xerr = embed.extract(outdir, {exe_path = malicious})
+  assert(not count, "extract should reject path traversal entry")
+  assert(xerr:match("unsafe path"), "expected unsafe path error, got: " .. xerr)
 
   -- The escaping file must not have been written next to the target dir.
   local escaped = fs.join(tmpdir, "escaped.txt")
@@ -316,17 +316,17 @@ local function test_extract_failure_messages_distinguish_causes()
   local outdir = fs.join(tmpdir, "extract-fail-target")
 
   local missing = fs.join(tmpdir, "does-not-exist.bin")
-  local result = embed.extract(outdir, missing)
-  assert(not result.ok, "extract of a missing path must fail")
-  assert(result.message:find("cannot read executable", 1, true),
-    "missing file reports the read error, got: " .. result.message)
+  local count, xerr = embed.extract(outdir, {exe_path = missing})
+  assert(not count, "extract of a missing path must fail")
+  assert(xerr:find("cannot read executable", 1, true),
+    "missing file reports the read error, got: " .. xerr)
 
   local notzip = fs.join(tmpdir, "not-an-archive.bin")
   assert(fs.write(notzip, "just some bytes, no zip here"))
-  local result2 = embed.extract(outdir, notzip)
-  assert(not result2.ok, "extract of a non-archive must fail")
-  assert(result2.message:find("no zip archive found", 1, true),
-    "readable non-archive reports the archive error, got: " .. result2.message)
+  local count2, xerr2 = embed.extract(outdir, {exe_path = notzip})
+  assert(not count2, "extract of a non-archive must fail")
+  assert(xerr2:find("no zip archive found", 1, true),
+    "readable non-archive reports the archive error, got: " .. xerr2)
 end
 test_extract_failure_messages_distinguish_causes()
 
@@ -340,8 +340,8 @@ local function test_embed_symlink_loop_terminates()
   assert(fs.symlink("..", fs.join(appdir, "sub", "loop")))
 
   -- embed.collect_dir is called internally; run via the module directly
-  local result = embed.embed({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkloop"), exe_path = cosmic})
-  assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
+  local count, werr = embed.write({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkloop"), exe_path = cosmic})
+  assert(count, "embed of dir with symlink loop should succeed: " .. (werr or ""))
   -- Only real.txt should be embedded, not any path through the loop
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkloop"))
   local reader = check.must(zip.open_string(data))
@@ -365,8 +365,8 @@ local function test_embed_symlink_to_outside_file_skipped()
   -- Symlink inside the embed dir pointing outside
   assert(fs.symlink(outside, fs.join(appdir, "leaked.txt")))
 
-  local result = embed.embed({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkoutside"), exe_path = cosmic})
-  assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
+  local count, werr = embed.write({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkoutside"), exe_path = cosmic})
+  assert(count, "embed should succeed even with outside symlink: " .. (werr or ""))
   -- "leaked.txt" (the symlink) must not appear in the zip
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkoutside"))
   local reader = check.must(zip.open_string(data))
