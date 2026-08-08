@@ -82,7 +82,6 @@ test_public_modules_load()
 local function test_directory_module_entry_points()
   local surface: {string: string} = {
     sqlite = "open",
-    doc = "parse_file",
     fetch = "fetch",
     net = "socket",
     child = "start",
@@ -94,8 +93,8 @@ local function test_directory_module_entry_points()
     assert(type(mod[fn]) == "function",
       "cosmic." .. name .. " must expose " .. fn .. "()")
   end
-  -- doc carries both halves of the converged family: extraction
-  -- (parse_file, checked above) and the embedded-index query surface.
+  -- doc is the embedded-index query surface (#992: the extraction
+  -- half is `_tool.doc` now).
   local doc = require("cosmic.doc") as {string: any} -- cast: from any
   assert(type(doc["query"]) == "function", "cosmic.doc must expose query()")
   assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")

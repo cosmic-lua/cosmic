@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for coverage executable-line analysis.
 local check = require("cosmic.check")
-local cov_lines = require("cosmic.coverage.lines")
+local cov_lines = require("_tool.coverage.lines")
 
 --- Compute lines for Lua source, asserting the parse succeeded.
 local function lines_of(source: string, name: string): {integer: boolean}

@@ -8,7 +8,11 @@ local child = require("cosmic.child")
 local coverage = require("cosmic.coverage")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local report = require("cosmic.coverage.report")
+-- The toolchain's .cov reader, used here as a measuring instrument
+-- for the public collect half's outputs. A cosmic/ TEST may reach a
+-- `_` tree (D19: the no-`_`-requires rule binds library code — a
+-- test ships nowhere).
+local report = require("_tool.coverage.report")
 local types = require("cosmic.fs.types")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"))

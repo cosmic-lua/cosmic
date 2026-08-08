@@ -35,7 +35,8 @@ _make/                `cosmic --make`: project model, validator, root, verbs
 _build/               ratchets over what the repo ships and derives
 _tool/                internal toolchain modules: the runners (testrun,
                       example, benchmark), the record grammar (records),
-                      the pure lint checks — embedded in the cosmic
+                      the pure lint checks, coverage's ratchet half and
+                      doc's extraction half — embedded in the cosmic
                       binary, never in user artifacts (D19 amendment)
 _docs/                doc publishing
 _perf/                performance benchmark harness (see skills/optimize/)
@@ -362,7 +363,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | compress | zlib compression/decompression |
 | coverage | line coverage collection for cosmic programs (`--make coverage`) |
 | deep | deep copy/merge/structural equality for nested tables |
-| doc | extract docs from source and query the embedded documentation index |
+| doc | query the embedded documentation index |
 | embed | create custom executables with embedded files |
 | env | environment variables: get (nil when unset), get_or, set/unset/list, dotenv parse/format and env.d loading |
 | errno | canonical errno formatting (`wrap`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |

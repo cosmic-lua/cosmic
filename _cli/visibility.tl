@@ -28,13 +28,6 @@ local function check_shard_require(file: string, lines: {string}): {Diagnostic}
   local diagnostics: {Diagnostic} = {}
   for i, line in ipairs(lines) do
     local col, _, mod = line:find("require%s*%(%s*[\"'](cosmic%.[%w_%.]-)[\"']")
-    -- TRANSITIONAL (#992): the runners moved to `_tool/` still parse
-    -- function blocks with `cosmic.doc.scan`, which is shared with
-    -- doc's extraction half. The doc split (part 2) moves that half —
-    -- scan included — into `_tool/`, and this exemption dies with it.
-    if col and mod == "cosmic.doc.scan" and file:match("^_tool/") then
-      col = nil
-    end
     if col and (mod:find(".", 8, true) or mod:find("._", 7, true)) then
       diagnostics[#diagnostics + 1] = {
         file = file,

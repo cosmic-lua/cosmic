@@ -3,7 +3,7 @@
 local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 local fs = require("cosmic.fs")
-local report = require("cosmic.coverage.report")
+local report = require("_tool.coverage.report")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 

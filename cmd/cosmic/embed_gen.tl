@@ -36,7 +36,17 @@ local artifact = require("_make.artifact")
 local codec = require("cosmic.codec")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local index = require("cosmic.doc.index")
+-- TRANSITIONAL dual require (#992; delete at the next pin advance):
+-- a generator runs under the CURRENT binary without `--include-dir`,
+-- so it can only require what that binary embeds — and the pinned
+-- release predates the `_tool/` tree, where the index generator lives
+-- now. Its `generate` is already signature-cast below for the same
+-- pin-drift reason, so the module value is loosely typed here.
+local index_loaded, index_any = pcall(require, "_tool.doc.index")
+if not index_loaded then
+  index_any = require("cosmic.doc.index") as any -- cast: transitional dual-shape module
+end
+local index = index_any as {string: any} -- cast: transitional dual-shape module
 local literal = require("cosmic.literal")
 local project = require("_make.project")
 local types = require("_make.types")

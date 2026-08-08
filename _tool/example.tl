@@ -2,7 +2,7 @@
 --- Parses Example_* functions from Teal files, runs them, and verifies output.
 
 local tl = require("tl")
-local scan = require("cosmic.doc.scan")
+local scan = require("_tool.doc.scan")
 
 --- A parsed example function with its expected output.
 local record Example

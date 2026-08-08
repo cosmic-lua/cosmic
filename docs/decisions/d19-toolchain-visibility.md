@@ -79,9 +79,13 @@
     toolchain, so a require between them freezes nothing a user can
     see. Part 1's lint is unchanged — none of them may require a
     cosmic-internal SHARD.
-  - **`cosmic/` may not require a `_` tree.** The dependency points
-    one way: batteries know nothing of the toolchain. Where the two
-    share a constant (check's `EXIT_SKIP` beside records'), each side
-    defines it and a toolchain test asserts agreement.
+  - **`cosmic/` library code may not require a `_` tree.** The
+    dependency points one way: batteries know nothing of the
+    toolchain. Where the two share a constant (check's `EXIT_SKIP`
+    beside records'), each side defines it and a toolchain test
+    asserts agreement. A `*_test.tl` under `cosmic/` MAY reach
+    toolchain helpers (coverage's tests read `.cov` files with the
+    toolchain's reader) — a test ships nowhere, so the arrow it draws
+    freezes nothing a user can see.
   - Part 3 (exports exist for callers) is unchanged and applies to
     `_tool/` modules like any others.

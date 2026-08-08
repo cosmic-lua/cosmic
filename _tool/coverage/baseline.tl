@@ -12,7 +12,7 @@
 --- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
 --- here.
 local fs = require("cosmic.fs")
-local rep = require("cosmic.coverage.report")
+local rep = require("_tool.coverage.report")
 
 local type FileReport = rep.FileReport
 

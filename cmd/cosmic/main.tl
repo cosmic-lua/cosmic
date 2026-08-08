@@ -377,7 +377,7 @@ local function main(): integer, string
   end
 
   if opts.coverage_report_paths then
-    return require("cosmic.coverage").report(opts.coverage_report_paths)
+    return require("_tool.coverage.report").report(opts.coverage_report_paths)
   end
 
   -- `SHELL := cosmic`: make hands one recipe line to `-c`, which runs

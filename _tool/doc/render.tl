@@ -5,7 +5,7 @@ local types = require("cosmic.doc.types")
 local FunctionDoc = types.FunctionDoc
 local ModuleDoc = types.ModuleDoc
 
-local doc_comments = require("cosmic.doc.comments")
+local doc_comments = require("_tool.doc.comments")
 local extract_doc_comment = doc_comments.extract_doc_comment
 local parse_annotations = doc_comments.parse_annotations
 

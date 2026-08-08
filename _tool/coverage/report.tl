@@ -6,7 +6,7 @@
 local codec = require("cosmic.codec")
 local fs = require("cosmic.fs")
 local types = require("cosmic.fs.types")
-local cov_lines = require("cosmic.coverage.lines")
+local cov_lines = require("_tool.coverage.lines")
 
 --- One source file's merged coverage state.
 local record FileEntry
