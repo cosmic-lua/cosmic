@@ -1,8 +1,16 @@
 # Teal Gotchas for Newcomers
 
-common errors that trip up agents and developers new to Teal. each entry shows the wrong pattern, the error it produces, and the fix.
+common errors that trip up agents and developers new to Teal. each
+entry shows the wrong pattern, the error it produces, and the fix.
 
-## 1. integer vs number
+entries are named by their heading slug — cite one as "the
+`record-fields-dont-narrow` gotcha", never by position — so entries
+can retire without a renumbering breaking references. an entry whose
+trap became unreachable (a checker error, a lint at the declaration)
+is deleted, not tombstoned: the checker's own message now carries the
+fix.
+
+## integer-vs-number
 
 Teal distinguishes `integer` from `number`: string indices
 (`string.sub`, `string.byte`, table lookups) require `integer`, and
@@ -21,7 +29,7 @@ local m = ("hello"):sub(math.tointeger(x) or 1, 5)
 sizes — are annotated `integer` at the source of truth, so no
 conversion dance is needed on that side.)
 
-## 2. traversing `any` from json.decode
+## any-from-json-decode
 
 for the two common top-level shapes, skip `any` entirely:
 `json.decode_object` returns `{string: any} | nil, string` and
@@ -44,9 +52,10 @@ end
 cannot index or iterate `any` directly — narrow with `is` where the
 shape is uncertain (as with the nested values above), or cast
 (`local obj = json.decode(input) as {string: any}`) when the shape is
-trusted. new casts count against the cast ratchet (`_build/casts.txt`).
+trusted. a new cast needs its `-- cast: <reason>` justification (the
+lint enforces it).
 
-## 3. `arg` elements are `string | nil`
+## nilable-arg
 
 the global `arg` table has type `{string | nil}`: accessing `arg[1]`
 without a guard may give you `nil`, a type error where a `string` is
@@ -78,7 +87,7 @@ cosmic.main(function(args: {string}, env: cosmic.Env): number, string
   end)
 ```
 
-## 4. multi-return capture
+## multi-return-capture
 
 the checker's `excess return values` error carries the fix as a hint:
 capture multiple returns first — `local v, err = f(...)`. wrapping a
@@ -94,40 +103,7 @@ for row in rows do
 end
 ```
 
-## 5. retired — moved to guide.modules
-
-how `require` resolves local module paths is information, not a trap;
-it now lives in `cosmic --docs guide.modules`.
-
-## 6. retired — the checker prevents it
-
-binding a module to a local that shadows a Lua builtin
-(`local io = require("cosmic.fd")`) is a `--check types` error today
-(`variable shadows previous declaration of 'io'`, warnings are errors),
-so the runtime surprise this entry described is unreachable. rename the
-local (`fd`, `fs`, ...); Lua's `io.stderr` stays available.
-
-## 7. retired — `proc.interpreter()` is the one-call answer
-
-`arg[0]` is the script path as the runtime sees it (`/zip/main.lua` in
-a packed binary), not the interpreter. to re-invoke cosmic, call
-`require("cosmic.proc").interpreter()` — typed, resolved, cached; the
-self-reinvocation recipe in `cosmic --docs guide.recipes` shows the
-whole shape.
-
-## 8. retired — the checker flags discarded errors
-
-most cosmic functions return `(value, error)`, and the strict checker
-(`--check types`, and the build's strict compile) now flags both ways
-the error used to vanish: a fallible call standing as a bare statement
-(`fs.write(path, data)` on its own line), and a fallible call as the
-final argument of `print` and friends (which rendered the error as a
-literal `nil`). capture the returns — `local v, err = f(...)`, or
-`local _ok, _err = f(...)` for deliberate fire-and-forget — or wrap in
-`assert`/`check.must` in tests and examples. the details are in
-`cosmic --docs guide.checking`.
-
-## 9. record fields don't narrow — copy the field to a local
+## record-fields-dont-narrow
 
 a guard on a plain variable narrows it: truthiness (`if r then`, `if
 not r then return end`), `assert(r, "msg")`, and `== nil` / `~= nil`
@@ -164,7 +140,7 @@ un-narrowed type but not the cause: `cannot index key 'x' in ... of
 type Inner | nil`. the full pattern set is in
 `cosmic --docs guide.checking`.
 
-## 10. a record other files use must be nested in the module's interface record
+## exported-record-types
 
 a standalone top-level `local record` is visible only inside its own
 file. another file writing `store.Task` gets `unknown type store.Task` —
@@ -198,14 +174,7 @@ end
 works when the record must stay standalone for internal reasons — see
 how `cosmic.fs` re-exports `Stat`.)
 
-## 11. retired — the checker prevents it
-
-shadowing any declaration, including Lua builtins (`local function
-load(...)`, `local type = ...`), is a `--check types` error today
-(warnings are errors). the error names the shadowed declaration; rename
-yours (`load_data`, `kind`, ...).
-
-## 12. colon-call only works on the value's own record type
+## colon-call
 
 the checker's `invalid key 'add' in record 'db'` error carries the fix
 as a hint: a function on your MODULE's record is dot-called with the
@@ -218,25 +187,7 @@ db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Databa
 store.add(db, "alice") -- right: module function, dot-called, value first
 ```
 
-## 13. retired — the lint catches it at the declaration
-
-a local initialized with `= nil` and no type annotation is inferred as
-the type `nil` — forever. the `nil-declaration` lint now flags the
-declaration itself with the fix (`local x: integer | nil = nil`), so
-the far-away assignment errors this entry used to explain are never
-reached. with the annotation, the running-min/max idiom compiles as
-written — scalars narrow through the `not earliest or ...` guard fine.
-
-## 14. retired — the taught path never calls `os.exit`
-
-`cosmic.main(fn)` (the entry-point shape the quickstart teaches) does
-the exit itself and accepts any numeric return, so this trap no longer
-appears on the taught path. if you call `os.exit` yourself, it requires
-`integer | boolean`, not `number` — convert at the call site
-(`os.exit(math.tointeger(code) or 1)`); the error-site hint names the
-same fix.
-
-## 15. `gsub`'s replacement string interprets `%` — use `str.replace` for literal text
+## gsub-replacement
 
 `string.gsub`'s replacement is not plain text (`%1` splices a capture,
 a lone `%` is a runtime error), so templating an untrusted value in
@@ -250,7 +201,7 @@ local str = require("cosmic.string")
 local page = str.replace(template, "{{name}}", user_name)
 ```
 
-## 16. a multi-return call as the last argument spreads its whole tuple
+## tuple-spread
 
 Lua spreads every return of a call in the LAST argument position into
 the argument list, and the checker counts the declared tuple — so

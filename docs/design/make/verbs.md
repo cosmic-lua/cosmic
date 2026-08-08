@@ -15,7 +15,7 @@ clean           remove o/                                            [now]
 run   <path>    build, then run that source against the tree         [now]
 benchmark [paths…]  run every *_benchmark.tl against the stage       [now]
 example [paths…] run Example_* against the staged tree               [now]
-lint  [paths…]  style gate: file length, cast ratchet, test order  [now]
+lint  [paths…]  style gate: file length, cast reasons, test order  [now]
 ```
 
 `run` takes **paths, never binary names**: a built `o/bin/<name>` is

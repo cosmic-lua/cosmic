@@ -1,5 +1,12 @@
 # Agent Usability Study — June 2026
 
+> **As of June 2026, build `8c7e138`.** This is a dated study log, not
+> live guidance: module names, guide entry numbers, and error messages
+> cited below are the ones that binary shipped, and several have since
+> been renamed or retired (`cosmic.io`, `cosmic.fs_walk`,
+> `cosmic.assert`; gotcha entries are now cited by slug). Read it for
+> the methodology and the findings' direction, not the identifiers.
+
 Four Sonnet agents were given a clean directory containing only the `cosmic`
 binary (build `8c7e138`) and a coding task. No repo access, no web, no other
 runtimes. Tasks covered four surface areas:
@@ -221,9 +228,10 @@ clean-room run.
    cosmic --docs cosmic.fs_types.WalkStat"), and symbol-not-found lists the
    module's available symbols inline instead of telling the agent to go
    look. Lookup helpers moved to a new `docs_lookup.tl` (500-line cap).
-2. **`arg` layout documented** in `cosmic.proc` docs and `guide.gotchas`
-   entry 7 (`arg[-1]` = interpreter path, `arg[0]` = `/zip/main.lua`,
-   `rawget(arg, -1) as string` for strict mode).
+2. **`arg` layout documented** in `cosmic.proc` docs and the
+   `guide.gotchas` `arg[0]` entry, since retired (`arg[-1]` =
+   interpreter path, `arg[0]` = `/zip/main.lua`; `proc.interpreter()`
+   is today's answer).
 3. **`--fix <file>` formats in place**; the `--check fmt` hint now says
    `run 'cosmic --fix <file>' to fix in place`. The formatting guide's
    previous in-place recipe documented a flag order that did not work; it
@@ -270,7 +278,8 @@ in the wild:
   invocation, exactly as the new hint instructed.
 - `--docs cosmic.fs_types.WalkStat` resolved; the fs.walk "do not join"
   warning and the new sqlite `LIKE` example were both consumed directly.
-- The child+TCP agent used `rawget(arg, -1)` from gotchas entry 7 and
+- The child+TCP agent used `rawget(arg, -1)` from the gotchas guide's
+  `arg[0]` entry (since retired — `proc.interpreter()` is the answer now) and
   explicitly noted it would otherwise have burned time on a silently
   broken `arg[0]` spawn; it also used `listen_tcp` with port 0 and
   pipe-based readiness.
