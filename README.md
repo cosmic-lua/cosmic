@@ -23,11 +23,10 @@ High-level utilities and tools built on top of cosmo.
 | [example](cosmic/example.md) |  Go-style executable example testing. |
 | [fd](cosmic/fd.md) |  File descriptor I/O operations. |
 | [init](cosmic/fetch/init.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
-| [init](cosmic/flags/init.md) |  Declarative command-line flag parsing. |
+| [init](cosmic/flags/init.md) |  Declarative command-line flag parsing: the one public parser |
 | [init](cosmic/format/init.md) |  Code formatter for Teal and Lua files. |
 | [init](cosmic/fs/init.md) |  Unified filesystem module. |
 | [fuzzy](cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
-| [getopt](cosmic/getopt.md) |  Command-line option parsing utilities. |
 | [hash](cosmic/hash.md) |  Hash utilities. |
 | [html](cosmic/html.md) |  HTML utilities. |
 | [init](cosmic/init.md) |  cosmic: a batteries-included Lua/Teal distribution built on |
