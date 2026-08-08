@@ -94,9 +94,9 @@ local sqlite = require("cosmic.sqlite")
 | module | description |
 |--------|-------------|
 | `cosmic.teal` | Teal compilation and type checking |
-| `cosmic.doc` | extract docs from source; query the embedded doc index |
+| `cosmic.doc` | query the embedded documentation index |
 | `cosmic.embed` | create custom executables |
-| `cosmic.coverage` | line coverage collection for cosmic programs (`--make coverage`) |
+| `cosmic.coverage` | line coverage collection for cosmic programs (the ratchet is toolchain-internal) |
 | `cosmic.instrument` | timing/resource spans: emit key=value lines to stderr, and parse them back |
 | `cosmic.literal` | read a Teal/Lua file as data: one `return { … }` of literals, never executed |
 

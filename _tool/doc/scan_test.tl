@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic.doc.scan module
 
-local scan = require("cosmic.doc.scan")
+local scan = require("_tool.doc.scan")
 
 -- Test the two lexing defects this module exists to fix once: a
 -- keyword-prefixed identifier is not mistaken for the keyword, and a

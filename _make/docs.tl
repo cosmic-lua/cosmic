@@ -11,7 +11,7 @@
 --- a directory is added, and drifts silently, because a missing page
 --- looks like a page nobody wrote.
 
-local doc = require("cosmic.doc")
+local doc = require("_tool.doc")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
 local selection = require("_make.select")

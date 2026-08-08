@@ -4,7 +4,7 @@
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local codec = require("cosmic.codec")
-local index = require("cosmic.doc.index")
+local index = require("_tool.doc.index")
 local check = require("cosmic.check")
 
 local tmpdir = env.get("TEST_TMPDIR")

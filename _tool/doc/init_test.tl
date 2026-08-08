@@ -2,7 +2,7 @@
 -- test cosmic.doc module
 
 local fs = require("cosmic.fs")
-local doc = require("cosmic.doc")
+local doc = require("_tool.doc")
 local check = require("cosmic.check")
 
 local tmpdir = os.getenv("TEST_TMPDIR")

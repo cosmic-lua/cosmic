@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 --- Tests for the coverage ratchet baseline.
-local baseline = require("cosmic.coverage.baseline")
+local baseline = require("_tool.coverage.baseline")
 local check = require("cosmic.check")
-local rep = require("cosmic.coverage.report")
+local rep = require("_tool.coverage.report")
 
 local type FileReport = rep.FileReport
 
@@ -257,7 +257,7 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
   -- so a `-e` child runs the code under test and reports none of it.
   local script = fs.join(root, "run.lua")
   assert(fs.write(script,
-      'os.exit(require("cosmic.coverage.baseline").gate(' ..
+      'os.exit(require("_tool.coverage.baseline").gate(' ..
       string.format("%q", floor) .. ', "", {' ..
       string.format("%q", root) .. '}))\n'))
   local r = check.must(child.run({cosmic, script}))

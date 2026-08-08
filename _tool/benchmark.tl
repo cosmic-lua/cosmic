@@ -3,7 +3,7 @@
 --- Similar to Go's testing.B but simplified: functions are called N times automatically.
 
 local time = require("cosmic.time")
-local scan = require("cosmic.doc.scan")
+local scan = require("_tool.doc.scan")
 local env = require("cosmic.env")
 
 -- Timing uses time.monotonic_ns (CLOCK_MONOTONIC) so IO-bound

@@ -9,7 +9,7 @@
 --- gets no ratchet, and neither is an error. Zero configuration, and a
 --- fresh project does not fail on a stage that had nothing to do.
 
-local coverage = require("cosmic.coverage")
+local baseline = require("_tool.coverage.baseline")
 local fs = require("cosmic.fs")
 local graph = require("_make.graph")
 local project = require("_make.project")
@@ -81,7 +81,7 @@ local function run_coverage(v: Verb, proj: Project, paths: {string},
   for _, dir in ipairs(graph.source_dirs(proj)) do
     report[#report + 1] = dir
   end
-  local code = coverage.gate(BASELINE, only, report)
+  local code = baseline.gate(BASELINE, only, report)
   return stage.verdict(v.name, code == 0, detail)
 end
 
@@ -98,7 +98,7 @@ local function write_baseline(proj: Project): integer
   -- rebaseline on any machine can only ever lower one.
   local previous = fs.read(BASELINE)
   local floor = previous is string and previous or nil
-  local text, err = coverage.baseline_text(report, floor)
+  local text, err = baseline.text_for(report, floor)
   if not text then
     io.stderr:write((err or "coverage: no data") .. "\n")
     return stage.verdict("coverage", false, "no data")
@@ -106,7 +106,7 @@ local function write_baseline(proj: Project): integer
   local fresh = text
   local moved = 0
   if floor then
-    for _, row in ipairs(coverage.baseline_lowered(floor, fresh)) do
+    for _, row in ipairs(baseline.lowered(floor, fresh)) do
       io.write("coverage: baseline LOWERS " .. row .. "\n")
       moved = moved + 1
     end
