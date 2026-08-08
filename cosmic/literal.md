@@ -41,14 +41,12 @@ end
 ### Options
 
  Options for parse/parse_file: how errors talk about the file.
- (api-review-6: these were two message-wording positionals. The
- field is `file`, not `where`: `where` opens a record invariant
- clause in Teal and cannot name a field.)
+ (The field is `file`, not `where`, which Teal reserves.)
 
 ```teal
 local record Options
-  --  File name to prefix messages with (parse only — parse_file
-  --  always uses the path it read). Default "literal".
+  --  File name to prefix messages with. Default "literal" for parse;
+  --  parse_file defaults it to the path it read.
   file: string
   --  What to call the file in errors — `cosmic --make` reads pins with
   --  noun "pin", so the same grammar complains about "a pin". Default
@@ -83,7 +81,7 @@ function parse(source: string, opts?: Options): {string: any} | nil, string
 **Parameters:**
 
 - `source` (string) - The file's contents
-- `opts` (Options?) - where: file name for messages; noun: file kind in errors
+- `opts` (Options?) - file: name for messages; noun: file kind in errors
 
 **Returns:**
 
@@ -97,11 +95,12 @@ function parse_file(path: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read a file as a literal table, without running it.
+ (defaults to the path)
 
 **Parameters:**
 
 - `path` (string) - Path to the file
-- `opts` (Options?) - noun: file kind in errors (where is always the path)
+- `opts` (Options?) - noun: file kind in errors; file: message label
 
 **Returns:**
 

@@ -29,7 +29,6 @@ local record DecompressOptions
   --  input framing; defaults to "zlib"
   format: DecompressFormat
   --  cap on the decompressed size in bytes, default 64 MiB
-  --  (api-review #996: was `max_output`; rule 2 puts the unit in the name)
   max_output_bytes: integer
 end
 ```

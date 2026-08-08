@@ -1,8 +1,8 @@
 # ip
 
  IP address parsing, formatting, and classification utilities.
- The typed Addr is the only address currency in public signatures
- (api-review-2): parse and resolve return Addr, sockets accept
+ The typed Addr is the only address currency in public signatures:
+ parse and resolve return Addr, sockets accept
  and return Addr, and classification lives on Addr methods. The
  implementation is IPv4-only — IPv6 strings are rejected with an
  explicit error — but the shape is ready for IPv6 as a value

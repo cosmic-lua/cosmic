@@ -63,8 +63,8 @@ function escape_param(str: string): string
 ```
 
  Percent-encode a string for use as a URL query parameter value
- (api-review-8: was `encode` — escape/unescape is the syntax-safety
- verb pair, D20). Spaces become %20, specials become %XX.
+ (escape/unescape is the syntax-safety verb pair, D20).
+ Spaces become %20, specials become %XX.
  Use this when building query strings manually:
  `"q=" .. url.escape_param(term)` — or format_query() for whole maps.
  For other URL components, use the specific escape functions:
@@ -88,8 +88,8 @@ function escape_param(str: string): string
 function unescape_param(str: string): string | nil, string
 ```
 
- Decode a percent-encoded query parameter (api-review-8: was
- `decode`). Handles %XX sequences and + as space — the param rules.
+ Decode a percent-encoded query parameter.
+ Handles %XX sequences and + as space — the param rules.
  For other components (paths, hosts, fragments), where + is a
  literal plus, use unescape().
 

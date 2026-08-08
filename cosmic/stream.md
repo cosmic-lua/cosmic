@@ -2,7 +2,7 @@
 
  The stream contract: byte-stream Reader/Writer interfaces.
  Every producer and consumer in the standard library composes over
- them (api-review-2).
+ them.
 
  Reader is the one EOF convention: read() returns a non-empty chunk,
  or bare nil (no error) at end of stream, or nil plus an error message
@@ -39,7 +39,7 @@
 
  The stream contract: byte-stream Reader/Writer interfaces.
  Every producer and consumer in the standard library composes over
- them (api-review-2).
+ them.
  Reader is the one EOF convention: read() returns a non-empty chunk,
  or bare nil (no error) at end of stream, or nil plus an error message
  on failure. Reads after EOF keep returning bare nil. The optional
@@ -147,8 +147,7 @@ function stream(data: string): stream.Reader
  hand-rolled adapter. read(n?) returns successive chunks (at most n
  bytes when n is given, the whole remainder otherwise), then bare
  nil at end of stream, per the Reader contract; n must be positive
- when given. (api-review #996: was `from_string`; rule 5 names
- constructors `new_*`, pairing it with new_buffer.)
+ when given.
 
 **Parameters:**
 
@@ -168,7 +167,6 @@ function stream(): stream.Buffer
  appends and reports the chunk fully written; contents() returns
  everything written so far. Point stream.copy (or any Writer taker)
  at one to materialize a pipeline's output as a string.
- (api-review #996: was `buffer`; rule 5 names constructors `new_*`.)
 
 **Returns:**
 

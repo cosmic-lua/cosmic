@@ -70,8 +70,7 @@ local record Memory
   --  Wait until the word no longer holds `expect`. Returns 0 when
   --  woken; nil plus an error naming EAGAIN (value already differed)
   --  or ETIMEDOUT (timeout expired). `timeout_ms` is a RELATIVE
-  --  timeout in integer milliseconds (api-review-6: was an absolute
-  --  s+ns deadline pair); omit it to wait forever. A wait interrupted
+  --  timeout in integer milliseconds; omit it to wait forever. A wait interrupted
   --  by a signal is retried automatically — the deadline is computed
   --  once, up front, so retries keep the timeout exact.
   wait: function(self: Memory, word_index: integer, expect: integer, timeout_ms?: integer): integer | nil, string

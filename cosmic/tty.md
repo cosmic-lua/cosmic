@@ -130,8 +130,7 @@ function login_tty(fd: integer): boolean, string
 function is_tty(fd?: integer): boolean
 ```
 
- Checks if a file descriptor refers to a terminal (api-review-8:
- one is_tty(fd?) replaces isatty plus the three per-stream wrappers).
+ Checks if a file descriptor refers to a terminal.
  (the default — "is my output a terminal" is the common question),
  2=stderr
 

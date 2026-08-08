@@ -8,8 +8,8 @@
 ### SetitimerOptions
 
  Options for setitimer: which timer, initial fire time, repeat interval.
- Durations are integer milliseconds (api-review-6: was four s+ns
- fields); 0 value_ms disarms the timer, 0 interval_ms means one-shot.
+ Durations are integer milliseconds; 0 value_ms disarms the timer,
+ 0 interval_ms means one-shot.
 
 ```teal
 local record SetitimerOptions

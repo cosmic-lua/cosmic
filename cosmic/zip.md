@@ -27,7 +27,7 @@ local record OpenOptions
   --  Compression level 0-9, for write/append.
   level: integer
   --  Refuse any member whose declared uncompressed size exceeds this
-  --  many bytes (api-review #996: was the binding's `max_file_size`).
+  --  many bytes.
   max_file_size_bytes: integer
 end
 ```
@@ -103,8 +103,7 @@ alias of `cosmo.zip.AddOptions` — field and method table: `cosmic --docs cosmo
 ### EntryStat
 
  File metadata within a ZIP archive: size, compressed_size, crc32,
- mtime, method (0=stored, 8=deflated), and mode (api-review #996:
- was `Stat`, which collided with fs.Stat at call sites).
+ mtime, method (0=stored, 8=deflated), and mode.
 
 alias of `cosmo.zip.Stat` — field and method table: `cosmic --docs cosmo.zip.Stat`
 
@@ -146,8 +145,8 @@ function open_string(data: string, opts?: OpenOptions): Archive | nil, string
 ```
 
  Open a ZIP archive from in-memory data, always in read mode
- (api-review #996: was `open_bytes` — rule 2 reserves `_bytes` for
- counts; `_string` is the bytes-not-path sibling spelling).
+ (`_string` is the bytes-not-path sibling spelling; `_bytes` is
+ reserved for counts).
 
 **Parameters:**
 
