@@ -42,6 +42,14 @@ local function extract_module_content(source: string, module_name: string): stri
   local fn_pattern = "^function%s+" .. module_name .. "%."
   local class_pattern = "^%-%-%-@class%s+" .. module_name .. "%."
   local alias_pattern = "^%-%-%-@alias%s+" .. module_name .. "%."
+  -- A module's surface is not only functions: `cosmo.null = {}` declares
+  -- a VALUE, annotated `---@type`, written qualified and OUTSIDE the
+  -- module table. Such a line used to be dropped here as neither a
+  -- function nor a class, so the parser never saw it and the value was
+  -- absent from the generated types. Keep it with its annotations, and
+  -- emit it in the bare `name = …` form the module table uses, so the
+  -- parser's existing `---@type` field rule reads it unchanged.
+  local value_pattern = "^" .. module_name .. "%.([%w_]+%s*=.*)$"
   local pending: {string} = {}
   local function flush_standalone_class()
     local is_class = false
@@ -68,6 +76,10 @@ local function extract_module_content(source: string, module_name: string): stri
       elseif line:match(fn_pattern) then
         for _, a in ipairs(pending) do table.insert(out, a) end
         table.insert(out, line)
+        pending = {}
+      elseif line:match(value_pattern) then
+        for _, a in ipairs(pending) do table.insert(out, a) end
+        table.insert(out, "  " .. line:match(value_pattern))
         pending = {}
       else
         flush_standalone_class()

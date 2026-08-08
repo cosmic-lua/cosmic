@@ -192,16 +192,8 @@ local record JsonModule
   array: function(t?: {any}): {any}
 end
 
--- The binding's null sentinel is a VALUE, not a function, and gentype
--- only lifts `<module>.<name> = ...` value fields it can see as such —
--- a dotted `cosmo.null = {}` is not one — so the generated cosmo types
--- carry no `null` field. Read it through erasure; the identity is what
--- matters (the encoder recognizes the table by its metatable).
--- cast: binding value absent from the generated types
-local null_sentinel = (cosmo as {string: any})["null"]
-
 local M: JsonModule = {
-  null = null_sentinel,
+  null = cosmo.null,
   decode = decode,
   decode_object = decode_object,
   decode_array = decode_array,
