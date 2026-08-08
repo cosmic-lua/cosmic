@@ -19,8 +19,7 @@
  Shared memory region with atomic word operations and futexes.
  One compare-exchange outcome: whether the swap happened, and the
  word's actual value at the time (the old value on success). A
- record rather than (swapped, actual, err) returns — the error is
- in slot 2 where `local r, err = ...` can see it.
+ record per D20 rule 11 (the error stays reachable in slot 2).
 
 ```teal
 local record Exchange

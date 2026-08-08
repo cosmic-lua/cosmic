@@ -49,9 +49,8 @@ end
 
  Signal handling module.
  Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
- The disposition sigaction replaced. A record rather than
- (handler, flags, mask, err) returns: the old shape put the error in
- slot 4, unreachable from `local prev, err = ...`. Restore with
+ The disposition sigaction replaced; a record per D20 rule 11 (the
+ error stays reachable in slot 2). Restore with
  `signal.sigaction(sig, prev.handler, prev.flags, prev.mask)`.
 
 ```teal

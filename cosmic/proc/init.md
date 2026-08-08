@@ -15,9 +15,8 @@
 
  Waits for a child process to change state.
  A raw passthrough: EINTR surfaces here, unlike child.Handle:wait.
- What wait(2) reaped. A record rather than (pid, status, rusage,
- err) returns: the old shape put the error in slot 4, unreachable
- from `local pid, err = ...` and from check.must.
+ What wait(2) reaped; a record per D20 rule 11 (the error stays
+ reachable in slot 2).
 
 ```teal
 local record WaitResult
