@@ -173,7 +173,7 @@ local function run(root: string, ...: string): integer
   end
   local code = mk.run(argv)
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return code
 end
 
@@ -207,7 +207,7 @@ local function test_fetch_verifies_and_writes()
   -- `check` sees, `lint` scans, and a clean checkout does not have.
   local got = check.must(fs.read(fs.join(root, "o/3p/blob.bin")))
   assert(got == body, "the fetched bytes should land under o/")
-  assert(not fs.exists(fs.join(root, "3p/blob.bin")),
+  assert(not fs.is_present(fs.join(root, "3p/blob.bin")),
     "and never beside the pin, in the tree")
 end
 test_fetch_verifies_and_writes()
@@ -226,9 +226,9 @@ local function test_a_mismatch_is_never_written()
   -- assertion named `3p/blob.bin` until the landing moved in 6d1e71c,
   -- after which it checked a path nothing writes to and passed
   -- vacuously -- the security property it guards was unasserted.
-  assert(not fs.exists(fs.join(root, "o/3p/blob.bin")),
+  assert(not fs.is_present(fs.join(root, "o/3p/blob.bin")),
     "mismatched bytes must never land on disk")
-  assert(not fs.exists(fs.join(root, "o/3p/blob.bin.tmp")),
+  assert(not fs.is_present(fs.join(root, "o/3p/blob.bin.tmp")),
     "and no partial file may survive either")
 end
 test_a_mismatch_is_never_written()
@@ -298,10 +298,10 @@ test_selection()
 local function test_resolve_reads_only_the_pin()
   local root = pinned("scope", "https://x.test/a.bin", "abababababababababababababababababababababababababababababababab")
   local cwd = check.must(fs.cwd())
-  assert(fs.chdir(root))
+  assert(fs.set_cwd(root))
   local proj = check.must(project.scan("."))
   local pins = check.must(mfetch.resolve(project.of_kind(proj, {"pin"})))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   assert(#pins == 1, "one pin")
   assert(pins[1].url == "https://x.test/a.bin", "got: " .. pins[1].url)
 end
@@ -342,7 +342,7 @@ local function test_a_declared_format_is_unpacked()
     "and the rest of the tree keeps its shape")
   assert(fs.is_file(fs.join(root, "o/3p/payload.zip")),
     "the verified archive stays beside what came out of it")
-  assert(not fs.exists(fs.join(root, "o/3p/.unpack")),
+  assert(not fs.is_present(fs.join(root, "o/3p/.unpack")),
     "and the staging directory does not survive")
 end
 test_a_declared_format_is_unpacked()

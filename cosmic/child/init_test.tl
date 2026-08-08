@@ -170,10 +170,9 @@ local function test_stop_after_reap_fails()
   local ok, err = h:stop()
   assert(not ok, "stop after reap should fail")
   assert(err ~= nil, "stop after reap should report an error")
-  -- DEPRECATED alias (D20 transition, #976): kill must stay the same
-  -- function until the pinned build engine moves off it.
+  -- stop takes an explicit signal too, not just its SIGTERM default.
   local h2 = check.must(child.start({"sleep", "10"}))
-  assert(h2:kill(signal.SIGKILL), "the kill alias still stops a child")
+  assert(h2:stop(signal.SIGKILL), "stop delivers the signal it is given")
   assert(h2:wait())
 end
 test_stop_after_reap_fails()

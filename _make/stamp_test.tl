@@ -25,7 +25,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- whole, the same trade every engine-driving test makes (see
 -- build_test): a cold checkout stays usable, CI treats absence as
 -- provisioning broken.
-local cosmic_bin = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
+local cosmic_bin = fs.absolute_path(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 check.needs("a built cosmic at " .. cosmic_bin, fs.is_file(cosmic_bin))
 
 --- Build a fixture tree and scan it.
@@ -45,9 +45,9 @@ end
 --- Run fn with cwd inside dir, restoring it afterward.
 local function in_dir<T>(dir: string, fn: function(): T): T
   local cwd = check.must(fs.cwd())
-  assert(fs.chdir(dir))
+  assert(fs.set_cwd(dir))
   local got = fn()
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return got
 end
 
@@ -87,7 +87,7 @@ local function test_unmoved_stamps_keep_their_mtime()
       local probe = stamp.path_of("compile")
       assert(fs.set_times(probe, {atime = {secs = 0}, mtime = {secs = 0}}))
       assert(check.must(graph.materialize(app, "/bin/cosmic")))
-      local sec = check.must(fs.stat(probe)):mtim()
+      local sec = check.must(fs.stat(probe)):modify_time().secs
       assert(sec == 0, "an unmoved stamp must not be rewritten")
       return true
     end)

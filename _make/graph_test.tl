@@ -36,9 +36,9 @@ end
 --- Run fn with cwd inside dir, restoring it afterward.
 local function in_dir<T>(dir: string, fn: function(): T): T
   local cwd = check.must(fs.cwd())
-  assert(fs.chdir(dir))
+  assert(fs.set_cwd(dir))
   local got = fn()
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return got
 end
 
@@ -169,11 +169,12 @@ local function test_materialize_does_not_touch_unchanged_files()
   in_dir(app.root, function(): boolean
       assert(check.must(graph.materialize(app, "/bin/cosmic")))
       local before = check.must(fs.stat("o/project.mk"))
-      local sec, nsec = before:mtim()
+      local bt = before:modify_time()
+      local sec, nsec = bt.secs, bt.nsecs
       assert(fs.set_times("o/project.mk", {atime = {secs = 0}, mtime = {secs = 0}}))
       assert(check.must(graph.materialize(app, "/bin/cosmic")))
       local after = check.must(fs.stat("o/project.mk"))
-      local sec2 = after:mtim()
+      local sec2 = after:modify_time().secs
       assert(sec2 == 0, "unchanged facts must not be rewritten")
       assert(sec ~= nil and nsec ~= nil, "stat should report a time")
       return true
@@ -219,7 +220,7 @@ local function test_find_make_honors_the_override()
   assert(fs.write(real, "#!/bin/sh\nexit 0\n"))
   assert(cenv.set("COSMIC_MAKE", real))
   local got = check.must(graph.find_make())
-  assert(got == fs.abspath(real), "got: " .. got)
+  assert(got == fs.absolute_path(real), "got: " .. got)
 
   assert(cenv.set("COSMIC_MAKE", fs.join(tmpdir, "graph-no-such-make")))
   local missing, err = graph.find_make()
@@ -258,7 +259,7 @@ local function test_extract_make_is_executable()
   local st = check.must(fs.stat(to))
   local exec_bit = tonumber("100", 8) as integer -- cast: octal is integral
   assert(st:mode() & exec_bit ~= 0, "the extracted engine must be executable")
-  assert(not fs.exists(to .. ".tmp"), "the temp file must not survive")
+  assert(not fs.is_present(to .. ".tmp"), "the temp file must not survive")
 end
 test_extract_make_is_executable()
 

@@ -291,7 +291,7 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   assert(fs.write(fs.join(home, ".ape-9.9"), "pretend loader"))
   local cwd = assert(fs.cwd())
   local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
-  assert(fs.chdir(box))
+  assert(fs.set_cwd(box))
   assert(env.unset("TMPDIR"))
   assert(env.set("HOME", home, true))
 
@@ -301,7 +301,7 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   and fs.is_file(fs.join(pinned, ".ape-9.9"))
   local p = grants.plan("record", {fs.join(box, "out")})
 
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   if prev_t ~= nil then assert(env.set("TMPDIR", prev_t, true)) else assert(env.unset("TMPDIR")) end
   if prev_h ~= nil then assert(env.set("HOME", prev_h, true)) else assert(env.unset("HOME")) end
 

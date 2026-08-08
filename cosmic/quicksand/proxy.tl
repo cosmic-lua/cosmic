@@ -115,14 +115,14 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
   local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
   if not vok then return nil, verr end
   local r, w = unix.pipe()
-  if not r then return nil, errno.wrap(w, "pipe") end
+  if not r then return nil, errno.format(w, "pipe") end
   local rfd = r
   local wfd = w
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)
     unix.close(wfd)
-    return nil, errno.wrap(ferr, "fork")
+    return nil, errno.format(ferr, "fork")
   end
   if pid == 0 then
     -- Child: listen, report the bound port to the parent, then serve.

@@ -39,8 +39,8 @@ local function test_walk_symlink_cycle_terminates()
   -- walk the base directory; collect all entries to detect infinite loop
   -- (the test harness has a timeout; if we don't hang this is fine)
   local results: {string} = {}
-  assert(fs_walk.walk(base, function(full_path: string, _entry: string, _st: any, ctx: {string})
-        ctx[#ctx + 1] = full_path
+  assert(fs_walk.visit(base, function(e: fs_walk.Entry, ctx: {string})
+        ctx[#ctx + 1] = e.path
       end, results))
 
   -- Must NOT contain any path that descends deeper than base/sub/
@@ -108,8 +108,8 @@ local function test_walk_symlink_file_visited()
   assert(fs.symlink("real.txt", fs.join(base, "alias.txt")))
 
   local found: {string: boolean} = {}
-  assert(fs_walk.walk(base, function(_full_path: string, entry: string, _st: any, ctx: {string: boolean})
-        ctx[entry] = true
+  assert(fs_walk.visit(base, function(e: fs_walk.Entry, ctx: {string: boolean})
+        ctx[e.name] = true
       end, found))
   -- Both the real file and the symlink to a file should be visited
   -- (walk visits entries without distinguishing symlinked files from real ones,
@@ -124,8 +124,8 @@ test_walk_symlink_file_visited()
 
 local function test_walk_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local ctx, err = fs_walk.walk(missing, function(_p: string, _n: string,
-        _st: any, _c: {string}) end, {})
+  local ctx, err = fs_walk.visit(missing, function(_e: fs_walk.Entry,
+        _c: {string}) end, {})
   assert(ctx == nil, "walk of a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "walk error should name ENOENT: " .. tostring(err))
@@ -179,10 +179,11 @@ local function test_walk_permission_denied_subdir_reports_error()
   assert(fs.set_mode(locked, 0))
 
   local visited: {string: boolean} = {}
-  local ctx, err = fs_walk.walk(base, function(_p: string, name: string,
-        _st: any, c: {string: boolean})
-      c[name] = true
+  local ctx, _rerr, errs = fs_walk.visit(base, function(e: fs_walk.Entry,
+        c: {string: boolean})
+      c[e.name] = true
     end, visited)
+  local err = errs and errs[1]
   assert(fs.set_mode(locked, tonumber("755", 8)))
 
   assert(ctx ~= nil, "a denied subdir must not abort the walk")
@@ -244,8 +245,9 @@ local function test_walk_skip_prunes_subtree()
   write_file(fs.join(prune, "b.txt"), "b")
 
   local ctx: SkipCtx = {visited = {}}
-  local got, err = fs_walk.walk(base, function(_p: string, name: string,
-        _st: any, c: SkipCtx): WalkAction
+  local got, err = fs_walk.visit(base, function(e: fs_walk.Entry,
+        c: SkipCtx): WalkAction
+      local name = e.name
       c.visited[name] = true
       if name == "prune" then
         return "skip"
@@ -276,8 +278,8 @@ local function test_walk_stop_ends_walk()
   end
 
   local ctx: StopCtx = {count = 0, stopped = false, after = 0}
-  local got, err = fs_walk.walk(base, function(_p: string, _n: string,
-        _st: any, c: StopCtx): WalkAction
+  local got, err = fs_walk.visit(base, function(_e: fs_walk.Entry,
+        c: StopCtx): WalkAction
       c.count = c.count + 1
       return "stop"
     end, ctx)
@@ -296,12 +298,12 @@ local function test_walk_stop_in_subtree_aborts_walk()
   write_file(fs.join(base, "top2.txt"), "x")
 
   local ctx: StopCtx = {count = 0, stopped = false, after = 0}
-  assert(fs_walk.walk(base, function(_p: string, name: string,
-          _st: any, c: StopCtx): WalkAction
+  assert(fs_walk.visit(base, function(e: fs_walk.Entry,
+          c: StopCtx): WalkAction
         if c.stopped then
           c.after = c.after + 1
         end
-        if name == "deep.txt" then
+        if e.name == "deep.txt" then
           c.stopped = true
           return "stop"
         end
@@ -320,10 +322,10 @@ local function test_walk_skip_with_symlink_cycle_terminates()
   assert(fs.symlink("..", fs.join(sub, "loop")))
 
   local ctx: StopCtx = {count = 0, stopped = false, after = 0}
-  local got, err = fs_walk.walk(base, function(_p: string, name: string,
-        _st: any, c: StopCtx): WalkAction
+  local got, err = fs_walk.visit(base, function(e: fs_walk.Entry,
+        c: StopCtx): WalkAction
       c.count = c.count + 1
-      if name == "loop" then
+      if e.name == "loop" then
         return "skip"
       end
     end, ctx)

@@ -100,12 +100,12 @@ local function fresh(proj: Project, src: string, built: string): boolean
   if not into then
     return false
   end
-  local osec, onsec = out:mtim()
-  local isec, insec = (into as fs.Stat):mtim() -- cast: same
-  if osec ~= isec then
-    return osec > isec
+  local ot = out:modify_time()
+  local it = (into as fs.Stat):modify_time() -- cast: same
+  if ot.secs ~= it.secs then
+    return ot.secs > it.secs
   end
-  return onsec >= insec
+  return ot.nsecs >= it.nsecs
 end
 
 --- Run one generator, handing it the output directory it owns.
@@ -227,7 +227,7 @@ local function run_generator(proj: Project, gen: string, dest: string,
   if ran[at] then
     return true
   end
-  if fs.exists(at) then
+  if fs.is_present(at) then
     local rok, rerr = fs.remove_all(at)
     if not rok then
       return false, "make: cannot clear " .. dest .. ": " ..

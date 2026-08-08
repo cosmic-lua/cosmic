@@ -147,12 +147,12 @@ local function new(): Poller
         wait_ms = math.max(0, deadline_ms - time.monotonic_ms())
       end
       res, err, eno = unix.poll(fds, wait_ms)
-      if res ~= nil or not errno.is(eno, "EINTR") then
+      if res ~= nil or not errno.is_code(eno, "EINTR") then
         break
       end
     end
     if not res then
-      return nil, errno.wrap(err, "poll")
+      return nil, errno.format(err, "poll")
     end
     local ready: {integer: Events} = {}
     for fd, revents in pairs(res) do

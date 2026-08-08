@@ -34,7 +34,7 @@ local function resolve(host: string, timeout_ms: integer,
   if ip and ip ~= -1 then return ip end
   if resolver then
     local resolved, rerr = resolver(host)
-    if not resolved then return nil, errno.wrap(rerr, "resolve") end
+    if not resolved then return nil, errno.format(rerr, "resolve") end
     return resolved
   end
   local resolved, rerr = cosmo.ResolveIp(host, timeout_ms)
@@ -65,7 +65,7 @@ local function dial(host: string, port: integer, upstream_ns_fd: integer,
     resolve_timeout_ms: integer): integer | nil, string
   if upstream_ns_fd then
     local ok, err = unix.setns(upstream_ns_fd, unix.CLONE_NEWNET)
-    if not ok then return nil, errno.wrap(err, "setns") end
+    if not ok then return nil, errno.format(err, "setns") end
   end
   local ip, rerr = resolve(host, resolve_timeout_ms, nil)
   if not ip then return nil, rerr end
@@ -74,12 +74,12 @@ local function dial(host: string, port: integer, upstream_ns_fd: integer,
   end
   local sk, serr = unix.socket(unix.AF_INET,
     (unix.SOCK_STREAM) | (unix.SOCK_CLOEXEC), 0)
-  if not sk then return nil, errno.wrap(serr, "socket") end
+  if not sk then return nil, errno.format(serr, "socket") end
   local skfd = sk
   local ok, cerr = unix.connect(skfd, ip, port)
   if not ok then
     unix.close(skfd)
-    return nil, errno.wrap(cerr, "connect")
+    return nil, errno.format(cerr, "connect")
   end
   return skfd
 end

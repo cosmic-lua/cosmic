@@ -24,7 +24,7 @@ local mtypes = require("_make.types")
 local type File = mtypes.File
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local record Run
@@ -346,7 +346,7 @@ local function in_process(root: string, ...: string): integer
   end
   local code = mk.run(argv)
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return code
 end
 
@@ -428,7 +428,7 @@ local function test_the_graph_proof_and_what_unmakes_it()
     })
   local proj = check.must(mk.scan(root))
   local cwd = check.must(fs.cwd())
-  assert(fs.chdir(root))
+  assert(fs.set_cwd(root))
   for _, rel in ipairs({"o/db/init.lua", "o/3p/dep/dep_pin.lua",
       "o/.stamp/compile", "o/_types/types_gen.stamp"}) do
     assert(fs.make_dirs(fs.dirname(rel)))
@@ -454,7 +454,7 @@ local function test_the_graph_proof_and_what_unmakes_it()
   assert(fs.set_times("o/.stamp/compile", {atime = {secs = 2000}, mtime = {secs = 2000}}))
   assert(not mcheck.proved_by_graph(proj, db, by_import),
     "a moved compile stamp un-proves every file")
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
 end
 test_the_graph_proof_and_what_unmakes_it()
 
@@ -468,7 +468,7 @@ local function test_check_skips_what_the_graph_proved()
     })
   local proj = check.must(mk.scan(root))
   local cwd = check.must(fs.cwd())
-  assert(fs.chdir(root))
+  assert(fs.set_cwd(root))
   for _, rel in ipairs({"o/bad.lua", "o/.stamp/compile",
       "o/_types/types_gen.stamp"}) do
     assert(fs.make_dirs(fs.dirname(rel)))
@@ -481,7 +481,7 @@ local function test_check_skips_what_the_graph_proved()
   assert(fs.set_times("bad.tl", {atime = {secs = 2000}, mtime = {secs = 2000}}))
   assert(mcheck.run(proj, {}) == 1,
     "a source newer than its proof must be checked, and fail")
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
 end
 test_check_skips_what_the_graph_proved()
 

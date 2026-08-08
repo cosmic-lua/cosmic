@@ -1,8 +1,8 @@
 --- Signal handling utilities.
 --- Wraps cosmo.unix signal functions for process signaling, handlers, and timers.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
-local errno_is = require("cosmic.errno").is
+local errstr = require("cosmic.errno").format
+local errno_is = require("cosmic.errno").is_code
 
 --- Options for setitimer: which timer, initial fire time, repeat interval.
 --- Durations are integer milliseconds; 0 value_ms disarms the timer,

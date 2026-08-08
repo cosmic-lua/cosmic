@@ -58,10 +58,10 @@ local function scenarios(): {pt.Scenario}, string
       name = "fs_walk_tree",
       fn = function(_: any): any
         local count = 0
-        local _ok, _err = fs.walk(tmpdir, function(path: string, _name: string, _st: any, _ctx: any)
+        local _ok, _err = fs.visit(tmpdir, function(e: fs.Entry, _ctx: any)
             -- Only count the seeded tree so fs_barf_slurp's blob (created
             -- by a sibling scenario) does not change the expected total.
-            if path:find("dir-", 1, true) then
+            if e.path:find("dir-", 1, true) then
               count = count + 1
             end
           end)
@@ -120,7 +120,7 @@ local function scenarios(): {pt.Scenario}, string
       -- redundant getcwd(2) call from the pure-string path math.
       name = "fs_relpath_relative",
       fn = function(_: any): any
-        return fs.relpath("dir-1/file-1.txt")
+        return fs.relative_path("dir-1/file-1.txt")
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= "dir-1/file-1.txt" then -- cast: from any

@@ -17,7 +17,7 @@ local fs = require("cosmic.fs")
 local imports = require("_make.imports")
 local types = require("_make.types")
 
-local type WalkStat = fs.WalkStat
+local type Entry = fs.Entry
 local type WalkAction = fs.WalkAction
 local type File = types.File
 local type Binary = types.Binary
@@ -315,7 +315,8 @@ end
 
 --- Visit one entry: prune what the project never sees, classify the
 --- rest.
-local function visit(path: string, name: string, st: WalkStat, ctx: Scan): WalkAction
+local function visit(e: Entry, ctx: Scan): WalkAction
+  local path, name, st = e.path, e.name, e.stat
   local rel = path:sub(#ctx.root + 2)
   -- Dotfiles are invisible to the model — except under `embed/`, where
   -- the point is a verbatim mapping and the dot is doing work: a
@@ -357,7 +358,7 @@ end
 --- @return Project|nil The scanned project, or nil on failure
 --- @return string An error message when the scan failed
 local function scan(root: string): Project | nil, string
-  local abs = fs.abspath(root)
+  local abs = fs.absolute_path(root)
   if not fs.is_dir(abs) then
     return nil, "make: not a directory: " .. root
   end
@@ -367,10 +368,11 @@ local function scan(root: string): Project | nil, string
   -- it may have changed, so re-reading is the point.
   imports.forget()
   local ctx: Scan = {root = abs, patterns = read_ignore(abs), files = {}}
-  local got, err = fs.walk(abs, visit, ctx)
+  local got, rerr, errs = fs.visit(abs, visit, ctx)
   if not got then
-    return nil, "make: cannot scan " .. root .. ": " .. (err or "unknown error")
+    return nil, "make: cannot scan " .. root .. ": " .. (rerr or "unknown error")
   end
+  local err = errs and errs[1]
   if err then
     return nil, "make: incomplete scan of " .. root .. ": " .. err
   end

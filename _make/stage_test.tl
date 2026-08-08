@@ -153,8 +153,8 @@ test_binaries_on_path_without_a_path()
 -- pattern build_test.tl and generate_test.tl use); skips rather than
 -- fails without one.
 local function test_a_dead_stage_does_not_report_a_stale_summary()
-  local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "", "cosmic"))
-  local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
+  local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN") or "", "cosmic"))
+  local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE") or "o/make")
   check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
   local root = fs.join(tmpdir, "stage-stale-summary")
   assert(fs.remove_all(root))

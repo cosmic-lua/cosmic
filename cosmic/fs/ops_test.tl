@@ -207,8 +207,8 @@ local function test_touch_creates_and_updates()
   local ok2, err2 = fs.touch(p)
   assert(ok2, "touch should succeed on existing file: " .. (err2 or ""))
   local after = check.must(fs.stat(p), "stat should succeed")
-  local before_m = before:mtim()
-  local after_m = after:mtim()
+  local before_m = before:modify_time().secs
+  local after_m = after:modify_time().secs
   assert(after_m > before_m,
     "touch should update mtime: " .. before_m .. " -> " .. after_m)
 
@@ -232,7 +232,7 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
   assert(ok, "touch must stamp a read-only file its caller owns: " ..
     (err or ""))
   local after = check.must(fs.stat(ro), "stat should succeed")
-  assert(after:mtim() > before:mtim(), "and move its mtime")
+  assert(after:modify_time().secs > before:modify_time().secs, "and move its mtime")
 
   local dir = fs.join(test_dir, "adir")
   assert(fs.make_dirs(dir))
@@ -242,7 +242,7 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
   assert(dok, "touch must stamp a directory, not fail EISDIR: " ..
     (derr or ""))
   local dafter = check.must(fs.stat(dir), "stat should succeed")
-  assert(dafter:mtim() > dbefore:mtim(), "and move its mtime")
+  assert(dafter:modify_time().secs > dbefore:modify_time().secs, "and move its mtime")
 
   teardown(test_dir)
 end
@@ -295,7 +295,7 @@ test_write_atomic_failure_keeps_original()
 
 -- write_atomic()'s write loop uses the identical retry construct proven
 -- above for copy() (fs/ops.tl's copy and fs/file.tl's write_atomic share
--- the same errno.is(_, "EINTR") pattern). It is not independently forced
+-- the same errno.is_code(_, "EINTR") pattern). It is not independently forced
 -- here: write_atomic's destination is always a real mkstemp()'d path
 -- (mkstemp creates the file itself from a template), so it cannot be
 -- redirected to a pipe the way copy()'s open()-a-given-path can, and
@@ -326,8 +326,8 @@ local function test_set_times_sets_exact_times()
   assert(ok, "set_times should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(p), "stat should succeed")
-  local a_s, a_ns = st:atim()
-  local m_s, m_ns = st:mtim()
+  local at, mt = st:access_time(), st:modify_time()
+  local a_s, a_ns, m_s, m_ns = at.secs, at.nsecs, mt.secs, mt.nsecs
   assert(a_s == 1234567890 and a_ns == 500000000,
     "atime should be exactly what was set, got " .. a_s .. "." .. a_ns)
   assert(m_s == 987654321 and m_ns == 250000000,
@@ -353,8 +353,8 @@ local function test_set_times_omitted_field_keeps_current()
   assert(ok, "set_times should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(p), "stat should succeed")
-  local a_s, a_ns = st:atim()
-  local m_s, m_ns = st:mtim()
+  local at, mt = st:access_time(), st:modify_time()
+  local a_s, a_ns, m_s, m_ns = at.secs, at.nsecs, mt.secs, mt.nsecs
   assert(a_s == 1111111111 and a_ns == 111111111,
     "atime must be unchanged when secs is nil, got " .. a_s .. "." .. a_ns)
   assert(m_s == 3333333333 and m_ns == 0,
@@ -376,8 +376,8 @@ local function test_set_times_bare_secs_means_zero_nsecs()
   assert(ok, "set_times should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(p), "stat should succeed")
-  local a_s, a_ns = st:atim()
-  local m_s, m_ns = st:mtim()
+  local at, mt = st:access_time(), st:modify_time()
+  local a_s, a_ns, m_s, m_ns = at.secs, at.nsecs, mt.secs, mt.nsecs
   assert(a_s == 4444444444 and a_ns == 0,
     "atime nsecs should default to 0, got " .. a_s .. "." .. a_ns)
   assert(m_s == 5555555555 and m_ns == 0,
@@ -406,8 +406,8 @@ local function test_set_times_fd_sets_exact_times()
   assert(ok, "set_times_fd should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat_fd(hh:fd()), "fstat should succeed")
-  local a_s, a_ns = st:atim()
-  local m_s, m_ns = st:mtim()
+  local at, mt = st:access_time(), st:modify_time()
+  local a_s, a_ns, m_s, m_ns = at.secs, at.nsecs, mt.secs, mt.nsecs
   assert(a_s == 111 and a_ns == 0,
     "atime should be 111.0, got " .. a_s .. "." .. a_ns)
   assert(m_s == 222 and m_ns == 0,
@@ -432,8 +432,8 @@ local function test_set_times_fd_omitted_field_keeps_current()
   assert(ok, "set_times_fd should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat_fd(hh:fd()), "fstat should succeed")
-  local a_s, a_ns = st:atim()
-  local m_s, m_ns = st:mtim()
+  local at, mt = st:access_time(), st:modify_time()
+  local a_s, a_ns, m_s, m_ns = at.secs, at.nsecs, mt.secs, mt.nsecs
   assert(a_s == 1111111111 and a_ns == 111111111,
     "atime must be unchanged when secs is nil, got " .. a_s .. "." .. a_ns)
   assert(m_s == 3333333333 and m_ns == 0,
@@ -480,8 +480,8 @@ local function test_write_mode_applies_on_overwrite()
   -- permissions of a re-extracted file (#986).
   local base = os.getenv("TEST_TMPDIR") or "/tmp"
   local path = fs.join(base, "mode_overwrite.txt")
-  assert(fs.write(path, "one", tonumber("644", 8)))
-  assert(fs.write(path, "two", tonumber("600", 8)))
+  assert(fs.write(path, "one", {mode = tonumber("644", 8)}))
+  assert(fs.write(path, "two", {mode = tonumber("600", 8)}))
   local st = check.must(fs.stat(path))
   local mode = st:mode() & tonumber("777", 8)
   assert(mode == tonumber("600", 8),

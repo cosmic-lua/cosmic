@@ -71,9 +71,9 @@ local function test_refusal_names_the_command()
   local saved = env.get("COSMIC_MAKE_ROOT")
   assert(env.unset("COSMIC_MAKE_ROOT"))
   local cwd = fs.cwd()
-  assert(fs.chdir(fs.join(proj, "db")))
+  assert(fs.set_cwd(fs.join(proj, "db")))
   local got, err = root.discover("check")
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   if saved then
     assert(env.set("COSMIC_MAKE_ROOT", saved))
   end
@@ -194,9 +194,9 @@ test_the_walk_stops_at_an_output_directory()
 local function test_a_bare_directory_is_not_a_project()
   local dir = tree("bare-dir", {["notes.tl"] = "return {}\n"})
   local saved = fs.cwd() as string -- cast: cwd exists in a test
-  assert(fs.chdir(dir))
+  assert(fs.set_cwd(dir))
   local found, err = root.discover("build")
-  assert(fs.chdir(saved))
+  assert(fs.set_cwd(saved))
   assert(not found, "a directory of Teal files is not a root")
   assert(err:find("not a project", 1, true), "got: " .. err)
   assert(err:find("main.tl", 1, true) and err:find(".cosmicignore", 1, true),
@@ -244,23 +244,23 @@ test_a_root_with_a_metacharacter_is_refused()
 local function test_resolve_self_resolves_a_real_path()
   local dir = tree("self-real", {["cosmic"] = "print('x')\n"})
   local saved = fs.cwd() as string -- cast: cwd exists in a test
-  assert(fs.chdir(dir))
+  assert(fs.set_cwd(dir))
   local self = root.resolve_self("cosmic")
-  assert(fs.chdir(saved))
-  assert(self == fs.abspath(fs.join(dir, "cosmic")), "got: " .. tostring(self))
+  assert(fs.set_cwd(saved))
+  assert(self == fs.absolute_path(fs.join(dir, "cosmic")), "got: " .. tostring(self))
 end
 test_resolve_self_resolves_a_real_path()
 
 -- A bare, PATH-invoked argv0 that names nothing under the cwd falls
--- back to a real $PATH search instead of `fs.abspath`'s phantom
+-- back to a real $PATH search instead of `fs.absolute_path`'s phantom
 -- `<cwd>/name` -- the bug: a build run from a directory that happens
 -- not to contain the binary silently degraded the tool stamps.
 local function test_resolve_self_falls_back_to_path_search()
   local dir = tree("self-path", {})
   local saved = fs.cwd() as string -- cast: cwd exists in a test
-  assert(fs.chdir(dir))
+  assert(fs.set_cwd(dir))
   local self = root.resolve_self("ls")
-  assert(fs.chdir(saved))
+  assert(fs.set_cwd(saved))
   assert(self == proc.which("ls"), "got: " .. tostring(self))
   assert(self ~= fs.join(dir, "ls"), "must not be the cwd-relative phantom")
 end

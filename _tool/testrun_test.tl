@@ -52,7 +52,7 @@ local function test_run_captures_output()
 echo "stdout line"
 echo "stderr line" >&2
 exit 0
-]], tonumber("755", 8)))
+]], {mode = tonumber("755", 8)}))
 
   local exit_code = testrun.run({script}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
@@ -91,7 +91,7 @@ if [ ! -f "$TEST_TMPDIR/test_file" ]; then
 fi
 echo "TEST_TMPDIR works"
 exit 0
-]], tonumber("755", 8)))
+]], {mode = tonumber("755", 8)}))
 
   local exit_code = testrun.run({script}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)

@@ -98,7 +98,7 @@ local function available(): boolean
   local ok, _, eno = unix.pledge(nil, nil)
   if ok then
     avail = true
-  elseif errno.is(eno, "ENOSYS") then
+  elseif errno.is_code(eno, "ENOSYS") then
     avail = false
   else
     avail = true
@@ -126,7 +126,7 @@ local function apply(promises: string, opts?: ApplyOptions): boolean, string
   seal_coverage()
   local ok, err = unix.pledge(promises, opts and opts.exec)
   if not ok then
-    return false, errno.wrap(err, "pledge")
+    return false, errno.format(err, "pledge")
   end
   return true
 end

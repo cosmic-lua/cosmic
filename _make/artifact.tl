@@ -211,10 +211,9 @@ local function generated_payload(root: string, unit: string, out: {Staged})
   if not fs.is_dir(dir) then
     return
   end
-  local _ok, _err = fs.walk(dir, function(path: string, _name: string,
-        st: fs.WalkStat): fs.WalkAction
-      if st:is_file() then
-        local inside = path:sub(#dir + 2)
+  local _ok, _err = fs.visit(dir, function(e: fs.Entry): fs.WalkAction
+      if e.stat:is_file() then
+        local inside = e.path:sub(#dir + 2)
         out[#out + 1] = {source = fs.join(rel, inside), stored = inside}
       end
       return nil
@@ -320,7 +319,7 @@ local function stage(proj: Project, binary: Binary): string | nil, string
   local dir = fs.join(project.BUILD_DIR, "stage", binary.name)
   -- Clear rather than merge: a file removed from the project must not
   -- survive in the artifact because it is still sitting in the stage.
-  if fs.exists(dir) then
+  if fs.is_present(dir) then
     local ok, rerr = fs.remove_all(dir)
     if not ok then
       return nil, "make: cannot clear " .. dir .. ": " .. (rerr or "unknown error")
@@ -424,12 +423,12 @@ local function replace_if_changed(staged: string, out: string): string | nil
     return staged .. ": " .. (ferr or "cannot read")
   end
   if fs.read(out) == fresh then
-    local _ok, _err = fs.unlink(staged)
+    local _ok, _err = fs.remove(staged)
     return nil
   end
   local ok, merr = fs.move(staged, out)
   if not ok then
-    local _ok, _err = fs.unlink(staged)
+    local _ok, _err = fs.remove(staged)
     return out .. ": " .. (merr or "cannot replace")
   end
   return nil
@@ -467,7 +466,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
       {output = staged_out, exe_path = pair[2], strip = true,
         provides = validate.claims(proj), mtime = embedc.EPOCH_SECONDS})
     if not count then
-      local _ok, _err = fs.unlink(staged_out)
+      local _ok, _err = fs.remove(staged_out)
       return nil, "make: " .. binary.name .. pair[1] .. ": " .. (aerr or "embed failed")
     end
     local rerr = replace_if_changed(staged_out, out)

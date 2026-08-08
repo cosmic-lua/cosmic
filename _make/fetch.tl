@@ -64,7 +64,7 @@ end
 ---
 --- The line delimiter is safe because the extractors refuse control
 --- characters in member names (`cosmic.fs.is_unsafe_entry_name`,
---- `fs.unsafe_entry_name`) — archive members are
+--- `fs.is_unsafe_entry_name`) — archive members are
 --- attacker-shaped input, and a member called `a\nb.txt` would be
 --- recorded as two names, neither of which exists, so every later fetch
 --- would decide the pin needs repair. Forever, silently. That guard is
@@ -85,7 +85,7 @@ local function products_present(archive: string): boolean
   end
   local dir = fs.dirname(archive)
   for line in listed:gmatch("([^\n]+)") do
-    if not fs.exists(fs.join(dir, line)) then
+    if not fs.is_present(fs.join(dir, line)) then
       return false
     end
   end

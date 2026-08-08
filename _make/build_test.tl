@@ -19,12 +19,12 @@ local fs = require("cosmic.fs")
 local mk = require("_make")
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
 -- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
 -- a build; CI always provisions the engine, so its absence there means
@@ -111,7 +111,7 @@ local function test_build_compiles_the_tree()
   -- schema.sql is not a module, so the graph does not compile it -- and
   -- it is not under `embed/`, so it does not ship either. Shipping is
   -- opt-in (D15); being in the repo buys a file nothing.
-  assert(not fs.exists(fs.join(root, "o/schema.lua")),
+  assert(not fs.is_present(fs.join(root, "o/schema.lua")),
     "a non-module is not compiled")
 end
 test_build_compiles_the_tree()
@@ -147,7 +147,7 @@ local function test_build_fails_on_a_type_error()
   local r = make(root, "build")
   assert(r.code == 1, "a type error must fail the build, got " .. r.code)
   assert(r.err:find("a.tl", 1, true), "the error must name the file: " .. r.err)
-  assert(not fs.exists(fs.join(root, "o/a.lua")),
+  assert(not fs.is_present(fs.join(root, "o/a.lua")),
     "a rejected source must not land in o/")
 end
 test_build_fails_on_a_type_error()
@@ -246,7 +246,7 @@ local function test_build_never_resolves_a_pin()
   local r = make(root, "build")
   assert(r.code == 0, "a build must not resolve pins, got " ..
     r.code .. ": " .. r.err)
-  assert(not fs.exists(fs.join(root, "3p/blob.bin")),
+  assert(not fs.is_present(fs.join(root, "3p/blob.bin")),
     "build must not have fetched anything")
 end
 test_build_never_resolves_a_pin()
@@ -439,7 +439,7 @@ local function in_process(root: string, ...: string): integer
   local code = mk.run(argv)
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return code
 end
 
@@ -460,7 +460,7 @@ local function test_a_variant_base_ships_the_payload_twice()
   for _, name in ipairs({"base", "base-debug"}) do
     local path = fs.join(gendir, name)
     assert(fs.write(path, runtime))
-    assert(fs.chmod(path, tonumber("755", 8) as integer)) -- cast: octal is integral
+    assert(fs.set_mode(path, tonumber("755", 8) as integer)) -- cast: octal is integral
   end
 
   assert(in_process(root, "build") == 0, "build should succeed")

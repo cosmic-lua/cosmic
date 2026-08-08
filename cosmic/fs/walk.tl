@@ -1,13 +1,10 @@
 --- Directory tree walking: `visit` hands an Entry record to its
---- visitor; `walk` is the DEPRECATED positional form (#987), kept
---- because the pinned build engine still calls it — deleted at the
---- next pin advance alongside errno's aliases (#981). File collection
---- (find/find_iter/find_info/glob) lives in cosmic.fs.find, built on
---- this walker.
+--- visitor. File collection (find/find_iter/find_info/glob) lives in
+--- cosmic.fs.find, built on this walker.
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs.types")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 local type WalkStat = types.WalkStat
 local type Entry = types.Entry
 local type WalkDirHandle = types.DirHandle
@@ -135,29 +132,11 @@ local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ..
   return ctx, nil, errs
 end
 
---- DEPRECATED positional walker (#987): visitor(path, name, st, ctx)
---- with the first subtree error folded into slot 2 beside a non-nil
---- result. Use visit() — the Entry record deletes the "do NOT join
---- path and name" trap and exposes depth, and its slot 2 means
---- failure. Kept because the pinned build engine still calls this
---- form; deleted at the next pin advance (#981-class).
---- @param dir string The directory to walk
---- @param visitor function Called per entry: function(path, name, st, ctx): nil|"skip"|"stop"
---- @param ctx T Optional context passed to every visitor call
---- @param opts WalkOptions? max_depth limits how deep the walk descends
---- @return T | nil The context object, or nil if the root could not be opened
---- @return string First error encountered, if any
-local function walk<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
-  local rctx, fatal, errs = visit(dir, function(e: Entry, c: T): (WalkAction ...)
-      return visitor(e.path, e.name, e.stat, c)
-    end, ctx, opts)
-  if rctx == nil then
-    return nil, fatal
-  end
-  return rctx, errs and errs[1] or nil
-end
-
 local record FsWalkModule
+  --- One visited entry: path (full), name, stat, depth. In visit()'s
+  --- public signature, so it is exported (D20 rule 10).
+  type Entry = Entry
+
   --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
   type WalkAction = WalkAction
 
@@ -167,14 +146,10 @@ local record FsWalkModule
   --- Walk dir tree with an Entry-record visitor; slot 2 is the root
   --- failure, slot 3 the subtree-error list.
   visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string, {string}
-
-  --- DEPRECATED positional walker; use visit(). Deleted at pin advance.
-  walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
 end
 
 local M: FsWalkModule = {
   visit = visit,
-  walk = walk,
 }
 
 return M

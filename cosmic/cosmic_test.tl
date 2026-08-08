@@ -44,7 +44,7 @@ local function test_require_cosmic_fs()
   assert(fs.basename ~= nil, "fs.basename should not be nil")
   assert(fs.join ~= nil, "fs.join should not be nil")
   -- Walk functions
-  assert(fs.walk ~= nil, "fs.walk should not be nil")
+  assert(fs.visit ~= nil, "fs.visit should not be nil")
   assert(fs.find ~= nil, "fs.find should not be nil")
   assert(fs.find_info ~= nil, "fs.find_info should not be nil")
   assert(fs.find_iter ~= nil, "fs.find_iter should not be nil")

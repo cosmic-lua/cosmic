@@ -21,8 +21,8 @@ local function test_module_exports()
   local sa = sandbox as {string: any} -- cast: record as map for introspection
   assert(sa["plan_landlock"] == nil,
     "plan_landlock left the public surface (#989: cosmic.sandbox.plan)")
-  assert(sa["available"] == sa["availability"],
-    "the deprecated available alias points at availability")
+  assert(sa["available"] == nil,
+    "the deprecated available alias is gone (#989); availability() is the name")
 end
 test_module_exports()
 

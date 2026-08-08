@@ -245,13 +245,13 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- Predates sandbox.Fs.optional (#989); keep until the pin advance.
   local ex: {string} = {}
   for _, p in ipairs(ex_raw) do
-    if fs.exists(p) then
+    if fs.is_present(p) then
       ex[#ex + 1] = p
     end
   end
   local ro: {string} = {}
   for _, p in ipairs(ro_raw) do
-    if fs.exists(p) then
+    if fs.is_present(p) then
       ro[#ro + 1] = p
     end
   end
@@ -334,13 +334,13 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- one would mean a fence that fails honest tests, which is how a
     -- fence gets turned off.
     for _, dir in ipairs(RUNTIME_RO) do
-      if fs.exists(dir) then
+      if fs.is_present(dir) then
         ro[#ro + 1] = dir
         ex[#ex + 1] = dir
       end
     end
     for _, dev in ipairs(RUNTIME_RW) do
-      if fs.exists(dev) then
+      if fs.is_present(dev) then
         rw[#rw + 1] = dev
       end
     end
@@ -360,7 +360,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     local units: {string: boolean} = {}
     units[unit_dir(args[1] or ".")] = true
     for i = 2, #args do
-      if fs.exists(args[i]) then
+      if fs.is_present(args[i]) then
         units[unit_dir(args[i])] = true
       end
     end
@@ -440,15 +440,15 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
       rw[#rw + 1] = cov
     end
   end
-  if fs.exists("/dev/null") then
+  if fs.is_present("/dev/null") then
     rw[#rw + 1] = "/dev/null"
   end
   for _, dev in ipairs({"/dev/random", "/dev/urandom"}) do
-    if fs.exists(dev) then
+    if fs.is_present(dev) then
       ro[#ro + 1] = dev
     end
   end
-  if arg[-1] ~= nil and fs.exists(arg[-1]) then
+  if arg[-1] ~= nil and fs.is_present(arg[-1]) then
     ex[#ex + 1] = arg[-1]
   end
   -- The APE loader. A fat APE is a shell prologue the kernel will not

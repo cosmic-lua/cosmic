@@ -23,14 +23,14 @@ local function test_cosmic_child()
 end
 test_cosmic_child()
 
-local function test_cosmic_walk()
-  local h2 = check.must(child.start({cosmic, "-e", "local fs = require('cosmic.fs'); print(fs.walk and 'ok' or 'fail')"}, {env = clean_env()}))
+local function test_cosmic_visit()
+  local h2 = check.must(child.start({cosmic, "-e", "local fs = require('cosmic.fs'); print(fs.visit and 'ok' or 'fail')"}, {env = clean_env()}))
   local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic exited with error")
   assert(out:find("ok", 1, true), "expected output to contain 'ok'")
 end
-test_cosmic_walk()
+test_cosmic_visit()
 
 local function test_cosmic_help()
   local h3 = check.must(child.start({cosmic, "--help"}, {env = clean_env()}))

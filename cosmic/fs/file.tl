@@ -5,7 +5,7 @@ local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 local cfd = require("cosmic.fd")
 local stream = require("cosmic.stream")
-local errstr = errno.wrap
+local errstr = errno.format
 
 --- Read entire file contents.
 --- @param path string Path to the file
@@ -43,7 +43,9 @@ local write_atomic: function(path: string, data: string, mode?: integer): boolea
 --- @param path string Path to the file
 --- @param data string Data to write
 --- @param opts WriteOptions|integer Options — a bare integer is the
----   DEPRECATED mode form, deleted at pin advance
+---   pre-#988 mode form, still accepted because the PINNED bootstrap's
+---   own _script_cache calls it that way against this (tree) module;
+---   deleted one pin advance after every in-tree caller moved
 --- @return boolean True on success
 --- @return string Error message if failed
 local function write(path: string, data: string, opts?: WriteOptions | integer): boolean, string
@@ -90,8 +92,8 @@ end
 --- temporary file in the same directory, fsync it, then rename over
 --- the destination; on failure the original file is untouched and the
 --- temporary file is removed. The write loop retries automatically on
---- EINTR, matching cosmic.fd's signal-safety posture. Exported as the
---- DEPRECATED write_atomic (#988); deleted at pin advance.
+--- EINTR, matching cosmic.fd's signal-safety posture. Internal: the
+--- public spelling is write(path, data, {atomic = true}).
 write_atomic = function(path: string, data: string, mode?: integer): boolean, string
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, tmp = unix.mkstemp(path .. ".XXXXXX")
@@ -138,15 +140,12 @@ local record FsFileModule
   read: function(path: string): string | nil, string
   write: function(path: string, data: string, opts?: WriteOptions | integer): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
-  --- DEPRECATED (#988): write(path, data, {atomic = true, mode = m}).
-  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
 end
 
 local M: FsFileModule = {
   read = read,
   write = write,
   truncate = truncate,
-  write_atomic = write_atomic,
 }
 
 return M

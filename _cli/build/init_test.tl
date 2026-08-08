@@ -31,7 +31,7 @@ end
 local function test_copy_preserves_mode()
   local src = fs.join(tmpdir, "tool.sh")
   local dst = fs.join(tmpdir, "out/deep/tool.sh")
-  assert(fs.write(src, "#!/bin/sh\n", tonumber("755", 8) as integer)) -- cast: octal is integral
+  assert(fs.write(src, "#!/bin/sh\n", {mode = tonumber("755", 8) as integer})) -- cast: octal is integral
   local code, _out, err = run_driver("copy", src, dst)
   assert(code == 0, "copy failed (" .. tostring(code) .. "): " .. err)
   assert(fs.read(dst) == "#!/bin/sh\n", "copy content")
@@ -86,15 +86,15 @@ local function test_compile_unchanged_restamps_without_rewriting()
   assert(code == 0, "first compile failed")
   local st1 = fs.stat(out)
   assert(st1, "output should exist")
-  local s1, n1 = st1:mtim()
+  local t1 = st1:modify_time()
   local body = fs.read(out)
   -- read-only: the second run must not write, only restamp
-  assert(fs.chmod(out, tonumber("444", 8) as integer)) -- cast: octal is integral
+  assert(fs.set_mode(out, tonumber("444", 8) as integer)) -- cast: octal is integral
   code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "second compile failed")
   local st2 = fs.stat(out)
-  local s2, n2 = (st2 as fs.Stat):mtim() -- cast: record union after guard
-  assert(s2 > s1 or (s2 == s1 and n2 >= n1),
+  local t2 = (st2 as fs.Stat):modify_time() -- cast: record union after guard
+  assert(t2.secs > t1.secs or (t2.secs == t1.secs and t2.nsecs >= t1.nsecs),
     "unchanged compile must bring the output up to date")
   assert(fs.read(out) == body, "and must not rewrite its contents")
 end
@@ -179,11 +179,12 @@ local function test_list_write_if_changed()
   assert(fs.read(out) == "a.tl\nb.tl\n", "write-list content")
   local st1 = fs.stat(out)
   assert(st1, "stamp should exist")
-  local s1, n1 = st1:mtim()
+  local t1 = st1:modify_time()
   code = run_driver("write-list", out, "a.tl", "b.tl")
   assert(code == 0, "unchanged list must succeed")
-  local s2, n2 = (fs.stat(out) as fs.Stat):mtim() -- cast: record union after guard
-  assert(s1 == s2 and n1 == n2, "unchanged list must not rewrite the stamp")
+  local t2 = (fs.stat(out) as fs.Stat):modify_time() -- cast: record union after guard
+  assert(t1.secs == t2.secs and t1.nsecs == t2.nsecs,
+    "unchanged list must not rewrite the stamp")
   code = run_driver("write-list", out, "a.tl")
   assert(code == 0, "changed list must rewrite")
   assert(fs.read(out) == "a.tl\n", "changed list content")
@@ -216,7 +217,7 @@ end
 test_require_elf()
 
 -- Three cases of one contract: a file goes, a missing path is ignored,
--- and a DANGLING symlink goes -- which `fs.exists` misreads as gone.
+-- and a DANGLING symlink goes -- which `fs.is_present` misreads as gone.
 local function test_remove()
   local a = fs.join(tmpdir, "rm-a")
   local target = fs.join(tmpdir, "rm-link-target")
@@ -224,8 +225,8 @@ local function test_remove()
   assert(fs.write(a, "x"))
   assert(fs.write(target, "x"))
   assert(fs.symlink(target, link))
-  assert(fs.unlink(target), "target goes first, leaving the link dangling")
-  assert(fs.is_link(link) and not fs.exists(link), "precondition: dangling")
+  assert(fs.remove(target), "target goes first, leaving the link dangling")
+  assert(fs.is_link(link) and not fs.is_present(link), "precondition: dangling")
   local code = run_driver("remove", a, fs.join(tmpdir, "rm-missing"), link)
   assert(code == 0, "remove must succeed, missing files ignored")
   assert(not fs.stat(a), "existing file removed")

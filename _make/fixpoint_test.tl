@@ -35,8 +35,8 @@ local hash = require("cosmic.hash")
 local child = require("cosmic.child")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
-local repo = fs.abspath(".")
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
+local repo = fs.absolute_path(".")
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 
 --- Copy one file, creating the destination's directory.
 local function copy(from: string, to: string)
@@ -45,7 +45,7 @@ local function copy(from: string, to: string)
   assert(fs.write(to, body))
   local st = fs.stat(from)
   if st then
-    assert(fs.chmod(to, st:mode() & tonumber("777", 8)))
+    assert(fs.set_mode(to, st:mode() & tonumber("777", 8)))
   end
 end
 
@@ -59,8 +59,8 @@ end
 local function copy_tree(dest: string)
   assert(fs.make_dirs(dest))
   local failure: string = nil
-  assert(fs.walk(repo, function(path: string, entry: string,
-          st: fs.WalkStat): fs.WalkAction
+  assert(fs.visit(repo, function(e: fs.Entry): fs.WalkAction
+        local path, entry, st = e.path, e.name, e.stat
         local rel = path:sub(#repo + 2)
         if entry:sub(1, 1) == "." or rel == "o" then
           return "skip"

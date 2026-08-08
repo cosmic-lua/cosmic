@@ -423,7 +423,7 @@ local function test_write_with_mode()
   local filepath = fs.join(TEST_TMPDIR, "io_test_barf_mode.txt")
   local content = "file with specific mode"
 
-  local ok, err = fs.write(filepath, content, tonumber("600", 8))
+  local ok, err = fs.write(filepath, content, {mode = tonumber("600", 8)})
   assert(ok, "fs.write with mode failed: " .. (err or ""))
 
   local data = assert(fs.read(filepath))

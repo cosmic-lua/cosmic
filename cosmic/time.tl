@@ -83,10 +83,10 @@ local function sleep(seconds: integer, nanos?: integer): integer | nil, integer,
   if rem_s ~= nil then
     return rem_s, rem_ns
   end
-  if errno.is(eno, "EINTR") then
-    return eintr_s or 0, eintr_ns or 0, errno.wrap(rem_ns, "sleep")
+  if errno.is_code(eno, "EINTR") then
+    return eintr_s or 0, eintr_ns or 0, errno.format(rem_ns, "sleep")
   end
-  return nil, nil, errno.wrap(rem_ns, "sleep")
+  return nil, nil, errno.format(rem_ns, "sleep")
 end
 
 --- Sleep for the specified number of milliseconds.

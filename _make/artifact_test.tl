@@ -21,12 +21,12 @@ local zip = require("cosmic.zip")
 local type Binary = types.Binary
 local type Project = types.Project
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE") or "o/make")
 -- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
 -- a build; CI always provisions the engine, so its absence there means
 -- provisioning broke -- and the whole `--make` graph-test surface
@@ -94,7 +94,7 @@ local function run_artifact(path: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(child.start({fs.abspath(path)}, {env = env}))
+  local h = check.must(child.start({fs.absolute_path(path)}, {env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -360,7 +360,7 @@ local function test_build_takes_binaries_not_sources()
   assert(out:find("no binary named by: pkg", 1, true), "got: " .. out)
   assert(out:find("use `check`", 1, true),
     "the refusal names the verb that does take sources: " .. out)
-  assert(not fs.exists(fs.join(root, "o/bin/artifact-selected")),
+  assert(not fs.is_present(fs.join(root, "o/bin/artifact-selected")),
     "and nothing is produced")
 
   -- Selecting the binary builds it, whole.
@@ -384,7 +384,7 @@ local function test_in_process_build()
   local code = mk.run({"build"})
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   assert(code == 0, "in-process build should succeed")
   assert(fs.is_file(fs.join(root, "o/bin/artifact-inproc")), "one binary")
   assert(fs.is_file(fs.join(root, "o/bin/tool")), "the other binary")

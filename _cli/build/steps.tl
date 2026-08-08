@@ -90,7 +90,7 @@ local function do_assert_marker(args: {string}): integer
     return fail("usage: assert-marker <marker> <dir>")
   end
   local function scan(d: string): boolean
-    local dir0 = fs.opendir(d)
+    local dir0 = fs.open_dir(d)
     if not dir0 then return false end
     local dh = dir0
     while true do
@@ -142,13 +142,13 @@ end
 local function do_remove(args: {string}): integer
   for _, p in ipairs(args) do
     -- Attempt the unlink, and only ask what went wrong when it fails.
-    -- Guarding it with `fs.exists` skipped DANGLING symlinks: exists
+    -- Guarding it with `fs.is_present` skipped DANGLING symlinks: exists
     -- follows the link, so one whose target is gone reads as "already
     -- gone" and was never unlinked -- and `link` makes symlinks, so a
     -- rule clearing a stale one silently kept it. `islink` is the second
     -- question because exists cannot see it either.
-    local ok, uerr = fs.unlink(p)
-    if not ok and (fs.exists(p) or fs.is_link(p)) then
+    local ok, uerr = fs.remove(p)
+    if not ok and (fs.is_present(p) or fs.is_link(p)) then
       return fail("remove " .. p .. ": " .. (uerr or "unknown error"))
     end
   end
@@ -219,7 +219,7 @@ local function do_copy(args: {string}): integer
   if not ok then
     return fail("write " .. dst .. " failed: " .. (werr or "unknown error"))
   end
-  local _ok, _err = fs.chmod(dst, mode) -- write's mode only applies on create
+  local _ok, _err = fs.set_mode(dst, mode) -- write's mode only applies on create
   return 0
 end
 
@@ -230,7 +230,7 @@ local function do_link(args: {string}): integer
     return fail("usage: link <target> <linkpath>")
   end
   local _ok, _err = fs.make_dirs(fs.dirname(linkpath))
-  local _ok, _err = fs.unlink(linkpath)
+  local _ok, _err = fs.remove(linkpath)
   local ok, lerr = fs.symlink(target, linkpath)
   if not ok then
     return fail("symlink " .. linkpath .. " -> " .. target .. " failed: "
@@ -265,16 +265,16 @@ local function do_exec(args: {string}): integer
   -- matters when the build directory is itself reached through a link.
   -- A relative symlink inside `o/` still resolves inside it, so the
   -- staging links a build makes keep working.
-  local root_named = fs.abspath(env.get_or("COSMIC_EXEC_ROOT", "o"))
-  local root = (fs.realpath(root_named) or root_named) as string -- cast: scalar fallback
-  local named = fs.abspath(program)
+  local root_named = fs.absolute_path(env.get_or("COSMIC_EXEC_ROOT", "o"))
+  local root = (fs.resolve(root_named) or root_named) as string -- cast: scalar fallback
+  local named = fs.absolute_path(program)
   -- Falling back to the lexical path when realpath fails keeps the
   -- ROOT check first, so a bare `sh` still reports "never PATH" rather
   -- than "no such file" -- the more useful answer for the mistake it
   -- actually is. Nothing escapes through the fallback: realpath only
   -- fails for a path that does not resolve, and `isfile` below rejects
   -- those (a dangling link included).
-  local abs = (fs.realpath(named) or named) as string -- cast: scalar fallback
+  local abs = (fs.resolve(named) or named) as string -- cast: scalar fallback
   -- Prefix match on a separator boundary, so a sibling `o-other/` next
   -- to `o/` cannot pass for being inside it.
   if abs ~= root and abs:sub(1, #root + 1) ~= root .. "/" then

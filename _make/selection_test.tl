@@ -17,12 +17,12 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
 -- Skip locally, FAIL in CI (029): a graph-test surface that silently
 -- becomes green skips is the failure this guards.
@@ -121,7 +121,7 @@ local function test_build_selects_binaries()
   assert(r.code == 0, "selecting a binary should build it: " .. r.err)
   assert(fs.is_file(fs.join(root, "o/bin/tool")),
     "the selected binary is built, not merely compiled: " .. r.out)
-  assert(not fs.exists(fs.join(root, "o/bin/buildsel")),
+  assert(not fs.is_present(fs.join(root, "o/bin/buildsel")),
     "and the one that was not selected is not")
   -- The whole tree still compiled: staging must not depend on which
   -- binary was asked for.
@@ -155,7 +155,7 @@ local function test_docs_restricts_to_its_selection()
   assert(r.code == 0, "selected docs should succeed: " .. r.err)
   assert(fs.is_file(fs.join(root, "o/docs/db/init.md")),
     "the selected page is written: " .. r.out)
-  assert(not fs.exists(fs.join(root, "o/docs/main.md")),
+  assert(not fs.is_present(fs.join(root, "o/docs/main.md")),
     "and the unselected one is not: " .. r.out)
 end
 test_docs_restricts_to_its_selection()
@@ -185,7 +185,7 @@ local function test_a_bad_selection_refuses_before_building()
   local r = make(root, "test", "nope")
   assert(r.code == 1, "an empty selection must fail")
   assert(r.err:find("nothing to do under: nope", 1, true), "got: " .. r.err)
-  assert(not fs.exists(fs.join(root, "o/bin")),
+  assert(not fs.is_present(fs.join(root, "o/bin")),
     "nothing is built to answer a question the model settles: " .. r.out)
 end
 test_a_bad_selection_refuses_before_building()

@@ -38,7 +38,7 @@
 local cosmo = require("cosmo")
 local cpath = require("cosmo.path")
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 
 --- Get the value of an environment variable, or nil when it is not set.
 ---

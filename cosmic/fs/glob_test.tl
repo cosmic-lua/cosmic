@@ -1,8 +1,6 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local types = require("cosmic.fs.types")
-local type WalkStat = types.WalkStat
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -87,8 +85,8 @@ test_glob_invalid_patterns()
 
 local function collect_depth(max_depth: integer): {string}
   local seen: {string} = {}
-  assert(fs.walk(root, function(path: string, _name: string, _st: WalkStat, acc: {string})
-        table.insert(acc, fs.relative_path(path, root))
+  assert(fs.visit(root, function(e: fs.Entry, acc: {string})
+        table.insert(acc, fs.relative_path(e.path, root))
       end, seen, {max_depth = max_depth}))
   table.sort(seen)
   return seen
@@ -119,8 +117,8 @@ test_walk_max_depth_two()
 
 local function test_walk_unlimited_by_default()
   local seen: {string} = {}
-  assert(fs.walk(root, function(path: string, _name: string, _st: WalkStat, acc: {string})
-        table.insert(acc, fs.relative_path(path, root))
+  assert(fs.visit(root, function(e: fs.Entry, acc: {string})
+        table.insert(acc, fs.relative_path(e.path, root))
       end, seen))
   assert(has(seen, "src/deep/z.lua"), "expected full depth without opts")
   local zero = collect_depth(0)

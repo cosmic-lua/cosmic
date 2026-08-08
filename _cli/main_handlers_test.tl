@@ -15,7 +15,7 @@ local child = require("cosmic.child")
 
 -- Absolute: TEST_BIN is relative to the repo root under `make test`,
 -- and the --make test below runs a child with a different cwd.
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local record Run
