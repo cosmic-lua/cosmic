@@ -9,7 +9,7 @@ local check = require("cosmic.check")
 
 -- Test show_module_examples with function-level filter
 local function test_show_module_examples_function_filter()
-  if not docs.has_docs() then
+  if not docs.is_available() then
     io.stderr:write("SKIP: test_show_module_examples_function_filter (no docs available)\n")
     print("test_show_module_examples_function_filter: PASS (skipped)")
     return
@@ -48,11 +48,10 @@ local function test_show_module_examples_function_filter()
   end
 
   if test_mod and test_func then
-    local result = docs.show_module_examples(test_mod .. "." .. test_func)
-    assert(result, "show_module_examples should return a result")
-    assert(result.ok, "function filter should find matching examples for " .. test_mod .. "." .. test_func)
-    assert(result.output:match(test_func), "output should contain function name")
-    assert(result.output:match("examples"), "output should contain 'examples' header")
+    local output, qerr = docs.module_examples(test_mod .. "." .. test_func)
+    assert(output ~= nil, "function filter should find matching examples for " .. test_mod .. "." .. test_func)
+    assert((output or qerr):match(test_func), "output should contain function name")
+    assert((output or qerr):match("examples"), "output should contain 'examples' header")
     print("test_show_module_examples_function_filter: PASS (tested " .. test_mod .. "." .. test_func .. ")")
   else
     print("test_show_module_examples_function_filter: PASS (no suitable module+function found)")
@@ -62,7 +61,7 @@ test_show_module_examples_function_filter()
 
 -- Test show_module_examples with nonexistent function returns error
 local function test_show_module_examples_no_match()
-  if not docs.has_docs() then
+  if not docs.is_available() then
     io.stderr:write("SKIP: test_show_module_examples_no_match (no docs available)\n")
     print("test_show_module_examples_no_match: PASS (skipped)")
     return
@@ -79,10 +78,9 @@ local function test_show_module_examples_no_match()
   end
 
   if test_mod then
-    local result = docs.show_module_examples(test_mod .. ".nonexistent_function_xyz")
-    assert(result, "show_module_examples should return a result")
-    assert(not result.ok, "nonexistent function should return ok=false")
-    assert(result.output:match("No examples"), "output should say no examples found")
+    local output, qerr = docs.module_examples(test_mod .. ".nonexistent_function_xyz")
+    assert(not output, "nonexistent function should be a miss")
+    assert((output or qerr):match("No examples"), "output should say no examples found")
     print("test_show_module_examples_no_match: PASS")
   else
     print("test_show_module_examples_no_match: PASS (no module with examples found)")
@@ -92,7 +90,7 @@ test_show_module_examples_no_match()
 
 -- Test show_module_examples still works with plain module name
 local function test_show_module_examples_module_only()
-  if not docs.has_docs() then
+  if not docs.is_available() then
     io.stderr:write("SKIP: test_show_module_examples_module_only (no docs available)\n")
     print("test_show_module_examples_module_only: PASS (skipped)")
     return
@@ -109,10 +107,9 @@ local function test_show_module_examples_module_only()
   end
 
   if test_mod then
-    local result = docs.show_module_examples(test_mod)
-    assert(result, "show_module_examples should return a result")
-    assert(result.ok, "module-only query should succeed for " .. test_mod)
-    assert(result.output:match("examples"), "output should contain 'examples' header")
+    local output, qerr = docs.module_examples(test_mod)
+    assert(output ~= nil, "module-only query should succeed for " .. test_mod)
+    assert((output or qerr):match("examples"), "output should contain 'examples' header")
     print("test_show_module_examples_module_only: PASS (tested " .. test_mod .. ")")
   else
     print("test_show_module_examples_module_only: PASS (no module with examples found)")
@@ -122,15 +119,14 @@ test_show_module_examples_module_only()
 
 -- Test that bare module name resolves in show_module_examples (bug 4)
 local function test_show_module_examples_bare_name()
-  if not docs.has_docs() then
+  if not docs.is_available() then
     io.stderr:write("SKIP: test_show_module_examples_bare_name\n")
     print("test_show_module_examples_bare_name: PASS (skipped)")
     return
   end
-  local r = docs.show_module_examples("child")
-  assert(r, "should return result")
-  assert(not (not r.ok and r.output:match("module not found: child")),
-    "bare 'child' should not fail with module not found: " .. r.output)
+  local r, rerr = docs.module_examples("child")
+  assert(not (r == nil and rerr:match("module not found: child")),
+    "bare 'child' should not fail with module not found: " .. tostring(rerr))
   print("test_show_module_examples_bare_name: PASS")
 end
 test_show_module_examples_bare_name()
@@ -140,7 +136,7 @@ test_show_module_examples_bare_name()
 -- module (box's run(), matched by Example_run_return_shape) must fall back
 -- to the function-filter reading instead of failing with "No examples".
 local function test_show_module_examples_module_function_collision()
-  if not docs.has_docs() then
+  if not docs.is_available() then
     io.stderr:write("SKIP: test_show_module_examples_module_function_collision\n")
     print("test_show_module_examples_module_function_collision: PASS (skipped)")
     return
@@ -150,10 +146,9 @@ local function test_show_module_examples_module_function_collision()
     print("test_show_module_examples_module_function_collision: PASS (fixture modules absent)")
     return
   end
-  local result = docs.show_module_examples("cosmic.quicksand.box.run")
-  assert(result, "should return a result")
-  assert(result.ok, "collision query must resolve via the function filter: " .. result.output)
-  assert(result.output:match("run"), "output should mention run")
+  local output, qerr = docs.module_examples("cosmic.quicksand.box.run")
+  assert(output ~= nil, "collision query must resolve via the function filter: " .. (output or qerr))
+  assert((output or qerr):match("run"), "output should mention run")
   print("test_show_module_examples_module_function_collision: PASS")
 end
 test_show_module_examples_module_function_collision()

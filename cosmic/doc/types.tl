@@ -80,12 +80,6 @@ local record doc_types
     description: string
   end
 
-  --- Result from a docs operation.
-  record DocsResult
-    ok: boolean
-    output: string
-  end
-
 end
 
 return doc_types

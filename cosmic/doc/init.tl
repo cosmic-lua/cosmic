@@ -23,36 +23,38 @@ local record DocModule
   type Param = types.Param
   type Return = types.Return
   type DocIndex = types.DocIndex
-  type DocsResult = types.DocsResult
   type SearchResult = types.SearchResult
 
-  -- Query: the index embedded in the binary (`--docs`).
-  query: function(q?: string): DocsResult
-  has_docs: function(): boolean
-  list_topics: function(include_cosmo?: boolean): {{string, string}}
+  -- Query: the index embedded in the binary (`--docs`). The fallible
+  -- lookups return `string | nil, string` (#1001: DocsResult{ok, output}
+  -- was the success-text-or-error-text-by-flag anti-pattern this very
+  -- file documents render_file shedding).
+  query: function(q?: string): string | nil, string
+  is_available: function(): boolean
+  topics: function(include_cosmo?: boolean): {{string, string}}
   embedded_index: function(): DocIndex | nil, string
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
-  show_module_examples: function(query: string): DocsResult
-  show_guide: function(topic: string): DocsResult
-  list_guide_topics: function(): {string}
-  list_guides: function(): {{string, string}}
+  module_examples: function(query: string): string | nil, string
+  guide: function(topic: string): string | nil, string
+  guide_topics: function(): {string}
+  guides: function(): {{string, string}}
   strip_frontmatter: function(content: string): string
 end
 
 local M: DocModule = {
   query = query.run,
-  has_docs = query.has_docs,
-  list_topics = query.list_topics,
+  is_available = query.is_available,
+  topics = query.topics,
   embedded_index = query.embedded_index,
   render_module = query.render_module,
   search = query.search,
   render_search_results = query.render_search_results,
-  show_module_examples = query.show_module_examples,
-  show_guide = query.show_guide,
-  list_guide_topics = query.list_guide_topics,
-  list_guides = query.list_guides,
+  module_examples = query.module_examples,
+  guide = query.guide,
+  guide_topics = query.guide_topics,
+  guides = query.guides,
   strip_frontmatter = query.strip_frontmatter,
 }
 

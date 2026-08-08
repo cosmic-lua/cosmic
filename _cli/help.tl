@@ -15,9 +15,9 @@ local function generate(): string
   table.insert(lines, static_help)
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
-  local docs = require("cosmic.doc")
-  if docs.has_docs() then
-    local topics = docs.list_topics() -- excludes cosmo.* by default
+  local docs = require("_cli.doc_compat")
+  if docs.is_available() then
+    local topics = docs.topics() -- excludes cosmo.* by default
     if #topics > 0 then
       local cosmic_topics: {{string, string}} = {}
 
@@ -55,7 +55,7 @@ local function generate(): string
   end
 
   -- Show guides list
-  local guides = docs.list_guides()
+  local guides = docs.guides()
   if #guides > 0 then
     local max_len = 0
     for _, g in ipairs(guides) do

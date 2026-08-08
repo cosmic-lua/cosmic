@@ -5,7 +5,6 @@ local docs_lookup = require("cosmic.doc.lookup")
 local types = require("cosmic.doc.types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
-local DocsResult = types.DocsResult
 local SearchResult = types.SearchResult
 local ExampleEntry = types.ExampleEntry
 
@@ -43,7 +42,7 @@ end
 
 --- Check if embedded docs are available.
 --- @return boolean True if docs are embedded
-local function has_docs(): boolean
+local function is_available(): boolean
   local index, _ = embedded_index()
   return index ~= nil
 end
@@ -60,7 +59,7 @@ local function strip_frontmatter(content: string): string
 end
 
 --- List available guide topics from the embedded skills directory.
-local function list_guide_topics(): {string}
+local function guide_topics(): {string}
   local fs = require("cosmic.fs")
   local fs_types = require("cosmic.fs.types")
   local dir = fs.open_dir(GUIDES_DIR)
@@ -80,32 +79,32 @@ local function list_guide_topics(): {string}
 end
 
 --- List guides with descriptions from each file's heading.
-local function list_guides(): {{string, string}}
-  local topics = list_guide_topics()
-  local guides: {{string, string}} = {}
-  for _, name in ipairs(topics) do
+local function guides(): {{string, string}}
+  local names = guide_topics()
+  local out: {{string, string}} = {}
+  for _, name in ipairs(names) do
     local content = require("cosmic.fs").read(GUIDES_DIR .. "/" .. name .. ".md")
     local desc = name
     if content then
       local heading = string.match(content, "^#%s+(.-)%s*\n")
       if heading then desc = heading end
     end
-    table.insert(guides, {name, desc})
+    table.insert(out, {name, desc})
   end
-  return guides
+  return out
 end
 
 --- Show a guide topic or list all guides.
-local function show_guide(topic: string): DocsResult
+local function guide(topic: string): string | nil, string
   local fs = require("cosmic.fs")
   if topic == "" then
     local content, err = fs.read(GUIDES_DIR .. "/SKILL.md")
     if not content then
-      return {ok = false, output = "error: " .. (err or "no guides available")}
+      return nil, "error: " .. (err or "no guides available")
     end
-    return {ok = true, output = strip_frontmatter(content)}
+    return strip_frontmatter(content)
   end
-  local topics = list_guide_topics()
+  local topics = guide_topics()
   local valid = false
   for _, t in ipairs(topics) do
     if t == topic then valid = true; break end
@@ -116,14 +115,14 @@ local function show_guide(topic: string): DocsResult
     for _, t in ipairs(topics) do
       table.insert(lines, "  " .. t)
     end
-    return {ok = false, output = table.concat(lines, "\n")}
+    return nil, table.concat(lines, "\n")
   end
   local path = GUIDES_DIR .. "/" .. topic .. ".md"
   local content, err = fs.read(path)
   if not content then
-    return {ok = false, output = "error: " .. (err or "failed to load " .. path)}
+    return nil, "error: " .. (err or "failed to load " .. path)
   end
-  return {ok = true, output = content}
+  return content
 end
 
 --- Check if a module name is a low-level cosmo module.
@@ -139,24 +138,24 @@ end
 --- searchable and directly addressable by name.
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {{string, string}} List of {name, description} pairs, sorted by name
-local function list_topics(include_cosmo?: boolean): {{string, string}}
+local function topics(include_cosmo?: boolean): {{string, string}}
   local index, _ = embedded_index()
   if not index then return {} end
   local idx = index
 
-  local topics: {{string, string}} = {}
+  local out: {{string, string}} = {}
   for name, doc in pairs(idx.modules) do
     if not doc.internal and (include_cosmo or not is_cosmo_module(name)) then
       local desc = docs_render.first_paragraph(doc.module_doc)
-      table.insert(topics, {name, desc})
+      table.insert(out, {name, desc})
     end
   end
 
-  table.sort(topics, function(a: {string, string}, b: {string, string}): boolean
+  table.sort(out, function(a: {string, string}, b: {string, string}): boolean
       return a[1] < b[1]
     end)
 
-  return topics
+  return out
 end
 
 local calc_score = docs_lookup.calc_score
@@ -294,11 +293,12 @@ end
 
 --- Show examples for a specific module, optionally filtered by function name.
 --- @param query string Module name (full, bare, or module.function)
---- @return DocsResult Result with examples content
-local function show_module_examples(query: string): DocsResult
+--- @return string | nil The rendered examples, or nil when not found
+--- @return string? The not-found message
+local function module_examples(query: string): string | nil, string
   local index, err = embedded_index()
   if not index then
-    return {ok = false, output = "error: " .. (err or "no documentation embedded")}
+    return nil, "error: " .. (err or "no documentation embedded")
   end
   local idx = index
   -- Resolve bare name (e.g. "child" -> "cosmic.child")
@@ -311,7 +311,7 @@ local function show_module_examples(query: string): DocsResult
       for _, example in ipairs(doc.examples) do
         table.insert(lines, docs_render.render_example(example))
       end
-      return {ok = true, output = table.concat(lines, "\n")}
+      return table.concat(lines, "\n")
     end
     -- The resolved module has no examples, but the query may also read as
     -- module.function — cosmic.quicksand.box.run is both the (example-less)
@@ -343,67 +343,65 @@ local function show_module_examples(query: string): DocsResult
         for _, example in ipairs(matching) do
           table.insert(lines, docs_render.render_example(example))
         end
-        return {ok = true, output = table.concat(lines, "\n")}
+        return table.concat(lines, "\n")
       end
     end
-    return {ok = false, output = "No examples for " .. query}
+    return nil, "No examples for " .. query
   end
 
   if resolved then
-    return {ok = false, output = "No examples for " .. resolved}
+    return nil, "No examples for " .. resolved
   end
 
   local suggestions = docs_render.find_example_suggestions(query, idx)
   if #suggestions > 0 then
     local lines: {string} = {"error: module not found: " .. query, "", "Did you mean?"}
     for i = 1, math.min(3, #suggestions) do table.insert(lines, "  " .. suggestions[i]) end
-    return {ok = false, output = table.concat(lines, "\n")}
+    return nil, table.concat(lines, "\n")
   end
-  return {ok = false, output = "error: module not found: " .. query}
+  return nil, "error: module not found: " .. query
 end
 
 --- Main entry point for the docs command.
 --- @param query string Optional query string (module or module.symbol)
---- @return DocsResult Result with documentation content
-local function run(query?: string): DocsResult
+--- @return string | nil The rendered documentation, or nil when not found
+--- @return string? The not-found message
+local function run(query?: string): string | nil, string
   local index, err = embedded_index()
   if not index then
-    return {
-      ok = false,
-      output = "error: " .. (err or "no documentation embedded") .. "\n" ..
-      "Build with 'make cosmic' to include documentation.",
-    }
+    return nil, "error: " .. (err or "no documentation embedded") .. "\n"
+    .. "Build with 'make cosmic' to include documentation."
   end
   local idx = index
 
   if not query or query == "" then
-    local topics = list_topics()
-    if #topics == 0 then
-      return {ok = false, output = "error: no documentation found"}
+    local topic_list = topics()
+    if #topic_list == 0 then
+      return nil, "error: no documentation found"
     end
-    return {ok = true, output = docs_render.render_topic_list(topics)}
+    return docs_render.render_topic_list(topic_list)
   end
 
   if query == "examples" then
     local examples = list_all_examples()
-    return {ok = true, output = docs_render.render_examples_list(examples)}
+    return docs_render.render_examples_list(examples)
   end
 
   if query == "guide" then
-    return show_guide("")
+    return guide("")
   end
   if query:sub(1, 6) == "guide." then
-    return show_guide(query:sub(7))
+    return guide(query:sub(7))
   end
 
   if idx.modules[query] then
-    return {ok = true, output = docs_render.render_module(query, idx.modules[query])}
+    return docs_render.render_module(query, idx.modules[query])
   end
 
   -- Bare module names short-circuit to their cosmic.* page, not fuzzy search
   if idx.modules["cosmic." .. query] then
     local full = "cosmic." .. query
-    return {ok = true, output = docs_render.render_module(full, idx.modules[full])}
+    return docs_render.render_module(full, idx.modules[full])
   end
 
   -- Try splitting query into module + remainder by iterating splits longest-to-shortest
@@ -434,16 +432,15 @@ local function run(query?: string): DocsResult
     local method = remainder[2]
     local rendered = docs_render.find_symbol(doc, symbol, method)
     if rendered then
-      return {ok = true, output = rendered}
+      return rendered
     else
       if method then
-        return {
-          ok = false,
-          output = "error: method '" .. method .. "' not found in '" .. matched_mod .. "." .. symbol .. "'\n" ..
-          "Use 'cosmic --docs " .. matched_mod .. "." .. symbol .. "' to see available methods.",
-        }
+        return nil, "error: method '" .. method .. "' not found in '"
+        .. matched_mod .. "." .. symbol .. "'\n"
+        .. "Use 'cosmic --docs " .. matched_mod .. "." .. symbol
+        .. "' to see available methods."
       else
-        return {ok = false, output = docs_lookup.symbol_not_found(symbol, matched_mod, idx)}
+        return nil, docs_lookup.symbol_not_found(symbol, matched_mod, idx)
       end
     end
   end
@@ -457,43 +454,40 @@ local function run(query?: string): DocsResult
     end
     table.insert(lines, "")
     table.insert(lines, "Try: cosmic --docs " .. suggestions[1])
-    return {ok = false, output = table.concat(lines, "\n")}
+    return nil, table.concat(lines, "\n")
   end
 
-  return {
-    ok = false,
-    output = "error: documentation not found for '" .. query .. "'\n" ..
-    "Use 'cosmic --docs' to see available modules.",
-  }
+  return nil, "error: documentation not found for '" .. query .. "'\n"
+  .. "Use 'cosmic --docs' to see available modules."
 end
 
 local record DocsModule
-  run: function(query?: string): DocsResult
-  has_docs: function(): boolean
-  list_topics: function(include_cosmo?: boolean): {{string, string}}
+  run: function(query?: string): string | nil, string
+  is_available: function(): boolean
+  topics: function(include_cosmo?: boolean): {{string, string}}
   embedded_index: function(): DocIndex | nil, string
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
-  show_module_examples: function(query: string): DocsResult
-  show_guide: function(topic: string): DocsResult
-  list_guide_topics: function(): {string}
-  list_guides: function(): {{string, string}}
+  module_examples: function(query: string): string | nil, string
+  guide: function(topic: string): string | nil, string
+  guide_topics: function(): {string}
+  guides: function(): {{string, string}}
   strip_frontmatter: function(content: string): string
 end
 
 local M: DocsModule = {
   run = run,
-  has_docs = has_docs,
-  list_topics = list_topics,
+  is_available = is_available,
+  topics = topics,
   embedded_index = embedded_index,
   render_module = docs_render.render_module,
   search = search,
   render_search_results = docs_render.render_search_results,
-  show_module_examples = show_module_examples,
-  show_guide = show_guide,
-  list_guide_topics = list_guide_topics,
-  list_guides = list_guides,
+  module_examples = module_examples,
+  guide = guide,
+  guide_topics = guide_topics,
+  guides = guides,
   strip_frontmatter = strip_frontmatter,
 }
 
