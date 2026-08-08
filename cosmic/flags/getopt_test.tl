@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
-local getopt = require("cosmic.getopt")
+local getopt = require("cosmic.flags.getopt")
 
 -- Collect the option letters/names from a parse result, in order.
 local function opt_names(r: getopt.Result): {string}

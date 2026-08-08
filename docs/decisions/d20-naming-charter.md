@@ -29,7 +29,10 @@
      Every pair ships both halves or documents why not. The file
      variant is `<verb>_file` (`literal.parse`/`parse_file`).
   7. Options records are named `Options` (or `<Thing>Options` when a
-     module has several); the argument is named `opts`.
+     module has several); the argument is named `opts`. Named
+     exemption (#991): `flags.Spec` — a CLI interface declaration is
+     genuinely not a kwargs bag, and its flag list is `Spec.flags`
+     ({Flag}), not an Options record.
   8. `verb_noun` order: `hash.hash_password`, `hash.verify_password`.
   9. Reserved verbs, one meaning tree-wide: `run` = execute a
      program/callback; `match` = pattern match; `query` = index/db

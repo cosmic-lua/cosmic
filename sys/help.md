@@ -30,7 +30,7 @@ Cosmic options:
                                 e.g. cosmic --report o/foo.got
   --coverage-report <paths>...  merge .cov data, print per-file line coverage
                                 e.g. cosmic --coverage-report o/.coverage cosmic
-  -c <line>                     run one recipe line as argv, not shell
+  -c, --recipe <line>           run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic. the closed
                                  vocabulary: assert-elf, assert-marker,
                                  capture, compile, copy, exec, link,
@@ -43,13 +43,13 @@ Cosmic options:
   --welcome                     show welcome message
   -h, --help                    show this help message
 
-Standard lua options:
-  -e <stat>                   execute string 'stat'
-  -l <name>                   require library 'name'
-  -i                          enter interactive mode
+Standard lua options (each also has a long spelling, #991):
+  -e, --execute <stat>        execute string 'stat'
+  -l, --load <name>           require library 'name'
+  -i, --interactive           enter interactive mode
   -v, --version               show version information
-  -E                          ignore environment variables
-  -W                          turn warnings into errors
+  -E, --ignore-env            ignore environment variables
+  -W, --warn                  turn warnings into errors
 
 Environment variables:
   COSMIC_FENCE               0 opts out of the derived build sandbox (on by default)

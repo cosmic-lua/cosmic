@@ -13,7 +13,7 @@
 ---
 --- Exit codes: 0 all scenarios ok / no regressions; 1 failure.
 
-local getopt = require("cosmic.getopt")
+local flags = require("cosmic.flags")
 local json = require("cosmic.json")
 local csys = require("cosmic.sys")
 local time = require("cosmic.time")
@@ -47,6 +47,20 @@ usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only SUB] MODULE...
 --- Parse command-line arguments.
 --- @param argv {string} Raw arguments
 --- @return Args Parsed arguments; Args.err is set on parse failure
+local SPEC: flags.Spec = {
+  name = "run.lua",
+  flags = {
+    {long = "out", arg = "FILE", help = "write JSON results here"},
+    {long = "samples", arg = "N", help = "samples per scenario"},
+    {long = "min-secs", arg = "S", help = "minimum sample duration"},
+    {long = "only", arg = "SUB", help = "run scenarios matching SUB"},
+    {long = "compare", help = "compare two results files"},
+    {long = "threshold", arg = "PCT", help = "regression threshold"},
+    {long = "selfcheck-a", arg = "FILE", help = "A/A noise floor, first"},
+    {long = "selfcheck-b", arg = "FILE", help = "A/A noise floor, second"},
+  },
+}
+
 local function parse_args(argv: {string}): Args
   local a: Args = {
     samples = harness.DEFAULT_SAMPLES,
@@ -54,67 +68,46 @@ local function parse_args(argv: {string}): Args
     threshold = compare.DEFAULT_THRESHOLD_PCT,
     positional = {},
   }
-  local raw_parser, gerr = getopt.new(argv, "h", {
-      {name = "out", has_arg = "required"},
-      {name = "samples", has_arg = "required"},
-      {name = "min-secs", has_arg = "required"},
-      {name = "only", has_arg = "required"},
-      {name = "compare", has_arg = "none"},
-      {name = "threshold", has_arg = "required"},
-      {name = "selfcheck-a", has_arg = "required"},
-      {name = "selfcheck-b", has_arg = "required"},
-      {name = "help", has_arg = "none", short = "h"},
-    })
-  if raw_parser == nil then
-    a.err = "argument parse failed: " .. tostring(gerr)
+  local parsed, perr = flags.parse(SPEC, argv)
+  if not parsed then
+    a.err = "argument parse failed: " .. tostring(perr)
     return a
   end
-  local parser = raw_parser
-  while true do
-    local opt, optarg = parser:next()
-    if opt == nil then
-      break
-    end
-    if opt == "out" then
-      a.out = optarg
-    elseif opt == "samples" then
-      local n = math.tointeger(tonumber(optarg))
-      if n == nil or n < 1 then
-        a.err = "--samples requires a positive integer, got: " .. tostring(optarg)
-      else
-        a.samples = n
-      end
-    elseif opt == "min-secs" then
-      local s = tonumber(optarg)
-      if s == nil or s <= 0 then
-        a.err = "--min-secs requires a positive number, got: " .. tostring(optarg)
-      else
-        a.min_secs = s
-      end
-    elseif opt == "only" then
-      a.only = optarg
-    elseif opt == "compare" then
-      a.compare_mode = true
-    elseif opt == "threshold" then
-      local t = tonumber(optarg)
-      if t == nil or t < 0 then
-        a.err = "--threshold requires a non-negative number, got: " .. tostring(optarg)
-      else
-        a.threshold = t
-      end
-    elseif opt == "selfcheck-a" then
-      a.selfcheck_a = optarg
-    elseif opt == "selfcheck-b" then
-      a.selfcheck_b = optarg
-    elseif opt == "h" then
-      a.help = true
+  a.out = parsed.values["out"]
+  if parsed.values["samples"] then
+    local n = math.tointeger(tonumber(parsed.values["samples"]))
+    if n == nil or n < 1 then
+      a.err = "--samples requires a positive integer, got: "
+      .. tostring(parsed.values["samples"])
+    else
+      a.samples = n
     end
   end
-  for _, u in ipairs(parser:unknown()) do
-    a.err = "unknown option: " .. u
+  if parsed.values["min-secs"] then
+    local secs = tonumber(parsed.values["min-secs"])
+    if secs == nil or secs <= 0 then
+      a.err = "--min-secs requires a positive number, got: "
+      .. tostring(parsed.values["min-secs"])
+    else
+      a.min_secs = secs
+    end
   end
-  for _, p in ipairs(parser:remaining()) do
-    table.insert(a.positional, p)
+  a.only = parsed.values["only"]
+  a.compare_mode = parsed.switches["compare"]
+  if parsed.values["threshold"] then
+    local t = tonumber(parsed.values["threshold"])
+    if t == nil or t < 0 then
+      a.err = "--threshold requires a non-negative number, got: "
+      .. tostring(parsed.values["threshold"])
+    else
+      a.threshold = t
+    end
+  end
+  a.selfcheck_a = parsed.values["selfcheck-a"]
+  a.selfcheck_b = parsed.values["selfcheck-b"]
+  a.help = parsed.help
+  for _, pos in ipairs(parsed.args) do
+    table.insert(a.positional, pos)
   end
   return a
 end

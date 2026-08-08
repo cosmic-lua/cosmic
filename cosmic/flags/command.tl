@@ -29,23 +29,23 @@ local function command_names(cspec: CommandSpec): string
 end
 
 --- Validate a command spec. nil when sound, else a message naming the
---- defect — the same never-throw shape as everything here.
+--- defect — the same never-throw shape as everything here. Messages
+--- are unprefixed (#991): the caller knows its own name.
 local function validate_commands(cspec: CommandSpec): string
-  local pname = cspec.name or "program"
   if not cspec.commands or #cspec.commands == 0 then
-    return pname .. ": invalid spec: no commands declared"
+    return "invalid spec: no commands declared"
   end
   local seen: {string: boolean} = {}
   for _, cmd in ipairs(cspec.commands) do
     if not cmd.name or #cmd.name == 0 then
-      return pname .. ": invalid spec: command without a name"
+      return "invalid spec: command without a name"
     end
     if seen[cmd.name] then
-      return pname .. ": invalid spec: duplicate command '" .. cmd.name .. "'"
+      return "invalid spec: duplicate command '" .. cmd.name .. "'"
     end
     seen[cmd.name] = true
     if not cmd.spec then
-      return pname .. ": invalid spec: command '" .. cmd.name .. "' has no spec"
+      return "invalid spec: command '" .. cmd.name .. "' has no spec"
     end
   end
   return nil
@@ -62,8 +62,15 @@ local function qualified_spec(cspec: CommandSpec, cmd: Command): Spec
     summary = cmd.spec.summary or cmd.summary,
     usage = cmd.spec.usage,
     version = cmd.spec.version,
-    options = cmd.spec.options,
+    flags = cmd.spec.flags,
   }
+end
+
+--- A Parsed for help/version dispatches, so Dispatched.parsed is
+--- never nil (#991): every map present and empty, the request flag set.
+local function request_parsed(help: boolean, version: boolean): Parsed
+  return {switches = {}, values = {}, lists = {}, args = {},
+    help = help, version = version}
 end
 
 --- Dispatch a command line to one of a program's subcommands.
@@ -72,8 +79,8 @@ end
 --- back as help requests (never printed here), --version likewise when
 --- the spec carries a version. No command, an unknown command, options
 --- before the command, or a failed sub-parse is nil plus a one-line
---- message — already prefixed with the program name, so print it
---- as-is; adding your own prefix doubles it ("todo: todo: ...").
+--- message. Messages are NOT prefixed with the program name (#991) —
+--- add your own context when printing.
 --- @param cspec CommandSpec The declared interface
 --- @param argv {string} The argument list (typically the global arg)
 --- @return Dispatched | nil The dispatch result, or nil on any error
@@ -86,7 +93,7 @@ local function command(cspec: CommandSpec, argv: {string}): Dispatched | nil, st
   local pname = cspec.name or "program"
   local first = argv and argv[1]
   if not first then
-    return nil, pname .. ": expected a command: " .. command_names(cspec)
+    return nil, "expected a command: " .. command_names(cspec)
     .. " (try --help)"
   end
   if first == "--help" or first == "-h" or first == "help" then
@@ -96,25 +103,26 @@ local function command(cspec: CommandSpec, argv: {string}): Dispatched | nil, st
     end
     if target then
       if not find_command(cspec, target) then
-        return nil, pname .. ": unknown command '" .. target .. "': "
+        return nil, "unknown command '" .. target .. "': "
         .. command_names(cspec)
       end
-      return {command = target, help = true, version = false}
+      return {command = target, parsed = request_parsed(true, false),
+        help = true, version = false}
     end
-    return {help = true, version = false}
+    return {parsed = request_parsed(true, false), help = true, version = false}
   end
   if cspec.version and first == "--version" then
-    return {help = false, version = true}
+    return {parsed = request_parsed(false, true), help = false, version = true}
   end
   -- An option before any command was the one mistake the generic
   -- "unknown command '--file'" error obscured; name the ordering.
   if first:sub(1, 1) == "-" then
-    return nil, pname .. ": options follow the command (" .. pname
+    return nil, "options follow the command (" .. pname
     .. " <command> [options]); commands: " .. command_names(cspec)
   end
   local cmd = find_command(cspec, first)
   if not cmd then
-    return nil, pname .. ": unknown command '" .. first .. "': "
+    return nil, "unknown command '" .. first .. "': "
     .. command_names(cspec) .. " (try --help)"
   end
   local rest: {string} = {}

@@ -33,7 +33,7 @@ if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("_cli.require_hints").install()
 end
 
-local getopt = require("cosmic.getopt")
+local flags = require("cosmic.flags")
 local cli_args = require("_cli.args")
 local handlers = require("_cli.main_handlers")
 
@@ -75,7 +75,7 @@ local record Options
   error: string
 end
 
--- Parse arguments using cosmo.getopt iterator API
+-- Parse arguments against the _cli.args spec via cosmic.flags (#991).
 local function parse_args(): Options
   -- Absent record fields read as nil; only the accumulating and
   -- boolean fields need initial values.
@@ -93,8 +93,6 @@ local function parse_args(): Options
     include_dirs = {},
   }
 
-  local shortopts = cli_args.shortopts
-  local longopts: {getopt.LongOpt} = cli_args.longopts
   local short_needs_arg = cli_args.short_needs_arg
   local long_needs_arg = cli_args.long_needs_arg
 
@@ -188,128 +186,92 @@ local function parse_args(): Options
     return opts
   end
 
-  local r0, perr = getopt.parse(cosmic_args, shortopts, longopts)
-  if not r0 then
-    opts.error = "cosmic-lua: " .. (perr or "failed to parse arguments")
-    return opts
-  end
-  local r = r0
-
-  -- A required argument that's absent lands in `missing` (named without
-  -- dashes). Give a targeted usage hint where we have one, else a generic
-  -- "requires an argument" message.
-  if #r.missing > 0 then
-    local m = r.missing[1]
-    if m == "test" then
-      opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
-    elseif m == "make" then
-      opts.error = "cosmic-lua: --make requires: --make <verb> [paths...]\nSee: cosmic-lua --help"
-    elseif m == "embed" then
-      opts.error = "cosmic-lua: --embed requires: --embed <path>\nSee: cosmic-lua --help"
-    elseif m == "output" then
-      opts.error = "cosmic-lua: --output requires: --output <file>\nSee: cosmic-lua --help"
+  -- cast: args.tl types the spec as a structural twin (pin-safe; #991)
+  local p0, perr = flags.parse(cli_args.spec as flags.Spec, cosmic_args)
+  if not p0 then
+    -- flags errors arrive unprefixed (#991); this program adds its
+    -- name, plus a targeted usage hint for the multi-argument flags.
+    local hints: {string: string} = {
+      ["--test"] = "--test requires: --test <output> <cmd>...",
+      ["--make"] = "--make requires: --make <verb> [paths...]",
+      ["--embed"] = "--embed requires: --embed <path>",
+      ["--output"] = "--output requires: --output <file>",
+    }
+    local msg = perr or "failed to parse arguments"
+    local needs_value = msg:match("^option requires a value: (%-%-%S+)$")
+    if needs_value and hints[needs_value] then
+      opts.error = "cosmic-lua: " .. hints[needs_value]
+      .. "\nSee: cosmic-lua --help"
     else
-      local dash = #m == 1 and "-" or "--"
-      opts.error = "cosmic-lua: option '" .. dash .. m ..
-      "' requires an argument\nSee: cosmic-lua --help"
+      opts.error = "cosmic-lua: " .. msg .. "\nSee: cosmic-lua --help"
     end
     return opts
   end
+  local p = p0
 
-  -- Truly unrecognized options (already spelled with their dashes).
-  if #r.unknown > 0 then
-    opts.error = "cosmic-lua: unknown option '" .. r.unknown[1] .. "'"
+  -- Wholesale mapping: the mutually-exclusive command flags dispatch
+  -- in main()'s fixed order, which the old first-flag-wins parse loop
+  -- approximated anyway.
+  opts.exe = p.values["exe"]
+  opts.output = p.values["output"]
+  opts.write_if_changed = p.switches["write-if-changed"]
+  for _, d in ipairs(p.lists["include-dir"]) do
+    opts.include_dirs[#opts.include_dirs + 1] = d
+  end
+  opts.recipe = p.values["recipe"]
+  for _, code in ipairs(p.lists["execute"]) do
+    opts.execute[#opts.execute + 1] = code
+  end
+  for _, name in ipairs(p.lists["load"]) do
+    opts.load[#opts.load + 1] = name
+  end
+  opts.interactive = p.switches["interactive"]
+  opts.version = p.switches["version"]
+  opts.warnings = p.switches["warn"]
+  opts.help = p.help
+  opts.compile = p.values["compile"]
+  opts.compile_strict = p.values["compile-strict"]
+  opts.format = p.values["format"]
+  opts.fix = p.values["fix"]
+  if p.values["check"] then
+    -- The kind is the flag's argument; the file is the next
+    -- positional, which the parser has left in p.args.
+    opts.check_kind = p.values["check"]
+    opts.check_file = p.args[1]
+  end
+  for _, path in ipairs(p.lists["embed"]) do
+    opts.embed[#opts.embed + 1] = path
+  end
+  opts.extract = p.values["extract"]
+  opts.examples = p.values["examples"]
+  opts.benchmark = p.values["benchmark"]
+  opts.docs = p.values["docs"]
+  opts.welcome = p.switches["welcome"]
+  if p.values["test"] then
+    opts.test_output = p.values["test"]
+    opts.test_argv = payload or {}
+  end
+  if p.switches["report"] then
+    opts.report_paths = p.args
+  end
+  if p.switches["coverage-report"] then
+    opts.coverage_report_paths = p.args
+  end
+  if p.values["make"] then
+    opts.make_verb = p.values["make"]
+    opts.make_argv = payload or {}
+  end
+  opts.skill = p.values["skill"]
+  -- --modules is acted on at the top of this file.
+
+  -- A command flag ends the run before any script dispatch, matching
+  -- the old parse loop's early returns.
+  if opts.recipe or opts.help or opts.compile or opts.compile_strict
+  or opts.format or opts.fix or opts.check_kind or opts.extract
+  or opts.examples or opts.benchmark or opts.docs or opts.test_output
+  or opts.report_paths or opts.coverage_report_paths or opts.make_verb
+  or opts.skill then
     return opts
-  end
-
-  -- Modifiers up front, so a command flag cannot swallow a later --output.
-  for _, o in ipairs(r.opts) do
-    if o.opt == "exe" then
-      opts.exe = o.arg
-    elseif o.opt == "output" then
-      opts.output = o.arg
-    elseif o.opt == "write-if-changed" then
-      opts.write_if_changed = true
-    elseif o.opt == "include-dir" then
-      opts.include_dirs[#opts.include_dirs + 1] = o.arg
-    end
-  end
-
-  for _, o in ipairs(r.opts) do
-    local opt = o.opt
-    local optarg = o.arg
-
-    if opt == "c" then
-      opts.recipe = optarg
-      return opts
-    elseif opt == "e" then
-      opts.execute[#opts.execute + 1] = optarg
-    elseif opt == "l" then
-      opts.load[#opts.load + 1] = optarg
-    elseif opt == "i" then
-      opts.interactive = true
-    elseif opt == "v" then
-      opts.version = true
-    elseif opt == "E" then
-      -- Ignore environment variables (already handled by lua)
-    elseif opt == "W" then
-      opts.warnings = true
-    elseif opt == "h" or opt == "help" then
-      opts.help = true
-      return opts
-    elseif opt == "compile" then
-      opts.compile = optarg
-      return opts
-    elseif opt == "compile-strict" then
-      opts.compile_strict = optarg
-      return opts
-    elseif opt == "format" then
-      opts.format = optarg
-      return opts
-    elseif opt == "fix" then
-      opts.fix = optarg
-      return opts
-    elseif opt == "check" then
-      -- The kind is the flag's argument; the file is the next
-      -- positional, which getopt has left in `r.args`.
-      opts.check_kind = optarg
-      opts.check_file = r.args[1]
-      return opts
-    elseif opt == "embed" then
-      opts.embed[#opts.embed + 1] = optarg
-    elseif opt == "extract" then
-      opts.extract = optarg
-      return opts
-    elseif opt == "examples" then
-      opts.examples = optarg or ""
-      return opts
-    elseif opt == "benchmark" then
-      opts.benchmark = optarg
-      return opts
-    elseif opt == "docs" then
-      opts.docs = optarg or ""
-      return opts
-    elseif opt == "welcome" then
-      opts.welcome = true
-    elseif opt == "test" then
-      opts.test_output = optarg
-      opts.test_argv = payload or {}
-      return opts
-    elseif opt == "report" then
-      opts.report_paths = r.args
-      return opts
-    elseif opt == "coverage-report" then
-      opts.coverage_report_paths = r.args
-      return opts
-    elseif opt == "make" then
-      opts.make_verb = optarg
-      opts.make_argv = payload or {}
-      return opts
-    elseif opt == "skill" then
-      opts.skill = optarg
-      return opts
-    elseif opt == "modules" then -- acted on at the top of this file
-    end
   end
 
   -- Handle script and script args
