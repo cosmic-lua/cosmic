@@ -19,14 +19,13 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.stream` | the stream contract: Reader/Writer interfaces |
 | `cosmic.fs` | filesystem paths, stat, walk, mkdir, temp files |
 | `cosmic.string` | trim, split, replace, contains, fields, lines, pad, dedent, truncate, shell_quote |
-| `cosmic.env` | environment variable get/set/unset/list |
-| `cosmic.envd` | load environment variables from an embedded env.d directory |
+| `cosmic.env` | environment variable get/set/unset/list, dotenv parsing and env.d loading |
 | `cosmic.errno` | errno names, numbers, and error-string helpers |
 | `cosmic.check` | assertion helpers for tests with auto-formatted failure messages |
 | `cosmic.sys` | OS and architecture detection |
 | `cosmic.time` | timestamps, sleep, clock, datetime breakdown |
 | `cosmic.uuid` | UUIDv4 (random) and UUIDv7 (time-ordered) |
-| `cosmic.table` | deep copy/merge/equality and map/filter/reduce for tables |
+| `cosmic.deep` | deep copy/merge/structural equality for nested tables |
 | `cosmic.searcher` | the runtime `.tl` package searcher every artifact installs at boot |
 
 ### Networking
@@ -78,11 +77,9 @@ local sqlite = require("cosmic.sqlite")
 | module | description |
 |--------|-------------|
 | `cosmic.tty` | terminal detection, window size, termios |
-| `cosmic.syslog` | system logging with priority levels |
-| `cosmic.getopt` | command-line option parsing |
-| `cosmic.flags` | declarative command-line flag parsing built on getopt, with generated `--help` |
+| `cosmic.flags` | declarative command-line flag parsing with generated `--help` |
 | `cosmic.ansi` | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
-| `cosmic.log` | leveled logging to stderr with key=value fields |
+| `cosmic.log` | leveled logging with key=value fields, to stderr or a custom sink (syslog included) |
 
 ### Text
 

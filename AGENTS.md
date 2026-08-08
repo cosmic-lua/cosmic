@@ -358,10 +358,10 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
 | coverage | line coverage collection for cosmic programs (`--make coverage`) |
+| deep | deep copy/merge/structural equality for nested tables |
 | doc | extract docs from source and query the embedded documentation index |
 | embed | create custom executables with embedded files |
-| env | environment variable get (nil when unset), get_or, set/unset |
-| envd | load environment variables from embedded env.d directory |
+| env | environment variables: get (nil when unset), get_or, set/unset/list, dotenv parse/format and env.d loading |
 | errno | canonical errno formatting (`wrap`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
@@ -369,14 +369,13 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | format | Teal/Lua code formatter |
 | fs | filesystem: paths, stat, walk, read/write, mkdir, symlink, tmp |
 | fuzzy | fuzzy string matching (edit distance) |
-| getopt | command-line option parsing (short + long opts) |
 | hash | SHA-256 digest and Argon2 password hashing |
 | html | HTML escaping |
 | instrument | timing/resource spans: emit `key=value` lines, and parse them back |
 | fd | file descriptor I/O: open/wrap handles, pipes |
 | ip | IP address parsing, formatting, classification |
 | json | JSON encode/decode |
-| log | leveled logging to stderr with key=value fields |
+| log | leveled logging with key=value fields, to stderr or a custom sink (syslog included) |
 | net | TCP/UDP/Unix sockets |
 | poll | poll(2) wrapper for I/O multiplexing |
 | proc | current process: pid, exec, resource usage |
@@ -395,8 +394,6 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | string | trim, split, capitalize, starts_with, etc. |
 | style | pure style checks: file length (the `--check lint` gate) and the house limits; the lexer-based rules (`call-after-define`, `visibility`, ...) live in `_cli/`, not here |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
-| syslog | system logging |
-| table | deep copy/merge/equality and map/filter/reduce for tables |
 | tar | extract a tarball (.tar.gz or plain .tar), in process |
 | teal | Teal compilation and type checking |
 | testrun | test execution and reporting |

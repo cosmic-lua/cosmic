@@ -134,6 +134,53 @@ local function test_format_does_not_emit()
 end
 test_format_does_not_emit()
 
+-- The sink contract (#994): every emitted line arrives with its
+-- level, so a destination that speaks severities (the syslog sink)
+-- need not re-parse the line.
+local function test_sink_receives_level()
+  reset("info")
+  local seen: {string} = {}
+  log.set_output(function(line: string, level: log.Level)
+      seen[#seen + 1] = level .. ":" .. line
+    end)
+  log.error("boom")
+  log.set_output(function(line: string)
+      captured[#captured + 1] = line
+    end)
+  assert(#seen == 1, "expected 1 line, got " .. tostring(#seen))
+  assert(seen[1]:match("^error:"), "sink must receive the level, got: " .. seen[1])
+end
+test_sink_receives_level()
+
+-- Folded from cosmic.syslog (#994): the sink maps log's four levels
+-- onto RFC 5424 wire severities internally, so the falsifiable
+-- in-process contract is that every level maps and the write never
+-- throws — delivery is unobservable here (containers usually lack
+-- /dev/log), and a level that failed to map to its integer would
+-- raise inside unix.syslog.
+local function test_syslog_output_accepts_every_level_and_never_throws()
+  local levels: {log.Level} = {"debug", "info", "warning", "error"}
+  for _, level in ipairs(levels) do
+    local ok, thrown = pcall(function(): boolean
+        log.syslog_output("cosmic.log syslog test: " .. level, level)
+        return true
+      end)
+    assert(ok, "syslog_output(" .. level .. ") must not throw: " .. tostring(thrown))
+  end
+end
+test_syslog_output_accepts_every_level_and_never_throws()
+
+-- An unknown level smuggled through a cast is dropped, not thrown
+-- (mirrors log() and set_level()).
+local function test_syslog_output_drops_runtime_garbage_level()
+  local ok, thrown = pcall(function(): boolean
+      log.syslog_output("boom", "verbose" as log.Level) -- cast: deliberate invalid input
+      return true
+    end)
+  assert(ok, "unknown level must be dropped, not thrown: " .. tostring(thrown))
+end
+test_syslog_output_drops_runtime_garbage_level()
+
 local function test_set_output_restores_stderr_default()
   reset("info")
   -- Restoring the default must not raise; emitting afterwards writes

@@ -58,7 +58,6 @@ local MISSING_ALLOWED: {string} = {
   "sse",
   "string",
   "sys",
-  "syslog",
   "teal",
   "time",
   "tty",

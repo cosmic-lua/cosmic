@@ -10,7 +10,7 @@ sys.platform() -- "linux-x86_64", "macos-aarch64", ...
 
 ## Module × OS Matrix
 
-everything not listed in a table below is pure Lua or a fully portable cosmopolitan binding and works the same on all six OSes: ansi, benchmark, codec, compress, doc, embed, env, envd, example, fetch, flags, format, fuzzy, getopt, hash, html, ip, json, log, net, poll, re, rand, sqlite, sse, string, sys, table, teal, testrun, time, url, uuid, zip.
+everything not listed in a table below is pure Lua or a fully portable cosmopolitan binding and works the same on all six OSes: ansi, benchmark, codec, compress, deep, doc, embed, env, example, fetch, flags, format, fuzzy, hash, html, ip, json, log, net, poll, re, rand, sqlite, sse, string, sys, teal, testrun, time, url, uuid, zip.
 
 modules with per-OS differences:
 
@@ -23,7 +23,7 @@ modules with per-OS differences:
 | signal | full | full | partial | full | full | full | cosmopolitan emulates the core POSIX signals on Windows; timers and rare signals may degrade |
 | tty | full | full | partial | full | full | full | termios on Windows maps onto the console API; not every flag is honored |
 | shm | full | degraded | degraded | full | full | degraded | kernel futexes on Linux/FreeBSD/OpenBSD; elsewhere wait/wake fall back to sched_yield — correct but not scalable under contention |
-| syslog | full | no-op | full | no-op | no-op | full | delivered via syslogd on Linux/NetBSD and ReportEvent() on Windows; silently dropped elsewhere |
+| log.syslog_output | full | no-op | full | no-op | no-op | full | delivered via syslogd on Linux/NetBSD and ReportEvent() on Windows; silently dropped elsewhere |
 | pledge | enforced | no-op* | no-op* | no-op* | enforced | no-op* | see sandbox matrix below |
 | unveil | enforced | no-op* | no-op* | no-op* | enforced | no-op* | see sandbox matrix below |
 | landlock | >=5.13 | no | no | no | no | no | Linux-only kernel feature |
