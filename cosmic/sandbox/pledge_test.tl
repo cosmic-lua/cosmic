@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local pledge = require("cosmic.pledge")
+local pledge = require("cosmic.sandbox.pledge")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 local check = require("cosmic.check")
@@ -43,7 +43,7 @@ test_fail_closed_when_unavailable()
 local function test_stdio_allows_write()
   local script = fs.join(tmpdir, "pledge_stdio.lua")
   assert(fs.write(script, [[
-local pledge = require("cosmic.pledge")
+local pledge = require("cosmic.sandbox.pledge")
 if not pledge.available() then
   io.write("skipped: pledge unsupported on this host\n")
   os.exit(0)
@@ -74,7 +74,7 @@ local function test_restricts_filesystem()
   -- process, so a leak/skip cannot be signalled through the exit code alone.
   local script = fs.join(tmpdir, "pledge_no_fs.lua")
   assert(fs.write(script, [[
-local pledge = require("cosmic.pledge")
+local pledge = require("cosmic.sandbox.pledge")
 if not pledge.available() then
   io.write("unsupported: pledge unsupported on this host\n")
   os.exit(0)

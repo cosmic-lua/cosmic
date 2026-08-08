@@ -129,17 +129,24 @@ local function fence(verb: string, args: {string}): string | nil
   if fs_policy == nil then
     return nil
   end
-  -- `keep_coverage`, because this policy GRANTS the coverage directory
-  -- (`_cli/grants.tl` creates it and adds it to `rw`). Without saying
-  -- so the mechanism seals coverage before restricting — the right
-  -- default when nobody knows whether the dump will still work — and
-  -- every fenced recipe then reports only the lines it ran before the
-  -- fence landed. The dumps are all there and all nearly empty, which
-  -- is why it read as a code regression rather than a lost measurement.
+  -- This policy GRANTS the coverage directory (`_cli/grants.tl`
+  -- creates it and adds it to `rw`), so mark cosmic.coverage before
+  -- applying: without the mark the mechanism seals coverage before
+  -- restricting — the right default when nobody knows whether the dump
+  -- will still work — and every fenced recipe then reports only the
+  -- lines it ran before the fence landed. (#989: the mark replaced the
+  -- keep_coverage policy flag.) The probe guards the gen-0 cold start,
+  -- where the pinned engine's coverage module predates the mark; the
+  -- seal there loses nothing because gen-0 collects no coverage.
+  -- Delete the guard at pin advance.
+  local coverage = require("cosmic.coverage") as {string: any} -- cast: transitional probe
+  local keep = coverage["keep_on_restrict"]
+  if type(keep) == "function" then
+    (keep as function())() -- cast: from any
+  end
   local enforced, err = sandbox.apply({
       fs = fs_policy,
       best_effort = true,
-      keep_coverage = true,
     })
   if enforced is sandbox.Availability then
     -- best_effort can no longer skip silently: apply reports what it

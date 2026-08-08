@@ -100,8 +100,7 @@ local shapes: {string: Shape} = {
   record = {rw = {1}, exec = {2}, rest_ro = 3},
   -- write-list <out> [items...] — items are text written in, not read
   ["write-list"] = {rw = {1}},
-  -- copy <src> <dst>
-  copy = {ro = {1}, rw = {2}},
+  copy = {ro = {1}, rw = {2}}, -- copy <src> <dst>
   -- link <target> <linkpath> — target is a string in the symlink, not a read
   link = {rw = {2}},
   -- remove <paths...> — unlink needs the parent writable
@@ -243,6 +242,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- Dropping the rule costs nothing: the program is not there, so
   -- granting exec on it protects no one, and whatever the verb does
   -- next it does with an honest error of its own.
+  -- Predates sandbox.Fs.optional (#989); keep until the pin advance.
   local ex: {string} = {}
   for _, p in ipairs(ex_raw) do
     if fs.exists(p) then

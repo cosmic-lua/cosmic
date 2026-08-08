@@ -12,9 +12,7 @@
 --- child process, and returns a ProxyHandle with the bound pid and
 --- port. handle:stop() sends SIGTERM (escalating to SIGKILL after a
 --- timeout) and reaps the child; handle:alive() is a non-blocking
---- liveness check. Implementation lives in cosmic.quicksand.proxy.*
---- (rules, http, dial, serve); advanced callers needing a non-forking
---- server can use cosmic.quicksand.proxy.serve directly.
+--- liveness check.
 ---
 --- Rule schema (allowed_hosts):
 ---

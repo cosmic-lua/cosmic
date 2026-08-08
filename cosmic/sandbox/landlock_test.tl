@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local landlock = require("cosmic.landlock")
+local landlock = require("cosmic.sandbox.landlock")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 local check = require("cosmic.check")
@@ -80,7 +80,7 @@ local function test_restrict_denies_outside_allowlist()
 
   local script = fs.join(tmpdir, "landlock_restrict.lua")
   assert(fs.write(script, string.format([[
-local ll = require("cosmic.landlock")
+local ll = require("cosmic.sandbox.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then
   -- An outer sandbox (pledge/seccomp) may block the landlock syscall
@@ -147,7 +147,7 @@ local function test_restrict_single_file_rule()
 
   local script = fs.join(tmpdir, "landlock_filerule.lua")
   assert(fs.write(script, string.format([[
-local ll = require("cosmic.landlock")
+local ll = require("cosmic.sandbox.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then
   io.write("restrict-failed: " .. tostring(err) .. "\n")

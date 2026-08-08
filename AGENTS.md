@@ -383,13 +383,10 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
 | records | a build's machine-readable records: row, summary, verdict, exit codes |
-| sandbox | one-call fail-closed facade over pledge/unveil/landlock (fs + sys policy) |
+| sandbox | the in-process containment door: one fail-closed fs + sys policy (landlock/unveil/pledge are its internal shards) |
 | searcher | the runtime `.tl` package searcher every artifact installs at boot |
-| pledge | restrict system calls (OpenBSD, Linux) |
-| unveil | restrict filesystem visibility (OpenBSD, or Linux via landlock) |
-| landlock | Linux >=5.13 self-restricting filesystem sandbox |
 | literal | read a Teal/Lua file as data: `return { … }` of literals, never executed |
-| quicksand | Linux namespace + allowlist proxy box primitives and declarative `Box` builder |
+| quicksand | out-of-process containment: Linux namespace + allowlist-proxy boxes via quicksand.new |
 | shm | shared memory with atomic ops and futexes |
 | signal | signal handling, timers, sigsets |
 | sqlite | SQLite with ergonomic query/exec/transaction API |

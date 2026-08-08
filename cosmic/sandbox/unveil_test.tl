@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local unveil = require("cosmic.unveil")
+local unveil = require("cosmic.sandbox.unveil")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 local check = require("cosmic.check")
@@ -69,7 +69,7 @@ local function test_unveil_restricts_paths()
 
   local script = fs.join(tmpdir, "unveil_test.lua")
   assert(fs.write(script, string.format([[
-local unveil = require("cosmic.unveil")
+local unveil = require("cosmic.sandbox.unveil")
 local ok, err = unveil.allow(%q, "r")
 if not ok then
   io.write("unveil-blocked: allow failed: " .. tostring(err) .. "\n")

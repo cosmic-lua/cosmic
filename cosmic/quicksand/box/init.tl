@@ -1,13 +1,13 @@
 --- Declarative box builder.
 ---
---- Composes the quicksand primitives (netns, proxy, proc) plus
---- cosmic.landlock / cosmic.pledge into a single `box:run(argv)` call
---- that returns an exit code.
+--- Composes the quicksand primitives (netns, proxy, proc) plus the
+--- cosmic.sandbox facade into a single `box:run(argv)` call that
+--- returns an exit code.
 ---
 --- Usage:
 ---
 ---     local quicksand = require("cosmic.quicksand")
----     local box = quicksand.Box.new{
+---     local box = quicksand.new{
 ---       fs = { exec = { "/usr" }, rw = { "/tmp" } },
 ---       net = { allow = { ["api.example.com:443"] = {} } },
 ---       proc = { no_new_privs = true },
@@ -15,11 +15,11 @@
 ---     }
 ---     os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 ---
---- Options are plain tables, composable with `Box.merge(base, over)`.
+--- Options are plain tables, composable with `quicksand.merge(base, over)`.
 --- Full schema in `BoxOptions` below.
 ---
 --- The capability probe is loaded lazily to avoid a require cycle with
---- cosmic.quicksand (which re-exports Box from its umbrella). The
+--- cosmic.quicksand (whose new/merge front this builder). The
 --- fork / exec orchestration lives in cosmic.quicksand.box.run and is
 --- required on demand from `run()` so construction stays cheap.
 local box_merge = require("cosmic.quicksand.box.merge")

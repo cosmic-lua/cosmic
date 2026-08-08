@@ -62,6 +62,7 @@ local default_dir: string = nil
 local dump_name: string = nil
 local wrappers_installed = false
 local sealed = false
+local kept_on_restrict = false
 
 -- cache of the table for the chunk the hook saw last, so consecutive
 -- lines in the same chunk cost one table index instead of two
@@ -250,6 +251,24 @@ local function seal()
   sealed = true
 end
 
+--- Declare that the active sandbox policy grants the coverage
+--- directory, so the pre-restrict seal must NOT run: the process keeps
+--- reporting what it does after the sandbox lands. Only build tooling
+--- that granted the directory itself may call this (#989: this
+--- declaration replaces the keep_coverage flag the four containment
+--- policy records used to carry). Irreversible for the process, like
+--- the policies it describes.
+local function keep_on_restrict()
+  kept_on_restrict = true
+end
+
+--- Whether keep_on_restrict() was declared; consulted by
+--- cosmic._seal_coverage before sealing on behalf of the containment
+--- shards.
+local function is_kept_on_restrict(): boolean
+  return kept_on_restrict
+end
+
 --- Arm collection for this process, dumping into dir on exit.
 --- Used by the CLI when COSMIC_COVERAGE names a directory; also wraps
 --- os.exit so early exits (like a test skip) still flush their counts.
@@ -331,6 +350,8 @@ local record CoverageModule
   reset: function()
   dump: function(dir?: string): boolean, string
   seal: function()
+  keep_on_restrict: function()
+  is_kept_on_restrict: function(): boolean
   enable: function(dir: string)
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
@@ -352,6 +373,8 @@ local M: CoverageModule = {
   reset = reset,
   dump = dump,
   seal = seal,
+  keep_on_restrict = keep_on_restrict,
+  is_kept_on_restrict = is_kept_on_restrict,
   enable = enable,
   dir_from_env = dir_from_env,
   enable_from_env = enable_from_env,
