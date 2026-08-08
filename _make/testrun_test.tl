@@ -54,7 +54,7 @@ local function test_runner_carries_root_payload()
   assert(fs.is_file(runner), "runner exists at " .. testrun.PATH)
   local reader = check.must(zip.open(runner))
   local saw: {string: boolean} = {}
-  for _, e in ipairs(reader:list()) do
+  for _, e in ipairs((check.must(reader:list()))) do
     saw[e.name] = true
   end
   reader:close()

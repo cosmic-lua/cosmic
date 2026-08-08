@@ -140,54 +140,54 @@ local function test_fetch_reader_conforms()
 end
 test_fetch_reader_conforms()
 
-local function test_from_string_conforms()
-  check_reader(stream.from_string("in-memory bytes"), "in-memory bytes",
-    "stream.from_string")
+local function test_new_reader_conforms()
+  check_reader(stream.new_reader("in-memory bytes"), "in-memory bytes",
+    "stream.new_reader")
 end
-test_from_string_conforms()
+test_new_reader_conforms()
 
-local function test_from_string_chunks_and_edges()
+local function test_new_reader_chunks_and_edges()
   -- n bounds each chunk; the tail chunk may be short.
-  local r = stream.from_string("abcdef")
+  local r = stream.new_reader("abcdef")
   check.equal(r:read(4), "abcd", "first bounded chunk")
   check.equal(r:read(4), "ef", "short tail chunk")
   check.equal(r:read(4), nil, "then end of stream")
 
   -- An empty string is an empty stream: bare nil immediately.
-  local empty = stream.from_string("")
+  local empty = stream.new_reader("")
   local chunk, err = empty:read()
   assert(chunk == nil and err == nil, "empty string reads as clean EOF")
 
   -- A non-positive bound is an honest error, not a sneaky EOF.
-  local bad = stream.from_string("data")
+  local bad = stream.new_reader("data")
   local got, bad_err = bad:read(0)
   assert(got == nil and bad_err ~= nil, "n must be positive")
 end
-test_from_string_chunks_and_edges()
+test_new_reader_chunks_and_edges()
 
-local function test_from_string_feeds_lines()
-  local iter = stream.lines(stream.from_string("one\ntwo\nthree"))
+local function test_new_reader_feeds_lines()
+  local iter: stream.LineIter = stream.lines(stream.new_reader("one\ntwo\nthree"))
   check.equal(iter(), "one", "first line")
   check.equal(iter(), "two", "second line")
   check.equal(iter(), "three", "final unterminated line")
   check.equal(iter(), nil, "then nil")
 end
-test_from_string_feeds_lines()
+test_new_reader_feeds_lines()
 
-local function test_buffer_collects_writes()
-  local buf = stream.buffer()
+local function test_new_buffer_collects_writes()
+  local buf = stream.new_buffer()
   check.equal(buf:contents(), "", "empty before any write")
   check.equal(buf:write("collected "), 10, "write reports the chunk written")
   assert(buf:write("bytes"))
   check.equal(buf:contents(), "collected bytes", "contents is everything written")
   check.equal(buf:contents(), "collected bytes", "contents is repeatable")
 end
-test_buffer_collects_writes()
+test_new_buffer_collects_writes()
 
-local function test_buffer_round_trips_through_copy()
-  local buf = stream.buffer()
-  local copied = check.must(stream.copy(buf, stream.from_string("round trip")))
+local function test_new_buffer_round_trips_through_copy()
+  local buf = stream.new_buffer()
+  local copied = check.must(stream.copy(buf, stream.new_reader("round trip")))
   check.equal(copied, 10, "copy reports the byte count")
-  check.equal(buf:contents(), "round trip", "from_string -> buffer round-trips")
+  check.equal(buf:contents(), "round trip", "new_reader -> new_buffer round-trips")
 end
-test_buffer_round_trips_through_copy()
+test_new_buffer_round_trips_through_copy()

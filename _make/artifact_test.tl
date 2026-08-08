@@ -255,7 +255,7 @@ local function test_stripped_to_the_floor()
   -- outside the floor is extractable either.
   local reader = check.must(zip.open(bin))
   local bytes: {string: integer} = {}
-  for _, e in ipairs(reader:list()) do
+  for _, e in ipairs((check.must(reader:list()))) do
     local top = e.name:match("^(%.lua/[^/]+)") or e.name:match("^([^/]+)")
     bytes[top] = (bytes[top] or 0) + e.size
   end
@@ -302,7 +302,7 @@ local function test_provided_namespace_supersedes_the_floor()
   -- and must be absent here, while the project's own entry stays.
   local reader = check.must(zip.open(bin))
   local own, base_leftover = false, false
-  for _, e in ipairs(reader:list()) do
+  for _, e in ipairs((check.must(reader:list()))) do
     if e.name == "cosmic/mine.lua" then
       own = true
     end

@@ -119,7 +119,11 @@ local function unpack(archive: string, dest: string, format: string,
   local err: string = nil
   if format == "zip" then
     local reader, oerr = zip.open(archive)
-    if not (reader is zip.Archive) then
+    -- Truthiness, not `is zip.Archive`: the tree's Archive is a
+    -- wrapper table while the pinned record types it as the binding
+    -- userdata, and an `is` test compiled against the pinned record
+    -- would reject the table at cold start (#996 transition).
+    if not reader then
       local _ok, _err = fs.remove_all(staging)
       return nil, "make: cannot open " .. archive .. ": " ..
       (oerr or "unknown error")

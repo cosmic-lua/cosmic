@@ -318,7 +318,7 @@ local function test_a_declared_format_is_unpacked()
   -- under a wrapper directory, which is what strip_components exists
   -- for (a release tarball names its wrapper after the tag).
   local archive = fs.join(tmpdir, "payload.zip")
-  local w = check.must(czip.create(archive))
+  local w = check.must(czip.open(archive, {mode = "write"}))
   assert(w:add("wrapper-1.0/tl.lua", "return 'teal'\n"))
   assert(w:add("wrapper-1.0/deep/other.txt", "x\n"))
   w:close()
@@ -389,7 +389,7 @@ test_a_pin_may_name_its_digest_per_platform()
 -- over a missing tree.
 local function test_a_missing_unpack_is_redone()
   local archive = fs.join(tmpdir, "redo.zip")
-  local w = check.must(czip.create(archive))
+  local w = check.must(czip.open(archive, {mode = "write"}))
   assert(w:add("tl.lua", "return 'teal'\n"))
   w:close()
   local body = check.must(fs.read(archive))

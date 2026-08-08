@@ -197,7 +197,14 @@ local function base_entries(exe_path: string): {string}
     return names
   end
   local reader = rd
-  for _, e in ipairs(reader:list()) do
+  local entries = reader:list()
+  if not entries then
+    -- A read archive that opened but will not list carries nothing
+    -- usable; the contract here is "empty when it carries no zip".
+    reader:close()
+    return names
+  end
+  for _, e in ipairs(entries) do
     names[#names + 1] = e.name
   end
   reader:close()
@@ -333,10 +340,10 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   end
   unix.chmod(tmp_path, tonumber("755", 8))
 
-  -- Open the copy as an appender to modify its zip in-place
-  -- (api-review: cosmic.zip's own Appender — embed no longer keeps a
+  -- Open the copy in append mode to modify its zip in-place
+  -- (api-review: cosmic.zip's own Archive — embed no longer keeps a
   -- structural twin of it)
-  local appender_maybe, appender_err = czip.append(tmp_path)
+  local appender_maybe, appender_err = czip.open(tmp_path, {mode = "append"})
   if not appender_maybe then
     local _ok, _err = fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}

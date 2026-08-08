@@ -183,7 +183,7 @@ local function decode_base32(str: string): string | nil, string
 end
 
 --- Compute the CRC-32 checksum of data (ISO 3309 / "Phil Katz" CRC,
---- as used by zip, zlib, and gzip; the same value zip.Stat reports).
+--- as used by zip, zlib, and gzip; the same value zip.EntryStat reports).
 --- Checksums are error-detection codes, not cryptographic digests —
 --- for those, see cosmic.hash.digest.
 --- Pass a previous result as initial to checksum a stream

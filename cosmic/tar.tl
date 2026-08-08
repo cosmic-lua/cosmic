@@ -1,6 +1,6 @@
 #!/usr/bin/env lua
---- In-process `.tar.gz` extraction: unpack a gzipped tarball without a
---- host `tar`.
+--- In-process tarball extraction: unpack a `.tar.gz` (or plain `.tar`;
+--- gzip is detected from the header) without a host `tar`.
 ---
 --- It began as the stage pipeline's replacement for `tar -xzmf`
 --- and moved here when `--make` needed it too: `_make` unpacks pinned
@@ -36,10 +36,20 @@ local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
 
 local BLOCK = 512
---- Decompression cap: input integrity comes from the fetch rule's sha256
---- pin; this only keeps a corrupt archive from eating the build host.
---- Fetch caps downloads at 100 MiB compressed.
+--- Default decompression cap (opts.max_archive_bytes overrides): input
+--- integrity comes from the fetch rule's sha256 pin; this only keeps a
+--- corrupt archive from eating the build host. Fetch caps downloads at
+--- 100 MiB compressed.
 local MAX_TAR = 512 * 1024 * 1024
+
+--- Options for extract().
+local record ExtractOptions
+  --- Cap on the unpacked archive size in bytes (default 512 MiB): the
+  --- bound the gunzip step enforces, so a corrupt or malicious archive
+  --- cannot balloon memory (api-review #996: was a private constant
+  --- while zip's cap was an option).
+  max_archive_bytes: integer
+end
 
 local record Header
   name: string
@@ -174,19 +184,30 @@ local function write_entry(hdr: Header, name: string, payload: string,
   return true
 end
 
---- Extract a gzip-compressed tarball into destdir.
---- @param archive string Path to the .tar.gz file
+--- Extract a tarball into destdir. Gzip compression is detected from
+--- the file's magic bytes, so `.tar.gz` and plain `.tar` both extract
+--- with the same call (api-review #996: this used to gunzip
+--- unconditionally, so an uncompressed tarball was unreadable).
+--- @param archive string Path to the .tar.gz or .tar file
 --- @param destdir string Directory to extract into (created if needed)
+--- @param opts ExtractOptions? max_archive_bytes: unpacked size cap
 --- @return boolean true when every entry was written
 --- @return string? Error message on failure
-local function extract(archive: string, destdir: string): boolean, string
-  local gz, read_err = fs.read(archive)
-  if not gz then
+local function extract(archive: string, destdir: string,
+    opts?: ExtractOptions): boolean, string
+  local raw, read_err = fs.read(archive)
+  if not raw then
     return false, "read " .. archive .. " failed: " .. (read_err or "unknown error")
   end
-  local data, gz_err = compress.decompress(gz, {format = "gzip", max_output = MAX_TAR})
-  if not data then
-    return false, "gunzip " .. archive .. " failed: " .. (gz_err or "unknown error")
+  local data = raw
+  if raw:sub(1, 2) == "\31\139" then -- gzip magic
+    local cap = (opts and opts.max_archive_bytes) or MAX_TAR
+    local inflated, gz_err = compress.decompress(raw,
+      {format = "gzip", max_output_bytes = cap})
+    if not inflated then
+      return false, "gunzip " .. archive .. " failed: " .. (gz_err or "unknown error")
+    end
+    data = inflated
   end
   local ok_mk, mk_err = fs.make_dirs(destdir)
   if not ok_mk then
@@ -239,12 +260,22 @@ local function extract(archive: string, destdir: string): boolean, string
   return false, "truncated archive: no end-of-archive marker in " .. archive
 end
 
-return {
+local record TarModule
+  --- Options for extract().
+  type ExtractOptions = ExtractOptions
+  extract: function(archive: string, destdir: string, opts?: ExtractOptions): boolean, string
+  --- One guard for zip, tar and embed: `cosmic.embed` and `--make
+  --- fetch` refuse archive-controlled names with the same rule, and a
+  --- shared predicate is what keeps them from disagreeing.
+  unsafe_path: function(name: string): boolean
+end
+
+-- `parse_pax` is deliberately not exported: it was public only so a
+-- test could call it; pax paths are covered through extraction now,
+-- and an export is a contract.
+local M: TarModule = {
   extract = extract,
-  -- `unsafe_path` stays public because `cosmic.embed` and `--make
-  -- fetch` guard archive-controlled names with the same rule, and one
-  -- shared predicate is what keeps the two from disagreeing.
-  -- `parse_pax` was public only so a test could call it; pax paths are
-  -- covered through extraction now, and an export is a contract.
   unsafe_path = unsafe_path,
 }
+
+return M

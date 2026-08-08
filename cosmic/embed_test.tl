@@ -34,8 +34,8 @@ local function test_embed_single_file()
 
   -- Verify file is in the zip
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
-  local files = reader:list()
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
+  local files = check.must(reader:list())
 
   local found = false
   local expected_name = input:gsub("^/+", "")
@@ -65,7 +65,7 @@ local function test_embed_multiple_files()
   assert(ok, "cosmic --embed with multiple files should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local name1 = file1:gsub("^/+", "")
   local name2 = file2:gsub("^/+", "")
@@ -113,7 +113,7 @@ local function test_embed_lua_file()
 
   -- Verify the lua file is in the zip with correct content
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
   local name = modfile:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == [[return { value = 42 }]], "lua content should be preserved")
@@ -133,7 +133,7 @@ local function test_embed_binary_file()
   assert(ok, "embed binary should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
   local name = input:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == binary, "binary content should be preserved exactly")
@@ -157,7 +157,7 @@ local function test_embed_directory()
 
   -- Verify files are stored relative to directory root
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   -- A custom entry is wrapped: main.lua is the generated
   -- searcher-installing wrapper; the user entry is byte-identical at
@@ -192,7 +192,7 @@ local function test_embed_nested_directory()
   assert(ok, "embed nested directory should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   assert(reader:read("top.txt") == "top", "top-level file")
   assert(reader:read("a/mid.txt") == "mid", "mid-level file")
@@ -215,7 +215,7 @@ local function test_embed_mixed()
   assert(ok, "embed mixed should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local c1 = reader:read("main.user.lua")
   assert(c1 == 'print("mixed")\n', "directory entry should be present (wrapped, #687)")
@@ -289,7 +289,7 @@ local function test_embed_uses_deflate()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local name = input:gsub("^/+", "")
   local stat = check.must(reader:stat(name),
@@ -317,7 +317,7 @@ local function test_embed_stores_lua()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local name = input:gsub("^/+", "")
   local stat = check.must(reader:stat(name),
