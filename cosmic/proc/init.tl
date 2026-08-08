@@ -114,9 +114,15 @@ end
 --- Terminates the current process immediately.
 --- Memory is freed, file descriptors are closed, connections are reset.
 --- This function never returns.
---- @param exitcode integer? Exit code (defaults to 0)
-local exit: function(exitcode?: integer) = unix.exit
+--- @param exit_code integer? Exit code (defaults to 0)
+local exit: function(exit_code?: integer) = unix.exit
 
+-- Beyond POSIX (#999): the three members below are cosmic
+-- conveniences, not syscall wrappers — the rest of this module keeps
+-- POSIX names under rule 4's syscall-shaped exemption.
+--   which()        $PATH lookup
+--   interpreter()  the running cosmic binary's resolved path
+--   is_main()      script-vs-module detection
 -- Exec (replace current process) --
 
 --- Performs $PATH lookup of executable (which(1)).
@@ -133,39 +139,44 @@ local function which(prog: string): string | nil, string
   return p
 end
 
---- Resolved-interpreter cache: argv0 is resolved against the cwd (and
---- $PATH) of the FIRST call, so a program that chdirs should call
---- interpreter() before doing so when it was started via a relative path.
+-- Resolved at LOAD (#999): argv0 is resolved against the cwd and
+-- $PATH of require time, so a program that chdirs later still gets
+-- the right answer — the old lazy cache documented a call-order
+-- requirement ("call interpreter() before chdir") instead of meeting it.
 local interpreter_path: string | nil = nil
+local interpreter_err: string | nil = nil
+do
+  local argv0 = rawget(arg, -1)
+  if argv0 == nil or argv0 == "" then
+    interpreter_err = "interpreter: arg[-1] is not set"
+  else
+    local abs = fs_path.absolute_path(argv0)
+    if fs_path.is_file(abs) then
+      interpreter_path = abs
+    else
+      -- A bare name found on $PATH (which() reports the errno when not).
+      local found, err = which(argv0)
+      if found then
+        interpreter_path = found
+      else
+        interpreter_err = "interpreter: cannot resolve '" .. argv0
+        .. "': " .. tostring(err)
+      end
+    end
+  end
+end
 
 --- Absolute path of the running cosmic interpreter — for re-invoking it
 --- to run another script as a child: `child.start({proc.interpreter(),
 --- "worker.tl"})`. This is `arg[-1]` resolved, NOT `arg[0]` (the script
 --- path as the runtime sees it, `/zip/main.lua` in a packed binary). A
 --- bare PATH-invoked argv0 (`cosmic`, the shebang shape) is resolved
---- with a real $PATH search. The result is cached across calls.
+--- with a real $PATH search — at module load (#999), so a later chdir
+--- cannot change the answer.
 --- @return string | nil The interpreter's absolute path
 --- @return string? Error message when argv0 is missing or unresolvable
 local function interpreter(): string | nil, string
-  if interpreter_path then
-    return interpreter_path
-  end
-  local argv0 = rawget(arg, -1)
-  if argv0 == nil or argv0 == "" then
-    return nil, "interpreter: arg[-1] is not set"
-  end
-  local abs = fs_path.absolute_path(argv0)
-  if fs_path.is_file(abs) then
-    interpreter_path = abs
-    return abs
-  end
-  -- A bare name found on $PATH (which() reports the errno when not).
-  local found, err = which(argv0)
-  if not found then
-    return nil, "interpreter: cannot resolve '" .. argv0 .. "': " .. tostring(err)
-  end
-  interpreter_path = found
-  return found
+  return interpreter_path, interpreter_err
 end
 
 --- Replaces current process with new program; never returns on success.
@@ -223,7 +234,7 @@ end
 --- Waits for a child process to change state.
 --- A raw passthrough: EINTR surfaces here, unlike child.Handle:wait.
 --- @param pid integer? Child pid to wait for (-1 or nil for any child)
---- @param options integer? Wait options (e.g. WNOHANG)
+--- @param wait_flags integer? Wait flags (e.g. WNOHANG; #999: rule 7 reserves `options`)
 --- @return integer | nil The pid that changed state (0 with WNOHANG if none), or nil on failure
 --- @return integer Status word (interpret with WIFEXITED/WEXITSTATUS/...)
 --- @return Rusage Resource usage for the reaped child
@@ -238,8 +249,8 @@ local record WaitResult
   rusage: Rusage
 end
 
-local function wait(pid?: integer, options?: integer): WaitResult | nil, string
-  local wpid, status, rusage = unix.wait(pid, options)
+local function wait(pid?: integer, wait_flags?: integer): WaitResult | nil, string
+  local wpid, status, rusage = unix.wait(pid, wait_flags)
   if wpid == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot, where the status word would have been.
@@ -299,7 +310,7 @@ local record ProcModule
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean, string
 
   -- Termination
-  exit: function(exitcode?: integer)
+  exit: function(exit_code?: integer)
 
   -- Exec
   interpreter: function(): string | nil, string
@@ -312,7 +323,7 @@ local record ProcModule
   -- Process control (children)
   fork: function(): integer | nil, string
   type WaitResult = WaitResult
-  wait: function(pid?: integer, options?: integer): WaitResult | nil, string
+  wait: function(pid?: integer, wait_flags?: integer): WaitResult | nil, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
   WIFSIGNALED: function(status: integer): boolean
@@ -356,7 +367,7 @@ local record ProcModule
   PRIO_PGRP: integer
   PRIO_USER: integer
 
-  -- Wait options
+  -- Wait flags
   WNOHANG: integer
   WUNTRACED: integer
   WCONTINUED: integer
@@ -432,7 +443,7 @@ local M: ProcModule = {
   PRIO_PGRP = unix.PRIO_PGRP,
   PRIO_USER = unix.PRIO_USER,
 
-  -- Wait options
+  -- Wait flags
   WNOHANG = unix.WNOHANG,
   WUNTRACED = unix.WUNTRACED,
   WCONTINUED = unix.WCONTINUED,

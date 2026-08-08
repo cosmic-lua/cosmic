@@ -184,9 +184,9 @@ if not pid then
 end
 if pid == 0 then
   b:drop_read()
-  time.sleep(0, 50000000) -- 50ms: let the parent block in b:wait() first
+  time.sleep_ms(50) -- 50ms: let the parent block in b:wait() first
   unix.kill(unix.getppid(), unix.SIGUSR1) -- interrupt the parent's read
-  time.sleep(0, 200000000) -- 200ms "still finishing setup"
+  time.sleep_ms(200) -- 200ms "still finishing setup"
   b:signal()
   os.exit(0)
 end
@@ -289,7 +289,7 @@ test_become_init_returns_child_exit_status()
 local function test_become_init_maps_signal_death_to_128_plus_signum()
   local out = run_init("init_signaled", [[
 local pid = forked()
-if pid == 0 then time.sleep(60) os.exit(0) end
+if pid == 0 then time.sleep_ms(60000) os.exit(0) end
 unix.kill(pid, unix.SIGKILL)
 io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
 ]])
@@ -315,11 +315,11 @@ test_become_init_maps_signal_death_to_128_plus_signum()
 local function test_become_init_forwards_signals_to_main()
   local out = run_init("init_forward", [[
 local main = forked()
-if main == 0 then time.sleep(60) os.exit(0) end
+if main == 0 then time.sleep_ms(60000) os.exit(0) end
 local supervisor = unix.getpid()
 local killer = forked()
 if killer == 0 then
-  time.sleep(1)
+  time.sleep_ms(1000)
   unix.kill(supervisor, unix.SIGTERM)
   os.exit(0)
 end
@@ -343,7 +343,7 @@ test_become_init_forwards_signals_to_main()
 local function test_become_init_sidecar_exit_kills_main()
   local out = run_init("init_sidecar", [[
 local main = forked()
-if main == 0 then time.sleep(60) os.exit(0) end
+if main == 0 then time.sleep_ms(60000) os.exit(0) end
 local side = forked()
 if side == 0 then os.exit(0) end
 local fired = -1

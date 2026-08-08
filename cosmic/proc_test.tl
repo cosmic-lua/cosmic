@@ -332,7 +332,7 @@ test_wexitstatus_values()
 local function test_wifsignaled_on_kill()
   local pid = check.must(proc.fork())
   if pid == 0 then
-    assert(time.sleep(10))
+    assert(time.sleep_ms(10000))
     proc.exit(0)
   else
     assert(signal.kill(pid, signal.SIGKILL), "expected kill to succeed")
@@ -347,7 +347,7 @@ test_wifsignaled_on_kill()
 local function test_wnohang_returns_zero_for_running_process()
   local pid = check.must(proc.fork())
   if pid == 0 then
-    assert(time.sleep(0, 100000000)) -- 100ms
+    assert(time.sleep_ms(100)) -- 100ms
     proc.exit(0)
   else
     local wr = check.must(proc.wait(pid, proc.WNOHANG))

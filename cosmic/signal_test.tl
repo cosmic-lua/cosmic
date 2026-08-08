@@ -107,7 +107,7 @@ local function test_sigaction_handler()
   assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
 
   -- Allow time for signal delivery
-  assert(time.sleep(0, 1000000)) -- 1ms
+  assert(time.sleep_ms(1)) -- 1ms
 
   assert(received_signal == signal.SIGUSR1,
     "handler should have received SIGUSR1, got " .. tostring(received_signal))
@@ -146,7 +146,7 @@ local function test_raise()
   assert(signal.raise(signal.SIGUSR2))
 
   -- Small delay to ensure signal is delivered
-  assert(time.sleep(0, 1000000)) -- 1ms
+  assert(time.sleep_ms(1)) -- 1ms
 
   assert(received, "should have received SIGUSR2")
 
@@ -180,7 +180,7 @@ local function test_setitimer()
   assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
 
   -- Wait 200ms for signal delivery
-  assert(time.sleep(0, 200000000))
+  assert(time.sleep_ms(200))
 
   assert(received, "SIGALRM handler should have been called")
 
@@ -226,24 +226,22 @@ local function test_sigprocmask_error_names_errno()
 end
 test_sigprocmask_error_names_errno()
 
-local function test_sigsuspend_returns_eintr()
-  -- sigsuspend never succeeds: it returns nil plus EINTR once a signal
-  -- is delivered. Arm a short one-shot timer to provide that signal.
+local function test_sigsuspend_succeeds_on_delivery()
+  -- The EINTR that ends a sigsuspend IS its success (#999: success
+  -- used to be an error string, so asserting it always threw). Arm a
+  -- short one-shot timer to provide the delivering signal, and restore
+  -- the previous timer by passing setitimer's result straight back —
+  -- the round-trip the shared record shape exists for.
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
-  assert(signal.setitimer({
+  local prev_timer = check.must(signal.setitimer({
         which = signal.ITIMER_REAL,
         value_ms = 50,
         interval_ms = 0,
       }))
   local mask = signal.sigset(signal.SIGUSR2)
-  local _, err = signal.sigsuspend(mask)
-  assert(type(err) == "string" and err:match("EINTR"),
-    "sigsuspend should return an EINTR error, got: " .. tostring(err))
-  assert(signal.setitimer({
-        which = signal.ITIMER_REAL,
-        value_ms = 0,
-        interval_ms = 0,
-      }))
+  local ok, err = signal.sigsuspend(mask)
+  assert(ok == true, "signal delivery is sigsuspend's success, got: " .. tostring(err))
+  assert(signal.setitimer(prev_timer))
   assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 end
-test_sigsuspend_returns_eintr()
+test_sigsuspend_succeeds_on_delivery()

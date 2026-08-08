@@ -244,7 +244,7 @@ local function test_embed_does_not_corrupt_running_process()
   assert(fs.write(fs.join(appdir, "main.lua"), [[
 local time = require("cosmic.time")
 -- Sleep to give the test time to overwrite the binary
-time.sleep(1)
+time.sleep_ms(1000)
 -- Exercise code paths that touch mmapped pages (string ops, table ops, format)
 local t = {}
 for i = 1, 100 do t[i] = string.format("item_%04d", i) end
@@ -262,7 +262,7 @@ io.write("OK:" .. #result)
   local handle = check.must(child.start({binary}))
 
   -- Wait briefly for the process to start and mmap its pages
-  assert(time.sleep(0, 100000000)) -- 100ms
+  assert(time.sleep_ms(100)) -- 100ms
 
   -- Re-embed over the same path while the process is running.
   -- Without atomic write, this would corrupt the running process.

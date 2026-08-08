@@ -130,7 +130,7 @@ local function test_try_wait()
       res = t.result
       break
     end
-    assert(time.sleep(0, 10000000)) -- 10ms
+    assert(time.sleep_ms(10)) -- 10ms
   end
   assert(res ~= nil, "try_wait should eventually reap the stopped child")
   assert(res.signal == signal.SIGKILL, "expected SIGKILL, got signal=" .. tostring(res.signal))
@@ -159,7 +159,7 @@ local function test_abandoned_handle_reaped()
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(time.sleep(0, 100000000)) -- 100ms for the kernel to finish teardown
+  assert(time.sleep_ms(100)) -- 100ms for the kernel to finish teardown
   assert(not signal.kill(pid, 0), "abandoned child should be killed and reaped, not left alive/zombie")
 end
 test_abandoned_handle_reaped()

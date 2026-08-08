@@ -35,7 +35,7 @@ test_finish_measures_when_disabled()
 
 local function test_finish_and_format_line()
   local span = instrument.begin("check-types", "cosmic/fs.tl")
-  assert(time.sleep(0, 1000000)) -- sleep 1ms to get measurable time
+  assert(time.sleep_ms(1)) -- sleep 1ms to get measurable time
   local data = instrument.finish(span, 0)
   local line = instrument.format_line(data)
   assert(line:match("^cosmic:"), "expected 'cosmic:' prefix, got: " .. line)
@@ -88,7 +88,7 @@ test_is_enabled()
 
 local function test_round_trip()
   local span = instrument.begin("test", "cosmic/sqlite_test.tl")
-  assert(time.sleep(0, 1000000))
+  assert(time.sleep_ms(1))
   local data = instrument.finish(span, 0)
   local line = instrument.format_line(data)
   local parsed = check.must(instrument.parse_line(line), "expected parsed result")

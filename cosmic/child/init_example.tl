@@ -156,7 +156,7 @@ local function Example_supervisor()
         done = done + 1
       end
     end
-    assert(time.sleep(0, 5 * 1000 * 1000)) -- 5ms between polls: reap, don't spin
+    assert(time.sleep_ms(5)) -- 5ms between polls: reap, don't spin
   end
 
   for index, status in ipairs(statuses) do

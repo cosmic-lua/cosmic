@@ -2,6 +2,7 @@
 --- Wraps cosmo.unix signal functions for process signaling, handlers, and timers.
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").wrap
+local errno_is = require("cosmic.errno").is
 
 --- Options for setitimer: which timer, initial fire time, repeat interval.
 --- Durations are integer milliseconds (api-review-6: was four s+ns
@@ -12,13 +13,10 @@ local record SetitimerOptions
   interval_ms: integer
 end
 
---- Result from setitimer: the previous timer, in the same shape.
---- Sub-millisecond remainders round UP, so a still-armed timer never
---- reads as the 0 that would disarm it when passed back.
-local record SetitimerResult
-  value_ms: integer
-  interval_ms: integer
-end
+--- setitimer's return is this SAME record (#999): the previous timer,
+--- `which` included, so a restore is `signal.setitimer(prev)` with no
+--- reassembly. Sub-millisecond remainders round UP, so a still-armed
+--- timer never reads as the 0 that would disarm it when passed back.
 
 --- Signal set for blocking, unblocking, and waiting on signals.
 --- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
@@ -135,18 +133,22 @@ local record SignalModule
 
   --- Suspend the process until a signal is delivered.
   --- Temporarily replaces the signal mask with the provided mask.
-  --- Always returns nil plus an error message: EINTR once a signal
-  --- was delivered and handled, or another errno on failure.
+  --- True once a signal was delivered and handled (the EINTR that IS
+  --- this call's success — #999: success used to be an error string,
+  --- so asserting it always threw); false, err on any other errno.
   --- A deliberate exception to the automatic EINTR retry policy
   --- (cosmic.stream): waiting for the interruption is the call's
   --- entire purpose.
-  sigsuspend: function(mask?: Sigset): nil, string
+  sigsuspend: function(mask?: Sigset): boolean, string
+
+  --- Options for setitimer, and its result: the previous timer in the
+  --- same shape, so a restore round-trips (#999; rule 10 exports).
+  type SetitimerOptions = SetitimerOptions
 
   --- Schedule SIGALRM signals at intervals.
-  --- Accepts a SetitimerOptions record with named fields for clarity.
-  --- Returns a SetitimerResult with the previous timer values, or
-  --- nil plus an error message.
-  setitimer: function(opts: SetitimerOptions): SetitimerResult | nil, string
+  --- Returns the previous timer as a SetitimerOptions, or nil plus an
+  --- error message.
+  setitimer: function(opts: SetitimerOptions): SetitimerOptions | nil, string
 
   --- Send a signal to a process.
   --- pid > 0 signals one process by id; 0 signals current group; -1 signals all.
@@ -209,10 +211,9 @@ local function strsignal(sig: integer): string
 end
 
 --- Set an interval timer with opts record for clarity.
---- Calls raw unix.setitimer which expects C-order (interval first, value second).
---- Returns a SetitimerResult with previous timer values, or nil plus
---- an error message on failure.
-local function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
+--- Returns the previous timer as a SetitimerOptions (same shape as the
+--- input, `which` included), or nil plus an error message on failure.
+local function setitimer(opts: SetitimerOptions): SetitimerOptions | nil, string
   local value_ms = opts.value_ms or 0
   local interval_ms = opts.interval_ms or 0
   local old_isec, old_ins, old_vsec, old_vns = unix.setitimer(
@@ -228,6 +229,7 @@ local function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
     return nil, errstr(old_ins, "setitimer")
   end
   return {
+    which = opts.which,
     value_ms = old_vsec * 1000 + math.ceil(old_vns / 1000000),
     interval_ms = old_isec * 1000 + math.ceil(old_ins / 1000000),
   }
@@ -241,7 +243,7 @@ local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, fl
 -- cast: function shape for nominal Sigset
 local raw_sigprocmask = unix.sigprocmask as function(integer, Sigset): (Sigset, any)
 -- cast: function shape for nominal Sigset
-local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any)
+local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any, any)
 
 --- Register a signal handler for the specified signal.
 --- Lua handlers run deferred in ordinary VM context (see the
@@ -301,11 +303,15 @@ end
 
 --- Suspend the process until a signal is delivered.
 --- @param mask Sigset? Temporary signal mask while suspended
---- @return nil Always nil (sigsuspend only returns after a signal)
+--- @return boolean True once a signal was delivered and handled
+--- @return string? Error message on any errno other than EINTR
 --- @return string Error message: EINTR after a signal was handled
-local function sigsuspend(mask?: Sigset): nil, string
-  local _, err = raw_sigsuspend(mask)
-  return nil, errstr(err, "sigsuspend")
+local function sigsuspend(mask?: Sigset): boolean, string
+  local _, err, eno = raw_sigsuspend(mask)
+  if errno_is(eno, "EINTR") then
+    return true
+  end
+  return false, errstr(err, "sigsuspend")
 end
 
 local M = {} as SignalModule -- cast: record built incrementally
