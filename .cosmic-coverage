@@ -10,11 +10,12 @@ _cli/build/work.tl 148 169
 _cli/check.tl 24 31
 _cli/doc_compat.tl 16 26
 _cli/driver.tl 21 34
+_cli/embed_compat.tl 15 25
 _cli/grants.tl 158 168
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
 _cli/lint_render.tl 26 26
-_cli/main_handlers.tl 11 220
+_cli/main_handlers.tl 11 221
 _cli/pattern_args.tl 132 135
 _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
@@ -120,7 +121,7 @@ cosmic/doc/types.tl 2 2
 cosmic/doc/visibility.tl 17 17
 cosmic/embed/extract.tl 31 59
 cosmic/embed/floor.tl 33 38
-cosmic/embed/init.tl 149 187
+cosmic/embed/init.tl 143 180
 cosmic/env.tl 24 34
 cosmic/errno.tl 17 26
 cosmic/fd.tl 95 118
@@ -204,4 +205,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14825 19461
+total 14834 19480

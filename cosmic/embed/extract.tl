@@ -51,7 +51,7 @@ local function extract(output_dir: string, opts?: ExtractOptions): integer | nil
   if not entries then
     archive:close()
     return nil, "error: cannot list '" .. exe_path .. "': " ..
-      (lerr or "unknown error")
+    (lerr or "unknown error")
   end
   local count = 0
   for _, entry in ipairs(entries) do
