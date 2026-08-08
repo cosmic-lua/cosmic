@@ -5,8 +5,8 @@
 --- doc-type vocabulary this module types itself with).
 --- Parses doc comments, records, functions, and examples from .tl files.
 
-local doc = require("cosmic.doc")
-local type ModuleDoc = doc.ModuleDoc
+local doc_types = require("cosmic.doc")
+local type ModuleDoc = doc_types.ModuleDoc
 
 local doc_render = require("_tool.doc.render")
 local scan = require("_tool.doc.scan")

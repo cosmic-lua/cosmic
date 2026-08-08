@@ -5,16 +5,11 @@
 --- toolchain parses source, so the public module is the query half).
 local types = require("cosmic.doc.types")
 
---- A documentation index containing all modules (the shared record from
---- cosmic.doc.types, so extraction and query agree on the type).
-local type DocIndex = types.DocIndex
-
--- The query half of the module (`doc` and `docs` converged into one
--- family): lookup and search over the index embedded in the binary,
--- behind the `--docs` CLI.
+-- The query half of the converged `doc`/`docs` family: lookup and
+-- search over the index embedded in the binary, behind the `--docs`
+-- CLI. The type vocabulary (DocIndex, DocsResult, ...) is declared on
+-- the module record below, where it is also the re-export surface.
 local query = require("cosmic.doc.query")
-local DocsResult = types.DocsResult
-local SearchResult = types.SearchResult
 
 local record DocModule
   --- The shared doc-type vocabulary, re-exported for the toolchain's
