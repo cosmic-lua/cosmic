@@ -1,15 +1,15 @@
 --- Examples for the cosmic.flags module.
---- Demonstrates declaring a program's options once and getting
+--- Demonstrates declaring a program's flags once and getting
 --- parsing, error messages, and rendered help from the one spec.
 
 -- Example_parse demonstrates the common flow: declare a spec, parse
--- argv, and read flags (booleans), values (with defaults applied),
+-- argv, and read switches (booleans), values (with defaults applied),
 -- and positional args from the result.
 local function Example_parse()
   local flags = require("cosmic.flags")
   local spec: flags.Spec = {
     name = "greet",
-    options = {
+    flags = {
       {long = "verbose", short = "v", help = "print more detail"},
       {long = "output", short = "o", arg = "FILE",
         help = "write to FILE", default = "-"},
@@ -17,7 +17,7 @@ local function Example_parse()
   }
   local parsed = flags.parse(spec, {"-v", "alice"})
   if parsed is flags.Parsed then
-    print(parsed.flags["verbose"], parsed.values["output"], parsed.args[1])
+    print(parsed.switches["verbose"], parsed.values["output"], parsed.args[1])
   end
   -- Output:
   -- true	-	alice
@@ -29,12 +29,13 @@ local function Example_errors()
   local flags = require("cosmic.flags")
   local spec: flags.Spec = {
     name = "greet",
-    options = {{long = "count", arg = "N", help = "repeat", required = true}},
+    flags = {{long = "count", arg = "N", help = "repeat", required = true}},
   }
+  -- Errors arrive unprefixed (#991): the caller adds its own name.
   local _, err = flags.parse(spec, {"--nope"})
-  print(err)
+  print("greet: " .. err)
   local _, err2 = flags.parse(spec, {})
-  print(err2)
+  print("greet: " .. err2)
   -- Output:
   -- greet: unknown option: --nope (try --help)
   -- greet: missing required option: --count (try --help)
@@ -48,7 +49,7 @@ local function Example_help()
     name = "greet",
     summary = "Greet people",
     usage = "[options] <name>",
-    options = {
+    flags = {
       {long = "verbose", short = "v", help = "print more detail"},
       {long = "count", arg = "N", help = "repeat N times", default = "1"},
     },
