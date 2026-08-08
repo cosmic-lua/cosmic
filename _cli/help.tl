@@ -1,8 +1,55 @@
 --- Help text generation for cosmic CLI.
---- Produces the complete --help output including static option descriptions
---- and dynamic module list from embedded docs.
+--- Produces the complete --help output: static option descriptions from
+--- sys/help.md with its derived lists filled in from the registries
+--- that own them (#1003 — a hand-typed copy of a registry drifts), and
+--- the dynamic module list from the embedded docs.
 
 local fs = require("cosmic.fs")
+local str = require("cosmic.string")
+
+--- Greedy-wrap a name list into help-width lines.
+--- @param names_list {string} The names, in the order they should read
+--- @param first string The first line's prefix (indentation included)
+--- @param indent string Every continuation line's prefix
+--- @param suffix string Appended to the last name (e.g. a closing paren)
+--- @return string The wrapped lines, newline-joined
+local function wrap_names(names_list: {string}, first: string,
+    indent: string, suffix: string): string
+  local lines: {string} = {}
+  local line = first
+  for i, name in ipairs(names_list) do
+    local piece = name .. (i < #names_list and "," or suffix)
+    if line == first or line == indent then
+      line = line .. piece
+    elseif #line + 1 + #piece <= 78 then
+      line = line .. " " .. piece
+    else
+      lines[#lines + 1] = line
+      line = indent .. piece
+    end
+  end
+  lines[#lines + 1] = line
+  return table.concat(lines, "\n")
+end
+
+--- The `-c` vocabulary, from the step registry itself.
+--- @return {string} The verb names, sorted
+local function recipe_verbs(): {string}
+  local modes = require("_cli.build.steps")
+  local out: {string} = {}
+  for name in pairs(modes) do
+    out[#out + 1] = name
+  end
+  table.sort(out)
+  return out
+end
+
+--- The `--make` verbs, from the verb registry, in registry order.
+--- @return {string} The active (unplanned) verb names
+local function make_verbs(): {string}
+  require("_make.init")
+  return require("_make.help").names(false)
+end
 
 --- Generate help text for cosmic CLI.
 --- @return string The complete help text
@@ -12,6 +59,18 @@ local function generate(): string
   -- Load static help text from embedded file
   local static_help, err = fs.read("/zip/sys/help.md")
   assert(static_help, "failed to load embedded help: " .. (err or "unknown error"))
+
+  -- Fill the derived lists in. The tokens sit on their own lines in
+  -- help.md; each renders from the registry that owns the names, so
+  -- adding a verb or a public variable updates --help by itself.
+  local pad33 = string.rep(" ", 33)
+  static_help = str.replace(static_help, "{{recipe_verbs}}",
+    wrap_names(recipe_verbs(), pad33 .. "vocabulary: ", pad33, ")"), 1)
+  static_help = str.replace(static_help, "{{make_verbs}}",
+    wrap_names(make_verbs(), string.rep(" ", 32) .. "(", pad33,
+      "; `--make help` lists them)"), 1)
+  static_help = str.replace(static_help, "{{env_vars}}",
+    table.concat(require("_cli.env_vars").help_lines(), "\n"), 1)
   table.insert(lines, static_help)
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)

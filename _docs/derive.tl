@@ -20,6 +20,7 @@
 --- prose: it says why the records exist and how to add one, which no
 --- generator can know.
 
+local docs = require("cosmic.doc")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 
@@ -28,6 +29,10 @@ local INDEX < const > = DECISIONS .. "/README.md"
 
 --- The header row the decisions table starts at.
 local DECISIONS_HEAD < const > = "| # | decision | |"
+
+--- The document holding the derived module table, and its header row.
+local AGENTS < const > = "AGENTS.md"
+local MODULES_HEAD < const > = "| module | description |"
 
 --- One decision record: its number, its title, and its file.
 local record Record
@@ -89,6 +94,30 @@ local function decisions_table(): string, {string}
   return table.concat(out, "\n"), bad
 end
 
+--- The module table, rendered from the embedded doc index — the same
+--- source `--help` renders its module list from at runtime (#1003), so
+--- the committed table cannot describe a module differently than the
+--- binary does. A row's text is its module's own H1 first line; a bad
+--- row is fixed at the module header, and the fix propagates here.
+--- @return string The header and rows, newline-joined
+local function modules_table(): string
+  local rows: {{string, string}} = {}
+  for _, t in ipairs(docs.topics()) do
+    local name = t[1]
+    if name:sub(1, 7) == "cosmic." then
+      rows[#rows + 1] = {name:sub(8), (t[2] or ""):gsub("%s+$", "")}
+    end
+  end
+  table.sort(rows, function(a: {string}, b: {string}): boolean
+      return a[1] < b[1]
+    end)
+  local out: {string} = {MODULES_HEAD, "|--------|-------------|"}
+  for _, r in ipairs(rows) do
+    out[#out + 1] = "| " .. r[1] .. " | " .. r[2] .. " |"
+  end
+  return table.concat(out, "\n")
+end
+
 --- The table currently committed in a document.
 --- @param text string The document
 --- @param head string The table's header row
@@ -142,14 +171,20 @@ end
 local record DeriveModule
   DECISIONS_HEAD: string
   INDEX: string
+  AGENTS: string
+  MODULES_HEAD: string
   decisions_table: function(): string, {string}
+  modules_table: function(): string
   committed_table: function(text: string, head: string): string
 end
 
 local M: DeriveModule = {
   DECISIONS_HEAD = DECISIONS_HEAD,
   INDEX = INDEX,
+  AGENTS = AGENTS,
+  MODULES_HEAD = MODULES_HEAD,
   decisions_table = decisions_table,
+  modules_table = modules_table,
   committed_table = committed_table,
 }
 
@@ -159,13 +194,23 @@ if proc.is_main() then
     io.stderr:write("derive: " .. path ..
       ": no `# D<n> — <title>` heading; it is not in the index\n")
   end
-  local changed, err = rewrite(INDEX, DECISIONS_HEAD, rendered)
-  if err then
-    io.stderr:write("derive: " .. err .. "\n")
+  local failed = false
+  for _, job in ipairs({
+      {INDEX, DECISIONS_HEAD, rendered},
+      {AGENTS, MODULES_HEAD, modules_table()},
+    }) do
+    local changed, err = rewrite(job[1], job[2], job[3])
+    if err then
+      io.stderr:write("derive: " .. err .. "\n")
+      failed = true
+    else
+      print(changed and ("derive: rewrote " .. job[1])
+        or ("derive: " .. job[1] .. " already matches its source"))
+    end
+  end
+  if failed then
     os.exit(1)
   end
-  print(changed and ("derive: rewrote " .. INDEX)
-    or ("derive: " .. INDEX .. " already matches the records"))
 end
 
 return M

@@ -38,10 +38,10 @@ what ships. Dropped whole in 2a; the fuller account is in
 1. **conventions** — a project is a directory tree. filenames and
    directory positions declare intent. no spec file, no `rules.tl`, no
    `cook.mk`.
-2. **a constant rules file plus generated facts** — `o/cosmic.mk` ships
-   inside the binary, byte-identical for every project. `o/project.mk`
-   is generated and holds *only variable assignments*. no rule is ever
-   generated.
+2. **a constant rules file plus generated facts** — `/zip/cosmic.mk`
+   ships inside the binary, byte-identical for every project.
+   `o/project.mk` is generated and holds *only variable assignments*.
+   no rule is ever generated.
 3. **cosmic as `SHELL`** — make invokes `cosmic -c '<line>'` for every
    recipe line. lines are whitespace-split argv whose `argv[0]` must be
    a cosmic verb, or `exec` — which resolves **only to pinned bytes**.

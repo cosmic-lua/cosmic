@@ -102,14 +102,16 @@ into different tree *paths* and comparing.
 
 ## CI
 
-Three lanes in `.github/workflows/pr.yml`:
+Four lanes in `.github/workflows/pr.yml`:
 
 - **`ci`** — fetch with a network, then build and run the whole gate
   inside a loopback-only network namespace, so a stray download fails
   loudly.
 - **`build`** — everything needing a real network or a real kernel:
-  double-build reproducibility, `--make fetch` against the real pins, and
+  the fixpoint assertion, `--make fetch` against the real pins, and
   the sandbox-enforcement lane.
+- **`repro`** — a fresh container refetches the real pins, rebuilds at
+  another path, and byte-compares against `build`'s artifact.
 - **`smoke`** — the built binary on real macOS and Windows runners.
 
 ## Selection

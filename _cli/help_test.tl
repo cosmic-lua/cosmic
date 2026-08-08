@@ -56,6 +56,18 @@ local function test_generate_contains_env_vars()
 end
 test_generate_contains_env_vars()
 
+local function test_generate_renders_derived_lists()
+  local result = help.generate()
+  assert(not result:find("{{", 1, true), "an unrendered {{token}} survived")
+  assert(result:find("write-list", 1, true),
+    "the -c vocabulary renders from the step registry")
+  assert(result:find("`--make help` lists them", 1, true),
+    "the --make verbs render from the verb registry")
+  assert(result:find("COSMIC_FENCE", 1, true),
+    "the public env vars render from the registry")
+end
+test_generate_renders_derived_lists()
+
 local function test_generate_contains_documentation_section()
   local result = help.generate()
   assert(result:find("Documentation:"), "help text should contain 'Documentation:'")

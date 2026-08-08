@@ -1,6 +1,6 @@
---- Teal source read as **data**: one `return { … }` of literals, lexed
---- and matched, never loaded and never called.
----
+--- Teal source read and written as data: one `return { … }` of literals.
+--- Lexed and matched, never loaded and never called; format/format_file
+--- write the same shape parse reads.
 --- This is the reader behind `*_pin.tl` (`cosmic --make fetch`), and it
 --- is public because it has callers outside `cosmic/` — this repo's own
 --- build tooling reads its dependency pins with it, and any project

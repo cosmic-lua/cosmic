@@ -1,6 +1,6 @@
-#!/usr/bin/env lua
---- In-process tarball extraction: unpack a `.tar.gz` (or plain `.tar`;
---- gzip is detected from the header) without a host `tar`.
+--- In-process tarball extraction, without a host `tar`.
+--- Unpacks a `.tar.gz` or plain `.tar` (gzip is detected from the
+--- header).
 ---
 --- It began as the stage pipeline's replacement for `tar -xzmf`
 --- and moved here when `--make` needed it too: `_make` unpacks pinned
