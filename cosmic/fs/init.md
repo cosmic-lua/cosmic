@@ -72,26 +72,31 @@ local record FsModule
   sync: function()
   major: function(dev: integer): integer
   minor: function(dev: integer): integer
-  --  Walk a directory tree depth-first, calling the visitor per entry.
-  --  Visitor signature: visitor(path, name, st, ctx): nil | "skip" | "stop"
-  --    path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
-  --    name = basename of the entry (e.g. "file.txt").
-  --    st   = WalkStat (import: local types = require("cosmic.fs.types"); types.WalkStat).
-  --  Returning "skip" does not descend into the entry (dirs only); "stop"
-  --  ends the walk now; returning nothing continues.
-  --  Root open failure returns nil, err; subtree failures return the first
-  --  error alongside the results.
+  --  DEPRECATED positional walker (#987): visitor(path, name, st, ctx)
+  --  with the first subtree error beside a non-nil result. Use visit().
+  --  Deleted at the next pin advance.
   walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+  --  Walk dir depth-first with an Entry visitor: visitor(e: fs.Entry,
+  --  ctx) may return "skip" (don't descend) or "stop" (end now).
+  --  Slot 2 is the root-open failure; subtree errors come back in
+  --  slot 3 as a list (nil when the walk was clean).
+  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string, {string}
   --  Expand a glob pattern without recursing; components ("src/*.lua")
-  --  are each globs, and matches of every entry type are returned sorted.
-  glob: function(dir: string, pattern: string): {string} | nil, string
-  --  Recursively collect files under dir; opts selects basenames by
-  --  glob or Lua pattern (default: all files).
-  find: function(dir: string, opts?: fs_walk.FindOptions): {string} | nil, string
-  --  Iterate files under dir lazily; same selection as find().
-  find_iter: function(dir: string, opts?: fs_walk.FindOptions): FileIter | nil, string, any, any
-  --  Recursively collect files under dir with their FileInfo (mode).
-  find_info: function(dir: string): {string: FileInfo} | nil, string
+  --  are each globs, and matches of every entry type are returned
+  --  sorted. Slot 2 is the root failure; deeper errors in slot 3.
+  glob: function(dir: string, pattern: string): {string} | nil, string, {string}
+  --  Collect paths under dir; FindOptions selects basenames (glob or
+  --  Lua pattern) and bounds the search (max_depth, recursive,
+  --  include_dirs, sorted). Slot 2 is the root failure; subtree errors
+  --  in slot 3.
+  find: function(dir: string, opts?: fs_find.FindOptions): {string} | nil, string, {string}
+  --  Iterate paths under dir lazily; same selection as find() except
+  --  sorted. The exhausted iterator returns nil plus the subtree-error
+  --  list.
+  find_iter: function(dir: string, opts?: fs_find.FindOptions): FileIter | nil, string, any, any
+  --  Matching files with their FileInfo, keyed by FULL path (#987:
+  --  was relative); same options and slots as find.
+  find_info: function(dir: string, opts?: fs_find.FindOptions): {string: FileInfo} | nil, string, {string}
   F_OK: integer
   R_OK: integer
   W_OK: integer
@@ -119,19 +124,27 @@ alias of `cosmic.fd.Handle` — field and method table: `cosmic --docs cosmic.fd
 
  Iterator over file paths, as returned by files().
 
-alias of `cosmic.fs.walk.FileIter` — field and method table: `cosmic --docs cosmic.fs.walk.FileIter`
+alias of `cosmic.fs.find.FileIter` — field and method table: `cosmic --docs cosmic.fs.find.FileIter`
 
 ### WalkAction
 
- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
+ Visitor verdict for visit()/walk(): nil continues, "skip" prunes,
+ "stop" ends the walk.
 
 alias of `cosmic.fs.walk.WalkAction` — field and method table: `cosmic --docs cosmic.fs.walk.WalkAction`
 
 ### WalkOptions
 
- Options for walk() (max_depth).
+ Options for visit()/walk() (max_depth).
 
 alias of `cosmic.fs.walk.WalkOptions` — field and method table: `cosmic --docs cosmic.fs.walk.WalkOptions`
+
+### Entry
+
+ One visited entry (path/name/stat/depth), as visit() hands to its
+ visitor.
+
+alias of `cosmic.fs.types.Entry` — field and method table: `cosmic --docs cosmic.fs.types.Entry`
 
 ## Functions
 
