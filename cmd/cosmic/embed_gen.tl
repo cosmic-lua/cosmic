@@ -20,36 +20,23 @@
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
 --- Naming it is what makes the fixpoint converge -- without it `build`
 --- embeds onto the running cosmic, growing every generation.
+--- (`cosmic.mk` is deliberately absent: a payload file that exists in
+--- the tree is committed at `embed/cosmic.mk`; both land the same.)
 ---
---- `cosmic.mk` is deliberately absent: it is a committed file at
---- `embed/cosmic.mk` -- a payload file that exists in the tree is
---- committed, one that has to be produced is generated, both land the same.
----
---- Scope, stated because it is wider than a `*_gen.tl` generation
---- unit's subtree: a BINARY's payload generator reads the binary's own
---- scope (`.tl/**` is literally that set) plus the pinned bytes
---- `--make fetch` left under `o/`, and writes only into the directory
---- it is handed -- its inputs are the artifact's inputs, which is why
---- this is a payload generator and not a generation unit.
+--- Scope, wider than a `*_gen.tl` generation unit's subtree: a
+--- BINARY's payload generator reads the binary's own scope (`.tl/**`
+--- is literally that set) plus the pinned bytes `--make fetch` left
+--- under `o/`, and writes only into the directory it is handed.
 
 local artifact = require("_make.artifact")
 local codec = require("cosmic.codec")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
--- TRANSITIONAL dual require (#992; delete at the next pin advance):
--- a generator runs under the CURRENT binary without `--include-dir`,
--- so it can only require what that binary embeds — and the pinned
--- release predates the `_tool/` tree, where the index generator lives
--- now. Its `generate` is already signature-cast below for the same
--- pin-drift reason, so the module value is loosely typed here.
-local index: {string: any}
-local index_loaded, index_new = pcall(require, "_tool.doc.index")
-if index_loaded then
-  index = index_new as {string: any} -- cast: transitional dual-shape module
-else
-  -- cast: transitional dual-shape module
-  index = require("cosmic.doc.index") as {string: any}
-end
+-- TRANSITIONAL dual require (#992, delete at the pin advance): the pin
+-- predates `_tool/`, and a generator resolves only what the running
+-- binary embeds — the pin's path computed so the checker never sees it.
+local iok, index_m = pcall(require, "_tool.doc.index")
+if not iok then iok, index_m = pcall(require, "cosmic.doc" .. ".index") end
 local literal = require("cosmic.literal")
 local project = require("_make.project")
 local types = require("_make.types")
@@ -301,8 +288,8 @@ local function write_index(proj: Project, dest: string): boolean, string
   -- The names argument is newer than some pins, and an older one
   -- ignores it and falls back to naming by path — which is why the
   -- release, and the gate, build twice.
-  -- cast: the running artifact's signature may predate the names argument
-  local generate_index = index.generate as
+  -- cast: dual-shape module (#992); the signature may predate names
+  local generate_index = (assert(iok and index_m, "no doc index generator") as {string: any}).generate as
   function(files: {string}, names: {string: string}): string | nil, string
   local body, err = generate_index(documented(proj), declared_names())
   if not body then

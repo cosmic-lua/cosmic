@@ -7,9 +7,9 @@
 --- `doc.render` to render what it parses, so a copy living in either one
 --- would force a cycle.
 
-local types = require("cosmic.doc.types")
-local Param = types.Param
-local Return = types.Return
+local doc_types = require("cosmic.doc")
+local type Param = doc_types.Param
+local type Return = doc_types.Return
 
 local BYTE_NEWLINE = string.byte("\n")
 

@@ -1,9 +1,9 @@
 --- Rendering and .d.tl parsing for the doc module.
 --- Contains the markdown renderer and the type declaration file parser.
 
-local types = require("cosmic.doc.types")
-local FunctionDoc = types.FunctionDoc
-local ModuleDoc = types.ModuleDoc
+local doc_types = require("cosmic.doc")
+local type FunctionDoc = doc_types.FunctionDoc
+local type ModuleDoc = doc_types.ModuleDoc
 
 local doc_comments = require("_tool.doc.comments")
 local extract_doc_comment = doc_comments.extract_doc_comment
