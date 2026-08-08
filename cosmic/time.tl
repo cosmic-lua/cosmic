@@ -76,27 +76,15 @@ end
 -- tree's only three-return function.
 local function sleep(seconds: integer, nanos?: integer): integer | nil, integer, string
   local ns = nanos or 0
-  local t0s, t0n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  -- On failure the binding returns (nil, err, errno): the error string
-  -- arrives in the second slot, the numeric errno in the third.
-  local rem_s, rem_ns, eno = unix.nanosleep(seconds, ns)
+  -- The binding reports its own remainder now (cosmopolitan#237): zero
+  -- when the sleep completed, and on EINTR the kernel's own remainder
+  -- after the errno. Both used to need a pair of clock reads here.
+  local rem_s, rem_ns, eno, eintr_s, eintr_ns = unix.nanosleep(seconds, ns)
   if rem_s ~= nil then
-    -- The binding's success-path remainder is unreliable (nanosleep only
-    -- fills it on EINTR); an uninterrupted sleep's remainder is zero.
-    return 0, 0
+    return rem_s, rem_ns
   end
   if errno.is(eno, "EINTR") then
-    -- The binding discards the kernel's remainder on the error path;
-    -- recover it from the monotonic clock instead.
-    local t1s, t1n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-    local elapsed = (t1s - t0s) * 1000000000 + (t1n - t0n)
-    local remaining = seconds * 1000000000 + ns - elapsed
-    if remaining < 0 then
-      remaining = 0
-    end
-    return math.floor(remaining / 1000000000),
-    remaining % 1000000000,
-    errno.wrap(rem_ns, "sleep")
+    return eintr_s or 0, eintr_ns or 0, errno.wrap(rem_ns, "sleep")
   end
   return nil, nil, errno.wrap(rem_ns, "sleep")
 end

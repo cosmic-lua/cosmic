@@ -37,49 +37,49 @@ test_compile_invalid_unbalanced_parens()
 
 local function test_regex_search_match()
   local regex = check.must(re.compile("world"), "compile failed")
-  local result = regex:search("hello world")
+  local result = regex:match("hello world")
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
 end
 test_regex_search_match()
 
 local function test_regex_search_no_match()
   local regex = check.must(re.compile("xyz"), "compile failed")
-  local result = regex:search("hello world")
+  local result = regex:match("hello world")
   assert(result == nil, "expected nil for no match")
 end
 test_regex_search_no_match()
 
 local function test_regex_search_beginning()
   local regex = check.must(re.compile("^hello"), "compile failed")
-  local result = regex:search("hello world")
+  local result = regex:match("hello world")
   assert(result == "hello", "expected 'hello', got '" .. tostring(result) .. "'")
 end
 test_regex_search_beginning()
 
 local function test_regex_search_end()
   local regex = check.must(re.compile("world$"), "compile failed")
-  local result = regex:search("hello world")
+  local result = regex:match("hello world")
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
 end
 test_regex_search_end()
 
 local function test_regex_search_character_class()
   local regex = check.must(re.compile("[0-9]+"), "compile failed")
-  local result = regex:search("abc123def")
+  local result = regex:match("abc123def")
   assert(result == "123", "expected '123', got '" .. tostring(result) .. "'")
 end
 test_regex_search_character_class()
 
 local function test_regex_search_alternation()
   local regex = check.must(re.compile("cat|dog"), "compile failed")
-  local result = regex:search("I have a dog")
+  local result = regex:match("I have a dog")
   assert(result == "dog", "expected 'dog', got '" .. tostring(result) .. "'")
 end
 test_regex_search_alternation()
 
 local function test_regex_search_captures()
   local regex = check.must(re.compile("([a-z]+)([0-9]+)"), "compile failed")
-  local result, raw_caps = regex:search("abc123")
+  local result, raw_caps = regex:match("abc123")
   assert(result == "abc123", "expected 'abc123', got '" .. tostring(result) .. "'")
   local caps = check.must(raw_caps, "expected captures table on match")
   assert(#caps == 2, "expected 2 captures, got " .. tostring(#caps))
@@ -91,7 +91,7 @@ test_regex_search_captures()
 local function test_regex_search_no_match_no_error()
   -- A no-match from a compiled regex is a single bare nil, not an error.
   local regex = check.must(re.compile("cat"), "compile failed")
-  local result, caps = regex:search("dog only")
+  local result, caps = regex:match("dog only")
   assert(result == nil, "expected nil for no match")
   assert(caps == nil, "expected no second value for no match")
 end
@@ -205,7 +205,7 @@ test_ignore_case_option()
 
 local function test_compile_ignore_case_option()
   local regex = check.must(re.compile("WORLD", {ignore_case = true}))
-  local result = regex:search("hello world")
+  local result = regex:match("hello world")
   assert(result == "world", "expected 'world' with ignore_case")
 end
 test_compile_ignore_case_option()
@@ -256,13 +256,13 @@ test_escaped_special_characters()
 local function test_reuse_compiled_regex()
   local regex = check.must(re.compile("[a-z]+"), "compile failed")
 
-  local r1 = regex:search("123abc456")
+  local r1 = regex:match("123abc456")
   assert(r1 == "abc", "first search failed")
 
-  local r2 = regex:search("xyz789")
+  local r2 = regex:match("xyz789")
   assert(r2 == "xyz", "second search failed")
 
-  local r3 = regex:search("12345")
+  local r3 = regex:match("12345")
   assert(r3 == nil, "expected nil for no match")
 end
 test_reuse_compiled_regex()

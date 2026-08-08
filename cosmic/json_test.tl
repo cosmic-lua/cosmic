@@ -179,15 +179,41 @@ local function test_null_object_key_dropped()
 end
 test_null_object_key_dropped()
 
-local function test_null_array_element_truncates()
+-- A null array element still decodes to a hole by default, but the
+-- hole is now LOUD on re-encode rather than a silent truncation, and
+-- two opt-ins make the round trip lossless (#998).
+local function test_null_array_element_is_a_loud_hole()
   local decoded = json.decode("[1,null,2]") as {any} -- cast: from any
   assert(decoded[1] == 1, "first element should survive")
   assert(decoded[2] == nil, "null element should decode to nil (hole)")
   assert(decoded[3] == 2, "element after null should still be reachable")
-  local reencoded = json.encode(decoded)
-  assert(reencoded == "[1]", "array with hole is documented to truncate on re-encode, got: " .. tostring(reencoded))
+  local reencoded, err = json.encode(decoded)
+  assert(reencoded == nil, "a hole must not silently truncate, got: " .. tostring(reencoded))
+  assert(err and err:find("sparse", 1, true),
+    "the refusal names the condition, got: " .. tostring(err))
 end
-test_null_array_element_truncates()
+test_null_array_element_is_a_loud_hole()
+
+local function test_sparse_as_null_round_trips_an_array()
+  local decoded = json.decode("[1,null,2]") as {any} -- cast: from any
+  assert(json.encode(decoded, {sparse_as_null = true}) == "[1,null,2]",
+    "sparse_as_null re-encodes the hole as null, losslessly")
+end
+test_sparse_as_null_round_trips_an_array()
+
+local function test_null_value_sentinel_survives_the_round_trip()
+  local arr = json.decode("[1,null,2]", {null_value = json.null}) as {any} -- cast: from any
+  assert(arr[2] == json.null, "the sentinel fills the slot")
+  assert(json.encode(arr) == "[1,null,2]", "and re-encodes as null")
+  local obj = json.decode('{"a":null,"b":1}', {null_value = json.null}) as {string: any} -- cast: from any
+  assert(obj.a == json.null, "a null-valued key survives instead of vanishing")
+  assert(json.encode(obj) == '{"a":null,"b":1}', "and round-trips")
+  -- The sentinel also makes a top-level null non-nil, so success is
+  -- distinguishable from failure without inspecting the error.
+  local top, terr = json.decode("null", {null_value = json.null})
+  assert(top == json.null and terr == nil, "top-level null decodes to the sentinel")
+end
+test_null_value_sentinel_survives_the_round_trip()
 
 local function test_nan_inf_encoding()
   -- Non-finite numbers are rejected by default: encoding them silently
