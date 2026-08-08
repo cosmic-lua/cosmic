@@ -16,15 +16,22 @@ end
 
 local teal_any = teal as {string: any} -- cast: transitional dual-shape module
 
+-- cast: transitional dual-shape call
+local compat_compile_file = (teal_any["compile_file"] or teal_any["compile"]) as
+function(string, teal.CompileOptions): teal.CompileResult
+
+-- cast: transitional dual-shape call
+local compat_check_file = (teal_any["check_file"] or teal_any["check"]) as
+function(string, teal.CheckOptions): teal.CheckResult
+
+-- cast: transitional dual-shape call
+local compat_format_issues = teal_any["format_issues"] as
+function({teal.Issue}, any): string
+
 local M: TealCompat = {
-  -- cast: transitional dual-shape call
-  compile_file = (teal_any["compile_file"] or teal_any["compile"]) as
-  function(string, teal.CompileOptions): teal.CompileResult,
-  -- cast: transitional dual-shape call
-  check_file = (teal_any["check_file"] or teal_any["check"]) as
-  function(string, teal.CheckOptions): teal.CheckResult,
-  -- cast: transitional dual-shape call
-  format_issues = teal_any["format_issues"] as function({teal.Issue}, any): string,
+  compile_file = compat_compile_file,
+  check_file = compat_check_file,
+  format_issues = compat_format_issues,
 }
 
 return M

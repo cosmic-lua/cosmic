@@ -129,7 +129,6 @@ end
 --- Handle --compile / --compile-strict flags.
 local function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   local span = instrument.begin("compile", file)
-  -- Through the transitional pin-compat shim (#1001; see _cli/teal_compat).
   local tealc = require("_cli.teal_compat")
   local result = tealc.compile_file(file, {include_dirs = include_dirs, strict = strict})
   local exit_code: integer
@@ -139,8 +138,7 @@ local function handle_compile(file: string, output?: string, write_if_changed?: 
   else
     -- With hints, like --check types: `--make build` compiles through
     -- this path, so it is where a project author actually meets the
-    -- un-narrowed `T | nil` errors. (The pin's formatter ignores the
-    -- opts argument; gen-0 output just lacks hints.)
+    -- un-narrowed `T | nil` errors.
     io.stderr:write(tealc.format_issues(result.errors, {hints = true}) .. "\n")
     exit_code = 1
   end
@@ -243,7 +241,6 @@ end
 --- Handle --check types flag.
 local function handle_check_types(file: string, include_dirs?: {string}): integer
   local span = instrument.begin("check-types", file)
-  -- Through the transitional pin-compat shim (#1001; see _cli/teal_compat).
   local tealc = require("_cli.teal_compat")
   local result = tealc.check_file(file, {include_dirs = include_dirs})
 
