@@ -51,22 +51,22 @@ test_home_unset()
 
 local function test_expanduser_bare_tilde()
   assert(env.set("HOME", "/home/tester"))
-  assert(fs.expanduser("~") == "/home/tester", "expected bare ~ expanded")
+  assert(fs.expand_user("~") == "/home/tester", "expected bare ~ expanded")
   restore()
 end
 test_expanduser_bare_tilde()
 
 local function test_expanduser_tilde_slash()
   assert(env.set("HOME", "/home/tester"))
-  assert(fs.expanduser("~/docs/x.txt") == "/home/tester/docs/x.txt",
-    "expected ~/ expanded, got " .. fs.expanduser("~/docs/x.txt"))
+  assert(fs.expand_user("~/docs/x.txt") == "/home/tester/docs/x.txt",
+    "expected ~/ expanded, got " .. fs.expand_user("~/docs/x.txt"))
   restore()
 end
 test_expanduser_tilde_slash()
 
 local function test_expanduser_trailing_slash_home()
   assert(env.set("HOME", "/home/tester/"))
-  local p = fs.expanduser("~/docs")
+  local p = fs.expand_user("~/docs")
   assert(p == "/home/tester/docs", "expected joined path without double slash, got " .. p)
   restore()
 end
@@ -74,11 +74,11 @@ test_expanduser_trailing_slash_home()
 
 local function test_expanduser_untouched_forms()
   assert(env.set("HOME", "/home/tester"))
-  assert(fs.expanduser("/abs/path") == "/abs/path", "absolute path must be unchanged")
-  assert(fs.expanduser("rel/path") == "rel/path", "relative path must be unchanged")
-  assert(fs.expanduser("~other/docs") == "~other/docs", "~user form must be unchanged")
-  assert(fs.expanduser("mid~dle") == "mid~dle", "interior ~ must be unchanged")
-  assert(fs.expanduser("") == "", "empty path must be unchanged")
+  assert(fs.expand_user("/abs/path") == "/abs/path", "absolute path must be unchanged")
+  assert(fs.expand_user("rel/path") == "rel/path", "relative path must be unchanged")
+  assert(fs.expand_user("~other/docs") == "~other/docs", "~user form must be unchanged")
+  assert(fs.expand_user("mid~dle") == "mid~dle", "interior ~ must be unchanged")
+  assert(fs.expand_user("") == "", "empty path must be unchanged")
   restore()
 end
 test_expanduser_untouched_forms()
@@ -86,8 +86,8 @@ test_expanduser_untouched_forms()
 local function test_expanduser_no_home()
   assert(env.unset("HOME"))
   assert(env.unset("USERPROFILE"))
-  assert(fs.expanduser("~/docs") == "~/docs", "expected unchanged path when no home is set")
-  assert(fs.expanduser("~") == "~", "expected bare ~ unchanged when no home is set")
+  assert(fs.expand_user("~/docs") == "~/docs", "expected unchanged path when no home is set")
+  assert(fs.expand_user("~") == "~", "expected bare ~ unchanged when no home is set")
   restore()
 end
 test_expanduser_no_home()

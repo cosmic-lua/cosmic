@@ -324,7 +324,7 @@ local function extract_make(to: string): boolean, string
   -- engine that is not executable is the one failure mode that reads as
   -- "no make binary" rather than as a permissions problem.
   local _ok, _err = fs.chmod(tmp, tonumber("755", 8) as integer) -- cast: octal is integral
-  local rok, rerr = fs.rename(tmp, to)
+  local rok, rerr = fs.move(tmp, to)
   if not rok then
     local _ok, _err = fs.unlink(tmp)
     -- Losing the race is not a failure: the winner installed the same

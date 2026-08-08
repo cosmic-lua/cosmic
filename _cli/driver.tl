@@ -80,7 +80,7 @@ local function seed_ape_loaders(scratch: string)
         local part = dst .. ".part." .. tostring(proc.getpid())
         -- cast: read's nil checked above; 0x1ED is 0755
         if fs.write(part, bytes as string) and fs.chmod(part, 0x1ED) then
-          local _ok, _err = fs.rename(part, dst)
+          local _ok, _err = fs.move(part, dst)
         end
       end
     end

@@ -300,7 +300,7 @@ local function test_spawn_zip_embedded_binary()
   local echo_data = fs.read("/bin/echo")
   assert(echo_data, "should read /bin/echo")
   assert(fs.write(fs.join(bin_dir, "echo"), echo_data))
-  assert(fs.chmod(fs.join(bin_dir, "echo"), 493)) -- 0755
+  assert(fs.set_mode(fs.join(bin_dir, "echo"), 493)) -- 0755
 
   local out_bin = fs.join(tmpdir, "cosmic-with-echo")
   local build = check.must(child.run(

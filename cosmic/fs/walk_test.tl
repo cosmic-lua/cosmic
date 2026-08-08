@@ -176,14 +176,14 @@ local function test_walk_permission_denied_subdir_reports_error()
   assert(fs.make_dirs(locked))
   write_file(fs.join(open_dir, "seen.txt"), "x")
   write_file(fs.join(locked, "hidden.txt"), "x")
-  assert(fs.chmod(locked, 0))
+  assert(fs.set_mode(locked, 0))
 
   local visited: {string: boolean} = {}
   local ctx, err = fs_walk.walk(base, function(_p: string, name: string,
         _st: any, c: {string: boolean})
       c[name] = true
     end, visited)
-  assert(fs.chmod(locked, tonumber("755", 8)))
+  assert(fs.set_mode(locked, tonumber("755", 8)))
 
   assert(ctx ~= nil, "a denied subdir must not abort the walk")
   assert(visited["seen.txt"], "readable entries must still be visited")
@@ -206,7 +206,7 @@ local function test_find_iter_permission_denied_subdir_reports_error()
   assert(fs.make_dirs(locked))
   write_file(fs.join(open_dir, "seen.txt"), "x")
   write_file(fs.join(locked, "hidden.txt"), "x")
-  assert(fs.chmod(locked, 0))
+  assert(fs.set_mode(locked, 0))
 
   local iter = check.must(fs_find.find_iter(base))
   local seen: {string: boolean} = {}
@@ -215,7 +215,7 @@ local function test_find_iter_permission_denied_subdir_reports_error()
     seen[fs.basename(f)] = true
     f = iter()
   end
-  assert(fs.chmod(locked, tonumber("755", 8)))
+  assert(fs.set_mode(locked, tonumber("755", 8)))
 
   assert(seen["seen.txt"], "readable entries must still be yielded")
   -- The exhausted iterator reports the subtree-error LIST from then
@@ -408,9 +408,9 @@ local function test_visit_denied_subdir_lands_in_slot_three()
   local base = mksubdir("visit_denied")
   local locked = fs.join(base, "locked")
   assert(fs.make_dirs(locked))
-  assert(fs.chmod(locked, 0))
+  assert(fs.set_mode(locked, 0))
   local ctx, err, suberrs = fs.visit(base, function(_e: fs.Entry, _c: {string}) end, {})
-  assert(fs.chmod(locked, tonumber("755", 8)))
+  assert(fs.set_mode(locked, tonumber("755", 8)))
   assert(ctx ~= nil, "a denied subdir must not abort the walk")
   assert(err == nil, "slot 2 means the ROOT failed, and it did not")
   assert(suberrs and suberrs[1] and suberrs[1]:match("EACCES"),

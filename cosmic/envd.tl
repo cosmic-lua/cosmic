@@ -124,7 +124,7 @@ local function load_dir(dir: string): LoadResult
   local cosmic_debug_val = env.get("COSMIC_DEBUG")
   local debug_on = cosmic_debug_val ~= nil and cosmic_debug_val ~= ""
 
-  local dh, dh_err = fs.opendir(dir)
+  local dh, dh_err = fs.open_dir(dir)
   if not dh then
     if debug_on then
       io.stderr:write("[envd] skip " .. dir .. ": " .. (dh_err or "not found") .. "\n")

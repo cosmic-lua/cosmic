@@ -226,7 +226,7 @@ local function test_download_success()
   assert(r:is_success(), "expected 2xx, got " .. tostring(r.status))
   assert(r.body == "", "expected empty body on download success")
   assert(fs.read(path) == "file-content", "expected file written")
-  assert(fs.unlink(path))
+  assert(fs.remove(path))
 end
 test_download_success()
 
@@ -237,7 +237,7 @@ local function test_download_non_2xx_writes_nothing()
   assert(proc.wait(math.tointeger(pid)))
   assert(not r:is_success() and r.status == 404, "expected 404 Response")
   assert(r.body == "not found", "expected diagnostic body, got: " .. tostring(r.body))
-  assert(not fs.exists(path), "expected no file for non-2xx")
+  assert(not fs.is_present(path), "expected no file for non-2xx")
 end
 test_download_non_2xx_writes_nothing()
 
@@ -245,6 +245,6 @@ local function test_download_transport_failure()
   local path = fs.join(TEST_TMPDIR, "dlfail.bin")
   local r, derr = fetch.download("http://127.0.0.1:1", path, {allow_private = true, timeout_ms = 2000})
   assert(r == nil and derr ~= nil, "expected connect failure")
-  assert(not fs.exists(path), "expected no file on transport failure")
+  assert(not fs.is_present(path), "expected no file on transport failure")
 end
 test_download_transport_failure()

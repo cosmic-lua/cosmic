@@ -34,7 +34,7 @@ end
 local function test_dir_has_close_metamethod()
   local test_dir = setup()
 
-  local dir = fs.opendir(test_dir)
+  local dir = fs.open_dir(test_dir)
   assert(dir, "opendir should succeed")
   local d = dir
 
@@ -57,7 +57,7 @@ test_dir_has_close_metamethod()
 local function test_dir_closed_method()
   local test_dir = setup()
 
-  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
+  local d = check.must(fs.open_dir(test_dir), "opendir should succeed")
 
   assert(not d:closed(), "dir should not be closed initially")
   d:close()
@@ -70,7 +70,7 @@ test_dir_closed_method()
 local function test_dir_close_idempotent()
   local test_dir = setup()
 
-  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
+  local d = check.must(fs.open_dir(test_dir), "opendir should succeed")
 
   d:close()
   assert(d:closed(), "dir should be closed")
@@ -88,7 +88,7 @@ local function test_dir_methods_after_close()
   local test_dir = setup()
   touch(fs.join(test_dir, "file.txt"))
 
-  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
+  local d = check.must(fs.open_dir(test_dir), "opendir should succeed")
   d:close()
 
   -- read() returns nil when closed
@@ -115,7 +115,7 @@ local function test_dir_rewind_and_tell()
   touch(fs.join(test_dir, "file1.txt"))
   touch(fs.join(test_dir, "file2.txt"))
 
-  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
+  local d = check.must(fs.open_dir(test_dir), "opendir should succeed")
 
   -- Read some entries
   local count = 0
@@ -144,7 +144,7 @@ test_dir_rewind_and_tell()
 local function test_dir_fd()
   local test_dir = setup()
 
-  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
+  local d = check.must(fs.open_dir(test_dir), "opendir should succeed")
 
   local fd = d:fd()
   assert(fd >= 0, "fd should be a valid file descriptor")
@@ -189,7 +189,7 @@ local function test_fstatfs()
   local fd = unix.open(TEST_TMPDIR, unix.O_RDONLY | unix.O_DIRECTORY)
   assert(fd, "open should succeed")
 
-  local info = check.must(fs.fstatfs(fd))
+  local info = check.must(fs.statfs_fd(fd))
 
   assert(info:bsize() > 0, "bsize() should be positive")
   assert(info:blocks() > 0, "blocks() should be positive")
@@ -198,41 +198,8 @@ local function test_fstatfs()
 end
 test_fstatfs()
 
--- Device number utilities tests
-
-local function test_major_minor()
-  -- Test with /dev/null which should have rdev set
-  local st = fs.stat("/dev/null")
-  if st then
-    local rdev = st:rdev()
-    local maj = fs.major(rdev)
-    local min = fs.minor(rdev)
-    -- /dev/null is typically major 1, minor 3
-    assert(maj ~= nil, "major() should return a value")
-    assert(min ~= nil, "minor() should return a value")
-    assert(maj >= 0, "major should be non-negative")
-    assert(min >= 0, "minor should be non-negative")
-  end
-end
-test_major_minor()
-
-local function test_major_minor_regular_file()
-  local test_dir = setup()
-  local filepath = fs.join(test_dir, "file.txt")
-  touch(filepath)
-
-  local st = check.must(fs.stat(filepath), "stat should succeed")
-
-  -- Regular files have a dev (the filesystem device)
-  local dev = st:dev()
-  local maj = fs.major(dev)
-  local min = fs.minor(dev)
-  assert(maj ~= nil, "major() should return a value for dev")
-  assert(min ~= nil, "minor() should return a value for dev")
-
-  teardown(test_dir)
-end
-test_major_minor_regular_file()
+-- fs.major/fs.minor are deleted (#988): zero callers; use
+-- cosmo.unix.major/minor for raw device-number math.
 
 local function test_fdopendir()
   local test_dir = setup()
@@ -242,7 +209,7 @@ local function test_fdopendir()
   -- fdopendir must return a working Dir (not an error) on success; it
   -- takes ownership of the fd and closes it via dir:close().
   local h = check.must(cfd.open(test_dir, cfd.O_RDONLY | cfd.O_DIRECTORY))
-  local d = check.must(fs.fdopendir(h:fd()))
+  local d = check.must(fs.open_dir_fd(h:fd()))
 
   local entries: {string: boolean} = {}
   while true do
@@ -263,8 +230,58 @@ test_fdopendir()
 
 local function test_fdopendir_bad_fd()
   -- An invalid fd must return nil + error, never throw from the binding.
-  local dir, err = fs.fdopendir(-1)
+  local dir, err = fs.open_dir_fd(-1)
   assert(dir == nil, "fdopendir(-1) should fail, not return a Dir")
   assert(type(err) == "string", "failure must carry an error string")
 end
 test_fdopendir_bad_fd()
+
+-- #988 surfaces: Timespec-valued stat times that round-trip through
+-- set_times, spelled Statfs methods, and temp_dir's default template.
+
+local function test_stat_times_round_trip()
+  local test_dir = setup()
+  local src = fs.join(test_dir, "src.txt")
+  local dst = fs.join(test_dir, "dst.txt")
+  touch(src)
+  touch(dst)
+  assert(fs.set_times(src, {mtime = {secs = 1000000, nsecs = 0}}))
+
+  local st = check.must(fs.stat(src))
+  local mt = st:modify_time()
+  assert(mt.secs == 1000000, "modify_time carries the stamped seconds")
+
+  -- The round trip the record exists for: a stat's times feed
+  -- set_times without hand-packing.
+  assert(fs.set_times(dst, st:times()))
+  local dst_st = check.must(fs.stat(dst))
+  assert(dst_st:modify_time().secs == 1000000,
+    "set_times(dst, stat(src):times()) round-trips mtime")
+  assert(dst_st:access_time().secs == st:access_time().secs,
+    "and atime")
+
+  teardown(test_dir)
+end
+test_stat_times_round_trip()
+
+local function test_statfs_spelled_methods()
+  local test_dir = setup()
+  local sf = check.must(fs.statfs(test_dir))
+  assert(sf:block_size_bytes() > 0, "block_size_bytes is positive")
+  assert(sf:total_blocks() >= sf:free_blocks(), "total >= free blocks")
+  assert(sf:free_blocks() >= sf:available_blocks(),
+    "free >= available (root reserve)")
+  assert(sf:max_name_bytes() > 0, "max_name_bytes is positive")
+  -- The deprecated abbreviations alias the same readings.
+  assert(sf:bsize() == sf:block_size_bytes(), "bsize aliases block_size_bytes")
+  assert(sf:namelen() == sf:max_name_bytes(), "namelen aliases max_name_bytes")
+  teardown(test_dir)
+end
+test_statfs_spelled_methods()
+
+local function test_temp_dir_default_template()
+  local d = check.must(fs.temp_dir())
+  assert(fs.is_dir(d), "temp_dir() with no template creates a directory")
+  assert(fs.remove_all(d))
+end
+test_temp_dir_default_template()

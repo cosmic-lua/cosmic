@@ -28,12 +28,12 @@ local function join(...: string): string
   return cosmo_path.join(...)
 end
 
---- Check if path exists (regular file, directory, or special file).
+--- Check if a path is present — #988: was `exists` (rule 3).
 --- Symbolic links are followed (uses stat): a symlink resolves to its target,
 --- and returns true if the target exists. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path exists
-local function exists(p: string): boolean
+local function is_present(p: string): boolean
   return cosmo_path.exists(p)
 end
 
@@ -190,13 +190,13 @@ local function normalize(p: string): string
   end
 end
 
---- Convert relative path to absolute by prepending cwd.
+--- Convert relative path to absolute by prepending cwd (#988: was abspath).
 --- Does NOT resolve symlinks or access filesystem (except to get cwd).
 --- Windows-absolute paths (drive-letter or UNC roots, see is_absolute)
 --- are already absolute and only get normalized — cwd is not prepended.
 --- @param p string The path to make absolute
 --- @return string The absolute path
-local function abspath(p: string): string
+local function absolute_path(p: string): string
   if p == "" then
     return unix.getcwd() or "."
   end
@@ -225,7 +225,7 @@ local function root_of(p: string): string
   return "/"
 end
 
---- Make path relative to another path (defaults to cwd).
+--- Make path relative to another path (defaults to cwd; was relpath, #988).
 --- Pure string manipulation - does not access the filesystem.
 --- When the two paths live under different roots (different drive
 --- letters, UNC vs drive, Windows vs POSIX), no relative path exists;
@@ -233,15 +233,15 @@ end
 --- @param p string The path to make relative
 --- @param base string? The base path (defaults to cwd)
 --- @return string The relative path
-local function relpath(p: string, base?: string): string
+local function relative_path(p: string, base?: string): string
   -- Get absolute versions of both paths. When both p and the implicit
   -- base need cwd (relative p, no explicit base), fetch it once instead
-  -- of once per abspath() call.
+  -- of once per absolute_path() call.
   local abs_p: string
   local abs_base: string
   if base then
-    abs_p = abspath(p)
-    abs_base = abspath(base)
+    abs_p = absolute_path(p)
+    abs_base = absolute_path(base)
   elseif is_absolute(p) then
     abs_p = normalize(p)
     abs_base = unix.getcwd() or "."
@@ -328,14 +328,14 @@ local function join_dirname(dir: string, root_base: string): string
   return join(dir, root_base)
 end
 
---- Split path into root and extension.
---- Extension includes the dot. Handles multiple extensions by splitting at
---- the last dot in the basename. Hidden files (starting with .) have no extension.
+--- Split path into root and extension (was splitext, #988). The
+--- extension includes the dot; the split is at the last dot in the
+--- basename, and hidden files (leading .) have no extension.
 --- Examples: "foo.txt" -> "foo", ".txt"; ".bashrc" -> ".bashrc", ""
 --- @param p string The path to split
 --- @return string The root portion (path without extension)
 --- @return string The extension (including dot, or empty string)
-local function splitext(p: string): string, string
+local function split_extension(p: string): string, string
   local base = cosmo_path.basename(p)
   local dir = cosmo_path.dirname(p)
 
@@ -383,15 +383,6 @@ local function splitext(p: string): string, string
   return join_dirname(dir, root_base), extension
 end
 
---- Return the extension of a path.
---- Extension includes the dot. Convenience wrapper around splitext.
---- @param p string The path to get extension from
---- @return string The extension (including dot, or empty string)
-local function ext(p: string): string
-  local _, extension = splitext(p)
-  return extension
-end
-
 --- Return the current user's home directory.
 --- Uses $HOME, falling back to $USERPROFILE Windows.
 --- @return string | nil The home directory, or nil when unknown
@@ -404,13 +395,13 @@ local function home(): string | nil, string
   return dir
 end
 
---- Expand a leading "~" in a path to the user's home directory.
+--- Expand a leading "~" to the home directory (was expanduser, #988).
 --- Only bare "~" and "~/..." are expanded; "~user/..." forms and
 --- paths without the prefix are returned unchanged, as is any path
 --- when no home directory can be determined.
 --- @param p string The path to expand
 --- @return string The expanded path
-local function expanduser(p: string): string
+local function expand_user(p: string): string
   if p ~= "~" and p:sub(1, 2) ~= "~/" then
     return p
   end
@@ -438,9 +429,9 @@ end
 --- line), where a newline forges entries. Backslashes are otherwise
 --- treated as separators, not refused: Windows-made archives use them
 --- legitimately.
---- @param name string Archive entry name
+--- (was unsafe_entry_name, #988) @param name string Archive entry name
 --- @return boolean true when the entry is unsafe to extract
-local function unsafe_entry_name(name: string): boolean
+local function is_unsafe_entry_name(name: string): boolean
   if name == "" then return true end
   if name:find("%c") then return true end
   -- Absolute roots escape the destination directory.
@@ -457,41 +448,53 @@ local function unsafe_entry_name(name: string): boolean
 end
 
 local record FsPathModule
-  unsafe_entry_name: function(name: string): boolean
+  is_unsafe_entry_name: function(name: string): boolean
   dirname: function(str: string): string
   basename: function(str: string): string
   join: function(...: string): string
   home: function(): string | nil, string
-  expanduser: function(p: string): string
-  exists: function(path: string): boolean
+  expand_user: function(p: string): string
+  is_present: function(path: string): boolean
   is_file: function(path: string): boolean
   is_dir: function(path: string): boolean
   is_link: function(path: string): boolean
   is_absolute: function(p: string): boolean
   normalize: function(p: string): string
+  absolute_path: function(p: string): string
+  relative_path: function(p: string, base?: string): string
+  split_extension: function(p: string): string, string
+  --- DEPRECATED aliases (#988); deleted at pin advance.
+  unsafe_entry_name: function(name: string): boolean
+  expanduser: function(p: string): string
+  exists: function(path: string): boolean
   abspath: function(p: string): string
   relpath: function(p: string, base?: string): string
   splitext: function(p: string): string, string
-  ext: function(p: string): string
 end
 
 local M: FsPathModule = {
-  unsafe_entry_name = unsafe_entry_name,
+  is_unsafe_entry_name = is_unsafe_entry_name,
   dirname = dirname,
   basename = basename,
   join = join,
   home = home,
-  expanduser = expanduser,
-  exists = exists,
+  expand_user = expand_user,
+  is_present = is_present,
   is_file = is_file,
   is_dir = is_dir,
   is_link = is_link,
   is_absolute = is_absolute,
   normalize = normalize,
-  abspath = abspath,
-  relpath = relpath,
-  splitext = splitext,
-  ext = ext,
+  absolute_path = absolute_path,
+  relative_path = relative_path,
+  split_extension = split_extension,
+  -- DEPRECATED aliases (#988); deleted at pin advance.
+  unsafe_entry_name = is_unsafe_entry_name,
+  expanduser = expand_user,
+  exists = is_present,
+  abspath = absolute_path,
+  relpath = relative_path,
+  splitext = split_extension,
 }
 
 return M

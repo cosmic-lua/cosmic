@@ -427,7 +427,7 @@ local function replace_if_changed(staged: string, out: string): string | nil
     local _ok, _err = fs.unlink(staged)
     return nil
   end
-  local ok, merr = fs.rename(staged, out)
+  local ok, merr = fs.move(staged, out)
   if not ok then
     local _ok, _err = fs.unlink(staged)
     return out .. ": " .. (merr or "cannot replace")

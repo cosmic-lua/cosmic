@@ -104,8 +104,8 @@ test_blocking_read_retries_eintr()
 local function test_sync_moved_to_fs()
   -- cast: probe module surface
   assert((cfd as {string: any}).sync == nil, "fd.sync should be gone")
-  local fs_sync = (fs as {string: any}).sync -- cast: probe module surface
-  assert(type(fs_sync) == "function", "fs.sync should exist");
+  local fs_sync = (fs as {string: any}).sync_all -- cast: probe module surface
+  assert(type(fs_sync) == "function", "fs.sync_all should exist");
   (fs_sync as function())() -- cast: from any
 end
 test_sync_moved_to_fs()

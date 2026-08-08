@@ -328,7 +328,7 @@ local function make(fetch_fn: function(string, any): (any, any, any),
       local chunk, rerr = res.reader:read()
       if rerr then
         local _ok, _err = h:close()
-        local _ok2, _err2 = fs.unlink(path)
+        local _ok2, _err2 = fs.remove(path)
         return fail_with("download: " .. rerr)
       end
       if not chunk then break end
@@ -336,14 +336,14 @@ local function make(fetch_fn: function(string, any): (any, any, any),
       local wok, werr = stream.write_all(h, c)
       if not wok then
         local _ok, _err = h:close()
-        local _ok2, _err2 = fs.unlink(path)
+        local _ok2, _err2 = fs.remove(path)
         return fail_with("download: write: " .. tostring(werr))
       end
     end
     res.reader:close()
     local cok, cerr = h:close()
     if not cok then
-      local _ok, _err = fs.unlink(path)
+      local _ok, _err = fs.remove(path)
       return fail_make("download: close: " .. tostring(cerr))
     end
     return wrap(out)

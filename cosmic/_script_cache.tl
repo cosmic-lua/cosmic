@@ -162,7 +162,7 @@ local function store(script_path: string, content: string, code: string,
     mode?: string)
   local path = cache_file(script_path, content, mode)
   local dir = cache_dir()
-  if not fs.exists(dir) then
+  if not fs.is_present(dir) then
     -- 0700 at creation, not chmod after: a window in which the
     -- directory exists group-writable is a window in which an entry
     -- can be planted.

@@ -157,9 +157,9 @@ local function test_embed_preserves_file_modes()
   assert(fs.write(secret, "private-key-data\n"))
 
   -- Set specific modes
-  assert(fs.chmod(script, tonumber("755", 8)))
-  assert(fs.chmod(config, tonumber("644", 8)))
-  assert(fs.chmod(secret, tonumber("600", 8)))
+  assert(fs.set_mode(script, tonumber("755", 8)))
+  assert(fs.set_mode(config, tonumber("644", 8)))
+  assert(fs.set_mode(secret, tonumber("600", 8)))
 
   local output = fs.join(tmpdir, "cosmic-modes")
   local __r8 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", output})):wait())
@@ -202,8 +202,8 @@ local function test_extract_preserves_file_modes()
   assert(fs.write(script, "#!/bin/sh\necho hello\n"))
   assert(fs.write(secret, "private-key-data\n"))
 
-  assert(fs.chmod(script, tonumber("755", 8)))
-  assert(fs.chmod(secret, tonumber("600", 8)))
+  assert(fs.set_mode(script, tonumber("755", 8)))
+  assert(fs.set_mode(secret, tonumber("600", 8)))
 
   local embedded = fs.join(tmpdir, "cosmic-extract-modes")
   local __r9 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", embedded})):wait())
@@ -388,7 +388,7 @@ local function test_exe_flag_extract_and_layer()
   assert(fs.write(fs.join(appdir, "main.lua"),
       'print("v1", io.open("/zip/extra.txt") and "extra" or "noextra")\n'))
   assert(fs.write(fs.join(appdir, "tool.sh"), "#!/bin/sh\necho t\n"))
-  assert(fs.chmod(fs.join(appdir, "tool.sh"), tonumber("755", 8)))
+  assert(fs.set_mode(fs.join(appdir, "tool.sh"), tonumber("755", 8)))
 
   local app1 = fs.join(tmpdir, "exe-app1")
   local __e1 = check.must(check.must(child.start({cosmic, "--embed", appdir, "--output", app1})):wait())

@@ -1,212 +1,30 @@
 --- Unified filesystem module.
---- Combines path manipulation, filesystem operations, and directory walking.
+--- Combines path manipulation, filesystem operations, and directory
+--- walking. Operations are named in English (#988): the POSIX names
+--- that survive are the effectively-English concepts recorded in D20's
+--- kept set (stat, statfs, symlink, readlink, truncate, dirname,
+--- basename); everything else spells the operation out, and each old
+--- name remains as a DEPRECATED alias until the pin advance.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs.types")
-local errstr = require("cosmic.errno").wrap
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
 local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
--- Re-export path functions from fs_path submodule
+-- The submodule shards this surface re-exports
 local fs_path = require("cosmic.fs.path")
-
--- Re-export file operations from fs_ops / fs_file submodules
 local fs_ops = require("cosmic.fs.ops")
 local fs_file = require("cosmic.fs.file")
+local fs_dir = require("cosmic.fs.dir")
+local fs_walk = require("cosmic.fs.walk")
+local fs_find = require("cosmic.fs.find")
+local fs_tree = require("cosmic.fs.tree")
 local cfd = require("cosmic.fd")
 local type Handle = cfd.Handle
 
--- Wrap a raw unix.Dir with __close support
-local function make_dir(raw: unix.Dir): Dir
-  local is_closed = false
-
-  local dir: Dir = {
-    -- The second return is the dirent d_type (fs.DT_DIR / DT_REG /
-    -- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
-    -- so "is this entry a directory" needs no stat(2) call.
-    read = function(_self: Dir): string, integer
-      if is_closed then return nil end
-      local name, kind = raw:read()
-      return name, kind
-    end,
-    close = function(_self: Dir)
-      if not is_closed then
-        raw:close()
-        is_closed = true
-      end
-    end,
-    fd = function(_self: Dir): integer
-      if is_closed then return -1 end
-      return (raw:fd())
-    end,
-    rewind = function(_self: Dir)
-      if not is_closed then raw:rewind() end
-    end,
-    tell = function(_self: Dir): integer
-      if is_closed then return -1 end
-      return (raw:tell())
-    end,
-    closed = function(_self: Dir): boolean
-      return is_closed
-    end,
-  }
-
-  local mt: metatable < Dir > = {
-    __close = function(self: Dir)
-      self:close()
-    end
-  }
-
-  return setmetatable(dir, mt)
-end
-
--- Stat operations
-
---- Get file metadata.
---- Follows symbolic links: stat on a symlink describes its target.
---- Use lstat() to inspect the symlink itself.
---- @param path string Path to the file or directory
---- @return Stat | nil File metadata, or nil on error
---- @return string Error message if failed
-local function stat(path: string): Stat | nil, string
-  local st, err = unix.stat(path)
-  if not st then
-    return nil, errstr(err, "stat: " .. path)
-  end
-  return types.wrap(st)
-end
-
---- Get file metadata without following symbolic links.
---- lstat on a symlink describes the link itself, not its target.
---- @param path string Path to the file or symlink
---- @return Stat | nil File metadata, or nil on error
---- @return string Error message if failed
-local function lstat(path: string): Stat | nil, string
-  local st, err = unix.stat(path, unix.AT_SYMLINK_NOFOLLOW)
-  if not st then
-    return nil, errstr(err, "lstat: " .. path)
-  end
-  return types.wrap(st)
-end
-
---- Get file metadata from file descriptor.
---- @param fd integer File descriptor
---- @return Stat | nil File metadata, or nil on error
---- @return string Error message if failed
-local function fstat(fd: integer): Stat | nil, string
-  local st, err = unix.fstat(fd)
-  if not st then
-    return nil, errstr(err, "fstat")
-  end
-  return types.wrap(st)
-end
-
--- Directory operations
-
---- Create a directory.
---- Parent directories must exist. Use make_dirs() to create parents.
---- @param path string Path to the directory to create
---- @param mode integer Permission bits (default 0755)
---- @return boolean True on success
---- @return string Error message if failed
-local function mkdir(path: string, mode?: integer): boolean, string
-  mode = mode or tonumber("755", 8)
-  local ok, err = unix.mkdir(path, mode)
-  if not ok then
-    return false, errstr(err, "mkdir: " .. path)
-  end
-  return true
-end
-
---- Create a directory and any missing parent directories.
---- @param path string Path to the directory to create
---- @param mode integer Permission bits (default 0755)
---- @return boolean True on success
---- @return string Error message if failed
-local function make_dirs(path: string, mode?: integer): boolean, string
-  mode = mode or tonumber("755", 8)
-  local ok, err = unix.makedirs(path, mode)
-  if not ok then
-    return false, errstr(err, "make_dirs: " .. path)
-  end
-  return true
-end
-
---- Remove an empty directory.
---- @param path string Path to the directory to remove
---- @return boolean True on success
---- @return string Error message if failed
-local function rmdir(path: string): boolean, string
-  local ok, err = unix.rmdir(path)
-  if not ok then
-    return false, errstr(err, "rmdir: " .. path)
-  end
-  return true
-end
-
---- Change current working directory.
---- @param path string Path to the new working directory
---- @return boolean True on success
---- @return string Error message if failed
-local function chdir(path: string): boolean, string
-  local ok, err = unix.chdir(path)
-  if not ok then
-    return false, errstr(err, "chdir: " .. path)
-  end
-  return true
-end
-
---- Get current working directory.
---- @return string | nil Current working directory path
---- @return string Error message if failed
-local function cwd(): string | nil, string
-  local dir, err = unix.getcwd()
-  if not dir then
-    return nil, errstr(err, "cwd")
-  end
-  return dir
-end
-
---- Open a directory for reading.
---- Call dir:read() to iterate entries, dir:close() when done.
---- Supports automatic cleanup with `<close>` attribute.
---- @param path string Path to the directory
---- @return Dir | nil Directory handle, or nil on error
---- @return string Error message if failed
-local function opendir(path: string): Dir | nil, string
-  -- `is` is safe here since every cosmic-installed loader (dispatcher
-  -- searcher, embed wrapper) resolves the unix.Dir userdata
-  -- marker; explicit tl.loader() installs are unsupported.
-  local raw, err = unix.opendir(path)
-  if raw is unix.Dir then
-    return make_dir(raw)
-  end
-  return nil, errstr(err, "opendir: " .. path)
-end
-
---- Open a directory from a file descriptor.
---- Supports automatic cleanup with `<close>` attribute.
---- @param fd integer File descriptor for an open directory
---- @return Dir | nil Directory handle, or nil on error
---- @return string Error message if failed
-local function fdopendir(fd: integer): Dir | nil, string
-  local raw, err = unix.fdopendir(fd)
-  if raw is unix.Dir then
-    return make_dir(raw)
-  end
-  return nil, errstr(err, "fdopendir")
-end
-
--- Re-export the walker (fs_walk) and the find family (fs_find)
-local fs_walk = require("cosmic.fs.walk")
-local fs_find = require("cosmic.fs.find")
-
--- Recursive tree operations
-local fs_tree = require("cosmic.fs.tree")
-
---- Iterator over file paths, as returned by files().
+--- Iterator over file paths, as returned by find_iter().
 local type FileIter = fs_find.FileIter
 
 --- Visitor verdict for visit()/walk(): nil continues, "skip" prunes,
@@ -222,7 +40,7 @@ local type Entry = types.Entry
 
 --- Module interface
 local record FsModule
-  --- Iterator over file paths, as returned by files().
+  --- Iterator over file paths, as returned by find_iter().
   type FileIter = FileIter
 
   --- The types this module's own signatures return, exported so
@@ -233,15 +51,24 @@ local record FsModule
   type Dir = Dir
   type FileInfo = FileInfo
   type WalkStat = WalkStat
-  --- fd.Handle, as wrapped by temp_fd() + fd.wrap(); TmpFile is
-  --- temp_file()'s handle+path record.
+  --- fd.Handle, as returned by temp_fd(); TempFile is temp_file()'s
+  --- handle+path record (#988: was TmpFile).
   type Handle = Handle
-  type TmpFile = fs_ops.TmpFile
+  type TempFile = fs_ops.TempFile
+  --- One timestamp (secs, nsecs) and the pair set_times applies;
+  --- Stat:times() returns a Times, so stat(src):times() round-trips.
+  type Timespec = fs_ops.Timespec
+  type Times = fs_ops.Times
+  --- Options for write(): mode (exact permission bits), atomic
+  --- (same-directory temp file + fsync + rename).
+  type WriteOptions = fs_file.WriteOptions
 
-  --- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
+  --- Visitor verdict for visit()/walk(): nil continues, "skip" prunes,
+  --- "stop" ends the walk.
   type WalkAction = WalkAction
 
-  --- Options for walk() (max_depth; entries directly in dir are depth 1).
+  --- Options for visit()/walk() (max_depth; entries directly in dir
+  --- are depth 1).
   type WalkOptions = WalkOptions
 
   -- Path manipulation
@@ -250,83 +77,102 @@ local record FsModule
   join: function(...: string): string
   --- Current user's home directory (nil + error when unset).
   home: function(): string | nil, string
-  --- Expand a leading "~" or "~/" to the home directory.
-  expanduser: function(p: string): string
-  exists: function(path: string): boolean
+  --- Expand a leading "~" or "~/" to the home directory (#988: was
+  --- expanduser).
+  expand_user: function(p: string): string
+  --- True when the path names something (file, dir, special) — #988:
+  --- was exists.
+  is_present: function(path: string): boolean
   is_file: function(path: string): boolean
   is_dir: function(path: string): boolean
   is_link: function(path: string): boolean
   --- True for POSIX ("/x"), drive-letter ("C:/x", "C:\x"), and UNC
   --- ("\\server\share") absolute paths.
   is_absolute: function(p: string): boolean
-  --- THE zip-slip guard shared by zip/tar/embed; see cosmic.fs.path.
-  unsafe_entry_name: function(name: string): boolean
+  --- THE zip-slip guard shared by zip/tar/embed (#988: was
+  --- unsafe_entry_name); see cosmic.fs.path.
+  is_unsafe_entry_name: function(name: string): boolean
   normalize: function(p: string): string
-  abspath: function(p: string): string
-  relpath: function(p: string, base?: string): string
-  splitext: function(p: string): string, string
-  ext: function(p: string): string
+  --- Prepend cwd to a relative path (#988: was abspath).
+  absolute_path: function(p: string): string
+  --- Make p relative to base, default cwd (#988: was relpath).
+  relative_path: function(p: string, base?: string): string
+  --- Split into root and dot-extension (#988: was splitext).
+  split_extension: function(p: string): string, string
 
-  -- Stat operations
+  -- Stat operations (stat keeps its POSIX name; the variants say how)
   stat: function(path: string): Stat | nil, string
-  lstat: function(path: string): Stat | nil, string
-  fstat: function(fd: integer): Stat | nil, string
+  --- Stat the link itself, not its target (#988: was lstat).
+  stat_link: function(path: string): Stat | nil, string
+  --- Stat an open descriptor (#988: was fstat).
+  stat_fd: function(fd: integer): Stat | nil, string
 
   -- Directory operations
-  mkdir: function(path: string, mode?: integer): boolean, string
+  --- Create one directory (#988: was mkdir); parents must exist.
+  make_dir: function(path: string, mode?: integer): boolean, string
   make_dirs: function(path: string, mode?: integer): boolean, string
-  rmdir: function(path: string): boolean, string
-  chdir: function(path: string): boolean, string
+  --- Remove one empty directory (#988: was rmdir).
+  remove_dir: function(path: string): boolean, string
+  --- Change the working directory (#988: was chdir; cwd() reads it).
+  set_cwd: function(path: string): boolean, string
   cwd: function(): string | nil, string
-  opendir: function(path: string): Dir | nil, string
-  fdopendir: function(fd: integer): Dir | nil, string
+  --- Open a directory handle (#988: was opendir).
+  open_dir: function(path: string): Dir | nil, string
+  --- Open a directory handle from a descriptor (#988: was fdopendir).
+  open_dir_fd: function(fd: integer): Dir | nil, string
 
   -- Whole-file operations
   read: function(path: string): string | nil, string
-  write: function(path: string, data: string, mode?: integer): boolean, string
+  --- Write a file; opts carries mode and atomic (#988: write_atomic
+  --- folded in; a bare-integer mode still works until pin advance).
+  write: function(path: string, data: string, opts?: fs_file.WriteOptions | integer): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
 
   -- File operations
-  unlink: function(path: string): boolean, string
-  rename: function(oldpath: string, newpath: string): boolean, string
+  --- Remove a file or symlink (#988: was unlink); directories go
+  --- through remove_dir()/remove_all().
+  remove: function(path: string): boolean, string
   copy: function(src: string, dst: string): boolean, string
+  --- Rename, falling back to copy+remove across filesystems. The
+  --- strict-superset fs.rename is deleted (#988).
   move: function(oldpath: string, newpath: string): boolean, string
   touch: function(path: string, mode?: integer): boolean, string
-  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
-  realpath: function(path: string): string | nil, string
+  --- Canonical absolute path via the filesystem (#988: was realpath).
+  resolve: function(path: string): string | nil, string
   remove_all: function(path: string): boolean, string
   copy_tree: function(src: string, dst: string): boolean, string
 
   -- Permission operations
-  access: function(path: string, mode?: integer): boolean
-  chmod: function(path: string, mode: integer): boolean, string
-  chown: function(path: string, uid: integer, gid: integer): boolean, string
+  --- May the process access path this way (R_OK/W_OK/X_OK)? #988: was
+  --- access, whose parameterless form duplicated is_present.
+  is_accessible: function(path: string, mode: integer): boolean
+  --- Set permission bits (#988: was chmod).
+  set_mode: function(path: string, mode: integer): boolean, string
+  --- Set owner and group (#988: was chown).
+  set_owner: function(path: string, uid: integer, gid: integer): boolean, string
 
   -- Timestamp operations
-  type Timespec = fs_ops.Timespec
-  type Times = fs_ops.Times
   set_times: function(path: string, times: fs_ops.Times): boolean, string
   set_times_fd: function(fd: integer, times: fs_ops.Times): boolean, string
 
   -- Temporary file operations
-  temp_dir: function(template: string): string | nil, string
-  temp_file: function(template?: string): fs_ops.TmpFile | nil, string
-  temp_fd: function(): integer | nil, string
+  --- Template defaults to $TMPDIR/cosmic_XXXXXX (#988).
+  temp_dir: function(template?: string): string | nil, string
+  temp_file: function(template?: string): fs_ops.TempFile | nil, string
+  --- An anonymous temp file as an open Handle (#988: was a bare fd).
+  temp_fd: function(): Handle | nil, string
 
   -- Filesystem statistics
   statfs: function(path: string): Statfs | nil, string
-  fstatfs: function(fd: integer): Statfs | nil, string
+  --- statfs on an open descriptor (#988: was fstatfs).
+  statfs_fd: function(fd: integer): Statfs | nil, string
 
-  --- Flush all filesystem buffers to disk, system-wide (sync(2)).
-  --- Per-file flushing is Handle:sync()/Handle:datasync() in cosmic.fd.
-  sync: function()
-
-  -- Device number utilities
-  major: function(dev: integer): integer
-  minor: function(dev: integer): integer
+  --- Flush all filesystem buffers to disk, system-wide (sync(2)) —
+  --- #988: was sync, ambiguous beside Handle:sync's one-file flush.
+  sync_all: function()
 
   --- DEPRECATED positional walker (#987): visitor(path, name, st, ctx)
   --- with the first subtree error beside a non-nil result. Use visit().
@@ -375,6 +221,32 @@ local record FsModule
   DT_REG: integer
   DT_SOCK: integer
   DT_UNKNOWN: integer
+
+  --- DEPRECATED aliases (#988); every entry here is deleted at the
+  --- next pin advance. TmpFile is TempFile; the rest alias the
+  --- functions above.
+  type TmpFile = fs_ops.TempFile
+  expanduser: function(p: string): string
+  exists: function(path: string): boolean
+  unsafe_entry_name: function(name: string): boolean
+  abspath: function(p: string): string
+  relpath: function(p: string, base?: string): string
+  splitext: function(p: string): string, string
+  lstat: function(path: string): Stat | nil, string
+  fstat: function(fd: integer): Stat | nil, string
+  mkdir: function(path: string, mode?: integer): boolean, string
+  rmdir: function(path: string): boolean, string
+  chdir: function(path: string): boolean, string
+  opendir: function(path: string): Dir | nil, string
+  fdopendir: function(fd: integer): Dir | nil, string
+  unlink: function(path: string): boolean, string
+  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
+  realpath: function(path: string): string | nil, string
+  access: function(path: string, mode?: integer): boolean
+  chmod: function(path: string, mode: integer): boolean, string
+  chown: function(path: string, uid: integer, gid: integer): boolean, string
+  fstatfs: function(fd: integer): Statfs | nil, string
+  sync: function()
 end
 
 local M: FsModule = {
@@ -383,56 +255,53 @@ local M: FsModule = {
   basename = fs_path.basename,
   join = fs_path.join,
   home = fs_path.home,
-  expanduser = fs_path.expanduser,
-  exists = fs_path.exists,
+  expand_user = fs_path.expand_user,
+  is_present = fs_path.is_present,
   is_file = fs_path.is_file,
   is_dir = fs_path.is_dir,
   is_link = fs_path.is_link,
   is_absolute = fs_path.is_absolute,
-  unsafe_entry_name = fs_path.unsafe_entry_name,
+  is_unsafe_entry_name = fs_path.is_unsafe_entry_name,
   normalize = fs_path.normalize,
-  abspath = fs_path.abspath,
-  relpath = fs_path.relpath,
-  splitext = fs_path.splitext,
-  ext = fs_path.ext,
+  absolute_path = fs_path.absolute_path,
+  relative_path = fs_path.relative_path,
+  split_extension = fs_path.split_extension,
 
-  -- Stat operations
-  stat = stat,
-  lstat = lstat,
-  fstat = fstat,
+  -- Stat operations (re-exported from fs_dir)
+  stat = fs_dir.stat,
+  stat_link = fs_dir.stat_link,
+  stat_fd = fs_dir.stat_fd,
 
-  -- Directory operations
-  mkdir = mkdir,
-  make_dirs = make_dirs,
-  rmdir = rmdir,
-  chdir = chdir,
-  cwd = cwd,
-  opendir = opendir,
-  fdopendir = fdopendir,
+  -- Directory operations (re-exported from fs_dir)
+  make_dir = fs_dir.make_dir,
+  make_dirs = fs_dir.make_dirs,
+  remove_dir = fs_dir.remove_dir,
+  set_cwd = fs_dir.set_cwd,
+  cwd = fs_dir.cwd,
+  open_dir = fs_dir.open_dir,
+  open_dir_fd = fs_dir.open_dir_fd,
 
-  -- Whole-file operations (re-exported from fs_ops)
+  -- Whole-file operations (re-exported from fs_file)
   read = fs_file.read,
   write = fs_file.write,
   truncate = fs_file.truncate,
 
   -- File operations (re-exported from fs_ops)
-  unlink = fs_ops.unlink,
-  rename = fs_ops.rename,
+  remove = fs_ops.remove,
   copy = fs_ops.copy,
   move = fs_ops.move,
   touch = fs_ops.touch,
-  write_atomic = fs_file.write_atomic,
   link = fs_ops.link,
   symlink = fs_ops.symlink,
   readlink = fs_ops.readlink,
-  realpath = fs_ops.realpath,
+  resolve = fs_ops.resolve,
   remove_all = fs_ops.remove_all,
   copy_tree = fs_tree.copy_tree,
 
   -- Permission operations (re-exported from fs_ops)
-  access = fs_ops.access,
-  chmod = fs_ops.chmod,
-  chown = fs_ops.chown,
+  is_accessible = fs_ops.is_accessible,
+  set_mode = fs_ops.set_mode,
+  set_owner = fs_ops.set_owner,
 
   -- Timestamp operations (re-exported from fs_ops)
   set_times = fs_ops.set_times,
@@ -445,12 +314,8 @@ local M: FsModule = {
 
   -- Filesystem statistics (re-exported from fs_ops)
   statfs = fs_ops.statfs,
-  fstatfs = fs_ops.fstatfs,
-  sync = fs_ops.sync,
-
-  -- Device number utilities (re-exported from fs_ops)
-  major = fs_ops.major,
-  minor = fs_ops.minor,
+  statfs_fd = fs_ops.statfs_fd,
+  sync_all = fs_ops.sync_all,
 
   -- Directory walking and the find family
   walk = fs_walk.walk,
@@ -474,6 +339,29 @@ local M: FsModule = {
   DT_REG = unix.DT_REG,
   DT_SOCK = unix.DT_SOCK,
   DT_UNKNOWN = unix.DT_UNKNOWN,
+
+  -- DEPRECATED aliases (#988); deleted at pin advance.
+  expanduser = fs_path.expand_user,
+  exists = fs_path.is_present,
+  unsafe_entry_name = fs_path.is_unsafe_entry_name,
+  abspath = fs_path.absolute_path,
+  relpath = fs_path.relative_path,
+  splitext = fs_path.split_extension,
+  lstat = fs_dir.stat_link,
+  fstat = fs_dir.stat_fd,
+  mkdir = fs_dir.make_dir,
+  rmdir = fs_dir.remove_dir,
+  chdir = fs_dir.set_cwd,
+  opendir = fs_dir.open_dir,
+  fdopendir = fs_dir.open_dir_fd,
+  unlink = fs_ops.remove,
+  write_atomic = fs_file.write_atomic,
+  realpath = fs_ops.resolve,
+  access = fs_ops.access,
+  chmod = fs_ops.set_mode,
+  chown = fs_ops.set_owner,
+  fstatfs = fs_ops.statfs_fd,
+  sync = fs_ops.sync_all,
 }
 
 return M

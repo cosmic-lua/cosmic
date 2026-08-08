@@ -52,6 +52,18 @@
   `doc.run`, `literal.of_source/of_file`, `proc.commandv` — is gone,
   and tooling calls the charter names everywhere. The protocol above
   remains the template for any future public rename.
+- **the kept-POSIX set (amended 2026-08, #988):** operations are named
+  in English, and the POSIX names that survive are the
+  effectively-English concepts — a closed, recorded carve-out, not a
+  per-call-site judgment: `stat` (and its `stat_link`/`stat_fd`
+  variants, which spell HOW they stat), `statfs`, `symlink`,
+  `readlink`, `truncate`, `dirname`, `basename`. Everything else on
+  `cosmic.fs` spells the operation out: `make_dir`, `remove_dir`,
+  `remove`, `open_dir`, `open_dir_fd`, `set_cwd`, `set_mode`,
+  `set_owner`, `resolve`, `sync_all`; fd variants standardize on the
+  `_fd` suffix. `access` folded into `is_present`/`is_accessible`
+  (rule 3). Rule 4's syscall-shaped exemption (`proc`, `user`,
+  `signal`) is unchanged.
 - **consequences:** the rename wave landed in two parts — the
   mechanical applications of rules 1–4 and 8–9 (this record), with the
   semantic redesigns (re subject-first argument order and match/find

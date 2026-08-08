@@ -262,7 +262,7 @@ local function test_unsafe_path()
   assert(untar.unsafe_path(""), "empty")
   assert(untar.unsafe_path("/abs"), "absolute")
   assert(untar.unsafe_path("a/../b"), "dotdot")
-  -- Backslash policy is now the shared guard's (fs.unsafe_entry_name):
+  -- Backslash policy is now the shared guard's (fs.is_unsafe_entry_name):
   -- a backslash is a SEPARATOR for the traversal check, not a blanket
   -- refusal, matching zip and embed. `a\\b` is a legal (weird) name;
   -- `..\\evil` is still traversal.

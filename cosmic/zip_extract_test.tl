@@ -65,8 +65,8 @@ local function test_extract_rejects_traversal()
   assert(err and err:match("unsafe path"), "expected unsafe path error, got: " .. tostring(err))
   -- Nothing may be written: not the escaping file, and not the innocent
   -- entry either (validation runs before any writes).
-  assert(not fs.exists(fs.join(TEST_TMPDIR, "escaped.txt")), "escaping file must not be written")
-  assert(not fs.exists(dest), "destination must stay untouched on rejection")
+  assert(not fs.is_present(fs.join(TEST_TMPDIR, "escaped.txt")), "escaping file must not be written")
+  assert(not fs.is_present(dest), "destination must stay untouched on rejection")
 end
 test_extract_rejects_traversal()
 
@@ -79,7 +79,7 @@ local function test_extract_rejects_absolute()
 
   assert(not ok, "extract should reject an absolute entry")
   assert(err and err:match("unsafe path"), "expected unsafe path error, got: " .. tostring(err))
-  assert(not fs.exists(dest), "destination must stay untouched on rejection")
+  assert(not fs.is_present(dest), "destination must stay untouched on rejection")
 end
 test_extract_rejects_absolute()
 
@@ -129,7 +129,7 @@ local function test_extract_max_file_size()
 
   assert(not ok, "extract should reject oversized entries")
   assert(err and err:match("max_file_size_bytes"), "expected size error, got: " .. tostring(err))
-  assert(not fs.exists(fs.join(dest, "small.txt")), "no partial output on size rejection")
+  assert(not fs.is_present(fs.join(dest, "small.txt")), "no partial output on size rejection")
 end
 test_extract_max_file_size()
 

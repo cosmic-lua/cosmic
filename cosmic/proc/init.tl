@@ -154,7 +154,7 @@ local function interpreter(): string | nil, string
   if argv0 == nil or argv0 == "" then
     return nil, "interpreter: arg[-1] is not set"
   end
-  local abs = fs_path.abspath(argv0)
+  local abs = fs_path.absolute_path(argv0)
   if fs_path.is_file(abs) then
     interpreter_path = abs
     return abs

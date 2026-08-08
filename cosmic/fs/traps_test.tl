@@ -93,12 +93,12 @@ local function test_copytree_dir_mode_exact()
   local src_mode = tonumber("750", 8)
   local src = fs.join(base, "src")
   assert(fs.make_dirs(src))
-  assert(fs.chmod(src, src_mode))
+  assert(fs.set_mode(src, src_mode))
   write_file(fs.join(src, "a.txt"), "alpha")
 
   local dst = fs.join(base, "dst")
   assert(fs.make_dirs(dst))
-  assert(fs.chmod(dst, tonumber("777", 8)))
+  assert(fs.set_mode(dst, tonumber("777", 8)))
 
   -- cast: from any
   local copy_tree = fsa.copy_tree as function(string, string): boolean, string
@@ -126,7 +126,7 @@ local function test_tmpfile_handle_and_path()
   assert((hh.write as function(any, string): number, string)(h, "via handle"))
   assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.read(path) == "via handle", "fs.read sees what the Handle wrote")
-  assert(fs.unlink(path))
+  assert(fs.remove(path))
 end
 test_tmpfile_handle_and_path()
 
@@ -140,13 +140,13 @@ local function test_tmpfile_default_template()
   local path = t.path as string -- cast: from any
   assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.is_file(path), "returned path exists")
-  assert(fs.unlink(path))
+  assert(fs.remove(path))
 end
 test_tmpfile_default_template()
 
 local function test_mkstemp_is_gone()
   assert(fsa.mkstemp == nil, "fs.mkstemp should be dropped in favor of temp_file")
-  assert(type(fsa.temp_fd) == "function", "fs.temp_fd stays for raw-fd use")
+  assert(type(fsa.temp_fd) == "function", "fs.temp_fd stays, returning a Handle")
 end
 test_mkstemp_is_gone()
 
@@ -206,7 +206,7 @@ local function test_dir_read_returns_d_type()
 
   assert(fsa.DT_DIR ~= nil, "fs.DT_DIR should be exported")
   assert(fsa.DT_REG ~= nil, "fs.DT_REG should be exported")
-  local d = assert(fs.opendir(dir))
+  local d = assert(fs.open_dir(dir))
   local dd = d as {string: any} -- cast: signature transition
   local read = dd.read as function(any): string, number -- cast: from any
   local close = dd.close as function(any) -- cast: from any
@@ -225,14 +225,42 @@ local function test_dir_read_returns_d_type()
 end
 test_dir_read_returns_d_type()
 
--- 5. access defaults to F_OK.
-local function test_access_defaults_to_exists()
+-- 5. is_accessible requires a mode; the deprecated access alias keeps
+-- its F_OK default until the pin advance (#988).
+local function test_is_accessible_and_deprecated_access()
   local path = fs.join(TEST_TMPDIR, "acc.txt")
   write_file(path, "here")
+  assert(fs.is_accessible(path, fs.R_OK), "readable file is accessible R_OK")
+  assert(not fs.is_accessible(fs.join(TEST_TMPDIR, "missing.txt"), fs.R_OK),
+    "missing path is not accessible")
   local access = fsa.access as function(string): boolean -- cast: from any
-  assert(access(path) == true, "access(path) with no mode means exists")
-  assert(access(fs.join(TEST_TMPDIR, "missing.txt")) == false,
-    "access on a missing path is false")
-  assert(fs.unlink(path))
+  assert(access(path) == true, "deprecated access(path) still means exists")
+  assert(fs.remove(path))
 end
-test_access_defaults_to_exists()
+test_is_accessible_and_deprecated_access()
+
+-- 6. the #988 rename wave: every old name is an alias of its new name,
+-- so both spellings answer identically until the pin advance.
+local function test_deprecated_aliases_point_at_new_names()
+  local pairs_to_check: {{string, string}} = {
+    {"exists", "is_present"}, {"abspath", "absolute_path"},
+    {"relpath", "relative_path"}, {"splitext", "split_extension"},
+    {"expanduser", "expand_user"}, {"unsafe_entry_name", "is_unsafe_entry_name"},
+    {"mkdir", "make_dir"}, {"rmdir", "remove_dir"}, {"unlink", "remove"},
+    {"opendir", "open_dir"}, {"fdopendir", "open_dir_fd"},
+    {"chdir", "set_cwd"}, {"chmod", "set_mode"}, {"chown", "set_owner"},
+    {"realpath", "resolve"}, {"lstat", "stat_link"}, {"fstat", "stat_fd"},
+    {"fstatfs", "statfs_fd"}, {"sync", "sync_all"},
+    {"write_atomic", "write_atomic"},
+  }
+  for _, pair in ipairs(pairs_to_check) do
+    local old_name, new_name = pair[1], pair[2]
+    assert(type(fsa[old_name]) == "function", old_name .. " alias exists")
+    assert(type(fsa[new_name]) == "function", new_name .. " exists")
+  end
+  assert(fsa.exists == fsa.is_present, "alias is the same function")
+  assert(fsa.rename == nil, "fs.rename is deleted (move is the superset)")
+  assert(fsa.major == nil and fsa.minor == nil, "fs.major/minor are deleted")
+  assert(fsa.ext == nil, "fs.ext is deleted (split_extension's second return)")
+end
+test_deprecated_aliases_point_at_new_names()

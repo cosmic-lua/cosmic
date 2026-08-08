@@ -278,7 +278,7 @@ test_format_write_if_changed()
 local function test_output_after_compile_reaches_the_file()
   local input = write_temp("after.tl", "local x: number = 7\nprint(x)\n")
   local out_path = fs.join(tmpdir, "after_out.lua")
-  local _ok, _err = fs.unlink(out_path) -- ensure absent; may not exist yet
+  local _ok, _err = fs.remove(out_path) -- ensure absent; may not exist yet
   local h = check.must(child.start({cosmic, "--compile", input,
         "--output", out_path, "--write-if-changed"}))
   local r = check.must(h:wait())

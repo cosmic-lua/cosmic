@@ -11,28 +11,15 @@ local type Handle = cfd.Handle
 
 -- File operations
 
---- Remove a file or symbolic link.
---- Does not remove directories; use rmdir() or remove_all() for that.
+--- Remove a file or symbolic link (#988: was `unlink`).
+--- Does not remove directories; use remove_dir() or remove_all().
 --- @param path string Path to the file to remove
 --- @return boolean True on success
 --- @return string Error message if failed
-local function unlink(path: string): boolean, string
+local function remove(path: string): boolean, string
   local ok, err = unix.unlink(path)
   if not ok then
-    return false, errstr(err, "unlink: " .. path)
-  end
-  return true
-end
-
---- Rename or move a file or directory.
---- @param oldpath string Current path
---- @param newpath string New path
---- @return boolean True on success
---- @return string Error message if failed
-local function rename(oldpath: string, newpath: string): boolean, string
-  local ok, err = unix.rename(oldpath, newpath, unix.AT_FDCWD, unix.AT_FDCWD)
-  if not ok then
-    return false, errstr(err, "rename: " .. oldpath .. " -> " .. newpath)
+    return false, errstr(err, "remove: " .. path)
   end
   return true
 end
@@ -187,15 +174,15 @@ local function readlink(path: string): string | nil, string
   return target
 end
 
---- Get the canonical absolute path.
+--- Get the canonical absolute path (#988: was `realpath`).
 --- Resolves all symbolic links and removes . and .. components.
 --- @param path string Path to resolve
 --- @return string | nil Canonical path, or nil on error
 --- @return string Error message if failed
-local function realpath(path: string): string | nil, string
+local function resolve(path: string): string | nil, string
   local resolved, err = unix.realpath(path)
   if not resolved then
-    return nil, errstr(err, "realpath: " .. path)
+    return nil, errstr(err, "resolve: " .. path)
   end
   return resolved
 end
@@ -220,61 +207,55 @@ end
 
 -- Permission operations
 
---- Check if the current process has access to a file.
+--- Check if the current process may access a file the given way
+--- (#988: was `access` with an optional mode — parameterless access
+--- duplicated is_present, so the mode is required now).
 --- @param path string Path to check
---- @param mode integer Access mode: F_OK (exists, the default), R_OK, W_OK, X_OK
+--- @param mode integer Access mode: R_OK, W_OK, X_OK (or F_OK, which is is_present)
 --- @return boolean True if access is allowed
-local function access(path: string, mode?: integer): boolean
+local function is_accessible(path: string, mode: integer): boolean
   -- The binding returns true or nil, err; callers get an honest boolean.
+  return unix.access(path, mode) == true
+end
+
+--- DEPRECATED (#988): is_accessible / is_present. Deleted at pin advance.
+local function access(path: string, mode?: integer): boolean
   return unix.access(path, mode or unix.F_OK) == true
 end
 
---- Change file permissions.
+--- Change file permissions (#988: was `chmod`).
 --- @param path string Path to the file
 --- @param mode integer New permission bits (e.g., 0644)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function chmod(path: string, mode: integer): boolean, string
+local function set_mode(path: string, mode: integer): boolean, string
   local ok, err = unix.chmod(path, mode)
   if not ok then
-    return false, errstr(err, "chmod: " .. path)
+    return false, errstr(err, "set_mode: " .. path)
   end
   return true
 end
 
---- Change file owner and group.
+--- Change file owner and group (#988: was `chown`).
 --- @param path string Path to the file
 --- @param uid integer New owner user ID
 --- @param gid integer New owner group ID
 --- @return boolean True on success
 --- @return string Error message if failed
-local function chown(path: string, uid: integer, gid: integer): boolean, string
+local function set_owner(path: string, uid: integer, gid: integer): boolean, string
   local ok, err = unix.chown(path, uid, gid)
   if not ok then
-    return false, errstr(err, "chown: " .. path)
+    return false, errstr(err, "set_owner: " .. path)
   end
   return true
 end
 
 -- Timestamp operations
 
---- One timestamp for set_times: whole seconds plus optional
---- nanoseconds (default 0 — a bare secs value always means a literal
---- stamp, never "now"). nsecs may be unix.UTIME_NOW/UTIME_OMIT when a
---- caller wants that raw kernel behavior.
-local record Timespec
-  secs: integer
-  nsecs: integer
-end
-
---- The timestamps set_times/set_times_fd apply. Omit a field to leave
---- that timestamp exactly as it is (api-review-6: this record replaces
---- utimensat/futimens and their five positionals, whose nil meant
---- "unchanged" in one slot and "zero" in the next).
-local record Times
-  atime: Timespec
-  mtime: Timespec
-end
+-- Timespec/Times live in cosmic.fs.types (#988) so Stat:times() can
+-- return them; these are the same records.
+local type Timespec = types.Timespec
+local type Times = types.Times
 
 --- Resolve one Timespec to what the raw binding expects: nil means
 --- "leave untouched" (UTIME_OMIT in the nsec slot makes the kernel
@@ -323,10 +304,12 @@ end
 -- Temporary file operations
 
 --- Create a temporary directory.
---- @param template string Path template ending in XXXXXX
+--- @param template string Path template ending in XXXXXX (default:
+---   $TMPDIR/cosmic_XXXXXX — #988: every caller was hardcoding /tmp)
 --- @return string | nil Path to the created directory, or nil on error
 --- @return string Error message if failed
-local function temp_dir(template: string): string | nil, string
+local function temp_dir(template?: string): string | nil, string
+  template = template or ((os.getenv("TMPDIR") or "/tmp") .. "/cosmic_XXXXXX")
   local path, err = unix.mkdtemp(template)
   if not path then
     return nil, errstr(err, "temp_dir: " .. template)
@@ -337,19 +320,20 @@ end
 --- A created temp file: the open Handle plus its path. A record so the
 --- error stays in slot 2 — the old (Handle, path, err) triple put a
 --- SUCCESS value where `local h, err = ...` expected the error.
-local record TmpFile
+--- (#988: was `TmpFile` — rule 1 spells words out.)
+local record TempFile
   --- Open handle to the created file; the Handle owns the descriptor.
   handle: Handle
   --- Path to the created file. NOT unlinked automatically — remove it
-  --- when done. For an anonymous descriptor, use temp_fd() + fd.wrap().
+  --- when done. For an anonymous file with no path at all, use temp_fd().
   path: string
 end
 
 --- Create a temporary file, returning an open fd.Handle plus its path.
 --- @param template string Path template ending in XXXXXX (default: $TMPDIR/cosmic_XXXXXX)
---- @return TmpFile | nil The handle and path, or nil on error
+--- @return TempFile | nil The handle and path, or nil on error
 --- @return string Error message if failed
-local function temp_file(template?: string): TmpFile | nil, string
+local function temp_file(template?: string): TempFile | nil, string
   template = template or ((os.getenv("TMPDIR") or "/tmp") .. "/cosmic_XXXXXX")
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
@@ -359,15 +343,17 @@ local function temp_file(template?: string): TmpFile | nil, string
   return {handle = cfd.wrap(fd), path = path}
 end
 
---- Create a temporary file descriptor.
---- @return integer | nil File descriptor, or nil on error
+--- Create an anonymous temporary file, returned as an open fd.Handle
+--- (#988: was a bare descriptor, with matching wrap-it-yourself docs
+--- here and in cosmic.fd).
+--- @return Handle | nil Open handle, or nil on error
 --- @return string Error message if failed
-local function temp_fd(): integer | nil, string
+local function temp_fd(): Handle | nil, string
   local fd, err = unix.tmpfd()
   if not fd then
     return nil, errstr(err, "temp_fd")
   end
-  return fd
+  return cfd.wrap(fd)
 end
 
 -- Filesystem statistics
@@ -381,105 +367,106 @@ local function statfs(path: string): Statfs | nil, string
   if not info then
     return nil, errstr(err, "statfs: " .. path)
   end
-  return info as Statfs -- cast: userdata boundary
+  -- cast: userdata boundary (wrap installs the spelled methods)
+  return types.wrap_statfs(info as any)
 end
 
---- Get filesystem statistics from a file descriptor.
+--- Get filesystem statistics from a file descriptor (#988: was
+--- `fstatfs` — fd variants standardize on the `_fd` suffix).
 --- @param fd integer File descriptor
 --- @return Statfs | nil Filesystem statistics, or nil on error
 --- @return string Error message if failed
-local function fstatfs(fd: integer): Statfs | nil, string
+local function statfs_fd(fd: integer): Statfs | nil, string
   local info, err = unix.fstatfs(fd)
   if not info then
-    return nil, errstr(err, "fstatfs")
+    return nil, errstr(err, "statfs_fd")
   end
-  return info as Statfs -- cast: userdata boundary
+  -- cast: userdata boundary (wrap installs the spelled methods)
+  return types.wrap_statfs(info as any)
 end
 
---- Flush all filesystem buffers to disk, system-wide (sync(2)).
+--- Flush all filesystem buffers to disk, system-wide (sync(2)) —
+--- #988: was `sync`, ambiguous beside Handle:sync's one-file flush.
 --- Infallible: the syscall reports nothing. For a single file use
 --- Handle:sync()/Handle:datasync() from cosmic.fd.
-local function sync()
+local function sync_all()
   unix.sync()
 end
 
--- Device number utilities
-
---- Extract major device number from a device ID.
---- @param dev integer Device ID from stat
---- @return integer Major device number
-local function major(dev: integer): integer
-  return unix.major(dev)
-end
-
---- Extract minor device number from a device ID.
---- @param dev integer Device ID from stat
---- @return integer Minor device number
-local function minor(dev: integer): integer
-  return unix.minor(dev)
-end
-
 local record FsOpsModule
-  unlink: function(path: string): boolean, string
-  rename: function(oldpath: string, newpath: string): boolean, string
+  remove: function(path: string): boolean, string
   copy: function(src: string, dst: string): boolean, string
   move: function(oldpath: string, newpath: string): boolean, string
   touch: function(path: string, mode?: integer): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
-  realpath: function(path: string): string | nil, string
+  resolve: function(path: string): string | nil, string
   remove_all: function(path: string): boolean, string
-  access: function(path: string, mode?: integer): boolean
-  chmod: function(path: string, mode: integer): boolean, string
-  chown: function(path: string, uid: integer, gid: integer): boolean, string
+  is_accessible: function(path: string, mode: integer): boolean
+  set_mode: function(path: string, mode: integer): boolean, string
+  set_owner: function(path: string, uid: integer, gid: integer): boolean, string
   type Timespec = Timespec
   type Times = Times
   set_times: function(path: string, times: Times): boolean, string
   set_times_fd: function(fd: integer, times: Times): boolean, string
-  temp_dir: function(template: string): string | nil, string
-  type TmpFile = TmpFile
-  temp_file: function(template?: string): TmpFile | nil, string
-  temp_fd: function(): integer | nil, string
+  temp_dir: function(template?: string): string | nil, string
+  type TempFile = TempFile
+  temp_file: function(template?: string): TempFile | nil, string
+  temp_fd: function(): Handle | nil, string
   statfs: function(path: string): Statfs | nil, string
-  fstatfs: function(fd: integer): Statfs | nil, string
-  sync: function()
-  major: function(dev: integer): integer
-  minor: function(dev: integer): integer
+  statfs_fd: function(fd: integer): Statfs | nil, string
+  sync_all: function()
   F_OK: integer
   R_OK: integer
   W_OK: integer
   X_OK: integer
+
+  --- DEPRECATED aliases (#988); deleted at pin advance.
+  unlink: function(path: string): boolean, string
+  realpath: function(path: string): string | nil, string
+  access: function(path: string, mode?: integer): boolean
+  chmod: function(path: string, mode: integer): boolean, string
+  chown: function(path: string, uid: integer, gid: integer): boolean, string
+  type TmpFile = TempFile
+  fstatfs: function(fd: integer): Statfs | nil, string
+  sync: function()
 end
 
 local M: FsOpsModule = {
-  unlink = unlink,
-  rename = rename,
+  remove = remove,
   copy = copy,
   move = move,
   touch = touch,
   link = link,
   symlink = symlink,
   readlink = readlink,
-  realpath = realpath,
+  resolve = resolve,
   remove_all = remove_all,
-  access = access,
-  chmod = chmod,
-  chown = chown,
+  is_accessible = is_accessible,
+  set_mode = set_mode,
+  set_owner = set_owner,
   set_times = set_times,
   set_times_fd = set_times_fd,
   temp_dir = temp_dir,
   temp_file = temp_file,
   temp_fd = temp_fd,
   statfs = statfs,
-  fstatfs = fstatfs,
-  sync = sync,
-  major = major,
-  minor = minor,
+  statfs_fd = statfs_fd,
+  sync_all = sync_all,
   F_OK = unix.F_OK,
   R_OK = unix.R_OK,
   W_OK = unix.W_OK,
   X_OK = unix.X_OK,
+
+  -- DEPRECATED aliases (#988); deleted at pin advance.
+  unlink = remove,
+  realpath = resolve,
+  access = access,
+  chmod = set_mode,
+  chown = set_owner,
+  fstatfs = statfs_fd,
+  sync = sync_all,
 }
 
 return M
