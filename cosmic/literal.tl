@@ -17,17 +17,16 @@
 ---     local cfg = literal.parse_file("config.tl")
 
 local fs = require("cosmic.fs")
+local lformat = require("cosmic._literal_format")
 
 --- One lexical token: its raw text, what it is, and the line it began on.
 ---
---- This module lexes for itself rather than borrowing `tl.lex`, so a
---- safe-config reader does not drag in the ~15k-line Teal compiler. A
+--- This module lexes for itself rather than borrowing `tl.lex`: a
 --- stripped artifact keeps `cosmic/**` and drops `tl.lua`, so a shared
---- lexer would make `require("cosmic.literal")` throw `module 'tl' not
---- found` in exactly the artifacts whose authors want a config file
---- that cannot do anything. The literal grammar needs identifiers,
---- strings, numbers and punctuation; that is the lexer below, and it
---- leaves this module with no dependency beyond `cosmic.fs`.
+--- lexer would make `require("cosmic.literal")` throw in exactly the
+--- artifacts whose authors want a config file that cannot do anything.
+--- The grammar needs identifiers, strings, numbers and punctuation;
+--- that is the lexer below, with no dependency beyond `cosmic.fs`.
 local record Token
   tk: string
   kind: string
@@ -485,11 +484,17 @@ local record LiteralModule
   type Options = Options
   parse: function(source: string, opts?: Options): {string: any} | nil, string
   parse_file: function(path: string, opts?: Options): {string: any} | nil, string
+  --- The format half (#1001): parse(format(v)) round-trips
+  --- literal-domain values; contract in cosmic._literal_format.
+  format: function(value: any): string | nil, string
+  format_file: function(path: string, value: any): boolean, string
 end
 
 local M: LiteralModule = {
   parse = parse,
   parse_file = parse_file,
+  format = lformat.format,
+  format_file = lformat.format_file,
 }
 
 return M

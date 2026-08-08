@@ -5,7 +5,7 @@
 --- the process because the runner grades exit codes — the record is
 --- docs/decisions/d23-check-throws.md; no other cosmic.* module may
 --- throw or exit, so never require check from library code.
-local codec = require("cosmic.codec")
+local cosmo = require("cosmo")
 local proc = require("cosmic.proc")
 
 --- The skip exit code: 0 pass, 2 skip, anything else fail — the
@@ -22,7 +22,7 @@ local function render(v: any): string
   if v == nil then
     return "nil"
   end
-  local s, err = codec.encode_lua(v)
+  local s, err = cosmo.EncodeLua(v)
   if s == nil then
     return "<unrenderable: " .. tostring(err) .. ">"
   end

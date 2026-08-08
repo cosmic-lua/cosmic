@@ -194,4 +194,47 @@ local function test_a_literal_cannot_be_code()
 end
 test_a_literal_cannot_be_code()
 
+-- format is the writer half (#1001): parse(format(v)) is identity on
+-- the literal domain, and format's output IS a literal file — prefix,
+-- terminator and all — so what it writes, fetch could read as a pin.
+local function test_format_round_trips_the_literal_domain()
+  local v: {string: any} = {
+    name = "test", count = 42, flag = true,
+    nested = {x = 1.5, y = "two"},
+  }
+  local src, err = literal.format(v)
+  assert(src, "format failed: " .. tostring(err))
+  assert(src:sub(1, 7) == "return ", "format emits a literal file, got: " .. src)
+  assert(src:sub(-1) == "\n", "format terminates its line")
+  local got = read(src)
+  assert(got.name == "test" and got.count == 42 and got.flag == true,
+    "scalars survive the round trip")
+  local nested = got.nested as {string: any} -- cast: from any
+  assert(nested.x == 1.5 and nested.y == "two", "nesting survives the round trip")
+end
+test_format_round_trips_the_literal_domain()
+
+-- Outside the literal domain format still serializes (a loadstring can
+-- read it back), but parse refuses it: integer keys are not pin grammar.
+local function test_format_beyond_the_domain_is_not_parseable()
+  local src = assert(literal.format({[1] = "a", [2] = "b"}))
+  local v, err = literal.parse(src, {file = "t", noun = "pin"})
+  assert(not v, "an array is outside the literal grammar")
+  assert(err and #err > 0, "the refusal carries a message")
+end
+test_format_beyond_the_domain_is_not_parseable()
+
+local function test_format_file_round_trips_through_parse_file()
+  local fs = require("cosmic.fs")
+  local dir = assert(os.getenv("TEST_TMPDIR"), "TEST_TMPDIR must be set")
+  local path = fs.join(dir, "formatted_pin.tl")
+  assert(literal.format_file(path, {url = "https://example.com", n = 3}))
+  local v, err = literal.parse_file(path)
+  assert(v, "parse_file failed: " .. tostring(err))
+  local got = v as {string: any} -- cast: record union after the assert
+  assert(got.url == "https://example.com" and got.n == 3,
+    "format_file writes what parse_file reads")
+end
+test_format_file_round_trips_through_parse_file()
+
 print("all literal tests passed")

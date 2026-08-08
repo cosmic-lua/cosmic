@@ -1,8 +1,9 @@
---- Encoding and decoding utilities for various formats.
---- Provides hex, base64, base32, Latin-1, and Lua serialization codecs
---- with consistent error handling, plus CRC-32 checksums (checksums are
+--- Encoding and decoding utilities: bytes in, bytes out.
+--- Provides hex, base64, base32, and Latin-1 codecs with consistent
+--- error handling, plus CRC-32 checksums (checksums are
 --- encoding-adjacent error detection, not crypto — see cosmic.hash for
---- digests).
+--- digests). Lua VALUE serialization is not a byte codec and lives in
+--- cosmic.literal (format/parse, #1001).
 local cosmo = require("cosmo")
 
 --- Encode a string as hexadecimal.
@@ -26,41 +27,6 @@ local function decode_hex(hex: string): string | nil, string
     return nil, err
   end
   return result
-end
-
---- Encode a Lua value as Lua source code.
---- The output can be loaded with decode_lua to reconstruct the value.
---- @param value any The Lua value to encode (table, string, number, boolean, or nil)
---- @param opts {string:any}? Optional encoding options
---- @return string | nil The Lua source code representation, or nil on error
---- @return string? Error message if encoding failed
-local function encode_lua(value: any, opts?: {string: any}): string | nil, string
-  -- cast: map to options record
-  local result, err = cosmo.EncodeLua(value, opts as cosmo.EncoderOptions)
-  if result == nil then
-    return nil, err
-  end
-  return result
-end
-
---- Decode Lua source code to a value with a restricted environment.
---- Only loads the code in text mode with an empty environment table,
---- preventing access to globals like os, io, and require.
---- Table constructors and literal values still work.
---- WARNING: This still executes Lua code. Only use with trusted input.
---- @param code string The Lua source code to decode
---- @return any | nil The decoded Lua value, or nil on error
---- @return string? Error message if decoding failed
-local function decode_lua_unsafe(code: string): any | nil, string
-  local chunk, err = load("return " .. code, "=(decode_lua_unsafe)", "t", {})
-  if not chunk then
-    return nil, err
-  end
-  local ok, result = pcall(chunk)
-  if not ok then
-    return nil, result as string -- cast: from any
-  end
-  return result, nil
 end
 
 --- Encode binary data as base64.
@@ -229,8 +195,6 @@ end
 local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string | nil, string
-  encode_lua: function(value: any, opts?: {string: any}): string | nil, string
-  decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string | nil, string
   encode_base64url: function(data: string): string
@@ -246,8 +210,6 @@ end
 local M: CodecModule = {
   encode_hex = encode_hex,
   decode_hex = decode_hex,
-  encode_lua = encode_lua,
-  decode_lua_unsafe = decode_lua_unsafe,
   encode_base64 = encode_base64,
   decode_base64 = decode_base64,
   encode_base64url = encode_base64url,

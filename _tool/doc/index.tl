@@ -2,10 +2,11 @@
 --- Run directly as a script with source files as arguments.
 
 local doc = require("_tool.doc")
-local codec = require("cosmic.codec")
 -- This script is compiled and run by the pinned BOOTSTRAP cosmic, whose
 -- embedded types predate the current tree; use the signature-stable
--- cosmo.Slurp instead of cosmic.fs.read so it works under both.
+-- cosmo.Slurp instead of cosmic.fs.read so it works under both, and
+-- cosmo.EncodeLua directly (#1001: codec no longer wraps it) so the
+-- index bytes stay identical across generations.
 local cosmo = require("cosmo")
 
 local record DocIndexModule
@@ -252,7 +253,7 @@ local function generate(files: {string},
   flatten_shards(modules)
   mark_visibility(modules)
 
-  return codec.encode_lua({modules = modules})
+  return cosmo.EncodeLua({modules = modules})
 end
 
 local M: DocIndexModule = {

@@ -3,7 +3,6 @@
 --- paths, compiled artifacts (o/X.lua) map back to their X.tl source,
 --- and the denominator comes from static executable-line analysis of
 --- each file unioned with the lines actually hit.
-local codec = require("cosmic.codec")
 local fs = require("cosmic.fs")
 local fs_pub = require("cosmic.fs")
 local cov_lines = require("_tool.coverage.lines")
@@ -168,9 +167,26 @@ local function read_cov(path: string): {string: {integer: integer}} | nil, strin
   if not body then
     return nil, err
   end
-  local data, derr = codec.decode_lua_unsafe(body)
+  -- The collector writes via literal.format, so the body carries its
+  -- own `return` prefix (#1001). literal.parse cannot read it back —
+  -- hit tables have integer keys, outside the literal grammar — so
+  -- load it in an empty environment instead: data in, no reach out.
+  -- A warm tree (or CI's restored o/) can still hold .cov files whose
+  -- writer predates the prefix; a bare table body is not a statement,
+  -- so the first load fails and the keyword is supplied for it.
+  local chunk, lerr = load(body, "=(cov)", "t", {})
+  if not chunk then
+    chunk, lerr = load("return " .. body, "=(cov)", "t", {})
+  end
+  if not chunk then
+    return nil, "cannot load coverage data: " .. (lerr or "load failed")
+  end
+  local pok, data = pcall(chunk)
+  if not pok then
+    return nil, "cannot load coverage data: " .. tostring(data)
+  end
   if data == nil then
-    return nil, derr
+    return nil, "empty coverage data"
   end
   local t = data as {string: any} -- cast: from any
   if t["version"] ~= 1 then
