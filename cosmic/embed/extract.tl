@@ -8,23 +8,26 @@
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 
---- Result returned from embed and extract operations.
-local record EmbedResult
-  ok: boolean
-  message: string
-  file_count: integer
+--- Options for extract (#1001: was a bare positional exe_path).
+local record ExtractOptions
+  --- Path to the executable to extract (default arg[-1], the running
+  --- binary).
+  exe_path: string
 end
 
 --- Extract the zip contents of a cosmic executable to a directory.
---- Creates the output directory if needed. Existing files are overwritten.
+--- Creates the output directory if needed. Existing files are
+--- overwritten. Returns the extracted file count (#1001: EmbedResult's
+--- success-or-error-text-by-flag record is gone).
 --- @param output_dir string Directory to extract into
---- @param exe_path string Path to the executable to extract (defaults to arg[-1])
---- @return EmbedResult Result with ok status, message, and file count
-local function extract(output_dir: string, exe_path?: string): EmbedResult
-  exe_path = exe_path or arg[-1]
+--- @param opts ExtractOptions? exe_path: the executable to extract
+--- @return integer | nil The extracted file count, or nil on failure
+--- @return string? Error message on failure
+local function extract(output_dir: string, opts?: ExtractOptions): integer | nil, string
+  local exe_path = (opts and opts.exe_path) or arg[-1]
 
   if not exe_path then
-    return {ok = false, message = "error: could not determine executable path", file_count = 0}
+    return nil, "error: could not determine executable path"
   end
 
   -- Open straight from the path: reading the whole executable into a
@@ -36,9 +39,9 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   local archive_maybe = czip.open(exe_path)
   if not archive_maybe then
     if not fs.read(exe_path) then
-      return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
+      return nil, "error: cannot read executable '" .. exe_path .. "'"
     end
-    return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
+    return nil, "error: no zip archive found in '" .. exe_path .. "'"
   end
   local archive = archive_maybe
 
@@ -47,8 +50,8 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   local entries, lerr = archive:list()
   if not entries then
     archive:close()
-    return {ok = false, message = "error: cannot list '" .. exe_path .. "': " ..
-      (lerr or "unknown error"), file_count = 0}
+    return nil, "error: cannot list '" .. exe_path .. "': " ..
+      (lerr or "unknown error")
   end
   local count = 0
   for _, entry in ipairs(entries) do
@@ -60,19 +63,15 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   local ok, err = czip.extract(archive, output_dir)
   archive:close()
   if not ok then
-    return {ok = false, message = "error: " .. (err or "extract failed"), file_count = 0}
+    return nil, "error: " .. (err or "extract failed")
   end
 
-  return {
-    ok = true,
-    message = "extracted " .. count .. " file(s) to " .. output_dir,
-    file_count = count,
-  }
+  return count
 end
 
 local record ExtractModule
-  type EmbedResult = EmbedResult
-  extract: function(output_dir: string, exe_path?: string): EmbedResult
+  type ExtractOptions = ExtractOptions
+  extract: function(output_dir: string, opts?: ExtractOptions): integer | nil, string
 end
 
 local M: ExtractModule = {

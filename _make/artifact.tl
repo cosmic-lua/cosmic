@@ -21,7 +21,8 @@
 --- (`_make.generate` runs once per project, before any binary stages).
 
 local bytecode = require("_make.bytecode")
-local embed = require("cosmic.embed")
+-- Through the transitional pin-compat shim (#1001; see _cli/embed_compat).
+local embedc = require("_cli.embed_compat")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
 local types = require("_make.types")
@@ -309,7 +310,7 @@ end
 --- Copy the plan into a staging directory under `o/`.
 ---
 --- Staging to disk rather than handing `embed` a list of (content,
---- name) pairs keeps one code path: `embed.embed` on a directory stores
+--- name) pairs keeps one code path: `embed.write` on a directory stores
 --- everything relative to that directory's root, which is exactly the
 --- artifact layout once the plan has named it.
 --- @param proj Project The scanned project
@@ -463,12 +464,12 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     -- base's copy as well would ship two standard libraries, with the
     -- project's winning on package.path and the base's riding along.
     local staged_out = out .. ".new"
-    local result = embed.embed({dir},
+    local count, aerr = embedc.write({dir},
       {output = staged_out, exe_path = pair[2], strip = true,
-        provides = validate.claims(proj), mtime = embed.EPOCH})
-    if not result.ok then
+        provides = validate.claims(proj), mtime = embedc.EPOCH_SECONDS})
+    if not count then
       local _ok, _err = fs.unlink(staged_out)
-      return nil, "make: " .. binary.name .. pair[1] .. ": " .. result.message
+      return nil, "make: " .. binary.name .. pair[1] .. ": " .. (aerr or "embed failed")
     end
     local rerr = replace_if_changed(staged_out, out)
     if rerr then

@@ -13,7 +13,8 @@
 --- without lying about the other. Spawning `o/bin/<name>` covers
 --- those, and stays the way to exercise a binary's CLI surface.
 
-local embed = require("cosmic.embed")
+-- Through the transitional pin-compat shim (#1001; see _cli/embed_compat).
+local embedc = require("_cli.embed_compat")
 local fs = require("cosmic.fs")
 local artifact = require("_make.artifact")
 local project = require("_make.project")
@@ -105,11 +106,11 @@ local function build(proj: Project, cosmic: string): boolean, string
     end
   end
   local staged_out = PATH .. ".new"
-  local result = embed.embed({dir},
-    {output = staged_out, exe_path = cosmic, mtime = embed.EPOCH})
-  if not result.ok then
+  local count, terr = embedc.write({dir},
+    {output = staged_out, exe_path = cosmic, mtime = embedc.EPOCH_SECONDS})
+  if not count then
     local _ok, _err = fs.unlink(staged_out)
-    return false, "make: test runner: " .. result.message
+    return false, "make: test runner: " .. (terr or "embed failed")
   end
   local rerr = artifact.replace_if_changed(staged_out, PATH)
   if rerr then
