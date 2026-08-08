@@ -12,17 +12,17 @@
 
 ```teal
 local record DocModule
-  query: function(q?: string): DocsResult
-  has_docs: function(): boolean
-  list_topics: function(include_cosmo?: boolean): {{string, string}}
+  query: function(q?: string): string | nil, string
+  is_available: function(): boolean
+  topics: function(include_cosmo?: boolean): {{string, string}}
   embedded_index: function(): DocIndex | nil, string
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
-  show_module_examples: function(query: string): DocsResult
-  show_guide: function(topic: string): DocsResult
-  list_guide_topics: function(): {string}
-  list_guides: function(): {{string, string}}
+  module_examples: function(query: string): string | nil, string
+  guide: function(topic: string): string | nil, string
+  guide_topics: function(): {string}
+  guides: function(): {{string, string}}
   strip_frontmatter: function(content: string): string
 end
 ```
