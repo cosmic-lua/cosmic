@@ -9,8 +9,8 @@
  - `{"a":null,"b":1}` decodes with `a` absent and re-encodes as `{"b":1}`.
  - `[1,null,2]` decodes with a hole at index 2; re-encoding sees a table
    of length 1 and truncates to `[1]`.
- - NaN and +/-Inf fail encode() with an error unless `nan="null"` is
-   given, which serializes them as `null` (the v8 behavior).
+ - NaN and +/-Inf fail encode() with an error unless `nan_as_null=true`
+   is given, which serializes them as `null` (the v8 behavior).
  If null-preserving round-trips matter, restructure the data (e.g. encode
  explicit sentinel values) rather than relying on this module.
 
@@ -34,10 +34,10 @@ local record Options
   --  Indentation string used when pretty is true (default " ").
   indent: string
   --  Maximum serializer recursion depth (default 64, max 32767).
-  maxdepth: integer
-  --  The only accepted value is "null": encode NaN and Infinity as
-  --  `null` (the v8 behavior) instead of failing with nil, error.
-  nan: string
+  max_depth: integer
+  --  Encode NaN and +/-Inf as `null` (the v8 behavior) instead of
+  --  failing with nil, error (default false).
+  nan_as_null: boolean
 end
 ```
 
@@ -63,9 +63,13 @@ function decode(str: string): any, string
 
  Decode a JSON string into a Lua value.
  Converts JSON strings, numbers, booleans, arrays, and objects into their Lua equivalents.
- JSON `null` becomes nil, so null-valued object keys vanish and arrays
- containing null are truncated at the first null when re-encoded (see the
- module-level null policy above).
+ A successful decode of JSON `null` returns `nil, nil` — success the
+ house `if not v then` guard cannot tell from failure — so when the
+ input may be `null`, test the ERROR, not the value. Better, when
+ the top-level shape is known, use decode_object/decode_array: their
+ nil always means failure. JSON `null` becomes Lua nil, so
+ null-valued object keys vanish and arrays containing null decode
+ with holes (see the module-level null policy above).
 
 **Parameters:**
 
@@ -73,7 +77,7 @@ function decode(str: string): any, string
 
 **Returns:**
 
-- any - The decoded Lua value (table, string, number, boolean, or nil)
+- any - The decoded Lua value (table, string, number, boolean, or nil — and nil for JSON null)
 - string? - Error message if decoding failed
 
 ### encode
@@ -84,14 +88,14 @@ function encode(value: any, opts?: Options): string | nil, string
 
  Encode a Lua value as a JSON string.
  Converts Lua tables, strings, numbers, booleans, and nil into JSON format.
- NaN and +/-Inf fail with an error unless `nan="null"` is given;
- nil-valued table entries are absent (see the module-level null policy
- above).
+ NaN and +/-Inf fail with an error unless `nan_as_null=true` is
+ given; nil-valued table entries are absent (see the module-level
+ null policy above).
 
 **Parameters:**
 
 - `value` (any) - The Lua value to encode
-- `opts` (Options?) - pretty, sorted, indent, maxdepth, nan
+- `opts` (Options?) - pretty, sorted, indent, max_depth, nan_as_null
 
 **Returns:**
 
