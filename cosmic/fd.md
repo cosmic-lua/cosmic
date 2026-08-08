@@ -123,9 +123,9 @@ function wrap(rawfd: integer): Handle
 ```
 
  Wrap an already-open raw file descriptor in a Handle.
- Lets fds from fs.temp_fd() (or any other source) enter the
- Handle world: h:read()/h:write()/h:close(), plus automatic cleanup
- via the __close metamethod. The Handle takes ownership: closing it
+ Lets a raw fd from any source enter the Handle world:
+ h:read()/h:write()/h:close(), plus automatic cleanup via the
+ __close metamethod. The Handle takes ownership: closing it
  closes the fd.
 
 ### handle:close
