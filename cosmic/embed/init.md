@@ -45,7 +45,7 @@
 
 ### Options
 
- Options for run().
+ Options for write().
 
 ```teal
 local record Options
@@ -94,19 +94,11 @@ end
 
 ```teal
 local record EmbedModule
-  EPOCH: integer
-  embed: function(paths: {string}, opts?: Options): EmbedResult
-  extract: function(output_dir: string, exe_path?: string): EmbedResult
+  EPOCH_SECONDS: integer
+  write: function(paths: {string}, opts?: Options): integer | nil, string
+  extract: function(output_dir: string, opts?: extract_mod.ExtractOptions): integer | nil, string
 end
 ```
-
-### EmbedResult
-
- Result returned from embed and extract operations. The extraction
- half declares the same shape; this is the one the module surface
- publishes.
-
-alias of `cosmic.embed.extract.EmbedResult` — field and method table: `cosmic --docs cosmic.embed.extract.EmbedResult`
 
 ### EmbedDirHandle
 
@@ -114,10 +106,10 @@ alias of `cosmic.fs.types.DirHandle` — field and method table: `cosmic --docs 
 
 ## Functions
 
-### embed
+### write
 
 ```teal
-function embed(paths: {string}, opts?: Options): EmbedResult
+function write(paths: {string}, opts?: Options): integer | nil, string
 ```
 
  Embed files and directories into a copy of the cosmic executable.
@@ -125,6 +117,8 @@ function embed(paths: {string}, opts?: Options): EmbedResult
  Paths can be files or directories. Directories are walked recursively and
  their contents are stored relative to the directory root. Files are stored
  with their given path (leading / stripped).
+ was `embed` returning EmbedResult — the module-name stutter and the
+ success-or-error-text-by-flag record leave together)
 
 **Parameters:**
 
@@ -133,4 +127,5 @@ function embed(paths: {string}, opts?: Options): EmbedResult
 
 **Returns:**
 
-- EmbedResult - Result with ok status, message, and file count
+- integer - | nil The embedded file count, or nil on failure (#1001:
+- string? - Error message on failure
