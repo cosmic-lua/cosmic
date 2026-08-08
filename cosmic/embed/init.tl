@@ -140,7 +140,7 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
         -- doesn't expose d_type; fall back to a real lstat so a symlinked
         -- dir reports S_ISLNK, not S_ISDIR, preserving the same cycle
         -- prevention as the d_type == DT_DIR branch above).
-        local st = fs.lstat(full_path)
+        local st = fs.stat_link(full_path)
         if st then
           local sst = st
           if sst:is_dir() then
@@ -335,7 +335,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
 
   local copy_ok, copy_err = fs.copy(exe_path, tmp_path)
   if not copy_ok then
-    local _ok, _err = fs.unlink(tmp_path)
+    local _ok, _err = fs.remove(tmp_path)
     return {ok = false, message = "error: cannot copy '" .. exe_path .. "' to '" .. tmp_path .. "': " .. (copy_err or "unknown error"), file_count = 0}
   end
   unix.chmod(tmp_path, tonumber("755", 8))
@@ -345,7 +345,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   -- structural twin of it)
   local appender_maybe, appender_err = czip.open(tmp_path, {mode = "append"})
   if not appender_maybe then
-    local _ok, _err = fs.unlink(tmp_path)
+    local _ok, _err = fs.remove(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
   local appender = appender_maybe
@@ -399,7 +399,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
     if not add_ok then
       appender:close()
-      local _ok, _err = fs.unlink(tmp_path)
+      local _ok, _err = fs.remove(tmp_path)
       return {ok = false, message = "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
     end
   end
@@ -408,9 +408,9 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
 
   -- Atomically replace the output file. rename() on the same filesystem is
   -- atomic — any running process with the old inode mmapped keeps its pages.
-  local rename_ok, rename_err = fs.rename(tmp_path, output)
+  local rename_ok, rename_err = fs.move(tmp_path, output)
   if not rename_ok then
-    local _ok, _err = fs.unlink(tmp_path)
+    local _ok, _err = fs.remove(tmp_path)
     return {ok = false, message = "error: cannot rename temp file to '" .. output .. "': " .. tostring(rename_err or "unknown"), file_count = 0}
   end
 

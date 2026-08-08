@@ -227,9 +227,9 @@ local function open_string(data: string, opts?: OpenOptions): Archive | nil, str
   return make_archive("read", {reader = handle})
 end
 
--- THE guard is fs.unsafe_entry_name — one definition for zip, tar and
+-- THE guard is fs.is_unsafe_entry_name — one definition for zip, tar and
 -- embed, which protect the same operation and do not get to disagree.
-local unsafe_entry = fs.unsafe_entry_name
+local unsafe_entry = fs.is_unsafe_entry_name
 
 local function extract_entries(archive: Archive, destdir: string,
     opts?: ExtractOptions): boolean, string

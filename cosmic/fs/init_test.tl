@@ -67,7 +67,7 @@ local function test_stat_symlink()
   assert(s:size() == 5, "stat should describe the target, got size " .. s:size())
 
   -- lstat never follows symlinks
-  local s2 = check.must(fs.lstat(linkpath), "lstat should succeed")
+  local s2 = check.must(fs.stat_link(linkpath), "lstat should succeed")
   assert(s2:is_link(), "expected symlink")
 
   teardown(test_dir)
@@ -89,7 +89,7 @@ local function test_fstat()
   local fd = unix.open(filepath, unix.O_RDONLY)
   assert(fd, "open should succeed")
 
-  local s = check.must(fs.fstat(fd))
+  local s = check.must(fs.stat_fd(fd))
   assert(s:size() == 11, "expected size 11, got " .. s:size())
 
   unix.close(fd)
@@ -103,7 +103,7 @@ local function test_mkdir()
   local test_dir = setup()
   local newdir = fs.join(test_dir, "newdir")
 
-  local ok, err = fs.mkdir(newdir)
+  local ok, err = fs.make_dir(newdir)
   assert(ok, "mkdir should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(newdir), "stat should succeed after mkdir")
@@ -117,7 +117,7 @@ local function test_mkdir_with_mode()
   local test_dir = setup()
   local newdir = fs.join(test_dir, "newdir")
 
-  local ok, err = fs.mkdir(newdir, tonumber("700", 8))
+  local ok, err = fs.make_dir(newdir, tonumber("700", 8))
   assert(ok, "mkdir should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(newdir), "stat should succeed")
@@ -147,7 +147,7 @@ local function test_mkdir_error_message()
 
   -- mkdir with missing parent should fail with descriptive error
   local missing_parent = fs.join(test_dir, "no", "such", "parent")
-  local ok, err = fs.mkdir(missing_parent)
+  local ok, err = fs.make_dir(missing_parent)
   assert(not ok, "mkdir should fail when parent doesn't exist")
   assert(err, "should return error message")
   assert(err:find(missing_parent, 1, true), "error should contain path, got: " .. err)
@@ -161,7 +161,7 @@ local function test_mkdir_eexist_error()
   local test_dir = setup()
 
   -- mkdir on existing directory should fail with descriptive error
-  local ok, err = fs.mkdir(test_dir)
+  local ok, err = fs.make_dir(test_dir)
   assert(not ok, "mkdir should fail when directory already exists")
   assert(err, "should return error message")
   assert(err:find(test_dir, 1, true), "error should contain path, got: " .. err)
@@ -196,9 +196,9 @@ test_makedirs_error_message()
 local function test_rmdir()
   local test_dir = setup()
   local newdir = fs.join(test_dir, "newdir")
-  assert(fs.mkdir(newdir))
+  assert(fs.make_dir(newdir))
 
-  local ok, err = fs.rmdir(newdir)
+  local ok, err = fs.remove_dir(newdir)
   assert(ok, "rmdir should succeed: " .. (err or ""))
 
   local st = fs.stat(newdir)
@@ -214,18 +214,18 @@ local function test_getcwd_and_chdir()
 
   local test_dir = setup()
 
-  local ok, err = fs.chdir(test_dir)
+  local ok, err = fs.set_cwd(test_dir)
   assert(ok, "chdir should succeed: " .. (err or ""))
 
   local new_cwd = fs.cwd()
   assert(new_cwd, "cwd should succeed after chdir")
   -- Use realpath to normalize both paths (handles symlinks in /tmp on some systems)
-  local resolved_test = fs.realpath(test_dir)
-  local resolved_cwd = fs.realpath(new_cwd)
+  local resolved_test = fs.resolve(test_dir)
+  local resolved_cwd = fs.resolve(new_cwd)
   assert(resolved_cwd == resolved_test, "expected cwd to match test_dir")
 
   -- Restore original cwd
-  assert(fs.chdir(original_cwd))
+  assert(fs.set_cwd(original_cwd))
   teardown(test_dir)
 end
 test_getcwd_and_chdir()
@@ -234,9 +234,9 @@ local function test_opendir()
   local test_dir = setup()
   touch(fs.join(test_dir, "file1.txt"))
   touch(fs.join(test_dir, "file2.txt"))
-  assert(fs.mkdir(fs.join(test_dir, "subdir")))
+  assert(fs.make_dir(fs.join(test_dir, "subdir")))
 
-  local d = check.must(fs.opendir(test_dir))
+  local d = check.must(fs.open_dir(test_dir))
 
   local entries: {string: boolean} = {}
   while true do
@@ -263,7 +263,7 @@ local function test_unlink()
   local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
-  local ok, err = fs.unlink(filepath)
+  local ok, err = fs.remove(filepath)
   assert(ok, "unlink should succeed: " .. (err or ""))
 
   local st = fs.stat(filepath)
@@ -273,21 +273,22 @@ local function test_unlink()
 end
 test_unlink()
 
-local function test_rename()
+local function test_move_same_directory()
+  -- fs.rename is deleted (#988): move covers same-filesystem renames.
   local test_dir = setup()
   local oldpath = fs.join(test_dir, "old.txt")
   local newpath = fs.join(test_dir, "new.txt")
   touch(oldpath, "content")
 
-  local ok, err = fs.rename(oldpath, newpath)
-  assert(ok, "rename should succeed: " .. (err or ""))
+  local ok, err = fs.move(oldpath, newpath)
+  assert(ok, "move should succeed: " .. (err or ""))
 
   assert(fs.stat(oldpath) == nil, "old path should not exist")
   assert(fs.stat(newpath), "new path should exist")
 
   teardown(test_dir)
 end
-test_rename()
+test_move_same_directory()
 
 local function test_link()
   local test_dir = setup()
@@ -326,14 +327,14 @@ test_symlink_and_readlink()
 local function test_realpath()
   local test_dir = setup()
   local subdir = fs.join(test_dir, "subdir")
-  assert(fs.mkdir(subdir))
+  assert(fs.make_dir(subdir))
 
   -- Create a path with .. that should be resolved
   local messy_path = fs.join(subdir, "..", "subdir")
-  local resolved, err = fs.realpath(messy_path)
+  local resolved, err = fs.resolve(messy_path)
   assert(resolved, "realpath should succeed: " .. (err or ""))
 
-  local expected = fs.realpath(subdir)
+  local expected = fs.resolve(subdir)
   assert(resolved == expected, "expected " .. (expected or "nil") .. ", got " .. resolved)
 
   teardown(test_dir)
@@ -363,10 +364,10 @@ local function test_access()
   local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
-  assert(fs.access(filepath, fs.F_OK), "file should exist")
-  assert(fs.access(filepath, fs.R_OK), "file should be readable")
-  assert(fs.access(filepath, fs.W_OK), "file should be writable")
-  assert(not fs.access(fs.join(test_dir, "does_not_exist"), fs.F_OK), "nonexistent file should not exist")
+  assert(fs.is_accessible(filepath, fs.F_OK), "file should exist")
+  assert(fs.is_accessible(filepath, fs.R_OK), "file should be readable")
+  assert(fs.is_accessible(filepath, fs.W_OK), "file should be writable")
+  assert(not fs.is_accessible(fs.join(test_dir, "does_not_exist"), fs.F_OK), "nonexistent file should not exist")
 
   teardown(test_dir)
 end
@@ -377,7 +378,7 @@ local function test_chmod()
   local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
-  local ok, err = fs.chmod(filepath, tonumber("600", 8))
+  local ok, err = fs.set_mode(filepath, tonumber("600", 8))
   assert(ok, "chmod should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(filepath), "stat should succeed")
@@ -410,22 +411,23 @@ local function test_tmpfile()
   local hh = tf.handle
 
   assert(tf.path:match("fs_test_"), "expected fs_test_ in path")
-  local st = fs.fstat(hh:fd())
+  local st = fs.stat_fd(hh:fd())
   assert(st, "fstat should succeed")
 
   assert(hh:close())
-  assert(fs.unlink(tf.path))
+  assert(fs.remove(tf.path))
 end
 test_tmpfile()
 
 local function test_tmpfd()
-  local fd, err = fs.temp_fd()
-  assert(fd, "temp_fd should succeed: " .. (err or ""))
+  -- temp_fd returns an open Handle (#988: was a bare descriptor).
+  local h, err = fs.temp_fd()
+  assert(h, "temp_fd should succeed: " .. (err or ""))
 
-  local st = fs.fstat(fd)
-  assert(st, "fstat should succeed on temp_fd")
+  local st = fs.stat_fd(h:fd())
+  assert(st, "stat_fd should succeed on temp_fd's handle")
 
-  unix.close(fd)
+  assert(h:close())
 end
 test_tmpfd()
 
@@ -447,7 +449,7 @@ local function test_is_type_functions()
   assert(dir_s:is_dir(), "expected is_dir true for directory")
   assert(not dir_s:is_file(), "expected is_file false for directory")
 
-  local link_s = check.must(fs.lstat(linkpath), "lstat should succeed")
+  local link_s = check.must(fs.stat_link(linkpath), "lstat should succeed")
   assert(link_s:is_link(), "expected is_link true for symlink")
 
   teardown(test_dir)

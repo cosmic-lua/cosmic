@@ -20,18 +20,44 @@ local function read(path: string): string | nil, string
   return data
 end
 
---- Write data to a file, creating or overwriting it. A given `mode` is
+--- Options for write() (#988: folds write_atomic into the one write).
+local record WriteOptions
+  --- Permission bits, applied exactly (default 0644 on create).
+  mode: integer
+  --- Write to a temp file in the same directory, fsync, then rename
+  --- over the destination: readers see old or complete-new contents,
+  --- never a partial write.
+  atomic: boolean
+end
+
+local write_atomic: function(path: string, data: string, mode?: integer): boolean, string
+
+--- Write data to a file, creating or overwriting it. A given mode is
 --- applied EXACTLY, whether the file is created or overwritten (and not
 --- masked by the umask) — Barf's own mode applies only at creation,
 --- which left zip and tar extraction disagreeing about the permissions
---- of an overwritten file. Without `mode`, a new file is created 0644
---- (umask-masked) and an existing file keeps its permissions.
+--- of an overwritten file. Without a mode, a new file is created 0644
+--- (umask-masked) and an existing file keeps its permissions. With
+--- opts.atomic, the write goes through a same-directory temp file,
+--- fsync and rename (#988: was the separate write_atomic).
 --- @param path string Path to the file
 --- @param data string Data to write
---- @param mode integer Permission bits, applied exactly (default 0644 on create)
+--- @param opts WriteOptions|integer Options — a bare integer is the
+---   DEPRECATED mode form, deleted at pin advance
 --- @return boolean True on success
 --- @return string Error message if failed
-local function write(path: string, data: string, mode?: integer): boolean, string
+local function write(path: string, data: string, opts?: WriteOptions | integer): boolean, string
+  local mode: integer
+  local atomic = false
+  if opts is integer then
+    mode = opts
+  elseif opts then
+    mode = opts.mode
+    atomic = opts.atomic or false
+  end
+  if atomic then
+    return write_atomic(path, data, mode)
+  end
   local ok, err = cosmo.Barf(path, data, {mode = mode})
   if not ok then
     return false, err or ("failed to write file: " .. path)
@@ -60,18 +86,13 @@ local function truncate(path: string, length?: integer): boolean, string
   return true
 end
 
---- Write data to a file atomically: write to a temporary file in the
---- same directory, fsync it, then rename over the destination. Readers
---- see either the old contents or the complete new contents, never a
---- partial write; on failure the original file is untouched and the
+--- The atomic path behind write({atomic = true}): write to a
+--- temporary file in the same directory, fsync it, then rename over
+--- the destination; on failure the original file is untouched and the
 --- temporary file is removed. The write loop retries automatically on
---- EINTR, matching cosmic.fd's signal-safety posture.
---- @param path string Destination path
---- @param data string Data to write
---- @param mode integer Permission bits for the file (default 0644)
---- @return boolean True on success
---- @return string Error message if failed
-local function write_atomic(path: string, data: string, mode?: integer): boolean, string
+--- EINTR, matching cosmic.fd's signal-safety posture. Exported as the
+--- DEPRECATED write_atomic (#988); deleted at pin advance.
+write_atomic = function(path: string, data: string, mode?: integer): boolean, string
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, tmp = unix.mkstemp(path .. ".XXXXXX")
   if not fd then
@@ -113,9 +134,11 @@ local function write_atomic(path: string, data: string, mode?: integer): boolean
 end
 
 local record FsFileModule
+  type WriteOptions = WriteOptions
   read: function(path: string): string | nil, string
-  write: function(path: string, data: string, mode?: integer): boolean, string
+  write: function(path: string, data: string, opts?: WriteOptions | integer): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
+  --- DEPRECATED (#988): write(path, data, {atomic = true, mode = m}).
   write_atomic: function(path: string, data: string, mode?: integer): boolean, string
 end
 

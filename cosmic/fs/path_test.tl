@@ -87,13 +87,13 @@ end
 test_join_multiple()
 
 local function test_exists_current_dir()
-  local result = fs.exists(".")
+  local result = fs.is_present(".")
   assert(result == true, "expected current directory to exist")
 end
 test_exists_current_dir()
 
 local function test_exists_nonexistent()
-  local result = fs.exists("/nonexistent/path/that/does/not/exist")
+  local result = fs.is_present("/nonexistent/path/that/does/not/exist")
   assert(result == false, "expected false for nonexistent path")
 end
 test_exists_nonexistent()
@@ -349,31 +349,31 @@ test_normalize_multiple_up_and_down()
 local cwd = fs.cwd()
 
 local function test_abspath_relative()
-  local result = fs.abspath("foo")
+  local result = fs.absolute_path("foo")
   assert(result == cwd .. "/foo", "expected '" .. cwd .. "/foo', got '" .. result .. "'")
 end
 test_abspath_relative()
 
 local function test_abspath_dot_relative()
-  local result = fs.abspath("./foo")
+  local result = fs.absolute_path("./foo")
   assert(result == cwd .. "/foo", "expected '" .. cwd .. "/foo', got '" .. result .. "'")
 end
 test_abspath_dot_relative()
 
 local function test_abspath_already_absolute()
-  local result = fs.abspath("/usr/lib")
+  local result = fs.absolute_path("/usr/lib")
   assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
 end
 test_abspath_already_absolute()
 
 local function test_abspath_empty()
-  local result = fs.abspath("")
+  local result = fs.absolute_path("")
   assert(result == cwd, "expected '" .. cwd .. "', got '" .. result .. "'")
 end
 test_abspath_empty()
 
 local function test_abspath_normalizes()
-  local result = fs.abspath("/usr/../lib")
+  local result = fs.absolute_path("/usr/../lib")
   assert(result == "/lib", "expected '/lib', got '" .. result .. "'")
 end
 test_abspath_normalizes()
@@ -381,37 +381,37 @@ test_abspath_normalizes()
 -- relpath tests
 
 local function test_relpath_child()
-  local result = fs.relpath("/usr/lib", "/usr")
+  local result = fs.relative_path("/usr/lib", "/usr")
   assert(result == "lib", "expected 'lib', got '" .. result .. "'")
 end
 test_relpath_child()
 
 local function test_relpath_sibling()
-  local result = fs.relpath("/usr/lib", "/usr/bin")
+  local result = fs.relative_path("/usr/lib", "/usr/bin")
   assert(result == "../lib", "expected '../lib', got '" .. result .. "'")
 end
 test_relpath_sibling()
 
 local function test_relpath_different_tree()
-  local result = fs.relpath("/foo", "/bar")
+  local result = fs.relative_path("/foo", "/bar")
   assert(result == "../foo", "expected '../foo', got '" .. result .. "'")
 end
 test_relpath_different_tree()
 
 local function test_relpath_same_path()
-  local result = fs.relpath("/usr/lib", "/usr/lib")
+  local result = fs.relative_path("/usr/lib", "/usr/lib")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
 test_relpath_same_path()
 
 local function test_relpath_deeper()
-  local result = fs.relpath("/a/b/c/d", "/a/b")
+  local result = fs.relative_path("/a/b/c/d", "/a/b")
   assert(result == "c/d", "expected 'c/d', got '" .. result .. "'")
 end
 test_relpath_deeper()
 
 local function test_relpath_go_up_more()
-  local result = fs.relpath("/a", "/a/b/c")
+  local result = fs.relative_path("/a", "/a/b/c")
   assert(result == "../..", "expected '../..', got '" .. result .. "'")
 end
 test_relpath_go_up_more()
@@ -421,37 +421,37 @@ test_relpath_go_up_more()
 -- normalize(p) directly when p never climbs above cwd.
 
 local function test_relpath_implicit_empty()
-  local result = fs.relpath("")
+  local result = fs.relative_path("")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
 test_relpath_implicit_empty()
 
 local function test_relpath_implicit_dot()
-  local result = fs.relpath(".")
+  local result = fs.relative_path(".")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
 test_relpath_implicit_dot()
 
 local function test_relpath_implicit_internal_cancel()
-  local result = fs.relpath("a/../b")
+  local result = fs.relative_path("a/../b")
   assert(result == "b", "expected 'b', got '" .. result .. "'")
 end
 test_relpath_implicit_internal_cancel()
 
 local function test_relpath_implicit_dot_segments()
-  local result = fs.relpath("./a/./b")
+  local result = fs.relative_path("./a/./b")
   assert(result == "a/b", "expected 'a/b', got '" .. result .. "'")
 end
 test_relpath_implicit_dot_segments()
 
 local function test_relpath_implicit_trailing_slash()
-  local result = fs.relpath("a/b/")
+  local result = fs.relative_path("a/b/")
   assert(result == "a/b", "expected 'a/b', got '" .. result .. "'")
 end
 test_relpath_implicit_trailing_slash()
 
 local function test_relpath_implicit_plain()
-  local result = fs.relpath("a/b/c")
+  local result = fs.relative_path("a/b/c")
   assert(result == "a/b/c", "expected 'a/b/c', got '" .. result .. "'")
 end
 test_relpath_implicit_plain()
@@ -459,13 +459,13 @@ test_relpath_implicit_plain()
 -- These must take the slow (walk-up-from-cwd) path: p escapes above cwd.
 
 local function test_relpath_implicit_parent()
-  local result = fs.relpath("..")
+  local result = fs.relative_path("..")
   assert(result == "..", "expected '..', got '" .. result .. "'")
 end
 test_relpath_implicit_parent()
 
 local function test_relpath_implicit_parent_child()
-  local result = fs.relpath("../x")
+  local result = fs.relative_path("../x")
   assert(result == "../x", "expected '../x', got '" .. result .. "'")
 end
 test_relpath_implicit_parent_child()

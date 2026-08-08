@@ -16,7 +16,7 @@ local EMBEDDED = "/zip/cosmic"
 --- foo.lua files and directory modules (their init.lua is the module).
 --- Returned as dotted names, so the visibility rule applies unchanged.
 local function embedded_modules(): {string}
-  local d = check.must(fs.opendir(EMBEDDED),
+  local d = check.must(fs.open_dir(EMBEDDED),
     "cannot open " .. EMBEDDED .. " (test must run in the binary)")
   local found: {string} = {}
   while true do

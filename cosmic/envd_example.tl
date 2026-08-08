@@ -59,7 +59,7 @@ local function Example_extract_update_embed()
   -- carries the wrapper's entry PAIR (main.lua + main.user.lua, #687);
   -- re-embedding requires replacing the pair, so drop the wrapped
   -- original alongside writing the new entry.
-  assert(fs.unlink(fs.join(extractdir, "main.user.lua")))
+  assert(fs.remove(fs.join(extractdir, "main.user.lua")))
   assert(fs.write(fs.join(extractdir, "main.lua"), [[
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")

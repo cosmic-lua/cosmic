@@ -87,7 +87,7 @@ local function Example_install_to_path()
   -- Write a script
   local script = fs.join(bindir, "mytool")
   assert(fs.write(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n'))
-  assert(fs.chmod(script, 0x1ED)) -- 0755
+  assert(fs.set_mode(script, 0x1ED)) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
   local r = check.must(child.run({cosmic, script}))

@@ -124,12 +124,12 @@ local function parse_pax(data: string): {string: string}
 end
 
 --- Reject entry names that would escape the extraction root. The
---- predicate is fs.unsafe_entry_name — one guard for zip, tar and
+--- predicate is fs.is_unsafe_entry_name — one guard for zip, tar and
 --- embed. (This drops tar's old blanket backslash refusal: a
 --- backslash now acts as a separator for the traversal check, same as
 --- the other two formats, so `a\b.txt` extracts as a literal file
 --- and `..\evil` is still refused.)
-local unsafe_path = fs.unsafe_entry_name
+local unsafe_path = fs.is_unsafe_entry_name
 
 --- Symlink targets must stay inside the tree: relative, no "..", no
 --- control characters (same reasoning as `unsafe_path`).

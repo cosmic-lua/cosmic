@@ -33,7 +33,7 @@ test_is_tty_bad_fd_is_false()
 local function test_is_tty_pty_master_is_true()
   -- A pty master is the one fd guaranteed to BE a tty. /dev/ptmx exists
   -- on Linux; elsewhere this case is exercised wherever the device exists.
-  if not fs.exists("/dev/ptmx") then
+  if not fs.is_present("/dev/ptmx") then
     return
   end
   local h = check.must(cfd.open("/dev/ptmx", cfd.O_RDWR))

@@ -16,7 +16,7 @@ local function Example_basic()
 
   -- Create a subdirectory
   local subdir = fs.join(tmpdir, "subdir")
-  local ok, err = fs.mkdir(subdir)
+  local ok, err = fs.make_dir(subdir)
   if not ok then
     print("mkdir failed:", err)
     assert(fs.remove_all(tmpdir))
@@ -69,15 +69,15 @@ local function Example_splitext()
   local fs = require("cosmic.fs")
   local root: string
   local extension: string
-  root, extension = fs.splitext("archive.tar.gz")
+  root, extension = fs.split_extension("archive.tar.gz")
   print(root, extension)
-  root, extension = fs.splitext(".bashrc")
+  root, extension = fs.split_extension(".bashrc")
   if extension == "" then
     print(root)
   else
     print(root, extension)
   end
-  root, extension = fs.splitext("/path/to/file.txt")
+  root, extension = fs.split_extension("/path/to/file.txt")
   print(root, extension)
   -- Output:
   -- archive.tar	.gz
@@ -88,9 +88,9 @@ end
 --- Example_relpath demonstrates computing relative paths
 local function Example_relpath()
   local fs = require("cosmic.fs")
-  print(fs.relpath("/usr/lib", "/usr"))
-  print(fs.relpath("/usr/lib", "/usr/bin"))
-  print(fs.relpath("/foo", "/bar"))
+  print(fs.relative_path("/usr/lib", "/usr"))
+  print(fs.relative_path("/usr/lib", "/usr/bin"))
+  print(fs.relative_path("/foo", "/bar"))
   -- Output:
   -- lib
   -- ../lib

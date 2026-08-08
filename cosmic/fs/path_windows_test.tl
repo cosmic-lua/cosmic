@@ -84,13 +84,13 @@ test_normalize_posix_backslash_preserved()
 -- abspath: Windows-absolute paths never get cwd prepended
 
 local function test_abspath_drive()
-  assert(fs.abspath("C:\\foo") == "C:/foo", "drive path stays rooted")
-  assert(fs.abspath("c:/a/../b") == "C:/b", "drive path normalizes")
+  assert(fs.absolute_path("C:\\foo") == "C:/foo", "drive path stays rooted")
+  assert(fs.absolute_path("c:/a/../b") == "C:/b", "drive path normalizes")
 end
 test_abspath_drive()
 
 local function test_abspath_unc()
-  assert(fs.abspath("\\\\srv\\share\\x") == "\\\\srv\\share\\x",
+  assert(fs.absolute_path("\\\\srv\\share\\x") == "\\\\srv\\share\\x",
     "UNC path stays rooted")
 end
 test_abspath_unc()
@@ -98,26 +98,26 @@ test_abspath_unc()
 -- relpath: same drive walks, different roots return the absolute target
 
 local function test_relpath_same_drive()
-  assert(fs.relpath("C:/a/b", "C:/a") == "b", "child of base")
-  assert(fs.relpath("C:/a", "C:/b") == "../a", "sibling")
-  assert(fs.relpath("C:\\a\\b", "c:\\a") == "b", "mixed case and separators")
-  assert(fs.relpath("C:/a", "C:/a") == ".", "same path")
+  assert(fs.relative_path("C:/a/b", "C:/a") == "b", "child of base")
+  assert(fs.relative_path("C:/a", "C:/b") == "../a", "sibling")
+  assert(fs.relative_path("C:\\a\\b", "c:\\a") == "b", "mixed case and separators")
+  assert(fs.relative_path("C:/a", "C:/a") == ".", "same path")
 end
 test_relpath_same_drive()
 
 local function test_relpath_different_roots()
-  assert(fs.relpath("C:/x", "D:/y") == "C:/x", "different drives")
-  assert(fs.relpath("C:\\x", "/tmp") == "C:/x", "drive vs POSIX")
-  assert(fs.relpath("/tmp/x", "C:/a") == "/tmp/x", "POSIX vs drive")
-  assert(fs.relpath("\\\\srv\\s\\x", "C:/a") == "\\\\srv\\s\\x",
+  assert(fs.relative_path("C:/x", "D:/y") == "C:/x", "different drives")
+  assert(fs.relative_path("C:\\x", "/tmp") == "C:/x", "drive vs POSIX")
+  assert(fs.relative_path("/tmp/x", "C:/a") == "/tmp/x", "POSIX vs drive")
+  assert(fs.relative_path("\\\\srv\\s\\x", "C:/a") == "\\\\srv\\s\\x",
     "UNC vs drive")
 end
 test_relpath_different_roots()
 
 local function test_relpath_unc()
-  assert(fs.relpath("\\\\srv\\s\\a\\b", "\\\\srv\\s\\a") == "b",
+  assert(fs.relative_path("\\\\srv\\s\\a\\b", "\\\\srv\\s\\a") == "b",
     "same share walks")
-  assert(fs.relpath("\\\\srv\\a\\x", "\\\\srv\\b\\y") == "\\\\srv\\a\\x",
+  assert(fs.relative_path("\\\\srv\\a\\x", "\\\\srv\\b\\y") == "\\\\srv\\a\\x",
     "different shares have no relative form")
 end
 test_relpath_unc()

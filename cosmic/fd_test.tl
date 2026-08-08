@@ -260,7 +260,9 @@ end
 test_write_path_error_names_errno()
 
 local function test_wrap_tmpfd()
-  local rawfd = assert(fs.temp_fd())
+  -- fs.temp_fd returns a Handle now (#988); take its fd to exercise wrap.
+  local th = check.must(fs.temp_fd())
+  local rawfd = th:fd()
   local h = cfd.wrap(rawfd)
   assert(h:fd() == rawfd, "wrap should expose the same fd")
   assert(h:write("wrapped"))
@@ -277,7 +279,7 @@ local function test_tmpfile_handle()
   assert(tf.handle:write("via temp_file"))
   assert(tf.handle:close())
   assert(fs.read(tf.path) == "via temp_file", "data lands in the temp_file")
-  assert(fs.unlink(tf.path))
+  assert(fs.remove(tf.path))
 end
 test_tmpfile_handle()
 
