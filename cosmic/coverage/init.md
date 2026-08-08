@@ -45,7 +45,6 @@ local record CoverageModule
   stop: function()
   running: function(): boolean
   snapshot: function(): {string: {integer: integer}}
-  reset: function()
   dump: function(dir?: string): boolean, string
   seal: function()
   keep_on_restrict: function()
@@ -96,7 +95,7 @@ function stop()
 
  Stop collecting line hits (nestable).
  Removes the line hook when the last nested start is balanced.
- Collected counts are kept; use reset() to discard them.
+ Collected counts are kept.
 
 ### snapshot
 
@@ -111,14 +110,6 @@ function snapshot(): {string: {integer: integer}}
 **Returns:**
 
 - {string: - {integer: integer}}
-
-### reset
-
-```teal
-function reset()
-```
-
- Discard all collected counts.
 
 ### dump
 

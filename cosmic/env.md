@@ -31,7 +31,6 @@ local record EnvModule
   get_or: function(name: string, default: string): string
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
-  clear: function(): boolean, string
   all: function(): {string: string}
   list: function(opts?: ListOptions): {string}
 end
@@ -119,20 +118,6 @@ function unset(name: string): boolean, string
 
 - boolean - True on success
 - string? - Error message if unsetting failed
-
-### clear
-
-```teal
-function clear(): boolean, string
-```
-
- Clear all environment variables.
- Warning: This removes ALL environment variables from the process.
-
-**Returns:**
-
-- boolean - True on success
-- string? - Error message if clearing failed
 
 ### all
 

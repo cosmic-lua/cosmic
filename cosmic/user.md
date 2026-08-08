@@ -16,11 +16,8 @@ local record UserModule
   getlogin: function(): string | nil, string
   setuid: function(uid: integer): boolean, string
   setgid: function(gid: integer): boolean, string
-  setfsuid: function(uid: integer): boolean, string
   setresuid: function(real: integer, effective: integer, saved: integer): boolean, string
   setresgid: function(real: integer, effective: integer, saved: integer): boolean, string
-  umask: function(newmask: integer): integer
-  chroot: function(path: string): boolean, string
 end
 ```
 
@@ -128,23 +125,6 @@ function setgid(gid: integer): boolean, string
 - boolean - True on success
 - string? - Error message on failure
 
-### setfsuid
-
-```teal
-function setfsuid(uid: integer): boolean, string
-```
-
- Set the filesystem user ID.
-
-**Parameters:**
-
-- `uid` (integer) - The filesystem user ID to set
-
-**Returns:**
-
-- boolean - True on success
-- string? - Error message on failure
-
 ### setresuid
 
 ```teal
@@ -179,43 +159,6 @@ function setresgid(real: integer, effective: integer, saved: integer): boolean, 
 - `real` (integer) - The real group ID to set (-1 to leave unchanged)
 - `effective` (integer) - The effective group ID to set (-1 to leave unchanged)
 - `saved` (integer) - The saved group ID to set (-1 to leave unchanged)
-
-**Returns:**
-
-- boolean - True on success
-- string? - Error message on failure
-
-### umask
-
-```teal
-function umask(newmask: integer): integer
-```
-
- Set the file mode creation mask.
- The umask is used by open(), mkdir(), etc. to modify the permissions
- of newly created files and directories.
-
-**Parameters:**
-
-- `newmask` (integer) - The new file mode creation mask
-
-**Returns:**
-
-- integer - The previous umask value
-
-### chroot
-
-```teal
-function chroot(path: string): boolean, string
-```
-
- Change the root directory.
- Changes the root directory of the calling process to the specified path.
- This call requires appropriate privileges (typically root).
-
-**Parameters:**
-
-- `path` (string) - The new root directory path
 
 **Returns:**
 

@@ -36,15 +36,6 @@ end
 
 ```teal
 local record TimeModule
-  CLOCK_REALTIME: integer
-  CLOCK_MONOTONIC: integer
-  CLOCK_BOOTTIME: integer
-  CLOCK_MONOTONIC_RAW: integer
-  CLOCK_REALTIME_COARSE: integer
-  CLOCK_MONOTONIC_COARSE: integer
-  CLOCK_THREAD_CPUTIME_ID: integer
-  CLOCK_PROCESS_CPUTIME_ID: integer
-  clock_gettime: function(clock?: integer): integer, integer
   now: function(): integer, integer
   monotonic: function(): integer, integer
   now_ms: function(): integer
@@ -61,30 +52,10 @@ local record TimeModule
   format_iso8601: function(timestamp: integer): string | nil, string
   parse_iso8601: function(str: string): integer | nil, string
   timegm: function(year: integer, month: integer, day: integer, hour: integer, min: integer, sec: integer): integer | nil, string
-  is_leap_year: function(year: integer): boolean
-  days_in_month: function(year: integer, month: integer): integer | nil, string
 end
 ```
 
 ## Functions
-
-### clock_gettime
-
-```teal
-function clock_gettime(clock?: integer): integer, integer
-```
-
- Get current time from the specified clock.
- Returns seconds since epoch and nanoseconds.
-
-**Parameters:**
-
-- `clock` (integer?) - Clock identifier (default: CLOCK_REALTIME)
-
-**Returns:**
-
-- integer - Seconds since epoch
-- integer - Nanoseconds
 
 ### now
 
@@ -193,7 +164,7 @@ function sleep_ms(ms: number): integer | nil, string
  arithmetic in retry loops: 0 on an uninterrupted sleep; the
  remaining milliseconds plus an EINTR-tagged error when a signal
  interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
- its (secs, nanos, err) contract for symmetry with clock_gettime.
+ its (secs, nanos, err) contract for symmetry with now/monotonic.
 
 **Parameters:**
 
@@ -252,40 +223,6 @@ function format_http(timestamp: integer): string
 **Returns:**
 
 - string - HTTP date string (e.g., "Sun, 01 Feb 2026 12:00:00 GMT")
-
-### is_leap_year
-
-```teal
-function is_leap_year(year: integer): boolean
-```
-
- Return true if year is a leap year (Gregorian rules).
-
-**Parameters:**
-
-- `year` (integer) - Full year (e.g., 2024)
-
-**Returns:**
-
-- boolean - True when the year has 366 days
-
-### days_in_month
-
-```teal
-function days_in_month(year: integer, month: integer): integer | nil, string
-```
-
- Number of days in the given month, accounting for leap years.
-
-**Parameters:**
-
-- `year` (integer) - Full year (e.g., 2024)
-- `month` (integer) - Month (1-12)
-
-**Returns:**
-
-- integer - | nil Days in that month (28-31), or nil when month is out of range
-- string - Error message when month is out of range
 
 ### timegm
 

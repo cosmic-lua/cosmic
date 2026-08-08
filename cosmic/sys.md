@@ -30,43 +30,16 @@ end
 
 ```teal
 local record SysModule
-  SC_ARG_MAX: integer
-  SC_CHILD_MAX: integer
-  SC_CLK_TCK: integer
-  SC_OPEN_MAX: integer
-  SC_PAGESIZE: integer
-  SC_NPROCESSORS_CONF: integer
-  SC_NPROCESSORS_ONLN: integer
   host_os: function(): HostOs
-  normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
-  sysconf: function(name: integer): integer | nil, string
   nproc: function(): integer | nil, string
-  nproc_configured: function(): integer | nil, string
   page_size: function(): integer | nil, string
   uname: function(): Uname | nil, string
 end
 ```
 
 ## Functions
-
-### normalize_host_os
-
-```teal
-function normalize_host_os(raw: string): HostOs
-```
-
- Normalize a raw cosmopolitan OS token (e.g. "XNU", "Linux") to a HostOs.
- Unknown tokens are passed through lowercased.
-
-**Parameters:**
-
-- `raw` (string) - The raw OS token from cosmo.GetHostOs()
-
-**Returns:**
-
-- HostOs - The normalized operating system name
 
 ### host_os
 
@@ -110,25 +83,6 @@ function platform(): string
 
 - string - The platform identifier
 
-### sysconf
-
-```teal
-function sysconf(name: integer): integer | nil, string
-```
-
- Query a runtime system configuration value.
- `name` is one of the `unix.SC_*` constants (e.g. `unix.SC_PAGESIZE`,
- `unix.SC_NPROCESSORS_ONLN`). Returns nil plus an error message on failure.
-
-**Parameters:**
-
-- `name` (integer) - One of the unix.SC_* constants
-
-**Returns:**
-
-- integer - | nil The configuration value
-- string? - Error message on failure
-
 ### nproc
 
 ```teal
@@ -140,20 +94,6 @@ function nproc(): integer | nil, string
 **Returns:**
 
 - integer - | nil The online processor count
-- string? - Error message on failure
-
-### nproc_configured
-
-```teal
-function nproc_configured(): integer | nil, string
-```
-
- Number of processors configured in the system.
- May exceed `nproc()` when some processors are offline.
-
-**Returns:**
-
-- integer - | nil The configured processor count
 - string? - Error message on failure
 
 ### page_size

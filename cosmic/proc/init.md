@@ -49,8 +49,6 @@ local record ProcModule
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
   fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string
   fork: function(): integer | nil, string
-  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
   wait: function(pid?: integer, options?: integer): WaitResult | nil, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
@@ -327,42 +325,6 @@ function fork(): integer | nil, string
 **Returns:**
 
 - integer - | nil The child pid in the parent, 0 in the child, or nil + error on failure
-
-### posix_spawn
-
-```teal
-function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-```
-
- Spawns a program via posix_spawn (no PATH search).
-
-**Parameters:**
-
-- `prog` (string) - Absolute path to the executable
-- `argv` ({string}) - Argument vector passed to the program
-- `envp` ({string}?) - Environment (KEY=value); inherits if omitted
-
-**Returns:**
-
-- integer - | nil The child pid on success, or nil + error on failure
-
-### posix_spawnp
-
-```teal
-function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-```
-
- Spawns a program via posix_spawnp (PATH search).
-
-**Parameters:**
-
-- `prog` (string) - Program name to execute
-- `argv` ({string}) - Argument vector passed to the program
-- `envp` ({string}?) - Environment (KEY=value); inherits if omitted
-
-**Returns:**
-
-- integer - | nil The child pid on success, or nil + error on failure
 
 ### wait
 

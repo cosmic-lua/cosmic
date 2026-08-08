@@ -14,7 +14,6 @@ local record DocModule
   parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): string | nil, string
-  load_index: function(source: string): DocIndex | nil, string
   query: function(q?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
@@ -78,9 +77,3 @@ function render_file(file_path: string): string | nil, string
  (the markdown), not a fallible effect: the old boolean, string shape
  made slot 2 the payload on success and the error on failure, so
  every caller branched on which meaning it held.
-
-### load_index
-
-```teal
-function load_index(source: string): DocIndex | nil, string
-```

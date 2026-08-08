@@ -33,10 +33,6 @@ end
 ```teal
 local record TarModule
   extract: function(archive: string, destdir: string, opts?: ExtractOptions): boolean, string
-  --  One guard for zip, tar and embed: `cosmic.embed` and `--make
-  --  fetch` refuse archive-controlled names with the same rule, and a
-  --  shared predicate is what keeps them from disagreeing.
-  unsafe_path: function(name: string): boolean
 end
 ```
 
