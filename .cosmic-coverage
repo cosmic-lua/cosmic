@@ -174,7 +174,7 @@ cosmic/sandbox/init.tl 120 148
 cosmic/sandbox/landlock.tl 66 114
 cosmic/sandbox/plan.tl 24 24
 cosmic/sandbox/pledge.tl 24 35
-cosmic/sandbox/unveil.tl 26 39
+cosmic/sandbox/unveil.tl 22 39
 cosmic/searcher.tl 20 29
 cosmic/shm.tl 127 141
 cosmic/signal.tl 101 109
@@ -202,4 +202,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14616 19277
+total 14612 19277
