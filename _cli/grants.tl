@@ -240,9 +240,9 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- asserts the refusal saw a sandbox error instead.
   --
   -- Dropping the rule costs nothing: the program is not there, so
-  -- granting exec on it protects no one, and whatever the verb does
-  -- next it does with an honest error of its own.
-  -- Predates sandbox.Fs.optional (#989); keep until the pin advance.
+  -- granting exec on it protects no one, and the verb still errors.
+  -- Filtered here, not via sandbox.Fs.optional (#989): the planned
+  -- policy must equal the enforced one (`_cli/driver_test.tl`).
   local ex: {string} = {}
   for _, p in ipairs(ex_raw) do
     if fs.is_present(p) then

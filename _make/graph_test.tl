@@ -190,7 +190,7 @@ local function test_find_make_never_searches_path()
   assert(fs.remove_all(box))
   assert(fs.make_dirs(fs.join(box, "bin")))
   assert(fs.write(fs.join(box, "bin", "make"), "#!/bin/sh\nexit 0\n",
-      tonumber("755", 8) as integer)) -- cast: octal is integral
+      {mode = tonumber("755", 8) as integer})) -- cast: octal is integral
   local saved_path = cenv.get("PATH")
   local saved_make = cenv.get("COSMIC_MAKE")
   assert(cenv.unset("COSMIC_MAKE"))

@@ -10,7 +10,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 local fsa = fs as {string: any} -- cast: signature transition
 
 local function write_file(path: string, content: string, mode?: integer)
-  assert(fs.write(path, content, mode))
+  assert(fs.write(path, content, {mode = mode}))
 end
 
 -- 1. copy_tree: nested dirs, exec-bit file, symlinks recreated (never

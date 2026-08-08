@@ -5,19 +5,6 @@
 --- optional/required arguments.
 local cosmo_getopt = require("cosmo.getopt")
 
--- The underlying cosmo.getopt binding changed shape across cosmos releases:
--- newer builds expose the single-shot `parse` the generated declarations
--- describe, while older ones (including the pinned build bootstrap) expose
--- only a stateful `new`/parser iterator that the generated declarations no
--- longer carry. This record is that legacy surface, kept for runtime
--- feature detection; either field may be nil depending on the cosmos
--- version.
-local record LegacyGetopt
-  parse: function(args: {string}, optstring: string, longopts: {table}): any, any
-  new: function(args: {string}, optstring: string, longopts: {table}): any
-end
-local legacy = cosmo_getopt as LegacyGetopt -- cast: legacy binding surface
-
 --- Whether an option takes an argument (#991: a real enum — the
 --- stringly field let any typo through as "none").
 local enum HasArg
@@ -52,15 +39,6 @@ local type Option = cosmo_getopt.Option
 --- @field unknown {string} Unrecognized options, each including its dashes
 --- @field missing {string} Options that required an argument but got none
 local type Result = cosmo_getopt.Result
-
--- The minimal iterator surface of the legacy binding, used only by
--- the bootstrap-runtime emulation of parse() below. (#991: the public
--- Parser/new shim is deleted; this record and the LegacyGetopt fork go
--- with the next pin advance.)
-local record LegacyParser
-  next: function(self: LegacyParser): string, string
-  remaining: function(self: LegacyParser): {string}
-end
 
 -- Convert typed LongOpt records to the positional table form the C binding
 -- expects: {name, has_arg, short}.
@@ -110,35 +88,11 @@ end
 ---     end
 local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   local raw_longopts = to_raw_longopts(longopts)
-
-  if legacy.parse then
-    -- Newer cosmos: native single-shot parse via the generated surface.
-    local res, err = cosmo_getopt.parse(args, optstring, raw_longopts)
-    if not res then
-      return nil, err
-    end
-    return res
+  local res, err = cosmo_getopt.parse(args, optstring, raw_longopts)
+  if not res then
+    return nil, err
   end
-
-  -- Older cosmos (build bootstrap): emulate parse via the iterator. The
-  -- old binding conflates unknown and missing as "?", so both land in
-  -- `unknown` here; the accurate split is only available on the native path,
-  -- which is what the shipped binary uses.
-  local result: Result = {opts = {}, args = {}, unknown = {}, missing = {}}
-  local p = legacy.new(args, optstring, raw_longopts) as LegacyParser -- cast: from any
-  while true do
-    local opt, optarg = p:next()
-    if not opt then
-      break
-    end
-    if opt == "?" then
-      table.insert(result.unknown, optarg)
-    else
-      table.insert(result.opts, {opt = opt, arg = optarg})
-    end
-  end
-  result.args = p:remaining()
-  return result
+  return res
 end
 
 local record GetoptModule

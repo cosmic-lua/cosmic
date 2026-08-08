@@ -135,15 +135,8 @@ local function fence(verb: string, args: {string}): string | nil
   -- restricting — the right default when nobody knows whether the dump
   -- will still work — and every fenced recipe then reports only the
   -- lines it ran before the fence landed. (#989: the mark replaced the
-  -- keep_coverage policy flag.) The probe guards the gen-0 cold start,
-  -- where the pinned engine's coverage module predates the mark; the
-  -- seal there loses nothing because gen-0 collects no coverage.
-  -- Delete the guard at pin advance.
-  local coverage = require("cosmic.coverage") as {string: any} -- cast: transitional probe
-  local keep = coverage["keep_on_restrict"]
-  if type(keep) == "function" then
-    (keep as function())() -- cast: from any
-  end
+  -- keep_coverage policy flag.)
+  require("cosmic.coverage").keep_on_restrict()
   local enforced, err = sandbox.apply({
       fs = fs_policy,
       best_effort = true,

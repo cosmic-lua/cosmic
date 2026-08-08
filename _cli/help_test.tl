@@ -21,9 +21,9 @@ local function test_generate_contains_all_longopts()
   local result = help.generate()
   assert(result:find("Cosmic options:"), "help text should contain 'Cosmic options:'")
 
-  for _, opt in ipairs(cli_args.longopts) do
-    local pattern = "%-%-" .. opt.name:gsub("%-", "%%-")
-    assert(result:find(pattern, 1, false), "help text missing long option: --" .. opt.name)
+  for _, f in ipairs(cli_args.spec.flags) do
+    local pattern = "%-%-" .. f.long:gsub("%-", "%%-")
+    assert(result:find(pattern, 1, false), "help text missing long option: --" .. f.long)
   end
 end
 test_generate_contains_all_longopts()
@@ -33,10 +33,12 @@ local function test_generate_contains_all_shortopts()
   assert(result:find("Standard lua options:") or result:find("Cosmic options:"),
     "help text should contain option sections")
 
-  -- parse shortopts string, skipping ':' modifiers
-  for c in cli_args.shortopts:gmatch("[^:]") do
-    local pattern = "%-" .. c
-    assert(result:find(pattern, 1, false), "help text missing short option: -" .. c)
+  for _, f in ipairs(cli_args.spec.flags) do
+    if f.short then
+      local pattern = "%-" .. f.short
+      assert(result:find(pattern, 1, false),
+        "help text missing short option: -" .. f.short)
+    end
   end
 end
 test_generate_contains_all_shortopts()

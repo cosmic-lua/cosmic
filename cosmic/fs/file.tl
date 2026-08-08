@@ -42,18 +42,13 @@ local write_atomic: function(path: string, data: string, mode?: integer): boolea
 --- fsync and rename (#988: was the separate write_atomic).
 --- @param path string Path to the file
 --- @param data string Data to write
---- @param opts WriteOptions|integer Options — a bare integer is the
----   pre-#988 mode form, still accepted because the PINNED bootstrap's
----   own _script_cache calls it that way against this (tree) module;
----   deleted one pin advance after every in-tree caller moved
+--- @param opts WriteOptions Options carrying mode and atomic
 --- @return boolean True on success
 --- @return string Error message if failed
-local function write(path: string, data: string, opts?: WriteOptions | integer): boolean, string
+local function write(path: string, data: string, opts?: WriteOptions): boolean, string
   local mode: integer
   local atomic = false
-  if opts is integer then
-    mode = opts
-  elseif opts then
+  if opts then
     mode = opts.mode
     atomic = opts.atomic or false
   end

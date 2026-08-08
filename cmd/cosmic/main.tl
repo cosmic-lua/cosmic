@@ -191,8 +191,7 @@ local function parse_args(): Options
     return opts
   end
 
-  -- cast: args.tl types the spec as a structural twin (pin-safe; #991)
-  local p0, perr = flags.parse(cli_args.spec as flags.Spec, cosmic_args)
+  local p0, perr = flags.parse(cli_args.spec, cosmic_args)
   if not p0 then
     -- flags errors arrive unprefixed (#991); this program adds its
     -- name, plus a targeted usage hint for the multi-argument flags.
