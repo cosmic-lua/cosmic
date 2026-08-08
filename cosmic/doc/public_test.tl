@@ -27,7 +27,7 @@ local INTERNAL_SAMPLES = {
 
 local function topic_names(): {string: boolean}
   local names: {string: boolean} = {}
-  for _, topic in ipairs(docs.list_topics()) do
+  for _, topic in ipairs(docs.topics()) do
     names[topic[1]] = true
   end
   return names
@@ -67,8 +67,7 @@ local function test_directory_modules_indexed_under_their_name()
     "directory module must be indexed, not cosmic.fs.init")
   assert(not idx.modules["cosmic.fs.init"],
     "init shard must not appear own module")
-  local result = docs.query("fs")
-  assert(result.ok, "--docs fs must resolve to the fs module page")
+  assert(docs.query("fs"), "--docs fs must resolve to the fs module page")
   print("test_directory_modules_indexed_under_their_name: PASS")
 end
 test_directory_modules_indexed_under_their_name()
@@ -91,13 +90,11 @@ end
 test_internal_modules_stay_searchable_with_badge()
 
 local function test_internal_doc_page_carries_header()
-  local result = docs.query("cosmic.child.io")
-  assert(result.ok, "--docs cosmic.child.io must still render a page")
-  assert(result.output:find("internal module — not API, may change without notice", 1, true),
+  local page = check.must(docs.query("cosmic.child.io"))
+  assert(page:find("internal module — not API, may change without notice", 1, true),
     "internal module page must carry the internal-module header")
-  local public_page = docs.query("cosmic.json")
-  assert(public_page.ok, "--docs cosmic.json must render")
-  assert(not public_page.output:find("internal module — not API", 1, true),
+  local public_page = check.must(docs.query("cosmic.json"))
+  assert(not public_page:find("internal module — not API", 1, true),
     "public module page must not carry the internal-module header")
   print("test_internal_doc_page_carries_header: PASS")
 end

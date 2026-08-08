@@ -9,8 +9,8 @@ local doc_types = require("cosmic.doc.types")
 local function test_module_loads()
   assert(docs, "docs module should load")
   assert(docs.query, "docs.query should exist")
-  assert(docs.has_docs, "docs.has_docs should exist")
-  assert(docs.list_topics, "docs.list_topics should exist")
+  assert(docs.is_available, "docs.is_available should exist")
+  assert(docs.topics, "docs.topics should exist")
   assert(docs.embedded_index, "docs.embedded_index should exist")
   assert(docs.render_module, "docs.render_module should exist")
   assert(docs.search, "docs.search should exist")
@@ -20,7 +20,7 @@ end
 test_module_loads()
 
 local function test_has_docs()
-  local result = docs.has_docs()
+  local result = docs.is_available()
   assert(type(result) == "boolean", "has_docs should return a boolean")
   print("test_has_docs: PASS")
 end
@@ -42,12 +42,12 @@ end
 test_load_index()
 
 local function test_run_list()
-  local result = docs.query()
-  assert(result, "run should return a result")
-  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
-  assert(type(result.output) == "string", "result.output should be a string")
-  if result.ok then
-    assert(result.output:match("cosmic documentation") or result.output:match("Modules"),
+  local output, qerr = docs.query()
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  assert(type(output ~= nil) == "boolean", "output ~= nil should be a boolean")
+  assert(type((output or qerr)) == "string", "(output or qerr) should be a string")
+  if output ~= nil then
+    assert((output or qerr):match("cosmic documentation") or (output or qerr):match("Modules"),
       "list output should mention documentation or modules")
   end
   print("test_run_list: PASS")
@@ -56,13 +56,13 @@ test_run_list()
 
 -- Test run with a module query
 local function test_run_module()
-  local result = docs.query("cosmic.doc")
-  assert(result, "run should return a result")
-  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
-  assert(type(result.output) == "string", "result.output should be a string")
+  local output, qerr = docs.query("cosmic.doc")
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  assert(type(output ~= nil) == "boolean", "output ~= nil should be a boolean")
+  assert(type((output or qerr)) == "string", "(output or qerr) should be a string")
   -- If docs are available, this should work; otherwise it returns an error
-  if result.ok then
-    assert(result.output:match("doc") or result.output:match("documentation"),
+  if output ~= nil then
+    assert((output or qerr):match("doc") or (output or qerr):match("documentation"),
       "module output should contain relevant content")
   end
   print("test_run_module: PASS")
@@ -70,12 +70,12 @@ end
 test_run_module()
 
 local function test_run_symbol()
-  local result = docs.query("cosmic.doc.parse")
-  assert(result, "run should return a result")
-  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
-  assert(type(result.output) == "string", "result.output should be a string")
-  if result.ok then
-    assert(result.output:match("parse") or result.output:match("function"),
+  local output, qerr = docs.query("cosmic.doc.parse")
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  assert(type(output ~= nil) == "boolean", "output ~= nil should be a boolean")
+  assert(type((output or qerr)) == "string", "(output or qerr) should be a string")
+  if output ~= nil then
+    assert((output or qerr):match("parse") or (output or qerr):match("function"),
       "symbol output should contain relevant content")
   end
   print("test_run_symbol: PASS")
@@ -84,12 +84,12 @@ test_run_symbol()
 
 -- Test run with invalid query
 local function test_run_invalid()
-  local result = docs.query("nonexistent.module.that.does.not.exist")
-  assert(result, "run should return a result")
-  assert(type(result.output) == "string", "result.output should be a string")
+  local output, qerr = docs.query("nonexistent.module.that.does.not.exist")
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  assert(type((output or qerr)) == "string", "(output or qerr) should be a string")
   -- Should return an error for nonexistent module
-  if not result.ok then
-    assert(result.output:match("not found") or result.output:match("error"),
+  if not output then
+    assert((output or qerr):match("not found") or (output or qerr):match("error"),
       "error output should mention not found or error")
   end
   print("test_run_invalid: PASS")
@@ -97,7 +97,7 @@ end
 test_run_invalid()
 
 local function test_list_topics()
-  local topics = docs.list_topics()
+  local topics = docs.topics()
   assert(type(topics) == "table", "list_topics should return a table")
   -- Each topic should be a {name, description} pair
   for _, topic in ipairs(topics) do
@@ -157,7 +157,7 @@ local function test_search_methods()
     end
   end
   -- If docs are available and lsqlite3 is indexed, we should find Database.exec
-  if docs.has_docs() then
+  if docs.is_available() then
     print("test_search_methods: PASS (found " .. #results .. " results, methods=" .. tostring(found_method) .. ")")
   else
     io.stderr:write("SKIP: test_search_methods content assertions (no docs available)\n")
@@ -167,12 +167,12 @@ test_search_methods()
 
 -- Test run with method lookup (module.Record.method pattern)
 local function test_run_method()
-  local result = docs.query("cosmo.lsqlite3.Database.exec")
-  assert(result, "run should return a result")
-  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
-  assert(type(result.output) == "string", "result.output should be a string")
-  if result.ok then
-    assert(result.output:match("exec") or result.output:match("Database"),
+  local output, qerr = docs.query("cosmo.lsqlite3.Database.exec")
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  assert(type(output ~= nil) == "boolean", "output ~= nil should be a boolean")
+  assert(type((output or qerr)) == "string", "(output or qerr) should be a string")
+  if output ~= nil then
+    assert((output or qerr):match("exec") or (output or qerr):match("Database"),
       "method output should contain relevant content")
   end
   print("test_run_method: PASS")
@@ -181,12 +181,12 @@ test_run_method()
 
 -- Test cosmo module shows tip about cosmic equivalent
 local function test_cosmic_equivalent_tip()
-  local result = docs.query("cosmo.lsqlite3")
-  assert(result, "run should return a result")
-  if result.ok then
-    assert(result.output:find("cosmic.sqlite", 1, true),
+  local output, qerr = docs.query("cosmo.lsqlite3")
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  if output ~= nil then
+    assert((output or qerr):find("cosmic.sqlite", 1, true),
       "cosmo.lsqlite3 docs should mention cosmic.sqlite equivalent")
-    assert(result.output:find("Tip:", 1, true),
+    assert((output or qerr):find("Tip:", 1, true),
       "cosmo.lsqlite3 docs should show tip")
   end
   print("test_cosmic_equivalent_tip: PASS")
@@ -265,7 +265,7 @@ test_module_path_boost()
 
 -- Test that list_topics excludes cosmo.* modules by default
 local function test_list_topics_excludes_cosmo()
-  local topics = docs.list_topics()
+  local topics = docs.topics()
   local found_cosmo = false
   for _, topic in ipairs(topics) do
     if topic[1]:match("^cosmo%.") then
@@ -280,7 +280,7 @@ test_list_topics_excludes_cosmo()
 
 -- Test that list_topics(true) includes cosmo.* modules
 local function test_list_topics_includes_cosmo_when_requested()
-  local topics = docs.list_topics(true)
+  local topics = docs.topics(true)
   local found_cosmo = false
   local found_cosmic = false
   for _, topic in ipairs(topics) do
@@ -291,7 +291,7 @@ local function test_list_topics_includes_cosmo_when_requested()
       found_cosmic = true
     end
   end
-  if docs.has_docs() then
+  if docs.is_available() then
     assert(found_cosmo, "list_topics(true) should include cosmo.* modules")
     assert(found_cosmic, "list_topics(true) should include cosmic.* modules")
   else
@@ -327,7 +327,7 @@ local function test_search_includes_cosmo_when_requested()
       break
     end
   end
-  if docs.has_docs() then
+  if docs.is_available() then
     assert(found_cosmo, "search(query, true) should include cosmo.* modules")
   else
     io.stderr:write("SKIP: test_search_includes_cosmo_when_requested content assertions (no docs available)\n")
@@ -338,11 +338,11 @@ test_search_includes_cosmo_when_requested()
 
 -- Test that explicit cosmo module lookup still works
 local function test_explicit_cosmo_access()
-  local result = docs.query("cosmo.unix")
-  assert(result, "run should return a result")
-  if docs.has_docs() then
-    assert(result.ok, "explicit cosmo.unix lookup should succeed")
-    assert(result.output:match("unix"), "output should contain unix content")
+  local output, qerr = docs.query("cosmo.unix")
+  assert(output ~= nil or qerr ~= nil, "run should return output or a message")
+  if docs.is_available() then
+    assert(output ~= nil, "explicit cosmo.unix lookup should succeed")
+    assert((output or qerr):match("unix"), "output should contain unix content")
   else
     io.stderr:write("SKIP: test_explicit_cosmo_access content assertions (no docs available)\n")
   end
@@ -352,19 +352,17 @@ test_explicit_cosmo_access()
 
 -- Test symbol lookup finds re-exported record methods (bug 1) and quick example (bug 3)
 local function test_run_reexported_and_quick_example()
-  if not docs.has_docs() then print("test_run_reexported_and_quick_example: PASS (skipped)"); return end
+  if not docs.is_available() then print("test_run_reexported_and_quick_example: PASS (skipped)"); return end
   local r = docs.query("cosmic.sqlite.query")
-  assert(r, "run should return result")
-  if r.ok then assert(r.output:match("query"), "should find query method") end
+  if r then assert(r:match("query"), "should find query method") end
   local idx = check.must(docs.embedded_index())
   local test_mod: string = nil
   for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then test_mod = mod_name; break end
   end
   if test_mod then
-    local mr = docs.query(test_mod)
-    assert(mr and mr.ok, "module lookup should succeed")
-    assert(mr.output:match("Quick example"), "should have Quick example section")
+    local mr = check.must(docs.query(test_mod))
+    assert(mr:match("Quick example"), "should have Quick example section")
   end
   print("test_run_reexported_and_quick_example: PASS")
 end

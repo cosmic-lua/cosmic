@@ -30,11 +30,11 @@ local function run_repl()
 
   require("cosmo")
 
-  -- Inject help() into REPL
-  local docs = require("cosmic.doc")
+  -- Inject help() into REPL (via the pin-compat shim, #1001)
+  local docs = require("_cli.doc_compat")
   rawset(_G, "help", function(query: string)
-      local result = docs.query(query or "")
-      print(result.output)
+      local out, qerr = docs.query(query or "")
+      print(out or qerr)
     end)
 
   require("cosmo.repl").start()
@@ -64,10 +64,10 @@ end
 --- @return DocsRunResult Result with ok status and output text
 local function run_docs(query: string): DocsRunResult
   local docs = require("cosmic.doc")
-
-  local result = docs.query(query)
-  if result.ok then
-    return {ok = true, output = result.output}
+  local doc_compat = require("_cli.doc_compat")
+  local out, qerr = doc_compat.query(query)
+  if out then
+    return {ok = true, output = out}
   end
 
   local results = docs.search(query)
@@ -75,7 +75,7 @@ local function run_docs(query: string): DocsRunResult
     return {ok = true, output = docs.render_search_results(results, query)}
   end
 
-  return {ok = false, output = result.output}
+  return {ok = false, output = qerr}
 end
 
 --- Handle --version flag.
@@ -289,16 +289,16 @@ end
 
 --- Handle --examples flag.
 local function handle_examples(module_name: string): integer
-  local docs = require("cosmic.doc")
+  local docs = require("_cli.doc_compat")
 
   if module_name == "" then
-    local result = docs.query("examples")
-    io.write(result.output .. "\n")
-    return result.ok and 0 or 1
+    local out, qerr = docs.query("examples")
+    io.write((out or qerr) .. "\n")
+    return out and 0 or 1
   else
-    local result = docs.show_module_examples(module_name)
-    io.write(result.output .. "\n")
-    return result.ok and 0 or 1
+    local out, qerr = docs.module_examples(module_name)
+    io.write((out or qerr) .. "\n")
+    return out and 0 or 1
   end
 end
 
@@ -324,10 +324,10 @@ end
 --- Handle --docs flag.
 local function handle_docs(query: string): integer
   if query == "" then
-    local docs = require("cosmic.doc")
-    local result = docs.query("")
-    io.write(result.output .. "\n")
-    return result.ok and 0 or 1
+    local docs = require("_cli.doc_compat")
+    local out, qerr = docs.query("")
+    io.write((out or qerr) .. "\n")
+    return out and 0 or 1
   else
     local result = run_docs(query)
     if result.ok then
