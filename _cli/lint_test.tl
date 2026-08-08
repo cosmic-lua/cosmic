@@ -285,7 +285,7 @@ test_find_needle_wants_the_intent_stated()
 local function test_gsub_replacement_wants_the_intent_stated()
 
   -- nil-declaration: `local x = nil` with no annotation is the type nil
-  -- forever (gotcha 13); the rule fires at the declaration, where the fix
+  -- forever; the rule fires at the declaration, where the fix
   -- is. The trap spelled inside a string fixture must never count.
   local function test_nil_declaration_flags_the_bare_form()
     local diags = lint.check_nil_declaration("m.tl", "local earliest = nil\n")

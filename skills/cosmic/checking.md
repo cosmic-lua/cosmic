@@ -108,26 +108,24 @@ end
 
 a record whose runtime values are userdata needs Teal's `userdata` member
 in its own source (see `re.tl`'s Regex) — then `is` compiles to a
-`type() == "userdata"` test everywhere. caveats: `is` narrowing does not
+`type() == "userdata"` test everywhere; `fs.Stat` declares it, so
+`st is fs.Stat` narrows. caveats: `is` narrowing does not
 survive an early-exit guard (`if not (x is Rec) then return end` does not
-narrow below it — unlike the plain truthiness guard, which does); do not
-use `is` with a required `cosmo.*` class — the
-runtime tl loader can lax-recompile a module where the required `.d.tl`
-marker doesn't resolve, silently degrading `is` to a table test — keep
-casts at those boundaries; and `is` is wrong for mixed-representation
-records like `fs.Stat` (usually the raw userdata, sometimes a wrapper
-table). in linear code, use `as` to cast when you know more than the
-type checker:
+narrow below it — unlike the plain truthiness guard, which does), and
+`is` with a required `cosmo.*` class relies on the cosmic searcher
+resolving the `.d.tl` marker — the one unsupported path is user code
+calling `require("tl").loader()`, which shadows the cosmic searcher
+with tl's silent one. in linear code, use `as` to cast when you know
+more than the type checker:
 
 ```teal
 local result = json.decode(input) as {string: any}
 local count = value as integer
 ```
 
-per-file `as` counts are pinned by the cast ratchet (`_build/casts.txt`,
-enforced by `--make lint`). every cast carries its own `-- cast: <reason>`
-on the line or the line above, so there is no baseline to raise: a cast
-you cannot justify is one to remove.
+every cast carries its own `-- cast: <reason>` on the line or the line
+above (enforced by `--make lint`): a cast you cannot justify is one to
+remove.
 
 ### Record Types
 
