@@ -13,7 +13,7 @@ Cosmic options:
   --check <kind> <file>         run one gate check on one file. kinds:
                                   types     type-check, strict
                                   fmt       formatting (diff on stderr)
-                                  lint      file length, casts, test order
+                                  lint      every lint rule (--docs guide.lint)
                                   example   run Example_* and check output
                                 a kind IS its verb: the whole project is
                                 `--make check|fmt|lint|example`
@@ -32,13 +32,9 @@ Cosmic options:
                                 e.g. cosmic --coverage-report o/.coverage cosmic
   -c, --recipe <line>           run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic. the closed
-                                 vocabulary: assert-elf, assert-marker,
-                                 capture, compile, copy, exec, link,
-                                 record, remove, tee, verdict, write-list)
+{{recipe_verbs}}
   --make <verb> [paths]...      build this project
-                                (build, check, test, fmt, lint, example,
-                                 benchmark, docs, coverage, run, ci, fetch,
-                                 clean; `--make help` lists them)
+{{make_verbs}}
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message
   -h, --help                    show this help message
@@ -52,21 +48,12 @@ Standard lua options (each also has a long spelling, #991):
   -W, --warn                  turn warnings into errors
 
 Environment variables:
-  COSMIC_FENCE               0 opts out of the derived build sandbox (on by default)
-  COSMIC_JOBS                build parallelism (default: one job per cpu)
-  COSMIC_MAKE_ROOT           name the project root instead of using the cwd
-  COSMIC_VERSION             the --version stamp, when no .version is committed
-  COSMIC_COVERAGE            directory to dump line-coverage .cov files into
-  COSMIC_INSTRUMENTATION     1 emits timing spans to stderr
-  COSMIC_LOG_LEVEL           cosmic.log's threshold
-  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions
-  COSMIC_NO_WELCOME          suppress welcome message on first run
-  COSMIC_FULL_TRACEBACK      show full stack traceback including internal frames
+{{env_vars}}
 
   Every other COSMIC_-prefixed variable is INTERNAL: the build sets it
-  for its own children (which engine, what a step may exec, the
-  converge budget, a test's scratch directory). Setting one by hand
-  confuses a build rather than configuring it.
+  for its own children, and the registry (`_cli/env_vars.tl`) declares
+  each one — a gate fails when code and registry disagree. Setting an
+  internal one by hand confuses a build rather than configuring it.
 
   NO_COLOR, TERM, TMPDIR, HOME, PATH, XDG_*, SOURCE_DATE_EPOCH and CI
   are third-party conventions cosmic honours rather than invents.

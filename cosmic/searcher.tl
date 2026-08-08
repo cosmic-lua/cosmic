@@ -1,5 +1,4 @@
---- cosmic-owned runtime .tl package searcher, replacing
---- tl.loader().
+--- The cosmic-owned runtime `.tl` package searcher, replacing tl.loader().
 ---
 --- Public, and the caller set is what settled it: the generated
 --- embed wrapper runs `require("cosmic.searcher").install()` before the

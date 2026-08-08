@@ -76,8 +76,8 @@ hello.tl` checks without running. `./cosmic-lua -i` starts a REPL, and
   handling conventions
 - [docs/architecture.md](docs/architecture.md) — how the binary is put
   together
-- [docs/build.md](docs/build.md) — building custom executables with
-  embedded files
+- [docs/build.md](docs/build.md) — `cosmic --make`: how the build
+  system sees a project
 - [docs/contributing.md](docs/contributing.md) and
   [AGENTS.md](AGENTS.md) — developing cosmic itself
 - [whilp/cosmopolitan](https://github.com/whilp/cosmopolitan) — the

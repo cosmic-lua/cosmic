@@ -356,53 +356,55 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 
 | module | description |
 |--------|-------------|
-| ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
-| check | assertion helpers for tests/examples (`equal`, `truthy`, `must`) plus environment-gating helpers (`needs`, `enforce_skip`, `enforcing`) |
-| child | child process spawning with I/O control |
-| codec | hex/base64/base32/Latin-1 encoding and CRC-32 checksums |
-| compress | zlib compression/decompression |
-| coverage | line coverage collection for cosmic programs (`--make coverage`) |
-| deep | deep copy/merge/structural equality for nested tables |
-| doc | query the embedded documentation index |
-| embed | create custom executables with embedded files |
-| env | environment variables: get (nil when unset), get_or, set/unset/list, dotenv parse/format and env.d loading |
-| errno | canonical errno formatting (`wrap`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |
-| fetch | HTTP client with retry support |
-| flags | declarative command-line flag parsing with generated --help |
-| format | Teal/Lua code formatter |
-| fs | filesystem: paths, stat, walk, read/write, mkdir, symlink, tmp |
-| fuzzy | fuzzy string matching (edit distance) |
-| hash | SHA-256 digest and Argon2 password hashing |
-| html | HTML escaping |
-| instrument | timing/resource spans: emit `key=value` lines, and parse them back |
-| fd | file descriptor I/O: open/wrap handles, pipes |
-| ip | IP address parsing, formatting, classification |
-| json | JSON encode/decode |
-| log | leveled logging with key=value fields, to stderr or a custom sink (syslog included) |
-| net | TCP/UDP/Unix sockets |
-| poll | poll(2) wrapper for I/O multiplexing |
-| proc | current process: pid, exec, resource usage |
-| rand | cryptographic random bytes |
-| re | POSIX extended regular expressions |
-| sandbox | the in-process containment door: one fail-closed fs + sys policy (landlock/unveil/pledge are its internal shards) |
-| searcher | the runtime `.tl` package searcher every artifact installs at boot |
-| literal | read/write a Teal/Lua file as data: `return { … }` of literals, never executed |
-| quicksand | out-of-process containment: Linux namespace + allowlist-proxy boxes via quicksand.new |
-| shm | shared memory with atomic ops and futexes |
-| signal | signal handling, timers, sigsets |
-| sqlite | SQLite with ergonomic query/exec/transaction API |
-| sse | Server-Sent Events parser |
-| stream | the byte-stream Reader/Writer contract every producer and consumer composes over |
-| string | trim, split, capitalize, starts_with, etc. |
-| sys | OS/architecture detection, sysconf (nproc, page size), uname |
-| tar | extract a tarball (.tar.gz or plain .tar), in process |
-| teal | Teal compilation and type checking |
-| time | timestamps, sleep, clock, datetime |
-| tty | terminal detection, window size, termios |
-| url | URL encoding, parsing, escaping |
-| user | user/group identity |
-| uuid | UUIDv4 and UUIDv7 generation |
-| zip | ZIP archive reading and writing |
+| ansi | ANSI terminal styling. |
+| check | Assertion helpers for tests with auto-formatted failure messages. |
+| child | Child process management. |
+| codec | Encoding and decoding utilities: bytes in, bytes out. |
+| compress | Compression and decompression utilities. |
+| coverage | Line coverage collection for cosmic programs. |
+| deep | Deep table operations. |
+| deploy | Examples for deploying cosmic scripts. |
+| doc | Query the documentation index embedded in the binary. |
+| embed | Embed files and directories into a cosmic executable. |
+| env | Environment variables: get/set/unset/list, dotenv, and env.d loading. |
+| errno | Error information from system calls. |
+| errors | Examples for the error-handling doctrine every cosmic.* module follows. |
+| fd | File descriptor I/O operations. |
+| fetch | Structured HTTP fetch with retry, streaming, and honest error channels. |
+| flags | Declarative command-line flag parsing with a generated --help. |
+| format | Code formatter for Teal and Lua files. |
+| fs | Unified filesystem module. |
+| fuzzy | Fuzzy string matching utilities. |
+| hash | Cryptographic digests, HMAC, and Argon2 password hashing. |
+| html | HTML utilities. |
+| instrument | Timing and resource-usage spans, one `key=value` line each. |
+| ip | IP address parsing, formatting, and classification utilities. |
+| json | JSON encoding and decoding utilities. |
+| literal | Teal source read and written as data: one `return { … }` of literals. |
+| log | Leveled logging. |
+| net | Networking and socket utilities. |
+| poll | Typed interface for polling file descriptors. |
+| proc | Current process management. |
+| quicksand | Network + filesystem process isolation primitives. |
+| rand | Random bytes, integers, floats, choice, shuffle, and tokens. |
+| re | Regular expression matching using POSIX extended regex syntax. |
+| sandbox | One-call, fail-closed in-process sandbox: the one door (#989). |
+| searcher | The cosmic-owned runtime `.tl` package searcher, replacing tl.loader(). |
+| shm | Shared memory for inter-process communication. |
+| signal | Signal handling utilities. |
+| sqlite | Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
+| sse | Server-Sent Events: parse a stream of them, format one for the wire. |
+| stream | The stream contract: byte-stream Reader/Writer interfaces. |
+| string | String utilities. |
+| sys | System information utilities. |
+| tar | In-process tarball extraction, without a host `tar`. |
+| teal | Teal compilation and type-checking. |
+| time | Time and clock utilities. |
+| tty | Terminal (TTY) utilities. |
+| url | URL encoding, decoding, parsing, formatting, and escaping utilities. |
+| user | User and group identity operations. |
+| uuid | UUID generation utilities. |
+| zip | ZIP archive reading and writing. |
 
 ## `--make` fixtures
 

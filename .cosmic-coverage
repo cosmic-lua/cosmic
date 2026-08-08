@@ -11,6 +11,7 @@ _cli/check.tl 24 31
 _cli/doc_compat.tl 16 26
 _cli/driver.tl 21 34
 _cli/embed_compat.tl 15 25
+_cli/env_vars.tl 68 68
 _cli/grants.tl 158 168
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
@@ -206,4 +207,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14834 19494
+total 14902 19562

@@ -1,4 +1,4 @@
---- Environment variable utilities.
+--- Environment variables: get/set/unset/list, dotenv, and env.d loading.
 --- Reading, setting, and listing environment variables — env.get()
 --- returns nil when the variable is not set, so the caller narrows;
 --- env.get_or() takes a fallback and cannot fail — plus the dotenv

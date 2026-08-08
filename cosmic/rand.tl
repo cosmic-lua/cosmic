@@ -1,4 +1,4 @@
---- Random number generation.
+--- Random bytes, integers, floats, choice, shuffle, and tokens.
 --- Wraps cosmo.GetRandomBytes for cryptographically secure randomness, and
 --- cosmo.Rand64 for fast non-cryptographic use cases.
 ---
