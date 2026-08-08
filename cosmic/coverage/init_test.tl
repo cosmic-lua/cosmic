@@ -13,7 +13,6 @@ local fs = require("cosmic.fs")
 -- `_` tree (D19: the no-`_`-requires rule binds library code — a
 -- test ships nowhere).
 local report = require("_tool.coverage.report")
-local types = require("cosmic.fs.types")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 
@@ -27,9 +26,9 @@ end
 --- Collect .cov file paths under a directory.
 local function cov_files_in(dir: string): {string}
   local found: {string} = {}
-  assert(fs.walk(dir, function(path: string, _name: string, st: types.WalkStat, ctx: {string})
-        if not st:is_dir() and path:match("%.cov$") then
-          ctx[#ctx + 1] = path
+  assert(fs.visit(dir, function(e: fs.Entry, ctx: {string})
+        if not e.stat:is_dir() and e.path:match("%.cov$") then
+          ctx[#ctx + 1] = e.path
         end
       end, found))
   return found

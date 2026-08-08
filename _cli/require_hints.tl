@@ -111,8 +111,8 @@ local function find_similar(name: string, max_distance?: integer): {string}
   for _, pair in ipairs(candidates) do
     local full = pair[1]
     local short = pair[2]
-    local dist_short = fuzzy.levenshtein(name:lower(), short:lower())
-    local dist_full = fuzzy.levenshtein(name:lower(), full:lower())
+    local dist_short = fuzzy.distance(name:lower(), short:lower())
+    local dist_full = fuzzy.distance(name:lower(), full:lower())
     local dist = math.min(dist_short, dist_full)
     if dist <= max_distance then
       table.insert(results, {full, dist})

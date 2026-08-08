@@ -12,7 +12,7 @@ local fs = require("cosmic.fs")
 local work = require("_cli.build.work")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 
 -- The record skip keys the tool stamp the graph writes; without a
 -- built tree there is nothing to key against and nothing to test.
@@ -22,8 +22,8 @@ check.needs("the record stamp at o/.stamp/record",
 
 --- The seconds+nanoseconds of a path, as one comparable string.
 local function mtime_of(path: string): string
-  local sec, nsec = check.must(fs.stat(path)):mtim()
-  return tostring(sec) .. "." .. tostring(nsec)
+  local mt = check.must(fs.stat(path)):modify_time()
+  return tostring(mt.secs) .. "." .. tostring(mt.nsecs)
 end
 
 -- compile: a second run with identical bytes skips (no child, `.in`
@@ -60,7 +60,7 @@ local function test_compile_skips_and_unskips()
 
   local bare_out = fs.join(tmpdir, "skip-bare.lua")
   assert(work.compile({cosmic, src, bare_out}) == 0, "bare compile")
-  assert(not fs.exists(bare_out .. ".in"),
+  assert(not fs.is_present(bare_out .. ".in"),
     "a line that declares no inputs must not key: the mini-graph " ..
     "expects a dispatched compile to compile")
 end
@@ -104,7 +104,7 @@ local function test_record_skips_only_a_pass()
   assert(work.record(bargs) == 0, "record always exits 0; grading is later")
   local bgot = check.must(fs.read(bout .. ".got"))
   assert(not bgot:match("^0%s*$"), "the run failed")
-  assert(not fs.exists(bout .. ".in"),
+  assert(not fs.is_present(bout .. ".in"),
     "a failure must not record: a red test deserves its re-run")
   local err1 = mtime_of(bout .. ".err")
   assert(work.record(bargs) == 0, "second failing record")

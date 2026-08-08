@@ -78,7 +78,7 @@ local function test_the_fence_denies_an_undeclared_write()
 
   local envlist = env.list({set = {
         TMPDIR = root,
-        COSMIC_EXEC_ROOT = fs.dirname(fs.abspath(cosmic)),
+        COSMIC_EXEC_ROOT = fs.dirname(fs.absolute_path(cosmic)),
         COSMIC_FENCE = "1",
       }})
 
@@ -86,7 +86,7 @@ local function test_the_fence_denies_an_undeclared_write()
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))
   assert(direct.ok, "the script must succeed unfenced: " .. direct.stderr)
   assert(fs.is_file(target), "unfenced, the write must land")
-  assert(fs.unlink(target))
+  assert(fs.remove(target))
 
   -- B: the same script under exec's fence, which does not reach it.
   local fenced = check.must(child.run(
@@ -128,7 +128,7 @@ local function test_the_fence_confines_a_test_to_its_own_step()
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))
   assert(direct.ok, "the script must succeed unfenced: " .. direct.stderr)
   assert(fs.is_file(target), "unfenced, the write must land")
-  assert(fs.unlink(target))
+  assert(fs.remove(target))
 
   -- B: through the `record` verb, whose fence grants only the step's
   -- own output directory. The verb always exits 0 -- it records a
@@ -188,7 +188,7 @@ local function test_the_fence_permits_a_real_compile()
   -- APE that way with no duplicate binary; what is missing is a way for
   -- a verb line to name a program AND its loader. See
   -- docs/design/make/engine.md.
-  local self = fs.abspath(cosmic)
+  local self = fs.absolute_path(cosmic)
   local boot = fs.join(fs.dirname(self), "cosmic-check")
   if not fs.is_file(boot) then
     check.enforce_skip("no assimilated cosmic at " .. boot)

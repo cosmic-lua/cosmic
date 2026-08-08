@@ -22,7 +22,7 @@ local function discover_modules(): {string}
   end
   local names: {string} = {}
   for _, p in ipairs(paths as {string}) do -- cast: narrowed by the nil guard above
-    local stem = fs.splitext(fs.basename(p))
+    local stem = fs.split_extension(fs.basename(p))
     table.insert(names, "_perf.bench." .. stem)
   end
   table.sort(names)

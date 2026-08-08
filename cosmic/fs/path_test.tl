@@ -1,7 +1,6 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -118,8 +117,6 @@ test_islink_regular_dir()
 
 -- Directory walking tests
 
-local type WalkStat = fs_types.WalkStat
-
 local record WalkContext
   count: number
   dirs: number
@@ -181,10 +178,10 @@ local function test_walk_with_visitor()
   local walk_dir = setup_walk()
   local ctx: WalkContext = {count = 0, dirs = 0}
 
-  assert(fs.walk(walk_dir, function(_full_path: string, _entry: string, st: any, c: any)
+  assert(fs.visit(walk_dir, function(e: fs.Entry, c: any)
         local wctx = c as WalkContext -- cast: from any
         wctx.count = wctx.count + 1
-        local stat_obj = st as WalkStat -- cast: from any
+        local stat_obj = e.stat
         if stat_obj:is_dir() then
           wctx.dirs = wctx.dirs + 1
         end

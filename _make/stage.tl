@@ -168,7 +168,7 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   -- to remove, and that is not this stage's failure to report.
   local summary = fs.join(project.BUILD_DIR,
     (v.target as string) .. "-summary.txt") -- cast: a graph verb has one
-  local _ok, _err = fs.unlink(summary)
+  local _ok, _err = fs.remove(summary)
 
   -- cast: a graph verb always has a target (see the registry)
   local code, gerr = graph.run(proj, v.target as string, overrides, cosmic)

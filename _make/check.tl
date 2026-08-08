@@ -98,7 +98,7 @@ local function proved_by_graph(proj: Project, f: File,
   if not out then
     return false
   end
-  local bsec, bnsec = out:mtim()
+  local base = out:modify_time()
   local inputs = deps.source_paths(deps.closure(proj, f, by_import))
   inputs[#inputs + 1] = f.path
   inputs[#inputs + 1] = stamp.path_of("compile")
@@ -108,8 +108,8 @@ local function proved_by_graph(proj: Project, f: File,
     if not st then
       return false
     end
-    local isec, insec = st:mtim()
-    if isec > bsec or (isec == bsec and insec > bnsec) then
+    local it = st:modify_time()
+    if it.secs > base.secs or (it.secs == base.secs and it.nsecs > base.nsecs) then
       return false
     end
   end

@@ -13,7 +13,7 @@
 --- without lying about the other. Spawning `o/bin/<name>` covers
 --- those, and stays the way to exercise a binary's CLI surface.
 
-local embedc = require("_cli.embed_compat") -- pin-compat shim (#1001)
+local embedc = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local artifact = require("_make.artifact")
 local project = require("_make.project")
@@ -78,7 +78,7 @@ local function build(proj: Project, cosmic: string): boolean, string
   -- makes. Clear rather than merge: a payload file removed from the
   -- project must not survive in the runner.
   local dir = fs.join(project.BUILD_DIR, ".testrun", "stage")
-  if fs.exists(dir) then
+  if fs.is_present(dir) then
     local rok, rerr = fs.remove_all(dir)
     if not rok then
       return false, "make: cannot clear " .. dir .. ": " ..
@@ -108,7 +108,7 @@ local function build(proj: Project, cosmic: string): boolean, string
   local count, terr = embedc.write({dir},
     {output = staged_out, exe_path = cosmic, mtime = embedc.EPOCH_SECONDS})
   if not count then
-    local _ok, _err = fs.unlink(staged_out)
+    local _ok, _err = fs.remove(staged_out)
     return false, "make: test runner: " .. (terr or "embed failed")
   end
   local rerr = artifact.replace_if_changed(staged_out, PATH)

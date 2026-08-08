@@ -161,17 +161,17 @@ local function test_statfs()
 
   -- Check that we can call all the methods
   assert(info:type() ~= nil, "type() should return a value")
-  assert(info:bsize() > 0, "bsize() should be positive")
-  assert(info:blocks() > 0, "blocks() should be positive")
-  assert(info:bfree() >= 0, "bfree() should be non-negative")
-  assert(info:bavail() >= 0, "bavail() should be non-negative")
-  assert(info:files() >= 0, "files() should be non-negative")
-  assert(info:ffree() >= 0, "ffree() should be non-negative")
-  local fsid1, fsid2 = info:fsid()
-  assert(fsid1 ~= nil, "fsid() should return first value")
-  assert(fsid2 ~= nil, "fsid() should return second value")
-  assert(info:namelen() > 0, "namelen() should be positive")
-  assert(info:frsize() > 0, "frsize() should be positive")
+  assert(info:block_size_bytes() > 0, "block_size_bytes() should be positive")
+  assert(info:total_blocks() > 0, "total_blocks() should be positive")
+  assert(info:free_blocks() >= 0, "free_blocks() should be non-negative")
+  assert(info:available_blocks() >= 0, "available_blocks() should be non-negative")
+  assert(info:total_files() >= 0, "total_files() should be non-negative")
+  assert(info:free_files() >= 0, "free_files() should be non-negative")
+  local fsid1, fsid2 = info:id()
+  assert(fsid1 ~= nil, "id() should return first value")
+  assert(fsid2 ~= nil, "id() should return second value")
+  assert(info:max_name_bytes() > 0, "max_name_bytes() should be positive")
+  assert(info:fragment_size_bytes() > 0, "fragment_size_bytes() should be positive")
   assert(info:flags() ~= nil, "flags() should return a value")
 end
 test_statfs()
@@ -191,8 +191,8 @@ local function test_fstatfs()
 
   local info = check.must(fs.statfs_fd(fd))
 
-  assert(info:bsize() > 0, "bsize() should be positive")
-  assert(info:blocks() > 0, "blocks() should be positive")
+  assert(info:block_size_bytes() > 0, "block_size_bytes() should be positive")
+  assert(info:total_blocks() > 0, "total_blocks() should be positive")
 
   unix.close(fd)
 end
@@ -272,9 +272,6 @@ local function test_statfs_spelled_methods()
   assert(sf:free_blocks() >= sf:available_blocks(),
     "free >= available (root reserve)")
   assert(sf:max_name_bytes() > 0, "max_name_bytes is positive")
-  -- The deprecated abbreviations alias the same readings.
-  assert(sf:bsize() == sf:block_size_bytes(), "bsize aliases block_size_bytes")
-  assert(sf:namelen() == sf:max_name_bytes(), "namelen aliases max_name_bytes")
   teardown(test_dir)
 end
 test_statfs_spelled_methods()

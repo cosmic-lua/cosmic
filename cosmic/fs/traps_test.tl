@@ -227,40 +227,43 @@ test_dir_read_returns_d_type()
 
 -- 5. is_accessible requires a mode; the deprecated access alias keeps
 -- its F_OK default until the pin advance (#988).
-local function test_is_accessible_and_deprecated_access()
+local function test_is_accessible()
   local path = fs.join(TEST_TMPDIR, "acc.txt")
   write_file(path, "here")
   assert(fs.is_accessible(path, fs.R_OK), "readable file is accessible R_OK")
   assert(not fs.is_accessible(fs.join(TEST_TMPDIR, "missing.txt"), fs.R_OK),
     "missing path is not accessible")
-  local access = fsa.access as function(string): boolean -- cast: from any
-  assert(access(path) == true, "deprecated access(path) still means exists")
+  assert(fs.is_present(path), "and is_present is the no-mode question")
+  assert(fsa.access == nil, "the access alias is retired (#988)")
   assert(fs.remove(path))
 end
-test_is_accessible_and_deprecated_access()
+test_is_accessible()
 
--- 6. the #988 rename wave: every old name is an alias of its new name,
--- so both spellings answer identically until the pin advance.
-local function test_deprecated_aliases_point_at_new_names()
-  local pairs_to_check: {{string, string}} = {
-    {"exists", "is_present"}, {"abspath", "absolute_path"},
-    {"relpath", "relative_path"}, {"splitext", "split_extension"},
-    {"expanduser", "expand_user"}, {"unsafe_entry_name", "is_unsafe_entry_name"},
-    {"mkdir", "make_dir"}, {"rmdir", "remove_dir"}, {"unlink", "remove"},
-    {"opendir", "open_dir"}, {"fdopendir", "open_dir_fd"},
-    {"chdir", "set_cwd"}, {"chmod", "set_mode"}, {"chown", "set_owner"},
-    {"realpath", "resolve"}, {"lstat", "stat_link"}, {"fstat", "stat_fd"},
-    {"fstatfs", "statfs_fd"}, {"sync", "sync_all"},
-    {"write_atomic", "write_atomic"},
+-- 6. the #988 rename wave landed: the old spellings are GONE, and the
+-- names that replaced them answer. A retired alias must not linger as a
+-- second way to say the same thing.
+local function test_retired_aliases_are_gone()
+  local retired = {
+    "exists", "abspath", "relpath", "splitext", "expanduser",
+    "unsafe_entry_name", "mkdir", "rmdir", "unlink", "opendir",
+    "fdopendir", "chdir", "chmod", "chown", "realpath", "lstat",
+    "fstat", "fstatfs", "sync", "write_atomic", "walk", "access",
   }
-  for _, pair in ipairs(pairs_to_check) do
-    local old_name, new_name = pair[1], pair[2]
-    assert(type(fsa[old_name]) == "function", old_name .. " alias exists")
-    assert(type(fsa[new_name]) == "function", new_name .. " exists")
+  for _, name in ipairs(retired) do
+    assert(fsa[name] == nil, name .. " is retired (#987/#988)")
   end
-  assert(fsa.exists == fsa.is_present, "alias is the same function")
+  local live = {
+    "is_present", "absolute_path", "relative_path", "split_extension",
+    "expand_user", "is_unsafe_entry_name", "make_dir", "remove_dir",
+    "remove", "open_dir", "open_dir_fd", "set_cwd", "set_mode",
+    "set_owner", "resolve", "stat_link", "stat_fd", "statfs_fd",
+    "sync_all", "visit",
+  }
+  for _, name in ipairs(live) do
+    assert(type(fsa[name]) == "function", name .. " is the name that answers")
+  end
   assert(fsa.rename == nil, "fs.rename is deleted (move is the superset)")
   assert(fsa.major == nil and fsa.minor == nil, "fs.major/minor are deleted")
   assert(fsa.ext == nil, "fs.ext is deleted (split_extension's second return)")
 end
-test_deprecated_aliases_point_at_new_names()
+test_retired_aliases_are_gone()

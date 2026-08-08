@@ -42,9 +42,6 @@ local record Handle is stream.Reader
   --- Sends `sig` (default SIGTERM); start's partner (D20 rule 9).
   --- Fails once reaped (pid may be recycled).
   stop: function(self: Handle, sig?: integer): boolean, string
-  --- DEPRECATED alias of stop (D20 transition, #976); deleted at the
-  --- next pin advance (#981-class) once the pinned build engine moves.
-  kill: function(self: Handle, sig?: integer): boolean, string
   --- Non-blocking reap: TryWait{finished, result} — result set exactly
   --- when finished — or `nil, err` on a wait failure.
   try_wait: function(self: Handle): TryWait | nil, string
@@ -70,7 +67,7 @@ end
 local function prepare_zip_exec(zip_path: string): integer | nil, string
   local fd, err = unix.open(zip_path, unix.O_RDONLY)
   if not fd then
-    return nil, errno.wrap(err, "open zip path: " .. zip_path)
+    return nil, errno.format(err, "open zip path: " .. zip_path)
   end
   return fd
 end
@@ -133,11 +130,10 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     end
     local ok, err = unix.kill(self.pid, sig or unix.SIGTERM)
     if not ok then
-      return false, errno.wrap(err, "stop")
+      return false, errno.format(err, "stop")
     end
     return true
   end
-  handle.kill = handle.stop
 
   function handle:wait(timeout_ms?: integer): Result | nil, string
     if self._result then
@@ -181,7 +177,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     end
     local chunk, err = childio.read_retry(fd, size or 65536)
     if chunk == nil then
-      return nil, errno.wrap(err, "read")
+      return nil, errno.format(err, "read")
     end
     if chunk == "" then
       return nil -- end of file (#589)
@@ -412,7 +408,7 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
 
   if pid == nil then
     for _, fd in ipairs(opened) do unix.close(fd) end
-    return nil, errno.wrap(ferr, "fork")
+    return nil, errno.format(ferr, "fork")
   end
 
   -- Parent: close the ends the child owns, then wait on the exec handshake.
@@ -431,8 +427,8 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
     if not stdin_is_fd then unix.close(stdin_w) end
     if not stdout_is_fd then unix.close(stdout_r) end
     if not stderr_is_fd then unix.close(stderr_r) end
-    if exec_msg == nil then return nil, errno.wrap(exec_rerr, "exec status read failed") end
-    return nil, errno.wrap(exec_msg, "exec failed")
+    if exec_msg == nil then return nil, errno.format(exec_rerr, "exec status read failed") end
+    return nil, errno.format(exec_msg, "exec failed")
   end
 
   return parent_handle(pid)

@@ -68,8 +68,9 @@ local db = check.must(sqlite.open("index.db"))
 assert(db:exec("CREATE TABLE IF NOT EXISTS files (" ..
     "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)"))
 
-check.must(fs.walk("testdata", function(path: string, _name: string, st: fs.WalkStat, _ctx: any)
-      -- path is the FULL path; do not join it with the basename
+check.must(fs.visit("testdata", function(e: fs.Entry, _ctx: any)
+      local path, st = e.path, e.stat
+      -- e.path is the FULL path; do not join it with e.name
       if st:is_file() then
         local data = fs.read(path)
         if data then

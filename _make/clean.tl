@@ -32,7 +32,7 @@ local KEEP < const >: {string: boolean} = {bootstrap = true}
 --- @return integer Exit code
 local function run(_proj: Project, _paths: {string},
     _cosmic: string): integer
-  if not fs.exists(project.BUILD_DIR) then
+  if not fs.is_present(project.BUILD_DIR) then
     return stage.verdict("clean", true, "nothing to remove")
   end
   local entries, gerr = fs.glob(project.BUILD_DIR, "*")

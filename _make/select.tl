@@ -44,7 +44,7 @@ local function select_files(files: {File}, paths: {string}, root: string): {File
   for _, raw in ipairs(paths) do
     local rel = raw
     if fs.is_absolute(rel) then
-      rel = fs.relpath(fs.abspath(rel), root)
+      rel = fs.relative_path(fs.absolute_path(rel), root)
     end
     rel = rel:gsub("^%./", ""):gsub("/+$", "")
     local hit = false

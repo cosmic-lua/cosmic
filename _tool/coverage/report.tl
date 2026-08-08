@@ -4,7 +4,6 @@
 --- and the denominator comes from static executable-line analysis of
 --- each file unioned with the lines actually hit.
 local fs = require("cosmic.fs")
-local fs_pub = require("cosmic.fs")
 local cov_lines = require("_tool.coverage.lines")
 
 --- One source file's merged coverage state.
@@ -138,8 +137,9 @@ end
 --- @param cov_files {string} Collects .cov file paths
 --- @param src_files {string} Collects .tl source paths
 local function scan_dir(dir: string, cov_files: {string}, src_files: {string})
-  local _ok, _err = fs.walk(dir, function(path: string, _name: string, st: fs_pub.WalkStat, _ctx: {boolean})
-      if st:is_dir() then
+  local _ok, _err = fs.visit(dir, function(e: fs.Entry, _ctx: {boolean})
+      local path = e.path
+      if e.stat:is_dir() then
         return
       end
       -- Scanning `.` yields `./x.tl`, scanning `o` yields `o/x.tl`, and

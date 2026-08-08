@@ -101,9 +101,7 @@ local function build_id(): string
   local info = self and fs.stat(self)
   if info then
     local st = info
-    -- Bound, not inlined: mtim returns seconds AND nanoseconds, and a
-    -- multi-return call spreads into the argument list it sits in.
-    local secs = st:mtim()
+    local secs = st:modify_time().secs
     return "dev-" .. tostring(st:size()) .. "-" .. tostring(secs)
   end
   return "unknown"
@@ -173,7 +171,7 @@ local function store(script_path: string, content: string, code: string,
   if not trusted(dir) then
     return
   end
-  local _ok, _err = fs.write(path, code, OWNER_FILE)
+  local _ok, _err = fs.write(path, code, {mode = OWNER_FILE})
 end
 
 --- Compile a Teal file, reusing cached output when the source has not

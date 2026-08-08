@@ -12,12 +12,12 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
 -- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
 -- a build; CI always provisions the engine, so its absence there means
@@ -92,7 +92,7 @@ local function test_clean_removes_the_build_directory()
   assert(fs.is_dir(fs.join(root, "o")), "o/ should exist")
   local r = make(root, "clean")
   assert(r.code == 0, "clean should succeed: " .. r.err)
-  assert(not fs.exists(fs.join(root, "o")), "o/ should be gone")
+  assert(not fs.is_present(fs.join(root, "o")), "o/ should be gone")
   local again = make(root, "clean")
   assert(again.code == 0, "cleaning a clean tree is not an error")
   assert(again.out:find("nothing to remove", 1, true), "got: " .. again.out)
@@ -117,7 +117,7 @@ local function test_clean_keeps_the_verified_bootstrap()
     "the verified bootstrap survives: " .. r.out)
   assert(r.out:find("kept the verified bootstrap", 1, true),
     "and clean says so: " .. r.out)
-  assert(not fs.exists(fs.join(root, "o/bin")),
+  assert(not fs.is_present(fs.join(root, "o/bin")),
     "everything else still goes: " .. r.out)
 end
 test_clean_keeps_the_verified_bootstrap()

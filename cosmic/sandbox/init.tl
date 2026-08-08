@@ -76,16 +76,12 @@ local record SandboxModule
   type Fs = Fs
   type Sys = Sys
   type Options = Options
-  --- DEPRECATED name for Options (#989); deleted at pin advance.
-  type Policy = Options
   type Availability = Availability
   apply: function(opts: Options): Availability | nil, string
   availability: function(): Availability
   is_available: function(): boolean
   validate: function(opts: Options): boolean, string
   merge: function(...: Options): Options
-  --- DEPRECATED alias of availability() (#989); deleted at pin advance.
-  available: function(): Availability
 end
 
 -- Promise-name set for pre-enforcement validation, built from the
@@ -355,8 +351,6 @@ local M: SandboxModule = {
   is_available = is_available,
   validate = validate,
   merge = merge,
-  -- DEPRECATED alias (#989); deleted at pin advance.
-  available = availability,
 }
 
 return M

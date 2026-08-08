@@ -24,8 +24,7 @@ local record fs_types
 
   --- Filesystem statistics.
   --- Returned by statfs() and statfs_fd(). Spelled methods with units
-  --- (#988, rule 1); the raw C abbreviations remain as DEPRECATED
-  --- aliases until the pin advance.
+  --- (#988, rule 1).
   record Statfs
     --- Returns filesystem type identifier.
     type: function(self: Statfs): integer
@@ -49,17 +48,6 @@ local record fs_types
     max_name_bytes: function(self: Statfs): integer
     --- Returns mount flags.
     flags: function(self: Statfs): integer
-
-    --- DEPRECATED raw abbreviations (#988); deleted at pin advance.
-    bsize: function(self: Statfs): integer
-    blocks: function(self: Statfs): integer
-    bfree: function(self: Statfs): integer
-    bavail: function(self: Statfs): integer
-    files: function(self: Statfs): integer
-    ffree: function(self: Statfs): integer
-    fsid: function(self: Statfs): integer, integer
-    namelen: function(self: Statfs): integer
-    frsize: function(self: Statfs): integer
   end
 
   --- File or directory metadata.
@@ -90,12 +78,6 @@ local record fs_types
     --- Returns {atime, mtime} ready for set_times, so
     --- `set_times(dst, stat(src):times())` round-trips.
     times: function(self: Stat): Times
-
-    --- DEPRECATED bare-tuple times (#988); deleted at pin advance.
-    birthtim: function(self: Stat): integer, integer
-    mtim: function(self: Stat): integer, integer
-    atim: function(self: Stat): integer, integer
-    ctim: function(self: Stat): integer, integer
     --- Returns number of 512-byte blocks allocated.
     blocks: function(self: Stat): integer
     --- Returns number of hard links.
@@ -225,34 +207,37 @@ local raw_predicates: {string: any} = {
 }
 
 -- Spelled Statfs methods (#988, rule 1) over the raw C abbreviations.
--- Each delegates, so the values stay whatever the binding reports.
+-- Each delegates, so the values stay whatever the binding reports. The
+-- delegation types itself against the BINDING's Statfs (unix.Statfs),
+-- which is where the abbreviations live -- the public record above
+-- shows only the spelled names.
 local statfs_methods: {string: any} = {
   block_size_bytes = function(self: any): integer
-    return (self as fs_types.Statfs):bsize() -- cast: userdata boundary
+    return (self as unix.Statfs):bsize() -- cast: userdata boundary
   end,
   fragment_size_bytes = function(self: any): integer
-    return (self as fs_types.Statfs):frsize() -- cast: userdata boundary
+    return (self as unix.Statfs):frsize() -- cast: userdata boundary
   end,
   total_blocks = function(self: any): integer
-    return (self as fs_types.Statfs):blocks() -- cast: userdata boundary
+    return (self as unix.Statfs):blocks() -- cast: userdata boundary
   end,
   free_blocks = function(self: any): integer
-    return (self as fs_types.Statfs):bfree() -- cast: userdata boundary
+    return (self as unix.Statfs):bfree() -- cast: userdata boundary
   end,
   available_blocks = function(self: any): integer
-    return (self as fs_types.Statfs):bavail() -- cast: userdata boundary
+    return (self as unix.Statfs):bavail() -- cast: userdata boundary
   end,
   total_files = function(self: any): integer
-    return (self as fs_types.Statfs):files() -- cast: userdata boundary
+    return (self as unix.Statfs):files() -- cast: userdata boundary
   end,
   free_files = function(self: any): integer
-    return (self as fs_types.Statfs):ffree() -- cast: userdata boundary
+    return (self as unix.Statfs):ffree() -- cast: userdata boundary
   end,
   id = function(self: any): integer, integer
-    return (self as fs_types.Statfs):fsid() -- cast: userdata boundary
+    return (self as unix.Statfs):fsid() -- cast: userdata boundary
   end,
   max_name_bytes = function(self: any): integer
-    return (self as fs_types.Statfs):namelen() -- cast: userdata boundary
+    return (self as unix.Statfs):namelen() -- cast: userdata boundary
   end,
 }
 

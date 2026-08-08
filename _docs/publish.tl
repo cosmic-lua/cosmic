@@ -14,7 +14,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
   local docs: {DocInfo} = {}
 
   local function scan(dir: string)
-    local handle0 = fs.opendir(dir)
+    local handle0 = fs.open_dir(dir)
     if not handle0 then return end
     local handle = handle0
 
@@ -89,11 +89,11 @@ end
 -- Remove internal doc pages from a generated docs tree in place.
 local function prune_internal(docs_dir: string)
   local internal: {string} = {}
-  local _ok, _err = fs.walk(docs_dir, function(path: string, name: string, st: fs.Stat, acc: {string})
-      if not st:is_dir() and name:match("%.md$") then
-        local rel_path = path:sub(#docs_dir + 2)
+  local _ok, _err = fs.visit(docs_dir, function(e: fs.Entry, acc: {string})
+      if not e.stat:is_dir() and e.name:match("%.md$") then
+        local rel_path = e.path:sub(#docs_dir + 2)
         if rel_path ~= "README.md" and not is_public_page(rel_path) then
-          table.insert(acc, path)
+          table.insert(acc, e.path)
         end
       end
     end, internal)
@@ -243,7 +243,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   local _ = child.run({"git", "rm", "-rf", "."})
 
   -- clear working directory
-  local dir0 = fs.opendir(".")
+  local dir0 = fs.open_dir(".")
   if dir0 then
     local dir = dir0
     while true do

@@ -292,11 +292,11 @@ local function do_record(args: {string}): integer
         (terr or "unknown error") .. "\n")
     end
   end
-  modules.attach(argv, out, fs.abspath("."), deps)
-  local scratch = fs.abspath(out .. ".tmp.d")
+  modules.attach(argv, out, fs.absolute_path("."), deps)
+  local scratch = fs.absolute_path(out .. ".tmp.d")
   local _ok, _err = env.set("TMP", scratch)
   local _ok, _err = fs.make_dirs(scratch)
-  local _ok, _err = fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
+  local _ok, _err = fs.remove(out .. ".got") -- freshness: an early testrun exit writes none
   local testrun = require("_tool.testrun")
   -- The exit code is deliberately not graded here (the .got file is
   -- the record); the runner's own failure message is (#992).
@@ -310,7 +310,7 @@ local function do_record(args: {string}): integer
   if key is string and got_pass(out .. ".got") then
     local _ok, _err = fs.write(record_path, "in " .. key .. "\n")
   else
-    local _ok, _err = fs.unlink(record_path)
+    local _ok, _err = fs.remove(record_path)
   end
   return 0
 end

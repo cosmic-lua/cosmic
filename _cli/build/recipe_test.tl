@@ -206,7 +206,7 @@ local function write_script(name: string, body: string): string
 end
 
 local function test_exec_runs_bytes_under_the_root()
-  local root = fs.dirname(fs.abspath(test_bin))
+  local root = fs.dirname(fs.absolute_path(test_bin))
   local script = write_script("exec-print.lua", "print('42')\n")
   local code, out, err = run_recipe_env(
     "exec " .. test_bin .. " " .. script, root)
@@ -259,7 +259,7 @@ local function test_exec_allows_a_symlink_inside_the_root()
   assert(fs.make_dirs(root))
   local prog = fs.join(root, "prog")
   assert(fs.copy(test_bin, prog))
-  assert(fs.chmod(prog, tonumber("755", 8) as integer)) -- cast: octal is integral
+  assert(fs.set_mode(prog, tonumber("755", 8) as integer)) -- cast: octal is integral
   local script = write_script("exec-linked.lua", "print('linked')\n")
   local link = fs.join(root, "exec-alias")
   assert(fs.symlink("prog", link))
@@ -287,7 +287,7 @@ end
 test_exec_reports_a_missing_program()
 
 local function test_exec_passes_through_the_exit_code()
-  local root = fs.dirname(fs.abspath(test_bin))
+  local root = fs.dirname(fs.absolute_path(test_bin))
   local script = write_script("exec-exit.lua", "os.exit(3)\n")
   local code = run_recipe_env("exec " .. test_bin .. " " .. script, root)
   assert(code == 3, "expected the program's own exit code, got " .. tostring(code))

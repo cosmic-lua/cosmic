@@ -156,7 +156,7 @@ end
 local function discover(verb: string): string | nil, string
   local override = os.getenv(ROOT_ENV)
   if override and override ~= "" then
-    local named = fs.abspath(override)
+    local named = fs.absolute_path(override)
     if not fs.is_dir(named) then
       return nil, "make: not a directory: " .. override
     end
@@ -171,7 +171,7 @@ local function discover(verb: string): string | nil, string
     return nil, "make: cannot determine the current directory: " ..
     (err or "unknown error")
   end
-  local abs = fs.abspath(cwd)
+  local abs = fs.absolute_path(cwd)
   local bad = unnameable(abs)
   if bad then
     return nil, bad
@@ -212,7 +212,7 @@ end
 ---
 --- A bare PATH-invoked name (`cosmic`, no directory component -- the
 --- ordinary shape of a shebang, or a shell that found it on $PATH) is
---- not a path to resolve against the cwd: `fs.abspath` alone turns it
+--- not a path to resolve against the cwd: `fs.absolute_path` alone turns it
 --- into a PHANTOM `<cwd>/cosmic` that happens not to exist wherever cwd
 --- is not the install directory, and everything downstream that
 --- assumes the result names a real file quietly degrades -- a tool
@@ -222,7 +222,7 @@ end
 --- @param argv0 string `arg[-1]`, or a fallback name
 --- @return string|nil The absolute path, or nil when unresolvable
 local function resolve_self(argv0: string): string | nil
-  local abs = fs.abspath(argv0)
+  local abs = fs.absolute_path(argv0)
   if fs.is_file(abs) then
     return abs
   end

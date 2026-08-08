@@ -1,7 +1,7 @@
 --- Terminal (TTY) utilities.
 --- Wraps cosmo.unix for terminal detection, window size, and terminal modes.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 
 -- 1-based Lua indices into Termios.cc (#999): C's 0-based VMIN/VTIME
 -- shifted once, here, so neither this module nor any caller writes +1.

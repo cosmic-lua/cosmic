@@ -23,12 +23,12 @@ local types = require("_make.types")
 local type Binary = types.Binary
 local type Project = types.Project
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
 check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
@@ -251,7 +251,7 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
   local code, out = make(root, "build")
   assert(code == 0 and not out:find("generate cmd/tool/embed_gen.tl", 1, true),
     "an ignored generator must not be announced as run: " .. out)
-  assert(not fs.exists(fs.join(root, "o/cmd/tool/embed_gen")),
+  assert(not fs.is_present(fs.join(root, "o/cmd/tool/embed_gen")),
     "and its output directory must not exist")
 end
 test_a_cosmicignored_generator_does_not_run()
@@ -293,7 +293,7 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   local code = mk.run({"build"})
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   assert(code == 0, "in-process build should succeed")
   local note = fs.join(root, "o/cmd/tool/embed_gen/embed/note.txt")
   assert(fs.is_file(note), "build ran the unit's generator")
@@ -309,7 +309,7 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   local again = mk.run({"build"})
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   assert(again == 0, "a second in-process build should succeed")
   assert(fs.is_file(fs.join(root, "o/bin/tool")), "and still produced the binary")
   assert(fs.is_file(fs.join(root, "o/bin/lean")),
@@ -345,7 +345,7 @@ test_stored_path_collisions_are_refused()
 -- built, booted, and failed only when something first required the
 -- missing piece).
 local function test_the_real_payload_generator()
-  local repo = fs.abspath(".")
+  local repo = fs.absolute_path(".")
   local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
   check.needs("the cosmic tree (cmd/cosmic/embed_gen.tl)",
     fs.is_file(gen))

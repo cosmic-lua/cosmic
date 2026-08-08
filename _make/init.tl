@@ -55,7 +55,7 @@ local function open_project(verb: string): Project | nil, string
   io.write("make: root=" .. abs .. "\n")
   -- chdir so every path a verb prints, and every path it hands the
   -- checker, is relative to the root the banner just named.
-  local ok, cerr = fs.chdir(abs)
+  local ok, cerr = fs.set_cwd(abs)
   if not ok then
     return nil, "make: cannot enter " .. abs .. ": " .. (cerr or "unknown error")
   end
@@ -417,7 +417,7 @@ local function run(argv: {string}): integer
   -- same, which is why every test passing absolute paths missed it.
   local named = os.getenv(graph.MAKE_ENV)
   if named and named ~= "" then
-    local _ok, _err = cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
+    local _ok, _err = cenv.set(graph.MAKE_ENV, fs.absolute_path(named), true)
   end
 
   -- Both refusals end in a verdict, like every other outcome. The

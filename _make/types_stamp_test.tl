@@ -15,12 +15,12 @@ local fs = require("cosmic.fs")
 local mk = require("_make")
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
 check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
@@ -64,7 +64,7 @@ local function build_in_process(root: string): integer
   local code = mk.run({"build"})
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
   assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return code
 end
 

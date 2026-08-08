@@ -15,7 +15,7 @@ local zip = require("cosmic.zip")
 
 local type Project = types.Project
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- Build a fixture tree, returning its absolute root.
@@ -37,9 +37,9 @@ end
 local function build_in(root: string): boolean, string
   local proj: Project = check.must(project.scan(root))
   local cwd = check.must(fs.cwd())
-  assert(fs.chdir(root))
+  assert(fs.set_cwd(root))
   local ok, err = testrun.build(proj, cosmic)
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   return ok, err
 end
 
@@ -70,9 +70,9 @@ local function test_unchanged_runner_keeps_its_mtime()
     })
   check.must(build_in(root))
   local runner = fs.join(root, testrun.PATH)
-  local before = check.must(fs.stat(runner)):mtim()
+  local before = check.must(fs.stat(runner)):modify_time().secs
   check.must(build_in(root))
-  local after = check.must(fs.stat(runner)):mtim()
+  local after = check.must(fs.stat(runner)):modify_time().secs
   check.equal(after, before, "identical payload must not move the runner")
 end
 test_unchanged_runner_keeps_its_mtime()
@@ -84,7 +84,7 @@ local function test_no_payload_no_runner()
   local proj: Project = check.must(project.scan(root))
   assert(not testrun.enabled(proj), "no root payload, no runner")
   check.must(build_in(root))
-  assert(not fs.exists(fs.join(root, testrun.PATH)),
+  assert(not fs.is_present(fs.join(root, testrun.PATH)),
     "a payload-free project assembles nothing")
 end
 test_no_payload_no_runner()

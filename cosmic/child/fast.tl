@@ -27,7 +27,7 @@ local function save_fd(n: integer): integer | nil
   if saved then
     return saved
   end
-  if errno.is(eno, "EBADF") then
+  if errno.is_code(eno, "EBADF") then
     return CLOSED
   end
   return nil
@@ -126,7 +126,7 @@ local function spawn(prog: string, argv: {string}, envp: {string} | nil,
     return nil
   end
   if pid == nil then
-    return nil, errno.wrap(serr, "exec failed")
+    return nil, errno.format(serr, "exec failed")
   end
   return pid
 end

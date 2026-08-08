@@ -71,7 +71,7 @@ local function probe(fn: any): boolean
   local call = fn as function(any, any): any, string, integer -- cast: function shape
   local ok, _, eno = call(nil, nil)
   if ok then return true end
-  if errno.is(eno, "ENOSYS") then return false end
+  if errno.is_code(eno, "ENOSYS") then return false end
   return true
 end
 

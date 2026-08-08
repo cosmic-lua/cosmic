@@ -16,13 +16,13 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local here = fs.join("_make", "testdata")
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
 -- else the copy `--make` extracts from its own binary.
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
 -- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
 -- a build; CI always provisions the engine, so its absence there means
@@ -64,7 +64,7 @@ end
 --- environment is named rather than inherited).
 local function run(path: string): integer, string
   local env: {string} = {"PATH=" .. (os.getenv("PATH") or ""), "NO_COLOR=1"}
-  local h = check.must(child.start({fs.abspath(path)}, {env = env}))
+  local h = check.must(child.start({fs.absolute_path(path)}, {env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end

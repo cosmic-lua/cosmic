@@ -110,7 +110,7 @@ end
 --- @param b string Another path
 --- @return boolean Whether they resolve to one file
 local function same_file(a: string, b: string): boolean
-  return fs.abspath(a) == fs.abspath(b)
+  return fs.absolute_path(a) == fs.absolute_path(b)
 end
 
 --- A file's identity, cheaply: size and mtime, or "" when absent.
@@ -132,9 +132,9 @@ local function stamp_of(path: string): string
     return ""
   end
   local st = info
-  local secs, nsecs = st:mtim()
-  return tostring(st:size()) .. "-" .. tostring(secs) .. "." ..
-  tostring(nsecs)
+  local mt = st:modify_time()
+  return tostring(st:size()) .. "-" .. tostring(mt.secs) .. "." ..
+  tostring(mt.nsecs)
 end
 
 --- Can this artifact drive a build? Asked, not assumed.
@@ -175,7 +175,7 @@ local function drives_a_build(path: string): boolean
   end
   local r = h:wait(PROBE_MS)
   if not (r is child.Result) then
-    local _ok, _err = h:kill() -- deprecated alias: pinned record (gen-0) lacks stop
+    local _ok, _err = h:stop() -- start's partner (D20 rule 9)
     return false
   end
   local res = r
@@ -257,7 +257,7 @@ local function to_the_tree(proj: Project, argv: {string},
     return true
   end
 
-  local replay: {string} = {fs.abspath(built), "--make"}
+  local replay: {string} = {fs.absolute_path(built), "--make"}
   for _, a in ipairs(argv) do
     replay[#replay + 1] = a
   end

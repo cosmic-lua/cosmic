@@ -84,12 +84,12 @@ local function test_distance_longer_strings()
 end
 test_distance_longer_strings()
 
-local function test_levenshtein_alias()
-  -- DEPRECATED alias, kept for the pinned bootstrap until the next pin
-  -- advance (#1002); it must stay the same function as distance.
-  assert(fuzzy.levenshtein == fuzzy.distance, "levenshtein should alias distance")
+local function test_levenshtein_alias_is_gone()
+  local f = fuzzy as {string: any} -- cast: record as map for introspection
+  assert(f["levenshtein"] == nil,
+    "the levenshtein alias is retired (#1002); distance is the name")
 end
-test_levenshtein_alias()
+test_levenshtein_alias_is_gone()
 
 -- find_similar tests
 

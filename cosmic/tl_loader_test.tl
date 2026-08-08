@@ -5,7 +5,6 @@
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
-local fstypes = require("cosmic.fs.types")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -175,7 +174,7 @@ print("value=" .. require("goodmod").value)
   local r = check.must(h:wait())
   assert(r.ok, "good .tl require should succeed: " .. tostring(r.stderr))
   assert(tostring(r.stdout):find("value=cached", 1, true))
-  local counted = fs.walk(cachedir, function(_path: string, _name: string, _st: fstypes.WalkStat, acc: {integer})
+  local counted = fs.visit(cachedir, function(_e: fs.Entry, acc: {integer})
       acc[1] = acc[1] + 1
     end, {0})
   local n = check.must(counted, "cache dir should exist and be walkable")

@@ -15,7 +15,7 @@ local fs = require("cosmic.fs")
 local mk = require("_make")
 local child = require("cosmic.child")
 
-local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
+local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmp = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- A fixture project with one package and one test that reports where
@@ -193,7 +193,7 @@ io.write("SAYS " .. greet.hi("x") .. "\n")
   assert(cenv.set("COSMIC_MAKE_ROOT", root))
   local code = mk.run({"run", "cmd/app/main.tl"})
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   assert(code == 0, "an in-process run should succeed")
 end
 test_run_in_process()
@@ -210,7 +210,7 @@ local function test_run_refusals_in_process()
   local flag_first = mk.run({"run", "--out", "x"})
   local two = mk.run({"run", "cmd/app/main.tl", "greet/init.tl"})
   assert(cenv.unset("COSMIC_MAKE_ROOT"))
-  assert(fs.chdir(cwd))
+  assert(fs.set_cwd(cwd))
   assert(none ~= 0, "run with no path must fail")
   assert(missing ~= 0, "run with a path that names nothing must fail")
   assert(flag_first ~= 0, "a flag before the path must fail")

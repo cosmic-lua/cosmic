@@ -1,7 +1,7 @@
 --- User and group identity operations.
 --- Wraps cosmo.unix for user/group ID queries and modifications.
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").wrap
+local errstr = require("cosmic.errno").format
 
 --- Get the real user ID of the calling process.
 --- @return integer The real user ID

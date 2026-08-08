@@ -47,7 +47,7 @@ end
 --- @param path string A path, as typed
 --- @return File|nil The file
 local function file_of(proj: Project, path: string): File | nil
-  local want = fs.relpath(fs.abspath(path), proj.root) or path
+  local want = fs.relative_path(fs.absolute_path(path), proj.root) or path
   for _, f in ipairs(proj.files) do
     if f.path == want or f.path == path then
       return f

@@ -3,8 +3,7 @@
 --- walking. Operations are named in English (#988): the POSIX names
 --- that survive are the effectively-English concepts recorded in D20's
 --- kept set (stat, statfs, symlink, readlink, truncate, dirname,
---- basename); everything else spells the operation out, and each old
---- name remains as a DEPRECATED alias until the pin advance.
+--- basename); everything else spells the operation out.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs.types")
 local Stat = types.Stat
@@ -177,11 +176,6 @@ local record FsModule
   --- #988: was sync, ambiguous beside Handle:sync's one-file flush.
   sync_all: function()
 
-  --- DEPRECATED positional walker (#987): visitor(path, name, st, ctx)
-  --- with the first subtree error beside a non-nil result. Use visit().
-  --- Deleted at the next pin advance.
-  walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
-
   --- One visited entry: path (full — never join with name), name,
   --- stat, depth (entries directly in dir are depth 1).
   type Entry = Entry
@@ -225,29 +219,6 @@ local record FsModule
   DT_SOCK: integer
   DT_UNKNOWN: integer
 
-  --- DEPRECATED aliases (#988); every entry here is deleted at the
-  --- next pin advance. TmpFile is TempFile; the rest alias the
-  --- functions above.
-  type TmpFile = fs_ops.TempFile
-  expanduser: function(p: string): string
-  exists: function(path: string): boolean
-  unsafe_entry_name: function(name: string): boolean
-  abspath: function(p: string): string
-  relpath: function(p: string, base?: string): string
-  splitext: function(p: string): string, string
-  lstat: function(path: string): Stat | nil, string
-  fstat: function(fd: integer): Stat | nil, string
-  mkdir: function(path: string, mode?: integer): boolean, string
-  rmdir: function(path: string): boolean, string
-  chdir: function(path: string): boolean, string
-  opendir: function(path: string): Dir | nil, string
-  fdopendir: function(fd: integer): Dir | nil, string
-  unlink: function(path: string): boolean, string
-  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
-  realpath: function(path: string): string | nil, string
-  access: function(path: string, mode?: integer): boolean
-  chmod: function(path: string, mode: integer): boolean, string
-  chown: function(path: string, uid: integer, gid: integer): boolean, string
   fstatfs: function(fd: integer): Statfs | nil, string
   sync: function()
 end
@@ -322,7 +293,6 @@ local M: FsModule = {
   sync_all = fs_ops.sync_all,
 
   -- Directory walking and the find family
-  walk = fs_walk.walk,
   visit = fs_walk.visit,
   glob = fs_find.glob,
   find = fs_find.find,
@@ -344,28 +314,6 @@ local M: FsModule = {
   DT_SOCK = unix.DT_SOCK,
   DT_UNKNOWN = unix.DT_UNKNOWN,
 
-  -- DEPRECATED aliases (#988); deleted at pin advance.
-  expanduser = fs_path.expand_user,
-  exists = fs_path.is_present,
-  unsafe_entry_name = fs_path.is_unsafe_entry_name,
-  abspath = fs_path.absolute_path,
-  relpath = fs_path.relative_path,
-  splitext = fs_path.split_extension,
-  lstat = fs_dir.stat_link,
-  fstat = fs_dir.stat_fd,
-  mkdir = fs_dir.make_dir,
-  rmdir = fs_dir.remove_dir,
-  chdir = fs_dir.set_cwd,
-  opendir = fs_dir.open_dir,
-  fdopendir = fs_dir.open_dir_fd,
-  unlink = fs_ops.remove,
-  write_atomic = fs_file.write_atomic,
-  realpath = fs_ops.resolve,
-  access = fs_ops.access,
-  chmod = fs_ops.set_mode,
-  chown = fs_ops.set_owner,
-  fstatfs = fs_ops.statfs_fd,
-  sync = fs_ops.sync_all,
 }
 
 return M

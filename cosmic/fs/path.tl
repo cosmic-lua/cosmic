@@ -463,13 +463,6 @@ local record FsPathModule
   absolute_path: function(p: string): string
   relative_path: function(p: string, base?: string): string
   split_extension: function(p: string): string, string
-  --- DEPRECATED aliases (#988); deleted at pin advance.
-  unsafe_entry_name: function(name: string): boolean
-  expanduser: function(p: string): string
-  exists: function(path: string): boolean
-  abspath: function(p: string): string
-  relpath: function(p: string, base?: string): string
-  splitext: function(p: string): string, string
 end
 
 local M: FsPathModule = {
@@ -488,13 +481,6 @@ local M: FsPathModule = {
   absolute_path = absolute_path,
   relative_path = relative_path,
   split_extension = split_extension,
-  -- DEPRECATED aliases (#988); deleted at pin advance.
-  unsafe_entry_name = is_unsafe_entry_name,
-  expanduser = expand_user,
-  exists = is_present,
-  abspath = absolute_path,
-  relpath = relative_path,
-  splitext = split_extension,
 }
 
 return M
