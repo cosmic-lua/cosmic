@@ -21,7 +21,7 @@ and not package.searchpath("tl", package.path) then
   error("module 'tl' not found: cosmic.teal needs the Teal compiler", 0)
 end
 
-local engine = require("cosmic.teal.engine")
+local engine = require("cosmic._teal_engine")
 
 local type Issue = engine.Issue
 local type CompileOptions = engine.CompileOptions

@@ -1,7 +1,10 @@
 --- The compile/check engine under cosmic.teal: the shared records,
 --- the include-dir plumbing, and the process/collect passes both the
---- file and string halves finish from. Internal by position
---- (`cosmic.teal.engine`); the public surface is init.tl's.
+--- file and string halves finish from. A flat `_teal_engine` sibling
+--- like `_teal_hints`/`_teal_ast`/`_teal_discard` rather than a
+--- cosmic/teal/ directory module: a directory rename would leave a
+--- stale flat `teal.lua` shadowing the new init in any cached `o/`
+--- (`?.lua` beats `?/init.lua`). The public surface is cosmic.teal's.
 
 --- A compiler or type checker issue.
 local record Issue

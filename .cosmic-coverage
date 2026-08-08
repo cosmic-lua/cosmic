@@ -1,5 +1,5 @@
-# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
+# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 3p/tl/tl_patch.tl 0 1
 _build/ratchet.tl 36 36
 _cli/args.tl 0 35
@@ -99,6 +99,7 @@ cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
+cosmic/_teal_engine.tl 123 123
 cosmic/_teal_hints.tl 42 42
 cosmic/ansi.tl 86 86
 cosmic/check.tl 110 114
@@ -194,8 +195,7 @@ cosmic/stream.tl 0 2
 cosmic/string.tl 180 183
 cosmic/sys.tl 14 22
 cosmic/tar.tl 116 126
-cosmic/teal/engine.tl 123 123
-cosmic/teal/init.tl 92 92
+cosmic/teal.tl 92 92
 cosmic/time.tl 142 155
 cosmic/tty.tl 119 126
 cosmic/url.tl 126 141
