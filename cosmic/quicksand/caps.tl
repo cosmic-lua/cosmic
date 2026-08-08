@@ -16,7 +16,7 @@
 --- would make subsequent PR_CAPBSET_DROP calls fail with EPERM).
 ---
 --- Linux-only. On non-Linux hosts (or a cosmos build without the CAP_*
---- constants) the constants are nil; supported() returns false and
+--- constants) the constants are nil; is_supported() returns false and
 --- drop_bounding() fails closed — `best_effort = true` opts into a
 --- successful no-op instead.
 local unix = require("cosmo.unix")
@@ -45,7 +45,7 @@ local record DropOptions
   keep: {string} -- capability names to retain in the bounding set
   --- Turn an unsupported host into a successful no-op instead of an
   --- error — the explicit fail-open escape hatch, matching
-  --- cosmic.pledge / cosmic.unveil / cosmic.landlock.
+  --- the cosmic.sandbox mechanism shards (pledge, unveil, landlock).
   best_effort: boolean
 end
 
@@ -73,7 +73,7 @@ end
 --- set additionally requires CAP_SETPCAP at runtime.
 ---
 --- @return boolean supported
-local function supported(): boolean
+local function is_supported(): boolean
   return unix.prctl ~= nil
   and unix.PR_CAPBSET_DROP ~= nil
   and unix.PR_CAPBSET_READ ~= nil
@@ -188,7 +188,7 @@ end
 
 local record CapsModule
   NAMES: {string}
-  supported: function(): boolean
+  is_supported: function(): boolean
   number_of: function(name: string): integer | nil, string
   mask: function(names: {string}): integer | nil, string
   bounding_read: function(cap: string): boolean | nil, string
@@ -198,7 +198,7 @@ end
 
 local M: CapsModule = {
   NAMES = NAMES,
-  supported = supported,
+  is_supported = is_supported,
   number_of = number_of,
   mask = mask,
   bounding_read = bounding_read,

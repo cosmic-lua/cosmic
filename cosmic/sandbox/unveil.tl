@@ -7,8 +7,8 @@
 ---
 --- The API is fail-closed: unveil is enforceable on OpenBSD (natively)
 --- and on Linux kernels with Landlock (the libc's backing mechanism).
---- Anywhere else `allow`/`commit` return `false, "unveil unsupported on
---- this host"` instead of reporting a sandbox that does not exist.
+--- Anywhere else `allow`/`commit` return `false, "unveil: unsupported
+--- on this host"` instead of reporting a sandbox that does not exist.
 --- Callers that want fail-open behavior opt in explicitly with
 --- `best_effort = true`, or branch on `available()` themselves.
 ---
@@ -51,13 +51,10 @@ end
 
 --- Options for `allow` / `commit`. `best_effort` turns an unsupported
 --- host into a successful no-op instead of an error — the explicit
---- fail-open escape hatch.
+--- fail-open escape hatch. (#989: keep_coverage is gone — the seal
+--- decision lives with cosmic.coverage, which build tooling marks.)
 local record Options
   best_effort: boolean
-  --- The caller asserts the policy still permits the coverage dump,
-  --- because it unveiled that directory itself. See the same field on
-  --- `cosmic.landlock.RestrictOptions`.
-  keep_coverage: boolean
 end
 
 local avail: boolean = nil
@@ -85,12 +82,12 @@ local function available(): boolean
   return avail
 end
 
-local unsupported < const > = "unveil unsupported on this host"
+local unsupported < const > = "unveil: unsupported on this host"
 
 --- Unveil a path with the given permission set.
 ---
 --- Fail-closed: on a host where unveil cannot be enforced this returns
---- `false, "unveil unsupported on this host"` rather than succeeding
+--- `false, "unveil: unsupported on this host"` rather than succeeding
 --- without a sandbox; pass `best_effort = true` to treat that case as a
 --- successful no-op.
 ---
@@ -103,7 +100,7 @@ local function allow(path: string, permissions: Perm, opts?: Options): boolean, 
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
-  seal_coverage(opts and opts.keep_coverage)
+  seal_coverage()
   local ok, err = unix.unveil(path, permissions)
   if not ok then
     return false, errstr(err, "unveil")
@@ -121,7 +118,7 @@ local function commit(opts?: Options): boolean, string
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
-  seal_coverage(opts and opts.keep_coverage)
+  seal_coverage()
   local ok, err = unix.unveil(nil, nil)
   if not ok then
     return false, errstr(err, "unveil commit")

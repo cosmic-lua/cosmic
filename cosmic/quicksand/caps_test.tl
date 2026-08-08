@@ -8,7 +8,7 @@ local child = require("cosmic.child")
 local test_bin = os.getenv("TEST_BIN")
 
 local function test_module_exports()
-  assert(type(caps.supported) == "function")
+  assert(type(caps.is_supported) == "function")
   assert(type(caps.number_of) == "function")
   assert(type(caps.mask) == "function")
   assert(type(caps.bounding_read) == "function")
@@ -22,7 +22,7 @@ test_module_exports()
 -- constants; CAP_LAST_CAP (a bound, not a capability) is deliberately
 -- excluded from NAMES.
 local function test_names_resolve()
-  if not caps.supported() then
+  if not caps.is_supported() then
     check.enforce_skip("capabilities unsupported on this host")
     return
   end
@@ -50,7 +50,7 @@ test_number_of_unknown()
 
 -- mask sets bit N (1 << number) per name; unknown names error; empty is 0.
 local function test_mask()
-  if not caps.supported() then
+  if not caps.is_supported() then
     check.enforce_skip("capabilities unsupported on this host")
     return
   end
@@ -69,7 +69,7 @@ test_mask()
 -- bounding_read is non-destructive: it returns a boolean (or a graceful
 -- nil + error under an outer sandbox), never throws.
 local function test_bounding_read()
-  if not caps.supported() then
+  if not caps.is_supported() then
     check.enforce_skip("capabilities unsupported on this host")
     return
   end
@@ -87,7 +87,7 @@ test_bounding_read()
 -- On a host without the capability API the unsupported gate fires first;
 -- that branch is asserted below instead.
 local function test_drop_bounding_bad_keep()
-  if not caps.supported() then
+  if not caps.is_supported() then
     check.enforce_skip("capabilities unsupported on this host")
     return
   end
@@ -102,7 +102,7 @@ test_drop_bounding_bad_keep()
 -- drop that did not happen. best_effort is the explicit opt-in to a
 -- successful no-op, matching pledge/unveil/landlock.
 local function test_drop_bounding_fails_closed_when_unsupported()
-  if caps.supported() then
+  if caps.is_supported() then
     check.enforce_skip("capabilities supported here; unsupported path not exercisable")
     return
   end
@@ -123,7 +123,7 @@ test_drop_bounding_fails_closed_when_unsupported()
 -- build sandbox does not always grant one).
 local CHILD_DROP = table.concat({
     'local caps = require("cosmic.quicksand.caps")',
-    'if not caps.supported() then io.write("skipped: unsupported\\n") os.exit(0) end',
+    'if not caps.is_supported() then io.write("skipped: unsupported\\n") os.exit(0) end',
     'local ok, err = caps.bounding_drop("CAP_CHOWN")',
     'if not ok then io.write("skipped: " .. tostring(err) .. "\\n") os.exit(0) end',
     'local after = caps.bounding_read("CAP_CHOWN")',

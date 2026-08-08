@@ -175,10 +175,12 @@ local function test_unveil_matches_landlock_on_linux()
 end
 test_unveil_matches_landlock_on_linux()
 
-local function test_box_reexported()
-  local J = quicksand.Box as {string: any} -- cast: record as map for introspection
-  assert(J, "Box should be re-exported from cosmic.quicksand")
-  assert(type(J.new) == "function")
-  assert(type(J.merge) == "function")
+local function test_new_and_merge_on_umbrella()
+  -- #989: quicksand.new/quicksand.merge replace the retired
+  -- PascalCase value path quicksand.Box.new; Box remains as a TYPE.
+  assert(type(quicksand.new) == "function", "quicksand.new is the constructor")
+  assert(type(quicksand.merge) == "function", "quicksand.merge composes options")
+  local q = quicksand as {string: any} -- cast: record as map for introspection
+  assert(q["Box"] == nil, "the Box VALUE re-export is gone (#989)")
 end
-test_box_reexported()
+test_new_and_merge_on_umbrella()

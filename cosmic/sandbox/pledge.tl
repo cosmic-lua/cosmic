@@ -7,7 +7,7 @@
 ---
 --- The API is fail-closed: on hosts where the libc cannot enforce a
 --- pledge (anything other than Linux or OpenBSD), `apply` returns
---- `false, "pledge unsupported on this host"` instead of reporting a
+--- `false, "pledge: unsupported on this host"` instead of reporting a
 --- sandbox that does not exist. Callers that want fail-open behavior
 --- opt in explicitly with `best_effort = true`, or branch on
 --- `available()` themselves.
@@ -72,12 +72,11 @@ local PROMISES: {Promise} = {
 --- Options for `apply`. `exec` sets the promises children keep after
 --- execve. `best_effort` turns an unsupported host into a successful
 --- no-op instead of an error — the explicit fail-open escape hatch.
---- `keep_coverage` skips the pre-pledge coverage seal — set it only
---- when the promises still permit the coverage dump at exit.
+--- (#989: keep_coverage is gone from every policy record — the seal
+--- decision lives with cosmic.coverage, which build tooling marks.)
 local record ApplyOptions
   exec: string
   best_effort: boolean
-  keep_coverage: boolean
 end
 
 local avail: boolean = nil
@@ -111,8 +110,8 @@ end
 ---
 --- The call is irreversible; subsequent invocations may only narrow the
 --- set of permitted promises. Fail-closed: on a host where pledge
---- cannot be enforced this returns `false, "pledge unsupported on this
---- host"` rather than succeeding without a sandbox; pass
+--- cannot be enforced this returns `false, "pledge: unsupported on
+--- this host"` rather than succeeding without a sandbox; pass
 --- `best_effort = true` to treat that case as a successful no-op.
 ---
 --- @param promises string Space-separated promise groups for this process
@@ -122,9 +121,9 @@ end
 local function apply(promises: string, opts?: ApplyOptions): boolean, string
   if not available() then
     if opts and opts.best_effort then return true end
-    return false, "pledge unsupported on this host"
+    return false, "pledge: unsupported on this host"
   end
-  seal_coverage(opts and opts.keep_coverage)
+  seal_coverage()
   local ok, err = unix.pledge(promises, opts and opts.exec)
   if not ok then
     return false, errno.wrap(err, "pledge")
