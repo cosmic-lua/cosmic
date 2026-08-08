@@ -3,16 +3,18 @@
  JSON encoding and decoding utilities.
  Wraps cosmo.EncodeJson and cosmo.DecodeJson with convenient Teal-typed interface.
 
- NULL POLICY (lossy — read before round-tripping):
- Lua tables cannot hold nil values, so JSON `null` does not survive a
- decode/encode round-trip:
- - `{"a":null,"b":1}` decodes with `a` absent and re-encodes as `{"b":1}`.
- - `[1,null,2]` decodes with a hole at index 2; re-encoding sees a table
-   of length 1 and truncates to `[1]`.
+ NULL POLICY: Lua tables cannot hold nil values, so by default JSON
+ `null` decodes to nil and a null-valued object key simply vanishes —
+ `{"a":null,"b":1}` re-encodes as `{"b":1}`. That is the one lossy
+ case left, and both escape hatches are opt-in:
+ - `decode(s, {null_value = json.null})` substitutes a sentinel for
+   every `null`, so keys and array slots survive; `json.null`
+   re-encodes as `null`, closing the round trip.
+ - an array with holes is an ERROR on encode, never a silent
+   truncation; `sparse_as_null = true` encodes each hole as `null`,
+   which round-trips `[1,null,2]` losslessly with no sentinel at all.
  - NaN and +/-Inf fail encode() with an error unless `nan_as_null=true`
    is given, which serializes them as `null` (the v8 behavior).
- If null-preserving round-trips matter, restructure the data (e.g. encode
- explicit sentinel values) rather than relying on this module.
 
  Decoded arrays carry a shared marker metatable so an empty `[]`
  re-encodes as `[]` instead of `{}`; use array() to mark empty tables
@@ -38,6 +40,24 @@ local record Options
   --  Encode NaN and +/-Inf as `null` (the v8 behavior) instead of
   --  failing with nil, error (default false).
   nan_as_null: boolean
+  --  Encode array holes as `null` instead of failing with nil, error
+  --  (default false). With it, an array that decoded from JSON
+  --  containing `null` re-encodes losslessly.
+  sparse_as_null: boolean
+end
+```
+
+### DecodeOptions
+
+ Options accepted by decode(). All fields are optional.
+
+```teal
+local record DecodeOptions
+  --  A value to stand in for JSON `null`, so nulls survive the decode
+  --  as something a Lua table can hold. Pass `json.null` to make the
+  --  round trip lossless: it re-encodes as `null`. Without it, `null`
+  --  decodes to nil (null-valued keys vanish, arrays get holes).
+  null_value: any
 end
 ```
 
@@ -45,7 +65,11 @@ end
 
 ```teal
 local record JsonModule
-  decode: function(str: string): any, string
+  --  The null sentinel: pass it as decode's `null_value` to keep JSON
+  --  nulls, and it encodes back as `null`. An empty marked table, so
+  --  `v == json.null` is the test.
+  null: any
+  decode: function(str: string, opts?: DecodeOptions): any, string
   decode_object: function(str: string): {string: any} | nil, string
   decode_array: function(str: string): {any} | nil, string
   encode: function(value: any, opts?: Options): string | nil, string
@@ -58,7 +82,7 @@ end
 ### decode
 
 ```teal
-function decode(str: string): any, string
+function decode(str: string, opts?: DecodeOptions): any, string
 ```
 
  Decode a JSON string into a Lua value.
@@ -67,13 +91,16 @@ function decode(str: string): any, string
  house `if not v then` guard cannot tell from failure — so when the
  input may be `null`, test the ERROR, not the value. Better, when
  the top-level shape is known, use decode_object/decode_array: their
- nil always means failure. JSON `null` becomes Lua nil, so
+ nil always means failure. JSON `null` becomes Lua nil by default, so
  null-valued object keys vanish and arrays containing null decode
- with holes (see the module-level null policy above).
+ with holes; `opts.null_value` (typically `json.null`) substitutes a
+ sentinel instead, which also makes the value non-nil and so tells
+ success from failure by itself.
 
 **Parameters:**
 
 - `str` (string) - The JSON string to decode
+- `opts` (DecodeOptions?) - null_value: stand-in for JSON null
 
 **Returns:**
 
@@ -89,13 +116,14 @@ function encode(value: any, opts?: Options): string | nil, string
  Encode a Lua value as a JSON string.
  Converts Lua tables, strings, numbers, booleans, and nil into JSON format.
  NaN and +/-Inf fail with an error unless `nan_as_null=true` is
- given; nil-valued table entries are absent (see the module-level
- null policy above).
+ given, and an array with holes fails unless `sparse_as_null=true`
+ is; nil-valued table entries are absent (see the module-level null
+ policy above).
 
 **Parameters:**
 
 - `value` (any) - The Lua value to encode
-- `opts` (Options?) - pretty, sorted, indent, max_depth, nan_as_null
+- `opts` (Options?) - pretty, sorted, indent, max_depth, nan_as_null, sparse_as_null
 
 **Returns:**
 

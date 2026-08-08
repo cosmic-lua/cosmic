@@ -5,10 +5,10 @@
  functions are SUBJECT-FIRST D20: match(text, pattern), like
  string.match. Compile behavior is a CompileOptions record — a search
  flag in a compile slot cannot type-check, where the old shared
- integer namespace silently ignored it. The compiled Regex keeps the
- binding's own :search/:find method names and integer search flags
- (NOTBOL/NOTEOL) — a userdata metatable is the C layer's to name, so
- renaming them is an upstream change, not a record edit. For exact
+ integer namespace silently ignored it. The compiled Regex speaks
+ :match/:find with integer search flags (NOTBOL/NOTEOL) — a userdata
+ metatable is the C layer's to name, so `match` arriving on the
+ charter verb took an upstream change (cosmopolitan#237). For exact
  plain-text search see cosmic.string; for approximate (edit-distance)
  matching see cosmic.fuzzy.
 
@@ -24,19 +24,21 @@
 ### Regex
 
  A compiled regular expression pattern.
- Use compile() to create, then call :search() for O(n) matching.
+ Use compile() to create, then call :match() for O(n) matching.
 
 ```teal
 local record Regex
-  --  Search for pattern match in text.
+  --  Match the pattern against text (D20 rule 9's reserved verb; the
+  --  binding's metatable carries `match` since cosmopolitan#237, so
+  --  this is the method itself and not a wrapper).
   --  On a match, returns the matched substring plus a table of the
   --  parenthesized capture groups (an empty table when the pattern has
   --  no groups, "" for groups that did not participate). A no-match is
   --  not an error: it returns a single bare nil. A genuine engine
   --  failure (e.g. out of memory) returns nil, err — the error string
   --  arrives in the second position, mirroring the cosmo.re binding.
-  search: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
-  --  Like search, but reports WHERE: absolute 1-based inclusive start
+  match: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+  --  Like match, but reports WHERE: absolute 1-based inclusive start
   --  and end offsets into text, plus the capture table. init starts
   --  the search at that offset while keeping the returned offsets
   --  absolute, which is what lets iteration advance in O(n) instead of
