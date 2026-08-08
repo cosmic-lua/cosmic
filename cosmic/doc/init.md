@@ -1,7 +1,10 @@
 # doc
 
- Extract documentation from Teal files and render as markdown.
- Parses doc comments, records, functions, and examples from .tl files.
+ Query the documentation index embedded in the binary: the `--docs`
+ CLI's engine, and the shared doc-type vocabulary both halves of the
+ doc family type themselves with (#992: the extraction half — parse
+ Teal source, render markdown — is `_tool.doc` now; only the
+ toolchain parses source, so the public module is the query half).
 
 ## Types
 
@@ -9,11 +12,6 @@
 
 ```teal
 local record DocModule
-  parse: function(source: string, file_path: string): ModuleDoc
-  parse_dtl: function(source: string, file_path: string): ModuleDoc
-  parse_file: function(file_path: string): ModuleDoc | nil, string
-  render: function(doc: ModuleDoc): string
-  render_file: function(file_path: string): string | nil, string
   query: function(q?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
@@ -28,52 +26,3 @@ local record DocModule
   strip_frontmatter: function(content: string): string
 end
 ```
-
-### Name
-
-alias of `target`
-
-### DocIndex
-
- A documentation index containing all modules (the shared record from
- cosmic.doc.types, so extraction and query agree on the type).
-
-alias of `cosmic.doc.types.DocIndex` — field and method table: `cosmic --docs cosmic.doc.types.DocIndex`
-
-## Functions
-
-### parse
-
-```teal
-function parse(source: string, file_path: string): ModuleDoc
-```
-
- Parse a .tl file and extract documentation.
-
-**Parameters:**
-
-- `source` (string) - The source code to parse
-- `file_path` (string) - Path to the file being parsed
-
-**Returns:**
-
-- ModuleDoc - Complete documentation for the module
-
-### parse_file
-
-```teal
-function parse_file(file_path: string): ModuleDoc | nil, string
-```
-
- Parse a file and return structured documentation.
-
-### render_file
-
-```teal
-function render_file(file_path: string): string | nil, string
-```
-
- Main entry point: parse file and render markdown. A fallible VALUE
- (the markdown), not a fallible effect: the old boolean, string shape
- made slot 2 the payload on success and the error on failure, so
- every caller branched on which meaning it held.

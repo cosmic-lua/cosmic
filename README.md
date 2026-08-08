@@ -15,7 +15,7 @@ High-level utilities and tools built on top of cosmo.
 | [compress](cosmic/compress.md) |  Compression and decompression utilities. |
 | [init](cosmic/coverage/init.md) |  Line coverage collection for cosmic programs. |
 | [deep](cosmic/deep.md) |  Deep table operations. |
-| [init](cosmic/doc/init.md) |  Extract documentation from Teal files and render as markdown. |
+| [init](cosmic/doc/init.md) |  Query the documentation index embedded in the binary: the `--docs` |
 | [init](cosmic/embed/init.md) |  Embed files and directories into a cosmic executable. |
 | [env](cosmic/env.md) |  Environment variable utilities. |
 | [errno](cosmic/errno.md) |  Error information from system calls. |

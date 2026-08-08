@@ -52,13 +52,6 @@ local record CoverageModule
   enable: function(dir: string)
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
-  report: function(paths: {string}): integer
-  --  Ratchet a run against a committed baseline file (exit-code result).
-  gate: function(baseline_path: string, only: string, paths: {string}): integer
-  --  Render fresh baseline text from .cov dirs (+ previous floor).
-  baseline_text: function(paths: {string}, previous?: string): string | nil, string
-  --  Rows a fresh baseline lowers relative to the committed one.
-  baseline_lowered: function(before: string, after: string): {string}
 end
 ```
 
@@ -209,20 +202,3 @@ function enable_from_env(): function() | nil
 **Returns:**
 
 - function() - | nil A dump callback when armed, nil otherwise
-
-### report
-
-```teal
-function report(paths: {string}): integer
-```
-
- Merge and render .cov files; the --coverage-report CLI entry point.
- source directories to include as zero-coverage candidates
-
-**Parameters:**
-
-- `paths` ({string}) - .cov files, directories to scan for them, and
-
-**Returns:**
-
-- integer - Exit code (0 on success, 1 when no data was found)
