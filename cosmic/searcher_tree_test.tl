@@ -5,7 +5,7 @@
 --- cannot reach without arranging a build for each of them — a
 --- malformed manifest, an unreadable one, a module in no layer at all.
 ---
---- `install_tree` mutates this process's `package.searchers`, so every
+--- `install_manifest` mutates this process's `package.searchers`, so every
 --- assertion below calls the searcher FUNCTION directly and only the
 --- one install test touches the real chain.
 ---
@@ -54,12 +54,33 @@ local function manifest(name: string, lines: {string}): string, string
   return root, path
 end
 
+-- The tree searcher VALUE is installed, never exported (#1001). Reach
+-- it by installing a minimal bootstrap manifest once and taking what
+-- landed at index 2; the cached value then also proves identity across
+-- repeat installs.
+local tree_fn: function(string): (any, any) = nil
+
+local function installed_tree(): function(string): (any, any)
+  if not tree_fn then
+    local p = fs.join(tmp, "st-bootstrap.manifest")
+    check.must(fs.write(p, "root " .. tmp .. "\n"))
+    assert(searcher.install_manifest(p))
+    -- cast: package.searchers entries are untyped
+    tree_fn = package.searchers[2] as function(string): (any, any)
+  end
+  return tree_fn
+end
+
+local function tree(name: string): any, any
+  return installed_tree()(name)
+end
+
 -- A manifest with no root is not a manifest: the searcher would have no
 -- tree to fall back to, and installing it would put a searcher in the
 -- chain that can only ever miss.
 local function test_a_manifest_without_a_root_is_refused()
   local _, path = manifest("noroot", {"mod a /x/a.lua"})
-  assert(searcher.install_tree(path) == false,
+  assert(searcher.install_manifest(path) == false,
     "a manifest with no root line must be refused")
 end
 test_a_manifest_without_a_root_is_refused()
@@ -67,16 +88,16 @@ test_a_manifest_without_a_root_is_refused()
 -- A missing manifest is a MISS, not an error: a child with no manifest
 -- is an ordinary cosmic, and that is the case every hand-run script is.
 local function test_a_missing_manifest_is_a_miss()
-  assert(searcher.install_tree(fs.join(tmp, "st-nothing", "m")) == false,
+  assert(searcher.install_manifest(fs.join(tmp, "st-nothing", "m")) == false,
     "a missing manifest must not throw")
 end
 test_a_missing_manifest_is_a_miss()
 
--- With no manifest installed the searcher misses rather than throwing:
--- a searcher that cannot help must RETURN a string so require can
+-- A module in no layer at all is a MISS rather than a throw: a
+-- searcher that cannot help must RETURN a string so require can
 -- aggregate every searcher's message into one report.
 local function test_the_searcher_misses_without_a_manifest()
-  local got = searcher.tree("nothing.at.all")
+  local got = tree("nothing.at.all")
   assert(got is string, "a miss must be a string, got: " .. type(got))
   assert(got:find("nothing.at.all", 1, true),
     "the miss must name the module: " .. tostring(got))
@@ -97,15 +118,15 @@ local function test_install_lands_ahead_of_the_file_searcher()
   local root, path = manifest("install", {"root " .. tmp, "build o"})
   assert(fs.is_dir(root))
   local before = #package.searchers
-  assert(searcher.install_tree(path), "a well-formed manifest installs")
+  assert(searcher.install_manifest(path), "a well-formed manifest installs")
   assert(#package.searchers - before <= 1, "at most one searcher is added")
-  assert(package.searchers[2] == searcher.tree,
+  assert(package.searchers[2] == installed_tree(),
     "it must sit at index 2, ahead of the default file searcher")
 
   local after_first = #package.searchers
-  assert(searcher.install_tree(path), "a repeat install still succeeds")
+  assert(searcher.install_manifest(path), "a repeat install still succeeds")
   assert(#package.searchers == after_first,
-    "a repeat install_tree must not add a second copy of the searcher")
+    "a repeat install_manifest must not add a second copy of the searcher")
 end
 test_install_lands_ahead_of_the_file_searcher()
 
@@ -118,8 +139,8 @@ local function test_the_closure_layer_loads_the_built_file()
   local path = fs.join(root, "m")
   assert(fs.write(path, "root " .. root .. "\nbuild o\nmod pkg.db "
       .. fs.join(root, "o", "pkg", "db.lua") .. "\n"))
-  assert(searcher.install_tree(path), "the manifest installs")
-  local got = searcher.tree("pkg.db")
+  assert(searcher.install_manifest(path), "the manifest installs")
+  local got = tree("pkg.db")
   local loader = check.must(loader_of(got))
   assert(loader() == "BUILT", "a closure entry must load the built file")
 end
@@ -131,7 +152,7 @@ test_the_closure_layer_loads_the_built_file()
 local function test_the_build_layer_covers_what_no_closure_names()
   local root = fs.join(tmp, "st-layers")
   assert(fs.write(fs.join(root, "o", "pkg", "other.lua"), 'return "UNNAMED"\n'))
-  local got = searcher.tree("pkg.other")
+  local got = tree("pkg.other")
   local loader = check.must(loader_of(got))
   assert(loader() == "UNNAMED", "must resolve from the build directory")
 end
@@ -142,7 +163,7 @@ local function test_an_init_is_its_package()
   local root = fs.join(tmp, "st-layers")
   assert(fs.make_dirs(fs.join(root, "o", "deep")))
   assert(fs.write(fs.join(root, "o", "deep", "init.lua"), 'return "INIT"\n'))
-  local got = searcher.tree("deep")
+  local got = tree("deep")
   local loader = check.must(loader_of(got))
   assert(loader() == "INIT", "an init resolves as its package")
 end
@@ -155,7 +176,7 @@ local function test_the_source_layer_compiles_from_the_tree()
   local root = fs.join(tmp, "st-layers")
   assert(fs.write(fs.join(root, "fresh.tl"),
       'local x: string = "SOURCE"\nreturn x\n'))
-  local got = searcher.tree("fresh")
+  local got = tree("fresh")
   local loader = check.must(loader_of(got))
   assert(loader() == "SOURCE", "must compile from the tree's source")
 end
@@ -167,7 +188,7 @@ test_the_source_layer_compiles_from_the_tree()
 local function test_a_type_error_fails_the_require()
   local root = fs.join(tmp, "st-layers")
   assert(fs.write(fs.join(root, "broken.tl"), 'local x: number = "no"\n'))
-  local ok, err = pcall(searcher.tree, "broken")
+  local ok, err = pcall(tree, "broken")
   assert(not ok, "a type error must fail the require")
   assert(tostring(err):find("broken.tl", 1, true), "got: " .. tostring(err))
 end
@@ -180,7 +201,7 @@ local function test_a_warning_does_not_fail_the_require()
   local root = fs.join(tmp, "st-layers")
   assert(fs.write(fs.join(root, "warned.tl"),
       'local unused: string = "u"\nreturn "WARNED"\n'))
-  local got = searcher.tree("warned")
+  local got = tree("warned")
   local loader = check.must(loader_of(got))
   assert(loader() == "WARNED", "a warning must not fail the require")
 end
@@ -189,7 +210,7 @@ test_a_warning_does_not_fail_the_require()
 -- And a module in no layer at all misses, naming itself, so require's
 -- aggregate report says the right thing.
 local function test_a_module_in_no_layer_misses()
-  local got = searcher.tree("no.such.module")
+  local got = tree("no.such.module")
   assert(got is string, "a miss must be a string, got: " .. type(got))
   assert(got:find("no.such.module", 1, true),
     "got: " .. tostring(got))
@@ -207,8 +228,8 @@ local function test_a_broken_closure_entry_is_loud()
   local path = fs.join(root, "m")
   assert(fs.write(path, "root " .. root .. "\nbuild o\nmod gone "
       .. fs.join(root, "o", "gone.lua") .. "\n"))
-  assert(searcher.install_tree(path))
-  local ok, err = pcall(searcher.tree, "gone")
+  assert(searcher.install_manifest(path))
+  local ok, err = pcall(tree, "gone")
   assert(not ok, "a closure entry that is not there must be loud")
   assert(tostring(err):find("gone", 1, true), "got: " .. tostring(err))
 end
@@ -224,14 +245,14 @@ local function test_compiling_guard_clears_after_a_throw()
   assert(fs.write(fs.join(root, "boom.tl"), "return 1\n"))
   local path = fs.join(root, "m")
   assert(fs.write(path, "root " .. root .. "\nbuild o\n"))
-  assert(searcher.install_tree(path))
+  assert(searcher.install_manifest(path))
 
   local teal = require("cosmic.teal")
   local original = teal.compile_cached
   teal.compile_cached = function(_input_path: string, _strict?: boolean): string | nil, string
     error("boom: injected compiler failure", 0)
   end
-  local ok, err = pcall(searcher.tree, "boom")
+  local ok, err = pcall(tree, "boom")
   teal.compile_cached = original
   assert(not ok, "a throwing compile_cached must still fail the require")
   assert(tostring(err):find("boom", 1, true), "got: " .. tostring(err))
@@ -239,7 +260,7 @@ local function test_compiling_guard_clears_after_a_throw()
   -- If the guard stuck, this resolves to "compiler bootstrap in
   -- progress" instead of the file's own content.
   assert(fs.write(fs.join(root, "after.tl"), 'return "OK"\n'))
-  local got = searcher.tree("after")
+  local got = tree("after")
   local loader = check.must(loader_of(got))
   assert(loader() == "OK", "resolution after a throw must still work")
 end

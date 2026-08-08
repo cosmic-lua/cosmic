@@ -134,15 +134,13 @@ end
 
 --- Check whether collection is active.
 --- @return boolean
-local function running(): boolean
+local function is_running(): boolean
   return depth > 0
 end
 
---- Begin collecting line hits (nestable).
---- The first start installs the line hook; nested starts only increment
---- the nesting depth, so libraries and tests can bracket their own
---- collection without tearing down an outer one.
-local function start()
+-- The bare nesting engine; the public start (below, after dump — whose
+-- exit-wrapper closure it captures) adds the optional dump arming.
+local function start_depth()
   depth = depth + 1
   if depth == 1 then
     if ccov then
@@ -194,7 +192,7 @@ end
 --- The filename is stable per process (pid plus start timestamp), so
 --- repeated dumps from one process overwrite instead of double-counting;
 --- concurrent processes never collide.
---- @param dir string? Directory to write into (default: the enable() directory)
+--- @param dir string? Directory to write into (default: the start opts.dir directory)
 --- @return boolean True on success, false on failure
 --- @return string? Error message if the write failed
 local function dump(dir?: string): boolean, string
@@ -259,21 +257,32 @@ local function is_kept_on_restrict(): boolean
   return kept_on_restrict
 end
 
---- Arm collection for this process, dumping into dir on exit.
---- Used by the CLI when COSMIC_COVERAGE names a directory; also wraps
---- os.exit so early exits (like a test skip) still flush their counts.
---- A nested enable never re-targets an outer one's directory.
---- @param dir string Directory to write the .cov file into
-local function enable(dir: string)
-  if depth == 0 then
-    default_dir = dir
+--- Options for start().
+local record StartOptions
+  --- Dump directory (#1001: what enable(dir) did): sets the default
+  --- target for dump() and installs process-exit wrappers that write
+  --- there. A nested start never re-targets an outer one's directory.
+  dir: string
+end
+
+--- Begin collecting line hits (nestable).
+--- The first start installs the line hook; nested starts only increment
+--- the nesting depth, so libraries and tests can bracket their own
+--- collection without tearing down an outer one. With opts.dir the
+--- collection is also armed to dump at process exit (rule 9: start/stop
+--- is the pair; the separate enable() verb folded in here, #1001).
+local function start(opts?: StartOptions)
+  if opts and opts.dir then
+    if depth == 0 then
+      default_dir = opts.dir
+    end
+    install_wrappers(function()
+        if default_dir then
+          local _ok, _err = dump()
+        end
+      end)
   end
-  install_wrappers(function()
-      if default_dir then
-        local _ok, _err = dump()
-      end
-    end)
-  start()
+  start_depth()
 end
 
 --- Read the coverage directory from the COSMIC_COVERAGE variable.
@@ -298,7 +307,7 @@ local function enable_from_env(): function() | nil
   if not dir then
     return nil
   end
-  enable(dir)
+  start({dir = dir})
   return function()
     -- A dump that FAILS says so. Discarding `dump`'s status instead
     -- makes the one failure mode that matters — collection armed,
@@ -319,15 +328,15 @@ local function enable_from_env(): function() | nil
 end
 
 local record CoverageModule
-  start: function()
+  type StartOptions = StartOptions
+  start: function(opts?: StartOptions)
   stop: function()
-  running: function(): boolean
+  is_running: function(): boolean
   snapshot: function(): {string: {integer: integer}}
   dump: function(dir?: string): boolean, string
   seal: function()
   keep_on_restrict: function()
   is_kept_on_restrict: function(): boolean
-  enable: function(dir: string)
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
 end
@@ -335,13 +344,12 @@ end
 local M: CoverageModule = {
   start = start,
   stop = stop,
-  running = running,
+  is_running = is_running,
   snapshot = snapshot,
   dump = dump,
   seal = seal,
   keep_on_restrict = keep_on_restrict,
   is_kept_on_restrict = is_kept_on_restrict,
-  enable = enable,
   dir_from_env = dir_from_env,
   enable_from_env = enable_from_env,
 }

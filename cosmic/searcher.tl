@@ -157,7 +157,7 @@ local tree_map: {string: string} = {}
 local tree_build: string = "o"
 
 --- Whether the tree searcher has already been inserted into
---- package.searchers -- guards install_tree the same way `installed`
+--- package.searchers -- guards install_manifest the same way `installed`
 --- guards install(): a repeat call still refreshes tree_root/tree_map
 --- from its manifest, but must not insert a second copy of the
 --- searcher into the chain.
@@ -306,18 +306,22 @@ end
 ---     mod <import.path> <built file>
 ---
 --- Inserted at index 2 — after `package.preload`, ahead of the default
---- file searcher — because beating `/zip` is the entire point. Silent
---- when the manifest cannot be read: a child with no manifest is an
---- ordinary cosmic, which is what a hand-run script is.
+--- file searcher — because beating `/zip` is the entire point. A
+--- failure says why (#1001: the bare boolean was deliberately silent,
+--- and the caller could not tell "no manifest" from "unreadable
+--- manifest"); the CALLER decides whether that matters — a child with
+--- no manifest is an ordinary cosmic, which is what a hand-run script
+--- is.
 --- @param path string Path to the manifest file
 --- @return boolean Whether a manifest was read and installed
-local function install_tree(path: string): boolean
+--- @return string? Why not, when it was not
+local function install_manifest(path: string): boolean, string
   if not package.searchers then
-    return false
+    return false, "package.searchers is unavailable"
   end
   local f = io.open(path, "r")
   if not f then
-    return false
+    return false, "cannot read manifest: " .. path
   end
   local root: string | nil = nil
   local build: string | nil = nil
@@ -337,7 +341,7 @@ local function install_tree(path: string): boolean
   end
   f:close()
   if root == nil then
-    return false
+    return false, "manifest has no root line: " .. path
   end
   tree_root = root
   tree_build = build or tree_build
@@ -361,10 +365,13 @@ end
 --- rule, and the channel is this module's.
 --- @param argv {string} The process argv, 1-based
 --- @return boolean Whether a manifest was read and installed
-local function install_from_argv(argv: {string}): boolean
+--- @return string? Why not, when a named manifest could not be (an
+--- argv with no --modules at all returns false with NO message — that
+--- is the ordinary case, not a failure)
+local function install_argv_manifest(argv: {string}): boolean, string
   for i = 1, #argv do
     if argv[i] == "--modules" then
-      return install_tree(argv[i + 1] or "")
+      return install_manifest(argv[i + 1] or "")
     elseif argv[i]:sub(1, 1) ~= "-" then
       return false
     end
@@ -374,18 +381,14 @@ end
 
 local record SearcherModule
   install: function()
-  install_from_argv: function(argv: {string}): boolean
-  install_tree: function(path: string): boolean
-  searcher: function(module_name: string): any, any
-  tree: function(module_name: string): any, any
+  install_argv_manifest: function(argv: {string}): boolean, string
+  install_manifest: function(path: string): boolean, string
 end
 
 local M: SearcherModule = {
   install = install,
-  install_from_argv = install_from_argv,
-  install_tree = install_tree,
-  searcher = cosmic_tl_searcher,
-  tree = tree_searcher,
+  install_argv_manifest = install_argv_manifest,
+  install_manifest = install_manifest,
 }
 
 return M

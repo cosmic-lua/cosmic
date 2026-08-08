@@ -20,15 +20,14 @@ end
 
 -- Example_miss demonstrates what a miss looks like. A searcher that
 -- declines returns a STRING rather than raising, which is what lets
--- require() go on to report its own "module not found" listing every
--- path it tried.
+-- require() report its own "module not found" carrying every
+-- searcher's reason — this module's line included.
 local function Example_miss()
-  local searcher = require("cosmic.searcher")
-  local why = searcher.searcher("no_such_module_anywhere")
-  print(type(why))
-  print((why as string):match("^no %.tl source found") ~= nil) -- cast: a miss returns a string
+  local ok, err = pcall(require, "no_such_module_anywhere")
+  print(ok)
+  print(tostring(err):find("no .tl source found", 1, true) ~= nil)
   -- Output:
-  -- string
+  -- false
   -- true
 end
 

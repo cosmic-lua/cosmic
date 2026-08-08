@@ -23,7 +23,12 @@ package.path = package.path:sub(1, at - 1) ..
 -- the binary's, which is why it reads the manifest with io.open. The
 -- scan rule is its own; see docs/design/make/resolution.md.
 local searcher = require("cosmic.searcher")
-searcher.install_from_argv(arg)
+-- A named manifest that cannot be installed is worth a line on
+-- stderr (#1001); an argv with no --modules returns no message.
+local _margs_ok, margs_err = searcher.install_argv_manifest(arg)
+if margs_err then
+  io.stderr:write("cosmic-lua: --modules: " .. margs_err .. "\n")
+end
 
 -- cosmic-owned runtime .tl searcher: resolves and compiles .tl
 -- modules through cosmic.teal, fails the require() on compile errors,

@@ -35,10 +35,10 @@ local function test_resolves_and_loads_a_tl_module()
   local name = fixture("searcher_ok",
     "local record M\n  answer: integer\nend\n" ..
     "local m: M = {answer = 42}\nreturn m\n")
-  local loader = searcher.searcher(name)
-  assert(type(loader) == "function",
-    "expected a loader, got: " .. tostring(loader))
-  local mod = (loader as function(string): {string: integer})(name) -- cast: loader is any
+  -- Through require() (#1001: the searcher VALUE is installed, never
+  -- handed out) — the binary installed it at boot, so the require IS
+  -- the resolve-compile-load path.
+  local mod = require(name) as {string: integer} -- cast: from any
   assert(mod.answer == 42, "the module's own value must come back")
 end
 test_resolves_and_loads_a_tl_module()
@@ -47,10 +47,11 @@ test_resolves_and_loads_a_tl_module()
 -- searcher that declines: require() then reports its own "module not
 -- found" rather than this one erroring out of the whole chain.
 local function test_a_miss_declines_rather_than_throws()
-  local why = searcher.searcher("cosmic_searcher_no_such_module_here")
-  assert(type(why) == "string", "a miss must decline with a message")
-  assert((why as string):find("no .tl source found", 1, true), -- cast: type checked above
-    "…and the message must say why, got: " .. tostring(why))
+  local ok, err = pcall(require, "cosmic_searcher_no_such_module_here")
+  assert(not ok, "the require must fail")
+  assert(tostring(err):find("no .tl source found", 1, true),
+    "…and the aggregate error must carry this searcher's decline message, got: "
+    .. tostring(err))
 end
 test_a_miss_declines_rather_than_throws()
 
@@ -60,7 +61,7 @@ test_a_miss_declines_rather_than_throws()
 -- else. This one fails the require() with the issues.
 local function test_a_compile_error_fails_the_require()
   local name = fixture("searcher_broken", "local x: integer = \"nope\"\nreturn x\n")
-  local ok, err = pcall(searcher.searcher, name)
+  local ok, err = pcall(require, name)
   assert(not ok, "a module that does not compile must not load")
   assert(tostring(err):find(name, 1, true),
     "the failure must name the module, got: " .. tostring(err))
