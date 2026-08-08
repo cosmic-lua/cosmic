@@ -90,8 +90,6 @@ local record SandboxModule
   is_available: function(): boolean
   validate: function(opts: Options): boolean, string
   merge: function(...: Options): Options
-  --  DEPRECATED alias of availability() (#989); deleted at pin advance.
-  available: function(): Availability
 end
 ```
 

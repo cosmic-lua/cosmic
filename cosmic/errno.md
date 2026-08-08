@@ -14,12 +14,6 @@
      if not ok then return false, errno.format(err, "mkdir: " .. path) end
      -- -> "mkdir: /x: EACCES: Permission denied"
 
- The pre-rename names (`wrap`, `is`, `code`, `name_of`, `constants`)
- are DEPRECATED aliases carried through the D20 transition: the
- pinned bootstrap binary type-checks tree modules against its own
- embedded errno record, so in-tree callers flip to the canonical
- names only once a release carrying them becomes bin/cosmic.pin;
- the aliases are deleted in that same cleanup (#981).
 
 ## Types
 
@@ -32,13 +26,6 @@ local record ErrnoModule
   is_code: function(eno: any, name: string): boolean
   name_in: function(msg: string): string | nil
   codes: {string: integer}
-  --  DEPRECATED (D20 transition): pre-rename aliases of the five
-  --  canonical names above, deleted at the next pin advance (#981).
-  wrap: function(err: any, prefix?: string): string
-  code: function(name: string): integer | nil
-  is: function(eno: any, name: string): boolean
-  name_of: function(msg: string): string | nil
-  constants: {string: integer}
 end
 ```
 

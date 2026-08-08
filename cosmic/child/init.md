@@ -34,9 +34,6 @@ local record Handle
   --  Sends `sig` (default SIGTERM); start's partner (D20 rule 9).
   --  Fails once reaped (pid may be recycled).
   stop: function(self: Handle, sig?: integer): boolean, string
-  --  DEPRECATED alias of stop (D20 transition, #976); deleted at the
-  --  next pin advance (#981-class) once the pinned build engine moves.
-  kill: function(self: Handle, sig?: integer): boolean, string
   --  Non-blocking reap: TryWait{finished, result} — result set exactly
   --  when finished — or `nil, err` on a wait failure.
   try_wait: function(self: Handle): TryWait | nil, string

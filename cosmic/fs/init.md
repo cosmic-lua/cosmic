@@ -5,8 +5,7 @@
  walking. Operations are named in English (#988): the POSIX names
  that survive are the effectively-English concepts recorded in D20's
  kept set (stat, statfs, symlink, readlink, truncate, dirname,
- basename); everything else spells the operation out, and each old
- name remains as a DEPRECATED alias until the pin advance.
+ basename); everything else spells the operation out.
 
 ## Types
 
@@ -103,10 +102,6 @@ local record FsModule
   --  Flush all filesystem buffers to disk, system-wide (sync(2)) —
   --  #988: was sync, ambiguous beside Handle:sync's one-file flush.
   sync_all: function()
-  --  DEPRECATED positional walker (#987): visitor(path, name, st, ctx)
-  --  with the first subtree error beside a non-nil result. Use visit().
-  --  Deleted at the next pin advance.
-  walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
   --  Walk dir depth-first with an Entry visitor: visitor(e: fs.Entry,
   --  ctx) may return "skip" (don't descend) or "stop" (end now).
   --  Slot 2 is the root-open failure; subtree errors come back in
@@ -140,25 +135,6 @@ local record FsModule
   DT_REG: integer
   DT_SOCK: integer
   DT_UNKNOWN: integer
-  expanduser: function(p: string): string
-  exists: function(path: string): boolean
-  unsafe_entry_name: function(name: string): boolean
-  abspath: function(p: string): string
-  relpath: function(p: string, base?: string): string
-  splitext: function(p: string): string, string
-  lstat: function(path: string): Stat | nil, string
-  fstat: function(fd: integer): Stat | nil, string
-  mkdir: function(path: string, mode?: integer): boolean, string
-  rmdir: function(path: string): boolean, string
-  chdir: function(path: string): boolean, string
-  opendir: function(path: string): Dir | nil, string
-  fdopendir: function(fd: integer): Dir | nil, string
-  unlink: function(path: string): boolean, string
-  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
-  realpath: function(path: string): string | nil, string
-  access: function(path: string, mode?: integer): boolean
-  chmod: function(path: string, mode: integer): boolean, string
-  chown: function(path: string, uid: integer, gid: integer): boolean, string
   fstatfs: function(fd: integer): Statfs | nil, string
   sync: function()
 end

@@ -38,10 +38,6 @@ end
 local record FuzzyModule
   distance: function(a: string, b: string): integer
   find_similar: function(query: string, candidates: {string}, opts?: Options): {Match}
-  --  DEPRECATED (D20 transition, #1002): alias of distance, kept while
-  --  the pinned bootstrap's require_hints still calls it; deleted at
-  --  the next pin advance alongside errno's aliases (#981).
-  levenshtein: function(a: string, b: string): integer
 end
 ```
 
