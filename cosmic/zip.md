@@ -1,14 +1,36 @@
 # zip
 
- ZIP archive reading and writing utilities.
- Wraps cosmo.zip with a convenient Teal-typed interface for creating,
- reading, and modifying ZIP archives. Use `reader`/`writer`/`appender`
- to open by path, `from` for in-memory data, and `extract` to safely
- unpack a reader to a directory (entry names from an archive are
- attacker-controlled; never write them to disk without `extract`'s
+ ZIP archive reading and writing.
+ One constructor: `zip.open(path, opts?: {mode, level,
+ max_file_size_bytes}) → Archive` — mode "read" (default), "write"
+ (truncate/create), or "append" (add to an existing archive, or
+ create it). `open_string` is its bytes-not-path sibling for
+ in-memory data (always read mode). One Archive answers every
+ operation and returns an error naming the mode when an operation
+ does not belong to it, so callers pick a MODE, not a type.
+ `extract` safely unpacks an archive — an open one, or a path —
+ to a directory (entry names from an archive are
+ attacker-controlled; never write them to disk without extract's
  zip-slip validation).
 
 ## Types
+
+### OpenOptions
+
+ Options for open()/open_string().
+
+```teal
+local record OpenOptions
+  --  "read" (default), "write" (truncate or create), or "append"
+  --  (add to an existing archive, creating it if absent).
+  mode: Mode
+  --  Compression level 0-9, for write/append.
+  level: integer
+  --  Refuse any member whose declared uncompressed size exceeds this
+  --  many bytes (api-review #996: was the binding's `max_file_size`).
+  max_file_size_bytes: integer
+end
+```
 
 ### ExtractOptions
 
@@ -18,7 +40,46 @@
 local record ExtractOptions
   --  Refuse any entry whose declared uncompressed size exceeds this many
   --  bytes (checked before anything is read or written).
-  max_file_size: integer
+  max_file_size_bytes: integer
+end
+```
+
+### Archive
+
+ An open archive, in one of three modes. Read operations (list,
+ stat, read) answer only in "read" mode; add answers in "write" and
+ "append"; remove in "append" alone. An operation outside the
+ archive's mode fails with an error naming the mode, so the type
+ carries every method and the MODE — not the type — says which
+ apply.
+
+```teal
+local record Archive
+  --  The mode this archive was opened in.
+  mode: Mode
+  --  List every entry (read mode).
+  list: function(self: Archive): {Entry} | nil, string
+  --  Metadata for one entry (read mode).
+  stat: function(self: Archive, name: string): EntryStat | nil, string
+  --  One entry's content (read mode).
+  read: function(self: Archive, name: string): string | nil, string
+  --  Add a member (write or append mode).
+  add: function(self: Archive, name: string, content: string, opts?: AddOptions): boolean, string
+  --  Remove a member (append mode).
+  remove: function(self: Archive, name: string): boolean, string
+  --  Close the archive (any mode; idempotent, and infallible: a
+  --  second close is a no-op, not an error).
+  close: function(self: Archive)
+end
+```
+
+### RawHandles
+
+```teal
+local record RawHandles
+  reader: zip.Reader
+  writer: zip.Writer
+  appender: zip.Appender
 end
 ```
 
@@ -27,20 +88,10 @@ end
 ```teal
 local record ZipModule
   open: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
-  create: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
-  append: function(path: string, opts?: OpenOptions): Appender | nil, string
-  open_bytes: function(data: string, opts?: OpenOptions): Archive | nil, string
-  extract: function(archive: Archive, destdir: string, opts?: ExtractOptions): boolean, string
+  open_string: function(data: string, opts?: OpenOptions): Archive | nil, string
+  extract: function(archive: Archive | string, destdir: string, opts?: ExtractOptions): boolean, string
 end
 ```
-
-### OpenOptions
-
- Options for opening a ZIP archive: compression level 0-9 (used when
- writing/appending) and max_file_size limit. The generated
- cosmo.zip.OpenOptions record.
-
-alias of `cosmo.zip.OpenOptions` — field and method table: `cosmic --docs cosmo.zip.OpenOptions`
 
 ### AddOptions
 
@@ -49,47 +100,20 @@ alias of `cosmo.zip.OpenOptions` — field and method table: `cosmic --docs cosm
 
 alias of `cosmo.zip.AddOptions` — field and method table: `cosmic --docs cosmo.zip.AddOptions`
 
-### Stat
+### EntryStat
 
  File metadata within a ZIP archive: size, compressed_size, crc32,
- mtime, method (0=stored, 8=deflated), and mode. The generated
- cosmo.zip.Stat record.
+ mtime, method (0=stored, 8=deflated), and mode (api-review #996:
+ was `Stat`, which collided with fs.Stat at call sites).
 
 alias of `cosmo.zip.Stat` — field and method table: `cosmic --docs cosmo.zip.Stat`
 
 ### Entry
 
- Directory entry returned by Reader:list(): name, size, and mode. The
+ Directory entry returned by Archive:list(): name, size, and mode. The
  generated cosmo.zip.Entry record.
 
 alias of `cosmo.zip.Entry` — field and method table: `cosmic --docs cosmo.zip.Entry`
-
-### Archive
-
- Reader for extracting files from a ZIP archive (the generated
- cosmo.zip.Reader class): list(), stat(name), read(name), close().
- Entry names come raw from the central directory: an archive built by
- another tool can contain absolute or "../" names. Validate before
- using a name as a filesystem path, or use extract().
- (api-review-8: the public type name is Archive.)
-
-alias of `cosmo.zip.Reader` — field and method table: `cosmic --docs cosmo.zip.Reader`
-
-### Builder
-
- Builder for creating new ZIP archives (the generated cosmo.zip.Writer
- class): add(name, content, opts?), close().
- (api-review-8: the public type name is Builder.)
-
-alias of `cosmo.zip.Writer` — field and method table: `cosmic --docs cosmo.zip.Writer`
-
-### Appender
-
- Appender for adding files to an existing ZIP archive (the generated
- cosmo.zip.Appender class): add(name, content, opts?), remove(name),
- close().
-
-alias of `cosmo.zip.Appender` — field and method table: `cosmic --docs cosmo.zip.Appender`
 
 ## Functions
 
@@ -99,94 +123,61 @@ alias of `cosmo.zip.Appender` — field and method table: `cosmic --docs cosmo.z
 function open(path: string | integer, opts?: OpenOptions): Archive | nil, string
 ```
 
- Open a ZIP archive for reading (api-review-8: was `reader` — `open`
- is the constructor that acquires a closeable resource, D20).
+ Open a ZIP archive. Mode "read" (default) reads an existing
+ archive; "write" creates (truncating any existing file); "append"
+ adds to an existing archive, creating it when absent. A file
+ descriptor is accepted for read and write; append requires a path
+ (the binding reopens the file).
 
 **Parameters:**
 
-- `path` (string|integer) - File path or file descriptor
-- `opts` (OpenOptions?) - Size limits
+- `path` (string|integer) - File path (or fd, for read/write)
+- `opts` (OpenOptions?) - mode, level, max_file_size_bytes
 
 **Returns:**
 
 - Archive - | nil The archive, or nil on error
 - string? - Error message if opening failed
 
-### create
+### open_string
 
 ```teal
-function create(path: string | integer, opts?: OpenOptions): Builder | nil, string
+function open_string(data: string, opts?: OpenOptions): Archive | nil, string
 ```
 
- Create a new ZIP archive for writing (api-review-8: was `writer`).
- Any existing file is truncated.
-
-**Parameters:**
-
-- `path` (string|integer) - File path or file descriptor
-- `opts` (OpenOptions?) - Compression level and size limits
-
-**Returns:**
-
-- Builder - | nil The archive builder, or nil on error
-- string? - Error message if opening failed
-
-### append
-
-```teal
-function append(path: string, opts?: OpenOptions): Appender | nil, string
-```
-
- Open a ZIP archive for appending (api-review-8: was `appender`),
- creating it if it does not exist. Unlike open/create, a file
- descriptor is not accepted; the archive must be given as a path.
-
-**Parameters:**
-
-- `path` (string) - File path
-- `opts` (OpenOptions?) - Compression level and size limits
-
-**Returns:**
-
-- Appender - | nil The archive appender, or nil on error
-- string? - Error message if opening failed
-
-### open_bytes
-
-```teal
-function open_bytes(data: string, opts?: OpenOptions): Archive | nil, string
-```
-
- Open a ZIP archive from in-memory data for reading (api-review-8:
- was `from`; pairs with open as its bytes-not-path form).
+ Open a ZIP archive from in-memory data, always in read mode
+ (api-review #996: was `open_bytes` — rule 2 reserves `_bytes` for
+ counts; `_string` is the bytes-not-path sibling spelling).
 
 **Parameters:**
 
 - `data` (string) - The ZIP archive data
-- `opts` (OpenOptions?) - Size limits
+- `opts` (OpenOptions?) - max_file_size_bytes (mode is always read)
 
 **Returns:**
 
-- Archive? - The archive, or nil on error
+- Archive - | nil The archive, or nil on error
 - string? - Error message if opening failed
 
 ### extract
 
 ```teal
-function extract(r: Archive, destdir: string, opts?: ExtractOptions): boolean, string
+function extract(archive: Archive | string, destdir: string,
+    opts?: ExtractOptions): boolean, string
 ```
 
- Extract every entry of an open reader into destdir, refusing archives
- that attempt zip-slip. All entry names (and sizes, when
- opts.max_file_size is set) are validated before anything is written, so
- a malicious archive fails without leaving partial output. File modes
- are taken from the archive masked to 0777 (setuid/setgid/sticky bits
- are stripped); entries without a mode default to 0644. Existing files
- are overwritten. The reader is left open.
+ Extract every entry of a read archive into destdir, refusing
+ archives that attempt zip-slip. All entry names (and sizes, when
+ opts.max_file_size_bytes is set) are validated before anything is
+ written, so a malicious archive fails without leaving partial
+ output. File modes are taken from the archive masked to 0777
+ (setuid/setgid/sticky bits are stripped); entries without a mode
+ default to 0644. Existing files are overwritten. An archive passed
+ as a handle is left open; a path is opened read-mode and closed.
 
 **Parameters:**
 
-- `r` (Reader) - An open archive reader (from reader() or from())
+- `archive` (Archive|string) - An open read archive, or a path to one
 - `destdir` (string) - Directory to extract into (created if needed)
 - `opts` (ExtractOptions?) - Per-entry size limit
 
@@ -194,3 +185,39 @@ function extract(r: Archive, destdir: string, opts?: ExtractOptions): boolean, s
 
 - boolean - true when every entry was written
 - string? - Error message if validation or writing failed
+
+### a:list
+
+```teal
+function a:list(): {Entry} | nil, string
+```
+
+### a:stat
+
+```teal
+function a:stat(name: string): EntryStat | nil, string
+```
+
+### a:read
+
+```teal
+function a:read(name: string): string | nil, string
+```
+
+### a:add
+
+```teal
+function a:add(name: string, content: string, opts?: AddOptions): boolean, string
+```
+
+### a:remove
+
+```teal
+function a:remove(name: string): boolean, string
+```
+
+### a:close
+
+```teal
+function a:close()
+```

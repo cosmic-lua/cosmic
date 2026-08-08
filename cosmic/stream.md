@@ -96,16 +96,16 @@ function stream(w: stream.Writer, data: string): boolean, string
 ### stream
 
 ```teal
-function stream(r: stream.Reader, max?: integer): string | nil, string
+function stream(r: stream.Reader, max_bytes?: integer): string | nil, string
 ```
 
  Read to end of stream and return everything as one string.
-   (untrusted input must not balloon memory silently)
+   error (untrusted input must not balloon memory silently)
 
 **Parameters:**
 
 - `r` (Reader) - The source
-- `max` (integer?) - Cap on the result size; exceeding it is an error
+- `max_bytes` (integer?) - Cap on the result size; exceeding it is an
 
 **Returns:**
 
@@ -115,16 +115,18 @@ function stream(r: stream.Reader, max?: integer): string | nil, string
 ### stream
 
 ```teal
-function stream(dst: stream.Writer, src: stream.Reader, buf_size?: integer): integer | nil, string
+function stream(dst: stream.Writer, src: stream.Reader,
+    buffer_size_bytes?: integer): integer | nil, string
 ```
 
  Pump src into dst until src ends. Returns the byte count copied.
+   reader's own)
 
 **Parameters:**
 
 - `dst` (Writer) - The sink
 - `src` (Reader) - The source
-- `buf_size` (integer?) - Read bound per chunk (default: the reader's own)
+- `buffer_size_bytes` (integer?) - Read bound per chunk (default: the
 
 **Returns:**
 
@@ -143,7 +145,8 @@ function stream(data: string): stream.Reader
  hand-rolled adapter. read(n?) returns successive chunks (at most n
  bytes when n is given, the whole remainder otherwise), then bare
  nil at end of stream, per the Reader contract; n must be positive
- when given.
+ when given. (api-review #996: was `from_string`; rule 5 names
+ constructors `new_*`, pairing it with new_buffer.)
 
 **Parameters:**
 
@@ -159,10 +162,11 @@ function stream(data: string): stream.Reader
 function stream(): stream.Buffer
 ```
 
- Collect writes in memory: the Writer half of from_string. write()
+ Collect writes in memory: the Writer half of new_reader. write()
  appends and reports the chunk fully written; contents() returns
  everything written so far. Point stream.copy (or any Writer taker)
  at one to materialize a pipeline's output as a string.
+ (api-review #996: was `buffer`; rule 5 names constructors `new_*`.)
 
 **Returns:**
 

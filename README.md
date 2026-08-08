@@ -66,7 +66,7 @@ High-level utilities and tools built on top of cosmo.
 | [url](cosmic/url.md) |  URL encoding, decoding, parsing, formatting, and escaping utilities. |
 | [user](cosmic/user.md) |  User and group identity operations. |
 | [uuid](cosmic/uuid.md) |  UUID generation utilities. |
-| [zip](cosmic/zip.md) |  ZIP archive reading and writing utilities. |
+| [zip](cosmic/zip.md) |  ZIP archive reading and writing. |
 
 ---
 
