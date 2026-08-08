@@ -23,7 +23,9 @@ end
 -- require() report its own "module not found" carrying every
 -- searcher's reason — this module's line included.
 local function Example_miss()
-  local ok, err = pcall(require, "no_such_module_anywhere")
+  -- The name is computed so the checker never resolves it.
+  local missing = "no_such_" .. "module_anywhere"
+  local ok, err = pcall(require, missing) as (boolean, any) -- cast: dynamic require probe
   print(ok)
   print(tostring(err):find("no .tl source found", 1, true) ~= nil)
   -- Output:

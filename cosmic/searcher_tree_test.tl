@@ -269,17 +269,18 @@ test_compiling_guard_clears_after_a_throw()
 -- The argv scan is the channel's other half, and its rule is where the
 -- scan stops: at the first non-flag, which is where getopt stops too.
 -- Past that point a `--modules` is the SCRIPT's own.
-local function test_install_from_argv_stops_at_the_first_positional()
+local function test_install_argv_manifest_stops_at_the_first_positional()
   local _, path = manifest("argv", {"root " .. tmp, "build o"})
-  assert(searcher.install_from_argv({"--modules", path}),
+  assert(searcher.install_argv_manifest({"--modules", path}),
     "the engine's own flag, ahead of everything, installs")
-  assert(searcher.install_from_argv({"script.tl", "--modules", path}) == false,
+  assert(searcher.install_argv_manifest({"script.tl", "--modules", path}) == false,
     "a script's own --modules must not redirect the dispatcher")
-  assert(searcher.install_from_argv({"--verbose"}) == false,
+  assert(searcher.install_argv_manifest({"--verbose"}) == false,
     "no flag, nothing to install")
-  assert(searcher.install_from_argv({"--modules"}) == false,
-    "and a flag with no argument is a miss, not a throw")
+  local named_ok, named_err = searcher.install_argv_manifest({"--modules"})
+  assert(named_ok == false and named_err ~= nil,
+    "a flag with no argument is a failure that says why (#1001)")
 end
-test_install_from_argv_stops_at_the_first_positional()
+test_install_argv_manifest_stops_at_the_first_positional()
 
 print("all searcher tree tests passed")
