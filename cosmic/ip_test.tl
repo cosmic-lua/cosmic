@@ -7,7 +7,7 @@ local function p(s: string): ip.Addr
   return (check.must(ip.parse(s)))
 end
 
--- parse tests: parse returns a typed Addr (api-review-2)
+-- parse tests: parse returns a typed Addr
 
 local function test_parse_ipv4_basic()
   local a = p("192.168.1.1")

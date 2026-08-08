@@ -338,9 +338,9 @@ local function test_needs_skips_locally_and_fails_in_ci()
   local had = os.getenv("CI")
   assert(env.unset("CI"))
 
-  -- A met precondition simply returns (api-review-8: needs EXITS the
-  -- process itself when the precondition is missing, so the exit path
-  -- is exercised in a child below, not in this process).
+  -- A met precondition simply returns (needs EXITS the process itself
+  -- when the precondition is missing, so the exit path is exercised
+  -- in a child below, not in this process).
   check.needs("a satisfied precondition", true)
 
   -- The missing-locally path: the child must exit EXIT_SKIP, not 0.

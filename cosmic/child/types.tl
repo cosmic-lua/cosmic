@@ -35,8 +35,8 @@ end
 --- else. stdout/stderr Handles (cosmic.fd) become the child's fd 1/2
 --- (the matching Result field is then ""); start does not take
 --- ownership — the child gets its own copy, so close your end when done
---- (see Example_run_pipe). Raw integer fds are not part of this surface
---- (api-review-2); wrap one with fd.wrap() first. "inherit" writes to
+--- (see Example_run_pipe). Raw integer fds are not part of this
+--- surface; wrap one with fd.wrap() first. "inherit" writes to
 --- THIS process's fd 1/2 so output streams as it runs; Result stays "".
 local record Options
   stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0

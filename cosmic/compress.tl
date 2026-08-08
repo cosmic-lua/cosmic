@@ -16,8 +16,8 @@ end
 
 --- Framings decompress() can consume: the three producible ones plus
 --- "auto", header detection for zlib or gzip input. The split enums
---- are what make "auto" decompress-only by TYPE (api-review #996: one
---- shared enum meant compress() rejected it at runtime instead). A
+--- are what make "auto" decompress-only by TYPE (one shared enum
+--- would leave compress() to reject it at runtime instead). A
 --- held CompressFormat value crosses with a widening cast (Teal enums
 --- are nominal even when the word sets nest); a string literal needs
 --- none.
@@ -39,7 +39,6 @@ local record DecompressOptions
   --- input framing; defaults to "zlib"
   format: DecompressFormat
   --- cap on the decompressed size in bytes, default 64 MiB
-  --- (api-review #996: was `max_output`; rule 2 puts the unit in the name)
   max_output_bytes: integer
 end
 

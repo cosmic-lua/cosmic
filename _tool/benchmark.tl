@@ -83,9 +83,7 @@ local DEFAULT_MIN_SECONDS = 1.0
 --- honors `filter` with the same substring contract).
 local record RunOptions
   --- Run only benchmarks whose name contains this SUBSTRING, matched
-  --- plainly (e.g. "concat" matches Benchmark_string_concat). Folded in
-  --- from the old positional between the path and the options
-  --- (api-review-6).
+  --- plainly (e.g. "concat" matches Benchmark_string_concat).
   filter: string
   --- Minimum calibrated duration per benchmark, in integer
   --- milliseconds. Defaults to 1000 (Go's 1s convention) when unset. A

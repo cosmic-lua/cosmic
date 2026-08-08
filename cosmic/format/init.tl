@@ -10,7 +10,7 @@ local rules = require("cosmic.format.rules")
 --- A formatting issue (syntax error preventing formatting).
 -- One Issue record and one renderer for the whole toolchain: the
 -- checker's (cosmic.teal), which this module reuses instead of keeping
--- a nominally-incompatible twin (api-review-7).
+-- a nominally-incompatible twin.
 local teal = require("cosmic.teal")
 
 local type Issue = teal.Issue

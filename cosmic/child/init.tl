@@ -184,7 +184,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
       return nil, errno.wrap(err, "read")
     end
     if chunk == "" then
-      return nil -- end of file (api-review-2, #589)
+      return nil -- end of file (#589)
     end
     return chunk
   end

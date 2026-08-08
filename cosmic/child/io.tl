@@ -51,8 +51,8 @@ local record PumpState
 end
 
 --- Raw descriptors resolved from the public spawn Options. The public
---- surface speaks fd.Handle (api-review-2); everything below this
---- boundary speaks raw descriptors.
+--- surface speaks fd.Handle; everything below this boundary speaks
+--- raw descriptors.
 local record Stdio
   stdin_data: string
   stdin_fd: integer

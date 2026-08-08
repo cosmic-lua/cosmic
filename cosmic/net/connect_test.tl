@@ -138,8 +138,8 @@ end
 test_listen_unix_connect_unix()
 
 local function test_connect_with_timeout_loopback()
-  -- The old nb_connect surface, now ConnectOptions.timeout_ms
-  -- (api-review-8): connect with a bound, get back a BLOCKING socket.
+  -- ConnectOptions.timeout_ms: connect with a bound, get back a
+  -- BLOCKING socket.
   local server = check.must(net.listen_tcp("127.0.0.1", 0))
   local server_port = check.must(server:getsockname()).port
 

@@ -99,14 +99,13 @@ local record Options
   allow_private: boolean
   --- HTTP proxy URL.
   proxy: string
-  --- Maximum response body size in bytes (api-review: was
-  --- `maxresponse`, the binding's spelling).
+  --- Maximum response body size in bytes.
   max_response_bytes: integer
   --- Per-socket-operation timeout in milliseconds (connect, each
   --- read/write, TLS handshake) — NOT a whole-request deadline. 0 or nil
   --- keeps the 60-second default; there is no "infinite" option.
-  --- (api-review-6: was `timeout`, in seconds — durations are integer
-  --- milliseconds with the unit in the name, house-wide.)
+  --- (Durations are integer milliseconds with the unit in the name,
+  --- house-wide.)
   timeout_ms: integer
   --- Total number of attempts (1 = no retry, default 1). Clamped to >= 1:
   --- 0 or negative would otherwise skip the fetch loop and return nothing.

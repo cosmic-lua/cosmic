@@ -281,7 +281,7 @@ end
 test_send_offset()
 
 -- recv(0) reads "" from the kernel on a stream socket, which is
--- indistinguishable from "peer closed" (api-review-2, #589) unless
+-- indistinguishable from "peer closed" (#589) unless
 -- bufsiz is rejected outright: an honest error, not a throw.
 local function test_recv_zero_bufsiz_is_error()
   local a, b = pair()

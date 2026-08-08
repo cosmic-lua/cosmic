@@ -109,9 +109,7 @@ local function truthy(value: any, label?: string)
   error(msg, 2)
 end
 
---- Assert that a (value, err) pair represents failure (api-review-8
---- renamed it from `err`, which read as a noun and shadowed every
---- local error; #1000 spelled `fails` out to `failed`).
+--- Assert that a (value, err) pair represents failure.
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
 --- @param value any The first return value (expected to be nil)
@@ -188,8 +186,8 @@ end
 --- mechanism was probed *available* yet the operation was still blocked,
 --- which on the unsandboxed lane can only mean an outer sandbox is present.
 --- Callers still `return` after calling this; it does not exit the
---- process (api-review-8: was `skip`, a name that promised the exit
---- `needs` performs — this only RECORDS the enforcement gap).
+--- process — it only RECORDS the enforcement gap (`needs` is the one
+--- that exits).
 --- @param reason string Why enforcement could not run
 --- @param strict boolean? Escalate to failure under COSMIC_ENFORCE=1
 local function enforce_skip(reason: string, strict?: boolean)
@@ -212,12 +210,10 @@ end
 --- is always provisioned and its absence means the provisioning broke,
 --- not that the developer is mid-setup.
 ---
---- Say so by EXITING — which this function now does itself
---- (api-review-8): when the precondition is missing it prints the skip
---- and exits EXIT_SKIP, so a caller cannot forget the exit and turn a
---- skip into a silent pass (the old `if not needs(...) then
---- os.exit(...) end` dance, and the lint rule that policed it, are
---- both gone). When it returns at all, the precondition held.
+--- Say so by EXITING — which this function does itself: when the
+--- precondition is missing it prints the skip and exits EXIT_SKIP, so
+--- a caller cannot forget the exit and turn a skip into a silent
+--- pass. When it returns at all, the precondition held.
 ---
 ---     check.needs("the make engine", fs.is_file(make_bin))
 ---

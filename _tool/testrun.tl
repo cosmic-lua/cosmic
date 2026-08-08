@@ -8,8 +8,7 @@ local records = require("_tool.records")
 local time = require("cosmic.time")
 
 --- The output grammar lives in `_tool.records`, which is where every
---- printer and every asserting test reads it from (api-review: the
---- STATUS_ICONS/status_of re-exports are gone; require _tool.records).
+--- printer and every asserting test reads it from.
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
@@ -319,44 +318,6 @@ local function report(paths: {string}): integer
 
   return failed > 0 and 1 or 0
 end
-
---- Example showing a minimal Makefile-based test harness.
---- Demonstrates pattern rules for running tests and collecting results.
----
---- ```makefile
---- # Pattern rule: for each test_*.lua, run it and capture output
---- o/test/%.got: test_%.lua $(COSMIC)
---- 	$(COSMIC) --test $@ $< $<
----
---- # Collect all test targets
---- tests := $(patsubst test_%.lua,o/test/%.got,$(wildcard test_*.lua))
----
---- # Run all tests and report
---- test: $(tests)
---- 	$(COSMIC) --report $(tests)
---- ```
-local function Example_makefile()
-  local testrun = require("_tool.testrun")
-  local tmpdir = fs.temp_dir("/tmp/testrun_example_XXXXXX")
-  if not tmpdir then return end
-
-  -- Run /bin/true and capture output
-  local exit_code = testrun.run({"/bin/true"}, fs.join(tmpdir, "test1"))
-  print("exit_code:", exit_code)
-
-  -- Report on the result
-  testrun.report({fs.join(tmpdir, "test1")})
-
-  local _ok, _err = fs.remove_all(tmpdir)
-  -- Output:
-  -- exit_code:	0
-  -- ✓ test1
-  --
-  -- 1 checks: 1 passed
-end
-
--- Suppress unused warning
-local _ = Example_makefile
 
 local record TestrunModule
   run: function(argv: {string}, output_base: string): integer, string

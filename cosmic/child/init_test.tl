@@ -390,7 +390,7 @@ local function test_spawn_overlap_no_stdin_leak()
 end
 test_spawn_overlap_no_stdin_leak()
 
--- === honest option types: fd.Handle in Options (/ api-review-2 B5) ===
+-- === honest option types: fd.Handle in Options ===
 
 -- stdout as a Handle: the child writes into a pipe we own; run()'s own
 -- capture is then empty for that stream.

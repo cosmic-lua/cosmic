@@ -39,7 +39,7 @@ test_style_valid()
 -- here is its own change with its own multi-hundred-line diff.
 local function test_style_long_line_is_not_enforced()
   -- Column width is house style (90), not a gate: the dead
-  -- check_column_length export is gone (api-review-7), and the unused
+  -- check_column_length export is gone, and the unused
   -- DEFAULT_COLUMN_WIDTH constant followed it (#993).
   local long_line = string.rep("x", 91)
   local input = write_temp("style_long.tl", long_line .. "\n")
