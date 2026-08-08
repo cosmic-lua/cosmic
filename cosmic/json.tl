@@ -7,8 +7,8 @@
 --- - `{"a":null,"b":1}` decodes with `a` absent and re-encodes as `{"b":1}`.
 --- - `[1,null,2]` decodes with a hole at index 2; re-encoding sees a table
 ---   of length 1 and truncates to `[1]`.
---- - NaN and +/-Inf fail encode() with an error unless `nan="null"` is
----   given, which serializes them as `null` (the v8 behavior).
+--- - NaN and +/-Inf fail encode() with an error unless `nan_as_null=true`
+---   is given, which serializes them as `null` (the v8 behavior).
 --- If null-preserving round-trips matter, restructure the data (e.g. encode
 --- explicit sentinel values) rather than relying on this module.
 ---
@@ -27,19 +27,23 @@ local record Options
   --- Indentation string used when pretty is true (default " ").
   indent: string
   --- Maximum serializer recursion depth (default 64, max 32767).
-  maxdepth: integer
-  --- The only accepted value is "null": encode NaN and Infinity as
-  --- `null` (the v8 behavior) instead of failing with nil, error.
-  nan: string
+  max_depth: integer
+  --- Encode NaN and +/-Inf as `null` (the v8 behavior) instead of
+  --- failing with nil, error (default false).
+  nan_as_null: boolean
 end
 
 --- Decode a JSON string into a Lua value.
 --- Converts JSON strings, numbers, booleans, arrays, and objects into their Lua equivalents.
---- JSON `null` becomes nil, so null-valued object keys vanish and arrays
---- containing null are truncated at the first null when re-encoded (see the
---- module-level null policy above).
+--- A successful decode of JSON `null` returns `nil, nil` — success the
+--- house `if not v then` guard cannot tell from failure — so when the
+--- input may be `null`, test the ERROR, not the value. Better, when
+--- the top-level shape is known, use decode_object/decode_array: their
+--- nil always means failure. JSON `null` becomes Lua nil, so
+--- null-valued object keys vanish and arrays containing null decode
+--- with holes (see the module-level null policy above).
 --- @param str string The JSON string to decode
---- @return any The decoded Lua value (table, string, number, boolean, or nil)
+--- @return any The decoded Lua value (table, string, number, boolean, or nil — and nil for JSON null)
 --- @return string? Error message if decoding failed
 local function decode(str: string): any, string
   local result, err = cosmo.DecodeJson(str)
@@ -48,11 +52,11 @@ end
 
 --- Encode a Lua value as a JSON string.
 --- Converts Lua tables, strings, numbers, booleans, and nil into JSON format.
---- NaN and +/-Inf fail with an error unless `nan="null"` is given;
---- nil-valued table entries are absent (see the module-level null policy
---- above).
+--- NaN and +/-Inf fail with an error unless `nan_as_null=true` is
+--- given; nil-valued table entries are absent (see the module-level
+--- null policy above).
 --- @param value any The Lua value to encode
---- @param opts Options? pretty, sorted, indent, maxdepth, nan
+--- @param opts Options? pretty, sorted, indent, max_depth, nan_as_null
 --- @return string | nil The JSON string representation
 --- @return string? Error message if encoding failed
 local function encode(value: any, opts?: Options): string | nil, string
@@ -60,13 +64,14 @@ local function encode(value: any, opts?: Options): string | nil, string
   local err: string | nil
   if opts then
     -- Build a plain table to avoid a nominal type conflict with
-    -- cosmo's EncoderOptions record.
+    -- cosmo's EncoderOptions record; the charter spellings map to the
+    -- binding's own (maxdepth, nan="null") here.
     result, err = cosmo.EncodeJson(value, {
         pretty = opts.pretty,
         sorted = opts.sorted,
         indent = opts.indent,
-        maxdepth = opts.maxdepth,
-        nan = opts.nan,
+        maxdepth = opts.max_depth,
+        nan = opts.nan_as_null and "null" or nil,
       })
   else
     result, err = cosmo.EncodeJson(value)

@@ -160,12 +160,12 @@ local function test_encode_default_stays_compact()
 end
 test_encode_default_stays_compact()
 
-local function test_encode_maxdepth()
-  local result, err = json.encode({a = {b = {c = 1}}}, {maxdepth = 2})
-  assert(result == nil, "encode past maxdepth should fail")
-  assert(err ~= nil, "maxdepth failure should carry an error message")
+local function test_encode_max_depth()
+  local result, err = json.encode({a = {b = {c = 1}}}, {max_depth = 2})
+  assert(result == nil, "encode past max_depth should fail")
+  assert(err ~= nil, "max_depth failure should carry an error message")
 end
-test_encode_maxdepth()
+test_encode_max_depth()
 
 -- Null policy: these pin the documented (lossy) behavior so a change in the
 -- C encoder/decoder shows up as a test failure, not a silent contract drift.
@@ -198,11 +198,11 @@ local function test_nan_inf_encoding()
   local inf_json, inf_err = json.encode({math.huge})
   assert(inf_json == nil, "Inf is documented to fail encode, got: " .. tostring(inf_json))
   assert(inf_err ~= nil, "Inf encode failure should carry an error message")
-  -- nan="null" opts into the v8 behavior for both NaN and Infinity.
-  local nan_null = json.encode({0 / 0}, {nan = "null"})
-  assert(nan_null == "[null]", "NaN with nan='null' should encode, got: " .. tostring(nan_null))
-  local inf_null = json.encode({math.huge, -math.huge}, {nan = "null"})
-  assert(inf_null == "[null,null]", "Inf with nan='null' should encode, got: " .. tostring(inf_null))
+  -- nan_as_null opts into the v8 behavior for both NaN and Infinity.
+  local nan_null = json.encode({0 / 0}, {nan_as_null = true})
+  assert(nan_null == "[null]", "NaN with nan_as_null should encode, got: " .. tostring(nan_null))
+  local inf_null = json.encode({math.huge, -math.huge}, {nan_as_null = true})
+  assert(inf_null == "[null,null]", "Inf with nan_as_null should encode, got: " .. tostring(inf_null))
 end
 test_nan_inf_encoding()
 
@@ -269,7 +269,7 @@ end
 test_decode_depth_limit()
 
 local function test_encode_default_depth_limit()
-  -- Without an explicit maxdepth, a very deep table still fails cleanly.
+  -- Without an explicit max_depth, a very deep table still fails cleanly.
   local t: {any} = {1}
   local root = t
   for _ = 1, 200 do
