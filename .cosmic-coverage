@@ -99,7 +99,7 @@ cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
-cosmic/_teal_engine.tl 123 123
+cosmic/_teal_engine.tl 123 128
 cosmic/_teal_hints.tl 42 42
 cosmic/ansi.tl 86 86
 cosmic/check.tl 110 114
@@ -195,7 +195,7 @@ cosmic/stream.tl 0 2
 cosmic/string.tl 180 183
 cosmic/sys.tl 14 22
 cosmic/tar.tl 116 126
-cosmic/teal.tl 92 92
+cosmic/teal.tl 92 100
 cosmic/time.tl 142 155
 cosmic/tty.tl 119 126
 cosmic/url.tl 126 141
@@ -203,4 +203,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14809 19422
+total 14809 19435
