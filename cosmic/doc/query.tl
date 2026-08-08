@@ -80,18 +80,18 @@ end
 
 --- List guides with descriptions from each file's heading.
 local function guides(): {{string, string}}
-  local topics = guide_topics()
-  local guides: {{string, string}} = {}
-  for _, name in ipairs(topics) do
+  local names = guide_topics()
+  local out: {{string, string}} = {}
+  for _, name in ipairs(names) do
     local content = require("cosmic.fs").read(GUIDES_DIR .. "/" .. name .. ".md")
     local desc = name
     if content then
       local heading = string.match(content, "^#%s+(.-)%s*\n")
       if heading then desc = heading end
     end
-    table.insert(guides, {name, desc})
+    table.insert(out, {name, desc})
   end
-  return guides
+  return out
 end
 
 --- Show a guide topic or list all guides.
@@ -143,19 +143,19 @@ local function topics(include_cosmo?: boolean): {{string, string}}
   if not index then return {} end
   local idx = index
 
-  local topics: {{string, string}} = {}
+  local out: {{string, string}} = {}
   for name, doc in pairs(idx.modules) do
     if not doc.internal and (include_cosmo or not is_cosmo_module(name)) then
       local desc = docs_render.first_paragraph(doc.module_doc)
-      table.insert(topics, {name, desc})
+      table.insert(out, {name, desc})
     end
   end
 
-  table.sort(topics, function(a: {string, string}, b: {string, string}): boolean
+  table.sort(out, function(a: {string, string}, b: {string, string}): boolean
       return a[1] < b[1]
     end)
 
-  return topics
+  return out
 end
 
 local calc_score = docs_lookup.calc_score

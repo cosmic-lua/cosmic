@@ -37,19 +37,27 @@ local function paired(fn: any): function(q?: string): (string | nil, string)
   end
 end
 
+-- The casts sit in statement position: the pin's parser rejects an
+-- anonymous function type after `as` inside a table constructor.
+-- cast: transitional dual-shape call
+local compat_is_available = (docs_any["is_available"] or docs_any["has_docs"]) as
+function(): boolean
+
+-- cast: transitional dual-shape call
+local compat_topics = (docs_any["topics"] or docs_any["list_topics"]) as
+function(boolean): {{string, string}}
+
+-- cast: transitional dual-shape call
+local compat_guides = (docs_any["guides"] or docs_any["list_guides"]) as
+function(): {{string, string}}
+
 local M: DocCompat = {
   query = paired(docs_any["query"]),
   module_examples = paired(docs_any["module_examples"]
     or docs_any["show_module_examples"]),
-  -- cast: transitional dual-shape call
-  is_available = (docs_any["is_available"] or docs_any["has_docs"]) as
-  function(): boolean,
-  -- cast: transitional dual-shape call
-  topics = (docs_any["topics"] or docs_any["list_topics"]) as
-  function(include_cosmo?: boolean): {{string, string}},
-  -- cast: transitional dual-shape call
-  guides = (docs_any["guides"] or docs_any["list_guides"]) as
-  function(): {{string, string}},
+  is_available = compat_is_available,
+  topics = compat_topics,
+  guides = compat_guides,
 }
 
 return M
