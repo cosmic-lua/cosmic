@@ -43,11 +43,11 @@ the sandbox family is where OSes differ most. all four modules are **fail-closed
 | landlock | Linux >=5.13 | EACCES | inherited by children; only narrows |
 | quicksand | Linux | n/a — setup fails fast | network namespaces + allowlist proxy |
 
-`cosmic.sandbox` (the facade) picks the right mechanism per OS and applies fs policy before sys policy; use its `available()` to report what the host can enforce:
+`cosmic.sandbox` (the facade) picks the right mechanism per OS and applies fs policy before sys policy; use its `availability()` to report what the host can enforce:
 
 ```teal
 local sandbox = require("cosmic.sandbox")
-if sandbox.available().fs then
+if sandbox.availability().fs then
   assert(sandbox.apply {fs = {ro = {"/usr"}, rw = {"/tmp"}}})
 end
 ```

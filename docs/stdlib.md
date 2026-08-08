@@ -25,7 +25,7 @@ from the REPL:
 ```
 $ cosmic -i
 > help("json")
-> help("fs.walk")
+> help("fs.visit")
 ```
 
 ## Error Handling
@@ -43,8 +43,8 @@ failure, and library code never throws:
   no error channel to check
 
 failed `cosmo.unix` calls carry a formatted message plus the numeric
-errno; wrappers add context with `errno.wrap` and branch with
-`errno.is`. the one throwing module is `cosmic.check` (tests and
+errno; wrappers add context with `errno.format` and branch with
+`errno.is_code`. the one throwing module is `cosmic.check` (tests and
 examples only; D23).
 
 each shape is runnable, and gated in CI:

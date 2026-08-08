@@ -305,7 +305,7 @@ jobs:
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             o/bin/cosmic -e 'local s = require("cosmic.sandbox")
-              assert(s.available().fs, "this host cannot enforce; the fenced builds above proved nothing")'
+              assert(s.availability().fs, "this host cannot enforce; the fenced builds above proved nothing")'
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
