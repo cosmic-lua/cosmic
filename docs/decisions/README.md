@@ -31,7 +31,7 @@ than editing the record it replaces.
 | D17 | a graph rule's tool prerequisite is a per-tool stamp, not the binary | [→](d17-tool-stamps.md) |
 | D18 | expensive recipe steps skip on input bytes, not just on mtime | [→](d18-step-skip.md) |
 | D19 | what "public" means for toolchain modules, and the visibility lint | [→](d19-toolchain-visibility.md) |
-| D20 | the naming charter: ten rules, and the renames that applied them | [→](d20-naming-charter.md) |
+| D20 | the naming charter, and the renames that applied it | [→](d20-naming-charter.md) |
 | D21 | carried patches: the middle path between pin and fork | [→](d21-carried-tl-patch.md) |
 | D22 | the CSPRNG surface is infallible; a broken one crashes | [→](d22-infallible-csprng.md) |
 | D23 | cosmic.check throws by design; needs/reap may exit | [→](d23-check-throws.md) |

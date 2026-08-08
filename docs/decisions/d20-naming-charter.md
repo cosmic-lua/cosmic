@@ -1,4 +1,4 @@
-# D20 — the naming charter: ten rules, and the renames that applied them
+# D20 — the naming charter, and the renames that applied it
 
 - **date:** 2026-08
 - **context:** the API review found five or six *competing
@@ -9,7 +9,8 @@
   exports. Each was locally defensible; together they made every call
   site a guess. The pre-1.0 window (D10) is the one time renames are
   cheap.
-- **decision:** ten rules. New code follows them; a deviation is a bug.
+- **decision:** the rules below (ten at first writing; rule 11 added
+  2026-08, #1006). New code follows them; a deviation is a bug.
   1. `snake_case`, words spelled out; no new abbreviations.
      `PascalCase` is for record TYPES only — no PascalCase functions;
      constructors are lowercase (`signal.sigset()`; `Sigset()` is
@@ -17,17 +18,34 @@
   2. Units live in the identifier: `_ms`, `_kb`, `_bytes`. Durations
      are integer milliseconds.
   3. Predicates are `is_*` (`fs.is_file`, `poll:is_empty`);
-     object-state getters are bare participles (`h:closed()`).
+     object-state getters are bare participles (`h:closed()`). Named
+     carve-out (#1006): `starts_with`/`ends_with`/`contains` on
+     `cosmic.string` keep their cross-language spellings — every
+     mainstream string API spells them so — and predicates are `is_*`
+     everywhere else, which is why `re.is_match` and
+     `hash.is_equal_constant_time` sit correctly beside them.
   4. Getters are bare nouns (`sys.nproc()`, `fs.cwd()`); `get*/set*`
      prefixes survive only in syscall-shaped modules (`proc`, `user`,
      `signal`), which keep POSIX names wholesale. Battery modules use
      English: `fs.make_dirs`, `fs.remove_all`, `fs.temp_dir`.
+     Additions (#1006): a syscall-shaped module marks its non-syscall
+     members with a section header (`proc.which`/`interpreter`/
+     `is_main` sit under one), so the wholesale-POSIX license visibly
+     stops where the battery half starts; `net` is declared NOT
+     syscall-shaped — its verbs follow the battery rules. The fs
+     kept-POSIX set is the amended section below.
   5. Constructors: `open` = acquires a closeable resource; `new` =
      pure in-memory object; `wrap` = adopts an existing raw resource.
   6. `parse`/`format` for text↔value; `encode`/`decode` for
      representation change; `escape`/`unescape` for syntax safety.
      Every pair ships both halves or documents why not. The file
      variant is `<verb>_file` (`literal.parse`/`parse_file`).
+     The discriminator (#1006): `encode`/`decode` when the target is a
+     named wire format the world already calls encoding — JSON,
+     base64, hex — so `json.encode`/`json.decode` are sanctioned;
+     `parse`/`format` when reading a structure out of text — URL,
+     time, literal, IP. `re.gmatch`/`re.gsub` are deliberate Lua
+     mirrors, recorded as such, not rule-9 verbs.
   7. Options records are named `Options` (or `<Thing>Options` when a
      module has several); the argument is named `opts`. Named
      exemption (#991): `flags.Spec` — a CLI interface declaration is
@@ -40,6 +58,13 @@
      (`child.start`), `begin`/`finish` for spans (`instrument`).
   10. Every type in a public signature is exported (`type X = X`);
       `Reader`/`Writer` are reserved for the `cosmic.stream` contract.
+  11. (added 2026-08, #1006) A multi-value return whose last slot
+      would be an error returns a RECORD instead: the error must be
+      reachable from `local v, err = ...` and from `check.must`, so a
+      tuple never carries it in slot 3 or beyond. `proc.WaitResult`,
+      `proc.Rlimit`, `signal.PrevAction`, and `shm`'s `Exchange` are
+      the shape; this rule replaces the four per-site justifications
+      they carried.
 - **the transition:** the pinned cosmic that cold-starts a build
   EXECUTES tree tooling (`_cli`/`_make`/…) against its own embedded,
   pre-rename `cosmic.*` modules, so a rename cannot be atomic: renamed
@@ -54,7 +79,13 @@
   `Reader`/`Writer` type aliases, `child.spawn`, `embed.run`,
   `doc.run`, `literal.of_source/of_file`, `proc.commandv` — is gone,
   and tooling calls the charter names everywhere. The protocol above
-  remains the template for any future public rename.
+  remains the template for any future public rename, with one
+  amendment (#1006): a rename wave's PR lists, explicitly, the family
+  members it does NOT rename. Every wave so far missed a sibling the
+  next review had to catch — `listen_unix` beside `listen_tcp`, zip's
+  reader beside `fetch.Reader`, `maxresponse` beside `timeout_ms` —
+  and the omission was invisible precisely because nothing required
+  naming it.
 - **the kept-POSIX set (amended 2026-08, #988):** operations are named
   in English, and the POSIX names that survive are the
   effectively-English concepts — a closed, recorded carve-out, not a
@@ -73,4 +104,8 @@
   family, zip `Archive`/`Builder`, url escape family, syslog `Level`
   enum, tty `is_tty` consolidation, net dial options, fs find/find_iter)
   following separately. Renames not yet applied are tracked there, not
-  relitigated per-file.
+  relitigated per-file. Two error-shape carve-outs recorded in their
+  own files bound rule 11 and the never-throw doctrine:
+  [D22](d22-infallible-csprng.md) (the CSPRNG's deliberate
+  crash-on-failure) and [D23](d23-check-throws.md) (`cosmic.check`
+  alone may throw).

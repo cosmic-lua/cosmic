@@ -7,9 +7,8 @@ local errstr = require("cosmic.errno").wrap
 
 local type Rusage = unix.Rusage
 
---- A resource limit pair. A record rather than (soft, hard, err)
---- returns: the old shape put the error in slot 3, where
---- `local soft, hard = ...` silently lost it.
+--- A resource limit pair; a record per D20 rule 11 (the error stays
+--- reachable in slot 2).
 local record Rlimit
   --- Soft limit (can be exceeded, may generate a signal).
   soft: integer
