@@ -82,29 +82,25 @@ local function run(argv: {string}, output_base: string): integer, string
   -- other one (`.got`, `.out`, `.err`, `.tests`) instead of scraped
   -- back out of prose.
   local started_ms = time.monotonic_ms()
-  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
-  -- #981-class): the pinned binary's child.run returns a Result with
-  -- spawn_error folded in; the tree's returns Result | nil, string.
-  -- cast: transitional dual-shape call
-  local run_dual = child.run as function({string}, child.Options): (any, any)
-  local r_any, rerr = run_dual(argv, {env = child_env})
+  local r, rerr = child.run(argv, {env = child_env})
   local wall_ms = time.monotonic_ms() - started_ms
-  -- cast: transitional dual-shape probe
-  local spawn_err = r_any ~= nil and (r_any as {string: any}).spawn_error or rerr
-  local r = (r_any or {}) as child.Result -- cast: transitional dual-shape result
-  local stdout_content = r.stdout or ""
-  local stderr_content = r.stderr or ""
+  local stdout_content = ""
+  local stderr_content = ""
   local exit_code: integer = 1
-  if r_any == nil or spawn_err ~= nil then
+  if r == nil then
     -- The executable could not be started (e.g. a missing binary): report the
     -- conventional 127 "command not found" code and surface the error.
     exit_code = 127
-    stderr_content = tostring(spawn_err or "start failed")
-  elseif r.code ~= nil then
-    exit_code = r.code
-  elseif r.signal ~= nil then
-    -- Signal death is reported as the conventional 128+signal exit code.
-    exit_code = (128 + r.signal) as integer -- cast: number to integer
+    stderr_content = tostring(rerr or "start failed")
+  else
+    stdout_content = r.stdout or ""
+    stderr_content = r.stderr or ""
+    if r.code ~= nil then
+      exit_code = r.code
+    elseif r.signal ~= nil then
+      -- Signal death is reported as the conventional 128+signal exit code.
+      exit_code = (128 + r.signal) as integer -- cast: number to integer
+    end
   end
 
   -- Clean up temp directory

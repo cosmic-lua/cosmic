@@ -117,18 +117,10 @@ end
 --- output's mtime. (Moved verbatim from steps.tl; see the restamp
 --- comment there for why an unchanged result still touches the mtime.)
 local function run_into(argv: {string}, out: string): integer
-  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
-  -- #981-class): the pinned binary's child.run returns a Result with
-  -- spawn_error folded in; the tree's returns Result | nil, string.
-  -- cast: transitional dual-shape call
-  local run_dual = child.run as function({string}, child.Options): (any, any)
-  local r_any, rerr = run_dual(argv, nil)
-  -- cast: transitional dual-shape probe
-  local spawn_err = r_any ~= nil and (r_any as {string: any}).spawn_error or rerr
-  if r_any == nil or spawn_err ~= nil then
-    return fail("start " .. argv[1] .. " failed: " .. tostring(spawn_err or "start failed"))
+  local r, rerr = child.run(argv, nil)
+  if r == nil then
+    return fail("start " .. argv[1] .. " failed: " .. tostring(rerr or "start failed"))
   end
-  local r = r_any as child.Result -- cast: transitional dual-shape result
   if r.stderr and r.stderr ~= "" then
     io.stderr:write(r.stderr)
   end

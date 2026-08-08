@@ -205,19 +205,14 @@ local function to_the_tree(proj: Project, argv: {string},
 
   local was_us = fs.is_file(built) and same_file(built, self)
   local before = stamp_of(built)
-  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
-  -- #981-class): the pinned binary's child.run returns a Result with
-  -- spawn_error folded in; the tree's returns Result | nil, string.
-  -- cast: transitional dual-shape call
-  local run_dual = child.run as function({string}, child.Options): (any, any)
-  local r_any, rerr = run_dual({self, "--make", "build"},
+  local r, rerr = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})
-  local r = r_any as child.Result -- cast: transitional dual-shape result
-  if r_any == nil or not r.ok then
-    -- cast: transitional dual-shape probe
-    local spawn_err = r_any ~= nil and (r_any as {string: any}).spawn_error or rerr
-    return false, "make: " ..
-    tostring(spawn_err or "the converging build failed"), "build failed"
+  if r == nil then
+    return false, "make: " .. tostring(rerr or "the converging build failed"),
+    "build failed"
+  end
+  if not r.ok then
+    return false, "make: the converging build failed", "build failed"
   end
   if not fs.is_file(built) then
     return false, "make: " .. built .. ": the build produced no artifact",
