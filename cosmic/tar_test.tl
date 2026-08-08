@@ -227,6 +227,37 @@ local function test_truncated_archive_is_refused()
 end
 test_truncated_archive_is_refused()
 
+-- Plain (uncompressed) .tar: gzip is detected from the magic bytes, so
+-- an archive that never went through gzip extracts with the same call.
+local function test_plain_tar_extracts()
+  local dest = fs.join(tmpdir, "untar-plain")
+  local ar = fs.join(tmpdir, "plain.tar")
+  local body = tar_entry("plain.txt", "no gzip here\n", oct("644"), "0", "")
+  .. string.rep("\0", 2 * BLOCK)
+  assert(fs.write(ar, body))
+  local ok, err = untar.extract(ar, dest)
+  assert(ok, "plain tar extract failed: " .. tostring(err))
+  assert(fs.read(fs.join(dest, "plain.txt")) == "no gzip here\n", "plain tar content")
+end
+test_plain_tar_extracts()
+
+-- max_archive_bytes caps the unpacked size, so a small compressed file
+-- cannot balloon into an unbounded decompression.
+local function test_max_archive_bytes_caps_decompression()
+  local dest = fs.join(tmpdir, "untar-capped")
+  local ar = fs.join(tmpdir, "capped.tar.gz")
+  make_targz(ar, {
+      tar_entry("big.txt", string.rep("a", 4096), oct("644"), "0", ""),
+    })
+  local ok, err = untar.extract(ar, dest, {max_archive_bytes = 1024})
+  assert(not ok, "an archive over the cap must be refused")
+  assert(err and err:match("gunzip"), "the gunzip step enforces the cap, got: " .. tostring(err))
+
+  local ok2, err2 = untar.extract(ar, dest, {max_archive_bytes = 64 * 1024})
+  assert(ok2, "the same archive under the cap extracts: " .. tostring(err2))
+end
+test_max_archive_bytes_caps_decompression()
+
 local function test_unsafe_path()
   assert(untar.unsafe_path(""), "empty")
   assert(untar.unsafe_path("/abs"), "absolute")

@@ -17,11 +17,12 @@ test_roundtrip_default_zlib()
 
 local function test_roundtrip_explicit_formats()
   local data = "format round-trip \x00\xff\x10\x20 payload"
-  local formats: {compress.Format} = {"zlib", "gzip", "raw"}
+  local formats: {compress.CompressFormat} = {"zlib", "gzip", "raw"}
   for _, format in ipairs(formats) do
     local compressed = check.must(compress.compress(data, {format = format}))
-    -- cast: enum widening
-    local result, err = compress.decompress(compressed, {format = format})
+    local result, err = compress.decompress(compressed,
+      -- cast: CompressFormat's word set nests inside DecompressFormat's
+      {format = format as compress.DecompressFormat})
     assert(err == nil, format .. " roundtrip failed: " .. (err or ""))
     assert(result == data, format .. " roundtrip mismatch")
   end
@@ -29,11 +30,12 @@ end
 test_roundtrip_explicit_formats()
 
 local function test_roundtrip_empty_per_format()
-  local formats: {compress.Format} = {"zlib", "gzip", "raw"}
+  local formats: {compress.CompressFormat} = {"zlib", "gzip", "raw"}
   for _, format in ipairs(formats) do
     local compressed = check.must(compress.compress("", {format = format}))
-    -- cast: enum widening
-    local result, err = compress.decompress(compressed, {format = format})
+    local result, err = compress.decompress(compressed,
+      -- cast: CompressFormat's word set nests inside DecompressFormat's
+      {format = format as compress.DecompressFormat})
     assert(err == nil, format .. " empty roundtrip failed: " .. (err or ""))
     assert(result == "", format .. ": expected empty string")
   end
@@ -93,7 +95,7 @@ test_gzip_fixture_from_system_gzip()
 
 local function test_auto_detects_zlib_and_gzip()
   local data = "auto-detected payload"
-  local formats: {compress.Format} = {"zlib", "gzip"}
+  local formats: {compress.CompressFormat} = {"zlib", "gzip"}
   for _, format in ipairs(formats) do
     local compressed = check.must(compress.compress(data, {format = format}))
     local result, err = compress.decompress(compressed, {format = "auto"})
@@ -137,29 +139,31 @@ local function test_decompress_truncated()
 end
 test_decompress_truncated()
 
--- Zip-bomb bound tests: max_output is enforced per format, so
+-- Zip-bomb bound tests: max_output_bytes is enforced per format, so
 -- attacker-controlled input cannot balloon memory.
 
-local function test_max_output_bound_per_format()
+local function test_max_output_bytes_bound_per_format()
   local data = string.rep("x", 2000)
-  local formats: {compress.Format} = {"zlib", "gzip", "raw", "auto"}
+  local formats: {compress.DecompressFormat} = {"zlib", "gzip", "raw", "auto"}
   for _, format in ipairs(formats) do
-    local cformat: compress.Format = "gzip"
+    local cformat: compress.CompressFormat = "gzip"
     if format ~= "auto" then
-      cformat = format
+      -- cast: enum narrowed by the ~= "auto" guard above
+      cformat = format as compress.CompressFormat
     end
     local compressed = check.must(compress.compress(data, {format = cformat}))
-    local result, err = compress.decompress(compressed, {format = format, max_output = 100})
-    assert(result == nil, format .. ": output beyond max_output must be rejected")
+    local result, err = compress.decompress(compressed,
+      {format = format, max_output_bytes = 100})
+    assert(result == nil, format .. ": output beyond max_output_bytes must be rejected")
     assert(err ~= nil, format .. ": expected error message")
 
     local full = check.must(
-      compress.decompress(compressed, {format = format, max_output = 2000}),
-      format .. ": max_output at the exact size should pass")
-    assert(#full == 2000, format .. ": roundtrip under max_output should succeed")
+      compress.decompress(compressed, {format = format, max_output_bytes = 2000}),
+      format .. ": max_output_bytes at the exact size should pass")
+    assert(#full == 2000, format .. ": roundtrip under max_output_bytes should succeed")
   end
 end
-test_max_output_bound_per_format()
+test_max_output_bytes_bound_per_format()
 
 -- Contract test: the bespoke prefixed-deflate surface is gone.
 

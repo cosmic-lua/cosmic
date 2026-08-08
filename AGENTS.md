@@ -400,7 +400,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | table | deep copy/merge/equality and map/filter/reduce for tables |
-| tar | extract a gzipped tarball, in process |
+| tar | extract a tarball (.tar.gz or plain .tar), in process |
 | teal | Teal compilation and type checking |
 | testrun | test execution and reporting |
 | time | timestamps, sleep, clock, datetime |

@@ -43,11 +43,17 @@ local record stream
     write: function(self: Writer, data: string): number | nil, string
   end
 
-  --- A Writer that accumulates in memory (the sink from_string is the
+  --- A Writer that accumulates in memory (the sink new_reader is the
   --- source of): contents() returns everything written so far.
   record Buffer is Writer
     contents: function(self: Buffer): string
   end
+
+  --- What lines() returns: each call yields the next line without its
+  --- trailing newline, then nil + the error once on a read failure,
+  --- then plain nil forever (api-review #996: the type was inline at
+  --- every signature; exported so consumers can name it).
+  type LineIter = function(): string | nil, string
 
   --- Optional capability: a Reader that can scan for a delimiter
   --- natively (fetch.Reader buffers it in C). read_until(delim)
@@ -61,11 +67,11 @@ local record stream
   end
 
   write_all: function(w: Writer, data: string): boolean, string
-  read_all: function(r: Reader, max?: integer): string | nil, string
-  copy: function(dst: Writer, src: Reader, buf_size?: integer): integer | nil, string
-  lines: function(r: Reader): function(): string | nil, string
-  from_string: function(data: string): Reader
-  buffer: function(): Buffer
+  read_all: function(r: Reader, max_bytes?: integer): string | nil, string
+  copy: function(dst: Writer, src: Reader, buffer_size_bytes?: integer): integer | nil, string
+  lines: function(r: Reader): LineIter
+  new_reader: function(data: string): Reader
+  new_buffer: function(): Buffer
 end
 
 --- Write all of data, retrying short writes until done. The two
@@ -95,11 +101,11 @@ end
 
 --- Read to end of stream and return everything as one string.
 --- @param r Reader The source
---- @param max integer? Cap on the result size; exceeding it is an error
----   (untrusted input must not balloon memory silently)
+--- @param max_bytes integer? Cap on the result size; exceeding it is an
+---   error (untrusted input must not balloon memory silently)
 --- @return string | nil The bytes read, or nil on error
 --- @return string? Error message on failure
-function stream.read_all(r: stream.Reader, max?: integer): string | nil, string
+function stream.read_all(r: stream.Reader, max_bytes?: integer): string | nil, string
   local parts: {string} = {}
   local total = 0
   while true do
@@ -111,8 +117,8 @@ function stream.read_all(r: stream.Reader, max?: integer): string | nil, string
       return table.concat(parts)
     end
     total = total + #chunk
-    if max and total > max then
-      return nil, "read_all: stream exceeds " .. tostring(max) .. " bytes"
+    if max_bytes and total > max_bytes then
+      return nil, "read_all: stream exceeds " .. tostring(max_bytes) .. " bytes"
     end
     parts[#parts + 1] = chunk
   end
@@ -121,13 +127,15 @@ end
 --- Pump src into dst until src ends. Returns the byte count copied.
 --- @param dst Writer The sink
 --- @param src Reader The source
---- @param buf_size integer? Read bound per chunk (default: the reader's own)
+--- @param buffer_size_bytes integer? Read bound per chunk (default: the
+---   reader's own)
 --- @return integer | nil Bytes copied, or nil on error
 --- @return string? Error message on failure
-function stream.copy(dst: stream.Writer, src: stream.Reader, buf_size?: integer): integer | nil, string
+function stream.copy(dst: stream.Writer, src: stream.Reader,
+    buffer_size_bytes?: integer): integer | nil, string
   local copied = 0
   while true do
-    local chunk, rerr = src:read(buf_size)
+    local chunk, rerr = src:read(buffer_size_bytes)
     if rerr then
       return nil, rerr
     end
@@ -148,10 +156,11 @@ end
 --- hand-rolled adapter. read(n?) returns successive chunks (at most n
 --- bytes when n is given, the whole remainder otherwise), then bare
 --- nil at end of stream, per the Reader contract; n must be positive
---- when given.
+--- when given. (api-review #996: was `from_string`; rule 5 names
+--- constructors `new_*`, pairing it with new_buffer.)
 --- @param data string The bytes to serve
 --- @return Reader A reader over the bytes
-function stream.from_string(data: string): stream.Reader
+function stream.new_reader(data: string): stream.Reader
   local pos = 1
   local reader = {
     read = function(_self: stream.Reader, n?: number): string | nil, string
@@ -173,12 +182,13 @@ function stream.from_string(data: string): stream.Reader
   return reader as stream.Reader -- cast: table implements the Reader interface
 end
 
---- Collect writes in memory: the Writer half of from_string. write()
+--- Collect writes in memory: the Writer half of new_reader. write()
 --- appends and reports the chunk fully written; contents() returns
 --- everything written so far. Point stream.copy (or any Writer taker)
 --- at one to materialize a pipeline's output as a string.
+--- (api-review #996: was `buffer`; rule 5 names constructors `new_*`.)
 --- @return Buffer The in-memory writer
-function stream.buffer(): stream.Buffer
+function stream.new_buffer(): stream.Buffer
   local parts: {string} = {}
   local buf = {
     write = function(_self: stream.Writer, data: string): number | nil, string
@@ -198,7 +208,7 @@ end
 --- nil + error once on failure, then plain nil forever.
 --- @param dr DelimReader The source
 --- @return function Iterator yielding lines without the trailing newline
-local function lines_via_read_until(dr: stream.DelimReader): function(): string | nil, string
+local function lines_via_read_until(dr: stream.DelimReader): stream.LineIter
   local done = false
   return function(): string | nil, string
     if done then
@@ -226,7 +236,7 @@ end
 --- the DelimReader capability skips the Lua buffering entirely.
 --- @param r Reader The source
 --- @return function Iterator yielding lines without the trailing newline
-function stream.lines(r: stream.Reader): function(): string | nil, string
+function stream.lines(r: stream.Reader): stream.LineIter
   local dr = r as stream.DelimReader -- cast: duck-typed capability probe
   if type(dr.read_until) == "function" then
     return lines_via_read_until(dr)

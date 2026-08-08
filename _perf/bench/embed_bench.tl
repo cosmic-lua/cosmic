@@ -87,13 +87,18 @@ local function count_zip_files(exe_path: string): integer, string
   if not data then
     return nil, "slurp: " .. tostring(rerr)
   end
-  local reader, zerr = czip.open_bytes(data)
+  local reader, zerr = czip.open_string(data)
   if not reader then
-    return nil, "zip.open_bytes: " .. tostring(zerr)
+    return nil, "zip.open_string: " .. tostring(zerr)
   end
   local rr = reader
+  local entries, lerr = rr:list()
+  if not entries then
+    rr:close()
+    return nil, "zip list: " .. tostring(lerr)
+  end
   local count = 0
-  for _, entry in ipairs(rr:list()) do
+  for _, entry in ipairs(entries) do
     if entry.name:sub(-1) ~= "/" then
       count = count + 1
     end

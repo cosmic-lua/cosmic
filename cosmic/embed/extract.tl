@@ -28,7 +28,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   end
 
   -- Open straight from the path: reading the whole executable into a
-  -- Lua string first (czip.open_bytes) cost the binary's size in
+  -- Lua string first (czip.open_string) cost the binary's size in
   -- allocation per call. The failure branch re-probes with fs.read to
   -- keep the two documented messages distinguishable — an unreadable
   -- file stays "cannot read executable", a readable non-archive stays
@@ -44,8 +44,14 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
 
   -- The count czip.extract does not return: every non-directory entry
   -- is written, or the whole extraction fails before partial output.
+  local entries, lerr = archive:list()
+  if not entries then
+    archive:close()
+    return {ok = false, message = "error: cannot list '" .. exe_path .. "': " ..
+      (lerr or "unknown error"), file_count = 0}
+  end
   local count = 0
-  for _, entry in ipairs(archive:list()) do
+  for _, entry in ipairs(entries) do
     if entry.name:sub(-1) ~= "/" then
       count = count + 1
     end

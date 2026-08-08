@@ -42,7 +42,7 @@ local function test_extract_embed_roundtrip()
 
   -- Read original main.lua from the zip
   local orig_data = fs.read(cosmic)
-  local orig_reader = check.must(zip.open_bytes(orig_data))
+  local orig_reader = check.must(zip.open_string(orig_data))
   local orig_main = orig_reader:read("main.lua")
   assert(orig_main, "original should have main.lua")
   orig_reader:close()
@@ -59,7 +59,7 @@ local function test_extract_embed_roundtrip()
 
   -- Read main.lua from the re-embedded binary
   local new_data = fs.read(output)
-  local new_reader = check.must(zip.open_bytes(new_data))
+  local new_reader = check.must(zip.open_string(new_data))
   local new_main = new_reader:read("main.lua")
   assert(new_main == orig_main, "roundtripped main.lua should match original")
   new_reader:close()
@@ -102,9 +102,9 @@ test_extract_modify_embed()
 local function test_embed_overwrites_cleanly()
   -- Read original zip file list
   local orig_data = fs.read(cosmic)
-  local orig_reader = check.must(zip.open_bytes(orig_data))
+  local orig_reader = check.must(zip.open_string(orig_data))
   local orig_files: {string: boolean} = {}
-  for _, entry in ipairs(orig_reader:list()) do
+  for _, entry in ipairs((check.must(orig_reader:list()))) do
     -- Skip directory entries
     if entry.name:sub(-1) ~= "/" then
       orig_files[entry.name] = true
@@ -125,7 +125,7 @@ local function test_embed_overwrites_cleanly()
   -- The custom entry is wrapped: main.lua is the generated
   -- searcher wrapper; the user content lives at main.user.lua.
   local new_data = fs.read(output)
-  local new_reader = check.must(zip.open_bytes(new_data))
+  local new_reader = check.must(zip.open_string(new_data))
   local new_main = new_reader:read("main.lua")
   assert(new_main and string.find(new_main, "cosmic-embed searcher wrapper", 1, true),
     "main.lua should be the embed wrapper: " .. tostring(new_main))
@@ -168,7 +168,7 @@ local function test_embed_preserves_file_modes()
 
   -- Check modes in the zip archive
   local data = fs.read(output)
-  local reader = check.must(zip.open_bytes(data), "failed to open zip from data")
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local script_stat = check.must(reader:stat("run.sh"), "run.sh should exist in zip")
   local config_stat = check.must(reader:stat("config.txt"), "config.txt should exist in zip")
@@ -289,7 +289,7 @@ local function test_extract_rejects_path_traversal()
   -- byte-patch it to a traversal name (no offsets change, so the zip stays
   -- valid). "XX/escaped.txt" -> "../escaped.txt".
   local safe = fs.join(tmpdir, "patched.zip")
-  local w = check.must(zip.create(safe), "should open zip for writing")
+  local w = check.must(zip.open(safe, {mode = "write"}), "should open zip for writing")
   assert(w:add("XX/escaped.txt", "pwned"))
   w:close()
   local raw = check.must(fs.read(safe))
@@ -344,8 +344,8 @@ local function test_embed_symlink_loop_terminates()
   assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
   -- Only real.txt should be embedded, not any path through the loop
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkloop"))
-  local reader = check.must(zip.open_bytes(data))
-  local files = reader:list()
+  local reader = check.must(zip.open_string(data))
+  local files = check.must(reader:list())
   for _, f in ipairs(files) do
     assert(not f.name:match("loop"), "embedded zip should not contain loop path: " .. f.name)
   end
@@ -369,8 +369,8 @@ local function test_embed_symlink_to_outside_file_skipped()
   assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
   -- "leaked.txt" (the symlink) must not appear in the zip
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkoutside"))
-  local reader = check.must(zip.open_bytes(data))
-  local files = reader:list()
+  local reader = check.must(zip.open_string(data))
+  local files = check.must(reader:list())
   for _, f in ipairs(files) do
     assert(not f.name:match("leaked"), "symlink to outside file should not be embedded: " .. f.name)
   end
