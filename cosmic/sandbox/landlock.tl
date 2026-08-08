@@ -8,7 +8,7 @@
 ---
 --- Typical usage:
 ---
----     local ll = require("cosmic.landlock")
+---     local ll = require("cosmic.sandbox.landlock")
 ---     if not ll.available() then return end
 ---     local ok, err = ll.restrict{
 ---       rules = {
@@ -87,11 +87,6 @@ local record RestrictOptions
   handled: integer
   rules: {Rule}
   no_new_privs: boolean
-  --- Set when the caller KNOWS this policy still permits the coverage
-  --- dump — because it granted that directory itself. Skips the seal
-  --- below, so the process reports what it does after restricting
-  --- rather than only what it did before.
-  keep_coverage: boolean
   --- Turn an unsupported host into a successful no-op instead of an
   --- error — the explicit fail-open escape hatch, matching
   --- cosmic.pledge and cosmic.unveil.
@@ -154,7 +149,7 @@ local function abi(): integer | nil, string
       abi_cached = v
     else
       abi_cached_err = err and ("landlock: " .. tostring(err))
-      or "landlock unsupported on this host"
+      or "landlock: unsupported on this host"
     end
   end
   if abi_cached == nil then
@@ -186,13 +181,13 @@ local function restrict(opts?: RestrictOptions): boolean, string
   opts = opts or {}
   if not available() then
     if opts.best_effort then return true end
-    return false, "landlock unsupported on this host"
+    return false, "landlock: unsupported on this host"
   end
   local abi_version = abi()
   if abi_version == nil then
     -- Unreachable past the available() gate; kept so the narrowing is
     -- honest rather than cast.
-    return false, "landlock unsupported on this host"
+    return false, "landlock: unsupported on this host"
   end
   local mask = abi_mask(abi_version)
   local handled = (opts.handled or ALL) & mask
@@ -243,11 +238,12 @@ local function restrict(opts?: RestrictOptions): boolean, string
   end
   -- Flush line-coverage data before rights drop: once the ruleset
   -- lands, the coverage directory MAY no longer be writable, and
-  -- sealing is the only safe answer to "may". `keep_coverage` is a
-  -- caller that has removed the doubt (the recipe fence grants its own
-  -- coverage directory — see `_cli/grants.tl`); the seal-vs-keep rule
-  -- itself lives in cosmic._seal_coverage, shared with pledge/unveil.
-  seal_coverage(opts.keep_coverage)
+  -- sealing is the only safe answer to "may". A caller that has
+  -- removed the doubt (the recipe fence grants its own coverage
+  -- directory — see `_cli/grants.tl`) marks cosmic.coverage instead;
+  -- the seal-vs-keep rule lives in cosmic._seal_coverage, shared with
+  -- pledge/unveil (#989).
+  seal_coverage()
   local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
   unix.close(rsfd)
   if not ok then

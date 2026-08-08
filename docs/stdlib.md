@@ -278,7 +278,7 @@ sections are cosmic.sandbox's own schemas:
 ```teal
 local quicksand = require("cosmic.quicksand")
 
-local box = assert(quicksand.Box.new({
+local box = assert(quicksand.new({
   fs   = { exec = {"/usr"}, ro = {"/etc/ssl/certs"}, rw = {"/tmp"} },
   sys  = { promises = "stdio rpath wpath cpath proc exec" },
   net  = { allow = { ["api.example.com:443"] = {} } },
@@ -289,7 +289,7 @@ local box = assert(quicksand.Box.new({
 os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 ```
 
-`Box.new` validates shape (including `sys` promise tokens, via
+`quicksand.new` validates shape (including `sys` promise tokens, via
 cosmic.sandbox's validator); `run` performs the capability preflight,
 then forks a supervisor that unshares `USER|NET|NS` (+`UTS` if
 `hostname` is set), writes uid/gid maps, brings up loopback,
@@ -300,13 +300,12 @@ drops, drop_privs, the sys policy, and `execvpe(argv, env)`. The
 returned integer is the workload's exit code (or `128+signo` on
 signal).
 
-For finer control the underlying primitives are still available:
-
-- `cosmic.landlock` / `cosmic.pledge` / `cosmic.unveil` for
-  mechanism-specific self-restriction in the current process (custom
-  handled masks, incremental unveil)
-- `cosmic.quicksand.netns` / `.proc` / `.proxy` for manually assembling
-  a box
+Containment is two public modules (#989): `cosmic.sandbox` for
+in-process self-restriction — its `Options` carries the mechanism
+tuning (`no_new_privs`, `handled`) that used to require reaching for
+the mechanism modules — and `cosmic.quicksand` for out-of-process
+boxes. The mechanisms behind them (landlock, pledge, unveil, netns,
+proxy, proc) are internal shards, not API.
 
 ## Documentation
 

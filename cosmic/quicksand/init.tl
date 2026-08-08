@@ -9,9 +9,9 @@
 ---
 --- This module (the umbrella) probes the host for fine-grained feature
 --- availability so callers can fail fast with a specific reason instead
---- of bailing partway through setup on ENOSYS. It also re-exports the
---- declarative Box builder (cosmic.quicksand.box) that composes the
---- primitives into a single run() call.
+--- of bailing partway through setup on ENOSYS. It also fronts the
+--- declarative Box builder (cosmic.quicksand.box): quicksand.new(opts)
+--- composes the primitives into a single box:run() call.
 ---
 --- Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
 --- false` and all submodule calls return ENOSYS-shaped errors.
@@ -28,21 +28,27 @@ local errno = require("cosmic.errno")
 --- the same nominal type.
 local type Capabilities = types.Capabilities
 
---- The typed surface of the re-exported Box builder (the box module's
---- own record type is not directly nameable from here).
-local record BoxIface
-  new: function(opts?: box.BoxOptions): box.Box | nil, string
-  merge: function(...: box.BoxOptions): box.BoxOptions
-end
+--- The box instance and options records, re-exported so callers name
+--- them from the umbrella (rule 10): `quicksand.Box`,
+--- `quicksand.BoxOptions`.
+local type Box = box.Box
+local type BoxOptions = box.BoxOptions
 
 local record QuicksandModule
   type Capabilities = Capabilities
+  type Box = Box
+  type BoxOptions = BoxOptions
+  --- Build a Box from an options table (#989: was the PascalCase
+  --- value path quicksand.Box.new — D20 rule 1 retired that pattern).
+  new: function(opts?: BoxOptions): Box | nil, string
+  --- Compose Box options left-to-right (lists concat + dedupe, maps
+  --- per-key later wins, scalars later wins).
+  merge: function(...: BoxOptions): BoxOptions
   capabilities: function(): Capabilities
   is_supported: function(): boolean
   --- Internal, exported for its own unit tests: pure decision function
   --- over a binding value; never syscalls.
   probe: function(fn: any): boolean
-  Box: BoxIface -- re-export of cosmic.quicksand.box
 end
 
 --- Probe a pledge/unveil-style binding with a no-op call: available
@@ -153,7 +159,7 @@ local function capabilities(): Capabilities
     -- deny-all sandbox. cosmo implements unveil via Landlock on Linux, so it
     -- is available exactly when Landlock is; OpenBSD has it natively.
     unveil = has_landlock or host == "OPENBSD",
-    caps = is_linux and caps.supported(),
+    caps = is_linux and caps.is_supported(),
   }
   return cached
 end
@@ -167,10 +173,11 @@ local function is_supported(): boolean
 end
 
 local M: QuicksandModule = {
+  new = box.new,
+  merge = box.merge,
   capabilities = capabilities,
   is_supported = is_supported,
   probe = probe,
-  Box = box,
 }
 
 return M

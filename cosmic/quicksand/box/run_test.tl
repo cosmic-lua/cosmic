@@ -44,7 +44,7 @@ local function test_run_true_in_subprocess()
   -- return or a non-zero exit from /bin/true is a real failure.
   local r = run_script("box_run_true.lua", [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Box.new({})
+local j, nerr = qs.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/true"})
 if code == nil then
@@ -86,7 +86,7 @@ local sok, serr = signal.setitimer({
   interval_ms = 0,
 })
 if not sok then io.stderr:write("setitimer: " .. tostring(serr) .. "\n"); os.exit(1) end
-local j, nerr = qs.Box.new({})
+local j, nerr = qs.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/sleep", "0.3"})
 if code == nil then
@@ -110,7 +110,7 @@ test_run_survives_eintr_during_wait()
 -- die post-fork as an opaque exit 126; sys now goes through
 -- cosmic.sandbox's validator at new().
 local function test_bogus_sys_promise_rejected_at_new()
-  local new_any = quicksand.Box.new as function(any): any, any -- cast: deliberate invalid input
+  local new_any = quicksand.new as function(any): any, any -- cast: deliberate invalid input
   local j, err = new_any({sys = {promises = "stdio bogus_promise"}})
   assert(j == nil, "bogus promise must be rejected at new()")
   assert(err and (err as string):find("bogus_promise", 1, true), -- cast: from any
@@ -132,7 +132,7 @@ local function test_setup_failure_returns_error_not_exit_code()
 
   local r = run_script("box_bad_cwd.lua", [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Box.new({ cwd = "/nonexistent-quicksand-run-test" })
+local j, nerr = qs.new({ cwd = "/nonexistent-quicksand-run-test" })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/true"})
 if code ~= nil then
@@ -165,7 +165,7 @@ local function test_uid_drop_sets_no_new_privs_subprocess()
 
   local r = run_script("box_nnp_uid.lua", [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Box.new({ proc = { uid = 65534 } })
+local j, nerr = qs.new({ proc = { uid = 65534 } })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/sh", "-c",
   "grep 'NoNewPrivs:' /proc/self/status | grep -q 1 && echo ok || echo fail"})
@@ -203,7 +203,7 @@ local function test_pid_namespace_workload_has_low_pid_subprocess()
 
   local r = run_script("box_pidns.lua", [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Box.new({})
+local j, nerr = qs.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/sh", "-c", "test $$ -le 2 && echo ok || echo fail:$$"})
 if code == nil then
@@ -231,7 +231,7 @@ local function test_pid_namespace_opt_out_subprocess()
 
   local r = run_script("box_nopidns.lua", [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Box.new({ pid_ns = false })
+local j, nerr = qs.new({ pid_ns = false })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/true"})
 if code == nil then

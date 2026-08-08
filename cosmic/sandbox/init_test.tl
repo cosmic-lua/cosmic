@@ -1,8 +1,9 @@
 #!/usr/bin/env cosmic
 local sandbox = require("cosmic.sandbox")
-local landlock = require("cosmic.landlock")
-local pledge = require("cosmic.pledge")
-local unveil = require("cosmic.unveil")
+local plan = require("cosmic.sandbox.plan")
+local landlock = require("cosmic.sandbox.landlock")
+local pledge = require("cosmic.sandbox.pledge")
+local unveil = require("cosmic.sandbox.unveil")
 local sys = require("cosmic.sys")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
@@ -13,25 +14,34 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
   assert(type(sandbox.apply) == "function", "apply should be a function")
-  assert(type(sandbox.available) == "function", "available should be a function")
+  assert(type(sandbox.availability) == "function", "availability should be a function")
+  assert(type(sandbox.is_available) == "function", "is_available should be a function")
   assert(type(sandbox.validate) == "function", "validate should be a function")
-  assert(type(sandbox.plan_landlock) == "function", "plan_landlock should be a function")
+  assert(type(sandbox.merge) == "function", "merge should be a function")
+  local sa = sandbox as {string: any} -- cast: record as map for introspection
+  assert(sa["plan_landlock"] == nil,
+    "plan_landlock left the public surface (#989: cosmic.sandbox.plan)")
+  assert(sa["available"] == sa["availability"],
+    "the deprecated available alias points at availability")
 end
 test_module_exports()
 
--- available() must agree with the mechanism modules it fronts.
-local function test_available_agrees_with_mechanisms()
-  local avail = sandbox.available()
-  assert(type(avail.fs) == "boolean", "available().fs should be boolean")
-  assert(type(avail.sys) == "boolean", "available().sys should be boolean")
+-- availability() must agree with the mechanism shards it fronts, and
+-- is_available() is their conjunction.
+local function test_availability_agrees_with_mechanisms()
+  local avail = sandbox.availability()
+  assert(type(avail.fs) == "boolean", "availability().fs should be boolean")
+  assert(type(avail.sys) == "boolean", "availability().sys should be boolean")
   check.equal(avail.sys, pledge.available(), "sys must mirror pledge.available()")
   if sys.host_os() == "linux" then
     check.equal(avail.fs, landlock.available(), "fs must mirror landlock on Linux")
   else
     check.equal(avail.fs, unveil.available(), "fs must mirror unveil off Linux")
   end
+  check.equal(sandbox.is_available(), avail.fs and avail.sys,
+    "is_available is the per-section conjunction")
 end
-test_available_agrees_with_mechanisms()
+test_availability_agrees_with_mechanisms()
 
 -- Structural validation happens before any enforcement, so rejected
 -- policies are safe to exercise in-process: nothing may be applied.
@@ -108,7 +118,7 @@ test_promise_list_matches_validator()
 -- Fail-closed + best_effort, exercisable in-process only on hosts
 -- missing a mechanism (the check precedes any syscall).
 local function test_fail_closed_when_unavailable()
-  local avail = sandbox.available()
+  local avail = sandbox.availability()
   local apply_any = sandbox.apply
   if avail.fs and avail.sys then
     check.enforce_skip("sandbox fully available on this host; fail-closed path not exercisable")
@@ -148,7 +158,7 @@ local function find_rule(rules: {any}, path: string): {string: any}
 end
 
 local function test_plan_landlock_mapping()
-  local plan_any = sandbox.plan_landlock
+  local plan_any = plan.for_landlock
 
   -- ro means READ and nothing else: a directory of untrusted input
   -- must not become executable because its grant said "read-only".
@@ -194,25 +204,56 @@ local function test_plan_landlock_mapping()
 end
 test_plan_landlock_mapping()
 
--- plan_landlock's second parameter (keep_coverage) must be part of its
--- declared type, not just its implementation: the SandboxModule record
--- previously omitted it, so a typed caller passing it would fail to
--- type-check even though the runtime function accepted it.
-local function test_plan_landlock_keep_coverage_param()
-  local opts_default = sandbox.plan_landlock({ro = {"/usr"}})
-  check.equal(opts_default.keep_coverage, false, "keep_coverage defaults false")
+-- The Options tuning flags absorbed from landlock (#989) must reach
+-- the planned RestrictOptions.
+local function test_plan_tuning_flags()
+  local opts_default = plan.for_landlock({ro = {"/usr"}})
+  check.equal(opts_default.no_new_privs, true, "no_new_privs defaults on")
+  check.equal(opts_default.handled, landlock.ALL, "handled defaults to ALL")
 
-  local opts_kept = sandbox.plan_landlock({ro = {"/usr"}}, true)
-  check.equal(opts_kept.keep_coverage, true, "keep_coverage=true must reach RestrictOptions")
+  local tuned = plan.for_landlock({ro = {"/usr"}}, false, landlock.READ)
+  check.equal(tuned.no_new_privs, false, "no_new_privs=false must reach the plan")
+  check.equal(tuned.handled, landlock.READ, "a narrowed handled mask must reach the plan")
 end
-test_plan_landlock_keep_coverage_param()
+test_plan_tuning_flags()
+
+-- exec_promises is the sys field now (#989: `exec` read as paths
+-- beside fs.exec); the validator checks its tokens like promises.
+local function test_exec_promises_validated()
+  local vok, verr = sandbox.validate(
+    {sys = {promises = "stdio", exec_promises = "stdio bogus_tok"}})
+  assert(not vok and verr:find("bogus_tok", 1, true),
+    "exec_promises tokens must be validated: " .. tostring(verr))
+  assert(sandbox.validate({sys = {promises = "stdio", exec_promises = "stdio"}}),
+    "valid exec_promises must pass")
+end
+test_exec_promises_validated()
+
+-- fs.optional drops rules for missing paths instead of failing the
+-- whole policy; visible through merge + validate (the apply-side
+-- filter is exercised by the live test when this host enforces).
+local function test_merge_composes_policies()
+  local merged = sandbox.merge(
+    {fs = {ro = {"/etc"}, exec = {"/usr"}}, best_effort = true},
+    {fs = {ro = {"/etc", "/srv"}, optional = true}, sys = {promises = "stdio"}})
+  assert(merged.fs, "merged policy carries fs")
+  check.equal(#merged.fs.ro, 2, "ro lists concat and dedupe")
+  check.equal(merged.fs.ro[1], "/etc", "order is first-seen")
+  check.equal(merged.fs.ro[2], "/srv", "later list appends")
+  check.equal(#merged.fs.exec, 1, "unmerged groups survive")
+  check.equal(merged.fs.optional, true, "optional is set by the later policy")
+  check.equal(merged.best_effort, true, "scalars persist from the earlier policy")
+  assert(merged.sys and merged.sys.promises == "stdio", "sys merges in")
+  assert(sandbox.validate(merged), "the merged policy validates")
+end
+test_merge_composes_policies()
 
 -- Live enforcement of a combined policy, in a subprocess (applying is
 -- irreversible). Success also evidences the fs-before-sys ordering:
 -- were pledge applied first, its filter would block the landlock
 -- syscalls and apply would fail.
 local function test_apply_enforces_fs_and_sys()
-  local avail = sandbox.available()
+  local avail = sandbox.availability()
   if not (avail.fs and avail.sys) then
     check.enforce_skip("sandbox fs+sys unavailable on this host")
     return
@@ -267,7 +308,7 @@ test_apply_enforces_fs_and_sys()
 -- fs section enforces: the subprocess proves it can still read
 -- everything afterwards.
 local function test_invalid_sys_leaves_fs_unapplied()
-  local avail = sandbox.available()
+  local avail = sandbox.availability()
   if not avail.fs then
     check.enforce_skip("sandbox fs unavailable on this host")
     return
