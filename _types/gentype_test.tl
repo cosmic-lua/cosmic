@@ -258,6 +258,31 @@ re = {
 end
 test_constant_docs_and_comment_braces()
 
+-- A module's surface includes VALUES, not only functions, and the
+-- definitions write those qualified: `cosmo.null = {}` under a
+-- `---@type` block, outside the module table. Both halves used to miss
+-- it — the extractor dropped the line as neither a function nor a
+-- class, so the parser never saw it — and the value was absent from
+-- the generated types, forcing callers through an erasure cast.
+local function test_qualified_value_field_is_generated()
+  local source = [==[
+cosmo = {
+}
+
+--- The null sentinel.
+---@type JsonValue
+cosmo.null = {}
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "cosmo"))
+  assert(dtl:match("null: any"),
+    "a qualified `<module>.name = …` value field belongs on the module " ..
+    "record:\n" .. dtl)
+  assert(dtl:match("%-%-%- The null sentinel%.\n%s*null:"),
+    "and it carries its doc comment:\n" .. dtl)
+  print("test_qualified_value_field_is_generated: PASS")
+end
+test_qualified_value_field_is_generated()
+
 -- A standalone data class (`---@class mod.Name` + `---@field ...`) renders as
 -- a record even when empty (opaque userdata handles), and every class type is
 -- exported on the module record unless a function shares its name.
