@@ -1,7 +1,8 @@
---- Command-line option parsing utilities.
---- Wraps cosmo.getopt with a convenient Teal-typed interface for parsing
---- command-line arguments with support for short options, long options,
---- and optional/required arguments.
+--- Command-line option parsing: the short/long option grammar behind
+--- cosmic.flags (#991: an internal shard now — cosmic.flags is the one
+--- public parser). Wraps cosmo.getopt with a Teal-typed single-shot
+--- parse supporting short options, long options, and
+--- optional/required arguments.
 local cosmo_getopt = require("cosmo.getopt")
 
 -- The underlying cosmo.getopt binding changed shape across cosmos releases:
@@ -17,13 +18,21 @@ local record LegacyGetopt
 end
 local legacy = cosmo_getopt as LegacyGetopt -- cast: legacy binding surface
 
+--- Whether an option takes an argument (#991: a real enum — the
+--- stringly field let any typo through as "none").
+local enum HasArg
+  "none"
+  "required"
+  "optional"
+end
+
 --- Defines a long option with its name, argument behavior, and optional short alias.
 --- @field name string The long option name (e.g., "help" for --help)
---- @field has_arg string Whether the option takes an argument: "none", "required", or "optional"
+--- @field has_arg HasArg Whether the option takes an argument
 --- @field short string|nil The equivalent short option character (e.g., "h")
 local record LongOpt
   name: string
-  has_arg: string
+  has_arg: HasArg
   short: string
 end
 
@@ -44,16 +53,13 @@ local type Option = cosmo_getopt.Option
 --- @field missing {string} Options that required an argument but got none
 local type Result = cosmo_getopt.Result
 
---- A parser object for iterating through command-line options one at a time.
---- Retained as a thin compatibility shim over `parse`; prefer `parse`.
-local record Parser
-  --- Get the next option, or nil when done. Unknown/missing options are
-  --- reported as "?" with the offending option string as the second value.
-  next: function(self: Parser): string, string
-  --- Get remaining non-option arguments.
-  remaining: function(self: Parser): {string}
-  --- Get any unknown options encountered during parsing.
-  unknown: function(self: Parser): {string}
+-- The minimal iterator surface of the legacy binding, used only by
+-- the bootstrap-runtime emulation of parse() below. (#991: the public
+-- Parser/new shim is deleted; this record and the LegacyGetopt fork go
+-- with the next pin advance.)
+local record LegacyParser
+  next: function(self: LegacyParser): string, string
+  remaining: function(self: LegacyParser): {string}
 end
 
 -- Convert typed LongOpt records to the positional table form the C binding
@@ -86,7 +92,7 @@ end
 --- @return Result|nil The parse result, or nil on error
 --- @return string|nil An error message when parsing failed
 --- Example - Basic usage:
----     local getopt = require("cosmic.getopt")
+---     local getopt = require("cosmic.flags.getopt")
 ---     local r = getopt.parse(arg, "hvo:", {
 ---       {name = "help",    has_arg = "none",     short = "h"},
 ---       {name = "verbose", has_arg = "none",     short = "v"},
@@ -119,7 +125,7 @@ local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): R
   -- `unknown` here; the accurate split is only available on the native path,
   -- which is what the shipped binary uses.
   local result: Result = {opts = {}, args = {}, unknown = {}, missing = {}}
-  local p = legacy.new(args, optstring, raw_longopts) as Parser -- cast: from any
+  local p = legacy.new(args, optstring, raw_longopts) as LegacyParser -- cast: from any
   while true do
     local opt, optarg = p:next()
     if not opt then
@@ -135,79 +141,21 @@ local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): R
   return result
 end
 
---- Create a stateful parser (compatibility shim over `parse`).
---- Prefer `parse`, which returns all results at once. `next` yields each
---- recognized option in turn, then "?" entries for unknown/missing options.
---- @param args {string} The argument list to parse
---- @param optstring string Short options specification
---- @param longopts {LongOpt}|nil Long option definitions
---- @return Parser A parser instance for iterating through options
-local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser | nil, string
-  if legacy.new then
-    -- Older cosmos: use the native iterator directly.
-    -- cast: from any
-    return legacy.new(args, optstring, to_raw_longopts(longopts)) as Parser
-  end
-
-  -- Newer cosmos: replay parse() results through an iterator interface.
-  local raw_r, perr = parse(args, optstring, longopts)
-  if raw_r == nil then
-    -- The old code swallowed this and returned an empty Parser — a
-    -- parse failure was indistinguishable from an empty argv.
-    return nil, perr
-  end
-  local r = raw_r
-  local stream: {Option} = {}
-  if r then
-    for _, o in ipairs(r.opts) do
-      table.insert(stream, o)
-    end
-    for _, u in ipairs(r.unknown) do
-      table.insert(stream, {opt = "?", arg = u})
-    end
-    for _, m in ipairs(r.missing) do
-      local dash = #m == 1 and "-" or "--"
-      table.insert(stream, {opt = "?", arg = dash .. m})
-    end
-  end
-  local idx = 0
-  local p: Parser = {
-    next = function(_self: Parser): string, string
-      idx = idx + 1
-      local e = stream[idx]
-      if not e then
-        return nil
-      end
-      return e.opt, e.arg
-    end,
-    remaining = function(_self: Parser): {string}
-      return r and r.args or {}
-    end,
-    unknown = function(_self: Parser): {string}
-      return r and r.unknown or {}
-    end,
-  }
-  return p
-end
-
 local record GetoptModule
+  --- Argument behavior for a long option
+  type HasArg = HasArg
   --- Type for defining long options
   type LongOpt = LongOpt
   --- Type for a single recognized option
   type Option = Option
   --- Type for the parse result
   type Result = Result
-  --- Type for the stateful parser
-  type Parser = Parser
   --- Parse a command-line argument vector in one shot
   parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
-  --- Create a stateful parser (compatibility shim over parse)
-  new: function(args: {string}, optstring: string, longopts?: {LongOpt}): Parser | nil, string
 end
 
 local M: GetoptModule = {
   parse = parse,
-  new = new,
 }
 
 return M

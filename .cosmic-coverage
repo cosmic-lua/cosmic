@@ -2,7 +2,7 @@
 # columns: path covered-lines total-lines
 3p/tl/tl_patch.tl 0 1
 _build/ratchet.tl 36 36
-_cli/args.tl 0 31
+_cli/args.tl 0 36
 _cli/build/init.tl 43 47
 _cli/build/modules.tl 46 49
 _cli/build/steps.tl 183 239
@@ -79,7 +79,7 @@ _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 179
-cmd/cosmic/main.tl 0 275
+cmd/cosmic/main.tl 0 224
 cosmic/_fields.tl 5 7
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
@@ -121,10 +121,11 @@ cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
-cosmic/flags/command.tl 102 105
-cosmic/flags/init.tl 9 9
-cosmic/flags/parse.tl 142 144
-cosmic/flags/types.tl 2 2
+cosmic/flags/command.tl 95 102
+cosmic/flags/getopt.tl 12 28
+cosmic/flags/init.tl 0 5
+cosmic/flags/parse.tl 141 149
+cosmic/flags/types.tl 0 2
 cosmic/format/init.tl 185 224
 cosmic/format/rules.tl 208 220
 cosmic/format/types.tl 98 113
@@ -138,7 +139,6 @@ cosmic/fs/tree.tl 37 64
 cosmic/fs/types.tl 16 51
 cosmic/fs/walk.tl 41 55
 cosmic/fuzzy.tl 48 50
-cosmic/getopt.tl 36 56
 cosmic/hash.tl 71 74
 cosmic/html.tl 19 19
 cosmic/init.tl 16 17
@@ -202,4 +202,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14612 19277
+total 14569 19201
