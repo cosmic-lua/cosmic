@@ -393,7 +393,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- goes through this file. `plan` runs only behind the fence gate,
     -- so inside this branch the cost is paid by a fenced compile alone.
     local teal = require("cosmic.teal")
-    for _, dir in ipairs(teal.get_default_include_dirs()) do
+    for _, dir in ipairs(teal.default_include_dirs()) do
       -- Real host paths only. Two of the include dirs live INSIDE the
       -- executable's own zip (`/zip/.types`, `/zip/.tl`), where
       -- `fs.is_dir` answers yes -- cosmic's own syscall shims see them

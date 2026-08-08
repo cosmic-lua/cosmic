@@ -249,7 +249,7 @@ local function test_compiling_guard_clears_after_a_throw()
 
   local teal = require("cosmic.teal")
   local original = teal.compile_cached
-  teal.compile_cached = function(_input_path: string, _strict?: boolean): string | nil, string
+  teal.compile_cached = function(_input_path: string, _opts?: {string: boolean}): string | nil, string
     error("boom: injected compiler failure", 0)
   end
   local ok, err = pcall(tree, "boom")

@@ -201,7 +201,7 @@ local function test_get_admits_nil_in_its_type()
       .. 'print(e.get("DEFINITELY_NOT_SET"):upper())\n'))
   -- `.` first, so `cosmic.env` resolves to THIS tree's copy rather than
   -- to whatever the running binary embeds.
-  local result = teal.check(bad, {include_dirs = {"."}})
+  local result = teal.check_file(bad, {include_dirs = {"."}})
   assert(not result.ok, "using env.get()'s result unguarded must not check")
   local named = false
   for _, e in ipairs(result.errors) do
@@ -216,7 +216,7 @@ local function test_get_admits_nil_in_its_type()
   local good = fs.join(dir, "env_nil_ok.tl")
   assert(fs.write(good, 'local e = require("cosmic.env")\n'
       .. 'print(e.get_or("DEFINITELY_NOT_SET", "d"):upper())\n'))
-  assert(teal.check(good, {include_dirs = {"."}}).ok,
+  assert(teal.check_file(good, {include_dirs = {"."}}).ok,
     "get_or cannot fail, so its result needs no narrowing")
 end
 test_get_admits_nil_in_its_type()

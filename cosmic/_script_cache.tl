@@ -210,13 +210,13 @@ local function compile_cached(input_path: string,
     return code
   end
   local teal = require("cosmic.teal")
-  local result = teal.compile(input_path,
+  local result = teal.compile_file(input_path,
     strict and {strict = true, werror = false} or {})
   if not result.ok then
     -- With hints: a script run is many authors' first contact with the
     -- checker, and the un-narrowed `T | nil` traps have known fixes the
     -- bare message does not teach.
-    return nil, teal.format_issues_with_hints(result.errors)
+    return nil, teal.format_issues(result.errors, {hints = true})
   end
   local generated = result.code as string -- cast: set whenever ok
   store(input_path, source, generated, mode)

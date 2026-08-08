@@ -29,7 +29,7 @@ local function test_tlconfig_matches_teal_defaults()
   -- cosmic --check types resolve the same types.
   local cfg_dirs = cfg.include_dir as {string} -- cast: from any
   local blessed: {string: boolean} = {}
-  for _, d in ipairs(teal.get_default_include_dirs()) do
+  for _, d in ipairs(teal.default_include_dirs()) do
     blessed[d] = true
   end
   for _, d in ipairs(teal.BUILD_INCLUDE_DIRS) do
@@ -53,7 +53,7 @@ local function test_tlconfig_matches_teal_defaults()
     assert(editor[d],
       "build include dir '" .. d .. "' is missing from tlconfig.lua")
   end
-  for _, d in ipairs(teal.get_default_include_dirs()) do
+  for _, d in ipairs(teal.default_include_dirs()) do
     if d ~= "/zip" and d:sub(1, 5) ~= "/zip/" then
       assert(editor[d],
         "checker default include dir '" .. d

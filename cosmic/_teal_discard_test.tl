@@ -26,7 +26,7 @@ local function check_fixture(body: string): {string}
   counter = counter + 1
   local path = fs.join(tmpdir, "discard_fixture_" .. tostring(counter) .. ".tl")
   assert(fs.write(path, FALLIBLE .. body))
-  local result = teal.check(path)
+  local result = teal.check_file(path)
   local msgs: {string} = {}
   for _, e in ipairs(result.errors) do
     msgs[#msgs + 1] = e.message

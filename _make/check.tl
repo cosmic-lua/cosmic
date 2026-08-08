@@ -146,12 +146,12 @@ local function check_files(files: {File}): integer
   local include_dirs = {"."}
   local failed = 0
   for _, f in ipairs(files) do
-    local result = teal.check(f.path, {include_dirs = include_dirs})
+    local result = teal.check_file(f.path, {include_dirs = include_dirs})
     if #result.warnings > 0 then
       io.stderr:write(teal.format_issues(result.warnings) .. "\n")
     end
     if #result.errors > 0 then
-      io.stderr:write(teal.format_issues_with_hints(result.errors) .. "\n")
+      io.stderr:write(teal.format_issues(result.errors, {hints = true}) .. "\n")
     end
     if not result.ok then
       failed = failed + 1
