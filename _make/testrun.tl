@@ -13,7 +13,7 @@
 --- without lying about the other. Spawning `o/bin/<name>` covers
 --- those, and stays the way to exercise a binary's CLI surface.
 
-local embedc = require("_cli.embed_compat") -- pin-compat shim (#1001)
+local embedc = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local artifact = require("_make.artifact")
 local project = require("_make.project")

@@ -74,7 +74,7 @@ local function generate(): string
   table.insert(lines, static_help)
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
-  local docs = require("_cli.doc_compat")
+  local docs = require("cosmic.doc")
   if docs.is_available() then
     local topics = docs.topics() -- excludes cosmo.* by default
     if #topics > 0 then

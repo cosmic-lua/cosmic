@@ -24,8 +24,8 @@ local function run_repl()
 
   require("cosmo")
 
-  -- Inject help() into REPL (via the pin-compat shim, #1001)
-  local docs = require("_cli.doc_compat")
+  -- Inject help() into the REPL.
+  local docs = require("cosmic.doc")
   rawset(_G, "help", function(query: string)
       local out, qerr = docs.query(query or "")
       print(out or qerr)
@@ -104,7 +104,7 @@ end
 --- Handle --compile / --compile-strict flags.
 local function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   local span = instrument.begin("compile", file)
-  local tealc = require("_cli.teal_compat")
+  local tealc = require("cosmic.teal")
   local result = tealc.compile_file(file, {include_dirs = include_dirs, strict = strict})
   local exit_code: integer
   local err_msg: string
@@ -216,7 +216,7 @@ end
 --- Handle --check types flag.
 local function handle_check_types(file: string, include_dirs?: {string}): integer
   local span = instrument.begin("check-types", file)
-  local tealc = require("_cli.teal_compat")
+  local tealc = require("cosmic.teal")
   local result = tealc.check_file(file, {include_dirs = include_dirs})
 
   if #result.warnings > 0 then
@@ -238,7 +238,7 @@ end
 
 --- Handle --embed flag.
 local function handle_embed(paths: {string}, output: string, exe?: string): integer
-  local embed = require("_cli.embed_compat")
+  local embed = require("cosmic.embed")
   local n, werr = embed.write(paths, {output = output, exe_path = exe})
   if not n then
     io.write((werr or "error: embed failed") .. "\n")
@@ -250,8 +250,8 @@ end
 
 --- Handle --extract flag.
 local function handle_extract(dir: string, exe?: string): integer
-  local embed = require("_cli.embed_compat")
-  local n, xerr = embed.extract(dir, exe)
+  local embed = require("cosmic.embed")
+  local n, xerr = embed.extract(dir, exe and {exe_path = exe} or nil)
   if not n then
     io.write((xerr or "error: extract failed") .. "\n")
     return 1
@@ -272,7 +272,7 @@ end
 
 --- Handle --examples flag.
 local function handle_examples(module_name: string): integer
-  local docs = require("_cli.doc_compat")
+  local docs = require("cosmic.doc")
 
   if module_name == "" then
     local out, qerr = docs.query("examples")
@@ -306,8 +306,8 @@ end
 
 --- Handle --docs flag: exact lookup first, then search fallback.
 local function handle_docs(query: string): integer
-  local doc_compat = require("_cli.doc_compat")
-  local out, qerr = doc_compat.query(query)
+  local docs_mod = require("cosmic.doc")
+  local out, qerr = docs_mod.query(query)
   if not out and query ~= "" then
     local docs = require("cosmic.doc")
     local results = docs.search(query)
@@ -346,18 +346,13 @@ local function handle_check_style(file: string): integer
     instrument.finish(span, 1)
     return 1
   end
-  -- Name no generation's Diagnostic record (#992): the pin boot-checks
-  -- this file against ITS embedded _cli.lint/_cli.lint_render (cosmic.
-  -- style's Diagnostic), the tree against _tool.lint's. Retype at the pin advance.
-  local diagnostics = found as {any} -- cast: pin-safe type erasure (#992)
+  local diagnostics = found
   if #diagnostics == 0 then
     io.write("Style check passed\n")
     instrument.finish(span, 0)
     return 0
   end
   local render = require("_cli.lint_render").render_diagnostics
-  -- cast: pin-safe type erasure (#992)
-  as function(string, {any}): string
   io.stderr:write(render(file, diagnostics))
   instrument.finish(span, 1)
   return 1

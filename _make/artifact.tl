@@ -21,7 +21,7 @@
 --- (`_make.generate` runs once per project, before any binary stages).
 
 local bytecode = require("_make.bytecode")
-local embedc = require("_cli.embed_compat") -- pin-compat shim (#1001)
+local embedc = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
 local types = require("_make.types")
