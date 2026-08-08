@@ -41,7 +41,7 @@ local record ProcModule
   setpgid: function(pid: integer, pgid: integer): boolean, string
   setsid: function(): integer | nil, string
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean, string
-  exit: function(exitcode?: integer)
+  exit: function(exit_code?: integer)
   interpreter: function(): string | nil, string
   which: function(prog: string): string | nil, string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
@@ -49,7 +49,7 @@ local record ProcModule
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
   fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string
   fork: function(): integer | nil, string
-  wait: function(pid?: integer, options?: integer): WaitResult | nil, string
+  wait: function(pid?: integer, wait_flags?: integer): WaitResult | nil, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
   WIFSIGNALED: function(status: integer): boolean
@@ -232,7 +232,8 @@ function interpreter(): string | nil, string
  "worker.tl"})`. This is `arg[-1]` resolved, NOT `arg[0]` (the script
  path as the runtime sees it, `/zip/main.lua` in a packed binary). A
  bare PATH-invoked argv0 (`cosmic`, the shebang shape) is resolved
- with a real $PATH search. The result is cached across calls.
+ with a real $PATH search — at module load (#999), so a later chdir
+ cannot change the answer.
 
 **Returns:**
 
@@ -329,5 +330,5 @@ function fork(): integer | nil, string
 ### wait
 
 ```teal
-function wait(pid?: integer, options?: integer): WaitResult | nil, string
+function wait(pid?: integer, wait_flags?: integer): WaitResult | nil, string
 ```

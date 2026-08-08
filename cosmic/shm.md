@@ -1,19 +1,20 @@
 # shm
 
  Shared memory for inter-process communication.
- Provides atomic operations and wait/wake primitives for synchronization.
- Memory created with mapshared is shared across fork() and provides
- fundamental synchronization primitives including futexes.
+ Provides atomic operations and wait/wake primitives for
+ synchronization. Memory created with shm.open (#999: was
+ `mapshared`) is shared across fork() and provides fundamental
+ synchronization primitives including futexes.
 
  This is a real wrapper over unix.mapshared, not a passthrough: sizes
  and offsets are validated in Lua (the region size is known at
- mapshared time) so failures return nil, err per the stdlib error
+ open time) so failures return nil, err per the stdlib error
  convention instead of throwing, and residual binding throws are
  pcall-translated.
 
 ## Types
 
-### Cmpxchg
+### Exchange
 
  Shared memory region with atomic word operations and futexes.
  One compare-exchange outcome: whether the swap happened, and the
@@ -22,7 +23,7 @@
  in slot 2 where `local r, err = ...` can see it.
 
 ```teal
-local record Cmpxchg
+local record Exchange
   swapped: boolean
   value: integer
 end
@@ -33,6 +34,12 @@ end
  Words are 64-bit; word_index is 0-based. Futex words (wait/wake)
  only inspect the low 32 bits — store only int32 values in words
  you wait on.
+ Memory ordering (#999, stated because a sync-primitives surface
+ without one is a guess): every atomic word operation is
+ sequentially consistent (the binding's C11 atomics use the
+ default memory_order_seq_cst), so a store or exchange published
+ before a wake is visible to the waiter it wakes; plain read/write
+ byte access carries NO ordering — publish through the atomics.
  Not a mirror of the generated unix.Memory: this is a deliberately
  narrowed surface whose methods validate bounds in Lua, return
  nil, err instead of throwing, and add size().
@@ -49,9 +56,9 @@ local record Memory
   --  Atomic store to a word.
   store: function(self: Memory, word_index: integer, value: integer): boolean, string
   --  Atomic exchange; returns the old value.
-  xchg: function(self: Memory, word_index: integer, value: integer): integer | nil, string
+  exchange: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Compare-and-exchange; returns success plus the actual old value.
-  cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): Cmpxchg | nil, string
+  compare_exchange: function(self: Memory, word_index: integer, old: integer, new: integer): Exchange | nil, string
   --  Atomic add; returns the old value.
   fetch_add: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Atomic AND; returns the old value.
@@ -72,10 +79,11 @@ local record Memory
   --  Wakes nothing once the region has been unmapped.
   wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
   --  Release the mapping now instead of waiting for the garbage
-  --  collector. Idempotent: true when this call released the mapping,
-  --  false when it was already unmapped. Afterwards every fallible
-  --  method returns an error naming the unmapped state.
-  unmap: function(self: Memory): boolean
+  --  collector. Idempotent and returns nothing (#999: it used to
+  --  return false for "already released", so asserting the second,
+  --  correct call failed). Afterwards every fallible method returns
+  --  an error naming the unmapped state.
+  close: function(self: Memory)
   --  The mapped region size in bytes.
   size: function(self: Memory): integer
 end
@@ -87,7 +95,7 @@ end
 
 ```teal
 local record ShmModule
-  mapshared: function(size: integer): Memory | nil, string
+  open: function(size_bytes: integer): Memory | nil, string
 end
 ```
 
@@ -95,16 +103,16 @@ end
 
 alias of `ShmModule.Memory` — field and method table: `cosmic --docs ShmModule.Memory`
 
-### Cmpxchg
+### Exchange
 
-alias of `ShmModule.Cmpxchg` — field and method table: `cosmic --docs ShmModule.Cmpxchg`
+alias of `ShmModule.Exchange` — field and method table: `cosmic --docs ShmModule.Exchange`
 
 ## Functions
 
-### mapshared
+### open
 
 ```teal
-function mapshared(size: integer): Memory | nil, string
+function open(size_bytes: integer): Memory | nil, string
 ```
 
  Creates a shared memory region.
@@ -113,10 +121,10 @@ function mapshared(size: integer): Memory | nil, string
  Example usage for a simple mutex:
  ```lua
  local shm = require("cosmic.shm")
- local mem = assert(shm.mapshared(8000 * 8))
+ local mem = assert(shm.open(8000 * 8))
  local LOCK = 0  -- word index for lock
  -- Lock acquisition
- while mem:xchg(LOCK, 1) == 1 do
+ while mem:exchange(LOCK, 1) == 1 do
    mem:wait(LOCK, 1)
  end
  -- Critical section here
@@ -127,7 +135,7 @@ function mapshared(size: integer): Memory | nil, string
 
 **Parameters:**
 
-- `size` (integer) - Size in bytes: positive, a multiple of the 8-byte word size
+- `size_bytes` (integer) - Size in bytes: positive, a multiple of the 8-byte word size
 
 **Returns:**
 
@@ -164,10 +172,10 @@ function mem:load(word_index: integer): integer | nil, string
 function mem:store(word_index: integer, value: integer): boolean, string
 ```
 
-### mem:xchg
+### mem:exchange
 
 ```teal
-function mem:xchg(word_index: integer, value: integer): integer | nil, string
+function mem:exchange(word_index: integer, value: integer): integer | nil, string
 ```
 
 ### mem:fetch_add
@@ -194,10 +202,10 @@ function mem:fetch_or(word_index: integer, value: integer): integer | nil, strin
 function mem:fetch_xor(word_index: integer, value: integer): integer | nil, string
 ```
 
-### mem:cmpxchg
+### mem:compare_exchange
 
 ```teal
-function mem:cmpxchg(word_index: integer, old: integer, new: integer): Cmpxchg | nil, string
+function mem:compare_exchange(word_index: integer, old: integer, new: integer): Exchange | nil, string
 ```
 
 ### mem:wait
@@ -212,8 +220,8 @@ function mem:wait(word_index: integer, expect: integer, timeout_ms?: integer): i
 function mem:wake(word_index: integer, count?: integer): integer | nil, string
 ```
 
-### mem:unmap
+### mem:close
 
 ```teal
-function mem:unmap(): boolean
+function mem:close()
 ```

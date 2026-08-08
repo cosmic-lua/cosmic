@@ -5,12 +5,12 @@
 
 ## Types
 
-### WinSize
+### WindowSize
 
  Window size information.
 
 ```teal
-local record WinSize
+local record WindowSize
   rows: integer
   cols: integer
 end
@@ -18,7 +18,7 @@ end
 
 ### Pty
 
- An open pseudoterminal pair (see openpty).
+ An open pseudoterminal pair (see open_pty).
 
 ```teal
 local record Pty
@@ -28,12 +28,12 @@ local record Pty
 end
 ```
 
-### RawOptions
+### Options
 
  Options for raw()/make_raw().
 
 ```teal
-local record RawOptions
+local record Options
   --  Keep ISIG set so Ctrl-C/Ctrl-Z still generate signals.
   keep_signals: boolean
 end
@@ -59,19 +59,21 @@ local record TtyModule
   ICRNL: integer
   BRKINT: integer
   OPOST: integer
-  --  cc indices (C-style; the Lua cc array is 1-based, so cc[VMIN + 1]).
+  --  1-BASED cc indices (#999): `t.cc[tty.VMIN]` is C's c_cc[VMIN].
+  --  The generated unix constants are C's 0-based values; these are
+  --  pre-shifted for Lua's 1-based cc array so no caller writes `+ 1`.
   VMIN: integer
   VTIME: integer
   is_tty: function(fd?: integer): boolean
-  winsize: function(fd: integer): WinSize | nil, string
-  getattr: function(fd: integer): Termios | nil, string
-  setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
-  make_raw: function(termios: Termios, opts?: RawOptions): Termios
-  raw: function(fd: integer, opts?: RawOptions): Termios | nil, string
-  noecho: function(fd: integer): Termios | nil, string
+  window_size: function(fd: integer): WindowSize | nil, string
+  attributes: function(fd: integer): Termios | nil, string
+  apply_attributes: function(fd: integer, action: integer, termios: Termios): boolean, string
+  make_raw: function(termios: Termios, opts?: Options): Termios
+  raw: function(fd: integer, opts?: Options): Termios | nil, string
+  disable_echo: function(fd: integer): Termios | nil, string
   restore: function(fd: integer, termios: Termios, action?: integer): boolean, string
-  getpass: function(prompt: string): string | nil, string
-  openpty: function(): Pty | nil, string
+  read_password: function(prompt: string): string | nil, string
+  open_pty: function(): Pty | nil, string
   login_tty: function(fd: integer): boolean, string
 end
 ```
@@ -84,14 +86,14 @@ alias of `cosmo.unix.Termios` — field and method table: `cosmic --docs cosmo.u
 
 ## Functions
 
-### openpty
+### open_pty
 
 ```teal
-function openpty(): TtyModule.Pty | nil, string
+function open_pty(): TtyModule.Pty | nil, string
 ```
 
  Opens a new pseudoterminal pair.
- The subordinate fd IS a terminal: isatty, getattr, raw, noecho and
+ The subordinate fd IS a terminal: is_tty, attributes, raw, disable_echo and
  the rest operate on it. That is what makes terminal code testable
  where no terminal exists -- a CI container, or any process whose
  stdio is a pipe. Both descriptors belong to the caller; close them.
@@ -141,10 +143,10 @@ function is_tty(fd?: integer): boolean
 
 - boolean - True if fd is a terminal
 
-### winsize
+### window_size
 
 ```teal
-function winsize(fd: integer): TtyModule.WinSize | nil, string
+function window_size(fd: integer): TtyModule.WindowSize | nil, string
 ```
 
  Gets the terminal window size for a file descriptor.
@@ -155,13 +157,13 @@ function winsize(fd: integer): TtyModule.WinSize | nil, string
 
 **Returns:**
 
-- WinSize|nil - Window size record with rows and cols, or nil on error
+- WindowSize|nil - Window size record with rows and cols, or nil on error
 - string|nil - Error message if not a terminal
 
-### getattr
+### attributes
 
 ```teal
-function getattr(fd: integer): Termios | nil, string
+function attributes(fd: integer): Termios | nil, string
 ```
 
  Gets terminal attributes for a file descriptor.
@@ -175,10 +177,10 @@ function getattr(fd: integer): Termios | nil, string
 - Termios - | nil Terminal attributes
 - string? - Error message if not a terminal
 
-### setattr
+### apply_attributes
 
 ```teal
-function setattr(fd: integer, action: integer, termios: Termios): boolean, string
+function apply_attributes(fd: integer, action: integer, termios: Termios): boolean, string
 ```
 
  Sets terminal attributes for a file descriptor.
@@ -197,7 +199,7 @@ function setattr(fd: integer, action: integer, termios: Termios): boolean, strin
 ### make_raw
 
 ```teal
-function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
+function make_raw(termios: Termios, opts?: TtyModule.Options): Termios
 ```
 
  Compute raw-mode attributes from current ones (cfmakeraw semantics).
@@ -210,16 +212,16 @@ function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
 **Parameters:**
 
 - `termios` (Termios) - Current terminal attributes
-- `opts` (RawOptions?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+- `opts` (Options?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 
 **Returns:**
 
-- Termios - New attributes to pass to setattr()
+- Termios - New attributes to pass to apply_attributes()
 
 ### raw
 
 ```teal
-function raw(fd: integer, opts?: TtyModule.RawOptions): Termios | nil, string
+function raw(fd: integer, opts?: TtyModule.Options): Termios | nil, string
 ```
 
  Puts terminal into raw mode: no echo, no line buffering, no signal
@@ -230,17 +232,17 @@ function raw(fd: integer, opts?: TtyModule.RawOptions): Termios | nil, string
 **Parameters:**
 
 - `fd` (integer) - File descriptor (typically 0 for stdin)
-- `opts` (RawOptions?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+- `opts` (Options?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 
 **Returns:**
 
 - Termios - | nil Original terminal attributes for restore()
 - string? - Error message if not a terminal
 
-### noecho
+### disable_echo
 
 ```teal
-function noecho(fd: integer): Termios | nil, string
+function disable_echo(fd: integer): Termios | nil, string
 ```
 
  Disables echo on terminal (for password input).
@@ -267,7 +269,7 @@ function restore(fd: integer, termios: Termios, action?: integer): boolean, stri
 **Parameters:**
 
 - `fd` (integer) - File descriptor
-- `termios` (Termios) - Terminal attributes from raw() or noecho()
+- `termios` (Termios) - Terminal attributes from raw() or disable_echo()
 - `action` (integer?) - When to apply: NOW (default), DRAIN (after
 
 **Returns:**
@@ -275,10 +277,10 @@ function restore(fd: integer, termios: Termios, action?: integer): boolean, stri
 - boolean - True on success
 - string? - Error message on failure
 
-### getpass
+### read_password
 
 ```teal
-function getpass(prompt: string): string | nil, string
+function read_password(prompt: string): string | nil, string
 ```
 
  Reads a password from the terminal without echoing.

@@ -41,7 +41,6 @@ local record TimeModule
   now_ms: function(): integer
   monotonic_ms: function(): integer
   monotonic_ns: function(): integer
-  sleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string
   sleep_ms: function(ms: number): integer | nil, string
   gmtime: function(unixts: integer): DateTime
   localtime: function(unixts: integer): DateTime
@@ -126,32 +125,6 @@ function monotonic_ns(): integer
 **Returns:**
 
 - integer - Nanoseconds
-
-### sleep
-
-```teal
-function sleep(seconds: integer, nanos?: integer): integer | nil, integer, string
-```
-
- Sleep for the specified duration.
- Returns 0, 0 after an uninterrupted sleep. When a signal interrupts
- the sleep, returns the remaining seconds and nanoseconds plus an
- error string naming EINTR. Invalid input (e.g. a negative duration)
- returns nil, nil, and an error naming EINVAL.
- sleep is a deliberate exception to the automatic EINTR retry policy
- (cosmic.stream): the interruption IS the result, and the
- remainder lets callers resume or bail as they choose.
-
-**Parameters:**
-
-- `seconds` (integer) - Seconds to sleep
-- `nanos` (integer?) - Additional nanoseconds to sleep (default: 0)
-
-**Returns:**
-
-- integer - | nil Remaining seconds (0 on success), or nil on invalid input
-- integer - Remaining nanoseconds (0 on success)
-- string? - Error message when interrupted (EINTR) or invalid (EINVAL)
 
 ### sleep_ms
 
