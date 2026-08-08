@@ -22,13 +22,13 @@ end
 ### Sigset
 
  Signal set for blocking, unblocking, and waiting on signals.
- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
- This mirror is deliberate: the generated unix record cannot re-export
- the Sigset record type because its `Sigset` name is taken by the
- constructor function field there. Here the constructor is
- `sigset(...)` (lowercase), so the TYPE name Sigset stays free to
- export — a Teal record cannot hold a value field and a type alias
- under one name.
+ Wraps unix.sigset for use with sigprocmask, sigaction, and sigsuspend.
+ This mirror is transitional: the generated unix record cannot yet
+ re-export the Sigset record type, because the pinned cosmos still
+ carries `Sigset` as a constructor FIELD and a Teal record cannot
+ hold a value field and a type alias under one name.
+ whilp/cosmopolitan#246 removed that field, so the mirror and the
+ casts below go at the cosmos pin bump that carries it.
 
 ```teal
 local record Sigset
