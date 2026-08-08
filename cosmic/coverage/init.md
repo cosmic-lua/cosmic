@@ -37,19 +37,31 @@ local record CCov
 end
 ```
 
+### StartOptions
+
+ Options for start().
+
+```teal
+local record StartOptions
+  --  Dump directory (#1001: what enable(dir) did): sets the default
+  --  target for dump() and installs process-exit wrappers that write
+  --  there. A nested start never re-targets an outer one's directory.
+  dir: string
+end
+```
+
 ### CoverageModule
 
 ```teal
 local record CoverageModule
-  start: function()
+  start: function(opts?: StartOptions)
   stop: function()
-  running: function(): boolean
+  is_running: function(): boolean
   snapshot: function(): {string: {integer: integer}}
   dump: function(dir?: string): boolean, string
   seal: function()
   keep_on_restrict: function()
   is_kept_on_restrict: function(): boolean
-  enable: function(dir: string)
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
 end
@@ -57,10 +69,10 @@ end
 
 ## Functions
 
-### running
+### is_running
 
 ```teal
-function running(): boolean
+function is_running(): boolean
 ```
 
  Check whether collection is active.
@@ -68,17 +80,6 @@ function running(): boolean
 **Returns:**
 
 - boolean
-
-### start
-
-```teal
-function start()
-```
-
- Begin collecting line hits (nestable).
- The first start installs the line hook; nested starts only increment
- the nesting depth, so libraries and tests can bracket their own
- collection without tearing down an outer one.
 
 ### stop
 
@@ -117,7 +118,7 @@ function dump(dir?: string): boolean, string
 
 **Parameters:**
 
-- `dir` (string?) - Directory to write into (default: the enable() directory)
+- `dir` (string?) - Directory to write into (default: the start opts.dir directory)
 
 **Returns:**
 
@@ -160,20 +161,18 @@ function is_kept_on_restrict(): boolean
  cosmic._seal_coverage before sealing on behalf of the containment
  shards.
 
-### enable
+### start
 
 ```teal
-function enable(dir: string)
+function start(opts?: StartOptions)
 ```
 
- Arm collection for this process, dumping into dir on exit.
- Used by the CLI when COSMIC_COVERAGE names a directory; also wraps
- os.exit so early exits (like a test skip) still flush their counts.
- A nested enable never re-targets an outer one's directory.
-
-**Parameters:**
-
-- `dir` (string) - Directory to write the .cov file into
+ Begin collecting line hits (nestable).
+ The first start installs the line hook; nested starts only increment
+ the nesting depth, so libraries and tests can bracket their own
+ collection without tearing down an outer one. With opts.dir the
+ collection is also armed to dump at process exit (rule 9: start/stop
+ is the pair; the separate enable() verb folded in here, #1001).
 
 ### dir_from_env
 

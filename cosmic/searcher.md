@@ -62,10 +62,8 @@ end
 ```teal
 local record SearcherModule
   install: function()
-  install_from_argv: function(argv: {string}): boolean
-  install_tree: function(path: string): boolean
-  searcher: function(module_name: string): any, any
-  tree: function(module_name: string): any, any
+  install_argv_manifest: function(argv: {string}): boolean, string
+  install_manifest: function(path: string): boolean, string
 end
 ```
 
@@ -81,10 +79,10 @@ function install()
  wrapper installs it before the app entry, which may itself be the
  dispatcher that installs it too); no-op without package.searchers.
 
-### install_tree
+### install_manifest
 
 ```teal
-function install_tree(path: string): boolean
+function install_manifest(path: string): boolean, string
 ```
 
  Read a manifest and install the in-project searcher.
@@ -95,9 +93,12 @@ function install_tree(path: string): boolean
      build <build directory, relative to the root>
      mod <import.path> <built file>
  Inserted at index 2 — after `package.preload`, ahead of the default
- file searcher — because beating `/zip` is the entire point. Silent
- when the manifest cannot be read: a child with no manifest is an
- ordinary cosmic, which is what a hand-run script is.
+ file searcher — because beating `/zip` is the entire point. A
+ failure says why (#1001: the bare boolean was deliberately silent,
+ and the caller could not tell "no manifest" from "unreadable
+ manifest"); the CALLER decides whether that matters — a child with
+ no manifest is an ordinary cosmic, which is what a hand-run script
+ is.
 
 **Parameters:**
 
@@ -106,11 +107,12 @@ function install_tree(path: string): boolean
 **Returns:**
 
 - boolean - Whether a manifest was read and installed
+- string? - Why not, when it was not
 
-### install_from_argv
+### install_argv_manifest
 
 ```teal
-function install_from_argv(argv: {string}): boolean
+function install_argv_manifest(argv: {string}): boolean, string
 ```
 
  Find `--modules <manifest>` on an argv and install it.
@@ -121,6 +123,8 @@ function install_from_argv(argv: {string}): boolean
  own ahead of everything, so the two never disagree about whose it is.
  Here rather than in the dispatcher because it is the channel's own
  rule, and the channel is this module's.
+ argv with no --modules at all returns false with NO message — that
+ is the ordinary case, not a failure)
 
 **Parameters:**
 
@@ -129,3 +133,4 @@ function install_from_argv(argv: {string}): boolean
 **Returns:**
 
 - boolean - Whether a manifest was read and installed
+- string? - Why not, when a named manifest could not be (an
