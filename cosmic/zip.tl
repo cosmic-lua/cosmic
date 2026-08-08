@@ -198,10 +198,6 @@ local function extract(r: Archive, destdir: string, opts?: ExtractOptions): bool
       ok, err = ensure_dir(fs.join(destdir, name))
       if not ok then return false, err end
     else
-      local content, read_err = r:read(name)
-      if not content then
-        return false, "cannot read '" .. name .. "' from archive: " .. (read_err or "unknown error")
-      end
       local filepath = fs.join(destdir, name)
       ok, err = ensure_dir(fs.dirname(filepath))
       if not ok then return false, err end
@@ -213,11 +209,23 @@ local function extract(r: Archive, destdir: string, opts?: ExtractOptions): bool
         file_mode = mode
       end
 
-      local write_ok, write_err = fs.write(filepath, content, file_mode)
-      if not write_ok then
-        return false, "cannot write '" .. filepath .. "': " .. (write_err or "unknown error")
+      -- save() decompresses and CRC-checks in C and writes straight to
+      -- the file — the entry's bytes never exist as a Lua string
+      -- (whilp/cosmopolitan#238). Dot-form through a cast rather than
+      -- r:save(...): cosmic.zip sits in the type generator's import
+      -- closure (gentype reads the runtime archive through it), so this
+      -- file must compile against the DRIVING binary's bundled types,
+      -- which always predate a zip surface it is adding.
+      -- cast: zip surface newer than the bootstrap types
+      local save_fn = (r as {string: any})["save"] as
+      function(Archive, string, string): (boolean, string)
+      local save_ok, save_err = save_fn(r, name, filepath)
+      if not save_ok then
+        return false, "cannot extract '" .. name .. "' to '" .. filepath ..
+        "': " .. (save_err or "unknown error")
       end
-      -- barf's mode only applies on create; force it for overwrites.
+      -- save creates with 0644; force the entry's mode, as the write
+      -- path always did for overwrites.
       local _ok, _err = fs.chmod(filepath, file_mode)
     end
   end

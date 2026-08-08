@@ -84,7 +84,11 @@ local record DirEntry
   kind: integer
 end
 
--- Internal record for files staged for embedding.
+-- Internal record for files staged for embedding. Files collected from
+-- the tree carry only their path — the appender streams them from disk
+-- (add_file, whilp/cosmopolitan#238) so a tree's bytes never exist as
+-- Lua strings. content is set only on synthetic entries (the wrapper
+-- main), which have no file behind them.
 local record FileToEmbed
   path: string
   content: string
@@ -148,15 +152,12 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
             if walk_err then return walk_err end
           elseif unix.S_ISREG(sst:mode()) then
             -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
-            local content, read_err = fs.read(full_path)
-            if not content then
-              return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
-            end
+            -- No read here: the add loop streams the file by path, and
+            -- an unreadable file fails there naming its stored_name.
             -- Extract permission bits (lower 9 bits)
             local file_mode = sst:mode() & tonumber("777", 8)
             collected[#collected + 1] = {
               path = full_path,
-              content = content,
               stored_name = rel,
               mode = file_mode,
             }
@@ -225,7 +226,18 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   if not main_entry then
     return nil
   end
-  if main_entry.content:sub(1, #WRAP_SENTINEL) == WRAP_SENTINEL then
+  -- Collected entries carry no content (they stream by path); the wrap
+  -- decision needs main's bytes, so this one file is read here.
+  local main_bytes = main_entry.content
+  if not main_bytes then
+    local read_bytes, read_err = fs.read(main_entry.path)
+    if not read_bytes then
+      return "error: cannot open file '" .. main_entry.path .. "': " ..
+      (read_err or "unknown error")
+    end
+    main_bytes = read_bytes
+  end
+  if main_bytes:sub(1, #WRAP_SENTINEL) == WRAP_SENTINEL then
     return nil -- already wrapped (extract/embed roundtrip)
   end
   local exe_reader = czip.open(exe_path)
@@ -233,7 +245,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
     local rd = exe_reader
     local exe_main = rd:read("main.lua")
     rd:close()
-    if exe_main == main_entry.content then
+    if exe_main == main_bytes then
       return nil -- unmodified dispatcher entry: keep the roundtrip exact
     end
   end
@@ -284,23 +296,19 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
         files_to_embed[#files_to_embed + 1] = f
       end
     else
-      local content, open_err = fs.read(p)
-      if not content then
-        return {ok = false, message = "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error"), file_count = 0}
+      -- No read here: stat answers existence and mode, and the add
+      -- loop streams the bytes by path (add_file). A vanished or
+      -- unreadable path still fails, naming the file.
+      local st, stat_err = fs.stat(p)
+      if not st then
+        return {ok = false, message = "error: cannot open file '" .. p .. "': " .. (stat_err or "unknown error"), file_count = 0}
       end
 
       local stored_name = p:gsub("^/+", "")
-
-      -- Get file mode
-      local st = fs.stat(p)
-      local file_mode = tonumber("644", 8) -- default
-      if st then
-        file_mode = (st as Stat):mode() & tonumber("777", 8) -- cast: mixed-rep Stat
-      end
+      local file_mode = (st as Stat):mode() & tonumber("777", 8) -- cast: mixed-rep Stat
 
       files_to_embed[#files_to_embed + 1] = {
         path = p,
-        content = content,
         stored_name = stored_name,
         mode = file_mode,
       }
@@ -389,7 +397,17 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
       -- live mtimes now has to ask for them.
       mtime = opts.mtime or floor.epoch(),
     }
-    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
+    -- Tree files stream from disk in C (add_file); only synthetic
+    -- entries (the wrapper main) carry content and go through add.
+    -- Explicit mode and mtime above override add_file's source-derived
+    -- defaults, so artifacts stay byte-reproducible.
+    local add_ok: boolean
+    local add_err: string
+    if file_info.content then
+      add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
+    else
+      add_ok, add_err = appender:add_file(file_info.stored_name, file_info.path, add)
+    end
     if not add_ok then
       appender:close()
       local _ok, _err = fs.unlink(tmp_path)
