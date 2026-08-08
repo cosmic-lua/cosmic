@@ -145,11 +145,6 @@ local function test_set_empty_value()
 end
 test_set_empty_value()
 
--- Note: We don't test clear() directly because it would remove all environment
--- variables including PATH, HOME, etc., which would break subsequent tests and
--- potentially the test harness itself. The clear() function is a thin wrapper
--- around unix.clearenv() and is tested indirectly through the other tests.
-
 -- Clean up test variables
 assert(env.unset("COSMIC_TEST_VAR"))
 assert(env.unset("COSMIC_TEST_OVERWRITE"))

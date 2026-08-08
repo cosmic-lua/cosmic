@@ -2,8 +2,9 @@
 --- A small structured logger for scripts and services: four severity
 --- levels, a module-wide threshold, and optional key=value fields per
 --- line. Lines go to stderr by default; redirect with set_output (for
---- tests, or to ship lines elsewhere). For writing to the system log
---- daemon instead, see cosmic.syslog.
+--- tests, or to ship lines elsewhere). To write to the system log
+--- daemon instead, install the bundled sink (#994: was cosmic.syslog):
+--- log.set_output(log.syslog_output).
 ---
 --- Example usage:
 ---   local log = require("cosmic.log")
@@ -30,6 +31,7 @@
 local env = require("cosmic.env")
 local time = require("cosmic.time")
 local fields_grammar = require("cosmic._fields")
+local unix = require("cosmo.unix")
 
 --- Severity levels accepted by set_level and log, in increasing
 --- order of severity.
@@ -66,11 +68,43 @@ do
   end
 end
 
+--- An output sink: receives each formatted line (without a trailing
+--- newline) together with its severity, so a destination that speaks
+--- severities — the system log, a filtering shim — need not re-parse
+--- the line. A sink that only wants the line just takes one parameter.
+local type Sink = function(line: string, level: Level)
+
 local function write_stderr(line: string)
   io.stderr:write(line .. "\n")
 end
 
-local output: function(line: string) = write_stderr
+-- log's four levels onto RFC 5424 wire severities.
+local syslog_priority < total >: {Level: integer} = {
+  debug = unix.LOG_DEBUG,
+  info = unix.LOG_INFO,
+  warning = unix.LOG_WARNING,
+  error = unix.LOG_ERR,
+}
+
+--- An output sink that writes each line to the system log daemon
+--- (#994: was cosmic.syslog). Install with
+--- log.set_output(log.syslog_output). The level maps onto the RFC
+--- 5424 wire severity (debug=7, info=6, warning=4, error=3); delivery
+--- is whatever the host does with syslog(3) — syslogd on Linux and
+--- NetBSD, ReportEvent() on Windows, silently dropped elsewhere. An
+--- unknown level smuggled in through a cast is dropped rather than
+--- thrown (never throw from library code; mirrors log()).
+--- @param line string The formatted log line
+--- @param level Level The line's severity
+local function syslog_output(line: string, level: Level)
+  local priority = syslog_priority[level]
+  if priority == nil then
+    return
+  end
+  unix.syslog(priority, line)
+end
+
+local output: Sink = write_stderr
 
 -- Field values render through the shared grammar (tostring, then
 -- percent-encode "%", space and line terminators), so a log line's
@@ -112,7 +146,7 @@ local function log(level: Level, message: string, fields?: {string: any})
   if not severity[level] or severity[level] < severity[current] then
     return
   end
-  output(format(level, message, fields))
+  output(format(level, message, fields), level)
 end
 
 --- Log a debug message (suppressed unless the threshold is "debug").
@@ -165,11 +199,11 @@ local function level(): Level
   return current
 end
 
---- Redirect where formatted lines go. The function receives each line
---- without a trailing newline. Call with no argument to restore the
---- default stderr output.
---- @param out function(line: string)? The new output, or nil for stderr
-local function set_output(out?: function(line: string))
+--- Redirect where formatted lines go. The sink receives each line
+--- without a trailing newline, plus the line's level. Call with no
+--- argument to restore the default stderr output.
+--- @param out Sink? The new output, or nil for stderr
+local function set_output(out?: Sink)
   if out then
     output = out
   else
@@ -179,6 +213,7 @@ end
 
 local record LogModule
   type Level = Level
+  type Sink = Sink
 
   log: function(level: Level, message: string, fields?: {string: any})
   debug: function(message: string, fields?: {string: any})
@@ -189,7 +224,8 @@ local record LogModule
   format: function(level: Level, message: string, fields?: {string: any}): string
   set_level: function(level: Level): boolean, string
   level: function(): Level
-  set_output: function(out?: function(line: string))
+  set_output: function(out?: Sink)
+  syslog_output: Sink
 end
 
 local M: LogModule = {
@@ -203,6 +239,7 @@ local M: LogModule = {
   set_level = set_level,
   level = level,
   set_output = set_output,
+  syslog_output = syslog_output,
 }
 
 return M
