@@ -1,9 +1,9 @@
 # flags
 
- Declarative command-line flag parsing: the one public parser
- (#991 — cosmic.getopt is an internal shard of this module now).
- Describe a program's flags once as data — names, value
- placeholders, defaults, help text — and get parsing, validation,
+ Declarative command-line flag parsing with a generated --help.
+ The one public parser (#991 — cosmic.getopt is an internal shard of
+ this module now). Describe a program's flags once as data — names,
+ value placeholders, defaults, help text — and get parsing, validation,
  and rendered --help from the one spec.
 
  Example usage:

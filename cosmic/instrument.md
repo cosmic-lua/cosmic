@@ -1,8 +1,9 @@
 # instrument
 
- Instrumentation for timing and resource usage: wrap an operation in
- a span, and get one structured `key=value` line per span on stderr
- when `COSMIC_INSTRUMENTATION` is `1` or `true`.
+ Timing and resource-usage spans, one `key=value` line each.
+ Wrap an operation in a span, and get one structured `key=value`
+ line per span on stderr when `COSMIC_INSTRUMENTATION` is `1` or
+ `true`.
 
  Both halves are here on purpose. A span EMITS (`begin`/`finish`,
  with `format_line` as the pure writer), and `parse_line`/

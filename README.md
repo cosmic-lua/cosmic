@@ -15,40 +15,40 @@ High-level utilities and tools built on top of cosmo.
 | [compress](cosmic/compress.md) |  Compression and decompression utilities. |
 | [init](cosmic/coverage/init.md) |  Line coverage collection for cosmic programs. |
 | [deep](cosmic/deep.md) |  Deep table operations. |
-| [init](cosmic/doc/init.md) |  Query the documentation index embedded in the binary: the `--docs` |
+| [init](cosmic/doc/init.md) |  Query the documentation index embedded in the binary. |
 | [init](cosmic/embed/init.md) |  Embed files and directories into a cosmic executable. |
-| [env](cosmic/env.md) |  Environment variable utilities. |
+| [env](cosmic/env.md) |  Environment variables: get/set/unset/list, dotenv, and env.d loading. |
 | [errno](cosmic/errno.md) |  Error information from system calls. |
 | [fd](cosmic/fd.md) |  File descriptor I/O operations. |
 | [init](cosmic/fetch/init.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
-| [init](cosmic/flags/init.md) |  Declarative command-line flag parsing: the one public parser |
+| [init](cosmic/flags/init.md) |  Declarative command-line flag parsing with a generated --help. |
 | [init](cosmic/format/init.md) |  Code formatter for Teal and Lua files. |
 | [init](cosmic/fs/init.md) |  Unified filesystem module. |
 | [fuzzy](cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
-| [hash](cosmic/hash.md) |  Hash utilities. |
+| [hash](cosmic/hash.md) |  Cryptographic digests, HMAC, and Argon2 password hashing. |
 | [html](cosmic/html.md) |  HTML utilities. |
 | [init](cosmic/init.md) |  cosmic: a batteries-included Lua/Teal distribution built on |
-| [instrument](cosmic/instrument.md) |  Instrumentation for timing and resource usage: wrap an operation in |
+| [instrument](cosmic/instrument.md) |  Timing and resource-usage spans, one `key=value` line each. |
 | [ip](cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](cosmic/json.md) |  JSON encoding and decoding utilities. |
-| [literal](cosmic/literal.md) |  Teal source read as **data**: one `return { … }` of literals, lexed |
+| [literal](cosmic/literal.md) |  Teal source read and written as data: one `return { … }` of literals. |
 | [log](cosmic/log.md) |  Leveled logging. |
 | [init](cosmic/net/init.md) |  Networking and socket utilities. |
 | [poll](cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [init](cosmic/proc/init.md) |  Current process management. |
 | [init](cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
-| [rand](cosmic/rand.md) |  Random number generation. |
+| [rand](cosmic/rand.md) |  Random bytes, integers, floats, choice, shuffle, and tokens. |
 | [re](cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [init](cosmic/sandbox/init.md) |  One-call, fail-closed in-process sandbox: the one door (#989). |
-| [searcher](cosmic/searcher.md) |  cosmic-owned runtime .tl package searcher, replacing |
+| [searcher](cosmic/searcher.md) |  The cosmic-owned runtime `.tl` package searcher, replacing tl.loader(). |
 | [shm](cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](cosmic/signal.md) |  Signal handling utilities. |
 | [init](cosmic/sqlite/init.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [sse](cosmic/sse.md) |  Server-Sent Events: parse a stream of them, format one for the wire. |
-| [stream](cosmic/stream.md) |  The stream contract: the byte-stream interfaces every producer and |
+| [stream](cosmic/stream.md) |  The stream contract: byte-stream Reader/Writer interfaces. |
 | [string](cosmic/string.md) |  String utilities. |
 | [sys](cosmic/sys.md) |  System information utilities. |
-| [tar](cosmic/tar.md) |  |
+| [tar](cosmic/tar.md) |  In-process tarball extraction, without a host `tar`. |
 | [teal](cosmic/teal.md) |  Teal compilation and type-checking. |
 | [time](cosmic/time.md) |  Time and clock utilities. |
 | [tty](cosmic/tty.md) |  Terminal (TTY) utilities. |

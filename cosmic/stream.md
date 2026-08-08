@@ -1,7 +1,8 @@
 # stream
 
- The stream contract: the byte-stream interfaces every producer and
- consumer in the standard library composes over (api-review-2).
+ The stream contract: byte-stream Reader/Writer interfaces.
+ Every producer and consumer in the standard library composes over
+ them (api-review-2).
 
  Reader is the one EOF convention: read() returns a non-empty chunk,
  or bare nil (no error) at end of stream, or nil plus an error message
@@ -36,8 +37,9 @@
 
 ### stream
 
- The stream contract: the byte-stream interfaces every producer and
- consumer in the standard library composes over (api-review-2).
+ The stream contract: byte-stream Reader/Writer interfaces.
+ Every producer and consumer in the standard library composes over
+ them (api-review-2).
  Reader is the one EOF convention: read() returns a non-empty chunk,
  or bare nil (no error) at end of stream, or nil plus an error message
  on failure. Reads after EOF keep returning bare nil. The optional

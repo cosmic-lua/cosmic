@@ -1,8 +1,7 @@
 # hash
 
- Hash utilities.
- Wraps cosmo.GetCryptoHash and cosmo.argon2 for digest, HMAC, and
- password hashing.
+ Cryptographic digests, HMAC, and Argon2 password hashing.
+ Wraps cosmo.GetCryptoHash and cosmo.argon2.
 
  Example usage:
    local hash = require("cosmic.hash")
