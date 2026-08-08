@@ -96,13 +96,8 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.teal` | Teal compilation and type checking |
 | `cosmic.doc` | extract docs from source; query the embedded doc index |
 | `cosmic.embed` | create custom executables |
-| `cosmic.example` | example runner |
-| `cosmic.benchmark` | benchmark runner |
-| `cosmic.testrun` | test execution and reporting |
 | `cosmic.coverage` | line coverage collection for cosmic programs (`--make coverage`) |
 | `cosmic.instrument` | timing/resource spans: emit key=value lines to stderr, and parse them back |
-| `cosmic.records` | a build's machine-readable records: row, summary, verdict, exit codes |
-| `cosmic.style` | pure style checks (file length, column width) that `_cli.lint` composes into `--check lint` |
 | `cosmic.literal` | read a Teal/Lua file as data: one `return { … }` of literals, never executed |
 
 ## Error Handling Patterns

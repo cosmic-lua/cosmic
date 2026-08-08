@@ -270,7 +270,7 @@ local VERBS < const >: {Verb} = {
   -- first-class kind with the same scope semantics, a gate this repo
   -- runs today -- and the verb set was the one place the symmetry
   -- broke. `lint` is the other half of that gate (the 500-line cap,
-  -- the cast ratchet, both already public in `cosmic.style`), and it
+  -- the cast ratchet, both already public in `_tool.lint`), and it
   -- gets a verb rather than folding into `check` because its file set
   -- is the whole tree, not the compiled closure. Naming them is what
   -- lets `ci` below be a list of verb names: its pipeline is

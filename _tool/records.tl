@@ -23,14 +23,25 @@
 --- else fail. `skip` is NOT a pass — a stage that stopped checking and
 --- said nothing is the failure this distinction exists to make visible.
 
-local fs = require("cosmic.fs")
-
---- A recorded result's status.
+--- A recorded result's status. `cosmic.check` mirrors EXIT_SKIP (it
+--- may not require this internal tree); records_test asserts the two
+--- agree.
 local EXIT_OK < const > = 0
 local EXIT_SKIP < const > = 2
 
+--- A row's status: what the exit code (or the build graph's own
+--- bookkeeping, for "ignore") said about the target. An enum, not a
+--- bare string (#992): a misspelled status was silently rendered with
+--- the fail icon.
+local enum Status
+  "pass"
+  "fail"
+  "skip"
+  "ignore"
+end
+
 --- Display icons for a `.got` status.
-local ICONS < const >: {string: string} = {
+local ICONS < const >: {Status: string} = {
   pass = "✓",
   fail = "✗",
   skip = "→",
@@ -50,8 +61,8 @@ local COVERAGE_PREFIX < const > = ".coverage/"
 
 --- Classify the exit code recorded in a `.got` file.
 --- @param exit_code integer Exit code from the .got file
---- @return string "pass" (0), "skip" (2), or "fail" (anything else)
-local function status_of(exit_code: integer): string
+--- @return Status "pass" (0), "skip" (2), or "fail" (anything else)
+local function status_of(exit_code: integer): Status
   if exit_code == EXIT_OK then
     return "pass"
   elseif exit_code == EXIT_SKIP then
@@ -127,19 +138,19 @@ end
 --- it is only ever attached to a status that ran them: a `skip` with
 --- "(7 test functions)" describes work that did not happen, and a
 --- `fail` row's useful number is in the failure block below it.
---- @param status string "pass", "fail" or "skip"
+--- @param status Status The row's status
 --- @param name string The row's name, from `display`
 --- @param count integer How many units ran, 0 when unrecorded
 --- @param unit string What the count counts ("test functions")
---- @param wall_ms integer Duration, negative when unrecorded
+--- @param wall_ms? integer Duration; nil when unrecorded (#992: was -1)
 --- @return string The row, without its newline
-local function row(status: string, name: string, count: integer,
-    unit: string, wall_ms: integer): string
+local function row(status: Status, name: string, count: integer,
+    unit: string, wall_ms?: integer): string
   local out = (ICONS[status] or ICONS.fail) .. " " .. name
   if status == "pass" and count > 0 then
     out = out .. string.format(" (%d %s)", count, unit)
   end
-  if wall_ms >= 0 then
+  if wall_ms then
     out = out .. string.format("  %dms", wall_ms)
   end
   return out
@@ -171,13 +182,13 @@ end
 --- `test: FAIL (7 files)` mean "seven files were selected" while
 --- reading as "seven failed".
 --- @param text string A summary file's contents
---- @return integer Passed, -1 when the text carries no counts line
+--- @return integer|nil Passed, nil when the text carries no counts line (#992: was -1)
 --- @return integer Failed
 --- @return integer Skipped
-local function parse_counts(text: string): integer, integer, integer
+local function parse_counts(text: string): integer | nil, integer, integer
   local total = text:match("(%d+) checks:")
   if not total then
-    return -1, 0, 0
+    return nil, 0, 0
   end
   local passed = tonumber(text:match("checks: (%d+) passed")) or 0
   local failed = tonumber(text:match(", (%d+) failed")) or 0
@@ -209,51 +220,61 @@ end
 --- stage that failed before writing one (a validation error, a make
 --- that never started) has no per-target counts, and inventing them
 --- would be worse than saying how big the stage was.
---- @param summary_path string Path to the stage's summary file
+--- @param summary string|nil The summary file's TEXT (#992: was a
+--- path — the caller reads the file, so this module needs no fs), nil
+--- when there is none
 --- @param total integer How many targets the stage had
 --- @param unit string The singular noun ("file")
 --- @return string The detail
-local function stage_detail(summary_path: string, total: integer,
+local function stage_detail(summary: string | nil, total: integer,
     unit: string): string
-  local text = fs.read(summary_path)
-  if text == nil then
+  if summary == nil then
     return detail(0, total, unit)
   end
-  local passed, failed, skipped = parse_counts(text)
-  if passed < 0 then
+  local passed, failed, skipped = parse_counts(summary)
+  if passed == nil then
     return detail(0, total, unit)
   end
   return detail(failed, passed + failed + skipped, unit)
 end
 
---- Print a verb's verdict line and return the exit code it means.
----
---- Every verb ends in one, so a caller that reads only the last line
---- still knows what happened.
+--- A verb's verdict line, without its newline. Every verb ends in
+--- one, so a caller that reads only the last line still knows what
+--- happened. Formatting and the exit code are separate halves (#992:
+--- `verdict` printed AND returned the code, so a caller that wanted
+--- the line anywhere but stdout could not have it).
 --- @param verb string The verb
 --- @param ok boolean Whether it succeeded
 --- @param what string Parenthetical detail, empty for none
+--- @return string The verdict line
+local function format_verdict(verb: string, ok: boolean, what: string): string
+  return verb .. (ok and ": PASS" or ": FAIL") ..
+  (what ~= "" and " (" .. what .. ")" or "")
+end
+
+--- The exit code a verdict means.
+--- @param ok boolean Whether the verb succeeded
 --- @return integer 0 when ok, 1 otherwise
-local function verdict(verb: string, ok: boolean, what: string): integer
-  io.write(verb .. (ok and ": PASS" or ": FAIL") ..
-    (what ~= "" and " (" .. what .. ")" or "") .. "\n")
+local function exit_code(ok: boolean): integer
   return ok and 0 or 1
 end
 
 local record RecordsModule
+  type Status = Status
   EXIT_OK: integer
   EXIT_SKIP: integer
-  ICONS: {string: string}
-  status_of: function(exit_code: integer): string
+  ICONS: {Status: string}
+  status_of: function(exit_code: integer): Status
   display: function(base: string): string
   source_of: function(base: string): string
   stage_of: function(base: string): string
-  row: function(status: string, name: string, count: integer, unit: string, wall_ms: integer): string
+  row: function(status: Status, name: string, count: integer, unit: string, wall_ms?: integer): string
   counts: function(passed: integer, failed: integer, skipped: integer): string
-  parse_counts: function(text: string): integer, integer, integer
+  parse_counts: function(text: string): integer | nil, integer, integer
   detail: function(failed: integer, total: integer, unit: string): string
-  stage_detail: function(summary_path: string, total: integer, unit: string): string
-  verdict: function(verb: string, ok: boolean, what: string): integer
+  stage_detail: function(summary: string | nil, total: integer, unit: string): string
+  format_verdict: function(verb: string, ok: boolean, what: string): string
+  exit_code: function(ok: boolean): integer
 end
 
 local M: RecordsModule = {
@@ -269,7 +290,8 @@ local M: RecordsModule = {
   parse_counts = parse_counts,
   detail = detail,
   stage_detail = stage_detail,
-  verdict = verdict,
+  format_verdict = format_verdict,
+  exit_code = exit_code,
 }
 
 return M

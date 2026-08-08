@@ -21,11 +21,20 @@ local record ExampleResult
   error: string | nil
 end
 
---- Result from running all examples in a file.
+--- Result from running all examples in a file (#992: `message` is
+--- the runners' shared shape — what went wrong with the RUN; per-
+--- example failures are on each result).
 local record RunResult
   exit_code: integer
   results: {ExampleResult}
-  error: string | nil
+  message: string | nil
+end
+
+--- Options for `run` (#992: the runners share this shape; `filter`
+--- has benchmark's contract — a plain SUBSTRING matched against the
+--- function name, not a pattern).
+local record RunOptions
+  filter: string
 end
 
 --- Parse a .tl file and extract Example_* functions with their expected output.
@@ -103,9 +112,8 @@ end
 --- Run a single example and capture its output.
 --- Executes the example code and compares actual output with expected output.
 --- @param example Example The example to run
---- @param _file_path string Path to the source file (unused; kept for call-site context)
 --- @return ExampleResult Result with pass/fail status and output comparison
-local function run_example(example: Example, _file_path: string): ExampleResult
+local function run_example(example: Example): ExampleResult
   local result: ExampleResult = {
     name = example.name,
     passed = false,
@@ -207,28 +215,49 @@ end
 --- Run all examples in a file.
 --- Parses and executes all Example_* functions, returning aggregated results.
 --- @param file_path string Path to the Teal file containing examples
---- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
-local function run(file_path: string): RunResult
+--- @param opts RunOptions? filter substring on Example_* names
+--- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and a message
+local function run(file_path: string, opts?: RunOptions): RunResult
   local f, err = io.open(file_path, "r")
   if not f then
     return {
       exit_code = 1,
       results = {},
-      error = "cannot open file: " .. (err or "unknown"),
+      message = "cannot open file: " .. (err or "unknown"),
     }
   end
 
   local source = f:read("*a")
   f:close()
 
-  local examples = parse_examples(source)
+  local all_examples = parse_examples(source)
+  local filter = opts and opts.filter
+
+  local examples: {Example} = {}
+  if filter then
+    for _, example in ipairs(all_examples) do
+      if example.name:find(filter, 1, true) then
+        table.insert(examples, example)
+      end
+    end
+  else
+    examples = all_examples
+  end
 
   if #examples == 0 then
-    -- No examples found - this is a skip (exit code 2)
+    -- No examples found (or none matched the filter) - a skip (exit code 2)
+    if filter and #all_examples > 0 then
+      return {
+        exit_code = 2,
+        results = {},
+        message = "no examples matching '" .. filter .. "' (found "
+        .. #all_examples .. " total)",
+      }
+    end
     return {
       exit_code = 2,
       results = {},
-      error = nil,
+      message = nil,
     }
   end
 
@@ -236,7 +265,7 @@ local function run(file_path: string): RunResult
   local all_passed = true
 
   for _, example in ipairs(examples) do
-    local result = run_example(example, file_path)
+    local result = run_example(example)
     table.insert(results, result)
     if not result.passed then
       all_passed = false
@@ -246,7 +275,7 @@ local function run(file_path: string): RunResult
   return {
     exit_code = all_passed and 0 or 1,
     results = results,
-    error = nil,
+    message = nil,
   }
 end
 
@@ -258,8 +287,8 @@ end
 local function format_results(file_path: string, run_result: RunResult): string
   local lines: {string} = {}
 
-  if run_result.error then
-    table.insert(lines, file_path .. ": ERROR: " .. run_result.error)
+  if run_result.message then
+    table.insert(lines, file_path .. ": ERROR: " .. run_result.message)
     return table.concat(lines, "\n")
   end
 
@@ -300,7 +329,10 @@ local function format_results(file_path: string, run_result: RunResult): string
 end
 
 local record ExampleModule
-  run: function(file_path: string): RunResult
+  type RunOptions = RunOptions
+  type RunResult = RunResult
+
+  run: function(file_path: string, opts?: RunOptions): RunResult
   parse_examples: function(source: string): {Example}
   format_results: function(file_path: string, run_result: RunResult): string
 end

@@ -1,9 +1,9 @@
 #!/usr/bin/env cosmic
--- test cosmic.example module
+-- test _tool.example module
 
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
-local example = require("cosmic.example")
+local example = require("_tool.example")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -217,7 +217,7 @@ test_run_no_examples()
 local function test_run_missing_file()
   local result = example.run("/nonexistent/file.tl")
   assert(result.exit_code == 1, "should fail")
-  assert(string.find(result.error or "", "cannot open"), "should have error message")
+  assert(string.find(result.message or "", "cannot open"), "should have a message")
 end
 test_run_missing_file()
 

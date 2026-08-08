@@ -20,7 +20,7 @@
 --- the type checker would report as a confusing cascade, or not at all.
 
 local fs = require("cosmic.fs")
-local records = require("cosmic.records")
+local records = require("_tool.records")
 local teal = require("cosmic.teal")
 local deps = require("_make.deps")
 local project = require("_make.project")
@@ -171,14 +171,16 @@ local function run(proj: Project, paths: {string}): integer
   local issues = validate.validate(proj)
   if #issues > 0 then
     io.stderr:write(validate.format_issues(issues) .. "\n")
-    return records.verdict("check", false,
-      records.detail(0, #issues, "validation error"))
+    io.write(records.format_verdict("check", false,
+        records.detail(0, #issues, "validation error")) .. "\n")
+    return records.exit_code(false)
   end
 
   local files, err = select_files(proj, paths)
   if not files then
     io.stderr:write((err or "make: no such selection") .. "\n")
-    return records.verdict("check", false, "bad selection")
+    io.write(records.format_verdict("check", false, "bad selection") .. "\n")
+    return records.exit_code(false)
   end
 
   local selected = files
@@ -204,8 +206,9 @@ local function run(proj: Project, paths: {string}): integer
       " already proved by their strict compile\n")
   end
   local failed = check_files(to_check)
-  return records.verdict("check", failed == 0,
-    records.detail(failed, #selected, "file"))
+  io.write(records.format_verdict("check", failed == 0,
+      records.detail(failed, #selected, "file")) .. "\n")
+  return records.exit_code(failed == 0)
 end
 
 local record CheckModule

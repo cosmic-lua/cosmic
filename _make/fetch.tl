@@ -17,7 +17,7 @@ local hash = require("cosmic.hash")
 local patch = require("_make.patch")
 local pin = require("_make.pin")
 local project = require("_make.project")
-local records = require("cosmic.records")
+local records = require("_tool.records")
 local selection = require("_make.select")
 local types = require("_make.types")
 
@@ -343,14 +343,16 @@ local function run(proj: Project, paths: {string}): integer
   local picked, serr = selection.files(candidates, paths, proj.root)
   if not picked then
     io.stderr:write((serr or "make: no such selection") .. "\n")
-    return records.verdict("fetch", false, "bad selection")
+    io.write(records.format_verdict("fetch", false, "bad selection") .. "\n")
+    return records.exit_code(false)
   end
   local files = picked
 
   local pins, rerr = resolve(files)
   if not pins then
     io.stderr:write((rerr or "make: cannot read the pins") .. "\n")
-    return records.verdict("fetch", false, "bad pin")
+    io.write(records.format_verdict("fetch", false, "bad pin") .. "\n")
+    return records.exit_code(false)
   end
 
   use_system_certs()
@@ -363,7 +365,9 @@ local function run(proj: Project, paths: {string}): integer
     end
   end
   local n = #(pins)
-  return records.verdict("fetch", failed == 0, records.detail(failed, n, "pin"))
+  io.write(records.format_verdict("fetch", failed == 0,
+      records.detail(failed, n, "pin")) .. "\n")
+  return records.exit_code(failed == 0)
 end
 
 local record FetchModule

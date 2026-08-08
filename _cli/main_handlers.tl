@@ -280,7 +280,7 @@ end
 --- Handle --check example flag.
 local function handle_check_examples(file: string): integer
   local span = instrument.begin("check-examples", file)
-  local example = require("cosmic.example")
+  local example = require("_tool.example")
   local result = example.run(file)
   io.write(example.format_results(file, result) .. "\n")
   instrument.finish(span, result.exit_code)
@@ -304,7 +304,7 @@ end
 
 --- Handle --benchmark flag.
 local function handle_benchmark(spec: string): integer
-  local benchmark = require("cosmic.benchmark")
+  local benchmark = require("_tool.benchmark")
   local file_path = spec
   local filter: string = nil
 
@@ -350,11 +350,11 @@ local function handle_check_style(file: string): integer
     return 1
   end
   f:close()
-  -- `_cli.lint`, not `cosmic.style`: the lexer-based checks cannot live
+  -- `_cli.lint`, not `_tool.lint`: the lexer-based checks cannot live
   -- in the strip floor. One entry point, so `--check lint` and
   -- `--make lint` cannot disagree about what the style gate is.
   local lint = require("_cli.lint")
-  local style_types = require("cosmic.style")
+  local style_types = require("_tool.lint")
   local found, lerr = lint.lint_file(file)
   if not found then
     io.stderr:write(file .. ": " .. (lerr or "cannot lint") .. "\n")

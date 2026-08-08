@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local testrun = require("cosmic.testrun")
+local testrun = require("_tool.testrun")
 local fs = require("cosmic.fs")
 
 local TEST_BIN = os.getenv("TEST_BIN")

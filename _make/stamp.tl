@@ -79,8 +79,8 @@ local BOOT_FILES < const >: {string} = {"/zip/main.lua", "/zip/main.user.lua"}
 local ROOTS < const >: {string: {string}} = {
   compile = {"_cli.build", "cosmic.teal"},
   fmt = {"_cli.build", "cosmic.format"},
-  lint = {"_cli.build", "_cli.lint", "cosmic.style"},
-  record = {"_cli.build", "cosmic.testrun", "cosmic.teal"},
+  lint = {"_cli.build", "_cli.lint", "_tool.lint"},
+  record = {"_cli.build", "_tool.testrun", "cosmic.teal"},
   driver = {"_cli.build"},
 }
 

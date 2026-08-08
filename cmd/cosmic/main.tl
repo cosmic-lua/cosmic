@@ -361,12 +361,18 @@ local function main(): integer, string
     if #opts.test_argv == 0 then
       return 1, "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
     end
-    local testrun = require("cosmic.testrun")
-    return testrun.run(opts.test_argv, opts.test_output)
+    local testrun = require("_tool.testrun")
+    -- The runner reports, the caller prints (#992): a runner failure
+    -- comes back as a message, prefixed here with the flag it ran for.
+    local code, run_msg = testrun.run(opts.test_argv, opts.test_output)
+    if run_msg then
+      return code, "cosmic-lua: --test: " .. run_msg
+    end
+    return code
   end
 
   if opts.report_paths then
-    local testrun = require("cosmic.testrun")
+    local testrun = require("_tool.testrun")
     return testrun.report(opts.report_paths)
   end
 

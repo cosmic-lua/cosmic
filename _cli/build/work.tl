@@ -297,8 +297,13 @@ local function do_record(args: {string}): integer
   local _ok, _err = env.set("TMP", scratch)
   local _ok, _err = fs.make_dirs(scratch)
   local _ok, _err = fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
-  local testrun = require("cosmic.testrun")
-  testrun.run(argv, out)
+  local testrun = require("_tool.testrun")
+  -- The exit code is deliberately not graded here (the .got file is
+  -- the record); the runner's own failure message is (#992).
+  local _code, run_msg = testrun.run(argv, out)
+  if run_msg then
+    return fail("record " .. out .. ": " .. run_msg)
+  end
   if not fs.is_file(out .. ".got") then
     return fail("record " .. out .. ": no result recorded")
   end

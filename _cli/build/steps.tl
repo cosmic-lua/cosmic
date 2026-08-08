@@ -15,7 +15,7 @@
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local records = require("cosmic.records")
+local records = require("_tool.records")
 local work = require("_cli.build.work")
 
 --- The one prefix a recipe step's failure wears, matching its siblings
@@ -168,7 +168,7 @@ end
 --- AND the per-stage ci-ok exit marker (a stage failing after writing a
 --- clean summary must still fail), and end with the verdict line.
 ---
---- The counts come from `cosmic.records`, which OWNS the summary's
+--- The counts come from `_tool.records`, which OWNS the summary's
 --- grammar: prose-matching `"[1-9]%d* failed"` made this a second
 --- reader of a format with one writer, and it would have kept grading
 --- yesterday's wording -- silently, in the direction of PASS.
@@ -190,7 +190,7 @@ local function do_verdict(args: {string}): integer
     if summary then
       io.write(summary)
       local seen, bad = records.parse_counts(summary)
-      if seen >= 0 and bad > 0 then
+      if seen ~= nil and bad > 0 then
         table.insert(failed, s)
       elseif not fs.stat(fs.join(o_dir, "ci-ok-" .. s)) then
         table.insert(failed, s .. " (exit)")
@@ -201,8 +201,10 @@ local function do_verdict(args: {string}): integer
     end
     io.write("::endgroup::\n")
   end
-  return records.verdict("ci", #failed == 0,
-    #failed > 0 and table.concat(failed, " ") or "")
+  local ci_ok = #failed == 0
+  io.write(records.format_verdict("ci", ci_ok,
+      ci_ok and "" or table.concat(failed, " ")) .. "\n")
+  return records.exit_code(ci_ok)
 end
 
 --- copy <src> <dst> — mkdir -p + cp, preserving the permission bits.

@@ -11,7 +11,7 @@
 
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
-local records = require("cosmic.records")
+local records = require("_tool.records")
 local sys = require("cosmic.sys")
 local generate = require("_make.generate")
 local graph = require("_make.graph")
@@ -84,8 +84,13 @@ local SELECTS < const >: {string: Selection} = {
   coverage = {kinds = {"test"}, variable = "tests"},
 }
 
---- Print a verb's verdict line; the grammar lives in `cosmic.records`.
-local verdict = records.verdict
+--- Print a verb's verdict line and return the exit code it means;
+--- the grammar lives in `_tool.records`, which formats without
+--- printing (#992) — this wrapper is the one place stdout happens.
+local function verdict(verb: string, ok: boolean, detail: string): integer
+  io.write(records.format_verdict(verb, ok, detail) .. "\n")
+  return records.exit_code(ok)
+end
 
 --- The files a graph verb acts on, before selection.
 --- @param proj Project The scanned project
@@ -171,7 +176,7 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
     io.stderr:write(gerr .. "\n")
     return false, "make"
   end
-  return code == 0, records.stage_detail(summary, #files, "file")
+  return code == 0, records.stage_detail(fs.read(summary), #files, "file")
 end
 
 --- A graph verb with nothing to do around the graph: `fmt`.

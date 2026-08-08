@@ -29,11 +29,13 @@ local record BenchmarkResult
   error: string | nil
 end
 
---- Result from running all benchmarks in a file.
+--- Result from running all benchmarks in a file (#992: the field is
+--- `message`, the runners' shared shape — what went wrong with the
+--- RUN; per-benchmark failures are on each result).
 local record RunResult
   exit_code: integer
   results: {BenchmarkResult}
-  error: string | nil
+  message: string | nil
 end
 
 --- Parse a .tl file and extract Benchmark_* functions.
@@ -77,8 +79,9 @@ end
 --- Default minimum benchmark duration in seconds (like Go's default 1s).
 local DEFAULT_MIN_SECONDS = 1.0
 
---- Options for `run`.
-local record Options
+--- Options for `run` (#992: the runners share this shape; example
+--- honors `filter` with the same substring contract).
+local record RunOptions
   --- Run only benchmarks whose name contains this SUBSTRING, matched
   --- plainly (e.g. "concat" matches Benchmark_string_concat). Folded in
   --- from the old positional between the path and the options
@@ -100,9 +103,9 @@ end
 --- no Options to pass (the `--benchmark` CLI flag spawns no sub-options,
 --- so this is how its own tests shrink calibration through a spawned
 --- `cosmic --benchmark` child); otherwise DEFAULT_MIN_SECONDS.
---- @param opts Options? Run options
+--- @param opts RunOptions? Run options
 --- @return number Minimum duration in seconds
-local function resolve_min_seconds(opts: Options): number
+local function resolve_min_seconds(opts: RunOptions): number
   if opts and opts.min_ms then
     return opts.min_ms / 1000
   end
@@ -119,10 +122,9 @@ end
 --- Run a single benchmark and measure timing.
 --- Executes the benchmark code repeatedly, auto-calibrating iterations.
 --- @param benchmark Benchmark The benchmark to run
---- @param _file_path string Path to the source file (unused, for API consistency)
 --- @param min_seconds number Minimum calibrated duration, in seconds
 --- @return BenchmarkResult Result with timing statistics
-local function run_benchmark(benchmark: Benchmark, _file_path: string, min_seconds: number): BenchmarkResult
+local function run_benchmark(benchmark: Benchmark, min_seconds: number): BenchmarkResult
   local result: BenchmarkResult = {
     name = benchmark.name,
     iterations = 0,
@@ -228,15 +230,15 @@ end
 --- Run all benchmarks in a file, optionally filtered.
 --- Parses and executes Benchmark_* functions, returning aggregated results.
 --- @param file_path string Path to the Teal file containing benchmarks
---- @param opts Options? filter substring and min_ms calibration floor
---- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
-local function run(file_path: string, opts?: Options): RunResult
+--- @param opts RunOptions? filter substring and min_ms calibration floor
+--- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and a message
+local function run(file_path: string, opts?: RunOptions): RunResult
   local f, err = io.open(file_path, "r")
   if not f then
     return {
       exit_code = 1,
       results = {},
-      error = "cannot open file: " .. (err or "unknown"),
+      message = "cannot open file: " .. (err or "unknown"),
     }
   end
 
@@ -266,13 +268,13 @@ local function run(file_path: string, opts?: Options): RunResult
       return {
         exit_code = 2,
         results = {},
-        error = "no benchmarks matching '" .. filter .. "' (found " .. #all_benchmarks .. " total)",
+        message = "no benchmarks matching '" .. filter .. "' (found " .. #all_benchmarks .. " total)",
       }
     end
     return {
       exit_code = 2,
       results = {},
-      error = nil,
+      message = nil,
     }
   end
 
@@ -281,7 +283,7 @@ local function run(file_path: string, opts?: Options): RunResult
   local min_seconds = resolve_min_seconds(opts)
 
   for _, benchmark in ipairs(benchmarks) do
-    local result = run_benchmark(benchmark, file_path, min_seconds)
+    local result = run_benchmark(benchmark, min_seconds)
     table.insert(results, result)
     if result.error then
       has_error = true
@@ -291,7 +293,7 @@ local function run(file_path: string, opts?: Options): RunResult
   return {
     exit_code = has_error and 1 or 0,
     results = results,
-    error = nil,
+    message = nil,
   }
 end
 
@@ -318,8 +320,8 @@ end
 local function format_results(file_path: string, run_result: RunResult): string
   local lines: {string} = {}
 
-  if run_result.error then
-    table.insert(lines, file_path .. ": ERROR: " .. run_result.error)
+  if run_result.message then
+    table.insert(lines, file_path .. ": ERROR: " .. run_result.message)
     return table.concat(lines, "\n")
   end
 
@@ -351,9 +353,10 @@ local function format_results(file_path: string, run_result: RunResult): string
 end
 
 local record BenchmarkModule
-  type Options = Options
+  type RunOptions = RunOptions
+  type RunResult = RunResult
 
-  run: function(file_path: string, opts?: Options): RunResult
+  run: function(file_path: string, opts?: RunOptions): RunResult
   parse_benchmarks: function(source: string): {Benchmark}
   format_results: function(file_path: string, run_result: RunResult): string
 end
