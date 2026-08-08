@@ -271,7 +271,7 @@ local function run_generator(proj: Project, gen: string, dest: string,
 end
 
 --- Where the `cosmo.*`/`tl` declarations land: HARDCODED, not derived,
---- because `cosmic.teal`'s get_default_include_dirs() hardcodes this
+--- because `cosmic.teal`'s default_include_dirs() hardcodes this
 --- same path first on every project's compile include path -- generator
 --- or not, there is nothing per-project to carry as a variable.
 --- teal_config_test.tl guards the tlconfig.lua mirror of that list;

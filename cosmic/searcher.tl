@@ -46,7 +46,7 @@
 --- `acquire_teal`), which erases the module's own type.
 local record TealSearch
   search_module: function(module_name: string): string | nil
-  compile_cached: function(input_path: string, strict?: boolean): string | nil, string
+  compile_cached: function(input_path: string, opts?: {string: boolean}): string | nil, string
 end
 
 --- cosmic.teal, or nil in an artifact that carries no Teal compiler.
@@ -209,7 +209,7 @@ local function compile_tree(path: string, name: string): any, any
   -- pcall'd so a compile_cached throw still clears `compiling`: left up,
   -- it would fail every later tree resolution with "compiler bootstrap
   -- in progress" instead of just this one require.
-  local ok, code, cerr = pcall(teal.compile_cached, path, true)
+  local ok, code, cerr = pcall(teal.compile_cached, path, {strict = true})
   compiling = false
   if not ok then
     error("error loading module '" .. name .. "' from '" .. path

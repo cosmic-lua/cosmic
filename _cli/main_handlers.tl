@@ -129,8 +129,8 @@ end
 --- Handle --compile / --compile-strict flags.
 local function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   local span = instrument.begin("compile", file)
-  local teal = require("cosmic.teal")
-  local result = teal.compile(file, {include_dirs = include_dirs, strict = strict})
+  local tealc = require("_cli.teal_compat")
+  local result = tealc.compile_file(file, {include_dirs = include_dirs, strict = strict})
   local exit_code: integer
   local err_msg: string
   if result.ok then
@@ -139,7 +139,7 @@ local function handle_compile(file: string, output?: string, write_if_changed?: 
     -- With hints, like --check types: `--make build` compiles through
     -- this path, so it is where a project author actually meets the
     -- un-narrowed `T | nil` errors.
-    io.stderr:write(teal.format_issues_with_hints(result.errors) .. "\n")
+    io.stderr:write(tealc.format_issues(result.errors, {hints = true}) .. "\n")
     exit_code = 1
   end
   instrument.finish(span, exit_code)
@@ -241,14 +241,14 @@ end
 --- Handle --check types flag.
 local function handle_check_types(file: string, include_dirs?: {string}): integer
   local span = instrument.begin("check-types", file)
-  local teal = require("cosmic.teal")
-  local result = teal.check(file, {include_dirs = include_dirs})
+  local tealc = require("_cli.teal_compat")
+  local result = tealc.check_file(file, {include_dirs = include_dirs})
 
   if #result.warnings > 0 then
-    io.stderr:write(teal.format_issues(result.warnings) .. "\n")
+    io.stderr:write(tealc.format_issues(result.warnings, nil) .. "\n")
   end
   if #result.errors > 0 then
-    io.stderr:write(teal.format_issues_with_hints(result.errors) .. "\n")
+    io.stderr:write(tealc.format_issues(result.errors, {hints = true}) .. "\n")
   end
 
   if result.ok then

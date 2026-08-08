@@ -1,7 +1,7 @@
 --- Go-style executable example testing.
 --- Parses Example_* functions from Teal files, runs them, and verifies output.
 
-local tl = require("tl")
+local teal = require("cosmic.teal")
 local scan = require("_tool.doc.scan")
 
 --- A parsed example function with its expected output.
@@ -128,31 +128,17 @@ local function run_example(example: Example): ExampleResult
     return result
   end
 
-  -- Build a script that executes the example body
-  -- Compile through Teal first to handle type annotations
-  local teal_source = example.body
-
-  -- Initialize Teal environment (lax, compat off, 5.4 target — same
-  -- settings cosmic.teal's make_env uses) and process the source.
-  -- process_string always returns a Result; failures land in its
-  -- syntax_errors field, not a second return.
-  local env = tl.init_env(true, "off", "5.4")
-  local tl_result = tl.process_string(teal_source, true, env, "@" .. example.name)
-
-  if tl_result.syntax_errors and #tl_result.syntax_errors > 0 then
-    result.error = "syntax error: " .. tl_result.syntax_errors[1].msg
+  -- Compile the example body through the real string half (#1001:
+  -- teal.compile(source) replaced this file's hand-rolled
+  -- init_env/process_string/generate copy of it). Lax, like every
+  -- example body — the enclosing file already type-checked strictly.
+  local compiled = teal.compile(example.body, {chunk_name = "@" .. example.name})
+  if not compiled.ok then
+    result.error = "syntax error: "
+    .. (compiled.errors[1] and compiled.errors[1].message or "compile failed")
     return result
   end
-
-  -- tl.generate's second argument is the target STRING, not an options
-  -- table; passing a table silently fell back to the default (non-5.4)
-  -- target, which rejects 5.4-only features like <close> attributes.
-  local lua_code = tl.generate(tl_result.ast, "5.4")
-
-  if not lua_code then
-    result.error = "compile error: code generation failed"
-    return result
-  end
+  local lua_code = compiled.code
 
   -- No loader prelude: the cosmic dispatcher's runtime .tl searcher
   -- already resolves require statements in example bodies.

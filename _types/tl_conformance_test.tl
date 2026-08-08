@@ -103,7 +103,7 @@ assert(fs.write(probe_path, PROBE))
 -- require("tl") resolves to the generated tl.d.tl. Strict; warnings
 -- fail, so every probe value must be used or underscore-marked.
 local function test_probe_passes_against_shim()
-  local r = teal.check(probe_path)
+  local r = teal.check_file(probe_path)
   assert(r.ok, "probe must type-check against tl.d.tl:\n"
     .. teal.format_issues(r.errors) .. "\n" .. teal.format_issues(r.warnings))
 end
@@ -117,7 +117,7 @@ local function test_probe_passes_against_staged_tl()
   local staged = staged_tl_dir()
   assert(fs.is_file(fs.join(staged, "tl.tl")),
     "staged tl source missing at " .. staged .. " (run `cosmic --make fetch`)")
-  local r = teal.check(probe_path, {include_dirs = {staged}, werror = false})
+  local r = teal.check_file(probe_path, {include_dirs = {staged}, werror = false})
   assert(#r.errors == 0,
     "probe must type-check against the staged tl.tl — a failure here "
     .. "means the shim declares a call shape upstream rejects:\n"

@@ -15,7 +15,7 @@ local function first_hinted_error(name: string, source: string): string, string
   local path = fs.join(tmpdir, name)
   local ok, werr = fs.write(path, source)
   assert(ok, "write " .. name .. ": " .. tostring(werr))
-  local result = teal.check(path)
+  local result = teal.check_file(path)
   assert(not result.ok, name .. ": snippet should fail the strict check")
   assert(#result.errors > 0, name .. ": snippet should produce errors")
   for _, issue in ipairs(result.errors) do
@@ -126,7 +126,7 @@ end
 print(early() + positive() + arr() + via_assert() + via_eq_nil()
   + via_ne_nil_boolean())
 ]]))
-  local result = teal.check(path)
+  local result = teal.check_file(path)
   assert(result.ok, "guards must narrow a nil union (carried tl patch): "
     .. (result.ok and "" or teal.format_issues(result.errors)))
 end
@@ -372,26 +372,26 @@ local function test_compile_lax_strict_contract()
   -- contradictions: an undeclared variable passes lax and fails strict.
   local unknown = fs.join(tmpdir, "c_unknown.tl")
   assert(fs.write(unknown, "print(xyzzy)\n"))
-  assert(teal.compile(unknown).ok,
+  assert(teal.compile_file(unknown).ok,
     "default compile is lax: unknown variables must not stop codegen")
-  local strict = teal.compile(unknown, {strict = true})
+  local strict = teal.compile_file(unknown, {strict = true})
   assert(not strict.ok, "strict compile must reject unknown variables")
   assert(#strict.errors > 0 and strict.errors[1].severity == "error")
-  assert(not teal.check(unknown).ok, "check must reject what strict compile rejects")
+  assert(not teal.check_file(unknown).ok, "check must reject what strict compile rejects")
 
   -- An explicitly annotated contradiction fails both ways: lax still
   -- checks what you declared.
   local type_err = fs.join(tmpdir, "c_type_err.tl")
   assert(fs.write(type_err, "local s: string = 42\nprint(s)\n"))
-  assert(not teal.compile(type_err).ok,
+  assert(not teal.compile_file(type_err).ok,
     "even lax compile rejects an annotated contradiction")
-  assert(not teal.compile(type_err, {strict = true}).ok)
+  assert(not teal.compile_file(type_err, {strict = true}).ok)
 
   local warn_only = fs.join(tmpdir, "c_warn.tl")
   assert(fs.write(warn_only, "local unused = 1\nprint(\"hi\")\n"))
-  assert(teal.compile(warn_only).ok,
+  assert(teal.compile_file(warn_only).ok,
     "default compile must not fail on warnings")
-  local strict_warn = teal.compile(warn_only, {strict = true})
+  local strict_warn = teal.compile_file(warn_only, {strict = true})
   assert(not strict_warn.ok, "strict compile must fail on warnings, matching check")
   assert(strict_warn.errors[1].severity == "warning",
     "the failure should carry the warning issue")
@@ -407,8 +407,8 @@ local function test_strict_compile_codegen()
       .. "  return a + b\n"
       .. "end\n"
       .. "print(add(1, 2))\n"))
-  local lax = teal.compile(clean)
-  local strict = teal.compile(clean, {strict = true})
+  local lax = teal.compile_file(clean)
+  local strict = teal.compile_file(clean, {strict = true})
   assert(lax.ok and strict.ok, "clean file should compile both ways")
   assert(lax.code == strict.code,
     "lax and strict codegen of a clean file must be identical")
@@ -417,7 +417,7 @@ local function test_strict_compile_codegen()
   assert(fs.write(closer,
       "local f <close> = assert(io.open(\"/dev/null\", \"r\"))\n"
       .. "print(f ~= nil)\n"))
-  local sc = teal.compile(closer, {strict = true})
+  local sc = teal.compile_file(closer, {strict = true})
   assert(sc.ok, "strict compile of <close> should pass: "
     .. (sc.ok and "" or teal.format_issues(sc.errors)))
   assert(string.find(sc.code or "", "<close>", 1, true),
@@ -432,13 +432,13 @@ local function test_compile_gen_compat_wired()
   local pack_file = fs.join(tmpdir, "c_gen_compat.tl")
   assert(fs.write(pack_file, "local t = table.pack(1, 2, 3)\nprint(t.n)\n"))
 
-  local off = teal.compile(pack_file, {gen_target = "5.3", gen_compat = "off"})
+  local off = teal.compile_file(pack_file, {gen_target = "5.3", gen_compat = "off"})
   assert(off.ok, "gen_compat=off compile should succeed: "
     .. (off.ok and "" or teal.format_issues(off.errors)))
   assert(not string.find(off.code or "", "_tl_table_pack", 1, true),
     "gen_compat=off must not add compat shims")
 
-  local required = teal.compile(pack_file, {gen_target = "5.3", gen_compat = "required"})
+  local required = teal.compile_file(pack_file, {gen_target = "5.3", gen_compat = "required"})
   assert(required.ok, "gen_compat=required compile should succeed: "
     .. (required.ok and "" or teal.format_issues(required.errors)))
   assert(string.find(required.code or "", "_tl_table_pack", 1, true),
@@ -452,7 +452,7 @@ test_compile_gen_compat_wired()
 local function test_compile_rejects_incompatible_gen_target_and_compat()
   local clean = fs.join(tmpdir, "c_incompatible.tl")
   assert(fs.write(clean, "print(1)\n"))
-  local result = teal.compile(clean, {gen_target = "5.4", gen_compat = "required"})
+  local result = teal.compile_file(clean, {gen_target = "5.4", gen_compat = "required"})
   assert(not result.ok, "5.4 + gen_compat=required must be rejected")
   assert(#result.errors > 0 and result.errors[1].message:find("tl.new_env", 1, true),
     "expected a tl.new_env error, got: " .. teal.format_issues(result.errors))

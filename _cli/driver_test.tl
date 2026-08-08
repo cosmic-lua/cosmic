@@ -100,7 +100,7 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
     "a compile must be allowed to read tlconfig.lua")
   local teal = require("cosmic.teal")
   local granted = false
-  for _, dir in ipairs(teal.get_default_include_dirs()) do
+  for _, dir in ipairs(teal.default_include_dirs()) do
     if has(p.ro, dir) then
       granted = true
     end

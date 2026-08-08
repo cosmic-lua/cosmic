@@ -1,5 +1,5 @@
-# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
+# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 3p/tl/tl_patch.tl 0 1
 _build/ratchet.tl 36 36
 _cli/args.tl 0 35
@@ -17,6 +17,7 @@ _cli/main_handlers.tl 11 220
 _cli/pattern_args.tl 132 135
 _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
+_cli/teal_compat.tl 0 7
 _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
@@ -92,12 +93,13 @@ _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 180
-cmd/cosmic/main.tl 0 227
+cmd/cosmic/main.tl 0 229
 cosmic/_fields.tl 5 7
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
+cosmic/_teal_engine.tl 123 128
 cosmic/_teal_hints.tl 42 42
 cosmic/ansi.tl 86 86
 cosmic/check.tl 110 114
@@ -193,7 +195,7 @@ cosmic/stream.tl 0 2
 cosmic/string.tl 180 183
 cosmic/sys.tl 14 22
 cosmic/tar.tl 116 126
-cosmic/teal.tl 185 193
+cosmic/teal.tl 92 100
 cosmic/time.tl 142 155
 cosmic/tty.tl 119 126
 cosmic/url.tl 126 141
@@ -201,4 +203,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14779 19391
+total 14809 19435
