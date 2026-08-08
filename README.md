@@ -11,7 +11,7 @@ High-level utilities and tools built on top of cosmo.
 | [ansi](cosmic/ansi.md) |  ANSI terminal styling. |
 | [check](cosmic/check.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [init](cosmic/child/init.md) |  Child process management. |
-| [codec](cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
+| [codec](cosmic/codec.md) |  Encoding and decoding utilities: bytes in, bytes out. |
 | [compress](cosmic/compress.md) |  Compression and decompression utilities. |
 | [init](cosmic/coverage/init.md) |  Line coverage collection for cosmic programs. |
 | [deep](cosmic/deep.md) |  Deep table operations. |

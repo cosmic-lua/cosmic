@@ -1,10 +1,11 @@
 # codec
 
- Encoding and decoding utilities for various formats.
- Provides hex, base64, base32, Latin-1, and Lua serialization codecs
- with consistent error handling, plus CRC-32 checksums (checksums are
+ Encoding and decoding utilities: bytes in, bytes out.
+ Provides hex, base64, base32, and Latin-1 codecs with consistent
+ error handling, plus CRC-32 checksums (checksums are
  encoding-adjacent error detection, not crypto — see cosmic.hash for
- digests).
+ digests). Lua VALUE serialization is not a byte codec and lives in
+ cosmic.literal (format/parse, #1001).
 
 ## Types
 
@@ -14,8 +15,6 @@
 local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string | nil, string
-  encode_lua: function(value: any, opts?: {string: any}): string | nil, string
-  decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string | nil, string
   encode_base64url: function(data: string): string
@@ -64,46 +63,6 @@ function decode_hex(hex: string): string | nil, string
 **Returns:**
 
 - string - | nil The decoded binary data, or nil on error
-- string? - Error message if decoding failed
-
-### encode_lua
-
-```teal
-function encode_lua(value: any, opts?: {string: any}): string | nil, string
-```
-
- Encode a Lua value as Lua source code.
- The output can be loaded with decode_lua to reconstruct the value.
-
-**Parameters:**
-
-- `value` (any) - The Lua value to encode (table, string, number, boolean, or nil)
-- `opts` ({string:any}?) - Optional encoding options
-
-**Returns:**
-
-- string - | nil The Lua source code representation, or nil on error
-- string? - Error message if encoding failed
-
-### decode_lua_unsafe
-
-```teal
-function decode_lua_unsafe(code: string): any | nil, string
-```
-
- Decode Lua source code to a value with a restricted environment.
- Only loads the code in text mode with an empty environment table,
- preventing access to globals like os, io, and require.
- Table constructors and literal values still work.
- WARNING: This still executes Lua code. Only use with trusted input.
-
-**Parameters:**
-
-- `code` (string) - The Lua source code to decode
-
-**Returns:**
-
-- any - | nil The decoded Lua value, or nil on error
 - string? - Error message if decoding failed
 
 ### encode_base64
