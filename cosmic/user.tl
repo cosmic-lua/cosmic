@@ -69,18 +69,6 @@ local function setgid(gid: integer): boolean, string
   return true
 end
 
---- Set the filesystem user ID.
---- @param uid integer The filesystem user ID to set
---- @return boolean True on success
---- @return string? Error message on failure
-local function setfsuid(uid: integer): boolean, string
-  local ok, err = unix.setfsuid(uid)
-  if not ok then
-    return false, errstr(err, "setfsuid")
-  end
-  return true
-end
-
 --- Set real, effective, and saved user IDs.
 --- Pass -1 for any argument to leave that ID unchanged.
 --- @param real integer The real user ID to set (-1 to leave unchanged)
@@ -111,29 +99,6 @@ local function setresgid(real: integer, effective: integer, saved: integer): boo
   return true
 end
 
---- Set the file mode creation mask.
---- The umask is used by open(), mkdir(), etc. to modify the permissions
---- of newly created files and directories.
---- @param newmask integer The new file mode creation mask
---- @return integer The previous umask value
-local function umask(newmask: integer): integer
-  return unix.umask(newmask)
-end
-
---- Change the root directory.
---- Changes the root directory of the calling process to the specified path.
---- This call requires appropriate privileges (typically root).
---- @param path string The new root directory path
---- @return boolean True on success
---- @return string? Error message on failure
-local function chroot(path: string): boolean, string
-  local ok, err = unix.chroot(path)
-  if not ok then
-    return false, errstr(err, "chroot")
-  end
-  return true
-end
-
 local record UserModule
   getuid: function(): integer
   getgid: function(): integer
@@ -142,11 +107,8 @@ local record UserModule
   getlogin: function(): string | nil, string
   setuid: function(uid: integer): boolean, string
   setgid: function(gid: integer): boolean, string
-  setfsuid: function(uid: integer): boolean, string
   setresuid: function(real: integer, effective: integer, saved: integer): boolean, string
   setresgid: function(real: integer, effective: integer, saved: integer): boolean, string
-  umask: function(newmask: integer): integer
-  chroot: function(path: string): boolean, string
 end
 
 local M: UserModule = {
@@ -157,11 +119,8 @@ local M: UserModule = {
   getlogin = getlogin,
   setuid = setuid,
   setgid = setgid,
-  setfsuid = setfsuid,
   setresuid = setresuid,
   setresgid = setresgid,
-  umask = umask,
-  chroot = chroot,
 }
 
 return M

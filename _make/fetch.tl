@@ -63,7 +63,7 @@ end
 --- there".
 ---
 --- The line delimiter is safe because the extractors refuse control
---- characters in member names (`cosmic.tar.unsafe_path`,
+--- characters in member names (`cosmic.fs.is_unsafe_entry_name`,
 --- `fs.unsafe_entry_name`) — archive members are
 --- attacker-shaped input, and a member called `a\nb.txt` would be
 --- recorded as two names, neither of which exists, so every later fetch

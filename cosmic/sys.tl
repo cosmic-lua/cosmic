@@ -102,14 +102,6 @@ local function nproc(): integer | nil, string
   return sysconf(unix.SC_NPROCESSORS_ONLN)
 end
 
---- Number of processors configured in the system.
---- May exceed `nproc()` when some processors are offline.
---- @return integer | nil The configured processor count
---- @return string? Error message on failure
-local function nproc_configured(): integer | nil, string
-  return sysconf(unix.SC_NPROCESSORS_CONF)
-end
-
 --- Memory page size in bytes.
 --- @return integer | nil The page size in bytes
 --- @return string? Error message on failure
@@ -136,42 +128,20 @@ local record SysModule
   --- host_os()'s closed enum, exported so callers can hold one.
   type HostOs = HostOs
 
-  -- sysconf(3) name constants
-  SC_ARG_MAX: integer
-  SC_CHILD_MAX: integer
-  SC_CLK_TCK: integer
-  SC_OPEN_MAX: integer
-  SC_PAGESIZE: integer
-  SC_NPROCESSORS_CONF: integer
-  SC_NPROCESSORS_ONLN: integer
-
   host_os: function(): HostOs
-  normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
-  sysconf: function(name: integer): integer | nil, string
   nproc: function(): integer | nil, string
-  nproc_configured: function(): integer | nil, string
   page_size: function(): integer | nil, string
   uname: function(): Uname | nil, string
 end
 
 local M: SysModule = {
-  SC_ARG_MAX = unix.SC_ARG_MAX,
-  SC_CHILD_MAX = unix.SC_CHILD_MAX,
-  SC_CLK_TCK = unix.SC_CLK_TCK,
-  SC_OPEN_MAX = unix.SC_OPEN_MAX,
-  SC_PAGESIZE = unix.SC_PAGESIZE,
-  SC_NPROCESSORS_CONF = unix.SC_NPROCESSORS_CONF,
-  SC_NPROCESSORS_ONLN = unix.SC_NPROCESSORS_ONLN,
 
   host_os = host_os,
-  normalize_host_os = normalize_host_os,
   host_isa = host_isa,
   platform = platform,
-  sysconf = sysconf,
   nproc = nproc,
-  nproc_configured = nproc_configured,
   page_size = page_size,
   uname = uname,
 }

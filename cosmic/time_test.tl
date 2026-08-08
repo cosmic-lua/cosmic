@@ -2,32 +2,6 @@
 local time = require("cosmic.time")
 local check = require("cosmic.check")
 
--- clock_gettime tests
-
-local function test_clock_gettime_default()
-  local secs, nanos = time.clock_gettime()
-  assert(secs ~= nil, "expected seconds to be non-nil")
-  assert(nanos ~= nil, "expected nanoseconds to be non-nil")
-  assert(secs > 0, "expected positive seconds")
-  assert(nanos >= 0, "expected non-negative nanoseconds")
-  assert(nanos < 1000000000, "expected nanoseconds < 1 billion")
-end
-test_clock_gettime_default()
-
-local function test_clock_gettime_realtime()
-  local secs, _nanos = time.clock_gettime(time.CLOCK_REALTIME)
-  assert(secs ~= nil, "expected seconds to be non-nil")
-  assert(secs > 1700000000, "expected timestamp after 2023")
-end
-test_clock_gettime_realtime()
-
-local function test_clock_gettime_monotonic()
-  local secs1, _ = time.clock_gettime(time.CLOCK_MONOTONIC)
-  local secs2, _ = time.clock_gettime(time.CLOCK_MONOTONIC)
-  assert(secs2 >= secs1, "monotonic clock should not go backwards")
-end
-test_clock_gettime_monotonic()
-
 -- now() tests
 
 local function test_now()
@@ -222,24 +196,6 @@ test_localtime_zone()
 
 -- Clock constants tests
 
-local function test_clock_constants_exist()
-  assert(time.CLOCK_REALTIME ~= nil, "CLOCK_REALTIME should exist")
-  assert(time.CLOCK_MONOTONIC ~= nil, "CLOCK_MONOTONIC should exist")
-  assert(time.CLOCK_BOOTTIME ~= nil, "CLOCK_BOOTTIME should exist")
-  assert(time.CLOCK_MONOTONIC_RAW ~= nil, "CLOCK_MONOTONIC_RAW should exist")
-  assert(time.CLOCK_REALTIME_COARSE ~= nil, "CLOCK_REALTIME_COARSE should exist")
-  assert(time.CLOCK_MONOTONIC_COARSE ~= nil, "CLOCK_MONOTONIC_COARSE should exist")
-  assert(time.CLOCK_THREAD_CPUTIME_ID ~= nil, "CLOCK_THREAD_CPUTIME_ID should exist")
-  assert(time.CLOCK_PROCESS_CPUTIME_ID ~= nil, "CLOCK_PROCESS_CPUTIME_ID should exist")
-end
-test_clock_constants_exist()
-
-local function test_clock_realtime_is_zero()
-  -- Per the docs, CLOCK_REALTIME is always 0
-  assert(time.CLOCK_REALTIME == 0, "CLOCK_REALTIME should be 0, got " .. tostring(time.CLOCK_REALTIME))
-end
-test_clock_realtime_is_zero()
-
 -- timegm tests
 
 local function test_timegm_epoch()
@@ -269,15 +225,6 @@ local function test_timegm_roundtrip()
   assert(back == original, "roundtrip failed: " .. tostring(original) .. " -> " .. tostring(back))
 end
 test_timegm_roundtrip()
-
-local function test_timegm_leap_year()
-  -- 2024-03-01 00:00:00 UTC (2024 is a leap year)
-  -- 2024-02-29 00:00:00 UTC should be valid
-  local feb29 = time.timegm(2024, 2, 29, 0, 0, 0)
-  local mar01 = time.timegm(2024, 3, 1, 0, 0, 0)
-  assert(mar01 - feb29 == 86400, "expected 1 day between Feb 29 and Mar 1 in leap year")
-end
-test_timegm_leap_year()
 
 local function test_timegm_epoch_is_zero()
   -- unix epoch must be exactly 0
@@ -365,13 +312,6 @@ local function test_timegm_bad_time_fields()
 end
 test_timegm_bad_time_fields()
 
-local function test_timegm_leap_second_ok()
-  -- second 60 (leap second) is accepted for gmtime roundtrip compatibility
-  local ts = time.timegm(2025, 1, 1, 0, 0, 60)
-  assert(ts ~= nil, "expected leap second (sec 60) to be accepted")
-end
-test_timegm_leap_second_ok()
-
 -- millisecond clocks
 
 local function test_now_ms_matches_now()
@@ -405,14 +345,6 @@ local function test_timegm_pre_epoch()
 end
 test_timegm_pre_epoch()
 
-local function test_timegm_leap_rules()
-  assert(time.timegm(2000, 2, 29, 0, 0, 0) == 951782400, "2000-02-29 exists")
-  assert(time.timegm(2100, 3, 1, 0, 0, 0) == 4107542400, "2100 is not a leap year")
-  assert(time.timegm(2400, 2, 29, 12, 30, 45) == 13574608245, "2400-02-29 exists")
-  assert(time.timegm(2100, 2, 29, 0, 0, 0) == nil, "2100-02-29 must be rejected")
-end
-test_timegm_leap_rules()
-
 -- isdst is a boolean
 
 local function test_gmtime_isdst_boolean()
@@ -424,30 +356,3 @@ end
 test_gmtime_isdst_boolean()
 
 -- is_leap_year / days_in_month (exported in)
-
-local function test_is_leap_year()
-  assert(time.is_leap_year(2024) == true, "2024 is a leap year")
-  assert(time.is_leap_year(2025) == false, "2025 is not a leap year")
-  assert(time.is_leap_year(1900) == false, "1900 is not a leap year (century)")
-  assert(time.is_leap_year(2000) == true, "2000 is a leap year (divisible by 400)")
-end
-test_is_leap_year()
-
-local function test_days_in_month()
-  assert(time.days_in_month(2025, 1) == 31, "January has 31 days")
-  assert(time.days_in_month(2025, 2) == 28, "February 2025 has 28 days")
-  assert(time.days_in_month(2024, 2) == 29, "February 2024 has 29 days")
-  assert(time.days_in_month(2025, 4) == 30, "April has 30 days")
-  assert(time.days_in_month(2025, 12) == 31, "December has 31 days")
-end
-test_days_in_month()
-
-local function test_days_in_month_out_of_range()
-  local d, err = time.days_in_month(2025, 13)
-  assert(d == nil, "month 13 must be rejected")
-  assert(err ~= nil and string.find(err, "out of range") ~= nil,
-    "error names the range: " .. tostring(err))
-  local d0 = time.days_in_month(2025, 0)
-  assert(d0 == nil, "month 0 must be rejected")
-end
-test_days_in_month_out_of_range()

@@ -220,26 +220,6 @@ local function fork(): integer | nil, string
   return pid
 end
 
---- Spawns a program via posix_spawn (no PATH search).
---- @param prog string Absolute path to the executable
---- @param argv {string} Argument vector passed to the program
---- @param envp {string}? Environment (KEY=value); inherits if omitted
---- @return integer | nil The child pid on success, or nil + error on failure
-local function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-  local pid, err = unix.spawn(prog, argv, envp); if pid == nil then return nil, errstr(err, "posix_spawn: " .. prog) end
-  return pid
-end
-
---- Spawns a program via posix_spawnp (PATH search).
---- @param prog string Program name to execute
---- @param argv {string} Argument vector passed to the program
---- @param envp {string}? Environment (KEY=value); inherits if omitted
---- @return integer | nil The child pid on success, or nil + error on failure
-local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-  local pid, err = unix.spawnp(prog, argv, envp); if pid == nil then return nil, errstr(err, "posix_spawnp: " .. prog) end
-  return pid
-end
-
 --- Waits for a child process to change state.
 --- A raw passthrough: EINTR surfaces here, unlike child.Handle:wait.
 --- @param pid integer? Child pid to wait for (-1 or nil for any child)
@@ -331,8 +311,6 @@ local record ProcModule
 
   -- Process control (children)
   fork: function(): integer | nil, string
-  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
   type WaitResult = WaitResult
   wait: function(pid?: integer, options?: integer): WaitResult | nil, string
   WIFEXITED: function(status: integer): boolean
@@ -411,8 +389,6 @@ local M: ProcModule = {
 
   -- Process control (children)
   fork = fork,
-  posix_spawn = posix_spawn,
-  posix_spawnp = posix_spawnp,
   wait = wait,
   WIFEXITED = WIFEXITED,
   WEXITSTATUS = WEXITSTATUS,

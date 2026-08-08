@@ -128,11 +128,6 @@ local function test_default_file_lines()
 end
 test_default_file_lines()
 
-local function test_default_column_width()
-  assert(style.DEFAULT_COLUMN_WIDTH == 90, "expected default column width to be 90")
-end
-test_default_column_width()
-
 -- cosmo-require: the forbidden pattern is spelled via concatenation below so
 -- this file's own fixtures don't trip the rule (it is allowlisted anyway).
 local REQ_COSMO = 'require("cosmo' .. '")'

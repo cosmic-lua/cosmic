@@ -264,10 +264,6 @@ local record TarModule
   --- Options for extract().
   type ExtractOptions = ExtractOptions
   extract: function(archive: string, destdir: string, opts?: ExtractOptions): boolean, string
-  --- One guard for zip, tar and embed: `cosmic.embed` and `--make
-  --- fetch` refuse archive-controlled names with the same rule, and a
-  --- shared predicate is what keeps them from disagreeing.
-  unsafe_path: function(name: string): boolean
 end
 
 -- `parse_pax` is deliberately not exported: it was public only so a
@@ -275,7 +271,6 @@ end
 -- and an export is a contract.
 local M: TarModule = {
   extract = extract,
-  unsafe_path = unsafe_path,
 }
 
 return M

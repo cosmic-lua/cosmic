@@ -363,14 +363,6 @@ end
 --- cosmic.doc.types, so extraction and query agree on the type).
 local type DocIndex = types.DocIndex
 
-local function load_index(source: string): DocIndex | nil, string
-  local chunk, err = load("return " .. source, "=docindex", "t", {})
-  if not chunk then return nil, "failed to parse index: " .. (err or "unknown") end
-  local ok, result = pcall(chunk)
-  if not ok then return nil, "failed to load index: " .. tostring(result) end
-  return result as DocIndex, nil -- cast: from any
-end
-
 -- The query half of the module (`doc` and `docs` converged into one
 -- family): lookup and search over the index embedded in the binary,
 -- behind the `--docs` CLI.
@@ -385,7 +377,6 @@ local record DocModule
   parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): string | nil, string
-  load_index: function(source: string): DocIndex | nil, string
 
   -- Query: the index embedded in the binary (`--docs`).
   query: function(q?: string): DocsResult
@@ -408,7 +399,6 @@ local M: DocModule = {
   parse_file = parse_file,
   render = doc_render.render,
   render_file = render_file,
-  load_index = load_index,
 
   query = query.run,
   has_docs = query.has_docs,

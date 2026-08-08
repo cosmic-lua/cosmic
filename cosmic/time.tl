@@ -26,16 +26,6 @@ local record DateTime
   zone: string -- Timezone name (e.g., "UTC", "PDT")
 end
 
---- Get current time from the specified clock.
---- Returns seconds since epoch and nanoseconds.
---- @param clock integer? Clock identifier (default: CLOCK_REALTIME)
---- @return integer Seconds since epoch
---- @return integer Nanoseconds
-local function clock_gettime(clock?: integer): integer, integer
-  local secs, nanos = unix.clock_gettime(clock)
-  return secs, nanos
-end
-
 --- Get current wall clock time (real time).
 --- Returns seconds since epoch and nanoseconds.
 --- @return integer Seconds since epoch
@@ -126,7 +116,7 @@ end
 --- arithmetic in retry loops: 0 on an uninterrupted sleep; the
 --- remaining milliseconds plus an EINTR-tagged error when a signal
 --- interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
---- its (secs, nanos, err) contract for symmetry with clock_gettime.
+--- its (secs, nanos, err) contract for symmetry with now/monotonic.
 --- @param ms number Milliseconds to sleep
 --- @return integer | nil Remaining milliseconds (0 on success), or nil on invalid input
 --- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
@@ -189,25 +179,15 @@ local function format_http(timestamp: integer): string
   return cosmo.FormatHttpDateTime(timestamp)
 end
 
---- Return true if year is a leap year (Gregorian rules).
---- @param year integer Full year (e.g., 2024)
---- @return boolean True when the year has 366 days
+-- Internal calendar helpers behind timegm's range checks (#993: their
+-- exports were zero-caller; the logic stays private).
 local function is_leap_year(year: integer): boolean
   return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
 end
 
---- Days in each month for a non-leap year.
 local MONTH_DAYS: {integer} = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
 
---- Number of days in the given month, accounting for leap years.
---- @param year integer Full year (e.g., 2024)
---- @param month integer Month (1-12)
---- @return integer | nil Days in that month (28-31), or nil when month is out of range
---- @return string Error message when month is out of range
-local function days_in_month(year: integer, month: integer): integer | nil, string
-  if month < 1 or month > 12 then
-    return nil, "days_in_month: month out of range (1-12): " .. tostring(month)
-  end
+local function days_in_month(year: integer, month: integer): integer
   if month == 2 and is_leap_year(year) then
     return 29
   end
@@ -395,17 +375,8 @@ local record TimeModule
   type DateTime = DateTime
 
   -- Clock constants
-  CLOCK_REALTIME: integer
-  CLOCK_MONOTONIC: integer
-  CLOCK_BOOTTIME: integer
-  CLOCK_MONOTONIC_RAW: integer
-  CLOCK_REALTIME_COARSE: integer
-  CLOCK_MONOTONIC_COARSE: integer
-  CLOCK_THREAD_CPUTIME_ID: integer
-  CLOCK_PROCESS_CPUTIME_ID: integer
 
   -- Functions
-  clock_gettime: function(clock?: integer): integer, integer
   now: function(): integer, integer
   monotonic: function(): integer, integer
   now_ms: function(): integer
@@ -422,23 +393,12 @@ local record TimeModule
   format_iso8601: function(timestamp: integer): string | nil, string
   parse_iso8601: function(str: string): integer | nil, string
   timegm: function(year: integer, month: integer, day: integer, hour: integer, min: integer, sec: integer): integer | nil, string
-  is_leap_year: function(year: integer): boolean
-  days_in_month: function(year: integer, month: integer): integer | nil, string
 end
 
 local M: TimeModule = {
   -- Clock constants
-  CLOCK_REALTIME = unix.CLOCK_REALTIME,
-  CLOCK_MONOTONIC = unix.CLOCK_MONOTONIC,
-  CLOCK_BOOTTIME = unix.CLOCK_BOOTTIME,
-  CLOCK_MONOTONIC_RAW = unix.CLOCK_MONOTONIC_RAW,
-  CLOCK_REALTIME_COARSE = unix.CLOCK_REALTIME_COARSE,
-  CLOCK_MONOTONIC_COARSE = unix.CLOCK_MONOTONIC_COARSE,
-  CLOCK_THREAD_CPUTIME_ID = unix.CLOCK_THREAD_CPUTIME_ID,
-  CLOCK_PROCESS_CPUTIME_ID = unix.CLOCK_PROCESS_CPUTIME_ID,
 
   -- Functions
-  clock_gettime = clock_gettime,
   now = now,
   monotonic = monotonic,
   now_ms = now_ms,
@@ -455,8 +415,6 @@ local M: TimeModule = {
   format_iso8601 = format_iso8601,
   parse_iso8601 = parse_iso8601,
   timegm = timegm,
-  is_leap_year = is_leap_year,
-  days_in_month = days_in_month,
 }
 
 return M

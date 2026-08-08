@@ -62,26 +62,6 @@ local function test_getlogin_returns_string_or_nil()
 end
 test_getlogin_returns_string_or_nil()
 
--- umask tests
-
-local function test_umask_returns_previous_value()
-  -- Save original umask
-  local original = user.umask(0)
-  assert(type(original) == "number", "umask should return a number")
-
-  -- Set a new umask and verify we get back 0
-  local prev = user.umask(022)
-  assert(prev == 0, "expected previous umask to be 0, got " .. tostring(prev))
-
-  -- Verify the umask was set correctly
-  local current = user.umask(original)
-  assert(current == 022, "expected umask to be 022, got " .. tostring(current))
-
-  -- Restore original umask
-  user.umask(original)
-end
-test_umask_returns_previous_value()
-
 -- setuid/setgid tests (only test that setting to current id works)
 
 local function test_setuid_to_current_uid()
