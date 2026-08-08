@@ -18,13 +18,6 @@ local pt = require("_perf.perf_types")
 local DIRS = 120
 local FILES_PER_DIR = 5
 
--- Mirrors cosmic.embed's EmbedResult shape (not exported by that module).
-local record EmbedResult
-  ok: boolean
-  message: string
-  file_count: integer
-end
-
 local tmpdir: string
 local srcdir: string
 local packed_exe: string
@@ -140,16 +133,17 @@ local function scenarios(): {pt.Scenario}, string
       -- per-file slurp/embed cost.
       name = "embed_run_tree",
       fn = function(_: any): any
-        return embed.embed({srcdir}, {output = packed_exe, exe_path = bin})
+        -- Parenthesized: the pair collapses to the count the check reads.
+        return (embed.write({srcdir}, {output = packed_exe, exe_path = bin}))
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as EmbedResult -- cast: from any
-        if not r.ok then
-          return false, "embed.embed failed"
+        local count = res as integer -- cast: from any
+        if not count then
+          return false, "embed.write failed"
         end
-        if r.file_count ~= total_files then
+        if count ~= total_files then
           return false, string.format("embedded %d files, want %d",
-            r.file_count, total_files)
+            count, total_files)
         end
         return true
       end,
@@ -161,9 +155,9 @@ local function scenarios(): {pt.Scenario}, string
       -- from the archive read/write cost.
       name = "embed_extract_tree",
       setup = function(): any, string
-        local result = embed.embed({srcdir}, {output = packed_exe, exe_path = bin})
-        if not result.ok then
-          return nil, "embed.embed: " .. tostring(result.message)
+        local count, werr = embed.write({srcdir}, {output = packed_exe, exe_path = bin})
+        if not count then
+          return nil, "embed.write: " .. tostring(werr)
         end
         local expected, cerr = count_zip_files(packed_exe)
         if not expected then
@@ -172,17 +166,18 @@ local function scenarios(): {pt.Scenario}, string
         return expected
       end,
       fn = function(_: any): any
-        return embed.extract(extract_dir, packed_exe)
+        -- Parenthesized: the pair collapses to the count the check reads.
+        return (embed.extract(extract_dir, {exe_path = packed_exe}))
       end,
       check = function(ctx: any, res: any): boolean, string
-        local r = res as EmbedResult -- cast: from any
+        local count = res as integer -- cast: from any
         local expected = ctx as integer -- cast: from any
-        if not r.ok then
+        if not count then
           return false, "embed.extract failed"
         end
-        if r.file_count ~= expected then
+        if count ~= expected then
           return false, string.format("extracted %d files, want %d",
-            r.file_count, expected)
+            count, expected)
         end
         return true
       end,
