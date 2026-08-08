@@ -42,11 +42,14 @@ local fs = require("cosmic.fs")
 -- release predates the `_tool/` tree, where the index generator lives
 -- now. Its `generate` is already signature-cast below for the same
 -- pin-drift reason, so the module value is loosely typed here.
-local index_loaded, index_any = pcall(require, "_tool.doc.index")
-if not index_loaded then
-  index_any = require("cosmic.doc.index") as any -- cast: transitional dual-shape module
+local index: {string: any}
+local index_loaded, index_new = pcall(require, "_tool.doc.index")
+if index_loaded then
+  index = index_new as {string: any} -- cast: transitional dual-shape module
+else
+  -- cast: transitional dual-shape module
+  index = require("cosmic.doc.index") as {string: any}
 end
-local index = index_any as {string: any} -- cast: transitional dual-shape module
 local literal = require("cosmic.literal")
 local project = require("_make.project")
 local types = require("_make.types")
