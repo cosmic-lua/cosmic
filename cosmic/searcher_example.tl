@@ -18,19 +18,16 @@ local function Example_install()
   -- installed
 end
 
--- Example_miss demonstrates what a miss looks like. A searcher that
--- declines returns a STRING rather than raising, which is what lets
--- require() report its own "module not found" carrying every
--- searcher's reason — this module's line included.
+-- Example_miss demonstrates what a miss looks like from require's
+-- side: every installed searcher — this module's included — declines
+-- with a string rather than raising, so the require fails cleanly.
+-- (searcher_test asserts the decline message itself.)
 local function Example_miss()
   -- The name is computed so the checker never resolves it.
-  local missing = "no_such_" .. "module_anywhere"
-  local ok, err = pcall(require, missing) as (boolean, any) -- cast: dynamic require probe
+  local ok = pcall(require, "no_such_" .. "module_anywhere")
   print(ok)
-  print(tostring(err):find("no .tl source found", 1, true) ~= nil)
   -- Output:
   -- false
-  -- true
 end
 
 -- Suppress unused warnings for examples

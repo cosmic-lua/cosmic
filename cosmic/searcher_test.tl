@@ -47,14 +47,21 @@ test_resolves_and_loads_a_tl_module()
 -- searcher that declines: require() then reports its own "module not
 -- found" rather than this one erroring out of the whole chain.
 local function test_a_miss_declines_rather_than_throws()
-  -- The name is computed so the checker never resolves a module that
-  -- deliberately does not exist.
+  -- The searcher VALUE is installed, never exported (#1001), and the
+  -- dispatcher's require_hints rewrites require's aggregate error, so
+  -- ask the installed chain directly: one of its entries must decline
+  -- this (computed, deliberately unresolvable) name with a string.
   local missing = "cosmic_searcher_" .. "no_such_module_here"
-  local ok, err = pcall(require, missing) as (boolean, any) -- cast: dynamic require probe
-  assert(not ok, "the require must fail")
-  assert(tostring(err):find("no .tl source found", 1, true),
-    "…and the aggregate error must carry this searcher's decline message, got: "
-    .. tostring(err))
+  local found = false
+  for _, s in ipairs(package.searchers) do
+    -- cast: package.searchers entries are untyped
+    local ok, why = pcall((s as function(string): any), missing)
+    if ok and why is string and why:find("no .tl source found", 1, true) then
+      found = true
+      break
+    end
+  end
+  assert(found, "the installed .tl searcher must decline with its message")
 end
 test_a_miss_declines_rather_than_throws()
 
