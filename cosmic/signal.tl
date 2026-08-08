@@ -261,20 +261,10 @@ local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any, any)
 -- cannot parse a bare `function | integer` union in a function statement;
 -- the SignalModule record above carries the precise public type.
 local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): PrevAction | nil, string
-  -- Never pass explicit trailing nils: the binding leaves nil-valued
-  -- stack slots 3/4 in place, which shifts the stack index it later uses
-  -- to store a Lua handler in its registry table — the handler would be
-  -- registered as nil and never dispatched.
-  local prev, prev_flags, prev_mask: any, any, any
-  if mask ~= nil then
-    prev, prev_flags, prev_mask = raw_sigaction(sig, handler, flags or 0, mask)
-  elseif flags ~= nil then
-    prev, prev_flags, prev_mask = raw_sigaction(sig, handler, flags)
-  elseif handler ~= nil then
-    prev, prev_flags, prev_mask = raw_sigaction(sig, handler)
-  else
-    prev, prev_flags, prev_mask = raw_sigaction(sig)
-  end
+  -- One call with whatever the caller gave: the binding tolerates
+  -- explicit trailing nils now (cosmopolitan#237), so the four-branch
+  -- ladder that existed to never produce them is gone.
+  local prev, prev_flags, prev_mask = raw_sigaction(sig, handler, flags, mask)
   if prev == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot.
