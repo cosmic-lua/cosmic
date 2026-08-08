@@ -11,37 +11,30 @@
 
  This module (the umbrella) probes the host for fine-grained feature
  availability so callers can fail fast with a specific reason instead
- of bailing partway through setup on ENOSYS. It also re-exports the
- declarative Box builder (cosmic.quicksand.box) that composes the
- primitives into a single run() call.
+ of bailing partway through setup on ENOSYS. It also fronts the
+ declarative Box builder (cosmic.quicksand.box): quicksand.new(opts)
+ composes the primitives into a single box:run() call.
 
  Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
  false` and all submodule calls return ENOSYS-shaped errors.
 
 ## Types
 
-### BoxIface
-
- The typed surface of the re-exported Box builder (the box module's
- own record type is not directly nameable from here).
-
-```teal
-local record BoxIface
-  new: function(opts?: box.BoxOptions): box.Box | nil, string
-  merge: function(...: box.BoxOptions): box.BoxOptions
-end
-```
-
 ### QuicksandModule
 
 ```teal
 local record QuicksandModule
+  --  Build a Box from an options table (#989: was the PascalCase
+  --  value path quicksand.Box.new — D20 rule 1 retired that pattern).
+  new: function(opts?: BoxOptions): Box | nil, string
+  --  Compose Box options left-to-right (lists concat + dedupe, maps
+  --  per-key later wins, scalars later wins).
+  merge: function(...: BoxOptions): BoxOptions
   capabilities: function(): Capabilities
   is_supported: function(): boolean
   --  Internal, exported for its own unit tests: pure decision function
   --  over a binding value; never syscalls.
   probe: function(fn: any): boolean
-  Box: BoxIface
 end
 ```
 
@@ -52,6 +45,18 @@ end
  the same nominal type.
 
 alias of `cosmic.quicksand.types.Capabilities` — field and method table: `cosmic --docs cosmic.quicksand.types.Capabilities`
+
+### Box
+
+ The box instance and options records, re-exported so callers name
+ them from the umbrella (rule 10): `quicksand.Box`,
+ `quicksand.BoxOptions`.
+
+alias of `cosmic.quicksand.box.Box` — field and method table: `cosmic --docs cosmic.quicksand.box.Box`
+
+### BoxOptions
+
+alias of `cosmic.quicksand.box.BoxOptions` — field and method table: `cosmic --docs cosmic.quicksand.box.BoxOptions`
 
 ## Functions
 

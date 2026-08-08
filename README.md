@@ -34,18 +34,16 @@ High-level utilities and tools built on top of cosmo.
 | [instrument](cosmic/instrument.md) |  Instrumentation for timing and resource usage: wrap an operation in |
 | [ip](cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](cosmic/json.md) |  JSON encoding and decoding utilities. |
-| [landlock](cosmic/landlock.md) |  Linux landlock filesystem sandbox. |
 | [literal](cosmic/literal.md) |  Teal source read as **data**: one `return { … }` of literals, lexed |
 | [log](cosmic/log.md) |  Leveled logging. |
 | [init](cosmic/net/init.md) |  Networking and socket utilities. |
-| [pledge](cosmic/pledge.md) |  Restrict the system calls available to the current process. |
 | [poll](cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [init](cosmic/proc/init.md) |  Current process management. |
 | [init](cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
 | [rand](cosmic/rand.md) |  Random number generation. |
 | [re](cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [records](cosmic/records.md) |  The records a build writes, and the one grammar they are written in. |
-| [sandbox](cosmic/sandbox.md) |  One-call, fail-closed sandbox facade over unveil, landlock, and |
+| [init](cosmic/sandbox/init.md) |  One-call, fail-closed in-process sandbox: the one door (#989). |
 | [searcher](cosmic/searcher.md) |  cosmic-owned runtime .tl package searcher, replacing |
 | [shm](cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](cosmic/signal.md) |  Signal handling utilities. |
@@ -62,7 +60,6 @@ High-level utilities and tools built on top of cosmo.
 | [testrun](cosmic/testrun.md) |  Test runner for cosmic executables. |
 | [time](cosmic/time.md) |  Time and clock utilities. |
 | [tty](cosmic/tty.md) |  Terminal (TTY) utilities. |
-| [unveil](cosmic/unveil.md) |  Restrict filesystem visibility to an allowlisted set of paths. |
 | [url](cosmic/url.md) |  URL encoding, decoding, parsing, formatting, and escaping utilities. |
 | [user](cosmic/user.md) |  User and group identity operations. |
 | [uuid](cosmic/uuid.md) |  UUID generation utilities. |

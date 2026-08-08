@@ -48,6 +48,8 @@ local record CoverageModule
   reset: function()
   dump: function(dir?: string): boolean, string
   seal: function()
+  keep_on_restrict: function()
+  is_kept_on_restrict: function(): boolean
   enable: function(dir: string)
   dir_from_env: function(): string | nil
   enable_from_env: function(): function() | nil
@@ -149,6 +151,30 @@ function seal()
  rights: after the sandbox lands, a dump would fail — and under
  pledge the write attempt would kill the process. Lines executed
  after sealing are still collected but never reported.
+
+### keep_on_restrict
+
+```teal
+function keep_on_restrict()
+```
+
+ Declare that the active sandbox policy grants the coverage
+ directory, so the pre-restrict seal must NOT run: the process keeps
+ reporting what it does after the sandbox lands. Only build tooling
+ that granted the directory itself may call this (#989: this
+ declaration replaces the keep_coverage flag the four containment
+ policy records used to carry). Irreversible for the process, like
+ the policies it describes.
+
+### is_kept_on_restrict
+
+```teal
+function is_kept_on_restrict(): boolean
+```
+
+ Whether keep_on_restrict() was declared; consulted by
+ cosmic._seal_coverage before sealing on behalf of the containment
+ shards.
 
 ### enable
 
