@@ -3,13 +3,18 @@
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").wrap
 
+-- 1-based Lua indices into Termios.cc (#999): C's 0-based VMIN/VTIME
+-- shifted once, here, so neither this module nor any caller writes +1.
+local VMIN < const > = unix.VMIN + 1
+local VTIME < const > = unix.VTIME + 1
+
 --- Terminal I/O settings (the generated unix.Termios record).
 local type Termios = unix.Termios
 
 --- Module type for TTY operations.
 local record TtyModule
   --- Window size information.
-  record WinSize
+  record WindowSize
     rows: integer
     cols: integer
   end
@@ -17,7 +22,7 @@ local record TtyModule
   --- Terminal I/O settings.
   type Termios = Termios
 
-  --- An open pseudoterminal pair (see openpty).
+  --- An open pseudoterminal pair (see open_pty).
   record Pty
     manager: integer -- controlling side; write here to feed the terminal
     subordinate: integer -- the terminal itself, what a program's stdio sees
@@ -25,7 +30,7 @@ local record TtyModule
   end
 
   --- Options for raw()/make_raw().
-  record RawOptions
+  record Options
     --- Keep ISIG set so Ctrl-C/Ctrl-Z still generate signals.
     keep_signals: boolean
   end
@@ -47,31 +52,33 @@ local record TtyModule
   BRKINT: integer
   OPOST: integer
 
-  --- cc indices (C-style; the Lua cc array is 1-based, so cc[VMIN + 1]).
+  --- 1-BASED cc indices (#999): `t.cc[tty.VMIN]` is C's c_cc[VMIN].
+  --- The generated unix constants are C's 0-based values; these are
+  --- pre-shifted for Lua's 1-based cc array so no caller writes `+ 1`.
   VMIN: integer
   VTIME: integer
 
   is_tty: function(fd?: integer): boolean
-  winsize: function(fd: integer): WinSize | nil, string
-  getattr: function(fd: integer): Termios | nil, string
-  setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
-  make_raw: function(termios: Termios, opts?: RawOptions): Termios
-  raw: function(fd: integer, opts?: RawOptions): Termios | nil, string
-  noecho: function(fd: integer): Termios | nil, string
+  window_size: function(fd: integer): WindowSize | nil, string
+  attributes: function(fd: integer): Termios | nil, string
+  apply_attributes: function(fd: integer, action: integer, termios: Termios): boolean, string
+  make_raw: function(termios: Termios, opts?: Options): Termios
+  raw: function(fd: integer, opts?: Options): Termios | nil, string
+  disable_echo: function(fd: integer): Termios | nil, string
   restore: function(fd: integer, termios: Termios, action?: integer): boolean, string
-  getpass: function(prompt: string): string | nil, string
-  openpty: function(): Pty | nil, string
+  read_password: function(prompt: string): string | nil, string
+  open_pty: function(): Pty | nil, string
   login_tty: function(fd: integer): boolean, string
 end
 
 --- Opens a new pseudoterminal pair.
---- The subordinate fd IS a terminal: isatty, getattr, raw, noecho and
+--- The subordinate fd IS a terminal: is_tty, attributes, raw, disable_echo and
 --- the rest operate on it. That is what makes terminal code testable
 --- where no terminal exists -- a CI container, or any process whose
 --- stdio is a pipe. Both descriptors belong to the caller; close them.
 --- @return TtyModule.Pty | nil The open pair
 --- @return string? Error message on failure
-local function openpty(): TtyModule.Pty | nil, string
+local function open_pty(): TtyModule.Pty | nil, string
   local mfd, sfd, name = unix.openpty()
   if not mfd then
     -- on failure the binding returns (nil, err, errno), so the second
@@ -109,9 +116,9 @@ end
 
 --- Gets the terminal window size for a file descriptor.
 --- @param fd integer File descriptor (typically 0, 1, or 2)
---- @return WinSize|nil Window size record with rows and cols, or nil on error
+--- @return WindowSize|nil Window size record with rows and cols, or nil on error
 --- @return string|nil Error message if not a terminal
-local function winsize(fd: integer): TtyModule.WinSize | nil, string
+local function window_size(fd: integer): TtyModule.WindowSize | nil, string
   local rows, cols = unix.tiocgwinsz(fd)
   if rows == nil then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -125,7 +132,7 @@ end
 --- @param fd integer File descriptor (typically 0 for stdin)
 --- @return Termios | nil Terminal attributes
 --- @return string? Error message if not a terminal
-local function getattr(fd: integer): Termios | nil, string
+local function attributes(fd: integer): Termios | nil, string
   local termios, err = unix.tcgetattr(fd)
   if not termios then
     return nil, errstr(err, "tcgetattr")
@@ -139,7 +146,7 @@ end
 --- @param termios Termios Terminal attributes to set
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setattr(fd: integer, action: integer, termios: Termios): boolean, string
+local function apply_attributes(fd: integer, action: integer, termios: Termios): boolean, string
   local ok, err = unix.tcsetattr(fd, action, termios)
   if not ok then
     return false, errstr(err, "tcsetattr")
@@ -176,9 +183,9 @@ end
 --- (unless opts.keep_signals), selects 8-bit characters, and sets
 --- VMIN=1/VTIME=0 so reads deliver one byte at a time without timeout.
 --- @param termios Termios Current terminal attributes
---- @param opts RawOptions? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
---- @return Termios New attributes to pass to setattr()
-local function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
+--- @param opts Options? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+--- @return Termios New attributes to pass to apply_attributes()
+local function make_raw(termios: Termios, opts?: TtyModule.Options): Termios
   local t = copy_termios(termios)
   t.iflag = t.iflag & ~ (unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP
     | unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON)
@@ -189,9 +196,8 @@ local function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
   end
   t.lflag = t.lflag & ~ lclear
   t.cflag = (t.cflag & ~ (unix.CSIZE | unix.PARENB)) | unix.CS8
-  -- The Lua cc array is 1-based: cc[i + 1] holds C's c_cc[i].
-  t.cc[unix.VMIN + 1] = 1
-  t.cc[unix.VTIME + 1] = 0
+  t.cc[VMIN] = 1
+  t.cc[VTIME] = 0
   return t
 end
 
@@ -200,17 +206,17 @@ end
 --- control, no output post-processing (see make_raw).
 --- Returns the original termios for later restoration.
 --- @param fd integer File descriptor (typically 0 for stdin)
---- @param opts RawOptions? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+--- @param opts Options? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 --- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function raw(fd: integer, opts?: TtyModule.RawOptions): Termios | nil, string
-  local termios, err = getattr(fd)
+local function raw(fd: integer, opts?: TtyModule.Options): Termios | nil, string
+  local termios, err = attributes(fd)
   if not termios then
     return nil, err
   end
   local t = termios
   local original = copy_termios(t)
-  local ok, set_err = setattr(fd, unix.TCSANOW, make_raw(t, opts))
+  local ok, set_err = apply_attributes(fd, unix.TCSANOW, make_raw(t, opts))
   if not ok then
     return nil, set_err
   end
@@ -222,15 +228,15 @@ end
 --- @param fd integer File descriptor (typically 0 for stdin)
 --- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function noecho(fd: integer): Termios | nil, string
-  local termios, err = getattr(fd)
+local function disable_echo(fd: integer): Termios | nil, string
+  local termios, err = attributes(fd)
   if not termios then
     return nil, err
   end
   local t = termios
   local original = copy_termios(t)
   t.lflag = t.lflag & ~ unix.ECHO
-  local ok, set_err = setattr(fd, unix.TCSANOW, t)
+  local ok, set_err = apply_attributes(fd, unix.TCSANOW, t)
   if not ok then
     return nil, set_err
   end
@@ -239,13 +245,13 @@ end
 
 --- Restores terminal attributes.
 --- @param fd integer File descriptor
---- @param termios Termios Terminal attributes from raw() or noecho()
+--- @param termios Termios Terminal attributes from raw() or disable_echo()
 --- @param action integer? When to apply: NOW (default), DRAIN (after
 --- pending output is written), or FLUSH (DRAIN + discard pending input)
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function restore(fd: integer, termios: Termios, action?: integer): boolean, string
-  return setattr(fd, action or unix.TCSANOW, termios)
+  return apply_attributes(fd, action or unix.TCSANOW, termios)
 end
 
 --- Reads a password from the terminal without echoing.
@@ -255,10 +261,10 @@ end
 --- @param prompt string Text to display before reading
 --- @return string|nil The password (without trailing newline), or nil on error
 --- @return string? Error message on failure
-local function getpass(prompt: string): string | nil, string
+local function read_password(prompt: string): string | nil, string
   io.stderr:write(prompt)
   -- If stdin is not a tty, read without echo manipulation
-  if not unix.isatty(0) then
+  if not is_tty(0) then
     local line = io.stdin:read("l")
     if line == nil then
       return nil, "EOF"
@@ -266,7 +272,7 @@ local function getpass(prompt: string): string | nil, string
     return line
   end
   -- Disable echo on stdin (fd 0)
-  local original, err = noecho(0)
+  local original, err = disable_echo(0)
   if not original then
     return nil, err
   end
@@ -291,15 +297,15 @@ end
 
 local M: TtyModule = {
   is_tty = is_tty,
-  winsize = winsize,
-  getattr = getattr,
-  setattr = setattr,
+  window_size = window_size,
+  attributes = attributes,
+  apply_attributes = apply_attributes,
   make_raw = make_raw,
   raw = raw,
-  noecho = noecho,
+  disable_echo = disable_echo,
   restore = restore,
-  getpass = getpass,
-  openpty = openpty,
+  read_password = read_password,
+  open_pty = open_pty,
   login_tty = login_tty,
 
   -- Constants
@@ -314,8 +320,8 @@ local M: TtyModule = {
   ICRNL = unix.ICRNL,
   BRKINT = unix.BRKINT,
   OPOST = unix.OPOST,
-  VMIN = unix.VMIN,
-  VTIME = unix.VTIME,
+  VMIN = VMIN,
+  VTIME = VTIME,
 }
 
 return M

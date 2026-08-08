@@ -71,19 +71,9 @@ local function monotonic_ns(): integer
   return secs * 1000000000 + nanos
 end
 
---- Sleep for the specified duration.
---- Returns 0, 0 after an uninterrupted sleep. When a signal interrupts
---- the sleep, returns the remaining seconds and nanoseconds plus an
---- error string naming EINTR. Invalid input (e.g. a negative duration)
---- returns nil, nil, and an error naming EINVAL.
---- sleep is a deliberate exception to the automatic EINTR retry policy
---- (cosmic.stream): the interruption IS the result, and the
---- remainder lets callers resume or bail as they choose.
---- @param seconds integer Seconds to sleep
---- @param nanos integer? Additional nanoseconds to sleep (default: 0)
---- @return integer | nil Remaining seconds (0 on success), or nil on invalid input
---- @return integer Remaining nanoseconds (0 on success)
---- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
+-- The (seconds, nanos) engine under sleep_ms — internal since #999:
+-- rule 2 makes integer milliseconds THE duration, and this was the
+-- tree's only three-return function.
 local function sleep(seconds: integer, nanos?: integer): integer | nil, integer, string
   local ns = nanos or 0
   local t0s, t0n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
@@ -382,7 +372,6 @@ local record TimeModule
   now_ms: function(): integer
   monotonic_ms: function(): integer
   monotonic_ns: function(): integer
-  sleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string
   sleep_ms: function(ms: number): integer | nil, string
   gmtime: function(unixts: integer): DateTime
   localtime: function(unixts: integer): DateTime
@@ -404,7 +393,6 @@ local M: TimeModule = {
   now_ms = now_ms,
   monotonic_ms = monotonic_ms,
   monotonic_ns = monotonic_ns,
-  sleep = sleep,
   sleep_ms = sleep_ms,
   gmtime = gmtime,
   localtime = localtime,

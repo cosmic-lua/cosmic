@@ -22,7 +22,7 @@ local function Example_handler()
 
   assert(signal.raise(signal.SIGUSR1)) -- pending: SIGUSR1 is blocked
   assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
-  assert(time.sleep(0, 1000000)) -- give delivery a moment
+  assert(time.sleep_ms(1)) -- give delivery a moment
 
   print(received == signal.SIGUSR1)
   assert(signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask))

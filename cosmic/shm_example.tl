@@ -1,6 +1,6 @@
 --- Examples for the cosmic.shm module.
 --- Demonstrates shared-memory string I/O and the atomic word
---- operations. Memory from mapshared() is inherited across fork(),
+--- operations. Memory from open() is inherited across fork(),
 --- which is what makes the atomics useful; the examples stay in one
 --- process so their output is deterministic.
 
@@ -10,7 +10,7 @@
 local function Example_string_io()
   local check = require("cosmic.check")
   local shm = require("cosmic.shm")
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:write("hello"))
   print(check.must(mem:read()))
   print(mem:size())
@@ -25,7 +25,7 @@ end
 local function Example_atomic_counter()
   local check = require("cosmic.check")
   local shm = require("cosmic.shm")
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 41))
   local before = mem:fetch_add(0, 1)
   print(before, check.must(mem:load(0)))
@@ -33,17 +33,17 @@ local function Example_atomic_counter()
   -- 41	42
 end
 
--- Example_cmpxchg demonstrates compare-and-exchange: the swap only
+-- Example_compare_exchange demonstrates compare-and-exchange: the swap only
 -- happens when the word still holds the expected old value, and the
 -- actual old value comes back either way.
-local function Example_cmpxchg()
+local function Example_compare_exchange()
   local check = require("cosmic.check")
   local shm = require("cosmic.shm")
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 7))
-  local r = check.must(mem:cmpxchg(0, 7, 8))
+  local r = check.must(mem:compare_exchange(0, 7, 8))
   print(r.swapped, r.value, check.must(mem:load(0)))
-  local r2 = check.must(mem:cmpxchg(0, 7, 9)) -- stale expectation: no swap
+  local r2 = check.must(mem:compare_exchange(0, 7, 9)) -- stale expectation: no swap
   print(r2.swapped, r2.value, check.must(mem:load(0)))
   -- Output:
   -- true	7	8
@@ -51,4 +51,4 @@ local function Example_cmpxchg()
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_string_io, Example_atomic_counter, Example_cmpxchg}
+local _ = {Example_string_io, Example_atomic_counter, Example_compare_exchange}

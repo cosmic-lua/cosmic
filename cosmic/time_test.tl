@@ -25,42 +25,24 @@ test_monotonic()
 
 -- sleep tests
 
-local function test_sleep()
+-- sleep_ms is THE sleep (#999): integer milliseconds in, a single
+-- milliseconds remainder out.
+local function test_sleep_ms_passes_time()
   local before_secs, before_nanos = time.monotonic()
-  assert(time.sleep(0, 1000000)) -- sleep 1ms
+  assert(time.sleep_ms(1))
   local after_secs, after_nanos = time.monotonic()
   local before = before_secs + before_nanos / 1000000000
   local after = after_secs + after_nanos / 1000000000
-  assert(after > before, "time should have passed after sleep")
+  assert(after > before, "time should have passed after sleep_ms")
 end
-test_sleep()
+test_sleep_ms_passes_time()
 
-local function test_sleep_zero()
-  -- sleep(0) should return immediately
-  local secs, nanos = time.sleep(0)
-  assert(secs ~= nil, "expected seconds to be non-nil")
-  assert(nanos ~= nil, "expected nanos to be non-nil")
-end
-test_sleep_zero()
-
--- Honest sleep signature: 0,0 on an uninterrupted sleep;
--- nil, nil, err naming EINVAL on invalid input, rather than a string in
--- the nanos slot with no declared error return.
-local function test_sleep_success_returns_zero_remainder()
-  local secs, nanos, err = time.sleep(0, 1000)
-  assert(secs == 0, "expected 0 remaining seconds, got " .. tostring(secs))
-  assert(nanos == 0, "expected 0 remaining nanos, got " .. tostring(nanos))
+local function test_sleep_ms_zero_returns_immediately()
+  local rem, err = time.sleep_ms(0)
+  assert(rem == 0, "expected 0 remaining ms, got " .. tostring(rem))
   assert(err == nil, "expected no error, got " .. tostring(err))
 end
-test_sleep_success_returns_zero_remainder()
-
-local function test_sleep_invalid_names_errno()
-  local secs, nanos, err = time.sleep(-1)
-  assert(secs == nil and nanos == nil, "invalid sleep should return nil remainders")
-  assert(type(err) == "string" and err:match("EINVAL"),
-    "sleep error should name EINVAL, got: " .. tostring(err))
-end
-test_sleep_invalid_names_errno()
+test_sleep_ms_zero_returns_immediately()
 
 local function test_sleep_ms_invalid_names_errno()
   local rem, err = time.sleep_ms(-1000)

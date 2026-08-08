@@ -1,11 +1,12 @@
 --- Shared memory for inter-process communication.
---- Provides atomic operations and wait/wake primitives for synchronization.
---- Memory created with mapshared is shared across fork() and provides
---- fundamental synchronization primitives including futexes.
+--- Provides atomic operations and wait/wake primitives for
+--- synchronization. Memory created with shm.open (#999: was
+--- `mapshared`) is shared across fork() and provides fundamental
+--- synchronization primitives including futexes.
 ---
 --- This is a real wrapper over unix.mapshared, not a passthrough: sizes
 --- and offsets are validated in Lua (the region size is known at
---- mapshared time) so failures return nil, err per the stdlib error
+--- open time) so failures return nil, err per the stdlib error
 --- convention instead of throwing, and residual binding throws are
 --- pcall-translated.
 local unix = require("cosmo.unix")
@@ -21,7 +22,7 @@ local record ShmModule
   --- word's actual value at the time (the old value on success). A
   --- record rather than (swapped, actual, err) returns — the error is
   --- in slot 2 where `local r, err = ...` can see it.
-  record Cmpxchg
+  record Exchange
     swapped: boolean
     value: integer
   end
@@ -29,6 +30,14 @@ local record ShmModule
   --- Words are 64-bit; word_index is 0-based. Futex words (wait/wake)
   --- only inspect the low 32 bits — store only int32 values in words
   --- you wait on.
+  ---
+  --- Memory ordering (#999, stated because a sync-primitives surface
+  --- without one is a guess): every atomic word operation is
+  --- sequentially consistent (the binding's C11 atomics use the
+  --- default memory_order_seq_cst), so a store or exchange published
+  --- before a wake is visible to the waiter it wakes; plain read/write
+  --- byte access carries NO ordering — publish through the atomics.
+  ---
   --- Not a mirror of the generated unix.Memory: this is a deliberately
   --- narrowed surface whose methods validate bounds in Lua, return
   --- nil, err instead of throwing, and add size().
@@ -43,9 +52,9 @@ local record ShmModule
     --- Atomic store to a word.
     store: function(self: Memory, word_index: integer, value: integer): boolean, string
     --- Atomic exchange; returns the old value.
-    xchg: function(self: Memory, word_index: integer, value: integer): integer | nil, string
+    exchange: function(self: Memory, word_index: integer, value: integer): integer | nil, string
     --- Compare-and-exchange; returns success plus the actual old value.
-    cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): Cmpxchg | nil, string
+    compare_exchange: function(self: Memory, word_index: integer, old: integer, new: integer): Exchange | nil, string
     --- Atomic add; returns the old value.
     fetch_add: function(self: Memory, word_index: integer, value: integer): integer | nil, string
     --- Atomic AND; returns the old value.
@@ -66,18 +75,19 @@ local record ShmModule
     --- Wakes nothing once the region has been unmapped.
     wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
     --- Release the mapping now instead of waiting for the garbage
-    --- collector. Idempotent: true when this call released the mapping,
-    --- false when it was already unmapped. Afterwards every fallible
-    --- method returns an error naming the unmapped state.
-    unmap: function(self: Memory): boolean
+    --- collector. Idempotent and returns nothing (#999: it used to
+    --- return false for "already released", so asserting the second,
+    --- correct call failed). Afterwards every fallible method returns
+    --- an error naming the unmapped state.
+    close: function(self: Memory)
     --- The mapped region size in bytes.
     size: function(self: Memory): integer
   end
-  mapshared: function(size: integer): Memory | nil, string
+  open: function(size_bytes: integer): Memory | nil, string
 end
 
 local type Memory = ShmModule.Memory
-local type Cmpxchg = ShmModule.Cmpxchg
+local type Exchange = ShmModule.Exchange
 
 --- Validate a 0-based word index against the region size.
 local function check_word(word_index: integer, size: integer, op: string): string
@@ -186,8 +196,8 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     return res
   end
 
-  function mem:xchg(word_index: integer, value: integer): integer | nil, string
-    return atomic("xchg", raw.xchg, word_index, value)
+  function mem:exchange(word_index: integer, value: integer): integer | nil, string
+    return atomic("exchange", raw.xchg, word_index, value)
   end
 
   function mem:fetch_add(word_index: integer, value: integer): integer | nil, string
@@ -206,14 +216,14 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     return atomic("fetch_xor", raw.fetch_xor, word_index, value)
   end
 
-  function mem:cmpxchg(word_index: integer, old: integer, new: integer): Cmpxchg | nil, string
-    local range_err = check_word(word_index, size, "cmpxchg")
+  function mem:compare_exchange(word_index: integer, old: integer, new: integer): Exchange | nil, string
+    local range_err = check_word(word_index, size, "compare_exchange")
     if range_err then
       return nil, range_err
     end
     local ok, success, actual = pcall(raw.cmpxchg, raw, word_index, old, new)
     if not ok then
-      return nil, errstr(success, "cmpxchg")
+      return nil, errstr(success, "compare_exchange")
     end
     -- cast: from any (pcall widens the binding's returns)
     return {swapped = success as boolean, value = actual as integer}
@@ -256,9 +266,6 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     return rc
   end
 
-  -- wake is declared infallible, so it cannot grow an error slot for the
-  -- unmapped state; mirror the out-of-range posture (wake nothing) and
-  -- keep the raw call — which throws once unmapped — behind the flag.
   local unmapped = false
 
   function mem:wake(word_index: integer, count?: integer): integer | nil, string
@@ -274,9 +281,9 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     return raw:wake(word_index, count)
   end
 
-  function mem:unmap(): boolean
+  function mem:close()
     unmapped = true
-    return (raw:unmap())
+    raw:unmap()
   end
 
   return mem
@@ -289,11 +296,11 @@ end
 --- Example usage for a simple mutex:
 --- ```lua
 --- local shm = require("cosmic.shm")
---- local mem = assert(shm.mapshared(8000 * 8))
+--- local mem = assert(shm.open(8000 * 8))
 --- local LOCK = 0  -- word index for lock
 ---
 --- -- Lock acquisition
---- while mem:xchg(LOCK, 1) == 1 do
+--- while mem:exchange(LOCK, 1) == 1 do
 ---   mem:wait(LOCK, 1)
 --- end
 ---
@@ -304,27 +311,27 @@ end
 --- mem:wake(LOCK, 1)
 --- ```
 ---
---- @param size integer Size in bytes: positive, a multiple of the 8-byte word size
+--- @param size_bytes integer Size in bytes: positive, a multiple of the 8-byte word size
 --- @return Memory | nil Shared memory object, or nil on failure
 --- @return string? Error message on failure
-local function mapshared(size: integer): Memory | nil, string
-  if size == nil or size <= 0 then
-    return nil, "mapshared: size must be a positive number of bytes: " .. tostring(size)
+local function open(size_bytes: integer): Memory | nil, string
+  if size_bytes == nil or size_bytes <= 0 then
+    return nil, "open: size must be a positive number of bytes: " .. tostring(size_bytes)
   end
-  if size % WORD ~= 0 then
-    return nil, "mapshared: size must be a multiple of the " .. tostring(WORD)
-    .. "-byte word size: " .. tostring(size)
+  if size_bytes % WORD ~= 0 then
+    return nil, "open: size must be a multiple of the " .. tostring(WORD)
+    .. "-byte word size: " .. tostring(size_bytes)
   end
   -- Residual throws (e.g. out of memory, size cap) become nil, err.
-  local ok, raw = pcall(unix.mapshared, size)
+  local ok, raw = pcall(unix.mapshared, size_bytes)
   if not ok then
-    return nil, errstr(raw, "mapshared")
+    return nil, errstr(raw, "open")
   end
-  return wrap(raw, size)
+  return wrap(raw, size_bytes)
 end
 
 local M: ShmModule = {
-  mapshared = mapshared,
+  open = open,
 }
 
 return M

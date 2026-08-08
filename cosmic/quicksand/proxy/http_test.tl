@@ -170,7 +170,7 @@ local function test_pump_relays_data_across_eintr()
 
   assert(c2:close())
   assert(u2:close())
-  assert(time.sleep(0, 150000000))
+  assert(time.sleep_ms(150))
   local payload = "hello-through-pump"
   local sent = c1:send(payload)
   assert(sent == #payload, "send failed: " .. tostring(sent))

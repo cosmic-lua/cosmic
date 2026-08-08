@@ -9,7 +9,7 @@ local tty = require("cosmic.tty")
 
 local function test_module_exports()
   assert(tty.is_tty ~= nil, "is_tty function should be exported")
-  assert(tty.winsize ~= nil, "winsize function should be exported")
+  assert(tty.window_size ~= nil, "window_size function should be exported")
 end
 test_module_exports()
 
@@ -47,39 +47,39 @@ local function test_is_tty_defaults_to_stdout()
 end
 test_is_tty_defaults_to_stdout()
 
--- Test winsize function
+-- Test window_size function
 
 local function test_winsize_non_tty()
-  -- When not a tty, winsize should return nil with error message
+  -- When not a tty, window_size should return nil with error message
   -- Open a regular file to get a non-tty fd
   local f = io.open("/dev/null", "r")
   if f then
-    -- /dev/null is not a tty, so winsize should fail
+    -- /dev/null is not a tty, so window_size should fail
     -- But we're testing with fd numbers, so test with what we have
     f:close()
   end
   -- In test environment, fd 0 is likely not a tty
   if not tty.is_tty(0) then
-    local ws, err = tty.winsize(0)
-    -- Should return nil or a valid winsize
+    local ws, err = tty.window_size(0)
+    -- Should return nil or a valid window_size
     if ws == nil then
-      assert(err ~= nil, "winsize should return error message when not a tty")
+      assert(err ~= nil, "window_size should return error message when not a tty")
     end
   end
 end
 test_winsize_non_tty()
 
 local function test_winsize_structure()
-  -- If stdout is a tty, verify winsize returns proper structure
+  -- If stdout is a tty, verify window_size returns proper structure
   if not tty.is_tty(1) then
     io.stderr:write("SKIP: test_winsize_structure (stdout is not a tty)\n")
     return
   end
-  local ws, _err = tty.winsize(1)
+  local ws, _err = tty.window_size(1)
   if ws then
     local w = ws
-    assert(w.rows ~= nil, "winsize should have rows field")
-    assert(w.cols ~= nil, "winsize should have cols field")
+    assert(w.rows ~= nil, "window_size should have rows field")
+    assert(w.cols ~= nil, "window_size should have cols field")
     assert(type(w.rows) == "number", "rows should be a number")
     assert(type(w.cols) == "number", "cols should be a number")
     assert(w.rows > 0, "rows should be positive")
@@ -91,10 +91,10 @@ test_winsize_structure()
 -- Test termios function exports
 
 local function test_termios_exports()
-  assert(tty.getattr ~= nil, "getattr function should be exported")
-  assert(tty.setattr ~= nil, "setattr function should be exported")
+  assert(tty.attributes ~= nil, "attributes function should be exported")
+  assert(tty.apply_attributes ~= nil, "apply_attributes function should be exported")
   assert(tty.raw ~= nil, "raw function should be exported")
-  assert(tty.noecho ~= nil, "noecho function should be exported")
+  assert(tty.disable_echo ~= nil, "disable_echo function should be exported")
   assert(tty.restore ~= nil, "restore function should be exported")
 end
 test_termios_exports()
@@ -111,22 +111,22 @@ end
 test_termios_constants()
 
 local function test_getattr_non_tty()
-  -- When not a tty, getattr should fail with error
+  -- When not a tty, attributes should fail with error
   if not tty.is_tty(0) then
-    local termios, err = tty.getattr(0)
-    assert(termios == nil, "getattr should return nil for non-tty")
-    assert(err ~= nil, "getattr should return error message for non-tty")
+    local termios, err = tty.attributes(0)
+    assert(termios == nil, "attributes should return nil for non-tty")
+    assert(err ~= nil, "attributes should return error message for non-tty")
   end
 end
 test_getattr_non_tty()
 
 local function test_getattr_structure()
-  -- If stdin is a tty, verify getattr returns proper structure
+  -- If stdin is a tty, verify attributes returns proper structure
   if not tty.is_tty(0) then
     io.stderr:write("SKIP: test_getattr_structure (stdin is not a tty)\n")
     return
   end
-  local termios, _err = tty.getattr(0)
+  local termios, _err = tty.attributes(0)
   if termios then
     local t = termios
     assert(t.iflag ~= nil, "termios should have iflag")
@@ -151,22 +151,22 @@ end
 test_raw_non_tty()
 
 local function test_noecho_non_tty()
-  -- When not a tty, noecho should fail with error
+  -- When not a tty, disable_echo should fail with error
   if not tty.is_tty(0) then
-    local original, err = tty.noecho(0)
-    assert(original == nil, "noecho should return nil for non-tty")
-    assert(err ~= nil, "noecho should return error message for non-tty")
+    local original, err = tty.disable_echo(0)
+    assert(original == nil, "disable_echo should return nil for non-tty")
+    assert(err ~= nil, "disable_echo should return error message for non-tty")
   end
 end
 test_noecho_non_tty()
 
--- getpass: exercised end-to-end in a subprocess with a
+-- read_password: exercised end-to-end in a subprocess with a
 -- piped (non-tty) stdin, instead of only checking the export exists.
 
 local getpass_script = fs.join(check.must(os.getenv("TEST_TMPDIR")), "getpass_child.lua")
 assert(fs.write(getpass_script, [[
 local tty = require("cosmic.tty")
-local line, err = tty.getpass("pw: ")
+local line, err = tty.read_password("pw: ")
 if line == nil then
   io.write("ERR:" .. tostring(err))
 else
@@ -177,11 +177,11 @@ local cosmic_bin = fs.join(check.must(os.getenv("TEST_BIN")), "cosmic")
 
 local function test_getpass_non_tty_reads_one_line()
   local h = check.must(child.start({cosmic_bin, getpass_script}, {stdin = "sekrit\nsecond\n"}),
-    "getpass child should spawn")
+    "read_password child should spawn")
   local r = check.must(h:wait())
-  assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
+  assert(r.ok, "read_password child should exit 0: " .. tostring(r.stderr))
   assert(r.stdout == "GOT:sekrit",
-    "getpass should return exactly the first stdin line, got: " .. tostring(r.stdout))
+    "read_password should return exactly the first stdin line, got: " .. tostring(r.stdout))
   assert(r.stderr:match("^pw: "),
     "the prompt must go to stderr, got: " .. tostring(r.stderr))
 end
@@ -189,11 +189,11 @@ test_getpass_non_tty_reads_one_line()
 
 local function test_getpass_non_tty_eof()
   local h = check.must(child.start({cosmic_bin, getpass_script}, {stdin = ""}),
-    "getpass child should spawn")
+    "read_password child should spawn")
   local r = check.must(h:wait())
-  assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
+  assert(r.ok, "read_password child should exit 0: " .. tostring(r.stderr))
   assert(r.stdout == "ERR:EOF",
-    "getpass at stdin EOF should return nil, 'EOF', got: " .. tostring(r.stdout))
+    "read_password at stdin EOF should return nil, 'EOF', got: " .. tostring(r.stdout))
 end
 test_getpass_non_tty_eof()
 
@@ -233,8 +233,8 @@ test_make_raw_clears_input_and_output_flags()
 local function test_make_raw_sets_vmin_vtime()
   local t = fixture_termios()
   local raw = tty.make_raw(t)
-  local vmin = tty.VMIN + 1
-  local vtime = tty.VTIME + 1
+  local vmin = tty.VMIN
+  local vtime = tty.VTIME
   assert(raw.cc[vmin] == 1, "raw mode must set VMIN=1")
   assert(raw.cc[vtime] == 0, "raw mode must set VTIME=0")
 end
@@ -251,8 +251,8 @@ test_make_raw_keep_signals()
 local function test_make_raw_does_not_alias_or_mutate_input()
   local t = fixture_termios()
   local raw = tty.make_raw(t)
-  local vmin = tty.VMIN + 1
-  local vtime = tty.VTIME + 1
+  local vmin = tty.VMIN
+  local vtime = tty.VTIME
   assert(raw.cc ~= t.cc, "make_raw must deep-copy cc, not alias it")
   assert(t.iflag & tty.IXON ~= 0, "make_raw must not mutate its input")
   assert(t.cc[vmin] ~= raw.cc[vmin] or t.cc[vtime] ~= raw.cc[vtime],
@@ -263,10 +263,10 @@ end
 test_make_raw_does_not_alias_or_mutate_input()
 
 local function test_winsize_error_names_errno()
-  local ws, err = tty.winsize(999)
-  assert(ws == nil, "winsize on a bad fd should fail")
+  local ws, err = tty.window_size(999)
+  assert(ws == nil, "window_size on a bad fd should fail")
   assert(type(err) == "string" and err:match("E%u+"),
-    "winsize error should name the errno, got: " .. tostring(err))
+    "window_size error should name the errno, got: " .. tostring(err))
 end
 test_winsize_error_names_errno()
 

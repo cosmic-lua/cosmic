@@ -5,24 +5,24 @@ local check = require("cosmic.check")
 -- Test module exports
 
 local function test_module_exports()
-  assert(shm.mapshared ~= nil, "mapshared function should be exported")
-  assert(type(shm.mapshared) == "function", "mapshared should be a function")
+  assert(shm.open ~= nil, "open function should be exported")
+  assert(type(shm.open) == "function", "open should be a function")
 end
 test_module_exports()
 
 -- Test basic shared memory creation
 
-local function test_mapshared_creates_memory()
-  local mem = check.must(shm.mapshared(4096))
-  assert(mem ~= nil, "mapshared should return a memory object")
+local function test_open_creates_memory()
+  local mem = check.must(shm.open(4096))
+  assert(mem ~= nil, "open should return a memory object")
 end
-test_mapshared_creates_memory()
+test_open_creates_memory()
 
 -- Test memory read/write operations
 -- Note: write/read with no arguments uses null-terminated string semantics
 
 local function test_memory_write_read()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:write("hello")) -- writes "hello\0"
   local data = mem:read() -- reads until null terminator
   assert(data == "hello", "expected 'hello', got '" .. tostring(data) .. "'")
@@ -30,7 +30,7 @@ end
 test_memory_write_read()
 
 local function test_memory_write_read_with_offset()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:write("hello")) -- writes at offset 0
   assert(mem:write("world")) -- overwrites
   local data = mem:read()
@@ -41,7 +41,7 @@ test_memory_write_read_with_offset()
 -- Test atomic word operations
 
 local function test_memory_store_load()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 42))
   local value = mem:load(0)
   assert(value == 42, "expected 42, got " .. tostring(value))
@@ -49,7 +49,7 @@ end
 test_memory_store_load()
 
 local function test_memory_store_load_different_index()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 100))
   assert(mem:store(1, 200))
   local v0 = mem:load(0)
@@ -61,44 +61,44 @@ test_memory_store_load_different_index()
 
 -- Test atomic exchange
 
-local function test_memory_xchg()
-  local mem = check.must(shm.mapshared(4096))
+local function test_memory_exchange()
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 10))
-  local old = mem:xchg(0, 20)
-  assert(old == 10, "xchg should return old value 10, got " .. tostring(old))
+  local old = mem:exchange(0, 20)
+  assert(old == 10, "exchange should return old value 10, got " .. tostring(old))
   local current = mem:load(0)
-  assert(current == 20, "after xchg, value should be 20, got " .. tostring(current))
+  assert(current == 20, "after exchange, value should be 20, got " .. tostring(current))
 end
-test_memory_xchg()
+test_memory_exchange()
 
 -- Test compare-and-exchange
 
-local function test_memory_cmpxchg_success()
-  local mem = check.must(shm.mapshared(4096))
+local function test_memory_compare_exchange_success()
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 100))
-  local r = check.must(mem:cmpxchg(0, 100, 200))
-  assert(r.swapped == true, "cmpxchg should succeed when old matches")
-  assert(r.value == 100, "cmpxchg should return old value 100, got " .. tostring(r.value))
+  local r = check.must(mem:compare_exchange(0, 100, 200))
+  assert(r.swapped == true, "compare_exchange should succeed when old matches")
+  assert(r.value == 100, "compare_exchange should return old value 100, got " .. tostring(r.value))
   local current = mem:load(0)
-  assert(current == 200, "after successful cmpxchg, value should be 200, got " .. tostring(current))
+  assert(current == 200, "after successful compare_exchange, value should be 200, got " .. tostring(current))
 end
-test_memory_cmpxchg_success()
+test_memory_compare_exchange_success()
 
-local function test_memory_cmpxchg_failure()
-  local mem = check.must(shm.mapshared(4096))
+local function test_memory_compare_exchange_failure()
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 100))
-  local r = check.must(mem:cmpxchg(0, 50, 200))
-  assert(r.swapped == false, "cmpxchg should fail when old doesn't match")
-  assert(r.value == 100, "cmpxchg should return actual value 100, got " .. tostring(r.value))
+  local r = check.must(mem:compare_exchange(0, 50, 200))
+  assert(r.swapped == false, "compare_exchange should fail when old doesn't match")
+  assert(r.value == 100, "compare_exchange should return actual value 100, got " .. tostring(r.value))
   local current = mem:load(0)
-  assert(current == 100, "after failed cmpxchg, value should still be 100, got " .. tostring(current))
+  assert(current == 100, "after failed compare_exchange, value should still be 100, got " .. tostring(current))
 end
-test_memory_cmpxchg_failure()
+test_memory_compare_exchange_failure()
 
 -- Test fetch_add
 
 local function test_memory_fetch_add()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 10))
   local old = mem:fetch_add(0, 5)
   assert(old == 10, "fetch_add should return old value 10, got " .. tostring(old))
@@ -110,7 +110,7 @@ test_memory_fetch_add()
 -- Test fetch_and
 
 local function test_memory_fetch_and()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 0xFF))
   local old = mem:fetch_and(0, 0x0F)
   assert(old == 0xFF, "fetch_and should return old value 255, got " .. tostring(old))
@@ -122,7 +122,7 @@ test_memory_fetch_and()
 -- Test fetch_or
 
 local function test_memory_fetch_or()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 0x0F))
   local old = mem:fetch_or(0, 0xF0)
   assert(old == 0x0F, "fetch_or should return old value 15, got " .. tostring(old))
@@ -134,7 +134,7 @@ test_memory_fetch_or()
 -- Test fetch_xor
 
 local function test_memory_fetch_xor()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 0xFF))
   local old = mem:fetch_xor(0, 0x0F)
   assert(old == 0xFF, "fetch_xor should return old value 255, got " .. tostring(old))
@@ -146,7 +146,7 @@ test_memory_fetch_xor()
 -- Test wake (basic call, no waiters)
 
 local function test_memory_wake_no_waiters()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:store(0, 0))
   local woken = mem:wake(0, 1)
   -- With no waiters, wake should return 0
@@ -157,30 +157,30 @@ test_memory_wake_no_waiters()
 -- Real wrapper with error slots (review item 25): invalid
 -- sizes and out-of-range accesses return nil, err instead of throwing.
 
-local function test_mapshared_size_not_multiple_of_word()
-  local mem, err = shm.mapshared(100)
-  assert(mem == nil, "mapshared(100) should fail (not a multiple of 8)")
+local function test_open_size_not_multiple_of_word()
+  local mem, err = shm.open(100)
+  assert(mem == nil, "open(100) should fail (not a multiple of 8)")
   assert(type(err) == "string" and err:find("multiple"),
     "error should mention the word-size multiple, got: " .. tostring(err))
 end
-test_mapshared_size_not_multiple_of_word()
+test_open_size_not_multiple_of_word()
 
-local function test_mapshared_rejects_nonpositive_size()
-  local mem, err = shm.mapshared(0)
-  assert(mem == nil and type(err) == "string", "mapshared(0) should fail with an error")
-  local mem2, err2 = shm.mapshared(-8)
-  assert(mem2 == nil and type(err2) == "string", "mapshared(-8) should fail with an error")
+local function test_open_rejects_nonpositive_size()
+  local mem, err = shm.open(0)
+  assert(mem == nil and type(err) == "string", "open(0) should fail with an error")
+  local mem2, err2 = shm.open(-8)
+  assert(mem2 == nil and type(err2) == "string", "open(-8) should fail with an error")
 end
-test_mapshared_rejects_nonpositive_size()
+test_open_rejects_nonpositive_size()
 
 local function test_memory_size()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   assert(mem:size() == 4096, "size() should return the mapped size, got " .. tostring(mem:size()))
 end
 test_memory_size()
 
 local function test_memory_read_out_of_range()
-  local mem = check.must(shm.mapshared(64))
+  local mem = check.must(shm.open(64))
   local data, err = mem:read(9999, 8)
   assert(data == nil, "read past the region should fail")
   assert(type(err) == "string" and err:find("range"),
@@ -189,7 +189,7 @@ end
 test_memory_read_out_of_range()
 
 local function test_memory_write_out_of_range()
-  local mem = check.must(shm.mapshared(8))
+  local mem = check.must(shm.open(8))
   local ok, err = mem:write("far too long for eight bytes", 0)
   assert(ok == false, "write past the region should fail")
   assert(type(err) == "string" and err:find("range"),
@@ -201,7 +201,7 @@ test_memory_write_out_of_range()
 -- order is (offset, data, bytes), not (data, offset, bytes), so this
 -- once silently discarded the offset (treating it as a bytes count).
 local function test_memory_write_at_explicit_offset()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   local ok1, err1 = mem:write("XXXXXXXXXX", 0)
   assert(ok1, "setup write failed: " .. tostring(err1))
   local ok2, err2 = mem:write("world", 3)
@@ -217,7 +217,7 @@ test_memory_write_at_explicit_offset()
 -- the validated min(bytes, #data) either wrote nothing (offset 0
 -- collides with "no count") or threw "bytes is more than what's in data".
 local function test_memory_write_clamps_bytes_to_data_length()
-  local mem = check.must(shm.mapshared(4096))
+  local mem = check.must(shm.open(4096))
   local ok, err = mem:write("hi", 0, 100)
   assert(ok == true, "write with bytes > #data should still succeed: " .. tostring(err))
   local data = check.must(mem:read(0, 2))
@@ -226,7 +226,7 @@ end
 test_memory_write_clamps_bytes_to_data_length()
 
 local function test_memory_word_index_out_of_range()
-  local mem = check.must(shm.mapshared(64))
+  local mem = check.must(shm.open(64))
   local v, err = mem:load(9999)
   assert(v == nil, "load of out-of-range word should fail")
   assert(type(err) == "string" and err:find("range"),
@@ -239,7 +239,7 @@ end
 test_memory_word_index_out_of_range()
 
 local function test_memory_wait_wrong_expect_returns_eagain()
-  local mem = check.must(shm.mapshared(64))
+  local mem = check.must(shm.open(64))
   assert(mem:store(0, 5))
   local rc, err = mem:wait(0, 3)
   assert(rc == nil, "wait with mismatched expect should fail immediately")
@@ -253,7 +253,7 @@ test_memory_wait_wrong_expect_returns_eagain()
 -- retries, so the wait ends in ETIMEDOUT, never EINTR.
 local function test_memory_wait_retries_eintr_until_deadline()
   local signal = require("cosmic.signal")
-  local mem = check.must(shm.mapshared(64))
+  local mem = check.must(shm.open(64))
   assert(mem:store(0, 0))
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Interval timer: interrupts the wait several times before the deadline.
@@ -278,15 +278,17 @@ local function test_memory_wait_retries_eintr_until_deadline()
 end
 test_memory_wait_retries_eintr_until_deadline()
 
--- unmap releases the mapping deterministically instead of waiting
--- for the garbage collector. Idempotent and observable; afterwards every
--- fallible method returns an error instead of touching freed memory, and
--- wake wakes nothing.
-local function test_memory_unmap()
-  local mem = assert(shm.mapshared(64)) as shm.Memory -- cast: record union after guard
+-- close releases the mapping deterministically instead of waiting
+-- for the garbage collector. Idempotent and returns NOTHING (#999:
+-- it used to return false for "already released", so asserting the
+-- second, correct call failed); afterwards every fallible method
+-- returns an error instead of touching freed memory, and wake wakes
+-- nothing.
+local function test_memory_close()
+  local mem = assert(shm.open(64)) as shm.Memory -- cast: record union after guard
   assert(mem:store(0, 7))
-  assert(mem:unmap() == true, "first unmap should release and say so")
-  assert(mem:unmap() == false, "second unmap should be a no-op")
+  mem:close()
+  mem:close() -- the second, correct call is a quiet no-op, not a false
   local v, err = mem:load(0)
   assert(v == nil, "load after unmap should fail")
   assert(type(err) == "string" and err:find("unmapped"),
@@ -299,4 +301,4 @@ local function test_memory_unmap()
   assert(woken == nil and wake_err and wake_err:find("unmapped", 1, true),
     "wake after unmap is a caller bug and must say so, got: " .. tostring(wake_err))
 end
-test_memory_unmap()
+test_memory_close()
