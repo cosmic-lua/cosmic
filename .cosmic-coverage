@@ -155,7 +155,7 @@ cosmic/net/connect.tl 31 37
 cosmic/net/init.tl 0 120
 cosmic/net/socket.tl 228 256
 cosmic/poll.tl 82 96
-cosmic/proc/init.tl 31 74
+cosmic/proc/init.tl 24 72
 cosmic/proc/rusage.tl 20 28
 cosmic/quicksand/box/env.tl 27 27
 cosmic/quicksand/box/init.tl 0 70
@@ -201,4 +201,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14786 19393
+total 14779 19391
