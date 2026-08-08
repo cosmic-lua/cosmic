@@ -191,7 +191,7 @@ local function test_a_skipping_test_is_a_skip_not_a_failure()
   local root = app("skipping")
   -- A fixture's source, not this file's: the generated project does
   -- not require cosmic.check. 2 IS the contract
-  -- (`cosmic.records.EXIT_SKIP`), and naming the number a foreign
+  -- (`_tool.records.EXIT_SKIP`), and naming the number a foreign
   -- program must exit with is exactly when a literal is right.
   assert(fs.write(fs.join(root, "db/skip_test.tl"), "os.exit(2)\n"))
   local r = make(root, "test")

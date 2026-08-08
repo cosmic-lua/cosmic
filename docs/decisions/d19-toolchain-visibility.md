@@ -32,7 +32,9 @@
      public; the obligation runs the other way — being public, they are
      held to the same standards (typed exports, honest errors, docs) as
      any battery, rather than moved to an internal tree the strip floor
-     would forbid.
+     would forbid. *(Amended 2026-08, #992 — see below: the stated
+     premise was wrong for most of the family, and part 2 is replaced
+     by the `_tool/` rule.)*
   3. **Exports exist for callers, with one narrow exception.** An
      export with no callers is deleted, not documented (this record
      landed with the deletions of `unveil.apply`, `embed.FLOOR`,
@@ -55,3 +57,31 @@
   the change waits one pin cycle. The toolchain modules' names stay on
   the public surface and their polish debt (naming, type exports) is
   real API debt, tracked like any other.
+- **amendment (2026-08, #992): a root `_tool/` tree; part 2 is
+  replaced.** Part 2's stated premise — "the strip floor forces the
+  toolchain modules under `cosmic/`" — was checked against the actual
+  boot chain and is factually wrong for most of the family. The
+  stripped boot chain is `embed/init.tl` → `searcher.tl` → (optional)
+  `teal.tl`; it touches nothing else. Meanwhile `format`, `example`
+  and `coverage.lines` hard-`require("tl")` at load, so they CANNOT
+  run in a stripped artifact — they were dead payload the floor
+  shipped. What actually forced them public was part 1's lint. So:
+  - **`_tool/` is a root-level internal tree**, sibling of `_cli` and
+    `_make`, for the modules only the toolchain calls: the runners
+    (`testrun`, `example`, `benchmark`), the build's record grammar
+    (`records`), the pure lint checks (`lint`, formerly
+    `cosmic.style`), and — as the split lands — coverage's ratchet
+    half and doc's extraction half. It is embedded in the cosmic
+    binary (it is in the dispatcher's import closure) and never in
+    user artifacts (it is not in theirs).
+  - **Toolchain trees may require each other** (`_cli`, `_make`,
+    `_build`, `_docs`, `_tool`, `cmd`): they ship and version as one
+    toolchain, so a require between them freezes nothing a user can
+    see. Part 1's lint is unchanged — none of them may require a
+    cosmic-internal SHARD.
+  - **`cosmic/` may not require a `_` tree.** The dependency points
+    one way: batteries know nothing of the toolchain. Where the two
+    share a constant (check's `EXIT_SKIP` beside records'), each side
+    defines it and a toolchain test asserts agreement.
+  - Part 3 (exports exist for callers) is unchanged and applies to
+    `_tool/` modules like any others.

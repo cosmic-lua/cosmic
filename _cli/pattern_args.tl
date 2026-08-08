@@ -9,7 +9,7 @@
 --- exempt literals, and both ask the author to say what they mean
 --- rather than forbid the call.
 
-local style = require("cosmic.style")
+local style = require("_tool.lint")
 local tl = require("tl")
 
 local type Diagnostic = style.Diagnostic

@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
--- test cosmic.benchmark module
+-- test _tool.benchmark module
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
-local benchmark = require("cosmic.benchmark")
+local benchmark = require("_tool.benchmark")
 local env = require("cosmic.env")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -16,11 +16,11 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- DEFAULT_MIN_SECONDS (~1s) would cost ~1s per real benchmark run below
 -- for no assertion this shrinks: a tiny floor proves the runner works
 -- exactly as well at 10ms as at 1s. Direct benchmark.run() calls get
--- an explicit Options.min_ms; the two tests that spawn `cosmic
--- --benchmark` as a child (which has no Options to pass) instead set
+-- an explicit RunOptions.min_ms; the two tests that spawn `cosmic
+-- --benchmark` as a child (which has no RunOptions to pass) instead set
 -- COSMIC_BENCHMARK_MIN_MS here so the child inherits it.
 local TINY_MS = 10
-local TINY: benchmark.Options = {min_ms = TINY_MS}
+local TINY: benchmark.RunOptions = {min_ms = TINY_MS}
 check.must(env.set("COSMIC_BENCHMARK_MIN_MS", tostring(TINY_MS)))
 
 local function write_temp(name: string, content: string): string
@@ -94,7 +94,7 @@ test_run_no_benchmarks()
 local function test_run_missing_file()
   local result = benchmark.run("/nonexistent/file.tl")
   assert(result.exit_code == 1, "should fail")
-  assert(string.find(result.error or "", "cannot open"), "should have error message")
+  assert(string.find(result.message or "", "cannot open"), "should have a message")
 end
 test_run_missing_file()
 
@@ -202,7 +202,7 @@ end
 ]])
   local result = benchmark.run(input, {filter = "nonexistent"})
   assert(result.exit_code == 2, "should return skip code")
-  assert(string.find(result.error or "", "no benchmarks matching"), "should show filter error")
+  assert(string.find(result.message or "", "no benchmarks matching"), "should show filter message")
 end
 test_filter_no_match()
 

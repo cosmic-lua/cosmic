@@ -3,7 +3,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local lint = require("_cli.lint")
-local style = require("cosmic.style")
+local style = require("_tool.lint")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -174,13 +174,13 @@ end
 test_cosmo_require_honors_allowlist()
 
 -- One implementation, split by what each half may require: the pure
--- checks stay in `cosmic.style` (inside the strip floor, where there is
+-- checks stay in `_tool.lint` (inside the strip floor, where there is
 -- no Teal compiler to require) and the lexer-based ones are here. The
 -- assertion that matters is that `--check lint` and `--make lint` run
 -- THIS composition -- there is no second lint any more.
 local function test_the_pure_checks_come_from_style()
   assert(style.check_file_length,
-    "the pure checks are cosmic.style's")
+    "the pure checks are _tool.lint's")
   assert(lint.lint_file and lint.check_call_after_define
     and lint.check_cast_justification and lint.check_cosmo_require,
     "the composition and the lexer checks are this module's")

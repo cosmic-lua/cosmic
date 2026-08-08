@@ -60,7 +60,7 @@ local function Example_format_line()
 end
 
 -- Example_parse demonstrates reading instrumentation back. This is how
--- cosmic.testrun attributes wall time, CPU time and peak memory to each
+-- the build test runner attributes wall time, CPU time and peak memory to each
 -- test it spawned: the child emits, the parent parses its stderr.
 local function Example_parse()
   local instrument = require("cosmic.instrument")

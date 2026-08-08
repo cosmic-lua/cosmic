@@ -1,6 +1,6 @@
 --- The style gate behind `--check lint`, and so behind `--make lint`.
 ---
---- Two layers, split by what they may require. `cosmic.style` holds the
+--- Two layers, split by what they may require. `_tool.lint` holds the
 --- pure checks — file length, column width — because it is inside the
 --- strip floor, where a STRIPPED artifact must still boot and there is
 --- no Teal compiler to require. The checks that need the LEXER live
@@ -16,7 +16,7 @@
 
 local fs = require("cosmic.fs")
 local pattern_args = require("_cli.pattern_args")
-local style = require("cosmic.style")
+local style = require("_tool.lint")
 local tl = require("tl")
 local visibility = require("_cli.visibility")
 

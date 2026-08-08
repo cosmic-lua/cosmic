@@ -5,7 +5,7 @@
 --- embed wrapper runs `require("cosmic.searcher").install()` before the
 --- entry of EVERY artifact anyone builds, which makes this the module
 --- with the widest reach in the tree. It sat under `_cli/` — marked
---- internal — for as long as that was true. Same rule as `cosmic.style`
+--- internal — for as long as that was true. Same rule as the pure lint checks (now `_tool.lint`)
 --- in 3c: who requires a module decides whether it is internal, and a
 --- manifest can hold that contradiction where position cannot.
 ---

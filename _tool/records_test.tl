@@ -7,10 +7,7 @@
 -- the printer has left behind is the failure this file exists to make
 -- impossible, which is why the printers import the same module.
 
-local fs = require("cosmic.fs")
-local records = require("cosmic.records")
-
-local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+local records = require("_tool.records")
 
 -- A row names the SOURCE. Eleven files in this tree are called
 -- `init_test.tl`, so a basename names none of them.
@@ -66,7 +63,7 @@ local function test_the_annotation_belongs_to_work_that_happened()
     "→ a_test.tl  12ms", "a skip did not run them")
   assert(records.row("fail", "a_test.tl", 7, "test functions", 12) ==
     "✗ a_test.tl  12ms", "and a failure's number is in the block below")
-  assert(records.row("pass", "a_test.tl", 0, "test functions", -1) ==
+  assert(records.row("pass", "a_test.tl", 0, "test functions") ==
     "✓ a_test.tl", "an unrecorded count and duration print nothing")
 end
 test_the_annotation_belongs_to_work_that_happened()
@@ -85,7 +82,7 @@ local function test_counts_round_trips()
       p .. "/" .. f .. "/" .. s)
   end
   local none = records.parse_counts("nothing to see here")
-  assert(none == -1, "text with no counts line reports -1, not 0")
+  assert(none == nil, "text with no counts line reports nil, not 0 (#992: was -1)")
 end
 test_counts_round_trips()
 
@@ -100,19 +97,39 @@ test_detail_says_what_went_wrong()
 -- A verb's verdict is a claim about the stage that just ran, and the
 -- only thing that counted that stage is the summary it wrote.
 local function test_stage_detail_reads_the_summary()
-  local path = fs.join(tmpdir, "records-summary.txt")
-  assert(fs.write(path, "✓ a\n\n" .. records.counts(1, 1, 0) .. "\n"))
-  assert(records.stage_detail(path, 7, "file") == "1 of 2 files",
+  local summary = "✓ a\n\n" .. records.counts(1, 1, 0) .. "\n"
+  assert(records.stage_detail(summary, 7, "file") == "1 of 2 files",
     "the counts come from the summary, not from the file list's size")
 
   -- A stage that failed before writing one has no per-target counts.
   -- Inventing them would be worse than saying how big the stage was.
-  local missing = fs.join(tmpdir, "records-absent.txt")
-  assert(fs.remove_all(missing))
-  assert(records.stage_detail(missing, 7, "file") == "7 files",
+  assert(records.stage_detail(nil, 7, "file") == "7 files",
     "no summary falls back to the size, without claiming a failure count")
 end
 test_stage_detail_reads_the_summary()
+
+-- The verdict's two halves (#992: `verdict` printed AND returned the
+-- exit code; the format and the code are separate claims now).
+local function test_verdict_halves()
+  assert(records.format_verdict("test", true, "19 files") ==
+    "test: PASS (19 files)", "PASS with detail")
+  assert(records.format_verdict("ci", false, "fmt lint") ==
+    "ci: FAIL (fmt lint)", "FAIL names the stages")
+  assert(records.format_verdict("clean", true, "") ==
+    "clean: PASS", "empty detail drops the parenthetical")
+  assert(records.exit_code(true) == 0, "PASS exits 0")
+  assert(records.exit_code(false) == 1, "FAIL exits 1")
+end
+test_verdict_halves()
+
+-- `cosmic.check` may not require this internal tree, so it defines
+-- its own EXIT_SKIP; the two are one contract and must agree.
+local function test_exit_skip_agrees_with_check()
+  local check = require("cosmic.check")
+  assert(records.EXIT_SKIP == check.EXIT_SKIP,
+    "records.EXIT_SKIP and check.EXIT_SKIP drifted apart")
+end
+test_exit_skip_agrees_with_check()
 
 -- Exit codes are the same three everywhere, and a skip is not a pass.
 local function test_status_is_one_contract()

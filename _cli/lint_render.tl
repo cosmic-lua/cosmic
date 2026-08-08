@@ -9,7 +9,7 @@
 --- the strict compile of every caller until the pin catches up. A new
 --- module name resolves from the tree everywhere, first generation
 --- included.
-local style = require("cosmic.style")
+local style = require("_tool.lint")
 
 local type Diagnostic = style.Diagnostic
 

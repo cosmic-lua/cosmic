@@ -4,27 +4,30 @@ local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local instrument = require("cosmic.instrument")
-local records = require("cosmic.records")
+local records = require("_tool.records")
 local time = require("cosmic.time")
 
---- The output grammar lives in `cosmic.records`, which is where every
+--- The output grammar lives in `_tool.records`, which is where every
 --- printer and every asserting test reads it from (api-review: the
---- STATUS_ICONS/status_of re-exports are gone; require cosmic.records).
+--- STATUS_ICONS/status_of re-exports are gone; require _tool.records).
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
+--- Returns the message alongside the exit code (#992): the runner
+--- reports, the CALLER prints — nothing is written to this process's
+--- stderr on a runner failure.
 --- @param argv {string} Command and arguments
 --- @param output_base string Base path for output files
 --- @return integer Exit code (for CLI return)
-local function run(argv: {string}, output_base: string): integer
+--- @return string? What went wrong in the RUNNER itself (not the test), nil when it ran
+local function run(argv: {string}, output_base: string): integer, string
   -- determine file for instrumentation from argv
   local inst_file = argv[#argv] or output_base
   local span = instrument.begin("test", inst_file)
 
   if not output_base then
-    io.stderr:write("testrun: missing output path\n")
     instrument.finish(span, 1)
-    return 1
+    return 1, "missing output path"
   end
 
   -- Create parent directories if needed
@@ -32,9 +35,8 @@ local function run(argv: {string}, output_base: string): integer
   if dir ~= "." and dir ~= "/" then
     local ok, err = fs.make_dirs(dir)
     if not ok then
-      io.stderr:write("testrun: " .. err .. "\n")
       instrument.finish(span, 1)
-      return 1
+      return 1, err
     end
   end
 
@@ -42,9 +44,8 @@ local function run(argv: {string}, output_base: string): integer
   local tmpbase = env.get("TMP") or "/tmp"
   local tmpdir, tmpdir_err = fs.temp_dir(fs.join(tmpbase, "testrun_XXXXXX"))
   if not tmpdir then
-    io.stderr:write("testrun: " .. (tmpdir_err or "failed to create temp dir") .. "\n")
     instrument.finish(span, 1)
-    return 1
+    return 1, tmpdir_err or "failed to create temp dir"
   end
 
   -- Build environment with TEST_TMPDIR
@@ -115,23 +116,20 @@ local function run(argv: {string}, output_base: string): integer
   local err: string
   ok, err = fs.write(output_base .. ".got", tostring(exit_code) .. "\n")
   if not ok then
-    io.stderr:write("testrun: " .. (err or "failed to write .got") .. "\n")
     instrument.finish(span, 1)
-    return 1
+    return 1, err or "failed to write .got"
   end
 
   ok, err = fs.write(output_base .. ".out", stdout_content)
   if not ok then
-    io.stderr:write("testrun: " .. (err or "failed to write .out") .. "\n")
     instrument.finish(span, 1)
-    return 1
+    return 1, err or "failed to write .out"
   end
 
   ok, err = fs.write(output_base .. ".err", stderr_content)
   if not ok then
-    io.stderr:write("testrun: " .. (err or "failed to write .err") .. "\n")
     instrument.finish(span, 1)
-    return 1
+    return 1, err or "failed to write .err"
   end
 
   -- Best-effort, like `.tests` below: a lost duration costs a column in
@@ -183,7 +181,7 @@ local record TestResult
   exit_code: integer
   stdout: string
   stderr: string
-  status: string -- "pass", "fail", "skip"
+  status: records.Status
   test_count: integer -- test_* functions in the file (0 when unknown)
   wall_ms: integer -- how long the test took, -1 when not recorded
 end
@@ -284,7 +282,8 @@ local function report(paths: {string}): integer
       end
     end
     io.write(records.row(result.status, result.name, result.test_count,
-        "test functions", result.wall_ms) .. "\n")
+        "test functions",
+        result.wall_ms >= 0 and result.wall_ms or nil) .. "\n")
   end
 
   -- Print summary
@@ -337,7 +336,7 @@ end
 --- 	$(COSMIC) --report $(tests)
 --- ```
 local function Example_makefile()
-  local testrun = require("cosmic.testrun")
+  local testrun = require("_tool.testrun")
   local tmpdir = fs.temp_dir("/tmp/testrun_example_XXXXXX")
   if not tmpdir then return end
 
@@ -360,7 +359,7 @@ end
 local _ = Example_makefile
 
 local record TestrunModule
-  run: function(argv: {string}, output_base: string): integer
+  run: function(argv: {string}, output_base: string): integer, string
   report: function(paths: {string}): integer
 end
 

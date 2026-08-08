@@ -7,7 +7,13 @@
 --- throw or exit, so never require check from library code.
 local codec = require("cosmic.codec")
 local proc = require("cosmic.proc")
-local records = require("cosmic.records")
+
+--- The skip exit code: 0 pass, 2 skip, anything else fail — the
+--- grammar every runner grades by. Defined HERE because check is the
+--- public module a test names it through, and check may not require
+--- the internal runner tree (#992: records is `_tool.records` now;
+--- its EXIT_SKIP mirrors this one, and its test asserts they agree).
+local EXIT_SKIP < const > = 2
 
 --- Render any Lua value as a readable string using the Lua serializer.
 --- @param v any The value to render
@@ -227,7 +233,7 @@ local function needs(what: string, present: boolean)
   end
   io.stderr:write("→ skip: " .. what .. " is missing\n")
   print("skip: " .. what .. " is missing")
-  os.exit(records.EXIT_SKIP)
+  os.exit(EXIT_SKIP)
 end
 
 --- Reap a forked child and grade what its exit code said.
@@ -245,7 +251,7 @@ end
 ---
 --- A skip ends the FILE rather than the test, by the same argument
 --- `needs` makes: the parent is asserting on half a conversation, and
---- `records.status_of` reads only the exit code.
+--- the runner's grading reads only the exit code.
 --- @param pid integer The child to reap
 --- @param what string What the child was, for the message
 local function reap(pid: integer, what: string)
@@ -265,10 +271,10 @@ local function reap(pid: integer, what: string)
   elseif proc.WIFSIGNALED(status) then
     code = 128 + proc.WTERMSIG(status)
   end
-  if code == records.EXIT_SKIP then
+  if code == EXIT_SKIP then
     io.stderr:write("→ skip: " .. what .. " cannot run here\n")
     print("skip: " .. what .. " cannot run here")
-    os.exit(records.EXIT_SKIP)
+    os.exit(EXIT_SKIP)
   end
   if code ~= 0 then
     error(what .. " exited " .. code, 2)
@@ -298,10 +304,10 @@ local record CheckModule
 end
 
 local M: CheckModule = {
-  -- The one definition of what a skip's exit code IS lives in
-  -- `cosmic.records`, beside the runner that grades it. Re-exported
-  -- here so a test names the contract instead of writing `2`.
-  EXIT_SKIP = records.EXIT_SKIP,
+  -- Exported so a test names the contract instead of writing `2`;
+  -- the definition is at the top of this file, mirrored by
+  -- `_tool.records` beside the runner that grades it (#992).
+  EXIT_SKIP = EXIT_SKIP,
   equal = equal,
   not_equal = not_equal,
   truthy = truthy,

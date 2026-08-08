@@ -33,6 +33,10 @@ _cli/                 the dispatcher behind every flag (args, help, run, ...)
   build/               the closed verb vocabulary behind `-c`
 _make/                `cosmic --make`: project model, validator, root, verbs
 _build/               ratchets over what the repo ships and derives
+_tool/                internal toolchain modules: the runners (testrun,
+                      example, benchmark), the record grammar (records),
+                      the pure lint checks — embedded in the cosmic
+                      binary, never in user artifacts (D19 amendment)
 _docs/                doc publishing
 _perf/                performance benchmark harness (see skills/optimize/)
 _types/               cosmo.* type declarations (generated) + gentype generator
@@ -352,7 +356,6 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | module | description |
 |--------|-------------|
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
-| benchmark | benchmark runner with `Benchmark_*` functions (`--make benchmark`) |
 | check | assertion helpers for tests/examples (`equal`, `truthy`, `must`) plus environment-gating helpers (`needs`, `enforce_skip`, `enforcing`) |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
@@ -363,7 +366,6 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | embed | create custom executables with embedded files |
 | env | environment variables: get (nil when unset), get_or, set/unset/list, dotenv parse/format and env.d loading |
 | errno | canonical errno formatting (`wrap`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |
-| example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
 | flags | declarative command-line flag parsing with generated --help |
 | format | Teal/Lua code formatter |
@@ -381,7 +383,6 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | proc | current process: pid, exec, resource usage |
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
-| records | a build's machine-readable records: row, summary, verdict, exit codes |
 | sandbox | the in-process containment door: one fail-closed fs + sys policy (landlock/unveil/pledge are its internal shards) |
 | searcher | the runtime `.tl` package searcher every artifact installs at boot |
 | literal | read a Teal/Lua file as data: `return { … }` of literals, never executed |
@@ -392,11 +393,9 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | sse | Server-Sent Events parser |
 | stream | the byte-stream Reader/Writer contract every producer and consumer composes over |
 | string | trim, split, capitalize, starts_with, etc. |
-| style | pure style checks: file length (the `--check lint` gate) and the house limits; the lexer-based rules (`call-after-define`, `visibility`, ...) live in `_cli/`, not here |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | tar | extract a tarball (.tar.gz or plain .tar), in process |
 | teal | Teal compilation and type checking |
-| testrun | test execution and reporting |
 | time | timestamps, sleep, clock, datetime |
 | tty | terminal detection, window size, termios |
 | url | URL encoding, parsing, escaping |

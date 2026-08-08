@@ -6,7 +6,7 @@ _cli/args.tl 0 35
 _cli/build/init.tl 43 47
 _cli/build/modules.tl 46 49
 _cli/build/steps.tl 183 239
-_cli/build/work.tl 144 164
+_cli/build/work.tl 148 169
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
 _cli/grants.tl 158 168
@@ -17,7 +17,7 @@ _cli/main_handlers.tl 11 220
 _cli/pattern_args.tl 132 135
 _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
-_cli/visibility.tl 23 23
+_cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
 _docs/publish.tl 115 177
@@ -68,6 +68,11 @@ _perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
+_tool/benchmark.tl 145 172
+_tool/example.tl 134 167
+_tool/lint.tl 16 17
+_tool/records.tl 88 92
+_tool/testrun.tl 145 180
 _types/gentl.tl 131 155
 _types/gentype.tl 250 305
 _types/gentype_defs.tl 17 23
@@ -79,7 +84,7 @@ _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 179
-cmd/cosmic/main.tl 0 224
+cmd/cosmic/main.tl 0 227
 cosmic/_fields.tl 5 7
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
@@ -87,8 +92,7 @@ cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
 cosmic/_teal_hints.tl 42 42
 cosmic/ansi.tl 86 86
-cosmic/benchmark.tl 145 172
-cosmic/check.tl 110 113
+cosmic/check.tl 110 114
 cosmic/child/fast.tl 40 52
 cosmic/child/init.tl 0 212
 cosmic/child/io.tl 106 124
@@ -115,7 +119,6 @@ cosmic/embed/floor.tl 33 38
 cosmic/embed/init.tl 149 187
 cosmic/env.tl 24 34
 cosmic/errno.tl 17 26
-cosmic/example.tl 129 158
 cosmic/fd.tl 95 118
 cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220
@@ -169,7 +172,6 @@ cosmic/quicksand/proxy/serve.tl 124 233
 cosmic/quicksand/types.tl 3 3
 cosmic/rand.tl 66 73
 cosmic/re.tl 115 125
-cosmic/records.tl 88 92
 cosmic/sandbox/init.tl 120 148
 cosmic/sandbox/landlock.tl 66 114
 cosmic/sandbox/plan.tl 24 24
@@ -188,11 +190,9 @@ cosmic/sqlite/stmt_cache.tl 57 67
 cosmic/sse.tl 98 103
 cosmic/stream.tl 0 2
 cosmic/string.tl 180 183
-cosmic/style.tl 17 19
 cosmic/sys.tl 14 22
 cosmic/tar.tl 116 126
 cosmic/teal.tl 185 193
-cosmic/testrun.tl 144 188
 cosmic/time.tl 142 155
 cosmic/tty.tl 119 126
 cosmic/url.tl 126 141
@@ -200,4 +200,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14440 19074
+total 14450 19084
