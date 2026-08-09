@@ -177,7 +177,7 @@ print("value=" .. require("goodmod").value)
   local counted = fs.visit(cachedir, function(_e: fs.Entry, acc: {integer})
       acc[1] = acc[1] + 1
     end, {0})
-  local n = check.must(counted, "cache dir should exist and be walkable")
+  local n = check.must(counted, "cache dir should exist and be walkable").ctx
   assert(n[1] > 0,
     "compile cache should hold the required module's output")
 end

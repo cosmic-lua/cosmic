@@ -294,13 +294,13 @@ local function digest_of(dir: string): string
   if not found then
     return "empty"
   end
-  if not next(found) then
+  if not next(found.files) then
     return "empty"
   end
   -- find_info keys are full paths (#987); the digest wants names
   -- relative to dir so the hash never moves with the tree's location.
   local names: {string} = {}
-  for full in pairs(found) do
+  for full in pairs(found.files) do
     names[#names + 1] = full:sub(#dir + 2)
   end
   table.sort(names)

@@ -16,6 +16,7 @@
 
 local fs = require("cosmic.fs")
 local pattern_args = require("_cli.pattern_args")
+local returns = require("_cli.returns")
 local style = require("_tool.lint")
 local tl = require("tl")
 local visibility = require("_cli.visibility")
@@ -411,6 +412,9 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(check_nil_declaration(path, content)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(returns.check_fallible_returns(path, content, lines)) do
+      diagnostics[#diagnostics + 1] = d
+    end
     for _, d in ipairs(visibility.check_shard_require(path, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
@@ -425,6 +429,8 @@ local record LintModule
   check_find_needle: function(file: string, content: string): {Diagnostic}
   check_gsub_replacement: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_nil_declaration: function(file: string, content: string): {Diagnostic}
+  check_fallible_returns: function(file: string, content: string,
+    lines: {string}): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -435,6 +441,7 @@ local M: LintModule = {
   check_find_needle = check_find_needle,
   check_gsub_replacement = check_gsub_replacement,
   check_nil_declaration = check_nil_declaration,
+  check_fallible_returns = returns.check_fallible_returns,
   lint_file = lint_file,
 }
 

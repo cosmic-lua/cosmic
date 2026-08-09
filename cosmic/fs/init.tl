@@ -179,29 +179,35 @@ local record FsModule
   --- One visited entry: path (full — never join with name), name,
   --- stat, depth (entries directly in dir are depth 1).
   type Entry = Entry
+  --- What a completed walk produced: `.ctx` and `.errors`.
+  type Walked<T> = fs_walk.Walked<T>
   --- Walk dir depth-first with an Entry visitor: visitor(e: fs.Entry,
   --- ctx) may return "skip" (don't descend) or "stop" (end now).
-  --- Slot 2 is the root-open failure; subtree errors come back in
-  --- slot 3 as a list (nil when the walk was clean).
-  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string, {string}
+  --- Slot 2 is the root-open failure; subtree errors ride on the
+  --- result as `.errors` (nil when the walk was clean).
+  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked<T> | nil, string
 
+  --- A path list (the array part) plus the failures it walked past.
+  type Found = fs_find.Found
+  --- find_info's file map with the same error field.
+  type FoundInfo = fs_find.FoundInfo
   --- Expand a glob pattern without recursing; components ("src/*.lua")
   --- are each globs, and matches of every entry type are returned
-  --- sorted. Slot 2 is the root failure; deeper errors in slot 3.
-  glob: function(dir: string, pattern: string): {string} | nil, string, {string}
+  --- sorted. Slot 2 is the root failure; deeper errors in `.errors`.
+  glob: function(dir: string, pattern: string): Found | nil, string
   type FindOptions = fs_find.FindOptions
   --- Collect paths under dir; FindOptions selects basenames (glob or
   --- Lua pattern) and bounds the search (max_depth, recursive,
   --- include_dirs, sorted). Slot 2 is the root failure; subtree errors
-  --- in slot 3.
-  find: function(dir: string, opts?: fs_find.FindOptions): {string} | nil, string, {string}
+  --- in `.errors`.
+  find: function(dir: string, opts?: fs_find.FindOptions): Found | nil, string
   --- Iterate paths under dir lazily; same selection as find() except
   --- sorted. The exhausted iterator returns nil plus the subtree-error
-  --- list.
-  find_iter: function(dir: string, opts?: fs_find.FindOptions): FileIter | nil, string, any, any
+  --- list; the iterator itself is the closeable handle.
+  find_iter: function(dir: string, opts?: fs_find.FindOptions): FileIter | nil, string
   --- Matching files with their FileInfo, keyed by FULL path (#987:
   --- was relative); same options and slots as find.
-  find_info: function(dir: string, opts?: fs_find.FindOptions): {string: FileInfo} | nil, string, {string}
+  find_info: function(dir: string, opts?: fs_find.FindOptions): FoundInfo | nil, string
 
   -- Access mode constants
   F_OK: integer

@@ -368,11 +368,11 @@ local function scan(root: string): Project | nil, string
   -- it may have changed, so re-reading is the point.
   imports.forget()
   local ctx: Scan = {root = abs, patterns = read_ignore(abs), files = {}}
-  local got, rerr, errs = fs.visit(abs, visit, ctx)
-  if not got then
+  local walked, rerr = fs.visit(abs, visit, ctx)
+  if not walked then
     return nil, "make: cannot scan " .. root .. ": " .. (rerr or "unknown error")
   end
-  local err = errs and errs[1]
+  local err = walked.errors and walked.errors[1]
   if err then
     return nil, "make: incomplete scan of " .. root .. ": " .. err
   end
