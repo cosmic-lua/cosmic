@@ -136,13 +136,22 @@ an INFALLIBLE tuple is untouched: `string.partition` returns
 rule has nothing to say about it. the discriminator is nil in slot 1,
 never a guess about what the slots mean.
 
-the one shape you cannot fix is a foreign one — a `cosmo.*` binding's
-tuple is decided in C, and a Teal record DESCRIBING it has to say what
-it really returns. those carry a `-- returns: <reason>` marker, trailing
-on the line or anywhere in the comment block directly above it (`--
-cast:` reads only the single line above; this one takes a sentence).
-it is a justification, not an exemption: a shape you cannot explain is
-one to fold into a record.
+there is no escape hatch, and none is needed. a `cosmo.*` binding's
+tuple IS decided in C — but it is already declared, once, in the
+generated `.d.tl` files, which describe C interfaces and which lint
+exempts by position. so when you need to name a binding's shape, refer
+to the generated type rather than retyping it:
+
+- `cosmic.re`'s `Regex` IS `cosmo.re`'s, not a copy of it
+- cast the ARGUMENT that needs widening, not the whole binding, and no
+  return list has to be restated to give the cast a target
+- declare `any...` when the arity genuinely is not yours to know — a
+  varargs return is one slot, and honest about it
+
+the rule shipped with a `-- returns: <reason>` comment marker. every
+site that used one turned out to be a cosmic-side restatement of a
+declaration that already existed, and two had already drifted from the
+binding they copied. the marker is gone.
 
 this is D20 rule 11 made mechanical. the rule exists because the two
 call shapes everyone writes — `local v, err = f()` and

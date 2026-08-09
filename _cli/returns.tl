@@ -23,13 +23,16 @@
 --- signature is a RECORD — one value carrying the extras, one error
 --- beside it.
 ---
---- The one shape that cannot be fixed is a foreign one: a `cosmo.*`
---- binding's tuple is decided in C, and a Teal record DESCRIBING it
---- must say what it really returns (`cosmic.re`'s Regex methods are
---- the binding's own metatable). Those declarations carry a
---- `-- returns: <reason>` marker, trailing or on the line above, the
---- same two positions `-- cast:` reads. It is a justification, not an
---- exemption: the deviation stays visible and named.
+--- There is no escape hatch, and none is needed. A `cosmo.*` binding's
+--- tuple IS decided in C and cannot be folded — but it is already
+--- declared, once, in the generated `.d.tl` files, which describe C
+--- interfaces and which lint exempts by POSITION. Every marker this
+--- rule once carried turned out to mark a cosmic-side RESTATEMENT of
+--- one of those declarations: a hand-copy that could drift from the
+--- binding, and in two cases already had. Name the generated type
+--- instead of retyping its shape (`cosmic.re`'s Regex is now
+--- `cosmo.re`'s), cast the argument rather than the whole binding, or
+--- declare `any...` when the arity genuinely is not yours to know.
 ---
 --- Token-exact, via the lexer, so a signature quoted inside a string
 --- or a doc comment never counts. The type grammar parsed here is the
@@ -215,39 +218,11 @@ local function params_open(tokens: {Token}, i: integer): integer
   return 0
 end
 
---- Whether the signature starting on line `y` says why it deviates.
----
---- Trailing on the line, or anywhere in the comment block directly
---- above it — not just the single line above, the way `-- cast:` reads.
---- A foreign shape takes a sentence to explain, and a reason split
---- across two comment lines is still one reason.
---- @param lines {string} The file's lines
---- @param y integer The line the `function` keyword is on
---- @return boolean True when the marker is present
-local function is_marked(lines: {string}, y: integer): boolean
-  local here = lines[y]
-  if here and here:match("%-%- returns: %S") then
-    return true
-  end
-  for i = y - 1, 1, -1 do
-    local line = lines[i]
-    if not (line and line:match("^%s*%-%-")) then
-      return false
-    end
-    if line:match("^%s*%-%-%-? returns: %S") then
-      return true
-    end
-  end
-  return false
-end
-
 --- Every declared return list that puts a slot past the error.
 --- @param file string Path, for the diagnostic
 --- @param content string The file's bytes
---- @param lines {string} The file's lines
 --- @return {Diagnostic} One per over-wide fallible signature
-local function check_fallible_returns(file: string, content: string,
-    lines: {string}): {Diagnostic}
+local function check_fallible_returns(file: string, content: string): {Diagnostic}
   local tokens = tl.lex(content, file)
   if not tokens then
     return {}
@@ -259,7 +234,7 @@ local function check_fallible_returns(file: string, content: string,
       local after = open > 0 and skip_balanced(tokens, open, "(", ")") or 0
       if after > 0 and tokens[after] and tokens[after].tk == ":" then
         local slots = parse_list(tokens, after + 1)
-        if #slots > 2 and slots[1] and not is_marked(lines, t.y) then
+        if #slots > 2 and slots[1] then
           diagnostics[#diagnostics + 1] = {
             file = file,
             line = t.y,
@@ -270,8 +245,9 @@ local function check_fallible_returns(file: string, content: string,
               .. " slots; a caller writing `local v, err = f()` cannot"
               .. " reach past slot 2, and check.must feeds slot 2 to its"
               .. " `err` parameter — carry the extras in the value's"
-              .. " record, or say why the shape is not yours with a"
-              .. " trailing `-- returns: <reason>` (see `cosmic --docs"
+              .. " record. A cosmo binding's own tuple is already"
+              .. " declared in the generated .d.tl: name that type"
+              .. " rather than retyping its shape (see `cosmic --docs"
               .. " guide.lint`)",
               file, t.y, #slots),
           }
@@ -283,8 +259,7 @@ local function check_fallible_returns(file: string, content: string,
 end
 
 local record ReturnsModule
-  check_fallible_returns: function(file: string, content: string,
-  lines: {string}): {Diagnostic}
+  check_fallible_returns: function(file: string, content: string): {Diagnostic}
 end
 
 local M: ReturnsModule = {

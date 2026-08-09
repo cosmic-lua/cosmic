@@ -228,9 +228,6 @@ end
 -- reason -- the wrapper below takes `handler` as `any`, because the
 -- formatter cannot parse a bare `function | integer` union in a
 -- function statement, and `any` does not pass to the binding's union.
--- returns: the cosmo.unix binding's own tuple, restated so the cast has
--- something to name; the C shape is not this wrapper's to choose
-local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, flags?: integer, mask?: Sigset): (any, any, any) -- cast: handler union
 
 --- Register a signal handler for the specified signal.
 --- Lua handlers run deferred in ordinary VM context (see the
@@ -252,7 +249,14 @@ local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Si
   -- One call with whatever the caller gave: the binding tolerates
   -- explicit trailing nils now (cosmopolitan#237), so the four-branch
   -- ladder that existed to never produce them is gone.
-  local prev, prev_flags, prev_mask = raw_sigaction(sig, handler, flags, mask)
+  -- Cast the ARGUMENT, not the whole binding: casting `unix.sigaction`
+  -- to a function type meant restating its return tuple here, a
+  -- hand-copy of what `cosmo/unix.d.tl` already declares (and one that
+  -- had already drifted -- it said three untyped slots where the
+  -- binding declares five typed ones).
+  local raw_handler = handler as (function | integer) -- cast: handler union
+  local prev, prev_flags, prev_mask =
+  unix.sigaction(sig, raw_handler, flags, mask)
   if prev == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot.

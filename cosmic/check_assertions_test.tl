@@ -266,26 +266,24 @@ end
 test_must_passes_false_through()
 
 -- must: multi-return forwarding (the assert-parity contract)
+--
+-- Exercised with explicit arguments rather than through a fixture that
+-- returns four values. The SPREAD of a multi-return call into must is
+-- Lua's behaviour, not must's; what belongs to must is that it hands
+-- the extras back untouched. Testing it directly also means this file
+-- no longer has to declare a signature the returns rule forbids.
 
 local type Iter = function(): string
 
--- returns: the fixture IS the forbidden shape on purpose — it is what
--- must's assert-parity forwarding exists for, and a rule-11-clean
--- signature could not exercise it (fs.find_iter, which used to have
--- this shape, no longer does: #1063 folded its guard into the record)
-local function fake_files(fail: boolean, guard: any): Iter | nil, string, any, any
-  if fail then
-    return nil, "cannot open"
-  end
+local function two_paths(): Iter
   local n = 0
-  local iter = function(): string
+  return function(): string
     n = n + 1
     if n <= 2 then
       return "f" .. n
     end
     return nil
   end
-  return iter, nil, nil, guard
 end
 
 local function test_must_single_pair_collapses()
@@ -297,18 +295,18 @@ test_must_single_pair_collapses()
 
 local function test_must_forwards_extra_returns()
   local guard: any = {}
-  check.equal(select("#", check.must(fake_files(false, guard))), 4)
-  local _iter, _e, _ctl, g = check.must(fake_files(false, guard))
+  check.equal(select("#", check.must(two_paths(), nil, nil, guard)), 4)
+  local _iter, _e, _ctl, g = check.must(two_paths(), nil, nil, guard)
   check.truthy(rawequal(g, guard), "4th return must be the same guard value")
 end
 test_must_forwards_extra_returns()
 
 local function test_must_keeps_closing_guard_in_for()
-  -- the reason forwarding matters: the 4th return is Lua 5.4's
+  -- the reason forwarding matters: the 4th value is Lua 5.4's
   -- to-be-closed slot, so an early break must still run __close
   local closed = false
   local guard = setmetatable({}, {__close = function() closed = true end})
-  for _ in check.must(fake_files(false, guard)) do
+  for _ in check.must(two_paths(), nil, nil, guard) do
     break
   end
   check.truthy(closed, "early break must close the forwarded guard")
