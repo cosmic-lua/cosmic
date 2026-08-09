@@ -3,6 +3,7 @@
 
 local fs = require("cosmic.fs")
 local doc = require("_tool.doc")
+local docs = require("cosmic.doc")
 local check = require("cosmic.check")
 
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -346,7 +347,8 @@ end
 ]]
 
   local result = doc.parse(source, "mymodule.tl")
-  local md = doc.render(result)
+  -- One renderer: the page a reader gets from `--docs` is this page.
+  local md = docs.render_module("mymodule", result)
   assert(md:find("# mymodule"), "should have module header")
   assert(md:find("Test module"), "should have module description")
   assert(md:find("## Types"), "should have Types section")
@@ -423,7 +425,7 @@ end
 ]]
 
   local result = doc.parse(source, "test.tl")
-  local md = doc.render(result)
+  local md = docs.render_module("test", result)
   assert(md:find("### foo bar baz"), "should convert underscores to spaces in title")
 end
 test_example_title()

@@ -2,6 +2,7 @@
 --- Run directly as a script with source files as arguments.
 
 local doc = require("_tool.doc")
+local doc_exports = require("_tool.doc.exports")
 -- This script is compiled and run by the pinned BOOTSTRAP cosmic, whose
 -- embedded types predate the current tree; use the signature-stable
 -- cosmo.Slurp instead of cosmic.fs.read so it works under both, and
@@ -56,44 +57,6 @@ local function merge_entries(dst: {string: any}, src: {string: any},
       table.insert(into, entry)
     end
   end
-end
-
---- The export list a module states in its top-level typed table
---- literal (`local M: FsModule = { read = fs_file.read, ... }`): the
---- keys. That literal is the convention every module follows (the
---- module's API is its returned interface record), so its keys are the
---- authoritative "what this module exports" — the interface record's
---- own fields would serve too, but the parser does not extract
---- function-typed record fields today. nil when the file builds its
---- module table some other way; callers treat that as "unknown", not
---- "empty".
-local function scan_exports(source: string): {string: boolean} | nil
-  local names: {string: boolean} = nil
-  local in_table = false
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    if in_table then
-      if line:match("^}") then
-        in_table = false
-      else
-        local key = line:match("^%s*([%w_]+)%s*=")
-        if key then
-          names = names or {}
-          names[key] = true
-        end
-      end
-    elseif line:match("^local%s+[%w_]+%s*:%s*[%w_%.]+%s*=%s*{") then
-      local inline = line:match("{(.*)}%s*$")
-      local rest = inline or line:match("{(.*)$")
-      if rest then
-        for key in rest:gmatch("([%w_]+)%s*=") do
-          names = names or {}
-          names[key] = true
-        end
-      end
-      in_table = inline == nil
-    end
-  end
-  return names
 end
 
 --- Fold directory-module shards into the parent users require.
@@ -205,7 +168,15 @@ local function generate(files: {string},
       if not file_path:match("%.d%.tl$") then
         -- The export list rides along for flatten_shards below, and is
         -- stripped again before the index is encoded.
-        (module_doc as {string: any}).exports = scan_exports(source) -- cast: from any
+        -- The same publishable view the markdown page is rendered
+        -- from, so a page and a symbol lookup answer alike. The surface
+        -- rides along for flatten_shards below, which filters a SHARD's
+        -- exports against the parent that re-exports them — a different
+        -- question from what one module publishes.
+        local records = (module_doc as {string: any}).records -- cast: from any
+        doc.publishable(module_doc as doc.ModuleDoc, source); -- cast: parsed above
+        (module_doc as {string: any}).exports = -- cast: from any
+        doc_exports.export_surface(source, records as {{string: any}}) -- cast: from any
       end
       modules[name] = module_doc
     end

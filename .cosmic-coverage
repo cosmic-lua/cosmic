@@ -74,9 +74,10 @@ _tool/coverage/baseline.tl 151 161
 _tool/coverage/lines.tl 65 71
 _tool/coverage/report.tl 203 224
 _tool/doc/comments.tl 53 53
+_tool/doc/dtl.tl 8 84
+_tool/doc/exports.tl 52 53
 _tool/doc/index.tl 119 126
 _tool/doc/init.tl 225 251
-_tool/doc/render.tl 114 192
 _tool/doc/scan.tl 67 67
 _tool/example.tl 134 167
 _tool/lint.tl 16 17
@@ -204,4 +205,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14876 19509
+total 14822 19454

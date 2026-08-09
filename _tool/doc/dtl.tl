@@ -1,5 +1,7 @@
---- Rendering and .d.tl parsing for the doc module.
---- Contains the markdown renderer and the type declaration file parser.
+--- Parsing for `.d.tl` type declaration files.
+---
+--- The rendering that used to sit beside this is gone: pages come
+--- from `cosmic.doc.render_module`, the one renderer.
 
 local doc_types = require("cosmic.doc")
 local type FunctionDoc = doc_types.FunctionDoc
@@ -8,137 +10,6 @@ local type ModuleDoc = doc_types.ModuleDoc
 local doc_comments = require("_tool.doc.comments")
 local extract_doc_comment = doc_comments.extract_doc_comment
 local parse_annotations = doc_comments.parse_annotations
-
---- Render documentation as markdown.
-local function render(doc: ModuleDoc): string
-  local lines: {string} = {}
-  local module_name = doc.file:match("([^/]+)%.d%.tl$") or doc.file:match("([^/]+)%.tl$") or doc.file
-  if module_name == "init" then
-    -- A directory module's init shard is the module: title the page by
-    -- the directory name (fs/init.tl -> fs), not the shard filename.
-    module_name = doc.file:match("([^/]+)/init%.tl$") or module_name
-  end
-  table.insert(lines, "# " .. module_name)
-  table.insert(lines, "")
-  if doc.module_doc then
-    table.insert(lines, doc.module_doc)
-    table.insert(lines, "")
-  end
-  if #doc.records > 0 then
-    table.insert(lines, "## Types")
-    table.insert(lines, "")
-    for _, rec in ipairs(doc.records) do
-      table.insert(lines, "### " .. rec.name)
-      table.insert(lines, "")
-      if rec.description then
-        table.insert(lines, rec.description)
-        table.insert(lines, "")
-      end
-      if #rec.fields > 0 then
-        table.insert(lines, "```teal")
-        table.insert(lines, "local record " .. rec.name)
-        for _, field in ipairs(rec.fields) do
-          local field_name, field_type, field_desc = field[1], field[2], field[3]
-          if field_desc and field_desc ~= "" then
-            for desc_line in field_desc:gmatch("[^\n]+") do
-              table.insert(lines, "  -- " .. desc_line)
-            end
-          end
-          table.insert(lines, "  " .. field_name .. ": " .. field_type)
-        end
-        table.insert(lines, "end")
-        table.insert(lines, "```")
-        table.insert(lines, "")
-      end
-    end
-  end
-  -- Functions
-  local exported_names: {string: boolean} = {}
-  for _, rec in ipairs(doc.records) do
-    if rec.name:match("Module$") then
-      for _, field in ipairs(rec.fields) do
-        if field[2]:match("^function") then
-          exported_names[field[1]] = true
-        end
-      end
-    end
-  end
-  local exported_functions: {FunctionDoc} = {}
-  for _, func in ipairs(doc.functions) do
-    if not func.is_local or exported_names[func.name] then
-      table.insert(exported_functions, func)
-    end
-  end
-  if #exported_functions > 0 then
-    table.insert(lines, "## Functions")
-    table.insert(lines, "")
-    for _, func in ipairs(exported_functions) do
-      table.insert(lines, "### " .. func.name)
-      table.insert(lines, "")
-      if func.signature then
-        table.insert(lines, "```teal")
-        table.insert(lines, "function " .. func.name .. func.signature)
-        table.insert(lines, "```")
-        table.insert(lines, "")
-      end
-      if func.description then
-        table.insert(lines, func.description)
-        table.insert(lines, "")
-      end
-      if #func.params > 0 then
-        table.insert(lines, "**Parameters:**")
-        table.insert(lines, "")
-        for _, param in ipairs(func.params) do
-          local param_line = "- `" .. param.name .. "` (" .. param.param_type .. ")"
-          if param.description then param_line = param_line .. " - " .. param.description end
-          table.insert(lines, param_line)
-        end
-        table.insert(lines, "")
-      end
-      if #func.returns > 0 then
-        table.insert(lines, "**Returns:**")
-        table.insert(lines, "")
-        for _, ret in ipairs(func.returns) do
-          local ret_line = "- " .. ret.return_type
-          if ret.description then ret_line = ret_line .. " - " .. ret.description end
-          table.insert(lines, ret_line)
-        end
-        table.insert(lines, "")
-      end
-    end
-  end
-  -- Examples
-  if #doc.examples > 0 then
-    table.insert(lines, "## Examples")
-    table.insert(lines, "")
-    for _, example in ipairs(doc.examples) do
-      local title = example.name:gsub("^Example_?", ""):gsub("_", " ")
-      if title == "" then title = "Basic usage" end
-      table.insert(lines, "### " .. title)
-      table.insert(lines, "")
-      if example.description then
-        table.insert(lines, example.description)
-        table.insert(lines, "")
-      end
-      table.insert(lines, "```teal")
-      local body = example.body
-      local output_start = body:find("%-%-%s*Output:")
-      if output_start then body = body:sub(1, output_start - 1) end
-      body = body:gsub("^%s*\n", ""):gsub("\n%s*$", "")
-      table.insert(lines, body)
-      table.insert(lines, "```")
-      table.insert(lines, "")
-      if example.expected_output then
-        table.insert(lines, "Output:")
-        table.insert(lines, "```")
-        table.insert(lines, example.expected_output)
-        table.insert(lines, "```")
-        table.insert(lines, "")
-      end
-    end
-  end
-  return table.concat(lines, "\n")
-end
 
 --- Parse a .d.tl type declaration file and extract documentation.
 local function parse_dtl(source: string, file_path: string): ModuleDoc
@@ -257,13 +128,11 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
   return doc
 end
 
-local record DocRenderModule
-  render: function(doc: ModuleDoc): string
+local record DtlModule
   parse_dtl: function(source: string, file_path: string): ModuleDoc
 end
 
-local M: DocRenderModule = {
-  render = render,
+local M: DtlModule = {
   parse_dtl = parse_dtl,
 }
 

@@ -6,9 +6,11 @@
 --- Parses doc comments, records, functions, and examples from .tl files.
 
 local doc_types = require("cosmic.doc")
+local type FunctionDoc = doc_types.FunctionDoc
 local type ModuleDoc = doc_types.ModuleDoc
 
-local doc_render = require("_tool.doc.render")
+local doc_dtl = require("_tool.doc.dtl")
+local doc_exports = require("_tool.doc.exports")
 local scan = require("_tool.doc.scan")
 local doc_comments = require("_tool.doc.comments")
 local extract_doc_comment = doc_comments.extract_doc_comment
@@ -173,14 +175,19 @@ local function parse(source: string, file_path: string): ModuleDoc
     last_pos = new_pos
   end
   -- Local functions
-  for func_start, is_local, func_name in source:gmatch("()(local%s+)function%s+([%w_:]+)<?[^>%(]*>?%s*%(") do
+  for func_start, is_local, func_name in source:gmatch("()(local%s+)function%s+([%w_:]+)<?[^>%(\n]*>?%s*%(") do
     update_line_num(func_start)
     local line_start = func_start
     while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
       line_start = line_start - 1
     end
     local line_prefix = source:sub(line_start, (func_start) - 1)
-    if line_prefix:match("^%s*%-%-") then goto continue_local end
+    -- A definition starts its own line. Anything with code before it on
+    -- the line is a `function` WORD, not a definition: a record field
+    -- (`read: function(self)`), a comment, or -- the case that put a
+    -- phantom `on` on a page -- prose inside a string literal ("a
+    -- function on your MODULE's record is dot-called...").
+    if not line_prefix:match("^%s*$") then goto continue_local end
     if not (func_name):match("^Example") then
       local signature = extract_signature(source, func_start)
       local func_doc = extract_doc_comment(source, func_start)
@@ -196,15 +203,26 @@ local function parse(source: string, file_path: string): ModuleDoc
   -- Non-local functions
   line_num = 1
   last_pos = 1
-  for func_start, func_name in source:gmatch("()function%s+([%w_:]+)<?[^>%(]*>?%s*%(") do
+  -- The name pattern spans dots so `function stream.write_all(...)`
+  -- reads as one name. Stopping at the dot would file every
+  -- dot-defined function under the TABLE's name — entries nobody can
+  -- call, and the real functions documented nowhere.
+  for func_start, dotted_name in source:gmatch("()function%s+([%w_:%.]+)<?[^>%(\n]*>?%s*%(") do
+    -- `stream.write_all` is `write_all` on the page: a reader has the
+    -- module under whatever local name they chose, and every other
+    -- module's page lists the bare name.
+    local func_name = dotted_name:match("^[%w_]+%.([%w_:]+)$") or dotted_name
     local line_start = func_start
     while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
       line_start = line_start - 1
     end
     local line_prefix = source:sub(line_start, (func_start) - 1)
-    if line_prefix:match("^%s*%-%-") then goto continue_nonlocal end
+    -- Same rule as the local branch above: only a line that begins with
+    -- the definition is one. It subsumes the old record-field guard,
+    -- since `read: function(self)` has its name before the keyword.
+    if not line_prefix:match("^%s*$") then goto continue_nonlocal end
     local before = source:sub(math.max(1, (func_start) - 20), (func_start) - 1)
-    if not before:match("local%s*$") and not before:match(":%s*$") then
+    if not before:match("local%s*$") then
       update_line_num(func_start)
       if not (func_name):match("^Example") then
         local signature = extract_signature(source, func_start)
@@ -332,6 +350,35 @@ local function parse(source: string, file_path: string): ModuleDoc
   return doc
 end
 
+--- The publishable view of a parsed module: the same doc with the
+--- private helpers dropped.
+---
+--- `parse` reports what a FILE contains, which is what a parser is
+--- for; this decides what a READER is shown, which is a different
+--- question with one answer. Both outputs ask it here — the markdown
+--- page and the index the binary ships — so a page and a symbol
+--- lookup cannot disagree about what a module exports.
+---
+--- A `local function` survives only where the module's surface names
+--- it. A method (`Handle:read`) belongs to the record that owns it,
+--- not the module table, so the surface cannot speak to it and it is
+--- kept.
+--- @param doc ModuleDoc The parsed module, edited in place
+--- @param source string The module source the doc was parsed from
+--- @return ModuleDoc That same doc
+local function publishable(doc: ModuleDoc, source: string): ModuleDoc
+  local surface = doc_exports.export_surface(source, doc.records as {{string: any}}) -- cast: from any
+  local kept: {FunctionDoc} = {}
+  for _, func in ipairs(doc.functions) do
+    if not func.is_local or surface[func.name]
+    or func.name:find(":", 1, true) then
+      kept[#kept + 1] = func
+    end
+  end
+  doc.functions = kept
+  return doc
+end
+
 --- Parse a file and return structured documentation.
 local function parse_file(file_path: string): ModuleDoc | nil, string
   local f, err = io.open(file_path, "r")
@@ -339,7 +386,7 @@ local function parse_file(file_path: string): ModuleDoc | nil, string
   local source = f:read("*a")
   f:close()
   if file_path:match("%.d%.tl$") then
-    return doc_render.parse_dtl(source, file_path), nil
+    return doc_dtl.parse_dtl(source, file_path), nil
   else
     return parse(source, file_path), nil
   end
@@ -356,28 +403,37 @@ local function render_file(file_path: string): string | nil, string
   f:close()
   local doc: ModuleDoc
   if file_path:match("%.d%.tl$") then
-    doc = doc_render.parse_dtl(source, file_path)
+    doc = doc_dtl.parse_dtl(source, file_path)
   else
     doc = parse(source, file_path)
   end
-  return doc_render.render(doc)
+  local name = file_path:match("([^/]+)%.d%.tl$") or file_path:match("([^/]+)%.tl$")
+  or file_path
+  if name == "init" then
+    -- A directory module's init shard IS the module: title the page by
+    -- the directory name (fs/init.tl -> fs), not the shard filename.
+    name = file_path:match("([^/]+)/init%.tl$") or name
+  end
+  return doc_types.render_module(name, publishable(doc, source))
 end
 
 local record DocExtractModule
   type ModuleDoc = ModuleDoc
 
+  export_surface: function(source: string,
+  records: {{string: any}}): {string: boolean}
+  publishable: function(doc: ModuleDoc, source: string): ModuleDoc
   parse: function(source: string, file_path: string): ModuleDoc
   parse_dtl: function(source: string, file_path: string): ModuleDoc
   parse_file: function(file_path: string): ModuleDoc | nil, string
-  render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): string | nil, string
 end
 
 local M: DocExtractModule = {
+  publishable = publishable,
   parse = parse,
-  parse_dtl = doc_render.parse_dtl,
+  parse_dtl = doc_dtl.parse_dtl,
   parse_file = parse_file,
-  render = doc_render.render,
   render_file = render_file,
 }
 
