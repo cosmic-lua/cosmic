@@ -21,6 +21,23 @@
 --- @param msg string The error message to match
 --- @return string|nil A short hint string, or nil if no hint applies
 local function hint_for_message(msg: string): string | nil
+  -- Pattern 0: the WARNINGS, which are errors here. The word "warning"
+  -- reads as survivable right up until the exit code disagrees, so the
+  -- hint says the policy before it says the fix. Shadowing a Lua
+  -- builtin (`local function load`) is the common way in: nothing in
+  -- the message mentions that `load` was already something.
+  local shadowed = msg:match("shadows previous declaration of '([%w_]+)'")
+  if shadowed then
+    return "  hint: warnings are errors here — rename `" .. shadowed ..
+    "`, which already names something in scope (a Lua builtin such as " ..
+    "`load`, `type` or `error` when you did not declare one yourself) " ..
+    "— see `cosmic --docs guide.gotchas`"
+  end
+  if msg:find("^unused ") then
+    return "  hint: warnings are errors here — remove it, or prefix the " ..
+    "name with `_` to mark it deliberately unused (`local _out`, " ..
+    "`_self: Poller`) — see `cosmic --docs guide.gotchas`"
+  end
   -- Pattern 1: number/integer mismatch
   if msg:find("got number, expected integer") then
     return "  hint: annotate the variable `: number`, or convert with math.tointeger; integer is required for string indices/lengths"
