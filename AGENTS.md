@@ -199,8 +199,9 @@ record (`fs.find`'s `.errors`, `sqlite`'s `Checkout`), never in slot 3, because
 `local v, err = f()` and `check.must(f())` are the only two call shapes anyone
 writes and neither can see past the second. An infallible tuple is untouched
 (`string.partition` returns three strings and none of them could be an error).
-A `cosmo.*` binding's tuple is not ours to fold — those declarations carry a
-`-- returns: <reason>`. Full rule: `cosmic --docs guide.lint`.
+A `cosmo.*` binding's tuple is not ours to fold — but it is already declared in
+the generated `.d.tl`, which lint exempts by position, so name that type instead
+of retyping its shape. Full rule: `cosmic --docs guide.lint`.
 
 **`find` says whether it means a pattern.** A variable needle in
 `s:find(x)` needs `, 1, true` (substring) or `, 1, false` (real

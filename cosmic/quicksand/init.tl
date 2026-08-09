@@ -68,9 +68,10 @@ end
 --- @return boolean true when the syscall is wired up on this host
 local function probe(fn: any): boolean
   if not fn then return false end
-  -- returns: the cosmo binding failure tuple (nil, err, errno) this
-  -- probe reads; the C shape is not ours to fold into a record
-  local call = fn as function(any, any): any, string, integer -- cast: function shape
+  -- A varargs return, because this probe is handed an ARBITRARY
+  -- binding: it reads slot 1 and the numeric errno, and has no business
+  -- declaring how many slots some other binding returns.
+  local call = fn as function(any, any): any ... -- cast: function shape
   local ok, _, eno = call(nil, nil)
   if ok then return true end
   if errno.is_code(eno, "ENOSYS") then return false end

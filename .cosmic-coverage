@@ -17,7 +17,7 @@ _cli/lint_render.tl 26 26
 _cli/main_handlers.tl 11 221
 _cli/pattern_args.tl 132 135
 _cli/require_hints.tl 104 124
-_cli/returns.tl 110 142
+_cli/returns.tl 100 132
 _cli/run.tl 28 33
 _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
@@ -199,11 +199,11 @@ cosmic/string.tl 180 183
 cosmic/sys.tl 14 22
 cosmic/tar.tl 116 126
 cosmic/teal.tl 92 100
-cosmic/time.tl 142 155
+cosmic/time.tl 131 143
 cosmic/tty.tl 119 126
 cosmic/url.tl 126 141
 cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14900 19569
+total 14879 19547

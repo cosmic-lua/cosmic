@@ -18,46 +18,16 @@
 --- the explicit-lifetime API, and each call returns a fresh handle.
 local re = require("cosmo.re")
 
---- A compiled regular expression pattern.
+--- A compiled regular expression pattern, as returned by compile().
 --- Use compile() to create, then call :match() for O(n) matching.
-local record Regex
-  -- Runtime values are cosmo.re's compiled-regex userdata (compile()
-  -- casts them in), so `x is Regex` must test for userdata.
-  userdata
-  --- Match the pattern against text (D20 rule 9's reserved verb; the
-  --- binding's metatable carries `match` since cosmopolitan#237, so
-  --- this is the method itself and not a wrapper).
-  --- On a match, returns the matched substring plus a table of the
-  --- parenthesized capture groups (an empty table when the pattern has
-  --- no groups, "" for groups that did not participate). A no-match is
-  --- not an error: it returns a single bare nil. A genuine engine
-  --- failure (e.g. out of memory) returns nil, err — the error string
-  --- arrives in the second position, mirroring the cosmo.re binding.
-  --- @param text string The text to match against
-  --- @param flags integer? Optional flags: NOTBOL, NOTEOL
-  --- @return string | nil The matched substring, or nil if no match
-  --- @return {string} | nil Capture groups on match (error string on engine failure)
-  --- @return string | nil Error message on engine failure
-  -- returns: the binding's own metatable method — this record DESCRIBES
-  -- cosmo.re's C shape (cosmopolitan#237), it does not choose it
-  match: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
-
-  --- Like match, but reports WHERE: absolute 1-based inclusive start
-  --- and end offsets into text, plus the capture table. init starts
-  --- the search at that offset while keeping the returned offsets
-  --- absolute, which is what lets iteration advance in O(n) instead of
-  --- re-slicing the subject per match. A no-match is a single bare
-  --- nil; an engine failure puts the error string in the second
-  --- position.
-  --- @param text string The text to search
-  --- @param flags integer? Optional flags: NOTBOL, NOTEOL
-  --- @param init integer? 1-based offset to start searching at
-  --- @return integer | nil Absolute start offset, or nil
-  --- @return integer | string | nil End offset (error string when start is nil)
-  --- @return {string} Capture groups on match
-  -- returns: same C metatable as match above; the shape is cosmo.re's
-  find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
-end
+---
+--- This IS `cosmo.re`'s type, not a mirror of it. The methods live on
+--- the binding's own metatable, so their shapes are declared once, in
+--- the generated `cosmo/re.d.tl`, where a C tuple belongs — restating
+--- them here meant a hand-copy that could drift from the binding (and
+--- a `:match` slot the binding never returns), plus a userdata cast on
+--- every value crossing between the two nominally-different records.
+local type Regex = re.Regex
 
 --- Compile behavior. Each field maps to one POSIX cflag; a record
 --- keeps the compile and search namespaces unmixable (the old integer
@@ -98,7 +68,7 @@ local function compile(pattern: string, opts?: CompileOptions): Regex | nil, str
   if not result then
     return nil, err
   end
-  return result as Regex -- cast: userdata boundary
+  return result
 end
 
 --- One memoized compilation of a convenience-surface pattern. rx/err
@@ -146,7 +116,7 @@ local function cache_entry(pattern: string, opts?: CompileOptions): CacheEntry
     cache = {}
     cache_count = 0
   end
-  local rx, cerr = re.compile(pattern, flags) as (Regex | nil, string) -- cast: userdata boundary
+  local rx, cerr = re.compile(pattern, flags)
 
   if rx is Regex then
     entry = {rx = rx}
@@ -190,7 +160,10 @@ local function match(text: string, pattern: string, opts?: CompileOptions): Matc
       -- No match is not an error.
       return nil
     end
-    return {text = m, caps = caps}
+    -- the guard above took the failure path, where the union's string
+    -- arm lives; a match always carries the capture table
+    -- cast: captures, past the no-match/failure guard
+    return {text = m, caps = caps as {string}}
   end
   return nil, cerr
 end

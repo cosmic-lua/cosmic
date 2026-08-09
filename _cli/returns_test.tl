@@ -14,11 +14,7 @@ local type Diagnostic = style.Diagnostic
 
 --- Run the rule over a source string, as lint_file does.
 local function diagnose(source: string): {Diagnostic}
-  local lines: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = line
-  end
-  return returns.check_fallible_returns("t.tl", source, lines)
+  return returns.check_fallible_returns("t.tl", source)
 end
 
 --- How many slots the rule counted, for a source it flags exactly once.
@@ -90,30 +86,26 @@ local function test_record_field_signature_is_checked()
 end
 test_record_field_signature_is_checked()
 
-local function test_marker_on_the_line_passes()
-  check.equal(#diagnose(
-      "local record M\n  f: function(): any, string, integer -- returns: cosmo shape\n" ..
-      "end\nreturn M\n"), 0,
-    "a trailing marker justifies a foreign shape")
-end
-test_marker_on_the_line_passes()
+-- A foreign shape needs no marker: a cosmo binding's tuple is declared
+-- once in the generated .d.tl, which lint exempts by position, and code
+-- that needs to NAME it refers to that type instead of retyping it. A
+-- varargs return is the other way out, for an arity that genuinely is
+-- not the caller's to know.
 
-local function test_marker_in_the_comment_block_above_passes()
+local function test_varargs_return_is_one_slot()
   check.equal(#diagnose(
-      "local record M\n  -- returns: the binding's own tuple, decided in C,\n" ..
-      "  -- which this record only describes\n" ..
-      "  f: function(): any, string, integer\nend\nreturn M\n"), 0,
-    "a two-line reason is still one reason")
+      "local record M\n  probe: function(any): any...\nend\nreturn M\n"), 0,
+    "`any...` declares one slot, not an open-ended tuple")
 end
-test_marker_in_the_comment_block_above_passes()
+test_varargs_return_is_one_slot()
 
-local function test_unrelated_comment_above_does_not_pass()
+local function test_a_comment_never_exempts()
   check.equal(#diagnose(
-      "local record M\n  -- just a note\n" ..
+      "local record M\n  -- returns: a reason someone typed\n" ..
       "  f: function(): any, string, integer\nend\nreturn M\n"), 1,
-    "only the marker justifies; a comment is not a justification")
+    "there is no comment escape hatch; the shape has to change")
 end
-test_unrelated_comment_above_does_not_pass()
+test_a_comment_never_exempts()
 
 local function test_body_is_not_read_as_more_slots()
   -- The return list ends at the first token that is not a comma: a
@@ -166,7 +158,7 @@ local function test_message_names_the_fix()
   local message = diags[1].message
   check.truthy(message:find("local v, err = f()", 1, true),
     "the message must show the call shape that cannot reach slot 3")
-  check.truthy(message:find("-- returns: <reason>", 1, true),
-    "the message must name the marker, for shapes that are not ours")
+  check.truthy(message:find(".d.tl", 1, true),
+    "the message must point at where a foreign shape is already declared")
 end
 test_message_names_the_fix()

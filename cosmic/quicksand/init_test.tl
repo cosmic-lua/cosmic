@@ -68,9 +68,7 @@ test_is_supported_matches_capabilities()
 -- probe's ENOSYS classification can be exercised without a host that
 -- actually lacks the syscall.
 local function mk_fail(msg: string, n: integer): any
-  -- returns: a stand-in for a cosmo binding, so it has the binding's
-  -- (nil, err, errno) tuple; probe reads the C shape, not ours
-  return function(): any, string, integer
+  return function(): any ...
     return nil, msg, n
   end
 end
@@ -115,8 +113,7 @@ local function test_probe_string_only_failure_is_available()
   -- A failure that carries no numeric errno (third slot nil) cannot be
   -- classified as ENOSYS; the error string alone must never match, so
   -- the probe reports the syscall wired up.
-  -- returns: same synthetic cosmo binding shape as mk_fail above
-  check.equal(quicksand.probe(function(): any, string, integer
+  check.equal(quicksand.probe(function(): any ...
         return nil, "prctl: ENOSYS: Function not implemented", nil
       end), true,
     "an error string without a numeric errno is never classified as ENOSYS")

@@ -412,7 +412,7 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(check_nil_declaration(path, content)) do
       diagnostics[#diagnostics + 1] = d
     end
-    for _, d in ipairs(returns.check_fallible_returns(path, content, lines)) do
+    for _, d in ipairs(returns.check_fallible_returns(path, content)) do
       diagnostics[#diagnostics + 1] = d
     end
     for _, d in ipairs(visibility.check_shard_require(path, lines)) do
