@@ -23,6 +23,5 @@ local record DocModule
   guide: function(topic: string): string | nil, string
   guide_topics: function(): {string}
   guides: function(): {{string, string}}
-  strip_frontmatter: function(content: string): string
 end
 ```
