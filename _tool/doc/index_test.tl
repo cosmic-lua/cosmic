@@ -290,3 +290,131 @@ return {}
     "the init example lands on the directory module's page")
 end
 test_init_example_lands_on_directory_module()
+
+-- A private helper stays OFF the module's own page: a doc comment is
+-- not an export, and a page that names a helper a caller cannot reach
+-- is a page that lies. The exported neighbour beside it is the
+-- control — filtering may not cost a real function.
+local function test_private_helpers_stay_off_the_page()
+  local path = write_temp("gizmo.tl", [[
+--- Gizmo module.
+--- Reachable.
+local function spin(): number
+  return 1
+end
+--- A helper nobody outside this file can call.
+local function grind(): number
+  return 2
+end
+local record GizmoModule
+  spin: function(): number
+end
+local M: GizmoModule = {
+  spin = spin,
+}
+return M
+]])
+  local mod = find_module(generate_modules({path}), "gizmo")
+  assert(mod, "gizmo module should be indexed")
+  local names: {string: boolean} = {}
+  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
+    names[(f as {string: any}).name as string] = true -- cast: from any
+  end
+  assert(names["spin"], "an exported function must stay documented")
+  assert(not names["grind"],
+    "a private helper must not be documented as public API")
+end
+test_private_helpers_stay_off_the_page()
+
+-- A module that IS its record (`return stream`) states its exports as
+-- that record's function fields, and defines them dot-qualified. Both
+-- halves are read: the dotted definition is documented under its own
+-- bare name, and the private helper beside it is still dropped.
+local function test_record_module_exports_and_dotted_names()
+  local path = write_temp("sprocket.tl", [[
+--- Sprocket module.
+local record sprocket
+  --- Turn it.
+  turn: function(n: number): number
+end
+--- A helper nobody outside this file can call.
+local function grind(n: number): number
+  return n
+end
+--- Turn it.
+function sprocket.turn(n: number): number
+  return grind(n)
+end
+return sprocket
+]])
+  local mod = find_module(generate_modules({path}), "sprocket")
+  assert(mod, "sprocket module should be indexed")
+  local names: {string: boolean} = {}
+  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
+    names[(f as {string: any}).name as string] = true -- cast: from any
+  end
+  assert(names["turn"],
+    "`function sprocket.turn` must be documented as `turn`, not `sprocket`")
+  assert(not names["sprocket"],
+    "the table's own name is not a function anyone can call")
+  assert(not names["grind"], "the private helper must stay off the page")
+end
+test_record_module_exports_and_dotted_names()
+
+-- A `function` word inside a doc comment must not swallow the real
+-- definition on the next line: a scan that ran past the newline to the
+-- next `(` would consume the very function the comment documents, and
+-- the module's page would be missing it.
+local function test_doc_comment_does_not_eat_the_next_function()
+  local path = write_temp("ratchet.tl", [[
+--- Ratchet module.
+--- @return function Iterator yielding each click
+local function clicks(): function
+  return function() end
+end
+return { clicks = clicks }
+]])
+  local mod = find_module(generate_modules({path}), "ratchet")
+  assert(mod, "ratchet module should be indexed")
+  local names: {string: boolean} = {}
+  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
+    names[(f as {string: any}).name as string] = true -- cast: from any
+  end
+  assert(names["clicks"],
+    "a `function` word in the doc comment must not hide the function")
+end
+test_doc_comment_does_not_eat_the_next_function()
+
+-- The word `function` inside a string literal is not a definition.
+-- Only a line that BEGINS with the definition is one, which is why
+-- prose like "a function on your MODULE's record" stopped putting a
+-- phantom `on` on cosmic._teal_hints' page. The record field in the
+-- same fixture is the other half of the rule: `spin: function(): number`
+-- names a field, not a definition to document twice.
+local function test_a_function_word_in_a_string_is_not_a_definition()
+  local path = write_temp("lathe.tl", [[
+--- Lathe module.
+local record LatheModule
+  spin: function(): number
+end
+--- Turn it.
+local function spin(): number
+  local _advice = "a function on your MODULE's record is dot-called"
+  return 1
+end
+local M: LatheModule = {
+  spin = spin,
+}
+return M
+]])
+  local mod = find_module(generate_modules({path}), "lathe")
+  assert(mod, "lathe module should be indexed")
+  local names: {string: boolean} = {}
+  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
+    names[(f as {string: any}).name as string] = true -- cast: from any
+  end
+  assert(names["spin"], "the real definition must be documented")
+  assert(not names["on"],
+    "`function on` inside a string literal is prose, not an export")
+end
+test_a_function_word_in_a_string_is_not_a_definition()
