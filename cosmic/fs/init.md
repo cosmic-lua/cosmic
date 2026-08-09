@@ -61,8 +61,8 @@ local record FsModule
   open_dir_fd: function(fd: integer): Dir | nil, string
   read: function(path: string): string | nil, string
   --  Write a file; opts carries mode and atomic (#988: write_atomic
-  --  folded in; a bare-integer mode still works until pin advance).
-  write: function(path: string, data: string, opts?: fs_file.WriteOptions | integer): boolean, string
+  --  folded in).
+  write: function(path: string, data: string, opts?: fs_file.WriteOptions): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
   --  Remove a file or symlink (#988: was unlink); directories go
   --  through remove_dir()/remove_all().
