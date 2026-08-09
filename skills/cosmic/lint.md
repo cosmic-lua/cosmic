@@ -35,10 +35,18 @@ line directly above when 90 columns will not fit it. one comment covers
 the whole line, however many casts the line holds.
 
 ```teal
+local check = require("cosmic.check")
+local json = require("cosmic.json")
+local sqlite = require("cosmic.sqlite")
+
+local db: sqlite.Database | nil = check.must(sqlite.open(":memory:"))
+local input = "{}"
+
 local d = db as sqlite.Database -- cast: record union after guard
 
 -- cast: from any (json.decode result)
 local obj = json.decode(input) as {string: any}
+print(d, obj)
 ```
 
 write the actual reason (`from any`, `userdata boundary`, `record union
@@ -61,6 +69,8 @@ called on the line after its `end`, so a failing run names the function
 that failed rather than just the file:
 
 ```teal
+local json = require("cosmic.json")
+
 local function test_decode()
   assert(json.decode("1") == 1)
 end
@@ -96,6 +106,10 @@ meant: `, 1, true` for a plain substring, `, 1, false` to mean the
 pattern.
 
 ```teal
+local s = "a-b"
+local path = "a-b"
+local pat = "%a+"
+
 s:find(path, 1, true) -- substring: a dash in path stays a dash
 s:find(pat, 1, false) -- pattern, on purpose
 s:find("%d+") -- literals are exempt: this reads as a pattern
@@ -113,10 +127,17 @@ on the first `%`. when the replacement is not a string literal, say
 what you mean:
 
 ```teal
+local str = require("cosmic.string")
+
+local template = "hello, {{name}}"
+local user_name = "cosmic"
+local pat = "{{name}}"
+
 str.replace(template, "{{name}}", user_name) -- literal on BOTH sides
 -- deliberate template: escape, and say so
 local safe = user_name:gsub("%%", "%%%%")
 local page = template:gsub(pat, safe) -- gsub: safe is %%-escaped above
+print(page)
 ```
 
 literals are exempt (a literal `"%1"` reads as deliberate splicing), as
@@ -131,8 +152,8 @@ type `nil` — not "unknown yet" — so every later assignment fails, far
 from the cause. the rule fires at the declaration, where the fix is:
 
 ```teal
-local earliest = nil -- flagged: type nil forever
 local earliest: integer | nil = nil -- the honest optional
+print(earliest)
 ```
 
 an all-nil multi declaration (`local a, b = nil, nil`) is flagged too;

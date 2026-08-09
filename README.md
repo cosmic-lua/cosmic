@@ -52,7 +52,7 @@ symbols and debugging checks.
 local json = require("cosmic.json")
 
 local function greet(name: string): string
-  return json.encode({hello = name})
+  return (json.encode({hello = name}))
 end
 
 print(greet(arg[1] or "world"))

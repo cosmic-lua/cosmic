@@ -45,27 +45,33 @@ the preferred way to write assertions is with `cosmic.check`, which produces aut
 ```teal
 local check = require("cosmic.check")
 
+local result = "expected"
+
 check.equal(result, "expected", "label") -- equality with diff on failure
 check.not_equal(result, nil, "should not be nil")
-check.truthy(result > 0, "expected positive")
+check.truthy(#result > 0, "expected non-empty")
 ```
 
 plain `assert()` also works and is fine for simple checks:
 
 ```teal
+local result = "expected"
+local err: string | nil = nil
+local failed = false
+local output = "an expected value"
+
 -- value equality
 assert(result == "expected", "got: " .. tostring(result))
 
+-- length and boolean conditions
+assert(#result > 0, "expected non-empty")
+
 -- nil/non-nil checks
 assert(result ~= nil, "should not be nil")
-assert(result == nil, "should be nil")
+assert(err == nil, "should be nil")
 
 -- type checks
-assert(type(result) == "table", "expected table")
-assert(type(err) == "string", "error should be a string")
-
--- boolean conditions
-assert(result > 0, "expected positive")
+assert(type(result) == "string", "expected string")
 assert(not failed, "should not fail")
 
 -- string matching
@@ -91,7 +97,6 @@ local function test_write_file()
   local tmpdir = env.get("TEST_TMPDIR")
   assert(tmpdir, "TEST_TMPDIR must be set")
   local path = fs.join(tmpdir, "test.txt")
-  local fs = require("cosmic.fs")
   local ok, err = fs.write(path, "hello")
   assert(ok, "write failed: " .. tostring(err))
   local data = fs.read(path)
@@ -253,7 +258,7 @@ end
 
 local function Example_error()
   local json = require("cosmic.json")
-  local result, err = json.decode("{invalid}")
+  local _result, err = json.decode("{invalid}")
   if err then
     print("error: " .. err)
   end
@@ -261,7 +266,8 @@ local function Example_error()
   -- error: illegal character
 end
 
-return {}
+-- the runner finds them by name; this keeps the checker quiet
+local _ = {Example_decode, Example_error}
 ```
 
 run examples with:
@@ -277,8 +283,11 @@ benchmark functions use the `Benchmark_*` naming pattern:
 ```teal
 local function Benchmark_encode()
   local json = require("cosmic.json")
-  json.encode({a = 1, b = "hello"})
+  local _out, _err = json.encode({a = 1, b = "hello"})
 end
+
+-- the runner finds them by name; this keeps the checker quiet
+local _ = {Benchmark_encode}
 ```
 
 run with `cosmic --benchmark file.tl`.

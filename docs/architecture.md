@@ -77,7 +77,7 @@ metacharacter is refused rather than interpreted.
 
 each module follows a consistent pattern:
 
-```teal
+```text
 --- Module description.
 local cosmo = require("cosmo")      -- or cosmo.unix, etc.
 

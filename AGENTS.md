@@ -136,7 +136,7 @@ end
 if proc.is_main() then
   print(greet(arg[1] or "world"))
 end
-return { greet = greet }
+return {greet = greet}
 ```
 
 ### Error Handling Patterns
@@ -404,11 +404,13 @@ o/bin/cosmic --make benchmark           # run every *_benchmark.tl
 
 test files use a simple assertion pattern:
 ```teal
-local function test_something()
-  local result = module.do_thing()
-  assert(result == expected, "got: " .. tostring(result))
+local str = require("cosmic.string")
+
+local function test_trim()
+  local result = str.trim("  x  ")
+  assert(result == "x", "got: " .. tostring(result))
 end
-test_something()
+test_trim()
 ```
 
 each test gets its own temp directory via `TEST_TMPDIR`.

@@ -15,6 +15,9 @@ all standard library modules are imported as `cosmic.*`:
 ```teal
 local json = require("cosmic.json")
 local fs = require("cosmic.fs")
+
+print((json.encode({ok = true})))
+print(fs.join("a", "b"))
 ```
 
 prefer `cosmic.*` modules over raw `cosmo.*` C bindings. use `cosmo.*` only when no `cosmic.*` alternative exists yet.
@@ -28,11 +31,13 @@ current working directory. you do not need a `./` prefix (both work).
 -- both are equivalent when mymod.tl is in the same directory:
 local m = require("mymod")
 local m2 = require("./mymod") -- also works
+print(m.value, m2.value)
 ```
 
 if your module is in a subdirectory:
 ```teal
 local m = require("subdir.mymod") -- loads subdir/mymod.tl
+print(m.value)
 ```
 
 ## Error Handling

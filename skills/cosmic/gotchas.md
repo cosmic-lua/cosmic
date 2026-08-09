@@ -19,10 +19,13 @@ carries the fix as a hint — annotate the variable `: integer`, or
 convert at the call site with `math.tointeger`.
 
 ```teal
+local x = 2.0 -- a number from a computation
+
 local n: integer = 5
 local s = ("hello"):sub(n, n)
 -- from a computation: convert first
 local m = ("hello"):sub(math.tointeger(x) or 1, 5)
+print(s, m)
 ```
 
 (bindings that return integral values — exit statuses, fds, pids,
@@ -38,6 +41,9 @@ concrete type with no cast, and input of the wrong shape is a real
 error instead of a downstream indexing surprise.
 
 ```teal
+local json = require("cosmic.json")
+
+local input = '[{"name": "cosmic"}]'
 local items = json.decode_array(input)
 if items is {any} then
   for _, raw in ipairs(items) do
@@ -57,25 +63,22 @@ lint enforces it).
 
 ## nilable-arg
 
-the global `arg` table has type `{string | nil}`: accessing `arg[1]`
-without a guard may give you `nil`, a type error where a `string` is
-expected. (a missing argument is `nil` at runtime either way — guard
-before use.)
+`arg` is typed `{string}`, so the checker will NOT catch a missing
+argument for you: `arg[1]:upper()` type checks and then indexes nil at
+RUNTIME when nobody passed one. Supply the default at the point of use
+— the guard is the whole fix, and it is one `or` wide:
 
-**wrong:**
-```teal
-local name = arg[1]:upper() -- error: cannot index nil
-```
-
-**right:**
 ```teal
 local name = (arg[1] or "default"):upper()
+print(name)
 ```
 
 inside `cosmic.main`, a usage guard is an early return, and the scalar
 narrows through it for plain (non-method) uses:
 
 ```teal
+local cosmic = require("cosmic")
+
 cosmic.main(function(args: {string}, env: cosmic.Env): number, string
     local name = args[1]
     if not name then
@@ -94,9 +97,13 @@ capture multiple returns first — `local v, err = f(...)`. wrapping a
 multi-return call inside another expression discards the extra returns.
 
 ```teal
+local check = require("cosmic.check")
+local sqlite = require("cosmic.sqlite")
+
+local db = check.must(sqlite.open(":memory:"))
 local rows, err = db:query("SELECT * FROM t")
 if not rows then
-  error("query failed: " .. tostring(err))
+  return nil, "query failed: " .. tostring(err)
 end
 for row in rows do
   print(row.id)
@@ -111,11 +118,13 @@ comparisons all narrow `T | nil` for every `T` (the carried tl patch,
 `3p/tl/tl_patch.tl`):
 
 ```teal
-local db = sqlite.open(path) -- Database | nil
+local sqlite = require("cosmic.sqlite")
+
+local db = sqlite.open(":memory:") -- Database | nil
 if not db then
   return nil, "open failed"
 end
-db:exec(sql) -- db is Database below the guard
+local _ok, _err = db:exec("CREATE TABLE t (x TEXT)") -- db is Database below
 ```
 
 `~= nil` is exact, so it also narrows unions containing `boolean`,
@@ -127,6 +136,14 @@ what still does NOT narrow is a record FIELD, even a scalar one: after
 field to a local and guard the local:
 
 ```teal
+local record Inner
+  x: integer
+end
+local record Outer
+  sub: Inner | nil
+end
+local o: Outer = {sub = {x = 1}}
+
 local sub = o.sub -- Inner | nil
 if sub then
   print(sub.x) -- narrowed; the field read would not be
@@ -147,19 +164,8 @@ file. another file writing `store.Task` gets `unknown type store.Task` —
 at every use site — even though the value-level API works fine. to
 export a type, nest it inside the module's returned interface record.
 
-**wrong** (`store.tl`):
-```teal
-local record Task -- file-local: importers cannot name it
-  id: integer
-  text: string
-end
+nest it, and importers write `store.Task`:
 
-local record StoreModule
-  add: function(path: string, text: string): Task | nil, string
-end
-```
-
-**right:**
 ```teal
 local record StoreModule
   record Task -- nested: importers write store.Task
@@ -168,6 +174,14 @@ local record StoreModule
   end
   add: function(path: string, text: string): Task | nil, string
 end
+
+local function add(path: string, text: string): StoreModule.Task | nil, string
+  return {id = 1, text = text .. path}
+end
+local M: StoreModule = {
+  add = add,
+}
+return M
 ```
 
 (a `type Task = Task` alias member inside the interface record also
@@ -183,8 +197,21 @@ colon-call works only for functions declared on the value's own record
 type (like `db:exec` on `sqlite.Database`).
 
 ```teal
-db:add("alice") -- error: invalid key 'add' in record 'db' of type sqlite.Database
-store.add(db, "alice") -- right: module function, dot-called, value first
+local check = require("cosmic.check")
+local sqlite = require("cosmic.sqlite")
+
+local record StoreModule
+  add: function(db: sqlite.Database, name: string): boolean, string
+end
+local function add(db: sqlite.Database, name: string): boolean, string
+  return db:exec("INSERT INTO people (name) VALUES (?)", {name})
+end
+local store: StoreModule = {
+  add = add,
+}
+
+local db = check.must(sqlite.open(":memory:"))
+local _ok, _err = store.add(db, "alice") -- dot-called, value first
 ```
 
 ## gsub-replacement
@@ -198,7 +225,10 @@ breaks on the first `%`. for literal text use `str.replace`
 
 ```teal
 local str = require("cosmic.string")
+local template = "hello, {{name}}"
+local user_name = "cosmic"
 local page = str.replace(template, "{{name}}", user_name)
+print(page)
 ```
 
 ## tuple-spread
@@ -211,6 +241,10 @@ arguments`. the error-site hint names the fix: parenthesize to
 truncate to one value.
 
 ```teal
+local check = require("cosmic.check")
+
+local parts: {string} = {}
+local chunk: string | nil = "x"
 table.insert(parts, (check.must(chunk)))
 ```
 

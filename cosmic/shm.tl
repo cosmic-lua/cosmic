@@ -294,19 +294,21 @@ end
 --- Example usage for a simple mutex:
 --- ```lua
 --- local shm = require("cosmic.shm")
---- local mem = assert(shm.open(8000 * 8))
---- local LOCK = 0  -- word index for lock
----
---- -- Lock acquisition
---- while mem:exchange(LOCK, 1) == 1 do
----   mem:wait(LOCK, 1)
+--- local mem = shm.open(8000 * 8)
+--- if not mem then
+---   return
 --- end
----
+--- local LOCK = 0 -- word index for lock
+--- -- Lock acquisition: every call reports, so every call is captured
+--- local prev, _err = mem:exchange(LOCK, 1)
+--- while prev == 1 do
+---   local _woke, _werr = mem:wait(LOCK, 1)
+---   prev, _err = mem:exchange(LOCK, 1)
+--- end
 --- -- Critical section here
----
 --- -- Unlock
---- mem:store(LOCK, 0)
---- mem:wake(LOCK, 1)
+--- local _ok, _serr = mem:store(LOCK, 0)
+--- local _n, _kerr = mem:wake(LOCK, 1)
 --- ```
 ---
 --- @param size_bytes integer Size in bytes: positive, a multiple of the 8-byte word size
