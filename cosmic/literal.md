@@ -38,6 +38,18 @@ local record Token
 end
 ```
 
+### Parsed
+
+ One parsed table literal: the value, and the index just past its
+ closing `}` — one record so the error keeps slot 2 (D20 rule 11).
+
+```teal
+local record Parsed
+  value: {string: any}
+  next: integer
+end
+```
+
 ### Options
 
  Options for parse/parse_file: how errors talk about the file.

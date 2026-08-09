@@ -27,7 +27,7 @@
  give it a deadline (socket set_timeout, poll's timeout, shm wait's
  absolute deadline) or close the descriptor from the handler.
  The deliberate exceptions, where the interruption IS the result:
- time.sleep (returns the remainder plus an EINTR error),
+ time.sleep_ms (returns the remainder plus an EINTR error),
  signal.sigsuspend, socket connect (POSIX keeps connecting in the
  background after EINTR, so a blind retry would misreport), and the
  raw cosmic.proc/cosmo.unix passthroughs, which surface errnos
@@ -60,7 +60,7 @@
  give it a deadline (socket set_timeout, poll's timeout, shm wait's
  absolute deadline) or close the descriptor from the handler.
  The deliberate exceptions, where the interruption IS the result:
- time.sleep (returns the remainder plus an EINTR error),
+ time.sleep_ms (returns the remainder plus an EINTR error),
  signal.sigsuspend, socket connect (POSIX keeps connecting in the
  background after EINTR, so a blind retry would misreport), and the
  raw cosmic.proc/cosmo.unix passthroughs, which surface errnos

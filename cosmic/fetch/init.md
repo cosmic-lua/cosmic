@@ -11,9 +11,18 @@
 
 ### Error
 
- A fetch failure, in the third return slot for retry-policy callers.
- kind is nil only for failures outside the request itself (download's
- local file IO).
+ A fetch failure, as the retry policy sees it. It is NOT a return
+ slot: a fallible return is `Response | nil, string` and nothing
+ past it (D20 rule 11, #1063), and the failure a caller reads is
+ that string.
+ The kind survives in it as a prefix — `"<kind>: <detail>"` — which
+ is there so a log line says what class of failure it was, the way
+ `errno.format` prefixes its own. Treat it as text, not as a parsed
+ field: a TYPED reader for the classification would mean an error
+ value rather than an error string, which is a library-wide question
+ (#1067) rather than fetch's to answer alone. kind is nil only for
+ failures outside the request itself (download's local file IO), and
+ then the message carries no prefix.
 
 ```teal
 local record Error
@@ -101,11 +110,16 @@ local record Options
   base_delay_ms: integer
   --  Backoff delay cap in milliseconds (default 30000).
   max_delay_ms: integer
-  --  Predicate consulted after every attempt. Receives the Response
-  --  (nil on a failure) and the Error (nil when a response arrived).
-  --  Return true to retry. When nil, the default policy retries
-  --  transport errors (dns/connect/timeout) and 429/502/503/504
-  --  responses, for idempotent methods only.
+  --  Policy consulted between attempts — after every attempt EXCEPT
+  --  the last, since there is nothing to decide once no attempt
+  --  remains. With the default max_attempts of 1 it is never called
+  --  at all. Receives the Response (nil on a failure) and the Error
+  --  (nil when a response arrived); return true to retry. When nil,
+  --  the default policy retries transport errors (dns/connect/timeout)
+  --  and 429/502/503/504 responses, for idempotent methods only.
+  --  It is a policy, not a notification: do not reach for it to
+  --  observe failures, because the failure that ends the call is
+  --  exactly the one it does not see.
   should_retry: function(Response, Error): boolean
 end
 ```
@@ -114,20 +128,20 @@ end
 
 ```teal
 local record FetchModule
-  fetch: function(url: string, opts?: Options): Response | nil, string, Error
+  fetch: function(url: string, opts?: Options): Response | nil, string
   --  GET/POST/PUT/DELETE conveniences: fetch with the method forced.
-  get: function(url: string, opts?: Options): Response | nil, string, Error
-  post: function(url: string, opts?: Options): Response | nil, string, Error
-  put: function(url: string, opts?: Options): Response | nil, string, Error
-  delete: function(url: string, opts?: Options): Response | nil, string, Error
+  get: function(url: string, opts?: Options): Response | nil, string
+  post: function(url: string, opts?: Options): Response | nil, string
+  put: function(url: string, opts?: Options): Response | nil, string
+  delete: function(url: string, opts?: Options): Response | nil, string
   --  Stream a URL to a file. The file is written only for a 2xx
   --  response (created/truncated, then removed again on a mid-stream
   --  failure); a non-2xx response returns its Response with a bounded
   --  diagnostic body and writes nothing. The Response carries body = ""
-  --  on success; a local file failure returns nil, message, Error with
-  --  kind nil (it is not a request failure).
-  download: function(url: string, path: string, opts?: Options): Response | nil, string, Error
-  stream: function(url: string, opts?: Options): Response | nil, string, Error
+  --  on success; a local file failure returns nil, message with no
+  --  kind prefix (it is not a request failure).
+  download: function(url: string, path: string, opts?: Options): Response | nil, string
+  stream: function(url: string, opts?: Options): Response | nil, string
 end
 ```
 
@@ -149,7 +163,7 @@ alias of `cosmic.fetch.body.Body` — field and method table: `cosmic --docs cos
 ### stream
 
 ```teal
-function stream(url: string, opts?: Options): Response | nil, string, Error
+function stream(url: string, opts?: Options): Response | nil, string
 ```
 
  Open a streaming HTTP request.
@@ -166,5 +180,4 @@ function stream(url: string, opts?: Options): Response | nil, string, Error
 **Returns:**
 
 - Response - | nil The response (reader set, body nil), or nil on failure
-- string - Error message on failure
-- Error - Structured failure (message + machine-readable kind)
+- string - Error message on failure, "<kind>: <detail>"

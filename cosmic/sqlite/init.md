@@ -5,6 +5,11 @@
 
  Prefer `db:exec()`, `db:query()`, `db:query_one()`, and
  `db:transaction()` over manual preparation, binding, and stepping.
+ A scalar lookup is `db:query_one()` too — name the column and read
+ it (`db:query_one("SELECT COUNT(*) AS n FROM t").n`). The old
+ `query_value` shortcut is retired (#1063): its `found` flag could
+ not fit beside a value and an error in two slots, and without it a
+ NULL column and a missing row read the same.
  Parameters travel in one table: a list binds `?` placeholders
  positionally, a keyed table binds `:name` placeholders.
 
@@ -105,11 +110,6 @@ local record Database
   --  real failure. The statement is always finalized, even when rows
   --  remain.
   query_one: function(self: Database, sql: string, params?: Params): {string: any} | nil, string
-  --  First column of the first row, plus a `found` flag that separates
-  --  the three outcomes two slots could not: (value, true) on a row —
-  --  value nil means SQL NULL — (nil, false) when no row matched, and
-  --  (nil, false, err) on failure; see cosmic.sqlite.extras.
-  query_value: function(self: Database, sql: string, params?: Params): any, boolean, string
   --  Execute one statement that returns no rows (INSERT/UPDATE/DELETE/
   --  DDL), with the same one-table params as query(). Statements are
   --  cached per connection. Multi-statement sql is REJECTED here

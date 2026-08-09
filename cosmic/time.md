@@ -136,8 +136,7 @@ function sleep_ms(ms: number): integer | nil, string
  The remainder is a single MILLISECONDS number — no (secs, nanos)
  arithmetic in retry loops: 0 on an uninterrupted sleep; the
  remaining milliseconds plus an EINTR-tagged error when a signal
- interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
- its (secs, nanos, err) contract for symmetry with now/monotonic.
+ interrupts; nil, err on invalid input (EINVAL).
 
 **Parameters:**
 

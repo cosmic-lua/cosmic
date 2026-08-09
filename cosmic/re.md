@@ -28,23 +28,7 @@
 
 ```teal
 local record Regex
-  --  Match the pattern against text (D20 rule 9's reserved verb; the
-  --  binding's metatable carries `match` since cosmopolitan#237, so
-  --  this is the method itself and not a wrapper).
-  --  On a match, returns the matched substring plus a table of the
-  --  parenthesized capture groups (an empty table when the pattern has
-  --  no groups, "" for groups that did not participate). A no-match is
-  --  not an error: it returns a single bare nil. A genuine engine
-  --  failure (e.g. out of memory) returns nil, err — the error string
-  --  arrives in the second position, mirroring the cosmo.re binding.
   match: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
-  --  Like match, but reports WHERE: absolute 1-based inclusive start
-  --  and end offsets into text, plus the capture table. init starts
-  --  the search at that offset while keeping the returned offsets
-  --  absolute, which is what lets iteration advance in O(n) instead of
-  --  re-slicing the subject per match. A no-match is a single bare
-  --  nil; an engine failure puts the error string in the second
-  --  position.
   find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
 end
 ```
