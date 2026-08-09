@@ -2,11 +2,11 @@
 # columns: path covered-lines total-lines
 3p/tl/tl_patch.tl 0 1
 _build/ratchet.tl 36 36
-_cli/args.tl 0 35
+_cli/args.tl 0 37
 _cli/build/init.tl 43 47
 _cli/build/modules.tl 46 49
 _cli/build/steps.tl 183 239
-_cli/build/work.tl 148 169
+_cli/build/work.tl 145 166
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
 _cli/env_vars.tl 68 68
@@ -17,6 +17,7 @@ _cli/lint_render.tl 26 26
 _cli/main_handlers.tl 11 221
 _cli/pattern_args.tl 132 135
 _cli/require_hints.tl 104 124
+_cli/returns.tl 110 142
 _cli/run.tl 28 33
 _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
@@ -70,13 +71,13 @@ _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
 _tool/benchmark.tl 145 172
-_tool/coverage/baseline.tl 151 161
+_tool/coverage/baseline.tl 153 167
 _tool/coverage/lines.tl 65 71
 _tool/coverage/report.tl 203 224
 _tool/doc/comments.tl 53 53
 _tool/doc/dtl.tl 8 84
 _tool/doc/exports.tl 52 53
-_tool/doc/index.tl 119 126
+_tool/doc/index.tl 101 107
 _tool/doc/init.tl 225 251
 _tool/doc/scan.tl 67 67
 _tool/example.tl 134 167
@@ -93,8 +94,8 @@ _types/gentype_types.tl 2 2
 _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
-cmd/cosmic/embed_gen.tl 0 180
-cmd/cosmic/main.tl 0 229
+cmd/cosmic/embed_gen.tl 0 178
+cmd/cosmic/main.tl 0 233
 cosmic/_fields.tl 5 7
 cosmic/_literal_format.tl 8 14
 cosmic/_script_cache.tl 72 79
@@ -102,7 +103,7 @@ cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
 cosmic/_teal_engine.tl 123 128
-cosmic/_teal_hints.tl 42 42
+cosmic/_teal_hints.tl 45 45
 cosmic/ansi.tl 86 86
 cosmic/check.tl 110 114
 cosmic/child/fast.tl 40 52
@@ -115,7 +116,7 @@ cosmic/coverage/init.tl 54 139
 cosmic/deep.tl 53 53
 cosmic/doc/init.tl 210 242
 cosmic/doc/lookup.tl 44 69
-cosmic/doc/query.tl 235 303
+cosmic/doc/query.tl 226 292
 cosmic/doc/show.tl 285 338
 cosmic/doc/types.tl 2 2
 cosmic/doc/visibility.tl 17 17
@@ -145,7 +146,7 @@ cosmic/fs/ops.tl 97 138
 cosmic/fs/path.tl 151 162
 cosmic/fs/tree.tl 37 64
 cosmic/fs/types.tl 16 51
-cosmic/fs/walk.tl 41 55
+cosmic/fs/walk.tl 35 49
 cosmic/fuzzy.tl 48 50
 cosmic/hash.tl 71 74
 cosmic/html.tl 19 19
@@ -177,7 +178,7 @@ cosmic/quicksand/proxy/serve.tl 124 233
 cosmic/quicksand/types.tl 3 3
 cosmic/rand.tl 66 73
 cosmic/re.tl 115 125
-cosmic/sandbox/init.tl 120 148
+cosmic/sandbox/init.tl 119 147
 cosmic/sandbox/landlock.tl 66 114
 cosmic/sandbox/plan.tl 24 24
 cosmic/sandbox/pledge.tl 24 35
@@ -205,4 +206,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14822 19454
+total 14900 19569

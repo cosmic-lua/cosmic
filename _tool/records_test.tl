@@ -76,10 +76,10 @@ local function test_counts_round_trips()
   }
   for _, c in ipairs(cases) do
     local text = records.counts(c[1], c[2], c[3])
-    local p, f, s = records.parse_counts(text)
-    assert(p == c[1] and f == c[2] and s == c[3],
+    local got = require("cosmic.check").must(records.parse_counts(text))
+    assert(got.passed == c[1] and got.failed == c[2] and got.skipped == c[3],
       "round trip failed for " .. text .. ": got " ..
-      p .. "/" .. f .. "/" .. s)
+      got.passed .. "/" .. got.failed .. "/" .. got.skipped)
   end
   local none = records.parse_counts("nothing to see here")
   assert(none == nil, "text with no counts line reports nil, not 0 (#992: was -1)")

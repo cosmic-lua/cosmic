@@ -38,6 +38,8 @@ local record Regex
   --- @return string | nil The matched substring, or nil if no match
   --- @return {string} | nil Capture groups on match (error string on engine failure)
   --- @return string | nil Error message on engine failure
+  -- returns: the binding's own metatable method — this record DESCRIBES
+  -- cosmo.re's C shape (cosmopolitan#237), it does not choose it
   match: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
 
   --- Like match, but reports WHERE: absolute 1-based inclusive start
@@ -53,6 +55,7 @@ local record Regex
   --- @return integer | nil Absolute start offset, or nil
   --- @return integer | string | nil End offset (error string when start is nil)
   --- @return {string} Capture groups on match
+  -- returns: same C metatable as match above; the shape is cosmo.re's
   find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
 end
 

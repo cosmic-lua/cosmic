@@ -64,7 +64,20 @@
       tuple never carries it in slot 3 or beyond. `proc.WaitResult`,
       `proc.Rlimit`, `signal.PrevAction`, and `shm`'s `Exchange` are
       the shape; this rule replaces the four per-site justifications
-      they carried.
+      they carried. **Enforced since #1063**, as the `fallible-returns`
+      lint: a function whose FIRST declared return admits nil (`T |
+      nil`, or `any`) declares at most two slots. That is the
+      mechanical stand-in for "the last slot would be an error" — nil
+      in slot 1 is what makes `local v, err = f()` the calling
+      convention, and an infallible tuple like `string.partition`
+      keeps its three slots because no slot of it could be an error.
+      A foreign shape — a `cosmo.*` binding's tuple, decided in C, or
+      a Teal record describing one — carries a `-- returns: <reason>`
+      marker instead. Because the rule lives in the linter rather than
+      in a ratchet over this repo's surface, it holds for every project
+      cosmic builds, which is the point: a caller who has learned the
+      two-slot call shape may write it at every cosmic call site,
+      including the ones in their own code.
 - **the transition:** the pinned cosmic that cold-starts a build
   EXECUTES tree tooling (`_cli`/`_make`/…) against its own embedded,
   pre-rename `cosmic.*` modules, so a rename cannot be atomic: renamed
@@ -109,3 +122,22 @@
   [D22](d22-infallible-csprng.md) (the CSPRNG's deliberate
   crash-on-failure) and [D23](d23-check-throws.md) (`cosmic.check`
   alone may throw).
+- **applying rule 11 (2026-08, #1063):** enforcing it cost seven public
+  signatures, each of which had put something real past slot 2. The
+  find family (`fs.find`/`find_info`/`glob`) and `fs.visit` carried
+  their subtree-error list in slot 3; it moved onto the result as
+  `.errors`, and `Found` keeps the path list as the record's ARRAY
+  part so `ipairs`/`#`/`table.sort` still work on it. `fs.find_iter`
+  carried a to-be-closed guard in slot 4; the iterator became the
+  closeable handle instead (`__close`, `iter:close()`), the shape
+  `sqlite.Rows` already had — so a loop that exits EARLY now says so,
+  where the generic for used to adopt the guard for it. `fetch` carried
+  a structured `Error` in slot 3; the kind moved into the message as a
+  `"<kind>: <detail>"` prefix, and the record stayed as `should_retry`'s
+  parameter, which was always its documented consumer.
+  `sqlite.query_value` carried a `found` boolean in slot 2 and its
+  error in slot 3; it now reads exactly like `query_one`, at the price
+  of a NULL first column being indistinguishable from no row —
+  `query_one` is the way to tell them apart. `fs.visit` also stopped
+  echoing the caller's own context back, which is what the record it
+  now returns would otherwise have had to carry generically.

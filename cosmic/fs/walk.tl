@@ -26,11 +26,16 @@ local record WalkOptions
   max_depth: integer
 end
 
---- The module surface, declared up front because `visit` names a type
---- that lives inside it: a GENERIC record only survives being required
---- from another module when it is declared in the module record itself
---- (an aliased `type Walked<T> = Walked<T>` re-export resolves to an
---- unknown type at the call site).
+--- What a completed walk produced: the subtree failures it survived.
+--- The accumulator is the caller's own — they passed it in — so the
+--- one thing a walk produces that they do NOT already hold is what
+--- went wrong, and it belongs on the result rather than in a third
+--- slot they have to know to ask for (D20 rule 11).
+local record Walked
+  --- Subtree failures, in encounter order; nil when the walk was clean.
+  errors: {string}
+end
+
 local record FsWalkModule
   --- One visited entry: path (full), name, stat, depth. In visit()'s
   --- public signature, so it is exported (D20 rule 10).
@@ -42,20 +47,12 @@ local record FsWalkModule
   --- Options for visit()/walk() max_depth.
   type WalkOptions = WalkOptions
 
-  --- What a completed walk produced. The context is echoed back so
-  --- `local walked = fs.visit(dir, fn, {})` still reaches the
-  --- accumulator; the errors sit beside it rather than in a third slot
-  --- the caller has to know to ask for (D20 rule 11).
-  record Walked<T>
-    --- The context object every visitor call received.
-    ctx: T
-    --- Subtree failures, in encounter order; nil when the walk was clean.
-    errors: {string}
-  end
+  --- What a completed walk produced.
+  type Walked = Walked
 
   --- Walk dir tree with an Entry-record visitor; slot 2 is the root
   --- failure, `.errors` on the result the subtree-error list.
-  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked<T> | nil, string
+  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked | nil, string
 end
 
 local walk_tree: function<T>(string,
@@ -143,9 +140,9 @@ end
 --- @param visitor function Called per entry: function(e: Entry, ctx): nil|"skip"|"stop"
 --- @param ctx T Optional context passed to every visitor call
 --- @param opts WalkOptions? max_depth limits how deep the walk descends
---- @return Walked<T> | nil .ctx and .errors, or nil if the root could not be opened
+--- @return Walked | nil The walk's `.errors`, or nil if the root could not be opened
 --- @return string The root-open error when slot 1 is nil
-local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): FsWalkModule.Walked<T> | nil, string
+local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked | nil, string
   ctx = ctx or {} as T -- cast: fresh table as generic T
   local max_depth = 0
   if opts and opts.max_depth then
@@ -159,9 +156,9 @@ local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ..
   -- cast: userdata boundary
   walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errs, 1, max_depth)
   if #errs == 0 then
-    return {ctx = ctx}
+    return {}
   end
-  return {ctx = ctx, errors = errs}
+  return {errors = errs}
 end
 
 local M: FsWalkModule = {

@@ -68,6 +68,8 @@ end
 --- @return boolean true when the syscall is wired up on this host
 local function probe(fn: any): boolean
   if not fn then return false end
+  -- returns: the cosmo binding failure tuple (nil, err, errno) this
+  -- probe reads; the C shape is not ours to fold into a record
   local call = fn as function(any, any): any, string, integer -- cast: function shape
   local ok, _, eno = call(nil, nil)
   if ok then return true end

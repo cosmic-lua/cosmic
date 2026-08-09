@@ -173,6 +173,15 @@ local function counts(passed: integer, failed: integer,
   return out
 end
 
+--- The three counts a stage summary carries. One record, because a
+--- nil-in-slot-1 return may not carry a second and third value past
+--- it (D20 rule 11): the shape has to read `local c, err = ...`.
+local record Counts
+  passed: integer
+  failed: integer
+  skipped: integer
+end
+
 --- Read a stage summary back: what its counts line says.
 ---
 --- The inverse of `counts`, and the reason the two live together. A
@@ -182,19 +191,21 @@ end
 --- `test: FAIL (7 files)` mean "seven files were selected" while
 --- reading as "seven failed".
 --- @param text string A summary file's contents
---- @return integer|nil Passed, nil when the text carries no counts line (#992: was -1)
---- @return integer Failed
---- @return integer Skipped
-local function parse_counts(text: string): integer | nil, integer, integer
+--- @return Counts|nil The three counts, nil when the text carries no
+--- counts line (#992: was -1)
+local function parse_counts(text: string): Counts | nil
   local total = text:match("(%d+) checks:")
   if not total then
-    return nil, 0, 0
+    return nil
   end
   local passed = tonumber(text:match("checks: (%d+) passed")) or 0
   local failed = tonumber(text:match(", (%d+) failed")) or 0
   local skipped = tonumber(text:match(", (%d+) skipped")) or 0
-  return math.tointeger(passed), math.tointeger(failed),
-  math.tointeger(skipped)
+  return {
+    passed = math.tointeger(passed),
+    failed = math.tointeger(failed),
+    skipped = math.tointeger(skipped),
+  }
 end
 
 --- A verb's verdict detail: what it did, or what went wrong with it.
@@ -231,11 +242,11 @@ local function stage_detail(summary: string | nil, total: integer,
   if summary == nil then
     return detail(0, total, unit)
   end
-  local passed, failed, skipped = parse_counts(summary)
-  if passed == nil then
+  local c = parse_counts(summary)
+  if c == nil then
     return detail(0, total, unit)
   end
-  return detail(failed, passed + failed + skipped, unit)
+  return detail(c.failed, c.passed + c.failed + c.skipped, unit)
 end
 
 --- A verb's verdict line, without its newline. Every verb ends in
@@ -270,7 +281,8 @@ local record RecordsModule
   stage_of: function(base: string): string
   row: function(status: Status, name: string, count: integer, unit: string, wall_ms?: integer): string
   counts: function(passed: integer, failed: integer, skipped: integer): string
-  parse_counts: function(text: string): integer | nil, integer, integer
+  type Counts = Counts
+  parse_counts: function(text: string): Counts | nil
   detail: function(failed: integer, total: integer, unit: string): string
   stage_detail: function(summary: string | nil, total: integer, unit: string): string
   format_verdict: function(verb: string, ok: boolean, what: string): string

@@ -97,6 +97,58 @@ library internals implementing wrappers are the one place
 `require("cosmo")` is expected; everywhere else, the wrapper exists and
 is the API (see `cosmic --docs guide.modules`).
 
+## fallible-returns
+
+a function that can FAIL returns at most two values, and slot 2 is its
+error. it can fail when its first declared return admits nil — `T | nil`,
+or `any`, which admits everything — and then a third slot is unreachable
+from the two ways anyone actually calls it:
+
+```
+db/query.tl:31: fallible-returns: a fallible return (slot 1 admits nil) declares 3 slots; ...
+```
+
+```teal
+local record Row
+  id: integer
+  name: string
+end
+
+-- the error is in slot 3, so `local v, err = first(db)` binds a boolean
+-- to err, and check.must(first(db)) feeds that boolean to must's `err`
+-- local function first(db: string): Row | nil, boolean, string
+
+--- carry the extras in the value's record instead
+local record Found
+  row: Row
+  --- true when a row matched; a nil row with found = false is "absent"
+  found: boolean
+end
+local function first(_db: string): Found | nil, string
+  return {row = {id = 1, name = "a"}, found = true}
+end
+local found, err = first("db")
+print(found, err)
+```
+
+an INFALLIBLE tuple is untouched: `string.partition` returns
+`string, string, string` and no slot of it could be an error, so the
+rule has nothing to say about it. the discriminator is nil in slot 1,
+never a guess about what the slots mean.
+
+the one shape you cannot fix is a foreign one — a `cosmo.*` binding's
+tuple is decided in C, and a Teal record DESCRIBING it has to say what
+it really returns. those carry a `-- returns: <reason>` marker, trailing
+on the line or anywhere in the comment block directly above it (`--
+cast:` reads only the single line above; this one takes a sentence).
+it is a justification, not an exemption: a shape you cannot explain is
+one to fold into a record.
+
+this is D20 rule 11 made mechanical. the rule exists because the two
+call shapes everyone writes — `local v, err = f()` and
+`check.must(f())` — can only see two slots, so anything past the second
+is information the caller has to be TOLD about, one call site at a time.
+
 ## find-needle
 
 `s:find(x)` treats `x` as a Lua pattern, so a `-`, `.`, `(` or `%` in it

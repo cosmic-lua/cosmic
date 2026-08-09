@@ -179,13 +179,13 @@ local record FsModule
   --- One visited entry: path (full — never join with name), name,
   --- stat, depth (entries directly in dir are depth 1).
   type Entry = Entry
-  --- What a completed walk produced: `.ctx` and `.errors`.
-  type Walked<T> = fs_walk.Walked<T>
+  --- What a completed walk produced: `.errors`.
+  type Walked = fs_walk.Walked
   --- Walk dir depth-first with an Entry visitor: visitor(e: fs.Entry,
   --- ctx) may return "skip" (don't descend) or "stop" (end now).
   --- Slot 2 is the root-open failure; subtree errors ride on the
   --- result as `.errors` (nil when the walk was clean).
-  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked<T> | nil, string
+  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked | nil, string
 
   --- A path list (the array part) plus the failures it walked past.
   type Found = fs_find.Found

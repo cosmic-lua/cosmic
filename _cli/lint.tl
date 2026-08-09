@@ -430,7 +430,7 @@ local record LintModule
   check_gsub_replacement: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_nil_declaration: function(file: string, content: string): {Diagnostic}
   check_fallible_returns: function(file: string, content: string,
-    lines: {string}): {Diagnostic}
+  lines: {string}): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 

@@ -217,11 +217,12 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
 
   local function handle_http(client_fd: integer, method: string,
       target: string, hdr: string, leftover: string)
-    local scheme, host, port, path = http.parse_absolute_uri(target)
-    if not host then
+    local uri = http.parse_absolute_uri(target)
+    if not uri then
       refuse(client_fd, http.BAD_REQUEST)
       return
     end
+    local scheme, host, port, path = uri.scheme, uri.host, uri.port, uri.path
     local parsed = http.parse_headers(hdr)
     -- Reject chunked-encoded request bodies — we don't dechunk.
     local te = http.header_get(parsed, "transfer-encoding")
@@ -318,11 +319,12 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
       refuse(client_fd, http.BAD_REQUEST)
       return
     end
-    local method, target = http.parse_request_line(first .. "\r\n")
-    if not method then
+    local line = http.parse_request_line(first .. "\r\n")
+    if not line then
       refuse(client_fd, http.BAD_REQUEST)
       return
     end
+    local method, target = line.method, line.target
     if method == "CONNECT" then
       handle_connect(client_fd, target, leftover)
       return

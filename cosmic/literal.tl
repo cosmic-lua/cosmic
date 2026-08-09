@@ -300,25 +300,25 @@ local function string_value(tk: string): string | nil
   return table.concat(parts)
 end
 
+--- One parsed table literal: the value, and the index just past its
+--- closing `}` — one record so the error keeps slot 2 (D20 rule 11).
+local record Parsed
+  value: {string: any}
+  next: integer
+end
+
 --- Parse a literal table from a token stream, starting at `{`.
---- Returns the value and the index just past the closing `}`.
---- The second return is the index on success and the third is the
---- message on failure, rather than one value meaning both: an
---- `integer|string` here made every caller -- the recursive one
---- included -- cast twice to say which branch it was on, six casts
---- annotating one loose union.
 --- @param toks {Token} The lexed tokens
 --- @param i integer Index of the opening brace
 --- @param where string File name, for messages
 --- @param noun string What to call the file in errors
 --- @param depth integer How many tables enclose this one
---- @return {string: any}|nil The table, or nil on a grammar violation
---- @return integer The index just past the closing brace
---- @return string The error message when the table is not a literal
+--- @return Parsed|nil The table and where it ended
+--- @return string The error when the table is not a literal
 local function parse_table(toks: {Token}, i: integer, where: string,
-    noun: string, depth: integer): {string: any} | nil, integer, string
+    noun: string, depth: integer): Parsed | nil, string
   if depth > MAX_DEPTH then
-    return nil, 0, where .. ":" .. tostring(toks[i] and toks[i].y or 0) ..
+    return nil, where .. ":" .. tostring(toks[i] and toks[i].y or 0) ..
     ": a " .. noun .. " nests deeper than " .. MAX_DEPTH .. " tables"
   end
   local out: {string: any} = {}
@@ -327,7 +327,7 @@ local function parse_table(toks: {Token}, i: integer, where: string,
   while i <= n do
     local t = toks[i]
     if t.tk == "}" then
-      return out, i + 1, ""
+      return {value = out, next = i + 1}
     end
     -- key: `name =` or `["name"] =`
     local key: string = nil
@@ -339,31 +339,31 @@ local function parse_table(toks: {Token}, i: integer, where: string,
     and toks[i + 3] and toks[i + 3].tk == "=" then
       key = string_value(toks[i + 1].tk)
       if not key then
-        return nil, 0, where .. ":" .. tostring(toks[i + 1].y) ..
+        return nil, where .. ":" .. tostring(toks[i + 1].y) ..
         ": a " .. noun .. " has a malformed string key"
       end
       i = i + 4
     else
-      return nil, 0, where .. ":" .. tostring(t.y) ..
+      return nil, where .. ":" .. tostring(t.y) ..
       ": a " .. noun .. " is a table of `name = <literal>` entries; found '" ..
       t.tk .. "'"
     end
     -- value: a scalar, a keyword literal, or a nested table
     local v = toks[i]
     if not v then
-      return nil, 0, where .. ": unexpected end of " .. noun
+      return nil, where .. ": unexpected end of " .. noun
     end
     if v.tk == "{" then
-      local sub, nexti, serr = parse_table(toks, i, where, noun, depth + 1)
+      local sub, serr = parse_table(toks, i, where, noun, depth + 1)
       if not sub then
-        return nil, 0, serr
+        return nil, serr
       end
-      out[key] = sub
-      i = nexti
+      out[key] = sub.value
+      i = sub.next
     elseif v.kind == "string" then
       local decoded = string_value(v.tk)
       if not decoded then
-        return nil, 0, where .. ":" .. tostring(v.y) ..
+        return nil, where .. ":" .. tostring(v.y) ..
         ": a " .. noun .. " has a malformed string value for '" .. key .. "'"
       end
       out[key] = decoded
@@ -376,7 +376,7 @@ local function parse_table(toks: {Token}, i: integer, where: string,
       -- arithmetic-on-nil straight out of a module that must not throw.
       local num = tonumber(v.tk)
       if num == nil then
-        return nil, 0, where .. ":" .. tostring(v.y) ..
+        return nil, where .. ":" .. tostring(v.y) ..
         ": a " .. noun .. " has a malformed number value for '" .. key .. "'"
       end
       out[key] = num
@@ -388,7 +388,7 @@ local function parse_table(toks: {Token}, i: integer, where: string,
       -- -1 is not asking the file to compute anything.
       local neg = tonumber(toks[i + 1].tk)
       if neg == nil then
-        return nil, 0, where .. ":" .. tostring(v.y) ..
+        return nil, where .. ":" .. tostring(v.y) ..
         ": a " .. noun .. " has a malformed number value for '" .. key .. "'"
       end
       out[key] = -neg
@@ -397,7 +397,7 @@ local function parse_table(toks: {Token}, i: integer, where: string,
       out[key] = v.tk == "true"
       i = i + 1
     else
-      return nil, 0, where .. ":" .. tostring(v.y) ..
+      return nil, where .. ":" .. tostring(v.y) ..
       ": a " .. noun .. " holds literals only; found '" .. v.tk ..
       "' (no variables, calls or concatenation)"
     end
@@ -409,12 +409,12 @@ local function parse_table(toks: {Token}, i: integer, where: string,
     if sep and (sep.tk == "," or sep.tk == ";") then
       i = i + 1
     elseif not sep or sep.tk ~= "}" then
-      return nil, 0, where .. ":" .. tostring(v.y) ..
+      return nil, where .. ":" .. tostring(v.y) ..
       ": a " .. noun .. " holds literals only; found '" .. (sep and sep.tk or "<eof>") ..
       "' after a value (no variables, calls or concatenation)"
     end
   end
-  return nil, 0, where .. ": unterminated table in " .. noun
+  return nil, where .. ": unterminated table in " .. noun
 end
 
 --- Options for parse/parse_file: how errors talk about the file.
@@ -452,16 +452,16 @@ local function parse(source: string, opts?: Options): {string: any} | nil, strin
   if not toks[i] or toks[i].tk ~= "{" then
     return nil, where .. ": a " .. what .. " must return a table literal"
   end
-  local value, nexti, perr = parse_table(toks, i, where, what, 1)
-  if not value then
+  local parsed, perr = parse_table(toks, i, where, what, 1)
+  if not parsed then
     return nil, perr
   end
-  local after = toks[nexti]
+  local after = toks[parsed.next]
   if after and after.tk ~= "$EOF$" then
     return nil, where .. ":" .. tostring(after.y) ..
     ": a " .. what .. " ends after its table; found '" .. after.tk .. "'"
   end
-  return value
+  return parsed.value
 end
 
 --- Read a file as a literal table, without running it.

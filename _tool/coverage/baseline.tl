@@ -86,12 +86,20 @@ local function render(reports: {FileReport}, floor?: {string: Entry}): string
   return table.concat(out, "\n") .. "\n"
 end
 
+--- A parsed baseline: the per-file rows and the total row, in one
+--- record so the error keeps slot 2 (D20 rule 11).
+local record Baseline
+  --- Entries by path.
+  rows: {string: Entry}
+  --- The total row; nil when the text carried none.
+  total: Entry
+end
+
 --- Parse baseline text into per-file entries plus the total row.
 --- @param text string Baseline file content
---- @return {string: Entry} | nil Entries by path, or nil on a malformed line
---- @return Entry | nil The total row (may be nil when absent)
+--- @return Baseline | nil The rows and total, or nil on a malformed line
 --- @return string? Error message on malformed input
-local function parse(text: string): {string: Entry} | nil, Entry, string
+local function parse(text: string): Baseline | nil, string
   local entries: {string: Entry} = {}
   local total: Entry = nil
   local lineno = 0
@@ -100,7 +108,7 @@ local function parse(text: string): {string: Entry} | nil, Entry, string
     if not line:match("^#") then
       local path, covered, all = line:match("^(%S+) (%d+) (%d+)$")
       if not path then
-        return nil, nil, string.format("baseline line %d unparsable: %s", lineno, line)
+        return nil, string.format("baseline line %d unparsable: %s", lineno, line)
       end
       local entry: Entry = {
         covered = math.tointeger(tonumber(covered)),
@@ -113,7 +121,7 @@ local function parse(text: string): {string: Entry} | nil, Entry, string
       end
     end
   end
-  return entries, total
+  return {rows = entries, total = total}
 end
 
 --- Compare current results against a parsed baseline.
@@ -181,12 +189,12 @@ local function check(baseline_path: string, paths: {string}): integer
     io.stderr:write((cerr or "coverage: no data") .. "\n")
     return 1
   end
-  local entries, total, perr = parse(text)
-  if not entries then
+  local parsed, perr = parse(text)
+  if not parsed then
     io.stderr:write("coverage ratchet: " .. (perr or "malformed baseline") .. "\n")
     return 1
   end
-  local problems = compare(reports, entries, total)
+  local problems = compare(reports, parsed.rows, parsed.total)
   if #problems > 0 then
     local names: {string} = {}
     for _, p in ipairs(problems) do
@@ -250,7 +258,13 @@ local function text_for(paths: {string},
   if not reports then
     return nil, cerr or "coverage: no data"
   end
-  local floor = previous and parse(previous)
+  local floor: {string: Entry} = nil
+  if previous then
+    local prev = parse(previous)
+    if prev then
+      floor = prev.rows
+    end
+  end
   return render(reports, floor)
 end
 
@@ -267,13 +281,15 @@ end
 --- @param after string The text about to replace it
 --- @return {string} One message per lowered row, in path order
 local function lowered(before: string, after: string): {string}
-  local old_rows, old_total = parse(before)
-  local new_rows, new_total = parse(after)
-  if not old_rows or not new_rows then
+  local old_parsed = parse(before)
+  local new_parsed = parse(after)
+  if not old_parsed or not new_parsed then
     return {}
   end
-  local olds = old_rows
-  local news = new_rows
+  local olds = old_parsed.rows
+  local news = new_parsed.rows
+  local old_total = old_parsed.total
+  local new_total = new_parsed.total
   local paths: {string} = {}
   for path in pairs(olds) do
     paths[#paths + 1] = path
@@ -302,8 +318,9 @@ end
 
 local record BaselineModule
   type Entry = Entry
+  type Baseline = Baseline
   render: function(reports: {FileReport}, floor?: {string: Entry}): string
-  parse: function(text: string): {string: Entry} | nil, Entry, string
+  parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string

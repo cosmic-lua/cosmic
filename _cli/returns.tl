@@ -216,16 +216,29 @@ local function params_open(tokens: {Token}, i: integer): integer
 end
 
 --- Whether the signature starting on line `y` says why it deviates.
+---
+--- Trailing on the line, or anywhere in the comment block directly
+--- above it — not just the single line above, the way `-- cast:` reads.
+--- A foreign shape takes a sentence to explain, and a reason split
+--- across two comment lines is still one reason.
 --- @param lines {string} The file's lines
 --- @param y integer The line the `function` keyword is on
---- @return boolean True when marked here or on the line above
+--- @return boolean True when the marker is present
 local function is_marked(lines: {string}, y: integer): boolean
   local here = lines[y]
   if here and here:match("%-%- returns: %S") then
     return true
   end
-  local above = lines[y - 1]
-  return above ~= nil and above:match("^%s*%-%- returns: %S") ~= nil
+  for i = y - 1, 1, -1 do
+    local line = lines[i]
+    if not (line and line:match("^%s*%-%-")) then
+      return false
+    end
+    if line:match("^%s*%-%-%-? returns: %S") then
+      return true
+    end
+  end
+  return false
 end
 
 --- Every declared return list that puts a slot past the error.
@@ -271,7 +284,7 @@ end
 
 local record ReturnsModule
   check_fallible_returns: function(file: string, content: string,
-    lines: {string}): {Diagnostic}
+  lines: {string}): {Diagnostic}
 end
 
 local M: ReturnsModule = {

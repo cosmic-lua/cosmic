@@ -269,7 +269,10 @@ test_must_passes_false_through()
 
 local type Iter = function(): string
 
--- mimic fs.find_iter's shape: iterator, err, control, to-be-closed guard
+-- returns: the fixture IS the forbidden shape on purpose — it is what
+-- must's assert-parity forwarding exists for, and a rule-11-clean
+-- signature could not exercise it (fs.find_iter, which used to have
+-- this shape, no longer does: #1063 folded its guard into the record)
 local function fake_files(fail: boolean, guard: any): Iter | nil, string, any, any
   if fail then
     return nil, "cannot open"

@@ -228,6 +228,8 @@ end
 -- reason -- the wrapper below takes `handler` as `any`, because the
 -- formatter cannot parse a bare `function | integer` union in a
 -- function statement, and `any` does not pass to the binding's union.
+-- returns: the cosmo.unix binding's own tuple, restated so the cast has
+-- something to name; the C shape is not this wrapper's to choose
 local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, flags?: integer, mask?: Sigset): (any, any, any) -- cast: handler union
 
 --- Register a signal handler for the specified signal.
