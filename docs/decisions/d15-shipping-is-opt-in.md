@@ -30,7 +30,7 @@
   from the tree (`ls embed/` plus the module set), the same
   enumerable-surface property already bought for network and exec.
   Cosmic's own binary now *declares* the two non-module trees it ships
-  (`sys/**` for `--help`, `skills/cosmic/**` for `--docs`) in its
+  (`sys/**` for `--help`, `docs/guides/**` for `--docs`) in its
   payload generator, where the rest of its payload is already declared.
   Decided while the `assets/` fixture and the layout rule were young:
   the cost of this change grows with every downstream project that

@@ -9,7 +9,7 @@ local SearchResult = types.SearchResult
 local ExampleEntry = types.ExampleEntry
 
 local INDEX_PATH = "/zip/.docs/index.lua"
-local GUIDES_DIR = "/zip/skills/cosmic"
+local GUIDES_DIR = "/zip/docs/guides"
 
 local cached_index: DocIndex = nil
 
@@ -47,18 +47,7 @@ local function is_available(): boolean
   return index ~= nil
 end
 
---- Strip YAML frontmatter from markdown content.
-local function strip_frontmatter(content: string): string
-  if content:sub(1, 4) == "---\n" then
-    local close = content:find("\n---\n", 5, true)
-    if close then
-      return content:sub(close + 5)
-    end
-  end
-  return content
-end
-
---- List available guide topics from the embedded skills directory.
+--- List available guide topics from the embedded guides directory.
 local function guide_topics(): {string}
   local fs = require("cosmic.fs")
   local fs_types = require("cosmic.fs.types")
@@ -69,7 +58,7 @@ local function guide_topics(): {string}
   while true do
     local name = d:read()
     if not name then break end
-    if name ~= "SKILL.md" and string.match(name, "%.md$") then
+    if name ~= "index.md" and string.match(name, "%.md$") then
       topics[#topics + 1] = string.sub(name, 1, #name - 3)
     end
   end
@@ -98,11 +87,11 @@ end
 local function guide(topic: string): string | nil, string
   local fs = require("cosmic.fs")
   if topic == "" then
-    local content, err = fs.read(GUIDES_DIR .. "/SKILL.md")
+    local content, err = fs.read(GUIDES_DIR .. "/index.md")
     if not content then
       return nil, "error: " .. (err or "no guides available")
     end
-    return strip_frontmatter(content)
+    return content
   end
   local topics = guide_topics()
   local valid = false
@@ -473,7 +462,6 @@ local record DocsModule
   guide: function(topic: string): string | nil, string
   guide_topics: function(): {string}
   guides: function(): {{string, string}}
-  strip_frontmatter: function(content: string): string
 end
 
 local M: DocsModule = {
@@ -488,7 +476,6 @@ local M: DocsModule = {
   guide = guide,
   guide_topics = guide_topics,
   guides = guides,
-  strip_frontmatter = strip_frontmatter,
 }
 
 return M

@@ -119,8 +119,8 @@ and built once, and an editor needs that directory on its include path.
 - `ratchet_test.tl`: tests that reader
 - `docs_test.tl`: ratchets over the derived regions of committed
   documents (e.g. the decisions index against the decision records)
-- `skills_test.tl`: ratchets `skills/cosmic/make.md` (the shipped make
-  skill) against `_make/`
+- `guides_test.tl`: ratchets `docs/guides/make.md` (the shipped make
+  guide) against `_make/`
 - `workflows_test.tl`: ratchets over the GitHub workflow definitions
 
 ### `3p/` — Third-Party Dependencies

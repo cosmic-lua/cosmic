@@ -40,7 +40,6 @@ local record DocModule
   guide: function(topic: string): string | nil, string
   guide_topics: function(): {string}
   guides: function(): {{string, string}}
-  strip_frontmatter: function(content: string): string
 end
 
 local M: DocModule = {
@@ -55,7 +54,6 @@ local M: DocModule = {
   guide = query.guide,
   guide_topics = query.guide_topics,
   guides = query.guides,
-  strip_frontmatter = query.strip_frontmatter,
 }
 
 return M

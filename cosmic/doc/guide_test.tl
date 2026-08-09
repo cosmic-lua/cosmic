@@ -141,28 +141,3 @@ local function test_guide_unknown()
   assert(code == 1, "expected exit code 1, got " .. tostring(code))
 end
 test_guide_unknown()
-
-local docs = require("cosmic.doc")
-
-local function test_strip_frontmatter_with_frontmatter()
-  local input = "---\nname: test\ndescription: A test\n---\n\n# Hello\n"
-  local result = docs.strip_frontmatter(input)
-  assert(result == "\n# Hello\n", "should strip frontmatter, got: " .. result)
-end
-test_strip_frontmatter_with_frontmatter()
-
-local function test_strip_frontmatter_without_frontmatter()
-  local input = "# Hello\n\nNo frontmatter here.\n"
-  local result = docs.strip_frontmatter(input)
-  assert(result == input, "should return content unchanged")
-end
-test_strip_frontmatter_without_frontmatter()
-
-local function test_default_guide_no_frontmatter()
-  local __r9 = check.must(check.must(child.start({cosmic, "--docs", "guide"}, {env = clean_env()})):wait())
-  local ok, out = __r9.ok, __r9.stdout
-  assert(ok, "cosmic --docs guide should succeed")
-  local s = out
-  assert(not s:match("^---"), "default guide output should not start with frontmatter delimiter")
-end
-test_default_guide_no_frontmatter()

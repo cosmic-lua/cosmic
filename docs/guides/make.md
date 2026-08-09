@@ -147,7 +147,7 @@ module set — the same way its network and exec surfaces already are.
 what survives is cosmic's compiled standard library, the TLS roots and
 zoneinfo, and `.args`. what goes is the toolchain: the Teal compiler,
 the type declarations, cosmic's own `.tl` sources, the docs index, the
-skills, the build rules. so `require("cosmic.json")` works in your
+guides, the build rules. so `require("cosmic.json")` works in your
 artifact and `require("tl")` does not — an artifact is a program, not a
 copy of the thing that built it. a project that wants Teal at runtime
 vendors it, and it ships because the project's own tree provides it.

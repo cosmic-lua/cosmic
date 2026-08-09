@@ -35,7 +35,6 @@ Cosmic options:
 {{recipe_verbs}}
   --make <verb> [paths]...      build this project
 {{make_verbs}}
-  --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message
   -h, --help                    show this help message
 

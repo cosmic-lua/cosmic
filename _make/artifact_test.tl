@@ -262,7 +262,7 @@ local function test_stripped_to_the_floor()
   reader:close()
   assert((bytes["cosmic"] or 0) > 0, "the compiled stdlib is the floor")
   assert((bytes["usr"] or 0) > 0, "TLS roots and zoneinfo are the floor")
-  for _, gone in ipairs({".tl", ".docs", "skills", "sys", "tl.lua",
+  for _, gone in ipairs({".tl", ".docs", "docs", "sys", "tl.lua",
       ".types", ".lua/definitions.lua", "cosmic.mk", "make"}) do
     assert((bytes[gone] or 0) == 0,
       gone .. " must not survive stripping, got " .. tostring(bytes[gone]))

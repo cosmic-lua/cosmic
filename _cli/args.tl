@@ -45,7 +45,6 @@ local spec: flags.Spec = {
     {long = "report", help = "summarize test outputs"},
     {long = "coverage-report", help = "summarize coverage"},
     {long = "make", arg = "VERB", help = "run a build verb"},
-    {long = "skill", arg = "NAME", help = "print a skill"},
     {long = "write-if-changed", help = "only write when content differs"},
     {long = "include-dir", arg = "DIR", repeated = true,
       help = "add a module include directory"},

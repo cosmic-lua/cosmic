@@ -1,8 +1,3 @@
----
-name: cosmic
-description: Quick reference for cosmic-lua — language essentials, CLI commands, and project conventions
----
-
 # cosmic
 
 cosmic is a batteries-included Lua distribution built on Cosmopolitan Libc. it produces fat-binary executables that run on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD from a single file. the source language is Teal (typed Lua) compiled to Lua 5.4.

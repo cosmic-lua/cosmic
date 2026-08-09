@@ -39,6 +39,8 @@ _tool/                internal toolchain modules: the runners (testrun,
                       doc's extraction half — embedded in the cosmic
                       binary, never in user artifacts (D19 amendment)
 _docs/                doc publishing
+docs/                 prose docs; docs/guides/** SHIPS in the binary and
+                      is what `cosmic --docs guide.<topic>` serves
 _perf/                performance benchmark harness (see skills/optimize/)
 _types/               cosmo.* type declarations (generated) + gentype generator
 3p/

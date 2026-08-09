@@ -74,7 +74,6 @@ local record Options
   recipe: string
   make_verb: string
   make_argv: {string}
-  skill: string
   write_if_changed: boolean
   include_dirs: {string}
   error: string
@@ -265,7 +264,6 @@ local function parse_args(): Options
     opts.make_verb = p.values["make"]
     opts.make_argv = payload or {}
   end
-  opts.skill = p.values["skill"]
   -- --modules is acted on at the top of this file.
 
   -- A command flag ends the run before any script dispatch, matching
@@ -273,8 +271,7 @@ local function parse_args(): Options
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
   or opts.format or opts.fix or opts.check_kind or opts.extract
   or opts.examples or opts.benchmark or opts.docs or opts.test_output
-  or opts.report_paths or opts.coverage_report_paths or opts.make_verb
-  or opts.skill then
+  or opts.report_paths or opts.coverage_report_paths or opts.make_verb then
     return opts
   end
 
@@ -397,8 +394,6 @@ local function main(): integer, string
     end
     return handlers.handle_make(make_argv)
   end
-
-  if opts.skill then return handlers.handle_skill(opts.skill) end
 
   -- Handle -W warnings
   if opts.warnings then

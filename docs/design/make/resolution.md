@@ -95,7 +95,7 @@ and every `_perf/bench/*` are embedded, so:
 
 ```
 $ o/bin/cosmic _perf/run.tl … _perf.bench.json_bench     # tree entry
-$ o/bin/cosmic o/_perf/run.lua …                         # SKILL.md's form
+$ o/bin/cosmic o/_perf/run.lua …                         # the guide's form
 _perf.harness <- @/zip/_perf/harness.lua                 # both
 ```
 

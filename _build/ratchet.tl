@@ -4,7 +4,7 @@
 --- what does this table teach, and where -- and each used to answer it
 --- with its own inline scan. Three copies of a markdown parser is three
 --- chances to write one that passes a table it never actually read: the
---- scan in `skills_test.tl` fell back to *no rows* if a heading was
+--- scan in `guides_test.tl` fell back to *no rows* if a heading was
 --- renamed, and only an `assert(#out > 0)` bolted on afterwards caught
 --- it.
 ---
