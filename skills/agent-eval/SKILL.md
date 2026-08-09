@@ -29,10 +29,12 @@ Three leaks found the hard way, each defeating a naive setup:
    conventions under test. Round 1's agents all disclosed this;
    their numbers are lower bounds only.
 2. **The skill roster.** A headless `claude -p` run still lists
-   registered skills in its system prompt, and the `cosmic` skill's
-   one-line description leaks what the tool is. This survives a HOME
-   swap — the roster comes from managed settings — so it must be cut
-   with `--disallowedTools "Skill"`, which drops the roster entirely.
+   registered skills in its system prompt, and a one-line description
+   is enough to leak what the tool is — this repo's own `agent-eval`
+   and `optimize` skills both name cosmic in theirs. This survives a
+   HOME swap, since the roster comes from managed settings, so it must
+   be cut with `--disallowedTools "Skill"`, which drops the roster
+   entirely.
 3. **Shared agent state.** Session env vars
    (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`,
    `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`) tie a child run to
@@ -152,3 +154,14 @@ forces the whole `--make` surface, not just scripting.
   it: narrowing hints on every error path, the `.cosmicignore` hint,
   `guide.lint`, `guide.quickstart`, doc-index shard flattening,
   `flags.command`, and lint source-line snippets.
+- 2026-08-09: round against `6473ef6` —
+  [docs/agent-eval-2026-08-09.md](../../docs/agent-eval-2026-08-09.md).
+  4/4 successful, build 2/2/1/1, ci 2/2/3/2, no narrowing trap fired.
+  Findings, each fixed in its own PR: `--docs` published private
+  locals (79 phantom callables, plus three extractor bugs behind
+  them), `--check`/`--fix`/`--format` silently ignored every path but
+  the first — a PASS over an unread file — a fatal line labelled
+  `warning:`, and no note that `build`/`test` skip fmt and lint. The
+  broken sqlite recipe generalized: every snippet the repo shows a
+  reader is now compiled at full strictness, guides, README and doc
+  comments alike.
