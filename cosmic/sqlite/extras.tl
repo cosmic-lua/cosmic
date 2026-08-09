@@ -1,24 +1,8 @@
---- Internal helper for cosmic.sqlite: the query_value, transaction and
---- savepoint conveniences attached onto a Database. Lives in its own
---- file so cosmic/sqlite/init.tl stays under the 500-line cap.
+--- Internal helper for cosmic.sqlite: the transaction and savepoint
+--- conveniences attached onto a Database. Lives in its own file so
+--- cosmic/sqlite/init.tl stays under the 500-line cap.
 
 local bind_mod = require("cosmic.sqlite.bind")
-
--- Mirrors of cosmic.sqlite's records (Teal records are nominal, so the
--- boundary crosses through `any`; same convention as cosmic.sqlite.stmt_cache).
-local record Rows
-  metamethod __call: function(self: Rows): {string: any}
-  err: function(self: Rows): string | nil
-  close: function(self: Rows): boolean, string
-end
-
-local record Stmt
-  bind_list: function(self: Stmt, values: {any}): boolean, string
-  bind_named: function(self: Stmt, params: {string: any}): boolean, string
-  rows: function(self: Stmt): Rows
-  column_name: function(self: Stmt, n: integer): string
-  close: function(self: Stmt): boolean, string
-end
 
 -- The transaction/savepoint callback: an EXPLICIT verdict. `return
 -- true` commits, `return false, why` rolls back; a raise rolls back;
@@ -28,29 +12,9 @@ end
 local type TxFn = function(any): boolean, string
 
 local record Db
-  prepare: function(self: Db, sql: string): Stmt | nil, string
   exec: function(self: Db, sql: string, params?: bind_mod.Params): boolean, string
-  query_value: function(self: Db, sql: string, params?: bind_mod.Params): any, string
   transaction: function(self: Db, fn: TxFn): boolean, string
   savepoint: function(self: Db, fn: TxFn): boolean, string
-end
-
---- Bind a Params table through the Statement wrapper, dispatching on
---- its shape the same way the raw bind_params does.
---- @param st Stmt The prepared statement wrapper
---- @param params bind_mod.Params The parameter table
---- @return boolean Whether every bind succeeded
---- @return string Error message on a failed bind
-local function bind_dispatch(st: Stmt, params: bind_mod.Params): boolean, string
-  local list = params as {any} -- cast: array-part probe of the params table
-  if #list > 0 then
-    return st:bind_list(list)
-  end
-  local named = params as {string: any} -- cast: map view of the params table
-  if next(named) ~= nil then
-    return st:bind_named(named)
-  end
-  return true
 end
 
 --- Read the callback's verdict into a rollback decision. Returns nil
@@ -71,59 +35,12 @@ local function rollback_reason(verdict: any, why: any, what: string): string | n
   .. " (got " .. tostring(verdict) .. ")"
 end
 
---- Attach query_value, transaction and savepoint to a Database under
+--- Attach transaction and savepoint to a Database under
 --- construction. The handle is typed `any` so cosmic.sqlite's nominal
 --- Database record doesn't need to be duplicated here.
 --- @param db_any any The Database being built by make_database
 local function attach(db_any: any)
   local db = db_any as Db -- cast: from any
-
-  --- Return the first column of the first row, for scalar lookups like
-  --- COUNT(*) or a single-value SELECT. Two slots, the same three
-  --- outcomes query_one distinguishes: a value when a row matched,
-  --- `nil, err` on failure, and `nil, nil` when no row matched.
-  ---
-  --- A row whose first column is SQL NULL reads as "no row" — the
-  --- price of the two-slot shape. The `found` boolean that used to
-  --- separate them sat in slot 2 and pushed the error to slot 3, where
-  --- `local v, err = ...` could not see it and `check.must` bound the
-  --- boolean to its `err` parameter (#1063, D20 rule 11). A caller who
-  --- must tell NULL from absent selects a sentinel in SQL
-  --- (`SELECT COALESCE(col, ...)`) or uses query_one, whose row table
-  --- says which it got.
-  function db:query_value(sql: string, params?: bind_mod.Params): any, string
-    local stmt, err = self:prepare(sql)
-    if not stmt then
-      return nil, "query failed: " .. (err or "unknown error")
-    end
-    local st = stmt
-    if params then
-      local ok, bind_err = bind_dispatch(st, params)
-      if not ok then
-        local _ok, _err = st:close()
-        return nil, "bind failed: " .. (bind_err or "unknown error")
-      end
-    end
-    -- One direct iterator call, not a `for` loop: the row arrives as a
-    -- {column: value} map, so a NULL first column cannot be mistaken
-    -- for end-of-iteration.
-    local rows = st:rows()
-    local row = rows()
-    if row == nil then
-      local step_err = rows:err()
-      local _ok, _err = st:close()
-      if step_err then
-        return nil, step_err
-      end
-      return nil
-    end
-    -- column_name is valid only after the first step, which the row
-    -- above performed.
-    local name = st:column_name(1)
-    local _rok, _rerr = rows:close()
-    local _ok, _err = st:close()
-    return row[name]
-  end
 
   --- Execute fn within a transaction, with an explicit verdict. BEGIN
   --- before fn; COMMIT only when fn returns `true`; ROLLBACK when it

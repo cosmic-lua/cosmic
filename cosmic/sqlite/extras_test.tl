@@ -9,80 +9,47 @@ local function open_db(): sqlite.Database
   return d
 end
 
--- query_value tests
+-- Scalar lookups after #1063 retired query_value: query_one is the one
+-- way in, and it keeps the distinction query_value could not — a NULL
+-- first column is a row that exists, not a missing one. That capability
+-- is the reason the convenience went rather than the reverse.
 
-local function test_query_value_count()
+local function test_query_one_scalar_with_params()
   local db = open_db()
-  local n, err = db:query_value("SELECT COUNT(*) FROM t")
-  assert(n == 2, "expected 2, got " .. tostring(n))
-  assert(err == nil, "a matched row reports no error, got " .. tostring(err))
+  local row = check.must(db:query_one("SELECT name FROM t WHERE id = ?", {2}))
+  check.equal(row.name, "bob")
+  local scored = check.must(
+    db:query_one("SELECT score FROM t WHERE name = ?", {"alice"}))
+  check.equal(scored.score, 1.5)
   assert(db:close())
 end
-test_query_value_count()
+test_query_one_scalar_with_params()
 
-local function test_query_value_with_params()
-  local db = open_db()
-  local name = db:query_value("SELECT name FROM t WHERE id = ?", {2})
-  assert(name == "bob", "expected bob, got " .. tostring(name))
-  local score = db:query_value("SELECT score FROM t WHERE name = ?", {"alice"})
-  assert(score == 1.5, "expected 1.5, got " .. tostring(score))
-  assert(db:close())
-end
-test_query_value_with_params()
-
-local function test_query_value_first_column_first_row()
-  local db = open_db()
-  local v = db:query_value("SELECT name, score FROM t ORDER BY id")
-  assert(v == "alice", "expected first column of first row, got " .. tostring(v))
-  assert(db:close())
-end
-test_query_value_first_column_first_row()
-
-local function test_query_value_no_rows()
-  local db = open_db()
-  local v, err = db:query_value("SELECT name FROM t WHERE id = ?", {999})
-  assert(v == nil, "expected nil for no rows")
-  assert(err == nil, "expected no error for no rows, got " .. tostring(err))
-  assert(db:close())
-end
-test_query_value_no_rows()
-
--- A NULL first column reads as "no row": two slots cannot separate
--- them, and the boolean that used to (#1063) pushed the error out of
--- reach in slot 3. query_one is the way to tell them apart.
-local function test_query_value_null_reads_as_absent()
+local function test_query_one_null_column_is_not_a_missing_row()
   local db = open_db()
   assert(db:exec("INSERT INTO t (name, score) VALUES (NULL, 9.0)"))
-  local v, err = db:query_value("SELECT name FROM t WHERE score = 9.0")
-  assert(v == nil and err == nil, "expected nil, no error for SQL NULL")
-  local row = check.must(db:query_one("SELECT name FROM t WHERE score = 9.0"))
-  assert(next(row) == nil or row.name == nil,
-    "query_one still shows the row exists with a NULL column")
+  local present = check.must(db:query_one("SELECT name FROM t WHERE score = 9.0"))
+  check.equal(present.name, nil, "the row exists; its column is NULL")
+  local absent, err = db:query_one("SELECT name FROM t WHERE score = 99.0")
+  check.equal(absent, nil, "no row at all")
+  check.equal(err, nil, "an empty result is not a failure")
   assert(db:close())
 end
-test_query_value_null_reads_as_absent()
+test_query_one_null_column_is_not_a_missing_row()
 
-local function test_query_value_bad_sql()
-  local db = open_db()
-  local v, err = db:query_value("SELECT nope FROM missing")
-  assert(v == nil, "expected nil for bad SQL")
-  assert(err ~= nil, "expected the error in slot 2, reachable from `local v, err`")
-  assert(db:close())
-end
-test_query_value_bad_sql()
-
-local function test_query_value_closed_db()
+local function test_query_one_on_a_closed_db_fails()
   local db = open_db()
   assert(db:close())
-  local v, err = db:query_value("SELECT 1")
-  assert(v == nil and err ~= nil, "expected failure on closed database")
+  local row, err = db:query_one("SELECT 1 AS one")
+  assert(row == nil and err ~= nil, "expected failure on closed database")
 end
-test_query_value_closed_db()
+test_query_one_on_a_closed_db_fails()
 
 -- savepoint tests
 
 local function count(db: sqlite.Database): number
-  return db:query_value("SELECT COUNT(*) FROM t") as number -- cast: from any
+  -- cast: a row column is `any`
+  return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as number
 end
 
 local function test_savepoint_commit()
@@ -151,7 +118,8 @@ local function test_savepoint_nested_inner_rollback()
     end)
   assert(ok, "outer savepoint failed: " .. tostring(err))
   assert(count(db) == 3, "expected outer insert kept, inner rolled back")
-  assert(db:query_value("SELECT COUNT(*) FROM t WHERE name = 'inner'") == 0,
+  assert(check.must(db:query_one(
+        "SELECT COUNT(*) AS n FROM t WHERE name = 'inner'")).n == 0,
     "expected inner insert gone")
   assert(db:close())
 end
@@ -195,7 +163,7 @@ local function test_savepoint_release_failure_rolls_back()
   assert(err and err:find("FOREIGN KEY", 1, true),
     "error should mention the FK violation, got: " .. tostring(err))
 
-  local n = db:query_value("SELECT COUNT(*) FROM child")
+  local n = check.must(db:query_one("SELECT COUNT(*) AS n FROM child")).n
   assert(n == 0, "orphan row must be rolled back, got: " .. tostring(n))
 
   -- The connection must not be left inside an open transaction/savepoint.

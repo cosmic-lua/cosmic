@@ -144,8 +144,15 @@
   `"<kind>: <detail>"` prefix, and the record stayed as `should_retry`'s
   parameter, which was always its documented consumer.
   `sqlite.query_value` carried a `found` boolean in slot 2 and its
-  error in slot 3; it now reads exactly like `query_one`, at the price
-  of a NULL first column being indistinguishable from no row —
-  `query_one` is the way to tell them apart. `fs.visit` also stopped
+  error in slot 3, and is GONE. Two slots can hold its value and its
+  error but not the `found` flag, and without that flag a NULL first
+  column is indistinguishable from no row — so the convenience would
+  have had to ship a semantic wart to survive the rule. `query_one`
+  answers the same question without one (the row is there; the column
+  is NULL), the module header already recommended it over
+  `query_value`, and no caller outside sqlite's own tests used the
+  convenience. Removing a function the rule made worse beat keeping a
+  documented defect: worth recording as the second general shape of
+  the fix, beside find_iter's "remove the thing the slot carried". `fs.visit` also stopped
   echoing the caller's own context back, which is what the record it
   now returns would otherwise have had to carry generically.
