@@ -363,6 +363,23 @@ f({})
 end
 test_hint_index_any()
 
+-- tl's own message for this one ends "consider using an enum", which
+-- is the fix for a fixed key set and the wrong turn for a lookup
+-- table; the hint has to name the annotation instead.
+local function test_hint_record_literal_indexed_with_string()
+  local msg, hint = first_hinted_error("h_map.tl", [[
+local months = {Jan = 1, Feb = 2}
+local function num(name: string): integer
+  return months[name]
+end
+print(num("Jan"))
+]])
+  assert(msg:find("cannot index object of type record", 1, true)
+    and msg:find("with a string", 1, true), "wrong error: " .. msg)
+  assert(hint:find("{string: integer}", 1, true), "wrong hint: " .. hint)
+end
+test_hint_record_literal_indexed_with_string()
+
 -- The lax/strict contract, asserted rather than only documented:
 -- --compile (default) is the permissive gradual-typing on-ramp; strict
 -- compile refuses everything --check types refuses (type errors AND

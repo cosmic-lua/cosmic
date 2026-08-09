@@ -32,7 +32,9 @@ the fix is `.cosmicignore`, not splitting the file.
 every `as` cast is an unchecked hole in the type system, so each one
 must say why: a trailing `-- cast: <reason>` on the same line, or on the
 line directly above when 90 columns will not fit it. one comment covers
-the whole line, however many casts the line holds.
+one PHYSICAL line, however many casts that line holds — never a whole
+statement: a call spread over five lines with a cast on each needs five
+comments, not one above the call.
 
 ```teal
 local check = require("cosmic.check")
@@ -47,6 +49,24 @@ local d = db as sqlite.Database -- cast: record union after guard
 -- cast: from any (json.decode result)
 local obj = json.decode(input) as {string: any}
 print(d, obj)
+```
+
+the multi-line shape is where the per-line rule bites, and it is the
+common one — a `{string: any}` row widened field by field into a typed
+record:
+
+```teal
+local record Note
+  id: integer
+  title: string
+end
+
+local row: {string: any} = {id = 1, title = "first"}
+local note: Note = {
+  id = row.id as integer, -- cast: from any (sqlite row)
+  title = row.title as string, -- cast: from any (sqlite row)
+}
+print(note.id, note.title)
 ```
 
 write the actual reason (`from any`, `userdata boundary`, `record union

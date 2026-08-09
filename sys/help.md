@@ -25,6 +25,8 @@ Cosmic options:
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
   --docs [query]                show documentation for module, symbol, or guide
   --test <output> <cmd>...      run test, write <output>.{got,out,err}
+                                <cmd> is the cosmic binary that RUNS the
+                                test file, not the program under test
                                 e.g. cosmic --test o/foo ./cosmic foo_test.tl
   --report <paths>...           report on .got files written by --test
                                 e.g. cosmic --report o/foo.got

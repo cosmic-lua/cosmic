@@ -15,7 +15,9 @@
 ---      3p/tl/tl_patch.tl), but record FIELDS never narrow, and
 ---      nothing else tells the author
 ---   3. excess return values (multiple returns captured incorrectly)
----   4. <any type> operations (ipairs, index, concat on any)
+---   4. <any type> operations (ipairs, index, concat on any), and the
+---      `{Key = value}` literal that inferred a closed record where a
+---      `{string: T}` map was meant
 
 --- Return a fix-hint line for a known error message, or nil.
 --- @param msg string The error message to match
@@ -121,6 +123,16 @@ local function hint_for_message(msg: string): string | nil
   -- Pattern 4c: index on any type
   if msg:find("cannot index") and msg:find("<any type>") then
     return "  hint: cast first, e.g. `local obj = val as {string: any}`"
+  end
+  -- Pattern 4d: a `{Key = value}` literal indexed with a computed
+  -- string. tl infers a closed record from the literal and ends its
+  -- message with "consider using an enum", which is the fix for a
+  -- fixed key SET and the wrong turn for a lookup TABLE — the common
+  -- case (a month-name or status-code map). Nothing else says the
+  -- annotation is what was missing.
+  if msg:find("cannot index object of type record", 1, true)
+  and msg:find("with a string", 1, true) then
+    return "  hint: a `{Key = value}` literal infers a closed record, not a map — annotate it as one (`local months: {string: integer} = {Jan = 1}`); an enum fits a fixed key SET, not a lookup table — see `cosmic --docs guide.gotchas`"
   end
   return nil
 end

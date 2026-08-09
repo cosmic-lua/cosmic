@@ -152,3 +152,10 @@ forces the whole `--make` surface, not just scripting.
   it: narrowing hints on every error path, the `.cosmicignore` hint,
   `guide.lint`, `guide.quickstart`, doc-index shard flattening,
   `flags.command`, and lint source-line snippets.
+- August 2026, round 4: four new briefs against main `26bb9bf` — a
+  JSON CLI, a log analyzer, a SQLite CRUD tool and a multi-module
+  scaffolder — 4/4 green, no dead ends, write-up in
+  `docs/agent-usability-2026-08.md`. It produced the `record-vs-map`
+  hint and gotcha, the per-line `cast-justify` example, and the
+  `--test <cmd>` help wording; it left `flags`' missing cross-cutting
+  flag and `json.array`'s `{any}` return on the backlog.

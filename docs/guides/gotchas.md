@@ -32,6 +32,29 @@ print(s, m)
 sizes — are annotated `integer` at the source of truth, so no
 conversion dance is needed on that side.)
 
+## record-vs-map
+
+a `{Key = value, ...}` literal infers a CLOSED record type — a type
+with exactly those field names — not a map. indexing it with a
+computed string then fails with `cannot index object of type record
+(...) with a string, consider using an enum`. that trailing suggestion
+fits a fixed key SET; for a lookup table the fix is to annotate the
+map type at the declaration.
+
+```teal
+local months: {string: integer} = {Jan = 1, Feb = 2, Mar = 3}
+
+local function month_number(name: string): integer | nil
+  return months[name]
+end
+print(month_number("Feb"))
+```
+
+without the annotation, `months.Jan` still works (it is a record
+field) and only the computed lookup fails — so the trap surfaces at
+the call site, not at the table. the error carries the annotation as a
+hint.
+
 ## any-from-json-decode
 
 for the two common top-level shapes, skip `any` entirely:
