@@ -10,6 +10,7 @@
 --- around the graph, and this is what "onto the graph" means.
 
 local cenv = require("cosmic.env")
+local converge = require("_make.converge")
 local fs = require("cosmic.fs")
 local records = require("_tool.records")
 local sys = require("cosmic.sys")
@@ -83,6 +84,26 @@ local SELECTS < const >: {string: Selection} = {
   -- the same files by the same rule.
   coverage = {kinds = {"test"}, variable = "tests"},
 }
+
+--- Say what a verb did NOT check, and pass its exit code through.
+---
+--- `build` and `test` accept a file the formatter and the linter will
+--- reject, so without this the first complaint arrives at `ci`, after
+--- the work already reads as done. The note goes on the output rather
+--- than in a document because that is where someone is looking when it
+--- matters. Only for a verb the user typed: inside a converging gate
+--- this build is a step, not a result.
+--- @param verb string The verb the user asked for
+--- @param code integer The exit code it produced
+--- @return integer That same exit code
+local function gate_note(verb: string, code: integer): integer
+  if code == 0 and (verb == "build" or verb == "test")
+  and cenv.get_or(converge.GEN_ENV, "0") == "0" then
+    io.write("note: fmt and lint did not run here — " ..
+      "`cosmic --make ci` is the whole gate\n")
+  end
+  return code
+end
 
 --- Print a verb's verdict line and return the exit code it means;
 --- the grammar lives in `_tool.records`, which formats without
@@ -224,6 +245,7 @@ local function binaries_on_path(proj: Project)
 end
 
 local record StageModule
+  gate_note: function(verb: string, code: integer): integer
   BIN_ENV: string
   SELECTS: {string: Selection}
   verdict: function(verb: string, ok: boolean, detail: string): integer
@@ -242,6 +264,7 @@ local function bin_dir(proj: Project): string
 end
 
 local M: StageModule = {
+  gate_note = gate_note,
   BIN_ENV = BIN_ENV,
   SELECTS = SELECTS,
   verdict = verdict,
