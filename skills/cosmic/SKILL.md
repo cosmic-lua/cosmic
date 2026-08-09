@@ -30,6 +30,7 @@ imports: use `cosmic.*` modules.
 
 ```teal
 local json = require("cosmic.json")
+local input = '{"name": "cosmic"}'
 local data, err = json.decode(input)
 if not data then
   io.stderr:write("error: " .. err .. "\n")

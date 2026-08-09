@@ -12,25 +12,34 @@ cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --c
   aligned comment columns are collapsed by the formatter
 - no spaces inside table braces:
 
-```teal nofmt
-local t = { a = 1 } -- wrong
-local t = {a = 1} -- right
+```teal
+local t = {a = 1}
+print(t.a)
 ```
 
 - a table constructor passed as a function argument indents its contents
   two levels (4 spaces) past the call, with the closing `})` one level in:
 
 ```teal
+local function go(opts: {string: integer}): integer
+  return opts.key
+end
+
 local f = go({
     key = 1,
   })
+print(f)
 ```
 
 - anonymous function bodies in argument lists follow the same shape —
   body two levels in, `end)` one level in:
 
 ```teal
-walk(dir, function(p: string)
+local function walk(dir: string, visit: function(string))
+  visit(dir)
+end
+
+walk(".", function(p: string)
     print(p)
   end)
 ```

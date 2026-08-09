@@ -37,16 +37,22 @@ local name: string = "hello"
 local flag: boolean = true
 local items: {string} = {"a", "b"} -- array of strings
 local map: {string: number} = {x = 1} -- map
+print(x, name, flag, items[1], map.x)
 ```
 
 ### Optional Types
 
 ```teal
-local function read(path: string, size?: number): string, string
+local function read(path: string, size?: integer): string | nil, string
   -- size is optional (may be nil)
+  if size then
+    return path:sub(1, size)
+  end
+  return path
 end
 
-local value: string = nil -- ERROR: string cannot be nil
+local value: string | nil = nil -- an optional admits nil; a bare `string` does not
+print(read("notes.txt", 4), value)
 ```
 
 use `?` on parameters to make them optional. a nullable LOCAL must be
@@ -63,15 +69,24 @@ maps, arrays and scalars, in the positive branch and below a negated
 early return alike (the carried tl patch, `3p/tl/tl_patch.tl`):
 
 ```teal
+local net = require("cosmic.net")
+
+local record R
+  x: integer
+end
+local function make(): R | nil
+  return {x = 1}
+end
+
 local r = make() -- r: R | nil
 if not r then
   return nil, "no r"
 end
 print(r.x) -- r is R below the guard
 
-local sock = net.connect_tcp(host, port) -- Socket | nil
+local sock = net.connect_tcp("127.0.0.1", 80) -- Socket | nil
 assert(sock, "connect failed")
-sock:send("hello") -- narrowed, method call included
+local _sent, _serr = sock:send("hello") -- narrowed, method call included
 ```
 
 `~= nil` is exact, so it also narrows unions containing `boolean`,
@@ -79,6 +94,10 @@ which truthiness and `assert` deliberately skip (`false` is falsy, so
 truthy does not mean "not nil" there):
 
 ```teal
+local function flag(): boolean | nil
+  return true
+end
+
 local b: boolean | nil = flag()
 if b ~= nil then
   return b -- narrowed to boolean; `if b then` would not narrow
@@ -89,6 +108,11 @@ what does NOT narrow: **record FIELDS**, even scalar ones — copy the
 field to a local and guard the local:
 
 ```teal
+local record Report
+  earliest: integer | nil
+end
+local report: Report = {earliest = 3}
+
 local earliest = report.earliest -- integer | nil
 if earliest then
   print(earliest + 1) -- narrowed; the field read would not be
@@ -100,9 +124,11 @@ the tool — it narrows inside the positive branch and compiles to a
 single `type()` check:
 
 ```teal
-local sock = net.connect_tcp(host, port) -- Socket | nil
+local net = require("cosmic.net")
+
+local sock = net.connect_tcp("127.0.0.1", 80) -- Socket | nil
 if sock is net.Socket then
-  sock:send("hello") -- narrowed, no cast
+  local _sent, _err = sock:send("hello") -- narrowed, no cast
 end
 ```
 
@@ -119,8 +145,14 @@ with tl's silent one. in linear code, use `as` to cast when you know
 more than the type checker:
 
 ```teal
-local result = json.decode(input) as {string: any}
-local count = value as integer
+local json = require("cosmic.json")
+
+local input = '{"count": 2}'
+local value: any = 2
+
+local result = json.decode(input) as {string: any} -- cast: from any
+local count = value as integer -- cast: from any
+print(result, count)
 ```
 
 every cast carries its own `-- cast: <reason>` on the line or the line
@@ -142,6 +174,9 @@ local record Handle
   wait: function(self: Handle): number, string
   read: function(self: Handle, size?: number): string, string
 end
+
+local origin: Point = {x = 0, y = 0}
+print(origin.x, origin.y)
 ```
 
 ### Module Interface Records
@@ -152,6 +187,13 @@ every module declares its public API as a record:
 local record JsonModule
   decode: function(str: string): any, string
   encode: function(value: any): string, string
+end
+
+local function decode(str: string): any, string
+  return str
+end
+local function encode(value: any): string, string
+  return tostring(value)
 end
 
 local M: JsonModule = {decode = decode, encode = encode}
@@ -185,6 +227,8 @@ end
 local function identity<T>(x: T): T
   return x
 end
+
+print(add(1, 2), parse("3"), identity("x"))
 ```
 
 ### Global Declarations
@@ -201,16 +245,14 @@ global TEST_BIN: string
 **"cannot use nil"**: Teal strict mode requires handling nil. check return values:
 
 ```teal
--- WRONG: data might be nil
-local data = fs.read(path)
-print(#data) -- error if data is nil
+local fs = require("cosmic.fs")
 
--- RIGHT: handle the nil case
+local path = "notes.txt"
 local data, err = fs.read(path)
 if not data then
-  error("read failed: " .. err)
+  return nil, "read failed: " .. tostring(err)
 end
-print(#data)
+print(#data) -- narrowed: data is a string here
 ```
 
 **"unknown variable"**: all variables must be declared with `local` or `global`.
@@ -225,18 +267,27 @@ shapes are errors:
   `boolean, string` — standing as a bare statement:
 
 ```teal
-fs.write(path, data) -- error: discarded error return
+local fs = require("cosmic.fs")
+
+local path = "notes.txt"
+local data = "hello"
+
 local ok, err = fs.write(path, data) -- capture it
 local _ok, _err = fs.write(path, data) -- deliberate fire-and-forget
+print(ok, err)
 ```
 
 - a fallible call as the FINAL argument of a variadic call, where the
   error return spills in as an extra argument:
 
 ```teal
-print(json.encode(x)) -- error: would print a literal nil after the value
+local json = require("cosmic.json")
+
+local x = {a = 1}
+
 local encoded, err = json.encode(x) -- capture first
 print((json.encode(x))) -- or parenthesize to truncate
+print(encoded, err)
 ```
 
 callees that consume the error are exempt from the spill shape:

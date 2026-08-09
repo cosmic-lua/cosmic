@@ -48,7 +48,7 @@ end
 --- @param size number The widget size
 --- @return Widget The new widget
 local function new(name: string, size: number): Widget
-  return { name = name, size = size }
+  return {name = name, size = size}
 end
 
 local record MyModule

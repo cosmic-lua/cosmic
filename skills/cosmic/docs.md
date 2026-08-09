@@ -24,7 +24,7 @@ cosmic -i                         # start interactive REPL
 
 inside the REPL:
 
-```lua
+```text
 help() -- list all modules
 help("json") -- look up a module
 help("fs.join") -- look up a specific function

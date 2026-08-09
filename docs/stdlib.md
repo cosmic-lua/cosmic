@@ -5,6 +5,7 @@ Cosmopolitan Libc bindings:
 
 ```teal
 local json = require("cosmic.json")
+print((json.encode({ok = true})))
 ```
 
 the module list is not maintained here — the binary renders it from its
