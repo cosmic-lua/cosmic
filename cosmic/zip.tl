@@ -287,7 +287,7 @@ local function extract_entries(archive: Archive, destdir: string,
         file_mode = mode
       end
 
-      local write_ok, write_err = fs.write(filepath, content, file_mode)
+      local write_ok, write_err = fs.write(filepath, content, {mode = file_mode})
       if not write_ok then
         return false, "cannot write '" .. filepath .. "': " .. (write_err or "unknown error")
       end

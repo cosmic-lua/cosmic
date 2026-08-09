@@ -178,20 +178,12 @@ local function run(proj: Project, path: string, cosmic: string,
     return stage.verdict("run", false, "dup stdin: " .. tostring(derr))
   end
   local stdin0 = fd.wrap(dup0)
-  -- TRANSITIONAL dual-shape dispatch (delete at the next pin advance,
-  -- #981-class): the pinned binary's child.run returns a Result with
-  -- spawn_error folded in; the tree's returns Result | nil, string.
-  -- cast: transitional dual-shape call
-  local run_dual = child.run as function({string}, child.Options): (any, any)
-  local res_any, rerr = run_dual(child_argv,
+  local res, rerr = child.run(child_argv,
     {cwd = proj.root, stdout = "inherit", stderr = "inherit", stdin = stdin0})
   local _ok, _err = stdin0:close()
-  -- cast: transitional dual-shape probe
-  local spawn_err = res_any ~= nil and (res_any as {string: any}).spawn_error or rerr
-  if res_any == nil or spawn_err ~= nil then
-    return stage.verdict("run", false, tostring(spawn_err or "start failed"))
+  if res == nil then
+    return stage.verdict("run", false, tostring(rerr or "start failed"))
   end
-  local res = res_any as child.Result -- cast: transitional dual-shape result
   if not res.ok then
     -- The TARGET's exit code, not a verdict's: `run` is a passthrough,
     -- and a caller that branches on it is asking about the program.

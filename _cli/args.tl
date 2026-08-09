@@ -1,36 +1,14 @@
 --- CLI flag definitions for cosmic, as one flags.Spec (#991).
 --- Shared by the dispatcher and tests to keep the flag list in sync.
---- The getopt-shaped tables below are DERIVED from the spec for the
---- pinned engine's dispatcher, which still parses with them at cold
---- start; they are deleted at the pin advance.
 
---- The spec's shape, declared LOCALLY rather than as flags.Spec: at
---- cold start the pinned engine requires this file at its own boot and
---- type-checks it against ITS embedded flags records, which predate
---- the #991 Flag/Spec.flags vocabulary. A local structural twin keeps
---- this file compilable under both generations; the dispatcher casts
---- it to flags.Spec at the parse call. Retype as flags.Spec at the
---- pin advance.
-local record CliFlag
-  long: string
-  short: string
-  arg: string
-  arg_optional: boolean
-  repeated: boolean
-  help: string
-end
-
-local record CliSpec
-  name: string
-  flags: {CliFlag}
-end
+local flags = require("cosmic.flags")
 
 --- The dispatcher's interface. `-c` is make's shell contract:
 --- `$(SHELL) $(.SHELLFLAGS) '<line>'` with `.SHELLFLAGS` defaulting to
 --- `-c`, so `SHELL := cosmic` works with no further configuration.
 --- The long names for the Lua-compatible shorts (-e/-l/-i/-E/-W) are
 --- new with the flags port; the shorts remain the documented spelling.
-local spec: CliSpec = {
+local spec: flags.Spec = {
   name = "cosmic-lua",
   flags = {
     {long = "recipe", short = "c", arg = "LINE",
@@ -78,26 +56,6 @@ local spec: CliSpec = {
     {long = "modules", arg = "MANIFEST", help = "module resolution manifest"},
   },
 }
-
--- DERIVED getopt tables (#991): the pinned engine's dispatcher still
--- parses with these at cold start. One source of truth — the spec
--- above — and these projections of it; deleted at the pin advance.
-
-local shortopts = ""
-local longopts: {{string: string}} = {}
-for _, f in ipairs(spec.flags) do
-  local has_arg = "none"
-  if f.arg then
-    has_arg = f.arg_optional and "optional" or "required"
-  end
-  if f.short then
-    shortopts = shortopts .. f.short
-    if f.arg then
-      shortopts = shortopts .. (f.arg_optional and "::" or ":")
-    end
-  end
-  longopts[#longopts + 1] = {name = f.long, has_arg = has_arg, short = f.short}
-end
 
 --- Options requiring an argument, derived from the spec and shared so
 --- the dispatcher's pre-scan stays in sync with it.
@@ -162,14 +120,10 @@ local function renamed_check(argv: {string}): string | nil
 end
 
 return {
-  --- The dispatcher's flags.Spec (typed as its structural twin; see
-  --- CliSpec above).
   spec = spec,
   renamed_check = renamed_check,
   resolve_optional_arg = resolve_optional_arg,
-  -- DERIVED for the pinned dispatcher (#991); deleted at pin advance.
-  shortopts = shortopts,
-  longopts = longopts,
+  -- Derived from the spec, for the dispatcher's pre-scan (main.tl).
   short_needs_arg = short_needs_arg,
   long_needs_arg = long_needs_arg,
 }

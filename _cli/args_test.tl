@@ -383,21 +383,14 @@ local function test_help_includes_all_options()
   assert(ok, "cosmic --help should succeed")
   local help_text = out
 
-  -- Extract short option characters from shortopts (skip ':' modifiers)
+  -- Every flag the spec declares, in both spellings.
   local short_options: {string} = {}
-  local i = 1
-  while i <= #cli.shortopts do
-    local c = cli.shortopts:sub(i, i)
-    if c ~= ":" then
-      table.insert(short_options, "-" .. c)
-    end
-    i = i + 1
-  end
-
-  -- Extract long option names from longopts table
   local long_options: {string} = {}
-  for _, opt in ipairs(cli.longopts) do
-    table.insert(long_options, "--" .. opt.name)
+  for _, f in ipairs(cli.spec.flags) do
+    if f.short then
+      table.insert(short_options, "-" .. f.short)
+    end
+    table.insert(long_options, "--" .. f.long)
   end
 
   -- Check that every short option appears in help text

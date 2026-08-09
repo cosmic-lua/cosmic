@@ -161,7 +161,7 @@ local function write_entry(hdr: Header, name: string, payload: string,
     end
     local mode = hdr.mode % 512 -- permission bits only (0777 mask)
     if mode == 0 then mode = tonumber("644", 8) as integer end -- cast: octal is integral
-    local ok, err = fs.write(dest, payload, mode)
+    local ok, err = fs.write(dest, payload, {mode = mode})
     if not ok then
       return false, "write " .. dest .. " failed: " .. (err or "unknown error")
     end

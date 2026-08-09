@@ -216,34 +216,17 @@ local function one(p: Pin): boolean, string
   -- pinning is for, and the guard would block it. The threat the guard
   -- addresses is absent here by construction; the case it breaks is
   -- real.
-  -- TRANSITIONAL SHAPE DISPATCH — delete at the next pin advance
-  -- (alongside errno's #981 aliases). This file executes under the
-  -- PINNED binary at cold start, where cosmic.fetch's record still
-  -- says fetch returns the old Result (ok/status/body and the
-  -- maxresponse option), while the tree's fetch returns
-  -- Response | nil, err (and reads max_response_bytes). The casts
-  -- erase the signature so both generations type-check; the options
-  -- table carries both size keys so each implementation honors its
-  -- own; the result dispatch reads whichever shape arrived.
-  local fetch_opts: {string: any} = {
-    allow_private = true, max_attempts = ATTEMPTS,
-    maxresponse = MAX_BODY, max_response_bytes = MAX_BODY,
-  }
-  -- cast: transitional dual-shape call (pin Result vs tree Response)
-  local do_fetch = cfetch.fetch as function(string, any): (any, any)
-  local r1, r2 = do_fetch(p.url, fetch_opts)
-  if r1 == nil then
+  local response, ferr = cfetch.fetch(p.url, {
+      allow_private = true,
+      max_attempts = ATTEMPTS,
+      max_response_bytes = MAX_BODY,
+    })
+  if response == nil then
     return false, "make: " .. p.source .. ": " .. p.url .. ": " ..
-    tostring(r2 or "fetch failed")
+    tostring(ferr or "fetch failed")
   end
-  local result = r1 as {string: any} -- cast: transitional dual-shape result
-  if result.ok == false then
-    -- Pinned-era Result carrying a transport failure.
-    return false, "make: " .. p.source .. ": " .. p.url .. ": " ..
-    tostring(result.error or "fetch failed")
-  end
-  local status = result.status as integer -- cast: transitional dual-shape field
-  local body = result.body as string -- cast: transitional dual-shape field
+  local status = response.status
+  local body = response.body
   -- An HTTP error page is a response, not a transport failure, so the
   -- status is checked before hashing. Without that, the commonest
   -- failure -- a typo'd version in the url -- reports itself as a

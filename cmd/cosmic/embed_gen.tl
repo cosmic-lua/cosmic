@@ -32,11 +32,7 @@ local artifact = require("_make.artifact")
 local cosmo = require("cosmo")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
--- TRANSITIONAL dual require (#992, delete at the pin advance): the pin
--- predates `_tool/`; its path is computed so the checker never sees it.
--- cast: transitional dual-shape probe (pcall returns retyped loosely)
-local idx_ok, index_m = pcall(require, "_tool.doc.index") as (boolean, any)
-if not idx_ok then idx_ok, index_m = pcall(require, "cosmic.doc" .. ".index") end
+local index_m = require("_tool.doc.index")
 local literal = require("cosmic.literal")
 local project = require("_make.project")
 local types = require("_make.types")
@@ -285,13 +281,7 @@ local function write_index(proj: Project, dest: string): boolean, string
   -- The `cosmic.doc.index` that resolves here is the RUNNING cosmic's,
   -- not this tree's: a build produced by the pin sees the pin's
   -- signature, the way `cosmo.Slurp` above is chosen to survive both.
-  -- The names argument is newer than some pins, and an older one
-  -- ignores it and falls back to naming by path — which is why the
-  -- release, and the gate, build twice.
-  -- cast: dual-shape module (#992); the signature may predate names
-  local generate_index = (assert(idx_ok and index_m, "no doc index generator") as {string: any}).generate as
-  function(files: {string}, names: {string: string}): string | nil, string
-  local body, err = generate_index(documented(proj), declared_names())
+  local body, err = index_m.generate(documented(proj), declared_names())
   if not body then
     return false, "doc index: " .. (err or "unknown error")
   end

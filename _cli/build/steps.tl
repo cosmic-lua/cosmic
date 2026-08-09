@@ -215,7 +215,7 @@ local function do_copy(args: {string}): integer
   end
   local mode = st:mode() % 512 -- permission bits (0777)
   local _ok, _err = fs.make_dirs(fs.dirname(dst))
-  local ok, werr = fs.write(dst, content, mode)
+  local ok, werr = fs.write(dst, content, {mode = mode})
   if not ok then
     return fail("write " .. dst .. " failed: " .. (werr or "unknown error"))
   end

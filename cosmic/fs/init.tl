@@ -123,8 +123,8 @@ local record FsModule
   -- Whole-file operations
   read: function(path: string): string | nil, string
   --- Write a file; opts carries mode and atomic (#988: write_atomic
-  --- folded in; a bare-integer mode still works until pin advance).
-  write: function(path: string, data: string, opts?: fs_file.WriteOptions | integer): boolean, string
+  --- folded in).
+  write: function(path: string, data: string, opts?: fs_file.WriteOptions): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
 
   -- File operations
