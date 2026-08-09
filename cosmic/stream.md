@@ -74,10 +74,10 @@ end
 
 ## Functions
 
-### stream
+### write_all
 
 ```teal
-function stream(w: stream.Writer, data: string): boolean, string
+function write_all(w: stream.Writer, data: string): boolean, string
 ```
 
  Write all of data, retrying short writes until done. The two
@@ -95,10 +95,10 @@ function stream(w: stream.Writer, data: string): boolean, string
 - boolean - True when everything was written
 - string? - Error message on failure
 
-### stream
+### read_all
 
 ```teal
-function stream(r: stream.Reader, max_bytes?: integer): string | nil, string
+function read_all(r: stream.Reader, max_bytes?: integer): string | nil, string
 ```
 
  Read to end of stream and return everything as one string.
@@ -114,10 +114,10 @@ function stream(r: stream.Reader, max_bytes?: integer): string | nil, string
 - string - | nil The bytes read, or nil on error
 - string? - Error message on failure
 
-### stream
+### copy
 
 ```teal
-function stream(dst: stream.Writer, src: stream.Reader,
+function copy(dst: stream.Writer, src: stream.Reader,
     buffer_size_bytes?: integer): integer | nil, string
 ```
 
@@ -135,10 +135,10 @@ function stream(dst: stream.Writer, src: stream.Reader,
 - integer - | nil Bytes copied, or nil on error
 - string? - Error message on failure
 
-### stream
+### new_reader
 
 ```teal
-function stream(data: string): stream.Reader
+function new_reader(data: string): stream.Reader
 ```
 
  Wrap bytes already in hand as a Reader, so in-memory data (a file
@@ -157,10 +157,10 @@ function stream(data: string): stream.Reader
 
 - Reader - A reader over the bytes
 
-### stream
+### new_buffer
 
 ```teal
-function stream(): stream.Buffer
+function new_buffer(): stream.Buffer
 ```
 
  Collect writes in memory: the Writer half of new_reader. write()
@@ -171,3 +171,25 @@ function stream(): stream.Buffer
 **Returns:**
 
 - Buffer - The in-memory writer
+
+### lines
+
+```teal
+function lines(r: stream.Reader): stream.LineIter
+```
+
+ Iterate complete lines from a Reader, buffering partial lines
+ across chunks. On clean EOF a final unterminated line is yielded
+ once, then nil. On a read error the buffered partial line is
+ truncated data and is discarded — the iterator yields nil plus the
+ error once, then plain nil forever. (Promoted from fetch.Reader's
+ lines(); cosmic.sse consumes the same iterator.) A reader carrying
+ the DelimReader capability skips the Lua buffering entirely.
+
+**Parameters:**
+
+- `r` (Reader) - The source
+
+**Returns:**
+
+- function - Iterator yielding lines without the trailing newline

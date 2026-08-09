@@ -61,6 +61,26 @@ alias of `function`
 
 ## Functions
 
+### syslog_output
+
+```teal
+function syslog_output(line: string, level: Level)
+```
+
+ An output sink that writes each line to the system log daemon
+ (#994: was cosmic.syslog). Install with
+ log.set_output(log.syslog_output). The level maps onto the RFC
+ 5424 wire severity (debug=7, info=6, warning=4, error=3); delivery
+ is whatever the host does with syslog(3) — syslogd on Linux and
+ NetBSD, ReportEvent() on Windows, silently dropped elsewhere. An
+ unknown level smuggled in through a cast is dropped rather than
+ thrown (never throw from library code; mirrors log()).
+
+**Parameters:**
+
+- `line` (string) - The formatted log line
+- `level` (Level) - The line's severity
+
 ### format
 
 ```teal

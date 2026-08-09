@@ -172,6 +172,33 @@ alias of `cosmic.sqlite.defaults.Options` — field and method table: `cosmic --
 
 ## Functions
 
+### open
+
+```teal
+function open(filename: string, opts?: Options): Database | nil, string
+```
+
+ Open or create an SQLite database.
+ Relative paths are resolved against the current working directory.
+ Absolute paths (e.g. "/var/data/app.db") work as expected.
+ Use ":memory:" for an in-memory database that is not written to disk.
+ The file is created if it does not already exist (unless read_only).
+ Opening applies cosmic's per-connection defaults: a 5000ms busy
+ timeout so concurrent processes wait for each other instead of
+ failing instantly with SQLITE_BUSY, foreign_keys=ON, and — for
+ writable connections — WAL journal mode with synchronous=NORMAL.
+ Each default has an Options field to tune or disable it.
+
+**Parameters:**
+
+- `filename` (string) - Database path (use ":memory:" for in-memory)
+- `opts` (Options?) - busy_timeout_ms, read_only, foreign_keys, wal
+
+**Returns:**
+
+- Database - | nil Database handle with __close support
+- string - Error message on failure
+
 ### stmt:bind
 
 ```teal
