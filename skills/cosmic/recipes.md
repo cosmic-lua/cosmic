@@ -76,13 +76,15 @@ check.must(fs.visit("testdata", function(e: fs.Entry, _ctx: any)
         if data then
           assert(db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
               "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..
-              "digest = excluded.digest", path, st:size(), hash.sha256_hex(data)))
+              "digest = excluded.digest",
+              {path, st:size(), hash.sha256_hex(data)}))
         end
       end
     end))
 
 -- substring query: LIKE uses % as the wildcard, not *
-for row in db:query("SELECT * FROM files WHERE path LIKE ?", "%src%") do
+for row in check.must(db:query("SELECT * FROM files WHERE path LIKE ?",
+    {"%src%"})) do
   print(row.path, row.size, row.digest)
 end
 assert(db:close())
