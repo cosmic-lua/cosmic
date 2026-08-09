@@ -20,9 +20,19 @@ local MULTI_ERR < const > =
 -- signature: that trips a bootstrap-compiler formatter bug.
 local type OnClose = bind_mod.OnClose
 
+-- A checked-out statement and how to give it back. One record, not two
+-- return slots plus an error in a third: the error has to be reachable
+-- from `local co, err = cache:checkout(sql)` (D20 rule 11).
+local record Checkout
+  stmt: lsqlite3.Statement
+  --- Non-nil when `stmt` is the shared cached one — call it instead of
+  --- finalizing. nil means a throwaway the caller finalizes itself.
+  on_close: OnClose
+end
+
 local record StmtCache
   exec: function(self: StmtCache, sql: string, params?: bind_mod.Params): boolean, string
-  checkout: function(self: StmtCache, sql: string): lsqlite3.Statement | nil, OnClose, string
+  checkout: function(self: StmtCache, sql: string): Checkout | nil, string
   close_all: function(self: StmtCache)
 end
 
@@ -83,26 +93,29 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
   end
 
   --- Check out a statement for db:query, preparing and caching one if this
-  --- SQL text hasn't been queried yet. Returns (statement, on_close):
-  --- on_close is non-nil when the statement is the shared cached one —
-  --- the caller must call it (instead of finalizing) when its Rows
-  --- iterator finishes, to return the slot. When the cached slot for
-  --- this SQL is already checked out by an unfinished query
-  --- (nested/interleaved queries for the same SQL text), a fresh
-  --- throwaway statement is prepared instead and on_close is nil — the
-  --- caller finalizes it itself, same as an uncached prepare.
-  function self:checkout(sql: string): lsqlite3.Statement | nil, OnClose, string
+  --- SQL text hasn't been queried yet. The Checkout carries on_close:
+  --- non-nil when the statement is the shared cached one — the caller
+  --- must call it (instead of finalizing) when its Rows iterator
+  --- finishes, to return the slot. When the cached slot for this SQL is
+  --- already checked out by an unfinished query (nested/interleaved
+  --- queries for the same SQL text), a fresh throwaway statement is
+  --- prepared instead and on_close is nil — the caller finalizes it
+  --- itself, same as an uncached prepare.
+  function self:checkout(sql: string): Checkout | nil, string
     local cached = query_cache[sql]
     if cached and not checked_out[sql] then
       checked_out[sql] = true
-      return cached, function(_: lsqlite3.Statement) checked_out[sql] = nil end
+      return {
+        stmt = cached,
+        on_close = function(_: lsqlite3.Statement) checked_out[sql] = nil end,
+      }
     end
     if not cached and sqltext.has_multiple_statements(sql) then
-      return nil, nil, MULTI_ERR
+      return nil, MULTI_ERR
     end
     local raw_stmt = raw_db:prepare(sql)
     if not raw_stmt then
-      return nil, nil, raw_db:errmsg()
+      return nil, raw_db:errmsg()
     end
     -- prepare is Statement | nil once the pin carries the honest
     -- annotation; records don't flow-narrow, so cast after the guard.
@@ -110,9 +123,12 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     if not cached then
       query_cache[sql] = stmt
       checked_out[sql] = true
-      return stmt, function(_: lsqlite3.Statement) checked_out[sql] = nil end
+      return {
+        stmt = stmt,
+        on_close = function(_: lsqlite3.Statement) checked_out[sql] = nil end,
+      }
     end
-    return stmt, nil
+    return {stmt = stmt}
   end
 
   --- Execute a (possibly parameterized) statement once, reusing (or

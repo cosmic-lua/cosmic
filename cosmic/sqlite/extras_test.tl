@@ -13,8 +13,9 @@ end
 
 local function test_query_value_count()
   local db = open_db()
-  local n, found = db:query_value("SELECT COUNT(*) FROM t")
-  assert(n == 2 and found, "expected 2, got " .. tostring(n))
+  local n, err = db:query_value("SELECT COUNT(*) FROM t")
+  assert(n == 2, "expected 2, got " .. tostring(n))
+  assert(err == nil, "a matched row reports no error, got " .. tostring(err))
   assert(db:close())
 end
 test_query_value_count()
@@ -25,8 +26,6 @@ local function test_query_value_with_params()
   assert(name == "bob", "expected bob, got " .. tostring(name))
   local score = db:query_value("SELECT score FROM t WHERE name = ?", {"alice"})
   assert(score == 1.5, "expected 1.5, got " .. tostring(score))
-  -- The found flag separates "no row" from "NULL value" (three
-  -- outcomes, three answers).
   assert(db:close())
 end
 test_query_value_with_params()
@@ -41,30 +40,33 @@ test_query_value_first_column_first_row()
 
 local function test_query_value_no_rows()
   local db = open_db()
-  local v, found, err = db:query_value("SELECT name FROM t WHERE id = ?", {999})
+  local v, err = db:query_value("SELECT name FROM t WHERE id = ?", {999})
   assert(v == nil, "expected nil for no rows")
-  assert(found == false, "no row must report found = false")
   assert(err == nil, "expected no error for no rows, got " .. tostring(err))
   assert(db:close())
 end
 test_query_value_no_rows()
 
-local function test_query_value_null()
+-- A NULL first column reads as "no row": two slots cannot separate
+-- them, and the boolean that used to (#1063) pushed the error out of
+-- reach in slot 3. query_one is the way to tell them apart.
+local function test_query_value_null_reads_as_absent()
   local db = open_db()
   assert(db:exec("INSERT INTO t (name, score) VALUES (NULL, 9.0)"))
-  local v, found, err = db:query_value("SELECT name FROM t WHERE score = 9.0")
+  local v, err = db:query_value("SELECT name FROM t WHERE score = 9.0")
   assert(v == nil and err == nil, "expected nil, no error for SQL NULL")
-  assert(found == true, "a matched row with a NULL value must report found = true")
+  local row = check.must(db:query_one("SELECT name FROM t WHERE score = 9.0"))
+  assert(next(row) == nil or row.name == nil,
+    "query_one still shows the row exists with a NULL column")
   assert(db:close())
 end
-test_query_value_null()
+test_query_value_null_reads_as_absent()
 
 local function test_query_value_bad_sql()
   local db = open_db()
-  local v, found, err = db:query_value("SELECT nope FROM missing")
+  local v, err = db:query_value("SELECT nope FROM missing")
   assert(v == nil, "expected nil for bad SQL")
-  assert(found == false, "a failure must report found = false")
-  assert(err ~= nil, "expected an error message")
+  assert(err ~= nil, "expected the error in slot 2, reachable from `local v, err`")
   assert(db:close())
 end
 test_query_value_bad_sql()

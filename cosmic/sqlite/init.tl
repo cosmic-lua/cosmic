@@ -104,11 +104,13 @@ local record Database
   --- real failure. The statement is always finalized, even when rows
   --- remain.
   query_one: function(self: Database, sql: string, params?: Params): {string: any} | nil, string
-  --- First column of the first row, plus a `found` flag that separates
-  --- the three outcomes two slots could not: (value, true) on a row —
-  --- value nil means SQL NULL — (nil, false) when no row matched, and
-  --- (nil, false, err) on failure; see cosmic.sqlite.extras.
-  query_value: function(self: Database, sql: string, params?: Params): any, boolean, string
+  --- First column of the first row, for scalar lookups like COUNT(*).
+  --- Same three outcomes as query_one, in the same two slots: `nil,
+  --- nil` means no row matched (and, indistinguishably, a row whose
+  --- first column was SQL NULL), `nil, err` is a real failure, and a
+  --- value means a row. `check.must(db:query_value(...))` throws on the
+  --- empty result; guard with `if v then` when it is ordinary.
+  query_value: function(self: Database, sql: string, params?: Params): any, string
   --- Execute one statement that returns no rows (INSERT/UPDATE/DELETE/
   --- DDL), with the same one-table params as query(). Statements are
   --- cached per connection. Multi-statement sql is REJECTED here
@@ -274,14 +276,14 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if closed then
       return nil, "query failed: database is closed"
     end
-    local raw_stmt, on_close, err = stmt_cache:checkout(sql)
-    if not raw_stmt then
+    local co, err = stmt_cache:checkout(sql)
+    if not co then
       return nil, "query failed: " .. (err or "unknown error")
     end
     -- Hot path: skip the full Statement object and its per-call closures;
     -- bind and iterate the raw statement directly (see cosmic.sqlite.row_iter).
     local iter, bind_err = row_iter.query(
-      raw_stmt, raw_db, on_close,
+      co.stmt, raw_db, co.on_close,
       sqlite3.OK, sqlite3.ROW, sqlite3.DONE, params)
     if not iter then
       return nil, bind_err

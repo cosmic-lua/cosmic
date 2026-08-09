@@ -30,7 +30,7 @@ local type TxFn = function(any): boolean, string
 local record Db
   prepare: function(self: Db, sql: string): Stmt | nil, string
   exec: function(self: Db, sql: string, params?: bind_mod.Params): boolean, string
-  query_value: function(self: Db, sql: string, params?: bind_mod.Params): any, boolean, string
+  query_value: function(self: Db, sql: string, params?: bind_mod.Params): any, string
   transaction: function(self: Db, fn: TxFn): boolean, string
   savepoint: function(self: Db, fn: TxFn): boolean, string
 end
@@ -79,22 +79,29 @@ local function attach(db_any: any)
   local db = db_any as Db -- cast: from any
 
   --- Return the first column of the first row, for scalar lookups like
-  --- COUNT(*) or a single-value SELECT. Three outcomes, three answers:
-  --- (value, true) when a row matched — value nil means the value is
-  --- SQL NULL — (nil, false) when no row matched, and (nil, false, err)
-  --- on failure. The `found` flag is what separates "no row" from
-  --- "NULL value", which two return slots could not.
-  function db:query_value(sql: string, params?: bind_mod.Params): any, boolean, string
+  --- COUNT(*) or a single-value SELECT. Two slots, the same three
+  --- outcomes query_one distinguishes: a value when a row matched,
+  --- `nil, err` on failure, and `nil, nil` when no row matched.
+  ---
+  --- A row whose first column is SQL NULL reads as "no row" — the
+  --- price of the two-slot shape. The `found` boolean that used to
+  --- separate them sat in slot 2 and pushed the error to slot 3, where
+  --- `local v, err = ...` could not see it and `check.must` bound the
+  --- boolean to its `err` parameter (#1063, D20 rule 11). A caller who
+  --- must tell NULL from absent selects a sentinel in SQL
+  --- (`SELECT COALESCE(col, ...)`) or uses query_one, whose row table
+  --- says which it got.
+  function db:query_value(sql: string, params?: bind_mod.Params): any, string
     local stmt, err = self:prepare(sql)
     if not stmt then
-      return nil, false, "query failed: " .. (err or "unknown error")
+      return nil, "query failed: " .. (err or "unknown error")
     end
     local st = stmt
     if params then
       local ok, bind_err = bind_dispatch(st, params)
       if not ok then
         local _ok, _err = st:close()
-        return nil, false, "bind failed: " .. (bind_err or "unknown error")
+        return nil, "bind failed: " .. (bind_err or "unknown error")
       end
     end
     -- One direct iterator call, not a `for` loop: the row arrives as a
@@ -106,16 +113,16 @@ local function attach(db_any: any)
       local step_err = rows:err()
       local _ok, _err = st:close()
       if step_err then
-        return nil, false, step_err
+        return nil, step_err
       end
-      return nil, false
+      return nil
     end
     -- column_name is valid only after the first step, which the row
     -- above performed.
     local name = st:column_name(1)
     local _rok, _rerr = rows:close()
     local _ok, _err = st:close()
-    return row[name], true
+    return row[name]
   end
 
   --- Execute fn within a transaction, with an explicit verdict. BEGIN

@@ -71,16 +71,15 @@ end
 test_module_loads()
 
 local function test_failure_shape()
-  -- A failure is nil, message, Error — no Response exists, so there
-  -- are no lying nil fields to poke at.
-  local resp, err, errobj = fetch.fetch("invalid://this-will-definitely-fail")
+  -- A failure is nil, message and nothing past it (#1063) — no
+  -- Response exists, so there are no lying nil fields to poke at, and
+  -- the kind rides in the message's prefix.
+  local resp, err = fetch.fetch("invalid://this-will-definitely-fail")
   assert(resp == nil, "no Response may exist for a failed fetch")
   assert(type(err) == "string" and #err > 0, "err should be a non-empty string")
   assert(err ~= "nil", "error should not be 'nil' string")
-  assert(errobj ~= nil, "the Error object should ride in slot 3")
-  assert(errobj.message == err, "Error.message should equal the message slot")
-  assert(errobj.kind == "invalid_request",
-    "a validation failure carries kind invalid_request, got " .. tostring(errobj.kind))
+  assert(err:match("^invalid_request: "),
+    "a validation failure prefixes its kind, got " .. tostring(err))
 end
 test_failure_shape()
 
@@ -124,10 +123,10 @@ test_post_body_reaches_server()
 
 local function test_ssrf_guard_blocks_private_by_default()
   local port, pid = serve({body_response("200 OK", "x")})
-  local resp, _err, errobj = fetch.fetch("http://127.0.0.1:" .. port .. "/")
+  local resp, err = fetch.fetch("http://127.0.0.1:" .. port .. "/")
   assert(resp == nil, "loopback fetch without allow_private must fail")
-  assert(errobj and errobj.kind == "blocked",
-    "kind should be 'blocked', got " .. tostring(errobj and errobj.kind))
+  assert(err and err:match("^blocked: "),
+    "kind should be 'blocked', got " .. tostring(err))
   -- unblock the waiting child so the test can reap it
   local unblock = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
   assert(unblock ~= nil, "allow_private fetch should succeed")
@@ -136,10 +135,10 @@ end
 test_ssrf_guard_blocks_private_by_default()
 
 local function test_error_kind_connect_for_refused_port()
-  local resp, _err, errobj = fetch.fetch("http://127.0.0.1:1/", {allow_private = true})
+  local resp, err = fetch.fetch("http://127.0.0.1:1/", {allow_private = true})
   assert(resp == nil, "connection to a dead port must fail")
-  assert(errobj and errobj.kind == "connect",
-    "kind should be 'connect', got " .. tostring(errobj and errobj.kind))
+  assert(err and err:match("^connect: "),
+    "kind should be 'connect', got " .. tostring(err))
 end
 test_error_kind_connect_for_refused_port()
 
@@ -241,11 +240,10 @@ test_opts_table_not_mutated()
 -- scheme validation tests
 
 local function test_fetch_empty_url_rejected()
-  local resp, err, errobj = fetch.fetch("")
+  local resp, err = fetch.fetch("")
   assert(resp == nil, "an empty URL must fail")
-  assert(err == "empty URL", "expected 'empty URL', got: " .. tostring(err))
-  assert(errobj and errobj.kind == "invalid_request",
-    "validation failures carry kind invalid_request")
+  assert(err == "invalid_request: empty URL",
+    "expected the kind-prefixed message, got: " .. tostring(err))
 end
 test_fetch_empty_url_rejected()
 
@@ -276,8 +274,8 @@ test_fetch_no_scheme_rejected()
 local function test_fetch_missing_host_rejected()
   local resp, err = fetch.fetch("http://")
   assert(resp == nil, "a host-less URL must fail")
-  assert(err == "missing URL host",
-    "expected 'missing URL host', got: " .. tostring(err))
+  assert(err == "invalid_request: missing URL host",
+    "expected the kind-prefixed message, got: " .. tostring(err))
 end
 test_fetch_missing_host_rejected()
 
@@ -287,7 +285,7 @@ test_fetch_missing_host_rejected()
 local function test_fetch_uppercase_scheme_accepted()
   local resp, err = fetch.fetch("HTTPS://")
   assert(resp == nil, "host-less URL still fails")
-  assert(err == "missing URL host",
+  assert(err == "invalid_request: missing URL host",
     "uppercase scheme should pass the scheme check, got: " .. tostring(err))
 end
 test_fetch_uppercase_scheme_accepted()
@@ -313,11 +311,11 @@ test_timeout_option_accepted()
 
 local function test_max_response_bytes_enforced()
   local port, pid = serve({body_response("200 OK", string.rep("x", 4096))})
-  local resp, _err, errobj = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+  local resp, err = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_response_bytes = 16})
   assert(proc.wait(pid))
   assert(resp == nil, "a body over max_response_bytes must fail")
-  assert(errobj and errobj.kind == "too_large",
-    "kind should be 'too_large', got " .. tostring(errobj and errobj.kind))
+  assert(err and err:match("^too_large: "),
+    "kind should be 'too_large', got " .. tostring(err))
 end
 test_max_response_bytes_enforced()

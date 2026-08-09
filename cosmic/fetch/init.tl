@@ -38,9 +38,13 @@ local enum ErrorKind
   "invalid_request"
 end
 
---- A fetch failure, in the third return slot for retry-policy callers.
+--- A fetch failure, as the retry policy sees it. It is NOT a return
+--- slot: a fallible return is `Response | nil, string` and nothing
+--- past it (D20 rule 11, #1063). What a caller needs after the fact —
+--- the kind — is the message's own prefix, `"<kind>: <detail>"`, so
+--- one string carries both the human and the machine reading.
 --- kind is nil only for failures outside the request itself (download's
---- local file IO).
+--- local file IO), and then the message carries no prefix.
 local record Error
   message: string
   kind: ErrorKind
@@ -177,21 +181,31 @@ local function to_fetch_options(opts?: Options): cosmo.FetchOptions
   return fo
 end
 
---- Build the failure triple. kind defaults to "invalid_request" — the
---- wrapper's own kind for requests that never reached the transport.
-local function fail(err: any, kind: string): Response | nil, string, Error
-  local message = tostring(err or "unknown error")
-  return nil, message, {
-    message = message,
-    kind = (kind or "invalid_request") as ErrorKind, -- cast: enum superset of binding string
-  }
+--- Build the failure pair. kind defaults to "invalid_request" — the
+--- wrapper's own kind for requests that never reached the transport —
+--- and prefixes the message, which is how the classification survives
+--- a two-slot return.
+local function fail(err: any, kind: string): Response | nil, Error
+  local detail = tostring(err or "unknown error")
+  local k = (kind or "invalid_request") as ErrorKind -- cast: enum superset of binding string
+  return nil, {message = k .. ": " .. detail, kind = k}
+end
+
+--- Flatten a `Response | nil, Error` pair to the public two-slot
+--- shape: the Error's message IS the error string (kind-prefixed by
+--- fail), so nothing is lost by not returning the record.
+local function message_of(resp: Response | nil, e: Error): Response | nil, string
+  if e then
+    return nil, e.message
+  end
+  return resp
 end
 
 local function make_response(fields: {string: any}): Response
   return setmetatable(fields as Response, response_mt) as Response -- cast: table seeded as record
 end
 
-local function do_fetch(url: string, opts?: Options): Response | nil, string, Error
+local function do_fetch(url: string, opts?: Options): Response | nil, Error
   local verr = validate_url(url)
   if verr then
     return fail(verr, nil)
@@ -258,18 +272,18 @@ end
 
 --- Fetch a URL. A Response arrives only when a response did — an HTTP
 --- error status is a Response (check resp.status or resp:is_success());
---- a transport or validation failure is `nil, message, Error`.
+--- a transport or validation failure is `nil, message`, the message
+--- prefixed with its ErrorKind ("timeout: ...", "connect: ...").
 --- @param url string URL to fetch
 --- @param opts Options optional fetch options (retry, headers, redirects, ...)
 --- @return Response | nil The response, or nil on failure
---- @return string Error message on failure
---- @return Error Structured failure (message + machine-readable kind)
-local function Fetch(url: string, opts?: Options): Response | nil, string, Error
+--- @return string Error message on failure, "<kind>: <detail>"
+local function Fetch(url: string, opts?: Options): Response | nil, string
   -- Expand query/json/form/multipart first: prepare may set the method
   -- (body options default to POST), which the retry policy inspects.
   local purl, popts, perr = fetch_extras.prepare(url, opts)
   if perr then
-    return fail(perr, nil)
+    return message_of(fail(perr, nil))
   end
   url = purl
   opts = popts
@@ -280,10 +294,9 @@ local function Fetch(url: string, opts?: Options): Response | nil, string, Error
   local method = string.upper((opts and opts.method) or "GET")
 
   local resp: Response
-  local err: string
   local errobj: Error
   for attempt = 1, max_attempts do
-    resp, err, errobj = do_fetch(url, opts)
+    resp, errobj = do_fetch(url, opts)
     if attempt == max_attempts then
       break
     end
@@ -298,7 +311,7 @@ local function Fetch(url: string, opts?: Options): Response | nil, string, Error
     end
     backoff(attempt, base_delay_ms, max_delay_ms)
   end
-  return resp, err, errobj
+  return message_of(resp, errobj)
 end
 
 --- Open a streaming HTTP request.
@@ -309,29 +322,29 @@ end
 --- @param url string URL to fetch
 --- @param opts Options optional fetch options
 --- @return Response | nil The response (reader set, body nil), or nil on failure
---- @return string Error message on failure
---- @return Error Structured failure (message + machine-readable kind)
-local function stream(url: string, opts?: Options): Response | nil, string, Error
+--- @return string Error message on failure, "<kind>: <detail>"
+local function stream(url: string, opts?: Options): Response | nil, string
   local purl, popts, perr = fetch_extras.prepare(url, opts)
   if perr then
-    return fail(perr, nil)
+    return message_of(fail(perr, nil))
   end
   url = purl
   opts = popts
   local verr = validate_url(url)
   if verr then
-    return fail(verr, nil)
+    return message_of(fail(verr, nil))
   end
   local herr = opts and validate_headers(opts.headers)
   if herr then
-    return fail(herr, nil)
+    return message_of(fail(herr, nil))
   end
 
   local status, headers_or_err, reader_or_kind, final_url = cosmo.FetchStream(url, to_fetch_options(opts))
   if not status then
     -- kind mirrors fail()'s: FetchStream's dual-shape third return is
     -- statically StreamReader (it carries the kind string on failure).
-    return fail(headers_or_err, reader_or_kind as string) -- cast: dual-shape binding return
+    -- cast: dual-shape binding return
+    return message_of(fail(headers_or_err, reader_or_kind as string))
   end
 
   -- cast: from any
@@ -349,30 +362,30 @@ end
 -- response constructor and the failure builder so download's
 -- synthesized results carry the same shapes.
 local made = fetch_extras.make(
-  Fetch as (function(string, any): (any, any, any)), -- cast: function shape
-  stream as (function(string, any): (any, any, any)), -- cast: function shape
+  Fetch as (function(string, any): (any, any)), -- cast: function shape
+  stream as (function(string, any): (any, any)), -- cast: function shape
   function(t: any): any
     return make_response(t as {string: any}) -- cast: from any
   end,
-  function(message: string): (any, any, any)
-    return nil, message, {message = message} as Error -- cast: table seeded as record
+  function(message: string): (any, any)
+    return nil, message
   end)
 
 local record FetchModule
-  fetch: function(url: string, opts?: Options): Response | nil, string, Error
+  fetch: function(url: string, opts?: Options): Response | nil, string
   --- GET/POST/PUT/DELETE conveniences: fetch with the method forced.
-  get: function(url: string, opts?: Options): Response | nil, string, Error
-  post: function(url: string, opts?: Options): Response | nil, string, Error
-  put: function(url: string, opts?: Options): Response | nil, string, Error
-  delete: function(url: string, opts?: Options): Response | nil, string, Error
+  get: function(url: string, opts?: Options): Response | nil, string
+  post: function(url: string, opts?: Options): Response | nil, string
+  put: function(url: string, opts?: Options): Response | nil, string
+  delete: function(url: string, opts?: Options): Response | nil, string
   --- Stream a URL to a file. The file is written only for a 2xx
   --- response (created/truncated, then removed again on a mid-stream
   --- failure); a non-2xx response returns its Response with a bounded
   --- diagnostic body and writes nothing. The Response carries body = ""
-  --- on success; a local file failure returns nil, message, Error with
-  --- kind nil (it is not a request failure).
-  download: function(url: string, path: string, opts?: Options): Response | nil, string, Error
-  stream: function(url: string, opts?: Options): Response | nil, string, Error
+  --- on success; a local file failure returns nil, message with no
+  --- kind prefix (it is not a request failure).
+  download: function(url: string, path: string, opts?: Options): Response | nil, string
+  stream: function(url: string, opts?: Options): Response | nil, string
   type ErrorKind = ErrorKind
   --- Type aliases, not runtime values: a `Response: Response` field
   --- spelling would declare phantom fields that are nil at runtime.
@@ -386,15 +399,15 @@ end
 local M: FetchModule = {
   fetch = Fetch,
   -- cast: function shape
-  get = made.get as (function(string, Options): (Response | nil, string, Error)),
+  get = made.get as (function(string, Options): (Response | nil, string)),
   -- cast: function shape
-  post = made.post as (function(string, Options): (Response | nil, string, Error)),
+  post = made.post as (function(string, Options): (Response | nil, string)),
   -- cast: function shape
-  put = made.put as (function(string, Options): (Response | nil, string, Error)),
+  put = made.put as (function(string, Options): (Response | nil, string)),
   -- cast: function shape
-  delete = made.delete as (function(string, Options): (Response | nil, string, Error)),
+  delete = made.delete as (function(string, Options): (Response | nil, string)),
   -- cast: function shape
-  download = made.download as (function(string, string, Options): (Response | nil, string, Error)),
+  download = made.download as (function(string, string, Options): (Response | nil, string)),
   stream = stream,
 }
 
