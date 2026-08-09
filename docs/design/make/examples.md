@@ -18,7 +18,7 @@ _types/types_gen.tl         → o/_types/types_gen/{cosmo*,tl}.d.tl
 cmd/cosmic/main.tl          the binary → o/bin/cosmic
 3p/tl/tl_pin.tl  3p/cosmos/cosmos_pin.tl
 bootstrap/cosmic_pin.tl
-sys/  skills/  docs/  .github/
+sys/  docs/  .github/
 o/                          everything generated
 ```
 

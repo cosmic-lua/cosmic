@@ -15,7 +15,7 @@
 ---   make             the graph engine, from the pinned cosmos zip
 ---   cosmic/_version.lua  the stamp `--version` prints
 ---   sys/**           the static `--help` text
----   skills/cosmic/** the guides `--docs` reads
+---   docs/guides/**   the guides `--docs` reads
 ---
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
 --- Naming it is what makes the fixpoint converge -- without it `build`
@@ -65,10 +65,10 @@ local PINNED: {{string, string}} = {
 --- megabytes of artifact nobody asked for. What a binary carries is a
 --- thing its unit SAYS, and this is cosmic saying it. Both are read
 --- from `/zip` at run time: `_cli.help` reads `sys/help.md`, and
---- `--docs` reads the guides under `skills/cosmic`.
+--- `--docs` reads the guides under `docs/guides`.
 local TREES: {string} = {
   "sys",
-  "skills/cosmic",
+  "docs/guides",
 }
 
 --- Compile Lua source to bytecode -- a private copy of `_make.bytecode.

@@ -173,7 +173,7 @@ local record make_types
   --- `Kind` is a type, and Teal erases types: compile this file and the
   --- enum leaves nothing behind, so a caller that `require`s this
   --- module can check a kind but cannot ask what the kinds ARE. The
-  --- skill ratchet needs exactly that, and answered it by regexing this
+  --- guide ratchet needs exactly that, and answered it by regexing this
   --- file -- a second Teal parser, guarded by a magic minimum, which
   --- silently under-reports a kind its pattern does not cover.
   ---

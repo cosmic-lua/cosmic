@@ -113,7 +113,7 @@ test_the_kinds_list_is_the_enum()
 -- checker enforces that every KEY is a kind, never that every kind is
 -- a key. So a kind added to the enum is silently unlinted until
 -- somebody re-reads this table, which is the same shape of drift the
--- skill ratchet exists for, one level down.
+-- guide ratchet exists for, one level down.
 local function test_lint_reads_every_kind_but_testdata()
   for _, kind in ipairs(types.kinds) do
     local excused = kind == "testdata"

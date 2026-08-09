@@ -40,7 +40,7 @@ is the project's own files. There is no `--keep`.
 **Floor:** compiled `cosmic/**` (the public modules — derived, since
 `_` marks the rest), TLS roots, zoneinfo, `.args`.
 **Stripped:** the embedded make, `tl.lua`, types, teal-types, cosmic's
-`.tl` sources, docs index, skills, `sys/`, `definitions.lua`,
+`.tl` sources, docs index, guides, `sys/`, `definitions.lua`,
 `.lua/cosmo/**`.
 
 This is what lets cosmic build itself with no exception: its artifact

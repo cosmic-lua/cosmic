@@ -365,78 +365,6 @@ local function handle_make(argv: {string}): integer
   return require("_make").run(argv)
 end
 
---- Generate the SKILL.md content for --skill.
-local function skill_content(): string
-  return [=[---
-name: cosmic
-description: >
-  Write portable scripts and tools with cosmic — HTTP requests, JSON
-  parsing, SQLite databases, filesystem operations, child processes, crypto,
-  compression, and more in a single zero-dependency binary
----
-
-# cosmic
-
-cosmic is a batteries-included Lua distribution for writing portable
-scripts and tools. it ships single binary with built-in support for
-HTTP fetching, JSON, SQLite, filesystem operations, child processes,
-cryptographic hashing, compression, regex, sockets, and more — no external
-dependencies needed. source files are written in Teal (typed Lua) and run
-on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
-
-## Download
-
-the binary is named `cosmic` after download. rename it if you prefer.
-
-```bash
-curl -fLo cosmic \
-  https://github.com/whilp/cosmic/releases/latest/download/cosmic-lua
-chmod +x cosmic
-```
-
-## Run
-
-```bash
-./cosmic script.tl           # run a Teal script
-./cosmic -e 'print("hi")'   # run inline code
-./cosmic -i                  # start the REPL
-```
-
-## Getting Help
-
-```bash
-./cosmic --welcome                # quick-start orientation
-./cosmic --help                   # show all CLI options and modules
-./cosmic --docs                   # browse the full documentation index
-./cosmic --docs <query>           # look up a module, function, or guide
-./cosmic --docs guide             # list available guides
-./cosmic --docs guide.testing     # show a specific guide
-```
-]=]
-end
-
---- Handle --skill flag.
---- Creates the output directory and writes SKILL.md there.
-local function handle_skill(dir: string): integer
-  local fs = require("cosmic.fs")
-
-  local ok, err = fs.make_dirs(dir)
-  if not ok then
-    io.stderr:write("--skill: " .. (err or "failed to create directory") .. "\n")
-    return 1
-  end
-
-  local path = fs.join(dir, "SKILL.md")
-  local wok, werr = fs.write(path, skill_content())
-  if not wok then
-    io.stderr:write("--skill: " .. (werr or "failed to write SKILL.md") .. "\n")
-    return 1
-  end
-
-  io.write(path .. "\n")
-  return 0
-end
-
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
@@ -454,7 +382,6 @@ local record HandlersModule
   handle_benchmark: function(spec: string): integer
   handle_docs: function(query: string): integer
   handle_make: function(argv: {string}): integer
-  handle_skill: function(dir: string): integer
 end
 
 local M: HandlersModule = {
@@ -474,7 +401,6 @@ local M: HandlersModule = {
   handle_benchmark = handle_benchmark,
   handle_docs = handle_docs,
   handle_make = handle_make,
-  handle_skill = handle_skill,
 }
 
 return M
