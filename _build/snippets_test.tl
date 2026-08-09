@@ -1,4 +1,18 @@
 #!/usr/bin/env cosmic
+--- reads: README.md
+--- reads: AGENTS.md
+--- reads: docs
+--- reads: skills
+--- reads: sys
+--- reads: cmd
+--- reads: cosmic
+--- reads: _build
+--- reads: _cli
+--- reads: _docs
+--- reads: _make
+--- reads: _perf
+--- reads: _tool
+--- reads: _types
 -- Every code snippet this repository shows a reader is real code.
 --
 -- "Shows a reader" is the whole surface, not one directory: the guides
@@ -27,10 +41,17 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local teal = require("cosmic.teal")
 
---- Trees whose markdown is not this repository talking to a reader:
---- build output, vendored source, and the fixture projects that exist
---- to be built rather than read.
-local SKIP < const >: {string} = {"o/", "3p/", "_make/testdata/"}
+--- The files this test reads, from its own `--- reads:` declarations
+--- above. One list, two consumers: make takes it as the prerequisite
+--- set and the content key — so editing a guide re-runs this test
+--- rather than replaying its verdict — and the scan below takes it as
+--- the population. Deriving the second from the first is what keeps
+--- them from drifting, and the model refuses a declaration naming a
+--- path that does not exist.
+local function declared_files(): {string}
+  local imports = require("_make.imports")
+  return (check.must(imports.reads_of_file(".", "_build/snippets_test.tl")))
+end
 
 --- The example project the guides describe — `greet.text` in the
 --- quickstart, `mymod` in the module guide, `cosmic.mymod` in the
@@ -164,21 +185,10 @@ end
 --- Every fence this repository shows a reader.
 local function all_fences(): {Fence}
   local out: {Fence} = {}
-  local function wanted(path: string): boolean
-    for _, prefix in ipairs(SKIP) do
-      if path:sub(1, #prefix) == prefix or path:sub(1, #prefix + 2) == "./" .. prefix then
-        return false
-      end
-    end
-    return true
-  end
-  for _, path in ipairs(check.must(fs.find(".", {glob = "*.md"})) as {string}) do -- cast: find returns paths
-    if wanted(path) then
+  for _, path in ipairs(declared_files()) do
+    if path:sub(-3) == ".md" then
       markdown_fences(path, out)
-    end
-  end
-  for _, path in ipairs(check.must(fs.find(".", {glob = "*.tl"})) as {string}) do -- cast: find returns paths
-    if wanted(path) then
+    elseif path:sub(-3) == ".tl" then
       doc_comment_fences(path, out)
     end
   end
