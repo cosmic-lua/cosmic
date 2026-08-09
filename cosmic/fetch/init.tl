@@ -40,11 +40,17 @@ end
 
 --- A fetch failure, as the retry policy sees it. It is NOT a return
 --- slot: a fallible return is `Response | nil, string` and nothing
---- past it (D20 rule 11, #1063). What a caller needs after the fact —
---- the kind — is the message's own prefix, `"<kind>: <detail>"`, so
---- one string carries both the human and the machine reading.
---- kind is nil only for failures outside the request itself (download's
---- local file IO), and then the message carries no prefix.
+--- past it (D20 rule 11, #1063), and the failure a caller reads is
+--- that string.
+---
+--- The kind survives in it as a prefix — `"<kind>: <detail>"` — which
+--- is there so a log line says what class of failure it was, the way
+--- `errno.format` prefixes its own. Treat it as text, not as a parsed
+--- field: a TYPED reader for the classification would mean an error
+--- value rather than an error string, which is a library-wide question
+--- (#1067) rather than fetch's to answer alone. kind is nil only for
+--- failures outside the request itself (download's local file IO), and
+--- then the message carries no prefix.
 local record Error
   message: string
   kind: ErrorKind
@@ -120,11 +126,17 @@ local record Options
   base_delay_ms: integer
   --- Backoff delay cap in milliseconds (default 30000).
   max_delay_ms: integer
-  --- Predicate consulted after every attempt. Receives the Response
-  --- (nil on a failure) and the Error (nil when a response arrived).
-  --- Return true to retry. When nil, the default policy retries
-  --- transport errors (dns/connect/timeout) and 429/502/503/504
-  --- responses, for idempotent methods only.
+  --- Policy consulted between attempts — after every attempt EXCEPT
+  --- the last, since there is nothing to decide once no attempt
+  --- remains. With the default max_attempts of 1 it is never called
+  --- at all. Receives the Response (nil on a failure) and the Error
+  --- (nil when a response arrived); return true to retry. When nil,
+  --- the default policy retries transport errors (dns/connect/timeout)
+  --- and 429/502/503/504 responses, for idempotent methods only.
+  ---
+  --- It is a policy, not a notification: do not reach for it to
+  --- observe failures, because the failure that ends the call is
+  --- exactly the one it does not see.
   should_retry: function(Response, Error): boolean
 end
 
