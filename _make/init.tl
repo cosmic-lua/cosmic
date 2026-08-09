@@ -472,9 +472,9 @@ local function run(argv: {string}): integer
   end
 
   if v.run then
-    return v.run(p, paths, self)
+    return stage.gate_note(name, v.run(p, paths, self))
   end
-  return stage.run_graph(v, p, paths, self)
+  return stage.gate_note(name, stage.run_graph(v, p, paths, self))
 end
 
 local record MakeModule
