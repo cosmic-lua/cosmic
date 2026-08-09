@@ -21,18 +21,6 @@
 
 ## Types
 
-### Regex
-
- A compiled regular expression pattern.
- Use compile() to create, then call :match() for O(n) matching.
-
-```teal
-local record Regex
-  match: function(self: Regex, text: string, flags?: integer): string | nil, {string} | nil, string | nil
-  find: function(self: Regex, text: string, flags?: integer, init?: integer): integer | nil, integer | string | nil, {string}
-end
-```
-
 ### CompileOptions
 
  Compile behavior. Each field maps to one POSIX cflag; a record
@@ -111,6 +99,19 @@ local record ReModule
   NOTEOL: integer
 end
 ```
+
+### Regex
+
+ A compiled regular expression pattern, as returned by compile().
+ Use compile() to create, then call :match() for O(n) matching.
+ This IS `cosmo.re`'s type, not a mirror of it. The methods live on
+ the binding's own metatable, so their shapes are declared once, in
+ the generated `cosmo/re.d.tl`, where a C tuple belongs — restating
+ them here meant a hand-copy that could drift from the binding (and
+ a `:match` slot the binding never returns), plus a userdata cast on
+ every value crossing between the two nominally-different records.
+
+alias of `cosmo.re.Regex` — field and method table: `cosmic --docs cosmo.re.Regex`
 
 ### MatchIterator
 
