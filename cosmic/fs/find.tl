@@ -140,68 +140,23 @@ local function find_info(dir: string, opts?: FindOptions): FoundInfo | nil, stri
   return {files = files, errors = walked.errors}
 end
 
---- Iterator over file paths, as returned by find_iter(). The second
---- return is nil while paths remain; once the tree is exhausted every
---- further call returns `nil, errs` — the subtree-error list, nil when
---- the walk was clean.
+--- Iterator over file paths, as returned by find_iter(). Callable:
+--- `for f in iter do ... end`. The second return is nil while paths
+--- remain; once the tree is exhausted every further call returns
+--- `nil, errs` — the subtree-error list, nil when the walk was clean.
 ---
---- A plain callable, with nothing to close: find_iter never holds a
---- directory handle across a yield (see below), so an abandoned
---- iterator owns no resource and needs no guard — which is what lets
---- the return be two slots (D20 rule 11) without trading a leak for
---- them.
-local type FileIter = function(): string | nil, {string}
-
---- One directory the walk is inside: its entries, already read, and
---- how far through them the iterator is.
----
---- Reading a directory in FULL and closing its handle before yielding
---- is what makes an abandoned iterator hold nothing. The alternative —
---- a handle per level, held across yields — is cheaper in memory and
---- was what this walker did until #1063; it made
---- `for f in find_iter(d) do break end` leak descriptors until
---- collection, which is a silent bug in the most natural spelling of
---- the call. The cost of the trade is stated where the trade is: the
---- un-consumed names of every ancestor on the current path are in
---- memory, so one directory with millions of entries is expensive
---- where it used to be free.
-local record Level
-  dir: string
-  names: {string}
-  --- Parallel to `names`: the dirent d_type, or nil where the
-  --- filesystem did not report one (holes are intentional — a missing
-  --- d_type must read as missing, not as DT_UNKNOWN).
-  kinds: {integer}
-  --- Index into `names` of the next entry to visit.
-  at: integer
-  depth: integer
-end
-
---- Read one directory into a Level, closing its handle before return.
---- @param dir string The directory to read
---- @param depth integer The depth its entries sit at
---- @return Level | nil The buffered entries, or nil if it cannot be opened
---- @return string The opendir error when slot 1 is nil
-local function read_level(dir: string, depth: integer): Level | nil, string
-  local handle, oerr = unix.opendir(dir)
-  if not handle then
-    return nil, errstr(oerr, "opendir: " .. dir)
-  end
-  local h = handle as WalkDirHandle -- cast: userdata boundary
-  local names: {string} = {}
-  local kinds: {integer} = {}
-  while true do
-    local entry, kind = h:read()
-    if not entry then
-      break
-    end
-    if entry ~= "." and entry ~= ".." then
-      names[#names + 1] = entry
-      kinds[#names] = kind
-    end
-  end
-  h:close()
-  return {dir = dir, names = names, kinds = kinds, at = 1, depth = depth}
+--- It owns the open directory handles, so it is also CLOSEABLE, the
+--- same shape `cosmic.sqlite`'s Rows has: draining it releases them,
+--- and so do `iter:close()`, leaving a `local iter <close> = ...`
+--- scope, and (as the backstop) collection. That is why the guard is
+--- no longer a fourth return value — a to-be-closed slot past the
+--- error is exactly what D20 rule 11 forbids.
+local record FileIter
+  metamethod __call: function(self: FileIter): string | nil, {string}
+  metamethod __close: function(self: FileIter)
+  --- Release every open directory handle without draining the walk.
+  --- Idempotent; the iterator yields nothing afterwards.
+  close: function(self: FileIter)
 end
 
 --- Iterate over matching paths lazily; same selection as find(),
@@ -216,10 +171,22 @@ end
 ---     for f in iter do ... end
 ---     local _, errs = iter() -- subtree errors, nil when clean
 ---
---- Abandoning the iterator — `break`, an error, dropping it on the
---- floor — releases nothing, because it holds nothing: each directory
---- is read and closed before a path is yielded. There is no guard to
---- forward and no close to remember.
+--- Draining the iterator closes every directory handle it opened. A
+--- loop that exits EARLY has not drained it, so say so — the attribute
+--- Lua 5.4 has for exactly this:
+---
+---     local iter <close> = check.must(fs.find_iter(dir))
+---     for f in iter do if done(f) then break end end
+---
+--- (`iter:close()` is the explicit form.) Collection is the backstop,
+--- not the contract.
+---
+--- When stopping early is the POINT rather than an exception, reach
+--- for `fs.visit` instead: its visitor returns "stop", and because
+--- visit owns the loop it closes on the way out without the caller
+--- remembering anything. find_iter is for the case a callback cannot
+--- serve — the consumer driving the walk, interleaving it with other
+--- work.
 --- @param dir string The directory to search
 --- @param opts FindOptions? Selection and depth options (default: all files)
 --- @return FileIter | nil Iterator yielding paths, or nil if the root failed
@@ -229,49 +196,60 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
   local include_dirs = opts and opts.include_dirs
   local max_depth = find_depth(opts)
 
-  -- Stack of buffered levels for depth-first traversal; entries read
-  -- from the stack top at depth d are themselves at depth d.
-  local root, oerr = read_level(dir, 1)
-  if not root then
-    return nil, oerr
+  -- Stack of (dir, handle, depth) for depth-first traversal; entries
+  -- read from a stack top at depth d are themselves at depth d.
+  local stack: {{string, WalkDirHandle, integer}} = {}
+  local handle, oerr = unix.opendir(dir)
+  if not handle then
+    return nil, errstr(oerr, "opendir: " .. dir)
   end
-  local stack: {Level} = {root}
+  table.insert(stack, {dir, handle as WalkDirHandle, 1}) -- cast: userdata boundary
+
+  local function close_all()
+    for i = #stack, 1, -1 do
+      stack[i][2]:close()
+      stack[i] = nil
+    end
+  end
 
   -- Subtree errors, in encounter order; the exhausted iterator's
   -- second return (nil while any path remains).
   local errs: {string} = {}
 
-  -- Shared by both places a subdirectory gets descended into below (the
-  -- DT_DIR fast path and the stat() fallback for DT_UNKNOWN): read it
-  -- onto the traversal stack — unless the depth limit says stop — or
-  -- record the opendir failure.
+  -- Shared by both places a subdirectory gets opened below (the DT_DIR
+  -- fast path and the stat() fallback for DT_UNKNOWN): push it onto
+  -- the traversal stack — unless the depth limit says stop — or record
+  -- the opendir failure.
   local function push_subdir(path: string, child_depth: integer)
     if max_depth ~= 0 and child_depth > max_depth then
       return
     end
-    local level, serr = read_level(path, child_depth)
-    if level then
-      stack[#stack + 1] = level
+    local subhandle, serr = unix.opendir(path)
+    if subhandle then
+      -- cast: userdata boundary
+      table.insert(stack, {path, subhandle as WalkDirHandle, child_depth})
     else
-      errs[#errs + 1] = serr
+      errs[#errs + 1] = errstr(serr, "opendir: " .. path)
     end
   end
 
-  return function(): string | nil, {string}
+  local step = function(): string, {string}
     while #stack > 0 do
       local current = stack[#stack]
-      local i = current.at
-      if i > #current.names then
-        stack[#stack] = nil
-      else
-        current.at = i + 1
-        local entry = current.names[i]
-        local kind = current.kinds[i]
-        local full_path = cosmo_path.join(current.dir, entry)
+      local current_dir = current[1]
+      local current_handle = current[2]
+      local current_depth = current[3]
+
+      local entry, kind = current_handle:read()
+      if not entry then
+        current_handle:close()
+        table.remove(stack)
+      elseif entry ~= "." and entry ~= ".." then
+        local full_path = cosmo_path.join(current_dir, entry)
         if kind == unix.DT_DIR then
           -- d_type never follows symlinks, so this is a real directory
           -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
-          push_subdir(full_path, current.depth + 1)
+          push_subdir(full_path, current_depth + 1)
           if include_dirs and string.match(entry, lua_pattern) then
             return full_path
           end
@@ -288,7 +266,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
           local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
             if unix.S_ISDIR(st:mode()) then
-              push_subdir(full_path, current.depth + 1)
+              push_subdir(full_path, current_depth + 1)
               if include_dirs and string.match(entry, lua_pattern) then
                 return full_path
               end
@@ -306,6 +284,17 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
     end
     return nil, errs
   end
+
+  -- The iterator IS the resource handle: closing it — by draining, by
+  -- `iter:close()`, by leaving a `<close>` scope, or by collection —
+  -- runs the same close_all. __gc stays the backstop it always was.
+  local iter = setmetatable({} as FileIter, { -- cast: table seeded as record
+      __call = step,
+      __close = close_all,
+      __gc = close_all,
+      __index = {close = close_all},
+    })
+  return iter
 end
 
 --- List entries in one directory whose name matches a glob component.
