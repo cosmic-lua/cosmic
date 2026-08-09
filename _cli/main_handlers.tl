@@ -220,7 +220,7 @@ local function handle_check_types(file: string, include_dirs?: {string}): intege
   local result = tealc.check_file(file, {include_dirs = include_dirs})
 
   if #result.warnings > 0 then
-    io.stderr:write(tealc.format_issues(result.warnings, nil) .. "\n")
+    io.stderr:write(tealc.format_issues(result.warnings, {hints = true}) .. "\n")
   end
   if #result.errors > 0 then
     io.stderr:write(tealc.format_issues(result.errors, {hints = true}) .. "\n")

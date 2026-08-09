@@ -148,7 +148,7 @@ local function check_files(files: {File}): integer
   for _, f in ipairs(files) do
     local result = teal.check_file(f.path, {include_dirs = include_dirs})
     if #result.warnings > 0 then
-      io.stderr:write(teal.format_issues(result.warnings) .. "\n")
+      io.stderr:write(teal.format_issues(result.warnings, {hints = true}) .. "\n")
     end
     if #result.errors > 0 then
       io.stderr:write(teal.format_issues(result.errors, {hints = true}) .. "\n")
