@@ -24,13 +24,13 @@ local spec: flags.Spec = {
     {long = "help", short = "h", help = "show help"},
     {long = "compile", arg = "FILE", help = "compile a Teal file"},
     {long = "compile-strict", arg = "FILE", help = "compile, warnings fatal"},
-    {long = "format", arg = "FILE", help = "print a file formatted"},
-    {long = "fix", arg = "FILE", help = "format a file in place"},
+    {long = "format", arg = "FILE", help = "print files formatted"},
+    {long = "fix", arg = "FILE", help = "format files in place"},
     -- One flag, a KIND, then the file: `--check types foo.tl`. It
     -- mirrors `--make <verb> [paths]` — a word, then what to apply it
     -- to — so the per-file spelling and the project-wide one are one
     -- vocabulary instead of four flags beside four verbs.
-    {long = "check", arg = "KIND", help = "run one check kind on a file"},
+    {long = "check", arg = "KIND", help = "run one check kind on files"},
     {long = "embed", arg = "PATH", repeated = true,
       help = "embed a file into the output executable"},
     {long = "output", arg = "FILE", help = "where to write"},
@@ -118,10 +118,47 @@ local function renamed_check(argv: {string}): string | nil
   return nil
 end
 
+--- The path list behind a file-taking flag: the flag's own argument
+--- first, then the positionals that followed it. `first` is nil for
+--- `--check`, whose argument is the KIND rather than a path.
+--- @param first string The flag's own argument, when it names a file
+--- @param rest {string} The positionals the parser left over
+--- @return {string} Every path named, in the order given
+local function with_extra_paths(first: string, rest: {string}): {string}
+  local paths: {string} = {}
+  if first then
+    paths[#paths + 1] = first
+  end
+  for _, path in ipairs(rest) do
+    paths[#paths + 1] = path
+  end
+  return paths
+end
+
+--- Run one per-file action over every path and return the WORST exit
+--- code, so one bad file among many still fails the run. One fan-out,
+--- shared by every flag that takes a path list.
+--- @param paths {string} The files to act on
+--- @param action function What to do with one path
+--- @return integer The worst exit code any path produced
+local function over_paths(paths: {string},
+    action: function(string): integer): integer
+  local worst = 0
+  for _, path in ipairs(paths) do
+    local code = action(path)
+    if code > worst then
+      worst = code
+    end
+  end
+  return worst
+end
+
 return {
   spec = spec,
   renamed_check = renamed_check,
   resolve_optional_arg = resolve_optional_arg,
+  with_extra_paths = with_extra_paths,
+  over_paths = over_paths,
   -- Derived from the spec, for the dispatcher's pre-scan (main.tl).
   short_needs_arg = short_needs_arg,
   long_needs_arg = long_needs_arg,

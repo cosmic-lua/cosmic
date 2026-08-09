@@ -54,11 +54,13 @@ local record Options
   script_args: {integer: string}
   compile: string
   compile_strict: string
-  format: string
-  fix: string
-  --- The kind named by `--check <kind>`, and the file it applies to.
+  --- The file-taking flags all take a LIST. A path the tool accepted
+  --- and then ignored is the one outcome a gate must not have.
+  format: {string}
+  fix: {string}
+  --- The kind named by `--check <kind>`, and the files it applies to.
   check_kind: string
-  check_file: string
+  check_files: {string}
   embed: {string}
   output: string
   extract: string
@@ -92,6 +94,9 @@ local function parse_args(): Options
     help = false,
     script_args = {},
     embed = {},
+    format = {},
+    fix = {},
+    check_files = {},
     welcome = false,
     write_if_changed = false,
     include_dirs = {},
@@ -100,17 +105,17 @@ local function parse_args(): Options
   local short_needs_arg = cli_args.short_needs_arg
   local long_needs_arg = cli_args.long_needs_arg
 
-  -- Options that consume all remaining arguments (no script after them)
+  -- Options that consume all remaining arguments (no script after them).
+  -- The file-taking flags belong here because they take a path LIST:
+  -- anything else stops this scan at the first positional past a flag's
+  -- declared arity and reads the rest as a script name, so the parser
+  -- never sees those paths. Greedy, they arrive as the list they are.
   local long_greedy: {string: boolean} = {
     ["report"] = true,
     ["coverage-report"] = true,
-  }
-
-  -- Options that take their own argument AND one positional after it:
-  -- `--check <kind> <file>`. Without this the file reads as a script
-  -- name and parsing stops before it.
-  local long_extra_arg: {string: boolean} = {
     ["check"] = true,
+    ["fix"] = true,
+    ["format"] = true,
   }
 
   -- Find first non-option argument (script name) to know where to stop parsing
@@ -146,11 +151,9 @@ local function parse_args(): Options
         payload_parse_end = eq and i or i + 1
         script_idx = nil
         break
-      elseif long_greedy[opt_name] then
+      elseif long_greedy[opt_name:match("^([^=]+)=") or opt_name] then
         script_idx = nil
         break
-      elseif long_extra_arg[opt_name:match("^([^=]+)=") or opt_name] then
-        i = i + (opt_name:find("=", 1, true) and 2 or 3)
       elseif not opt_name:find("=") and long_needs_arg[opt_name] then
         i = i + 2
       else
@@ -234,13 +237,22 @@ local function parse_args(): Options
   opts.help = p.help
   opts.compile = p.values["compile"]
   opts.compile_strict = p.values["compile-strict"]
-  opts.format = p.values["format"]
-  opts.fix = p.values["fix"]
+  -- The flag's own argument is the first path; the rest are the
+  -- positionals the parser left in p.args, so `--fix a.tl b.tl` names
+  -- both files. The list stays empty unless the flag itself was given:
+  -- the positionals belong to whichever flag claimed them, not to
+  -- every flag.
+  if p.values["format"] then
+    opts.format = cli_args.with_extra_paths(p.values["format"], p.args)
+  end
+  if p.values["fix"] then
+    opts.fix = cli_args.with_extra_paths(p.values["fix"], p.args)
+  end
   if p.values["check"] then
-    -- The kind is the flag's argument; the file is the next
-    -- positional, which the parser has left in p.args.
+    -- The kind is the flag's argument; the files are the positionals,
+    -- which the parser has left in p.args.
     opts.check_kind = p.values["check"]
-    opts.check_file = p.args[1]
+    opts.check_files = cli_args.with_extra_paths(nil, p.args)
   end
   for _, path in ipairs(p.lists["embed"]) do
     opts.embed[#opts.embed + 1] = path
@@ -269,7 +281,7 @@ local function parse_args(): Options
   -- A command flag ends the run before any script dispatch, matching
   -- the old parse loop's early returns.
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
-  or opts.format or opts.fix or opts.check_kind or opts.extract
+  or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.extract
   or opts.examples or opts.benchmark or opts.docs or opts.test_output
   or opts.report_paths or opts.coverage_report_paths or opts.make_verb then
     return opts
@@ -337,10 +349,25 @@ local function main(): integer, string
   end
   if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
   if opts.compile_strict then return handlers.handle_compile(opts.compile_strict, opts.output, opts.write_if_changed, opts.include_dirs, true) end
-  if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
-  if opts.fix then return handlers.handle_format(opts.fix, opts.fix, true) end
+  if #opts.format > 0 then
+    if #opts.format > 1 and opts.output then
+      io.stderr:write("cosmic-lua: --output takes one file; " ..
+        "--format printed several\n")
+      return 1
+    end
+    return cli_args.over_paths(opts.format, function(path: string): integer
+        -- Parenthesized: handle_format returns (code, err) and this
+        -- wants the code alone.
+        return (handlers.handle_format(path, opts.output, opts.write_if_changed))
+      end)
+  end
+  if #opts.fix > 0 then
+    return cli_args.over_paths(opts.fix, function(path: string): integer
+        return (handlers.handle_format(path, path, true))
+      end)
+  end
   if opts.check_kind then
-    return require("_cli.check").run(opts.check_kind, opts.check_file,
+    return require("_cli.check").run(opts.check_kind, opts.check_files,
       opts.include_dirs)
   end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end

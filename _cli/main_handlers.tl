@@ -172,7 +172,7 @@ local function handle_check_format(file: string): integer
   end
 
   if original == result.code then
-    io.write("Format check passed\n")
+    io.write("Format check passed: " .. file .. "\n")
     instrument.finish(span, 0)
     return 0
   end
@@ -227,7 +227,7 @@ local function handle_check_types(file: string, include_dirs?: {string}): intege
   end
 
   if result.ok then
-    io.write("Type check passed\n")
+    io.write("Type check passed: " .. file .. "\n")
     instrument.finish(span, 0)
     return 0
   else
@@ -348,7 +348,7 @@ local function handle_check_style(file: string): integer
   end
   local diagnostics = found
   if #diagnostics == 0 then
-    io.write("Style check passed\n")
+    io.write("Style check passed: " .. file .. "\n")
     instrument.finish(span, 0)
     return 0
   end
