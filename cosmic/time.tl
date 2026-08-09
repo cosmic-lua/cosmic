@@ -71,42 +71,40 @@ local function monotonic_ns(): integer
   return secs * 1000000000 + nanos
 end
 
--- The (seconds, nanos) engine under sleep_ms — internal since #999:
--- rule 2 makes integer milliseconds THE duration, and this was the
--- tree's only three-return function.
-local function sleep(seconds: integer, nanos?: integer): integer | nil, integer, string
+-- The engine under sleep_ms — internal since #999: rule 2 makes
+-- integer milliseconds THE duration, and this was the tree's only
+-- three-return function. It reports the remainder in MILLISECONDS for
+-- the same reason it has two slots (#1063): the (secs, nanos) pair
+-- pushed the error into slot 3, out of `local v, err`'s reach.
+local function sleep_remaining_ms(seconds: integer, nanos?: integer): integer | nil, string
   local ns = nanos or 0
   -- The binding reports its own remainder now (cosmopolitan#237): zero
   -- when the sleep completed, and on EINTR the kernel's own remainder
   -- after the errno. Both used to need a pair of clock reads here.
   local rem_s, rem_ns, eno, eintr_s, eintr_ns = unix.nanosleep(seconds, ns)
+  -- Round up so an interrupted sleep never reports 0 remaining.
   if rem_s ~= nil then
-    return rem_s, rem_ns
+    return math.ceil(rem_s * 1000 + rem_ns / 1000000)
   end
   if errno.is_code(eno, "EINTR") then
-    return eintr_s or 0, eintr_ns or 0, errno.format(rem_ns, "sleep")
+    return math.ceil((eintr_s or 0) * 1000 + (eintr_ns or 0) / 1000000),
+    errno.format(rem_ns, "sleep")
   end
-  return nil, nil, errno.format(rem_ns, "sleep")
+  return nil, errno.format(rem_ns, "sleep")
 end
 
 --- Sleep for the specified number of milliseconds.
 --- The remainder is a single MILLISECONDS number — no (secs, nanos)
 --- arithmetic in retry loops: 0 on an uninterrupted sleep; the
 --- remaining milliseconds plus an EINTR-tagged error when a signal
---- interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
---- its (secs, nanos, err) contract for symmetry with now/monotonic.
+--- interrupts; nil, err on invalid input (EINVAL).
 --- @param ms number Milliseconds to sleep
 --- @return integer | nil Remaining milliseconds (0 on success), or nil on invalid input
 --- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
 local function sleep_ms(ms: number): integer | nil, string
   local seconds = math.floor(ms / 1000)
   local remaining_ms = ms % 1000
-  local rem_s, rem_ns, err = sleep(seconds, math.floor(remaining_ms * 1000000))
-  if rem_s == nil then
-    return nil, err
-  end
-  -- Round up so an interrupted sleep never reports 0 remaining.
-  return math.ceil(rem_s * 1000 + rem_ns / 1000000), err
+  return sleep_remaining_ms(seconds, math.floor(remaining_ms * 1000000))
 end
 
 --- Shared by gmtime/localtime: they differ only in which cosmo.unix
@@ -116,6 +114,9 @@ end
 --- @param unixts integer UNIX timestamp (seconds since epoch)
 --- @return DateTime Broken-down time
 local function breakdown(
+    -- returns: fn is the raw cosmo.unix gmtime/localtime binding, whose
+    -- 13-value tuple is the C contract; this wrapper is what folds it
+    -- into a DateTime record, which is rule 11 applied, not dodged
     fn: function(integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string, unix.Errno,
     unixts: integer
   ): DateTime

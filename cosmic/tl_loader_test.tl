@@ -174,10 +174,10 @@ print("value=" .. require("goodmod").value)
   local r = check.must(h:wait())
   assert(r.ok, "good .tl require should succeed: " .. tostring(r.stderr))
   assert(tostring(r.stdout):find("value=cached", 1, true))
-  local counted = fs.visit(cachedir, function(_e: fs.Entry, acc: {integer})
-      acc[1] = acc[1] + 1
-    end, {0})
-  local n = check.must(counted, "cache dir should exist and be walkable")
+  local n: {integer} = {0}
+  check.must(fs.visit(cachedir, function(_e: fs.Entry, acc: {integer})
+        acc[1] = acc[1] + 1
+      end, n), "cache dir should exist and be walkable")
   assert(n[1] > 0,
     "compile cache should hold the required module's output")
 end

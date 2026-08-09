@@ -8,10 +8,11 @@ local time = require("cosmic.time")
 local check = require("cosmic.check")
 
 local function test_parse_request_line()
-  local m, t, v = http.parse_request_line("GET http://a.example.com/ HTTP/1.1\r\n")
-  assert(m == "GET", "method: " .. tostring(m))
-  assert(t == "http://a.example.com/", "target: " .. tostring(t))
-  assert(v == "HTTP/1.1", "version: " .. tostring(v))
+  local line = check.must(http.parse_request_line(
+      "GET http://a.example.com/ HTTP/1.1\r\n"))
+  assert(line.method == "GET", "method: " .. tostring(line.method))
+  assert(line.target == "http://a.example.com/", "target: " .. tostring(line.target))
+  assert(line.version == "HTTP/1.1", "version: " .. tostring(line.version))
   assert(http.parse_request_line("bogus\r\n") == nil, "garbage rejected")
   assert(http.parse_request_line("get / HTTP/1.1\r\n") == nil,
     "lowercase method rejected")
@@ -29,14 +30,14 @@ end
 test_parse_connect_target()
 
 local function test_parse_absolute_uri()
-  local s, h, p, path = http.parse_absolute_uri("http://a.example.com/x/y")
-  assert(s == "http" and h == "a.example.com", "scheme + host")
-  assert(p == 80 and path == "/x/y", "default http port + path")
-  s, h, p, path = http.parse_absolute_uri("https://a.example.com")
-  assert(s == "https" and p == 443 and path == "/",
+  local u = check.must(http.parse_absolute_uri("http://a.example.com/x/y"))
+  assert(u.scheme == "http" and u.host == "a.example.com", "scheme + host")
+  assert(u.port == 80 and u.path == "/x/y", "default http port + path")
+  u = check.must(http.parse_absolute_uri("https://a.example.com"))
+  assert(u.scheme == "https" and u.port == 443 and u.path == "/",
     "https default port, bare path")
-  s, h, p, path = http.parse_absolute_uri("http://a.example.com:8080/z")
-  assert(p == 8080 and path == "/z", "explicit port")
+  u = check.must(http.parse_absolute_uri("http://a.example.com:8080/z"))
+  assert(u.port == 8080 and u.path == "/z", "explicit port")
   assert(http.parse_absolute_uri("/origin-form") == nil,
     "origin-form rejected")
   assert(http.parse_absolute_uri("ftp://a.example.com/") == nil,

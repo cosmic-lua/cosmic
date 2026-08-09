@@ -137,8 +137,7 @@ end
 
 local function test_collect_with_glob()
   local walk_dir = setup_walk()
-  -- cast: or fallback does not narrow
-  local found = (fs.find(walk_dir, {glob = "*.lua"}) or {}) as {string}
+  local found = check.must(fs.find(walk_dir, {glob = "*.lua"}))
 
   assert(#found == 3, "expected 3 lua files, got " .. #found)
 
@@ -157,7 +156,7 @@ test_collect_with_glob()
 local function test_collect_glob_escapes_brackets()
   -- A glob's [ ] must be literal, not a Lua class: "*[1].lua" matches nothing.
   local walk_dir = setup_walk()
-  local found = (fs.find(walk_dir, {glob = "*[1].lua"}) or {})
+  local found = check.must(fs.find(walk_dir, {glob = "*[1].lua"}))
   assert(#found == 0, "expected brackets treated literally, got " .. #found)
   teardown(walk_dir)
 end
@@ -165,8 +164,7 @@ test_collect_glob_escapes_brackets()
 
 local function test_collect_with_lua_pattern()
   local walk_dir = setup_walk()
-  -- cast: or fallback does not narrow
-  local found = (fs.find(walk_dir, {pattern = "%.txt$"}) or {}) as {string}
+  local found = check.must(fs.find(walk_dir, {pattern = "%.txt$"}))
 
   assert(#found == 1, "expected 1 txt file, got " .. #found)
   assert(fs.basename(found[1]) == "file2.txt", "expected file2.txt")
@@ -195,9 +193,8 @@ test_walk_with_visitor()
 
 local function test_find_info()
   local walk_dir = setup_walk()
-  local collected = fs.find_info(walk_dir)
-  assert(collected, "find_info should succeed")
-  local found = collected
+  local collected = check.must(fs.find_info(walk_dir))
+  local found = collected.files
 
   -- Keys are FULL paths (#987), like every find sibling.
   assert(found[fs.join(walk_dir, "file1.lua")] ~= nil, "expected file1.lua")
@@ -243,7 +240,7 @@ test_files_iterator_all()
 local function test_walk_empty_directory()
   local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
   assert(fs.make_dirs(empty_dir))
-  local found = (fs.find(empty_dir, {glob = "*.lua"}) or {})
+  local found = check.must(fs.find(empty_dir, {glob = "*.lua"}))
   assert(#found == 0, "expected 0 files, got " .. #found)
   assert(fs.remove_all(empty_dir))
 end

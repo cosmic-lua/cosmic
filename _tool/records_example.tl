@@ -40,8 +40,9 @@ local function Example_summary_round_trip()
   local records = require("_tool.records")
   local line = records.counts(17, 1, 1)
   print(line)
-  local passed, failed, skipped = records.parse_counts(line)
-  print(passed, failed, skipped)
+  local check = require("cosmic.check")
+  local c = check.must(records.parse_counts(line))
+  print(c.passed, c.failed, c.skipped)
   -- Output:
   -- 19 checks: 17 passed, 1 failed, 1 skipped
   -- 17	1	1

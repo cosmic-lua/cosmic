@@ -208,14 +208,15 @@ end
 local function recipe(line: string): integer
   return with_coverage(function(): integer
       local b = require("_cli.build")
-      local verb, args, err = b.parse(line)
+      local recipe_line, err = b.parse(line)
       if err ~= nil then
         io.stderr:write("cosmic -c: " .. err .. "\n")
         return 1
       end
-      if verb == nil then
+      if recipe_line == nil then
         return 0
       end
+      local verb, args = recipe_line.verb, recipe_line.args
       ensure_build_tmpdir()
       local ferr = fence(verb, args)
       if ferr ~= nil then

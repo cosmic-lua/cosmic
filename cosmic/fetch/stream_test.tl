@@ -197,21 +197,21 @@ end
 test_read_until_remainder_guards_and_close()
 
 local function test_stream_validation_and_error_kind()
-  local result, verr, verrobj = fetch.stream("ftp://example.com/x")
+  local result, verr = fetch.stream("ftp://example.com/x")
   assert(result == nil, "ftp scheme must be rejected")
-  assert(verr:find("unsupported URL scheme") ~= nil,
+  assert(verr:find("unsupported URL scheme", 1, true) ~= nil,
     "validation error expected, got: " .. tostring(verr))
-  assert(verrobj and verrobj.kind == "invalid_request",
+  assert(verr:match("^invalid_request: "),
     "validation failures carry kind invalid_request")
 
-  local refused, _rerr, rerrobj = fetch.stream("http://127.0.0.1:1/", {allow_private = true})
+  local refused, rerr = fetch.stream("http://127.0.0.1:1/", {allow_private = true})
   assert(refused == nil, "dead port must fail")
-  assert(rerrobj and rerrobj.kind == "connect",
-    "stream kind should be 'connect', got " .. tostring(rerrobj and rerrobj.kind))
+  assert(rerr and rerr:match("^connect: "),
+    "stream kind should be 'connect', got " .. tostring(rerr))
 
-  local blocked, _berr, berrobj = fetch.stream("http://127.0.0.1:1/")
+  local blocked, berr = fetch.stream("http://127.0.0.1:1/")
   assert(blocked == nil, "SSRF guard applies to streams")
-  assert(berrobj and berrobj.kind == "blocked",
-    "kind should be 'blocked', got " .. tostring(berrobj and berrobj.kind))
+  assert(berr and berr:match("^blocked: "),
+    "kind should be 'blocked', got " .. tostring(berr))
 end
 test_stream_validation_and_error_kind()

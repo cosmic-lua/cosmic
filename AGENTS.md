@@ -169,9 +169,8 @@ local) and `is` early-exit guards (`if not (x is Rec) then return end`). The oth
   passes multiple returns through, so a failing call reports the callee's own error
   string. `must` narrows nil only (`false` passes through), and it throws, so it is for
   tests/examples, never library code. Like `assert`, must forwards extra returns past
-  the second, so `for p in check.must(fs.find_iter(d)) do` keeps the 4th return (the to-be-
-  closed guard that releases directory handles on early break); a plain `value, err` pair
-  still collapses to the value alone. Never write `assert(x) as T` in a test; that pattern is retired.
+  the second; a plain `value, err` pair still collapses to the value alone. Never write
+  `assert(x) as T` in a test; that pattern is retired.
 - **Use `is` for dispatch past nil**: `if sock is net.Socket then sock:send(...)
   end` narrows inside the positive branch (one `type(x) == "table"` check); also
   dispatch over `any` (`if v is {string: any} then`). A record whose runtime
@@ -191,6 +190,17 @@ or as a comment on the line directly above when the 90-column width
 won't fit it. Write the actual reason (`from any`, `userdata boundary`,
 `tuple element`, `record union after guard`, ...) — a cast you cannot
 justify is one to remove, via `is`, `check.must`, or a precise type.
+
+**A fallible return has TWO slots.** If slot 1 admits nil (`T | nil`, or
+`any`), slot 2 is the error and there is nothing after it — enforced by the
+`fallible-returns` lint, in every project cosmic builds, and settled as
+[D20](docs/decisions/d20-naming-charter.md) rule 11. Extras ride on the value's
+record (`fs.find`'s `.errors`, `sqlite`'s `Checkout`), never in slot 3, because
+`local v, err = f()` and `check.must(f())` are the only two call shapes anyone
+writes and neither can see past the second. An infallible tuple is untouched
+(`string.partition` returns three strings and none of them could be an error).
+A `cosmo.*` binding's tuple is not ours to fold — those declarations carry a
+`-- returns: <reason>`. Full rule: `cosmic --docs guide.lint`.
 
 **`find` says whether it means a pattern.** A variable needle in
 `s:find(x)` needs `, 1, true` (substring) or `, 1, false` (real

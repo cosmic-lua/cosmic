@@ -24,16 +24,18 @@ local function test_render_parse_roundtrip()
         {"lib/a.tl", 9, 10},
         {"lib/b.tl", 0, 5},
       }))
-  local entries, total, err = baseline.parse(text)
-  local e = check.must(entries, err)
+  local parsed, err = baseline.parse(text)
+  local b = check.must(parsed, err)
+  local e = b.rows
   assert(e["lib/a.tl"].covered == 9 and e["lib/a.tl"].total == 10, "row a lost")
   assert(e["lib/b.tl"].covered == 0 and e["lib/b.tl"].total == 5, "row b lost")
-  assert(total and total.covered == 9 and total.total == 15, "total row wrong")
+  assert(b.total and b.total.covered == 9 and b.total.total == 15,
+    "total row wrong")
 end
 test_render_parse_roundtrip()
 
 local function test_parse_rejects_garbage()
-  local entries, _, err = baseline.parse("lib/a.tl nine ten\n")
+  local entries, err = baseline.parse("lib/a.tl nine ten\n")
   assert(entries == nil, "garbage row must not parse")
   assert(err and err:find("line 1"), "error should name the line: " .. tostring(err))
 end
@@ -43,9 +45,8 @@ test_parse_rejects_garbage()
 local function violations(current: {{string, integer, integer}},
     base: {{string, integer, integer}}): {string}
   local text = baseline.render(reports(base))
-  local entries, total = baseline.parse(text)
-  return baseline.compare(reports(current),
-    check.must(entries), total)
+  local parsed = check.must(baseline.parse(text))
+  return baseline.compare(reports(current), parsed.rows, parsed.total)
 end
 
 local function test_holds_when_unchanged_or_improved()
@@ -193,12 +194,8 @@ test_lowered_is_silent_when_it_cannot_tell()
 -- machine that measures more must not raise them, or CI fails on a row
 -- nobody edited.
 local function test_render_never_raises_a_committed_floor()
-  -- Bound before must(): parse returns three values, and handing a
-  -- multi-return call to must() as its only argument spreads them into
-  -- must's own parameters.
-  local parsed = baseline.parse(
-    "# h\n# c\nkept.tl 4 10\nworse.tl 9 10\ngrown.tl 8 10\n")
-  local floor = check.must(parsed)
+  local floor = check.must(baseline.parse(
+      "# h\n# c\nkept.tl 4 10\nworse.tl 9 10\ngrown.tl 8 10\n")).rows
   local text = baseline.render(reports({
         -- measures better than its floor: the floor is kept verbatim
         {"kept.tl", 9, 10},

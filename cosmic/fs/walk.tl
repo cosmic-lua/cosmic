@@ -26,6 +26,35 @@ local record WalkOptions
   max_depth: integer
 end
 
+--- What a completed walk produced: the subtree failures it survived.
+--- The accumulator is the caller's own — they passed it in — so the
+--- one thing a walk produces that they do NOT already hold is what
+--- went wrong, and it belongs on the result rather than in a third
+--- slot they have to know to ask for (D20 rule 11).
+local record Walked
+  --- Subtree failures, in encounter order; nil when the walk was clean.
+  errors: {string}
+end
+
+local record FsWalkModule
+  --- One visited entry: path (full), name, stat, depth. In visit()'s
+  --- public signature, so it is exported (D20 rule 10).
+  type Entry = Entry
+
+  --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
+  type WalkAction = WalkAction
+
+  --- Options for visit()/walk() max_depth.
+  type WalkOptions = WalkOptions
+
+  --- What a completed walk produced.
+  type Walked = Walked
+
+  --- Walk dir tree with an Entry-record visitor; slot 2 is the root
+  --- failure, `.errors` on the result the subtree-error list.
+  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked | nil, string
+end
+
 local walk_tree: function<T>(string,
 function(Entry, T): (WalkAction ...), T, {string}, integer, integer): boolean
 
@@ -103,17 +132,17 @@ end
 ---
 --- Slot 2 means failure, period: if the root cannot be opened, visit
 --- returns nil plus the error. Failures below the root (an unreadable
---- subdirectory, a vanished entry) do not stop the walk; they are
---- returned as a list in slot 3 — nil when the walk was clean — so a
---- partial walk is never mistaken for a complete one.
+--- subdirectory, a vanished entry) do not stop the walk; they ride on
+--- the result as `walked.errors` — nil when the walk was clean — so a
+--- partial walk is never mistaken for a complete one, and a two-slot
+--- return still says everything (D20 rule 11).
 --- @param dir string The directory to walk
 --- @param visitor function Called per entry: function(e: Entry, ctx): nil|"skip"|"stop"
 --- @param ctx T Optional context passed to every visitor call
 --- @param opts WalkOptions? max_depth limits how deep the walk descends
---- @return T | nil The context object, or nil if the root could not be opened
+--- @return Walked | nil The walk's `.errors`, or nil if the root could not be opened
 --- @return string The root-open error when slot 1 is nil
---- @return {string} Subtree errors, in encounter order (nil when none)
-local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string, {string}
+local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): Walked | nil, string
   ctx = ctx or {} as T -- cast: fresh table as generic T
   local max_depth = 0
   if opts and opts.max_depth then
@@ -127,25 +156,9 @@ local function visit<T>(dir: string, visitor: function(Entry, T): (WalkAction ..
   -- cast: userdata boundary
   walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errs, 1, max_depth)
   if #errs == 0 then
-    return ctx
+    return {}
   end
-  return ctx, nil, errs
-end
-
-local record FsWalkModule
-  --- One visited entry: path (full), name, stat, depth. In visit()'s
-  --- public signature, so it is exported (D20 rule 10).
-  type Entry = Entry
-
-  --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
-  type WalkAction = WalkAction
-
-  --- Options for visit()/walk() max_depth.
-  type WalkOptions = WalkOptions
-
-  --- Walk dir tree with an Entry-record visitor; slot 2 is the root
-  --- failure, slot 3 the subtree-error list.
-  visit: function<T>(dir: string, visitor: function(Entry, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string, {string}
+  return {errors = errs}
 end
 
 local M: FsWalkModule = {

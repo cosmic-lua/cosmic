@@ -181,8 +181,8 @@ local function do_verdict(args: {string}): integer
     local summary = fs.read(fs.join(o_dir, s .. "-summary.txt"))
     if summary then
       io.write(summary)
-      local seen, bad = records.parse_counts(summary)
-      if seen ~= nil and bad > 0 then
+      local c = records.parse_counts(summary)
+      if c ~= nil and c.failed > 0 then
         table.insert(failed, s)
       elseif not fs.stat(fs.join(o_dir, "ci-ok-" .. s)) then
         table.insert(failed, s .. " (exit)")

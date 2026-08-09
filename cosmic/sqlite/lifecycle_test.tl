@@ -5,6 +5,13 @@
 local sqlite = require("cosmic.sqlite")
 local check = require("cosmic.check")
 
+--- Scalar lookups go through query_one, which names the column it
+--- reads rather than trusting position (#1063 retired query_value).
+local function count_rows(db: sqlite.Database): integer
+  -- cast: a row column is `any`
+  return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as integer
+end
+
 local function open_db(): sqlite.Database
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
@@ -88,7 +95,7 @@ local function test_multi_statement_rejected_with_params()
   assert(not ok, "parameterized multi-statement exec must be rejected")
   assert(err and err:find("multi-statement", 1, true),
     "error must name the problem: " .. tostring(err))
-  check.equal(db:query_value("SELECT COUNT(*) FROM t"), 2,
+  check.equal(count_rows(db), 2,
     "nothing may have run")
 
   local ok2, err2 = db:exec(
@@ -126,7 +133,8 @@ local function test_multi_statement_scan_false_positives()
     "trailing block comment after ; is one statement")
   assert(db:exec("INSERT INTO t (name) VALUES ('a; b')"),
     "semicolon inside a string literal is one statement")
-  local v = db:query_value("SELECT name FROM t WHERE name = ?", {"a; b"})
+  local v = check.must(db:query_one("SELECT name FROM t WHERE name = ?",
+      {"a; b"})).name
   check.equal(v, "a; b", "the literal value round-trips")
   assert(db:exec("INSERT INTO t (name) VALUES ('it''s; fine')"),
     "doubled-quote escape does not end the literal")
@@ -140,7 +148,8 @@ local function test_multi_statement_scan_false_positives()
   assert(db:exec_script(
       "INSERT INTO t (name) VALUES ('m1'); INSERT INTO t (name) VALUES ('m2')"),
     "exec_script runs multi-statement sql")
-  check.equal(db:query_value("SELECT COUNT(*) FROM t WHERE name LIKE 'm_'"), 2)
+  check.equal(check.must(
+      db:query_one("SELECT COUNT(*) AS n FROM t WHERE name LIKE 'm_'")).n, 2)
 
   assert(db:close())
 end
@@ -155,14 +164,14 @@ local function test_transaction_callback_typed_rollback()
       return false
     end)
   assert(not ok, "returned false must roll back")
-  check.equal(db:query_value("SELECT COUNT(*) FROM t"), 2, "insert rolled back")
+  check.equal(count_rows(db), 2, "insert rolled back")
 
   local ok2, err2 = db:transaction(function(d: sqlite.Database): boolean, string
       assert(d:exec("INSERT INTO t (name) VALUES ('kept')"))
       return true
     end)
   assert(ok2, "returned true must commit: " .. tostring(err2))
-  check.equal(db:query_value("SELECT COUNT(*) FROM t"), 3, "insert committed")
+  check.equal(count_rows(db), 3, "insert committed")
   assert(db:close())
 end
 test_transaction_callback_typed_rollback()

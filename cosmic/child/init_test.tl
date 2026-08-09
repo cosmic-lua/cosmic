@@ -372,7 +372,7 @@ local function test_spawn_overlap_no_stdin_leak()
   -- EOF once the parent closes its write end and finish without waiting on B.
   local a = check.must(child.start({lua_bin, "-e", "io.write(io.read('*a') or '')"},
       {stdin = "hello"}))
-  local b = check.must(child.start({lua_bin, "-e", "require('cosmic.time').sleep(10)"}))
+  local b = check.must(child.start({lua_bin, "-e", "require('cosmic.time').sleep_ms(10000)"}))
 
   local s0, n0 = time.monotonic()
   local r = check.must(a:wait())

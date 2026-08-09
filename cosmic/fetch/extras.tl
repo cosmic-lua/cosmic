@@ -256,17 +256,17 @@ end
 --- The verb helpers and download, built around init's fetch/stream so
 --- no require cycle forms. wrap attaches init's Response metatable
 --- (is_success/json) to download's synthesized responses; fail_make
---- builds init's (nil, message, Error) failure triple.
+--- builds init's `nil, message` failure pair.
 local record Made
-  get: function(string, any): any, any, any
-  post: function(string, any): any, any, any
-  put: function(string, any): any, any, any
-  delete: function(string, any): any, any, any
-  download: function(string, string, any): any, any, any
+  get: function(string, any): any, any
+  post: function(string, any): any, any
+  put: function(string, any): any, any
+  delete: function(string, any): any, any
+  download: function(string, string, any): any, any
 end
 
-local function verb(fetch_fn: function(string, any): (any, any, any), method: string): function(string, any): (any, any, any)
-  return function(url: string, opts_any: any): (any, any, any)
+local function verb(fetch_fn: function(string, any): (any, any), method: string): function(string, any): (any, any)
+  return function(url: string, opts_any: any): (any, any)
     local o: {string: any} = {}
     if opts_any then
       for k, v in pairs(opts_any as {string: any}) do -- cast: from any
@@ -278,10 +278,10 @@ local function verb(fetch_fn: function(string, any): (any, any, any), method: st
   end
 end
 
-local function make(fetch_fn: function(string, any): (any, any, any),
-    stream_fn: function(string, any): (any, any, any),
+local function make(fetch_fn: function(string, any): (any, any),
+    stream_fn: function(string, any): (any, any),
     wrap: function(any): any,
-    fail_make: function(string): (any, any, any)): Made
+    fail_make: function(string): (any, any)): Made
   local made: Made = {
     get = verb(fetch_fn, "GET"),
     post = verb(fetch_fn, "POST"),
@@ -289,17 +289,17 @@ local function make(fetch_fn: function(string, any): (any, any, any),
     delete = verb(fetch_fn, "DELETE"),
   }
 
-  made.download = function(url: string, path: string, opts_any: any): (any, any, any)
-    local res_any, serr, serrobj = stream_fn(url, opts_any)
+  made.download = function(url: string, path: string, opts_any: any): (any, any)
+    local res_any, serr = stream_fn(url, opts_any)
     if res_any == nil then
-      return nil, serr, serrobj
+      return nil, serr
     end
     local res = res_any as StreamRes -- cast: from any
     local out: {string: any} = {
       status = res.status, headers = res.headers,
       raw_headers = res.raw_headers, url = res.url, body = "",
     }
-    local function fail_with(err: string): (any, any, any)
+    local function fail_with(err: string): (any, any)
       res.reader:close()
       return fail_make(err)
     end
@@ -358,10 +358,10 @@ local record ExtrasModule
   validate_url: function(url: string): string
   validate_headers: function(headers: {string: string}): string
   prepare: function<T>(url: string, opts_in: T): string, T, string
-  make: function(fetch_fn: function(string, any): (any, any, any),
-  stream_fn: function(string, any): (any, any, any),
+  make: function(fetch_fn: function(string, any): (any, any),
+  stream_fn: function(string, any): (any, any),
   wrap: function(any): any,
-  fail_make: function(string): (any, any, any)): Made
+  fail_make: function(string): (any, any)): Made
 end
 
 local M: ExtrasModule = {

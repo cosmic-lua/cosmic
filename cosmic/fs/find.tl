@@ -1,10 +1,12 @@
 --- File collection: one find family over cosmic.fs.walk's visitor.
 --- find/find_iter/find_info share FindOptions and one error contract —
---- slot 2 means the root failed, period; subtree failures ride in an
---- explicit later slot as a list, so `if err then return nil, err end`
---- is correct at every call site. glob stays the component-path
---- expander (a different capability: its pattern spans "/" components
---- and it never recurses) with the same error contract.
+--- slot 2 means the root failed, period, and the walk is over — so
+--- `if err then return nil, err end` is correct at every call site.
+--- Subtree failures are not fatal and are not a second error channel:
+--- they ride on the RESULT, in its `errors` field, which is where a
+--- two-slot return has to put them (D20 rule 11). glob stays the
+--- component-path expander (a different capability: its pattern spans
+--- "/" components and it never recurses) with the same contract.
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs.types")
@@ -53,6 +55,27 @@ local record FindOptions
   sorted: boolean
 end
 
+--- The paths a find/glob produced, plus the failures it walked past.
+---
+--- The ARRAY PART is the path list: `#found`, `found[1]`, `ipairs`,
+--- `table.sort` and passing it where a `{string}` is wanted all work
+--- unchanged, which is the whole reason the extras are a field on the
+--- list rather than a wrapper around it.
+local record Found
+  {string}
+  --- Subtree failures, in encounter order; nil when the walk was clean.
+  errors: {string}
+end
+
+--- What find_info produced: the file map, plus the same error field.
+--- A map cannot be a record's array part, so this one names its value.
+local record FoundInfo
+  --- Matching files by FULL path.
+  files: {string: FileInfo}
+  --- Subtree failures, in encounter order; nil when the walk was clean.
+  errors: {string}
+end
+
 --- Resolve FindOptions to the Lua pattern the walkers share.
 local function find_pattern(opts?: FindOptions): string
   if opts and opts.pattern then
@@ -70,29 +93,29 @@ local function find_depth(opts?: FindOptions): integer
 end
 
 --- Recursively collect paths under dir whose basename matches.
---- Slot 2 means the root failed; subtree failures land in slot 3 as a
---- list (nil when the search was clean), never beside a non-nil result.
+--- Slot 2 means the root failed; subtree failures ride on the result
+--- as `found.errors`, never beside a non-nil result.
 --- @param dir string The directory to search
 --- @param opts FindOptions? Selection and depth options (default: all files)
---- @return {string} | nil Matching paths, or nil if the root failed
+--- @return Found | nil Matching paths (plus .errors), or nil if the root failed
 --- @return string The root-open error when slot 1 is nil
---- @return {string} Subtree errors, in encounter order (nil when none)
-local function find(dir: string, opts?: FindOptions): {string} | nil, string, {string}
+local function find(dir: string, opts?: FindOptions): Found | nil, string
   local lua_pattern = find_pattern(opts)
   local include_dirs = opts and opts.include_dirs
-  local results: {string} = {}
-  local ctx, fatal, errs = fs_walk.visit(dir, function(e: Entry, acc: {string})
+  local results: Found = {}
+  local walked, fatal = fs_walk.visit(dir, function(e: Entry, acc: Found)
       if (include_dirs or not e.stat:is_dir()) and e.name:match(lua_pattern) then
         table.insert(acc, e.path)
       end
     end, results, {max_depth = find_depth(opts)})
-  if not ctx then
+  if not walked then
     return nil, fatal
   end
   if opts and opts.sorted then
     table.sort(results)
   end
-  return results, nil, errs
+  results.errors = walked.errors
+  return results
 end
 
 --- Recursively collect matching files with their FileInfo, keyed by
@@ -101,35 +124,43 @@ end
 --- depth follow FindOptions.
 --- @param dir string The directory to search
 --- @param opts FindOptions? Selection and depth options (default: all files)
---- @return {string:FileInfo} | nil Map of full paths, or nil if the root failed
+--- @return FoundInfo | nil .files by full path (plus .errors), or nil if the root failed
 --- @return string The root-open error when slot 1 is nil
---- @return {string} Subtree errors, in encounter order (nil when none)
-local function find_info(dir: string, opts?: FindOptions): {string: FileInfo} | nil, string, {string}
+local function find_info(dir: string, opts?: FindOptions): FoundInfo | nil, string
   local lua_pattern = find_pattern(opts)
   local files: {string: FileInfo} = {}
-  local ctx, fatal, errs = fs_walk.visit(dir, function(e: Entry, acc: {string: FileInfo})
+  local walked, fatal = fs_walk.visit(dir, function(e: Entry, acc: {string: FileInfo})
       if e.stat:is_file() and e.name:match(lua_pattern) then
         acc[e.path] = {mode = e.stat:mode() & 0x1ff}
       end
     end, files, {max_depth = find_depth(opts)})
-  if not ctx then
+  if not walked then
     return nil, fatal
   end
-  return files, nil, errs
+  return {files = files, errors = walked.errors}
 end
 
---- Iterator over file paths, as returned by find_iter(). The second
---- return is nil while paths remain; once the tree is exhausted every
---- further call returns `nil, errs` — the subtree-error list, nil when
---- the walk was clean.
-local type FileIter = function(): string | nil, {string}
+--- Iterator over file paths, as returned by find_iter(). Callable:
+--- `for f in iter do ... end`. The second return is nil while paths
+--- remain; once the tree is exhausted every further call returns
+--- `nil, errs` — the subtree-error list, nil when the walk was clean.
+---
+--- It owns the open directory handles, so it is also CLOSEABLE, the
+--- same shape `cosmic.sqlite`'s Rows has: draining it releases them,
+--- and so do `iter:close()`, leaving a `local iter <close> = ...`
+--- scope, and (as the backstop) collection. That is why the guard is
+--- no longer a fourth return value — a to-be-closed slot past the
+--- error is exactly what D20 rule 11 forbids.
+local record FileIter
+  metamethod __call: function(self: FileIter): string | nil, {string}
+  metamethod __close: function(self: FileIter)
+  --- Release every open directory handle without draining the walk.
+  --- Idempotent; the iterator yields nothing afterwards.
+  close: function(self: FileIter)
+end
 
 --- Iterate over matching paths lazily; same selection as find(),
 --- except `sorted` (an iterator yields discovery order).
---- The fourth return value is a to-be-closed guard: a plain
---- `for f in fs.find_iter(dir) do ... end` loop adopts it as the
---- loop's closing value (Lua 5.4), so directory handles are closed
---- even when the loop exits early via break/error.
 --- If the root directory cannot be opened, returns nil plus the error.
 --- Failures below the root do NOT stop iteration; they accumulate and,
 --- once the iterator is exhausted, come back as its second value
@@ -140,15 +171,27 @@ local type FileIter = function(): string | nil, {string}
 ---     for f in iter do ... end
 ---     local _, errs = iter() -- subtree errors, nil when clean
 ---
---- In tests/examples iterate with `for f in check.must(fs.find_iter(dir)) do`
---- (must, like assert, forwards all four returns, keeping the guard).
+--- Draining the iterator closes every directory handle it opened. A
+--- loop that exits EARLY has not drained it, so say so — the attribute
+--- Lua 5.4 has for exactly this:
+---
+---     local iter <close> = check.must(fs.find_iter(dir))
+---     for f in iter do if done(f) then break end end
+---
+--- (`iter:close()` is the explicit form.) Collection is the backstop,
+--- not the contract.
+---
+--- When stopping early is the POINT rather than an exception, reach
+--- for `fs.visit` instead: its visitor returns "stop", and because
+--- visit owns the loop it closes on the way out without the caller
+--- remembering anything. find_iter is for the case a callback cannot
+--- serve — the consumer driving the walk, interleaving it with other
+--- work.
 --- @param dir string The directory to search
 --- @param opts FindOptions? Selection and depth options (default: all files)
---- @return function | nil Iterator yielding paths, or nil if the root failed
+--- @return FileIter | nil Iterator yielding paths, or nil if the root failed
 --- @return string The root-open error when slot 1 is nil
---- @return nil Unused (generic-for control slot)
---- @return any Closing guard that releases open directory handles
-local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, string, any, any
+local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, string
   local lua_pattern = find_pattern(opts)
   local include_dirs = opts and opts.include_dirs
   local max_depth = find_depth(opts)
@@ -168,7 +211,6 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
       stack[i] = nil
     end
   end
-  local guard = setmetatable({}, {__close = close_all, __gc = close_all})
 
   -- Subtree errors, in encounter order; the exhausted iterator's
   -- second return (nil while any path remains).
@@ -191,11 +233,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
     end
   end
 
-  local iter = function(): string, {string}
-    -- anchor the guard as an upvalue: a caller that keeps only the
-    -- iterator (dropping the fourth return) must not let the guard's
-    -- __gc close these handles while the iterator is still running
-    local _ = guard
+  local step = function(): string, {string}
     while #stack > 0 do
       local current = stack[#stack]
       local current_dir = current[1]
@@ -246,7 +284,17 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
     end
     return nil, errs
   end
-  return iter, nil, nil, guard
+
+  -- The iterator IS the resource handle: closing it — by draining, by
+  -- `iter:close()`, by leaving a `<close>` scope, or by collection —
+  -- runs the same close_all. __gc stays the backstop it always was.
+  local iter = setmetatable({} as FileIter, { -- cast: table seeded as record
+      __call = step,
+      __close = close_all,
+      __gc = close_all,
+      __index = {close = close_all},
+    })
+  return iter
 end
 
 --- List entries in one directory whose name matches a glob component.
@@ -277,13 +325,12 @@ end
 --- names starting with a dot. Matches of every entry type are
 --- returned, sorted. Slot 2 means dir itself failed to open; an
 --- unreadable directory at a deeper level does not stop expansion, and
---- those errors ride in slot 3 as a list (nil when clean).
+--- those errors ride on the result as `found.errors` (nil when clean).
 --- @param dir string The directory the pattern is relative to
 --- @param pattern string Glob pattern, optionally with "/" components
---- @return {string} | nil Sorted matching paths, or nil if dir failed
+--- @return Found | nil Sorted matching paths (plus .errors), or nil if dir failed
 --- @return string The root-open error when slot 1 is nil
---- @return {string} Deeper-level errors, in encounter order (nil when none)
-local function glob(dir: string, pattern: string): {string} | nil, string, {string}
+local function glob(dir: string, pattern: string): Found | nil, string
   if pattern:sub(1, 1) == "/" then
     return nil, "glob: pattern must be relative to dir: " .. pattern
   end
@@ -294,11 +341,11 @@ local function glob(dir: string, pattern: string): {string} | nil, string, {stri
   if #comps == 0 then
     return nil, "glob: empty pattern"
   end
-  local current: {string} = {dir}
+  local current: Found = {dir}
   local errs: {string} = {}
   for i, comp in ipairs(comps) do
     local lua_pattern = glob_to_pattern(comp)
-    local next_level: {string} = {}
+    local next_level: Found = {}
     for j, d in ipairs(current) do
       -- Below the first level only descend through directories; a file
       -- matching an intermediate component cannot contain entries.
@@ -317,21 +364,25 @@ local function glob(dir: string, pattern: string): {string} | nil, string, {stri
     current = next_level
   end
   table.sort(current)
-  if #errs == 0 then
-    return current
+  if #errs > 0 then
+    current.errors = errs
   end
-  return current, nil, errs
+  return current
 end
 
 local record FsFindModule
   --- Iterator over paths, as returned by find_iter().
   type FileIter = FileIter
   type FindOptions = FindOptions
+  --- A path list with the subtree failures it walked past.
+  type Found = Found
+  --- find_info's file map with the same error field.
+  type FoundInfo = FoundInfo
 
-  find: function(dir: string, opts?: FindOptions): {string} | nil, string, {string}
-  find_iter: function(dir: string, opts?: FindOptions): FileIter | nil, string, any, any
-  find_info: function(dir: string, opts?: FindOptions): {string: FileInfo} | nil, string, {string}
-  glob: function(dir: string, pattern: string): {string} | nil, string, {string}
+  find: function(dir: string, opts?: FindOptions): Found | nil, string
+  find_iter: function(dir: string, opts?: FindOptions): FileIter | nil, string
+  find_info: function(dir: string, opts?: FindOptions): FoundInfo | nil, string
+  glob: function(dir: string, pattern: string): Found | nil, string
 end
 
 local M: FsFindModule = {

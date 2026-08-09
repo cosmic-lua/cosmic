@@ -94,19 +94,28 @@ end
 --- path, but `sh` would discard the whole line.
 --- @param line string The recipe line make passed
 --- @return integer Exit code
+--- One recipe line, split: the verb and its arguments.
+local record Recipe
+  verb: string
+  args: {string}
+end
+
 --- Split and validate a recipe line without running it, so the caller
 --- can fence the step (_cli.driver) before anything executes.
+---
+--- Three outcomes in two slots (D20 rule 11): a Recipe when the line
+--- names a verb, `nil, err` when it is invalid, and `nil, nil` for a
+--- blank line — which is a no-op, not a failure.
 --- @param line string The recipe line make passed
---- @return string|nil The verb, nil when the line is blank or invalid
---- @return {string} The verb's arguments
+--- @return Recipe|nil The verb and its arguments, or nil
 --- @return string|nil Error message when the line is invalid
-local function parse(line: string): string | nil, {string}, string | nil
+local function parse(line: string): Recipe | nil, string
   -- Strip ONE trailing sentinel. A `;` anywhere else is still refused
   -- below, so `copy a b ; touch evil` does not become two commands.
   line = line:gsub("%s*;%s*$", "")
   local bad = shell_char(line)
   if bad ~= nil then
-    return nil, {}, "recipe lines are argv, not shell; found "
+    return nil, "recipe lines are argv, not shell; found "
     .. string.format("%q", bad) .. " in: " .. line
   end
   local argv: {string} = {}
@@ -116,14 +125,14 @@ local function parse(line: string): string | nil, {string}, string | nil
   -- make does not hand us blank lines, but a variable that expanded to
   -- nothing looks like one; doing nothing is what a shell would do.
   if #argv == 0 then
-    return nil, {}, nil
+    return nil
   end
   local verb = table.remove(argv, 1)
   if not modes[verb] then
-    return nil, {}, "unknown verb '" .. verb .. "'; a recipe may run: "
+    return nil, "unknown verb '" .. verb .. "'; a recipe may run: "
     .. mode_names()
   end
-  return verb, argv, nil
+  return {verb = verb, args = argv}
 end
 
 --- Run an already-parsed verb.

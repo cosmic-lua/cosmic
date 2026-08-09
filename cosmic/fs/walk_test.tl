@@ -67,9 +67,8 @@ local function test_find_all_symlink_cycle_terminates()
   write_file(fs.join(subdir, "real.txt"), "data")
   assert(fs.symlink("..", fs.join(subdir, "loop")))
 
-  local collected = fs_find.find_info(base)
-  assert(collected, "find_info should succeed")
-  local files = collected
+  local collected = check.must(fs_find.find_info(base))
+  local files = collected.files
   -- Keys are FULL paths (#987); none may contain loop/
   for full_path in pairs(files) do
     assert(not full_path:match("loop"),
@@ -179,14 +178,14 @@ local function test_walk_permission_denied_subdir_reports_error()
   assert(fs.set_mode(locked, 0))
 
   local visited: {string: boolean} = {}
-  local ctx, _rerr, errs = fs_walk.visit(base, function(e: fs_walk.Entry,
+  local walked = fs_walk.visit(base, function(e: fs_walk.Entry,
         c: {string: boolean})
       c[e.name] = true
     end, visited)
-  local err = errs and errs[1]
   assert(fs.set_mode(locked, tonumber("755", 8)))
 
-  assert(ctx ~= nil, "a denied subdir must not abort the walk")
+  assert(walked, "a denied subdir must not abort the walk")
+  local err = walked.errors and walked.errors[1]
   assert(visited["seen.txt"], "readable entries must still be visited")
   assert(err and err:match("EACCES"),
     "walk must surface the denied subdir: " .. tostring(err))
@@ -338,50 +337,17 @@ test_walk_skip_with_symlink_cycle_terminates()
 local function test_find_success_has_no_error()
   local base = mksubdir("collect_ok")
   write_file(fs.join(base, "one.lua"), "-- 1")
-  local results, err, suberrs = fs_find.find(base, {glob = "*.lua"})
+  local results, err = fs_find.find(base, {glob = "*.lua"})
   assert(results, "find should succeed")
   assert(err == nil, "slot 2 is nil unless the root failed, got " .. tostring(err))
-  assert(suberrs == nil, "slot 3 is nil on a clean walk")
+  assert(results.errors == nil, "a clean walk carries no .errors")
   assert(#(results) == 1, "expected exactly one match")
 end
 test_find_success_has_no_error()
 
--- files(): early loop exit must release directory handles via the
--- generic-for closing slot (Lua 5.4), not wait for the GC.
-
-local function count_open_fds(): integer
-  -- Exhausting the iterator closes its own handle as it goes.
-  local n = 0
-  local iter = check.must(fs_find.find_iter("/proc/self/fd"))
-  for _ in iter do n = n + 1 end
-  return n
-end
-
-local function test_find_iter_early_break_closes_handles()
-  if not fs.is_dir("/proc/self/fd") then
-    return -- fd accounting needs procfs; skip elsewhere
-  end
-  local base = mksubdir("files_close")
-  for i = 1, 3 do
-    local sub = fs.join(base, "sub" .. i)
-    assert(fs.make_dirs(sub))
-    write_file(fs.join(sub, "f" .. i .. ".txt"), "x")
-  end
-
-  local before = count_open_fds()
-  for p in check.must(fs_find.find_iter(base, {glob = "*.txt"})) do
-    assert(p, "expected a path")
-    break -- abandon the iterator with directories still open
-  end
-  local after = count_open_fds()
-  assert(after == before, string.format(
-      "early break must close directory handles: %d fds before, %d after",
-      before, after))
-end
-test_find_iter_early_break_closes_handles()
-
 -- visit(): the Entry record carries path/name/stat/depth, and the
--- subtree-error list rides slot 3 — never beside the result in slot 2.
+-- subtree-error list rides on the result as `.errors` — never beside
+-- it in a third slot.
 
 local function test_visit_entry_and_depth()
   local base = mksubdir("visit_entry")
@@ -391,19 +357,19 @@ local function test_visit_entry_and_depth()
   write_file(fs.join(base, "top.txt"), "x")
 
   local depths: {string: integer} = {}
-  local ctx, err, suberrs = fs.visit(base, function(e: fs.Entry, c: {string: integer})
+  local walked, err = fs.visit(base, function(e: fs.Entry, c: {string: integer})
       assert(e.path:sub(1, #base) == base, "Entry.path is the full path")
       c[e.name] = e.depth
     end, depths)
-  assert(ctx ~= nil, "visit should succeed: " .. tostring(err))
-  assert(suberrs == nil, "clean walk carries no subtree errors")
+  assert(walked ~= nil, "visit should succeed: " .. tostring(err))
+  assert(walked.errors == nil, "clean walk carries no subtree errors")
   assert(depths["top.txt"] == 1, "top-level entries are depth 1")
   assert(depths["sub"] == 1, "the subdir itself is depth 1")
   assert(depths["deep.txt"] == 2, "entries one level down are depth 2")
 end
 test_visit_entry_and_depth()
 
-local function test_visit_denied_subdir_lands_in_slot_three()
+local function test_visit_denied_subdir_lands_in_errors()
   if user.geteuid() == 0 then
     return -- root bypasses permission checks; nothing to observe
   end
@@ -411,14 +377,15 @@ local function test_visit_denied_subdir_lands_in_slot_three()
   local locked = fs.join(base, "locked")
   assert(fs.make_dirs(locked))
   assert(fs.set_mode(locked, 0))
-  local ctx, err, suberrs = fs.visit(base, function(_e: fs.Entry, _c: {string}) end, {})
+  local walked, err = fs.visit(base, function(_e: fs.Entry, _c: {string}) end, {})
   assert(fs.set_mode(locked, tonumber("755", 8)))
-  assert(ctx ~= nil, "a denied subdir must not abort the walk")
+  assert(walked ~= nil, "a denied subdir must not abort the walk")
   assert(err == nil, "slot 2 means the ROOT failed, and it did not")
+  local suberrs = walked and walked.errors
   assert(suberrs and suberrs[1] and suberrs[1]:match("EACCES"),
-    "the denied subdir must land in slot 3: " .. tostring(suberrs and suberrs[1]))
+    "the denied subdir must land in .errors: " .. tostring(suberrs and suberrs[1]))
 end
-test_visit_denied_subdir_lands_in_slot_three()
+test_visit_denied_subdir_lands_in_errors()
 
 -- FindOptions: depth bounds, directory inclusion, sorting.
 
@@ -465,7 +432,7 @@ test_find_iter_honors_depth_and_dirs()
 
 local function test_find_info_full_paths_and_options()
   local base = setup_depth_tree()
-  local info = check.must(fs.find_info(base, {glob = "*.txt", max_depth = 1}))
+  local info = check.must(fs.find_info(base, {glob = "*.txt", max_depth = 1})).files
   assert(info[fs.join(base, "a.txt")], "keys are full paths")
   assert(info[fs.join(base, "bdir/c.txt")] == nil, "max_depth bounds find_info too")
   assert(info[fs.join(base, "a.txt")].mode ~= nil, "FileInfo carries mode")

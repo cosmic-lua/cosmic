@@ -80,11 +80,22 @@ local function read_body(fd: integer, n: integer, prefix: string):
   return buf:sub(1, n), buf:sub(n + 1)
 end
 
---- Parse an HTTP request line "METHOD TARGET HTTP/x.y\r\n". Returns
---- (method, target, version) or nil.
-local function parse_request_line(line: string): string | nil, string, string
+--- A parsed request line. One record, not three slots: a nil-in-slot-1
+--- return may carry the value and nothing else (D20 rule 11).
+local record RequestLine
+  method: string
+  target: string
+  version: string
+end
+
+--- Parse an HTTP request line "METHOD TARGET HTTP/x.y\r\n", or nil
+--- when it is not one.
+local function parse_request_line(line: string): RequestLine | nil
   local m, t, v = line:match("^(%u+) (%S+) (HTTP/%d%.%d)\r\n")
-  return m, t, v
+  if not m then
+    return nil
+  end
+  return {method = m, target = t, version = v}
 end
 
 --- Parse a CONNECT target "host:port". Returns (host, port) or nil.
@@ -94,10 +105,18 @@ local function parse_connect_target(t: string): string | nil, integer
   return h, math.tointeger(tonumber(p))
 end
 
+--- A parsed absolute-form request target, with the scheme's default
+--- port and "/" already filled in.
+local record AbsoluteUri
+  scheme: string
+  host: string
+  port: integer
+  path: string
+end
+
 --- Parse an absolute URI "http://host[:port]/path" (proxies receive
---- absolute-form per RFC 7230 5.3.2). Returns (scheme, host, port,
---- path) with the scheme's default port and "/" filled in, or nil.
-local function parse_absolute_uri(t: string): string | nil, string, integer, string
+--- absolute-form per RFC 7230 5.3.2), or nil when it is not one.
+local function parse_absolute_uri(t: string): AbsoluteUri | nil
   local s, hp, path = t:match("^(https?)://([^/]+)(/.*)$")
   if not s then
     s, hp = t:match("^(https?)://([^/]+)$")
@@ -106,12 +125,9 @@ local function parse_absolute_uri(t: string): string | nil, string, integer, str
   if not s then return nil end
   local h, p = hp:match("^([^:]+):(%d+)$")
   if h then
-    return s, h, math.tointeger(tonumber(p)), path
+    return {scheme = s, host = h, port = math.tointeger(tonumber(p)), path = path}
   end
-  if s == "https" then
-    return s, hp, 443, path
-  end
-  return s, hp, 80, path
+  return {scheme = s, host = hp, port = s == "https" and 443 or 80, path = path}
 end
 
 --- Parse a header block (everything after the request line, up to the
@@ -273,9 +289,11 @@ local record HttpModule
   read_headers: function(fd: integer, max: integer): string | nil, string
   send_all: function(fd: integer, data: string): boolean, string
   read_body: function(fd: integer, n: integer, prefix: string): string | nil, string
-  parse_request_line: function(line: string): string | nil, string, string
+  type RequestLine = RequestLine
+  type AbsoluteUri = AbsoluteUri
+  parse_request_line: function(line: string): RequestLine | nil
   parse_connect_target: function(t: string): string | nil, integer
-  parse_absolute_uri: function(t: string): string | nil, string, integer, string
+  parse_absolute_uri: function(t: string): AbsoluteUri | nil
   parse_headers: function(block: string): {Header}
   header_get: function(headers: {Header}, lower_name: string): string | nil
   content_length: function(headers: {Header}): integer | nil

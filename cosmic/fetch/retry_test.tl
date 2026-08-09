@@ -155,12 +155,12 @@ test_custom_should_retry_false_stops()
 
 local function test_exhausted_attempts_return_last_failure()
   local port, pid = serve({"", ""})
-  local result, _err, errobj = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+  local result, err = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
   assert(proc.wait(pid))
   assert(result == nil, "both attempts failed; no Response may exist")
-  assert(errobj and errobj.kind == "connect",
-    "the transport failure kind survives, got " .. tostring(errobj and errobj.kind))
+  assert(err and err:match("^connect: "),
+    "the transport failure kind survives, got " .. tostring(err))
 end
 test_exhausted_attempts_return_last_failure()
 
@@ -188,10 +188,10 @@ test_max_attempts_negative_is_clamped_to_one()
 local function test_validation_error_is_invalid_request_and_never_retries()
   -- validation failures carry kind invalid_request, which the retry
   -- table pins to false, so the default policy can never retry them
-  local result, err, errobj = fetch.fetch("ftp://example.com/",
+  local result, err = fetch.fetch("ftp://example.com/",
     {max_attempts = 3, base_delay_ms = 10})
   assert(result == nil, "validation failure expected")
-  assert(errobj and errobj.kind == "invalid_request",
+  assert(err:match("^invalid_request: "),
     "validation failures carry kind invalid_request")
   assert(err:find("unsupported URL scheme") ~= nil,
     "the validation error must survive retries untouched")
