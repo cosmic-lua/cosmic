@@ -203,7 +203,8 @@ local record FsModule
   find: function(dir: string, opts?: fs_find.FindOptions): Found | nil, string
   --- Iterate paths under dir lazily; same selection as find() except
   --- sorted. The exhausted iterator returns nil plus the subtree-error
-  --- list; the iterator itself is the closeable handle.
+  --- list. It holds no directory handle between yields, so abandoning
+  --- it mid-walk leaks nothing and closes nothing.
   find_iter: function(dir: string, opts?: fs_find.FindOptions): FileIter | nil, string
   --- Matching files with their FileInfo, keyed by FULL path (#987:
   --- was relative); same options and slots as find.

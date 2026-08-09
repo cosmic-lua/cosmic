@@ -128,10 +128,21 @@
   their subtree-error list in slot 3; it moved onto the result as
   `.errors`, and `Found` keeps the path list as the record's ARRAY
   part so `ipairs`/`#`/`table.sort` still work on it. `fs.find_iter`
-  carried a to-be-closed guard in slot 4; the iterator became the
-  closeable handle instead (`__close`, `iter:close()`), the shape
-  `sqlite.Rows` already had — so a loop that exits EARLY now says so,
-  where the generic for used to adopt the guard for it. `fetch` carried
+  carried a to-be-closed guard in slot 4, which the generic `for`
+  adopted as its closing slot. Making it closeable instead — the
+  `sqlite.Rows` shape — would have moved the leak rather than removed
+  it: `for f in find_iter(d) do break end` is the natural spelling, and
+  it would have held descriptors until collection. So the WALKER
+  changed instead of the signature: each directory is read in full and
+  its handle closed before a path is yielded, so the iterator holds
+  nothing across a yield, an abandoned one owns nothing, and the whole
+  close apparatus — guard, `__close`, `close()` — is gone rather than
+  relocated. The trade is memory for descriptors: the un-consumed names
+  of every ancestor on the current path stay live, so one directory
+  with millions of entries costs what it used to get for free. Worth
+  recording as the general shape of the fix: when rule 11 takes a slot
+  away, the answer is sometimes to remove the thing the slot carried,
+  not to find it a new home. `fetch` carried
   a structured `Error` in slot 3; the kind moved into the message as a
   `"<kind>: <detail>"` prefix, and the record stayed as `should_retry`'s
   parameter, which was always its documented consumer.
