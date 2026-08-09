@@ -41,7 +41,7 @@ local RETIRED < const >: {string: string} = {
 --- @param file string The file to check
 --- @param include_dirs {string} Include path, for the type check
 --- @return integer Exit code
-local function run(kind: string, file: string,
+local function run_one(kind: string, file: string,
     include_dirs: {string}): integer
   if RETIRED[kind] then
     io.stderr:write("cosmic-lua: --check " .. kind .. " is now `--check " ..
@@ -73,10 +73,35 @@ local function run(kind: string, file: string,
   return handlers.handle_check_examples(file)
 end
 
+--- Run one check over every file named, and fail if ANY of them fails.
+---
+--- Every path is checked, every failure is printed, and the exit code
+--- is the worst of them. A gate that reports PASS over a file it never
+--- read is worse than no gate, which is why the fan-out lives here
+--- rather than in each caller.
+--- @param kind string Which check: types, fmt, lint or example
+--- @param files {string} The files to check, in order
+--- @param include_dirs {string} Include path, for the type check
+--- @return integer Exit code
+local function run(kind: string, files: {string},
+    include_dirs: {string}): integer
+  if #files == 0 then
+    return run_one(kind, "", include_dirs)
+  end
+  local worst = 0
+  for _, file in ipairs(files) do
+    local code = run_one(kind, file, include_dirs)
+    if code > worst then
+      worst = code
+    end
+  end
+  return worst
+end
+
 local record CheckModule
   KINDS: {string: string}
   RETIRED: {string: string}
-  run: function(kind: string, file: string, include_dirs: {string}): integer
+  run: function(kind: string, files: {string}, include_dirs: {string}): integer
 end
 
 local M: CheckModule = {

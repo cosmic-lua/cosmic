@@ -367,10 +367,10 @@ local function test_check_kinds_are_named_when_wrong()
   for old, now in pairs(chk.RETIRED) do
     assert(chk.KINDS[now], old .. " points at " .. now .. ", which is not a kind")
     assert(not chk.KINDS[old], old .. " must not still be a kind")
-    assert(chk.run(old, "x.tl", {}) == 1, old .. " must be refused")
+    assert(chk.run(old, {"x.tl"}, {}) == 1, old .. " must be refused")
   end
-  assert(chk.run("bogus", "x.tl", {}) == 1, "an unknown kind fails")
-  assert(chk.run("types", "", {}) == 1, "a missing file fails")
+  assert(chk.run("bogus", {"x.tl"}, {}) == 1, "an unknown kind fails")
+  assert(chk.run("types", {}, {}) == 1, "a missing file fails")
 end
 test_check_kinds_are_named_when_wrong()
 
