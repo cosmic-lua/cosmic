@@ -265,17 +265,16 @@ local function test_must_passes_false_through()
 end
 test_must_passes_false_through()
 
--- must: multi-return forwarding (the assert-parity contract)
+-- must: one declared return (the assert-parity contract, #1064)
 --
--- Exercised with explicit arguments rather than through a fixture that
--- returns four values. The SPREAD of a multi-return call into must is
--- Lua's behaviour, not must's; what belongs to must is that it hands
--- the extras back untouched. Testing it directly also means this file
--- no longer has to declare a signature the returns rule forbids.
+-- must forwards nothing past the value, because a fallible return has
+-- two slots and no more (D20 rule 11). What that buys is composition:
+-- must appears in return position, in last-argument position, and as a
+-- for-in iterator without a single parenthesis-truncation.
 
 local type Iter = function(): string
 
-local function two_paths(): Iter
+local function two_paths(): Iter | nil, string
   local n = 0
   return function(): string
     n = n + 1
@@ -286,32 +285,43 @@ local function two_paths(): Iter
   end
 end
 
-local function test_must_single_pair_collapses()
-  -- a plain value, err pair yields exactly one value: no trailing nil
-  -- in print()/varargs contexts
+local function test_must_returns_exactly_one_value()
+  -- a value, err pair yields exactly one value: no trailing nil in
+  -- print()/varargs contexts, and none for the checker either
   check.equal(select("#", check.must(make_widget(false))), 1)
 end
-test_must_single_pair_collapses()
+test_must_returns_exactly_one_value()
 
-local function test_must_forwards_extra_returns()
-  local guard: any = {}
-  check.equal(select("#", check.must(two_paths(), nil, nil, guard)), 4)
-  local _iter, _e, _ctl, g = check.must(two_paths(), nil, nil, guard)
-  check.truthy(rawequal(g, guard), "4th return must be the same guard value")
+local function widget_or_throw(): Widget
+  -- return position: `assert` type-checks here and so does must
+  return check.must(make_widget(false))
 end
-test_must_forwards_extra_returns()
 
-local function test_must_keeps_closing_guard_in_for()
-  -- the reason forwarding matters: the 4th value is Lua 5.4's
-  -- to-be-closed slot, so an early break must still run __close
-  local closed = false
-  local guard = setmetatable({}, {__close = function() closed = true end})
-  for _ in check.must(two_paths(), nil, nil, guard) do
-    break
+local function test_must_composes_in_return_position()
+  check.equal(widget_or_throw().name, "gear")
+end
+test_must_composes_in_return_position()
+
+local function test_must_composes_as_last_argument()
+  -- no parenthesis-truncation: must contributes one argument, not three
+  local chunk: string | nil = "x"
+  local parts: {string} = {}
+  table.insert(parts, check.must(chunk))
+  check.equal(#parts, 1)
+  check.equal(parts[1], "x")
+end
+test_must_composes_as_last_argument()
+
+local function test_must_drives_a_for_in_loop()
+  -- a two-slot fallible iterator needs the value alone; anything the
+  -- loop must release rides on the value's own __close (fs.find_iter)
+  local seen = 0
+  for _ in check.must(two_paths()) do
+    seen = seen + 1
   end
-  check.truthy(closed, "early break must close the forwarded guard")
+  check.equal(seen, 2)
 end
-test_must_keeps_closing_guard_in_for()
+test_must_drives_a_for_in_loop()
 
 -- must: failing cases
 

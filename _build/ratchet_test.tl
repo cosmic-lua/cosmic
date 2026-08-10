@@ -56,7 +56,7 @@ end
 -- would report a cell of dashes as something the document teaches.
 local function test_a_heading_confines_the_scan()
   local path = doc()
-  local got = cells((check.must(ratchet.rows(path, "Verbs", "verb"))))
+  local got = cells(check.must(ratchet.rows(path, "Verbs", "verb")))
   assert(#got == 2, "expected the two verb rows, got " .. #got ..
     ": " .. table.concat(got, " / "))
   assert(got[1] == "`build`", "got: " .. got[1])
@@ -73,7 +73,7 @@ test_a_heading_confines_the_scan()
 -- sweep a whole document for a retired word use, and a reader that
 -- quietly scoped itself to the first table would let the rest through.
 local function test_no_heading_reads_every_table()
-  local got = cells((check.must(ratchet.rows(doc()))))
+  local got = cells(check.must(ratchet.rows(doc())))
   assert(#got == 6, "expected every row of both tables plus the two " ..
     "unfiltered headers, got " .. #got .. ": " .. table.concat(got, " / "))
 end

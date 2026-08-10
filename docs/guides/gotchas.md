@@ -235,19 +235,26 @@ print(page)
 
 Lua spreads every return of a call in the LAST argument position into
 the argument list, and the checker counts the declared tuple — so
-`table.insert(parts, check.must(chunk))` presents three arguments
-(`check.must` declares three returns) and fails with `wrong number of
+`table.insert(parts, str.partition(line, "="))` presents four arguments
+(`partition` declares three returns) and fails with `wrong number of
 arguments`. the error-site hint names the fix: parenthesize to
 truncate to one value.
 
 ```teal
-local check = require("cosmic.check")
+local str = require("cosmic.string")
 
 local parts: {string} = {}
-local chunk: string | nil = "x"
-table.insert(parts, (check.must(chunk)))
+local line = "key=value"
+table.insert(parts, (str.partition(line, "=")))
 ```
 
-runtime behavior differs from the checker here (a plain `value, err`
-pair collapses to the value alone at runtime), which is why the site
-looks correct until `--check types` runs.
+runtime behavior differs from the checker only when the extra returns
+are `nil` (they collapse away), which is why such a site can look
+correct until `--check types` runs.
+
+`check.must` is NOT in this family: it declares one return (#1064), so
+`table.insert(parts, check.must(chunk))` and
+`return check.must(sqlite.open(":memory:"))` both check clean with no
+parentheses. Only a genuinely multi-value function — an infallible
+tuple like `partition`, or a `cosmo.*` binding — spreads here, because
+a fallible cosmic return has two slots and no more.

@@ -250,7 +250,7 @@ test_integer_precision_roundtrip()
 
 local function test_float_precision_roundtrip()
   for _, f in ipairs({0.1, 3.141592653589793, 1e308, -2.5e-10}) do
-    local decoded = json.decode((check.must(json.encode(f))))
+    local decoded = json.decode(check.must(json.encode(f)))
     assert(decoded == f,
       "float should round-trip bit-exactly: " .. tostring(f)
       .. " -> " .. tostring(decoded))
@@ -276,7 +276,7 @@ local function test_nul_byte_roundtrip()
   local encoded = json.encode("\0")
   assert(encoded == '"\\u0000"',
     "an embedded NUL should encode as \\u0000, got: " .. tostring(encoded))
-  local rt = json.decode((check.must(json.encode("a\0b"))))
+  local rt = json.decode(check.must(json.encode("a\0b")))
   assert(rt == "a\0b" and #rt == 3, "NUL inside a string must round-trip")
 end
 test_nul_byte_roundtrip()

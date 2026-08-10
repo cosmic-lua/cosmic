@@ -103,7 +103,7 @@ local function hint_for_message(msg: string): string | nil
       if arity and arity > max_arity then max_arity = arity end
     end
     if given and given > max_arity and max_arity > 0 then
-      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the value: `f(x, (check.must(g())))` — see `cosmic --docs guide.gotchas`"
+      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs guide.gotchas`"
     end
   end
   -- Pattern 4a: ipairs on a nil union or on any — different fixes: a

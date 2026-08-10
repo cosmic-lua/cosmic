@@ -61,8 +61,8 @@ end
 test_glob_literal_component()
 
 local function test_glob_no_match_and_missing_dirs()
-  assert(#(check.must(fs.glob(root, "*.nope"))) == 0, "expected no matches")
-  assert(#(check.must(fs.glob(root, "missing/*.lua"))) == 0,
+  assert(#check.must(fs.glob(root, "*.nope")) == 0, "expected no matches")
+  assert(#check.must(fs.glob(root, "missing/*.lua")) == 0,
     "expected no matches through a missing directory")
 end
 test_glob_no_match_and_missing_dirs()

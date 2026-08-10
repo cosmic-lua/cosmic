@@ -394,7 +394,7 @@ local function load_dotenv_capturing_stderr(dir: string): env.LoadResult, string
   local result = env.load_dotenv(dir)
   io.stderr:close()
   io.stderr = real_stderr
-  return result, (check.must(fs.read(capture_path)))
+  return result, check.must(fs.read(capture_path))
 end
 
 local function test_cosmic_debug_empty_not_enabled()

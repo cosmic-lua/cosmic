@@ -234,7 +234,7 @@ test_the_verb_table_is_the_registry()
 -- `o/`") is not a teaching row and stays free.
 local function test_no_table_row_teaches_asset_outside_pins()
   for _, path in ipairs(guide_files()) do
-    for _, row in ipairs((check.must(ratchet.rows(path)))) do
+    for _, row in ipairs(check.must(ratchet.rows(path))) do
       local lower = row.line:lower()
       if lower:find("asset", 1, true) then
         assert(lower:find("pin", 1, true), row.where .. ": a table row " ..
@@ -254,7 +254,7 @@ test_no_table_row_teaches_asset_outside_pins()
 local function test_everything_else_teaches_never_embedded()
   local seen = 0
   for _, path in ipairs(guide_files()) do
-    for _, row in ipairs((check.must(ratchet.rows(path)))) do
+    for _, row in ipairs(check.must(ratchet.rows(path))) do
       if row.cell == "everything else" then
         seen = seen + 1
         assert(row.line:find("never embedded", 1, true), row.where ..
