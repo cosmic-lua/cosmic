@@ -85,7 +85,7 @@ if not r then
 end
 print(r.x) -- r is R below the guard
 
-local sock = net.connect_tcp("127.0.0.1", 80) -- Socket | nil
+local sock = net.dial("127.0.0.1", 80) -- Socket | nil
 assert(sock, "connect failed")
 local _sent, _serr = sock:send("hello") -- narrowed, method call included
 ```
@@ -164,7 +164,7 @@ single `type()` check:
 ```teal
 local net = require("cosmic.net")
 
-local sock = net.connect_tcp("127.0.0.1", 80) -- Socket | nil
+local sock = net.dial("127.0.0.1", 80) -- Socket | nil
 if sock is net.Socket then
   local _sent, _err = sock:send("hello") -- narrowed, no cast
 end

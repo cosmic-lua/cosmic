@@ -123,7 +123,7 @@ test_version_substitution()
 local function serve(body: string, status?: integer): integer, integer
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
-  local port = check.must(s:getsockname()).port
+  local port = check.must(s:local_endpoint()).port
   local pid = proc.fork()
   if pid == 0 then
     assert(signal.setitimer({

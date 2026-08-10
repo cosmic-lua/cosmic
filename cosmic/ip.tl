@@ -15,8 +15,8 @@ local cosmo = require("cosmo")
 --- name the registry or organization the block is delegated to.
 local type Category = cosmo.IpCategory
 
---- Address family. IPv4 only today; IPv6 (whilp/cosmopolitan#144) adds
---- "inet6" as a value, leaving every Addr-taking signature unchanged.
+--- Address family. The one value today is "inet"; the module header
+--- states where "inet6" (whilp/cosmopolitan#144) arrives.
 local enum Family
   "inet"
 end

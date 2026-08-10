@@ -374,13 +374,13 @@ local function test_events_from_socket_backed_reader()
   local net = require("cosmic.net")
   local fd = require("cosmic.fd")
 
-  local sp = check.must(net.socketpair())
+  local sp = check.must(net.socket_pair())
   local a, b = sp.a, sp.b
 
   assert(a:send("data: from a socket\n\nevent: ping\ndata: second\n\n"))
   assert(a:close())
 
-  local stream_events = sse.parse(fd.wrap(b.fd))
+  local stream_events = sse.parse(fd.wrap(b:fd()))
   local ev1 = check.must(stream_events:next())
   assert(ev1.data == "from a socket", "first event data: " .. tostring(ev1.data))
   assert(ev1.event == "message", "default event type")

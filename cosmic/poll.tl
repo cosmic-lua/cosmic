@@ -1,12 +1,10 @@
 --- Typed interface for polling file descriptors.
 --- Provides an ergonomic wrapper around unix.poll().
 ---
---- Descriptor conventions (deliberate): poll is the lowest layer
---- and speaks raw integer fds. net.Socket exposes a public `fd` field
---- (sockets hand their descriptor around by design); fd.Handle exposes
---- :fd() as a method because the Handle owns its descriptor and
---- invalidates it on close — :fd() returns -1 once closed, and a -1
---- must never be registered here.
+--- poll is the lowest layer and speaks raw integer fds. Every cosmic
+--- handle that owns one — fd.Handle, net.Socket — hands it over with
+--- :fd(), which returns -1 once closed; add() rejects a -1 rather than
+--- polling a descriptor nobody holds.
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 local time = require("cosmic.time")
@@ -84,8 +82,8 @@ end
 --- @return Poller A new poll set
 --- Example:
 ---   local p = poll.new()
----   p:add(sock.fd, poll.POLLIN)           -- net.Socket: .fd field
----   p:add(h:fd(), poll.POLLIN)            -- fd.Handle: :fd() method
+---   p:add(sock:fd(), poll.POLLIN)         -- net.Socket
+---   p:add(h:fd(), poll.POLLIN)            -- fd.Handle
 ---   p:add(pipe.reader:fd(), poll.POLLIN)  -- fd.Pipe ends are Handles
 ---   local ready = assert(p:wait(30000))
 ---   for fd, events in pairs(ready) do

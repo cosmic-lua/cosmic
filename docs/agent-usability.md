@@ -245,7 +245,7 @@ clean-room run.
    `test_*` definitions from the `*_test.tl` source to `<out>.tests`;
    passing checks render as `✓ foo (14 test functions)`.
 7. **Smaller items:** sqlite `LIKE` example (`%` wildcard noted),
-   `ip.parse("127.0.0.1")` cross-referenced from `net.connect_tcp`/
+   `ip.parse("127.0.0.1")` cross-referenced from `net.dial`/
    `listen_tcp` docs, `child.Pipe.fd` field-vs-method note.
 
 New backlog candidate observed during this round: `fetch_example.tl`

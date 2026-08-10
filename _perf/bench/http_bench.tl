@@ -57,7 +57,7 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "listen_tcp: " .. tostring(lerr)
   end
   local lsock = srv
-  local ep, eperr = lsock:getsockname()
+  local ep, eperr = lsock:local_endpoint()
   if ep == nil then
     return nil, "getsockname: " .. tostring(eperr)
   end
@@ -141,7 +141,7 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "http_tcp_roundtrip",
       fn = function(_: any): any
-        local sock, cerr = net.connect_tcp(LOCALHOST, port)
+        local sock, cerr = net.dial(LOCALHOST, port)
         assert(sock, cerr)
         local ss = sock
         local sent, serr = ss:send("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")

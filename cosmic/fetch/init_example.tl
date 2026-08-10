@@ -14,7 +14,7 @@ local function Example_get()
 
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv)
-  local port = check.must(s:getsockname()).port
+  local port = check.must(s:local_endpoint()).port
   local pid = check.must(proc.fork())
   if pid == 0 then
     local conn = check.must(s:accept())
@@ -46,7 +46,7 @@ local function Example_retry()
 
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv)
-  local port = check.must(s:getsockname()).port
+  local port = check.must(s:local_endpoint()).port
   local pid = check.must(proc.fork())
   if pid == 0 then
     local responses = {
@@ -85,7 +85,7 @@ local function Example_stream_lines()
 
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv)
-  local port = check.must(s:getsockname()).port
+  local port = check.must(s:local_endpoint()).port
   local pid = check.must(proc.fork())
   if pid == 0 then
     local body = "alpha\nbeta\ngamma\n"

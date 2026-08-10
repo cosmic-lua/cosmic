@@ -1,64 +1,66 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local net = require("cosmic.net")
+local stream = require("cosmic.stream")
+local time = require("cosmic.time")
 
 local function pair(): net.Socket, net.Socket
-  -- socketpair's error lives in slot 2 now; the record makes the old
+  -- socket_pair's error lives in slot 2 now; the record makes the old
   -- shape-laundering helper a one-liner.
-  local p = check.must(net.socketpair())
+  local p = check.must(net.socket_pair())
   return p.a, p.b
 end
 
--- sendall tests
+-- send_all tests
 
-local function test_sendall_basic()
+local function test_send_all_basic()
   local a, b = pair()
-  local ok, err = a:sendall("hello world")
-  assert(ok, "sendall failed: " .. tostring(err))
+  local ok, err = a:send_all("hello world")
+  assert(ok, "send_all failed: " .. tostring(err))
   local data = b:recv()
   assert(data == "hello world", "expected payload, got: " .. tostring(data))
   assert(a:close())
   assert(b:close())
 end
-test_sendall_basic()
+test_send_all_basic()
 
-local function test_sendall_empty()
+local function test_send_all_empty()
   local a, b = pair()
-  local ok, err = a:sendall("")
-  assert(ok, "sendall of empty string failed: " .. tostring(err))
+  local ok, err = a:send_all("")
+  assert(ok, "send_all of empty string failed: " .. tostring(err))
   assert(a:close())
   assert(b:close())
 end
-test_sendall_empty()
+test_send_all_empty()
 
-local function test_sendall_large()
+local function test_send_all_large()
   local a, b = pair()
   local payload = string.rep("x", 64 * 1024)
-  local ok, err = a:sendall(payload)
-  assert(ok, "sendall failed: " .. tostring(err))
+  local ok, err = a:send_all(payload)
+  assert(ok, "send_all failed: " .. tostring(err))
   local data, rerr = b:recv_exact(#payload)
   assert(data == payload, "expected 64KiB round-trip: " .. tostring(rerr))
   assert(a:close())
   assert(b:close())
 end
-test_sendall_large()
+test_send_all_large()
 
-local function test_sendall_closed_socket()
+local function test_send_all_closed_socket()
   local a, b = pair()
   assert(a:close())
-  local ok, err = a:sendall("data")
-  assert(not ok, "expected sendall on closed socket to fail")
+  local ok, err = a:send_all("data")
+  assert(not ok, "expected send_all on closed socket to fail")
   assert(err ~= nil, "expected an error message")
   assert(b:close())
 end
-test_sendall_closed_socket()
+test_send_all_closed_socket()
 
 -- recv_exact tests
 
 local function test_recv_exact_across_sends()
   local a, b = pair()
-  assert(a:sendall("hello"))
-  assert(a:sendall("world"))
+  assert(a:send_all("hello"))
+  assert(a:send_all("world"))
   local data, err = b:recv_exact(10)
   assert(data == "helloworld", "expected coalesced read: " .. tostring(err))
   assert(a:close())
@@ -68,7 +70,7 @@ test_recv_exact_across_sends()
 
 local function test_recv_exact_leaves_rest()
   local a, b = pair()
-  assert(a:sendall("abcdef"))
+  assert(a:send_all("abcdef"))
   local head = b:recv_exact(3)
   assert(head == "abc", "expected first 3 bytes, got: " .. tostring(head))
   local rest = b:recv_exact(3)
@@ -89,7 +91,7 @@ test_recv_exact_zero()
 
 local function test_recv_exact_early_close()
   local a, b = pair()
-  assert(a:sendall("abc"))
+  assert(a:send_all("abc"))
   assert(a:shutdown())
   local data, err = b:recv_exact(5)
   assert(data == nil, "expected failure on short stream")
@@ -99,121 +101,115 @@ local function test_recv_exact_early_close()
 end
 test_recv_exact_early_close()
 
--- readline tests
+-- line iteration: Socket is a stream.Reader, so stream.lines is the
+-- one line algorithm. Socket:readline was a second, MSG_PEEK-based
+-- implementation of it, at two syscalls per line. What went with it:
+-- readline left bytes past the newline readable by recv, which a
+-- buffering line reader cannot promise (frame-then-read protocols read
+-- their header with recv_exact, not a line iterator), and it stripped a
+-- "\r" before the "\n". stream.lines splits on "\n" alone, so a CRLF
+-- protocol strips its own "\r" — asserted below so the difference is a
+-- fact of the suite, not a surprise.
 
-local function test_readline_basic()
+local function lines_of(sock: net.Socket): {string}
+  local out: {string} = {}
+  for line in stream.lines(sock) do
+    out[#out + 1] = line
+  end
+  return out
+end
+
+local function test_lines_basic()
   local a, b = pair()
-  assert(a:sendall("alpha\nbeta\r\ngamma"))
+  assert(a:send_all("alpha\nbeta\r\ngamma"))
   assert(a:shutdown())
-  assert(b:readline() == "alpha", "expected first line")
-  assert(b:readline() == "beta", "expected CRLF stripped")
-  assert(b:readline() == "gamma", "expected final unterminated line")
-  local eof, err = b:readline()
-  assert(eof == nil and err == nil, "expected bare nil at end of stream, got: " .. tostring(err))
+  local got = lines_of(b)
+  assert(#got == 3, "expected three lines, got " .. #got)
+  assert(got[1] == "alpha", "expected first line, got: " .. got[1])
+  assert(got[2] == "beta\r", "stream.lines splits on \\n and keeps the \\r,"
+    .. " got: " .. got[2])
+  assert(got[3] == "gamma", "expected final unterminated line, got: " .. got[3])
   assert(a:close())
   assert(b:close())
 end
-test_readline_basic()
+test_lines_basic()
 
-local function test_readline_empty_line()
+local function test_lines_empty_line()
   local a, b = pair()
-  assert(a:sendall("first\n\nsecond\n"))
+  assert(a:send_all("first\n\nsecond\n"))
   assert(a:shutdown())
-  assert(b:readline() == "first", "expected first line")
-  assert(b:readline() == "", "expected empty line preserved")
-  assert(b:readline() == "second", "expected second line")
-  assert(b:readline() == nil, "expected end of stream")
+  local got = lines_of(b)
+  assert(#got == 3, "expected three lines, got " .. #got)
+  assert(got[2] == "", "expected empty line preserved")
+  assert(got[3] == "second", "expected second line, got: " .. got[3])
   assert(a:close())
   assert(b:close())
 end
-test_readline_empty_line()
+test_lines_empty_line()
 
-local function test_readline_leaves_rest_for_recv()
-  local a, b = pair()
-  assert(a:sendall("line\nbinary-tail"))
-  assert(a:shutdown())
-  assert(b:readline() == "line", "expected line")
-  local rest = b:recv_exact(11)
-  assert(rest == "binary-tail", "expected bytes after newline untouched, got: " .. tostring(rest))
-  assert(a:close())
-  assert(b:close())
-end
-test_readline_leaves_rest_for_recv()
-
-local function test_readline_max()
-  local a, b = pair()
-  assert(a:sendall("abcdef\n"))
-  local head = b:readline(3)
-  assert(head == "abc", "expected max-bounded read, got: " .. tostring(head))
-  local rest = b:readline()
-  assert(rest == "def", "expected remainder line, got: " .. tostring(rest))
-  assert(a:close())
-  assert(b:close())
-end
-test_readline_max()
-
-local function test_readline_long_line_multiple_chunks()
+local function test_lines_long_line_multiple_chunks()
   local a, b = pair()
   local long = string.rep("z", 10000)
-  assert(a:sendall(long .. "\nnext\n"))
-  local line = b:readline()
-  assert(line == long, "expected 10k line reassembled")
-  assert(b:readline() == "next", "expected following line")
+  assert(a:send_all(long .. "\nnext\n"))
+  assert(a:shutdown())
+  local got = lines_of(b)
+  assert(got[1] == long, "expected 10k line reassembled")
+  assert(got[2] == "next", "expected following line")
   assert(a:close())
   assert(b:close())
 end
-test_readline_long_line_multiple_chunks()
+test_lines_long_line_multiple_chunks()
 
--- set_timeout tests
+-- set_timeout_ms tests
 
-local function test_set_timeout_recv_times_out()
+local function test_set_timeout_ms_recv_times_out()
   local a, b = pair()
-  local ok, serr = b:set_timeout(50)
-  assert(ok, "set_timeout failed: " .. tostring(serr))
+  local ok, serr = b:set_timeout_ms(50)
+  assert(ok, "set_timeout_ms failed: " .. tostring(serr))
   local data, err = b:recv()
   assert(data == nil, "expected recv to time out")
   assert(err ~= nil, "expected a timeout error, not end of stream")
   assert(a:close())
   assert(b:close())
 end
-test_set_timeout_recv_times_out()
+test_set_timeout_ms_recv_times_out()
 
-local function test_set_timeout_clear_restores_blocking()
+local function test_set_timeout_ms_clear_restores_blocking()
   local a, b = pair()
-  assert(b:set_timeout(50))
-  assert(b:set_timeout())
-  assert(a:sendall("ping"))
+  assert(b:set_timeout_ms(50))
+  assert(b:set_timeout_ms())
+  assert(a:send_all("ping"))
   local data = b:recv()
   assert(data == "ping", "expected recv to work after clearing timeout")
   assert(a:close())
   assert(b:close())
 end
-test_set_timeout_clear_restores_blocking()
+test_set_timeout_ms_clear_restores_blocking()
 
-local function test_set_timeout_readline_times_out()
+local function test_set_timeout_ms_bounds_line_iteration()
   local a, b = pair()
-  assert(b:set_timeout(50))
-  assert(a:sendall("partial-without-newline"))
-  local line, err = b:readline()
-  assert(line == nil and err ~= nil, "expected readline to time out on missing newline")
+  assert(b:set_timeout_ms(50))
+  assert(a:send_all("partial-without-newline"))
+  local line, err = stream.lines(b)()
+  assert(line == nil and err ~= nil,
+    "expected line iteration to time out on a missing newline, got: " .. tostring(line))
   assert(a:close())
   assert(b:close())
 end
-test_set_timeout_readline_times_out()
+test_set_timeout_ms_bounds_line_iteration()
 
-local function test_set_timeout_closed_socket()
+local function test_set_timeout_ms_closed_socket()
   local a, b = pair()
   assert(a:close())
-  local ok, err = a:set_timeout(100)
-  assert(not ok and err ~= nil, "expected set_timeout on closed socket to fail")
+  local ok, err = a:set_timeout_ms(100)
+  assert(not ok and err ~= nil, "expected set_timeout_ms on closed socket to fail")
   assert(b:close())
 end
-test_set_timeout_closed_socket()
+test_set_timeout_ms_closed_socket()
 
 -- Socket implements the stream interfaces: a socket can be handed to
 -- any consumer of stream.Reader / stream.Writer (e.g. cosmic.sse).
 local function test_socket_is_stream()
-  local stream = require("cosmic.stream")
   local a, b = pair()
   local w: stream.Writer = a
   local r: stream.Reader = b
@@ -238,7 +234,7 @@ local function test_recv_retries_eintr()
   local on_alarm = function(_: number)
     if not fired then
       fired = true
-      assert(a:sendall("ping"))
+      assert(a:send_all("ping"))
     end
   end
   local prev = check.must(signal.sigaction(signal.SIGALRM, on_alarm))
@@ -282,25 +278,70 @@ test_send_offset()
 
 -- recv(0) reads "" from the kernel on a stream socket, which is
 -- indistinguishable from "peer closed" (#589) unless
--- bufsiz is rejected outright: an honest error, not a throw.
-local function test_recv_zero_bufsiz_is_error()
+-- max_bytes is rejected outright: an honest error, not a throw.
+local function test_recv_zero_max_bytes_is_error()
   local a, b = pair()
   local data, err = a:recv(0)
   assert(data == nil, "recv(0) should not return data")
-  assert(err ~= nil and err:match("bufsiz"),
-    "recv(0) should name bufsiz in the error, got: " .. tostring(err))
+  assert(err ~= nil and err:match("max_bytes"),
+    "recv(0) should name max_bytes in the error, got: " .. tostring(err))
   assert(a:close())
   assert(b:close())
 end
-test_recv_zero_bufsiz_is_error()
+test_recv_zero_max_bytes_is_error()
 
-local function test_recv_negative_bufsiz_is_error()
+local function test_recv_negative_max_bytes_is_error()
   local a, b = pair()
   local data, err = a:recv(-1)
   assert(data == nil, "recv(-1) should not return data")
-  assert(err ~= nil and err:match("bufsiz"),
-    "recv(-1) should name bufsiz in the error, got: " .. tostring(err))
+  assert(err ~= nil and err:match("max_bytes"),
+    "recv(-1) should name max_bytes in the error, got: " .. tostring(err))
   assert(a:close())
   assert(b:close())
 end
-test_recv_negative_bufsiz_is_error()
+test_recv_negative_max_bytes_is_error()
+
+-- Socket:fd() is a method, not a field, and it reports -1 once closed —
+-- the fd.Handle shape. That is what lets poll.add reject a descriptor
+-- nobody holds instead of quietly polling a recycled one.
+local function test_fd_is_minus_one_after_close()
+  local a, b = pair()
+  assert(a:fd() >= 0, "expected a live descriptor, got " .. tostring(a:fd()))
+  assert(a:close())
+  assert(a:fd() == -1, "closed socket should report -1, got " .. tostring(a:fd()))
+  local poll = require("cosmic.poll")
+  local ok, err = poll.new():add(a:fd(), poll.POLLIN)
+  assert(not ok, "a closed socket's -1 must not register with a Poller")
+  assert(err ~= nil, "expected an error message")
+  assert(b:close())
+end
+test_fd_is_minus_one_after_close()
+
+-- accept bounds its own wait: the listener's send/recv semantics stay
+-- untouched, which set_timeout_ms on the listener could not promise.
+local function test_accept_times_out()
+  local srv = check.must(net.listen_tcp("127.0.0.1", 0))
+  local t0 = time.monotonic()
+  local conn, err = srv:accept({timeout_ms = 100})
+  local elapsed_ms = (time.monotonic() - t0) * 1000
+  assert(conn == nil, "accept with no client pending should not return a socket")
+  assert(err ~= nil and err:find("timed out", 1, true) ~= nil,
+    "expected a timeout error, got: " .. tostring(err))
+  assert(elapsed_ms < 5000, "accept should return at its bound, took "
+    .. tostring(elapsed_ms) .. "ms")
+  assert(srv:close())
+end
+test_accept_times_out()
+
+local function test_accept_within_timeout_returns_the_connection()
+  local srv = check.must(net.listen_tcp("127.0.0.1", 0))
+  local port = check.must(srv:local_endpoint()).port
+  local client = check.must(net.dial("127.0.0.1", port))
+  local conn = check.must(srv:accept({timeout_ms = 5000}))
+  assert(client:send_all("bounded"))
+  assert(conn:recv() == "bounded", "expected the payload through a bounded accept")
+  assert(client:close())
+  assert(conn:close())
+  assert(srv:close())
+end
+test_accept_within_timeout_returns_the_connection()

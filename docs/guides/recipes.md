@@ -118,7 +118,7 @@ and block on `h.stdout:read(64)` instead of sleeping. see
 ## TCP echo pair (net)
 
 see `cosmic --examples net` for a runnable single-process echo exchange:
-`listen_tcp("127.0.0.1", 0)` for an OS-assigned port, `connect_tcp`,
+`listen_tcp("127.0.0.1", 0)` for an OS-assigned port, `dial`,
 `accept`, then `send`/`recv`. `recv` returns bare nil on peer close
 (end of stream); `""` only ever means a zero-byte datagram.
 
@@ -133,6 +133,7 @@ sanctioned shape; `cosmic --examples fetch` runs exactly this pair.
 ```teal
 local check = require("cosmic.check")
 local net = require("cosmic.net")
+local stream = require("cosmic.stream")
 
 -- serve one request: read the request line, drain headers, answer
 -- with a computed Content-Length. loop it for a real server.
@@ -142,17 +143,26 @@ local function serve_one(srv: net.Socket): boolean, string
     return false, accept_err
   end
   local conn = accepted as net.Socket -- cast: record union after guard
-  local request_line = conn:readline()
+  -- a Socket is a stream.Reader, so stream.lines is the line reader.
+  -- it splits on "\n" and leaves HTTP's "\r" on the end, which the
+  -- framing here strips explicitly rather than assuming.
+  local next_line = stream.lines(conn)
+  local function crlf_line(): string | nil
+    local line = next_line()
+    if line == nil then return nil end
+    return (line:gsub("\r$", ""))
+  end
+  local request_line = crlf_line()
   local path = "/"
   if request_line is string then
     path = request_line:match("^%u+%s+(%S+)") or "/"
   end
   while true do
-    local header = conn:readline()
+    local header = crlf_line()
     if not header or header == "" then break end -- blank line ends headers
   end
   local body = "hello from " .. path .. "\n"
-  local ok, send_err = conn:sendall("HTTP/1.1 200 OK\r\n"
+  local ok, send_err = conn:send_all("HTTP/1.1 200 OK\r\n"
     .. "Content-Length: " .. #body .. "\r\n"
     .. "Connection: close\r\n\r\n" .. body)
   local _ok, _err = conn:close() -- the send result is the verdict, not the close
@@ -160,7 +170,7 @@ local function serve_one(srv: net.Socket): boolean, string
 end
 
 local srv = check.must(net.listen_tcp("127.0.0.1", 0))
-print("READY " .. check.must(srv:getsockname()).port) -- a test blocks on this line
+print("READY " .. check.must(srv:local_endpoint()).port) -- a test blocks on this line
 assert(serve_one(srv))
 assert(srv:close())
 ```

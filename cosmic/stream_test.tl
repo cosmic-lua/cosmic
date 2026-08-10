@@ -50,7 +50,7 @@ end
 test_fd_handle_conforms()
 
 local function test_socket_recv_eof_is_nil()
-  local sp = check.must(net.socketpair())
+  local sp = check.must(net.socket_pair())
   local a, b = sp.a, sp.b
 
   assert(a:send("socket bytes"))
@@ -78,7 +78,7 @@ test_socket_recv_eof_is_nil()
 local function test_socket_zero_byte_datagram_stays_empty()
   -- "" is reserved for the one honest case: a zero-byte datagram on a
   -- message socket. It must NOT be collapsed into nil.
-  local sp = check.must(net.socketpair({socktype = net.SOCK_DGRAM}))
+  local sp = check.must(net.socket_pair({socket_type = net.SOCK_DGRAM}))
   local a, b = sp.a, sp.b
 
   assert(a:send(""))
@@ -106,7 +106,7 @@ test_child_handle_conforms()
 local function serve_once(response: string): integer, integer
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
-  local port = check.must(s:getsockname()).port
+  local port = check.must(s:local_endpoint()).port
   local pid = proc.fork()
   if pid == 0 then
     local conn = s:accept()
