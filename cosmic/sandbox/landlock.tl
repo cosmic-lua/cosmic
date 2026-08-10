@@ -216,8 +216,7 @@ local function restrict(opts?: RestrictOptions): boolean, string
     -- (READ, RW, ...). A rule left with no grantable bits is skipped —
     -- landlock denies by default, so granting nothing needs no rule.
     local st = unix.fstat(pfd)
-    -- cast: record union after guard
-    if st and not unix.S_ISDIR((st as unix.Stat):mode()) then
+    if st and not unix.S_ISDIR(st:mode()) then
       access = access & FILE_BITS
     end
     if access ~= 0 then

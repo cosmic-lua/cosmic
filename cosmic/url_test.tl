@@ -220,7 +220,7 @@ test_parse_empty_url()
 local function test_parse_invalid_port()
   local result, err = url.parse("http://example.com:99999/")
   assert(result == nil, "port 99999 must be rejected, got port " ..
-    tostring(result and (result as url.Url).port)) -- cast: record union after guard
+    tostring(result ~= nil and result.port))
   assert(err ~= nil and err:find("invalid port") ~= nil,
     "expected invalid-port error, got '" .. tostring(err) .. "'")
 end

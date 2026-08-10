@@ -102,6 +102,10 @@ if st and st:is_dir() then
 end
 ```
 
+that fact rides the CONDITION: in value position — `tostring(x and
+x.port)` — the left operand is not read in boolean context, so write
+`x ~= nil and x.port` there, which is exact and needs no context.
+
 `assert` also narrows as an EXPRESSION, because it declares that it
 strips the nil — so composing it with a fallible call yields the plain
 type, and there is nothing cosmic-specific to learn first:
