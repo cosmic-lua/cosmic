@@ -168,8 +168,9 @@ local) and `is` early-exit guards (`if not (x is Rec) then return end`). The oth
   check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua
   passes multiple returns through, so a failing call reports the callee's own error
   string. `must` narrows nil only (`false` passes through), and it throws, so it is for
-  tests/examples, never library code. Like `assert`, must forwards extra returns past
-  the second; a plain `value, err` pair still collapses to the value alone. Never write
+  tests/examples, never library code. Like `assert`, it declares ONE return, so it
+  composes anywhere a value goes — `return check.must(f())`, `g(x, check.must(f()))`,
+  `for row in check.must(db:query(sql))` — with no parenthesis-truncation. Never write
   `assert(x) as T` in a test; that pattern is retired.
 - **Use `is` for dispatch past nil**: `if sock is net.Socket then sock:send(...)
   end` narrows inside the positive branch (one `type(x) == "table"` check); also

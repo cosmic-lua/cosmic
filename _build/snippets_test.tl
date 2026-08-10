@@ -50,7 +50,7 @@ local teal = require("cosmic.teal")
 --- path that does not exist.
 local function declared_files(): {string}
   local imports = require("_make.imports")
-  return (check.must(imports.reads_of_file(".", "_build/snippets_test.tl")))
+  return check.must(imports.reads_of_file(".", "_build/snippets_test.tl"))
 end
 
 --- The example project the guides describe — `greet.text` in the

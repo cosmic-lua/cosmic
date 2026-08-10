@@ -120,7 +120,7 @@ local function test_lua_markers_are_first_class()
   local zip = require("cosmic.zip")
   local reader = check.must(zip.open(fs.join(luaonly_root, "o/bin/luaonly")))
   local shipped = false
-  for _, e in ipairs((check.must(reader:list()))) do
+  for _, e in ipairs(check.must(reader:list())) do
     if e.name:find("main_test", 1, true) then shipped = true end
   end
   reader:close()
@@ -151,7 +151,7 @@ local function test_only_declared_payload_ships()
   local zip = require("cosmic.zip")
   local reader = check.must(zip.open(fs.join(assets_root, "o/bin/assets")))
   local saw: {string: boolean} = {}
-  for _, e in ipairs((check.must(reader:list()))) do
+  for _, e in ipairs(check.must(reader:list())) do
     saw[e.name] = true
     assert(not e.name:find("testdata", 1, true),
       "testdata/ must never reach an artifact: " .. e.name)

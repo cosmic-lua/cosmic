@@ -217,7 +217,7 @@ local function test_truncated_archive_is_refused()
   -- without one, which is what a boundary-aligned truncation leaves.
   local body = tar_entry("a.txt", "one\n", oct("644"), "0", "") ..
   tar_entry("b.txt", "two\n", oct("644"), "0", "")
-  assert(fs.write(path, (check.must(compress.compress(body, {format = "gzip"})))))
+  assert(fs.write(path, check.must(compress.compress(body, {format = "gzip"}))))
 
   assert(fs.remove_all(dest))
   local ok, err = untar.extract(path, dest)

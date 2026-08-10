@@ -31,9 +31,7 @@ local function run_capturing(name: string, src: string): child.Result, string
       {stdout = out_h}))
   local r = check.must(h:wait())
   assert(out_h:close())
-  -- parenthesised: must forwards extra returns, which would overflow
-  -- this function's declared two
-  return r, (check.must(fs.read(outfile)))
+  return r, check.must(fs.read(outfile))
 end
 
 --- The core claim: an inherited stream reaches the real descriptor, and

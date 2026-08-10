@@ -16,7 +16,7 @@ local spec: flags.Spec = {
 
 -- Parse a command line that must succeed.
 local function must(s: flags.Spec, argv: {string}): flags.Parsed
-  return (check.must(flags.parse(s, argv)))
+  return check.must(flags.parse(s, argv))
 end
 
 local function test_short_and_long_forms()
@@ -287,14 +287,14 @@ local function test_repeated_flag_collects_lists()
       {long = "count", arg = "N"},
     },
   }
-  local p = (check.must(flags.parse(rspec, {"-D", "a=1", "--define", "b=2", "--count", "9"})))
+  local p = check.must(flags.parse(rspec, {"-D", "a=1", "--define", "b=2", "--count", "9"}))
   assert(#p.lists["define"] == 2, "both occurrences collect")
   assert(p.lists["define"][1] == "a=1" and p.lists["define"][2] == "b=2",
     "in argv order")
   assert(p.values["define"] == "b=2", "values keeps the last occurrence")
   assert(p.lists["count"] == nil, "non-repeated flags have no list")
 
-  local empty = (check.must(flags.parse(rspec, {})))
+  local empty = check.must(flags.parse(rspec, {}))
   assert(empty.lists["define"] ~= nil and #empty.lists["define"] == 0,
     "declared repeated flag always has a (possibly empty) list")
 end
@@ -305,11 +305,11 @@ local function test_arg_optional_flag()
     name = "doc",
     flags = {{long = "docs", arg = "QUERY", arg_optional = true}},
   }
-  local bare = (check.must(flags.parse(ospec, {"--docs"})))
+  local bare = check.must(flags.parse(ospec, {"--docs"}))
   assert(bare.values["docs"] == "", "bare optional-arg flag reads as empty string")
-  local given = (check.must(flags.parse(ospec, {"--docs=fs.read"})))
+  local given = check.must(flags.parse(ospec, {"--docs=fs.read"}))
   assert(given.values["docs"] == "fs.read", "attached value comes through")
-  local absent = (check.must(flags.parse(ospec, {})))
+  local absent = check.must(flags.parse(ospec, {}))
   assert(absent.values["docs"] == nil, "absent flag stays nil")
 end
 test_arg_optional_flag()

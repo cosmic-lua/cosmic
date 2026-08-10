@@ -4,7 +4,7 @@ local ip = require("cosmic.ip")
 
 --- Parse an address the test knows is valid, asserting success.
 local function p(s: string): ip.Addr
-  return (check.must(ip.parse(s)))
+  return check.must(ip.parse(s))
 end
 
 -- parse tests: parse returns a typed Addr

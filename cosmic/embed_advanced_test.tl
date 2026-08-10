@@ -104,7 +104,7 @@ local function test_embed_overwrites_cleanly()
   local orig_data = fs.read(cosmic)
   local orig_reader = check.must(zip.open_string(orig_data))
   local orig_files: {string: boolean} = {}
-  for _, entry in ipairs((check.must(orig_reader:list()))) do
+  for _, entry in ipairs(check.must(orig_reader:list())) do
     -- Skip directory entries
     if entry.name:sub(-1) ~= "/" then
       orig_files[entry.name] = true
