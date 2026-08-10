@@ -219,8 +219,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- fetch and checkout docs branch, or create orphan
   local fetch_res = child.run({"git", "fetch", "origin", branch})
-  -- cast: record union after nil check
-  local fetch_ok = fetch_res ~= nil and (fetch_res as child.Result).ok
+  local fetch_ok = fetch_res ~= nil and fetch_res.ok
 
   if fetch_ok then
     ok, err = run({"git", "switch", branch})
@@ -262,8 +261,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- check if there are changes
   local diff_res = child.run({"git", "diff", "--staged", "--quiet"})
-  -- cast: record union after nil check
-  if diff_res ~= nil and (diff_res as child.Result).ok then
+  if diff_res ~= nil and diff_res.ok then
     io.stderr:write("no documentation changes detected\n")
     return true
   end

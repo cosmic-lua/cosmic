@@ -306,7 +306,7 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   if prev_h ~= nil then assert(env.set("HOME", prev_h, true)) else assert(env.unset("HOME")) end
 
   assert(pinned ~= nil, "an unset TMPDIR must be pinned, got nil")
-  local pin = pinned as string -- cast: asserted non-nil on the line above
+  local pin = pinned
   assert(pin:find("o/tmp", 1, true),
     "an unset TMPDIR must be pinned under o/, got: " .. pin)
   assert(seeded, "the $HOME loader must be seeded into the scratch")

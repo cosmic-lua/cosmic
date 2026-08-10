@@ -14,7 +14,7 @@ local literal = require("cosmic.literal")
 local function read(src: string): {string: any}
   local v, err = literal.parse(src, {file = "t", noun = "pin"})
   assert(v, "expected a literal, got: " .. tostring(err))
-  return v as {string: any} -- cast: record union after the assert
+  return v
 end
 
 --- Read a source expecting refusal, and return the message.
@@ -231,7 +231,7 @@ local function test_format_file_round_trips_through_parse_file()
   assert(literal.format_file(path, {url = "https://example.com", n = 3}))
   local v, err = literal.parse_file(path)
   assert(v, "parse_file failed: " .. tostring(err))
-  local got = v as {string: any} -- cast: record union after the assert
+  local got = v
   assert(got.url == "https://example.com" and got.n == 3,
     "format_file writes what parse_file reads")
 end

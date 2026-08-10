@@ -32,6 +32,10 @@
 --   same IsFact the fact machinery already uses for `is` guards. Unions
 --   containing boolean/any/unknown are skipped: `false` is
 --   truthy-unsafe.
+-- - narrow-and-operand: `if x and x.field` / `if x and x:method()`.
+--   tl already hands the left operand's facts to the right one; it
+--   just never read that operand in boolean context, so a bare
+--   variable there had no fact to hand over.
 -- - narrow-assert: `assert(x)` applies the same fact — assert already
 --   forwards its argument's facts to the following statements; the
 --   edit gives a bare variable argument one.
@@ -221,6 +225,30 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
       -- what a Lua programmer writes first.
       assert: function<A, B>(A | nil, ? B, ...: any): A --[[special_function]]
 ]=====],
+  },
+  ["narrow-and-operand"] = {
+    file = "tl.lua",
+    note = "whilp/cosmic#942: the left operand of `and` is read in boolean context",
+    find = [=====[            if node.expected then
+               if node.op.op == "and" then
+                  node.e2.expected = node.expected
+               elseif node.op.op == "or" then]=====],
+    replace = [=====[            if node.expected then
+               if node.op.op == "and" then
+                  node.e2.expected = node.expected
+                  -- cosmic carried patch (whilp/cosmic#942): the left
+                  -- operand of `and` decides the branch, so inside a
+                  -- boolean context it is read in one too -- which is
+                  -- what gives `if st and st:is_dir()`, the idiom a Lua
+                  -- programmer writes, its truthiness fact. tl already
+                  -- applies e1's facts to e2 (before_e2), so the fact is
+                  -- all that was missing. Only boolean_context
+                  -- propagates: where a VALUE is expected, e1 is the
+                  -- expression's own falsy result and keeps its type.
+                  if node.expected.typename == "boolean_context" then
+                     node.e1.expected = node.expected
+                  end
+               elseif node.op.op == "or" then]=====],
   },
   ["narrow-assert"] = {
     file = "tl.lua",

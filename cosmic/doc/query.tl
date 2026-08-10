@@ -50,19 +50,17 @@ end
 --- List available guide topics from the embedded guides directory.
 local function guide_topics(): {string}
   local fs = require("cosmic.fs")
-  local fs_types = require("cosmic.fs.types")
   local dir = fs.open_dir(GUIDES_DIR)
   if not dir then return {} end
-  local d = dir as fs_types.Dir -- cast: record union after guard
   local topics: {string} = {}
   while true do
-    local name = d:read()
+    local name = dir:read()
     if not name then break end
     if name ~= "index.md" and string.match(name, "%.md$") then
       topics[#topics + 1] = string.sub(name, 1, #name - 3)
     end
   end
-  d:close()
+  dir:close()
   table.sort(topics)
   return topics
 end

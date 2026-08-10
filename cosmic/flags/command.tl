@@ -133,8 +133,7 @@ local function command(cspec: CommandSpec, argv: {string}): Dispatched | nil, st
   if not parsed then
     return nil, perr
   end
-  local p = parsed as Parsed -- cast: record union after guard
-  return {command = first, parsed = p, help = p.help, version = false}
+  return {command = first, parsed = parsed, help = parsed.help, version = false}
 end
 
 --- Render help for a multi-command program: the overview (usage,

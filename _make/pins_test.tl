@@ -54,10 +54,8 @@ local function test_every_declared_platform_resolves()
     assert(fs.is_file(path), "missing committed pin: " .. path)
     for _, key in ipairs(platform_keys(path)) do
       local host = key ~= "" and key or "x86_64-linux"
-      local p, err = pin.read(path, host)
-      assert(p, path .. " [" .. host .. "]: " .. tostring(err))
-      local got = p as pin.Pin -- cast: record union after the assert
-
+      local got, err = pin.read(path, host)
+      assert(got, path .. " [" .. host .. "]: " .. tostring(err))
       assert(#got.sha256 == 64 and got.sha256:match("^%x+$"),
         path .. " [" .. host .. "]: sha256 must be 64 hex, got " .. got.sha256)
 
