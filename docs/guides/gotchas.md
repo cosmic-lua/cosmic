@@ -115,7 +115,9 @@ end
 a guard on a plain variable narrows it: truthiness (`if r then`, `if
 not r then return end`), `assert(r, "msg")`, and `== nil` / `~= nil`
 comparisons all narrow `T | nil` for every `T` (the carried tl patch,
-`3p/tl/tl_patch.tl`):
+`3p/tl/tl_patch.tl`) — and `assert` narrows in expression position too,
+so `local db = assert(sqlite.open(p))` is `Database`, not
+`Database | nil`:
 
 ```teal
 local sqlite = require("cosmic.sqlite")

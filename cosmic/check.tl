@@ -131,11 +131,13 @@ local function failed(value: any, err: string, label?: string)
 end
 
 --- Assert a fallible return and narrow away nil.
---- The one sanctioned narrowing hole for tests and examples: tl 0.24.8
---- does not flow-narrow record unions through `assert`, so without this
---- every fallible call site needs its own `assert(x) as T`. `must`
---- centralizes that unsoundness behind a runtime nil check. Lua passes multiple returns through, so
---- `must(fs.read(path))` fails with fs.read's own error string.
+--- Since #1065 plain `assert` narrows here too — the carried tl patch
+--- declares that it strips nil — so this is no longer the only way to
+--- get past a `T | nil` in a test. What it still buys: Lua passes
+--- multiple returns through, so `must(fs.read(path))` fails with
+--- fs.read's own error string rather than a message the call site had
+--- to write; and it narrows nil ONLY, so a `false` value passes
+--- through where `assert` would throw on it.
 --- Declares ONE return (#1064), so it composes exactly where `assert`
 --- does: `return check.must(sqlite.open(":memory:"))` and
 --- `table.insert(parts, check.must(chunk))` both type-check, with no

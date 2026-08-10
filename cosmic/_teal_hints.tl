@@ -11,9 +11,10 @@
 ---   1. got number, expected integer (string index/length requires integer)
 ---   2. X | nil used un-narrowed: passed where X is expected, indexed,
 ---      or looped over — truthiness, `assert(x)` and `== nil` all
----      narrow a plain variable (the carried tl patch,
----      3p/tl/tl_patch.tl), but record FIELDS never narrow, and
----      nothing else tells the author
+---      narrow a plain variable, and `assert` narrows composed with a
+---      fallible call too (the carried tl patch, 3p/tl/tl_patch.tl),
+---      but record FIELDS never narrow, and nothing else tells the
+---      author
 ---   3. excess return values (multiple returns captured incorrectly)
 ---   4. <any type> operations (ipairs, index, concat on any)
 
@@ -61,9 +62,10 @@ local function hint_for_message(msg: string): string | nil
   end
   -- Pattern 2b: indexing through an un-narrowed nil union. A guard on
   -- a plain variable — truthiness, `assert(x)`, `== nil` — narrows it
-  -- since the carried tl patch (3p/tl/tl_patch.tl), so what lands here
-  -- is a record FIELD (guarding `o.sub` never narrows `o.sub`) or a
-  -- value that was never guarded at all.
+  -- since the carried tl patch (3p/tl/tl_patch.tl), and so does
+  -- `assert(f())` in expression position, so what lands here is a
+  -- record FIELD (guarding `o.sub` never narrows `o.sub`) or a value
+  -- that was never guarded at all.
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
     return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.checking`"
   end

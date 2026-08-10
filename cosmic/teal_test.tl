@@ -67,9 +67,10 @@ test_hint_nil_union_not_narrowed()
 -- nil union narrows through truthiness (positive branch and negated
 -- early-return alike), through `assert(x)`, and through `== nil` /
 -- `~= nil` — which is exact, so it narrows boolean unions truthiness
--- cannot touch. A tl pin bump that lands without the patch — or a
--- patch whose anchor drifted — fails HERE, not as a hundred downstream
--- type errors.
+-- cannot touch. `assert` narrows in EXPRESSION position too, since it
+-- declares that it strips nil. A tl pin bump that lands without the
+-- patch — or a patch whose anchor drifted — fails HERE, not as a
+-- hundred downstream type errors.
 local function test_narrowing_canary()
   local path = fs.join(tmpdir, "narrow_ok.tl")
   assert(fs.write(path, [[
@@ -109,6 +110,14 @@ local function via_assert(): integer
   assert(r, "make failed")
   return r.x
 end
+local function via_assert_expression(): integer
+  -- the shape a Lua programmer writes first (whilp/cosmic#1065):
+  -- assert DECLARES that it strips nil, so it narrows composed with a
+  -- fallible call, not only as a statement above the use
+  local r = assert(make())
+  local r2 = assert(make())
+  return r.x + r2.x
+end
 local function via_eq_nil(): integer
   local r = make()
   if r == nil then
@@ -123,8 +132,8 @@ local function via_ne_nil_boolean(): integer
   end
   return 0
 end
-print(early() + positive() + arr() + via_assert() + via_eq_nil()
-  + via_ne_nil_boolean())
+print(early() + positive() + arr() + via_assert() + via_assert_expression()
+  + via_eq_nil() + via_ne_nil_boolean())
 ]]))
   local result = teal.check_file(path)
   assert(result.ok, "guards must narrow a nil union (carried tl patch): "

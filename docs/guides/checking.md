@@ -89,6 +89,21 @@ assert(sock, "connect failed")
 local _sent, _serr = sock:send("hello") -- narrowed, method call included
 ```
 
+`assert` also narrows as an EXPRESSION, because it declares that it
+strips the nil — so composing it with a fallible call yields the plain
+type, and there is nothing cosmic-specific to learn first:
+
+```teal
+local sqlite = require("cosmic.sqlite")
+
+local db = assert(sqlite.open(":memory:")) -- Database, not Database | nil
+assert(db:exec("CREATE TABLE t (x TEXT)"))
+```
+
+that is the same narrowing `check.must` gives, in the primitive you
+already know. `check.must` remains the one to reach for in tests and
+examples, where the callee's own error string is the failure message.
+
 `~= nil` is exact, so it also narrows unions containing `boolean`,
 which truthiness and `assert` deliberately skip (`false` is falsy, so
 truthy does not mean "not nil" there):
