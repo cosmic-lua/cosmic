@@ -52,9 +52,14 @@ end
 --- Copy the working tree into `dest`, minus everything generated.
 ---
 --- `git ls-files` would be the precise answer and is not available: the
---- test lane grants no host executables. Pruning `o/` and dotfiles gets
+--- test lane grants no host executables. Pruning `o/` and `.git` gets
 --- the same set for this repo, and a stray untracked file only makes
 --- the copy larger, never the assertion weaker.
+---
+--- Dot-directories are COPIED, `.git` excepted: `.github/workflows` is
+--- a declared read (`_build/workflows_test.tl`), and the model
+--- validates that every declared read exists, so a copy that pruned
+--- dotfiles wholesale failed the build it was meant to measure.
 --- @param dest string Directory to populate
 local function copy_tree(dest: string)
   assert(fs.make_dirs(dest))
@@ -62,7 +67,7 @@ local function copy_tree(dest: string)
   assert(fs.visit(repo, function(e: fs.Entry): fs.WalkAction
         local path, entry, st = e.path, e.name, e.stat
         local rel = path:sub(#repo + 2)
-        if entry:sub(1, 1) == "." or rel == "o" then
+        if entry == ".git" or rel == "o" then
           return "skip"
         end
         if not st:is_file() then
@@ -166,8 +171,8 @@ local function generation(label: string, with: string): string
   local dir = fs.join(tmpdir, "fixpoint-" .. label)
   assert(fs.remove_all(dir))
   copy_tree(dir)
-  -- The version as a tree input. `copy_tree` skips dotfiles, so this is
-  -- the copy's own declaration and never the developer's.
+  -- The version as a tree input, written after the copy so it is the
+  -- copy's own declaration and never the developer's.
   assert(fs.write(fs.join(dir, ".version"),
       'return { cosmic = "fixpoint" }\n'))
   assert(seed_pins(dir), "seeding should succeed once the guard has passed")

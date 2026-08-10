@@ -21,8 +21,10 @@
   CI's pinned-release fetch. Patches ride archive pins only: editing a
   formatless pin's single output would fail its own digest forever.
   The first cargo is the tl narrowing patch (`3p/tl/tl_patch.tl`:
-  truthiness, then `assert(x)` and `== nil`/`~= nil`), with its own
-  canary test (`cosmic/teal_test.tl`) so a lost patch fails as one
+  truthiness, then `assert(x)` and `== nil`/`~= nil`, and — whilp/cosmic#1065 —
+  a one-line declaration change making `assert` strip nil, so it
+  narrows in expression position and not only as a statement), with its
+  own canary test (`cosmic/teal_test.tl`) so a lost patch fails as one
   named test, not a hundred downstream type errors.
 - **rejected:** forking tl for one edit (a compiler of maintenance for
   a function of change); waiting for upstream (unbounded, and the scar

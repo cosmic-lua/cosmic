@@ -160,7 +160,10 @@ formatted string plus the numeric errno), wrappers add context with
 **Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
 `T`: truthiness (`if not r then return end`), `assert(r)`, and `== nil`/`~= nil` —
 which is exact, so it narrows boolean unions the other two deliberately skip — via
-the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). What
+the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). The same
+patch makes `assert` narrow as an EXPRESSION, so `local db =
+assert(sqlite.open(p))` is a plain `Database` — the primitive a Lua programmer
+reaches for works, with no cosmic-specific combinator in the way. What
 still does NOT narrow: record FIELDS (copy the field to a local and guard the
 local) and `is` early-exit guards (`if not (x is Rec) then return end`). The other tools:
 

@@ -15,8 +15,16 @@
 --   when absent. cosmic generates the cache in _types/tlast_gen.tl and
 --   thaws it in cosmic/_teal_ast.tl.
 --
--- Three edits teach the checker that a plain variable's nil
--- union narrows through the guards Lua programmers actually write:
+-- Four edits teach the checker that a nil union narrows through the
+-- guards Lua programmers actually write:
+--
+-- - narrow-assert-decl (+ its -tl-tl twin): `assert` DECLARES that it
+--   strips nil (`function<A, B>(A | nil, ? B, ...: any): A`), so it
+--   narrows in expression position — `local db = assert(open(p))` —
+--   and not only as a statement. tl's own declaration hands the union
+--   straight back, `| nil` included, which is the trap a Lua
+--   programmer hits before ever meeting `check.must`
+--   (whilp/cosmic#1065).
 --
 -- - narrow-truthiness: `if r then` / `if not r then return end`. Lua
 --   has no falsy tables, so for a union of nil with non-boolean
@@ -184,6 +192,34 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
          local result = tl.check(program, "@stdlib", {}, env)
          assert_no_errors(result.type_errors, "standard library contains type errors")
       end
+]=====],
+  },
+  ["narrow-assert-decl"] = {
+    file = "tl.lua",
+    note = "whilp/cosmic#1065: assert strips nil, so it narrows in expression position",
+    find = [=====[      assert: function<A, B>(A, ? B, ...: any): A --[[special_function]]
+]=====],
+    replace = [=====[      -- cosmic carried patch (whilp/cosmic#1065): assert's declared
+      -- argument strips the nil, so `local db = assert(open(p))` and
+      -- `local d2 = assert(d)` yield A rather than handing `A | nil`
+      -- straight back. The statement form already narrowed (see
+      -- narrow-assert below); this is the expression form, which is
+      -- what a Lua programmer writes first.
+      assert: function<A, B>(A | nil, ? B, ...: any): A --[[special_function]]
+]=====],
+  },
+  ["narrow-assert-decl-tl-tl"] = {
+    file = "tl.tl",
+    note = "whilp/cosmic#1065: assert strips nil (Teal ground truth)",
+    find = [=====[      assert: function<A, B>(A, ? B, ...: any): A --[[special_function]]
+]=====],
+    replace = [=====[      -- cosmic carried patch (whilp/cosmic#1065): assert's declared
+      -- argument strips the nil, so `local db = assert(open(p))` and
+      -- `local d2 = assert(d)` yield A rather than handing `A | nil`
+      -- straight back. The statement form already narrowed (see
+      -- narrow-assert below); this is the expression form, which is
+      -- what a Lua programmer writes first.
+      assert: function<A, B>(A | nil, ? B, ...: any): A --[[special_function]]
 ]=====],
   },
   ["narrow-assert"] = {
