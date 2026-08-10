@@ -18,7 +18,7 @@ local record CheckModule
   equal: function<T>(actual: T, expected: T, label?: string)
   not_equal: function<T>(actual: T, expected: T, label?: string)
   truthy: function(value: any, label?: string)
-  must: function<T>(value: T | nil, err?: string, ...: any): T, string, any ...
+  must: function<T>(value: T | nil, err?: string): T
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -98,7 +98,7 @@ function failed(value: any, err: string, label?: string)
 ### must
 
 ```teal
-function must(value: T | nil, err?: string, ...: any): T, string, any ...
+function must(value: T | nil, err?: string): T
 ```
 
  Assert a fallible return and narrow away nil.
@@ -107,28 +107,23 @@ function must(value: T | nil, err?: string, ...: any): T, string, any ...
  every fallible call site needs its own `assert(x) as T`. `must`
  centralizes that unsoundness behind a runtime nil check. Lua passes multiple returns through, so
  `must(fs.read(path))` fails with fs.read's own error string.
- Like `assert`, must forwards extra returns past the second, so
- `for p in check.must(fs.find_iter(d)) do` keeps the 4th return — the
- to-be-closed guard that releases directory handles on early break.
- A plain `value, err` pair still collapses to the value alone, so
- `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
- though, sees the declared three-value tuple: when must is the LAST
- argument to another call, parenthesize to truncate it —
- `table.insert(parts, (check.must(chunk)))`. The type checker's
- `wrong number of arguments` error at such a site carries this fix
- as a hint; `cosmic --docs guide.gotchas` has the entry.
+ Declares ONE return (#1064), so it composes exactly where `assert`
+ does: `return check.must(sqlite.open(":memory:"))` and
+ `table.insert(parts, check.must(chunk))` both type-check, with no
+ parenthesis-truncation anywhere. There is nothing to forward past
+ slot 2, because a fallible return has two slots and no more (D20
+ rule 11, enforced by the `fallible-returns` lint) — a resource that
+ must be released rides on the returned record's `__close`, the way
+ `fs.find_iter` and `sqlite.Rows` do.
 
 **Parameters:**
 
 - `value` (T?) - The fallible value (nil on failure)
 - `err` (string?) - Failure message; a `nil, err` pair fills this in
-- `...` (any) - Extra returns (iterator state, closing guard, ...)
 
 **Returns:**
 
 - T - The value, known non-nil
-- string - The second argument, forwarded when extras exist
-- any... - The extra returns, forwarded unchanged
 
 ### enforcing
 
