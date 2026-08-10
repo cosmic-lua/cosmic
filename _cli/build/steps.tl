@@ -99,7 +99,7 @@ local function do_assert_marker(args: {string}): integer
       if name ~= "." and name ~= ".." then
         local p = fs.join(d, name)
         local st = fs.stat(p)
-        if st and (st as fs.Stat):is_dir() then -- cast: record union after guard
+        if st and st:is_dir() then
           if scan(p) then return true end
         else
           local content = fs.read(p)

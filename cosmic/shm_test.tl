@@ -285,7 +285,7 @@ test_memory_wait_retries_eintr_until_deadline()
 -- returns an error instead of touching freed memory, and wake wakes
 -- nothing.
 local function test_memory_close()
-  local mem = assert(shm.open(64)) as shm.Memory -- cast: record union after guard
+  local mem = assert(shm.open(64))
   assert(mem:store(0, 7))
   mem:close()
   mem:close() -- the second, correct call is a quiet no-op, not a false

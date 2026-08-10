@@ -92,8 +92,8 @@ local function test_compile_unchanged_restamps_without_rewriting()
   assert(fs.set_mode(out, tonumber("444", 8) as integer)) -- cast: octal is integral
   code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "second compile failed")
-  local st2 = fs.stat(out)
-  local t2 = (st2 as fs.Stat):modify_time() -- cast: record union after guard
+  local st2 = assert(fs.stat(out))
+  local t2 = st2:modify_time()
   assert(t2.secs > t1.secs or (t2.secs == t1.secs and t2.nsecs >= t1.nsecs),
     "unchanged compile must bring the output up to date")
   assert(fs.read(out) == body, "and must not rewrite its contents")
@@ -182,7 +182,7 @@ local function test_list_write_if_changed()
   local t1 = st1:modify_time()
   code = run_driver("write-list", out, "a.tl", "b.tl")
   assert(code == 0, "unchanged list must succeed")
-  local t2 = (fs.stat(out) as fs.Stat):modify_time() -- cast: record union after guard
+  local t2 = assert(fs.stat(out)):modify_time()
   assert(t1.secs == t2.secs and t1.nsecs == t2.nsecs,
     "unchanged list must not rewrite the stamp")
   code = run_driver("write-list", out, "a.tl")
