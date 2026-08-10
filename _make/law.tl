@@ -35,7 +35,6 @@ local stage = require("_make.stage")
 local types = require("_make.types")
 
 local type Project = types.Project
-local type Selection = types.Selection
 local type Verb = types.Verb
 
 --- Verbs whose product is the whole project, with the reason.
@@ -119,8 +118,8 @@ local function resolve(v: Verb, proj: Project, paths: {string}): boolean, string
   if own ~= nil then
     return own(proj, paths)
   end
-  if v.select ~= nil then
-    local sel = v.select as Selection -- cast: nil ruled out above
+  local sel = v.select
+  if sel ~= nil then
     local picked, err = selection.files(stage.candidates(proj, sel),
       paths, proj.root)
     if not picked then

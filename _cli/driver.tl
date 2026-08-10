@@ -72,14 +72,14 @@ local function seed_ape_loaders(scratch: string)
   if found == nil then
     return
   end
-  for _, src in ipairs(found as {string}) do -- cast: nil-checked above
+  for _, src in ipairs(found) do
     local dst = fs.join(scratch, fs.basename(src))
     if fs.is_file(src) and not fs.is_present(dst) then
       local bytes = fs.read(src)
       if bytes ~= nil then
         local part = dst .. ".part." .. tostring(proc.getpid())
-        -- cast: read's nil checked above; 0x1ED is 0755
-        if fs.write(part, bytes as string) and fs.set_mode(part, 0x1ED) then
+        -- 0x1ED is 0755
+        if fs.write(part, bytes) and fs.set_mode(part, 0x1ED) then
           local _ok, _err = fs.move(part, dst)
         end
       end

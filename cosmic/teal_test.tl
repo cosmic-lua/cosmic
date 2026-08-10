@@ -65,9 +65,10 @@ test_hint_nil_union_not_narrowed()
 
 -- The carried tl patch's canary (3p/tl/tl_patch.tl): a plain variable's
 -- nil union narrows through truthiness (positive branch and negated
--- early-return alike), through `assert(x)`, and through `== nil` /
--- `~= nil` — which is exact, so it narrows boolean unions truthiness
--- cannot touch. `assert` narrows in EXPRESSION position too, since it
+-- early-return alike), through `assert(x)`, through the left operand
+-- of `and` (`if x and x.field`), and through `== nil` / `~= nil` —
+-- which is exact, so it narrows boolean unions truthiness cannot
+-- touch. `assert` narrows in EXPRESSION position too, since it
 -- declares that it strips nil. A tl pin bump that lands without the
 -- patch — or a patch whose anchor drifted — fails HERE, not as a
 -- hundred downstream type errors.
@@ -118,6 +119,20 @@ local function via_assert_expression(): integer
   local r2 = assert(make())
   return r.x + r2.x
 end
+local function via_and_operand(): integer
+  -- `if x and x.field` is the guard a Lua programmer writes; the left
+  -- operand of `and` decides the branch, so it is read in boolean
+  -- context and carries the same fact (whilp/cosmic#942)
+  local r = make()
+  if r and r.x > 0 then
+    return r.x
+  end
+  local s = make()
+  while s and s.x > 3 do
+    return s.x
+  end
+  return 0
+end
 local function via_eq_nil(): integer
   local r = make()
   if r == nil then
@@ -133,7 +148,7 @@ local function via_ne_nil_boolean(): integer
   return 0
 end
 print(early() + positive() + arr() + via_assert() + via_assert_expression()
-  + via_eq_nil() + via_ne_nil_boolean())
+  + via_and_operand() + via_eq_nil() + via_ne_nil_boolean())
 ]]))
   local result = teal.check_file(path)
   assert(result.ok, "guards must narrow a nil union (carried tl patch): "

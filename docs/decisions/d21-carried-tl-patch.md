@@ -21,7 +21,9 @@
   CI's pinned-release fetch. Patches ride archive pins only: editing a
   formatless pin's single output would fail its own digest forever.
   The first cargo is the tl narrowing patch (`3p/tl/tl_patch.tl`:
-  truthiness, then `assert(x)` and `== nil`/`~= nil`, and — whilp/cosmic#1065 —
+  truthiness, then `assert(x)` and `== nil`/`~= nil`, then the left
+  operand of `and` — `if x and x.field`, the shape the tree's own cast
+  sweep tripped on — and — whilp/cosmic#1065 —
   a one-line declaration change making `assert` strip nil, so it
   narrows in expression position and not only as a statement), with its
   own canary test (`cosmic/teal_test.tl`) so a lost patch fails as one

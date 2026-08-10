@@ -158,7 +158,8 @@ formatted string plus the numeric errno), wrappers add context with
 `errno.is_code(errno_value, "EINTR")`.
 
 **Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
-`T`: truthiness (`if not r then return end`), `assert(r)`, and `== nil`/`~= nil` —
+`T`: truthiness (`if not r then return end`), `assert(r)`, `r and r.field`, and
+`== nil`/`~= nil` —
 which is exact, so it narrows boolean unions the other two deliberately skip — via
 the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). The same
 patch makes `assert` narrow as an EXPRESSION, so `local db =

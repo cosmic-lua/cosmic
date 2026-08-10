@@ -64,9 +64,10 @@ recover it.
 ### Narrowing and Casting
 
 a guard on a plain variable narrows its nil union: truthiness,
-`assert(x)`, and `== nil` / `~= nil` all narrow `T | nil` for records,
-maps, arrays and scalars, in the positive branch and below a negated
-early return alike (the carried tl patch, `3p/tl/tl_patch.tl`):
+`assert(x)`, `x and x.field`, and `== nil` / `~= nil` all narrow
+`T | nil` for records, maps, arrays and scalars, in the positive branch
+and below a negated early return alike (the carried tl patch,
+`3p/tl/tl_patch.tl`):
 
 ```teal
 local net = require("cosmic.net")
@@ -87,6 +88,18 @@ print(r.x) -- r is R below the guard
 local sock = net.connect_tcp("127.0.0.1", 80) -- Socket | nil
 assert(sock, "connect failed")
 local _sent, _serr = sock:send("hello") -- narrowed, method call included
+```
+
+the same fact rides the left operand of `and`, which is where a Lua
+programmer usually puts the guard:
+
+```teal
+local fs = require("cosmic.fs")
+
+local st = fs.stat("/tmp")
+if st and st:is_dir() then
+  print("directory")
+end
 ```
 
 `assert` also narrows as an EXPRESSION, because it declares that it
@@ -118,6 +131,12 @@ if b ~= nil then
   return b -- narrowed to boolean; `if b then` would not narrow
 end
 ```
+
+an early-return guard narrows below itself only when its block
+RETURNS: a block that ends in `error(...)` or `os.exit(...)` is
+terminal at runtime, but the checker cannot see that, so the union
+survives it. Write `assert(x, "why")` where the guard would have
+thrown.
 
 what does NOT narrow: **record FIELDS**, even scalar ones — copy the
 field to a local and guard the local:

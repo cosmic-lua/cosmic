@@ -6,7 +6,6 @@
 local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
 local check = require("cosmic.check")
-local fs_types = require("cosmic.fs.types")
 local untar = require("cosmic.tar")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -72,7 +71,7 @@ local function test_extract_files_dirs_modes()
   local st = fs.stat(fs.join(dest, "pkg/tool"))
   assert(st, "tool should stat")
   -- exec bit survives extraction (the reason unzip/tar mattered at all)
-  local mode = (st as fs_types.Stat):mode() -- cast: record union after guard
+  local mode = st:mode()
   assert(mode % 2 == 1, "tool should keep the exec bit, mode: " .. string.format("%o", mode))
 end
 test_extract_files_dirs_modes()

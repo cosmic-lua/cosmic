@@ -113,11 +113,11 @@ end
 ## record-fields-dont-narrow
 
 a guard on a plain variable narrows it: truthiness (`if r then`, `if
-not r then return end`), `assert(r, "msg")`, and `== nil` / `~= nil`
-comparisons all narrow `T | nil` for every `T` (the carried tl patch,
-`3p/tl/tl_patch.tl`) — and `assert` narrows in expression position too,
-so `local db = assert(sqlite.open(p))` is `Database`, not
-`Database | nil`:
+not r then return end`), `assert(r, "msg")`, `r and r.field`, and
+`== nil` / `~= nil` comparisons all narrow `T | nil` for every `T` (the
+carried tl patch, `3p/tl/tl_patch.tl`) — and `assert` narrows in
+expression position too, so `local db = assert(sqlite.open(p))` is
+`Database`, not `Database | nil`:
 
 ```teal
 local sqlite = require("cosmic.sqlite")
@@ -154,7 +154,10 @@ end
 
 (`is` narrowing also does not survive an early-exit guard — `if not (x
 is Rec) then return end` does not narrow below it; write the plain
-truthiness form instead.) the errors these shapes produce name the
+truthiness form instead. and a guard whose block ends in `error(...)`
+rather than `return` does not narrow below itself either — the checker
+cannot see that the block is terminal; use `assert` there.) the errors
+these shapes produce name the
 un-narrowed type but not the cause: `cannot index key 'x' in ... of
 type Inner | nil`. the full pattern set is in
 `cosmic --docs guide.checking`.

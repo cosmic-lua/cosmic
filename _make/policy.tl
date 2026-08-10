@@ -17,7 +17,6 @@ local selection = require("_make.select")
 local stage = require("_make.stage")
 local types = require("_make.types")
 
-local type File = types.File
 local type Kind = types.Kind
 local type Project = types.Project
 local type Verb = types.Verb
@@ -139,10 +138,9 @@ local function fix(proj: Project, paths: {string}): integer
     io.stderr:write((serr or "make: nothing to do under") .. "\n")
     return stage.verdict("fmt", false, "selection")
   end
-  local files = picked as {File} -- cast: nil ruled out by the guard
   local fmt = require("cosmic.format")
   local fixed = 0
-  for _, f in ipairs(files) do
+  for _, f in ipairs(picked) do
     local result = fmt.format_file(f.path)
     if not result.ok then
       io.stderr:write(fmt.format_issues(result.errors) .. "\n")

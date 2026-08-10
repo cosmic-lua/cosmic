@@ -17,7 +17,6 @@ local project = require("_make.project")
 local selection = require("_make.select")
 local types = require("_make.types")
 
-local type File = types.File
 local type Kind = types.Kind
 local type Project = types.Project
 
@@ -61,7 +60,7 @@ local function render(proj: Project, paths?: {string}): integer, string
     return 0, serr or "make: no such selection"
   end
   local written = 0
-  for _, f in ipairs(picked as {File}) do -- cast: nil ruled out above
+  for _, f in ipairs(picked) do
     local output, rerr = doc.render_file(f.path)
     if output == nil then
       return written, "make: " .. f.path .. ": " .. tostring(rerr)

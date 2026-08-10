@@ -3,7 +3,6 @@
 
 local check = require("cosmic.check")
 local docs = require("cosmic.doc")
-local doc_types = require("cosmic.doc.types")
 
 -- Test module loads correctly
 local function test_module_loads()
@@ -30,9 +29,8 @@ local function test_load_index()
   local index, err = docs.embedded_index()
   -- Either we have docs or we get an error message
   if index then
-    local idx = index as doc_types.DocIndex -- cast: record union after guard
-    assert(type(idx) == "table", "index should be a table")
-    assert(idx.modules, "index should have modules")
+    assert(type(index) == "table", "index should be a table")
+    assert(index.modules, "index should have modules")
     print("test_load_index: PASS (docs available)")
   else
     assert(type(err) == "string", "error should be a string")

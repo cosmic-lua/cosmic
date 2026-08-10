@@ -134,9 +134,10 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
       io.stderr:write("proxy.start: " .. tostring(nerr) .. "\n")
       unix.exit(1)
     end
-    -- srv is a `Server | nil` record union; tl 0.24.8 does not narrow
-    -- record unions through the nil-check above, so reach the methods
-    -- through a map view at the proven non-nil use site.
+    -- A guard narrows a nil union only when its block RETURNS; this one
+    -- ends in unix.exit, which the checker cannot see is terminal, so
+    -- srv stays `Server | nil` below. Reach the methods through a map
+    -- view at the proven non-nil use site.
     local server = srv as {string: any} -- cast: record union after guard
     -- cast: function shape from map view
     local listen_fn = server.listen as function(): (integer | nil, string)

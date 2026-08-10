@@ -473,7 +473,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     if base ~= "" and fs.is_dir(base) then
       local found = fs.glob(base, ".ape-*")
       if found ~= nil then
-        for _, f in ipairs(found as {string}) do -- cast: nil-checked above
+        for _, f in ipairs(found) do
           loaders[#loaders + 1] = f
         end
       end

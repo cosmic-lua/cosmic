@@ -29,7 +29,6 @@
 --- requires at boot. So: a per-user directory, created 0700, and a
 --- refusal to use one that is not ours or is group/world-writable.
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local hash = require("cosmic.hash")
 local user = require("cosmic.user")
 
@@ -69,11 +68,10 @@ local function trusted(dir: string): boolean
   if not st then
     return false
   end
-  local info = st as fs_types.Stat -- cast: record union after guard
-  if info:uid() ~= user.getuid() then
+  if st:uid() ~= user.getuid() then
     return false
   end
-  return info:mode() & SHARED_WRITE == 0
+  return st:mode() & SHARED_WRITE == 0
 end
 
 --- Build identifier included in the cache key, so a different cosmic
