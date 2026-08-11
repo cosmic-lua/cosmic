@@ -20,33 +20,29 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local time = require("cosmic.time")
 
---- The runtime's C line-hit collector (require("cosmo.cov")), when
---- this runtime carries one. Same attribution as the Lua hook below —
---- chunks keyed by their debug source, values line -> hit count — at a
---- small fraction of the per-line cost.
-local record CCov
-  start: function()
-  stop: function()
-  running: function(): boolean
-  arm: function(thread: thread)
-  snapshot: function(): {string: {integer: integer}}
-  reset: function()
-end
+--- The runtime's C line-hit collector. Same attribution as the Lua
+--- hook below — chunks keyed by their debug source, values line -> hit
+--- count — at a small fraction of the per-line cost. A type-only
+--- require: the generated declaration is the one description of the
+--- binding, and this borrows it rather than restating its six members.
+local type CCov = require("cosmo.cov")
 
 --- Detected through package.preload, where the interpreter registers
---- its modules at boot: a runtime without the binding never pays a
---- searcher walk for it, and the require below then resolves from
---- preload without touching the filesystem. Dynamic (not
---- require("cosmo.cov") spelled out) because the generated cosmo.*
---- types come from the PINNED runtime, which may predate the binding.
---- @return CCov | nil The C collector, or nil on an older runtime
+--- its modules at boot, because whether the RUNTIME carries the
+--- binding is separate from whether the types describe it: a build can
+--- type-check against a cosmos pin whose collector an older
+--- interpreter does not have. A missing entry short-circuits to the
+--- Lua hook, and the require below then resolves from preload without
+--- a searcher walk. The require stays dynamic so a runtime without the
+--- binding never executes one.
+--- @return CCov | nil The C collector, or nil on a runtime without one
 local function find_ccov(): CCov
   local preload = package.preload as {string: any} -- cast: untyped stdlib table
   if preload["cosmo.cov"] == nil then
     return nil
   end
   local req = require as function(string): any -- cast: bypass static module resolution
-  return req("cosmo.cov") as CCov -- cast: binding newer than the pinned types
+  return req("cosmo.cov") as CCov -- cast: dynamic require returns any
 end
 
 local ccov: CCov = find_ccov()
