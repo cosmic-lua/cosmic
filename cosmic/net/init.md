@@ -4,45 +4,64 @@
  Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
  Addresses are typed: every public signature takes a dotted-quad
  string or an ip.Addr and returns ip.Addr — bare integers are not
- addresses. IPv4 only: IPv6 strings are rejected with an explicit
- "IPv6 not supported" error, and lands later as a new Addr family,
- not a new API.
+ addresses. The address family status (IPv4 only for now, and what
+ IPv6 will change) is stated once, in cosmic.ip.
 
 ## Types
 
 ### SocketOptions
 
- Options for socket() and socketpair().
+ Options for socket() and socket_pair().
 
 ```teal
 local record SocketOptions
-  --  AF_INET (socket default), AF_UNIX (socketpair default).
+  --  AF_INET (socket default), AF_UNIX (socket_pair default).
   family: integer
   --  SOCK_STREAM (default) or SOCK_DGRAM, optionally OR-ed with flags
   --  like SOCK_NONBLOCK/SOCK_CLOEXEC.
-  socktype: integer
+  socket_type: integer
   --  IPPROTO_* (default 0: the family's standard protocol).
   protocol: integer
 end
 ```
 
-### Pair
+### SocketPair
 
- A connected socket pair, as returned by socketpair(). A record
+ A connected socket pair, as returned by socket_pair(). A record
  rather than (Socket, Socket, err) returns: the old shape typed slot
  2 as a non-nil Socket while returning nil there on failure, and put
  the error in slot 3 where `local a, b = ...` silently lost it.
 
 ```teal
-local record Pair
+local record SocketPair
   a: Socket
   b: Socket
 end
 ```
 
+### ListenOptions
+
+ Options for listen_tcp and listen_unix.
+
+```teal
+local record ListenOptions
+  --  Maximum pending connections (default 128). Both families.
+  backlog: integer
+  --  Set SO_REUSEADDR on the listener (default true: rebinding a
+  --  just-closed address must not fail with EADDRINUSE). Address reuse
+  --  is a TCP concept: listen_unix binds a filesystem path and sets
+  --  this only when you ask for it explicitly.
+  reuse_addr: boolean
+  --  Set SO_REUSEPORT on the listener (default false): lets several
+  --  processes bind the same addr:port and share the accept load.
+  --  TCP, on the same terms as reuse_addr.
+  reuse_port: boolean
+end
+```
+
 ### ConnectOptions
 
- Options for connect_tcp and dial.
+ Options for dial and dial_unix.
 
 ```teal
 local record ConnectOptions
@@ -50,23 +69,6 @@ local record ConnectOptions
   --  milliseconds instead of waiting on the kernel's own (much longer)
   --  timeout. The returned socket is BLOCKING either way.
   timeout_ms: integer
-end
-```
-
-### ListenOptions
-
- Options for listen_tcp.
-
-```teal
-local record ListenOptions
-  --  Maximum pending connections (default 128).
-  backlog: integer
-  --  Set SO_REUSEADDR on the listener (default true: rebinding a
-  --  just-closed address must not fail with EADDRINUSE).
-  reuseaddr: boolean
-  --  Set SO_REUSEPORT on the listener (default false): lets several
-  --  processes bind the same addr:port and share the accept load.
-  reuseport: boolean
 end
 ```
 
@@ -86,13 +88,12 @@ end
 ```teal
 local record NetModule
   socket: function(opts?: SocketOptions): Socket | nil, string
-  socketpair: function(opts?: SocketOptions): Pair | nil, string
-  listen_unix: function(path: string, backlog?: integer): Socket | nil, string
+  socket_pair: function(opts?: SocketOptions): SocketPair | nil, string
+  listen_unix: function(path: string, opts?: ListenOptions): Socket | nil, string
   listen_tcp: function(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
-  connect_unix: function(path: string): Socket | nil, string
-  connect_tcp: function(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
-  dial: function(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
-  gethostname: function(): string | nil, string
+  dial: function(host: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
+  dial_unix: function(path: string, opts?: ConnectOptions): Socket | nil, string
+  hostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
   AF_INET: integer
   AF_UNIX: integer
@@ -147,17 +148,6 @@ local record NetModule
   SHUT_RD: integer
   SHUT_WR: integer
   SHUT_RDWR: integer
-  POLLIN: integer
-  POLLOUT: integer
-  POLLERR: integer
-  POLLHUP: integer
-  POLLNVAL: integer
-  POLLPRI: integer
-  POLLRDBAND: integer
-  POLLRDHUP: integer
-  POLLRDNORM: integer
-  POLLWRBAND: integer
-  POLLWRNORM: integer
   MSG_PEEK: integer
   MSG_WAITALL: integer
   MSG_OOB: integer
@@ -192,34 +182,34 @@ function socket(opts?: SocketOptions): Socket | nil, string
 
 **Parameters:**
 
-- `opts` (SocketOptions?) - family (default AF_INET), socktype (default SOCK_STREAM), protocol (default 0)
+- `opts` (SocketOptions?) - family (default AF_INET), socket_type (default SOCK_STREAM), protocol (default 0)
 
 **Returns:**
 
 - Socket - | nil Socket handle
 - string - Error message on failure
 
-### socketpair
+### socket_pair
 
 ```teal
-function socketpair(opts?: SocketOptions): Pair | nil, string
+function socket_pair(opts?: SocketOptions): SocketPair | nil, string
 ```
 
  Create a pair of connected sockets.
 
 **Parameters:**
 
-- `opts` (SocketOptions?) - family (default AF_UNIX), socktype (default SOCK_STREAM), protocol (default 0)
+- `opts` (SocketOptions?) - family (default AF_UNIX), socket_type (default SOCK_STREAM), protocol (default 0)
 
 **Returns:**
 
-- Pair - | nil Both sockets, on success
+- SocketPair - | nil Both sockets, on success
 - string - Error message on failure
 
 ### listen_unix
 
 ```teal
-function listen_unix(path: string, backlog?: integer): Socket | nil, string
+function listen_unix(path: string, opts?: ListenOptions): Socket | nil, string
 ```
 
  Create a Unix domain socket, bind it to a path, and start listening.
@@ -227,67 +217,47 @@ function listen_unix(path: string, backlog?: integer): Socket | nil, string
 **Parameters:**
 
 - `path` (string) - Filesystem path for the socket
-- `backlog` (integer) - Maximum pending connections (default 128)
+- `opts` (ListenOptions?) - backlog (default 128); the reuse options apply only when set
 
 **Returns:**
 
 - Socket - | nil Listening socket
 - string - Error message on failure
 
-### connect_unix
+### dial
 
 ```teal
-function connect_unix(path: string): Socket | nil, string
+function dial(host: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
 ```
 
- Create a Unix domain socket and connect to a path.
+ Open a TCP connection to host:port. This name and shape are the
+ stable dial contract: host is a dotted-quad literal, a typed
+ ip.Addr, or a DNS name — resolution happens inside — and the result
+ is a connected Socket. Future address families and richer endpoint
+ forms extend the values dial accepts, never the signature.
+
+**Parameters:**
+
+- `host` (Address) - Host to connect to: dotted-quad literal, ip.Addr, or DNS name
+- `port` (integer) - Remote TCP port
+- `opts` (ConnectOptions?) - timeout_ms bounds the connect attempt
+
+**Returns:**
+
+- Socket - | nil Connected socket
+- string - Error message on failure
+
+### dial_unix
+
+```teal
+function dial_unix(path: string, opts?: ConnectOptions): Socket | nil, string
+```
+
+ Open a connection to a Unix domain socket path.
 
 **Parameters:**
 
 - `path` (string) - Filesystem path of the socket to connect to
-
-**Returns:**
-
-- Socket - | nil Connected socket
-- string - Error message on failure
-
-### connect_tcp
-
-```teal
-function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
-```
-
- Create a TCP socket and connect to an address and port.
- The address may be a dotted-quad string ("127.0.0.1") or an ip.Addr.
- IPv6 is not supported. For hostname resolution use dial().
-
-**Parameters:**
-
-- `addr` (Address) - Remote IPv4 address
-- `port` (integer) - Remote port
-- `opts` (ConnectOptions?) - timeout_ms bounds the attempt
-
-**Returns:**
-
-- Socket - | nil Connected socket
-- string - Error message on failure
-
-### dial
-
-```teal
-function dial(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
-```
-
- Open a TCP connection to host:port. This name and shape are the
- stable dial contract: host is a dotted-quad literal or a DNS name —
- resolution happens inside — and the result is a connected Socket.
- Future address families and richer endpoint forms extend the values
- dial accepts, never the signature.
-
-**Parameters:**
-
-- `host` (string) - Host to connect to: dotted-quad literal or DNS name
-- `port` (integer) - Remote TCP port
 - `opts` (ConnectOptions?) - timeout_ms bounds the connect attempt
 
 **Returns:**
@@ -303,34 +273,33 @@ function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): Socket 
 
  Create a TCP socket, bind it to addr:port, and start listening.
  Passing port 0 lets the OS assign an ephemeral port; read it with
- getsockname().port. The address may be a dotted-quad string, a raw
- integer, or an ip.Addr (0 binds all interfaces). IPv6 is not
- supported.
+ local_endpoint().port. The address may be a dotted-quad string or an
+ ip.Addr ("0.0.0.0" binds all interfaces).
  Example — listen on an OS-assigned port:
    local net = require("cosmic.net")
    local srv = assert(net.listen_tcp("127.0.0.1", 0))
-   local port = assert(srv:getsockname()).port
-   local client = net.connect_tcp("127.0.0.1", port)
- was requested, read the OS-assigned port with `s:getsockname().port`
+   local port = assert(srv:local_endpoint()).port
+   local client = net.dial("127.0.0.1", port)
+ was requested, read the OS-assigned port with `s:local_endpoint().port`
 
 **Parameters:**
 
 - `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 - `port` (integer) - Local port to bind; use 0 for an OS-assigned ephemeral port
-- `opts` (ListenOptions?) - backlog (default 128), reuseaddr (default true), reuseport (default false)
+- `opts` (ListenOptions?) - backlog (default 128), reuse_addr (default true), reuse_port (default false)
 
 **Returns:**
 
 - Socket - | nil Listening socket ready to accept; when port 0
 - string - Error message on failure
 
-### gethostname
+### hostname
 
 ```teal
-function gethostname(): string | nil, string
+function hostname(): string | nil, string
 ```
 
- Get the local hostname.
+ The local hostname.
 
 **Returns:**
 
