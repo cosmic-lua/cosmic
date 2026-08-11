@@ -210,13 +210,42 @@ local function test_compile_ignore_case_option()
 end
 test_compile_ignore_case_option()
 
--- The raw Regex layer keeps the binding's integer search flags.
+-- search_flags: a SearchOptions in, the integer flag word Regex's
+-- :match/:find take out.
 
-local function test_search_flags_exist()
-  assert(re.NOTBOL ~= nil, "NOTBOL flag should exist")
-  assert(re.NOTEOL ~= nil, "NOTEOL flag should exist")
+local function test_search_flags_defaults_to_zero()
+  assert(re.search_flags() == 0, "no options is the whole-line default")
+  assert(re.search_flags({}) == 0, "an empty record is the same default")
 end
-test_search_flags_exist()
+test_search_flags_defaults_to_zero()
+
+local function test_search_flags_are_distinct_bits()
+  local bol = re.search_flags({not_bol = true})
+  local eol = re.search_flags({not_eol = true})
+  assert(bol ~= 0 and eol ~= 0, "each option must set a bit")
+  assert(bol ~= eol, "not_bol and not_eol must be different bits")
+  assert(re.search_flags({not_bol = true, not_eol = true}) == (bol | eol),
+    "both options must OR together")
+end
+test_search_flags_are_distinct_bits()
+
+local function test_not_bol_suppresses_caret_at_subject_start()
+  local regex = check.must(re.compile("^foo"))
+  assert(regex:match("foobar") == "foo", "^ matches at a whole subject's start")
+  local suppressed = regex:match("foobar", re.search_flags({not_bol = true}))
+  assert(suppressed == nil,
+    "not_bol must stop ^ matching at the start, got " .. tostring(suppressed))
+end
+test_not_bol_suppresses_caret_at_subject_start()
+
+local function test_not_eol_suppresses_dollar_at_subject_end()
+  local regex = check.must(re.compile("bar$"))
+  assert(regex:match("foobar") == "bar", "$ matches at a whole subject's end")
+  local suppressed = regex:match("foobar", re.search_flags({not_eol = true}))
+  assert(suppressed == nil,
+    "not_eol must stop $ matching at the end, got " .. tostring(suppressed))
+end
+test_not_eol_suppresses_dollar_at_subject_end()
 
 -- edge case tests
 
