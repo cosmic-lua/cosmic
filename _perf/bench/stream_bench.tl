@@ -97,7 +97,7 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "listen_tcp: " .. tostring(lerr)
   end
   local lsock = srv
-  local ep, eperr = lsock:getsockname()
+  local ep, eperr = lsock:local_endpoint()
   if ep == nil then
     return nil, "getsockname: " .. tostring(eperr)
   end

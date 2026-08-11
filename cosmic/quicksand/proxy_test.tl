@@ -17,7 +17,7 @@ test_module_exports()
 -- Drive one request through a live proxy and return everything the
 -- server sends back before closing.
 local function roundtrip(port: integer, request: string): string
-  local sock = check.must(net.connect_tcp(LOOPBACK_STR, port))
+  local sock = check.must(net.dial(LOOPBACK_STR, port))
   assert(sock:send(request))
   local resp = ""
   while true do
@@ -72,7 +72,7 @@ local function test_start_stop_lifecycle()
 
   -- Connecting to the proxy and immediately closing should at least
   -- establish a TCP connection — verify by opening a client socket.
-  local sock = check.must(net.connect_tcp(LOOPBACK_STR, h.port),
+  local sock = check.must(net.dial(LOOPBACK_STR, h.port),
     "failed to connect to proxy on port " .. tostring(h.port))
   assert(sock:close())
 

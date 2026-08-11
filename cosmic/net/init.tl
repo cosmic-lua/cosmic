@@ -2,9 +2,8 @@
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
 --- Addresses are typed: every public signature takes a dotted-quad
 --- string or an ip.Addr and returns ip.Addr — bare integers are not
---- addresses. IPv4 only: IPv6 strings are rejected with an explicit
---- "IPv6 not supported" error, and lands later as a new Addr family,
---- not a new API.
+--- addresses. The address family status (IPv4 only for now, and what
+--- IPv6 will change) is stated once, in cosmic.ip.
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
@@ -20,50 +19,50 @@ local type Address = net_socket.Address
 
 local make_socket = net_socket.make_socket
 
---- Options for socket() and socketpair().
+--- Options for socket() and socket_pair().
 local record SocketOptions
-  --- AF_INET (socket default), AF_UNIX (socketpair default).
+  --- AF_INET (socket default), AF_UNIX (socket_pair default).
   family: integer
   --- SOCK_STREAM (default) or SOCK_DGRAM, optionally OR-ed with flags
   --- like SOCK_NONBLOCK/SOCK_CLOEXEC.
-  socktype: integer
+  socket_type: integer
   --- IPPROTO_* (default 0: the family's standard protocol).
   protocol: integer
 end
 
 --- Create a new socket.
---- @param opts SocketOptions? family (default AF_INET), socktype (default SOCK_STREAM), protocol (default 0)
+--- @param opts SocketOptions? family (default AF_INET), socket_type (default SOCK_STREAM), protocol (default 0)
 --- @return Socket | nil Socket handle
 --- @return string Error message on failure
 local function socket(opts?: SocketOptions): Socket | nil, string
   local family = opts and opts.family or unix.AF_INET
-  local socktype = opts and opts.socktype or unix.SOCK_STREAM
+  local socket_type = opts and opts.socket_type or unix.SOCK_STREAM
   local protocol = opts and opts.protocol or 0
-  local fd, err = unix.socket(family, socktype, protocol)
+  local fd, err = unix.socket(family, socket_type, protocol)
   if not fd then
     return nil, errstr(err, "socket")
   end
   return make_socket(fd)
 end
 
---- A connected socket pair, as returned by socketpair(). A record
+--- A connected socket pair, as returned by socket_pair(). A record
 --- rather than (Socket, Socket, err) returns: the old shape typed slot
 --- 2 as a non-nil Socket while returning nil there on failure, and put
 --- the error in slot 3 where `local a, b = ...` silently lost it.
-local record Pair
+local record SocketPair
   a: Socket
   b: Socket
 end
 
 --- Create a pair of connected sockets.
---- @param opts SocketOptions? family (default AF_UNIX), socktype (default SOCK_STREAM), protocol (default 0)
---- @return Pair | nil Both sockets, on success
+--- @param opts SocketOptions? family (default AF_UNIX), socket_type (default SOCK_STREAM), protocol (default 0)
+--- @return SocketPair | nil Both sockets, on success
 --- @return string Error message on failure
-local function socketpair(opts?: SocketOptions): Pair | nil, string
+local function socket_pair(opts?: SocketOptions): SocketPair | nil, string
   local family = opts and opts.family or unix.AF_UNIX
-  local socktype = opts and opts.socktype or unix.SOCK_STREAM
+  local socket_type = opts and opts.socket_type or unix.SOCK_STREAM
   local protocol = opts and opts.protocol or 0
-  local fd1, fd2 = unix.socketpair(family, socktype, protocol)
+  local fd1, fd2 = unix.socketpair(family, socket_type, protocol)
   if not fd1 then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot, where the second fd would have been.
@@ -72,23 +71,64 @@ local function socketpair(opts?: SocketOptions): Pair | nil, string
   return {a = make_socket(fd1), b = make_socket(fd2)}
 end
 
+--- Options for listen_tcp and listen_unix.
+local record ListenOptions
+  --- Maximum pending connections (default 128). Both families.
+  backlog: integer
+  --- Set SO_REUSEADDR on the listener (default true: rebinding a
+  --- just-closed address must not fail with EADDRINUSE). Address reuse
+  --- is a TCP concept: listen_unix binds a filesystem path and sets
+  --- this only when you ask for it explicitly.
+  reuse_addr: boolean
+  --- Set SO_REUSEPORT on the listener (default false): lets several
+  --- processes bind the same addr:port and share the accept load.
+  --- TCP, on the same terms as reuse_addr.
+  reuse_port: boolean
+end
+
+--- Apply the two reuse options to a fresh listener. tcp_defaults picks
+--- the family's posture: TCP turns SO_REUSEADDR on unless asked not
+--- to, a unix path bind sets neither unless asked to.
+local function apply_reuse(s: Socket, opts: ListenOptions, tcp_defaults: boolean): boolean, string
+  local want_addr = tcp_defaults and opts.reuse_addr ~= false or opts.reuse_addr == true
+  if want_addr then
+    local ok, err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
+    if not ok then
+      return false, err
+    end
+  end
+  if opts.reuse_port then
+    local ok, err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEPORT, true)
+    if not ok then
+      return false, err
+    end
+  end
+  return true
+end
+
 --- Create a Unix domain socket, bind it to a path, and start listening.
 --- @param path string Filesystem path for the socket
---- @param backlog integer Maximum pending connections (default 128)
+--- @param opts ListenOptions? backlog (default 128); the reuse options apply only when set
 --- @return Socket | nil Listening socket
 --- @return string Error message on failure
-local function listen_unix(path: string, backlog?: integer): Socket | nil, string
+local function listen_unix(path: string, opts?: ListenOptions): Socket | nil, string
+  opts = opts or {}
   local sock, err = socket({family = unix.AF_UNIX})
   if not sock then
     return nil, err
   end
   local s = sock
+  local rok, reuse_err = apply_reuse(s, opts, false)
+  if not rok then
+    local _ok, _err = s:close()
+    return nil, reuse_err
+  end
   local ok, bind_err = s:bind_unix(path)
   if not ok then
     local _ok, _err = s:close()
     return nil, bind_err
   end
-  local lok, listen_err = s:listen(backlog)
+  local lok, listen_err = s:listen(opts.backlog)
   if not lok then
     local _ok, _err = s:close()
     return nil, listen_err
@@ -96,28 +136,12 @@ local function listen_unix(path: string, backlog?: integer): Socket | nil, strin
   return s
 end
 
---- Create a Unix domain socket and connect to a path.
---- @param path string Filesystem path of the socket to connect to
---- @return Socket | nil Connected socket
---- @return string Error message on failure
-local function connect_unix(path: string): Socket | nil, string
-  local sock, err = socket({family = unix.AF_UNIX})
-  if not sock then
-    return nil, err
-  end
-  local s = sock
-  local ok, conn_err = s:connect_unix(path)
-  if not ok then
-    local _ok, _err = s:close()
-    return nil, conn_err
-  end
-  return s
-end
+-- The timeout connect paths live in the connect shard.
+local net_connect = require("cosmic.net.connect")
+local connect_with_timeout = net_connect.with_timeout
+local unix_connect_with_timeout = net_connect.unix_with_timeout
 
--- The timeout connect path lives in the connect shard.
-local connect_with_timeout = require("cosmic.net.connect").with_timeout
-
---- Options for connect_tcp and dial.
+--- Options for dial and dial_unix.
 local record ConnectOptions
   --- Bound the connect attempt: fail with an error after this many
   --- milliseconds instead of waiting on the kernel's own (much longer)
@@ -125,22 +149,18 @@ local record ConnectOptions
   timeout_ms: integer
 end
 
---- Create a TCP socket and connect to an address and port.
---- The address may be a dotted-quad string ("127.0.0.1") or an ip.Addr.
---- IPv6 is not supported. For hostname resolution use dial().
---- @param addr Address Remote IPv4 address
---- @param port integer Remote port
---- @param opts ConnectOptions? timeout_ms bounds the attempt
---- @return Socket | nil Connected socket
+--- Connect a fresh socket, honouring ConnectOptions.timeout_ms, and
+--- close it on any failure so no descriptor leaks out of a failed dial.
+--- @param s Socket The socket to connect
+--- @param connect function(): (boolean, string) The blocking connect to run
+--- @param bounded function(integer): (boolean, string) The bounded variant
+--- @param opts ConnectOptions? timeout_ms selects bounded
+--- @return Socket | nil The connected socket
 --- @return string Error message on failure
-local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
-  local sock, err = socket()
-  if not sock then
-    return nil, err
-  end
-  local s = sock
+local function finish_connect(s: Socket, connect: function(): (boolean, string),
+    bounded: function(integer): (boolean, string), opts?: ConnectOptions): Socket | nil, string
   if opts and opts.timeout_ms then
-    local ok, conn_err = connect_with_timeout(s, addr, port, opts.timeout_ms)
+    local ok, conn_err = bounded(opts.timeout_ms)
     if not ok then
       local _ok, _err = s:close()
       return nil, conn_err
@@ -153,7 +173,7 @@ local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions):
     end
     return s
   end
-  local ok, conn_err = s:connect(addr, port)
+  local ok, conn_err = connect()
   if not ok then
     local _ok, _err = s:close()
     return nil, conn_err
@@ -162,59 +182,81 @@ local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions):
 end
 
 --- Open a TCP connection to host:port. This name and shape are the
---- stable dial contract: host is a dotted-quad literal or a DNS name —
---- resolution happens inside — and the result is a connected Socket.
---- Future address families and richer endpoint forms extend the values
---- dial accepts, never the signature.
---- @param host string Host to connect to: dotted-quad literal or DNS name
+--- stable dial contract: host is a dotted-quad literal, a typed
+--- ip.Addr, or a DNS name — resolution happens inside — and the result
+--- is a connected Socket. Future address families and richer endpoint
+--- forms extend the values dial accepts, never the signature.
+--- @param host Address Host to connect to: dotted-quad literal, ip.Addr, or DNS name
 --- @param port integer Remote TCP port
 --- @param opts ConnectOptions? timeout_ms bounds the connect attempt
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
-local function dial(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
+local function dial(host: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
   local a: ip.Addr
-  local parsed = ip.parse(host)
-  if parsed then
-    a = parsed
-  else
-    local looked, lerr = ip.resolve(host)
-    if not looked then
-      return nil, "dial " .. host .. ": " .. tostring(lerr)
+  if host is string then
+    local parsed, perr = ip.parse(host)
+    if parsed then
+      a = parsed
+    elseif host:find(":", 1, true) then
+      -- A colon marks an address literal, not a DNS name: report why the
+      -- literal was rejected instead of failing a pointless lookup.
+      return nil, "dial " .. host .. ": " .. tostring(perr)
+    else
+      local looked, lerr = ip.resolve(host)
+      if not looked then
+        return nil, "dial " .. host .. ": " .. tostring(lerr)
+      end
+      a = looked
     end
-    a = looked
+  else
+    a = host
   end
-  return connect_tcp(a, port, opts)
+  local sock, err = socket()
+  if not sock then
+    return nil, err
+  end
+  local s = sock
+  return finish_connect(s,
+    function(): boolean, string return s:connect(a, port) end,
+    function(ms: integer): boolean, string
+      return connect_with_timeout(s, a, port, ms)
+    end, opts)
 end
 
---- Options for listen_tcp.
-local record ListenOptions
-  --- Maximum pending connections (default 128).
-  backlog: integer
-  --- Set SO_REUSEADDR on the listener (default true: rebinding a
-  --- just-closed address must not fail with EADDRINUSE).
-  reuseaddr: boolean
-  --- Set SO_REUSEPORT on the listener (default false): lets several
-  --- processes bind the same addr:port and share the accept load.
-  reuseport: boolean
+--- Open a connection to a Unix domain socket path.
+--- @param path string Filesystem path of the socket to connect to
+--- @param opts ConnectOptions? timeout_ms bounds the connect attempt
+--- @return Socket | nil Connected socket
+--- @return string Error message on failure
+local function dial_unix(path: string, opts?: ConnectOptions): Socket | nil, string
+  local sock, err = socket({family = unix.AF_UNIX})
+  if not sock then
+    return nil, err
+  end
+  local s = sock
+  return finish_connect(s,
+    function(): boolean, string return s:connect_unix(path) end,
+    function(ms: integer): boolean, string
+      return unix_connect_with_timeout(s, path, ms)
+    end, opts)
 end
 
 --- Create a TCP socket, bind it to addr:port, and start listening.
 --- Passing port 0 lets the OS assign an ephemeral port; read it with
---- getsockname().port. The address may be a dotted-quad string, a raw
---- integer, or an ip.Addr (0 binds all interfaces). IPv6 is not
---- supported.
+--- local_endpoint().port. The address may be a dotted-quad string or an
+--- ip.Addr ("0.0.0.0" binds all interfaces).
 ---
 --- Example — listen on an OS-assigned port:
 ---   local net = require("cosmic.net")
 ---   local srv = assert(net.listen_tcp("127.0.0.1", 0))
----   local port = assert(srv:getsockname()).port
----   local client = net.connect_tcp("127.0.0.1", port)
+---   local port = assert(srv:local_endpoint()).port
+---   local client = net.dial("127.0.0.1", port)
 ---
 --- @param addr Address Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 --- @param port integer Local port to bind; use 0 for an OS-assigned ephemeral port
---- @param opts ListenOptions? backlog (default 128), reuseaddr (default true), reuseport (default false)
+--- @param opts ListenOptions? backlog (default 128), reuse_addr (default true), reuse_port (default false)
 --- @return Socket | nil Listening socket ready to accept; when port 0
---- was requested, read the OS-assigned port with `s:getsockname().port`
+--- was requested, read the OS-assigned port with `s:local_endpoint().port`
 --- @return string Error message on failure
 local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   opts = opts or {}
@@ -223,19 +265,10 @@ local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): S
     return nil, serr
   end
   local s = sock
-  if opts.reuseaddr ~= false then
-    local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
-    if not ok then
-      local _ok, _err = s:close()
-      return nil, setopt_err
-    end
-  end
-  if opts.reuseport then
-    local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEPORT, true)
-    if not ok then
-      local _ok, _err = s:close()
-      return nil, setopt_err
-    end
+  local rok, reuse_err = apply_reuse(s, opts, true)
+  if not rok then
+    local _ok, _err = s:close()
+    return nil, reuse_err
   end
   local bok, bind_err = s:bind(addr, port)
   if not bok then
@@ -250,12 +283,10 @@ local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): S
   return s
 end
 
---- Connect with a bounded wait instead of blocking indefinitely.
-
---- Get the local hostname.
+--- The local hostname.
 --- @return string | nil The hostname
 --- @return string Error message on failure
-local function gethostname(): string | nil, string
+local function hostname(): string | nil, string
   local name, err = unix.gethostname()
   if not name then
     return nil, errstr(err, "gethostname")
@@ -294,17 +325,17 @@ local record NetModule
   type Interface = Interface
   type Endpoint = net_socket.Endpoint
   type Datagram = net_socket.Datagram
-  type Pair = Pair
+  type AcceptOptions = net_socket.AcceptOptions
+  type SocketPair = SocketPair
   type SocketOptions = SocketOptions
   socket: function(opts?: SocketOptions): Socket | nil, string
-  socketpair: function(opts?: SocketOptions): Pair | nil, string
-  listen_unix: function(path: string, backlog?: integer): Socket | nil, string
+  socket_pair: function(opts?: SocketOptions): SocketPair | nil, string
+  listen_unix: function(path: string, opts?: ListenOptions): Socket | nil, string
   listen_tcp: function(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
-  connect_unix: function(path: string): Socket | nil, string
   type ConnectOptions = ConnectOptions
-  connect_tcp: function(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
-  dial: function(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
-  gethostname: function(): string | nil, string
+  dial: function(host: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
+  dial_unix: function(path: string, opts?: ConnectOptions): Socket | nil, string
+  hostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
   AF_INET: integer
   AF_UNIX: integer
@@ -359,17 +390,6 @@ local record NetModule
   SHUT_RD: integer
   SHUT_WR: integer
   SHUT_RDWR: integer
-  POLLIN: integer
-  POLLOUT: integer
-  POLLERR: integer
-  POLLHUP: integer
-  POLLNVAL: integer
-  POLLPRI: integer
-  POLLRDBAND: integer
-  POLLRDHUP: integer
-  POLLRDNORM: integer
-  POLLWRBAND: integer
-  POLLWRNORM: integer
   MSG_PEEK: integer
   MSG_WAITALL: integer
   MSG_OOB: integer
@@ -379,13 +399,12 @@ end
 
 local M: NetModule = {
   socket = socket,
-  socketpair = socketpair,
+  socket_pair = socket_pair,
   listen_unix = listen_unix,
   listen_tcp = listen_tcp,
-  connect_unix = connect_unix,
-  connect_tcp = connect_tcp,
   dial = dial,
-  gethostname = gethostname,
+  dial_unix = dial_unix,
+  hostname = hostname,
   interfaces = interfaces,
   AF_INET = unix.AF_INET,
   AF_UNIX = unix.AF_UNIX,
@@ -440,17 +459,6 @@ local M: NetModule = {
   SHUT_RD = unix.SHUT_RD,
   SHUT_WR = unix.SHUT_WR,
   SHUT_RDWR = unix.SHUT_RDWR,
-  POLLIN = unix.POLLIN,
-  POLLOUT = unix.POLLOUT,
-  POLLERR = unix.POLLERR,
-  POLLHUP = unix.POLLHUP,
-  POLLNVAL = unix.POLLNVAL,
-  POLLPRI = unix.POLLPRI,
-  POLLRDBAND = unix.POLLRDBAND,
-  POLLRDHUP = unix.POLLRDHUP,
-  POLLRDNORM = unix.POLLRDNORM,
-  POLLWRBAND = unix.POLLWRBAND,
-  POLLWRNORM = unix.POLLWRNORM,
   MSG_PEEK = unix.MSG_PEEK,
   MSG_WAITALL = unix.MSG_WAITALL,
   MSG_OOB = unix.MSG_OOB,

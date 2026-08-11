@@ -126,7 +126,7 @@ end
 test_poll_timeout()
 
 local function test_poll_with_socket()
-  local sp = check.must(net.socketpair())
+  local sp = check.must(net.socket_pair())
   local raw_sock1, sock2 = sp.a, sp.b
   local sock1 = check.must(raw_sock1)
 
@@ -135,11 +135,11 @@ local function test_poll_with_socket()
 
   local p = poll.new()
   -- Socket has fd field directly
-  assert(p:add(sock2.fd, poll.POLLIN))
+  assert(p:add(sock2:fd(), poll.POLLIN))
 
   local ready = check.must(p:wait(100))
   assert(ready_count(ready) == 1, "expected 1 ready socket")
-  local events = check.must(ready[sock2.fd], "sock2 should be ready")
+  local events = check.must(ready[sock2:fd()], "sock2 should be ready")
   assert(events.readable, "expected readable")
 
   assert(sock1:close())

@@ -142,9 +142,9 @@ test_rebuild_request_replaces_client_auth()
 -- already torn the tunnel down. No unshare needed -- pump() is plain
 -- fd plumbing over a plain fork, like proxy/serve_test.tl's worker.
 local function test_pump_relays_data_across_eintr()
-  local cp = check.must(net.socketpair())
+  local cp = check.must(net.socket_pair())
   local c1, c2 = cp.a, cp.b
-  local up = check.must(net.socketpair())
+  local up = check.must(net.socket_pair())
   local u1, u2 = up.a, up.b
 
   local pid = proc.fork()
@@ -165,7 +165,7 @@ local function test_pump_relays_data_across_eintr()
           value_ms = 50,
           interval_ms = 0,
         }))
-    http.pump(c2.fd, u2.fd)
+    http.pump(c2:fd(), u2:fd())
     os.exit(0)
   end
 
@@ -177,9 +177,9 @@ local function test_pump_relays_data_across_eintr()
   assert(sent == #payload, "send failed: " .. tostring(sent))
 
   local pp = pollmod.new()
-  assert(pp:add(u1.fd, pollmod.POLLIN))
+  assert(pp:add(u1:fd(), pollmod.POLLIN))
   local ready = check.must(pp:wait(2000))
-  assert(ready[u1.fd], "pump should have relayed the payload across the EINTR")
+  assert(ready[u1:fd()], "pump should have relayed the payload across the EINTR")
   local got = u1:recv(64)
   assert(got == payload, "expected relayed payload, got: " .. tostring(got))
 

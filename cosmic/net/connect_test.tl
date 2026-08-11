@@ -100,18 +100,18 @@ local function test_unix_domain_socket_bind_connect()
 end
 test_unix_domain_socket_bind_connect()
 
-local function test_listen_unix_connect_unix()
+local function test_listen_unix_dial_unix()
   local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
   local path = tmpdir .. "/test.sock"
 
-  -- Use module-level listen_unix helper
-  local server = check.must(net.listen_unix(path))
+  -- Use module-level listen_unix helper, with its options record
+  local server = check.must(net.listen_unix(path, {backlog = 8}))
 
-  -- Fork to create a client using module-level connect_unix helper
+  -- Fork to create a client using module-level dial_unix helper
   local pid = proc.fork()
   if pid == 0 then
-    local client = check.must(net.connect_unix(path))
-    local sent = client:send("hello from connect_unix")
+    local client = check.must(net.dial_unix(path))
+    local sent = client:send("hello from dial_unix")
     if not sent then os.exit(check.EXIT_SKIP) end
     assert(client:close())
     os.exit(0)
@@ -123,7 +123,7 @@ local function test_listen_unix_connect_unix()
 
   -- Read data from client
   local data, recv_err = client:recv()
-  assert(data == "hello from connect_unix", "expected 'hello from connect_unix', got '" .. tostring(data) .. "': " .. tostring(recv_err))
+  assert(data == "hello from dial_unix", "expected 'hello from connect_unix', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
   -- Verify accepted socket has __close
   local mt = getmetatable(client)
@@ -135,15 +135,15 @@ local function test_listen_unix_connect_unix()
   assert(os.remove(path))
   assert(os.remove(tmpdir))
 end
-test_listen_unix_connect_unix()
+test_listen_unix_dial_unix()
 
 local function test_connect_with_timeout_loopback()
   -- ConnectOptions.timeout_ms: connect with a bound, get back a
   -- BLOCKING socket.
   local server = check.must(net.listen_tcp("127.0.0.1", 0))
-  local server_port = check.must(server:getsockname()).port
+  local server_port = check.must(server:local_endpoint()).port
 
-  local client = check.must(net.connect_tcp("127.0.0.1", server_port,
+  local client = check.must(net.dial("127.0.0.1", server_port,
       {timeout_ms = 5000}))
 
   local raw_accepted, accept_err = server:accept()
@@ -165,7 +165,7 @@ test_connect_with_timeout_loopback()
 
 local function test_connect_with_timeout_refused()
   -- Connect to localhost port 1 — should be refused, inside the bound
-  local sock, conn_err = net.connect_tcp("127.0.0.1", 1, {timeout_ms = 2000})
+  local sock, conn_err = net.dial("127.0.0.1", 1, {timeout_ms = 2000})
   assert(sock == nil, "expected connect to fail on refused port")
   assert(conn_err ~= nil, "expected error message from refused connect")
 end
@@ -180,7 +180,7 @@ test_connect_with_timeout_refused()
 -- eventually return the same error, just slowly.
 local function test_connect_timeout_synchronous_failure_is_immediate()
   local t0 = time.monotonic()
-  local sock, err = net.connect_tcp("255.255.255.255", 80, {timeout_ms = 5000})
+  local sock, err = net.dial("255.255.255.255", 80, {timeout_ms = 5000})
   local t1 = time.monotonic()
 
   assert(sock == nil, "connect to the broadcast address should fail")
@@ -191,7 +191,7 @@ local function test_connect_timeout_synchronous_failure_is_immediate()
 end
 test_connect_timeout_synchronous_failure_is_immediate()
 
--- Error fidelity: socket()/socketpair()/gethostname() must surface the
+-- Error fidelity: socket()/socket_pair()/hostname() must surface the
 -- binding's real errno, not a generic "X creation failed" string.
 local function test_socket_error_names_errno()
   local sock, err = net.socket({family = -1})
@@ -201,16 +201,16 @@ local function test_socket_error_names_errno()
 end
 test_socket_error_names_errno()
 
-local function test_socketpair_error_names_errno()
-  -- socketpair() only supports AF_UNIX; AF_INET fails synchronously.
-  local pair, err = net.socketpair({family = net.AF_INET})
-  assert(pair == nil, "socketpair with AF_INET should fail")
+local function test_socket_pair_error_names_errno()
+  -- socket_pair() only supports AF_UNIX; AF_INET fails synchronously.
+  local sp, err = net.socket_pair({family = net.AF_INET})
+  assert(sp == nil, "socket_pair with AF_INET should fail")
   assert(err ~= nil and err:match("E%u+"),
-    "socketpair error should name the errno, got: " .. tostring(err))
+    "socket_pair error should name the errno, got: " .. tostring(err))
 end
-test_socketpair_error_names_errno()
+test_socket_pair_error_names_errno()
 
-local function test_connect_tcp()
+local function test_dial_tcp()
   -- Create a listening socket
   local server = check.must(net.socket())
 
@@ -220,17 +220,17 @@ local function test_connect_tcp()
   ok, err = server:bind("127.0.0.1", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
-  local server_port = check.must(server:getsockname()).port
+  local server_port = check.must(server:local_endpoint()).port
   assert(server_port > 0, "expected non-zero port")
 
   ok, err = server:listen()
   assert(ok, "listen failed: " .. tostring(err))
 
-  -- Fork to create a client using connect_tcp
+  -- Fork to create a client using dial
   local pid = proc.fork()
   if pid == 0 then
-    local client = check.must(net.connect_tcp("127.0.0.1", server_port))
-    local sent = client:send("hello from connect_tcp")
+    local client = check.must(net.dial("127.0.0.1", server_port))
+    local sent = client:send("hello from dial")
     if not sent then os.exit(check.EXIT_SKIP) end
     assert(client:close())
     os.exit(0)
@@ -242,48 +242,46 @@ local function test_connect_tcp()
 
   -- Read data from client
   local data, recv_err = client:recv()
-  assert(data == "hello from connect_tcp", "expected 'hello from connect_tcp', got '" .. tostring(data) .. "': " .. tostring(recv_err))
+  assert(data == "hello from dial", "expected 'hello from dial', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
   assert(client:close())
   assert(server:close())
   check.reap(pid, "the tcp client")
 end
-test_connect_tcp()
+test_dial_tcp()
 
-local function test_connect_tcp_accepts_string_and_addr()
+local function test_dial_accepts_string_and_addr()
   local raw_server, lerr = net.listen_tcp("127.0.0.1", 0)
   local server = check.must(raw_server,
     "listen_tcp with string address failed: " .. tostring(lerr))
-  local port = check.must(server:getsockname()).port
+  local port = check.must(server:local_endpoint()).port
 
   -- connect by dotted-quad string
-  local c1 = check.must(net.connect_tcp("127.0.0.1", port))
+  local c1 = check.must(net.dial("127.0.0.1", port))
   local a1 = check.must(server:accept())
   assert(c1:close())
   assert(a1:close())
 
   -- connect by typed ip.Addr
   local addr = ip.from_int(0x7f000001)
-  local c2 = check.must(net.connect_tcp(addr, port))
+  local c2 = check.must(net.dial(addr, port))
   local a2 = check.must(server:accept())
   assert(c2:close())
   assert(a2:close())
 
   assert(server:close())
 end
-test_connect_tcp_accepts_string_and_addr()
+test_dial_accepts_string_and_addr()
 
-local function test_connect_tcp_rejects_bad_addresses()
-  local sock, err = net.connect_tcp("not-an-ip", 80)
-  assert(sock == nil, "hostname strings are not addresses")
-  assert(err ~= nil, "expected an error message")
-
-  local sock6, err6 = net.connect_tcp("::1", 80)
+local function test_dial_rejects_ipv6_literals()
+  -- A colon marks an address literal, not a DNS name: dial reports why
+  -- the literal was rejected rather than spending a lookup on it.
+  local sock6, err6 = net.dial("::1", 80)
   assert(sock6 == nil, "IPv6 must be rejected")
-  assert(err6 ~= nil and err6:find("IPv6 not supported") ~= nil,
+  assert(err6 ~= nil and err6:find("IPv6 not supported", 1, true) ~= nil,
     "expected 'IPv6 not supported', got: " .. tostring(err6))
 end
-test_connect_tcp_rejects_bad_addresses()
+test_dial_rejects_ipv6_literals()
 
 local function test_connect_error_message()
   -- Connect to a port with no listener — should get a descriptive error, not just "connect failed"
@@ -307,7 +305,7 @@ local function test_bind_error_names_errno()
   local first = check.must(net.socket({family = net.AF_INET}))
   assert(first:bind("127.0.0.1", 0))
   assert(first:listen())
-  local port = check.must(first:getsockname()).port
+  local port = check.must(first:local_endpoint()).port
   local second = check.must(net.socket({family = net.AF_INET}))
   local ok, berr = second:bind("127.0.0.1", port)
   assert(ok == false, "second bind to same port should fail")
@@ -322,7 +320,7 @@ local function test_dial()
   -- resolution happens inside, for literals and DNS names alike.
   local srv, serr = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed: " .. tostring(serr))
-  local port = check.must(s:getsockname()).port
+  local port = check.must(s:local_endpoint()).port
 
   local c1 = check.must(net.dial("127.0.0.1", port))
   local a1 = check.must(s:accept())
@@ -347,25 +345,56 @@ test_dial()
 local function test_listen_tcp_socket_options()
   local s1, derr = net.listen_tcp("127.0.0.1", 0)
   local d = check.must(s1, "listen_tcp failed: " .. tostring(derr))
-  local port = check.must(d:getsockname()).port
+  local port = check.must(d:local_endpoint()).port
   assert(port > 0, "expected a bound port")
   local ra = d:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra == true or ra == 1,
     "SO_REUSEADDR should default on, got " .. tostring(ra))
   assert(d:close())
 
-  local s2, oerr = net.listen_tcp("127.0.0.1", 0, {reuseaddr = false})
-  local o = check.must(s2, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
+  local s2, oerr = net.listen_tcp("127.0.0.1", 0, {reuse_addr = false})
+  local o = check.must(s2, "listen_tcp with reuse_addr=false failed: " .. tostring(oerr))
   local ra2 = o:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra2 == false or ra2 == 0,
-    "reuseaddr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
+    "reuse_addr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
   assert(o:close())
 
-  local s3, perr = net.listen_tcp("127.0.0.1", 0, {reuseport = true})
-  local p = check.must(s3, "listen_tcp with reuseport failed: " .. tostring(perr))
+  local s3, perr = net.listen_tcp("127.0.0.1", 0, {reuse_port = true})
+  local p = check.must(s3, "listen_tcp with reuse_port failed: " .. tostring(perr))
   local rp = p:getsockopt(net.SOL_SOCKET, net.SO_REUSEPORT)
   assert(rp == true or rp == 1,
-    "reuseport=true should set SO_REUSEPORT, got " .. tostring(rp))
+    "reuse_port=true should set SO_REUSEPORT, got " .. tostring(rp))
   assert(p:close())
 end
 test_listen_tcp_socket_options()
+
+-- dial_unix takes ConnectOptions, so a unix-domain connect can be
+-- bounded too; connect_unix had no options and thus no bound at all.
+local function test_dial_unix_with_timeout()
+  local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
+  local path = tmpdir .. "/timeout.sock"
+  local server = check.must(net.listen_unix(path))
+
+  local client = check.must(net.dial_unix(path, {timeout_ms = 5000}))
+  local raw_accepted, accept_err = server:accept()
+  local accepted = check.must(raw_accepted, "accept failed: " .. tostring(accept_err))
+
+  -- The bounded path connects non-blocking and restores blocking mode,
+  -- so a plain round-trip needs no readiness dance.
+  assert(client:send_all("bounded unix"))
+  assert(accepted:recv() == "bounded unix", "expected the payload")
+
+  assert(client:close())
+  assert(accepted:close())
+  assert(server:close())
+  assert(os.remove(path))
+  assert(os.remove(tmpdir))
+end
+test_dial_unix_with_timeout()
+
+local function test_dial_unix_missing_path_fails()
+  local sock, err = net.dial_unix(sock_base .. "/cosmic-no-such-socket", {timeout_ms = 1000})
+  assert(sock == nil, "dial_unix to a nonexistent path should fail")
+  assert(err ~= nil, "expected an error message")
+end
+test_dial_unix_missing_path_fails()

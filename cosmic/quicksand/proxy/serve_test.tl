@@ -38,7 +38,7 @@ end
 --- the full response. handle() closes the server-side fd; recv drains
 --- until EOF (nil per the stream contract).
 local function roundtrip(srv: serve.Server, request: string): string
-  local sock = check.must(net.connect_tcp("127.0.0.1", srv.port()), "connect failed")
+  local sock = check.must(net.dial("127.0.0.1", srv.port()), "connect failed")
   assert(sock:send(request))
   -- named to match serve.tl's own client_fd, and to leave `fd` to the
   -- cosmic.fd module imported above
@@ -137,7 +137,7 @@ local UPSTREAM_BODY = "hello-from-upstream"
 local function test_allowlist_does_not_bypass_the_ssrf_guard()
   local listener = net.listen_tcp("127.0.0.1", 0, {backlog = 8})
   local ls = check.must(listener, "upstream listen failed")
-  local port = check.must(ls:getsockname()).port
+  local port = check.must(ls:local_endpoint()).port
 
   local pid = proc.fork()
   if not pid then
@@ -166,7 +166,7 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
       }), "serve.new failed")
   assert(srv.listen(), "listen failed")
 
-  local sock = check.must(net.connect_tcp("127.0.0.1", srv.port()),
+  local sock = check.must(net.dial("127.0.0.1", srv.port()),
     "client connect failed")
   assert(sock:send("GET http://127.0.0.1:" .. port .. "/hi HTTP/1.1\r\n"
       .. "Host: 127.0.0.1:" .. port .. "\r\n\r\n"))
