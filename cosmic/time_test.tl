@@ -336,5 +336,3 @@ local function test_gmtime_isdst_boolean()
   assert(type(lt.isdst) == "boolean", "localtime isdst must be a boolean")
 end
 test_gmtime_isdst_boolean()
-
--- is_leap_year / days_in_month (exported in)
