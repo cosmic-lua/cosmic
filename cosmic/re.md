@@ -3,14 +3,20 @@
  Regular expression matching using POSIX extended regex syntax.
  Wraps cosmo.re for pattern compilation and matching. Module-level
  functions are SUBJECT-FIRST D20: match(text, pattern), like
- string.match. Compile behavior is a CompileOptions record — a search
- flag in a compile slot cannot type-check, where the old shared
- integer namespace silently ignored it. The compiled Regex speaks
- :match/:find with integer search flags (NOTBOL/NOTEOL) — a userdata
- metatable is the C layer's to name, so `match` arriving on the
- charter verb took an upstream change (cosmopolitan#237). For exact
- plain-text search see cosmic.string; for approximate (edit-distance)
- matching see cosmic.fuzzy.
+ string.match. Behavior comes in two records: CompileOptions fixes
+ what a pattern means and belongs to the compiled Regex;
+ SearchOptions describes one subject and applies per call. They are
+ separate types because neither set is usable in the other's slot.
+
+ Regex is cosmo.re's own userdata, so its :match/:find take an
+ integer flag word rather than a record; search_flags() builds that
+ word from a SearchOptions.
+
+ gmatch and gsub mirror string.gmatch/string.gsub, whose behavior a
+ Lua reader already knows.
+
+ For exact plain-text search see cosmic.string; for approximate
+ (edit-distance) matching see cosmic.fuzzy.
 
  For best performance, compile patterns once and reuse them.
  The convenience functions (match, is_match, find, find_all, gmatch,
@@ -38,6 +44,25 @@ local record CompileOptions
   newline: boolean
   --  Report only success/failure, not match position.
   no_sub: boolean
+end
+```
+
+### SearchOptions
+
+ What the subject's edges mean for one search. A pattern is
+ compiled once but searched against many subjects, some of which
+ are slices of a larger text whose edges are not line boundaries —
+ so these belong to the call, not to CompileOptions.
+
+```teal
+local record SearchOptions
+  --  The subject does not begin a line, so `^` must not match at its
+  --  start (POSIX REG_NOTBOL). Set it when searching a tail of a
+  --  larger subject.
+  not_bol: boolean
+  --  The subject does not end a line, so `$` must not match at its
+  --  end (POSIX REG_NOTEOL).
+  not_eol: boolean
 end
 ```
 
@@ -95,8 +120,7 @@ local record ReModule
   gmatch: function(text: string, pattern: string, opts?: CompileOptions): MatchIterator | nil, string
   split: function(text: string, pattern: string, opts?: CompileOptions): {string} | nil, string
   gsub: function(text: string, pattern: string, repl: Repl, opts?: CompileOptions): string | nil, string
-  NOTBOL: integer
-  NOTEOL: integer
+  search_flags: function(opts?: SearchOptions): integer
 end
 ```
 
@@ -129,6 +153,24 @@ alias of `function`
 alias of `string`
 
 ## Functions
+
+### search_flags
+
+```teal
+function search_flags(opts?: SearchOptions): integer
+```
+
+ Convert a SearchOptions to the integer flag word cosmo.re's
+ :match/:find take. Infallible: no options is 0, which searches the
+ subject as a whole line.
+
+**Parameters:**
+
+- `opts` (SearchOptions?) - Search behavior
+
+**Returns:**
+
+- integer - The flag word to pass to Regex:match / Regex:find
 
 ### compile
 
@@ -227,12 +269,9 @@ function find_all(text: string, pattern: string, opts?: CompileOptions): {Span} 
 
  Every non-overlapping match of pattern in text, leftmost first, as
  Spans. Patterns that can match the empty string are rejected.
- Under the NEWLINE compile flag, `^`/`$` anchors match at embedded
- newlines as POSIX specifies: find_all("foo\nfoo", "^foo",
- re.NEWLINE) returns both spans. (The engine reports offsets
- directly, which removed the relocation pass whose verification
- window historically could not see those anchors past the first
- line.)
+ Under the `newline` compile option, `^`/`$` anchors match at
+ embedded newlines as POSIX specifies: find_all("foo\nfoo", "^foo",
+ {newline = true}) returns both spans.
 
 **Parameters:**
 
