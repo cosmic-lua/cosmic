@@ -287,7 +287,8 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
                      has_nil = true
                   else
                      if rm.typename == "boolean" or rm.typename == "any" or
-                        rm.typename == "unknown" or rm.typename == "boolean_context" then
+                        rm.typename == "unknown" or rm.typename == "boolean_context" or
+                        rm.typename == "typevar" then
                         safe = false
                      end
                      table.insert(members, m)
@@ -375,7 +376,8 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
                         has_nil = true
                      else
                         if rm.typename == "boolean" or rm.typename == "any" or
-                           rm.typename == "unknown" or rm.typename == "boolean_context" then
+                           rm.typename == "unknown" or rm.typename == "boolean_context" or
+                           rm.typename == "typevar" then
                            safe = false
                         end
                         table.insert(members, m)
