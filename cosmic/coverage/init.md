@@ -19,24 +19,6 @@
 
 ## Types
 
-### CCov
-
- The runtime's C line-hit collector (require("cosmo.cov")), when
- this runtime carries one. Same attribution as the Lua hook below —
- chunks keyed by their debug source, values line -> hit count — at a
- small fraction of the per-line cost.
-
-```teal
-local record CCov
-  start: function()
-  stop: function()
-  running: function(): boolean
-  arm: function(thread: thread)
-  snapshot: function(): {string: {integer: integer}}
-  reset: function()
-end
-```
-
 ### StartOptions
 
  Options for start().
@@ -66,6 +48,16 @@ local record CoverageModule
   enable_from_env: function(): function() | nil
 end
 ```
+
+### CCov
+
+ The runtime's C line-hit collector. Same attribution as the Lua
+ hook below — chunks keyed by their debug source, values line -> hit
+ count — at a small fraction of the per-line cost. A type-only
+ require: the generated declaration is the one description of the
+ binding, and this borrows it rather than restating its six members.
+
+alias of `require`
 
 ## Functions
 

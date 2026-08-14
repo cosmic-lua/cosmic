@@ -42,8 +42,8 @@ local record TimeModule
   monotonic_ms: function(): integer
   monotonic_ns: function(): integer
   sleep_ms: function(ms: number): integer | nil, string
-  gmtime: function(unixts: integer): DateTime
-  localtime: function(unixts: integer): DateTime
+  gmtime: function(unixts: integer): DateTime | nil, string
+  localtime: function(unixts: integer): DateTime | nil, string
   format_http: function(timestamp: integer): string
   parse_http: function(str: string): integer | nil, string
   format_date: function(timestamp: integer): string | nil, string
@@ -150,10 +150,12 @@ function sleep_ms(ms: number): integer | nil, string
 ### gmtime
 
 ```teal
-function gmtime(unixts: integer): DateTime
+function gmtime(unixts: integer): DateTime | nil, string
 ```
 
  Break down a UNIX timestamp into UTC (Zulu) time components.
+ Fails on a timestamp the C library cannot represent: EOVERFLOW for
+ one far enough outside the year range a broken-down time can hold.
 
 **Parameters:**
 
@@ -161,16 +163,18 @@ function gmtime(unixts: integer): DateTime
 
 **Returns:**
 
-- DateTime - Broken-down time in UTC
+- DateTime - | nil Broken-down time in UTC, or nil on failure
+- string - Error message on failure
 
 ### localtime
 
 ```teal
-function localtime(unixts: integer): DateTime
+function localtime(unixts: integer): DateTime | nil, string
 ```
 
  Break down a UNIX timestamp into local time components.
- Respects the TZ environment variable.
+ Respects the TZ environment variable. Fails on the same
+ unrepresentable timestamps gmtime does.
 
 **Parameters:**
 
@@ -178,7 +182,8 @@ function localtime(unixts: integer): DateTime
 
 **Returns:**
 
-- DateTime - Broken-down time in local timezone
+- DateTime - | nil Broken-down time in local timezone, or nil on failure
+- string - Error message on failure
 
 ### format_http
 
