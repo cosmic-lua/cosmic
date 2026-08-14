@@ -218,6 +218,11 @@ local function check_policy(opts: Options): string
     if type(sys) ~= "table" then
       return "sandbox: sys must be a table"
     end
+    if (sys as {string: any}).exec ~= nil then -- cast: record to map probe
+      return "sandbox: sys.exec does not exist: the key is"
+      .. " sys.exec_promises (#989 renamed it) — silently dropping the"
+      .. " old spelling would run exec'd children with no promises"
+    end
     local perr = check_promises(sys.promises, "sys.promises")
     if perr then return perr end
     perr = check_promises(sys.exec_promises, "sys.exec_promises")

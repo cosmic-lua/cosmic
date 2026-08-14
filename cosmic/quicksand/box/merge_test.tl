@@ -77,10 +77,10 @@ test_nested_proc_scalars()
 local function test_nested_sys_scalars()
   local out = m.merge(
     {sys = {promises = "stdio rpath"}},
-    {sys = {exec = "stdio"}})
+    {sys = {exec_promises = "stdio"}})
   local s = out.sys as {string: any} -- cast: from any
   assert(s.promises == "stdio rpath", "promises preserved")
-  assert(s.exec == "stdio", "exec overlay applied")
+  assert(s.exec_promises == "stdio", "exec_promises overlay applied")
 end
 test_nested_sys_scalars()
 
