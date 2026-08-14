@@ -58,6 +58,13 @@ local GATES < const >: {string: boolean} = {
 --- The generation counter, carried across the re-exec.
 local GEN_ENV < const > = "COSMIC_MAKE_GEN"
 
+--- Set while the converging build's child runs. GEN_ENV cannot mark
+--- that child (converge sets it only at the re-exec, and the counter
+--- has its own meaning), so this is what tells a nested `--make build`
+--- it is a STEP of a gate, not a result the user asked for -- see
+--- gate_note in _make/stage.tl.
+local STEP_ENV < const > = "COSMIC_MAKE_STEP"
+
 --- How many times a run may re-exec into what it built.
 ---
 --- Two. The first covers "you invoked the pin"; the second covers "the
@@ -205,8 +212,13 @@ local function to_the_tree(proj: Project, argv: {string},
 
   local was_us = fs.is_file(built) and same_file(built, self)
   local before = stamp_of(built)
+  -- The child build is a step of this gate, not a verb the user typed;
+  -- the flag keeps its gate_note quiet (it would otherwise say "fmt and
+  -- lint did not run" in the middle of the very gate running them).
+  local _sok, _serr = env.set(STEP_ENV, "1")
   local r, rerr = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})
+  local _uok, _uerr = env.unset(STEP_ENV)
   if r == nil then
     return false, "make: " .. tostring(rerr or "the converging build failed"),
     "build failed"
@@ -266,6 +278,7 @@ end
 local record ConvergeModule
   GATES: {string: boolean}
   GEN_ENV: string
+  STEP_ENV: string
   MAX_GEN: integer
   toolchain_of: function(proj: Project): Binary | nil
   drives_a_build: function(path: string): boolean
@@ -277,6 +290,7 @@ local M: ConvergeModule = {
   GATES = GATES,
   drives_a_build = drives_a_build,
   GEN_ENV = GEN_ENV,
+  STEP_ENV = STEP_ENV,
   MAX_GEN = MAX_GEN,
   toolchain_of = toolchain_of,
   to_the_tree = to_the_tree,

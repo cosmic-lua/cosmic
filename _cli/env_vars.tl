@@ -59,6 +59,8 @@ local VARS < const >: {Var} = {
     desc = "the engine a recipe line runs under"},
   {name = "COSMIC_MAKE_GEN", public = false,
     desc = "the converge generation counter"},
+  {name = "COSMIC_MAKE_STEP", public = false,
+    desc = "marks the converging build's child as a gate step"},
   {name = "COSMIC_EXEC_ROOT", public = false,
     desc = "the root an exec step may write beneath"},
 }
