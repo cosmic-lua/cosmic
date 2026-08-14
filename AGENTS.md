@@ -162,7 +162,7 @@ structure returns **its own concrete error record** in slot 2 instead
 `kind` field. Classify by FIELD (`err.kind == "timeout"`), never by `is` on a
 concrete record (unsound — `is` only sees "table"); render with
 `tostring(err)` (`"<kind>: <detail>"`) or read the clean `.message` — `..` on
-an error record is a deliberate compile error. `cosmic.failure.Failure` is the
+an error record is a deliberate compile error. `cosmic.errors.Failure` is the
 one sink-side supertype (`check.must` accepts `string | Failure`); a module
 carrying another module's structured failure translates it into its own error
 type at the boundary.
@@ -362,8 +362,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | embed | Embed files and directories into a cosmic executable. |
 | env | Environment variables: get/set/unset/list, dotenv, and env.d loading. |
 | errno | Error information from system calls. |
-| errors | Examples for the error-handling doctrine every cosmic.* module follows. |
-| failure | The one sink-side supertype for structured errors (D24). |
+| errors | The one sink-side supertype for structured errors (D24). |
 | fd | File descriptor I/O operations. |
 | fetch | Structured HTTP fetch with retry, streaming, and honest error channels. |
 | flags | Declarative command-line flag parsing with a generated --help. |

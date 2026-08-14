@@ -52,6 +52,32 @@ local function Example_structured_error()
   -- invalid_request: unsupported URL scheme: ftp
 end
 
+-- Example_sink demonstrates a sink over `string | errors.Failure` —
+-- the supertype this module carries, and the only way one signature
+-- accepts every module's error: narrow the string arm with `is string`
+-- (an if/else, not an early-exit guard — `is` narrowing does not
+-- survive those), and the else arm renders the structured error via
+-- its __tostring.
+local function Example_sink()
+  local errors = require("cosmic.errors")
+  local fetch = require("cosmic.fetch")
+  local function render(err: string | errors.Failure): string
+    if err is string then
+      return err
+    else
+      return tostring(err)
+    end
+  end
+  print(render("plain message"))
+  local resp, err = fetch.fetch("ftp://example.com/file")
+  if not resp then
+    print(render(err))
+  end
+  -- Output:
+  -- plain message
+  -- invalid_request: unsupported URL scheme: ftp
+end
+
 -- Example_infallible demonstrates the third shape: encoding,
 -- compression, and escaping cannot fail on any input, so they return a
 -- bare value with no error channel to check.
@@ -70,5 +96,6 @@ local _ = {
   Example_value_error,
   Example_boolean_error,
   Example_structured_error,
+  Example_sink,
   Example_infallible,
 }

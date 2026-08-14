@@ -6,7 +6,7 @@
 --- docs/decisions/d23-check-throws.md; no other cosmic.* module may
 --- throw or exit, so never require check from library code.
 local cosmo = require("cosmo")
-local failure = require("cosmic.failure")
+local errors = require("cosmic.errors")
 local proc = require("cosmic.proc")
 
 --- The skip exit code: 0 pass, 2 skip, anything else fail — the
@@ -148,14 +148,14 @@ end
 --- must be released rides on the returned record's `__close`, the way
 --- `fs.find_iter` and `sqlite.Rows` do.
 --- Slot 2 is `string | Failure` (D24): a structured error — any
---- record implementing `cosmic.failure.Failure`, like `fetch.Error` —
+--- record implementing `cosmic.errors.Failure`, like `fetch.Error` —
 --- passes through multiple-return passthrough exactly like a string,
 --- and throws as its rendered `tostring`. A slot-2 boolean is still
 --- rejected by name, so the diagnostic that surfaced #1063 survives.
 --- @param value T? The fallible value (nil on failure)
 --- @param err string|Failure? Failure; a `nil, err` pair fills this in
 --- @return T The value, known non-nil
-local function must<T>(value: T | nil, err?: string | failure.Failure): T
+local function must<T>(value: T | nil, err?: string | errors.Failure): T
   if value == nil then
     if err == nil then
       error("must failed: expected value, got nil", 2)
@@ -296,7 +296,7 @@ local record CheckModule
   equal: function<T>(actual: T, expected: T, label?: string)
   not_equal: function<T>(actual: T, expected: T, label?: string)
   truthy: function(value: any, label?: string)
-  must: function<T>(value: T | nil, err?: string | failure.Failure): T
+  must: function<T>(value: T | nil, err?: string | errors.Failure): T
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)

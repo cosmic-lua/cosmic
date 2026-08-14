@@ -125,7 +125,7 @@ cosmic/embed/floor.tl 33 38
 cosmic/embed/init.tl 143 180
 cosmic/env.tl 24 34
 cosmic/errno.tl 17 26
-cosmic/failure.tl 2 2
+cosmic/errors.tl 2 2
 cosmic/fd.tl 95 118
 cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220

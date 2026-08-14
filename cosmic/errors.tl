@@ -2,7 +2,7 @@
 ---
 --- Errors are strings by default. A module whose failures carry real
 --- structure returns its OWN concrete record in slot 2 — `local record
---- Error is failure.Failure` plus the typed fields its domain needs
+--- Error is errors.Failure` plus the typed fields its domain needs
 --- (`fetch.Error`'s `kind`) — and this interface is what a SINK that
 --- accepts any module's error names: `check.must` widens its slot 2 to
 --- `string | Failure`. Teal admits at most one table type in a union,
@@ -27,12 +27,12 @@ local interface Failure
   metamethod __tostring: function(Failure): string
 end
 
-local record FailureModule
+local record ErrorsModule
   --- Type alias, not a runtime value: this module carries no
   --- functions, only the interface every structured error implements.
   type Failure = Failure
 end
 
-local M: FailureModule = {}
+local M: ErrorsModule = {}
 
 return M

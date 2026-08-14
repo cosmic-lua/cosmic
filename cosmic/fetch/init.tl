@@ -7,7 +7,7 @@
 --- not a failure.
 
 local cosmo = require("cosmo")
-local failure = require("cosmic.failure")
+local errors = require("cosmic.errors")
 local fetch_headers = require("cosmic.fetch.headers")
 local fetch_body = require("cosmic.fetch.body")
 local fetch_extras = require("cosmic.fetch.extras")
@@ -51,8 +51,8 @@ end
 --- renders `"<kind>: <detail>"` via the attached metatable — the same
 --- string slot 2 carried when it was text — and `..` on an Error is
 --- deliberately a compile error (no __concat is declared; see D24 and
---- cosmic.failure).
-local record Error is failure.Failure
+--- cosmic.errors).
+local record Error is errors.Failure
   kind: ErrorKind
 end
 

@@ -15,7 +15,7 @@
 - **decision:** slot 2 is `string` by default, and a module whose
   failures carry structure returns **its own concrete error record**
   there — still two slots, rule 11 untouched.
-  - One interface, `cosmic.failure.Failure` (`message: string`,
+  - One interface, `cosmic.errors.Failure` (`message: string`,
     `metamethod __tostring`), declared low so `cosmic.check` can
     reference it. It is the **sink-side supertype only**: Teal admits
     at most one table type in a union, so there can be exactly one,
@@ -72,6 +72,6 @@
   case); sqlite/fs may follow this record, converting per module and
   translating at boundaries. The doctrine prose in AGENTS.md,
   `docs/stdlib.md`, and `docs/guides/modules.md` points here. A
-  type-only public module (`cosmic/failure.tl`) is a new shape for
+  type-only public module (`cosmic/errors.tl`) is a new shape for
   the tree: position still declares it public, and its runtime value
   is an empty table carrying only the type.
