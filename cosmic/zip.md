@@ -67,9 +67,12 @@ local record Archive
   add: function(self: Archive, name: string, content: string, opts?: AddOptions): boolean, string
   --  Remove a member (append mode).
   remove: function(self: Archive, name: string): boolean, string
-  --  Close the archive (any mode; idempotent, and infallible: a
-  --  second close is a no-op, not an error).
-  close: function(self: Archive)
+  --  Close the archive (any mode; idempotent: a second close is a
+  --  no-op that returns true). In write and append mode close is where
+  --  the archive lands on disk -- the central directory and any
+  --  pending adds flush here -- so `false, error` means the file is
+  --  NOT a valid archive.
+  close: function(self: Archive): boolean, string
 end
 ```
 
@@ -113,6 +116,10 @@ alias of `cosmo.zip.Stat` — field and method table: `cosmic --docs cosmo.zip.S
  generated cosmo.zip.Entry record.
 
 alias of `cosmo.zip.Entry` — field and method table: `cosmic --docs cosmo.zip.Entry`
+
+### fallible_close
+
+alias of `function`
 
 ## Functions
 
@@ -218,5 +225,5 @@ function a:remove(name: string): boolean, string
 ### a:close
 
 ```teal
-function a:close()
+function a:close(): boolean, string
 ```
