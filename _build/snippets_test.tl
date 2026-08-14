@@ -124,11 +124,14 @@ local function markdown_fences(path: string, out: {Fence})
   local text = check.must(fs.read(path))
   local in_code = false
   local lineno, start = 0, 0
-  local lang = ""
+  local lang, indent = "", ""
   local body: {string} = {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     lineno = lineno + 1
-    local fence, _info = line:match("^```(%w*)(.*)$")
+    -- A fence may be indented (a snippet inside a list item); anchoring
+    -- at column 0 let an indented block escape the gate entirely, so it
+    -- was "real code" only until someone read it.
+    local lead, fence, _info = line:match("^(%s*)```(%w*)(.*)$")
     if fence then
       if in_code then
         out[#out + 1] = {
@@ -137,9 +140,15 @@ local function markdown_fences(path: string, out: {Fence})
         }
         in_code = false
       else
-        in_code, lang, start, body = true, fence, lineno, {}
+        in_code, lang, indent, start, body = true, fence, lead, lineno, {}
       end
     elseif in_code then
+      -- Body lines carry the list indentation of their opening fence;
+      -- strip exactly that prefix so the checkers see the code as its
+      -- reader does.
+      if indent ~= "" and line:sub(1, #indent) == indent then
+        line = line:sub(#indent + 1)
+      end
       body[#body + 1] = line
     end
   end

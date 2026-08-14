@@ -140,7 +140,7 @@ with a leading underscore.
      strip_components = 1,
      url = "https://github.com/org/repo/releases/download/v{version}/archive.tar.gz",
      platforms = {
-       ["*"] = { sha = "..." },
+       ["*"] = {sha = "..."},
      },
    }
    ```
