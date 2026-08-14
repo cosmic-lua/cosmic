@@ -119,6 +119,19 @@ function log(level: Level, message: string, fields?: {string: any})
 - `message` (string) - The log message
 - `fields` ({string:any}?) - Optional key=value context fields
 
+### debug
+
+```teal
+function debug(message: string, fields?: {string: any})
+```
+
+ Log a debug message (suppressed unless the threshold is "debug").
+
+**Parameters:**
+
+- `message` (string) - The log message
+- `fields` ({string:any}?) - Optional key=value context fields
+
 ### info
 
 ```teal
@@ -139,6 +152,19 @@ function warning(message: string, fields?: {string: any})
 ```
 
  Log a warning message.
+
+**Parameters:**
+
+- `message` (string) - The log message
+- `fields` ({string:any}?) - Optional key=value context fields
+
+### error
+
+```teal
+function error(message: string, fields?: {string: any})
+```
+
+ Log an error message.
 
 **Parameters:**
 

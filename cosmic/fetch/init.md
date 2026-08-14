@@ -158,6 +158,27 @@ alias of `cosmic.fetch.body.Body` — field and method table: `cosmic --docs cos
 
 ## Functions
 
+### fetch
+
+```teal
+function fetch(url: string, opts?: Options): Response | nil, Error
+```
+
+ Fetch a URL. A Response arrives only when a response did — an HTTP
+ error status is a Response (check resp.status or resp:is_success());
+ a transport or validation failure is `nil, Error` — branch on the
+ typed `err.kind`, render with `tostring(err)` ("timeout: ...").
+
+**Parameters:**
+
+- `url` (string) - URL to fetch
+- `opts` (Options) - optional fetch options (retry, headers, redirects, ...)
+
+**Returns:**
+
+- Response - | nil The response, or nil on failure
+- Error - The structured failure (kind + message)
+
 ### stream
 
 ```teal

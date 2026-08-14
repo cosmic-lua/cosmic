@@ -83,6 +83,24 @@ function is_enabled(): boolean
 
 - boolean
 
+### begin
+
+```teal
+function begin(op: string, file: string): Span
+```
+
+ Begin a new instrumentation span.
+ Captures monotonic wall time and CPU usage at the start.
+
+**Parameters:**
+
+- `op` (string) - Operation name (e.g. "test", "compile", "check-types")
+- `file` (string) - File being operated on
+
+**Returns:**
+
+- Span
+
 ### format_line
 
 ```teal
@@ -100,6 +118,26 @@ function format_line(data: InstrumentData): string
 **Returns:**
 
 - string - The formatted line, without a trailing newline
+
+### finish
+
+```teal
+function finish(span: Span, exit_code: integer): InstrumentData
+```
+
+ Finish a span: measure, and emit when instrumentation is enabled.
+ Always returns the measured data — turning instrumentation off
+ stops the stderr line, not the measurement — so a caller can use
+ the numbers (or format_line them) regardless of the gate.
+
+**Parameters:**
+
+- `span` (Span) - The span from begin()
+- `exit_code` (integer) - The exit code of the operation
+
+**Returns:**
+
+- InstrumentData - The measured data for the span
 
 ### parse_line
 
