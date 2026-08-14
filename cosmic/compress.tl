@@ -7,26 +7,17 @@
 local cosmo = require("cosmo")
 
 --- Framings compress() can produce: "zlib" (default), "gzip", and
---- "raw" (headerless, as inside ZIP files).
-local enum CompressFormat
-  "zlib"
-  "gzip"
-  "raw"
-end
+--- "raw" (headerless, as inside ZIP files). The binding's own enum.
+local type CompressFormat = cosmo.CompressFormat
 
 --- Framings decompress() can consume: the three producible ones plus
---- "auto", header detection for zlib or gzip input. The split enums
---- are what make "auto" decompress-only by TYPE (one shared enum
---- would leave compress() to reject it at runtime instead). A
---- held CompressFormat value crosses with a widening cast (Teal enums
---- are nominal even when the word sets nest); a string literal needs
---- none.
-local enum DecompressFormat
-  "zlib"
-  "gzip"
-  "raw"
-  "auto"
-end
+--- "auto", header detection for zlib or gzip input. Two enums rather
+--- than one is what makes "auto" decompress-only by TYPE, so passing
+--- it to compress() cannot type-check. Named for the direction this
+--- module calls it (rule 6: decode, not uncompress) while remaining
+--- the binding's own enum, so a value crosses between the two layers
+--- without a cast.
+local type DecompressFormat = cosmo.UncompressFormat
 
 --- Options for compress().
 local record CompressOptions
@@ -55,7 +46,7 @@ end
 local function compress(data: string, opts?: CompressOptions): string | nil, string
   local format: CompressFormat = opts and opts.format or "zlib"
   -- cast: same word set; the binding names its enum independently
-  local result, err = cosmo.Deflate(data, {format = format as cosmo.CompressFormat})
+  local result, err = cosmo.Deflate(data, {format = format})
   if not result then
     return nil, "compress: " .. tostring(err)
   end
@@ -75,8 +66,7 @@ local function decompress(data: string, opts?: DecompressOptions): string | nil,
   local max_output_bytes = opts and opts.max_output_bytes
   -- The binding reports truncated or corrupt input as nil, err.
   -- cast: same word set; the binding names its enum independently
-  local bformat = format as cosmo.UncompressFormat
-  local result, err = cosmo.Inflate(data, {format = bformat, maxsize = max_output_bytes})
+  local result, err = cosmo.Inflate(data, {format = format, maxsize = max_output_bytes})
   if not result then
     return nil, "decompress: " .. tostring(err)
   end
