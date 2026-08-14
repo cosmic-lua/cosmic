@@ -180,6 +180,20 @@ parse_list = function(tokens: {Token}, i: integer): {boolean}, integer
     if not (tokens[j] and tokens[j].tk == ",") then
       break
     end
+    -- A comma may also separate the enclosing PARAMETER list when this
+    -- return list belongs to a nested function type:
+    -- `function(fn: function(e: E): boolean | nil, string, acc: {A})`
+    -- ends fn's returns before `acc`. Teal disambiguates on `name:`
+    -- (optionally `name?:`) — no type starts that way — and so must
+    -- this parse, or the parameter after a fallible callback counts as
+    -- a phantom third slot.
+    local n1 = tokens[j + 1]
+    local n2 = tokens[j + 2]
+    local n3 = tokens[j + 3]
+    if n1 and n1.kind == "identifier" and n2
+    and (n2.tk == ":" or (n2.tk == "?" and n3 and n3.tk == ":")) then
+      break
+    end
     j = j + 1
   end
   if parenthesized and tokens[j] and tokens[j].tk == ")" then
