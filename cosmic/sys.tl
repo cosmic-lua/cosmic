@@ -5,20 +5,9 @@ local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").format
 
 --- Operating system and hardware identification returned by `uname`.
-local record Uname
-  --- Operating system name (e.g. "Linux").
-  sysname: string
-  --- Network node hostname.
-  nodename: string
-  --- Operating system release.
-  release: string
-  --- Operating system version.
-  version: string
-  --- Hardware identifier (e.g. "x86_64").
-  machine: string
-  --- NIS or YP domain name.
-  domainname: string
-end
+--- The binding's own record: its six fields and their descriptions are
+--- declared once, in the generated `cosmo/unix.d.tl`.
+local type Uname = unix.Uname
 
 --- Operating system name as reported by `host_os`.
 --- These are the normalized cosmic names, not the raw cosmopolitan tokens:

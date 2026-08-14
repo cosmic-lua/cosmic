@@ -45,14 +45,10 @@ local valid_algos < total >: {Algo: boolean} = {
   blake2b256 = true,
 }
 
---- Argon2 variants accepted by hash_password. A cosmic-owned enum
---- (rule 10): the generated cosmo.argon2.Variant stays an internal
---- detail of the binding boundary.
-local enum Variant
-  "argon2id"
-  "argon2i"
-  "argon2d"
-end
+--- Argon2 variants accepted by hash_password. The binding's own enum:
+--- the three words it accepts are declared once, in the generated
+--- `cosmo/argon2.d.tl`.
+local type Variant = argon2.Variant
 
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
