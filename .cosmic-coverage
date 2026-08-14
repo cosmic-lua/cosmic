@@ -116,7 +116,7 @@ cosmic/coverage/init.tl 54 139
 cosmic/deep.tl 53 53
 cosmic/doc/init.tl 210 242
 cosmic/doc/lookup.tl 44 69
-cosmic/doc/query.tl 226 292
+cosmic/doc/query.tl 224 290
 cosmic/doc/show.tl 285 338
 cosmic/doc/types.tl 2 2
 cosmic/doc/visibility.tl 17 17
@@ -125,12 +125,13 @@ cosmic/embed/floor.tl 33 38
 cosmic/embed/init.tl 143 180
 cosmic/env.tl 24 34
 cosmic/errno.tl 17 26
+cosmic/errors.tl 2 2
 cosmic/fd.tl 95 118
 cosmic/fetch/body.tl 45 67
 cosmic/fetch/extras.tl 196 220
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
-cosmic/flags/command.tl 95 102
+cosmic/flags/command.tl 94 101
 cosmic/flags/getopt.tl 12 28
 cosmic/flags/init.tl 0 5
 cosmic/flags/parse.tl 141 149
@@ -158,7 +159,7 @@ cosmic/literal.tl 211 233
 cosmic/log.tl 68 70
 cosmic/net/connect.tl 31 37
 cosmic/net/init.tl 0 120
-cosmic/net/socket.tl 228 256
+cosmic/net/socket.tl 205 232
 cosmic/poll.tl 82 96
 cosmic/proc/init.tl 24 72
 cosmic/proc/rusage.tl 20 28
@@ -189,7 +190,7 @@ cosmic/signal.tl 101 109
 cosmic/sqlite/bind.tl 41 44
 cosmic/sqlite/defaults.tl 15 17
 cosmic/sqlite/extras.tl 79 89
-cosmic/sqlite/init.tl 145 163
+cosmic/sqlite/init.tl 144 163
 cosmic/sqlite/row_iter.tl 51 59
 cosmic/sqlite/sqltext.tl 29 41
 cosmic/sqlite/stmt_cache.tl 57 67
@@ -206,4 +207,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14879 19547
+total 14854 19522

@@ -38,8 +38,10 @@ failure, and library code never throws:
   checker forces callers to narrow before use
 - **fallible effect**: `boolean, string` — operations with nothing to
   return succeed `true` or fail `false, message`
-- **result records**: complex operations with multiple error states
-  return a record (`fetch.fetch`'s `ok`/`status`/`body`/`error`)
+- **structured errors**: a module whose failures carry structure
+  returns its own error record in slot 2 (`fetch.fetch` returns
+  `Response | nil, fetch.Error`); branch on the typed field
+  (`err.kind`), render with `tostring(err)` — D24
 - **infallible**: encoding, compression, escaping return a bare value —
   no error channel to check
 

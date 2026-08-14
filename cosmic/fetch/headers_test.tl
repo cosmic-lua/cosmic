@@ -13,9 +13,9 @@ local dead = "http://127.0.0.1:1"
 local function test_rejects_crlf_in_header_value()
   local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
   assert(result == nil, "a CRLF in a header value must fail the fetch")
-  assert(err ~= nil and err:find("X%-Test") ~= nil,
+  assert(err ~= nil and err.message:find("X%-Test") ~= nil,
     "error should name the offending header, got: " .. tostring(err))
-  assert(err:find("CR, LF, or NUL") ~= nil,
+  assert(err.message:find("CR, LF, or NUL") ~= nil,
     "error should explain the forbidden bytes, got: " .. tostring(err))
 end
 test_rejects_crlf_in_header_value()
@@ -35,7 +35,7 @@ test_rejects_cr_only_in_header_value()
 local function test_rejects_crlf_in_header_name()
   local result, err = fetch.fetch(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
   assert(result == nil, "a CRLF in a header name must fail the fetch")
-  assert(err ~= nil and err:find("header name") ~= nil,
+  assert(err ~= nil and err.message:find("header name") ~= nil,
     "error should mention the header name, got: " .. tostring(err))
 end
 test_rejects_crlf_in_header_name()
@@ -43,7 +43,7 @@ test_rejects_crlf_in_header_name()
 local function test_rejects_nul_in_header_value()
   local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\0b"}})
   assert(result == nil, "a NUL in a header value must be rejected")
-  assert(err ~= nil and err:find("CR, LF, or NUL") ~= nil,
+  assert(err ~= nil and err.message:find("CR, LF, or NUL") ~= nil,
     "error should explain the forbidden bytes, got: " .. tostring(err))
 end
 test_rejects_nul_in_header_value()
@@ -51,7 +51,7 @@ test_rejects_nul_in_header_value()
 local function test_rejects_empty_header_name()
   local result, err = fetch.fetch(dead, {headers = {[""] = "value"}})
   assert(result == nil, "an empty header name must be rejected")
-  assert(err ~= nil and err:find("empty") ~= nil,
+  assert(err ~= nil and err.message:find("empty") ~= nil,
     "error should mention the empty name, got: " .. tostring(err))
 end
 test_rejects_empty_header_name()
@@ -63,7 +63,7 @@ local function test_allows_clean_headers()
       headers = {["X-Test"] = "clean-value", ["Accept"] = "application/json"},
     })
   if result == nil then
-    assert(err:find("header") == nil,
+    assert(err.message:find("header") == nil,
       "clean headers must pass validation, got: " .. tostring(err))
   end
 end
@@ -72,7 +72,7 @@ test_allows_clean_headers()
 local function test_stream_rejects_crlf_in_header_value()
   local result, err = fetch.stream(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
   assert(result == nil, "stream should reject CRLF in a header value")
-  assert(err ~= nil and err:find("CR, LF, or NUL") ~= nil,
+  assert(err ~= nil and err.message:find("CR, LF, or NUL") ~= nil,
     "stream error should explain the forbidden bytes, got: " .. tostring(err))
 end
 test_stream_rejects_crlf_in_header_value()
@@ -80,7 +80,7 @@ test_stream_rejects_crlf_in_header_value()
 local function test_stream_rejects_crlf_in_header_name()
   local result, err = fetch.stream(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
   assert(result == nil, "stream should reject CRLF in a header name")
-  assert(err ~= nil and err:find("header name") ~= nil,
+  assert(err ~= nil and err.message:find("header name") ~= nil,
     "stream error should mention the header name, got: " .. tostring(err))
 end
 test_stream_rejects_crlf_in_header_name()

@@ -256,7 +256,8 @@ end
 --- The verb helpers and download, built around init's fetch/stream so
 --- no require cycle forms. wrap attaches init's Response metatable
 --- (is_success/json) to download's synthesized responses; fail_make
---- builds init's `nil, message` failure pair.
+--- builds init's structured `nil, Error` failure pair (kind "io" —
+--- download's local-file failures are not request failures).
 local record Made
   get: function(string, any): any, any
   post: function(string, any): any, any

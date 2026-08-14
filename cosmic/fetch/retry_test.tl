@@ -159,7 +159,7 @@ local function test_exhausted_attempts_return_last_failure()
     {allow_private = true, max_attempts = 2, base_delay_ms = 10})
   assert(proc.wait(pid))
   assert(result == nil, "both attempts failed; no Response may exist")
-  assert(err and err:match("^connect: "),
+  assert(err and err.kind == "connect",
     "the transport failure kind survives, got " .. tostring(err))
 end
 test_exhausted_attempts_return_last_failure()
@@ -191,9 +191,9 @@ local function test_validation_error_is_invalid_request_and_never_retries()
   local result, err = fetch.fetch("ftp://example.com/",
     {max_attempts = 3, base_delay_ms = 10})
   assert(result == nil, "validation failure expected")
-  assert(err:match("^invalid_request: "),
+  assert(err.kind == "invalid_request",
     "validation failures carry kind invalid_request")
-  assert(err:find("unsupported URL scheme") ~= nil,
+  assert(err.message:find("unsupported URL scheme") ~= nil,
     "the validation error must survive retries untouched")
 end
 test_validation_error_is_invalid_request_and_never_retries()

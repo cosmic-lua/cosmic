@@ -199,19 +199,19 @@ test_read_until_remainder_guards_and_close()
 local function test_stream_validation_and_error_kind()
   local result, verr = fetch.stream("ftp://example.com/x")
   assert(result == nil, "ftp scheme must be rejected")
-  assert(verr:find("unsupported URL scheme", 1, true) ~= nil,
+  assert(verr.message:find("unsupported URL scheme", 1, true) ~= nil,
     "validation error expected, got: " .. tostring(verr))
-  assert(verr:match("^invalid_request: "),
+  assert(verr.kind == "invalid_request",
     "validation failures carry kind invalid_request")
 
   local refused, rerr = fetch.stream("http://127.0.0.1:1/", {allow_private = true})
   assert(refused == nil, "dead port must fail")
-  assert(rerr and rerr:match("^connect: "),
+  assert(rerr and rerr.kind == "connect",
     "stream kind should be 'connect', got " .. tostring(rerr))
 
   local blocked, berr = fetch.stream("http://127.0.0.1:1/")
   assert(blocked == nil, "SSRF guard applies to streams")
-  assert(berr and berr:match("^blocked: "),
+  assert(berr and berr.kind == "blocked",
     "kind should be 'blocked', got " .. tostring(berr))
 end
 test_stream_validation_and_error_kind()

@@ -152,10 +152,20 @@ doctrine prose is [docs/stdlib.md](docs/stdlib.md). the shape rules:
 - **Fallible effect**: `boolean, string` (returns `false, msg` on failure).
 - **Infallible**: bare value.
 
-Errors are strings: failed `cosmo.unix` calls return `nil, err, errno` (a
-formatted string plus the numeric errno), wrappers add context with
+Errors are strings by default: failed `cosmo.unix` calls return `nil, err,
+errno` (a formatted string plus the numeric errno), wrappers add context with
 `errno.format(err, prefix)`, and branch on the numeric errno via
-`errno.is_code(errno_value, "EINTR")`.
+`errno.is_code(errno_value, "EINTR")`. A module whose failures carry real
+structure returns **its own concrete error record** in slot 2 instead
+([D24](docs/decisions/d24-structured-failures.md)): `fetch.fetch` returns
+`Response | nil, fetch.Error`, where `record Error is Failure` adds a typed
+`kind` field. Classify by FIELD (`err.kind == "timeout"`), never by `is` on a
+concrete record (unsound — `is` only sees "table"); render with
+`tostring(err)` (`"<kind>: <detail>"`) or read the clean `.message` — `..` on
+an error record is a deliberate compile error. `cosmic.errors.Failure` is the
+one sink-side supertype (`check.must` accepts `string | Failure`); a module
+carrying another module's structured failure translates it into its own error
+type at the boundary.
 
 **Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
 `T`: truthiness (`if not r then return end`), `assert(r)`, `r and r.field`, and
@@ -352,7 +362,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | embed | Embed files and directories into a cosmic executable. |
 | env | Environment variables: get/set/unset/list, dotenv, and env.d loading. |
 | errno | Error information from system calls. |
-| errors | Examples for the error-handling doctrine every cosmic.* module follows. |
+| errors | The one sink-side supertype for structured errors (D24). |
 | fd | File descriptor I/O operations. |
 | fetch | Structured HTTP fetch with retry, streaming, and honest error channels. |
 | flags | Declarative command-line flag parsing with a generated --help. |
