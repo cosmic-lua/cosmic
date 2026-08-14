@@ -420,8 +420,6 @@ end
 local record DocExtractModule
   type ModuleDoc = ModuleDoc
 
-  export_surface: function(source: string,
-  records: {{string: any}}): {string: boolean}
   publishable: function(doc: ModuleDoc, source: string): ModuleDoc
   parse: function(source: string, file_path: string): ModuleDoc
   parse_dtl: function(source: string, file_path: string): ModuleDoc
