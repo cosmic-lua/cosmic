@@ -98,7 +98,8 @@ local SELECTS < const >: {string: Selection} = {
 --- @return integer That same exit code
 local function gate_note(verb: string, code: integer): integer
   if code == 0 and (verb == "build" or verb == "test")
-  and cenv.get_or(converge.GEN_ENV, "0") == "0" then
+  and cenv.get_or(converge.GEN_ENV, "0") == "0"
+  and cenv.get_or(converge.STEP_ENV, "0") == "0" then
     io.write("note: fmt and lint did not run here — " ..
       "`cosmic --make ci` is the whole gate\n")
   end
