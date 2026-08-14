@@ -116,15 +116,24 @@ end
 -- halves are checked against DateTime.
 
 --- Break down a UNIX timestamp into UTC (Zulu) time components.
+--- Fails on a timestamp the C library cannot represent: EOVERFLOW for
+--- one far enough outside the year range a broken-down time can hold.
 --- @param unixts integer UNIX timestamp (seconds since epoch)
---- @return DateTime Broken-down time in UTC
-local function gmtime(unixts: integer): DateTime
+--- @return DateTime | nil Broken-down time in UTC, or nil on failure
+--- @return string Error message on failure
+local function gmtime(unixts: integer): DateTime | nil, string
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
   unix.gmtime(unixts)
+  if year == nil then
+    -- On failure the binding returns (nil, err, errno): the error string
+    -- arrives in the slot mon occupies on success.
+    return nil, errno.format(mon as string, "gmtime") -- cast: tuple element
+  end
   return {
     year = year,
-    month = mon,
-    day = mday,
+    -- cast: tuple element (integer whenever year is non-nil)
+    month = mon as integer,
+    day = mday as integer, -- cast: tuple element
     hour = hour,
     min = min,
     sec = sec,
@@ -137,16 +146,24 @@ local function gmtime(unixts: integer): DateTime
 end
 
 --- Break down a UNIX timestamp into local time components.
---- Respects the TZ environment variable.
+--- Respects the TZ environment variable. Fails on the same
+--- unrepresentable timestamps gmtime does.
 --- @param unixts integer UNIX timestamp (seconds since epoch)
---- @return DateTime Broken-down time in local timezone
-local function localtime(unixts: integer): DateTime
+--- @return DateTime | nil Broken-down time in local timezone, or nil on failure
+--- @return string Error message on failure
+local function localtime(unixts: integer): DateTime | nil, string
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
   unix.localtime(unixts)
+  if year == nil then
+    -- On failure the binding returns (nil, err, errno): the error string
+    -- arrives in the slot mon occupies on success.
+    return nil, errno.format(mon as string, "localtime") -- cast: tuple element
+  end
   return {
     year = year,
-    month = mon,
-    day = mday,
+    -- cast: tuple element (integer whenever year is non-nil)
+    month = mon as integer,
+    day = mday as integer, -- cast: tuple element
     hour = hour,
     min = min,
     sec = sec,
@@ -369,8 +386,8 @@ local record TimeModule
   monotonic_ms: function(): integer
   monotonic_ns: function(): integer
   sleep_ms: function(ms: number): integer | nil, string
-  gmtime: function(unixts: integer): DateTime
-  localtime: function(unixts: integer): DateTime
+  gmtime: function(unixts: integer): DateTime | nil, string
+  localtime: function(unixts: integer): DateTime | nil, string
   format_http: function(timestamp: integer): string
   parse_http: function(str: string): integer | nil, string
   format_date: function(timestamp: integer): string | nil, string

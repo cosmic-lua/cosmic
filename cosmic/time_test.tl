@@ -123,7 +123,7 @@ test_sleep_ms_conversion()
 -- gmtime tests
 
 local function test_gmtime_epoch()
-  local dt = time.gmtime(0)
+  local dt = check.must(time.gmtime(0))
   assert(dt.year == 1970, "expected year 1970, got " .. tostring(dt.year))
   assert(dt.month == 1, "expected month 1, got " .. tostring(dt.month))
   assert(dt.day == 1, "expected day 1, got " .. tostring(dt.day))
@@ -135,7 +135,7 @@ test_gmtime_epoch()
 
 local function test_gmtime_known_date()
   -- 2000-01-01 00:00:00 UTC = 946684800
-  local dt = time.gmtime(946684800)
+  local dt = check.must(time.gmtime(946684800))
   assert(dt.year == 2000, "expected year 2000, got " .. tostring(dt.year))
   assert(dt.month == 1, "expected month 1, got " .. tostring(dt.month))
   assert(dt.day == 1, "expected day 1, got " .. tostring(dt.day))
@@ -146,7 +146,7 @@ end
 test_gmtime_known_date()
 
 local function test_gmtime_fields()
-  local dt = time.gmtime(1705322245)
+  local dt = check.must(time.gmtime(1705322245))
   assert(dt.gmtoff == 0, "expected gmtoff 0 for UTC, got " .. tostring(dt.gmtoff))
   assert(dt.zone == "UTC" or dt.zone == "GMT", "expected UTC or GMT timezone, got " .. tostring(dt.zone))
   assert(dt.wday >= 0 and dt.wday <= 6, "expected wday 0-6, got " .. tostring(dt.wday))
@@ -154,11 +154,31 @@ local function test_gmtime_fields()
 end
 test_gmtime_fields()
 
+-- A timestamp the C library cannot break down is an honest error, not a
+-- throw: the binding reports EOVERFLOW in the slot the month occupies on
+-- success, and both wrappers return it as nil + message.
+
+local function test_gmtime_unrepresentable_is_an_error()
+  local dt, err = time.gmtime(1 << 62)
+  assert(dt == nil, "an unrepresentable timestamp yields no DateTime")
+  assert(err ~= nil and err:match("EOVERFLOW"),
+    "gmtime should name EOVERFLOW, got: " .. tostring(err))
+end
+test_gmtime_unrepresentable_is_an_error()
+
+local function test_localtime_unrepresentable_is_an_error()
+  local dt, err = time.localtime(1 << 62)
+  assert(dt == nil, "an unrepresentable timestamp yields no DateTime")
+  assert(err ~= nil and err:match("EOVERFLOW"),
+    "localtime should name EOVERFLOW, got: " .. tostring(err))
+end
+test_localtime_unrepresentable_is_an_error()
+
 -- localtime tests
 
 local function test_localtime_returns_datetime()
   local secs, _ = time.now()
-  local dt = time.localtime(secs)
+  local dt = check.must(time.localtime(secs))
   assert(dt.year ~= nil, "expected year to be non-nil")
   assert(dt.month >= 1 and dt.month <= 12, "expected month 1-12, got " .. tostring(dt.month))
   assert(dt.day >= 1 and dt.day <= 31, "expected day 1-31, got " .. tostring(dt.day))
@@ -170,7 +190,7 @@ test_localtime_returns_datetime()
 
 local function test_localtime_zone()
   local secs, _ = time.now()
-  local dt = time.localtime(secs)
+  local dt = check.must(time.localtime(secs))
   assert(dt.zone ~= nil, "expected zone to be non-nil")
   assert(type(dt.zone) == "string", "expected zone to be a string")
 end
@@ -202,7 +222,7 @@ test_timegm_known_timestamp()
 
 local function test_timegm_roundtrip()
   local original = 1705322245
-  local dt = time.gmtime(original)
+  local dt = check.must(time.gmtime(original))
   local back = time.timegm(dt.year, dt.month, dt.day, dt.hour, dt.min, dt.sec)
   assert(back == original, "roundtrip failed: " .. tostring(original) .. " -> " .. tostring(back))
 end
@@ -238,7 +258,7 @@ test_timegm_midnight_dec_31_1969()
 
 local function test_timegm_pre_epoch_roundtrip()
   -- gmtime(-86400) -> timegm should return -86400
-  local dt = time.gmtime(-86400)
+  local dt = check.must(time.gmtime(-86400))
   local rt = time.timegm(dt.year, dt.month, dt.day, dt.hour, dt.min, dt.sec)
   assert(rt == -86400, "roundtrip failed: got " .. tostring(rt))
 end
@@ -330,9 +350,9 @@ test_timegm_pre_epoch()
 -- isdst is a boolean
 
 local function test_gmtime_isdst_boolean()
-  local dt = time.gmtime(0)
+  local dt = check.must(time.gmtime(0))
   assert(dt.isdst == false, "UTC never observes DST, got " .. tostring(dt.isdst))
-  local lt = time.localtime(0)
+  local lt = check.must(time.localtime(0))
   assert(type(lt.isdst) == "boolean", "localtime isdst must be a boolean")
 end
 test_gmtime_isdst_boolean()
