@@ -48,7 +48,7 @@ local function extract(output_dir: string, opts?: ExtractOptions): integer | nil
   -- is written, or the whole extraction fails before partial output.
   local entries, lerr = archive:list()
   if not entries then
-    archive:close()
+    local _ok, _err = archive:close()
     return nil, "error: cannot list '" .. exe_path .. "': " ..
     (lerr or "unknown error")
   end
@@ -60,7 +60,7 @@ local function extract(output_dir: string, opts?: ExtractOptions): integer | nil
   end
 
   local ok, err = czip.extract(archive, output_dir)
-  archive:close()
+  local _ok, _err = archive:close()
   if not ok then
     return nil, "error: " .. (err or "extract failed")
   end

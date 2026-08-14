@@ -210,7 +210,7 @@ local function test_embedded_marker_suppresses()
   local bin = copy_binary("embedded")
   local a = check.must(czip.open(bin, {mode = "append"}))
   assert(a:add(".cosmic/welcome-shown", ""))
-  a:close()
+  assert(a:close())
   local ok, out = run_with_pty(bin, {"-e", "print(1)"}, fresh_confdir("embedded"))
   assert(ok, "run should succeed: " .. out)
   assert(not out:find("Welcome to cosmic%-lua!"),

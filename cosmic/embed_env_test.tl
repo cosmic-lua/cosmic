@@ -49,7 +49,7 @@ local function test_embed_via_env()
   local expected_name = input:gsub("^/+", "")
   local content = reader:read(expected_name)
   assert(content == "env hello world", "embedded content should match via env var")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_via_env()
 
@@ -108,7 +108,7 @@ local function test_cli_priority_over_env()
   local env_content = reader:read(env_name)
   assert(env_content == nil, "env var file should not be embedded when CLI arg is present")
 
-  reader:close()
+  assert(reader:close())
 end
 test_cli_priority_over_env()
 

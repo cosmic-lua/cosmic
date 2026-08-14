@@ -123,7 +123,7 @@ local function test_lua_markers_are_first_class()
   for _, e in ipairs(check.must(reader:list())) do
     if e.name:find("main_test", 1, true) then shipped = true end
   end
-  reader:close()
+  assert(reader:close())
   assert(not shipped, "a test file must never be embedded in the artifact")
 end
 test_lua_markers_are_first_class()
@@ -156,7 +156,7 @@ local function test_only_declared_payload_ships()
     assert(not e.name:find("testdata", 1, true),
       "testdata/ must never reach an artifact: " .. e.name)
   end
-  reader:close()
+  assert(reader:close())
   assert(saw["data/note.txt"],
     "payload ships at its path inside embed/")
   assert(not saw["README.md"],
