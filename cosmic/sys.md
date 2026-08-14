@@ -5,27 +5,6 @@
 
 ## Types
 
-### Uname
-
- Operating system and hardware identification returned by `uname`.
-
-```teal
-local record Uname
-  --  Operating system name (e.g. "Linux").
-  sysname: string
-  --  Network node hostname.
-  nodename: string
-  --  Operating system release.
-  release: string
-  --  Operating system version.
-  version: string
-  --  Hardware identifier (e.g. "x86_64").
-  machine: string
-  --  NIS or YP domain name.
-  domainname: string
-end
-```
-
 ### SysModule
 
 ```teal
@@ -38,6 +17,14 @@ local record SysModule
   uname: function(): Uname | nil, string
 end
 ```
+
+### Uname
+
+ Operating system and hardware identification returned by `uname`.
+ The binding's own record: its six fields and their descriptions are
+ declared once, in the generated `cosmo/unix.d.tl`.
+
+alias of `cosmo.unix.Uname` — field and method table: `cosmic --docs cosmo.unix.Uname`
 
 ## Functions
 

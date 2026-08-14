@@ -57,6 +57,14 @@ local record HashModule
 end
 ```
 
+### Variant
+
+ Argon2 variants accepted by hash_password. The binding's own enum:
+ the three words it accepts are declared once, in the generated
+ `cosmo/argon2.d.tl`.
+
+alias of `cosmo.argon2.Variant` — field and method table: `cosmic --docs cosmo.argon2.Variant`
+
 ## Functions
 
 ### sha256

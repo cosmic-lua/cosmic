@@ -42,6 +42,25 @@ local record CompressModule
 end
 ```
 
+### CompressFormat
+
+ Framings compress() can produce: "zlib" (default), "gzip", and
+ "raw" (headerless, as inside ZIP files). The binding's own enum.
+
+alias of `cosmo.CompressFormat` — field and method table: `cosmic --docs cosmo.CompressFormat`
+
+### DecompressFormat
+
+ Framings decompress() can consume: the three producible ones plus
+ "auto", header detection for zlib or gzip input. Two enums rather
+ than one is what makes "auto" decompress-only by TYPE, so passing
+ it to compress() cannot type-check. Named for the direction this
+ module calls it (rule 6: decode, not uncompress) while remaining
+ the binding's own enum, so a value crosses between the two layers
+ without a cast.
+
+alias of `cosmo.UncompressFormat` — field and method table: `cosmic --docs cosmo.UncompressFormat`
+
 ## Functions
 
 ### compress
