@@ -133,7 +133,7 @@ end
 local record FsFileModule
   type WriteOptions = WriteOptions
   read: function(path: string): string | nil, string
-  write: function(path: string, data: string, opts?: WriteOptions | integer): boolean, string
+  write: function(path: string, data: string, opts?: WriteOptions): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
 end
 
