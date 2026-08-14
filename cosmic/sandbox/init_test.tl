@@ -65,6 +65,13 @@ local function test_validation_rejects_before_enforcing()
   assert(not ok and err:find("fs.ro", 1, true),
     "non-list fs group must be rejected: " .. tostring(err))
 
+  -- The pre-#989 spelling of exec_promises. Ignoring it would validate
+  -- the policy and then run exec'd children with NO promises — a silent
+  -- widening, in the one module whose headline is fail-closed.
+  ok, err = apply_any({sys = {promises = "stdio", exec = "stdio"}})
+  assert(not ok and err:find("exec_promises", 1, true),
+    "sys.exec must be rejected with a migration message: " .. tostring(err))
+
   -- A groupless fs section is ambiguous (deny-all or forgot-the-key?)
   -- and must be spelled explicitly: fs = { ro = {} } to deny, or no
   -- fs at all.
