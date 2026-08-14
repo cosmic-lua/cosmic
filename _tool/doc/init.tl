@@ -362,16 +362,26 @@ end
 --- A `local function` survives only where the module's surface names
 --- it. A method (`Handle:read`) belongs to the record that owns it,
 --- not the module table, so the surface cannot speak to it and it is
---- kept.
+--- kept. An ALIASED export (`debug = debug_msg`) keeps the local's doc
+--- under the exported name — the alias is the callable name, and
+--- dropping the doc because the local spells it differently would
+--- leave the module's real API undocumented.
 --- @param doc ModuleDoc The parsed module, edited in place
 --- @param source string The module source the doc was parsed from
 --- @return ModuleDoc That same doc
 local function publishable(doc: ModuleDoc, source: string): ModuleDoc
-  local surface = doc_exports.export_surface(source, doc.records as {{string: any}}) -- cast: from any
+  local surface, aliases = doc_exports.export_surface(source, doc.records as {{string: any}}) -- cast: from any
+  local exported_as: {string: string} = {}
+  for exported, local_name in pairs(aliases) do
+    exported_as[local_name] = exported
+  end
   local kept: {FunctionDoc} = {}
   for _, func in ipairs(doc.functions) do
     if not func.is_local or surface[func.name]
     or func.name:find(":", 1, true) then
+      kept[#kept + 1] = func
+    elseif exported_as[func.name] then
+      func.name = exported_as[func.name]
       kept[#kept + 1] = func
     end
   end
