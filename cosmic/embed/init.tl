@@ -196,13 +196,13 @@ local function base_entries(exe_path: string): {string}
   if not entries then
     -- A read archive that opened but will not list carries nothing
     -- usable; the contract here is "empty when it carries no zip".
-    reader:close()
+    local _ok, _err = reader:close()
     return names
   end
   for _, e in ipairs(entries) do
     names[#names + 1] = e.name
   end
-  reader:close()
+  local _ok, _err = reader:close()
   return names
 end
 
@@ -234,7 +234,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   if exe_reader ~= nil then
     local rd = exe_reader
     local exe_main = rd:read("main.lua")
-    rd:close()
+    local _ok, _err = rd:close()
     if exe_main == main_entry.content then
       return nil -- unmodified dispatcher entry: keep the roundtrip exact
     end
@@ -395,13 +395,22 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
     }
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
     if not add_ok then
-      appender:close()
+      -- the add error is what the caller needs; a close error here is
+      -- secondary and the temp file is removed either way
+      local _cok, _cerr = appender:close()
       local _ok, _err = fs.remove(tmp_path)
       return nil, "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error")
     end
   end
 
-  appender:close()
+  -- Close is where every staged entry actually flushes to disk: a
+  -- failure here (disk full, write error) means tmp_path is NOT a
+  -- valid archive, so it must never be renamed over the output.
+  local close_ok, close_err = appender:close()
+  if not close_ok then
+    local _ok, _err = fs.remove(tmp_path)
+    return nil, "error: failed to finalize zip: " .. tostring(close_err or "unknown error")
+  end
 
   -- Atomically replace the output file. rename() on the same filesystem is
   -- atomic — any running process with the old inode mmapped keeps its pages.

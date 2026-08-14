@@ -19,7 +19,11 @@ local function test_writer()
   local writer = check.must(zip.open(p, {mode = "write"}))
   local ok, add_err = writer:add("hello.txt", "Hello, World!")
   assert(ok, "should add file: " .. tostring(add_err))
-  writer:close()
+  -- close is where the archive lands on disk, so it is fallible; a
+  -- second close is a no-op that also reports true
+  local cok, cerr = writer:close()
+  assert(cok, "close should succeed: " .. tostring(cerr))
+  assert(writer:close(), "second close should be a true no-op")
 
   -- Verify the file exists
   local data = fs.read(p)
@@ -33,7 +37,7 @@ local function test_writer_multiple_files()
   assert(writer:add("file1.txt", "Content 1"))
   assert(writer:add("file2.txt", "Content 2"))
   assert(writer:add("subdir/file3.txt", "Content 3"))
-  writer:close()
+  assert(writer:close())
 
   local data = fs.read(p)
   assert(data and #data > 0, "zip file should exist")
@@ -47,11 +51,11 @@ local function test_reader()
   local p = zip_path("read_test.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("test.txt", "Test content"))
-  w:close()
+  assert(w:close())
 
   -- Now read it
   local reader = check.must(zip.open(p))
-  reader:close()
+  assert(reader:close())
 end
 test_reader()
 
@@ -61,11 +65,11 @@ local function test_read_list()
   assert(w:add("a.txt", "A"))
   assert(w:add("b.txt", "B"))
   assert(w:add("c/d.txt", "D"))
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   local files = check.must(r:list())
-  r:close()
+  assert(r:close())
 
   assert(#files == 3, "should have 3 files, got " .. #files)
   local found_a, found_b, found_d = false, false, false
@@ -87,11 +91,11 @@ local function test_read_content()
   local p = zip_path("content_test.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("hello.txt", "Hello, ZIP!"))
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   local content, err = r:read("hello.txt")
-  r:close()
+  assert(r:close())
 
   assert(content, "should read content: " .. tostring(err))
   assert(content == "Hello, ZIP!", "content should match, got: " .. tostring(content))
@@ -102,11 +106,11 @@ local function test_read_stat()
   local p = zip_path("stat_test.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("data.bin", "0123456789")) -- 10 bytes
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   local st = check.must(r:stat("data.bin"), "should get stat")
-  r:close()
+  assert(r:close())
 
   assert(st.size == 10, "size should be 10, got " .. tostring(st.size))
 end
@@ -116,11 +120,11 @@ local function test_read_nonexistent_file()
   local p = zip_path("nonexistent_test.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("exists.txt", "I exist"))
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   local content = r:read("does_not_exist.txt")
-  r:close()
+  assert(r:close())
 
   assert(content == nil, "should not find nonexistent file")
 end
@@ -134,20 +138,20 @@ local function test_appender()
   -- Create initial zip
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("first.txt", "First file"))
-  w:close()
+  assert(w:close())
 
   -- Append to it
   local appender = check.must(zip.open(p, {mode = "append"}))
   local ok, add_err = appender:add("second.txt", "Second file")
   assert(ok, "should add file: " .. tostring(add_err))
-  appender:close()
+  assert(appender:close())
 
   -- Verify both files exist
   local r = check.must(zip.open(p))
   local files = check.must(r:list())
   local first_content = r:read("first.txt")
   local second_content = r:read("second.txt")
-  r:close()
+  assert(r:close())
 
   assert(#files == 2, "should have 2 files after append")
   assert(first_content == "First file", "first file content should match")
@@ -162,12 +166,12 @@ local function test_appender_remove()
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("gone.txt", "delete me"))
   assert(w:add("kept.txt", "keep me"))
-  w:close()
+  assert(w:close())
 
   local appender = check.must(zip.open(p, {mode = "append"}))
   local ok, remove_err = appender:remove("gone.txt")
   assert(ok, "remove of an existing entry should succeed: " .. tostring(remove_err))
-  appender:close()
+  assert(appender:close())
 
   local r = check.must(zip.open(p))
   local files = check.must(r:list())
@@ -180,7 +184,7 @@ local function test_appender_remove()
   assert(gone == nil, "the removed entry must not be readable")
   assert(read_err and string.match(read_err, "not found"),
     "reading a removed entry should say not found, got: " .. tostring(read_err))
-  r:close()
+  assert(r:close())
 end
 test_appender_remove()
 
@@ -188,19 +192,19 @@ local function test_appender_remove_missing_entry()
   local p = zip_path("remove_missing_test.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("only.txt", "here"))
-  w:close()
+  assert(w:close())
 
   local appender = check.must(zip.open(p, {mode = "append"}))
   local ok, err = appender:remove("no-such-entry.txt")
   assert(not ok, "remove of a missing entry should fail")
   assert(err and string.match(err, "not found"),
     "error should say the entry was not found, got: " .. tostring(err))
-  appender:close()
+  assert(appender:close())
 
   -- The archive is untouched by the failed remove.
   local r = check.must(zip.open(p))
   assert(r:read("only.txt") == "here", "existing entry must survive a failed remove")
-  r:close()
+  assert(r:close())
 end
 test_appender_remove_missing_entry()
 
@@ -210,13 +214,13 @@ local function test_from_memory()
   local p = zip_path("memory_test.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("mem.txt", "In-memory content"))
-  w:close()
+  assert(w:close())
 
   local zip_data = check.must(fs.read(p), "should read zip data")
 
   local rr = check.must(zip.open_string(zip_data))
   local content = rr:read("mem.txt")
-  rr:close()
+  assert(rr:close())
 
   assert(content == "In-memory content", "should read correct content from memory")
 end
@@ -236,11 +240,11 @@ local function test_appender_creates_missing_archive()
   local p = zip_path("appender_creates.zip")
   local appender = check.must(zip.open(p, {mode = "append"}), "appender should create a missing archive")
   assert(appender:add("x.txt", "hi"))
-  appender:close()
+  assert(appender:close())
 
   local r = check.must(zip.open(p))
   assert(r:read("x.txt") == "hi", "created archive should contain the entry")
-  r:close()
+  assert(r:close())
 end
 test_appender_creates_missing_archive()
 
@@ -269,12 +273,12 @@ local function test_add_with_options()
   assert(ok, "should add with store method: " .. tostring(err))
   ok, err = w:add("deflated.txt", large_content, {method = "deflate"})
   assert(ok, "should add with deflate method: " .. tostring(err))
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   local stored_st = check.must(r:stat("stored.txt"), "should have stored.txt stat")
   local deflated_st = check.must(r:stat("deflated.txt"), "should have deflated.txt stat")
-  r:close()
+  assert(r:close())
   -- Stored files should have method 0, deflated should have method 8
   assert(stored_st.method == 0, "stored method should be 0, got " .. tostring(stored_st.method))
   assert(deflated_st.method == 8, "deflated method should be 8, got " .. tostring(deflated_st.method))
@@ -290,12 +294,12 @@ local function test_writer_with_compression_level()
   -- Add a file that benefits from compression
   local content = string.rep("AAAA", 1000) -- 4000 bytes of repeated data
   assert(writer:add("compressible.txt", content))
-  writer:close()
+  assert(writer:close())
 
   -- Verify it compressed
   local r = check.must(zip.open(p))
   local st = check.must(r:stat("compressible.txt"), "should have stat")
-  r:close()
+  assert(r:close())
 
   assert(st.size == 4000, "uncompressed size should be 4000")
   assert(st.compressed_size < st.size, "compressed size should be smaller")
@@ -310,11 +314,11 @@ local function test_mode_field_and_default()
   local w = check.must(zip.open(p, {mode = "write"}))
   check.equal(w.mode, "write", "write archive should carry its mode")
   assert(w:add("m.txt", "m"))
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   check.equal(r.mode, "read", "open() should default to read mode")
-  r:close()
+  assert(r:close())
 end
 test_mode_field_and_default()
 
@@ -327,7 +331,7 @@ local function test_mode_errors_name_the_mode()
     and list_err:find("mode=write", 1, true),
     "list error should name both modes, got: " .. tostring(list_err))
   assert(w:add("a.txt", "a"))
-  w:close()
+  assert(w:close())
 
   local r = check.must(zip.open(p))
   local added, add_err = r:add("b.txt", "b")
@@ -338,7 +342,7 @@ local function test_mode_errors_name_the_mode()
   assert(not removed, "remove must not answer on a read archive")
   assert(remove_err and remove_err:find("requires an append archive", 1, true),
     "remove error should name append, got: " .. tostring(remove_err))
-  r:close()
+  assert(r:close())
 end
 test_mode_errors_name_the_mode()
 
@@ -350,7 +354,7 @@ local function test_remove_needs_append_not_write()
   assert(not removed, "remove must not answer on a write archive")
   assert(remove_err and remove_err:find("requires an append archive", 1, true),
     "remove error should name append, got: " .. tostring(remove_err))
-  w:close()
+  assert(w:close())
 end
 test_remove_needs_append_not_write()
 
@@ -358,8 +362,8 @@ local function test_closed_archive_refuses_and_close_is_idempotent()
   local p = zip_path("closed.zip")
   local w = check.must(zip.open(p, {mode = "write"}))
   assert(w:add("a.txt", "a"))
-  w:close()
-  w:close() -- idempotent: a second close is a no-op, not an error
+  assert(w:close())
+  assert(w:close(), "idempotent: a second close is a no-op that reports true")
   local ok, err = w:add("b.txt", "b")
   assert(not ok, "a closed archive must refuse operations")
   assert(err and err:find("closed", 1, true),

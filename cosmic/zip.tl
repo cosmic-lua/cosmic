@@ -70,9 +70,12 @@ local record Archive
   add: function(self: Archive, name: string, content: string, opts?: AddOptions): boolean, string
   --- Remove a member (append mode).
   remove: function(self: Archive, name: string): boolean, string
-  --- Close the archive (any mode; idempotent, and infallible: a
-  --- second close is a no-op, not an error).
-  close: function(self: Archive)
+  --- Close the archive (any mode; idempotent: a second close is a
+  --- no-op that returns true). In write and append mode close is where
+  --- the archive lands on disk -- the central directory and any
+  --- pending adds flush here -- so `false, error` means the file is
+  --- NOT a valid archive.
+  close: function(self: Archive): boolean, string
 end
 
 -- The raw binding handles behind an Archive; exactly one is set.
@@ -138,16 +141,32 @@ local function make_archive(mode: Mode, raw: RawHandles): Archive
     return true
   end
 
-  function a:close()
-    if closed then return end
+  -- The pinned binding under-declares Writer/Appender close as void
+  -- (annotated upstream in whilp/cosmopolitan#254); until the pin
+  -- carries the returns, read them through a cast at the boundary.
+  local type fallible_close = function(any): boolean, string
+
+  function a:close(): boolean, string
+    if closed then return true end
     closed = true
     if raw.reader then raw.reader:close() end
-    if raw.writer then raw.writer:close() end
-    if raw.appender then raw.appender:close() end
+    if raw.writer then
+      -- cast: binding under-declares close returns (cosmopolitan#254)
+      local ok, err = (raw.writer.close as fallible_close)(raw.writer)
+      if not ok then return false, "zip: close failed: " .. (err or "unknown error") end
+    end
+    if raw.appender then
+      -- cast: binding under-declares close returns (cosmopolitan#254)
+      local ok, err = (raw.appender.close as fallible_close)(raw.appender)
+      if not ok then return false, "zip: close failed: " .. (err or "unknown error") end
+    end
+    return true
   end
 
   return setmetatable(a, {
-      __close = function(self: Archive) self:close() end
+      -- a <close> scope cannot propagate a value, so the error is
+      -- necessarily dropped here; callers who care call close() directly
+      __close = function(self: Archive) local _ok, _err = self:close() end
     }) as Archive -- cast: table seeded as record
 end
 
@@ -318,7 +337,8 @@ local function extract(archive: Archive | string, destdir: string,
       (oerr or "unknown error")
     end
     local ok, err = extract_entries(a, destdir, opts)
-    a:close()
+    -- read-mode close releases resources only; nothing to surface
+    local _cok, _cerr = a:close()
     return ok, err
   else
     return extract_entries(archive, destdir, opts)

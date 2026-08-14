@@ -87,7 +87,7 @@ local function count_zip_files(exe_path: string): integer, string
   local rr = reader
   local entries, lerr = rr:list()
   if not entries then
-    rr:close()
+    local _ok, _err = rr:close()
     return nil, "zip list: " .. tostring(lerr)
   end
   local count = 0
@@ -96,7 +96,7 @@ local function count_zip_files(exe_path: string): integer, string
       count = count + 1
     end
   end
-  rr:close()
+  local _ok, _err = rr:close()
   return count
 end
 

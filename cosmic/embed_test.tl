@@ -50,7 +50,7 @@ local function test_embed_single_file()
   -- Verify content is correct
   local content = reader:read(expected_name)
   assert(content == "hello world", "embedded content should match")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_single_file()
 
@@ -74,7 +74,7 @@ local function test_embed_multiple_files()
   local c2 = reader:read(name2)
   assert(c1 == "content one", "first file content should match")
   assert(c2 == "content two", "second file content should match")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_multiple_files()
 
@@ -117,7 +117,7 @@ local function test_embed_lua_file()
   local name = modfile:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == [[return { value = 42 }]], "lua content should be preserved")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_lua_file()
 
@@ -137,7 +137,7 @@ local function test_embed_binary_file()
   local name = input:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == binary, "binary content should be preserved exactly")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_binary_file()
 
@@ -174,7 +174,7 @@ local function test_embed_directory()
   local c3 = reader:read("data.txt")
   assert(c3 == "some data", "data.txt should be at zip root")
 
-  reader:close()
+  assert(reader:close())
 end
 test_embed_directory()
 
@@ -197,7 +197,7 @@ local function test_embed_nested_directory()
   assert(reader:read("top.txt") == "top", "top-level file")
   assert(reader:read("a/mid.txt") == "mid", "mid-level file")
   assert(reader:read("a/b/c/deep.txt") == "deep", "deeply nested file")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_nested_directory()
 
@@ -223,7 +223,7 @@ local function test_embed_mixed()
   local extra_name = extra:gsub("^/+", "")
   local c2 = reader:read(extra_name)
   assert(c2 == "extra content", "individual file should be present")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_mixed()
 
@@ -298,7 +298,7 @@ local function test_embed_uses_deflate()
     "embedded file should use deflate (method=8), got: " .. tostring(stat.method))
   assert(stat.compressed_size < stat.size,
     "deflate should reduce size: " .. tostring(stat.compressed_size) .. " >= " .. tostring(stat.size))
-  reader:close()
+  assert(reader:close())
 end
 test_embed_uses_deflate()
 
@@ -328,7 +328,7 @@ local function test_embed_stores_lua()
     "stored .lua should not be compressed: " .. tostring(stat.compressed_size) .. " vs " .. tostring(stat.size))
   -- Content must still round-trip identically.
   assert(reader:read(name) == compressible, "stored .lua content should match")
-  reader:close()
+  assert(reader:close())
 end
 test_embed_stores_lua()
 

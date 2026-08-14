@@ -259,7 +259,7 @@ local function test_stripped_to_the_floor()
     local top = e.name:match("^(%.lua/[^/]+)") or e.name:match("^([^/]+)")
     bytes[top] = (bytes[top] or 0) + e.size
   end
-  reader:close()
+  assert(reader:close())
   assert((bytes["cosmic"] or 0) > 0, "the compiled stdlib is the floor")
   assert((bytes["usr"] or 0) > 0, "TLS roots and zoneinfo are the floor")
   for _, gone in ipairs({".tl", ".docs", "docs", "sys", "tl.lua",
@@ -310,7 +310,7 @@ local function test_provided_namespace_supersedes_the_floor()
       base_leftover = true
     end
   end
-  reader:close()
+  assert(reader:close())
   assert(own, "the project's own cosmic/** ships")
   assert(not base_leftover,
     "the base's stdlib must not ride along under the same names")

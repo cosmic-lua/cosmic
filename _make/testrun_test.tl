@@ -57,7 +57,7 @@ local function test_runner_carries_root_payload()
   for _, e in ipairs(check.must(reader:list())) do
     saw[e.name] = true
   end
-  reader:close()
+  assert(reader:close())
   assert(saw["data/note.txt"], "payload at its artifact path, prefix stripped")
   assert(saw["cosmic/fs.lua"], "the toolchain rides along un-stripped")
 end

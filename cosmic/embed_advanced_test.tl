@@ -45,7 +45,7 @@ local function test_extract_embed_roundtrip()
   local orig_reader = check.must(zip.open_string(orig_data))
   local orig_main = orig_reader:read("main.lua")
   assert(orig_main, "original should have main.lua")
-  orig_reader:close()
+  assert(orig_reader:close())
 
   -- Read extracted main.lua from disk
   local extracted_main = fs.read(fs.join(extractdir, "main.lua"))
@@ -62,7 +62,7 @@ local function test_extract_embed_roundtrip()
   local new_reader = check.must(zip.open_string(new_data))
   local new_main = new_reader:read("main.lua")
   assert(new_main == orig_main, "roundtripped main.lua should match original")
-  new_reader:close()
+  assert(new_reader:close())
 end
 test_extract_embed_roundtrip()
 
@@ -110,7 +110,7 @@ local function test_embed_overwrites_cleanly()
       orig_files[entry.name] = true
     end
   end
-  orig_reader:close()
+  assert(orig_reader:close())
 
   -- Embed a directory that overrides main.lua
   local appdir = fs.join(tmpdir, "overwrite-app")
@@ -138,7 +138,7 @@ local function test_embed_overwrites_cleanly()
     assert(content, "original file should still be accessible: " .. name)
   end
 
-  new_reader:close()
+  assert(new_reader:close())
 end
 test_embed_overwrites_cleanly()
 
@@ -186,7 +186,7 @@ local function test_embed_preserves_file_modes()
   assert(secret_mode == tonumber("600", 8),
     "secret.key should have mode 600, got " .. string.format("%o", secret_mode))
 
-  reader:close()
+  assert(reader:close())
 end
 test_embed_preserves_file_modes()
 
@@ -291,7 +291,7 @@ local function test_extract_rejects_path_traversal()
   local safe = fs.join(tmpdir, "patched.zip")
   local w = check.must(zip.open(safe, {mode = "write"}), "should open zip for writing")
   assert(w:add("XX/escaped.txt", "pwned"))
-  w:close()
+  assert(w:close())
   local raw = check.must(fs.read(safe))
   local patched = raw:gsub("XX/escaped%.txt", "../escaped.txt")
   local malicious = fs.join(tmpdir, "malicious.zip")
@@ -349,7 +349,7 @@ local function test_embed_symlink_loop_terminates()
   for _, f in ipairs(files) do
     assert(not f.name:match("loop"), "embedded zip should not contain loop path: " .. f.name)
   end
-  reader:close()
+  assert(reader:close())
 end
 test_embed_symlink_loop_terminates()
 
@@ -374,7 +374,7 @@ local function test_embed_symlink_to_outside_file_skipped()
   for _, f in ipairs(files) do
     assert(not f.name:match("leaked"), "symlink to outside file should not be embedded: " .. f.name)
   end
-  reader:close()
+  assert(reader:close())
 end
 test_embed_symlink_to_outside_file_skipped()
 

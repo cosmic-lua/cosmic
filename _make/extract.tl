@@ -130,7 +130,7 @@ local function unpack(archive: string, dest: string, format: string,
     end
     local r = reader
     ok, err = zip.extract(r, staging)
-    r:close()
+    local _ok2, _err2 = r:close()
   elseif format == "tar.gz" then
     ok, err = untar.extract(archive, staging)
   else
