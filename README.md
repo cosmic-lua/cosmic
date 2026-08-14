@@ -19,6 +19,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](cosmic/embed/init.md) |  Embed files and directories into a cosmic executable. |
 | [env](cosmic/env.md) |  Environment variables: get/set/unset/list, dotenv, and env.d loading. |
 | [errno](cosmic/errno.md) |  Error information from system calls. |
+| [errors](cosmic/errors.md) |  The one sink-side supertype for structured errors (D24). |
 | [fd](cosmic/fd.md) |  File descriptor I/O operations. |
 | [init](cosmic/fetch/init.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
 | [init](cosmic/flags/init.md) |  Declarative command-line flag parsing with a generated --help. |

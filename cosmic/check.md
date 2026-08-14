@@ -18,7 +18,7 @@ local record CheckModule
   equal: function<T>(actual: T, expected: T, label?: string)
   not_equal: function<T>(actual: T, expected: T, label?: string)
   truthy: function(value: any, label?: string)
-  must: function<T>(value: T | nil, err?: string): T
+  must: function<T>(value: T | nil, err?: string | errors.Failure): T
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -98,7 +98,7 @@ function failed(value: any, err: string, label?: string)
 ### must
 
 ```teal
-function must(value: T | nil, err?: string): T
+function must(value: T | nil, err?: string | errors.Failure): T
 ```
 
  Assert a fallible return and narrow away nil.
@@ -117,11 +117,16 @@ function must(value: T | nil, err?: string): T
  rule 11, enforced by the `fallible-returns` lint) — a resource that
  must be released rides on the returned record's `__close`, the way
  `fs.find_iter` and `sqlite.Rows` do.
+ Slot 2 is `string | Failure` (D24): a structured error — any
+ record implementing `cosmic.errors.Failure`, like `fetch.Error` —
+ passes through multiple-return passthrough exactly like a string,
+ and throws as its rendered `tostring`. A slot-2 boolean is still
+ rejected by name, so the diagnostic that surfaced #1063 survives.
 
 **Parameters:**
 
 - `value` (T?) - The fallible value (nil on failure)
-- `err` (string?) - Failure message; a `nil, err` pair fills this in
+- `err` (string|Failure?) - Failure; a `nil, err` pair fills this in
 
 **Returns:**
 

@@ -3,30 +3,28 @@
  Structured HTTP fetch with retry, streaming, and honest error channels.
  Wraps cosmo.Fetch/FetchStream in the house failure shape: a Response
  exists only when a response arrived, so every field on it is real —
- transport failures return `nil, message, Error` instead of a record
- of lying nils. An HTTP error status is a RESPONSE (check
- `resp.status` or `resp:is_success()`), not a failure.
+ transport failures return `nil, Error` (fetch's own structured
+ error record, D24) instead of a record of lying nils. An HTTP error
+ status is a RESPONSE (check `resp.status` or `resp:is_success()`),
+ not a failure.
 
 ## Types
 
 ### Error
 
- A fetch failure, as the retry policy sees it. It is NOT a return
- slot: a fallible return is `Response | nil, string` and nothing
- past it (D20 rule 11, #1063), and the failure a caller reads is
- that string.
- The kind survives in it as a prefix — `"<kind>: <detail>"` — which
- is there so a log line says what class of failure it was, the way
- `errno.format` prefixes its own. Treat it as text, not as a parsed
- field: a TYPED reader for the classification would mean an error
- value rather than an error string, which is a library-wide question
- (#1067) rather than fetch's to answer alone. kind is nil only for
- failures outside the request itself (download's local file IO), and
- then the message carries no prefix.
+ A fetch failure: the module's own structured error, returned in
+ slot 2 (`Response | nil, Error` — still two slots, D20 rule 11).
+ `message` is the human detail with no classification prefix;
+ `kind` is the typed field callers branch on (`err.kind ==
+ "timeout"`, or a caller-owned `< total >` policy table over
+ ErrorKind, which the compiler keeps exhaustive). `tostring(err)`
+ renders `"<kind>: <detail>"` via the attached metatable — the same
+ string slot 2 carried when it was text — and `..` on an Error is
+ deliberately a compile error (no __concat is declared; see D24 and
+ cosmic.errors).
 
 ```teal
 local record Error
-  message: string
   kind: ErrorKind
 end
 ```
@@ -128,20 +126,20 @@ end
 
 ```teal
 local record FetchModule
-  fetch: function(url: string, opts?: Options): Response | nil, string
+  fetch: function(url: string, opts?: Options): Response | nil, Error
   --  GET/POST/PUT/DELETE conveniences: fetch with the method forced.
-  get: function(url: string, opts?: Options): Response | nil, string
-  post: function(url: string, opts?: Options): Response | nil, string
-  put: function(url: string, opts?: Options): Response | nil, string
-  delete: function(url: string, opts?: Options): Response | nil, string
+  get: function(url: string, opts?: Options): Response | nil, Error
+  post: function(url: string, opts?: Options): Response | nil, Error
+  put: function(url: string, opts?: Options): Response | nil, Error
+  delete: function(url: string, opts?: Options): Response | nil, Error
   --  Stream a URL to a file. The file is written only for a 2xx
   --  response (created/truncated, then removed again on a mid-stream
   --  failure); a non-2xx response returns its Response with a bounded
   --  diagnostic body and writes nothing. The Response carries body = ""
-  --  on success; a local file failure returns nil, message with no
-  --  kind prefix (it is not a request failure).
-  download: function(url: string, path: string, opts?: Options): Response | nil, string
-  stream: function(url: string, opts?: Options): Response | nil, string
+  --  on success; a local file failure returns nil, Error with kind
+  --  "io" (it is not a request failure).
+  download: function(url: string, path: string, opts?: Options): Response | nil, Error
+  stream: function(url: string, opts?: Options): Response | nil, Error
 end
 ```
 
@@ -163,7 +161,7 @@ alias of `cosmic.fetch.body.Body` — field and method table: `cosmic --docs cos
 ### stream
 
 ```teal
-function stream(url: string, opts?: Options): Response | nil, string
+function stream(url: string, opts?: Options): Response | nil, Error
 ```
 
  Open a streaming HTTP request.
@@ -180,4 +178,4 @@ function stream(url: string, opts?: Options): Response | nil, string
 **Returns:**
 
 - Response - | nil The response (reader set, body nil), or nil on failure
-- string - Error message on failure, "<kind>: <detail>"
+- Error - The structured failure (kind + message)
