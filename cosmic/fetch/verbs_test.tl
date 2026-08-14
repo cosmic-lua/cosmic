@@ -62,7 +62,7 @@ local function serve(responses: {string}): integer, integer
 end
 
 --- Run one echoed request and return the raw request the server saw.
-local function echo_request(run: function(string): (fetch.Response, string, fetch.Error)): string
+local function echo_request(run: function(string): (fetch.Response, fetch.Error)): string
   local port, pid = serve({"echo"})
   local r, err = run("http://127.0.0.1:" .. port)
   assert(proc.wait(math.tointeger(pid)))
@@ -74,23 +74,23 @@ end
 -- verb tests
 
 local function test_verbs_set_method()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.get(base .. "/x", {allow_private = true})
     end)
   assert(req:find("^GET /x HTTP/1") ~= nil, "expected GET line, got: " .. req:sub(1, 40))
 
-  req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.post(base .. "/x", {allow_private = true, body = "hi"})
     end)
   assert(req:find("^POST /x HTTP/1") ~= nil, "expected POST line")
   assert(req:find("\r\n\r\nhi$") ~= nil, "expected body 'hi'")
 
-  req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.put(base .. "/x", {allow_private = true, body = "data"})
     end)
   assert(req:find("^PUT /x HTTP/1") ~= nil, "expected PUT line")
 
-  req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.delete(base .. "/x", {allow_private = true})
     end)
   assert(req:find("^DELETE /x HTTP/1") ~= nil, "expected DELETE line")
@@ -100,7 +100,7 @@ test_verbs_set_method()
 -- query tests
 
 local function test_query_appended_sorted_and_encoded()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.get(base .. "/s", {allow_private = true, query = {q = "hello world", a = "1"}})
     end)
   assert(req:find("GET /s?a=1&q=hello%20world HTTP", 1, true) ~= nil,
@@ -109,7 +109,7 @@ end
 test_query_appended_sorted_and_encoded()
 
 local function test_query_appends_to_existing()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.get(base .. "/s?x=1", {allow_private = true, query = {y = "2"}})
     end)
   assert(req:find("GET /s?x=1&y=2 HTTP", 1, true) ~= nil, "expected & continuation")
@@ -119,7 +119,7 @@ test_query_appends_to_existing()
 -- json body tests
 
 local function test_json_body_and_default_post()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       -- No method and no verb helper: a json body must default to POST.
       return fetch.fetch(base .. "/j", {allow_private = true, json = {n = 7}})
     end)
@@ -131,7 +131,7 @@ end
 test_json_body_and_default_post()
 
 local function test_json_respects_caller_content_type()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.post(base .. "/j", {
           allow_private = true,
           json = {n = 1},
@@ -148,7 +148,7 @@ test_json_respects_caller_content_type()
 -- form body tests
 
 local function test_form_body()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.post(base .. "/f", {allow_private = true, form = {b = "two words", a = "1"}})
     end)
   assert(req:lower():find("content-type: application/x-www-form-urlencoded", 1, true) ~= nil,
@@ -160,7 +160,7 @@ test_form_body()
 -- multipart tests
 
 local function test_multipart_body()
-  local req = echo_request(function(base: string): (fetch.Response, string, fetch.Error)
+  local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
       return fetch.post(base .. "/m", {
           allow_private = true,
           multipart = {
@@ -184,7 +184,8 @@ test_multipart_body()
 local function test_conflicting_body_options()
   local r, err = fetch.post("http://127.0.0.1:1/x", {json = {a = 1}, form = {b = "2"}})
   assert(r == nil, "expected conflicting body options to fail")
-  assert(err and err:find("at most one", 1, true), "expected conflict error, got: " .. tostring(err))
+  assert(err and err.message:find("at most one", 1, true),
+    "expected conflict error, got: " .. tostring(err))
 end
 test_conflicting_body_options()
 

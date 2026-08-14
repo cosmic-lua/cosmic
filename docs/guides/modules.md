@@ -46,7 +46,7 @@ print(m.value)
 |---------|-------------|
 | `value, string` | most functions (nil + error on failure) |
 | `boolean, string` | success/fail operations |
-| Result record | complex operations (HTTP fetch) |
+| `value, Error record` | structured failures (`fetch.Error`: branch on `err.kind`, render with `tostring(err)`) |
 | just `value` | infallible operations (encoding, escaping) |
 
 rules:

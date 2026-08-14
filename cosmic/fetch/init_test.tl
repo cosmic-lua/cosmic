@@ -71,15 +71,20 @@ end
 test_module_loads()
 
 local function test_failure_shape()
-  -- A failure is nil, message and nothing past it (#1063) — no
+  -- A failure is nil, Error and nothing past it (#1063, D24) — no
   -- Response exists, so there are no lying nil fields to poke at, and
-  -- the kind rides in the message's prefix.
+  -- the classification is the typed kind field, not a message prefix.
   local resp, err = fetch.fetch("invalid://this-will-definitely-fail")
   assert(resp == nil, "no Response may exist for a failed fetch")
-  assert(type(err) == "string" and #err > 0, "err should be a non-empty string")
-  assert(err ~= "nil", "error should not be 'nil' string")
-  assert(err:match("^invalid_request: "),
-    "a validation failure prefixes its kind, got " .. tostring(err))
+  assert(err ~= nil, "err must carry the failure")
+  assert(err.kind == "invalid_request",
+    "a validation failure carries kind invalid_request, got " .. tostring(err.kind))
+  assert(#err.message > 0, "err.message should be a non-empty string")
+  assert(err.message:find("invalid_request", 1, true) == nil,
+    "the message stays clean; the kind is a field, not a prefix")
+  assert(tostring(err) == "invalid_request: " .. err.message,
+    "tostring(err) renders the classified form, got " .. tostring(err))
+  assert(getmetatable(err) ~= nil, "every Error carries its __tostring metatable")
 end
 test_failure_shape()
 
@@ -125,7 +130,7 @@ local function test_ssrf_guard_blocks_private_by_default()
   local port, pid = serve({body_response("200 OK", "x")})
   local resp, err = fetch.fetch("http://127.0.0.1:" .. port .. "/")
   assert(resp == nil, "loopback fetch without allow_private must fail")
-  assert(err and err:match("^blocked: "),
+  assert(err and err.kind == "blocked",
     "kind should be 'blocked', got " .. tostring(err))
   -- unblock the waiting child so the test can reap it
   local unblock = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
@@ -137,7 +142,7 @@ test_ssrf_guard_blocks_private_by_default()
 local function test_error_kind_connect_for_refused_port()
   local resp, err = fetch.fetch("http://127.0.0.1:1/", {allow_private = true})
   assert(resp == nil, "connection to a dead port must fail")
-  assert(err and err:match("^connect: "),
+  assert(err and err.kind == "connect",
     "kind should be 'connect', got " .. tostring(err))
 end
 test_error_kind_connect_for_refused_port()
@@ -242,15 +247,15 @@ test_opts_table_not_mutated()
 local function test_fetch_empty_url_rejected()
   local resp, err = fetch.fetch("")
   assert(resp == nil, "an empty URL must fail")
-  assert(err == "invalid_request: empty URL",
-    "expected the kind-prefixed message, got: " .. tostring(err))
+  assert(err.kind == "invalid_request" and err.message == "empty URL",
+    "expected kind invalid_request with a clean message, got: " .. tostring(err))
 end
 test_fetch_empty_url_rejected()
 
 local function test_fetch_unsupported_scheme_rejected()
   local resp, err = fetch.fetch("ftp://example.com/file.txt")
   assert(resp == nil, "an ftp URL must fail")
-  assert(err:find("unsupported URL scheme") ~= nil,
+  assert(err.message:find("unsupported URL scheme") ~= nil,
     "error should mention unsupported scheme, got: " .. tostring(err))
 end
 test_fetch_unsupported_scheme_rejected()
@@ -258,7 +263,7 @@ test_fetch_unsupported_scheme_rejected()
 local function test_fetch_file_scheme_rejected()
   local resp, err = fetch.fetch("file:///etc/passwd")
   assert(resp == nil, "a file URL must fail")
-  assert(err:find("unsupported URL scheme") ~= nil,
+  assert(err.message:find("unsupported URL scheme") ~= nil,
     "error should mention unsupported scheme, got: " .. tostring(err))
 end
 test_fetch_file_scheme_rejected()
@@ -266,7 +271,7 @@ test_fetch_file_scheme_rejected()
 local function test_fetch_no_scheme_rejected()
   local resp, err = fetch.fetch("example.com/path")
   assert(resp == nil, "a scheme-less URL must fail")
-  assert(err:find("unsupported URL scheme") ~= nil,
+  assert(err.message:find("unsupported URL scheme") ~= nil,
     "error should mention unsupported scheme, got: " .. tostring(err))
 end
 test_fetch_no_scheme_rejected()
@@ -274,8 +279,8 @@ test_fetch_no_scheme_rejected()
 local function test_fetch_missing_host_rejected()
   local resp, err = fetch.fetch("http://")
   assert(resp == nil, "a host-less URL must fail")
-  assert(err == "invalid_request: missing URL host",
-    "expected the kind-prefixed message, got: " .. tostring(err))
+  assert(err.kind == "invalid_request" and err.message == "missing URL host",
+    "expected kind invalid_request with a clean message, got: " .. tostring(err))
 end
 test_fetch_missing_host_rejected()
 
@@ -285,7 +290,7 @@ test_fetch_missing_host_rejected()
 local function test_fetch_uppercase_scheme_accepted()
   local resp, err = fetch.fetch("HTTPS://")
   assert(resp == nil, "host-less URL still fails")
-  assert(err == "invalid_request: missing URL host",
+  assert(err.kind == "invalid_request" and err.message == "missing URL host",
     "uppercase scheme should pass the scheme check, got: " .. tostring(err))
 end
 test_fetch_uppercase_scheme_accepted()
@@ -315,7 +320,7 @@ local function test_max_response_bytes_enforced()
     {allow_private = true, max_response_bytes = 16})
   assert(proc.wait(pid))
   assert(resp == nil, "a body over max_response_bytes must fail")
-  assert(err and err:match("^too_large: "),
+  assert(err and err.kind == "too_large",
     "kind should be 'too_large', got " .. tostring(err))
 end
 test_max_response_bytes_enforced()

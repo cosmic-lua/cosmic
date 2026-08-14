@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local env = require("cosmic.env")
+local fetch = require("cosmic.fetch")
 
 -- must_fail wraps a function that is expected to throw and returns
 -- (true, error_message) or (false, "did not throw").
@@ -337,6 +338,22 @@ local function test_must_uses_err_string_from_multi_return()
     "expected the callee's error string, got: " .. msg)
 end
 test_must_uses_err_string_from_multi_return()
+
+local function test_must_renders_structured_error()
+  -- Slot 2 may be a structured Failure (D24): a concrete error record
+  -- like fetch.Error reaches must through the same multiple-return
+  -- passthrough as a string, and must throws its rendered tostring —
+  -- so a failing test prints the classified message, never a table
+  -- address. The ftp URL fails validation, so no network is touched.
+  local threw, msg = must_fail(function(): string
+      check.must(fetch.fetch("ftp://example.com/x"))
+      return ""
+    end)
+  assert(threw, "expected must to throw on nil")
+  assert(msg:match("invalid_request: "),
+    "expected the rendered structured error, got: " .. msg)
+end
+test_must_renders_structured_error()
 
 local function test_must_default_message()
   local threw, msg = must_fail(function(): string

@@ -6,6 +6,7 @@
 --- docs/decisions/d23-check-throws.md; no other cosmic.* module may
 --- throw or exit, so never require check from library code.
 local cosmo = require("cosmo")
+local failure = require("cosmic.failure")
 local proc = require("cosmic.proc")
 
 --- The skip exit code: 0 pass, 2 skip, anything else fail — the
@@ -146,12 +147,23 @@ end
 --- rule 11, enforced by the `fallible-returns` lint) — a resource that
 --- must be released rides on the returned record's `__close`, the way
 --- `fs.find_iter` and `sqlite.Rows` do.
+--- Slot 2 is `string | Failure` (D24): a structured error — any
+--- record implementing `cosmic.failure.Failure`, like `fetch.Error` —
+--- passes through multiple-return passthrough exactly like a string,
+--- and throws as its rendered `tostring`. A slot-2 boolean is still
+--- rejected by name, so the diagnostic that surfaced #1063 survives.
 --- @param value T? The fallible value (nil on failure)
---- @param err string? Failure message; a `nil, err` pair fills this in
+--- @param err string|Failure? Failure; a `nil, err` pair fills this in
 --- @return T The value, known non-nil
-local function must<T>(value: T | nil, err?: string): T
+local function must<T>(value: T | nil, err?: string | failure.Failure): T
   if value == nil then
-    error(err or "must failed: expected value, got nil", 2)
+    if err == nil then
+      error("must failed: expected value, got nil", 2)
+    elseif err is string then
+      error(err, 2)
+    else
+      error(tostring(err), 2)
+    end
   end
   return value
 end
@@ -284,7 +296,7 @@ local record CheckModule
   equal: function<T>(actual: T, expected: T, label?: string)
   not_equal: function<T>(actual: T, expected: T, label?: string)
   truthy: function(value: any, label?: string)
-  must: function<T>(value: T | nil, err?: string): T
+  must: function<T>(value: T | nil, err?: string | failure.Failure): T
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
