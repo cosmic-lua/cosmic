@@ -172,8 +172,13 @@ end
 ---     local _, errs = iter() -- subtree errors, nil when clean
 ---
 --- Draining the iterator closes every directory handle it opened. A
---- loop that exits EARLY has not drained it, so say so — the attribute
---- Lua 5.4 has for exactly this:
+--- loop that exits EARLY (`break`, or a `return` from inside it) has
+--- not drained it: the handles stay open until collection, which pins
+--- directory fds — and on Windows can block deleting the tree just
+--- walked. Before #1066 a fourth return value carried this duty, so an
+--- old early-break loop compiles unchanged and nothing marks the
+--- difference (`cosmic --docs guide.gotchas` has the entry). So say
+--- so — the attribute Lua 5.4 has for exactly this:
 ---
 ---     local iter <close> = check.must(fs.find_iter(dir))
 ---     for f in iter do if done(f) then break end end

@@ -263,3 +263,36 @@ correct until `--check types` runs.
 parentheses. Only a genuinely multi-value function — an infallible
 tuple like `partition`, or a `cosmo.*` binding — spreads here, because
 a fallible cosmic return has two slots and no more.
+
+## iterator-early-break
+
+draining `fs.find_iter` closes every directory handle it opened, but a
+loop that exits early (`break`, or a `return` from inside it) has not
+drained it: the handles stay open until garbage collection, which pins
+directory fds — and on Windows can block deleting the tree just walked.
+this changed in #1066: the iterator used to return a fourth to-be-closed
+guard value that closed the handles at the `break`, and D20 rule 11
+removed it (a slot past the error is unreachable from `local v, err =`),
+so an old early-break loop compiles unchanged with nothing marking the
+difference. declare the iterator `<close>` (or call `iter:close()`) and
+the scope exit closes the handles wherever the loop stops:
+
+```teal
+local check = require("cosmic.check")
+local fs = require("cosmic.fs")
+
+local function first_match(dir: string): string | nil
+  local iter < close > = check.must(fs.find_iter(dir, {glob = "*.lua"}))
+  for f in iter do
+    return f
+  end
+  return nil
+end
+
+print(first_match("."))
+```
+
+when stopping early is the point rather than an exception, `fs.visit`
+is the better tool: its visitor returns `"stop"`, and because visit
+owns the loop it closes handles on the way out with nothing for the
+caller to remember.
