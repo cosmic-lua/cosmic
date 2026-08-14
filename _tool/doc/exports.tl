@@ -10,7 +10,8 @@
 --- `M = { ... }` a step after `local M: EnvModule`, and the inline
 --- `return {attach = attach}`. One of several views of a module's
 --- export surface; `export_surface` below is what callers want.
-local function scan_exports(source: string): {string: boolean} | nil
+local function scan_exports(source: string,
+    aliases: {string: string}): {string: boolean} | nil
   local names: {string: boolean} = nil
   local in_table = false
   for line in (source .. "\n"):gmatch("([^\n]*)\n") do
@@ -22,6 +23,13 @@ local function scan_exports(source: string): {string: boolean} | nil
         if key then
           names = names or {}
           names[key] = true
+          -- `debug = debug_msg,` exports the LOCAL under another name;
+          -- record the pair so the local's doc can follow the rename
+          -- instead of being dropped as unexported.
+          local value = line:match("^%s*[%w_]+%s*=%s*([%w_]+)%s*,?%s*$")
+          if value and value ~= key then
+            aliases[key] = value
+          end
         end
       end
     elseif line:match("^local%s+[%w_]+%s*:%s*[%w_%.]+%s*=%s*{")
@@ -33,6 +41,14 @@ local function scan_exports(source: string): {string: boolean} | nil
         for key in rest:gmatch("([%w_]+)%s*=") do
           names = names or {}
           names[key] = true
+        end
+        -- Aliases only where the pair is exactly `key = identifier`:
+        -- a call or a literal value cannot be a renamed local.
+        for pair in rest:gmatch("[^,{}]+") do
+          local key, value = pair:match("^%s*([%w_]+)%s*=%s*([%w_]+)%s*$")
+          if key and value and value ~= key then
+            aliases[key] = value
+          end
         end
       end
       in_table = inline == nil
@@ -85,17 +101,19 @@ end
 --- @param source string The module source
 --- @param records {{string:any}} The records the parser found
 --- @return {string:boolean} The exported names, possibly empty
+--- @return {string:string} Aliased exports: exported name -> local name
 local function export_surface(source: string,
-    records: {{string: any}}): {string: boolean}
+    records: {{string: any}}): {string: boolean}, {string: string}
   local names: {string: boolean} = {}
-  local literal = scan_exports(source)
+  local aliases: {string: string} = {}
+  local literal = scan_exports(source, aliases)
   if literal then
     for name in pairs(literal) do
       names[name] = true
     end
   end
   local _found = record_exports(source, records, names)
-  return names
+  return names, aliases
 end
 
 --- Drop a module's private helpers from its own page.
@@ -110,7 +128,7 @@ end
 ---
 local record ExportsModule
   export_surface: function(source: string,
-  records: {{string: any}}): {string: boolean}
+  records: {{string: any}}): {string: boolean}, {string: string}
 end
 
 local M: ExportsModule = {
