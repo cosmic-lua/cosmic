@@ -151,6 +151,37 @@ local function test_multi_line_return_list_is_one_list()
 end
 test_multi_line_return_list_is_one_list()
 
+local function test_fallible_callback_parameter_is_not_a_return_list()
+  -- The comma after the callback's two-slot return list separates the
+  -- enclosing PARAMETER list: `acc` is the next parameter, not slot 3.
+  local diags = diagnose(
+    "local function visit(fn: function(e: Entry): boolean | nil, string," ..
+    " acc: {string}): integer\n  return 0\nend\n")
+  check.equal(#diags, 0,
+    "a parameter after a fallible callback type is not a third slot")
+end
+test_fallible_callback_parameter_is_not_a_return_list()
+
+local function test_optional_parameter_after_fallible_callback()
+  local diags = diagnose(
+    "local function visit(fn: function(e: Entry): boolean | nil, string," ..
+    " acc?: {string})\nend\n")
+  check.equal(#diags, 0,
+    "an optional `name?:` parameter after a fallible callback is not a slot")
+end
+test_optional_parameter_after_fallible_callback()
+
+local function test_callback_own_three_slots_still_flagged()
+  -- The disambiguation must not exempt a genuinely over-wide callback:
+  -- three type-only slots carry no `name:` and still count.
+  local diags = diagnose(
+    "local function visit(fn: function(e: Entry): boolean | nil, string," ..
+    " integer)\nend\n")
+  check.equal(#diags, 1,
+    "a callback declaring three return slots is still over-wide")
+end
+test_callback_own_three_slots_still_flagged()
+
 local function test_message_names_the_fix()
   local diags = diagnose(
     "local function f(): any, boolean, string\n  return nil\nend\n")
