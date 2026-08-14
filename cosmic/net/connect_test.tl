@@ -392,6 +392,55 @@ local function test_dial_unix_with_timeout()
 end
 test_dial_unix_with_timeout()
 
+-- A full listener backlog makes a non-blocking AF_UNIX connect fail
+-- with EAGAIN on Linux. The bounded dial must RETRY until its budget —
+-- before the fix it returned the EAGAIN in ~0ms, making timeout_ms a
+-- weaker attempt than no timeout at all. Linux-only: other kernels
+-- report a full unix backlog differently (e.g. ECONNREFUSED).
+local function test_dial_unix_timeout_waits_out_a_full_backlog()
+  if require("cosmic.sys").host_os() ~= "linux" then
+    check.enforce_skip("backlog EAGAIN semantics are Linux-specific")
+    return
+  end
+  local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
+  local path = tmpdir .. "/backlog.sock"
+  local server = check.must(net.listen_unix(path, {backlog = 0}))
+
+  -- Fill the backlog: dials succeed (pending, never accepted) until
+  -- the kernel refuses more.
+  local held: {net.Socket} = {}
+  local fill_err: string
+  for _ = 1, 16 do
+    local c, derr = net.dial_unix(path, {timeout_ms = 150})
+    if not c then
+      fill_err = derr
+      break
+    end
+    held[#held + 1] = c
+  end
+  if not fill_err then
+    check.enforce_skip("could not fill the unix backlog on this host")
+  else
+    -- The saturating dial itself must have burned its budget retrying,
+    -- and one more bounded dial must do the same, not fail instantly.
+    local t0 = time.monotonic_ms()
+    local c2, err2 = net.dial_unix(path, {timeout_ms = 200})
+    local elapsed = time.monotonic_ms() - t0
+    assert(c2 == nil, "the backlog is still full; the dial must fail")
+    assert(err2 and err2:find("timed out", 1, true),
+      "the failure names the timeout, got: " .. tostring(err2))
+    assert(elapsed >= 100,
+      "a bounded dial must retry until its budget, not fail on the first"
+      .. " EAGAIN; elapsed=" .. elapsed .. "ms of 200ms")
+  end
+
+  for _, c in ipairs(held) do
+    local _ok, _err = c:close()
+  end
+  assert(server:close())
+end
+test_dial_unix_timeout_waits_out_a_full_backlog()
+
 local function test_dial_unix_missing_path_fails()
   local sock, err = net.dial_unix(sock_base .. "/cosmic-no-such-socket", {timeout_ms = 1000})
   assert(sock == nil, "dial_unix to a nonexistent path should fail")

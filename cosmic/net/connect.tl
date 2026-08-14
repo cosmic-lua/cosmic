@@ -2,6 +2,7 @@
 --- (an internal shard of cosmic.net; require cosmic.net, not this).
 local unix = require("cosmo.unix")
 local net_socket = require("cosmic.net.socket")
+local time = require("cosmic.time")
 local errstr = require("cosmic.errno").format
 local errno_is = require("cosmic.errno").is_code
 
@@ -93,8 +94,28 @@ local function unix_with_timeout(s: Socket, path: string, timeout_ms?: integer):
   end
   -- cast: function shape (unix-path overload, errno kept)
   local uconnect = unix.connect as function(number, string): (boolean, string, integer)
-  local ok, err, eno = uconnect(fd, path)
-  return await(s, fd, timeout_ms or 10000, ok, err, eno)
+  -- On Linux a non-blocking AF_UNIX connect against a listener whose
+  -- backlog is full fails with EAGAIN — not EINPROGRESS, and polling
+  -- cannot complete it the way it does TCP: the connect itself must be
+  -- retried. Retry with exponential backoff (1ms doubling to a 50ms
+  -- ceiling) until the deadline, so timeout_ms keeps its promise: a
+  -- BOUND on the attempt, never a less patient one than unbounded.
+  local deadline = time.monotonic_ms() + (timeout_ms or 10000)
+  local wait_ms = 1
+  while true do
+    local ok, err, eno = uconnect(fd, path)
+    local remaining = deadline - time.monotonic_ms()
+    if ok or not errno_is(eno, "EAGAIN") then
+      if remaining < 0 then remaining = 0 end
+      return await(s, fd, remaining, ok, err, eno)
+    end
+    if remaining <= 0 then
+      return false, errstr(err, "connect: timed out (listener backlog full)")
+    end
+    -- An interrupted sleep just retries sooner; the deadline governs.
+    local _rem, _serr = time.sleep_ms(math.min(wait_ms, remaining))
+    wait_ms = math.min(wait_ms * 2, 50)
+  end
 end
 
 local record NetConnectModule
