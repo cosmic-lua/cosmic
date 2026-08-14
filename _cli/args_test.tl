@@ -426,3 +426,38 @@ for i = 1, #arg do print("a[" .. i .. "]=" .. arg[i]) end
     "the `--` separators are kept verbatim, got: " .. out)
 end
 test_double_dash_reaches_the_script()
+
+-- --format, --fix and --check are separate commands: leftover
+-- positionals carry no position, so `--check fmt a.tl --fix b.tl` used
+-- to hand a.tl -- the file the user asked to CHECK -- to --fix to
+-- rewrite in place. The combination is refused before anything runs.
+local function test_combined_file_commands_are_refused()
+  local misformatted = "local  x   =  1\nprint( x )\n"
+  local a = fs.join(tmpdir, "claim_a.lua")
+  local b = fs.join(tmpdir, "claim_b.lua")
+  assert(fs.write(a, misformatted))
+  assert(fs.write(b, misformatted))
+  local h = check.must(child.start({cosmic, "--check", "fmt", a, "--fix", b}))
+  local r = check.must(h:wait())
+  assert(not r.ok, "combining --check and --fix must be refused")
+  assert((r.stderr or ""):find("separate", 1, true),
+    "the refusal must say the commands are separate, got: " .. (r.stderr or ""))
+  assert(fs.read(a) == misformatted, "the refused run must not rewrite a.lua")
+  assert(fs.read(b) == misformatted, "the refused run must not rewrite b.lua")
+end
+test_combined_file_commands_are_refused()
+
+-- Each command alone still claims the positionals: `--fix a b` fixes both.
+local function test_fix_alone_still_takes_positionals()
+  local misformatted = "local  x   =  1\nprint( x )\n"
+  local a = fs.join(tmpdir, "fixme_a.lua")
+  local b = fs.join(tmpdir, "fixme_b.lua")
+  assert(fs.write(a, misformatted))
+  assert(fs.write(b, misformatted))
+  local h = check.must(child.start({cosmic, "--fix", a, b}))
+  local r = check.must(h:wait())
+  assert(r.ok, "--fix a b should succeed: " .. (r.stderr or ""))
+  assert(fs.read(a) ~= misformatted, "--fix must rewrite its first file")
+  assert(fs.read(b) ~= misformatted, "--fix must rewrite its second file")
+end
+test_fix_alone_still_takes_positionals()

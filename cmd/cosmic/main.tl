@@ -239,9 +239,9 @@ local function parse_args(): Options
   opts.compile_strict = p.values["compile-strict"]
   -- The flag's own argument is the first path; the rest are the
   -- positionals the parser left in p.args, so `--fix a.tl b.tl` names
-  -- both files. The list stays empty unless the flag itself was given:
-  -- the positionals belong to whichever flag claimed them, not to
-  -- every flag.
+  -- both files. Leftover positionals carry no position, so a run
+  -- combining these commands is refused at dispatch rather than
+  -- guessed at here.
   if p.values["format"] then
     opts.format = cli_args.with_extra_paths(p.values["format"], p.args)
   end
@@ -349,6 +349,10 @@ local function main(): integer, string
   end
   if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
   if opts.compile_strict then return handlers.handle_compile(opts.compile_strict, opts.output, opts.write_if_changed, opts.include_dirs, true) end
+  if handlers.refuse_combined_file_commands(#opts.format, #opts.fix,
+    opts.check_kind ~= nil) then
+    return 1
+  end
   if #opts.format > 0 then
     if #opts.format > 1 and opts.output then
       io.stderr:write("cosmic-lua: --output takes one file; " ..

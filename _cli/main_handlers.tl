@@ -365,6 +365,22 @@ local function handle_make(argv: {string}): integer
   return require("_make").run(argv)
 end
 
+--- Refuse a run combining more than one of the file commands
+--- (--format, --fix, --check). Leftover positionals carry no position,
+--- so splitting them between two of these would guess which flag each
+--- file was typed after — and a wrong guess REWRITES a file the user
+--- only asked to check. True when the run was refused.
+local function refuse_combined_file_commands(nformat: integer,
+    nfix: integer, has_check: boolean): boolean
+  local given = (nformat > 0 and 1 or 0) + (nfix > 0 and 1 or 0)
+  + (has_check and 1 or 0)
+  if given < 2 then return false end
+  io.stderr:write("cosmic-lua: --format, --fix and --check are separate"
+    .. " commands and cannot share one command line; run them one at a"
+    .. " time\n")
+  return true
+end
+
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
@@ -382,6 +398,7 @@ local record HandlersModule
   handle_benchmark: function(spec: string): integer
   handle_docs: function(query: string): integer
   handle_make: function(argv: {string}): integer
+  refuse_combined_file_commands: function(nformat: integer, nfix: integer, has_check: boolean): boolean
 end
 
 local M: HandlersModule = {
@@ -401,6 +418,7 @@ local M: HandlersModule = {
   handle_benchmark = handle_benchmark,
   handle_docs = handle_docs,
   handle_make = handle_make,
+  refuse_combined_file_commands = refuse_combined_file_commands,
 }
 
 return M
