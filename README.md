@@ -19,7 +19,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](cosmic/embed/init.md) |  Embed files and directories into a cosmic executable. |
 | [env](cosmic/env.md) |  Environment variables: get/set/unset/list, dotenv, and env.d loading. |
 | [errno](cosmic/errno.md) |  Error information from system calls. |
-| [errors](cosmic/errors.md) |  The one sink-side supertype for structured errors (D24). |
+| [errors](cosmic/errors.md) |  The one sink-side supertype for structured errors. |
 | [fd](cosmic/fd.md) |  File descriptor I/O operations. |
 | [init](cosmic/fetch/init.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
 | [init](cosmic/flags/init.md) |  Declarative command-line flag parsing with a generated --help. |
@@ -40,7 +40,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
 | [rand](cosmic/rand.md) |  Random bytes, integers, floats, choice, shuffle, and tokens. |
 | [re](cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
-| [init](cosmic/sandbox/init.md) |  One-call, fail-closed in-process sandbox: the one door (#989). |
+| [init](cosmic/sandbox/init.md) |  One-call, fail-closed in-process sandbox: the one door. |
 | [searcher](cosmic/searcher.md) |  The cosmic-owned runtime `.tl` package searcher, replacing tl.loader(). |
 | [shm](cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](cosmic/signal.md) |  Signal handling utilities. |

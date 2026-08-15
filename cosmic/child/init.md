@@ -31,7 +31,7 @@ local record Handle
   _st: childio.PumpState
   _result: Result
   _closed: boolean
-  --  Sends `sig` (default SIGTERM); start's partner (D20 rule 9).
+  --  Sends `sig` (default SIGTERM); start's partner.
   --  Fails once reaped (pid may be recycled).
   stop: function(self: Handle, sig?: integer): boolean, string
   --  Non-blocking reap: TryWait{finished, result} — result set exactly

@@ -80,9 +80,8 @@ end
 function write_all(w: stream.Writer, data: string): boolean, string
 ```
 
- Write all of data, retrying short writes until done. The two
- things every Writer caller wants — this and read_all — used to be
- five independent hand-rolled loops across the stdlib.
+ Write all of data, retrying short writes until done — one of the
+ two things every Writer caller wants, alongside read_all.
  Bytes written before a failure stay written.
 
 **Parameters:**
@@ -182,9 +181,9 @@ function lines(r: stream.Reader): stream.LineIter
  across chunks. On clean EOF a final unterminated line is yielded
  once, then nil. On a read error the buffered partial line is
  truncated data and is discarded — the iterator yields nil plus the
- error once, then plain nil forever. (Promoted from fetch.Reader's
- lines(); cosmic.sse consumes the same iterator.) A reader carrying
- the DelimReader capability skips the Lua buffering entirely.
+ error once, then plain nil forever (cosmic.sse consumes the same
+ iterator). A reader carrying the DelimReader capability skips the
+ Lua buffering entirely.
 
 **Parameters:**
 

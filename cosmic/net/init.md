@@ -28,9 +28,10 @@ end
 ### SocketPair
 
  A connected socket pair, as returned by socket_pair(). A record
- rather than (Socket, Socket, err) returns: the old shape typed slot
- 2 as a non-nil Socket while returning nil there on failure, and put
- the error in slot 3 where `local a, b = ...` silently lost it.
+ rather than (Socket, Socket, err) returns: a 3-tuple would type
+ slot 2 as a non-nil Socket while returning nil there on failure,
+ and put the error in slot 3 where `local a, b = ...` silently
+ loses it.
 
 ```teal
 local record SocketPair

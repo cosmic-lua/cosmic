@@ -63,7 +63,7 @@ function escape_param(str: string): string
 ```
 
  Percent-encode a string for use as a URL query parameter value
- (escape/unescape is the syntax-safety verb pair, D20).
+ (escape/unescape is the syntax-safety verb pair).
  Spaces become %20, specials become %XX.
  Use this when building query strings manually:
  `"q=" .. url.escape_param(term)` — or format_query() for whole maps.

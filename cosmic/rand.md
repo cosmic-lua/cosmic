@@ -4,7 +4,7 @@
  Wraps cosmo.GetRandomBytes for cryptographically secure randomness, and
  cosmo.Rand64 for fast non-cryptographic use cases.
 
- Every function here is INFALLIBLE (D22): on every supported platform
+ Every function here is INFALLIBLE: on every supported platform
  the kernel CSPRNG cannot fail once the system has booted, so there is
  no runtime failure for a return slot to carry. Out-of-range arguments
  are contract violations and throw — the one thing that must never

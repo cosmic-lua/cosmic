@@ -25,9 +25,9 @@
 
 ```teal
 local record StartOptions
-  --  Dump directory (#1001: what enable(dir) did): sets the default
-  --  target for dump() and installs process-exit wrappers that write
-  --  there. A nested start never re-targets an outer one's directory.
+  --  Dump directory: sets the default target for dump() and installs
+  --  process-exit wrappers that write there. A nested start never
+  --  re-targets an outer one's directory.
   dir: string
 end
 ```
@@ -138,10 +138,8 @@ function keep_on_restrict()
  Declare that the active sandbox policy grants the coverage
  directory, so the pre-restrict seal must NOT run: the process keeps
  reporting what it does after the sandbox lands. Only build tooling
- that granted the directory itself may call this (#989: this
- declaration replaces the keep_coverage flag the four containment
- policy records used to carry). Irreversible for the process, like
- the policies it describes.
+ that granted the directory itself may call this. Irreversible for
+ the process, like the policies it describes.
 
 ### is_kept_on_restrict
 
@@ -163,8 +161,8 @@ function start(opts?: StartOptions)
  The first start installs the line hook; nested starts only increment
  the nesting depth, so libraries and tests can bracket their own
  collection without tearing down an outer one. With opts.dir the
- collection is also armed to dump at process exit (rule 9: start/stop
- is the pair; the separate enable() verb folded in here, #1001).
+ collection is also armed to dump at process exit: start/stop is the
+ one verb pair, so the separate enable() step is folded in here.
 
 ### dir_from_env
 

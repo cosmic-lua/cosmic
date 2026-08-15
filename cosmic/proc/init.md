@@ -15,8 +15,8 @@
 
  Waits for a child process to change state.
  A raw passthrough: EINTR surfaces here, unlike child.Handle:wait.
- What wait(2) reaped; a record per D20 rule 11 (the error stays
- reachable in slot 2).
+ What wait(2) reaped; a record instead of a wider tuple so the
+ error stays reachable in slot 2.
 
 ```teal
 local record WaitResult
@@ -231,7 +231,7 @@ function interpreter(): string | nil, string
  "worker.tl"})`. This is `arg[-1]` resolved, NOT `arg[0]` (the script
  path as the runtime sees it, `/zip/main.lua` in a packed binary). A
  bare PATH-invoked argv0 (`cosmic`, the shebang shape) is resolved
- with a real $PATH search — at module load (#999), so a later chdir
+ with a real $PATH search — at module load, so a later chdir
  cannot change the answer.
 
 **Returns:**

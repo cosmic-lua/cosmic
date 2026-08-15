@@ -23,8 +23,8 @@ end
 
  Signal handling module.
  Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
- The disposition sigaction replaced; a record per D20 rule 11 (the
- error stays reachable in slot 2). Restore with
+ The disposition sigaction replaced; a record so the error stays
+ reachable in slot 2. Restore with
  `signal.sigaction(sig, prev.handler, prev.flags, prev.mask)`.
 
 ```teal
@@ -92,8 +92,7 @@ local record SignalModule
   --  Suspend the process until a signal is delivered.
   --  Temporarily replaces the signal mask with the provided mask.
   --  True once a signal was delivered and handled (the EINTR that IS
-  --  this call's success — #999: success used to be an error string,
-  --  so asserting it always threw); false, err on any other errno.
+  --  this call's success); false, err on any other errno.
   --  A deliberate exception to the automatic EINTR retry policy
   --  (cosmic.stream): waiting for the interruption is the call's
   --  entire purpose.
@@ -118,11 +117,7 @@ end
 
  Signal set for blocking, unblocking, and waiting on signals.
  The binding's own record (add/remove/fill/clear/contains), built by
- sigset() and passed to sigprocmask, sigaction and sigsuspend. This
- was a hand-written mirror until whilp/cosmopolitan#246 freed the
- name: the generated unix record spent `Sigset` on the constructor
- FIELD, and a Teal record cannot hold a value field and a type alias
- under one name, so the type could not be re-exported.
+ sigset() and passed to sigprocmask, sigaction and sigsuspend.
 
 alias of `cosmo.unix.Sigset` — field and method table: `cosmic --docs cosmo.unix.Sigset`
 

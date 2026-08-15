@@ -2,9 +2,10 @@
 
  Query the documentation index embedded in the binary.
  The `--docs` CLI's engine, and the shared doc-type vocabulary both
- halves of the doc family type themselves with (#992: the extraction
- half — parse Teal source, render markdown — is `_tool.doc` now; only
- the toolchain parses source, so the public module is the query half).
+ halves of the doc family type themselves with. The extraction half
+ — parsing Teal source, rendering markdown — lives in `_tool.doc`:
+ only the toolchain parses source, so this public module is the
+ query half.
 
 ## Types
 

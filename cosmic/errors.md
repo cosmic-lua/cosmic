@@ -1,6 +1,6 @@
 # errors
 
- The one sink-side supertype for structured errors (D24).
+ The one sink-side supertype for structured errors.
 
  Errors are strings by default. A module whose failures carry real
  structure returns its OWN concrete record in slot 2 — `local record
@@ -14,7 +14,7 @@
 
  Classification is by FIELD value, never by `is` on a concrete
  record: `is` compiles to `type(x) == "table"`, so narrowing from
- Failure to a concrete record is unsound (#1067). Producers attach a
+ Failure to a concrete record is unsound. Producers attach a
  metatable whose `__tostring` renders the classified message —
  `__concat` is deliberately NOT declared, so `"x: " .. err` is a
  compile error; write `tostring(err)` or read `.message`. A module

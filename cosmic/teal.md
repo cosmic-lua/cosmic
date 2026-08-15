@@ -1,9 +1,9 @@
 # teal
 
  Teal compilation and type-checking.
- Both halves of rule 6 (#1001): `compile(source)`/`check(source)`
- take Teal SOURCE, `compile_file(path)`/`check_file(path)` take a
- path — the file variant wears the `_file` suffix instead of the
+ Both halves of the source/file naming convention: `compile(source)`/
+ `check(source)` take Teal SOURCE, `compile_file(path)`/`check_file(path)`
+ take a path — the file variant wears the `_file` suffix instead of the
  bare name. --compile uses lax mode for permissive compilation (the
  gradual-typing on-ramp for plain-Lua scripts); --compile-strict
  type-checks strictly (warnings fail, matching --check types) and
@@ -20,8 +20,7 @@
 ```teal
 local record FormatOptions
   --  Append one fix-hint line after each error matching a known Teal
-  --  type-check trap (#1001: was the format_issues_with_hints variant —
-  --  a `_with_X` suffix is an options field).
+  --  type-check trap.
   hints: boolean
 end
 ```
@@ -88,7 +87,7 @@ alias of `cosmic._teal_engine.ProcessResult` — field and method table: `cosmic
 function compile(source: string, opts?: CompileOptions): CompileResult
 ```
 
- Compile Teal SOURCE to Lua code (#1001: the string half — the file
+ Compile Teal SOURCE to Lua code (the string half — the file
  variant is compile_file). Lax mode by default (permissive, for user
  scripts); opts.strict type-checks strictly first — warnings fail
  too, matching check's default — and generates from that same
@@ -111,7 +110,7 @@ function compile(source: string, opts?: CompileOptions): CompileResult
 function compile_file(input_path: string, opts?: CompileOptions): CompileResult
 ```
 
- Compile a Teal file to Lua code (#1001: was `compile`).
+ Compile a Teal file to Lua code.
  Same contract as compile; the path names the errors.
 
 **Parameters:**
@@ -129,7 +128,7 @@ function compile_file(input_path: string, opts?: CompileOptions): CompileResult
 function check(source: string, opts?: CheckOptions): CheckResult
 ```
 
- Type-check Teal SOURCE (#1001: the string half — the file variant
+ Type-check Teal SOURCE (the string half — the file variant
  is check_file). Uses strict mode. Warnings fail the check
  (ok = false) unless opts.werror is explicitly false: an unused
  local or shadowed variable is a defect the author must either fix
@@ -151,7 +150,7 @@ function check(source: string, opts?: CheckOptions): CheckResult
 function check_file(input_path: string, opts?: CheckOptions): CheckResult
 ```
 
- Type-check a Teal file (#1001: was `check`).
+ Type-check a Teal file.
  Same contract as check; the path names the errors.
 
 **Parameters:**

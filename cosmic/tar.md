@@ -4,19 +4,17 @@
  Unpacks a `.tar.gz` or plain `.tar` (gzip is detected from the
  header).
 
- It began as the stage pipeline's replacement for `tar -xzmf`
- and moved here when `--make` needed it too: `_make` unpacks pinned
- archives at runtime, the artifact floor is `cosmic/**`, and a module
- a built binary requires has to be inside it. Making it public is the
- honest consequence — position is the manifest — and "unpack a
- tarball" is a battery beside `cosmic.zip` and `cosmic.compress`
- rather than something peculiar to this repo's build.
+ Public because `_make` unpacks pinned archives at runtime: the
+ artifact floor is `cosmic/**`, and a module a built binary requires
+ has to be inside it. Making it public is the honest consequence —
+ position is the manifest — and "unpack a tarball" is a battery
+ beside `cosmic.zip` and `cosmic.compress` rather than something
+ peculiar to this repo's build.
 
  Writes through `cosmic.fs` rather than `_build`'s bootstrap-portable
- shim: that shim exists for a bootstrap predating the 2026.07
- error-convention release, and a module the artifact floor carries
- cannot depend on `_build` at all. The stage pipeline keeps its own
- shim for the paths that still run under the pinned binary.
+ shim: a module the artifact floor carries cannot depend on `_build`
+ at all. The stage pipeline keeps its own shim, using an older error
+ convention, for the paths that still run under the pinned binary.
 
  FAILURE CONTRACT: extraction is not atomic. Entries are written as
  they are read, so a failure partway through leaves `destdir` holding

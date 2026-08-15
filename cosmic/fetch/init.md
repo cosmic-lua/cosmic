@@ -4,7 +4,7 @@
  Wraps cosmo.Fetch/FetchStream in the house failure shape: a Response
  exists only when a response arrived, so every field on it is real —
  transport failures return `nil, Error` (fetch's own structured
- error record, D24) instead of a record of lying nils. An HTTP error
+ error record) instead of a record of lying nils. An HTTP error
  status is a RESPONSE (check `resp.status` or `resp:is_success()`),
  not a failure.
 
@@ -13,14 +13,14 @@
 ### Error
 
  A fetch failure: the module's own structured error, returned in
- slot 2 (`Response | nil, Error` — still two slots, D20 rule 11).
+ slot 2 (`Response | nil, Error` — still two slots).
  `message` is the human detail with no classification prefix;
  `kind` is the typed field callers branch on (`err.kind ==
  "timeout"`, or a caller-owned `< total >` policy table over
  ErrorKind, which the compiler keeps exhaustive). `tostring(err)`
  renders `"<kind>: <detail>"` via the attached metatable — the same
  string slot 2 carried when it was text — and `..` on an Error is
- deliberately a compile error (no __concat is declared; see D24 and
+ deliberately a compile error (no __concat is declared; see
  cosmic.errors).
 
 ```teal

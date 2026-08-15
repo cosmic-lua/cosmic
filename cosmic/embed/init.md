@@ -118,8 +118,6 @@ function write(paths: {string}, opts?: Options): integer | nil, string
  Paths can be files or directories. Directories are walked recursively and
  their contents are stored relative to the directory root. Files are stored
  with their given path (leading / stripped).
- was `embed` returning EmbedResult — the module-name stutter and the
- success-or-error-text-by-flag record leave together)
 
 **Parameters:**
 
@@ -128,5 +126,5 @@ function write(paths: {string}, opts?: Options): integer | nil, string
 
 **Returns:**
 
-- integer - | nil The embedded file count, or nil on failure (#1001:
+- integer - | nil The embedded file count, or nil on failure
 - string? - Error message on failure

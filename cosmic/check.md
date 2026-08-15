@@ -4,9 +4,8 @@
  Functions in this module throw on failure (level 2) so the error points
  at the caller's line, not inside this module. This is the one module
  exempt from the never-throw doctrine, and `needs`/`reap` may exit
- the process because the runner grades exit codes — the record is
- docs/decisions/d23-check-throws.md; no other cosmic.* module may
- throw or exit, so never require check from library code.
+ the process because the runner grades exit codes; no other cosmic.*
+ module may throw or exit, so never require check from library code.
 
 ## Types
 
@@ -102,26 +101,26 @@ function must(value: T | nil, err?: string | errors.Failure): T
 ```
 
  Assert a fallible return and narrow away nil.
- Since #1065 plain `assert` narrows here too — the carried tl patch
- declares that it strips nil — so this is no longer the only way to
- get past a `T | nil` in a test. What it still buys: Lua passes
- multiple returns through, so `must(fs.read(path))` fails with
- fs.read's own error string rather than a message the call site had
- to write; and it narrows nil ONLY, so a `false` value passes
- through where `assert` would throw on it.
- Declares ONE return (#1064), so it composes exactly where `assert`
- does: `return check.must(sqlite.open(":memory:"))` and
+ Plain `assert` also narrows a `T | nil` here — the carried tl patch
+ declares that it strips nil — so `must` is not the only way to get
+ past one in a test. What it still buys: Lua passes multiple returns
+ through, so `must(fs.read(path))` fails with fs.read's own error
+ string rather than a message the call site had to write; and it
+ narrows nil ONLY, so a `false` value passes through where `assert`
+ would throw on it.
+ Declares ONE return, so it composes exactly where `assert` does:
+ `return check.must(sqlite.open(":memory:"))` and
  `table.insert(parts, check.must(chunk))` both type-check, with no
  parenthesis-truncation anywhere. There is nothing to forward past
- slot 2, because a fallible return has two slots and no more (D20
- rule 11, enforced by the `fallible-returns` lint) — a resource that
- must be released rides on the returned record's `__close`, the way
+ slot 2, because a fallible return has two slots and no more
+ (enforced by the `fallible-returns` lint) — a resource that must be
+ released rides on the returned record's `__close`, the way
  `fs.find_iter` and `sqlite.Rows` do.
- Slot 2 is `string | Failure` (D24): a structured error — any
- record implementing `cosmic.errors.Failure`, like `fetch.Error` —
- passes through multiple-return passthrough exactly like a string,
- and throws as its rendered `tostring`. A slot-2 boolean is still
- rejected by name, so the diagnostic that surfaced #1063 survives.
+ Slot 2 is `string | Failure`: a structured error — any record
+ implementing `cosmic.errors.Failure`, like `fetch.Error` — passes
+ through multiple-return passthrough exactly like a string, and
+ throws as its rendered `tostring`. A slot-2 boolean is still
+ rejected by name, so the diagnostic that catches it survives.
 
 **Parameters:**
 

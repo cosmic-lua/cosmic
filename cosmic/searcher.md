@@ -5,10 +5,10 @@
  Public, and the caller set is what settled it: the generated
  embed wrapper runs `require("cosmic.searcher").install()` before the
  entry of EVERY artifact anyone builds, which makes this the module
- with the widest reach in the tree. It sat under `_cli/` — marked
- internal — for as long as that was true. Same rule as the pure lint checks (now `_tool.lint`)
- in 3c: who requires a module decides whether it is internal, and a
- manifest can hold that contradiction where position cannot.
+ with the widest reach in the tree. Same rule as the pure lint checks
+ in `_tool.lint`: who requires a module decides whether it is
+ internal, and a manifest can hold that contradiction where position
+ cannot.
 
  Three guarantees tl's own loader did not make:
 
@@ -31,10 +31,10 @@
  strict, so tree-first is never a downgrade from the binary's
  already-checked bytes.
 
- The ENTRY script stays lax either way, and that is decided, not
- inherited (#840): a searcher only sees modules that pass through
- require(), so `cosmic foo.tl` compiles foo.tl lax even inside a
- project. The alternative — strict inside a project, lax outside —
+ The ENTRY script stays lax either way, deliberately: a searcher
+ only sees modules that pass through require(), so `cosmic foo.tl`
+ compiles foo.tl lax even inside a project. The alternative —
+ strict inside a project, lax outside —
  is a second rule keyed on "which project am I in", precisely the
  ambiguity _make/root.tl refuses to guess about, and it would
  silently revoke the on-ramp for anyone running a script from a
@@ -105,11 +105,10 @@ function install_manifest(path: string): boolean, string
      mod <import.path> <built file>
  Inserted at index 2 — after `package.preload`, ahead of the default
  file searcher — because beating `/zip` is the entire point. A
- failure says why (#1001: the bare boolean was deliberately silent,
- and the caller could not tell "no manifest" from "unreadable
- manifest"); the CALLER decides whether that matters — a child with
- no manifest is an ordinary cosmic, which is what a hand-run script
- is.
+ failure says why, so the CALLER can tell "no manifest" from
+ "unreadable manifest" and decide whether that matters — a child
+ with no manifest is an ordinary cosmic, which is what a hand-run
+ script is.
 
 **Parameters:**
 

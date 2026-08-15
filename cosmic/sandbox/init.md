@@ -1,6 +1,6 @@
 # sandbox
 
- One-call, fail-closed in-process sandbox: the one door (#989).
+ One-call, fail-closed in-process sandbox: the one door.
 
  cosmic ships two public containment modules: this one (in-process
  self-restriction) and `cosmic.quicksand` (out-of-process boxes).
@@ -36,8 +36,8 @@
  System-call policy: pledge promise groups as a space-separated
  string (the internal pledge shard's `Promise` enum names every
  valid token). `exec_promises` optionally sets the promises children
- keep after execve (#989: was `exec`, which read as paths beside
- fs.exec).
+ keep after execve — named to avoid reading as a path list beside
+ fs.exec.
 
 ```teal
 local record Sys
@@ -51,10 +51,9 @@ end
  A full sandbox policy. Each section is optional but at least one
  must be present. `best_effort = true` skips sections this host
  cannot enforce instead of failing closed. `no_new_privs` and
- `handled` (absorbed from the landlock shard, #989) tune the Linux
- fs mechanism: no_new_privs defaults true so the restrict works
- unprivileged; handled narrows which access categories the sandbox
- controls (default: all of them).
+ `handled` tune the Linux fs mechanism: no_new_privs defaults true
+ so the restrict works unprivileged; handled narrows which access
+ categories the sandbox controls (default: all of them).
 
 ```teal
 local record Options
@@ -123,7 +122,7 @@ function is_available(): boolean
 ```
 
  True when every section this facade fronts is enforceable here —
- the one boolean predicate, family-wide spelling (#989). For
+ the one boolean predicate covering the whole family. For
  per-section answers use availability().
 
 **Returns:**

@@ -1,9 +1,9 @@
 # flags
 
  Declarative command-line flag parsing with a generated --help.
- The one public parser (#991 — cosmic.getopt is an internal shard of
- this module now). Describe a program's flags once as data — names,
- value placeholders, defaults, help text — and get parsing, validation,
+ The one public parser — cosmic.getopt is an internal shard of this
+ module. Describe a program's flags once as data — names, value
+ placeholders, defaults, help text — and get parsing, validation,
  and rendered --help from the one spec.
 
  Example usage:
@@ -35,7 +35,7 @@
  version) unless the spec claims those names itself; parse never
  prints or exits — it reports help/version requests as fields on
  the result and the caller decides what to do. Error strings are
- unprefixed (#991): add your own program name when printing, the
+ unprefixed: add your own program name when printing, the
  way every other module's errors take context.
 
  Multi-command programs (`todo add`, `todo list`, ...) declare a

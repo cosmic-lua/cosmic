@@ -2,9 +2,9 @@
 
  Shared memory for inter-process communication.
  Provides atomic operations and wait/wake primitives for
- synchronization. Memory created with shm.open (#999: was
- `mapshared`) is shared across fork() and provides fundamental
- synchronization primitives including futexes.
+ synchronization. Memory created with shm.open is shared across
+ fork() and provides fundamental synchronization primitives
+ including futexes.
 
  This is a real wrapper over unix.mapshared, not a passthrough: sizes
  and offsets are validated in Lua (the region size is known at
@@ -19,7 +19,7 @@
  Shared memory region with atomic word operations and futexes.
  One compare-exchange outcome: whether the swap happened, and the
  word's actual value at the time (the old value on success). A
- record per D20 rule 11 (the error stays reachable in slot 2).
+ record so the error stays reachable in slot 2.
 
 ```teal
 local record Exchange
@@ -33,7 +33,7 @@ end
  Words are 64-bit; word_index is 0-based. Futex words (wait/wake)
  only inspect the low 32 bits — store only int32 values in words
  you wait on.
- Memory ordering (#999, stated because a sync-primitives surface
+ Memory ordering (stated because a sync-primitives surface
  without one is a guess): every atomic word operation is
  sequentially consistent (the binding's C11 atomics use the
  default memory_order_seq_cst), so a store or exchange published
@@ -77,10 +77,8 @@ local record Memory
   --  Wakes nothing once the region has been unmapped.
   wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
   --  Release the mapping now instead of waiting for the garbage
-  --  collector. Idempotent and returns nothing (#999: it used to
-  --  return false for "already released", so asserting the second,
-  --  correct call failed). Afterwards every fallible method returns
-  --  an error naming the unmapped state.
+  --  collector. Idempotent, returning nothing. Afterwards every
+  --  fallible method returns an error naming the unmapped state.
   close: function(self: Memory)
   --  The mapped region size in bytes.
   size: function(self: Memory): integer

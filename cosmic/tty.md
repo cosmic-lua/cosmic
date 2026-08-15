@@ -59,7 +59,7 @@ local record TtyModule
   ICRNL: integer
   BRKINT: integer
   OPOST: integer
-  --  1-BASED cc indices (#999): `t.cc[tty.VMIN]` is C's c_cc[VMIN].
+  --  1-BASED cc indices: `t.cc[tty.VMIN]` is C's c_cc[VMIN].
   --  The generated unix constants are C's 0-based values; these are
   --  pre-shifted for Lua's 1-based cc array so no caller writes `+ 1`.
   VMIN: integer
