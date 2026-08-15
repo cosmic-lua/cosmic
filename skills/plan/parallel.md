@@ -69,15 +69,33 @@ everyone else).
   `bin/cosmic --make fetch`, or the agent's first `--make` command
   fails on a cold tree and it starts debugging the toolchain instead
   of the slice.
-- **keep the worktrees out of the project root if you can.** the
-  project model prunes dot-directories, so a checkout under
-  `.claude/worktrees/` stays out of the MODEL — but the coverage scan
-  walks the tree itself without that pruning, so a nested checkout's
-  sources and `.cov` dumps join the PARENT's coverage report and its
-  ratchet fails against thousands of foreign paths. a `.gitignore`
-  entry keeps `git status` clean; it does not keep `--make ci` clean.
-  while a wave is running, gate the parent from a checkout outside its
-  root, or wait for the wave to land.
+- **keep the worktrees out of the project root if you can.** a
+  checkout nested inside another project's root breaks `--make` in
+  both directions, and neither failure names its cause:
+  - inside, every verb refuses with `ambiguous root: … is inside a
+    project rooted at …`. `COSMIC_MAKE_ROOT=$PWD` gets past it, but
+    that variable is INHERITED by the nested `--make` runs the tests
+    spawn, so it fails `_make/check_test.tl` and
+    `_types/tl_conformance_test.tl` — three gate failures that belong
+    to the layout, not the diff.
+  - outside, the parent's gate breaks instead: the project model
+    prunes dot-directories, so a checkout under `.claude/worktrees/`
+    stays out of the MODEL, but the coverage scan walks the tree
+    itself without that pruning, and the nested checkout's sources and
+    `.cov` dumps join the PARENT's report — a ratchet failure against
+    thousands of foreign paths. a `.gitignore` entry keeps `git
+    status` clean; it does not keep `--make ci` clean.
+
+  when the layout is not yours to choose, an agent's brief should say
+  to gate from an unambiguous root — a copy of the tree elsewhere,
+  with the changed files verified identical afterwards — and the
+  parent should gate from outside its own root, or wait for the wave
+  to land.
+- **a stale `o/` does not survive a path move.** a tree copied or
+  moved with its build directory reports a mass coverage collapse
+  (74% -> 25% across ~130 files, in the case that found this) that is
+  purely the stale paths. `rm -rf o && bin/cosmic --make fetch` first,
+  or the wave's first gate result is fiction.
 
 ## the brief
 
