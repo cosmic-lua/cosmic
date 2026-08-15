@@ -112,8 +112,8 @@ end
 test_read_cov_roundtrip()
 
 local function test_read_cov_accepts_prefixless_bodies()
-  -- A .cov written before #1001 (or by an older generation in a warm
-  -- tree) carries no `return` prefix; the reader supplies it.
+  -- A .cov file may carry no `return` prefix, e.g. one left over from
+  -- a stale build; the reader supplies it.
   local path = fs.join(tmpdir, "old.cov")
   assert(fs.write(path, '{version = 1, hits = {["@y.lua"] = {[2] = 1}}}'))
   local h = check.must(report.read_cov(path))

@@ -71,9 +71,9 @@ end
 test_parse_record()
 
 -- A keyword inside a field's doc comment must not close the record: an
--- "end" in a comment used to truncate Socket at that field, dropping
--- every later field from the docs. Identifiers like end_time must not
--- count either.
+-- unguarded "end" in a comment would truncate Socket at that field,
+-- dropping every later field from the docs. Identifiers like end_time
+-- must not count either.
 local function test_parse_record_keyword_in_comment()
   local source = [[
 --- A stream endpoint.
@@ -161,8 +161,8 @@ end
 test_parse_example()
 
 -- Every line of a multi-line Output block must lose its `-- ` prefix:
--- `.` matches newlines in Lua patterns, so the extraction used to take
--- the whole rest of the body as line one and leave later lines raw.
+-- `.` matches newlines in Lua patterns, so a single `.*` match would
+-- take the whole rest of the body as line one and leave later lines raw.
 local function test_parse_example_multiline_output()
   local source = [[
 local function Example_multi()
@@ -248,7 +248,7 @@ test_example_not_in_functions()
 
 -- Test that a variable/local named with a keyword prefix (`end_time`)
 -- is not lexed as the keyword `end`: a bare `%a+` word match stops at
--- the `_`, so the scanner used to close the body right there.
+-- the `_`, which would otherwise close the body right there.
 local function test_example_end_time_not_truncated()
   local source = [[
 local function Example_time_tracking()
@@ -290,8 +290,8 @@ end
 test_example_for_each_prefix_not_over_extended()
 
 -- Test that a bare `do ... end` block (not attached to a for/while)
--- opens its own nesting level: `do` was missing from the depth-tracking
--- keyword set, so its `end` was mistaken for the function's own.
+-- opens its own nesting level: the depth-tracking keyword set must
+-- include `do`, or its `end` is mistaken for the function's own.
 local function test_example_bare_do_end_block()
   local source = [[
 local function Example_bare_do()
@@ -379,9 +379,6 @@ local function test_render_file_missing()
 end
 test_render_file_missing()
 
--- Note: --doc CLI flag has been removed. Use the doc.render_file() function directly
--- for build-time documentation generation.
-
 -- Test function without doc comment
 local function test_function_no_doc()
   local source = [[
@@ -463,7 +460,9 @@ local function test_fetch_has_module_description()
 end
 test_fetch_has_module_description()
 
--- Test that record field parser skips comment lines (bug 2 regression test)
+-- The record field parser must skip comment lines: text inside a doc
+-- comment (like the `fd` in this field's @return line) must not be
+-- parsed as a field name.
 local function test_record_fields_skip_comments()
   local source = [[
 local record Foo

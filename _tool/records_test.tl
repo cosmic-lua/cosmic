@@ -108,8 +108,9 @@ local function test_stage_detail_reads_the_summary()
 end
 test_stage_detail_reads_the_summary()
 
--- The verdict's two halves (#992: `verdict` printed AND returned the
--- exit code; the format and the code are separate claims now).
+-- The verdict's two halves: `format_verdict` renders the line and
+-- `exit_code` reports the status. The format and the code are
+-- separate claims, so a caller can use either without the other.
 local function test_verdict_halves()
   assert(records.format_verdict("test", true, "19 files") ==
     "test: PASS (19 files)", "PASS with detail")

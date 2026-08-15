@@ -208,7 +208,7 @@ test_filter_no_match()
 
 -- Test that a variable/local named with a keyword prefix (`end_time`)
 -- is not lexed as the keyword `end`: a bare `%a+` word match stops at
--- the `_`, so the scanner used to close the body right there.
+-- the `_`, which would otherwise close the body right there.
 local function test_end_time_not_truncated()
   local source = [[
 local function Benchmark_time_tracking()
@@ -249,8 +249,8 @@ end
 test_for_each_prefix_not_over_extended()
 
 -- Test that a bare `do ... end` block (not attached to a for/while)
--- opens its own nesting level: `do` was missing from the depth-tracking
--- keyword set, so its `end` was mistaken for the function's own.
+-- opens its own nesting level: the depth-tracking keyword set must
+-- include `do`, or its `end` is mistaken for the function's own.
 local function test_bare_do_end_block()
   local source = [[
 local function Benchmark_bare_do()

@@ -168,12 +168,12 @@ local function read_cov(path: string): {string: {integer: integer}} | nil, strin
     return nil, err
   end
   -- The collector writes via literal.format, so the body carries its
-  -- own `return` prefix (#1001). literal.parse cannot read it back —
-  -- hit tables have integer keys, outside the literal grammar — so
-  -- load it in an empty environment instead: data in, no reach out.
-  -- A warm tree (or CI's restored o/) can still hold .cov files whose
-  -- writer predates the prefix; a bare table body is not a statement,
-  -- so the first load fails and the keyword is supplied for it.
+  -- own `return` prefix. literal.parse cannot read it back — hit
+  -- tables have integer keys, outside the literal grammar — so load
+  -- it in an empty environment instead: data in, no reach out.
+  -- A .cov file may still lack the prefix (e.g. one left over from a
+  -- stale build); a bare table body is not a statement, so the first
+  -- load fails and the keyword is supplied for it.
   local chunk, lerr = load(body, "=(cov)", "t", {})
   if not chunk then
     chunk, lerr = load("return " .. body, "=(cov)", "t", {})

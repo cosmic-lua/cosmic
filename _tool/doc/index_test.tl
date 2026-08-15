@@ -6,10 +6,9 @@ local env = require("cosmic.env")
 local index = require("_tool.doc.index")
 local check = require("cosmic.check")
 
---- Load a generated index the way the doc reader does (#1001: codec's
---- decode_lua_unsafe is gone): the index ships without a `return`
---- prefix — the reader supplies the keyword — and loads with an empty
---- environment.
+--- Load a generated index the way the doc reader does: the index ships
+--- without a `return` prefix — the reader supplies the keyword — and
+--- loads with an empty environment.
 local function decode_index(encoded: string): any, string
   local chunk, lerr = load("return " .. encoded, "=(index)", "t", {})
   if not chunk then
@@ -167,7 +166,7 @@ test_shards_flatten_into_parent()
 -- before examples merge, or the example doc registers itself under the
 -- module's name first, the init rename finds the name taken, and the
 -- page users see is a bare example with every shard helper merged
--- unfiltered (cosmic.flags was the in-tree case).
+-- unfiltered (cosmic.flags is the in-tree case).
 local function test_example_beside_directory_module()
   local pdir = fs.join(tmpdir, "widgetdir")
   assert(fs.make_dirs(pdir))
@@ -243,9 +242,10 @@ test_example_beside_directory_module()
 
 -- An example file beside an init shard (gizmo/init_example.tl)
 -- documents the directory module: it must land on the normalized
--- parent entry, not re-register a stranded `.init` module. The shipped
--- index regressed exactly this way (seven stranded .init entries) when
--- normalization moved ahead of the example merge.
+-- parent entry, not re-register a stranded `.init` module — merging
+-- examples before init normalization would strand every directory
+-- module's example under its own unreachable `.init` entry instead of
+-- landing on the module's real page.
 local function test_init_example_lands_on_directory_module()
   local pdir = fs.join(tmpdir, "gizmo")
   assert(fs.make_dirs(pdir))

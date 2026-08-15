@@ -1,8 +1,8 @@
---- Extract documentation from Teal files and render as markdown
---- (#992: was the extraction half of cosmic.doc — only the toolchain
---- parses source, so it lives in `_tool/`; the embedded-index query
---- half stays public as cosmic.doc, which also re-exports the shared
---- doc-type vocabulary this module types itself with).
+--- Extract documentation from Teal files and render as markdown. This is
+--- the extraction half: only the toolchain parses source, so it lives
+--- in `_tool/`; the embedded-index query half stays public as
+--- cosmic.doc, which also re-exports the shared doc-type vocabulary
+--- this module types itself with.
 --- Parses doc comments, records, functions, and examples from .tl files.
 
 local doc_types = require("cosmic.doc")
@@ -89,10 +89,10 @@ end
 
 --- Find the end of a record block via record/enum vs end depth tracking.
 --- Skips string literals and comments, and matches full identifiers, so a
---- keyword inside either never closes the block early: an `end` in a
---- field's doc comment ("bare nil at end of stream") used to truncate
---- cosmic.net's Socket record right there, hiding every later field from
---- the rendered docs and the per-symbol index.
+--- keyword inside either never closes the block early: an unguarded `end`
+--- in a field's doc comment ("bare nil at end of stream") would otherwise
+--- truncate a record like cosmic.net's Socket right there, hiding every
+--- later field from the rendered docs and the per-symbol index.
 --- @param text string The text to scan
 --- @param start integer Position just inside the record (after its header line)
 --- @return integer Position of the last body character (before `end`)
@@ -403,9 +403,9 @@ local function parse_file(file_path: string): ModuleDoc | nil, string
 end
 
 --- Main entry point: parse file and render markdown. A fallible VALUE
---- (the markdown), not a fallible effect: the old boolean, string shape
---- made slot 2 the payload on success and the error on failure, so
---- every caller branched on which meaning it held.
+--- (the markdown), not a fallible effect: slot 2 is always the error
+--- message, never the payload, so no caller has to branch on which
+--- meaning it holds.
 local function render_file(file_path: string): string | nil, string
   local f, err = io.open(file_path, "r")
   if not f then return nil, "cannot open file: " .. (err or "unknown") end

@@ -123,7 +123,6 @@ local function test_report_pass()
   assert(fs.write(base .. ".out", ""))
   assert(fs.write(base .. ".err", ""))
 
-  -- Capture stdout by redirecting (would need to capture, skip for now)
   local exit_code = testrun.report({base})
   assert(exit_code == 0, "expected exit code 0 for passing test, got " .. exit_code)
 end
