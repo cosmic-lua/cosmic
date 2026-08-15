@@ -141,27 +141,16 @@ local function make_archive(mode: Mode, raw: RawHandles): Archive
     return true
   end
 
-  -- The cosmos pin now declares Writer/Appender close returns
-  -- (cosmopolitan#254), but this file is in the type GENERATOR's import
-  -- closure (gentype reads the cosmos zip through cosmic.zip), so on a
-  -- cold start it must also compile under the bin/cosmic.pin release's
-  -- EMBEDDED types, which predate the annotation and say void. The cast
-  -- reads the returns either way; drop it once the bootstrap pin
-  -- advances past this change.
-  local type fallible_close = function(any): boolean, string
-
   function a:close(): boolean, string
     if closed then return true end
     closed = true
     if raw.reader then raw.reader:close() end
     if raw.writer then
-      -- cast: bootstrap pin's embedded types under-declare close returns
-      local ok, err = (raw.writer.close as fallible_close)(raw.writer)
+      local ok, err = raw.writer:close()
       if not ok then return false, "zip: close failed: " .. (err or "unknown error") end
     end
     if raw.appender then
-      -- cast: bootstrap pin's embedded types under-declare close returns
-      local ok, err = (raw.appender.close as fallible_close)(raw.appender)
+      local ok, err = raw.appender:close()
       if not ok then return false, "zip: close failed: " .. (err or "unknown error") end
     end
     return true
