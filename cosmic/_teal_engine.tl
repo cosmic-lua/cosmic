@@ -142,6 +142,42 @@ local function process_error(name: string, message: string): ProcessResult
   return {error = {file = name, line = 0, column = 0, message = message, severity = "error"}}
 end
 
+-- Envs are reused across calls (#1101): construction costs ~6 ms per
+-- call even with the pre-parsed stdlib ASTs (thaw plus tl re-checking
+-- its stdlib), so one env per option set makes the second and later
+-- checks in a process pay only their marginal cost. Everything that
+-- shapes an env goes in the key — lax, target, compat, and the
+-- assembled tl.path, because a reused env caches required modules
+-- resolved through it. Like tl's own project mode, a reused env
+-- accumulates checked-module state across calls; within one process
+-- that accumulation is exactly the amortization, and sources do not
+-- change mid-process.
+local env_cache: {string: any} = {}
+
+--- Construct a fresh env for the given options (report_types on for
+--- strict, matching what the discarded-error pass reads).
+--- @param lax boolean If true, lax mode; if false, strict mode
+--- @param gen_target string Codegen target
+--- @param gen_compat string Compat shims
+--- @return any The env, or nil on failure
+--- @return string? Error message on failure
+local function build_env(lax: boolean, gen_target: string, gen_compat: string): any, string
+  local env, env_err = require("cosmic._teal_ast").new_env({
+      feat_lax = lax and "on" or "off",
+      feat_arity = "on",
+      gen_target = gen_target,
+      gen_compat = gen_compat,
+    })
+  if not env then
+    return nil, env_err
+  end
+  if not lax then
+    local env_map = env as {any: any} -- cast: beyond the narrowed API
+    env_map["report_types"] = true
+  end
+  return env
+end
+
 --- Process Teal SOURCE: setup paths, run tl.process_string. The engine
 --- both halves share (#1001): the file half reads and delegates here.
 --- @param input string The Teal source text
@@ -166,29 +202,37 @@ local function process_source(input: string, name: string, include_dirs: {string
 
   include_dirs = include_dirs or default_include_dirs()
 
+  local tl_path = assemble_tl_path(include_dirs)
   local saved_tl_path = tl.path
-  tl.path = assemble_tl_path(include_dirs)
+  tl.path = tl_path
 
   -- Options-form env construction: feature flags are explicit rather than
   -- inherited from tl's version-dependent defaults. feat_arity stays "on"
   -- (0.24 default) so function-arity mismatches are checked in strict mode.
   -- The env rides the artifact's pre-parsed stdlib ASTs when present
   -- (cosmic._teal_ast), skipping tl's parse of its embedded d.tl sources.
-  local env, env_err = require("cosmic._teal_ast").new_env({
-      feat_lax = lax and "on" or "off",
-      feat_arity = "on",
-      gen_target = gen_target or DEFAULT_GEN_TARGET,
-      gen_compat = gen_compat or DEFAULT_GEN_COMPAT,
-    })
-  if not env then
-    tl.path = saved_tl_path
-    return process_error(name, "tl.new_env: " .. (env_err or "unknown error"))
-  end
-  -- Strict runs collect the typed position report the discarded-error
-  -- pass (cosmic._teal_discard) reads after the check.
-  if not lax then
+  local use_target = gen_target or DEFAULT_GEN_TARGET
+  local use_compat = gen_compat or DEFAULT_GEN_COMPAT
+  local cache_key = table.concat(
+    {lax and "lax" or "strict", use_target, use_compat, tl_path}, "\0")
+  local env: any = env_cache[cache_key]
+  if env == nil then
+    local fresh, env_err = build_env(lax, use_target, use_compat)
+    if not fresh then
+      tl.path = saved_tl_path
+      return process_error(name, "tl.new_env: " .. (env_err or "unknown error"))
+    end
+    env_cache[cache_key] = fresh
+    env = fresh
+  else
+    -- A reused env remembers results by chunk name (tl.check_string
+    -- returns env.loaded[filename] when present); evict this name so a
+    -- re-check checks the source in hand, not the remembered one.
     local env_map = env as {any: any} -- cast: beyond the narrowed API
-    env_map["report_types"] = true
+    local loaded = env_map["loaded"] as {any: any} -- cast: beyond the narrowed API
+    if loaded then
+      loaded[name] = nil
+    end
   end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
@@ -197,6 +241,8 @@ local function process_source(input: string, name: string, include_dirs: {string
   tl.path = saved_tl_path
 
   if not ok then
+    -- A throw may leave the env half-mutated; rebuild it next call.
+    env_cache[cache_key] = nil
     return process_error(name, tostring(result_or_err))
   end
   local result = result_or_err as TlResult -- cast: from any
