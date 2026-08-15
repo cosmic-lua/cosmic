@@ -20,6 +20,8 @@ local VARS < const >: {Var} = {
   -- Public: knobs a person sets.
   {name = "COSMIC_FENCE", public = true,
     desc = "0 opts out of the derived build sandbox (on by default)"},
+  {name = "COSMIC_FAIL_FAST", public = true,
+    desc = "nonempty stops a batched compile at its first failure"},
   {name = "COSMIC_JOBS", public = true,
     desc = "build parallelism (default: one job per cpu)"},
   {name = "COSMIC_MAKE_ROOT", public = true,

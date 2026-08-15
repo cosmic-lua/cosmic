@@ -347,12 +347,18 @@ local function test_dependencies_never_reach_the_child()
 end
 test_dependencies_never_reach_the_child()
 
--- Per-test incrementality: a test re-runs when something it IMPORTS
--- changes, and not when anything else does. Before the import closure
--- landed, every test depended on every compiled file, so editing any
--- module re-ran the whole suite -- which is exactly when you are
--- iterating and least want it.
+-- Per-test incrementality: a test RUNS again when something it imports
+-- changes, and not when anything else does. Under batched compiles
+-- (#1099 D1) a group edit restamps sibling outputs, so an unrelated
+-- test's record STEP may spawn to content-skip -- what it must not do
+-- is really re-run, and d18's probe reads exactly that: the `.in`
+-- record's mtime moves only when the step ran for real.
 local function test_a_test_reruns_only_for_what_it_imports()
+  local function in_mtime(root: string, name: string): string
+    local mt = check.must(
+      fs.stat(fs.join(root, "o/db/" .. name .. ".tl.test.in"))):modify_time()
+    return tostring(mt.secs) .. "." .. tostring(mt.nsecs)
+  end
   local root = fixture("incremental-deps", {
       ["cmd/app/main.tl"] = "print('x')\n",
       ["db/init.tl"] = "local record D\n  n: function(): integer\nend\n" ..
@@ -361,13 +367,15 @@ local function test_a_test_reruns_only_for_what_it_imports()
       ["db/b_test.tl"] = "assert(true)\n",
     })
   assert(make(root, "test").code == 0, "first run")
+  local a1 = in_mtime(root, "a_test")
+  local b1 = in_mtime(root, "b_test")
 
   -- main.tl is imported by neither test.
   assert(fs.write(fs.join(root, "cmd/app/main.tl"), "print('changed')\n"))
   local unrelated = make(root, "test")
   assert(unrelated.code == 0, "second run: " .. unrelated.err)
-  assert(not unrelated.out:find("record o/db/", 1, true),
-    "no test imports main.tl, so none should re-run: " .. unrelated.out)
+  assert(in_mtime(root, "a_test") == a1 and in_mtime(root, "b_test") == b1,
+    "no test imports main.tl, so none should really re-run")
 
   -- db/init.tl is imported by a_test only.
   assert(fs.write(fs.join(root, "db/init.tl"),
@@ -375,16 +383,12 @@ local function test_a_test_reruns_only_for_what_it_imports()
       "local M: D = {n = function(): integer return 1 end}\n-- edit\nreturn M\n"))
   local related = make(root, "test")
   assert(related.code == 0, "third run: " .. related.err)
-  assert(related.out:find("record o/db/a_test", 1, true),
-    "the importer must re-run: " .. related.out)
-  assert(not related.out:find("record o/db/b_test", 1, true),
-    "a test that does not import it must NOT re-run: " .. related.out)
+  assert(in_mtime(root, "a_test") ~= a1, "the importer must really re-run")
+  assert(in_mtime(root, "b_test") == b1,
+    "a non-importer may spawn to content-skip, never really re-run")
   -- And the closure travels in the line, which is what the fence
-  -- grants. Asserted against the FACTS rather than a recipe echo:
-  -- `o/project.mk` is where the closure is computed and the rule reads
-  -- it as `--deps $(deps_$*)`. make runs silently (`-s`), so a recipe
-  -- echo is not a place this claim can be read -- and the facts file
-  -- is the better one regardless.
+  -- grants. Asserted against the FACTS (`o/project.mk`, which the rule
+  -- reads as `--deps $(deps_$*)`) rather than a recipe echo.
   local facts = check.must(fs.read(fs.join(root, "o/project.mk")))
   assert(facts:find("deps_db/a_test := o/db/init.lua", 1, true),
     "a_test's closure is its import, computed into the facts: " .. facts)

@@ -116,7 +116,26 @@ compile: $(compiled) $(staged)
 # the step's content skip (_cli/build/work.tl), never forwarded to the
 # child. A line that declares its inputs is one the step can prove it
 # already ran.
-$(O)/%.lua: %.tl $(O)/.stamp/compile $(O)/_types/types_gen.stamp $$(srcdeps_$$*)
+# One step per DIRECTORY: the group stamp's recipe compiles every
+# member in one process, so the boot, the compiler, and every checked
+# import are paid once per group instead of once per file (#1099;
+# decision record on the issue). Members keep their own content-keyed
+# `.in` records — the same records the per-file rule writes, so the two
+# paths interchange — and every member the batch verifies or compiles
+# is restamped, which is what lets the per-file rule below self-skip on
+# fresh mtimes and remain the correctness safety net rather than the
+# hot path. Downstream rules keep their per-file mtime prerequisites;
+# the record step's content skip absorbs the group restamps (d18).
+$(O)/.groups/%.compiled: $$(groupsrcs_$$*) $(O)/.stamp/compile $(O)/_types/types_gen.stamp $$(groupdeps_$$*)
+	compile-batch $(COSMIC) $@ $(O)/$* --include-dir . --stamp $(O)/.stamp/compile --stamp $(O)/_types/types_gen.stamp --facts $(O)/project.mk --srcs $(groupsrcs_$*) --deps $(O)/project.mk $(groupdeps_$*) ;
+
+# The order-only group stamp sequences the batch BEFORE any member's
+# own recipe is considered, and never by itself makes a member stale;
+# a root-level source has no group, the expansion is empty, and this
+# rule stays its whole path. addprefix/addsuffix rather than patsubst:
+# a literal `%` in a pattern rule's prerequisites is stem-substituted
+# BEFORE secondary expansion and would be destroyed here.
+$(O)/%.lua: %.tl $(O)/.stamp/compile $(O)/_types/types_gen.stamp $$(srcdeps_$$*) | $$(addsuffix .compiled,$$(addprefix $(O)/.groups/,$$(groupof_$$*)))
 	compile $(COSMIC) $< $@ --include-dir . --deps $(srcdeps_$*) $(O)/.stamp/compile $(O)/_types/types_gen.stamp ;
 
 # .lua sources are first-class. They are copied, not compiled; the

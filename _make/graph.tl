@@ -19,6 +19,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local deps = require("_make.deps")
+local groups = require("_make.groups")
 local imports = require("_make.imports")
 local project = require("_make.project")
 local stamp = require("_make.stamp")
@@ -183,31 +184,29 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     end
   end
 
-  -- Import closures, per file. This is the whole reason the facts are
-  -- computed in Teal — a makefile cannot follow a require() edge — and
-  -- each closure serves the graph and the fence with one answer.
-  --
-  -- Two flavours, and the distinction is not cosmetic. A COMPILE needs
-  -- SOURCE paths, because a strict compile type-checks against the
-  -- modules it imports and the checker resolves those to `.tl` through
-  -- the include path: without them, changing a module's contract left
-  -- its importers un-recompiled and the incremental build shipped code
-  -- a clean build rejects. A TEST needs BUILT paths, because it runs
-  -- against compiled Lua.
+  -- Import closures, per file — the whole reason the facts are
+  -- computed in Teal (a makefile cannot follow a require() edge); each
+  -- closure serves the graph and the fence with one answer. Two
+  -- flavours, not cosmetically: a COMPILE needs SOURCE paths (a strict
+  -- compile type-checks against the `.tl` it imports — without them a
+  -- contract change left importers un-recompiled and the incremental
+  -- build shipped code a clean build rejects); a TEST needs BUILT
+  -- paths, because it runs against compiled Lua.
   local dep_lines: {string} = {}
+  local gacc = groups.new()
   local by_import = deps.index(proj)
   for _, f in ipairs(proj.files) do
-    -- The make-variable stem is the path with its EXTENSION removed,
-    -- because that is the stem the pattern rules produce: a target
-    -- `o/x_test.lua.test.got` matching `$(O)/%.lua.test.got` has stem
-    -- `x_test`. Stripping only `.tl` named the `.lua` twin's variable
-    -- `deps_x_test.lua`, which no rule ever expands -- so a `.lua` test
-    -- got an EMPTY closure: never rebuilt when an import changed, and
-    -- fenced away from the modules it requires.
+    -- The make-variable stem is the path with its EXTENSION removed —
+    -- the stem the pattern rules produce (`o/x_test.lua.test.got`
+    -- matching `$(O)/%.lua.test.got` has stem `x_test`). Stripping only
+    -- `.tl` once named a `.lua` twin's variable `deps_x_test.lua`,
+    -- which no rule expands: an EMPTY closure, never rebuilt, fenced
+    -- away from its own imports.
     local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
     if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
-      dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem,
-        deps.source_paths(deps.closure(proj, f, by_import)))
+      local spaths = deps.source_paths(deps.closure(proj, f, by_import))
+      dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem, spaths)
+      groups.add(gacc, f.path, stem, spaths)
     end
     -- Examples and benchmarks get the same closure as tests, and for
     -- the same reason: each RUNS against the compiled tree, so what it
@@ -227,6 +226,9 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
     end
+  end
+  for _, line in ipairs(groups.lines(gacc, assign)) do
+    dep_lines[#dep_lines + 1] = line
   end
   table.sort(dep_lines)
 
