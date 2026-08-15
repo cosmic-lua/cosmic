@@ -1,0 +1,307 @@
+--- The board model: columns, WIP limits, the ready bar, and the
+--- right-to-left pull order, as pure functions over already-fetched
+--- issues. No network, no subprocess — board.tl fetches through
+--- _plan.gh and decides here, so every flow rule skills/plan/ asks an
+--- agent to follow has exactly one executable definition, pinned by
+--- model_test.tl.
+
+--- One issue as the board sees it, already reduced from the gh JSON.
+local record Issue
+  number: integer
+  title: string
+  column: string
+  epic: boolean
+  enable: boolean
+  assignee: string
+  url: string
+  body: string
+end
+
+--- Open issues grouped by column name ("shaping" ... "review").
+local type Board = {string: {Issue}}
+
+--- Answers a blocker-state question the model cannot ask itself:
+--- true when issue #n in the board's repo is still open.
+local type IsOpen = function(n: integer): boolean
+
+--- The tool's one answer to "what should I do now".
+local record NextAction
+  --- "review" | "refine" | "intake" | "finish" | "pull" | "none"
+  kind: string
+  --- The issue the action targets; nil for intake and none.
+  issue: Issue
+  --- The fallback when `issue` is claimed by another live session.
+  alt: Issue
+  --- The rule that chose this action, stated for the human/agent.
+  reason: string
+end
+
+--- Column order, left to right; pull works from the END of this list.
+local COLUMNS: {string} = {"shaping", "ready", "doing", "review"}
+
+--- WIP limits are policy, and policy is committed: tune them here, in
+--- a reviewed change, never ad hoc per session.
+local LIMITS: {string: integer} = {
+  shaping = 6,
+  ready = 6,
+  doing = 2,
+  review = 3,
+}
+
+--- Headings a plan:ready issue body must carry (the ready bar; the
+--- meaning of each section is skills/plan/decompose.md).
+local READY_SECTIONS: {string} = {
+  "Goal", "Change", "Non-goals", "Acceptance", "Enablement",
+}
+
+local COLUMN_SET: {string: boolean} = {}
+for _, c in ipairs(COLUMNS) do
+  COLUMN_SET[c] = true
+end
+
+--- The column a label set places an issue in, or nil when it carries
+--- no plan:<column> label.
+--- @param labels {string} Label names on the issue
+--- @return string | nil Column name
+local function column_of(labels: {string}): string
+  for _, l in ipairs(labels) do
+    local col = l:match("^plan:(%l+)$")
+    if col and COLUMN_SET[col] then
+      return col
+    end
+  end
+  return nil
+end
+
+--- Whether a label set carries a given marker label.
+--- @param labels {string} Label names on the issue
+--- @param marker string Marker name without the plan: prefix
+--- @return boolean True when present
+local function has_marker(labels: {string}, marker: string): boolean
+  for _, l in ipairs(labels) do
+    if l == "plan:" .. marker then
+      return true
+    end
+  end
+  return false
+end
+
+--- Ready-bar lint: the required headings a body is missing.
+--- A heading counts at any level ("## Goal", "# goal"), matched on the
+--- heading text alone, case-insensitively.
+--- @param body string Issue body markdown
+--- @return {string} Missing section names, in READY_SECTIONS order
+local function ready_gaps(body: string): {string}
+  local present: {string: boolean} = {}
+  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+    local text = line:match("^#+%s+(.-)%s*$")
+    if text then
+      present[text:lower()] = true
+    end
+  end
+  local missing: {string} = {}
+  for _, name in ipairs(READY_SECTIONS) do
+    if not present[name:lower()] then
+      missing[#missing + 1] = name
+    end
+  end
+  return missing
+end
+
+--- Issue numbers named on "blocked by" lines of a body. Any line
+--- containing the phrase contributes every #N it mentions; same-repo
+--- references only.
+--- @param body string Issue body markdown
+--- @return {integer} Blocker issue numbers, in order of appearance
+local function blockers(body: string): {integer}
+  local out: {integer} = {}
+  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+    if line:lower():find("blocked by", 1, true) then
+      for n in line:gmatch("#(%d+)") do
+        out[#out + 1] = math.tointeger(tonumber(n))
+      end
+    end
+  end
+  return out
+end
+
+--- Issues of one column, oldest (lowest number) first. Returns a new
+--- sorted copy; the board is data, not scratch.
+--- @param board Board The board
+--- @param column string Column name
+--- @return {Issue} Sorted issues, possibly empty
+local function oldest_first(board: Board, column: string): {Issue}
+  local list: {Issue} = {}
+  for _, i in ipairs(board[column] or {}) do
+    list[#list + 1] = i
+  end
+  table.sort(list, function(a: Issue, b: Issue): boolean
+      return a.number < b.number
+    end)
+  return list
+end
+
+--- WIP-limit violations, one line each ("doing 3/2 over limit").
+--- @param board Board The board
+--- @return {string} Violations, left-to-right column order
+local function wip_violations(board: Board): {string}
+  local out: {string} = {}
+  for _, col in ipairs(COLUMNS) do
+    local n = #(board[col] or {})
+    if n > LIMITS[col] then
+      out[#out + 1] = ("%s %d/%d over limit"):format(col, n, LIMITS[col])
+    end
+  end
+  return out
+end
+
+--- The oldest ready issue an implementer may pull: not an epic, and
+--- with no open blocker.
+--- @param board Board The board
+--- @param is_open IsOpen Blocker-state oracle
+--- @return Issue | nil The pullable issue, or nil when none qualifies
+local function first_pullable(board: Board, is_open: IsOpen): Issue
+  for _, i in ipairs(oldest_first(board, "ready")) do
+    if not i.epic then
+      local open_blocker = false
+      for _, b in ipairs(blockers(i.body or "")) do
+        if is_open(b) then
+          open_blocker = true
+          break
+        end
+      end
+      if not open_blocker then
+        return i
+      end
+    end
+  end
+  return nil
+end
+
+--- The implementer's next action: finish before starting. Any doing
+--- item comes first (oldest, with the pullable ready issue as the
+--- fallback for a second concurrent session); otherwise pull the
+--- oldest unblocked ready issue; otherwise there is nothing to pull
+--- and a planner session is the answer.
+--- @param board Board The board
+--- @param is_open IsOpen Blocker-state oracle
+--- @return NextAction The decision
+local function next_for_implementer(board: Board, is_open: IsOpen): NextAction
+  local doing = oldest_first(board, "doing")
+  local pullable = first_pullable(board, is_open)
+  if #doing > 0 then
+    local reason = ("doing holds %d/%d — finish before pulling"):format(
+      #doing, LIMITS["doing"])
+    if pullable then
+      reason = reason .. ("; if #%d is another live session's claim, pull #%d")
+      :format(doing[1].number, pullable.number)
+    end
+    return {kind = "finish", issue = doing[1], alt = pullable, reason = reason}
+  end
+  if pullable then
+    return {
+      kind = "pull",
+      issue = pullable,
+      reason = "oldest ready issue with no open blocker",
+    }
+  end
+  if #(board["ready"] or {}) > 0 then
+    return {
+      kind = "none",
+      reason = "every ready issue is an epic or has an open blocker — "
+      .. "a planner session must unblock or refine",
+    }
+  end
+  return {
+    kind = "none",
+    reason = "no ready work — a planner session must refine or intake",
+  }
+end
+
+--- The planner's next action, right to left: review waiting work
+--- first; then refine shaping into ready while ready has slack; then
+--- intake from the goals while shaping has slack; else nothing.
+--- @param board Board The board
+--- @return NextAction The decision
+local function next_for_planner(board: Board): NextAction
+  local review = oldest_first(board, "review")
+  if #review > 0 then
+    return {
+      kind = "review",
+      issue = review[1],
+      reason = "review is the rightmost occupied column — verdicts first",
+    }
+  end
+  local shaping = oldest_first(board, "shaping")
+  if #shaping > 0 and #(board["ready"] or {}) < LIMITS["ready"] then
+    return {
+      kind = "refine",
+      issue = shaping[1],
+      reason = ("ready holds %d/%d — refine shaping toward the bar"):format(
+        #(board["ready"] or {}), LIMITS["ready"]),
+    }
+  end
+  if #shaping < LIMITS["shaping"] then
+    return {
+      kind = "intake",
+      reason = ("shaping holds %d/%d — work backwards from docs/goals.md")
+      :format(#shaping, LIMITS["shaping"]),
+    }
+  end
+  return {
+    kind = "none",
+    reason = "shaping and ready are at limit with nothing to review — "
+    .. "implementation has to catch up before planning adds more",
+  }
+end
+
+--- The next action for a role.
+--- @param board Board The board
+--- @param role string "planner" or "implementer"
+--- @param is_open IsOpen Blocker-state oracle
+--- @return NextAction | nil The decision
+--- @return string Error message for an unknown role
+local function next_action(board: Board, role: string,
+    is_open: IsOpen): NextAction, string
+  if role == "implementer" then
+    return next_for_implementer(board, is_open)
+  end
+  if role == "planner" then
+    return next_for_planner(board)
+  end
+  return nil, "unknown role: " .. tostring(role) ..
+  " (expected planner or implementer)"
+end
+
+local record model
+  type Issue = Issue
+  type Board = Board
+  type NextAction = NextAction
+  type IsOpen = IsOpen
+  COLUMNS: {string}
+  LIMITS: {string: integer}
+  READY_SECTIONS: {string}
+  column_of: function(labels: {string}): string
+  has_marker: function(labels: {string}, marker: string): boolean
+  ready_gaps: function(body: string): {string}
+  blockers: function(body: string): {integer}
+  oldest_first: function(board: Board, column: string): {Issue}
+  wip_violations: function(board: Board): {string}
+  next_action: function(board: Board, role: string, is_open: IsOpen):
+  NextAction, string
+end
+
+local M: model = {
+  COLUMNS = COLUMNS,
+  LIMITS = LIMITS,
+  READY_SECTIONS = READY_SECTIONS,
+  column_of = column_of,
+  has_marker = has_marker,
+  ready_gaps = ready_gaps,
+  blockers = blockers,
+  oldest_first = oldest_first,
+  wip_violations = wip_violations,
+  next_action = next_action,
+}
+
+return M

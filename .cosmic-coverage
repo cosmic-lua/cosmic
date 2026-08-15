@@ -10,7 +10,7 @@ _cli/build/steps.tl 166 219
 _cli/build/work.tl 161 199
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
-_cli/env_vars.tl 70 70
+_cli/env_vars.tl 72 72
 _cli/grants.tl 158 168
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
@@ -76,6 +76,9 @@ _perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
+_plan/board.tl 0 169
+_plan/gh.tl 0 43
+_plan/model.tl 146 147
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 153 167
 _tool/coverage/lines.tl 65 71
@@ -109,7 +112,7 @@ cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37
 cosmic/_teal_discard.tl 130 148
 cosmic/_teal_engine.tl 123 128
-cosmic/_teal_hints.tl 45 45
+cosmic/_teal_hints.tl 48 48
 cosmic/ansi.tl 86 86
 cosmic/check.tl 110 114
 cosmic/child/fast.tl 40 52
@@ -191,7 +194,7 @@ cosmic/sandbox/plan.tl 24 24
 cosmic/sandbox/pledge.tl 24 35
 cosmic/sandbox/unveil.tl 22 39
 cosmic/searcher.tl 20 29
-cosmic/shm.tl 127 141
+cosmic/shm.tl 126 140
 cosmic/signal.tl 101 109
 cosmic/sqlite/bind.tl 41 44
 cosmic/sqlite/defaults.tl 15 17
@@ -213,4 +216,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 15002 19971
+total 15152 20334
