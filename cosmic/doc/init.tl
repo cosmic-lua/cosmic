@@ -6,6 +6,13 @@
 --- query half.
 local types = require("cosmic.doc.types")
 
+-- The position rule that decides which modules are published,
+-- re-exported for the same reason the type vocabulary is: a caller
+-- outside cosmic/ — the build's public-surface ratchet — must ask the
+-- rule rather than keep a second copy of it, and cannot require the
+-- cosmic.doc.visibility shard directly.
+local visibility = require("cosmic.doc.visibility")
+
 -- The query half of the converged `doc`/`docs` family: lookup and
 -- search over the index embedded in the binary, behind the `--docs`
 -- CLI. The type vocabulary (DocIndex, DocsResult, ...) is declared on
@@ -42,6 +49,10 @@ local record DocModule
   guide: function(topic: string): string | nil, string
   guide_topics: function(): {string}
   guides: function(): {{string, string}}
+
+  -- Visibility: which module names are the published API, by position.
+  is_public: function(name: string): boolean
+  public_of: function(names: {string}): {string}
 end
 
 local M: DocModule = {
@@ -56,6 +67,8 @@ local M: DocModule = {
   guide = query.guide,
   guide_topics = query.guide_topics,
   guides = query.guides,
+  is_public = visibility.is_public,
+  public_of = visibility.public_of,
 }
 
 return M
