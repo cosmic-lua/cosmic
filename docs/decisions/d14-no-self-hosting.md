@@ -1,6 +1,7 @@
 # D14 — no self-hosting: make stays the graph executor
 
 - **date:** 2026-07
+- **status:** amended 2026-07
 - **context:** with all build logic in `.tl` under the bootstrap,
   make's remaining roles are the graph itself — pattern rules,
   `.SECONDEXPANSION`, the module `foreach`/`eval` expansion, staleness,

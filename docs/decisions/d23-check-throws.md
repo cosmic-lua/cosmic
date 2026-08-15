@@ -1,6 +1,7 @@
 # D23 — cosmic.check throws by design; needs/reap may exit
 
 - **date:** 2026-08
+- **status:** active
 - **context:** the error-handling doctrine says "never throw from
   library code" with no carve-out, yet every assertion in
   `cosmic.check` throws — deliberately, at error level 2, so the

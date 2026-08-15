@@ -1,6 +1,7 @@
 # D6 — the promise transfers via runtime defaults plus ratchets
 
 - **date:** 2026-07
+- **status:** active
 - **context:** the gates protecting cosmic itself (format, coverage
   ratchet, examples, verdict discipline) live in cosmic's Makefile;
   user projects get pieces, not the apparatus.

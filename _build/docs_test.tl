@@ -23,8 +23,8 @@ local fs = require("cosmic.fs")
 local function test_the_decisions_index_matches_the_records()
   local rendered, bad = derive.decisions_table()
   assert(#bad == 0,
-    "decision record(s) with no `# D<n> — <title>` heading, so they " ..
-    "cannot be indexed:\n  " .. table.concat(bad, "\n  "))
+    "decision record(s) the index cannot be derived from:\n  " ..
+    table.concat(bad, "\n  "))
 
   local text = check.must(fs.read(derive.INDEX))
   local committed = derive.committed_table(text, derive.DECISIONS_HEAD)

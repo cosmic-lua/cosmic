@@ -1,6 +1,7 @@
 # D8 — eval win condition: correctness gates, then efficiency
 
 - **date:** 2026-07
+- **status:** active
 - **context:** the harness (G1) yields absolute scores (silent bugs,
   errors) and relative ones (cycles vs Python/Node/Go). absolute and
   relative bars fail differently.

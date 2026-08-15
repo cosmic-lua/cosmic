@@ -1,6 +1,7 @@
 # D22 — the CSPRNG surface is infallible; a broken one crashes
 
 - **date:** 2026-08
+- **status:** active
 - **context:** `cosmic.rand` was fallible end to end — even
   `rand.float(): number | nil, string`, which calls `int(0, 2^53-1)`
   with constants and cannot fail — because one argument-range check on

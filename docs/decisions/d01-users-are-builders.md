@@ -1,6 +1,7 @@
 # D1 — builders of command-line software are the user; agents are the lens
 
 - **date:** 2026-07
+- **status:** active
 - **context:** cosmic's goals could optimize for AI coding agents, for
   human script writers, for tool distributors, or for its author alone.
   the agent-usability studies showed the agent experience is measurable

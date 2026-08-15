@@ -1,6 +1,7 @@
 # D15 — an artifact carries its modules and `embed/**`; shipping is opt-in
 
 - **date:** 2026-07
+- **status:** active
 - **context:** the `--make` project model declares intent by position or
   marker — a test is `*_test.*`, a pin is `*_pin.tl`, payload is
   `embed/**`, internal is `_`. One row inverted that: "everything else

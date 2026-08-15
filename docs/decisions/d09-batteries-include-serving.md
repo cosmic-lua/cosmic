@@ -1,6 +1,7 @@
 # D9 — batteries include serving; not urgently
 
 - **date:** 2026-07
+- **status:** active
 - **context:** the stdlib has an HTTP client, sockets, poll, and SSE
   parsing, but no server or concurrency model. upstream cosmopolitan
   had redbean; the fork was slimmed to the C core.

@@ -1,6 +1,7 @@
 # D24 — slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype
 
 - **date:** 2026-08
+- **status:** active
 - **context:** the doctrine said "errors are strings": a fallible
   return is `T | nil, string`, full stop. That held until a domain had
   errors with real structure — `cosmic.fetch` classifies every failure

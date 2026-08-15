@@ -1,6 +1,7 @@
 # D25 — goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard
 
 - **date:** 2026-08
+- **status:** active
 - **context:** goals.md listed seven goals in one flat tier, and three
   structural problems surfaced when the flow system
   (`skills/plan`) tried to work backwards from them. first, G1 (the

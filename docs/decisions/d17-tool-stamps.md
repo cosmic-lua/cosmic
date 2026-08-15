@@ -1,6 +1,7 @@
 # D17 — a graph rule's tool prerequisite is a per-tool stamp, not the binary
 
 - **date:** 2026-08
+- **status:** active
 - **context:** every graph rule named the running binary
   (`$(COSMIC_DEP)`) as a prerequisite, because a result is only as
   fresh as the tool that produced it — a formatter fix must invalidate
