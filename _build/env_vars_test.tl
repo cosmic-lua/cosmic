@@ -1,14 +1,12 @@
 #!/usr/bin/env cosmic
 --- reads: _cli _make _build _tool _docs _perf _types cosmic cmd embed bin
--- Ratchet over the COSMIC_* environment variable registry (#1003).
+-- Ratchet over the COSMIC_* environment variable registry.
 --
--- The public/internal split used to be prose in sys/help.md
--- ("everything else is INTERNAL"), and prose drifts: variables were
--- read by code and named in neither list. Now the registry
--- (_cli/env_vars.tl) declares every variable with a role, --help
--- renders the public rows, and this gate holds the two directions: a
--- variable code reads must be declared, and a declared row must be
--- read by something.
+-- Prose drifts: a variable can be read by code and named in neither
+-- list. The registry (_cli/env_vars.tl) declares every variable with
+-- a role, --help renders the public rows, and this gate holds the
+-- two directions: a variable code reads must be declared, and a
+-- declared row must be read by something.
 
 local check = require("cosmic.check")
 local env_vars = require("_cli.env_vars")

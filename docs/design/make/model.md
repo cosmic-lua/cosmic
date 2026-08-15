@@ -86,9 +86,7 @@ next scope *without* consulting the last one. Two rows falsified a
 prediction; one is now closed. A binary's payload generator reads the
 *binary's* scope rather than its own subtree — that is a distinct row
 above and a distinct **kind** (`payload-gen`) out of `classify`, with a
-validator rule for a stray `embed_gen.tl` where no binary lives; it used
-to be one kind split by prose plus a basename match inside the runner,
-which left `cmd/foo/data_gen.tl` a file neither mechanism would run. A
+validator rule for a stray `embed_gen.tl` where no binary lives. A
 pin's output path is still named by the url inside it (hence the ⚠),
 and retires with the second pin reader — see the pin grammar below.
 The `Unit` record is not earned; the smaller `unit_dir(path)` the fence

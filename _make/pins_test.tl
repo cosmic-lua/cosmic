@@ -5,9 +5,8 @@
 -- a release actually depends on (the `platforms` table, `{platform}`
 -- and `{version}` substitution, the landing path) never runs against
 -- the two files a cold checkout has to resolve before it can build
--- anything. It broke that way once during development: `--make fetch`
--- refused both real pins, and nothing failed until someone ran the
--- fixpoint by hand.
+-- anything. Without this test, a mistake in either pin would go
+-- unnoticed until someone ran the fixpoint by hand.
 --
 -- No network: resolution is a pure function of the committed file, and
 -- that is the half worth gating on every commit. The online half — a

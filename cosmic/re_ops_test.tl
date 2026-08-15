@@ -2,7 +2,7 @@
 local re = require("cosmic.re")
 local check = require("cosmic.check")
 
---- The old findall shape, over find_all: every match's text, in order.
+--- Every match's text from find_all, in order.
 --- Also exercises Span fields via the m projection.
 local function matches_of(text: string, pat: string, opts?: re.CompileOptions): {string} | nil, string
   local spans, err = re.find_all(text, pat, opts)
@@ -80,13 +80,10 @@ local function test_anchor_caret_only_start()
 end
 test_anchor_caret_only_start()
 
--- The NEWLINE flag's `^`/`$` anchors at embedded newlines now behave
--- as POSIX specifies. This was a DOCUMENTED LIMITATION of the old
--- locate()-based iteration (its exact-width verification window could
--- not see the newline byte, so all_matches gave up or undercounted);
--- the engine reporting offsets directly (Regex:find) deleted that
--- machinery, and this test changed deliberately with it, as the old
--- test's comment asked.
+-- The NEWLINE flag's `^`/`$` anchors match at embedded newlines, as
+-- POSIX specifies: the engine reports offsets directly (Regex:find),
+-- so all_matches sees every line boundary instead of missing the
+-- newline byte inside a fixed-width verification window.
 local function test_newline_anchor_matches_past_first_line()
   -- Without NEWLINE, `^` only matches true text start: one match.
   local ms = check.must(matches_of("foo\nfoo", "^foo"))

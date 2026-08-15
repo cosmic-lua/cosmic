@@ -20,7 +20,7 @@ local function read(path: string): string | nil, string
   return data
 end
 
---- Options for write() (#988: folds write_atomic into the one write).
+--- Options for write(): mode and atomic.
 local record WriteOptions
   --- Permission bits, applied exactly (default 0644 on create).
   mode: integer
@@ -39,7 +39,7 @@ local write_atomic: function(path: string, data: string, mode?: integer): boolea
 --- of an overwritten file. Without a mode, a new file is created 0644
 --- (umask-masked) and an existing file keeps its permissions. With
 --- opts.atomic, the write goes through a same-directory temp file,
---- fsync and rename (#988: was the separate write_atomic).
+--- fsync and rename.
 --- @param path string Path to the file
 --- @param data string Data to write
 --- @param opts WriteOptions Options carrying mode and atomic

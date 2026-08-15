@@ -7,8 +7,9 @@ local bind_mod = require("cosmic.sqlite.bind")
 -- The transaction/savepoint callback: an EXPLICIT verdict. `return
 -- true` commits, `return false, why` rolls back; a raise rolls back;
 -- any other return rolls back with an error naming the contract, so a
--- callback that forgets its verdict cannot commit by accident (the old
--- variadic contract committed on `0`, `""`, a table, or bare nil).
+-- callback that forgets its verdict cannot commit by accident — Lua's
+-- own truthiness would otherwise let `0`, `""`, a table, or bare nil
+-- commit.
 local type TxFn = function(any): boolean, string
 
 local record Db

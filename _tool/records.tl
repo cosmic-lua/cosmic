@@ -31,8 +31,8 @@ local EXIT_SKIP < const > = 2
 
 --- A row's status: what the exit code (or the build graph's own
 --- bookkeeping, for "ignore") said about the target. An enum, not a
---- bare string (#992): a misspelled status was silently rendered with
---- the fail icon.
+--- bare string: a misspelled status would silently render with the
+--- fail icon.
 local enum Status
   "pass"
   "fail"
@@ -142,7 +142,7 @@ end
 --- @param name string The row's name, from `display`
 --- @param count integer How many units ran, 0 when unrecorded
 --- @param unit string What the count counts ("test functions")
---- @param wall_ms? integer Duration; nil when unrecorded (#992: was -1)
+--- @param wall_ms? integer Duration; nil when unrecorded
 --- @return string The row, without its newline
 local function row(status: Status, name: string, count: integer,
     unit: string, wall_ms?: integer): string
@@ -174,8 +174,9 @@ local function counts(passed: integer, failed: integer,
 end
 
 --- The three counts a stage summary carries. One record, because a
---- nil-in-slot-1 return may not carry a second and third value past
---- it (D20 rule 11): the shape has to read `local c, err = ...`.
+--- fallible return has exactly two slots — nil in slot 1 leaves no
+--- room for a second and third value — so the shape has to read
+--- `local c, err = ...`.
 local record Counts
   passed: integer
   failed: integer
@@ -192,7 +193,7 @@ end
 --- reading as "seven failed".
 --- @param text string A summary file's contents
 --- @return Counts|nil The three counts, nil when the text carries no
---- counts line (#992: was -1)
+--- counts line
 local function parse_counts(text: string): Counts | nil
   local total = text:match("(%d+) checks:")
   if not total then
@@ -231,9 +232,8 @@ end
 --- stage that failed before writing one (a validation error, a make
 --- that never started) has no per-target counts, and inventing them
 --- would be worse than saying how big the stage was.
---- @param summary string|nil The summary file's TEXT (#992: was a
---- path — the caller reads the file, so this module needs no fs), nil
---- when there is none
+--- @param summary string|nil The summary file's TEXT — the caller
+--- reads the file, so this module needs no fs — nil when there is none
 --- @param total integer How many targets the stage had
 --- @param unit string The singular noun ("file")
 --- @return string The detail
@@ -251,9 +251,9 @@ end
 
 --- A verb's verdict line, without its newline. Every verb ends in
 --- one, so a caller that reads only the last line still knows what
---- happened. Formatting and the exit code are separate halves (#992:
---- `verdict` printed AND returned the code, so a caller that wanted
---- the line anywhere but stdout could not have it).
+--- happened. Formatting and the exit code are separate halves, so a
+--- caller can send the verdict line anywhere it likes — not just
+--- stdout — and still get the exit code.
 --- @param verb string The verb
 --- @param ok boolean Whether it succeeded
 --- @param what string Parenthetical detail, empty for none

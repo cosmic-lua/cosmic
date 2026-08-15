@@ -154,8 +154,8 @@ local function test_memory_wake_no_waiters()
 end
 test_memory_wake_no_waiters()
 
--- Real wrapper with error slots (review item 25): invalid
--- sizes and out-of-range accesses return nil, err instead of throwing.
+-- A real wrapper with error slots: invalid sizes and out-of-range
+-- accesses return nil, err instead of throwing.
 
 local function test_open_size_not_multiple_of_word()
   local mem, err = shm.open(100)
@@ -279,11 +279,9 @@ end
 test_memory_wait_retries_eintr_until_deadline()
 
 -- close releases the mapping deterministically instead of waiting
--- for the garbage collector. Idempotent and returns NOTHING (#999:
--- it used to return false for "already released", so asserting the
--- second, correct call failed); afterwards every fallible method
--- returns an error instead of touching freed memory, and wake wakes
--- nothing.
+-- for the garbage collector. Idempotent and returns NOTHING; afterwards
+-- every fallible method returns an error instead of touching freed
+-- memory, and wake wakes nothing.
 local function test_memory_close()
   local mem = assert(shm.open(64))
   assert(mem:store(0, 7))

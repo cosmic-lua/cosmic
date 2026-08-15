@@ -53,11 +53,10 @@ local record Poller
   clear: function(Poller)
   --- Wait for events, up to timeout_ms. Returns the ready set as a
   --- {fd: Events} map — an empty map on timeout, `nil, err` on a hard
-  --- poll failure — so `for fd, ev in pairs(ready) do` iterates it and
-  --- the error arrives in slot 2 the house way (the old iterator ate
-  --- it as loop state, patched by a stateful err() sidecar; both are
-  --- gone). EINTR is retried against an absolute deadline, so repeated
-  --- signals can no longer stretch the wait past timeout_ms.
+  --- poll failure — so `for fd, ev in pairs(ready) do` iterates it
+  --- directly and the error arrives in slot 2. EINTR is retried against
+  --- an absolute deadline, so repeated signals cannot stretch the wait
+  --- past timeout_ms.
   --- @param timeout_ms integer? Timeout in ms; nil blocks forever, 0 polls
   --- @return {integer: Events} | nil Ready set (empty on timeout)
   --- @return string? Error message on failure

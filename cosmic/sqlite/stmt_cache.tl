@@ -22,7 +22,7 @@ local type OnClose = bind_mod.OnClose
 
 -- A checked-out statement and how to give it back. One record, not two
 -- return slots plus an error in a third: the error has to be reachable
--- from `local co, err = cache:checkout(sql)` (D20 rule 11).
+-- from `local co, err = cache:checkout(sql)`.
 local record Checkout
   stmt: lsqlite3.Statement
   --- Non-nil when `stmt` is the shared cached one — call it instead of

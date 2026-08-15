@@ -81,7 +81,7 @@ local function default_include_dirs(): {string}
     "o/_types/types_gen",
     "/zip/.types", -- Bundled cosmic types (in binary)
     "/zip/.tl", -- Bundled cosmic .tl source (for type checking)
-    "/zip", -- The app's own zip root: embedded modules beside main.lua (#690)
+    "/zip", -- The app's own zip root: embedded modules beside main.lua
   }
 end
 
@@ -142,7 +142,7 @@ local function process_error(name: string, message: string): ProcessResult
   return {error = {file = name, line = 0, column = 0, message = message, severity = "error"}}
 end
 
--- Envs are reused across calls (#1101): construction costs ~6 ms per
+-- Envs are reused across calls: construction costs ~6 ms per
 -- call even with the pre-parsed stdlib ASTs (thaw plus tl re-checking
 -- its stdlib), so one env per option set makes the second and later
 -- checks in a process pay only their marginal cost. Everything that
@@ -179,7 +179,7 @@ local function build_env(lax: boolean, gen_target: string, gen_compat: string): 
 end
 
 --- Process Teal SOURCE: setup paths, run tl.process_string. The engine
---- both halves share (#1001): the file half reads and delegates here.
+--- both halves share: the file half reads and delegates here.
 --- @param input string The Teal source text
 --- @param name string What errors call this source (a path, or a chunk name)
 --- @param include_dirs {string} Directories to search for type definitions

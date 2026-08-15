@@ -1,6 +1,6 @@
 --- Regular expression matching using POSIX extended regex syntax.
 --- Wraps cosmo.re for pattern compilation and matching. Module-level
---- functions are SUBJECT-FIRST D20: match(text, pattern), like
+--- functions are subject-first: match(text, pattern), like
 --- string.match. Behavior comes in two records: CompileOptions fixes
 --- what a pattern means and belongs to the compiled Regex;
 --- SearchOptions describes one subject and applies per call. They are
@@ -36,9 +36,9 @@ local re = require("cosmo.re")
 local type Regex = re.Regex
 
 --- Compile behavior. Each field maps to one POSIX cflag; a record
---- keeps the compile and search namespaces unmixable (the old integer
---- flags shared one namespace, so a search flag passed at compile time
---- type-checked and was silently ignored).
+--- keeps the compile and search namespaces unmixable, so a search
+--- flag passed at compile time fails to type-check instead of being
+--- silently accepted and ignored.
 local record CompileOptions
   --- Basic (obsolete) regex syntax instead of extended.
   basic: boolean
@@ -174,8 +174,8 @@ end
 --- Compiled patterns are cached - compile() gives explicit reuse.
 --- Uses POSIX extended syntax by default. Two slots, three honest
 --- outcomes: a Match on success, bare nil on no match (not an error),
---- nil + err on a bad pattern or engine failure — the old three-slot
---- tuple made every call site hand-decode which nil it was looking at.
+--- nil + err on a bad pattern or engine failure — a single nil would
+--- force every call site to hand-decode which case it was looking at.
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
 --- @param opts CompileOptions? Compile behavior
@@ -204,9 +204,9 @@ end
 
 --- Whether pattern matches anywhere in text (subject first).
 --- Three honest outcomes: true, false on a clean no-match, and
---- nil + err on a bad pattern — the old boolean shape returned false
---- for both, so "no match" and "your pattern is invalid" were the
---- same value. Narrow with `~= nil`, which is exact for boolean unions.
+--- nil + err on a bad pattern — collapsing to a boolean would make
+--- "no match" and "your pattern is invalid" the same value.
+--- Narrow with `~= nil`, which is exact for boolean unions.
 --- @param text string The text to search in
 --- @param pattern string The regex pattern to match
 --- @param opts CompileOptions? Compile behavior
@@ -443,7 +443,7 @@ local record ReModule
   type CompileOptions = CompileOptions
   type SearchOptions = SearchOptions
 
-  -- Functions (subject first, D20)
+  -- Functions (subject first)
   compile: function(pattern: string, opts?: CompileOptions): Regex | nil, string
   match: function(text: string, pattern: string, opts?: CompileOptions): Match | nil, string
   is_match: function(text: string, pattern: string, opts?: CompileOptions): boolean | nil, string

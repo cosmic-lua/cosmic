@@ -12,8 +12,7 @@
 --- The asserts go through `loader_of` rather than `x is function`: the
 --- formatter miscounts a type-position `function` as a block opener and
 --- cascades the indentation of everything after it to end of file. It
---- is self-consistent, so `--check fmt` passes on the damage. Filed
---- separately with this file's first draft as the reproducer.
+--- is self-consistent, so `--check fmt` passes on the damage.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -54,7 +53,7 @@ local function manifest(name: string, lines: {string}): string, string
   return root, path
 end
 
--- The tree searcher VALUE is installed, never exported (#1001). Reach
+-- The tree searcher VALUE is installed, never exported. Reach
 -- it by installing a minimal bootstrap manifest once and taking what
 -- landed at index 2; the cached value then also proves identity across
 -- repeat installs.

@@ -5,8 +5,9 @@
 --- logic lives in `_types/tlast.tl` — a requirable, tested module —
 --- because a `*_gen.tl` is a generator by position, not a module, and
 --- cannot be imported (the gentl/types_gen split). What this writes is
---- the artifact payload `.tl_ast.luac`; see tlast.tl for the how and
---- whilp/cosmic#967 for the why.
+--- the artifact payload `.tl_ast.luac`, which lets `tl.new_env` skip
+--- the parse that dominates a fresh process's first env — see
+--- tlast.tl for the how.
 
 local cosmic = require("cosmic")
 local proc = require("cosmic.proc")

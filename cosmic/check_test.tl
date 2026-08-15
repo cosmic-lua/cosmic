@@ -107,8 +107,8 @@ test_check_with_cosmic_types()
 
 -- Honest nil: a fallible value-returning cosmic function is typed `T | nil`, so
 -- using its result without handling failure must NOT type-check. This is the
--- core guarantee of the honest-types sweep (whilp/cosmic#525): the checker
--- forces callers to narrow before dereferencing.
+-- core guarantee of the honest-types sweep: the checker forces callers to
+-- narrow before dereferencing.
 local function test_check_honest_nil_forces_narrowing()
   -- fs.stat returns `Stat | nil, string`; dereferencing .size unconditionally
   -- would crash at runtime on a missing path, so the checker rejects it.

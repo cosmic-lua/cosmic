@@ -13,24 +13,20 @@ local record SetitimerOptions
   interval_ms: integer
 end
 
---- setitimer's return is this SAME record (#999): the previous timer,
+--- setitimer's return is this SAME record: the previous timer,
 --- `which` included, so a restore is `signal.setitimer(prev)` with no
 --- reassembly. Sub-millisecond remainders round UP, so a still-armed
 --- timer never reads as the 0 that would disarm it when passed back.
 
 --- Signal set for blocking, unblocking, and waiting on signals.
 --- The binding's own record (add/remove/fill/clear/contains), built by
---- sigset() and passed to sigprocmask, sigaction and sigsuspend. This
---- was a hand-written mirror until whilp/cosmopolitan#246 freed the
---- name: the generated unix record spent `Sigset` on the constructor
---- FIELD, and a Teal record cannot hold a value field and a type alias
---- under one name, so the type could not be re-exported.
+--- sigset() and passed to sigprocmask, sigaction and sigsuspend.
 local type Sigset = unix.Sigset
 
 --- Signal handling module.
 --- Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
---- The disposition sigaction replaced; a record per D20 rule 11 (the
---- error stays reachable in slot 2). Restore with
+--- The disposition sigaction replaced; a record so the error stays
+--- reachable in slot 2. Restore with
 --- `signal.sigaction(sig, prev.handler, prev.flags, prev.mask)`.
 local record PrevAction
   --- The previous handler: a Lua function, or SIG_DFL/SIG_IGN.
@@ -121,15 +117,14 @@ local record SignalModule
   --- Suspend the process until a signal is delivered.
   --- Temporarily replaces the signal mask with the provided mask.
   --- True once a signal was delivered and handled (the EINTR that IS
-  --- this call's success — #999: success used to be an error string,
-  --- so asserting it always threw); false, err on any other errno.
+  --- this call's success); false, err on any other errno.
   --- A deliberate exception to the automatic EINTR retry policy
   --- (cosmic.stream): waiting for the interruption is the call's
   --- entire purpose.
   sigsuspend: function(mask?: Sigset): boolean, string
 
   --- Options for setitimer, and its result: the previous timer in the
-  --- same shape, so a restore round-trips (#999; rule 10 exports).
+  --- same shape, so a restore round-trips.
   type SetitimerOptions = SetitimerOptions
 
   --- Schedule SIGALRM signals at intervals.
@@ -222,12 +217,11 @@ local function setitimer(opts: SetitimerOptions): SetitimerOptions | nil, string
   }
 end
 
--- Two of the three casts that stood here are gone: Sigset is the
--- binding's own type now (whilp/cosmopolitan#246), so sigprocmask and
--- sigsuspend are ordinary calls. This one survives for an unrelated
--- reason -- the wrapper below takes `handler` as `any`, because the
--- formatter cannot parse a bare `function | integer` union in a
--- function statement, and `any` does not pass to the binding's union.
+-- Sigset is the binding's own type, so sigprocmask and sigsuspend are
+-- ordinary calls needing no cast. The wrapper below still needs one:
+-- it takes `handler` as `any`, because the formatter cannot parse a
+-- bare `function | integer` union in a function statement, and `any`
+-- does not pass to the binding's union.
 
 --- Register a signal handler for the specified signal.
 --- Lua handlers run deferred in ordinary VM context (see the
@@ -247,13 +241,12 @@ end
 -- the SignalModule record above carries the precise public type.
 local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): PrevAction | nil, string
   -- One call with whatever the caller gave: the binding tolerates
-  -- explicit trailing nils now (cosmopolitan#237), so the four-branch
-  -- ladder that existed to never produce them is gone.
+  -- explicit trailing nils, so no branch ladder is needed to avoid
+  -- producing them.
   -- Cast the ARGUMENT, not the whole binding: casting `unix.sigaction`
-  -- to a function type meant restating its return tuple here, a
-  -- hand-copy of what `cosmo/unix.d.tl` already declares (and one that
-  -- had already drifted -- it said three untyped slots where the
-  -- binding declares five typed ones).
+  -- to a function type would mean restating its return tuple here, a
+  -- hand-copy of what `cosmo/unix.d.tl` already declares and one liable
+  -- to drift out of sync with it.
   local raw_handler = handler as (function | integer) -- cast: handler union
   local prev, prev_flags, prev_mask =
   unix.sigaction(sig, raw_handler, flags, mask)

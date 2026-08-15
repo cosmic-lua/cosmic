@@ -167,14 +167,15 @@ local VERSION_STORED < const > = "cosmic/_version.lua"
 --- same literal reader as every pin. A root dotfile, and an ASSET --
 --- part of the project, not of its artifacts, so it does not ship.
 ---
---- `COSMIC_VERSION` alone made the version the one build input not
---- enumerable from the tree: two builds of the same commit differed by
---- ambient environment, and the reproducibility claim silently
---- acquired a precondition no committed file recorded. Nothing in the
---- graph could see an env change either, which is the exact staleness
---- shape `write_if_changed` and the facts closures exist to prevent.
---- A committed file is an ordinary input; the environment variable
---- stays as a documented OVERRIDE for a build nobody tagged.
+--- An environment variable alone would make the version the one build
+--- input not enumerable from the tree: two builds of the same commit
+--- could differ by ambient environment, and the reproducibility claim
+--- would silently acquire a precondition no committed file recorded.
+--- Nothing in the graph can see an env change either, which is the
+--- exact staleness shape `write_if_changed` and the facts closures
+--- exist to prevent. A committed file is an ordinary input; the
+--- environment variable stays as a documented OVERRIDE for a build
+--- nobody tagged.
 local VERSION_PIN < const > = ".version"
 
 --- The binary this generator belongs to.
@@ -349,9 +350,9 @@ local function write_version(dest: string): boolean, string
   end
   -- cast: the literal reader returns a plain table
   local cosmos = (pin as {string: any}).version
-  -- `return`, because this one is `require`d. cosmo.EncodeLua directly
-  -- (#1001: codec no longer wraps it): a C binding, so the stamp bytes
-  -- are identical whichever generation runs this generator.
+  -- `return`, because this one is `require`d. cosmo.EncodeLua is called
+  -- directly, not through the codec wrapper: a C binding, so the stamp
+  -- bytes are identical whichever generation runs this generator.
   local stamp = "return " .. cosmo.EncodeLua({
       cosmic = declared_version(),
       cosmos = cosmos is string and cosmos or "unknown",

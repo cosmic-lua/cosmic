@@ -9,10 +9,9 @@ local function open_db(): sqlite.Database
   return d
 end
 
--- Scalar lookups after #1063 retired query_value: query_one is the one
--- way in, and it keeps the distinction query_value could not — a NULL
--- first column is a row that exists, not a missing one. That capability
--- is the reason the convenience went rather than the reverse.
+-- Scalar lookups go through query_one: it keeps a distinction a
+-- combined value+found return could not — a NULL first column is a
+-- row that exists, not a missing one.
 
 local function test_query_one_scalar_with_params()
   local db = open_db()

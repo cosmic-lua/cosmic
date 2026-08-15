@@ -51,8 +51,10 @@ end
 
 --- Options for `allow` / `commit`. `best_effort` turns an unsupported
 --- host into a successful no-op instead of an error — the explicit
---- fail-open escape hatch. (#989: keep_coverage is gone — the seal
---- decision lives with cosmic.coverage, which build tooling marks.)
+--- fail-open escape hatch. Sealing coverage on these calls is
+--- unconditional: the decision to keep coverage running lives with
+--- cosmic.coverage, which build tooling marks, not with an option
+--- here.
 local record Options
   best_effort: boolean
 end

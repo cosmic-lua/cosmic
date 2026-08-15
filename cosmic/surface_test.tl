@@ -93,8 +93,8 @@ local function test_directory_module_entry_points()
     assert(type(mod[fn]) == "function",
       "cosmic." .. name .. " must expose " .. fn .. "()")
   end
-  -- doc is the embedded-index query surface (#992: the extraction
-  -- half is `_tool.doc` now).
+  -- doc is the embedded-index query surface; the extraction half
+  -- lives in `_tool.doc`.
   local doc = require("cosmic.doc") as {string: any} -- cast: from any
   assert(type(doc["query"]) == "function", "cosmic.doc must expose query()")
   assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")

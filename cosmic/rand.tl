@@ -2,7 +2,7 @@
 --- Wraps cosmo.GetRandomBytes for cryptographically secure randomness, and
 --- cosmo.Rand64 for fast non-cryptographic use cases.
 ---
---- Every function here is INFALLIBLE (D22): on every supported platform
+--- Every function here is INFALLIBLE: on every supported platform
 --- the kernel CSPRNG cannot fail once the system has booted, so there is
 --- no runtime failure for a return slot to carry. Out-of-range arguments
 --- are contract violations and throw — the one thing that must never
@@ -23,7 +23,7 @@ local function bytes(n: integer): string
   if not data then
     -- A failing CSPRNG is unrecoverable and an error return invites
     -- proceeding insecurely; the binding only fails on an out-of-range
-    -- n (a contract violation) or a genuinely broken host (D22).
+    -- n (a contract violation) or a genuinely broken host.
     error("rand.bytes: " .. (err or "GetRandomBytes failed"), 2)
   end
   return data

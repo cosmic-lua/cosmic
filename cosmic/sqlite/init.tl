@@ -4,10 +4,10 @@
 --- Prefer `db:exec()`, `db:query()`, `db:query_one()`, and
 --- `db:transaction()` over manual preparation, binding, and stepping.
 --- A scalar lookup is `db:query_one()` too — name the column and read
---- it (`db:query_one("SELECT COUNT(*) AS n FROM t").n`). The old
---- `query_value` shortcut is retired (#1063): its `found` flag could
---- not fit beside a value and an error in two slots, and without it a
---- NULL column and a missing row read the same.
+--- it (`db:query_one("SELECT COUNT(*) AS n FROM t").n`). There is no
+--- separate `query_value` shortcut: a `found` flag cannot fit beside a
+--- value and an error in two slots, and without it a NULL column and a
+--- missing row read the same.
 --- Parameters travel in one table: a list binds `?` placeholders
 --- positionally, a keyed table binds `:name` placeholders.
 ---

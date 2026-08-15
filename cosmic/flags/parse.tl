@@ -14,7 +14,7 @@ end
 
 --- Validate a spec and index its flags. Returns long-name and
 --- short-letter lookup maps, or nil and a message naming the defect.
---- Error strings are unprefixed (#991): the caller knows its own name.
+--- Error strings are unprefixed: the caller knows its own name.
 local function index_flags(spec: Spec): {string: Flag}, {string: Flag}, string
   local by_long: {string: Flag} = {}
   local by_short: {string: Flag} = {}
@@ -77,7 +77,7 @@ end
 --- Never prints and never exits: --help/--version requests come back
 --- as fields on Parsed, and any problem — invalid spec, unknown flag,
 --- missing value, missing required flag — is nil plus a one-line
---- message. The message is NOT prefixed with the program name (#991):
+--- message. The message is NOT prefixed with the program name:
 --- add your own context, like every other module's errors. Repeated
 --- valued flags keep the last occurrence in `values`; declare
 --- `repeated` to collect every occurrence in `lists`.

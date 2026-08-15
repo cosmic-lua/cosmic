@@ -5,20 +5,17 @@
 -- there is wrong advice delivered by the tool itself. Nothing else
 -- checks it against `_make/`.
 --
--- The drift is real. When D15 made shipping opt-in, `_make/artifact.tl`
--- dropped `asset` from its `ships` table — and the guide kept teaching
--- the deleted "everything else ships" row in four places, one of which
--- contradicted a correct row two lines above it. Four instances, three
--- review rounds, two commits, for a claim that is one grep. These are
--- the greps.
+-- Guide prose can drift from the model it describes: a row can keep
+-- teaching a kind the model does not classify that way, and nothing
+-- but a grep would catch it, because prose is never checked against
+-- the code it claims to describe. So every claim below is checked
+-- against the CODE, by requiring it.
 --
--- Every one of them asks the CODE, by requiring it. The first version
--- of this file recovered the kind vocabulary by regexing
--- `_make/types.tl`, because a Teal enum is a type and types are erased
--- — so there was nothing to require. `_make.types` now carries
--- `kinds`, and the one assertion that still reads source lives beside
--- the enum in `_make/types_test.tl`, where a broken parse fails by
--- name instead of quietly shrinking what this file covers.
+-- The kind vocabulary comes from `_make.types.kinds`. Teal enums are
+-- erased at runtime, so the assertion that `kinds` matches the source
+-- enum lives beside the enum in `_make/types_test.tl`, where a broken
+-- parse fails by name instead of quietly shrinking what this file
+-- covers.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -108,9 +105,9 @@ end
 
 -- The guide's marker table and the model's kind vocabulary are the
 -- same list. Both directions: a kind the model has and the table does
--- not teach is advice with a hole in it, and a row teaching a kind the
--- model no longer has is the D15 failure again — the tool delivering a
--- claim the model retired.
+-- not teach is advice with a hole in it, and a row teaching a kind
+-- absent from the model is the tool delivering a claim about
+-- something that does not exist.
 local function test_the_guide_teaches_exactly_the_models_kinds()
   for _, kind in ipairs(types.kinds) do
     assert(TAUGHT[kind], "kind '" .. kind .. "' is in the model's " ..
@@ -154,8 +151,8 @@ test_the_guide_teaches_exactly_the_models_kinds()
 -- And each marker means what the walk means by it. The pairing above
 -- only proves a row EXISTS; this runs the model's own classifier over
 -- a path the row describes, so a marker taught as the wrong kind
--- fails. That is the half of the D15 drift a presence check cannot
--- see: the deleted row had the right marker in it.
+-- fails — the failure a presence check alone cannot see: a row with
+-- the right marker but the wrong meaning.
 local function test_each_taught_marker_classifies_as_its_kind()
   for _, kind in ipairs(types.kinds) do
     for _, one in ipairs(TAUGHT[kind]) do
@@ -224,14 +221,12 @@ local function test_the_verb_table_is_the_registry()
 end
 test_the_verb_table_is_the_registry()
 
--- Retired vocabulary stays retired. D15's `ships` table dropped
--- `asset`: an unlisted repo file is part of the project, never of its
--- artifacts. The row that said otherwise — "an asset, embedded at its
--- relative path" — survived one review in four places. So: in a
--- teaching position (a table row), `asset` may appear only in the
--- pin's legitimate sense ("a pinned external asset"), which does not
--- embed anything. Prose about pins ("the fetched asset lands under
--- `o/`") is not a teaching row and stays free.
+-- An unlisted repo file is part of the project, never of its
+-- artifacts — shipping is opt-in, so in a teaching position (a table
+-- row), `asset` may appear only in the pin's legitimate sense ("a
+-- pinned external asset"), which does not embed anything. Prose about
+-- pins ("the fetched asset lands under `o/`") is not a teaching row
+-- and stays free.
 local function test_no_table_row_teaches_asset_outside_pins()
   for _, path in ipairs(guide_files()) do
     for _, row in ipairs(check.must(ratchet.rows(path))) do
@@ -247,10 +242,10 @@ local function test_no_table_row_teaches_asset_outside_pins()
 end
 test_no_table_row_teaches_asset_outside_pins()
 
--- And the row that replaced it keeps saying the true thing. Wherever a
--- guide table describes "everything else", it must say the file is
--- never embedded — that row is the one place the opt-in rule is
--- taught, and it is the exact cell the D15 drift corrupted.
+-- Wherever a guide table describes "everything else", it must say the
+-- file is never embedded — that row is the one place the opt-in rule
+-- is taught, and a row that goes quiet about it is advice a reader
+-- would misread as "everything ships".
 local function test_everything_else_teaches_never_embedded()
   local seen = 0
   for _, path in ipairs(guide_files()) do

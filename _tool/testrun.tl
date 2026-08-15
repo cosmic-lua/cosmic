@@ -12,9 +12,9 @@ local time = require("cosmic.time")
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
---- Returns the message alongside the exit code (#992): the runner
---- reports, the CALLER prints — nothing is written to this process's
---- stderr on a runner failure.
+--- Returns the message alongside the exit code: the runner reports,
+--- the CALLER prints — nothing is written to this process's stderr
+--- on a runner failure.
 --- @param argv {string} Command and arguments
 --- @param output_base string Base path for output files
 --- @return integer Exit code (for CLI return)

@@ -179,9 +179,9 @@ local function test_null_object_key_dropped()
 end
 test_null_object_key_dropped()
 
--- A null array element still decodes to a hole by default, but the
--- hole is now LOUD on re-encode rather than a silent truncation, and
--- two opt-ins make the round trip lossless (#998).
+-- A null array element decodes to a hole by default, but the
+-- hole is LOUD on re-encode rather than a silent truncation, and
+-- two opt-ins make the round trip lossless.
 local function test_null_array_element_is_a_loud_hole()
   local decoded = json.decode("[1,null,2]") as {any} -- cast: from any
   assert(decoded[1] == 1, "first element should survive")

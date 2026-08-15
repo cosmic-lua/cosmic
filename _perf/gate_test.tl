@@ -97,12 +97,11 @@ local function test_persistent_regression_triaged_as_noise_passes()
 end
 test_persistent_regression_triaged_as_noise_passes()
 
--- Magnitude-blindness was the bug: a scenario's A/A self-check clearing
--- the bar used to wave through ANY regression there, even one far
--- larger than the self-check swing itself. A +300% regression must
--- still fail even though this scenario's A/A control is measurably
--- unstable (+30%) -- the instability just isn't big enough to explain
--- the regression.
+-- Reclassification is magnitude-aware: a scenario's A/A self-check
+-- clearing the bar does not wave through ANY regression there, only
+-- one comparable in size. A +300% regression must still fail even
+-- though this scenario's A/A control is measurably unstable (+30%) --
+-- the instability just isn't big enough to explain the regression.
 local function test_large_regression_survives_unstable_selfcheck_and_fails()
   local base, cur, selfb = paths("large-unstable")
   write_results(base, 1000)

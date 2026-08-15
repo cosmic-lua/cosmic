@@ -9,7 +9,7 @@
 --- hands the programs to `tl.new_env` (carried patch,
 --- `3p/tl/tl_patch.tl` ast-cache-*), which skips the parse that
 --- dominates a fresh process's first env: ~11 of ~16 ms per compile
---- child (whilp/cosmic#967).
+--- child.
 ---
 --- Determinism is load-bearing: the repro lane byte-compares whole
 --- artifacts, so every table walk here is ordered (array part in

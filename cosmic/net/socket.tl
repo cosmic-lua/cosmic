@@ -246,7 +246,7 @@ local function make_socket(fd: integer): Socket
         dgram = self:getsockopt(unix.SOL_SOCKET, unix.SO_TYPE) == unix.SOCK_DGRAM
       end
       if not dgram then
-        return nil -- peer closed: end of stream (#589)
+        return nil -- peer closed: end of stream
       end
     end
     return data
@@ -350,7 +350,7 @@ local function make_socket(fd: integer): Socket
   function sock:accept(opts?: AcceptOptions): Socket | nil, string
     if fd < 0 then return nil, "socket closed" end
     if opts and opts.timeout_ms then
-      -- cosmic.poll owns the absolute-deadline retry (#980), so repeated
+      -- cosmic.poll owns the absolute-deadline retry, so repeated
       -- signals cannot stretch the wait past timeout_ms.
       local p = poll.new()
       local aok, aerr = p:add(fd, poll.POLLIN)

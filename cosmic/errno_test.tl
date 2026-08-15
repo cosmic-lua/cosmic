@@ -114,9 +114,8 @@ local function test_constants_excludes_termios()
 end
 test_constants_excludes_termios()
 
--- The canonical names (D20 rename, #981): same functions, one grammar.
--- The pre-#981 aliases (wrap/is/code/name_of/constants) are gone; what
--- is left to check is that the names that replaced them work.
+-- The canonical names share one grammar: format, is_code, code_of,
+-- name_in, and codes are exercised together here.
 local function test_canonical_names()
   assert(errno.format("mkdir: EACCES: denied", "mkdir: /x")
     == "mkdir: /x: EACCES: denied")

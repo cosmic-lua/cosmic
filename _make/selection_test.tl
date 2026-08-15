@@ -24,8 +24,8 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- else the copy `--make` extracts from its own binary.
 local make_bin = fs.absolute_path(os.getenv("COSMIC_MAKE")
   or "o/make")
--- Skip locally, FAIL in CI (029): a graph-test surface that silently
--- becomes green skips is the failure this guards.
+-- Skip locally, FAIL in CI: a graph-test surface that silently becomes
+-- green skips is the failure this guards.
 check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 local record Run

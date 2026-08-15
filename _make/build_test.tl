@@ -110,7 +110,7 @@ local function test_build_compiles_the_tree()
   end
   -- schema.sql is not a module, so the graph does not compile it -- and
   -- it is not under `embed/`, so it does not ship either. Shipping is
-  -- opt-in (D15); being in the repo buys a file nothing.
+  -- opt-in; being in the repo buys a file nothing.
   assert(not fs.is_present(fs.join(root, "o/schema.lua")),
     "a non-module is not compiled")
 end
@@ -347,11 +347,11 @@ local function test_dependencies_never_reach_the_child()
 end
 test_dependencies_never_reach_the_child()
 
--- Per-test incrementality: a test RUNS again when something it imports
--- changes, and not when anything else does. Under batched compiles
--- (#1099 D1) a group edit restamps sibling outputs, so an unrelated
+-- Per-test incrementality: a test RUNS again when something it
+-- imports changes, and not when anything else does. Under batched
+-- compiles a group edit restamps sibling outputs, so an unrelated
 -- test's record STEP may spawn to content-skip -- what it must not do
--- is really re-run, and d18's probe reads exactly that: the `.in`
+-- is really re-run, and the probe below reads exactly that: the `.in`
 -- record's mtime moves only when the step ran for real.
 local function test_a_test_reruns_only_for_what_it_imports()
   local function in_mtime(root: string, name: string): string

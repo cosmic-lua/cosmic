@@ -1,5 +1,5 @@
 --- The pure fs-policy -> landlock mapping behind cosmic.sandbox.
---- Split from the facade (#989) so the mapping stays inspectable and
+--- Kept separate from the facade so the mapping stays inspectable and
 --- unit-testable without being public API: cosmic.sandbox.plan is an
 --- internal shard, and the facade's apply() is the one door.
 local landlock = require("cosmic.sandbox.landlock")

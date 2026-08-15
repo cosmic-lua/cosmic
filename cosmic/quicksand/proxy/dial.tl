@@ -17,10 +17,10 @@ local errno = require("cosmic.errno")
 --- upstream namespace.
 ---
 --- When `timeout_ms` is non-nil the lookup is bounded by the C
---- binding's own deadline (cosmopolitan#199): past it, ResolveIp
---- disowns its worker and returns a "DNS lookup timed out" error, so
---- a hostile or tarpitting resolver can't wedge a per-connection
---- worker past its budget. Literal IPs never wait.
+--- binding's own deadline: past it, ResolveIp disowns its worker and
+--- returns a "DNS lookup timed out" error, so a hostile or tarpitting
+--- resolver can't wedge a per-connection worker past its budget.
+--- Literal IPs never wait.
 ---
 --- @param host string hostname or literal IPv4
 --- @param timeout_ms integer? resolution deadline (nil = unbounded)

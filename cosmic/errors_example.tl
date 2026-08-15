@@ -3,8 +3,8 @@
 --- these are its shapes, runnable: a fallible VALUE returns
 --- `value | nil, string`; a fallible EFFECT returns `boolean, string`;
 --- a module with STRUCTURED failures returns its own error record in
---- slot 2 (D24); an infallible function returns a bare value. Library
---- code never throws (cosmic.check is the one exemption, D23).
+--- slot 2; an infallible function returns a bare value. Library
+--- code never throws (cosmic.check is the one exemption).
 
 -- Example_value_error demonstrates the primary pattern: a fallible
 -- value comes back as `value | nil, string`, and the checker forces
@@ -32,7 +32,7 @@ local function Example_boolean_error()
   -- write failed: yes
 end
 
--- Example_structured_error demonstrates the structured shape (D24): a
+-- Example_structured_error demonstrates the structured shape: a
 -- module whose failures carry structure returns its own error record —
 -- still two slots. The classification is a typed field (a typo'd kind
 -- is a compile error against the module's enum), and tostring(err)

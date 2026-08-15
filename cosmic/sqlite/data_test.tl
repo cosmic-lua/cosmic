@@ -75,9 +75,7 @@ test_blob_bind_and_bind_list()
 
 local function test_blob_named_binds_with_blob_affinity()
   -- Named binding routes through the same shared bind step as
-  -- positional, so a blob() wrapper keeps BLOB affinity here too (the
-  -- old bind_names path bound the wrapper table itself, and named
-  -- blobs were rejected outright).
+  -- positional, so a blob() wrapper keeps BLOB affinity here too.
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (v BLOB)"))
   local payload = "x\0y"

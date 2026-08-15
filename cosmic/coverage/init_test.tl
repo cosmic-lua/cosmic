@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 --- Tests for the coverage collector.
 --- These run correctly both standalone and under an outer coverage run
---- (`cosmic --make coverage`): start/stop nest, and enable() never re-targets
---- an outer collection's dump directory.
+--- (`cosmic --make coverage`): start/stop nest, and a nested start's
+--- opts.dir never re-targets an outer collection's dump directory.
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local coverage = require("cosmic.coverage")
@@ -10,8 +10,8 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 -- The toolchain's .cov reader, used here as a measuring instrument
 -- for the public collect half's outputs. A cosmic/ TEST may reach a
--- `_` tree (D19: the no-`_`-requires rule binds library code — a
--- test ships nowhere).
+-- `_` tree: the no-`_`-requires rule binds library code, and a test
+-- ships nowhere.
 local report = require("_tool.coverage.report")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
@@ -65,7 +65,7 @@ local function test_coroutine_lines_counted()
   local dir = fs.join(tmpdir, "cov_co")
   local run = load_chunk("local s = 0\nfor i = 1, 2 do\n  s = s + i\nend\n",
     "@covtest_co.lua")
-  -- enable() wraps coroutine.create so new threads inherit the hook
+  -- start() wraps coroutine.create so new threads inherit the hook
   coverage.start({dir = dir})
   local co = coroutine.create(run)
   local ok = coroutine.resume(co)

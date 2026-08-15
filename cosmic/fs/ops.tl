@@ -11,7 +11,7 @@ local type Handle = cfd.Handle
 
 -- File operations
 
---- Remove a file or symbolic link (#988: was `unlink`).
+--- Remove a file or symbolic link.
 --- Does not remove directories; use remove_dir() or remove_all().
 --- @param path string Path to the file to remove
 --- @return boolean True on success
@@ -29,7 +29,7 @@ local COPY_CHUNK_BYTES = 0x40000000
 
 --- Drain srcfd into dstfd kernel-side via unix.copy_file_range: bytes
 --- never cross into userspace, so peak memory stays flat no matter the
---- file size (whilp/cosmopolitan#240). Returns "done" at EOF,
+--- file size. Returns "done" at EOF,
 --- "fallback" when the platform or filesystem refuses the syscall
 --- before any byte moved (ENOSYS, EXDEV, EINVAL, EOPNOTSUPP), or nil
 --- and the error once bytes are in flight and the failure is real.
@@ -213,7 +213,7 @@ local function readlink(path: string): string | nil, string
   return target
 end
 
---- Get the canonical absolute path (#988: was `realpath`).
+--- Get the canonical absolute path.
 --- Resolves all symbolic links and removes . and .. components.
 --- @param path string Path to resolve
 --- @return string | nil Canonical path, or nil on error
@@ -246,9 +246,9 @@ end
 
 -- Permission operations
 
---- Check if the current process may access a file the given way
---- (#988: was `access` with an optional mode — parameterless access
---- duplicated is_present, so the mode is required now).
+--- Check if the current process may access a file the given way.
+--- A parameterless form would duplicate is_present, so the mode is
+--- required.
 --- @param path string Path to check
 --- @param mode integer Access mode: R_OK, W_OK, X_OK (or F_OK, which is is_present)
 --- @return boolean True if access is allowed
@@ -257,7 +257,7 @@ local function is_accessible(path: string, mode: integer): boolean
   return unix.access(path, mode) == true
 end
 
---- Change file permissions (#988: was `chmod`).
+--- Change file permissions.
 --- @param path string Path to the file
 --- @param mode integer New permission bits (e.g., 0644)
 --- @return boolean True on success
@@ -270,16 +270,16 @@ local function set_mode(path: string, mode: integer): boolean, string
   return true
 end
 
---- Set the file mode creation mask, returning the previous one
---- (#993: moved from cosmic.user — the mask governs fs creation modes
---- for open()/make_dir(), which is filesystem policy, not identity).
+--- Set the file mode creation mask, returning the previous one — the
+--- mask governs fs creation modes for open()/make_dir(), which is
+--- filesystem policy, not identity.
 --- @param mask integer The new file mode creation mask
 --- @return integer The previous mask
 local function set_umask(mask: integer): integer
   return unix.umask(mask)
 end
 
---- Change file owner and group (#988: was `chown`).
+--- Change file owner and group.
 --- @param path string Path to the file
 --- @param uid integer New owner user ID
 --- @param gid integer New owner group ID
@@ -295,7 +295,7 @@ end
 
 -- Timestamp operations
 
--- Timespec/Times live in cosmic.fs.types (#988) so Stat:times() can
+-- Timespec/Times live in cosmic.fs.types so Stat:times() can
 -- return them; these are the same records.
 local type Timespec = types.Timespec
 local type Times = types.Times
@@ -348,7 +348,7 @@ end
 
 --- Create a temporary directory.
 --- @param template string Path template ending in XXXXXX (default:
----   $TMPDIR/cosmic_XXXXXX — #988: every caller was hardcoding /tmp)
+---   $TMPDIR/cosmic_XXXXXX)
 --- @return string | nil Path to the created directory, or nil on error
 --- @return string Error message if failed
 local function temp_dir(template?: string): string | nil, string
@@ -361,9 +361,8 @@ local function temp_dir(template?: string): string | nil, string
 end
 
 --- A created temp file: the open Handle plus its path. A record so the
---- error stays in slot 2 — the old (Handle, path, err) triple put a
---- SUCCESS value where `local h, err = ...` expected the error.
---- (#988: was `TmpFile` — rule 1 spells words out.)
+--- error stays in slot 2 — a (Handle, path, err) triple would put a
+--- SUCCESS value where `local h, err = ...` expects the error.
 local record TempFile
   --- Open handle to the created file; the Handle owns the descriptor.
   handle: Handle
@@ -386,9 +385,7 @@ local function temp_file(template?: string): TempFile | nil, string
   return {handle = cfd.wrap(fd), path = path}
 end
 
---- Create an anonymous temporary file, returned as an open fd.Handle
---- (#988: was a bare descriptor, with matching wrap-it-yourself docs
---- here and in cosmic.fd).
+--- Create an anonymous temporary file, returned as an open fd.Handle.
 --- @return Handle | nil Open handle, or nil on error
 --- @return string Error message if failed
 local function temp_fd(): Handle | nil, string
@@ -414,8 +411,8 @@ local function statfs(path: string): Statfs | nil, string
   return types.wrap_statfs(info as any)
 end
 
---- Get filesystem statistics from a file descriptor (#988: was
---- `fstatfs` — fd variants standardize on the `_fd` suffix).
+--- Get filesystem statistics from a file descriptor — fd variants
+--- standardize on the `_fd` suffix.
 --- @param fd integer File descriptor
 --- @return Statfs | nil Filesystem statistics, or nil on error
 --- @return string Error message if failed
@@ -429,7 +426,7 @@ local function statfs_fd(fd: integer): Statfs | nil, string
 end
 
 --- Flush all filesystem buffers to disk, system-wide (sync(2)) —
---- #988: was `sync`, ambiguous beside Handle:sync's one-file flush.
+--- distinct from Handle:sync's one-file flush.
 --- Infallible: the syscall reports nothing. For a single file use
 --- Handle:sync()/Handle:datasync() from cosmic.fd.
 local function sync_all()

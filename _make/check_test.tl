@@ -383,9 +383,9 @@ end
 test_usage_lists_the_vocabulary()
 
 -- `check.run` and `fetch.run` are module functions, and each refuses a
--- selection naming nothing on its own. The `--make` pre-flight now
--- refuses first, so these branches are unreachable from the CLI -- but
--- a module function may not assume its caller pre-flighted, so the
+-- selection naming nothing on its own. The `--make` pre-flight refuses
+-- first, so these branches are unreachable from the CLI -- but a
+-- module function may not assume its caller pre-flighted, so the
 -- guard stays and is tested where it is still reachable: here.
 local function test_the_verbs_refuse_a_bad_selection_on_their_own()
   local root = fixture("ownrefusal", {
@@ -401,8 +401,8 @@ end
 test_the_verbs_refuse_a_bad_selection_on_their_own()
 
 -- `--make=verb path` (the GNU `=` spelling) keeps its path selection.
--- It used to drop it silently -- the pre-scan matched only `--make`,
--- not `--make=check` -- and run the whole verb. A path that names
+-- A pre-scan matching only `--make`, not `--make=check`, would drop
+-- it silently and run the whole verb instead. A path that names
 -- nothing must reach the selection and be refused, not ignored.
 local function test_make_equals_form_keeps_its_selection()
   local root = app("equals")

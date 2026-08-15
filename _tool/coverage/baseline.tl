@@ -87,7 +87,8 @@ local function render(reports: {FileReport}, floor?: {string: Entry}): string
 end
 
 --- A parsed baseline: the per-file rows and the total row, in one
---- record so the error keeps slot 2 (D20 rule 11).
+--- record so the error keeps slot 2 — a fallible return has exactly
+--- two slots, the value and the error.
 local record Baseline
   --- Entries by path.
   rows: {string: Entry}

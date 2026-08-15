@@ -35,8 +35,8 @@ local function test_resolves_and_loads_a_tl_module()
   local name = fixture("searcher_ok",
     "local record M\n  answer: integer\nend\n" ..
     "local m: M = {answer = 42}\nreturn m\n")
-  -- Through require() (#1001: the searcher VALUE is installed, never
-  -- handed out) — the binary installed it at boot, so the require IS
+  -- Through require() — the searcher VALUE is installed, never handed
+  -- out — the binary installed it at boot, so the require IS
   -- the resolve-compile-load path.
   local mod = require(name) as {string: integer} -- cast: from any
   assert(mod.answer == 42, "the module's own value must come back")
@@ -47,7 +47,7 @@ test_resolves_and_loads_a_tl_module()
 -- searcher that declines: require() then reports its own "module not
 -- found" rather than this one erroring out of the whole chain.
 local function test_a_miss_declines_rather_than_throws()
-  -- The searcher VALUE is installed, never exported (#1001), and the
+  -- The searcher VALUE is installed, never exported, and the
   -- dispatcher's require_hints rewrites require's aggregate error, so
   -- ask the installed chain directly: one of its entries must decline
   -- this (computed, deliberately unresolvable) name with a string.

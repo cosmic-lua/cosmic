@@ -109,8 +109,8 @@ test_a_comment_never_exempts()
 
 local function test_body_is_not_read_as_more_slots()
   -- The return list ends at the first token that is not a comma: a
-  -- body statement starting with an identifier used to be read as
-  -- slot 2, and a table constructor as slot 3.
+  -- body statement starting with an identifier is not slot 2, and a
+  -- table constructor is not slot 3.
   check.equal(#diagnose(
       "local function f(): Rec | nil\n  print(1)\n  g(2)\n  return nil\nend\n"), 0,
     "the function BODY is not part of its return list")

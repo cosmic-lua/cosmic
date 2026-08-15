@@ -212,7 +212,7 @@ local function dump(dir?: string): boolean, string
   if ccov then
     hits = ccov.snapshot()
   end
-  -- literal.format includes the `return` prefix (#1001); the reader
+  -- literal.format includes the `return` prefix; the reader
   -- (_tool.coverage.report) loads the body as-is.
   local body, enc_err = literal.format({version = 1, hits = hits})
   if not body then
@@ -240,10 +240,8 @@ end
 --- Declare that the active sandbox policy grants the coverage
 --- directory, so the pre-restrict seal must NOT run: the process keeps
 --- reporting what it does after the sandbox lands. Only build tooling
---- that granted the directory itself may call this (#989: this
---- declaration replaces the keep_coverage flag the four containment
---- policy records used to carry). Irreversible for the process, like
---- the policies it describes.
+--- that granted the directory itself may call this. Irreversible for
+--- the process, like the policies it describes.
 local function keep_on_restrict()
   kept_on_restrict = true
 end
@@ -257,9 +255,9 @@ end
 
 --- Options for start().
 local record StartOptions
-  --- Dump directory (#1001: what enable(dir) did): sets the default
-  --- target for dump() and installs process-exit wrappers that write
-  --- there. A nested start never re-targets an outer one's directory.
+  --- Dump directory: sets the default target for dump() and installs
+  --- process-exit wrappers that write there. A nested start never
+  --- re-targets an outer one's directory.
   dir: string
 end
 
@@ -267,8 +265,8 @@ end
 --- The first start installs the line hook; nested starts only increment
 --- the nesting depth, so libraries and tests can bracket their own
 --- collection without tearing down an outer one. With opts.dir the
---- collection is also armed to dump at process exit (rule 9: start/stop
---- is the pair; the separate enable() verb folded in here, #1001).
+--- collection is also armed to dump at process exit: start/stop is the
+--- one verb pair, so the separate enable() step is folded in here.
 local function start(opts?: StartOptions)
   if opts and opts.dir then
     if depth == 0 then

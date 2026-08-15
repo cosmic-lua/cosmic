@@ -393,7 +393,7 @@ local function test_events_from_socket_backed_reader()
 end
 test_events_from_socket_backed_reader()
 
--- format: the serializing half (D20 rule 6 — a pair ships both halves).
+-- format: the serializing half; a pair ships both halves.
 local function test_format_roundtrip()
   local ev: sse.Event = {data = "line1\nline2", event = "update", id = "7", retry_ms = 250}
   local wire = sse.format(ev)

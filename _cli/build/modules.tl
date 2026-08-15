@@ -13,10 +13,8 @@
 --- **Argv, never the environment.** Ten of this repo's own tests spawn
 --- a cosmic against a DIFFERENT project root under `/tmp`. Carried in
 --- the environment, this tree's `o/` would answer their imports while
---- they built something else — the ambient-export bug class the old
---- Makefile fought, which is why `tree_lua_path` was opt-in per lane
---- and never exported. A manifest named on one command line cannot
---- leak into a grandchild.
+--- they built something else. A manifest named on one command line
+--- cannot leak into a grandchild.
 
 local fs = require("cosmic.fs")
 
@@ -98,10 +96,9 @@ end
 --- child's command line.
 ---
 --- A failure to write is a MISS, not an error: the child then runs as
---- an ordinary cosmic and resolves the way it always did. Refusing the
+--- an ordinary cosmic and resolves without a manifest. Refusing the
 --- step instead would turn a full disk into a build failure in the one
---- place that cannot explain itself, and the fallback is the behaviour
---- that shipped for every release before this one.
+--- place that cannot explain itself.
 --- @param out string The step's output base
 --- @param root string The absolute project root
 --- @param built {string} Built paths from `--deps`, relative to the root

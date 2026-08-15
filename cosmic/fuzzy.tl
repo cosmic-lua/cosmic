@@ -50,8 +50,8 @@ local function distance(a: string, b: string): integer
 end
 
 --- One similar candidate: the value and the edit distance the search
---- already computed for it (previously thrown away, which forced the
---- one caller wanting a ranked score to re-run the DP itself).
+--- already computed for it, so a caller wanting a ranked score does
+--- not need to re-run the DP itself.
 local record Match
   value: string
   distance: integer

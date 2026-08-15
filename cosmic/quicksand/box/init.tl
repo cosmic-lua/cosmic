@@ -75,8 +75,9 @@ local function validate(opts: BoxOptions): boolean, string
     if proc.keep_caps ~= nil and type(proc.keep_caps) ~= "table" then
       return false, "proc.keep_caps must be a list of capability names"
     end
-    -- The pledge string moved to opts.sys (cosmic.sandbox's Sys
-    -- schema); catch the retired spelling with a migration message.
+    -- proc.pledge is not a valid field: the promise string lives in
+    -- opts.sys (cosmic.sandbox's Sys schema). Reject it explicitly with
+    -- a migration message instead of silently ignoring it.
     if (proc as {string: any}).pledge ~= nil then -- cast: probe for removed field
       return false, "proc.pledge was removed: use sys = { promises = ... }"
       .. " (cosmic.sandbox's Sys schema)"

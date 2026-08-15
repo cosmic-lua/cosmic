@@ -106,7 +106,7 @@ local function find_similar(name: string, max_distance?: integer): {string}
   -- suffix (e.g. "cosmic.jsn" -> "cosmic.json", distance 1).
   -- cosmic.fuzzy is required lazily, like cosmic.string above: this
   -- only runs on the require-failure path, and a boot-time require
-  -- would put the module on every invocation's boot surface (#973).
+  -- would put the module on every invocation's boot surface.
   local fuzzy = original_require("cosmic.fuzzy")
   for _, pair in ipairs(candidates) do
     local full = pair[1]
@@ -127,7 +127,6 @@ local function find_similar(name: string, max_distance?: integer): {string}
       return a[1] < b[1]
     end)
 
-  -- Extract just the names
   local names: {string} = {}
   for _, r in ipairs(results) do
     table.insert(names, r[1])
@@ -177,7 +176,6 @@ local function format_error(name: string): string
   local similar = find_similar(name, 3)
   if #similar > 0 then
     table.insert(lines, "Did you mean?")
-    -- Show up to 3 suggestions
     for i = 1, math.min(3, #similar) do
       table.insert(lines, "  " .. similar[i])
     end

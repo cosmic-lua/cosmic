@@ -7,9 +7,7 @@
 --- <src> <out>` execs the first, reads the second, writes the third.
 --- The shapes table below is that knowledge, and it is the whole
 --- grant: a rule cannot over-declare its way out of the fence, because
---- a rule declares nothing. (An earlier design carried grants in
---- target-specific make variables, `COSMIC_UNVEIL = $^`; the closed
---- vocabulary made that channel redundant.)
+--- a rule declares nothing.
 ---
 --- It also arms line coverage the way the script path does: a driver
 --- run in the coverage lane must still report _cli.build's lines, or
@@ -31,17 +29,15 @@ local sandbox = require("cosmic.sandbox")
 --- there, so it fails the step loudly instead.
 --- ON. `COSMIC_FENCE=0` turns it off.
 ---
---- It shipped off, because the first attempt turned three lanes red at
---- once: the derivation was right about the arguments and silent about
+--- Derivation alone is right about the arguments and silent about
 --- everything else a process needs — the APE loader, `/dev/urandom`,
 --- the paths a child's own argv names. Those are the floor, and the
 --- floor is here now.
 ---
---- Default-on is the whole point of the design. The Makefile's
---- per-rule `.PLEDGE`/`.UNVEIL` are gone; between that and this the
---- project had a build nothing sandboxed, and a fence nobody turns on
---- is a fence. Off-by-default also cannot be tested honestly: the only
---- runs that exercised it were the ones that asked for it.
+--- Default-on is the whole point of the design: an opt-in fence is a
+--- fence nobody turns on. Off-by-default also cannot be tested
+--- honestly: the only runs that exercise it are the ones that ask for
+--- it.
 ---
 --- Costless where it cannot work: `unveil()` no-ops without Landlock,
 --- so on a host that cannot enforce this changes nothing. A host that
@@ -90,10 +86,11 @@ end
 --- Point an unset TMPDIR at a scratch dir under o/, before the fence.
 ---
 --- With TMPDIR unset -- the default -- the APE extraction dir falls
---- through to $HOME, and the fence used to follow it there: every
---- fenced step got rw+exec on the entire home directory. Pin the unset
---- case under o/ instead: inside the build's own writable tree,
---- narrow, the same for every step. A caller who set TMPDIR keeps it,
+--- through to $HOME, and without this pin the fence would follow it
+--- there: every fenced step would get rw+exec on the entire home
+--- directory. Pin the unset case under o/ instead: inside the build's
+--- own writable tree, narrow, the same for every step. A caller who
+--- set TMPDIR keeps it,
 --- so only the unset case changes. The loaders a process probes BEFORE
 --- extracting one are granted per-file in the plan (see grants.tl);
 --- this pin is where a fresh extraction and a step's scratch files go.
@@ -134,15 +131,14 @@ local function fence(verb: string, args: {string}): string | nil
   -- applying: without the mark the mechanism seals coverage before
   -- restricting — the right default when nobody knows whether the dump
   -- will still work — and every fenced recipe then reports only the
-  -- lines it ran before the fence landed. (#989: the mark replaced the
-  -- keep_coverage policy flag.)
+  -- lines it ran before the fence landed.
   require("cosmic.coverage").keep_on_restrict()
   local enforced, err = sandbox.apply({
       fs = fs_policy,
       best_effort = true,
     })
   if enforced is sandbox.Availability then
-    -- best_effort can no longer skip silently: apply reports what it
+    -- best_effort does not skip silently: apply reports what it
     -- enforced. A host that cannot enforce runs unfenced by design
     -- (see above) — say so when the caller explicitly asked for the
     -- fence (COSMIC_FENCE set), and stay quiet on the implicit

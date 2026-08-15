@@ -183,7 +183,7 @@ test_is_match_false()
 
 local function test_is_match_invalid_pattern()
   -- A bad pattern is nil + err, not false: "no match" and "your
-  -- pattern is invalid" are no longer the same value.
+  -- pattern is invalid" are distinct values.
   local result, err = re.is_match("hello world", "[invalid")
   assert(result == nil, "expected nil for invalid pattern")
   assert(err ~= nil, "expected error message")

@@ -477,7 +477,7 @@ test_tmpfile_failure_contract()
 local function test_write_mode_applies_on_overwrite()
   -- Barf's mode applies only at creation; fs.write enforces the exact
   -- bits on overwrite too, so zip and tar extraction agree about the
-  -- permissions of a re-extracted file (#986).
+  -- permissions of a re-extracted file.
   local base = os.getenv("TEST_TMPDIR") or "/tmp"
   local path = fs.join(base, "mode_overwrite.txt")
   assert(fs.write(path, "one", {mode = tonumber("644", 8)}))

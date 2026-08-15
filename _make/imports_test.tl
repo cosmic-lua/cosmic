@@ -35,9 +35,9 @@ local cases: {Case} = {
     want = "pkg.a",
   },
   {
-    -- The regex this replaced stripped `--` to end of LINE, which
-    -- removed the opener's line and left the interior matching: a
-    -- require inside a `--[[ ]]` block refused the project.
+    -- A regex that strips `--` to end of LINE would remove only the
+    -- opener's line and leave the interior matching: a require inside
+    -- a `--[[ ]]` block would refuse the project.
     name = "a require inside a long comment is not an edge",
     src = "--[[ this is prose\nlocal x = require('cmd.other.main')\n]]\n" ..
     "local a = require('pkg.a')\n",
@@ -55,8 +55,9 @@ local cases: {Case} = {
     want = "pkg.a",
   },
   {
-    -- The mirror failure: stripping `--` to end of line inside a STRING
-    -- deleted the rest of a real line, losing requires after it.
+    -- The mirror failure: stripping `--` to end of line inside a
+    -- STRING would delete the rest of a real line, losing requires
+    -- after it.
     name = "a `--` inside a string does not start a comment",
     src = "local s = \"a -- b\"\nlocal a = require('pkg.a')\n",
     want = "pkg.a",

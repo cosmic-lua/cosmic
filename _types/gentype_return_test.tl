@@ -3,9 +3,9 @@
 --- the return list only when followed by a genuine type token. Literal
 --- types (true/false/nil) never legitimately continue a return list in
 --- definitions.lua, but boolean descriptions routinely say ", false when
---- ..." — treating those words as types generated phantom returns
---- (found via unix.Memory:unmap, whilp/cosmopolitan#198).
---- Split from gentype_test.tl to respect the 500-line file cap.
+--- ..." — treating those words as types would grow phantom returns, as
+--- in unix.Memory:unmap's description.
+--- Kept separate from gentype_test.tl to respect the 500-line file cap.
 
 local gentype = require("_types.gentype")
 
@@ -75,9 +75,8 @@ test_single_segment_literal_return_unaffected()
 
 -- A union-typed vararg (`@return string|number? ... desc`) must render as a
 -- Teal variadic return, not a single scalar entry that silently drops the
--- "..." (the old bare-identifier vararg pattern only matched a single word
--- before "..."). Found via lsqlite3.Statement/VM:get_uvalues,
--- whilp/cosmopolitan definitions.lua:1088,1252.
+-- "..." — a bare-identifier vararg pattern matches only a single word
+-- before "...", the shape lsqlite3.Statement/VM:get_uvalues uses.
 local function test_union_vararg_return()
   local source = [==[
 lsqlite3 = {}
@@ -125,9 +124,8 @@ test_non_last_vararg_demotes_to_plain_type()
 -- `self` token (`fun(...) iterator, self`) — the same role the module's
 -- constructor-style variants spell out with the full class name (`iterator,
 -- lsqlite3.VM vm`). The comma-continuation heuristic must recognize `self`
--- as a genuine return-type token, not swallow it into the description.
--- Found via lsqlite3.VM:nrows/rows/urows,
--- whilp/cosmopolitan definitions.lua:1279,1293,1301.
+-- as a genuine return-type token, not swallow it into the description, as
+-- in lsqlite3.VM:nrows/rows/urows.
 local function test_self_return_token()
   local source = [==[
 lsqlite3 = {}

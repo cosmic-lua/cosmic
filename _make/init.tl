@@ -412,9 +412,9 @@ local function run(argv: {string}): integer
   if not self then return stage.verdict(name, false, "cannot resolve cosmic") end
   -- Same rule, same place: `COSMIC_MAKE` is resolved by find_make,
   -- which runs after `open_project` has chdir'd, so a relative value
-  -- resolved against the PROJECT ROOT rather than the directory the
-  -- user typed it in. It worked only when the two happened to be the
-  -- same, which is why every test passing absolute paths missed it.
+  -- must be made absolute here, before the chdir, or it resolves
+  -- against the PROJECT ROOT rather than the directory the user typed
+  -- it in.
   local named = os.getenv(graph.MAKE_ENV)
   if named and named ~= "" then
     local _ok, _err = cenv.set(graph.MAKE_ENV, fs.absolute_path(named), true)

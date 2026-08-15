@@ -33,9 +33,9 @@ cosmic verb or `exec`.
   load-bearing — and a rule cannot over-declare its way out of the
   fence, because a rule declares nothing.
 
-  An earlier version of this design carried grants in target-specific
-  make variables (`COSMIC_UNVEIL = $^`). Closing the vocabulary made
-  that channel redundant: the argument positions *are* the declaration.
+  Carrying grants in target-specific make variables (`COSMIC_UNVEIL =
+  $^`) is unnecessary: closing the vocabulary makes that channel
+  redundant, because the argument positions *are* the declaration.
   Two mechanical details the kernel forces, recorded because getting
   them wrong disables the fence rather than tightening it — a write
   grants the parent **directory** (creating and unlinking are rights on
@@ -46,8 +46,7 @@ cosmic verb or `exec`.
   `exec` is the one verb whose reads are not derivable — a pinned
   compiler reads headers nobody listed — so it is fenced to the unit's
   subtree instead of its argv, per the same rule generators and tests
-  use. Landed after 2d, which is what supplied `unit_dir`: until there
-  were units this was a promise with nothing behind it.
+  use.
 
   **A derived fence still needs a floor.** Shipping the derivation with
   nothing else turned three CI lanes red at once: argv says nothing
@@ -57,7 +56,7 @@ cosmic verb or `exec`.
   argv names — `tee <out> cosmic --report <got…>` hands those to a
   process that inherits the fence. The make rules already spell this
   floor as `unveil_base`/`unveil_dev`; the derived fence needs its own.
-  It shipped **opt-in** for a while, which was the wrong shape: a fence
+  Opt-in is the wrong shape: a fence
   nobody turns on is a fence, and off-by-default cannot be tested
   honestly, because the only runs that exercise it are the ones that
   ask for it. It is **ON**, and `COSMIC_FENCE=0` opts out.
@@ -115,9 +114,9 @@ cosmic verb or `exec`.
   two grants and no duplicate binary. What blocks it is the recipe
   vocabulary, not the fence: a verb line names one program, and there is
   no way to say "run THIS through THAT loader". Putting the loader on
-  `PATH` is not a substitute — it was tried, and the fenced exec still
-  failed, because the stub's search is not what a direct shell-free exec
-  goes through. So the choice is between assimilating a duplicate (what
+  `PATH` is not a substitute: the stub's search is not what a direct
+  shell-free exec goes through, so the fenced exec still fails. So the
+  choice is between assimilating a duplicate (what
   happens now, at the cost of a second copy on disk) and teaching
   `exec`/`compile` to prefix the staged loader when the program is an
   APE. The second is the one that scales to a project pinning its own

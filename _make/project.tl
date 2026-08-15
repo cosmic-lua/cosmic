@@ -5,7 +5,7 @@
 --- name and position declare what it is — so a directory with sources
 --- in it is a package by existing, never by being listed somewhere. A
 --- list is a thing that goes stale silently: the gates it feeds keep
---- passing over a directory nobody added to it (`#800`).
+--- passing over a directory nobody added to it.
 ---
 --- What the walk never sees: dot-prefixed entries (`.git`, `.github`,
 --- `.cosmicignore` itself), the build directory `o/` at the root, and
@@ -187,23 +187,23 @@ local function import_path(rel: string): string | nil
 end
 
 --- The marker suffixes apply to `.lua` as well as `.tl`, because
---- `.lua` sources are first-class here. They did not, and the silence
---- was the problem: in a Lua-only project `db_test.lua` classified as
---- a MODULE, so `--make test` reported the project had no tests and
---- `--make build` embedded the test file into the released binary.
---- Neither half announced itself.
+--- `.lua` sources are first-class here. Recognising a marker for only
+--- one extension would let it fall silently: in a Lua-only project
+--- `db_test.lua` would classify as a MODULE, so `--make test` would
+--- report the project had no tests and `--make build` would embed the
+--- test file into the released binary -- neither half announcing
+--- itself.
 ---
 --- Does this path carry `marker` as its suffix, in either spelling?
 ---
---- A marker is a NAME, not a name plus an extension. Recognising
---- `_test` in both and `_pin` in only one made the grammar split by
---- extension, and every unrecognised cell was a file that silently
---- classified as a module: a `dep_pin.lua` was never fetched and
---- shipped its url and sha inside the artifact instead. A `.lua`
---- project is a full commitment or it is a trap, and the cell that
---- does not exist -- `.d.lua`, a type declaration in a language with
---- no types -- is refused by the validator rather than left to fall
---- through here.
+--- A marker is a NAME, not a name plus an extension: every marker must
+--- be recognised for both `.tl` and `.lua`, or the unrecognised cell
+--- silently classifies as a module -- a `dep_pin.lua` would never be
+--- fetched and would ship its url and sha inside the artifact instead.
+--- A `.lua` project is a full commitment or it is a trap, and the cell
+--- that does not exist -- `.d.lua`, a type declaration in a language
+--- with no types -- is refused by the validator rather than left to
+--- fall through here.
 --- @param rel string Path relative to the root
 --- @param marker string The marker, without extension
 --- @return boolean Whether the path carries it

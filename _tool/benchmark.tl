@@ -29,9 +29,9 @@ local record BenchmarkResult
   error: string | nil
 end
 
---- Result from running all benchmarks in a file (#992: the field is
---- `message`, the runners' shared shape — what went wrong with the
---- RUN; per-benchmark failures are on each result).
+--- Result from running all benchmarks in a file. `message` is the
+--- runners' shared shape: what went wrong with the RUN; per-benchmark
+--- failures are on each result.
 local record RunResult
   exit_code: integer
   results: {BenchmarkResult}
@@ -79,8 +79,8 @@ end
 --- Default minimum benchmark duration in seconds (like Go's default 1s).
 local DEFAULT_MIN_SECONDS = 1.0
 
---- Options for `run` (#992: the runners share this shape; example
---- honors `filter` with the same substring contract).
+--- Options for `run`. The runners share this shape; example honors
+--- `filter` with the same substring contract.
 local record RunOptions
   --- Run only benchmarks whose name contains this SUBSTRING, matched
   --- plainly (e.g. "concat" matches Benchmark_string_concat).

@@ -11,7 +11,7 @@ local childio = require("cosmic.child.io")
 --- Exactly one of `code`/`signal` is set: `code` when the child
 --- exited, `signal` when a signal ended it. `ok` is true only on zero.
 --- A Result exists only for a child that RAN — a start that failed is
---- run's `nil, string`, not a Result (was the `spawn_error` field).
+--- run's `nil, string`, not a Result.
 local record Result
   code: integer -- exit status; nil if signaled
   signal: integer -- terminating signal; nil if exited

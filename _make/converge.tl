@@ -4,10 +4,7 @@
 --- TOOLCHAIN, and every gate result is a statement about a toolchain.
 --- Run `check` under the pinned release and it type-checks with the
 --- release's checker; run `fmt` under it and it formats with the
---- release's formatter -- so a formatter fix passes its own gate. That
---- was a three-step incantation in the docs (`build`, `build`, `ci`),
---- a page defending it, and the same mistake made twice inside the
---- change that introduced it.
+--- release's formatter -- so a formatter fix passes its own gate.
 ---
 --- So the tool does it. A gate verb in such a project builds first,
 --- and if the artifact it produced is not the binary running, re-execs
@@ -182,7 +179,7 @@ local function drives_a_build(path: string): boolean
   end
   local r = h:wait(PROBE_MS)
   if not (r is child.Result) then
-    local _ok, _err = h:stop() -- start's partner (D20 rule 9)
+    local _ok, _err = h:stop() -- start's partner, so the child does not leak
     return false
   end
   local res = r
@@ -248,12 +245,13 @@ local function to_the_tree(proj: Project, argv: {string},
   -- defines `cosmic/init.tl` and builds a `cmd/cosmic/main.tl` -- and
   -- the right answer for that project is to CARRY ON, not to refuse.
   --
-  -- Refusing was the bug wearing a better name: every gate verb paid a
-  -- full build and then failed, permanently, for a project whose only
-  -- mistake was two ordinary names. There is nothing to converge to
-  -- here, which is the same situation as any non-toolchain project --
-  -- and there the gate simply runs. The running engine is a perfectly
-  -- good judge of a project that is not a toolchain.
+  -- Refusing here would be the same bug wearing a better name: every
+  -- gate verb would pay a full build and then fail, permanently, for a
+  -- project whose only mistake was two ordinary names. There is
+  -- nothing to converge to here, which is the same situation as any
+  -- non-toolchain project -- and there the gate simply runs. The
+  -- running engine is a perfectly good judge of a project that is not
+  -- a toolchain.
   --
   -- Said once, on stderr, because it explains a `--make build` the user
   -- did not ask for.

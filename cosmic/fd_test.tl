@@ -260,7 +260,7 @@ end
 test_write_path_error_names_errno()
 
 local function test_wrap_tmpfd()
-  -- fs.temp_fd returns a Handle now (#988); take its fd to exercise wrap.
+  -- fs.temp_fd returns a Handle; take its fd to exercise wrap.
   local th = check.must(fs.temp_fd())
   local rawfd = th:fd()
   local h = cfd.wrap(rawfd)
@@ -447,7 +447,7 @@ local function test_datasync()
 end
 test_datasync()
 
--- FIX 5: handle:close() must propagate unix.close() failure instead of
+-- handle:close() must propagate unix.close() failure instead of
 -- always returning true.  The error path is hard to trigger directly, so we
 -- verify: (a) successful close returns true, (b) idempotent second close
 -- returns true, and (c) the return type is boolean (not always true when

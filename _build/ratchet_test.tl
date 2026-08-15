@@ -70,7 +70,7 @@ end
 test_a_heading_confines_the_scan()
 
 -- No heading is every table in the file. This is what the checks that
--- sweep a whole document for a retired word use, and a reader that
+-- sweep a whole document for a disallowed word use, and a reader that
 -- quietly scoped itself to the first table would let the rest through.
 local function test_no_heading_reads_every_table()
   local got = cells(check.must(ratchet.rows(doc())))

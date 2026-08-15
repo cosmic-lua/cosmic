@@ -15,10 +15,9 @@ cosmic --make clean              # remove o/
 cosmic --make build db/          # …or narrow any of them to a subtree
 ```
 
-`--make` used to scan a directory and print a Makefile. it doesn't
-anymore: the generated file needed a host make to be worth anything,
-and it produced build files rather than builds. the verb grammar
-replaced it outright.
+the name doesn't describe what happens: nothing here scans a directory
+to emit a Makefile for a host `make` to run. the verb grammar below is
+the interface.
 
 ## Verbs
 

@@ -68,7 +68,7 @@ local function test_splitext_hidden_file_under_root()
 end
 test_splitext_hidden_file_under_root()
 
--- fs.ext is deleted (#988): the extension is split_extension's second
+-- fs.ext does not exist; the extension is split_extension's second
 -- return.
 
 local function test_extension_via_split()

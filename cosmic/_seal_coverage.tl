@@ -9,10 +9,10 @@
 --- `require("cosmic.coverage")` so pledge/unveil stay leaf modules
 --- that never force-load coverage instrumentation a caller isn't
 --- using.
---- The keep decision moved to cosmic.coverage (#989): build tooling
---- that KNOWS its policy grants the coverage directory calls
+--- The keep decision lives in cosmic.coverage: build tooling that KNOWS
+--- its policy grants the coverage directory calls
 --- coverage.keep_on_restrict() before applying, and this consults that
---- mark — the security policy records no longer carry a coverage flag.
+--- mark — security policy records carry no coverage flag of their own.
 local function seal_coverage()
   local cov = package.loaded["cosmic.coverage"]
   if cov == nil then

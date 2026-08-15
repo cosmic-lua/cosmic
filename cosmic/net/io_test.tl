@@ -5,8 +5,7 @@ local stream = require("cosmic.stream")
 local time = require("cosmic.time")
 
 local function pair(): net.Socket, net.Socket
-  -- socket_pair's error lives in slot 2 now; the record makes the old
-  -- shape-laundering helper a one-liner.
+  -- socket_pair's error lives in slot 2, so this wrapper is a one-liner.
   local p = check.must(net.socket_pair())
   return p.a, p.b
 end
@@ -102,14 +101,9 @@ end
 test_recv_exact_early_close()
 
 -- line iteration: Socket is a stream.Reader, so stream.lines is the
--- one line algorithm. Socket:readline was a second, MSG_PEEK-based
--- implementation of it, at two syscalls per line. What went with it:
--- readline left bytes past the newline readable by recv, which a
--- buffering line reader cannot promise (frame-then-read protocols read
--- their header with recv_exact, not a line iterator), and it stripped a
--- "\r" before the "\n". stream.lines splits on "\n" alone, so a CRLF
--- protocol strips its own "\r" — asserted below so the difference is a
--- fact of the suite, not a surprise.
+-- one line algorithm. It splits on "\n" alone, leaving any "\r" in the
+-- line — a CRLF protocol strips its own "\r" — asserted below so the
+-- behavior is a fact of the suite, not a surprise.
 
 local function lines_of(sock: net.Socket): {string}
   local out: {string} = {}
@@ -277,8 +271,8 @@ end
 test_send_offset()
 
 -- recv(0) reads "" from the kernel on a stream socket, which is
--- indistinguishable from "peer closed" (#589) unless
--- max_bytes is rejected outright: an honest error, not a throw.
+-- indistinguishable from "peer closed" unless max_bytes is rejected
+-- outright: an honest error, not a throw.
 local function test_recv_zero_max_bytes_is_error()
   local a, b = pair()
   local data, err = a:recv(0)

@@ -6,8 +6,8 @@ local doc_exports = require("_tool.doc.exports")
 -- This script is compiled and run by the pinned BOOTSTRAP cosmic, whose
 -- embedded types predate the current tree; use the signature-stable
 -- cosmo.Slurp instead of cosmic.fs.read so it works under both, and
--- cosmo.EncodeLua directly (#1001: codec no longer wraps it) so the
--- index bytes stay identical across generations.
+-- cosmo.EncodeLua directly so the index bytes stay identical across
+-- generations.
 local cosmo = require("cosmo")
 
 local record DocIndexModule

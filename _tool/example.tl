@@ -21,18 +21,18 @@ local record ExampleResult
   error: string | nil
 end
 
---- Result from running all examples in a file (#992: `message` is
---- the runners' shared shape — what went wrong with the RUN; per-
---- example failures are on each result).
+--- Result from running all examples in a file. `message` is the
+--- runners' shared shape: what went wrong with the RUN; per-example
+--- failures are on each result.
 local record RunResult
   exit_code: integer
   results: {ExampleResult}
   message: string | nil
 end
 
---- Options for `run` (#992: the runners share this shape; `filter`
---- has benchmark's contract — a plain SUBSTRING matched against the
---- function name, not a pattern).
+--- Options for `run`. The runners share this shape; `filter` has
+--- benchmark's contract — a plain SUBSTRING matched against the
+--- function name, not a pattern.
 local record RunOptions
   filter: string
 end
@@ -128,10 +128,10 @@ local function run_example(example: Example): ExampleResult
     return result
   end
 
-  -- Compile the example body through the real string half (#1001:
-  -- teal.compile(source) replaced this file's hand-rolled
-  -- init_env/process_string/generate copy of it). Lax, like every
-  -- example body — the enclosing file already type-checked strictly.
+  -- Compile the example body through teal.compile, the same
+  -- string-compilation path used elsewhere in the tree. Lax, like
+  -- every example body — the enclosing file already type-checked
+  -- strictly.
   local compiled = teal.compile(example.body, {chunk_name = "@" .. example.name})
   if not compiled.ok then
     result.error = "syntax error: "

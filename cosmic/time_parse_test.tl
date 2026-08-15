@@ -230,7 +230,8 @@ end
 test_parse_iso8601_invalid_offset()
 
 local function test_parse_iso8601_out_of_range()
-  -- was silently accepted as a bogus epoch before; must now be rejected
+  -- a structurally valid but out-of-range date must be rejected, not
+  -- silently accepted as a bogus epoch
   assert(time.parse_iso8601("2025-01-99T00:00:00Z") == nil,
     "day 99 should be rejected")
   assert(time.parse_iso8601("2025-13-01T00:00:00Z") == nil,

@@ -192,7 +192,7 @@ test_spawn_inherits_env()
 
 local function test_spawn_with_env_edits()
   -- env.list({set = ...}) builds the edited copy; the parent's own
-  -- environment is never touched (the old dual-shape map env is gone).
+  -- environment is never touched.
   local sentinel = "cosmic_test_set_" .. tostring(proc.getpid())
   local vars = env.list({set = {COSMIC_TEST_SET = sentinel}})
   local r = check.must(child.run({lua_bin, "-e", [[

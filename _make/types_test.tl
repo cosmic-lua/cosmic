@@ -51,9 +51,9 @@ end
 --- The enum's members, read from the enum's own source.
 ---
 --- Line-based, and `[^"]+` rather than a character class: a member is a
---- quoted string alone on its line, whatever it is spelled with. The
---- pattern this replaced matched `[%w%-]+` between the quotes, so a
---- kind named with an underscore matched nothing at all and vanished
+--- quoted string alone on its line, whatever it is spelled with. A
+--- character class like `[%w%-]+` between the quotes would match
+--- nothing for a kind named with an underscore, and it would vanish
 --- from the vocabulary without a word.
 --- @return {string: boolean} The set of members
 local function enum_members(): {string: boolean}

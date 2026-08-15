@@ -196,7 +196,7 @@ local function test_find_info()
   local collected = check.must(fs.find_info(walk_dir))
   local found = collected.files
 
-  -- Keys are FULL paths (#987), like every find sibling.
+  -- Keys are FULL paths, like every find sibling.
   assert(found[fs.join(walk_dir, "file1.lua")] ~= nil, "expected file1.lua")
   assert(found[fs.join(walk_dir, "file2.txt")] ~= nil, "expected file2.txt")
   assert(found[fs.join(walk_dir, "subdir/file3.lua")] ~= nil,
@@ -411,8 +411,8 @@ end
 test_relpath_go_up_more()
 
 -- relpath implicit-base (cwd) tests: p is relative, base is omitted.
--- These exercise the fast path added for cosmopolitan#928, which returns
--- normalize(p) directly when p never climbs above cwd.
+-- These exercise the fast path that returns normalize(p) directly
+-- when p never climbs above cwd.
 
 local function test_relpath_implicit_empty()
   local result = fs.relative_path("")

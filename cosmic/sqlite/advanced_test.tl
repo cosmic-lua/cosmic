@@ -238,8 +238,8 @@ test_transaction_multiple_ops()
 
 local function test_transaction_rollback_on_false()
   -- A body that returns `false, err` (the library's own failure convention)
-  -- must roll back. Before the fix, transaction() discarded the returned
-  -- error and COMMITted, leaving the row behind.
+  -- must roll back, and the returned error must reach the caller — not be
+  -- discarded while the transaction still commits.
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 
@@ -286,9 +286,9 @@ end
 test_transaction_rejects_nil_verdict()
 
 local function test_transaction_rolls_back_on_missing_verdict()
-  -- A body that returns nothing used to COMMIT — the most consequential
-  -- silent-commit path in the stdlib. Now the missing verdict rolls
-  -- back and the error says what the contract wants.
+  -- A missing verdict (a body that returns nothing) is the most
+  -- consequential silent-commit hazard the contract guards against: it
+  -- rolls back, and the error says what the contract wants.
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
 

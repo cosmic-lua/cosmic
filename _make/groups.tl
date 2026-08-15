@@ -1,6 +1,6 @@
---- Directory compile groups for the batched compile rule (#1099):
---- position is the manifest, extended — where a compiled source sits
---- declares who it batches with. graph.tl feeds each compiled .tl
+--- Directory compile groups for the batched compile rule: position is
+--- the manifest, extended — where a compiled source sits declares who
+--- it batches with. graph.tl feeds each compiled .tl
 --- source and its closure in; this renders the three fact families the
 --- constant rules expand: `groupsrcs_<dir>` (the members),
 --- `groupdeps_<dir>` (the union of member closures, sorted), and

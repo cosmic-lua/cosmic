@@ -164,8 +164,8 @@ local function test_exhausted_attempts_return_last_failure()
 end
 test_exhausted_attempts_return_last_failure()
 
--- FIX 15: max_attempts <= 0 used to skip the fetch loop entirely and
--- skip the attempt loop entirely. It is clamped to 1 real attempt.
+-- max_attempts <= 0 is clamped to 1 real attempt: unclamped it would
+-- skip the fetch loop entirely and return nothing.
 local function test_max_attempts_zero_is_clamped_to_one()
   local port, pid = serve({body_response("200 OK", "ok")})
   local result, err = fetch.fetch("http://127.0.0.1:" .. port .. "/",

@@ -153,7 +153,7 @@ site that used one turned out to be a cosmic-side restatement of a
 declaration that already existed, and two had already drifted from the
 binding they copied. the marker is gone.
 
-this is D20 rule 11 made mechanical. the rule exists because the two
+the rule exists because the two
 call shapes everyone writes — `local v, err = f()` and
 `check.must(f())` — can only see two slots, so anything past the second
 is information the caller has to be TOLD about, one call site at a time.

@@ -168,9 +168,9 @@ test_no_ambiguity_under_a_build_directory()
 -- Anything under `<root>/o/` is something a build PUT there — a staged
 -- tree, a generator's output, a test's own scratch directory — so a
 -- project inside it is deliberate rather than the accident the guard
--- exists to catch. Without this, every nested `--make` run from a test's
--- scratch directory refused with "ambiguous root", naming the repo whose
--- build had put the directory there.
+-- exists to catch. Without this, every nested `--make` run from a
+-- test's scratch directory would refuse with "ambiguous root", naming
+-- the repo whose build put the directory there.
 local function test_the_walk_stops_at_an_output_directory()
   local proj = tree("output-walk", {
       ["main.tl"] = "print('x')\n",
@@ -186,11 +186,11 @@ end
 test_the_walk_stops_at_an_output_directory()
 
 -- A directory is not a project until it declares itself. Without this
--- refusal EVERY directory was one: `--make build` in an empty one
--- reported PASS over nothing, and `--make test` wrote `o/` plus a
--- 1.5 MB extracted engine into whatever directory you were standing
--- in. It is the twin of the ambiguous-root refusal above -- that one
--- asks about ancestors, this one asks about the cwd.
+-- refusal EVERY directory would be one: `--make build` in an empty one
+-- would report PASS over nothing, and `--make test` would write `o/`
+-- plus a 1.5 MB extracted engine into whatever directory you were
+-- standing in. It is the twin of the ambiguous-root refusal above --
+-- that one asks about ancestors, this one asks about the cwd.
 local function test_a_bare_directory_is_not_a_project()
   local dir = tree("bare-dir", {["notes.tl"] = "return {}\n"})
   local saved = fs.cwd() as string -- cast: cwd exists in a test
@@ -209,8 +209,8 @@ test_a_bare_directory_is_not_a_project()
 -- A root make cannot NAME is refused up front. Prerequisites are
 -- whitespace-separated with no escape that survives, and `o/project.mk`
 -- assigns the cosmic path into one -- so a checkout under `My
--- Projects/` produced "no rule to make target `/Users/me/My'", which
--- says nothing about the space being the problem.
+-- Projects/` would produce "no rule to make target `/Users/me/My'",
+-- which says nothing about the space being the problem.
 local function test_a_root_with_whitespace_is_refused()
   local dir = tree("has space", {["main.tl"] = "print('x')\n"})
   -- Through the override, because that path skips the declaration
@@ -253,8 +253,9 @@ test_resolve_self_resolves_a_real_path()
 
 -- A bare, PATH-invoked argv0 that names nothing under the cwd falls
 -- back to a real $PATH search instead of `fs.absolute_path`'s phantom
--- `<cwd>/name` -- the bug: a build run from a directory that happens
--- not to contain the binary silently degraded the tool stamps.
+-- `<cwd>/name`: resolving to that phantom path would silently degrade
+-- the tool stamps whenever a build runs from a directory that happens
+-- not to contain the binary.
 local function test_resolve_self_falls_back_to_path_search()
   local dir = tree("self-path", {})
   local saved = fs.cwd() as string -- cast: cwd exists in a test

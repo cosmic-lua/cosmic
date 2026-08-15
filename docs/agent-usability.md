@@ -155,9 +155,9 @@ doesn't; the agent's own pager did).
 
 # Round 2 — after the fixes
 
-All 17 findings were addressed (commits `41f8f36`..`fb1953f`), and the
+All 17 findings were addressed, and the
 experiment was repeated: four fresh Sonnet agents, identical prompts and
-tasks, clean sandboxes containing only the rebuilt binary (`e13e92d`).
+tasks, clean sandboxes containing only the rebuilt binary.
 
 ## Results
 
@@ -212,7 +212,7 @@ Fixes observed working in the wild (not just in unit tests):
 
 # Round 3 — backlog fixes
 
-All seven surviving findings were addressed (commit `1f0926c`). Sub-agent
+All seven surviving findings were addressed. Sub-agent
 capacity was unavailable for this round, so changes were implemented and
 verified directly against a rebuilt binary rather than via a fresh
 clean-room run.
@@ -229,7 +229,7 @@ clean-room run.
    module's available symbols inline instead of telling the agent to go
    look. Lookup helpers moved to a new `docs_lookup.tl` (500-line cap).
 2. **`arg` layout documented** in `cosmic.proc` docs and the
-   `guide.gotchas` `arg[0]` entry, since retired (`arg[-1]` =
+   `guide.gotchas` `arg[0]` entry (`arg[-1]` =
    interpreter path, `arg[0]` = `/zip/main.lua`; `proc.interpreter()`
    is today's answer).
 3. **`--fix <file>` formats in place**; the `--check fmt` hint now says
@@ -256,7 +256,7 @@ should avoid third-party services (e.g. spin up a local listener).
 
 # Round 3 re-test — clean-room verification
 
-After the round-3 fixes merged (#413), the experiment was repeated a third
+After the round-3 fixes merged, the experiment was repeated a third
 time: four fresh Sonnet agents, identical prompts, sandboxes containing
 only the merged binary.
 
@@ -279,7 +279,7 @@ in the wild:
 - `--docs cosmic.fs_types.WalkStat` resolved; the fs.walk "do not join"
   warning and the new sqlite `LIKE` example were both consumed directly.
 - The child+TCP agent used `rawget(arg, -1)` from the gotchas guide's
-  `arg[0]` entry (since retired — `proc.interpreter()` is the answer now) and
+  `arg[0]` entry (`proc.interpreter()` is the answer now) and
   explicitly noted it would otherwise have burned time on a silently
   broken `arg[0]` spawn; it also used `listen_tcp` with port 0 and
   pipe-based readiness.

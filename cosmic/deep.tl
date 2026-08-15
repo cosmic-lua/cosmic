@@ -1,10 +1,10 @@
 --- Deep table operations.
 --- Recursive copy, structural equality, and recursive merge for
---- nested tables (#994: was cosmic.table, whose name collided with
---- Lua's `table` global and whose map/filter/reduce battery read
---- worse under Teal annotations than the loops it replaced). All
---- functions are pure: inputs are never mutated, and results share no
---- tables with their arguments. All functions are infallible.
+--- nested tables. A map/filter/reduce battery reads worse under Teal
+--- annotations than the loops it would replace, so this module stays
+--- scoped to copy, equal, and merge. All functions are pure: inputs
+--- are never mutated, and results share no tables with their
+--- arguments. All functions are infallible.
 ---
 --- Example usage:
 ---   local deep = require("cosmic.deep")

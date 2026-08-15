@@ -227,8 +227,7 @@ end
 test_sigprocmask_error_names_errno()
 
 local function test_sigsuspend_succeeds_on_delivery()
-  -- The EINTR that ends a sigsuspend IS its success (#999: success
-  -- used to be an error string, so asserting it always threw). Arm a
+  -- The EINTR that ends a sigsuspend IS its success. Arm a
   -- short one-shot timer to provide the delivering signal, and restore
   -- the previous timer by passing setitimer's result straight back —
   -- the round-trip the shared record shape exists for.

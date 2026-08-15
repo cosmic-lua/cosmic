@@ -301,7 +301,7 @@ local function string_value(tk: string): string | nil
 end
 
 --- One parsed table literal: the value, and the index just past its
---- closing `}` — one record so the error keeps slot 2 (D20 rule 11).
+--- closing `}` — one record keeps the error in slot 2.
 local record Parsed
   value: {string: any}
   next: integer
@@ -484,8 +484,8 @@ local record LiteralModule
   type Options = Options
   parse: function(source: string, opts?: Options): {string: any} | nil, string
   parse_file: function(path: string, opts?: Options): {string: any} | nil, string
-  --- The format half (#1001): parse(format(v)) round-trips
-  --- literal-domain values; contract in cosmic._literal_format.
+  --- The format half: parse(format(v)) round-trips literal-domain
+  --- values; contract in cosmic._literal_format.
   format: function(value: any): string | nil, string
   format_file: function(path: string, value: any): boolean, string
 end

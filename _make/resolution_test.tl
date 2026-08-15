@@ -222,8 +222,8 @@ test_run_refusals_in_process()
 
 -- A project with NO binary still runs a script: `run` compiles its
 -- target's closure directly, since prepare_stage builds nothing when
--- there is nothing to stage. Before, run spawned an o/<path>.lua that
--- was never compiled and died with "cannot open".
+-- there is nothing to stage. Spawning an `o/<path>.lua` instead would
+-- reach a file nothing compiled and fail to open.
 local function test_run_builds_a_target_with_no_binary()
   local root = fs.join(tmp, "res-nobinary")
   assert(fs.remove_all(root))

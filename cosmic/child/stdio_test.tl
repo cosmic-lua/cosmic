@@ -54,11 +54,9 @@ io.stderr:write("captured=[" .. (r.stdout or "") .. "]\n")
 end
 test_inherit_reaches_the_real_descriptor()
 
---- spawn must not close an inherited descriptor. This is the hazard the
---- old fd.wrap(1) workaround carried: if spawn closed what it was
---- handed, the parent's next write would hit a closed fd -- and worse,
---- a later open() could recycle fd 1. The second write below is the
---- observable.
+--- spawn must not close an inherited descriptor: if it did, the
+--- parent's next write would hit a closed fd -- and worse, a later
+--- open() could recycle fd 1. The second write below is the observable.
 local function test_inherit_leaves_our_descriptor_open()
   local r, written = run_capturing("inherit_reuse", [[
 local child = require("cosmic.child")

@@ -1,9 +1,9 @@
 --- Unified filesystem module.
 --- Combines path manipulation, filesystem operations, and directory
---- walking. Operations are named in English (#988): the POSIX names
---- that survive are the effectively-English concepts recorded in D20's
---- kept set (stat, statfs, symlink, readlink, truncate, dirname,
---- basename); everything else spells the operation out.
+--- walking. Operations are named in English: the POSIX names that
+--- survive are the ones already effectively English (stat, statfs,
+--- symlink, readlink, truncate, dirname, basename); everything else
+--- spells the operation out.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs.types")
 local Stat = types.Stat
@@ -51,7 +51,7 @@ local record FsModule
   type FileInfo = FileInfo
   type WalkStat = WalkStat
   --- fd.Handle, as returned by temp_fd(); TempFile is temp_file()'s
-  --- handle+path record (#988: was TmpFile).
+  --- handle+path record.
   type Handle = Handle
   type TempFile = fs_ops.TempFile
   --- One timestamp (secs, nsecs) and the pair set_times applies;
@@ -76,11 +76,9 @@ local record FsModule
   join: function(...: string): string
   --- Current user's home directory (nil + error when unset).
   home: function(): string | nil, string
-  --- Expand a leading "~" or "~/" to the home directory (#988: was
-  --- expanduser).
+  --- Expand a leading "~" or "~/" to the home directory.
   expand_user: function(p: string): string
-  --- True when the path names something (file, dir, special) — #988:
-  --- was exists.
+  --- True when the path names something (file, dir, special).
   is_present: function(path: string): boolean
   is_file: function(path: string): boolean
   is_dir: function(path: string): boolean
@@ -88,72 +86,69 @@ local record FsModule
   --- True for POSIX ("/x"), drive-letter ("C:/x", "C:\x"), and UNC
   --- ("\\server\share") absolute paths.
   is_absolute: function(p: string): boolean
-  --- THE zip-slip guard shared by zip/tar/embed (#988: was
-  --- unsafe_entry_name); see cosmic.fs.path.
+  --- THE zip-slip guard shared by zip/tar/embed; see cosmic.fs.path.
   is_unsafe_entry_name: function(name: string): boolean
   normalize: function(p: string): string
-  --- Prepend cwd to a relative path (#988: was abspath).
+  --- Prepend cwd to a relative path.
   absolute_path: function(p: string): string
-  --- Make p relative to base, default cwd (#988: was relpath).
+  --- Make p relative to base, default cwd.
   relative_path: function(p: string, base?: string): string
-  --- Split into root and dot-extension (#988: was splitext).
+  --- Split into root and dot-extension.
   split_extension: function(p: string): string, string
 
   -- Stat operations (stat keeps its POSIX name; the variants say how)
   stat: function(path: string): Stat | nil, string
-  --- Stat the link itself, not its target (#988: was lstat).
+  --- Stat the link itself, not its target.
   stat_link: function(path: string): Stat | nil, string
-  --- Stat an open descriptor (#988: was fstat).
+  --- Stat an open descriptor.
   stat_fd: function(fd: integer): Stat | nil, string
 
   -- Directory operations
-  --- Create one directory (#988: was mkdir); parents must exist.
+  --- Create one directory; parents must exist.
   make_dir: function(path: string, mode?: integer): boolean, string
   make_dirs: function(path: string, mode?: integer): boolean, string
-  --- Remove one empty directory (#988: was rmdir).
+  --- Remove one empty directory.
   remove_dir: function(path: string): boolean, string
-  --- Change the working directory (#988: was chdir; cwd() reads it).
+  --- Change the working directory; cwd() reads it.
   set_cwd: function(path: string): boolean, string
   cwd: function(): string | nil, string
-  --- Open a directory handle (#988: was opendir).
+  --- Open a directory handle.
   open_dir: function(path: string): Dir | nil, string
-  --- Open a directory handle from a descriptor (#988: was fdopendir).
+  --- Open a directory handle from a descriptor.
   open_dir_fd: function(fd: integer): Dir | nil, string
 
   -- Whole-file operations
   read: function(path: string): string | nil, string
-  --- Write a file; opts carries mode and atomic (#988: write_atomic
-  --- folded in).
+  --- Write a file; opts carries mode and atomic.
   write: function(path: string, data: string, opts?: fs_file.WriteOptions): boolean, string
   truncate: function(path: string, length?: integer): boolean, string
 
   -- File operations
-  --- Remove a file or symlink (#988: was unlink); directories go
-  --- through remove_dir()/remove_all().
+  --- Remove a file or symlink; directories go through
+  --- remove_dir()/remove_all().
   remove: function(path: string): boolean, string
   copy: function(src: string, dst: string): boolean, string
-  --- Rename, falling back to copy+remove across filesystems. The
-  --- strict-superset fs.rename is deleted (#988).
+  --- Rename, falling back to copy+remove across filesystems.
   move: function(oldpath: string, newpath: string): boolean, string
   touch: function(path: string, mode?: integer): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
-  --- Canonical absolute path via the filesystem (#988: was realpath).
+  --- Canonical absolute path via the filesystem.
   resolve: function(path: string): string | nil, string
   remove_all: function(path: string): boolean, string
   copy_tree: function(src: string, dst: string): boolean, string
 
   -- Permission operations
-  --- May the process access path this way (R_OK/W_OK/X_OK)? #988: was
-  --- access, whose parameterless form duplicated is_present.
+  --- May the process access path this way (R_OK/W_OK/X_OK)? A
+  --- parameterless form would duplicate is_present, so the mode is
+  --- required.
   is_accessible: function(path: string, mode: integer): boolean
-  --- Set permission bits (#988: was chmod).
+  --- Set permission bits.
   set_mode: function(path: string, mode: integer): boolean, string
-  --- Set the file mode creation mask, returning the previous one
-  --- (#993: moved from cosmic.user).
+  --- Set the file mode creation mask, returning the previous one.
   set_umask: function(mask: integer): integer
-  --- Set owner and group (#988: was chown).
+  --- Set owner and group.
   set_owner: function(path: string, uid: integer, gid: integer): boolean, string
 
   -- Timestamp operations
@@ -161,19 +156,19 @@ local record FsModule
   set_times_fd: function(fd: integer, times: fs_ops.Times): boolean, string
 
   -- Temporary file operations
-  --- Template defaults to $TMPDIR/cosmic_XXXXXX (#988).
+  --- Template defaults to $TMPDIR/cosmic_XXXXXX.
   temp_dir: function(template?: string): string | nil, string
   temp_file: function(template?: string): fs_ops.TempFile | nil, string
-  --- An anonymous temp file as an open Handle (#988: was a bare fd).
+  --- An anonymous temp file as an open Handle.
   temp_fd: function(): Handle | nil, string
 
   -- Filesystem statistics
   statfs: function(path: string): Statfs | nil, string
-  --- statfs on an open descriptor (#988: was fstatfs).
+  --- statfs on an open descriptor.
   statfs_fd: function(fd: integer): Statfs | nil, string
 
   --- Flush all filesystem buffers to disk, system-wide (sync(2)) —
-  --- #988: was sync, ambiguous beside Handle:sync's one-file flush.
+  --- distinct from Handle:sync's one-file flush.
   sync_all: function()
 
   --- One visited entry: path (full — never join with name), name,
@@ -206,8 +201,8 @@ local record FsModule
   --- list; the iterator itself is the closeable handle, so a loop that
   --- stops early wants `<close>` — or `visit`, which owns its loop.
   find_iter: function(dir: string, opts?: fs_find.FindOptions): FileIter | nil, string
-  --- Matching files with their FileInfo, keyed by FULL path (#987:
-  --- was relative); same options and slots as find.
+  --- Matching files with their FileInfo, keyed by FULL path; same
+  --- options and slots as find.
   find_info: function(dir: string, opts?: fs_find.FindOptions): FoundInfo | nil, string
 
   -- Access mode constants

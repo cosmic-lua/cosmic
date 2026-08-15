@@ -35,10 +35,9 @@ local sandbox = require("cosmic.sandbox")
 --- consulted.
 ---
 --- Every case below is gated on a kernel that can enforce, so on a host
---- without Landlock this whole file skips. That made it invisible to a
---- rename: `test` became `record`, every local gate skipped it, and the
---- first thing to notice was CI, which reported it as an unrelated
---- coverage failure two commits later.
+--- without Landlock this whole file skips -- which would leave a verb
+--- rename invisible to every local gate, surfacing only as an
+--- unrelated CI failure much later.
 ---
 --- A test that only RUNS somewhere still gets to CHECK its assumptions
 --- everywhere. This costs one loop and turns that class of breakage
@@ -99,7 +98,7 @@ end
 test_the_fence_denies_an_undeclared_write()
 
 -- The TEST fence, same A/B shape. A test's writes belong to its own
--- step: the `test` verb points TMP at a scratch directory beside the
+-- step: the `record` verb points TMP at a scratch directory beside the
 -- step's output, and the derived fence grants that directory and
 -- nothing else. So a test reaching for a path outside it is denied.
 --
@@ -146,22 +145,21 @@ local function test_the_fence_confines_a_test_to_its_own_step()
 end
 test_the_fence_confines_a_test_to_its_own_step()
 
--- The other half of the canary, and the half that decides when the
--- fence can stop being opt-in: it must PERMIT a real compile.
+-- The other half of the canary: the fence must also PERMIT a real
+-- compile, not just deny.
 --
 -- A denial test alone cannot tell a correct fence from one that denies
 -- everything. The derived grants come from argv, and a type check reads
 -- two things argv never names -- `tlconfig.lua` and the include
--- directories modules resolve through -- so without them the fence
--- denied every compile in the tree. That is the concrete reason it
--- stayed `COSMIC_FENCE=1` while the docs presented it as the
--- enforcement story, and this is the assertion that has to pass before
--- the default can flip.
+-- directories modules resolve through -- so without granting those
+-- separately, the fence would deny every compile in the tree. This
+-- assertion is what proves the fence's floor grants are enough for a
+-- real compile to succeed.
 --- Note the shape: the compile runs on EVERY host, and only the
 --- enforcement bookkeeping is conditional. Gating the whole test on
---- Landlock is what let its first version reach CI broken — it passed a
---- `cwd`, which made the relative program path unresolvable, and no
---- host that could run it existed until CI did.
+--- Landlock would leave it unchecked on any host without Landlock,
+--- including local development machines -- exactly where a broken
+--- relative path would go unnoticed until CI.
 local function test_the_fence_permits_a_real_compile()
   local dir = fs.join(tmpdir, "compilefence")
   assert(fs.make_dirs(fs.join(dir, "pkg")))
@@ -180,8 +178,8 @@ local function test_the_fence_permits_a_real_compile()
   -- `~/.ape-*`, which no grant covers, so under a fence it dies with
   -- ENOEXEC. That is why `o/bin/cosmic-check` exists and why `bin/make`
   -- assimilates the bootstrap -- every fenced recipe here already
-  -- passes an ELF, so a canary passing the APE tested a shape the build
-  -- never uses.
+  -- passes an ELF, so a canary passing the APE would test a shape the
+  -- build never uses.
   --
   -- Worth knowing: the staged `o/bin/ape` IS a plain ELF, and
   -- `o/bin/ape <fat APE>` runs. A fenced recipe could exec any pinned

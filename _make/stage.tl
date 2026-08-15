@@ -59,7 +59,8 @@ local SELECTS < const >: {string: Selection} = {
   },
   -- Derived from the one definition in types, so a selected `fmt` and
   -- the facts writer's `fmt_sources` cannot disagree about what is
-  -- formattable (they did: full fmt gated testdata and payload).
+  -- formattable: full fmt gates testdata and payload, and a second,
+  -- independent definition could silently diverge from that.
   fmt = {
     kinds = kinds_of(types.fmt_kinds),
     suffix = ".tl",
@@ -108,7 +109,7 @@ end
 
 --- Print a verb's verdict line and return the exit code it means;
 --- the grammar lives in `_tool.records`, which formats without
---- printing (#992) — this wrapper is the one place stdout happens.
+--- printing — this wrapper is the one place stdout happens.
 local function verdict(verb: string, ok: boolean, detail: string): integer
   io.write(records.format_verdict(verb, ok, detail) .. "\n")
   return records.exit_code(ok)

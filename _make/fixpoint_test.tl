@@ -106,9 +106,9 @@ local function seed_pins(dest: string): boolean
   }
   for _, w in ipairs(want) do
     -- `o/3p` is where `--make fetch` unpacks a pin, and the ONLY
-    -- place this looks: a fallback to some second location nothing
-    -- writes (`o/staged/**` is the retired candidate) is not a
-    -- fallback, it is a branch that can only ever return nil.
+    -- place this looks: a fallback to `o/staged/**`, which nothing
+    -- writes, is not a fallback, it is a branch that can only ever
+    -- return nil.
     local from = fs.join(repo, w[3])
     if not fs.is_file(from) then
       return false

@@ -24,7 +24,6 @@ local function run_repl()
 
   require("cosmo")
 
-  -- Inject help() into the REPL.
   local docs = require("cosmic.doc")
   rawset(_G, "help", function(query: string)
       local out, qerr = docs.query(query or "")
@@ -143,9 +142,7 @@ end
 --- @param s string The line to render
 --- @return string The line with whitespace made visible
 local function render_whitespace(s: string): string
-  -- Replace tabs with visible marker
   local result = s:gsub("\t", "->")
-  -- Mark trailing spaces with underscores
   result = result:gsub("( +)$", function(spaces: string): string
       return string.rep("_", #spaces)
     end)

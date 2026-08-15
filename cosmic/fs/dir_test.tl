@@ -198,7 +198,7 @@ local function test_fstatfs()
 end
 test_fstatfs()
 
--- fs.major/fs.minor are deleted (#988): zero callers; use
+-- fs.major and fs.minor are not part of cosmic.fs; use
 -- cosmo.unix.major/minor for raw device-number math.
 
 local function test_fdopendir()
@@ -236,8 +236,8 @@ local function test_fdopendir_bad_fd()
 end
 test_fdopendir_bad_fd()
 
--- #988 surfaces: Timespec-valued stat times that round-trip through
--- set_times, spelled Statfs methods, and temp_dir's default template.
+-- Timespec-valued stat times that round-trip through set_times,
+-- spelled Statfs methods, and temp_dir's default template.
 
 local function test_stat_times_round_trip()
   local test_dir = setup()

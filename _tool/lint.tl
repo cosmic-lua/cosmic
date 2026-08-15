@@ -1,7 +1,6 @@
---- The PURE style checks: file length and column width (#992: was
---- `cosmic.style` — a lint helper is toolchain, not battery, and D19's
---- amended rule lets `_cli.lint` require it here instead of forcing it
---- public; the move also frees the `style` name for ansi's job).
+--- The PURE style checks: file length and column width. A lint helper
+--- is toolchain, not battery, so it lives here instead of as public
+--- API — which also leaves the `style` name free for ansi's job.
 ---
 --- Pure means "needs nothing but the file's lines". The checks that
 --- need the LEXER — cast justification, the cosmo-require rule,

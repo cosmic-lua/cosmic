@@ -409,8 +409,7 @@ test_help_includes_all_options()
 
 -- A `--` among a script's arguments is the SCRIPT's, kept verbatim the
 -- way real `lua s.lua a -- b` keeps it -- a tool that parses its own
--- flags, or forwards a `--`-separated argv to a child, needs it. The
--- dispatcher used to strip every `--` after the script name.
+-- flags, or forwards a `--`-separated argv to a child, needs it.
 local function test_double_dash_reaches_the_script()
   local script = fs.join(tmpdir, "dashes.lua")
   assert(fs.write(script, [[

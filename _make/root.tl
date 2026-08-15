@@ -1,10 +1,10 @@
 --- Root discovery for `cosmic --make`.
 ---
 --- The root is the current directory. There is no search upward for a
---- marker file, because "which project am I in" answered by a search is
---- the bug that makes a build write into the wrong tree — the shape
---- hit here when a scan of one directory produced output in
---- another.
+--- marker file: "which project am I in" answered by a search can
+--- silently resolve to an ancestor project, and a build that scans one
+--- directory but writes its output into another is the failure mode to
+--- avoid.
 ---
 --- What the search upward IS for is refusing: if an ancestor also looks
 --- like a project, running from a subdirectory would build a *different*
@@ -109,11 +109,11 @@ end
 --- read one path as two. The recipe side agrees — a line is argv,
 --- whitespace-split, by design.
 ---
---- Said up front, because the alternative is what it did before: make
---- reports a missing prerequisite named after the first word of your
---- home directory, which explains nothing about the path being the
---- problem. `/Users/me/My Projects/thing` is an ordinary place to keep
---- a checkout, and "cosmic does not support this" is a fine answer;
+--- Said up front, because the alternative is a make error reporting a
+--- missing prerequisite named after the first word of your home
+--- directory, which explains nothing about the path being the problem.
+--- `/Users/me/My Projects/thing` is an ordinary place to keep a
+--- checkout, and "cosmic does not support this" is a fine answer;
 --- "no rule to make target `/Users/me/My'" is not.
 ---
 --- Whitespace is not the only character make reads specially in that
@@ -185,10 +185,10 @@ local function discover(verb: string): string | nil, string
     "\nmake: or name this one: " .. ROOT_ENV .. "=" .. abs ..
     " cosmic --make " .. verb
   end
-  -- The twin of the refusal above, and the one that was missing: the
-  -- cwd itself was never asked whether it is a project, so EVERY
-  -- directory was one. `--make build` in an empty directory reported
-  -- PASS over nothing, and `--make test` wrote `o/` plus a 1.5 MB
+  -- The twin of the refusal above: the cwd itself must be asked
+  -- whether it is a project, or EVERY directory would be one. Without
+  -- this check, `--make build` in an empty directory would report PASS
+  -- over nothing, and `--make test` would write `o/` plus a 1.5 MB
   -- extracted engine into whatever directory you were standing in --
   -- your home directory, if that is where you typed it. A typo that
   -- becomes a green build is the failure selection already refuses;

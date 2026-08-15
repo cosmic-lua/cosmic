@@ -80,8 +80,9 @@ local function read_body(fd: integer, n: integer, prefix: string):
   return buf:sub(1, n), buf:sub(n + 1)
 end
 
---- A parsed request line. One record, not three slots: a nil-in-slot-1
---- return may carry the value and nothing else (D20 rule 11).
+--- A parsed request line, returned as one record rather than three
+--- scalars: a return whose first slot may be nil needs the second
+--- slot free for an error, leaving no room for a third parsed field.
 local record RequestLine
   method: string
   target: string

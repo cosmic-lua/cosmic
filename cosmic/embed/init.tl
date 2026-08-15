@@ -272,9 +272,7 @@ end
 --- with their given path (leading / stripped).
 --- @param paths {string} List of file or directory paths to embed
 --- @param opts Options? output, exe_path, stripping, reproducibility
---- @return integer | nil The embedded file count, or nil on failure (#1001:
---- was `embed` returning EmbedResult — the module-name stutter and the
---- success-or-error-text-by-flag record leave together)
+--- @return integer | nil The embedded file count, or nil on failure
 --- @return string? Error message on failure
 local function write(paths: {string}, opts?: Options): integer | nil, string
   opts = opts or {}
@@ -303,7 +301,7 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
       end
     else
       -- Stat up front so a missing or unreadable file fails here, with
-      -- the same error surface reading it used to produce; the bytes
+      -- the same error surface fs.read would give; the bytes
       -- themselves are streamed in C by the add loop (add_file).
       local st, stat_err = fs.stat(p)
       if not st then
@@ -365,7 +363,7 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
     for _, name in ipairs(base_entries(exe_path)) do
       -- A trailing slash makes remove() a PREFIX removal, so removing
       -- a bare directory marker would take everything beneath it —
-      -- including the floor, which is `cosmic/**` since 3d. Directory
+      -- including the floor, which is `cosmic/**`. Directory
       -- markers are zero bytes and are therefore never removed; the
       -- entries beneath them are removed by name.
       if name:sub(-1) ~= "/" and not floor.in_floor(name, opts.provides) then
@@ -377,27 +375,25 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
   -- Remove existing entries that conflict, then add new ones.
   -- Store .lua uncompressed; deflate everything else. The produced
   -- executable loads its embedded Lua at boot, so a deflated .lua costs an
-  -- inflate() on every launch (the per-boot cost backlog 024 removed from
-  -- cosmic's own payload). Bulk assets, which the entry point does not
+  -- inflate() on every launch. Bulk assets, which the entry point does not
   -- necessarily read at startup, stay compressed to hold the size down.
   for _, file_info in ipairs(files_to_embed) do
-    -- The error is deliberately discarded, and this is the reason:
-    -- "entry not found" is the NORMAL result for a name not already in
-    -- the base, and the binding reports it through the same channel as
-    -- a real failure. Propagating it broke every fresh embed
-    -- (`failed to replace 'main.user.lua': entry not found`).
-    -- Distinguishing the two needs an exists() on the appender that
-    -- the binding does not offer; until it does, a genuinely failed
-    -- removal would surface as the duplicate entry it creates.
+    -- The error is deliberately discarded: "entry not found" is the
+    -- NORMAL result for a name not already in the base, and the
+    -- binding reports it through the same channel as a real failure.
+    -- Propagating it would fail every fresh embed with a misleading
+    -- "entry not found" error. Distinguishing the two needs an
+    -- exists() on the appender that the binding does not offer; until
+    -- it does, a genuinely failed removal would surface as the
+    -- duplicate entry it creates.
     local _ok, _err = appender:remove(file_info.stored_name)
     local is_lua = file_info.stored_name:sub(-4) == ".lua"
     local add: czip.AddOptions = {
       mode = file_info.mode,
       method = is_lua and "store" or "deflate",
       -- Default the epoch rather than letting the binding fall back to
-      -- `time(NULL)`. The `--make` path passed one and got byte-identical
-      -- rebuilds; the `--embed` CLI passed no options at all, so two runs
-      -- of the same inputs seconds apart produced different binaries --
+      -- `time(NULL)`. Without a fixed default, two runs of the same
+      -- inputs seconds apart would produce different binaries --
       -- breaking content-addressed caching and "same inputs, same
       -- artifact" for every caller outside `--make`. A caller wanting
       -- live mtimes now has to ask for them.

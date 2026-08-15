@@ -6,7 +6,7 @@ local sqlite = require("cosmic.sqlite")
 local check = require("cosmic.check")
 
 --- Scalar lookups go through query_one, which names the column it
---- reads rather than trusting position (#1063 retired query_value).
+--- reads rather than trusting position.
 local function count_rows(db: sqlite.Database): integer
   -- cast: a row column is `any`
   return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as integer
@@ -21,10 +21,10 @@ end
 
 -- Close with a live user-prepared Statement: the binding finalizes
 -- outstanding statements during close, so close succeeds — and the
--- wrapper Statement's own close stays a safe no-op afterwards. (The
--- close-ordering fix — mark closed only after the raw close succeeds —
--- is defensive: no reachable failure path exists through lsqlite3
--- today, which this test also documents by construction.)
+-- wrapper Statement's own close stays a safe no-op afterwards.
+-- Marking `closed` only after the raw close succeeds is defensive: no
+-- reachable failure path exists through lsqlite3 today, which this
+-- test also documents by construction.
 local function test_close_with_live_statement()
   local db = open_db()
   local stmt = check.must(db:prepare("SELECT name FROM t"))
@@ -84,8 +84,8 @@ end
 test_rows_close_ends_iteration()
 
 -- Parameterized exec/query of multi-statement SQL is rejected loudly:
--- sqlite compiles only the first statement, so the old behavior ran a
--- silent prefix and reported success.
+-- sqlite compiles only the first statement, so running one unrejected
+-- would silently execute a prefix and report success.
 local function test_multi_statement_rejected_with_params()
   local db = open_db()
 
@@ -155,7 +155,7 @@ local function test_multi_statement_scan_false_positives()
 end
 test_multi_statement_scan_false_positives()
 
--- The transaction/savepoint callback type now declares the rollback
+-- The transaction/savepoint callback type declares the rollback
 -- protocol, so a typed boolean return needs no cast.
 local function test_transaction_callback_typed_rollback()
   local db = open_db()

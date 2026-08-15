@@ -24,7 +24,7 @@ package.path = package.path:sub(1, at - 1) ..
 -- scan rule is its own; see docs/design/make/resolution.md.
 local searcher = require("cosmic.searcher")
 -- A named manifest that cannot be installed is worth a line on
--- stderr (#1001); an argv with no --modules returns no message.
+-- stderr; an argv with no --modules returns no message.
 local _margs_ok, margs_err = searcher.install_argv_manifest(arg)
 if margs_err then
   io.stderr:write("cosmic-lua: --modules: " .. margs_err .. "\n")
@@ -81,7 +81,7 @@ local record Options
   error: string
 end
 
--- Parse arguments against the _cli.args spec via cosmic.flags (#991).
+-- Parse arguments against the _cli.args spec via cosmic.flags.
 local function parse_args(): Options
   -- Absent record fields read as nil; only the accumulating and
   -- boolean fields need initial values.
@@ -195,7 +195,7 @@ local function parse_args(): Options
 
   local p0, perr = flags.parse(cli_args.spec, cosmic_args)
   if not p0 then
-    -- flags errors arrive unprefixed (#991); this program adds its
+    -- flags errors arrive unprefixed; this program adds its
     -- name, plus a targeted usage hint for the multi-argument flags.
     local hints: {string: string} = {
       ["--test"] = "--test requires: --test <output> <cmd>...",
@@ -336,7 +336,7 @@ local function main(): integer, string
   if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
 
   -- First-run welcome, tty gate first: the banner only ever prints to a terminal,
-  -- so headless boots never load _cli.welcome (#973). Still once, on the first tty.
+  -- so headless boots never load _cli.welcome. Still once, on the first tty.
   if not os.getenv("COSMIC_NO_WELCOME") then
     local tty = require("cosmic.tty")
     if tty.is_tty(2) then
@@ -394,7 +394,7 @@ local function main(): integer, string
       return 1, "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
     end
     local testrun = require("_tool.testrun")
-    -- The runner reports, the caller prints (#992): a runner failure
+    -- The runner reports, the caller prints: a runner failure
     -- comes back as a message, prefixed here with the flag it ran for.
     local code, run_msg = testrun.run(opts.test_argv, opts.test_output)
     if run_msg then

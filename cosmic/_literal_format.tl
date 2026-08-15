@@ -1,5 +1,5 @@
---- The format half of cosmic.literal (#1001: rule 6 — parse/parse_file
---- ship with format/format_file). A flat `_literal_format` sibling for
+--- The format half of cosmic.literal: format and format_file mirror
+--- literal's parse and parse_file. A flat `_literal_format` sibling for
 --- the same reason `_teal_engine` is one: literal.tl sits at the
 --- file-length cap. The public surface is cosmic.literal's.
 local cosmo = require("cosmo")
@@ -24,8 +24,8 @@ local function format(value: any): string | nil, string
 end
 
 --- Write a value as a literal file: format, then write to path.
---- The file variant of format (rule 6's `<verb>_file`), the mirror of
---- parse_file.
+--- The file variant of format (the `<verb>_file` convention), the
+--- mirror of parse_file.
 --- @param path string Where to write
 --- @param value any The value to serialize
 --- @return boolean True on success

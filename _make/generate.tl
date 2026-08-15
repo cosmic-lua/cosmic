@@ -1,14 +1,10 @@
 --- The generation phase: run every unit's payload generator, once each.
 ---
---- Split from `_make.artifact` on the seam the code already had. The
---- two halves run at different rates and over different things:
---- generation is a phase over the PROJECT, running once before any
---- binary stages, while staging and embedding run once per BINARY.
---- `init.run_graph` already invoked them separately; only the file
---- boundary was missing, and `artifact.tl` was 36 lines under a hard
---- cap with six jobs in it. A split drawn under cap pressure lands
---- wherever the line count falls; this one is drawn where the runtime
---- boundary already is.
+--- Generation and staging run at different rates over different
+--- things: generation is a phase over the PROJECT, running once
+--- before any binary stages, while staging and embedding
+--- (`_make.artifact`) run once per BINARY. `init.run_graph` invokes
+--- the two separately, which is the boundary this file follows.
 
 local child = require("cosmic.child")
 local cenv = require("cosmic.env")
@@ -43,12 +39,11 @@ local ran: {string: boolean} = {}
 
 --- A path with its extension removed.
 ---
---- Both spellings, because a marker is a name: stripping a fixed three
---- characters turned `foo_gen.lua` into the output directory
---- `o/foo_gen.` -- a trailing dot, which makedirs refused with EILSEQ
---- and which is an invalid filename on Windows, a platform cosmic
---- targets. The classifier had just been taught that `.lua` generators
---- are real; this is the runner catching up.
+--- Handles both spellings: a `.lua` generator is as real as a `.tl`
+--- one, and stripping only three characters would turn `foo_gen.lua`
+--- into the output directory `o/foo_gen.` -- a trailing dot, which
+--- `fs.make_dirs` refuses with EILSEQ and which is an invalid filename
+--- on Windows, a platform cosmic targets.
 --- @param path string A path with a `.tl` or `.lua` extension
 --- @return string The path without it
 local function stem_of(path: string): string
@@ -60,12 +55,12 @@ end
 --- does for imports.
 ---
 --- BOTH spellings, because `.lua` sources are first-class. `deps` lists
---- one as `o/<path>.lua` exactly like a compiled module, and assuming
---- `.tl` skipped it here -- so the mini-graph never produced it, while
---- the manifest still named it. On a cold tree the generator's require
---- then hit the closure layer, found nothing at that path, and failed
---- loudly: a valid project broken on its FIRST build and only its
---- first, which is the worst shape a bug can take.
+--- one as `o/<path>.lua` exactly like a compiled module, so assuming
+--- `.tl` here would skip it: the mini-graph would never produce it
+--- while the manifest still named it, and on a cold tree the
+--- generator's `require` would hit the closure layer, find nothing at
+--- that path, and fail loudly -- a valid project broken on its FIRST
+--- build and only its first, the worst shape a bug can take.
 --- @param proj Project The scanned project
 --- @param built string A built path (`o/x/y.lua`)
 --- @return string|nil The source path, or nil when there is no source
@@ -127,12 +122,13 @@ end
 --- it, and hand it a manifest naming what it just built.
 ---
 --- A generator runs BEFORE the graph, so it has nothing built to
---- resolve through -- and until this existed it resolved its own
---- helpers out of the RUNNING BINARY. `_types/types_gen.tl` is not
---- embedded so it came from the tree, while `_types/gentype_render.tl`
---- is, so it came from `/zip`: one generator, two generations of code,
---- and a one-line edit to a helper took two full builds to take effect
---- with the first reporting PASS. See docs/design/make/resolution.md.
+--- resolve through -- so without this closure compile it would
+--- resolve its own helpers out of the RUNNING BINARY instead.
+--- `_types/types_gen.tl` is not embedded so it comes from the tree,
+--- while `_types/gentype_render.tl` is, so it would come from `/zip`:
+--- one generator, two generations of code, where a one-line edit to a
+--- helper would take two full builds to take effect, with the first
+--- reporting PASS.
 ---
 --- A graph before the graph, and small: `_types/types_gen.tl`'s closure
 --- is 20 files of this repo's 375. It also does not deadlock on itself
@@ -173,10 +169,8 @@ local function closure_argv(proj: Project, gen: string, out: string,
   -- process it would outlive the call and be inherited by every later
   -- child, which is a side effect nothing here asks for.
   -- Restoring has to tell an UNSET LUA_PATH from an empty one: to Lua
-  -- they are the default path and no path, which is why this branches on
-  -- nil rather than on "". `cenv.get` says so in its type since #834;
-  -- before that it erased the nil into its default and this line had to
-  -- reach past it to `os.getenv`.
+  -- they are the default path and no path, which is why this branches
+  -- on nil rather than on "". `cenv.get`'s type distinguishes the two.
   local saved = cenv.get("LUA_PATH")
   local function restore()
     if saved == nil then
@@ -297,8 +291,8 @@ local function digest_of(dir: string): string
   if not next(found.files) then
     return "empty"
   end
-  -- find_info keys are full paths (#987); the digest wants names
-  -- relative to dir so the hash never moves with the tree's location.
+  -- find_info keys are full paths; the digest wants names relative to
+  -- dir so the hash never moves with the tree's location.
   local names: {string} = {}
   for full in pairs(found.files) do
     names[#names + 1] = full:sub(#dir + 2)
@@ -444,10 +438,11 @@ end
 --- distinction is load-bearing: the ROOT payload is staged into every
 --- binary (root `embed/` is shared the way a root package is), so the
 --- root generator has to run before any binary stages — once, not once
---- per binary. Hung off `build`, it ran only while the root binary was
---- being built, so a project with only `cmd/` binaries never ran it at
---- all, and a project with both staged whatever the previous run had
---- left depending on which binary name sorted first.
+--- per binary. Hung off `build` instead, it would run only while the
+--- root binary was being built, so a project with only `cmd/` binaries
+--- would never run it at all, and a project with both would stage
+--- whatever the previous run had left, depending on which binary name
+--- sorted first.
 ---
 --- Generation stays inside the build verb rather than becoming a verb
 --- of its own, because a generator whose output a binary embeds is in

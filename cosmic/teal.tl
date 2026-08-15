@@ -1,7 +1,7 @@
 --- Teal compilation and type-checking.
---- Both halves of rule 6 (#1001): `compile(source)`/`check(source)`
---- take Teal SOURCE, `compile_file(path)`/`check_file(path)` take a
---- path — the file variant wears the `_file` suffix instead of the
+--- Both halves of the source/file naming convention: `compile(source)`/
+--- `check(source)` take Teal SOURCE, `compile_file(path)`/`check_file(path)`
+--- take a path — the file variant wears the `_file` suffix instead of the
 --- bare name. --compile uses lax mode for permissive compilation (the
 --- gradual-typing on-ramp for plain-Lua scripts); --compile-strict
 --- type-checks strictly (warnings fail, matching --check types) and
@@ -13,7 +13,7 @@
 -- artifact asserts both fail together, and its searcher relies on that
 -- to answer require misses without blaming tl (_make/artifact_test.tl).
 -- But loading tl parses ~435KB of Lua that a warm-cache script run
--- never needs (#938). So: prove tl EXISTS at load time without loading
+-- never needs. So: prove tl EXISTS at load time without loading
 -- it, and require it only where it runs — package.loaded makes the
 -- repeat cost one lookup.
 if not package.loaded["tl"] and not package.preload["tl"]
@@ -87,7 +87,7 @@ local function finish_check(proc: ProcessResult, name: string,
   return {ok = ok, warnings = warnings, errors = errors}
 end
 
---- Compile Teal SOURCE to Lua code (#1001: the string half — the file
+--- Compile Teal SOURCE to Lua code (the string half — the file
 --- variant is compile_file). Lax mode by default (permissive, for user
 --- scripts); opts.strict type-checks strictly first — warnings fail
 --- too, matching check's default — and generates from that same
@@ -106,7 +106,7 @@ local function compile(source: string, opts?: CompileOptions): CompileResult
   return finish_compile(proc, name, opts)
 end
 
---- Compile a Teal file to Lua code (#1001: was `compile`).
+--- Compile a Teal file to Lua code.
 --- Same contract as compile; the path names the errors.
 --- @param input_path string Path to the Teal file to compile
 --- @param opts CompileOptions? Compilation options (include_dirs, gen_target, gen_compat, strict)
@@ -119,7 +119,7 @@ local function compile_file(input_path: string, opts?: CompileOptions): CompileR
   return finish_compile(proc, input_path, opts)
 end
 
---- Type-check Teal SOURCE (#1001: the string half — the file variant
+--- Type-check Teal SOURCE (the string half — the file variant
 --- is check_file). Uses strict mode. Warnings fail the check
 --- (ok = false) unless opts.werror is explicitly false: an unused
 --- local or shadowed variable is a defect the author must either fix
@@ -136,7 +136,7 @@ local function check(source: string, opts?: CheckOptions): CheckResult
   return finish_check(proc, name, opts)
 end
 
---- Type-check a Teal file (#1001: was `check`).
+--- Type-check a Teal file.
 --- Same contract as check; the path names the errors.
 --- @param input_path string Path to the Teal file to check
 --- @param opts CheckOptions? Type-checking options (include_dirs, werror)
@@ -176,8 +176,7 @@ local hint_for_message = require("cosmic._teal_hints").hint_for_message
 --- Options for format_issues.
 local record FormatOptions
   --- Append one fix-hint line after each error matching a known Teal
-  --- type-check trap (#1001: was the format_issues_with_hints variant —
-  --- a `_with_X` suffix is an options field).
+  --- type-check trap.
   hints: boolean
 end
 

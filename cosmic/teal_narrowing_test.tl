@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 --- The truthiness-narrowing skip list's NEGATIVE side (the carried tl
---- patch, whilp/cosmic#942): teal_test.tl's canary pins what must
---- narrow; this file pins what must not. Split from teal_test.tl by
---- the 500-line file limit.
+--- patch): teal_test.tl's canary pins what must narrow; this file
+--- pins what must not. Split from teal_test.tl by the 500-line file
+--- limit.
 
 local fs = require("cosmic.fs")
 local teal = require("cosmic.teal")

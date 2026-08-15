@@ -1,4 +1,4 @@
---- Discarded-error diagnostics for the strict checker (issue #948).
+--- Discarded-error diagnostics for the strict checker.
 ---
 --- The honest-nil convention puts the error in the second return slot,
 --- and the type system alone never notices when a caller drops it.

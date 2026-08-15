@@ -3,7 +3,7 @@
 --- child (dominated by process boot and env construction); this
 --- isolates the checker's marginal, size-scaling cost — the number
 --- that governs how build time grows with the tree and that batching
---- compile children (#1099) cannot amortize away.
+--- compile children cannot amortize away.
 --- The input is dependency-free (no requires), so the check needs no
 --- include path and the scenario is hermetic.
 

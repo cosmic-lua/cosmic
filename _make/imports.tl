@@ -4,10 +4,10 @@
 --- validator (which REFUSES a project over a cross-`cmd` import), the
 --- dependency closure (which turns edges into prerequisites), the facts
 --- writer (a closure per compiled file), and the fence (which will grant
---- reads from it). While each scanned for itself they drifted --- one
---- got comment handling and a frontier anchor, the others did not ---
---- so the same file had different imports depending on who asked. A
---- commented-out require was invisible to the gate and a phantom
+--- reads from it). Each scanning for itself would drift -- one gaining
+--- comment handling and a frontier anchor the others lack -- so the
+--- same file could have different imports depending on who asked: a
+--- commented-out require invisible to the gate and a phantom
 --- prerequisite to the graph at the same time.
 ---
 --- Scanning is also the model's hot loop: every consumer re-read and
@@ -137,11 +137,11 @@ local function of_file(path: string): {string}
 end
 
 --- Non-import files a test declares it READS, from `--- reads: <path>`
---- doc-comment lines. The D18 content key hashes only declared inputs,
---- and a ratchet test's subject (docs/decisions, .github/workflows) is
---- no import — undeclared, an edit to it replayed the test's cached
---- verdict (d18-step-skip.md, amended). Paths are relative to the
---- project root; a directory declares every file under it.
+--- doc-comment lines. The content key hashes only declared inputs, and
+--- a ratchet test's subject (docs/decisions, .github/workflows) is no
+--- import — undeclared, an edit to it would replay the test's cached
+--- verdict instead of re-running it. Paths are relative to the project
+--- root; a directory declares every file under it.
 --- @param src string The file's contents
 --- @return {string} Declared read paths, in file order
 local function reads_scan(src: string): {string}
@@ -157,10 +157,10 @@ end
 
 --- The declared reads of a source file, expanded: each declared
 --- directory becomes the sorted list of files under it, so the make
---- prerequisites and the content key see files, not directories
---- (a directory's mtime misses edits — the exact lie D18 exists to
---- stop). A declared path that does not exist fails the scan loudly:
---- an input that cannot be hashed is a declaration gone stale.
+--- prerequisites and the content key see files, not directories --
+--- a directory's mtime misses edits inside it, which a content key
+--- must never do. A declared path that does not exist fails the scan
+--- loudly: an input that cannot be hashed is a declaration gone stale.
 --- @param root string Absolute project root
 --- @param path string Source file path relative to root
 --- @return {string} | nil Sorted file paths relative to root

@@ -258,7 +258,7 @@ end
 test_digest_matches_sha256_convenience()
 
 local function test_digest_unknown_algo()
-  -- A value smuggled past the Algo enum is a contract violation (D22).
+  -- A value smuggled past the Algo enum is a contract violation.
   -- cast: deliberate invalid input
   local ok, err = pcall(hash.digest, "md4" as hash.Algo, "abc")
   assert(not ok, "digest must throw for a smuggled unknown algorithm")
