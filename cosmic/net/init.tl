@@ -308,11 +308,14 @@ local function interfaces(): {Interface} | nil, string
   if not raw then
     return nil, errstr(err, "siocgifconf")
   end
+  -- The binding returns {unix.IfAddr} since the 2026.08.15 pin
+  -- (whilp/cosmopolitan#256), so the blob casts this loop carried are
+  -- gone: the fields are typed at the source.
   local list: {Interface} = {}
-  for i, entry in ipairs(raw as {{string: any}}) do -- cast: from any
+  for i, entry in ipairs(raw) do
     list[i] = {
-      name = entry["name"] as string, -- cast: from any
-      ip = ip.from_int(entry["ip"] as integer), -- cast: from any
+      name = entry.name,
+      ip = ip.from_int(entry.ip),
     }
   end
   return list
