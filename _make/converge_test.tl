@@ -117,7 +117,7 @@ end
 test_the_probe_reads_the_answer()
 
 -- The probe's mark and what `--make help` actually prints are the SAME
--- constant now (`_make.help`'s PROBE_MARK), not two copies that could
+-- constant (`_make.help`'s PROBE_MARK), never two copies that could
 -- drift apart silently. This is the structural guarantee behind
 -- test_the_probe_reads_the_answer's real-engine assertion above.
 local function test_the_probe_mark_is_help_usages_own_constant()
@@ -218,9 +218,9 @@ test_a_build_that_never_settles_refuses()
 -- And the branch that is NOT a refusal. A project that declares a
 -- toolchain by two ordinary names -- a `cosmic/` package and a `cosmic`
 -- binary -- but whose binary is not an engine carries on under the
--- running one. Refusing here was the bug wearing a better name: every
--- gate verb paid a full build and then failed, permanently, for a
--- project whose only mistake was its naming.
+-- running one. Refusing here would be the bug wearing a better name:
+-- every gate verb would pay a full build and then fail, permanently,
+-- for a project whose only mistake was its naming.
 local function test_a_look_alike_toolchain_carries_on()
   local dir = scratch("carry-on")
   local self = script(fs.join(dir, "quiet"), "exit 0\n")

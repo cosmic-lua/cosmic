@@ -11,9 +11,7 @@
 --- prevent.
 ---
 --- The tar reader is `cosmic.tar`, which already refuses
---- escaping entry names and link targets. It lives under `_build`
---- because the make-driven build needed it first; when that path
---- retires the reader moves rather than being rewritten.
+--- escaping entry names and link targets.
 
 local fs = require("cosmic.fs")
 local untar = require("cosmic.tar")
@@ -122,7 +120,8 @@ local function unpack(archive: string, dest: string, format: string,
     -- Truthiness, not `is zip.Archive`: the tree's Archive is a
     -- wrapper table while the pinned record types it as the binding
     -- userdata, and an `is` test compiled against the pinned record
-    -- would reject the table at cold start (#996 transition).
+    -- would reject the table at cold start, since the two disagree on
+    -- Archive's runtime shape.
     if not reader then
       local _ok, _err = fs.remove_all(staging)
       return nil, "make: cannot open " .. archive .. ": " ..

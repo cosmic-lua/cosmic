@@ -202,9 +202,10 @@ test_default_argv_is_derived()
 
 -- The ROOT generator is every binary's, the way root `embed/` is: its
 -- output is staged into all of them. Hung off each binary's own build
--- it ran only while the ROOT binary was being built, so a project with
--- only `cmd/` binaries never ran it at all -- and one with both staged
--- whatever the last run left, depending on which name sorted first.
+-- instead, it would run only while the ROOT binary was being built, so
+-- a project with only `cmd/` binaries would never run it at all -- and
+-- one with both would stage whatever the last run left, depending on
+-- which name sorted first.
 local function test_the_root_generator_runs_for_cmd_binaries()
   local root = fixture("rootgen", {
       ["embed_gen.tl"] = [[
@@ -339,11 +340,11 @@ test_stored_path_collisions_are_refused()
 
 -- The real payload generator, against the real tree. The synthetic
 -- fixtures above exercise the MECHANISM; this asserts the contract
--- cosmic's own binary depends on -- which is the hazard that bit twice
--- twice already (a pack that lost tl.lua and the type tree, and one that lost
--- every compiled _cli/** and _make/** module; both times the binary
--- built, booted, and failed only when something first required the
--- missing piece).
+-- cosmic's own binary depends on. A dropped payload has a
+-- characteristic shape -- lose `tl.lua` and the type tree, or every
+-- compiled `_cli/**` and `_make/**` module, and the binary still
+-- builds and still boots, failing only when something first requires
+-- the missing piece.
 local function test_the_real_payload_generator()
   local repo = fs.absolute_path(".")
   local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
@@ -425,12 +426,12 @@ test_a_generator_reads_its_helpers_from_the_tree()
 
 -- A `.lua` module in a generator's closure survives a COLD build.
 --
--- `.lua` sources are first-class and the graph COPIES them; the
--- mini-graph assumed every closure member compiles from a `.tl`, so it
--- skipped one -- and then named it in the manifest anyway. On a cold
--- tree the generator's require hit the closure layer, found nothing at
--- that path, and failed loudly. A valid project broken on its first
--- build and only its first.
+-- `.lua` sources are first-class and the graph COPIES them; assuming
+-- every closure member compiles from a `.tl` would skip this one --
+-- and still name it in the manifest. On a cold tree the generator's
+-- `require` would then hit the closure layer, find nothing at that
+-- path, and fail loudly. A valid project broken on its first build and
+-- only its first.
 --
 -- The generator is `.lua` too, and that is a constraint rather than a
 -- preference: a strict compile of a `.tl` importing an untyped `.lua`

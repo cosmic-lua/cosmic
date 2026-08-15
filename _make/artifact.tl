@@ -38,14 +38,14 @@ local type Project = types.Project
 --- `asset` is deliberately absent. Every other
 --- kind in the model is declared by position or marker (a test is
 --- `*_test.*`, a pin is `*_pin.tl`, payload is `embed/**`, internal is
---- `_`), and "everything else ships at its relative path" was the one
---- row that inverted that: a repo is full of files that are ABOUT a
---- project rather than OF its artifact, and all of them shipped -- 1.5
---- MB of `docs/` and `_perf/` inside cosmic's own binary, and a second
---- knob on the way to distinguish "not shipped" from "not seen".
---- With shipping opt-in there is nothing to
+--- `_`), and shipping follows the same rule rather than defaulting
+--- every file to ship at its relative path: a repo is full of files
+--- that are ABOUT a project rather than OF its artifact, and a
+--- default-ship rule would put 1.5 MB of `docs/` and `_perf/` inside
+--- cosmic's own binary, plus a second knob to distinguish "not
+--- shipped" from "not seen". With shipping opt-in there is nothing to
 --- un-ship: `testdata/`'s exclusion and `.d.tl`'s never-embedded rule
---- stop being exceptions carved out of a default, and the artifact's
+--- are not exceptions carved out of a default, and the artifact's
 --- contents are greppable from the tree (`ls embed/` plus the module
 --- set) the way its network and exec surfaces already are.
 local ships: {string: boolean} = {

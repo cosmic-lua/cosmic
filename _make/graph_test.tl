@@ -203,8 +203,8 @@ local function test_find_make_never_searches_path()
   if saved_make then
     assert(cenv.set("COSMIC_MAKE", saved_make))
   end
-  -- Not "" any more: with the engine embedded, find_make extracts one.
-  -- What must never happen is picking up the host's.
+  -- With the engine embedded, find_make extracts one rather than
+  -- returning empty. What must never happen is picking up the host's.
   assert(found ~= fs.join(box, "bin", "make"),
     "PATH must not be searched, but the host's make was chosen: " .. found)
   assert(found == fs.join(box, "o", "make"),
@@ -236,9 +236,9 @@ end
 test_find_make_honors_the_override()
 
 -- The engine ships in the binary, so a project needs nothing
--- installed. Amends D13, whose rejection reasoned from THIS repo --
--- where both pins are already in hand -- and does not survive the user
--- case, where one binary in a bare sandbox has nothing to find.
+-- installed. Reasoning only from this repo's own checkout -- where
+-- both pins are already in hand -- misses the user case: one binary
+-- in a bare sandbox has nothing to find.
 local function test_the_engine_ships_in_the_binary()
   local bytes = fs.read(graph.MAKE_ZIP)
   assert(bytes, "the binary must carry an engine at " .. graph.MAKE_ZIP)
@@ -323,9 +323,9 @@ test_source_dirs_are_the_compiled_ones()
 
 print("all graph tests passed")
 
--- `--- reads:` declarations (D18, amended): a test's non-import inputs
--- join its deps_* closure — prerequisites, content key, fence grant —
--- and a declaration naming a missing path refuses the build instead of
+-- `--- reads:` declarations: a test's non-import inputs join its
+-- deps_* closure — prerequisites, content key, fence grant — and a
+-- declaration naming a missing path refuses the build instead of
 -- silently hashing nothing.
 local function test_project_mk_carries_declared_reads()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "readsXXXXXX")))
