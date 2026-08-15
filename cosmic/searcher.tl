@@ -22,9 +22,21 @@
 --- Compiled output is cached content-hashed, so a script's .tl require
 --- tree compiles once per content+build, not once per run — through
 --- `cosmic.teal.compile_cached`, which is the same call the script
---- runner makes, so the two paths cannot drift. Compilation is lax —
---- the same gradual-typing on-ramp as running a script directly;
---- --check types remains the strict gate.
+--- runner makes, so the two paths cannot drift. install()'s runtime
+--- searcher compiles lax — the same gradual-typing on-ramp as running
+--- a script directly; --check types remains the strict gate — while
+--- in-project tree resolution (install_manifest, layer 3) compiles
+--- strict, so tree-first is never a downgrade from the binary's
+--- already-checked bytes.
+---
+--- The ENTRY script stays lax either way, and that is decided, not
+--- inherited (#840): a searcher only sees modules that pass through
+--- require(), so `cosmic foo.tl` compiles foo.tl lax even inside a
+--- project. The alternative — strict inside a project, lax outside —
+--- is a second rule keyed on "which project am I in", precisely the
+--- ambiguity _make/root.tl refuses to guess about, and it would
+--- silently revoke the on-ramp for anyone running a script from a
+--- directory that happens to be a project.
 ---
 --- install() appends the searcher at the END of package.searchers so
 --- the default Lua file searcher finds pre-compiled .lua modules
