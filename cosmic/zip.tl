@@ -314,8 +314,8 @@ local function extract_entries(archive: Archive, destdir: string,
       ok, err = ensure_dir(fs.dirname(filepath))
       if not ok then return false, err end
 
-      -- The entry decompresses in C straight to the file
-      -- (whilp/cosmopolitan#238): no entry-sized Lua string.
+      -- The entry decompresses in C straight to the file: no
+      -- entry-sized Lua string.
       local save_ok, save_err = archive:save(name, filepath)
       if not save_ok then
         return false, "cannot read '" .. name .. "' from archive: " .. (save_err or "unknown error")
@@ -377,7 +377,7 @@ local record ZipModule
   type AddOptions = AddOptions
   --- Options for extract().
   type ExtractOptions = ExtractOptions
-  --- File metadata within a ZIP archive (was `Stat`, #996).
+  --- File metadata within a ZIP archive.
   type EntryStat = EntryStat
   --- Directory entry returned by Archive:list().
   type Entry = Entry

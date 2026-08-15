@@ -71,16 +71,15 @@ local function monotonic_ns(): integer
   return secs * 1000000000 + nanos
 end
 
--- The engine under sleep_ms — internal since #999: rule 2 makes
--- integer milliseconds THE duration, and this was the tree's only
--- three-return function. It reports the remainder in MILLISECONDS for
--- the same reason it has two slots (#1063): the (secs, nanos) pair
--- pushed the error into slot 3, out of `local v, err`'s reach.
+-- The engine under sleep_ms is internal: integer milliseconds is THE
+-- duration, so this stays a two-return function. It reports the
+-- remainder in MILLISECONDS because a (secs, nanos) pair would push
+-- the error into slot 3, out of `local v, err`'s reach.
 local function sleep_remaining_ms(seconds: integer, nanos?: integer): integer | nil, string
   local ns = nanos or 0
-  -- The binding reports its own remainder now (cosmopolitan#237): zero
-  -- when the sleep completed, and on EINTR the kernel's own remainder
-  -- after the errno. Both used to need a pair of clock reads here.
+  -- The binding reports its own remainder: zero when the sleep
+  -- completed, and on EINTR the kernel's own remainder after the
+  -- errno.
   local rem_s, rem_ns, eno, eintr_s, eintr_ns = unix.nanosleep(seconds, ns)
   -- Round up so an interrupted sleep never reports 0 remaining.
   if rem_s ~= nil then
@@ -112,11 +111,11 @@ end
 
 -- gmtime and localtime each destructure their own binding, rather than
 -- sharing a helper that takes the BINDING as a parameter. That helper
--- had to restate cosmo.unix's 13-value tuple to type its parameter --
--- a hand-copy of what `cosmo/unix.d.tl` already declares, which is
--- both a shape that can drift and the one thing D20 rule 11 has no
--- room for. A duplicated field mapping cannot drift silently: both
--- halves are checked against DateTime.
+-- would have to restate cosmo.unix's 13-value tuple to type its
+-- parameter -- a hand-copy of what `cosmo/unix.d.tl` already declares,
+-- and a shape that can drift out of sync with it. A duplicated field
+-- mapping cannot drift silently instead: both halves are checked
+-- against DateTime.
 
 --- Break down a UNIX timestamp into UTC (Zulu) time components.
 --- Fails on a timestamp the C library cannot represent: EOVERFLOW for
@@ -185,8 +184,8 @@ local function format_http(timestamp: integer): string
   return cosmo.FormatHttpDateTime(timestamp)
 end
 
--- Internal calendar helpers behind timegm's range checks (#993: their
--- exports were zero-caller; the logic stays private).
+-- Internal calendar helpers behind timegm's range checks: nothing
+-- outside this module calls them, so the logic stays private.
 local function is_leap_year(year: integer): boolean
   return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
 end

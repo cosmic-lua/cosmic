@@ -2,19 +2,17 @@
 --- Unpacks a `.tar.gz` or plain `.tar` (gzip is detected from the
 --- header).
 ---
---- It began as the stage pipeline's replacement for `tar -xzmf`
---- and moved here when `--make` needed it too: `_make` unpacks pinned
---- archives at runtime, the artifact floor is `cosmic/**`, and a module
---- a built binary requires has to be inside it. Making it public is the
---- honest consequence — position is the manifest — and "unpack a
---- tarball" is a battery beside `cosmic.zip` and `cosmic.compress`
---- rather than something peculiar to this repo's build.
+--- Public because `_make` unpacks pinned archives at runtime: the
+--- artifact floor is `cosmic/**`, and a module a built binary requires
+--- has to be inside it. Making it public is the honest consequence —
+--- position is the manifest — and "unpack a tarball" is a battery
+--- beside `cosmic.zip` and `cosmic.compress` rather than something
+--- peculiar to this repo's build.
 ---
 --- Writes through `cosmic.fs` rather than `_build`'s bootstrap-portable
---- shim: that shim exists for a bootstrap predating the 2026.07
---- error-convention release, and a module the artifact floor carries
---- cannot depend on `_build` at all. The stage pipeline keeps its own
---- shim for the paths that still run under the pinned binary.
+--- shim: a module the artifact floor carries cannot depend on `_build`
+--- at all. The stage pipeline keeps its own shim, using an older error
+--- convention, for the paths that still run under the pinned binary.
 ---
 --- FAILURE CONTRACT: extraction is not atomic. Entries are written as
 --- they are read, so a failure partway through leaves `destdir` holding
@@ -124,10 +122,9 @@ end
 
 --- Reject entry names that would escape the extraction root. The
 --- predicate is fs.is_unsafe_entry_name — one guard for zip, tar and
---- embed. (This drops tar's old blanket backslash refusal: a
---- backslash now acts as a separator for the traversal check, same as
---- the other two formats, so `a\b.txt` extracts as a literal file
---- and `..\evil` is still refused.)
+--- embed. A backslash acts as a separator for the traversal check,
+--- same as the other two formats, so `a\b.txt` extracts as a literal
+--- file and `..\evil` is still refused.
 local unsafe_path = fs.is_unsafe_entry_name
 
 --- Symlink targets must stay inside the tree: relative, no "..", no
@@ -264,9 +261,9 @@ local record TarModule
   extract: function(archive: string, destdir: string, opts?: ExtractOptions): boolean, string
 end
 
--- `parse_pax` is deliberately not exported: it was public only so a
--- test could call it; pax paths are covered through extraction now,
--- and an export is a contract.
+-- `parse_pax` is deliberately not exported: pax paths are covered
+-- through extraction, and an export is a contract this module does
+-- not need to take on.
 local M: TarModule = {
   extract = extract,
 }

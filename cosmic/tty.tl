@@ -3,8 +3,8 @@
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").format
 
--- 1-based Lua indices into Termios.cc (#999): C's 0-based VMIN/VTIME
--- shifted once, here, so neither this module nor any caller writes +1.
+-- 1-based Lua indices into Termios.cc: C's 0-based VMIN/VTIME shifted
+-- once, here, so neither this module nor any caller writes +1.
 local VMIN < const > = unix.VMIN + 1
 local VTIME < const > = unix.VTIME + 1
 
@@ -52,7 +52,7 @@ local record TtyModule
   BRKINT: integer
   OPOST: integer
 
-  --- 1-BASED cc indices (#999): `t.cc[tty.VMIN]` is C's c_cc[VMIN].
+  --- 1-BASED cc indices: `t.cc[tty.VMIN]` is C's c_cc[VMIN].
   --- The generated unix constants are C's 0-based values; these are
   --- pre-shifted for Lua's 1-based cc array so no caller writes `+ 1`.
   VMIN: integer

@@ -1,8 +1,8 @@
 --- Shared memory for inter-process communication.
 --- Provides atomic operations and wait/wake primitives for
---- synchronization. Memory created with shm.open (#999: was
---- `mapshared`) is shared across fork() and provides fundamental
---- synchronization primitives including futexes.
+--- synchronization. Memory created with shm.open is shared across
+--- fork() and provides fundamental synchronization primitives
+--- including futexes.
 ---
 --- This is a real wrapper over unix.mapshared, not a passthrough: sizes
 --- and offsets are validated in Lua (the region size is known at
@@ -20,7 +20,7 @@ local record ShmModule
   --- Shared memory region with atomic word operations and futexes.
   --- One compare-exchange outcome: whether the swap happened, and the
   --- word's actual value at the time (the old value on success). A
-  --- record per D20 rule 11 (the error stays reachable in slot 2).
+  --- record so the error stays reachable in slot 2.
   record Exchange
     swapped: boolean
     value: integer
@@ -30,7 +30,7 @@ local record ShmModule
   --- only inspect the low 32 bits — store only int32 values in words
   --- you wait on.
   ---
-  --- Memory ordering (#999, stated because a sync-primitives surface
+  --- Memory ordering (stated because a sync-primitives surface
   --- without one is a guess): every atomic word operation is
   --- sequentially consistent (the binding's C11 atomics use the
   --- default memory_order_seq_cst), so a store or exchange published
@@ -73,10 +73,8 @@ local record ShmModule
     --- Wakes nothing once the region has been unmapped.
     wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
     --- Release the mapping now instead of waiting for the garbage
-    --- collector. Idempotent and returns nothing (#999: it used to
-    --- return false for "already released", so asserting the second,
-    --- correct call failed). Afterwards every fallible method returns
-    --- an error naming the unmapped state.
+    --- collector. Idempotent, returning nothing. Afterwards every
+    --- fallible method returns an error naming the unmapped state.
     close: function(self: Memory)
     --- The mapped region size in bytes.
     size: function(self: Memory): integer
@@ -139,11 +137,11 @@ local function wrap(raw: unix.Memory, size: integer): Memory
       write_count = n
     end
     -- The binding decides offset-vs-data by whether arg 2 is a number,
-    -- so the definite numeric `off` goes first (an offset of 0 masked
-    -- the old swapped call: `mem:write(x, 0)` always wrote 0 bytes).
-    -- Since the 2026.08.14 pin the declared type carries the same
-    -- (self, offset, data[, bytes]) order the C implements
-    -- (whilp/cosmopolitan#221), so no cast is needed anymore (#863).
+    -- so the definite numeric `off` goes first: putting data before it
+    -- would make an offset of 0 indistinguishable from omitted, and
+    -- `mem:write(x, 0)` would always write 0 bytes. The declared type
+    -- carries the same (self, offset, data[, bytes]) order the C
+    -- binding implements.
     -- cast: pcall variadic returns to tuple
     local ok, err = pcall(raw.write, raw, off, data, write_count) as (boolean, any)
     if not ok then

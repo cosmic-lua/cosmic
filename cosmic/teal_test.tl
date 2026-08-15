@@ -112,9 +112,9 @@ local function via_assert(): integer
   return r.x
 end
 local function via_assert_expression(): integer
-  -- the shape a Lua programmer writes first (whilp/cosmic#1065):
-  -- assert DECLARES that it strips nil, so it narrows composed with a
-  -- fallible call, not only as a statement above the use
+  -- the shape a Lua programmer writes first: assert DECLARES that it
+  -- strips nil, so it narrows composed with a fallible call, not only
+  -- as a statement above the use
   local r = assert(make())
   local r2 = assert(make())
   return r.x + r2.x
@@ -122,7 +122,7 @@ end
 local function via_and_operand(): integer
   -- `if x and x.field` is the guard a Lua programmer writes; the left
   -- operand of `and` decides the branch, so it is read in boolean
-  -- context and carries the same fact (whilp/cosmic#942)
+  -- context and carries the same fact
   local r = make()
   if r and r.x > 0 then
     return r.x

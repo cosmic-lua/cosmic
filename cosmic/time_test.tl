@@ -25,7 +25,7 @@ test_monotonic()
 
 -- sleep tests
 
--- sleep_ms is THE sleep (#999): integer milliseconds in, a single
+-- sleep_ms is THE sleep: integer milliseconds in, a single
 -- milliseconds remainder out.
 local function test_sleep_ms_passes_time()
   local before_secs, before_nanos = time.monotonic()
@@ -53,8 +53,9 @@ end
 test_sleep_ms_invalid_names_errno()
 
 -- sleep_ms's remainder is a single milliseconds number -- no more
--- (secs, nanos) two-integer arithmetic in retry loops. Reached via casts
--- so this file typechecks before and after the signature change.
+-- (secs, nanos) two-integer arithmetic in retry loops. Reached via
+-- casts so this file's typechecking does not depend on sleep_ms's
+-- exact declared signature.
 
 local function test_sleep_ms_uninterrupted_returns_zero_ms()
   -- cast: signature transition

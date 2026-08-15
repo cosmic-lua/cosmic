@@ -258,9 +258,8 @@ end
 test_max_archive_bytes_caps_decompression()
 
 local function test_entry_name_guard()
-  -- The guard is fs.is_unsafe_entry_name (tar.unsafe_path was a
-  -- byte-identical re-export, deleted in #993); these tar-motivated
-  -- cases keep exercising it from the extraction side.
+  -- The guard is fs.is_unsafe_entry_name; these tar-motivated cases
+  -- keep exercising it from the extraction side.
   local fs_mod = require("cosmic.fs")
   local unsafe = fs_mod.is_unsafe_entry_name
   assert(unsafe(""), "empty")
