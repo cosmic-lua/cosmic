@@ -222,10 +222,9 @@ local function test_a_mismatch_is_never_written()
   local code = run(root, "fetch")
   assert(proc.wait(pid))
   assert(code == 1, "a digest mismatch must fail")
-  -- The LANDING path, under `o/`, not the pin's own directory. This
-  -- assertion named `3p/blob.bin` until the landing moved in 6d1e71c,
-  -- after which it checked a path nothing writes to and passed
-  -- vacuously -- the security property it guards was unasserted.
+  -- The LANDING path, under `o/`, not the pin's own directory: asserting
+  -- against the pin's own directory would check a path nothing writes
+  -- to and pass vacuously, leaving the security property unasserted.
   assert(not fs.is_present(fs.join(root, "o/3p/blob.bin")),
     "mismatched bytes must never land on disk")
   assert(not fs.is_present(fs.join(root, "o/3p/blob.bin.tmp")),

@@ -272,8 +272,8 @@ local function test_root_init_is_refused()
     "and points at the thing they probably meant, got: " .. text)
 
   -- Both spellings. `.lua` sources are first-class, so the refusal has
-  -- to be too -- it was `.tl`-only, and a root init.lua walked past it
-  -- into the exact failure this check names.
+  -- to be too: a `.tl`-only check would let a root init.lua walk past
+  -- it into the exact failure this check names.
   local _, lua_text = issues_of("rootinitlua", {
       ["cmd/app/main.tl"] = "print('x')\n",
       ["init.lua"] = "return {}\n",
@@ -295,11 +295,11 @@ end
 test_root_init_is_refused()
 
 -- The two cells the model left silent. `embed/**` is payload only at
--- the root or under `cmd/<name>/`; anywhere else it fell through to
--- `asset` and shipped nothing, while the far rarer stray
--- `foo/embed_gen.tl` got an exemplary refusal. And `.d.lua` is a type
--- declaration in a language with no types -- it classified as a module
--- named `foo.d`.
+-- the root or under `cmd/<name>/`; anywhere else it falls through to
+-- `asset` and ships nothing, while the far rarer stray
+-- `foo/embed_gen.tl` gets an exemplary refusal. And `.d.lua` is a type
+-- declaration in a language with no types -- left alone it classifies
+-- as a module named `foo.d`.
 local function test_silent_positions_are_refused()
   local _, stray = issues_of("strayembed", {
       ["cmd/app/main.tl"] = "print('x')\n",
@@ -349,9 +349,9 @@ end
 test_root_main_is_refused()
 
 -- Two binaries with one name share o/bin/<name>: the check that refuses
--- that is defensive now -- with root entries gone, every binary is a
--- unique cmd/<name>, so a collision has no way to arise -- but it stays,
--- because the day a second naming path appears the overwrite it guards
--- against is silent.
+-- that is defensive today -- root entries are refused, so every binary
+-- is a unique cmd/<name>, and a collision has no way to arise -- but it
+-- stays, because the day a second naming path appears the overwrite it
+-- guards against would be silent.
 
 print("all validate tests passed")

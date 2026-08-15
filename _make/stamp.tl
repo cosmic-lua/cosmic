@@ -1,16 +1,16 @@
 --- Tool identity stamps: "a result is only as fresh as the tool that
 --- produced it", at the granularity of the tool.
 ---
---- Every graph rule used to name the whole binary as a prerequisite
---- (`$(COSMIC_DEP)`). Right in direction — a formatter fix must
---- invalidate every formatting verdict — and maximally coarse in
---- effect: the binary embeds every module in the tree, so editing ANY
---- module invalidated EVERY compile, fmt, lint and test result.
---- Measured on this repo: a one-line edit to a four-importer module
---- cost a full 394-file recompile plus all 182 tests, where its
---- closure costs seconds. The same coupling produced the "echo build":
---- the artifact replaced at a build's end was newer than every output,
---- so the NEXT build recompiled the world to prove nothing changed.
+--- A graph rule could instead name the whole binary as its one
+--- prerequisite. Right in direction — a formatter fix must invalidate
+--- every formatting verdict — and maximally coarse in effect: the
+--- binary embeds every module in the tree, so editing ANY module would
+--- invalidate EVERY compile, fmt, lint and test result. On this repo, a
+--- one-line edit to a four-importer module would force a full 394-file
+--- recompile plus all 182 tests, where its actual closure costs
+--- seconds. The same coupling produces an "echo build": the artifact
+--- replaced at a build's end is newer than every output, so the next
+--- build recompiles the world to prove nothing changed.
 ---
 --- The refinement: a rule's tool is not the binary, it is the embedded
 --- bytes that RUN when the rule's verb runs. Those bytes are readable
@@ -31,13 +31,13 @@
 --- `--make` through a changed `_make` module it never requires) keeps
 --- its recorded result until its own closure or the record tool moves.
 --- CI is immune — it runs cold — and an engine developer runs the
---- `_make` tests by path; the alternative was tying every test to the
---- dispatcher's whole static closure, which is the old cascade wearing
---- a new name. Recorded in docs/decisions/d17-tool-stamps.md.
+--- `_make` tests by path; tying every test to the dispatcher's whole
+--- static closure instead would be the same coarse cascade this design
+--- exists to avoid.
 ---
 --- A binary missing a root module (a custom artifact that stripped the
---- toolchain) falls back to hashing the whole binary file — exactly
---- the old behavior: coarse, and correct.
+--- toolchain) falls back to hashing the whole binary file: coarse, but
+--- correct.
 
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
@@ -156,14 +156,14 @@ local function identity(tool: string, pins: {string}, cosmic: string): string
   local closed = closure_of(ROOTS[tool])
   local booted = closure_of(BOOT_MODULES)
   if closed == nil or booted == nil then
-    -- The old rule, kept honest: no per-tool identity without the
-    -- tool's modules, so the whole binary is the tool.
+    -- The coarse fallback, kept honest: no per-tool identity without
+    -- the tool's modules, so the whole binary is the tool.
     local body = fs.read(cosmic)
     if body is string then
       return "binary " .. hash.sha256_hex(body) .. "\n"
     end
     -- Not a readable file (a cleaned tree's engine, a PATH-less exec):
-    -- a constant stamp, which is what an empty COSMIC_DEP meant.
+    -- a constant stamp, as coarse as naming the whole binary would be.
     return "binary unknown\n"
   end
   add_all(closed)

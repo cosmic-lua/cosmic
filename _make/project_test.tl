@@ -92,10 +92,10 @@ local function test_every_marker_classifies()
   kind_of(proj, "db/testdata/app/embed/x.txt", "testdata")
   kind_of(proj, "types/lpeg.d.tl", "types")
   kind_of(proj, "3p/lpeg/lpeg_pin.tl", "pin")
-  -- A marker is a NAME, not a name plus an extension. Recognising
-  -- `_test` in both spellings and `_pin` in one made every unrecognised
-  -- cell a file that silently classified as a module -- a `_pin.lua`
-  -- was never fetched and shipped its url and sha as payload.
+  -- A marker is a NAME, not a name plus an extension: every marker must
+  -- be recognised for both spellings, or the unrecognised cell silently
+  -- classifies as a module -- a `_pin.lua` would never be fetched and
+  -- would ship its url and sha as payload.
   kind_of(proj, "3p/lpeg/lpeg_pin.lua", "pin")
   kind_of(proj, "docs/other_gen.lua", "gen")
   kind_of(proj, "cmd/servit/embed_gen.lua", "payload-gen")

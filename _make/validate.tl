@@ -316,10 +316,10 @@ end
 --- Two silent cells in an otherwise refusing model.
 ---
 --- `embed/**` is payload only at the root or under `cmd/<name>/`. A
---- misplaced one -- `lib/embed/data.txt` -- fell through to `asset`,
---- checked clean, built clean, and shipped nothing, while the far
---- rarer stray `foo/embed_gen.tl` got an exemplary refusal. The likely
---- mistake was the silent one.
+--- misplaced one -- `lib/embed/data.txt` -- would fall through to
+--- `asset`, check clean, build clean, and ship nothing, while the far
+--- rarer stray `foo/embed_gen.tl` gets an exemplary refusal. The likely
+--- mistake is the silent one.
 ---
 --- It is refused only when the directory holds NO sources, because
 --- `embed` is also an ordinary package name and this repo has one
@@ -329,7 +329,7 @@ end
 ---
 --- `.d.lua` is the one marker x extension cell that should not exist:
 --- a declaration file declares TYPES, and `.lua` has none. Left to
---- fall through it classified as a module named `foo.d`.
+--- fall through, it classifies as a module named `foo.d`.
 --- @param proj Project The scanned project
 --- @param issues {Issue} Issues to append to
 local function check_positions(proj: Project, issues: {Issue})
