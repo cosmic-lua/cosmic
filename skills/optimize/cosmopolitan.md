@@ -144,8 +144,7 @@ COSMO=~/cosmopolitan   # your checkout
 
 a single baseline-vs-current compare cannot resolve an effect below
 the ~10% noise bar, and single runs taken minutes apart drift with the
-host (cosmopolitan#245 existed because exactly that A/B was
-inconclusive). the instrument for a suspected 3-8% effect is the
+host. the instrument for a suspected 3-8% effect is the
 interleaved A/B: alternate WHOLE build+measure cycles so slow host
 drift hits both sides equally, then judge by direction-consistency
 across pairs, not by any one pair's magnitude.
@@ -197,9 +196,8 @@ two-repo dance — but only AFTER the local loop already proved the win:
   --label perf --state open` and pick one.
 - **thin-wrapper scenarios with cpu/wall ≈ 1.0** — the time is inside
   one C call. read that binding's source in `tool/net/`.
-- **`startup_*` scenarios** — nothing in cosmic moves them anymore
-  (backlog entries 3 and 4 took the cosmic-side wins); the remaining
-  floor is APE loader + zipos + Lua boot, all C.
+- **`startup_*` scenarios** — the cosmic layer above them is already
+  minimal; the floor is APE loader + zipos + Lua boot, all C.
 - **decompose with the raw binary.** `$COSMO/o/tool/lua/lua -e '...'`
   boots the same runtime without cosmic's ~6MB zip payload; the gap
   between it and `startup_run_lua` splits payload cost from boot floor.
@@ -212,29 +210,28 @@ two-repo dance — but only AFTER the local loop already proved the win:
   `perf report` work on it directly.
 - **count call shapes from `--strace`.** pipe the trace through
   `grep -o '[a-z_]*(' | sort | uniq -c | sort -rn` to turn thousands
-  of lines into a histogram; anomalies jump out (29 `inflate()` calls
-  per cosmic boot became entry 24). grepping the trace for a
-  filename or call name then answers "who and why".
+  of lines into a histogram; anomalies jump out — dozens of
+  `inflate()` calls at boot point at a deflated payload. grepping the
+  trace for a filename or call name then answers "who and why".
 - **compare cosmo's `--strace` with kernel `strace -c`.** they see
-  different worlds: `--strace` logs cosmopolitan's userspace view
-  (including zipos file ops that never hit the kernel), while
-  `strace -c` counts real syscalls. the diff localizes cost — cosmic
-  boot shows 35 zipos openats userspace-side but only ~10 kernel
-  openats (zipos serves from the mapped binary: CPU, not I/O), and
-  kernel-side revealed ~195 rt_sigprocmask calls invisible in the
-  userspace trace (entry 27). when strace can't exec an APE
-  directly, wrap it: `strace -c -f sh -c '<cmd>'` and subtract the
-  shell's own footprint.
+  different worlds: `--strace` logs cosmopolitan's userspace view —
+  including zipos file ops that never hit the kernel (zipos serves
+  from the mapped binary: CPU, not I/O) — while `strace -c` counts
+  real syscalls, including libc-issued ones invisible in the userspace
+  trace. a call class inflated on one side only tells you which layer
+  to read. when strace can't exec an APE directly, wrap it:
+  `strace -c -f sh -c '<cmd>'` and subtract the shell's own footprint.
 - **look for the fast path that already exists in libc.** before
   designing a C optimization, search cosmopolitan for one already
-  implemented but unreachable from Lua — the posix_spawn/vfork case
-  (entry 26) was found by reading `libc/proc/` after `child_spawn`'s
-  cpu/wall said "kernel time". the C library's own doc comments
-  often name the exact problem you're measuring.
+  implemented but unreachable from Lua — when a scenario's cpu/wall
+  says "kernel time", read the neighboring libc source
+  (`libc/proc/`, `libc/calls/`, ...) for a cheaper primitive the
+  binding doesn't use. the C library's own doc comments often name
+  the exact problem you're measuring.
 - **allocation-heavy bindings** — a scenario with high `alloc` whose
   wrapper is thin is allocating inside the binding; look for
-  `lua_newtable` where `lua_createtable(L, narr, nrec)` fits (entry
-  21), per-element string pushes that could batch, etc.
+  `lua_newtable` where `lua_createtable(L, narr, nrec)` fits,
+  per-element string pushes that could batch, etc.
 
 ## guardrails specific to this layer
 
