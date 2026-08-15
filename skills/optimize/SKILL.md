@@ -60,19 +60,21 @@ Both are the measurement-identity trap in `measurement.md`,
 reachable without touching a single knob.
 
 ```bash
-BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
-
-# run all scenarios into a results file
-$BIN --make run _perf/run.tl --out o/perf/current.json $BENCH
+# run all scenarios into a results file — with no module list, the
+# runner discovers every _perf/bench/*_bench.tl itself (and validates
+# any modules you do name BEFORE spending measurement time)
+$BIN --make run _perf/run.tl --out o/perf/current.json
 # …the same, filtered to one scenario group
-$BIN --make run _perf/run.tl --only json --out o/perf/current.json $BENCH
+$BIN --make run _perf/run.tl --only json --out o/perf/current.json
 
-# compare two runs with the noise-aware bar (retries + A/A auto-triage)
+# compare two runs with the noise-aware bar (retries + A/A auto-triage);
+# it ends with a `perf-compare: PASS`/`FAIL` verdict line — read that,
+# never a piped exit status (`| tail` returns tail's status)
 $BIN --make run _perf/gate.tl compare o/perf/baseline.json o/perf/current.json \
-  o/perf/selfb.json $BENCH
+  o/perf/selfb.json
 
 # A/A control: the same binary against itself is the noise floor
-$BIN --make run _perf/gate.tl selfcheck o/perf/a.json o/perf/b.json $BENCH
+$BIN --make run _perf/gate.tl selfcheck o/perf/a.json o/perf/b.json
 ```
 
 A baseline is just a results file you keep: run the unmodified build
@@ -160,7 +162,10 @@ work ONE scenario (or one closely related group) at a time.
    a scenario that also swings past the bar against itself is reported
    as `noise` and does not fail the gate, so a green `perf-compare` means
    "no regression the binary can reproduce against itself." trust the
-   verdict — the manual A/A hunt is now built in.
+   verdict — the manual A/A hunt is now built in. while ITERATING on a
+   change, narrow both sides with `--only <target>` to keep the loop
+   fast; the accept/reject decision, and the numbers a commit quotes,
+   come from the full suite.
 6. **decide.**
    - target scenario improved beyond its noise bar and `perf-compare`
      exited 0 (no real regression; any `noise` rows already discounted)
@@ -168,7 +173,10 @@ work ONE scenario (or one closely related group) at a time.
    - no measurable improvement, or a surviving `regression` row → `git
      checkout` the change and record the failed hypothesis. a surviving
      regression already reproduced against the binary itself, so it is
-     real; do not re-litigate it as noise.
+     real; do not re-litigate it as noise. ONE defined exception: a
+     surviving flag in a fixed-overhead microbench your diff cannot
+     reach is decided by the isolated re-measure procedure in
+     `measurement.md` ("when a flag survives triage"), not by revert.
    - want to see the machine's noise floor yourself → `gate.lua
      selfcheck` runs the same A/A control on demand. see
      `measurement.md`.

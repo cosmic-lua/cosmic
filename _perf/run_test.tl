@@ -1,4 +1,7 @@
+local fs = require("cosmic.fs")
 local run = require("_perf.run")
+
+local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_parse_defaults()
   local a = run.parse_args({"_perf.bench.json_bench"})
@@ -111,5 +114,68 @@ local function test_scenarios_failure_aborts_before_later_modules()
   package.loaded["_perf.testdata.later_fixture"] = nil
 end
 test_scenarios_failure_aborts_before_later_modules()
+
+-- A typo'd module name anywhere in the list must fail BEFORE any
+-- earlier module has spent its measurement time -- validation is a
+-- separate pass, not interleaved with running.
+local function test_bad_later_module_aborts_before_any_measurement()
+  local ran = false
+  package.loaded["_perf.testdata.good_fixture"] = {
+    scenarios = function(): {any}, string
+      ran = true
+      return {}
+    end,
+  }
+  local code = run.main("--samples", "1", "--min-secs", "0.001",
+    "_perf.testdata.good_fixture", "_perf.no_such_module")
+  assert(code == 1, "an unknown later module must fail the run, got " .. code)
+  assert(not ran, "the failure must land before any module measures")
+  package.loaded["_perf.testdata.good_fixture"] = nil
+end
+test_bad_later_module_aborts_before_any_measurement()
+
+-- The --out parent directory is created up front: a fresh tree has no
+-- o/perf, and failing the write at the END of a multi-minute run was
+-- the most expensive possible way to learn that.
+local function test_out_directory_is_created()
+  package.loaded["_perf.testdata.tiny_fixture"] = {
+    scenarios = function(): {any}, string
+      return {
+        {
+          name = "tiny_noop",
+          fn = function(_: any): any
+            return 1
+          end,
+          check = function(_: any, _res: any): boolean, string
+            return true
+          end,
+        },
+      }
+    end,
+  }
+  local out = fs.join(tmpdir, "made-dirs", "deep", "results.json")
+  local code = run.main("--samples", "1", "--min-secs", "0.001",
+    "--out", out, "_perf.testdata.tiny_fixture")
+  assert(code == 0, "run with a fresh --out directory must pass, got " .. code)
+  assert(fs.is_file(out), "results file must land in the created directory")
+  package.loaded["_perf.testdata.tiny_fixture"] = nil
+end
+test_out_directory_is_created()
+
+-- With no modules named, discovery finds every _perf/bench module --
+-- the BENCH=$(ls ...) incantation the docs used to carry, done by the
+-- runner itself.
+local function test_discovery_lists_bench_modules()
+  local names, derr = run.discover_benches()
+  assert(names ~= nil, "discovery must find bench modules: " .. tostring(derr))
+  local seen = false
+  for _, name in ipairs(names) do
+    if name == "_perf.bench.json_bench" then
+      seen = true
+    end
+  end
+  assert(seen, "discovery must name _perf.bench.json_bench")
+end
+test_discovery_lists_bench_modules()
 
 print("OK run_test")

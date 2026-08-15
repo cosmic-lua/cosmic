@@ -455,7 +455,7 @@ checks, a JSON results format, and a noise-aware comparison gate.
 ```bash
 # `--make run` builds first and resolves the harness AND the scenarios
 # against the tree; bare scripts load the binary's embedded copies.
-bin/cosmic --make run _perf/run.tl --out o/perf/current.json <modules...>
+bin/cosmic --make run _perf/run.tl --out o/perf/current.json  # all bench modules
 bin/cosmic --make run _perf/gate.tl compare BASE.json CUR.json SELFB.json
 bin/cosmic --make run _perf/gate.tl selfcheck A.json B.json  # A/A noise floor
 ```

@@ -3,9 +3,10 @@
 ---
 --- Run mode (writes JSON results and prints one line per scenario):
 ---   cosmic -- o/_perf/run.lua [--out FILE] [--samples N] [--min-secs S]
----     [--only SUBSTRING] MODULE...
+---     [--only SUBSTRING] [MODULE...]
 --- where MODULE is a bench module name such as perf.bench.json_bench
---- (resolved via LUA_PATH).
+--- (resolved via LUA_PATH). With no MODULE, every module under
+--- _perf/bench/ runs.
 ---
 --- Compare mode (exits nonzero on regression/error/missing):
 ---   cosmic -- o/_perf/run.lua --compare BASE.json CUR.json
@@ -39,7 +40,8 @@ local record Args
 end
 
 local USAGE = [[
-usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only SUB] MODULE...
+usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only SUB] [MODULE...]
+         (no MODULE runs every module under _perf/bench/)
        run.lua --compare BASE.json CUR.json [--threshold PCT]
          [--selfcheck-a AA.json --selfcheck-b AB.json]
 ]]
@@ -169,24 +171,70 @@ local function load_module(name: string): pt.BenchModule, string
   return bm
 end
 
+local BENCH_DIR < const > = "_perf/bench"
+
+--- Discover every bench module under _perf/bench, for runs that name
+--- none. Resolved against the working tree, so it works exactly where
+--- `--make run` runs it (bare scripts in an embedded copy get the
+--- error, which names the fix).
+--- @return {string} Module names, or nil when none were found
+--- @return string Error message on failure
+local function discover_benches(): {string}, string
+  local found = fs.find(BENCH_DIR,
+    {glob = "*_bench.tl", recursive = false, sorted = true})
+  if found == nil or #found == 0 then
+    return nil, "no bench modules given and none found under " .. BENCH_DIR ..
+    " (run from the repo root, through `--make run`)"
+  end
+  local names: {string} = {}
+  for _, path in ipairs(found) do
+    names[#names + 1] = (path:gsub("%.tl$", ""):gsub("/", "."))
+  end
+  return names
+end
+
 --- Run all scenarios from the named bench modules.
 --- @param a Args Parsed arguments (positional = module names)
 --- @return integer Exit code: 0 on success, 1 on any failure
 local function run_benches(a: Args): integer
-  if #a.positional == 0 then
-    io.stderr:write("no bench modules given\n" .. USAGE)
-    return 1
+  local names = a.positional
+  if #names == 0 then
+    local derr: string
+    names, derr = discover_benches()
+    if not names then
+      io.stderr:write(tostring(derr) .. "\n" .. USAGE)
+      return 1
+    end
   end
-  local opts: pt.Options = {samples = a.samples, min_sample_secs = a.min_secs}
-  local all: {pt.Measurement} = {}
-  local failed = false
-  local matched = 0
-  for _, name in ipairs(a.positional) do
+  -- Every module is loaded and validated before any scenario runs, and
+  -- the --out directory is created now: a typo'd later module (or a
+  -- missing o/perf on a fresh tree) used to surface only after the
+  -- earlier modules had already spent their minutes of measurement.
+  local mods: {pt.BenchModule} = {}
+  for _, name in ipairs(names) do
     local mod, merr = load_module(name)
     if mod == nil then
       io.stderr:write(merr .. "\n")
       return 1
     end
+    mods[#mods + 1] = mod
+  end
+  if a.out then
+    local outdir = fs.dirname(a.out)
+    if outdir ~= "" and not fs.is_dir(outdir) then
+      local mok, mkerr = fs.make_dirs(outdir)
+      if not mok then
+        io.stderr:write("write " .. a.out .. ": " .. tostring(mkerr) .. "\n")
+        return 1
+      end
+    end
+  end
+  local opts: pt.Options = {samples = a.samples, min_sample_secs = a.min_secs}
+  local all: {pt.Measurement} = {}
+  local failed = false
+  local matched = 0
+  for mi, mod in ipairs(mods) do
+    local name = names[mi]
     local scenarios, serr = mod.scenarios()
     if scenarios == nil then
       -- A module that fails to build its scenario list is exactly as
@@ -332,6 +380,7 @@ local record run
   parse_args: function(argv: {string}): Args
   collect_meta: function(samples: integer, min_secs: number): pt.Meta
   load_module: function(name: string): pt.BenchModule, string
+  discover_benches: function(): {string}, string
 end
 
 local M: run = {
@@ -339,6 +388,7 @@ local M: run = {
   parse_args = parse_args,
   collect_meta = collect_meta,
   load_module = load_module,
+  discover_benches = discover_benches,
 }
 
 return M

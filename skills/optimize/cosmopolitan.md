@@ -32,7 +32,6 @@ thin") is measuring almost nothing else.
 
 ```bash
 COSMO=~/cosmopolitan   # your checkout
-BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
 ```
 
 1. **build the UNMODIFIED local binary** (cold: a few minutes; warm
@@ -60,7 +59,7 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    bin/cosmic --make build          # o/bin/cosmic now runs on YOUR lua
 
    BIN=o/bin/cosmic
-   $BIN --make run _perf/run.tl --out o/perf/baseline.json $BENCH
+   $BIN --make run _perf/run.tl --out o/perf/baseline.json
    ```
 
    `cp o/3p/cosmos/lua.pinned o/3p/cosmos/lua && bin/cosmic --make
@@ -121,9 +120,9 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    # re-embed onto the new lua, measure, compare
    cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
    bin/cosmic --make build
-   $BIN --make run _perf/run.tl --out o/perf/current.json $BENCH
+   $BIN --make run _perf/run.tl --out o/perf/current.json
    $BIN --make run _perf/gate.tl compare o/perf/baseline.json o/perf/current.json \
-     o/perf/selfb.json $BENCH
+     o/perf/selfb.json
    ```
 
 6. **decide** with the same rules as the main loop: target scenario
@@ -134,14 +133,44 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) routinely trip the
    regression bar on layout noise alone — this is the single most common
    false alarm at this layer. Do NOT revert a real JSON/sqlite/etc. win
-   over it. Confirm with `gate.lua selfcheck` on the same binary (an A/A
-   control): if the flagged scenario swings as much
-   comparing the modified binary to itself, it is noise, not your change
-   (entry 21 hit exactly this). `measurement.md` has the
-   playbook.
+   over it, even when the flag survives the gate's built-in triage: the
+   decision procedure is `measurement.md`, "when a flag survives
+   triage" — isolated `--only` re-measurement on both binaries.
 
 7. **land it** (see below) and close the backlog issue (comment the
    result) when it lands.
+
+## the interleave, when the effect is smaller than the bar
+
+a single baseline-vs-current compare cannot resolve an effect below
+the ~10% noise bar, and single runs taken minutes apart drift with the
+host (cosmopolitan#245 existed because exactly that A/B was
+inconclusive). the instrument for a suspected 3-8% effect is the
+interleaved A/B: alternate WHOLE build+measure cycles so slow host
+drift hits both sides equally, then judge by direction-consistency
+across pairs, not by any one pair's magnitude.
+
+```bash
+# A = unmodified local build (stashed at step 2), B = your change
+for i in 1 2 3 4; do
+  cp /path/to/lua.unmodified o/3p/cosmos/lua
+  bin/cosmic --make build >/dev/null || exit 1
+  o/bin/cosmic --make run _perf/run.tl --only <target> \
+    --out o/perf/A$i.json _perf.bench.<module>
+  cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
+  bin/cosmic --make build >/dev/null || exit 1
+  o/bin/cosmic --make run _perf/run.tl --only <target> \
+    --out o/perf/B$i.json _perf.bench.<module>
+done
+```
+
+read it as pairs: B faster than its adjacent A in all (or all but one)
+of four pairs is a real effect; deltas bouncing sign are not. quote the
+per-pair numbers in the commit — they are more convincing than one
+compare line, because they carry their own control. the full-suite
+`gate.tl compare` still runs before the commit (it is what checks the
+OTHER 38 scenarios); the interleave is how the target's win itself is
+established when it lives under the bar.
 
 ## landing a C-layer win
 
