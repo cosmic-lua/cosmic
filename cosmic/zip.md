@@ -117,10 +117,6 @@ alias of `cosmo.zip.Stat` — field and method table: `cosmic --docs cosmo.zip.S
 
 alias of `cosmo.zip.Entry` — field and method table: `cosmic --docs cosmo.zip.Entry`
 
-### fallible_close
-
-alias of `function`
-
 ## Functions
 
 ### open
