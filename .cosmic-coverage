@@ -9,7 +9,7 @@ _cli/build/steps.tl 183 239
 _cli/build/work.tl 145 166
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
-_cli/env_vars.tl 68 68
+_cli/env_vars.tl 70 70
 _cli/grants.tl 158 168
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
@@ -52,8 +52,10 @@ _make/testrun.tl 50 58
 _make/types.tl 39 39
 _make/validate.tl 244 249
 _perf/bench/child_bench.tl 0 11
+_perf/bench/download_bench.tl 68 104
 _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
+_perf/bench/format_bench.tl 35 40
 _perf/bench/fs_bench.tl 97 106
 _perf/bench/fuzzy_bench.tl 0 19
 _perf/bench/http_bench.tl 87 138
@@ -63,6 +65,8 @@ _perf/bench/re_bench.tl 0 47
 _perf/bench/sqlite_bench.tl 90 124
 _perf/bench/startup_bench.tl 73 85
 _perf/bench/stream_bench.tl 0 80
+_perf/bench/tar_bench.tl 82 90
+_perf/bench/teal_bench.tl 31 34
 _perf/bench/time_bench.tl 0 14
 _perf/compare.tl 105 107
 _perf/gate.tl 95 115
@@ -76,7 +80,7 @@ _tool/coverage/lines.tl 65 71
 _tool/coverage/report.tl 203 224
 _tool/doc/comments.tl 53 53
 _tool/doc/dtl.tl 8 84
-_tool/doc/exports.tl 52 53
+_tool/doc/exports.tl 60 62
 _tool/doc/index.tl 101 107
 _tool/doc/init.tl 225 251
 _tool/doc/scan.tl 67 67
@@ -95,7 +99,7 @@ _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 178
-cmd/cosmic/main.tl 0 233
+cmd/cosmic/main.tl 0 235
 cosmic/_fields.tl 5 7
 cosmic/_literal_format.tl 8 14
 cosmic/_script_cache.tl 72 79
@@ -207,4 +211,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 14854 19522
+total 15080 19803
