@@ -471,6 +471,14 @@ cosmic-layer wins), `skills/optimize/cosmopolitan.md` (the C layer against
 a local whilp/cosmopolitan build), `skills/optimize/measurement.md` (noise
 discipline). the backlog is GitHub issues labeled `perf`.
 
+## The flow of work
+
+what to build next is decided by the `plan` skill (`skills/plan/SKILL.md`):
+GitHub issues flow kanban-style through `plan:shaping` → `plan:ready` →
+`plan:doing` → `plan:review` labels, WIP-limited, pulled right to left.
+start any session with `bin/cosmic --make run _plan/board.tl next`; all
+plan state lives in the issues, never in committed files.
+
 ## CI
 
 - **pr.yml**: four lanes on push/PR to main. `ci` fetches with a network, then builds
