@@ -216,9 +216,9 @@ it.
 **It travels in argv and does not inherit.** Ten `_make/*_test.tl`
 files spawn a cosmic against a *different* project root under `/tmp`.
 Carried in the environment, this repo's `o/` would answer `cosmic.*`
-and `_make.*` while those children built unrelated projects — the
-ambient-export bug class the old Makefile fought (#720, #666, #608),
-which is why `tree_lua_path` was opt-in per lane and never exported.
+and `_make.*` while those children built unrelated projects — an
+ambient-export bug class, which is why the closure travels in argv
+instead.
 `--deps` is per-invocation by construction, so there is nothing to
 scrub. A child that spawns a child and wants the same resolution passes
 it on deliberately.
@@ -432,7 +432,7 @@ embedded copies; they are now measured against what the graph built.
 
 ## Settled
 
-- **Strict does not apply to the entry script, by decision (#840).**
+- **Strict does not apply to the entry script.**
   The searcher only sees REQUIRED modules, so a hand-run `cosmic
   foo.tl` keeps the lax on-ramp `cosmic.teal`'s own doc comment
   promises, even inside a project. The alternative — strict inside a

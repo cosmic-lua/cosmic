@@ -22,8 +22,7 @@ the version stamp come from.
 
 ## Naming a base is correctness, not taste
 
-A unit that names its own `base` was recorded as an open preference. It
-is not. `embed`'s strip removes a base's zip *entries* without
+`embed`'s strip removes a base's zip *entries* without
 reclaiming their bytes, so a cosmic built on the running cosmic carries
 the previous generation's stripped payload as dead space: the artifact
 grew ~3.5 MB per generation — 12.2 → 15.8 → 19.3 MB, measured. A

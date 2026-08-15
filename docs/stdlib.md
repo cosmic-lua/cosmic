@@ -41,14 +41,14 @@ failure, and library code never throws:
 - **structured errors**: a module whose failures carry structure
   returns its own error record in slot 2 (`fetch.fetch` returns
   `Response | nil, fetch.Error`); branch on the typed field
-  (`err.kind`), render with `tostring(err)` — D24
+  (`err.kind`), render with `tostring(err)`
 - **infallible**: encoding, compression, escaping return a bare value —
   no error channel to check
 
 failed `cosmo.unix` calls carry a formatted message plus the numeric
 errno; wrappers add context with `errno.format` and branch with
 `errno.is_code`. the one throwing module is `cosmic.check` (tests and
-examples only; D23).
+examples only).
 
 each shape is runnable, and gated in CI:
 

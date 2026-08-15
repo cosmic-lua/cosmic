@@ -257,7 +257,7 @@ runtime behavior differs from the checker only when the extra returns
 are `nil` (they collapse away), which is why such a site can look
 correct until `--check types` runs.
 
-`check.must` is NOT in this family: it declares one return (#1064), so
+`check.must` is NOT in this family: it declares one return, so
 `table.insert(parts, check.must(chunk))` and
 `return check.must(sqlite.open(":memory:"))` both check clean with no
 parentheses. Only a genuinely multi-value function — an infallible
@@ -270,11 +270,10 @@ draining `fs.find_iter` closes every directory handle it opened, but a
 loop that exits early (`break`, or a `return` from inside it) has not
 drained it: the handles stay open until garbage collection, which pins
 directory fds — and on Windows can block deleting the tree just walked.
-this changed in #1066: the iterator used to return a fourth to-be-closed
-guard value that closed the handles at the `break`, and D20 rule 11
-removed it (a slot past the error is unreachable from `local v, err =`),
-so an old early-break loop compiles unchanged with nothing marking the
-difference. declare the iterator `<close>` (or call `iter:close()`) and
+a fallible return has only two slots, the value and the error, so there
+is no third slot for a to-be-closed guard value the checker could
+enforce — nothing marks an early-break loop that leaks handles as wrong.
+declare the iterator `<close>` (or call `iter:close()`) and
 the scope exit closes the handles wherever the loop stops:
 
 ```teal

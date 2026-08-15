@@ -18,14 +18,13 @@ The zip root *is* the module root, so "path relative to root = import
 path" holds inside the artifact too. `pack_copies` disappears; the
 layout is derived, not enumerated.
 
-**Shipping is opt-in** (D15): an artifact carries its modules plus
-`embed/**` and nothing else. Every other kind is something you *did*,
-and "everything else, embedded at its relative path" was the one row
-that inverted it. With shipping opt-in there is nothing to un-ship, so
+**Shipping is opt-in**: an artifact carries its modules plus
+`embed/**` and nothing else. Every other kind is something you *did*.
+With shipping opt-in there is nothing to un-ship, so
 `.cosmicignore` stays a purely model-scoped knob and `testdata/`'s
 exclusion stops being an exception carved out of a default. Cost: a
-`schema.sql` an artifact needs becomes `embed/schema.sql`. Cosmic's own payload moved with it
-in 3d (`/zip/.lua/cosmic/*` → `/zip/cosmic/*`): cosmopolitan's default
+`schema.sql` an artifact needs becomes `embed/schema.sql`. Cosmic's own payload lives at
+`/zip/cosmic/*`: cosmopolitan's default
 `package.path` is `/zip/.lua/`-rooted, so the entry inserts the zip
 root ahead of it — behind anything `LUA_PATH` set, or the binary's own
 copy shadows an in-tree build. Payload that is *not* modules (the type
@@ -53,8 +52,7 @@ strip off a bare runtime. That is the preferred shape for a project
 that pins one, and the only shape in which repeated self-builds
 converge — `remove` drops zip entries without reclaiming their bytes,
 so stripping a cosmic to rebuild a cosmic leaves the old payload behind
-as dead space. Sizes and the per-generation growth measured before
-`base` existed are in [payload.md](payload.md).
+as dead space. Sizes and per-generation growth are measured in [payload.md](payload.md).
 
 Risk: a `cosmo.*` binding lazily requiring a stripped `.lua/cosmo/**`
 helper. Gate: a **stripped-artifact test lane** running the stdlib's own

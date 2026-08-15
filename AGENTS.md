@@ -37,7 +37,7 @@ _tool/                internal toolchain modules: the runners (testrun,
                       example, benchmark), the record grammar (records),
                       the pure lint checks, coverage's ratchet half and
                       doc's extraction half — embedded in the cosmic
-                      binary, never in user artifacts (D19 amendment)
+                      binary, never in user artifacts
 _docs/                doc publishing
 docs/                 prose docs; docs/guides/** SHIPS in the binary and
                       is what `cosmic --docs guide.<topic>` serves
@@ -185,7 +185,7 @@ local) and `is` early-exit guards (`if not (x is Rec) then return end`). The oth
   tests/examples, never library code. Like `assert`, it declares ONE return, so it
   composes anywhere a value goes — `return check.must(f())`, `g(x, check.must(f()))`,
   `for row in check.must(db:query(sql))` — with no parenthesis-truncation. Never write
-  `assert(x) as T` in a test; that pattern is retired.
+  `assert(x) as T` in a test — `check.must` replaces it.
 - **Use `is` for dispatch past nil**: `if sock is net.Socket then sock:send(...)
   end` narrows inside the positive branch (one `type(x) == "table"` check); also
   dispatch over `any` (`if v is {string: any} then`). A record whose runtime
@@ -225,7 +225,7 @@ pattern) — the `find-needle` lint asks which you meant, and
 including the `match`/`gmatch`/`gsub` corollary.
 
 rules:
-- never throw from library code — `cosmic.check` alone is exempt ([D23](docs/decisions/d23-check-throws.md)); D22's CSPRNG throws are the only others
+- never throw from library code — `cosmic.check` alone is exempt ([D23](docs/decisions/d23-check-throws.md)); the CSPRNG's throw-on-failure is the only other exception
 - never silently discard errors
 - be consistent within a module — pick one pattern and use it throughout
 - infallible functions (encoding, compression, escaping) return just a value
@@ -362,7 +362,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | embed | Embed files and directories into a cosmic executable. |
 | env | Environment variables: get/set/unset/list, dotenv, and env.d loading. |
 | errno | Error information from system calls. |
-| errors | The one sink-side supertype for structured errors (D24). |
+| errors | The one sink-side supertype for structured errors. |
 | fd | File descriptor I/O operations. |
 | fetch | Structured HTTP fetch with retry, streaming, and honest error channels. |
 | flags | Declarative command-line flag parsing with a generated --help. |
@@ -382,7 +382,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | quicksand | Network + filesystem process isolation primitives. |
 | rand | Random bytes, integers, floats, choice, shuffle, and tokens. |
 | re | Regular expression matching using POSIX extended regex syntax. |
-| sandbox | One-call, fail-closed in-process sandbox: the one door (#989). |
+| sandbox | One-call, fail-closed in-process sandbox: the one door. |
 | searcher | The cosmic-owned runtime `.tl` package searcher, replacing tl.loader(). |
 | shm | Shared memory for inter-process communication. |
 | signal | Signal handling utilities. |

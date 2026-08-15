@@ -12,8 +12,7 @@ pinned cosmic (`bin/cosmic.pin`, two plain lines it reads with `sed`),
 verify its sha256, exec it. Since make is embedded, the chain is
 **kernel → committed fetcher → one pin → everything**, down from two.
 
-**It was two pins.** The trust root was `bin/make`, with the bootstrap
-url and sha in `cook.mk` and the cosmos pin beside it. The pin is not
+**Bootstrap needs its own pin.** `bin/cosmic.pin` is not
 a `*_pin.tl`, because a `*_pin.tl` is resolved by `--make fetch` —
 which needs the cosmic this pin provides.
 
@@ -55,7 +54,7 @@ needs revisiting — make remains the engine, not a subroutine.
 - `_` enforcement: importing `_x` from outside its container fails
 - `o/`-only check: no generated file lands in the tree
 - the `lint` verb sees **tracked plus untracked-not-ignored** files
-  (#799) and applies the 500-line cap to every file, not only `.tl` —
+  and applies the 500-line cap to every file, not only `.tl` —
   which is why this design is four documents and counting
 - validator messages asserted: reserved import path,
   `cmd/foo`→`cmd/bar`, `foo.tl`+`foo.lua`, missing entry, space in

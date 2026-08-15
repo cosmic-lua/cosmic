@@ -38,7 +38,7 @@ Cosmic options:
   --welcome                     show welcome message
   -h, --help                    show this help message
 
-Standard lua options (each also has a long spelling, #991):
+Standard lua options (each also has a long spelling):
   -e, --execute <stat>        execute string 'stat'
   -l, --load <name>           require library 'name'
   -i, --interactive           enter interactive mode
