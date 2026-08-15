@@ -81,10 +81,25 @@ local function identity_refusal(a: string, b: string, same: boolean): string | n
   return compare.identity_refusal(a, ra, b, rb, same)
 end
 
---- Run the compare gate over an already-measured current file.
+--- Print the gate's verdict and pass its code through. The line is the
+--- same convention as `ci: PASS` and exists for the same reason: a
+--- piped invocation (`gate.lua ... | tail`) returns the pipe's exit
+--- status, so the verdict must survive in the output itself.
+--- @param rc integer The gate's exit code
+--- @return integer The same code, unchanged
+local function verdict(rc: integer): integer
+  if rc == 0 then
+    print("perf-compare: PASS")
+  else
+    print("perf-compare: FAIL")
+  end
+  return rc
+end
+
+--- The compare gate's decision, without its verdict line.
 --- @param opts GateOptions Paths, threshold, and the measure function
 --- @return integer Exit code: 0 clean or noise, 1 on a real regression
-local function gate(opts: GateOptions): integer
+local function gate_inner(opts: GateOptions): integer
   local refusal = identity_refusal(opts.baseline, opts.current, false)
   if refusal then
     io.stderr:write(refusal .. "\n")
@@ -146,6 +161,14 @@ local function gate(opts: GateOptions): integer
     return 1
   end
   return 0
+end
+
+--- Run the compare gate over an already-measured current file, ending
+--- with the one-line verdict.
+--- @param opts GateOptions Paths, threshold, and the measure function
+--- @return integer Exit code: 0 clean or noise, 1 on a real regression
+local function gate(opts: GateOptions): integer
+  return verdict(gate_inner(opts))
 end
 
 --- Measure the same binary twice and report the machine's noise floor.

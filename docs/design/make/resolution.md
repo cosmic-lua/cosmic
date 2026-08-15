@@ -283,7 +283,7 @@ cosmic --make run <path> [args…]    # build, then run this source against the 
 that closure as the resolution set. It is what `_perf` wants —
 
 ```
-cosmic --make run _perf/run.tl --out o/perf/current.json $BENCH
+cosmic --make run _perf/run.tl --out o/perf/current.json
 ```
 
 — and it retires the "measures whatever `o/` happens to hold" warning

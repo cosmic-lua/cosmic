@@ -40,6 +40,22 @@ that first.
   regression, so a real regression in a stable scenario (json, sqlite,
   codec) — or a huge one in an unstable scenario — has nowhere to hide
   and stays `regression`.
+- **when a flag survives triage but your diff cannot reach that code**
+  — a fixed-overhead microbench (`hash_sha256_small`, `startup_run_*`,
+  `net_ip_*`) flagged after a change to, say, JSON — the conservatism
+  above can keep a false flag: the one immediate A/A pass happens to be
+  quiet, so a 15% swing looks 'real'. the tie-breaker is ISOLATED
+  re-measurement: `run.tl --only <scenario>` back-to-back on each
+  binary, at least twice per side. in-suite readings of these scenarios
+  carry the thermal/frequency wake of the ~20 scenarios before them and
+  can differ 40% from isolated readings of the SAME binary; isolated
+  back-to-back runs remove that. if isolation shows the two binaries
+  within each other's spread — or the 'slower' one faster — the flag is
+  suite-context noise: keep the change, and say so in the commit.
+  worked example: cosmopolitan#245's fix flagged `hash_sha256_small`
+  +15.9% in-suite, while isolated runs read the modified binary at
+  507–510 ns vs the baseline's 538–558 ns. a flag that reproduces in
+  isolation, in the same direction, is real — revert.
 - `gate.lua selfcheck` runs the same A/A control on demand, for
   interactive use or to profile the machine's noise floor before you
   start. `--only <name>` narrows it to one
@@ -78,16 +94,14 @@ that first.
 
   So: baseline and compare against paths you built deliberately, in one
   sitting, and re-run `--make build` before each measurement rather
-  than assuming the binary is what it was — and read that build's
-  verdict, because a build that fails before assembly leaves the
-  previous binary in place. If a result is surprising, hash the binary
-  on both sides (`sha256sum o/bin/cosmic`) before you believe it. Not
-  `--version`: its cosmos half is stamped from the pin file at embed
-  time, so it reports the pin even when a local runtime was stood in
-  by hand (`cosmopolitan.md` step 2). Every results file records
-  `meta.bin_sha`, and the compare gate refuses a compare whose two
-  sides hashed the same binary. This is the
-  same class as the coverage floors' sensitivity to which compiler
-  built the artifact (`cosmic/coverage/SENSITIVITY.md`): a metric
-  measured through an artifact inherits that artifact's identity as a
-  hidden input.
+  than assuming the binary is what it was. If a result is surprising,
+  hash the binary on both sides (`sha256sum o/bin/cosmic`) before you
+  believe it — never `--version`, which stamps the pin. The build
+  verdict, the `--version` trap, and the stood-in-runtime edges are
+  spelled out once, in `cosmopolitan.md` step 2; the backstop for the
+  whole class is mechanical: every results file records `meta.bin_sha`,
+  and the compare gate refuses a compare whose two sides hashed the
+  same binary. This is the same class as the coverage floors'
+  sensitivity to which compiler built the artifact
+  (`cosmic/coverage/SENSITIVITY.md`): a metric measured through an
+  artifact inherits that artifact's identity as a hidden input.
