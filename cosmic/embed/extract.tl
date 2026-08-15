@@ -7,7 +7,7 @@
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 
---- Options for extract (#1001: was a bare positional exe_path).
+--- Options for extract().
 local record ExtractOptions
   --- Path to the executable to extract (default arg[-1], the running
   --- binary).
@@ -16,8 +16,8 @@ end
 
 --- Extract the zip contents of a cosmic executable to a directory.
 --- Creates the output directory if needed. Existing files are
---- overwritten. Returns the extracted file count (#1001: EmbedResult's
---- success-or-error-text-by-flag record is gone).
+--- overwritten. Returns the extracted file count directly, not a
+--- result record with a success flag.
 --- @param output_dir string Directory to extract into
 --- @param opts ExtractOptions? exe_path: the executable to extract
 --- @return integer | nil The extracted file count, or nil on failure

@@ -1,8 +1,9 @@
 --- Query the documentation index embedded in the binary.
 --- The `--docs` CLI's engine, and the shared doc-type vocabulary both
---- halves of the doc family type themselves with (#992: the extraction
---- half — parse Teal source, render markdown — is `_tool.doc` now; only
---- the toolchain parses source, so the public module is the query half).
+--- halves of the doc family type themselves with. The extraction half
+--- — parsing Teal source, rendering markdown — lives in `_tool.doc`:
+--- only the toolchain parses source, so this public module is the
+--- query half.
 local types = require("cosmic.doc.types")
 
 -- The query half of the converged `doc`/`docs` family: lookup and
@@ -13,8 +14,9 @@ local query = require("cosmic.doc.query")
 
 local record DocModule
   --- The shared doc-type vocabulary, re-exported for the toolchain's
-  --- extraction half (`_tool.doc`), which may not require the
-  --- cosmic.doc.types shard directly (D19).
+  --- extraction half (`_tool.doc`), which cannot require the
+  --- cosmic.doc.types shard directly: only public cosmic.<name>
+  --- modules are requirable from outside cosmic/.
   type ModuleDoc = types.ModuleDoc
   type FunctionDoc = types.FunctionDoc
   type RecordDoc = types.RecordDoc
@@ -26,9 +28,9 @@ local record DocModule
   type SearchResult = types.SearchResult
 
   -- Query: the index embedded in the binary (`--docs`). The fallible
-  -- lookups return `string | nil, string` (#1001: DocsResult{ok, output}
-  -- was the success-text-or-error-text-by-flag anti-pattern this very
-  -- file documents render_file shedding).
+  -- lookups return `string | nil, string` rather than a success/error
+  -- record with a flag field, so callers narrow with the ordinary
+  -- honest-nil pattern instead of checking a boolean first.
   query: function(q?: string): string | nil, string
   is_available: function(): boolean
   topics: function(include_cosmo?: boolean): {{string, string}}

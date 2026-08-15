@@ -30,7 +30,7 @@ end
 
 --- Validate a command spec. nil when sound, else a message naming the
 --- defect — the same never-throw shape as everything here. Messages
---- are unprefixed (#991): the caller knows its own name.
+--- are unprefixed: the caller knows its own name.
 local function validate_commands(cspec: CommandSpec): string
   if not cspec.commands or #cspec.commands == 0 then
     return "invalid spec: no commands declared"
@@ -67,7 +67,7 @@ local function qualified_spec(cspec: CommandSpec, cmd: Command): Spec
 end
 
 --- A Parsed for help/version dispatches, so Dispatched.parsed is
---- never nil (#991): every map present and empty, the request flag set.
+--- never nil: every map present and empty, the request flag set.
 local function request_parsed(help: boolean, version: boolean): Parsed
   return {switches = {}, values = {}, lists = {}, args = {},
     help = help, version = version}
@@ -79,7 +79,7 @@ end
 --- back as help requests (never printed here), --version likewise when
 --- the spec carries a version. No command, an unknown command, options
 --- before the command, or a failed sub-parse is nil plus a one-line
---- message. Messages are NOT prefixed with the program name (#991) —
+--- message. Messages are NOT prefixed with the program name —
 --- add your own context when printing.
 --- @param cspec CommandSpec The declared interface
 --- @param argv {string} The argument list (typically the global arg)

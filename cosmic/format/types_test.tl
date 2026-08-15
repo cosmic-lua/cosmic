@@ -115,9 +115,8 @@ test_optional_argument_types_keep_their_space()
 -- `record` is a legal table KEY, and reading it as a type declaration
 -- opens a block that never closes -- so every following line indents
 -- one level deeper, to the end of the file. The damage is idempotent,
--- which is why the gate passed on it: the `-c` vocabulary's `test` verb
--- was renamed to `record`, and two files silently acquired an extra
--- level from that line down while `--make fmt` reported PASS.
+-- so the gate cannot catch it: `--make fmt` reports PASS on a file
+-- with silently corrupted indentation.
 --
 -- `enum` and `interface` are the same shape. A real declaration
 -- (`record Name`, or the word alone) still opens its block.

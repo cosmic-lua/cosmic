@@ -1,12 +1,12 @@
 --- Command-line option parsing: the short/long option grammar behind
---- cosmic.flags (#991: an internal shard now — cosmic.flags is the one
---- public parser). Wraps cosmo.getopt with a Teal-typed single-shot
---- parse supporting short options, long options, and
---- optional/required arguments.
+--- cosmic.flags, an internal shard — cosmic.flags is the one public
+--- parser. Wraps cosmo.getopt with a Teal-typed single-shot parse
+--- supporting short options, long options, and optional/required
+--- arguments.
 local cosmo_getopt = require("cosmo.getopt")
 
---- Whether an option takes an argument (#991: a real enum — the
---- stringly field let any typo through as "none").
+--- Whether an option takes an argument: an enum, so an invalid value
+--- is a compile-time error rather than a silent typo.
 local enum HasArg
   "none"
   "required"

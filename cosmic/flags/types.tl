@@ -4,9 +4,7 @@
 --- sibling shards, assembled by init.tl.
 local record flags_types
 
-  --- One flag declaration (#991: was `Option` — rule 7 reserves the
-  --- Options spelling for kwargs records, and `Spec.options` beside
-  --- `Parsed.flags` meant different things one record apart).
+  --- One flag declaration.
   record Flag
     --- Long name, without dashes (e.g. "output" for --output). Required.
     long: string
@@ -30,11 +28,11 @@ local record flags_types
     required: boolean
   end
 
-  --- A program's declared interface. (Named-rule-7 exemption, recorded
-  --- in D20: a CLI interface declaration is not a kwargs bag.)
+  --- A program's declared interface: not a kwargs bag, so it keeps
+  --- the Spec name rather than the Options suffix reserved for those.
   record Spec
     --- Program name, used in help (default "program"). Error strings
-    --- are NOT prefixed with it (#991) — callers add their own context.
+    --- are NOT prefixed with it — callers add their own context.
     name: string
     --- One-line description shown in help.
     summary: string
@@ -42,15 +40,14 @@ local record flags_types
     usage: string
     --- Version string; when set, --version is recognized automatically.
     version: string
-    --- The declared flags, in help-display order (#991: was `options`).
+    --- The declared flags, in help-display order.
     flags: {Flag}
   end
 
   --- A successful parse.
   record Parsed
-    --- Boolean switches by long name (#991: was `flags`); every
-    --- declared switch is present (false when absent), so lookups
-    --- never need a nil check.
+    --- Boolean switches by long name; every declared switch is
+    --- present (false when absent), so lookups never need a nil check.
     switches: {string: boolean}
     --- Valued flags by long name, with defaults applied. A `repeated`
     --- flag's last occurrence lands here too; the full list is in
@@ -90,7 +87,7 @@ local record flags_types
     commands: {Command}
   end
 
-  --- A successful dispatch. The nils are typed away (#991): `parsed`
+  --- A successful dispatch. The nils are typed away: `parsed`
   --- is ALWAYS present — on a help/version request it is an empty
   --- Parsed whose help/version field is set, so `d.parsed.args` never
   --- crashes a help path. Only `command` may be nil, and only on a
