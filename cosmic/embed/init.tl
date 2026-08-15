@@ -44,7 +44,6 @@ local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").format
 local fs_types = require("cosmic.fs.types")
-local Stat = fs_types.Stat
 local floor = require("cosmic.embed.floor")
 local extract_mod = require("cosmic.embed.extract")
 
@@ -79,10 +78,14 @@ local record DirEntry
   kind: integer
 end
 
--- Internal record for files staged for embedding.
+-- Internal record for files staged for embedding. Exactly one of
+-- content (bytes already in hand, e.g. the generated wrapper entry) or
+-- source (a path the appender streams in C via add_file, so the file
+-- never exists as a Lua string) is set.
 local record FileToEmbed
   path: string
   content: string
+  source: string
   stored_name: string
   mode: integer
 end
@@ -143,15 +146,13 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
             if walk_err then return walk_err end
           elseif unix.S_ISREG(sst:mode()) then
             -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
-            local content, read_err = fs.read(full_path)
-            if not content then
-              return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
-            end
+            -- Contents are NOT read here: the add loop streams them in C
+            -- (add_file), so a tree never lives in memory as Lua strings.
             -- Extract permission bits (lower 9 bits)
             local file_mode = sst:mode() & tonumber("777", 8)
             collected[#collected + 1] = {
               path = full_path,
-              content = content,
+              source = full_path,
               stored_name = rel,
               mode = file_mode,
             }
@@ -227,7 +228,19 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   if not main_entry then
     return nil
   end
-  if main_entry.content:sub(1, #WRAP_SENTINEL) == WRAP_SENTINEL then
+  -- The one entry whose bytes the wrapper decision needs in Lua: staged
+  -- entries carry a source path (streamed in C at add time), so read
+  -- this single file here rather than materializing the whole tree.
+  local main_content = main_entry.content
+  if main_content == nil then
+    local data, read_err = fs.read(main_entry.source)
+    if not data then
+      return "error: cannot open file '" .. main_entry.source .. "': " ..
+      (read_err or "unknown error")
+    end
+    main_content = data
+  end
+  if main_content:sub(1, #WRAP_SENTINEL) == WRAP_SENTINEL then
     return nil -- already wrapped (extract/embed roundtrip)
   end
   local exe_reader = czip.open(exe_path)
@@ -235,7 +248,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
     local rd = exe_reader
     local exe_main = rd:read("main.lua")
     local _ok, _err = rd:close()
-    if exe_main == main_entry.content then
+    if exe_main == main_content then
       return nil -- unmodified dispatcher entry: keep the roundtrip exact
     end
   end
@@ -289,23 +302,20 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
         files_to_embed[#files_to_embed + 1] = f
       end
     else
-      local content, open_err = fs.read(p)
-      if not content then
-        return nil, "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error")
+      -- Stat up front so a missing or unreadable file fails here, with
+      -- the same error surface reading it used to produce; the bytes
+      -- themselves are streamed in C by the add loop (add_file).
+      local st, stat_err = fs.stat(p)
+      if not st then
+        return nil, "error: cannot open file '" .. p .. "': " .. (stat_err or "unknown error")
       end
 
       local stored_name = p:gsub("^/+", "")
-
-      -- Get file mode
-      local st = fs.stat(p)
-      local file_mode = tonumber("644", 8) -- default
-      if st then
-        file_mode = (st as Stat):mode() & tonumber("777", 8) -- cast: mixed-rep Stat
-      end
+      local file_mode = st:mode() & tonumber("777", 8)
 
       files_to_embed[#files_to_embed + 1] = {
         path = p,
-        content = content,
+        source = p,
         stored_name = stored_name,
         mode = file_mode,
       }
@@ -393,7 +403,17 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
       -- live mtimes now has to ask for them.
       mtime = opts.mtime or floor.epoch(),
     }
-    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
+    -- Staged sources stream through the appender in C (add_file); only
+    -- generated entries (the wrapper main.lua) carry in-memory content.
+    -- mode and mtime are always passed, so add_file's source-derived
+    -- defaults never apply and rebuilds stay byte-identical.
+    local add_ok: boolean
+    local add_err: string
+    if file_info.source ~= nil then
+      add_ok, add_err = appender:add_file(file_info.stored_name, file_info.source, add)
+    else
+      add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
+    end
     if not add_ok then
       -- the add error is what the caller needs; a close error here is
       -- secondary and the temp file is removed either way
