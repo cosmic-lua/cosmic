@@ -66,8 +66,18 @@ local record Archive
   stat: function(self: Archive, name: string): EntryStat | nil, string
   --- One entry's content (read mode).
   read: function(self: Archive, name: string): string | nil, string
+  --- One entry decompressed straight to a file (read mode): the bytes
+  --- stay in C, so no entry-sized Lua string exists. The destination
+  --- is created or truncated (0644 before umask); byte-identical to
+  --- read() plus a write.
+  save: function(self: Archive, name: string, dest: string): boolean, string
   --- Add a member (write or append mode).
   add: function(self: Archive, name: string, content: string, opts?: AddOptions): boolean, string
+  --- Add a member streamed from a file on disk (append mode): read,
+  --- sized and compressed in C, so the file never exists as a Lua
+  --- string. mode and mtime default from the source file; opts
+  --- override, same semantics as add().
+  add_file: function(self: Archive, name: string, source: string, opts?: AddOptions): boolean, string
   --- Remove a member (append mode).
   remove: function(self: Archive, name: string): boolean, string
   --- Close the archive (any mode; idempotent: a second close is a
@@ -118,6 +128,14 @@ local function make_archive(mode: Mode, raw: RawHandles): Archive
     return raw.reader:read(name)
   end
 
+  function a:save(name: string, dest: string): boolean, string
+    if closed then return false, "zip: archive is closed" end
+    if not raw.reader then return false, mode_err("save", "a read") end
+    local ok, err = raw.reader:save(name, dest)
+    if not ok then return false, err or "save failed" end
+    return true
+  end
+
   function a:add(name: string, content: string, opts?: AddOptions): boolean, string
     if closed then return false, "zip: archive is closed" end
     if raw.writer then
@@ -131,6 +149,14 @@ local function make_archive(mode: Mode, raw: RawHandles): Archive
       return true
     end
     return false, mode_err("add", "a write or append")
+  end
+
+  function a:add_file(name: string, source: string, opts?: AddOptions): boolean, string
+    if closed then return false, "zip: archive is closed" end
+    if not raw.appender then return false, mode_err("add_file", "an append") end
+    local ok, err = raw.appender:add_file(name, source, opts)
+    if not ok then return false, err or "add_file failed" end
+    return true
   end
 
   function a:remove(name: string): boolean, string
@@ -284,24 +310,28 @@ local function extract_entries(archive: Archive, destdir: string,
       ok, err = ensure_dir(fs.join(destdir, name))
       if not ok then return false, err end
     else
-      local content, read_err = archive:read(name)
-      if not content then
-        return false, "cannot read '" .. name .. "' from archive: " .. (read_err or "unknown error")
-      end
       local filepath = fs.join(destdir, name)
       ok, err = ensure_dir(fs.dirname(filepath))
       if not ok then return false, err end
 
+      -- The entry decompresses in C straight to the file
+      -- (whilp/cosmopolitan#238): no entry-sized Lua string.
+      local save_ok, save_err = archive:save(name, filepath)
+      if not save_ok then
+        return false, "cannot read '" .. name .. "' from archive: " .. (save_err or "unknown error")
+      end
+
       -- Sane-masked mode from the archive: permission bits only.
+      -- save() creates 0644 before umask; set_mode applies exact bits,
+      -- the same final modes fs.write's mode option produced.
       local file_mode = tonumber("644", 8)
       local mode = entry.mode & tonumber("777", 8)
       if mode > 0 then
         file_mode = mode
       end
-
-      local write_ok, write_err = fs.write(filepath, content, {mode = file_mode})
-      if not write_ok then
-        return false, "cannot write '" .. filepath .. "': " .. (write_err or "unknown error")
+      local mode_ok, mode_err_str = fs.set_mode(filepath, file_mode)
+      if not mode_ok then
+        return false, "cannot write '" .. filepath .. "': " .. (mode_err_str or "unknown error")
       end
     end
   end

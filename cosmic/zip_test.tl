@@ -371,6 +371,69 @@ local function test_closed_archive_refuses_and_close_is_idempotent()
 end
 test_closed_archive_refuses_and_close_is_idempotent()
 
+local function test_save_matches_read()
+  local p = zip_path("save_test.zip")
+  local w = check.must(zip.open(p, {mode = "write"}))
+  local body = string.rep("save me, deflated: ", 512)
+  assert(w:add("big.txt", body))
+  assert(w:add("empty.txt", ""))
+  assert(w:close())
+
+  local r = check.must(zip.open(p))
+  local dest = zip_path("save_test.out")
+  assert(r:save("big.txt", dest))
+  assert(fs.read(dest) == check.must(r:read("big.txt")),
+    "save must land the same bytes read() returns")
+  assert(r:save("empty.txt", dest), "save must truncate an existing dest")
+  assert(fs.read(dest) == "", "saved empty entry should truncate dest")
+
+  local ok, err = r:save("absent.txt", dest)
+  assert(not ok, "save of a missing entry must fail")
+  assert(err and #err > 0, "save error should carry the binding's message")
+  assert(r:close())
+end
+test_save_matches_read()
+
+local function test_save_and_add_file_name_the_mode()
+  local p = zip_path("mode_save.zip")
+  local w = check.must(zip.open(p, {mode = "write"}))
+  assert(w:add("a.txt", "a"))
+  local saved, save_err = w:save("a.txt", zip_path("mode_save.out"))
+  assert(not saved, "save must not answer on a write archive")
+  assert(save_err and save_err:find("requires a read archive", 1, true),
+    "save error should name read, got: " .. tostring(save_err))
+  local added, add_err = w:add_file("b.txt", zip_path("absent.src"))
+  assert(not added, "add_file must not answer on a write archive")
+  assert(add_err and add_err:find("requires an append archive", 1, true),
+    "add_file error should name append, got: " .. tostring(add_err))
+  assert(w:close())
+end
+test_save_and_add_file_name_the_mode()
+
+local function test_add_file_roundtrip()
+  local src = zip_path("add_file.src")
+  local body = string.rep("stream me in C\n", 256)
+  assert(fs.write(src, body))
+  local p = zip_path("add_file.zip")
+  local a = check.must(zip.open(p, {mode = "append"}))
+  -- Explicit mode and mtime, the way embed passes them: source-derived
+  -- defaults must not apply when the caller asks for reproducibility.
+  assert(a:add_file("streamed.txt", src, {mode = tonumber("600", 8), mtime = 0}))
+  local missing, miss_err = a:add_file("nope.txt", zip_path("no_such.src"))
+  assert(not missing, "add_file of a missing source must fail")
+  assert(miss_err and #miss_err > 0, "error should carry the binding's message")
+  assert(a:close())
+
+  local r = check.must(zip.open(p))
+  assert(check.must(r:read("streamed.txt")) == body,
+    "add_file must round-trip the source bytes")
+  local st = check.must(r:stat("streamed.txt"))
+  assert(st.mode & tonumber("777", 8) == tonumber("600", 8),
+    "explicit mode option must override the source's bits")
+  assert(r:close())
+end
+test_add_file_roundtrip()
+
 local function test_open_string_is_read_only()
   local a, err = zip.open_string("irrelevant", {mode = "write"})
   assert(a == nil, "open_string must reject a non-read mode")
