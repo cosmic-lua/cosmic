@@ -115,9 +115,13 @@ in order:
    or drive a slice to the ready bar. before a `move N ready`, run the
    enablement check (`enable.md`) and `check N` — both must pass.
 3. **intake** — while `plan:shaping` has slack, work backwards from
-   [docs/goals.md](../../docs/goals.md): pick the goal whose
-   win condition is furthest from holding, name the most valuable
-   missing outcome, open it as a shaping issue (usually an epic).
+   [docs/goals.md](../../docs/goals.md): walk the RANKED outcome list
+   top-down and take the first goal whose win condition has real
+   slack and no live epic already driving it; name the most valuable
+   missing outcome and open it as a shaping issue (usually an epic).
+   the rank is committed and re-derived by paired comparison when
+   contested (`decompose.md`); instruments (G1, G8) get worked when
+   an outcome's measurement needs them.
 4. **nothing** — shaping and ready are full and review is empty:
    implementation has to catch up. do not open more issues; a longer
    backlog is not progress.

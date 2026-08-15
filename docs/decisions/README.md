@@ -36,3 +36,4 @@ than editing the record it replaces.
 | D22 | the CSPRNG surface is infallible; a broken one crashes | [→](d22-infallible-csprng.md) |
 | D23 | cosmic.check throws by design; needs/reap may exit | [→](d23-check-throws.md) |
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | [→](d24-structured-failures.md) |
+| D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | [→](d25-outcomes-and-instruments.md) |

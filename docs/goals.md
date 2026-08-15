@@ -1,9 +1,14 @@
 # Goals
 
 this document says why cosmic exists, what "good" means here, and how each
-goal is measured. the tradeoffs behind these goals are recorded as
-decisions in [decisions/](decisions/) — read that before relitigating
-one.
+goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
+when a goal holds — and **instruments** — how we see and steer, orthogonal
+to the outcomes they serve. outcomes are ranked; the order below is the
+rank, set by paired comparison ([D25](decisions/d25-outcomes-and-instruments.md),
+method in `skills/plan/decompose.md`) and changed only by a PR that
+re-runs the contested pairs. the tradeoffs behind these goals are
+recorded as decisions in [decisions/](decisions/) — read that before
+relitigating one.
 
 ## Mission
 
@@ -61,7 +66,8 @@ the anchor promise, at full depth:
 a builder given only the cosmic binary completes real tasks with
 strictly less work — fewer cycles, fewer errors, less friction — than
 on Python, Node, or Go. the claim is about anyone building; it is
-observed conveniently and continuously through agent evals (G1).
+driven by the cycles-per-task ratchet (G6) and observed through the
+eval instrument (G1), which also keeps the peer comparison honest.
 
 ### 3. self-sufficiency
 
@@ -74,37 +80,16 @@ documentation, working offline, on any supported OS.
 the three promises compound into the product: `--embed`-built
 executables that are correct, portable, contained, and fast.
 
-## Goals and how they are measured
+## Outcomes, ranked
 
-every goal here is evaluatable. a goal without a measurement is a wish.
-
-### G1 — standing agent-eval harness with baselines
-
-the clean-room agent studies ([agent-usability.md](agent-usability.md))
-become a maintained, versioned suite: fixed tasks, fresh agents, scored
-on silent bugs, checker-caught errors, and cycles — run on a cadence
-with tracked history, and run against Python/Node/Go sandboxes on the
-same tasks.
-
-- **measured by:** the harness's own scores, per release.
-- **win condition:** (hard gate) zero silent bugs across the suite;
-  (standing target) strictly fewer agent cycles than every baseline
-  runtime on every task.
-
-### G2 — contained by default
-
-scripts run under a restrictive default policy unless the operator
-grants capabilities explicitly (`--allow-net`-style). the sandboxing
-stack (pledge/unveil/landlock/quicksand) stops being a library the
-script may call and becomes a boundary the script cannot decline. the
-denial experience is part of the interface: a blocked script fails with
-a message that names the capability and the exact flag to grant it.
-
-- **measured by:** default-deny is the shipped behavior; every eval-suite
-  task runs contained; an agent hitting a denial recovers in one step
-  (observable in G1 transcripts).
-- **win condition:** no eval task is failed or slowed by containment
-  ergonomics, while default-deny holds.
+every outcome is evaluatable — a goal without a measurement is a wish —
+and its win condition is a RATCHET wherever improvement is open-ended:
+the gate is against ourselves (no regression, trending the right way,
+release over release), never against a rival. where peers are the
+scoreboard, a published table records absolute standing; the ambition
+is that sustained ratcheting puts and keeps cosmic ahead, and the
+table says whether that is true — it never gates. intake
+(`skills/plan/SKILL.md`) walks this list top-down.
 
 ### G3 — an honest type layer, no escape hatches
 
@@ -122,21 +107,22 @@ closes.
 - **win condition:** zero casts; the scaffolding deleted; the doctrine
   reduced to a footnote.
 
-### G4 — zero-config project gates
+### G6 — the defining paths, ratcheted
 
-one built-in verb runs the full no-silent-bugs apparatus against any
-user project with zero configuration: format gate, type check
-(warnings-as-errors), tests, example verification, and coverage
-ratcheting against a committed baseline. user projects inherit exactly
-the discipline cosmic applies to itself. (only durable gates transfer —
-scaffolding that polices a temporary toolchain gap, like cast
-justification, does not; see G3.)
+perf is a stated goal only where it defines the product experience:
+binary startup, `--check types` latency on a reference project, the
+embed build cycle, and agent cycles-per-task on the eval suite (G1).
+improvement is driven internally — a per-release ratchet on each path,
+enforced by the existing `perf-compare` gate and the eval history —
+and everything off the defining paths stays plain non-regression.
 
-- **measured by:** a scaffolded project gets a meaningful `PASS`/`FAIL`
-  verdict from one command with no setup; the eval suite's project
-  tasks use it.
-- **win condition:** the verb exists, is the documented default idiom,
-  and G1 agents adopt it unprompted.
+- **measured by:** the perf suite's ratchets per release; the peer
+  table — the same metrics for CPython, Node, Go, and comparable
+  checkers — published with each release.
+- **win condition:** every defining-path ratchet holds (no regression,
+  trending down across releases) with the peer table current. cosmic
+  ahead on every defining path is the ambition the table reports,
+  never a gate.
 
 ### G5 — adversarial verification
 
@@ -148,18 +134,43 @@ core invariants; the C layer runs under sanitizers in CI.
   regression tests.
 - **win condition:** a release ships only after a clean fuzz window.
 
-### G6 — competitive on the defining paths
+### G2 — contained where the platform can enforce it
 
-perf is a stated goal only where it defines the product experience:
-binary startup, `--check types` latency on a reference project, and the
-embed build cycle — with bars set relative to peers (starts faster than
-CPython; typechecks faster than comparable checkers on comparable
-code). everything else stays non-regression, enforced by the existing
-`perf-compare` gate.
+originally "contained by default" on the Deno model — but that
+architecture does not transfer: cosmo has no single mediation point a
+policy can interpose (a script talks to libc directly; there is no
+V8-isolate boundary), so a portable default-deny is not viable and is
+explicitly not promised. what cosmic promises instead: the sandbox
+stays the one door (one call, fail-closed), the default posture is
+deny on platforms whose OS can enforce it (pledge/unveil, landlock,
+seccomp), the denial experience names the capability and the exact
+flag to grant it, and a script can always ask whether it is actually
+contained — an unenforcing platform is honest, never silently
+unprotected.
 
-- **measured by:** the headline metrics in the perf suite, compared
-  against peer runtimes, per release.
-- **win condition:** the stated relative bars hold.
+- **measured by:** eval-suite tasks run contained on enforcing
+  platforms; an agent hitting a denial recovers in one step
+  (observable in G1 transcripts); containment status is queryable.
+- **win condition:** on enforcing platforms, default-deny holds with no
+  eval task failed or slowed by containment ergonomics; elsewhere the
+  posture is reported truthfully.
+
+### G4 — zero-config project gates (near holding)
+
+one built-in verb runs the full no-silent-bugs apparatus against any
+user project with zero configuration: format gate, type check
+(warnings-as-errors), tests, example verification, and coverage
+ratcheting against a committed baseline. user projects inherit exactly
+the discipline cosmic applies to itself. (only durable gates transfer —
+scaffolding that polices a temporary toolchain gap, like cast
+justification, does not; see G3.) the verb exists and is the
+documented idiom today; this goal sat out the ranking as
+nearest-to-holding — finish it, don't debate it.
+
+- **measured by:** a scaffolded project gets a meaningful `PASS`/`FAIL`
+  verdict from one command with no setup; the eval suite's project
+  tasks use it.
+- **win condition:** G1 agents adopt it unprompted.
 
 ### G7 — a server and concurrency story (later)
 
@@ -167,10 +178,52 @@ batteries include serving: the test for a battery is "should a
 cosmic-built binary be able to do this without shelling out or
 vendoring C" — which includes an HTTP(S) server and a real concurrency
 model, since single-file portable services are a natural payoff of
-`--embed`. deliberately not urgent; direction, not deadline.
+`--embed`. deliberately not urgent; direction, not deadline; unranked
+until activated.
 
-- **measured by:** not yet. when this activates, it gets eval tasks and
-  win conditions like everything else.
+- **measured by:** not yet. when this activates, it enters the ranking
+  and gets eval tasks and win conditions like everything else.
+
+## Instruments
+
+instruments are how we see and steer. they carry win conditions about
+the instrument STANDING — the bars it enforces live in the outcomes it
+measures. an instrument is judged by whether outcomes move and what
+the movement costs.
+
+### G1 — the agent-eval instrument
+
+the clean-room agent studies ([agent-usability.md](agent-usability.md),
+`skills/agent-eval`) become a maintained, versioned suite: fixed
+tasks, fresh agents, scored on silent bugs, checker-caught errors, and
+cycles — run on a cadence with tracked history, and run against
+Python/Node/Go sandboxes on the same tasks. its numbers feed the
+outcomes: cycles-per-task and the peer table (G6), containment
+ergonomics (G2), gate adoption (G4).
+
+- **measured by:** the suite runs per release; history tracked; peer
+  baselines current.
+- **win condition:** the instrument stands — versioned suite,
+  per-release cadence, tracked history, peer baselines — and zero
+  silent bugs across the suite is the one hard gate the instrument
+  itself enforces on every run.
+
+### G8 — the flow system
+
+the system of work (`skills/plan`, the `plan:*` board): sophisticated
+models decompose these goals into ready work, less sophisticated
+models implement it, and a sophisticated model's review is the final
+gate. its job is to make the outcomes above move and to say what the
+movement costs.
+
+- **measured by:** flow health per release — ready→merged lead time,
+  WIP-limit adherence, no column starved or saturated for a whole
+  release — and the cost ratchet: tokens × model tier per merged
+  slice, tracked and trending down.
+- **win condition:** the board runs the repo's work with flow health
+  holding and cost per merged slice ratcheting down. delegation share
+  (how much lands implemented by less sophisticated models) is an
+  indicator the cost ratchet already rewards, not a gate.
 
 ## Non-goals
 
@@ -183,3 +236,6 @@ model, since single-file portable services are a natural payoff of
   is Cosmopolitan's promise, inherited and trusted; cosmic verifies its
   own layer on Linux and treats cross-OS breakage as an upstream bug
   ([D4](decisions/d04-portability-via-cosmopolitan.md)).
+- **portable default-deny.** containment is promised only where the OS
+  can enforce it (G2); pretending otherwise would be a silent bug in
+  the goals themselves.

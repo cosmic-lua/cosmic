@@ -32,6 +32,33 @@ carries a `Blocked by: #M` line (same repo only — `next` skips issues
 with open blockers). when every child is closed, the planner verifies
 the epic's outcome actually holds and closes the epic (`review.md`).
 
+## ranking the outcomes: paired comparison
+
+intake walks goals.md's ranked outcome list top-down, so the rank has
+to be real — and when it is contested (a new goal enters, the context
+shifts, two epics fight for capacity), the planner re-derives it with
+**paired comparison** rather than argument: put each contested pair to
+the goal owner, ONE question at a time —
+
+> if cosmic could hold only one of these win conditions over the next
+> several releases, which is the better cosmic?
+
+count wins; let transitivity close the untested pairs (A > B and
+B > C settles A vs C); give byes to goals that are nearly holding
+(finish, don't debate) or dormant. an intransitive cycle
+(A > B > C > A) is never averaged away — it means the comparison
+question was ambiguous; restate what "better" means and re-run just
+the cycle's pairs. AHP (Saaty) is the heavyweight variant with
+weighted judgments and a consistency ratio; at a half-dozen goals the
+plain tournament converges in a handful of questions and its record
+is legible.
+
+the result is committed: a re-rank is a PR to goals.md that reorders
+the outcome list and records the matches in its description
+([D25](../../docs/decisions/d25-outcomes-and-instruments.md)). the
+committed order is the one intake reads — a ranking that lives in a
+conversation is not a ranking.
+
 ## sizing a slice
 
 a ready slice is sized for one implementer session: one PR, a diff an
