@@ -80,8 +80,8 @@ end
 ---            | dotted identifier ('<' type-list '>')?
 --- plus the generator-synthesized trailing `...` variadic suffix
 --- (`string...`). A parse that consumes the whole string = valid; anything
---- else (e.g. the malformed `nil,|nil` that once rendered invalid Teal and
---- surfaced as baffling downstream type errors) is rejected.
+--- else (e.g. the malformed `nil,|nil`, which would render invalid Teal
+--- and surface as baffling downstream type errors) is rejected.
 local function valid_type(t: string): boolean
   if not t then return false end
   local src = t:match("^%s*(.-)%s*$")
@@ -331,8 +331,8 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
           -- deliberately NOT continuation tokens: no annotation continues a
           -- return list with a bare literal, but boolean descriptions
           -- routinely read "true when ..., false when ..." and failure prose
-          -- "..., nil on failure" — treating those words as types grew
-          -- phantom returns (unix.Memory:unmap, whilp/cosmopolitan#198).
+          -- "..., nil on failure" — treating those words as types grows
+          -- phantom returns, as in unix.Memory:unmap's description.
           -- Literals on their own @return lines are unaffected; only this
           -- comma decision is narrowed.
           local rest_after_comma = full_return:sub(i + 1)

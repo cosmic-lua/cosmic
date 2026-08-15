@@ -94,11 +94,11 @@ local function test_errored_scenario_fails()
 end
 test_errored_scenario_fails()
 
--- Deliberate pin: a scenario whose BASELINE row errored used to read as
--- "new" (never gated) until someone happened to refresh the baseline --
--- a broken scenario could stay broken indefinitely and silently. It is
--- now a failing verdict, the same way a "missing" scenario is: a fresh,
--- passing baseline is what clears it, not merely running the gate again.
+-- Deliberate pin: a scenario whose BASELINE row errored is a failing
+-- verdict, the same way a "missing" scenario is. It must not read as
+-- "new" (never gated), or a broken scenario could stay broken
+-- indefinitely and silently; a fresh, passing baseline is what clears
+-- it, not merely running the gate again.
 local function test_errored_baseline_is_a_failure()
   local bad: pt.Measurement = {name = "flaky", samples_ns = {}, error = "boom"}
   local deltas, failures = compare.diff(
@@ -122,8 +122,8 @@ local function test_truly_new_scenario_is_not_a_failure()
 end
 test_truly_new_scenario_is_not_a_failure()
 
--- c.wall_ns nil without c.error used to arithmetic on nil below and
--- throw; malformed input gets a clean verdict instead.
+-- A row with wall_ns nil and no error is malformed, not a crash: it
+-- must resolve to a clean verdict rather than arithmetic on nil below.
 local function test_malformed_current_row_does_not_throw()
   local malformed: pt.Measurement = {name = "odd", samples_ns = {}}
   local deltas, failures = compare.diff(
@@ -198,10 +198,11 @@ local function test_triage_reclassifies_noisy_regression()
 end
 test_triage_reclassifies_noisy_regression()
 
--- Magnitude-blindness was the bug: previously ANY regression on a
--- scenario whose A/A self-check cleared the bar was waved through as
--- noise, even one many times larger than the self-check swing. A 30%
--- self-check swing does not excuse a +300% regression.
+-- Reclassification is magnitude-aware: a regression only counts as
+-- noise when its size is comparable to the self-check swing, so an
+-- oversized regression is not waved through just because the
+-- scenario's A/A self-check cleared the bar. A 30% self-check swing
+-- does not excuse a +300% regression.
 local function test_triage_large_regression_in_unstable_scenario_still_fails()
   local deltas, failures = compare.triage(
     results({m("a", 1000, 2)}), results({m("a", 4000, 2)}), -- +300%

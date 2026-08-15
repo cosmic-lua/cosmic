@@ -5,7 +5,7 @@
 -- A row that restates something the tree already says is a copy, and a
 -- copy drifts. The decisions index is every record's own H1, written
 -- out a second time -- so the index can disagree with the record it
--- links to, which is what #820 is about.
+-- links to.
 --
 -- The rows stay committed because they are read on GitHub, by people
 -- who are not running a build. So this is the `.cosmic-coverage` shape:
@@ -39,7 +39,7 @@ test_the_decisions_index_matches_the_records()
 
 -- The module table says exactly what the doc index says — the same
 -- index `--help` renders its module list from, so AGENTS.md cannot
--- describe a module differently than the binary does (#1003). A row's
+-- describe a module differently than the binary does. A row's
 -- text is its module's H1 first line; fix a row at the module header.
 local function test_the_module_table_matches_the_doc_index()
   local rendered = derive.modules_table()

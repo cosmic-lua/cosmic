@@ -260,10 +260,10 @@ test_constant_docs_and_comment_braces()
 
 -- A module's surface includes VALUES, not only functions, and the
 -- definitions write those qualified: `cosmo.null = {}` under a
--- `---@type` block, outside the module table. Both halves used to miss
--- it — the extractor dropped the line as neither a function nor a
--- class, so the parser never saw it — and the value was absent from
--- the generated types, forcing callers through an erasure cast.
+-- `---@type` block, outside the module table. A qualified value field
+-- like this must be extracted and rendered as a module field; missing
+-- it leaves the value absent from the generated types, forcing
+-- callers through an erasure cast.
 local function test_qualified_value_field_is_generated()
   local source = [==[
 cosmo = {
@@ -353,7 +353,7 @@ end
 test_qualified_class_methods()
 
 -- A malformed upstream annotation (the real-world `---@return nil,|nil ...`
--- left by a definitions.lua rewrite) must fail loudly at generation time,
+-- shape definitions.lua carries) must fail loudly at generation time,
 -- naming the offending declaration and pointing upstream, instead of
 -- rendering invalid Teal that surfaces as baffling downstream type errors.
 local function test_malformed_annotation_fails_loudly()
@@ -420,9 +420,9 @@ test_valid_types_pass_validation()
 -- Every generated .d.tl must itself be valid, type-checkable Teal: a
 -- renderer change that emits a bad union, an unbalanced paren or a
 -- dangling return is caught here rather than as a confusing failure in
--- whatever first tries to resolve `cosmo.*`. There is no drift test any
--- more — nothing is committed to drift from — so this is the renderer's
--- only tripwire, and it reads what the build just produced.
+-- whatever first tries to resolve `cosmo.*`. Nothing is committed to
+-- drift from, so this is the renderer's only tripwire, and it reads
+-- what the build just produced.
 local function test_generated_valid_teal()
   for _, m in ipairs(gentype.get_modules()) do
     local path = generated_path(m)
