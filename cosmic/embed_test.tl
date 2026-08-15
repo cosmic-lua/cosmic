@@ -304,7 +304,7 @@ test_embed_uses_deflate()
 
 -- Test that embedded .lua files are stored uncompressed (method=0): the
 -- produced executable loads them at boot, so storing skips a per-launch
--- inflate() (see whilp/cosmic#487, backlog entry 24).
+-- inflate().
 local function test_embed_stores_lua()
   -- Compressible content that deflate WOULD shrink, to prove the store is a
   -- deliberate .lua policy and not just deflate declining to grow the file.

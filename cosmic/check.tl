@@ -2,9 +2,8 @@
 --- Functions in this module throw on failure (level 2) so the error points
 --- at the caller's line, not inside this module. This is the one module
 --- exempt from the never-throw doctrine, and `needs`/`reap` may exit
---- the process because the runner grades exit codes — the record is
---- docs/decisions/d23-check-throws.md; no other cosmic.* module may
---- throw or exit, so never require check from library code.
+--- the process because the runner grades exit codes; no other cosmic.*
+--- module may throw or exit, so never require check from library code.
 local cosmo = require("cosmo")
 local errors = require("cosmic.errors")
 local proc = require("cosmic.proc")
@@ -12,8 +11,8 @@ local proc = require("cosmic.proc")
 --- The skip exit code: 0 pass, 2 skip, anything else fail — the
 --- grammar every runner grades by. Defined HERE because check is the
 --- public module a test names it through, and check may not require
---- the internal runner tree (#992: records is `_tool.records` now;
---- its EXIT_SKIP mirrors this one, and its test asserts they agree).
+--- the internal runner tree (`_tool.records` mirrors this EXIT_SKIP,
+--- and its test asserts they agree).
 local EXIT_SKIP < const > = 2
 
 --- Render any Lua value as a readable string using the Lua serializer.
@@ -132,26 +131,26 @@ local function failed(value: any, err: string, label?: string)
 end
 
 --- Assert a fallible return and narrow away nil.
---- Since #1065 plain `assert` narrows here too — the carried tl patch
---- declares that it strips nil — so this is no longer the only way to
---- get past a `T | nil` in a test. What it still buys: Lua passes
---- multiple returns through, so `must(fs.read(path))` fails with
---- fs.read's own error string rather than a message the call site had
---- to write; and it narrows nil ONLY, so a `false` value passes
---- through where `assert` would throw on it.
---- Declares ONE return (#1064), so it composes exactly where `assert`
---- does: `return check.must(sqlite.open(":memory:"))` and
+--- Plain `assert` also narrows a `T | nil` here — the carried tl patch
+--- declares that it strips nil — so `must` is not the only way to get
+--- past one in a test. What it still buys: Lua passes multiple returns
+--- through, so `must(fs.read(path))` fails with fs.read's own error
+--- string rather than a message the call site had to write; and it
+--- narrows nil ONLY, so a `false` value passes through where `assert`
+--- would throw on it.
+--- Declares ONE return, so it composes exactly where `assert` does:
+--- `return check.must(sqlite.open(":memory:"))` and
 --- `table.insert(parts, check.must(chunk))` both type-check, with no
 --- parenthesis-truncation anywhere. There is nothing to forward past
---- slot 2, because a fallible return has two slots and no more (D20
---- rule 11, enforced by the `fallible-returns` lint) — a resource that
---- must be released rides on the returned record's `__close`, the way
+--- slot 2, because a fallible return has two slots and no more
+--- (enforced by the `fallible-returns` lint) — a resource that must be
+--- released rides on the returned record's `__close`, the way
 --- `fs.find_iter` and `sqlite.Rows` do.
---- Slot 2 is `string | Failure` (D24): a structured error — any
---- record implementing `cosmic.errors.Failure`, like `fetch.Error` —
---- passes through multiple-return passthrough exactly like a string,
---- and throws as its rendered `tostring`. A slot-2 boolean is still
---- rejected by name, so the diagnostic that surfaced #1063 survives.
+--- Slot 2 is `string | Failure`: a structured error — any record
+--- implementing `cosmic.errors.Failure`, like `fetch.Error` — passes
+--- through multiple-return passthrough exactly like a string, and
+--- throws as its rendered `tostring`. A slot-2 boolean is still
+--- rejected by name, so the diagnostic that catches it survives.
 --- @param value T? The fallible value (nil on failure)
 --- @param err string|Failure? Failure; a `nil, err` pair fills this in
 --- @return T The value, known non-nil
@@ -308,7 +307,7 @@ end
 local M: CheckModule = {
   -- Exported so a test names the contract instead of writing `2`;
   -- the definition is at the top of this file, mirrored by
-  -- `_tool.records` beside the runner that grades it (#992).
+  -- `_tool.records` beside the runner that grades it.
   EXIT_SKIP = EXIT_SKIP,
   equal = equal,
   not_equal = not_equal,

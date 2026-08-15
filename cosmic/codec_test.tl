@@ -69,7 +69,7 @@ local function test_hex_roundtrip()
 end
 test_hex_roundtrip()
 
--- Lua value serialization moved to cosmic.literal (#1001):
+-- Lua value serialization lives in cosmic.literal:
 -- format/parse round-trip tests live in cosmic/literal_test.tl.
 
 -- Base64 encoding tests

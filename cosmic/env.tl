@@ -2,10 +2,9 @@
 --- Reading, setting, and listing environment variables — env.get()
 --- returns nil when the variable is not set, so the caller narrows;
 --- env.get_or() takes a fallback and cannot fail — plus the dotenv
---- half (#994: was cosmic.envd): parse_dotenv/format_dotenv for the
---- KEY=VALUE text format, expand for ${VAR} references, and
---- load_dotenv/load_embedded_dotenv to apply a directory of dotenv
---- files to the process environment.
+--- half: parse_dotenv/format_dotenv for the KEY=VALUE text format,
+--- expand for ${VAR} references, and load_dotenv/load_embedded_dotenv
+--- to apply a directory of dotenv files to the process environment.
 ---
 --- Dotenv format: each line is a KEY=VALUE assignment or a comment
 --- (lines starting with #); blank lines are skipped. Keys must match
@@ -268,7 +267,7 @@ end
 
 --- Format a map of variables as dotenv text: one KEY=VALUE line per
 --- entry, sorted by key, each newline-terminated (an empty map
---- formats to ""). The format half of parse_dotenv (rule 6). The
+--- formats to ""). The format half of parse_dotenv. The
 --- result round-trips through parse_dotenv when keys match the dotenv
 --- key grammar and values contain no newlines or ${...} references —
 --- format does not escape, because the format has no escape syntax.
@@ -306,8 +305,8 @@ local function load_dotenv(dir: string): LoadResult
 
   local dh, dh_err = unix.opendir(dir)
   if not dh then
-    -- The fix that rode the #994 fold: an unreadable directory used to
-    -- return empty success, visible only under COSMIC_DEBUG.
+    -- An unreadable directory is a reported error, not a silent empty
+    -- success that only debug logging would reveal.
     table.insert(result.errors, "open " .. dir .. ": " .. (dh_err or "unreadable"))
     if debug_on then
       io.stderr:write("[env] skip " .. dir .. ": " .. (dh_err or "not found") .. "\n")

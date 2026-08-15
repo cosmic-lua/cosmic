@@ -3,7 +3,7 @@
 --- error handling, plus CRC-32 checksums (checksums are
 --- encoding-adjacent error detection, not crypto — see cosmic.hash for
 --- digests). Lua VALUE serialization is not a byte codec and lives in
---- cosmic.literal (format/parse, #1001).
+--- cosmic.literal (format/parse).
 local cosmo = require("cosmo")
 
 --- Encode a string as hexadecimal.

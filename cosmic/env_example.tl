@@ -1,7 +1,7 @@
 --- Examples for the cosmic.env module.
 --- Demonstrates reading, setting, and listing environment variables,
---- and the dotenv half (#994: was cosmic.envd): parsing KEY=VALUE
---- files and loading a directory of them into the environment.
+--- and the dotenv half: parsing KEY=VALUE files and loading a
+--- directory of them into the environment.
 --- For the common case of reading a single variable, env.get() is
 --- the simplest approach (it wraps os.getenv() internally). It returns
 --- nil when the variable is not set, so the caller narrows; env.get_or()
@@ -170,7 +170,7 @@ local function Example_embed_dotenv()
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
   -- No loader prelude: --embed wraps a custom entry with the cosmic
   -- runtime searcher, so require() just works. The extracted tree
-  -- carries the wrapper's entry PAIR (main.lua + main.user.lua, #687);
+  -- carries the wrapper's entry PAIR (main.lua + main.user.lua);
   -- re-embedding requires replacing the pair, so drop the wrapped
   -- original alongside writing the new entry.
   assert(fs.remove(fs.join(extractdir, "main.user.lua")))

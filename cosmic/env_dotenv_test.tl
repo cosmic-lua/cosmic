@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Tests for cosmic.env's dotenv half (#994: was cosmic.envd):
+--- Tests for cosmic.env's dotenv half:
 --- parse_dotenv/format_dotenv/expand and load_dotenv/load_embedded_dotenv.
 local check = require("cosmic.check")
 local env = require("cosmic.env")
@@ -132,10 +132,9 @@ local function test_invalid_key_lines_skipped()
 end
 test_invalid_key_lines_skipped()
 
--- The fix that rode the #994 fold: a directory that cannot be opened
--- used to return empty success, visible only under COSMIC_DEBUG. It
--- is an error like any other now; the absent-is-ordinary case lives
--- in load_embedded_dotenv, tested below.
+-- A directory that cannot be opened is a reported error like any
+-- other; the absent-is-ordinary case lives in load_embedded_dotenv,
+-- tested below.
 local function test_missing_dir_is_an_error()
   local missing = fs.join(tmpdir, "nonexistent_dir_xyz")
   local result = env.load_dotenv(missing)
@@ -215,7 +214,7 @@ local function test_underscore_prefix_key()
 end
 test_underscore_prefix_key()
 
--- format_dotenv: the format half of parse_dotenv (rule 6).
+-- format_dotenv: the format half of parse_dotenv.
 
 local function test_format_sorts_keys_and_terminates_lines()
   local text = env.format_dotenv({B = "2", A = "1", C = "3"})

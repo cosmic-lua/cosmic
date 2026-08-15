@@ -266,12 +266,12 @@ local function test_must_passes_false_through()
 end
 test_must_passes_false_through()
 
--- must: one declared return (the assert-parity contract, #1064)
+-- must: one declared return (the assert-parity contract)
 --
 -- must forwards nothing past the value, because a fallible return has
--- two slots and no more (D20 rule 11). What that buys is composition:
--- must appears in return position, in last-argument position, and as a
--- for-in iterator without a single parenthesis-truncation.
+-- two slots and no more. What that buys is composition: must appears
+-- in return position, in last-argument position, and as a for-in
+-- iterator without a single parenthesis-truncation.
 
 local type Iter = function(): string
 
@@ -340,7 +340,7 @@ end
 test_must_uses_err_string_from_multi_return()
 
 local function test_must_renders_structured_error()
-  -- Slot 2 may be a structured Failure (D24): a concrete error record
+  -- Slot 2 may be a structured Failure: a concrete error record
   -- like fetch.Error reaches must through the same multiple-return
   -- passthrough as a string, and must throws its rendered tostring —
   -- so a failing test prints the classified message, never a table
