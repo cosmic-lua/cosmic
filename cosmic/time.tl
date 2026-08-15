@@ -84,7 +84,10 @@ local function sleep_remaining_ms(seconds: integer, nanos?: integer): integer | 
   local rem_s, rem_ns, eno, eintr_s, eintr_ns = unix.nanosleep(seconds, ns)
   -- Round up so an interrupted sleep never reports 0 remaining.
   if rem_s ~= nil then
-    return math.ceil(rem_s * 1000 + rem_ns / 1000000)
+    -- Slot 2 is slot-accurate since the pin bump: the error string only
+    -- when slot 1 is nil, the remainder's nanoseconds past this guard.
+    -- cast: tuple union arm after success guard
+    return math.ceil(rem_s * 1000 + (rem_ns as integer) / 1000000)
   end
   if errno.is_code(eno, "EINTR") then
     return math.ceil((eintr_s or 0) * 1000 + (eintr_ns or 0) / 1000000),
