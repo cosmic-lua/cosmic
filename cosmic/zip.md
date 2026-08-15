@@ -63,8 +63,18 @@ local record Archive
   stat: function(self: Archive, name: string): EntryStat | nil, string
   --  One entry's content (read mode).
   read: function(self: Archive, name: string): string | nil, string
+  --  One entry decompressed straight to a file (read mode): the bytes
+  --  stay in C, so no entry-sized Lua string exists. The destination
+  --  is created or truncated (0644 before umask); byte-identical to
+  --  read() plus a write.
+  save: function(self: Archive, name: string, dest: string): boolean, string
   --  Add a member (write or append mode).
   add: function(self: Archive, name: string, content: string, opts?: AddOptions): boolean, string
+  --  Add a member streamed from a file on disk (append mode): read,
+  --  sized and compressed in C, so the file never exists as a Lua
+  --  string. mode and mtime default from the source file; opts
+  --  override, same semantics as add().
+  add_file: function(self: Archive, name: string, source: string, opts?: AddOptions): boolean, string
   --  Remove a member (append mode).
   remove: function(self: Archive, name: string): boolean, string
   --  Close the archive (any mode; idempotent: a second close is a
@@ -206,10 +216,22 @@ function a:stat(name: string): EntryStat | nil, string
 function a:read(name: string): string | nil, string
 ```
 
+### a:save
+
+```teal
+function a:save(name: string, dest: string): boolean, string
+```
+
 ### a:add
 
 ```teal
 function a:add(name: string, content: string, opts?: AddOptions): boolean, string
+```
+
+### a:add_file
+
+```teal
+function a:add_file(name: string, source: string, opts?: AddOptions): boolean, string
 ```
 
 ### a:remove

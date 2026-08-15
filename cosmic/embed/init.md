@@ -85,6 +85,7 @@ end
 local record FileToEmbed
   path: string
   content: string
+  source: string
   stored_name: string
   mode: integer
 end
