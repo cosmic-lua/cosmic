@@ -72,8 +72,9 @@ local PROMISES: {Promise} = {
 --- Options for `apply`. `exec` sets the promises children keep after
 --- execve. `best_effort` turns an unsupported host into a successful
 --- no-op instead of an error — the explicit fail-open escape hatch.
---- (#989: keep_coverage is gone from every policy record — the seal
---- decision lives with cosmic.coverage, which build tooling marks.)
+--- Sealing coverage on apply is unconditional: the decision to keep
+--- coverage running lives with cosmic.coverage, which build tooling
+--- marks, not with an option here.
 local record ApplyOptions
   exec: string
   best_effort: boolean

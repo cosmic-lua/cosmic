@@ -21,8 +21,8 @@ local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 
 --- Read the current IFF_* flags on `name` in the current net namespace.
---- The `struct ifreq` ABI lives in the C binding (cosmopolitan#199);
---- no kernel structs are packed here.
+--- The `struct ifreq` ABI lives in the C binding; no kernel structs
+--- are packed here.
 ---
 --- @param name string interface name (e.g. "lo")
 --- @return integer? flags bitmask on success

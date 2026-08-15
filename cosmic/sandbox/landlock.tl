@@ -241,7 +241,7 @@ local function restrict(opts?: RestrictOptions): boolean, string
   -- removed the doubt (the recipe fence grants its own coverage
   -- directory — see `_cli/grants.tl`) marks cosmic.coverage instead;
   -- the seal-vs-keep rule lives in cosmic._seal_coverage, shared with
-  -- pledge/unveil (#989).
+  -- pledge/unveil.
   seal_coverage()
   local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
   unix.close(rsfd)

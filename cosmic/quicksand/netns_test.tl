@@ -81,9 +81,9 @@ end
 test_unshare_subprocess()
 
 -- get_flags/set_flags exercise the unix.siocgifflags/siocsifflags
--- bindings (struct ifreq lives in C, cosmopolitan#199) that
--- bring_up/bring_down are built on. Loopback exists in any namespace,
--- but an outer sandbox may deny AF_INET sockets — tolerate that.
+-- bindings (struct ifreq lives in C) that bring_up/bring_down are
+-- built on. Loopback exists in any namespace, but an outer sandbox
+-- may deny AF_INET sockets — tolerate that.
 local function test_get_flags_loopback()
   local flags, err = netns.get_flags("lo")
   if not flags then

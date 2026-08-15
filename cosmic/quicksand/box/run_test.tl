@@ -3,7 +3,7 @@
 ---
 --- box:run unshares CLONE_NEWUSER, which is irreversible for the
 --- calling thread, so every workload runs in a fresh cosmic subprocess.
---- capabilities().user_ns is a real scratch-child unshare probe now, so
+--- capabilities().user_ns is a real scratch-child unshare probe, so
 --- when the guard passes, setup is expected to succeed: setup failures
 --- surface as nil + error over Box:run's error pipe and are hard test
 --- failures, not skips. The only tolerated skips are named, specific
@@ -63,12 +63,10 @@ io.write("ok exit=0\n")
 end
 test_run_true_in_subprocess()
 
--- Regression: run() used to call unix.wait(pid) without retrying
--- EINTR, feeding the errno STRING to WIFEXITED on interrupt (a
--- type-error throw instead of a clean result). A one-shot SIGALRM
--- fires ~50ms into a workload that sleeps 300ms, guaranteeing wait(pid)
--- is interrupted mid-block; run() must still return the workload's
--- real exit code.
+-- A one-shot SIGALRM fires ~50ms into a workload that sleeps 300ms,
+-- guaranteeing wait(pid) is interrupted mid-block by EINTR; run() must
+-- retry the wait and still return the workload's real exit code, not
+-- feed the errno STRING to WIFEXITED.
 local function test_run_survives_eintr_during_wait()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then
@@ -106,9 +104,9 @@ end
 test_run_survives_eintr_during_wait()
 
 -- A typo'd sys policy must be rejected at Box.new — construction time,
--- before any fork — with an error naming the bad promise. This used to
--- die post-fork as an opaque exit 126; sys now goes through
--- cosmic.sandbox's validator at new().
+-- before any fork — with an error naming the bad promise, via
+-- cosmic.sandbox's validator, so it never surfaces post-fork as an
+-- opaque exit 126.
 local function test_bogus_sys_promise_rejected_at_new()
   local new_any = quicksand.new as function(any): any, any -- cast: deliberate invalid input
   local j, err = new_any({sys = {promises = "stdio bogus_promise"}})
@@ -151,10 +149,10 @@ io.write("ok nil-error: " .. tostring(rerr) .. "\n")
 end
 test_setup_failure_returns_error_not_exit_code()
 
--- FIX 1: proc.uid without no_new_privs must still set NoNewPrivs.
+-- proc.uid without no_new_privs must still set NoNewPrivs.
 -- The workload reads /proc/self/status and greps for NoNewPrivs:1.
 -- Mapping host uid 65534 into the userns needs privileges an
--- unprivileged runner lacks; the error channel now names that exact
+-- unprivileged runner lacks; the error channel names that exact
 -- failure (uid_map write EPERM), which is the one tolerated skip.
 local function test_uid_drop_sets_no_new_privs_subprocess()
   local c = quicksand.capabilities()
@@ -193,7 +191,7 @@ end
 end
 test_uid_drop_sets_no_new_privs_subprocess()
 
--- FIX 2: PID namespace isolation — workload should get a low PID (<= 2).
+-- PID namespace isolation — workload should get a low PID (<= 2).
 local function test_pid_namespace_workload_has_low_pid_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns and c.pid_ns) then
@@ -221,7 +219,7 @@ end
 end
 test_pid_namespace_workload_has_low_pid_subprocess()
 
--- FIX 2: Opt-out of PID namespace via pid_ns = false still runs.
+-- Opt-out of PID namespace via pid_ns = false still runs.
 local function test_pid_namespace_opt_out_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then

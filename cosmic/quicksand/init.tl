@@ -29,8 +29,7 @@ local errno = require("cosmic.errno")
 local type Capabilities = types.Capabilities
 
 --- The box instance and options records, re-exported so callers name
---- them from the umbrella (rule 10): `quicksand.Box`,
---- `quicksand.BoxOptions`.
+--- them from the umbrella: `quicksand.Box`, `quicksand.BoxOptions`.
 local type Box = box.Box
 local type BoxOptions = box.BoxOptions
 
@@ -38,8 +37,7 @@ local record QuicksandModule
   type Capabilities = Capabilities
   type Box = Box
   type BoxOptions = BoxOptions
-  --- Build a Box from an options table (#989: was the PascalCase
-  --- value path quicksand.Box.new — D20 rule 1 retired that pattern).
+  --- Build a Box from an options table.
   new: function(opts?: BoxOptions): Box | nil, string
   --- Compose Box options left-to-right (lists concat + dedupe, maps
   --- per-key later wins, scalars later wins).

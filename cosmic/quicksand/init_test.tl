@@ -40,7 +40,7 @@ test_capabilities_cached()
 -- report agrees with a fresh probe, and that the probe is exported and
 -- deterministic.
 local function test_user_ns_agrees_with_scratch_probe()
-  -- probe_ns is no longer exported (it forks on every call); the
+  -- probe_ns is not exported (it forks on every call); the
   -- scratch-unshare result is observable only through capabilities().
   local c = quicksand.capabilities()
   assert(type(c.user_ns) == "boolean", "user_ns should be a boolean")
@@ -63,7 +63,7 @@ local function test_is_supported_matches_capabilities()
 end
 test_is_supported_matches_capabilities()
 
--- Build a synthetic failed binding returning the new failure triple —
+-- Build a synthetic failed binding returning the failure triple —
 -- `nil, err (string), errno (number)` — with a fixed errno number, so the
 -- probe's ENOSYS classification can be exercised without a host that
 -- actually lacks the syscall.
@@ -143,7 +143,7 @@ end
 test_real_pledge_unveil_probe()
 
 local function test_capabilities_does_not_self_brick()
-  -- Regression: capabilities() must never invoke the destructive
+  -- capabilities() must never invoke the destructive
   -- unix.unveil(nil, nil) commit, which locks the calling process into a
   -- deny-all sandbox. Prove ordinary filesystem IO still works afterward by
   -- reading back a file written before the probe.
@@ -176,8 +176,8 @@ end
 test_unveil_matches_landlock_on_linux()
 
 local function test_new_and_merge_on_umbrella()
-  -- #989: quicksand.new/quicksand.merge replace the retired
-  -- PascalCase value path quicksand.Box.new; Box remains as a TYPE.
+  -- quicksand.new/quicksand.merge are the constructor and composer;
+  -- Box exists only as a TYPE, never as a value export.
   assert(type(quicksand.new) == "function", "quicksand.new is the constructor")
   assert(type(quicksand.merge) == "function", "quicksand.merge composes options")
   local q = quicksand as {string: any} -- cast: record as map for introspection

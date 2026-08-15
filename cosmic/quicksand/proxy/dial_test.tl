@@ -47,11 +47,11 @@ local function test_resolve_error_propagates()
 end
 test_resolve_error_propagates()
 
--- Bounded lookups are the C binding's job now (cosmo.ResolveIp's
--- timeout_ms, cosmopolitan#199, where the deadline behavior is pinned
--- against a tarpitted resolver upstream). At this layer: a deadline
--- must not disturb the literal fast path, and a seam resolver's value
--- comes back directly — no helper process, no pipe.
+-- Bounded lookups are the C binding's job (cosmo.ResolveIp's
+-- timeout_ms), which pins the deadline behavior against a tarpitted
+-- resolver upstream. At this layer: a deadline must not disturb the
+-- literal fast path, and a seam resolver's value comes back directly
+-- — no helper process, no pipe.
 local function test_resolve_literal_with_deadline()
   local got, err = dial.resolve("8.8.8.8", 150, nil)
   assert(got == check.must(ip.parse("8.8.8.8")):int(),

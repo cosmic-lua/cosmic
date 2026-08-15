@@ -65,9 +65,10 @@ local function test_validation_rejects_before_enforcing()
   assert(not ok and err:find("fs.ro", 1, true),
     "non-list fs group must be rejected: " .. tostring(err))
 
-  -- The pre-#989 spelling of exec_promises. Ignoring it would validate
-  -- the policy and then run exec'd children with NO promises — a silent
-  -- widening, in the one module whose headline is fail-closed.
+  -- Using `exec` instead of `exec_promises` must be rejected: silently
+  -- accepting it would validate the policy and then run exec'd
+  -- children with NO promises — a silent widening, in the one module
+  -- whose headline is fail-closed.
   ok, err = apply_any({sys = {promises = "stdio", exec = "stdio"}})
   assert(not ok and err:find("exec_promises", 1, true),
     "sys.exec must be rejected with a migration message: " .. tostring(err))
@@ -211,8 +212,8 @@ local function test_plan_landlock_mapping()
 end
 test_plan_landlock_mapping()
 
--- The Options tuning flags absorbed from landlock (#989) must reach
--- the planned RestrictOptions.
+-- The no_new_privs and handled tuning flags must reach the planned
+-- RestrictOptions.
 local function test_plan_tuning_flags()
   local opts_default = plan.for_landlock({ro = {"/usr"}})
   check.equal(opts_default.no_new_privs, true, "no_new_privs defaults on")
@@ -224,8 +225,8 @@ local function test_plan_tuning_flags()
 end
 test_plan_tuning_flags()
 
--- exec_promises is the sys field now (#989: `exec` read as paths
--- beside fs.exec); the validator checks its tokens like promises.
+-- exec_promises is named to avoid reading as a path list beside
+-- fs.exec; the validator checks its tokens like promises.
 local function test_exec_promises_validated()
   local vok, verr = sandbox.validate(
     {sys = {promises = "stdio", exec_promises = "stdio bogus_tok"}})
