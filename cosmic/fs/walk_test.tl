@@ -69,7 +69,7 @@ local function test_find_all_symlink_cycle_terminates()
 
   local collected = check.must(fs_find.find_info(base))
   local files = collected.files
-  -- Keys are FULL paths (#987); none may contain loop/
+  -- Keys are FULL paths; none may contain loop/
   for full_path in pairs(files) do
     assert(not full_path:match("loop"),
       "find_info should not recurse into symlink loop, found: " .. full_path)
@@ -150,8 +150,8 @@ end
 test_find_all_missing_root_errors()
 
 local function test_find_iter_missing_root_errors()
-  -- #558a: strict, like collect — a typo'd directory must be an error,
-  -- not an iterator that silently yields zero files.
+  -- Strict, like find — a typo'd directory must be an error, not an
+  -- iterator that silently yields zero files.
   local missing = fs.join(tmpdir, "no", "such", "dir")
   local iter, err = fs_find.find_iter(missing)
   assert(iter == nil, "files() on a missing root should return nil")
@@ -227,8 +227,8 @@ local function test_find_iter_permission_denied_subdir_reports_error()
 end
 test_find_iter_permission_denied_subdir_reports_error()
 
--- #558b: visitor return protocol — "skip" prunes a subtree, "stop" ends
--- the walk. Visitors that return nothing keep today's behavior.
+-- Visitor return protocol — "skip" prunes a subtree, "stop" ends
+-- the walk. Visitors that return nothing keep the default behavior.
 
 local record SkipCtx
   visited: {string: boolean}

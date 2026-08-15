@@ -15,7 +15,7 @@ local record fs_types
 
   --- The timestamps set_times/set_times_fd apply — and the record
   --- Stat:times() returns, so `set_times(dst, stat(src):times())`
-  --- round-trips (#988). Omit a field to leave that timestamp exactly
+  --- round-trips. Omit a field to leave that timestamp exactly
   --- as it is.
   record Times
     atime: Timespec
@@ -23,8 +23,7 @@ local record fs_types
   end
 
   --- Filesystem statistics.
-  --- Returned by statfs() and statfs_fd(). Spelled methods with units
-  --- (#988, rule 1).
+  --- Returned by statfs() and statfs_fd(). Spelled methods with units.
   record Statfs
     --- Returns filesystem type identifier.
     type: function(self: Statfs): integer
@@ -66,14 +65,13 @@ local record fs_types
     uid: function(self: Stat): integer
     --- Returns owner group ID.
     gid: function(self: Stat): integer
-    --- Returns the modification time as a Timespec (#988: was `mtim`,
-    --- a bare tuple).
+    --- Returns the modification time as a Timespec.
     modify_time: function(self: Stat): Timespec
-    --- Returns the access time as a Timespec (#988: was `atim`).
+    --- Returns the access time as a Timespec.
     access_time: function(self: Stat): Timespec
-    --- Returns the status-change time as a Timespec (#988: was `ctim`).
+    --- Returns the status-change time as a Timespec.
     change_time: function(self: Stat): Timespec
-    --- Returns the birth time as a Timespec (#988: was `birthtim`).
+    --- Returns the birth time as a Timespec.
     birth_time: function(self: Stat): Timespec
     --- Returns {atime, mtime} ready for set_times, so
     --- `set_times(dst, stat(src):times())` round-trips.
@@ -187,7 +185,7 @@ local raw_predicates: {string: any} = {
   is_char_device = function(self: unix.Stat): boolean return unix.S_ISCHR(self:mode()) end,
   is_fifo = function(self: unix.Stat): boolean return unix.S_ISFIFO(self:mode()) end,
   is_socket = function(self: unix.Stat): boolean return unix.S_ISSOCK(self:mode()) end,
-  -- Spelled time methods (#988): Timespec records over the raw tuples,
+  -- Spelled time methods: Timespec records over the raw tuples,
   -- so a stat's times feed set_times without hand-packing.
   modify_time = function(self: unix.Stat): fs_types.Timespec
     return timespec_of(self:mtim())
@@ -206,7 +204,7 @@ local raw_predicates: {string: any} = {
   end,
 }
 
--- Spelled Statfs methods (#988, rule 1) over the raw C abbreviations.
+-- Spelled Statfs methods over the raw C abbreviations.
 -- Each delegates, so the values stay whatever the binding reports. The
 -- delegation types itself against the BINDING's Statfs (unix.Statfs),
 -- which is where the abbreviations live -- the public record above
@@ -266,12 +264,12 @@ local function install_predicates(raw: unix.Stat): boolean
 end
 
 -- "unknown" until the first wrap probes; then "direct" or
--- "unsupported". There is no wrapper-table fallback any more
--- (the Stat unification): two representations made `is`
--- unusable and put a justified cast at every Stat use site, to cover a
--- runtime shape the pinned cosmos has never had. A sealed metatable is
--- now an honest error from stat/lstat/fstat instead of a silent switch
--- to a second representation.
+-- "unsupported". The Stat unification keeps exactly one
+-- representation of Stat: a second representation would make `is`
+-- unusable and require a justified cast at every Stat use site, to
+-- cover a runtime shape the pinned cosmos has never had. A sealed
+-- metatable is an honest error from stat/lstat/fstat instead of a
+-- silent switch to a second representation.
 local wrap_mode: string = "unknown"
 
 fs_types.wrap = function(raw: unix.Stat): fs_types.Stat | nil, string

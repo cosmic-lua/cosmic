@@ -1,6 +1,5 @@
---- Stat and directory operations for cosmic.fs (#988: split from
---- init.tl when the anglicized names landed beside their deprecated
---- aliases and the module outgrew the file-length limit).
+--- Stat and directory operations for cosmic.fs, split out to keep the
+--- module under the file-length limit.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs.types")
 local errstr = require("cosmic.errno").format
@@ -67,9 +66,8 @@ local function stat(path: string): Stat | nil, string
   return types.wrap(st)
 end
 
---- Get file metadata without following symbolic links (#988: was
---- `lstat`). On a symlink this describes the link itself, not its
---- target.
+--- Get file metadata without following symbolic links. On a symlink
+--- this describes the link itself, not its target.
 --- @param path string Path to the file or symlink
 --- @return Stat | nil File metadata, or nil on error
 --- @return string Error message if failed
@@ -81,7 +79,7 @@ local function stat_link(path: string): Stat | nil, string
   return types.wrap(st)
 end
 
---- Get file metadata from a file descriptor (#988: was `fstat`).
+--- Get file metadata from a file descriptor.
 --- @param fd integer File descriptor
 --- @return Stat | nil File metadata, or nil on error
 --- @return string Error message if failed
@@ -95,7 +93,7 @@ end
 
 -- Directory operations
 
---- Create a directory (#988: was `mkdir`).
+--- Create a directory.
 --- Parent directories must exist. Use make_dirs() to create parents.
 --- @param path string Path to the directory to create
 --- @param mode integer Permission bits (default 0755)
@@ -124,7 +122,7 @@ local function make_dirs(path: string, mode?: integer): boolean, string
   return true
 end
 
---- Remove an empty directory (#988: was `rmdir`).
+--- Remove an empty directory.
 --- @param path string Path to the directory to remove
 --- @return boolean True on success
 --- @return string Error message if failed
@@ -136,8 +134,8 @@ local function remove_dir(path: string): boolean, string
   return true
 end
 
---- Change current working directory (#988: was `chdir` — the setter
---- beside cwd(), its getter).
+--- Change current working directory — the setter beside cwd(), its
+--- getter.
 --- @param path string Path to the new working directory
 --- @return boolean True on success
 --- @return string Error message if failed
@@ -160,7 +158,7 @@ local function cwd(): string | nil, string
   return dir
 end
 
---- Open a directory for reading (#988: was `opendir`).
+--- Open a directory for reading.
 --- Call dir:read() to iterate entries, dir:close() when done.
 --- Supports automatic cleanup with `<close>` attribute.
 --- @param path string Path to the directory
@@ -177,7 +175,7 @@ local function open_dir(path: string): Dir | nil, string
   return nil, errstr(err, "open_dir: " .. path)
 end
 
---- Open a directory from a file descriptor (#988: was `fdopendir`).
+--- Open a directory from a file descriptor.
 --- Supports automatic cleanup with `<close>` attribute.
 --- @param fd integer File descriptor for an open directory
 --- @return Dir | nil Directory handle, or nil on error

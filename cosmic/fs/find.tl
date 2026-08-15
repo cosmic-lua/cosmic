@@ -4,7 +4,7 @@
 --- `if err then return nil, err end` is correct at every call site.
 --- Subtree failures are not fatal and are not a second error channel:
 --- they ride on the RESULT, in its `errors` field, which is where a
---- two-slot return has to put them (D20 rule 11). glob stays the
+--- two-slot return has to put them. glob stays the
 --- component-path expander (a different capability: its pattern spans
 --- "/" components and it never recurses) with the same contract.
 local unix = require("cosmo.unix")
@@ -119,9 +119,9 @@ local function find(dir: string, opts?: FindOptions): Found | nil, string
 end
 
 --- Recursively collect matching files with their FileInfo, keyed by
---- FULL path like every sibling (#987: was relative). Directories are
---- never included (FileInfo describes regular files); selection and
---- depth follow FindOptions.
+--- FULL path like every sibling. Directories are never included
+--- (FileInfo describes regular files); selection and depth follow
+--- FindOptions.
 --- @param dir string The directory to search
 --- @param opts FindOptions? Selection and depth options (default: all files)
 --- @return FoundInfo | nil .files by full path (plus .errors), or nil if the root failed
@@ -149,8 +149,8 @@ end
 --- same shape `cosmic.sqlite`'s Rows has: draining it releases them,
 --- and so do `iter:close()`, leaving a `local iter <close> = ...`
 --- scope, and (as the backstop) collection. That is why the guard is
---- no longer a fourth return value — a to-be-closed slot past the
---- error is exactly what D20 rule 11 forbids.
+--- not a fourth return value — a to-be-closed slot past the error
+--- would break the two-slot error contract every fallible call relies on.
 local record FileIter
   metamethod __call: function(self: FileIter): string | nil, {string}
   metamethod __close: function(self: FileIter)
@@ -175,10 +175,9 @@ end
 --- loop that exits EARLY (`break`, or a `return` from inside it) has
 --- not drained it: the handles stay open until collection, which pins
 --- directory fds — and on Windows can block deleting the tree just
---- walked. Before #1066 a fourth return value carried this duty, so an
---- old early-break loop compiles unchanged and nothing marks the
---- difference (`cosmic --docs guide.gotchas` has the entry). So say
---- so — the attribute Lua 5.4 has for exactly this:
+--- walked. An early-break loop compiles without any signal that it is
+--- leaking handles (`cosmic --docs guide.gotchas` has the entry). So
+--- say so — the attribute Lua 5.4 has for exactly this:
 ---
 ---     local iter <close> = check.must(fs.find_iter(dir))
 ---     for f in iter do if done(f) then break end end

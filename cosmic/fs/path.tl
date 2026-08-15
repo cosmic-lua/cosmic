@@ -28,7 +28,7 @@ local function join(...: string): string
   return cosmo_path.join(...)
 end
 
---- Check if a path is present — #988: was `exists` (rule 3).
+--- Check if a path is present.
 --- Symbolic links are followed (uses stat): a symlink resolves to its target,
 --- and returns true if the target exists. Returns false on error.
 --- @param p string The path to check
@@ -190,7 +190,7 @@ local function normalize(p: string): string
   end
 end
 
---- Convert relative path to absolute by prepending cwd (#988: was abspath).
+--- Convert relative path to absolute by prepending cwd.
 --- Does NOT resolve symlinks or access filesystem (except to get cwd).
 --- Windows-absolute paths (drive-letter or UNC roots, see is_absolute)
 --- are already absolute and only get normalized — cwd is not prepended.
@@ -225,7 +225,7 @@ local function root_of(p: string): string
   return "/"
 end
 
---- Make path relative to another path (defaults to cwd; was relpath, #988).
+--- Make path relative to another path (defaults to cwd).
 --- Pure string manipulation - does not access the filesystem.
 --- When the two paths live under different roots (different drive
 --- letters, UNC vs drive, Windows vs POSIX), no relative path exists;
@@ -328,9 +328,9 @@ local function join_dirname(dir: string, root_base: string): string
   return join(dir, root_base)
 end
 
---- Split path into root and extension (was splitext, #988). The
---- extension includes the dot; the split is at the last dot in the
---- basename, and hidden files (leading .) have no extension.
+--- Split path into root and extension. The extension includes the
+--- dot; the split is at the last dot in the basename, and hidden
+--- files (leading .) have no extension.
 --- Examples: "foo.txt" -> "foo", ".txt"; ".bashrc" -> ".bashrc", ""
 --- @param p string The path to split
 --- @return string The root portion (path without extension)
@@ -395,7 +395,7 @@ local function home(): string | nil, string
   return dir
 end
 
---- Expand a leading "~" to the home directory (was expanduser, #988).
+--- Expand a leading "~" to the home directory.
 --- Only bare "~" and "~/..." are expanded; "~user/..." forms and
 --- paths without the prefix are returned unchanged, as is any path
 --- when no home directory can be determined.
@@ -429,7 +429,7 @@ end
 --- line), where a newline forges entries. Backslashes are otherwise
 --- treated as separators, not refused: Windows-made archives use them
 --- legitimately.
---- (was unsafe_entry_name, #988) @param name string Archive entry name
+--- @param name string Archive entry name
 --- @return boolean true when the entry is unsafe to extract
 local function is_unsafe_entry_name(name: string): boolean
   if name == "" then return true end

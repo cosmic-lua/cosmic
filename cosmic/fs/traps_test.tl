@@ -225,8 +225,8 @@ local function test_dir_read_returns_d_type()
 end
 test_dir_read_returns_d_type()
 
--- 5. is_accessible requires a mode; the deprecated access alias keeps
--- its F_OK default until the pin advance (#988).
+-- 5. is_accessible requires a mode; there is no parameterless access
+-- alias.
 local function test_is_accessible()
   local path = fs.join(TEST_TMPDIR, "acc.txt")
   write_file(path, "here")
@@ -239,9 +239,9 @@ local function test_is_accessible()
 end
 test_is_accessible()
 
--- 6. the #988 rename wave landed: the old spellings are GONE, and the
--- names that replaced them answer. A retired alias must not linger as a
--- second way to say the same thing.
+-- 6. the old spellings are GONE, and the names that replaced them
+-- answer. A retired alias must not linger as a second way to say the
+-- same thing.
 local function test_retired_aliases_are_gone()
   local retired = {
     "exists", "abspath", "relpath", "splitext", "expanduser",

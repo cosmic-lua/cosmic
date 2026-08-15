@@ -274,7 +274,7 @@ end
 test_unlink()
 
 local function test_move_same_directory()
-  -- fs.rename is deleted (#988): move covers same-filesystem renames.
+  -- fs.rename does not exist; move covers same-filesystem renames.
   local test_dir = setup()
   local oldpath = fs.join(test_dir, "old.txt")
   local newpath = fs.join(test_dir, "new.txt")
@@ -420,7 +420,7 @@ end
 test_tmpfile()
 
 local function test_tmpfd()
-  -- temp_fd returns an open Handle (#988: was a bare descriptor).
+  -- temp_fd returns an open Handle.
   local h, err = fs.temp_fd()
   assert(h, "temp_fd should succeed: " .. (err or ""))
 

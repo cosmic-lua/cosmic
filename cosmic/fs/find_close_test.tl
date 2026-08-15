@@ -6,10 +6,9 @@
 --- exits early has to say it is done with them. Draining closes them;
 --- so do `iter:close()` and the `<close>` attribute its __close
 --- metamethod backs. Collection is the backstop, not the contract.
---- (The guard used to be a fourth return value the generic for
---- adopted; D20 rule 11 does not allow a slot past the error, so
---- #1063 folded it into the FileIter record — the shape
---- cosmic.sqlite's Rows already had.)
+--- The guard lives on the FileIter record itself, the same shape
+--- cosmic.sqlite's Rows uses, so nothing rides in a slot past the
+--- error return.
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local fs_find = require("cosmic.fs.find")

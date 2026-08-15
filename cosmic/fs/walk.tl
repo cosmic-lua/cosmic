@@ -30,7 +30,7 @@ end
 --- The accumulator is the caller's own — they passed it in — so the
 --- one thing a walk produces that they do NOT already hold is what
 --- went wrong, and it belongs on the result rather than in a third
---- slot they have to know to ask for (D20 rule 11).
+--- slot they have to know to ask for.
 local record Walked
   --- Subtree failures, in encounter order; nil when the walk was clean.
   errors: {string}
@@ -38,7 +38,7 @@ end
 
 local record FsWalkModule
   --- One visited entry: path (full), name, stat, depth. In visit()'s
-  --- public signature, so it is exported (D20 rule 10).
+  --- public signature, so it is exported.
   type Entry = Entry
 
   --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
@@ -135,7 +135,7 @@ end
 --- subdirectory, a vanished entry) do not stop the walk; they ride on
 --- the result as `walked.errors` — nil when the walk was clean — so a
 --- partial walk is never mistaken for a complete one, and a two-slot
---- return still says everything (D20 rule 11).
+--- return still says everything.
 --- @param dir string The directory to walk
 --- @param visitor function Called per entry: function(e: Entry, ctx): nil|"skip"|"stop"
 --- @param ctx T Optional context passed to every visitor call
