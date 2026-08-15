@@ -21,8 +21,14 @@ repo, and the system is designed so each does what it is best at:
   refines each piece until it is mechanically implementable, and
   reviews what comes back.
 - an **implementer** — a less sophisticated model (Opus/Sonnet-class) —
-  pulls one fully specified issue, implements exactly what it says,
-  and hands the result back for review.
+  works backwards kanban-style: take the thing closest to completion
+  forward. rework a planner sent back, then in-flight work, then the
+  oldest ready issue — implement exactly what the issue says, and hand
+  the result back.
+
+the final gate is always a planner: nothing merges until a
+sophisticated model has judged the implementation against the issue's
+definition of work AND the goal it traces to (`review.md`).
 
 the planner's defining duty is not writing issues; it is making
 implementers succeed. when a piece of work is too ambiguous for an
@@ -67,8 +73,8 @@ columns, left to right (an issue carries exactly one column label):
 |-------|---------|-----------|
 | `plan:shaping` | traced to a goal, still ambiguous — planner territory | 6 |
 | `plan:ready` | meets the ready bar (`decompose.md`); pullable | 6 |
-| `plan:doing` | claimed by an implementer session | 2 |
-| `plan:review` | PR open; awaiting planner review | 3 |
+| `plan:doing` | in implementation: claimed work and rework | 2 |
+| `plan:review` | PR open; awaiting a planner verdict | 3 |
 
 done is a closed issue — completed when the work merged, not planned
 when the planner killed it (a recorded dead end, kept forever). two
@@ -114,11 +120,16 @@ flow: never step left while a right-hand column has work for you.
 
 one issue per session, exactly this loop:
 
-1. `next` names the issue (finish `plan:doing` first; else pull the
-   oldest unblocked `plan:ready`). if it answers `none`, stop — do not
-   invent work; say a planner session is needed.
+1. `next` names the issue, rightmost first: finish `plan:doing` —
+   which holds both fresh claims and rework a review verdict sent
+   back, the work closest to completion — before pulling the oldest
+   unblocked `plan:ready`. if it answers `none`, stop — do not invent
+   work; say a planner session is needed (`next` names the bottleneck).
 2. claim it: `move N doing`, then comment on the issue that this
    session is on it (the move is the lock; the comment is the trail).
+   a doing item with an open PR and review comments is rework: skip
+   the claim ceremony, address the reviewer's quoted gaps on that PR,
+   and rejoin the loop at step 3.
 3. implement EXACTLY what the issue says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the

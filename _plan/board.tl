@@ -26,8 +26,8 @@ local DEFAULT_REPO < const > = "whilp/cosmic"
 local LABELS: {{string}} = {
   {"plan:shaping", "FBCA04", "traced to a goal, still ambiguous"},
   {"plan:ready", "0E8A16", "meets the ready bar; pullable"},
-  {"plan:doing", "1D76DB", "claimed by an implementer session"},
-  {"plan:review", "5319E7", "PR open; awaiting planner review"},
+  {"plan:doing", "1D76DB", "in implementation: claimed work and rework"},
+  {"plan:review", "5319E7", "PR open; awaiting a planner verdict"},
   {"plan:epic", "C5DEF5", "decomposition parent; never pulled"},
   {"plan:enable", "F9D0C4", "exists to make implementers succeed"},
 }

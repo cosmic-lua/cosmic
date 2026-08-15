@@ -1,9 +1,12 @@
 # Reviewing: verdicts and the friction feedback loop
 
-review is the planner's first duty in every session (`SKILL.md`): it
-is where implementer work becomes merged work, and where the system
-learns. an issue sits in `plan:review` with a PR attached; the
-planner ends that state with one of three verdicts, every time.
+review is the planner's first duty in every session (`SKILL.md`), and
+it is the system's FINAL GATE: nothing merges without a sophisticated
+model judging the implementation against the definition of work AND
+the goal it traces to. an issue sits in `plan:review` with a PR
+attached — that column means exactly "awaiting a planner verdict",
+nothing else — and the planner ends that state with one of three
+verdicts, every time.
 
 ## the review itself
 
@@ -25,6 +28,16 @@ read the issue first, then the PR against it:
    caps, cast justifications. anything a gate should have caught but
    did not is itself a finding — for the enablement backlog, not
    just this PR.
+5. **it serves the Goal.** re-read the issue's `## Goal` trace and
+   judge the change as built against it: does this diff actually move
+   the named goal's win condition (or the parent epic's outcome), or
+   does it satisfy the letter of Acceptance while missing the point?
+   this is the judgment only the planner can make — acceptance
+   commands prove the issue was implemented; only reading the goal
+   proves the issue was worth implementing as built. a diff that
+   passes 1–4 but fails this one means the ISSUE was mis-specified:
+   fix the specification (and file the ready-bar gap), don't wave the
+   diff through.
 
 ## the three verdicts
 
@@ -32,10 +45,14 @@ read the issue first, then the PR against it:
   completed. if the epic's checklist is now fully checked, verify the
   epic's stated outcome actually holds (run its observable test, not
   the children's) and close the epic too.
-- **request changes.** concrete, quoted gaps; the issue stays in
-  `plan:review`; the implementer session (or the next one `next`
-  sends there) addresses them on the same PR. use this when the work
-  is right-shaped but incomplete.
+- **request changes.** concrete, quoted gaps on the PR, then `move N
+  doing` — rework rejoins the implementer queue, where `next`'s
+  finish-before-pull rule makes it the first thing an implementer
+  picks up (rework is the work closest to completion). the same PR
+  carries the fixes; the issue returns to `plan:review` with them.
+  use this when the work is right-shaped but incomplete. never leave
+  a changes-requested issue sitting in `plan:review`: that column
+  waits on planners, and implementers do not look there.
 - **reject.** the approach is wrong, or the issue itself was not
   actually ready. close the PR, comment what was learned, and move
   the issue LEFT — `move N shaping` (or close it as not planned if

@@ -147,6 +147,15 @@ local function test_implementer_idle_when_all_blocked()
 end
 test_implementer_idle_when_all_blocked()
 
+local function test_implementer_none_names_review_bottleneck()
+  local board: Board = {review = {issue(4), issue(5)}}
+  local action = assert(model.next_action(board, "implementer", all_open))
+  assert(action.kind == "none", "got: " .. action.kind)
+  assert(action.reason:find("2 issue(s) await planner review", 1, true) ~= nil,
+    "reason: " .. action.reason)
+end
+test_implementer_none_names_review_bottleneck()
+
 local function test_planner_reviews_first()
   local board: Board = {
     review = {issue(9), issue(7)},

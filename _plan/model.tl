@@ -178,11 +178,14 @@ local function first_pullable(board: Board, is_open: IsOpen): Issue
   return nil
 end
 
---- The implementer's next action: finish before starting. Any doing
---- item comes first (oldest, with the pullable ready issue as the
---- fallback for a second concurrent session); otherwise pull the
---- oldest unblocked ready issue; otherwise there is nothing to pull
---- and a planner session is the answer.
+--- The implementer's next action, right to left: whatever is closest
+--- to completion moves first. Doing — which holds both fresh claims
+--- and rework a review verdict sent back — comes before pulling
+--- (oldest first, with the pullable ready issue as the fallback for a
+--- second concurrent session); then the oldest unblocked ready issue;
+--- otherwise there is nothing to pull and a planner session is the
+--- answer (review-column items wait on a planner, never on more
+--- implementation).
 --- @param board Board The board
 --- @param is_open IsOpen Blocker-state oracle
 --- @return NextAction The decision
@@ -205,16 +208,23 @@ local function next_for_implementer(board: Board, is_open: IsOpen): NextAction
       reason = "oldest ready issue with no open blocker",
     }
   end
+  local waiting = #(board["review"] or {})
+  local bottleneck = ""
+  if waiting > 0 then
+    bottleneck = ("; %d issue(s) await planner review — that verdict is "
+      .. "the bottleneck"):format(waiting)
+  end
   if #(board["ready"] or {}) > 0 then
     return {
       kind = "none",
       reason = "every ready issue is an epic or has an open blocker — "
-      .. "a planner session must unblock or refine",
+      .. "a planner session must unblock or refine" .. bottleneck,
     }
   end
   return {
     kind = "none",
-    reason = "no ready work — a planner session must refine or intake",
+    reason = "no ready work — a planner session must refine or intake"
+    .. bottleneck,
   }
 end
 
