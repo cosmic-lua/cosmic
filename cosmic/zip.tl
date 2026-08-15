@@ -141,23 +141,16 @@ local function make_archive(mode: Mode, raw: RawHandles): Archive
     return true
   end
 
-  -- The pinned binding under-declares Writer/Appender close as void
-  -- (annotated upstream in whilp/cosmopolitan#254); until the pin
-  -- carries the returns, read them through a cast at the boundary.
-  local type fallible_close = function(any): boolean, string
-
   function a:close(): boolean, string
     if closed then return true end
     closed = true
     if raw.reader then raw.reader:close() end
     if raw.writer then
-      -- cast: binding under-declares close returns (cosmopolitan#254)
-      local ok, err = (raw.writer.close as fallible_close)(raw.writer)
+      local ok, err = raw.writer:close()
       if not ok then return false, "zip: close failed: " .. (err or "unknown error") end
     end
     if raw.appender then
-      -- cast: binding under-declares close returns (cosmopolitan#254)
-      local ok, err = (raw.appender.close as fallible_close)(raw.appender)
+      local ok, err = raw.appender:close()
       if not ok then return false, "zip: close failed: " .. (err or "unknown error") end
     end
     return true
