@@ -47,6 +47,8 @@ API. the chapters:
 - `enable.md` — making implementers succeed: core > docs > skills.
 - `review.md` — the planner's review verdicts and the friction
   feedback loop.
+- `parallel.md` — running several implementer sessions at once:
+  picking a disjoint set, isolation, and the brief an agent needs.
 
 ## the board in one minute
 
@@ -169,6 +171,11 @@ not improvise. comment on the issue naming exactly what is missing,
 is a good outcome: it is the ready bar failing loudly instead of a
 silent wrong guess, and every bounce becomes enablement evidence
 (`enable.md`).
+
+one session takes one issue. running SEVERAL implementer sessions at
+once is a different move with its own mechanics — a disjoint set, a
+checkout per session, a brief that carries the issue body — and those
+are `parallel.md`.
 
 ## hard rules (guardrails)
 
