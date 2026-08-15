@@ -3,9 +3,9 @@
 --- This is the fence's whole knowledge, and the dispatcher's only use
 --- of it is one call: a recipe line is `verb arg arg arg`, and which
 --- positions are reads, writes and execs is a property of the verb.
---- There is no declaration channel -- the
---- argument positions ARE the declaration, which is what makes a rule
---- unable to over-declare its way out of the fence.
+--- There is no declaration channel -- the argument positions ARE the
+--- declaration, which is what makes a rule unable to over-declare its
+--- way out of the fence.
 
 local fs = require("cosmic.fs")
 local sandbox = require("cosmic.sandbox")
@@ -63,12 +63,10 @@ local RUNTIME_RO: {string} = {
 --- `/proc` is here rather than in the read-only list above because
 --- configuring your own user namespace means writing your own
 --- `/proc/<pid>/uid_map`, `setgroups` and `gid_map`. Read-only, those
---- writes would fail, and `cosmic/quicksand` would report exactly what
---- a kernel without namespace support reports — so the affected tests
---- would SKIP instead of fail, and the sandbox suite would quietly
---- stop testing the sandbox with no failing assertion to flag it. Only
---- the coverage ratchet would catch it, as `write_file` lines going
---- cold.
+--- writes would fail the way a kernel without namespace support fails,
+--- so the affected tests would SKIP instead of fail and the sandbox
+--- suite would quietly stop testing the sandbox; only the coverage
+--- ratchet would catch it, as `write_file` lines going cold.
 ---
 --- Not `/proc/self`: a landlock rule binds the inode it opened, and
 --- `/proc/self` resolves to `/proc/<pid>` for whoever opens it, so a
