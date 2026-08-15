@@ -374,7 +374,9 @@ end
 
 local record WorkModule
   inkey: function(label: {string}, inputs: {string}): string | nil
+  recorded: function(path: string): string | nil, string
   compile: function(args: {string}): integer
+  compile_in_process: function(src: string, out: string, flags: {string}): integer
   capture: function(args: {string}): integer
   record: function(args: {string}): integer
   run_into: function(argv: {string}, out: string): integer
@@ -382,7 +384,9 @@ end
 
 local M: WorkModule = {
   inkey = inkey,
+  recorded = recorded,
   compile = do_compile,
+  compile_in_process = compile_in_process,
   capture = do_capture,
   record = do_record,
   run_into = run_into,

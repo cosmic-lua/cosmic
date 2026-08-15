@@ -22,12 +22,12 @@ end
 --- `rest_*` covers a variadic tail, counting from that position.
 --- One entry per verb in _cli.build's modes table; the ratchet in
 --- driver_test.tl fails if the two ever drift apart.
---- Verbs whose child runs the Teal type checker, and therefore reads
---- the checker's own inputs rather than only the paths in its argv.
---- `capture` and `tee` are here because a captured script may compile
---- (the type-check and format gates run that way).
+--- Verbs whose step runs the Teal type checker, and therefore reads
+--- the checker's own inputs rather than only the paths in its argv
+--- (`capture`/`tee` because a captured script may compile).
 local compiles: {string: boolean} = {
   compile = true,
+  ["compile-batch"] = true,
   capture = true,
   tee = true,
 }
@@ -83,20 +83,20 @@ local RUNTIME_RW: {string} = {
 local shapes: {string: Shape} = {
   -- compile <bootstrap> <src> <out> [flags...]
   compile = {exec = {1}, ro = {2}, rw = {3}, rest_ro = 4},
+  -- compile-batch <bootstrap> <stamp> <outdir> [flags...] — the group
+  -- stamp and the members' output directory are the writes; members
+  -- and closures ride the tail as inputs.
+  ["compile-batch"] = {exec = {1}, rw = {2, 3}, rest_ro = 4},
   -- capture <bootstrap> <out> <script> [args...]
   capture = {exec = {1}, rw = {2}, ro = {3}, rest_ro = 4},
   -- tee <out> <cmd> [args...]
   tee = {rw = {1}, exec = {2}, rest_ro = 3},
   -- record <out> <cmd> [args...]. The out position is a BASE name
-  -- (`<out>.got`, `.out`, `.err`, and the step's scratch directory),
-  -- and a write grants the parent directory anyway, so naming the base
-  -- is exact — and it is the ONLY write this step gets. The verb
-  -- points TMP inside that directory, so a test's TEST_TMPDIR lands
-  -- there too and needs no grant of its own.
-  --
-  -- Reads are positions 3..n: the test's own compiled file, then the
-  -- transitive import closure the graph put there. A test may read what
-  -- it imports and nothing else.
+  -- (`<out>.got`, `.out`, `.err`, the step's scratch directory), a
+  -- write grants the parent directory anyway, and it is the ONLY write
+  -- this step gets; the verb points TMP inside it, so TEST_TMPDIR
+  -- needs no grant of its own. Reads are positions 3..n: the test's
+  -- own compiled file plus its closure, and nothing else.
   record = {rw = {1}, exec = {2}, rest_ro = 3},
   -- write-list <out> [items...] — items are text written in, not read
   ["write-list"] = {rw = {1}},

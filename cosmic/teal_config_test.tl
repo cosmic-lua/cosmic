@@ -74,11 +74,18 @@ local function test_build_include_dirs_match_mirror()
     "embed/cosmic.mk should be readable")
   -- Recipe lines only: make recipes are tab-indented, and the prose
   -- above the rule names the flag too.
+  -- Distinct values: the per-file and batched compile recipes (#1099)
+  -- both pass the same dirs, and the mirror is about VALUES, not about
+  -- how many rules repeat them.
   local dirs: {string} = {}
+  local seen: {string: boolean} = {}
   for line in content:gmatch("[^\n]+") do
     if line:sub(1, 1) == "\t" then
       for d in line:gmatch("%-%-include%-dir (%S+)") do
-        dirs[#dirs + 1] = d
+        if not seen[d] then
+          seen[d] = true
+          dirs[#dirs + 1] = d
+        end
       end
     end
   end

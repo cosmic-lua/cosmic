@@ -16,6 +16,7 @@ local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local records = require("_tool.records")
+local batch = require("_cli.build.batch")
 local work = require("_cli.build.work")
 
 --- The one prefix a recipe step's failure wears, matching its siblings
@@ -321,6 +322,7 @@ local modes: {string: function({string}): integer} = {
   ["assert-marker"] = do_assert_marker,
   capture = work.capture,
   compile = work.compile,
+  ["compile-batch"] = batch.compile_batch,
   copy = do_copy,
   exec = do_exec,
   link = do_link,

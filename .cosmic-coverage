@@ -3,10 +3,11 @@
 3p/tl/tl_patch.tl 0 1
 _build/ratchet.tl 36 36
 _cli/args.tl 0 37
+_cli/build/batch.tl 102 118
 _cli/build/init.tl 43 47
 _cli/build/modules.tl 46 49
-_cli/build/steps.tl 183 239
-_cli/build/work.tl 145 166
+_cli/build/steps.tl 166 219
+_cli/build/work.tl 205 235
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
 _cli/env_vars.tl 70 70
@@ -35,6 +36,7 @@ _make/extract.tl 51 72
 _make/fetch.tl 118 148
 _make/generate.tl 40 50
 _make/graph.tl 184 210
+_make/groups.tl 37 37
 _make/help.tl 21 22
 _make/imports.tl 60 63
 _make/init.tl 166 222
@@ -211,4 +213,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 15080 19803
+total 15046 20007
