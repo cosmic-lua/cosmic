@@ -66,6 +66,36 @@ local function test_compile_skips_and_unskips()
 end
 test_compile_skips_and_unskips()
 
+-- compile: the flag vocabulary is closed. `--include-dir DIR` is what
+-- the graph emits; anything else is refused loudly rather than
+-- interpreted, matching the verb vocabulary above it.
+local function test_compile_refuses_unknown_flags()
+  local src = fs.join(tmpdir, "flags-src.tl")
+  local out = fs.join(tmpdir, "flags-out.lua")
+  assert(fs.write(src, "return { n = 3 }\n"))
+  assert(work.compile({cosmic, src, out, "--mystery-flag"}) ~= 0,
+    "an unrecognized flag must be refused")
+  assert(not fs.is_present(out), "and must compile nothing")
+  assert(work.compile({cosmic, src, out, "--include-dir", ".", "--deps"}) == 0,
+    "the graph's own flag shape still compiles")
+  assert(fs.is_present(out), "and produces the output")
+end
+test_compile_refuses_unknown_flags()
+
+-- compile: a source the checker rejects fails the step, reports the
+-- issue on stderr (asserted by exit code here; the bytes are the
+-- CLI's), and leaves no output for make to mistake for a result.
+local function test_compile_fails_on_type_error()
+  local src = fs.join(tmpdir, "bad-src.tl")
+  local out = fs.join(tmpdir, "bad-out.lua")
+  assert(fs.write(src, "local n: number = \"not a number\"\nreturn { n = n }\n"))
+  assert(work.compile({cosmic, src, out, "--deps"}) ~= 0,
+    "a type error must fail the compile step")
+  assert(not fs.is_present(out), "and must write no output")
+  assert(not fs.is_present(out .. ".in"), "and must record no skip key")
+end
+test_compile_fails_on_type_error()
+
 -- record: only a recorded PASS stands in. A pass skips the second run;
 -- a failure drops the record and runs every time; a behavior switch in
 -- the environment is part of the key.

@@ -4,8 +4,10 @@
 --- Split from `_cli.build.steps` when the skip outgrew the 500-line
 --- cap, on the seam the verbs already had: steps.tl owns the cheap
 --- bookkeeping verbs (copy, tee, write-list, asserts), this file owns
---- the two that spawn a child per source and the shared `run_into`
---- contract they write through.
+--- the expensive per-source steps and the shared `run_into` contract
+--- the spawning ones write through. `compile` runs in this process
+--- (the step and the line's bootstrap are the same binary — #1099);
+--- `record` still spawns, because a test deserves isolation.
 ---
 --- **The skip.** Make schedules on mtime, and mtimes lie in exactly
 --- the situations that hurt: a branch switch restamps every source, a
@@ -147,11 +149,82 @@ local function run_into(argv: {string}, out: string): integer
   return 0
 end
 
+--- Write a compile's output the way run_into does — touch when the
+--- bytes already match (content decides what the file IS; the
+--- timestamp records that it was brought up to date), write otherwise.
+--- @param out string The output path
+--- @param body string The compiled code
+--- @return integer Exit code
+local function write_compiled(out: string, body: string): integer
+  local existing = fs.read(out)
+  if existing == body then
+    local ok, terr = fs.touch(out)
+    if not ok then
+      io.stderr:write("restamp " .. out .. " failed: " ..
+        (terr or "unknown error") .. "\n")
+    end
+    return 0
+  end
+  local _ok, _err = fs.make_dirs(fs.dirname(out))
+  local ok, werr = fs.write(out, body)
+  if not ok then
+    return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
+  end
+  return 0
+end
+
+--- Compile src in this process. The step used to spawn the line's
+--- bootstrap to do it, but step and bootstrap are the same binary by
+--- construction (`SHELL := $(COSMIC)` and the recipe both name the one
+--- toolchain), so the spawn bought identity the step already had — at
+--- a full child boot per compiled file (#1099). Same compile the child
+--- ran (teal.compile_file, strict), same failure bytes on stderr, same
+--- write/restamp semantics on the output. The flag vocabulary is
+--- closed like the verb vocabulary above it: `--include-dir DIR`,
+--- repeated, is what the graph emits, and anything else is refused
+--- loudly rather than interpreted.
+--- @param src string The source path
+--- @param out string The output path
+--- @param flags {string} The line's flags (between out and --deps)
+--- @return integer Exit code
+local function compile_in_process(src: string, out: string,
+    flags: {string}): integer
+  local include_dirs: {string} = {}
+  local i = 1
+  while i <= #flags do
+    if flags[i] == "--include-dir" and flags[i + 1] then
+      include_dirs[#include_dirs + 1] = flags[i + 1]
+      i = i + 2
+    else
+      return fail("compile: unrecognized flag '" .. flags[i] .. "'")
+    end
+  end
+  local instrument = require("cosmic.instrument")
+  local span = instrument.begin("compile", src)
+  local tealc = require("cosmic.teal")
+  local result = tealc.compile_file(src,
+    {include_dirs = include_dirs, strict = true})
+  if not result.ok then
+    io.stderr:write(tealc.format_issues(result.errors, {hints = true}) .. "\n")
+    instrument.finish(span, 1)
+    return 1
+  end
+  local body = result.code
+  if body == nil then
+    instrument.finish(span, 1)
+    return fail("compile " .. src .. ": ok result carried no code")
+  end
+  local code = write_compiled(out, body)
+  instrument.finish(span, code)
+  return code
+end
+
 --- compile <bootstrap> <src> <out> [flags...] [--deps <inputs>...]
---- Always a STRICT compile under LUA_PATH=";;" (see steps.tl history).
---- Everything after --deps is an INPUT — the source closure and the
---- tool stamps the rule names — granted to the fence, keyed by the
---- skip, and never forwarded to the child.
+--- Always a STRICT compile, in this process (compile_in_process
+--- above); the bootstrap argument names the toolchain for the line's
+--- record but is no longer spawned. Everything after --deps is an
+--- INPUT — the source closure and the tool stamps the rule names —
+--- granted to the fence and keyed by the skip.
 local function do_compile(args: {string}): integer
   local src, out = args[2], args[3]
   if not out then
@@ -160,6 +233,7 @@ local function do_compile(args: {string}): integer
   end
   local label: {string} = {"compile"}
   local inputs: {string} = {src}
+  local flags: {string} = {}
   local in_deps = false
   for i = 2, #args do
     if args[i] == "--deps" then
@@ -168,6 +242,9 @@ local function do_compile(args: {string}): integer
       inputs[#inputs + 1] = args[i]
     else
       label[#label + 1] = args[i]
+      if i >= 4 then
+        flags[#flags + 1] = args[i]
+      end
     end
   end
   local key: string | nil = nil
@@ -189,19 +266,7 @@ local function do_compile(args: {string}): integer
       end
     end
   end
-  local _ok, _err = env.set("LUA_PATH", ";;")
-  local argv: {string} = {args[1]}
-  for i = 4, #args do
-    -- Forwarding an input as an argument was a silent disaster once
-    -- already (see the history in steps.tl): stop at --deps.
-    if args[i] == "--deps" then
-      break
-    end
-    table.insert(argv, args[i])
-  end
-  table.insert(argv, "--compile-strict")
-  table.insert(argv, src)
-  local code = run_into(argv, out)
+  local code = compile_in_process(src, out, flags)
   if code == 0 and key is string then
     local body = fs.read(out)
     if body is string then
