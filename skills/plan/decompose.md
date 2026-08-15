@@ -45,8 +45,9 @@ a comment (findings) and the follow-up slices, not code.
 ## the ready bar
 
 a `plan:ready` issue body carries exactly these five sections.
-`board.tl check N` lints their presence; only the planner can judge
-their content. the test for every sentence: **could a competent but
+`board.tl check N` lints that each is present and non-empty (and
+`move N ready` refuses an issue that fails the same lint); only the
+planner can judge their content. the test for every sentence: **could a competent but
 literal-minded implementer, with no context beyond this issue and the
 repo's AGENTS.md, get this wrong?** if yes, it is not ready.
 

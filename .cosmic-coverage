@@ -76,8 +76,8 @@ _perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
-_plan/board.tl 0 169
-_plan/gh.tl 0 43
+_plan/board.tl 0 231
+_plan/github.tl 26 94
 _plan/model.tl 146 147
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 153 167
@@ -216,4 +216,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 15152 20334
+total 15178 20447

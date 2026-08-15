@@ -86,22 +86,34 @@ local function has_marker(labels: {string}, marker: string): boolean
   return false
 end
 
---- Ready-bar lint: the required headings a body is missing.
---- A heading counts at any level ("## Goal", "# goal"), matched on the
---- heading text alone, case-insensitively.
+--- Ready-bar lint: the required sections a body is missing or has
+--- left empty. A heading counts at any level ("## Goal", "# goal"),
+--- matched on the heading text alone, case-insensitively — and only
+--- when at least one non-blank line follows it before the next
+--- heading, so a pasted template with hollow sections still fails.
+--- A thematic break (---) ends the current section: trailing footers
+--- appended below one are nobody's content.
 --- @param body string Issue body markdown
---- @return {string} Missing section names, in READY_SECTIONS order
+--- @return {string} Missing/empty section names, in READY_SECTIONS order
 local function ready_gaps(body: string): {string}
-  local present: {string: boolean} = {}
+  local filled: {string: boolean} = {}
+  local current: string = nil
   for line in (body .. "\n"):gmatch("([^\n]*)\n") do
     local text = line:match("^#+%s+(.-)%s*$")
     if text then
-      present[text:lower()] = true
+      current = text:lower()
+      if filled[current] == nil then
+        filled[current] = false
+      end
+    elseif line:match("^%s*%-%-%-+%s*$") then
+      current = nil
+    elseif current and line:match("%S") then
+      filled[current] = true
     end
   end
   local missing: {string} = {}
   for _, name in ipairs(READY_SECTIONS) do
-    if not present[name:lower()] then
+    if not filled[name:lower()] then
       missing[#missing + 1] = name
     end
   end

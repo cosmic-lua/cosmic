@@ -60,12 +60,21 @@ bin/cosmic --make run _plan/board.tl next --role planner # the one next action
 bin/cosmic --make run _plan/board.tl next                # implementer by default
 bin/cosmic --make run _plan/board.tl check 123           # ready-bar lint
 bin/cosmic --make run _plan/board.tl move 123 ready      # column change, WIP-limited
+bin/cosmic --make run _plan/board.tl new "title" --epic  # open a board issue
 bin/cosmic --make run _plan/board.tl init                # create the labels (once per repo)
 ```
 
 every verb ends with a `plan-<verb>:` verdict line — read that, never
 a piped exit status. the default repo is whilp/cosmic; `--repo
-whilp/cosmopolitan` targets the C core's board.
+whilp/cosmopolitan` targets the C core's board. the tool talks to the
+GitHub REST API directly through cosmic's own fetch — no gh CLI: it
+needs a `GITHUB_TOKEN` (or `GH_TOKEN`) env var, honors `HTTPS_PROXY`,
+and behind a TLS-intercepting proxy wants `SSL_USE_SYSTEM_CERTS=1
+SSL_CERT_FILE=<bundle>` (both read by the cosmos TLS root loader).
+one timing note: a `move`'s verdict line is the truth of the mutation;
+GitHub's list-by-label index can lag it by a few seconds, so an
+immediately following `status`/`next` may briefly show the old column
+— reread, never re-move.
 
 columns, left to right (an issue carries exactly one column label):
 

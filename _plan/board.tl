@@ -10,11 +10,15 @@
 ---   cosmic --make run _plan/board.tl next [--role planner|implementer]
 ---   cosmic --make run _plan/board.tl check 123
 ---   cosmic --make run _plan/board.tl move 123 ready [--force]
+---   cosmic --make run _plan/board.tl new "title" [--body-file F] [--epic]
 ---   cosmic --make run _plan/board.tl init
+---
+--- Auth is a GITHUB_TOKEN (or GH_TOKEN) env var — no gh CLI involved.
 
 local flags = require("cosmic.flags")
+local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
-local gh = require("_plan.gh")
+local gh = require("_plan.github")
 local model = require("_plan.model")
 
 local type Issue = model.Issue
@@ -51,7 +55,7 @@ local function to_issue(raw: gh.RawIssue): Issue
     epic = model.has_marker(names, "epic"),
     enable = model.has_marker(names, "enable"),
     assignee = assignee,
-    url = raw.url,
+    url = raw.html_url,
     body = raw.body or "",
   }
 end
@@ -188,7 +192,7 @@ local function cmd_check(repo: string, number: integer): integer
   local problems: {string} = {}
   local gaps = model.ready_gaps(issue.body)
   if #gaps > 0 then
-    problems[#problems + 1] = "missing: " .. table.concat(gaps, ", ")
+    problems[#problems + 1] = "missing or empty: " .. table.concat(gaps, ", ")
   end
   local is_open = open_oracle(repo)
   for _, b in ipairs(model.blockers(issue.body)) do
@@ -240,6 +244,28 @@ local function cmd_move(repo: string, number: integer, target: string,
         target, count, model.LIMITS[target]))
     return 1
   end
+  if target == "ready" and not force then
+    local raw, gerr = gh.get_issue(repo, number)
+    if raw == nil then
+      io.stderr:write(gerr .. "\n")
+      print("plan-move: ERROR")
+      return 1
+    end
+    local issue = to_issue(raw)
+    local problems: {string} = {}
+    local gaps = model.ready_gaps(issue.body)
+    if #gaps > 0 then
+      problems[#problems + 1] = "missing or empty: " .. table.concat(gaps, ", ")
+    end
+    if issue.epic then
+      problems[#problems + 1] = "is an epic (decompose it instead)"
+    end
+    if #problems > 0 then
+      print("plan-move: REFUSED (ready bar: "
+        .. table.concat(problems, "; ") .. ")")
+      return 1
+    end
+  end
   local remove: {string} = {}
   for _, c in ipairs(model.COLUMNS) do
     if c ~= target then
@@ -253,6 +279,72 @@ local function cmd_move(repo: string, number: integer, target: string,
     return 1
   end
   print(("plan-move: #%d -> %s"):format(number, target))
+  return 0
+end
+
+--- The default body for a new issue: the ready bar's own skeleton,
+--- so refinement fills sections in rather than remembering them.
+local TEMPLATE < const > = [[
+## Goal
+
+## Change
+
+## Non-goals
+
+## Acceptance
+
+## Enablement
+]]
+
+--- new: open an issue on the board, WIP-limited like any other entry.
+--- @param repo string "owner/name"
+--- @param title string Issue title
+--- @param body_file string Path to a body markdown file; nil for the template
+--- @param column string Target column
+--- @param epic boolean Mark as a decomposition parent
+--- @param enable boolean Mark as enablement work
+--- @param force boolean True to override the column WIP limit
+--- @return integer Exit code
+local function cmd_new(repo: string, title: string, body_file: string,
+    column: string, epic: boolean, enable: boolean, force: boolean): integer
+  local body = TEMPLATE
+  if body_file then
+    local data, rerr = fs.read(body_file)
+    if data == nil then
+      io.stderr:write(rerr .. "\n")
+      print("plan-new: ERROR")
+      return 1
+    end
+    body = data
+  end
+  local board, berr = fetch_board(repo)
+  if board == nil then
+    io.stderr:write(berr .. "\n")
+    print("plan-new: ERROR")
+    return 1
+  end
+  local count = #(board[column] or {})
+  if count >= model.LIMITS[column] and not force then
+    print(("plan-new: REFUSED (%s %d/%d at limit; drain the board "
+        .. "right to left first, or --force)"):format(
+        column, count, model.LIMITS[column]))
+    return 1
+  end
+  local labels: {string} = {"plan:" .. column}
+  if epic then
+    labels[#labels + 1] = "plan:epic"
+  end
+  if enable then
+    labels[#labels + 1] = "plan:enable"
+  end
+  local raw, err = gh.create_issue(repo, title, body, labels)
+  if raw == nil then
+    io.stderr:write(err .. "\n")
+    print("plan-new: ERROR")
+    return 1
+  end
+  print("  " .. raw.html_url)
+  print(("plan-new: #%d %s"):format(raw.number, column))
   return 0
 end
 
@@ -293,6 +385,14 @@ local CSPEC: flags.CommandSpec = {
     {name = "move", summary = "move ISSUE to COLUMN (WIP-limited)",
       spec = {usage = "ISSUE COLUMN [options]", flags = {repo_flag(),
           {long = "force", help = "override the target WIP limit"}}}},
+    {name = "new", summary = "open a TITLE issue on the board (WIP-limited)",
+      spec = {usage = "TITLE [options]", flags = {repo_flag(),
+          {long = "body-file", arg = "FILE", help = "issue body markdown"},
+          {long = "column", arg = "COL", default = "shaping",
+            help = "target column (default shaping)"},
+          {long = "epic", help = "mark as a decomposition parent"},
+          {long = "enable", help = "mark as enablement work"},
+          {long = "force", help = "override the column WIP limit"}}}},
     {name = "init", summary = "create the plan:* labels",
       spec = {flags = {repo_flag()}}},
   },
@@ -335,6 +435,28 @@ local function main(...: string): integer
       return 1
     end
     return cmd_move(repo, n, target, d.parsed.switches["force"])
+  end
+  if d.command == "new" then
+    local title = d.parsed.args[1]
+    if title == nil or title == "" then
+      io.stderr:write("new needs a title\n")
+      return 1
+    end
+    local column = d.parsed.values["column"] or "shaping"
+    local known = false
+    for _, c in ipairs(model.COLUMNS) do
+      if c == column then
+        known = true
+      end
+    end
+    if not known then
+      io.stderr:write("unknown column: " .. column .. " (expected "
+        .. table.concat(model.COLUMNS, ", ") .. ")\n")
+      return 1
+    end
+    return cmd_new(repo, title, d.parsed.values["body-file"], column,
+      d.parsed.switches["epic"], d.parsed.switches["enable"],
+      d.parsed.switches["force"])
   end
   return cmd_init(repo)
 end
