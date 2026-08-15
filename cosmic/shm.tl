@@ -138,18 +138,14 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if bytes ~= nil then
       write_count = n
     end
-    -- raw.write's real argument order is (self, offset, data[, bytes]),
-    -- NOT (self, data, offset[, bytes]) as its declared Teal type implies
-    -- (a mismatch in the upstream binding's own annotation): it decides
-    -- offset-vs-data by whether arg 2 is a number, so calling it with
-    -- `data` first makes it silently treat our `offset` as `bytes`
-    -- instead (an offset of 0 masked this: `mem:write(x, 0)` always
-    -- wrote 0 bytes). Passing the definite numeric `off` first is
-    -- unambiguous.
-    -- cast: real C arg order disagrees with raw.write's declared type
-    local raw_write = raw.write as function(unix.Memory, integer, string, integer | nil): nil
+    -- The binding decides offset-vs-data by whether arg 2 is a number,
+    -- so the definite numeric `off` goes first (an offset of 0 masked
+    -- the old swapped call: `mem:write(x, 0)` always wrote 0 bytes).
+    -- Since the 2026.08.14 pin the declared type carries the same
+    -- (self, offset, data[, bytes]) order the C implements
+    -- (whilp/cosmopolitan#221), so no cast is needed anymore (#863).
     -- cast: pcall variadic returns to tuple
-    local ok, err = pcall(raw_write, raw, off, data, write_count) as (boolean, any)
+    local ok, err = pcall(raw.write, raw, off, data, write_count) as (boolean, any)
     if not ok then
       return false, errstr(err, "write")
     end
