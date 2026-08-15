@@ -129,10 +129,10 @@ an optimization can land in either:
   binary by hand — you do NOT need to cut a release to
   measure a C change. see `cosmopolitan.md`.
 
-after ~20 rounds the cheap cosmic-layer wins are thinning out; check the
-open `perf`-labeled issues (`gh issue list --label perf --state open`, in
-both whilp/cosmic and whilp/cosmopolitan) — the open ones lean
-increasingly toward the cosmopolitan layer.
+which layer currently has headroom is state, and state lives in the
+tracker: read the open `perf`-labeled issues (`gh issue list --label
+perf --state open`, in both whilp/cosmic and whilp/cosmopolitan)
+before assuming either layer.
 
 ## the optimization loop
 
@@ -171,7 +171,10 @@ work ONE scenario (or one closely related group) at a time.
      exited 0 (no real regression; any `noise` rows already discounted)
      → keep it.
    - no measurable improvement, or a surviving `regression` row → `git
-     checkout` the change and record the failed hypothesis. a surviving
+     checkout` the change and record the failed hypothesis on its
+     issue: comment the numbers and close it as "not planned" (open an
+     issue first if it never had one — a recorded dead end is what
+     stops the next agent from re-testing it). a surviving
      regression already reproduced against the binary itself, so it is
      real; do not re-litigate it as noise. ONE defined exception: a
      surviving flag in a fixed-overhead microbench your diff cannot
@@ -187,13 +190,19 @@ work ONE scenario (or one closely related group) at a time.
 
 ## hard rules (guardrails)
 
+- ALL perf state lives in GitHub issues labeled `perf` — hypotheses,
+  evidence, probe numbers, compare verdicts, failed attempts, research
+  findings. NEVER commit any of it to the repo: no backlog or findings
+  files, no notes docs, and no `o/perf/*.json` (baselines are
+  machine-specific and live only in your working `o/` directory). the
+  files in this directory carry method only; a finding worth writing
+  down is an issue body, or a comment on an existing issue — never a
+  doc edit.
 - NEVER delete, rename, or weaken a scenario or its `check()` to make a
   comparison pass. `perf-compare` treats missing scenarios as failures and
   the smoke test rejects scenarios without checks — do not work around
   either. renames belong in a separate, no-code-change commit that also
   re-baselines.
-- NEVER commit `o/perf/*.json`. baselines are machine-specific and live
-  only in your working `o/` directory.
 - a wrapper's observable behavior (return values, error strings, edge
   cases like empty input) is part of its contract. optimizations that
   change behavior are rejected by `--make ci` / scenario checks — fix
@@ -206,9 +215,8 @@ work ONE scenario (or one closely related group) at a time.
 ## running a research pass (re-seeding the backlog)
 
 when the open backlog runs thin, spend a session on research instead of
-optimization: gather evidence, write new `open` entries, change no
-product code. the workflow that has worked (entries 22-27 came out of
-one such pass):
+optimization: gather evidence, open new issues, change no product
+code. the workflow that has worked:
 
 1. run the harness on current main; read every line of the report.
 2. rank suspects by the signal shapes in `finding.md`
@@ -219,9 +227,8 @@ one such pass):
    in `cosmopolitan.md` (cosmo `--strace` call counting,
    kernel `strace -c`, raw-vs-wrapped binary timing).
 5. cheap probes are allowed and encouraged — rebuild a variant
-   artifact in a scratch directory and shell-time it (that's how the
-   store-vs-deflate slice in entry 24 got real numbers) — but label
-   probe numbers as scouting in the entry; accept/reject decisions
+   artifact in a scratch directory and shell-time it — but label
+   probe numbers as scouting in the issue; accept/reject decisions
    still require the real harness.
 6. one issue per hypothesis (label `perf`, in the repo whose layer it
    targets — whilp/cosmic or whilp/cosmopolitan), each with the
@@ -239,9 +246,10 @@ whilp/cosmic; cosmopolitan-layer ones in whilp/cosmopolitan. work it
 like this: pick ONE open issue (`gh issue list --label perf --state
 open`), run the loop above, then comment the result and close it in the
 same round. each issue body carries the evidence, expected mechanism,
-correctness constraints, and a risk note (issues migrated from the old
-`_perf/backlog/*.md` files keep their "backlog entry N" numbering for
-cross-references).
+correctness constraints, and a risk note, and the issue accumulates
+everything later rounds learn about it: probe numbers, compare
+verdicts, the outcome. the tracker is the only durable store — nothing
+about a hypothesis, in any state, is committed to this repo.
 
 if a workload you want to optimize has no scenario, add one FIRST (in a
 `_perf/bench/*_bench.tl` module, with a real `check()`), baseline it,

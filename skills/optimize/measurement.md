@@ -8,9 +8,8 @@ that first.
 - the compare bar auto-widens to each scenario's observed spread, and
   `perf-compare` re-measures once before failing — but if results still
   look inconsistent, re-run `perf-compare`; a genuine change reproduces
-  in the same direction every time. backlog entry 11 is a worked
-  example: an unrelated `startup_*` regression flagged on the first
-  pass vanished on a clean re-run while the real win reproduced.
+  in the same direction every time, while a noise flag vanishes on a
+  clean re-run as the real win keeps reproducing.
 - **the `±%` in the report is WITHIN-run spread; it understates
   cross-run variance.** a scenario can read ±2% across the 5 samples of
   one invocation yet swing 10-15% between two separate invocations —
@@ -28,9 +27,9 @@ that first.
   machine noise and nonzero only on a regression the binary reproduces
   against itself. read the final report: `regression` = real (a stable
   scenario that moved), `noise` = discounted (a scenario too variable to
-  judge here). this is the entry 21 story made automatic:
-  `json_decode_*` reproduced at ~-30% while `hash`/`startup_*` tripped
-  the bar only on variance an A/A control also shows.
+  judge here). the split it automates: a real change reproduces at
+  full size on every pass, while a fixed-overhead microbench trips the
+  bar only on variance the A/A control also shows.
 - the reclassification is deliberately conservative: it only ever
   downgrades a `regression`, only when the current binary cannot
   reproduce that scenario's timing against itself, AND only when the
@@ -51,11 +50,9 @@ that first.
   can differ 40% from isolated readings of the SAME binary; isolated
   back-to-back runs remove that. if isolation shows the two binaries
   within each other's spread — or the 'slower' one faster — the flag is
-  suite-context noise: keep the change, and say so in the commit.
-  worked example: cosmopolitan#245's fix flagged `hash_sha256_small`
-  +15.9% in-suite, while isolated runs read the modified binary at
-  507–510 ns vs the baseline's 538–558 ns. a flag that reproduces in
-  isolation, in the same direction, is real — revert.
+  suite-context noise: keep the change, and say so in the commit. a
+  flag that reproduces in isolation, in the same direction, is real —
+  revert.
 - `gate.lua selfcheck` runs the same A/A control on demand, for
   interactive use or to profile the machine's noise floor before you
   start. `--only <name>` narrows it to one
@@ -78,7 +75,7 @@ that first.
 - scenarios whose per-op cost is large (tens of ms, e.g. `embed_*`)
   fit few iterations per sample and show wide spread; expect to need
   several consistent re-measures rather than one clean cross of the
-  noise bar (entries 16, 17), and consider whether the workload can be
+  noise bar, and consider whether the workload can be
   shaped so the effect under test isn't swamped by a fixed floor.
 - a win must be explainable. if you can't say WHY the number moved
   (fewer syscalls, fewer allocations, one scan instead of two), treat
