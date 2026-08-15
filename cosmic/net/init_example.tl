@@ -11,7 +11,7 @@ local function Example_echo()
 
   local client = check.must(net.dial("127.0.0.1", port))
 
-  -- accept's error is in slot 2 now, so must() forwards it directly.
+  -- accept's error is in slot 2, so must() forwards it directly.
   local conn = check.must(srv:accept())
 
   assert(client:send("hello"))

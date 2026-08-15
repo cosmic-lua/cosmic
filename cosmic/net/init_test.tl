@@ -32,16 +32,16 @@ end
 test_socket_pair()
 
 local function test_send_to_closed_peer_returns_error()
-  -- Regression: sending to a peer that has closed must return nil, err --
-  -- NOT kill the process with SIGPIPE (which surfaces as exit 141, an
-  -- unambiguous red before send() ORed in MSG_NOSIGNAL).
+  -- Sending to a peer that has closed must return nil, err, not kill
+  -- the process with SIGPIPE (exit 141) — send() ORs in MSG_NOSIGNAL
+  -- to guarantee that.
   local sp = check.must(net.socket_pair())
   local a, b = sp.a, sp.b
   assert(b:close())
 
   -- Loop so a kernel that accepts the first write into the buffer before
-  -- reporting EPIPE still exercises the error path; without the fix the
-  -- first EPIPE-triggering write signals SIGPIPE and the test never returns.
+  -- reporting EPIPE still exercises the error path: an EPIPE-triggering
+  -- write must return nil, err, not signal SIGPIPE and hang the test.
   local n, serr: number | nil, string
   for _ = 1, 1000 do
     n, serr = a:send("data")
@@ -107,7 +107,7 @@ local function test_listen_accept_connect()
   end
 
   -- Parent: accept connection; the peer's endpoint comes from
-  -- getpeername now that accept returns the socket alone.
+  -- getpeername, since accept returns the socket alone.
   local raw_client, accept_err = server:accept()
   assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
   local client = check.must(raw_client)
@@ -158,8 +158,7 @@ end
 test_shutdown()
 
 local function test_poll_readiness()
-  -- net.poll was a duplicate of cosmic.poll and is gone; sockets compose
-  -- with the Poller directly via their fd.
+  -- Sockets compose with the Poller directly via their fd.
   local poll = require("cosmic.poll")
   local sp = check.must(net.socket_pair())
   local sock1, sock2 = sp.a, sp.b

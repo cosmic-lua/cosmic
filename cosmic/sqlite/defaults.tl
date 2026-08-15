@@ -16,7 +16,7 @@ local record Options
   read_only: boolean
   --- Enforce FOREIGN KEY constraints (default true). SQLite's raw
   --- default ignores them, allowing dangling references; set false to
-  --- restore that legacy behavior.
+  --- restore that default.
   foreign_keys: boolean
   --- Use write-ahead logging with synchronous=NORMAL (default true).
   --- WAL makes writes faster and lets readers proceed alongside a

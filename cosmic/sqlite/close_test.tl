@@ -110,13 +110,12 @@ end
 test_query_list_close_early()
 
 -- Statement:rows() shares row_iter.tl's iteration body with db:query (see
--- cosmic.sqlite.row_iter); this exercises it directly (previously only
--- reached indirectly through query_list/query_named's own wrapper -- see
--- cosmic.sqlite.params), plus close semantics: close()/__close end
--- iteration but must NOT finalize the underlying Statement -- unlike
--- db:query's Rows (which owns a cache slot or a throwaway statement), a
--- Statement:rows() is a view over a caller-owned Statement that outlives
--- its iterators and can be reset()+bound again after the Rows is done.
+-- cosmic.sqlite.row_iter); this exercises it directly, plus close
+-- semantics: close()/__close end iteration but must NOT finalize the
+-- underlying Statement -- unlike db:query's Rows (which owns a cache slot
+-- or a throwaway statement), a Statement:rows() is a view over a
+-- caller-owned Statement that outlives its iterators and can be
+-- reset()+bound again after the Rows is done.
 
 local function test_statement_rows_basic_iteration()
   local db = check.must(sqlite.open(":memory:"))

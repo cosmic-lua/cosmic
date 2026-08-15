@@ -116,8 +116,8 @@ test_spawn_pipe_failure_cleans_up()
 
 local function test_spawn_exec_status_read_failure()
   -- A non-EINTR failure reading the exec-status pipe (childio.read_retry
-  -- returning nil + an error) used to be indistinguishable from EOF —
-  -- misread as "exec succeeded". It must surface as a spawn error instead.
+  -- returning nil + an error) must surface as a spawn error, not be
+  -- misread as EOF ("exec succeeded").
   -- cwd forces the fork path: only it uses the exec-status pipe.
   local real_read_retry = childio.read_retry
   childio.read_retry = function(_fd: integer, _bufsiz: integer): string, string

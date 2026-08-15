@@ -14,13 +14,13 @@ local time = require("cosmic.time")
 
 -- Writing to a pipe whose read end has already closed raises SIGPIPE, whose
 -- default action terminates the process. A library that writes to a child's
--- stdin must never let the child's early exit kill its parent — but doing
--- this at require() made importing the module silently change process-wide
--- signal state before any child existed. Installed at first start()
--- instead, and only while the disposition is still the default, so a
--- handler the caller installed stays theirs (their handler runs and the
--- write still fails with EPIPE, which pump handles). Children inherit
--- SIG_IGN across exec exactly as they did under the require-time install.
+-- stdin must never let the child's early exit kill its parent. This installs
+-- the ignore lazily, at the first start(), rather than at require() — an
+-- eager install at require() would make merely importing the module change
+-- process-wide signal state before any child exists — and only while the
+-- disposition is still the default, so a handler the caller installed stays
+-- theirs (their handler runs and the write still fails with EPIPE, which
+-- pump handles). Children inherit SIG_IGN across exec.
 local sigpipe_checked = false
 local function neutralize_sigpipe()
   if sigpipe_checked then

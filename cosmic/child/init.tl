@@ -39,7 +39,7 @@ local record Handle is stream.Reader
   _result: Result
   _closed: boolean
 
-  --- Sends `sig` (default SIGTERM); start's partner (D20 rule 9).
+  --- Sends `sig` (default SIGTERM); start's partner.
   --- Fails once reaped (pid may be recycled).
   stop: function(self: Handle, sig?: integer): boolean, string
   --- Non-blocking reap: TryWait{finished, result} — result set exactly
@@ -180,7 +180,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
       return nil, errno.format(err, "read")
     end
     if chunk == "" then
-      return nil -- end of file (#589)
+      return nil -- end of file
     end
     return chunk
   end

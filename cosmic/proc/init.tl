@@ -117,9 +117,9 @@ end
 --- @param exit_code integer? Exit code (defaults to 0)
 local exit: function(exit_code?: integer) = unix.exit
 
--- Beyond POSIX (#999): the three members below are cosmic
--- conveniences, not syscall wrappers — the rest of this module keeps
--- POSIX names under rule 4's syscall-shaped exemption.
+-- Beyond POSIX: the three members below are cosmic conveniences, not
+-- syscall wrappers, so they break from the POSIX-name convention the
+-- rest of this module follows for its syscall wrappers.
 --   which()        $PATH lookup
 --   interpreter()  the running cosmic binary's resolved path
 --   is_main()      script-vs-module detection
@@ -139,10 +139,9 @@ local function which(prog: string): string | nil, string
   return p
 end
 
--- Resolved at LOAD (#999): argv0 is resolved against the cwd and
--- $PATH of require time, so a program that chdirs later still gets
--- the right answer — the old lazy cache documented a call-order
--- requirement ("call interpreter() before chdir") instead of meeting it.
+-- Resolved at LOAD: argv0 is resolved against the cwd and $PATH of
+-- require time, so a program that chdirs later still gets the right
+-- answer.
 local interpreter_path: string | nil = nil
 local interpreter_err: string | nil = nil
 do
@@ -171,7 +170,7 @@ end
 --- "worker.tl"})`. This is `arg[-1]` resolved, NOT `arg[0]` (the script
 --- path as the runtime sees it, `/zip/main.lua` in a packed binary). A
 --- bare PATH-invoked argv0 (`cosmic`, the shebang shape) is resolved
---- with a real $PATH search — at module load (#999), so a later chdir
+--- with a real $PATH search — at module load, so a later chdir
 --- cannot change the answer.
 --- @return string | nil The interpreter's absolute path
 --- @return string? Error message when argv0 is missing or unresolvable
@@ -234,13 +233,13 @@ end
 --- Waits for a child process to change state.
 --- A raw passthrough: EINTR surfaces here, unlike child.Handle:wait.
 --- @param pid integer? Child pid to wait for (-1 or nil for any child)
---- @param wait_flags integer? Wait flags (e.g. WNOHANG; #999: rule 7 reserves `options`)
+--- @param wait_flags integer? Wait flags (e.g. WNOHANG)
 --- @return integer | nil The pid that changed state (0 with WNOHANG if none), or nil on failure
 --- @return integer Status word (interpret with WIFEXITED/WEXITSTATUS/...)
 --- @return Rusage Resource usage for the reaped child
 --- @return string? Error message on failure
---- What wait(2) reaped; a record per D20 rule 11 (the error stays
---- reachable in slot 2).
+--- What wait(2) reaped; a record instead of a wider tuple so the
+--- error stays reachable in slot 2.
 local record WaitResult
   pid: integer
   --- Raw status word; decode with WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG.

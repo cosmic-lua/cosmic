@@ -72,9 +72,8 @@ end
 --- Bind `:name` placeholders from a key/value table (keys without the
 --- colon). Iterates the statement's own parameter list and routes each
 --- value through bind_at, so blob() wrappers get BLOB affinity here
---- too — the old bind_names path bound the wrapper table itself, which
---- is why named blobs used to be rejected. A name missing from the
---- table binds as NULL, matching the positional nil-hole rule.
+--- too. A name missing from the table binds as NULL, matching the
+--- positional nil-hole rule.
 --- @param raw_stmt lsqlite3.Statement The prepared statement to bind into
 --- @param ok_code number lsqlite3.OK
 --- @param params {string: any} Values keyed by placeholder name

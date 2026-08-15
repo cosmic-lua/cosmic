@@ -369,7 +369,7 @@ end
 test_listen_tcp_socket_options()
 
 -- dial_unix takes ConnectOptions, so a unix-domain connect can be
--- bounded too; connect_unix had no options and thus no bound at all.
+-- bounded too; connect_unix has no options and thus no bound at all.
 local function test_dial_unix_with_timeout()
   local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
   local path = tmpdir .. "/timeout.sock"
@@ -393,9 +393,9 @@ end
 test_dial_unix_with_timeout()
 
 -- A full listener backlog makes a non-blocking AF_UNIX connect fail
--- with EAGAIN on Linux. The bounded dial must RETRY until its budget —
--- before the fix it returned the EAGAIN in ~0ms, making timeout_ms a
--- weaker attempt than no timeout at all. Linux-only: other kernels
+-- with EAGAIN on Linux. The bounded dial must RETRY until its budget
+-- instead of returning the EAGAIN immediately, or timeout_ms would be
+-- a weaker attempt than no timeout at all. Linux-only: other kernels
 -- report a full unix backlog differently (e.g. ECONNREFUSED).
 local function test_dial_unix_timeout_waits_out_a_full_backlog()
   if require("cosmic.sys").host_os() ~= "linux" then

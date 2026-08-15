@@ -7,8 +7,8 @@ local errstr = require("cosmic.errno").format
 
 local type Rusage = unix.Rusage
 
---- A resource limit pair; a record per D20 rule 11 (the error stays
---- reachable in slot 2).
+--- A resource limit pair; a record instead of a wider tuple so the
+--- error stays reachable in slot 2.
 local record Rlimit
   --- Soft limit (can be exceeded, may generate a signal).
   soft: integer

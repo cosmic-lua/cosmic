@@ -271,7 +271,7 @@ end
 test_query_one_step_error()
 
 -- A NULL first column is an ordinary row through rows(): a map row can
--- never be mistaken for end-of-iteration (the hazard that killed values()).
+-- never be mistaken for end-of-iteration.
 local function test_rows_null_first_column()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)"))
@@ -470,7 +470,7 @@ local function test_query_one_invalid_sql()
 end
 test_query_one_invalid_sql()
 
--- FIX 3: query_one must finalize the prepared statement so db:close() succeeds
+-- query_one must finalize the prepared statement so db:close() succeeds
 -- and subsequent queries work (statement leak regression test).
 local function test_query_one_close_after_hit()
   local db = check.must(sqlite.open(":memory:"))

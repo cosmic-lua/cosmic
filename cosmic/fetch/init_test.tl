@@ -71,7 +71,7 @@ end
 test_module_loads()
 
 local function test_failure_shape()
-  -- A failure is nil, Error and nothing past it (#1063, D24) — no
+  -- A failure is nil, Error and nothing past it — no
   -- Response exists, so there are no lying nil fields to poke at, and
   -- the classification is the typed kind field, not a message prefix.
   local resp, err = fetch.fetch("invalid://this-will-definitely-fail")

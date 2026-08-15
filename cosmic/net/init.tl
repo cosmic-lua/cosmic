@@ -46,9 +46,10 @@ local function socket(opts?: SocketOptions): Socket | nil, string
 end
 
 --- A connected socket pair, as returned by socket_pair(). A record
---- rather than (Socket, Socket, err) returns: the old shape typed slot
---- 2 as a non-nil Socket while returning nil there on failure, and put
---- the error in slot 3 where `local a, b = ...` silently lost it.
+--- rather than (Socket, Socket, err) returns: a 3-tuple would type
+--- slot 2 as a non-nil Socket while returning nil there on failure,
+--- and put the error in slot 3 where `local a, b = ...` silently
+--- loses it.
 local record SocketPair
   a: Socket
   b: Socket
@@ -308,9 +309,8 @@ local function interfaces(): {Interface} | nil, string
   if not raw then
     return nil, errstr(err, "siocgifconf")
   end
-  -- The binding returns {unix.IfAddr} since the 2026.08.15 pin
-  -- (whilp/cosmopolitan#256), so the blob casts this loop carried are
-  -- gone: the fields are typed at the source.
+  -- The binding returns {unix.IfAddr}, so the fields are typed at the
+  -- source and this loop needs no casts.
   local list: {Interface} = {}
   for i, entry in ipairs(raw) do
     list[i] = {
