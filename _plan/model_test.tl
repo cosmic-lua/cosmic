@@ -123,10 +123,16 @@ end
 test_oldest_first_sorts_copy()
 
 local function test_wip_violations()
-  local board: Board = {doing = {issue(1), issue(2), issue(3)}}
+  local limit = model.LIMITS["doing"]
+  local over: {Issue} = {}
+  for n = 1, limit + 1 do
+    over[#over + 1] = issue(n)
+  end
+  local board: Board = {doing = over}
   local v = model.wip_violations(board)
   assert(#v == 1, "expected one violation, got " .. tostring(#v))
-  assert(v[1] == "doing 3/2 over limit", "got: " .. v[1])
+  local want = ("doing %d/%d over limit"):format(limit + 1, limit)
+  assert(v[1] == want, "got: " .. v[1])
 end
 test_wip_violations()
 

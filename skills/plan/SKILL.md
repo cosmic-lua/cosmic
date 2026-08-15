@@ -71,19 +71,30 @@ GitHub REST API directly through cosmic's own fetch — no gh CLI: it
 needs a `GITHUB_TOKEN` (or `GH_TOKEN`) env var, honors `HTTPS_PROXY`,
 and behind a TLS-intercepting proxy wants `SSL_USE_SYSTEM_CERTS=1
 SSL_CERT_FILE=<bundle>` (both read by the cosmos TLS root loader).
+on a cold clone, run `bin/cosmic --make fetch` once before the first
+board command — `--make run` resolves the tool against the tree and
+needs the pinned toolchain to exist.
 one timing note: a `move`'s verdict line is the truth of the mutation;
 GitHub's list-by-label index can lag it by a few seconds, so an
 immediately following `status`/`next` may briefly show the old column
-— reread, never re-move.
+— reread, never re-move. the same lagged index feeds the WIP checks in
+`new` and `move`, so a burst of creations or moves can hit a spurious
+`REFUSED` at the limit: pause and retry, never reach for `--force`.
 
 columns, left to right (an issue carries exactly one column label):
 
 | label | meaning | WIP limit |
 |-------|---------|-----------|
-| `plan:shaping` | traced to a goal, still ambiguous — planner territory | 6 |
-| `plan:ready` | meets the ready bar (`decompose.md`); pullable | 6 |
-| `plan:doing` | in implementation: claimed work and rework | 2 |
-| `plan:review` | PR open; awaiting a planner verdict | 3 |
+| `plan:shaping` | traced to a goal, still ambiguous — planner territory | 12 |
+| `plan:ready` | meets the ready bar (`decompose.md`); pullable | 20 |
+| `plan:doing` | in implementation: claimed work and rework | 5 |
+| `plan:review` | PR open; awaiting a planner verdict | 10 |
+
+the limits are sized for implementer sessions running in parallel: ready
+holds a deep queue of mutually independent slices, doing matches the
+number of concurrent sessions, and review gives finished work room to
+wait for a planner without jamming doing. what makes the deep ready
+column safe is independence — see "sizing a slice" in `decompose.md`.
 
 done is a closed issue — completed when the work merged, not planned
 when the planner killed it (a recorded dead end, kept forever). two

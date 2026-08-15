@@ -42,10 +42,10 @@ local COLUMNS: {string} = {"shaping", "ready", "doing", "review"}
 --- WIP limits are policy, and policy is committed: tune them here, in
 --- a reviewed change, never ad hoc per session.
 local LIMITS: {string: integer} = {
-  shaping = 6,
-  ready = 6,
-  doing = 2,
-  review = 3,
+  shaping = 12,
+  ready = 20,
+  doing = 5,
+  review = 10,
 }
 
 --- Headings a plan:ready issue body must carry (the ready bar; the
