@@ -5,8 +5,8 @@
 --- Some rows in a document are not prose: they are a restatement of
 --- something the tree already says, and a restatement drifts. The
 --- decisions index is the clearest case -- every row repeats a record's
---- own H1, so the index can disagree with the record it points at, and
---- has (#820 is a whole issue about one title).
+--- own H1 and status header, so the index can disagree with the record
+--- it points at, and has (#820 is a whole issue about one title).
 ---
 --- These stay COMMITTED rather than generated into `o/` and embedded:
 --- they are read on GitHub, by people who are not running a build. So
@@ -28,28 +28,53 @@ local DECISIONS < const > = "docs/decisions"
 local INDEX < const > = DECISIONS .. "/README.md"
 
 --- The header row the decisions table starts at.
-local DECISIONS_HEAD < const > = "| # | decision | |"
+local DECISIONS_HEAD < const > = "| # | decision | status | |"
 
 --- The document holding the derived module table, and its header row.
 local AGENTS < const > = "AGENTS.md"
 local MODULES_HEAD < const > = "| module | description |"
 
---- One decision record: its number, its title, and its file.
+--- One decision record: its number, its title, its status, and its file.
 local record Record
   n: integer
   title: string
+  status: string
   file: string
 end
 
---- Every record, in numbered order, read from its own H1.
+--- Whether a status header uses the vocabulary a record may claim.
+---
+--- Three states and no others: the decision stands, a fact under it
+--- moved (amended, dated), or a later record reversed it. A
+--- `superseded by D<n>` naming a record that does not exist is refused
+--- here, because the whole value of the pointer is that it lands.
+--- @param status string The status header's text
+--- @param numbered {integer:boolean} Every record number that exists
+--- @return boolean Whether the status is one of the three
+local function is_status(status: string,
+    numbered: {integer: boolean}): boolean
+  if status == "active" then
+    return true
+  end
+  if status:match("^amended %d%d%d%d%-%d%d") ~= nil then
+    return true
+  end
+  local target = status:match("^superseded by D(%d+)$")
+  if target ~= nil then
+    return numbered[math.tointeger(tonumber(target)) or 0] == true
+  end
+  return false
+end
+
+--- Every record, in numbered order, read from its own H1 and status.
 ---
 --- The H1 is the record's title, so the index cannot say something the
 --- record does not: `# D14 — no self-hosting: …` yields both the number
---- and the words. A record whose H1 does not parse is reported rather
---- than skipped -- a row silently missing from an index is exactly the
---- failure the index exists to prevent.
+--- and the words. A record whose H1 or status does not parse is
+--- reported rather than skipped -- a row silently missing from an index
+--- is exactly the failure the index exists to prevent.
 --- @return {Record} The records, ordered by number
---- @return {string} Files whose H1 could not be read
+--- @return {string} Records whose heading or status could not be read
 local function records(): {Record}, {string}
   local found: {Record} = {}
   local bad: {string} = {}
@@ -64,32 +89,47 @@ local function records(): {Record}, {string}
     if base ~= "README.md" then
       local text = fs.read(path) or ""
       local n, title = string.match(text, "^#%s*D(%d+)%s*—%s*(.-)%s*\n")
-      if n and title then
+      local status = string.match(text, "\n%-%s*%*%*status:%*%*%s*(.-)%s*\n")
+      if n == nil or title == nil then
+        bad[#bad + 1] = path .. ": no `# D<n> — <title>` heading"
+      elseif status == nil then
+        bad[#bad + 1] = path .. ": no `- **status:** <status>` line"
+      else
         found[#found + 1] = {
           n = math.tointeger(tonumber(n)) or 0,
           title = title,
+          status = status,
           file = base,
         }
-      else
-        bad[#bad + 1] = path
       end
     end
   end
   table.sort(found, function(a: Record, b: Record): boolean
       return a.n < b.n
     end)
+  local numbered: {integer: boolean} = {}
+  for _, r in ipairs(found) do
+    numbered[r.n] = true
+  end
+  for _, r in ipairs(found) do
+    if not is_status(r.status, numbered) then
+      bad[#bad + 1] = DECISIONS .. "/" .. r.file ..
+      ": status is not `active`, `amended <YYYY-MM>` or " ..
+      "`superseded by D<n>`: `" .. r.status .. "`"
+    end
+  end
   return found, bad
 end
 
 --- The decisions table, rendered.
 --- @return string The header and rows, newline-joined
---- @return {string} Files whose H1 could not be read
+--- @return {string} Records whose heading or status could not be read
 local function decisions_table(): string, {string}
   local found, bad = records()
-  local out: {string} = {DECISIONS_HEAD, "|---|---|---|"}
+  local out: {string} = {DECISIONS_HEAD, "|---|---|---|---|"}
   for _, r in ipairs(found) do
     out[#out + 1] = "| D" .. r.n .. " | " .. r.title ..
-    " | [→](" .. r.file .. ") |"
+    " | " .. r.status .. " | [→](" .. r.file .. ") |"
   end
   return table.concat(out, "\n"), bad
 end
@@ -190,9 +230,13 @@ local M: DeriveModule = {
 
 if proc.is_main() then
   local rendered, bad = decisions_table()
-  for _, path in ipairs(bad) do
-    io.stderr:write("derive: " .. path ..
-      ": no `# D<n> — <title>` heading; it is not in the index\n")
+  -- A record that cannot be read stops the rewrite rather than landing
+  -- a table that omits it or repeats its bad status back.
+  if #bad > 0 then
+    for _, problem in ipairs(bad) do
+      io.stderr:write("derive: " .. problem .. "\n")
+    end
+    os.exit(1)
   end
   local failed = false
   for _, job in ipairs({

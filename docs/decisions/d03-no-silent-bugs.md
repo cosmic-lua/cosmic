@@ -1,6 +1,7 @@
 # D3 — "no silent bugs" is the anchor promise, at full depth
 
 - **date:** 2026-07
+- **status:** active
 - **context:** candidate core promises: no silent bugs, agent
   efficiency, self-sufficiency, best tool-building tool. and "no silent
   bugs" itself has depths: honest types only; plus verified docs; plus

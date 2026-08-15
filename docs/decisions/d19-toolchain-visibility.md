@@ -1,6 +1,7 @@
 # D19 — what "public" means for toolchain modules, and the visibility lint
 
 - **date:** 2026-08
+- **status:** amended 2026-08 (a root `_tool/` tree)
 - **context:** the visibility rule — position is the manifest, a module
   is public API exactly when it is `cosmic.<name>` with no `_` — existed
   but was unenforced, and two of its consequences were unsettled. First,
@@ -57,8 +58,8 @@
   the change waits one pin cycle. The toolchain modules' names stay on
   the public surface and their polish debt (naming, type exports) is
   real API debt, tracked like any other.
-- **amendment (2026-08, #992): a root `_tool/` tree; part 2 is
-  replaced.** Part 2's stated premise — "the strip floor forces the
+- **amended 2026-08 (#992, a root `_tool/` tree; part 2 is
+  replaced):** Part 2's stated premise — "the strip floor forces the
   toolchain modules under `cosmic/`" — was checked against the actual
   boot chain and is factually wrong for most of the family. The
   stripped boot chain is `embed/init.tl` → `searcher.tl` → (optional)

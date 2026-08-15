@@ -1,6 +1,7 @@
 # D2 — quality is the mission; adoption is not
 
 - **date:** 2026-07
+- **status:** active
 - **context:** most projects treat users, stars, or ecosystem growth as
   the scoreboard.
 - **decision:** the mission is for cosmic to be very, very good.
@@ -8,5 +9,6 @@
 - **rejected:** popularity as a success metric; compatibility or
   stability concessions made to court users.
 - **consequences:** frees D10 (perpetual right to break) and permits
-  opinionated defaults like D7 (contained by default).
+  opinionated defaults like D7 (contained by default where the OS can
+  enforce it).
 

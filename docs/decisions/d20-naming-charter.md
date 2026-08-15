@@ -1,6 +1,7 @@
 # D20 — the naming charter, and the renames that applied it
 
 - **date:** 2026-08
+- **status:** amended 2026-08 (the kept-POSIX set; rule 11)
 - **context:** the API review found five or six *competing
   internally-consistent* naming conventions on the public surface, not
   random names: POSIX spellings beside English ones (`makedirs` /

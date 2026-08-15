@@ -1,6 +1,7 @@
 # D18 — expensive recipe steps skip on input bytes, not just on mtime
 
 - **date:** 2026-08
+- **status:** amended 2026-08 (declared reads)
 - **context:** make schedules on mtime, and mtimes lie in exactly the
   situations that hurt: a branch switch restamps every source, a CI
   cache restore sits under a fresh checkout, a `touch` sweep — and the
@@ -50,7 +51,7 @@
   a `.in` beside its output stands for a prior run of this same
   project state; in CI that means trusting the cache's writer, which
   GitHub scopes to the branch that wrote it.
-- **amendment (2026-08, declared reads):** the key hashed only the
+- **amended 2026-08 (declared reads):** the key hashed only the
   step's DECLARED inputs, and a test's declarations were its imports —
   but the fence deliberately grants tests read access to the whole
   project, precisely because ratchet tests read things no import names

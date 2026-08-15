@@ -1,6 +1,7 @@
 # D4 — portability is delegated to Cosmopolitan
 
 - **date:** 2026-07
+- **status:** active
 - **context:** cosmic claims six OSes on two arches, but CI runs on
   ubuntu only — under "documented behavior is verified behavior," an
   unverified claim is a bug. verifying the full matrix means BSD VMs,

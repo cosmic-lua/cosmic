@@ -1,6 +1,7 @@
 # D16 — every build input is enumerable from committed files, the version stamp included
 
 - **date:** 2026-07
+- **status:** active
 - **context:** the design's strongest property is that a build's
   external surface is enumerable from committed files: pins declare
   every byte that can arrive, `exec` runs only what pins landed, and no

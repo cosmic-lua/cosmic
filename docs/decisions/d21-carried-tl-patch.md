@@ -1,6 +1,7 @@
 # D21 — carried patches: the middle path between pin and fork
 
 - **date:** 2026-08
+- **status:** active
 - **context:** D5 says upstream-first, fork-if-blocked on Teal. The gap
   between those two states was unpriced: an improvement this project
   wants NOW (truthiness narrowing of nil unions, whilp/cosmic#942)

@@ -1,6 +1,7 @@
 # D10 — perpetual right to break
 
 - **date:** 2026-07
+- **status:** active
 - **context:** daily date-versioned releases, no semver, no
   compatibility promise — increasingly load-bearing as user projects
   couple to `cosmic.*` signatures via G4.

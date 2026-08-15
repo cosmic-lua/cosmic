@@ -13,9 +13,9 @@ the primary artifact is `cosmic-lua` — a single executable containing:
 
 the project's mission, ranked promises, and measurable goals live in
 [docs/goals.md](docs/goals.md); the tradeoffs behind them are recorded
-ADR-style in [docs/decisions/](docs/decisions/), one file per record.
+ADR-style in [docs/decisions/](docs/decisions/), one file per record, each carrying a `status` the derived index gates.
 consult both before proposing directional changes — settled decisions are amended there, not
-relitigated in passing.
+relitigated in passing; writing, amending, or superseding one is the `decide` skill (`skills/decide/SKILL.md`), whose form is itself a record ([D26](docs/decisions/d26-decision-records.md)).
 
 ## Repository Layout
 

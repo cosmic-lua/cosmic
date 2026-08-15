@@ -1,6 +1,7 @@
 # D13 — the build's trust root is one pinned artifact behind one committed fetcher
 
 - **date:** 2026-07
+- **status:** amended 2026-07
 - **context:** the #756 arc converged the build on "make as the pinned
   job graph, cosmic as the only build logic": every recipe is a single
   argv under a sha-pinned bootstrap, `SHELL` is poisoned globally with
