@@ -32,6 +32,12 @@ carries a `Blocked by: #M` line (same repo only — `next` skips issues
 with open blockers). when every child is closed, the planner verifies
 the epic's outcome actually holds and closes the epic (`review.md`).
 
+creation order follows the references: open the epic first, open each
+child citing it (`via epic #N`), then edit the epic body to fill the
+checklist with the children's numbers — the checklist can only be
+written once those numbers exist, so an epic body is edited after
+creation by design, not by accident.
+
 ## ranking the outcomes: paired comparison
 
 intake walks goals.md's ranked outcome list top-down, so the rank has
@@ -68,6 +74,22 @@ threshold, not a rule), zero decisions left open. if writing the
 changes, cut it in two. if a slice cannot be sized without research,
 the research IS the slice: a `plan:enable` issue whose deliverable is
 a comment (findings) and the follow-up slices, not code.
+
+slices are also sized for each other: implementer sessions run in
+parallel, so prefer cutting a goal into file-disjoint slices (two
+ready slices touching the same files invite merge conflicts and
+serialized rework). a `Blocked by:` chain is the tool for real landing
+order — one enablement slice unblocking many parallel siblings is a
+good shape; a chain of siblings each blocking the next is a slice cut
+wrong.
+
+two clauses to write into a slice whenever they apply. a slice whose
+diff moves, adds, or removes gated material (casts, coverage, any
+committed baseline) should say what to do when a ratchet gate
+complains: run exactly the regen command the gate's failure message
+prints and commit the result — in scope, never a gate weakened any
+other way. and a slice near a frozen contract names the contract in
+`Non-goals` (see anti-patterns).
 
 ## the ready bar
 
