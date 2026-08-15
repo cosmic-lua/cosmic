@@ -1,4 +1,4 @@
---- CLI flag definitions for cosmic, as one flags.Spec (#991).
+--- CLI flag definitions for cosmic, as one flags.Spec.
 --- Shared by the dispatcher and tests to keep the flag list in sync.
 
 local flags = require("cosmic.flags")
@@ -6,8 +6,8 @@ local flags = require("cosmic.flags")
 --- The dispatcher's interface. `-c` is make's shell contract:
 --- `$(SHELL) $(.SHELLFLAGS) '<line>'` with `.SHELLFLAGS` defaulting to
 --- `-c`, so `SHELL := cosmic` works with no further configuration.
---- The long names for the Lua-compatible shorts (-e/-l/-i/-E/-W) are
---- new with the flags port; the shorts remain the documented spelling.
+--- The Lua-compatible shorts (-e/-l/-i/-E/-W) each have a long name
+--- too; the shorts remain the documented spelling.
 local spec: flags.Spec = {
   name = "cosmic-lua",
   flags = {
@@ -85,11 +85,10 @@ local function resolve_optional_arg(flag: string, value: string): string
   return ""
 end
 
---- Flags that once named one kind of check each, mapped to the kind
---- each is spelled with now. A script written against the retired
---- spelling is told the current one rather than dropping into the
---- REPL, and this is checked before parsing, which would prefix-match
---- them onto `--check`.
+--- Old check flags, mapped to the kind each is spelled with now.
+--- A script written against one of these is told the current spelling
+--- rather than dropping into the REPL, and this is checked before
+--- parsing, which would prefix-match them onto `--check`.
 local RENAMED_CHECKS < const >: {string: string} = {
   ["--check-types"] = "types",
   ["--check-format"] = "fmt",
@@ -106,9 +105,9 @@ local function renamed_check(argv: {string}): string | nil
     local kind = RENAMED_CHECKS[base]
     if kind then
       -- The verb comes from `_cli.check`, which owns the mapping.
-      -- A second copy here is how the two vocabularies drifted in the
-      -- first place. Required inside the branch so the argument parser
-      -- does not pull the check machinery in on every run.
+      -- A second copy here is a second place the two vocabularies
+      -- could drift apart. Required inside the branch so the argument
+      -- parser does not pull the check machinery in on every run.
       local kinds = require("_cli.check").KINDS
       return "cosmic-lua: " .. base .. " is now `--check " .. kind ..
       " <file>` (the project-wide spelling is `cosmic --make " ..

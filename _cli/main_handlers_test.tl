@@ -102,9 +102,9 @@ local function test_docs_finds_a_real_module()
 end
 test_docs_finds_a_real_module()
 
---- The not-found path must fail loudly and say something useful -- the
---- specific UX complaint in. A miss that exited 0, or exited 1
---- with an empty message, both regress it.
+--- The not-found path must fail loudly and say something useful. A
+--- miss that exited 0, or exited 1 with an empty message, both regress
+--- it.
 local function test_docs_miss_fails_with_a_message()
   local r = cli("--docs", "zzz-no-such-symbol-anywhere")
   assert(r.code ~= 0, "a docs miss must not exit 0")
@@ -182,7 +182,7 @@ test_make_requires_a_verb()
 -- That `--` is load-bearing: without it the OUTER getopt consumes the
 -- child's --check fmt, the child runs argument-less, drops into the
 -- REPL, reads EOF and exits 0 -- so --test faithfully records a pass
--- for a check that never ran, and every teal/format .got was a 0
+-- for a check that never ran, and every teal/format .got would be a 0
 -- regardless of the file.
 --
 -- This pins the propagation in both directions, so a gate that cannot

@@ -1,4 +1,4 @@
---- The COSMIC_* environment variable registry (#1003).
+--- The COSMIC_* environment variable registry.
 --- One table, two roles. A PUBLIC row is a knob a person sets, and
 --- `--help` renders exactly these rows; an INTERNAL row is set by the
 --- build or the toolchain for its own children, declared here so the

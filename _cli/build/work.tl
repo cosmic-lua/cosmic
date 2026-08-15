@@ -1,13 +1,12 @@
 --- The recipe steps that do real work — `compile`, `capture`,
 --- `record` — and the content-keyed skip that lets them not do it.
 ---
---- Split from `_cli.build.steps` when the skip outgrew the 500-line
---- cap, on the seam the verbs already had: steps.tl owns the cheap
---- bookkeeping verbs (copy, tee, write-list, asserts), this file owns
---- the expensive per-source steps and the shared `run_into` contract
---- the spawning ones write through. `compile` runs in this process
---- (the step and the line's bootstrap are the same binary — #1099);
---- `record` still spawns, because a test deserves isolation.
+--- steps.tl owns the cheap bookkeeping verbs (copy, tee, write-list,
+--- asserts); this file owns the expensive per-source steps and the
+--- shared `run_into` contract the spawning ones write through.
+--- `compile` runs in this process (the step and the line's bootstrap
+--- are the same binary); `record` still spawns, because a test
+--- deserves isolation.
 ---
 --- **The skip.** Make schedules on mtime, and mtimes lie in exactly
 --- the situations that hurt: a branch switch restamps every source, a
@@ -39,7 +38,7 @@
 --- `.in` is written PLAINLY, not write-if-changed: nothing schedules
 --- on its mtime, and an always-fresh write makes it a probe — its
 --- mtime moves exactly when the step really ran, which is what the
---- tests observe. Decision record: docs/decisions/d18-step-skip.md.
+--- tests observe.
 
 local child = require("cosmic.child")
 local env = require("cosmic.env")
@@ -173,12 +172,12 @@ local function write_compiled(out: string, body: string): integer
   return 0
 end
 
---- Compile src in this process. The step used to spawn the line's
---- bootstrap to do it, but step and bootstrap are the same binary by
---- construction (`SHELL := $(COSMIC)` and the recipe both name the one
---- toolchain), so the spawn bought identity the step already had — at
---- a full child boot per compiled file (#1099). Same compile the child
---- ran (teal.compile_file, strict), same failure bytes on stderr, same
+--- Compile src in this process. Step and bootstrap are the same
+--- binary by construction (`SHELL := $(COSMIC)` and the recipe both
+--- name the one toolchain), so spawning a separate process to compile
+--- would only buy identity the step already has, at a full child boot
+--- per compiled file. Same compile a spawned bootstrap would run
+--- (teal.compile_file, strict), same failure bytes on stderr, same
 --- write/restamp semantics on the output. The flag vocabulary is
 --- closed like the verb vocabulary above it: `--include-dir DIR`,
 --- repeated, is what the graph emits, and anything else is refused
@@ -222,7 +221,7 @@ end
 --- compile <bootstrap> <src> <out> [flags...] [--deps <inputs>...]
 --- Always a STRICT compile, in this process (compile_in_process
 --- above); the bootstrap argument names the toolchain for the line's
---- record but is no longer spawned. Everything after --deps is an
+--- record without being spawned. Everything after --deps is an
 --- INPUT — the source closure and the tool stamps the rule names —
 --- granted to the fence and keyed by the skip.
 local function do_compile(args: {string}): integer
@@ -294,11 +293,11 @@ end
 
 --- record <out> <cmd> [args...] [--deps <inputs>...] — run one test
 --- file, writing the `<out>.got`/`.out`/`.err` contract testrun owns,
---- and then **always succeed** (grading is `--report`'s job; see the
---- history in steps.tl). The skip may stand in for a run whose inputs
---- are byte-identical AND whose recorded verdict was a PASS: a `.got`
---- of 0 restamps and the child never spawns. A recorded failure or
---- skip always re-runs — a failure deserves the retry, and a skip is a
+--- and then **always succeed**: grading is `--report`'s job, not this
+--- step's. The skip may stand in for a run whose inputs are
+--- byte-identical AND whose recorded verdict was a PASS: a `.got` of 0
+--- restamps and the child never spawns. A recorded failure or skip
+--- always re-runs — a failure deserves the retry, and a skip is a
 --- statement about the environment the key cannot see in full.
 local function do_record(args: {string}): integer
   local out = args[1]
@@ -356,7 +355,8 @@ local function do_record(args: {string}): integer
   local _ok, _err = fs.remove(out .. ".got") -- freshness: an early testrun exit writes none
   local testrun = require("_tool.testrun")
   -- The exit code is deliberately not graded here (the .got file is
-  -- the record); the runner's own failure message is (#992).
+  -- the record); only the runner's own failure to run is fatal to the
+  -- step.
   local _code, run_msg = testrun.run(argv, out)
   if run_msg then
     return fail("record " .. out .. ": " .. run_msg)

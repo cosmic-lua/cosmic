@@ -46,13 +46,13 @@ end
 --- Refusing them states the model at the first attempt rather than at
 --- the first mysterious result.
 ---
---- The GLOB characters are here for the same reason and were the
---- louder omission: `* ? [ ] ~ ^ ! #` are exactly what makes make hand
---- a line to SHELL, so a recipe carrying one DOES reach cosmic, where
---- as argv it is a literal word: `remove o/*.tmp` deletes nothing and
---- exits 0, since `remove` is rm -f and a file named `*.tmp` is
---- already missing. That is exactly the "line does something other
---- than what it looks like" failure this refusal exists to close.
+--- The GLOB characters matter for the same reason: `* ? [ ] ~ ^ ! #`
+--- are exactly what makes make hand a line to SHELL, so a recipe
+--- carrying one DOES reach cosmic, where as argv it is a literal word:
+--- `remove o/*.tmp` deletes nothing and exits 0, since `remove` is
+--- rm -f and a file named `*.tmp` is already missing. That is exactly
+--- the "line does something other than what it looks like" failure
+--- this refusal exists to close.
 ---
 --- Nothing legitimate is lost: `_make/validate.tl`'s METACHARACTERS
 --- already refuses every one of these IN A PATH, so a glob character
@@ -103,9 +103,9 @@ end
 --- Split and validate a recipe line without running it, so the caller
 --- can fence the step (_cli.driver) before anything executes.
 ---
---- Three outcomes in two slots (D20 rule 11): a Recipe when the line
---- names a verb, `nil, err` when it is invalid, and `nil, nil` for a
---- blank line — which is a no-op, not a failure.
+--- Three outcomes in two slots: a Recipe when the line names a verb,
+--- `nil, err` when it is invalid, and `nil, nil` for a blank line —
+--- which is a no-op, not a failure.
 --- @param line string The recipe line make passed
 --- @return Recipe|nil The verb and its arguments, or nil
 --- @return string|nil Error message when the line is invalid

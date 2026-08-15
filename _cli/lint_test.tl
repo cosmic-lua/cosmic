@@ -177,7 +177,7 @@ test_cosmo_require_honors_allowlist()
 -- checks stay in `_tool.lint` (inside the strip floor, where there is
 -- no Teal compiler to require) and the lexer-based ones are here. The
 -- assertion that matters is that `--check lint` and `--make lint` run
--- THIS composition -- there is no second lint any more.
+-- THIS one composition.
 local function test_the_pure_checks_come_from_style()
   assert(style.check_file_length,
     "the pure checks are _tool.lint's")
@@ -189,7 +189,7 @@ test_the_pure_checks_come_from_style()
 
 -- The convention is a TEST file one, and it applies to the functions
 -- that RUN: `test_*` and `Example_*`. A helper is defined once and
--- called from several tests, so flagging helpers made the rule
+-- called from several tests, so flagging helpers would make the rule
 -- unsatisfiable -- 121 of this repo's test files define at least one.
 local function lines_of(src: string): {string}
   local out: {string} = {}
@@ -214,11 +214,10 @@ local function test_call_after_define_names_the_runnable_ones()
 end
 test_call_after_define_names_the_runnable_ones()
 
--- And it is a TOKEN scan, not a line scan. The heuristic it replaced
--- counted `function`/`end` in source TEXT, so a fixture string holding
--- either moved the depth and the check reported a function whose call
--- was on the very next line -- 170 times, on a tree that follows the
--- convention.
+-- And it is a TOKEN scan, not a line scan: counting `function`/`end`
+-- in source TEXT would let a fixture string holding either move the
+-- depth, reporting a function whose call is on the very next line as
+-- late -- a false positive a token scan does not have.
 local function test_call_after_define_ignores_keywords_in_strings()
   local src = "local function test_a()\n" ..
   "  local fixture = \"local function f() end\"\n" ..

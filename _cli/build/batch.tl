@@ -1,7 +1,7 @@
---- The batched compile step behind `$(O)/.groups/<dir>.compiled`
---- (#1099): one step per DIRECTORY instead of one per file, so the
---- boot, the compiler, and — through the engine's env reuse — every
---- checked import are paid once per group instead of once per member.
+--- The batched compile step behind `$(O)/.groups/<dir>.compiled`:
+--- one step per DIRECTORY instead of one per file, so the boot, the
+--- compiler, and — through the engine's env reuse — every checked
+--- import are paid once per group instead of once per member.
 ---
 --- Per-member honesty is unchanged: each member keeps its own
 --- content-keyed `.in` record, byte-compatible with the per-file
@@ -10,7 +10,7 @@
 --- without recompiling, and every member this step verifies or
 --- compiles is restamped, so the per-file rules self-skip on fresh
 --- mtimes and remain the correctness safety net rather than the hot
---- path. Decision record: whilp/cosmic#1099.
+--- path.
 ---
 --- Failure semantics: every member is attempted and every failure
 --- reported — the retry recompiles only the broken ones, since the

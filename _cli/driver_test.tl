@@ -85,9 +85,9 @@ test_compile_execs_the_bootstrap()
 
 -- The floor a COMPILE needs beyond its argv. The type checker reads
 -- `tlconfig.lua` and resolves modules through the include directories,
--- and argv names neither -- so a fence derived from argv alone denied
--- every real compile, which is the concrete reason it could not become
--- the default. The DENIAL half of that canary needs a kernel
+-- and argv names neither -- so a fence derived from argv alone would
+-- deny every real compile, which is why these floor grants are part
+-- of the default. The DENIAL half of that canary needs a kernel
 -- (`_cli/fence_test.tl`, enforce lane); what the plan CONTAINS is
 -- checkable anywhere, so it is checked here, where it runs on every
 -- commit.
@@ -111,9 +111,9 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
 
   -- REAL host paths only. Two include dirs live inside the executable's
   -- own zip, where `fs.is_dir` answers yes and the kernel knows nothing:
-  -- handing one to Landlock fails the whole policy with EBADFD, so the
-  -- fenced compile died instead of denying anything. They need no grant
-  -- — they are bytes in a file the exec grant already covers.
+  -- handing one to Landlock would fail the whole policy with EBADFD, so
+  -- the fenced compile would die instead of denying anything. They need
+  -- no grant — they are bytes in a file the exec grant already covers.
   for _, dir in ipairs(p.ro) do
     assert(dir:sub(1, 5) ~= "/zip/" and dir ~= "/zip",
       "a zip-internal path must never reach the sandbox: " .. dir)
@@ -258,8 +258,7 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
   -- extracts a small loader into `${TMPDIR:-${HOME:-.}}` and execs
   -- that. Granting write alone leaves the exec denied, and the parent
   -- reports ENOEXEC -- which reads like a corrupt binary rather than a
-  -- denied path, and is the exact failure that turned the gate red
-  -- once the fence became the default.
+  -- denied path.
   local dir = fs.join(tmpdir, "apedir")
   assert(fs.make_dirs(dir))
   local prev = env.get("TMPDIR")
@@ -274,11 +273,11 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
 end
 test_every_step_can_extract_and_run_the_ape_loader()
 
--- The claim the old ape grant rested on -- "every step gets a scratch
--- TMPDIR" -- was false: nothing set one, an unset TMPDIR fell through
--- to $HOME, and the fence granted rw+exec on the WHOLE home directory.
--- driver.ensure_build_tmpdir closes it: with TMPDIR unset it pins a
--- scratch under o/, and the grant follows there instead of $HOME.
+-- Without this pin, an unset TMPDIR falls through to $HOME, and the
+-- fence would grant rw+exec on the WHOLE home directory -- far wider
+-- than the scratch a step actually needs. driver.ensure_build_tmpdir
+-- closes that: with TMPDIR unset it pins a scratch under o/, and the
+-- grant follows there instead of $HOME.
 local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   local driver = require("_cli.driver")
   local home = fs.join(tmpdir, "fakehome")
@@ -358,11 +357,11 @@ end
 test_a_program_that_is_not_there_is_not_a_rule()
 
 local function test_the_coverage_directory_is_granted_before_it_exists()
-  -- The step CREATES this directory, so asking `isdir` first always
-  -- said no and the grant was never added. Nothing errors when that
-  -- happens — the step runs, the tests pass, and only the `.cov` dump
-  -- at exit is denied — so it surfaced as three recipe-path files
-  -- losing most of their coverage at once.
+  -- The step CREATES this directory, so asking `isdir` first would
+  -- always say no and the grant would never be added. Nothing errors
+  -- when that happens — the step runs, the tests pass, and only the
+  -- `.cov` dump at exit is denied, so recipe-path files would quietly
+  -- lose most of their coverage.
   local cov = fs.join(tmpdir, "cov-not-yet", "deeper")
   assert(fs.remove_all(fs.dirname(cov)))
   local prev = env.get("COSMIC_COVERAGE")

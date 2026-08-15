@@ -1,9 +1,9 @@
 --- What each recipe verb may touch, derived from its own argv.
 ---
---- Split from the dispatcher because it is the fence's whole knowledge
---- and the dispatcher's only use of it is one call: a recipe line is
---- `verb arg arg arg`, and which positions are reads, writes and execs
---- is a property of the verb. There is no declaration channel -- the
+--- This is the fence's whole knowledge, and the dispatcher's only use
+--- of it is one call: a recipe line is `verb arg arg arg`, and which
+--- positions are reads, writes and execs is a property of the verb.
+--- There is no declaration channel -- the
 --- argument positions ARE the declaration, which is what makes a rule
 --- unable to over-declare its way out of the fence.
 
@@ -62,11 +62,13 @@ local RUNTIME_RO: {string} = {
 ---
 --- `/proc` is here rather than in the read-only list above because
 --- configuring your own user namespace means writing your own
---- `/proc/<pid>/uid_map`, `setgroups` and `gid_map`. Read-only, the
---- open fails and `cosmic/quicksand` reports what a kernel without
---- namespace support reports — so the tests SKIPPED, stayed green, and
---- the sandbox suite quietly stopped testing the sandbox. Three lines
---- of `write_file` going cold in the ratchet is all that showed.
+--- `/proc/<pid>/uid_map`, `setgroups` and `gid_map`. Read-only, those
+--- writes would fail, and `cosmic/quicksand` would report exactly what
+--- a kernel without namespace support reports — so the affected tests
+--- would SKIP instead of fail, and the sandbox suite would quietly
+--- stop testing the sandbox with no failing assertion to flag it. Only
+--- the coverage ratchet would catch it, as `write_file` lines going
+--- cold.
 ---
 --- Not `/proc/self`: a landlock rule binds the inode it opened, and
 --- `/proc/self` resolves to `/proc/<pid>` for whoever opens it, so a
@@ -179,7 +181,7 @@ end
 ---
 --- Every output under `o/` comes from a unit: a directory that declares
 --- it, a scope of inputs that is also its grant set, and an output path
---- derived from its position (see the Units section of the design). A
+--- derived from its position. A
 --- *generation* unit is the one kind that spans a whole subtree, so a
 --- path inside one belongs to the directory holding the `*_gen.tl`.
 --- Everything else belongs to its own directory, which is not a
@@ -236,13 +238,14 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- fence, it is an error where the verb's own refusal belongs. `exec
   -- sh -c true` is the case in hand: the verb exists to refuse a
   -- program outside the build root, and `sh` is a bare name that
-  -- resolves to nothing, so the policy died on it and the test that
-  -- asserts the refusal saw a sandbox error instead.
+  -- resolves to nothing, so the policy would die on it and the test
+  -- that asserts the refusal would see a sandbox error instead of the
+  -- verb's own message.
   --
   -- Dropping the rule costs nothing: the program is not there, so
   -- granting exec on it protects no one, and the verb still errors.
-  -- Filtered here, not via sandbox.Fs.optional (#989): the planned
-  -- policy must equal the enforced one (`_cli/driver_test.tl`).
+  -- Filtered here, not via sandbox.Fs.optional: the planned policy must
+  -- equal the enforced one (`_cli/driver_test.tl`).
   local ex: {string} = {}
   for _, p in ipairs(ex_raw) do
     if fs.is_present(p) then
@@ -272,12 +275,12 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- Create the output's directory before asking which one it is.
     -- Landlock rules are OPENED, so a grant naming a path that does not
     -- exist fails the whole restrict -- and walking up from a
-    -- not-yet-created output bottomed out at ".", handing the verb the
-    -- entire project tree. On a cold build that was every step: the
-    -- fence was widest exactly when the tree was emptiest. The verbs
-    -- all `makedirs` their own outputs anyway, so this is the same
-    -- directory a moment earlier, and now it is the one that is
-    -- granted.
+    -- not-yet-created output would bottom out at ".", handing the verb
+    -- the entire project tree. On a cold build that would be every
+    -- step: the fence would be widest exactly when the tree is
+    -- emptiest. The verbs all `makedirs` their own outputs anyway, so
+    -- this is the same directory a moment earlier, and now it is the
+    -- one that is granted.
     --
     -- A makedirs that FAILS must not fall through to the walk-up: the
     -- walk-up is the wide grant this exists to avoid, so taking it on
@@ -303,10 +306,11 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- sounds: the write grant is the `.got` base alone (which the
     -- shape names), exec is the floor, and there is no network.
     --
-    -- The read half was once "what it imports and nothing else",
-    -- derived from the closure the graph already put in the line. It
-    -- does not survive contact with real tests, and the two that broke
-    -- say why: `_types/gentl_test.tl` reads the pinned `tl.tl` -- a
+    -- The narrower alternative -- granting only "what it imports and
+    -- nothing else", derived from the closure the graph already puts
+    -- in the line -- does not survive contact with real tests: two
+    -- fail to express what they read as an import.
+    -- `_types/gentl_test.tl` reads the pinned `tl.tl` -- a
     -- project input, verified by digest, that no import names -- and
     -- `_build/workflows_test.tl` reads `.github/workflows`, which the
     -- model prunes as a dotfile and which is the whole SUBJECT of that
@@ -314,7 +318,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- forces a ratchet test to stop reading the thing it ratchets is
     -- not protecting anything.
     --
-    -- Narrowing this again needs a channel for "I read this file"
+    -- Narrowing this further needs a channel for "I read this file"
     -- that is not `require`, which the design deliberately does not
     -- have yet (docs/design/make/engine.md). Until then the honest
     -- boundary is the one above, stated rather than implied.
@@ -346,12 +350,10 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     end
   end
   if verb == "exec" then
-    -- Tightened from the phase-1 stand-in, which granted "." — the
-    -- whole working tree — because there was no notion of a unit yet.
-    -- There is now: the Units investigation found that the one
-    -- abstraction the evidence earns is `unit_dir(path)`, precisely
-    -- because a fence wants a DIRECTORY where a stage wants a file
-    -- list. So exec reads the units its argv touches, and nothing else.
+    -- Granting the whole working tree (".") would be no fence at all
+    -- for exec, since a fence wants a DIRECTORY where a stage wants a
+    -- file list. `unit_dir(path)` is the one abstraction the evidence
+    -- earns: exec reads the units its argv touches, and nothing else.
     --
     -- Still derivation, not declaration: no rule says what its unit is,
     -- the paths in the line do. The program's own unit is always
@@ -381,9 +383,8 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- not name: `tlconfig.lua` and the include directories modules
   -- resolve through. Derived from the same place the compile step finds
   -- them -- `cosmic.teal` -- rather than listed here, so a change to
-  -- the include path cannot leave the fence behind. Without these the
-  -- fence denies every real compile, which is the concrete reason it
-  -- could not become the default.
+  -- the include path cannot leave the fence behind. Without these
+  -- grants the fence would deny every real compile.
   if compiles[verb] then
     if fs.is_file(TLCONFIG) then
       ro[#ro + 1] = TLCONFIG
@@ -398,7 +399,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
       -- executable's own zip (`/zip/.types`, `/zip/.tl`), where
       -- `fs.is_dir` answers yes -- cosmic's own syscall shims see them
       -- -- and the kernel knows nothing at all. Handing one to Landlock
-      -- fails the whole policy with EBADFD, which took the fenced
+      -- would fail the whole policy with EBADFD, taking the fenced
       -- compile down entirely rather than denying anything. They need
       -- no grant either way: they are bytes in a file the exec grant
       -- already covers.
@@ -410,8 +411,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- The runtime floor. A derived fence still needs what ANY cosmic
   -- process touches regardless of its arguments, which the make rules
   -- spell as unveil_base/unveil_dev: without it the first step to open
-  -- /dev/urandom or exec an APE dies, which is exactly how the enforce,
-  -- build, and offline lanes went red when this shipped without one.
+  -- /dev/urandom or exec an APE dies.
   local tmp = os.getenv("TMPDIR") or "/tmp"
   if fs.is_dir(tmp) then
     rw[#rw + 1] = tmp
@@ -419,13 +419,13 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   -- Coverage output, created before it is granted for the same reason
   -- the write grants above are: a landlock rule is an open, so a
   -- directory that does not exist yet gets no rule -- and a step whose
-  -- coverage directory it creates ITSELF therefore always missed.
+  -- coverage directory it creates ITSELF would always miss the grant.
   --
-  -- The failure is quiet in the worst way. Nothing errors: the step
-  -- runs, the tests pass, and the `.cov` dump is simply denied at exit,
-  -- so what shows up is the RATCHET, three recipe-path files at once
-  -- (`_cli/build/steps.tl` 182/237 -> 33/230) reading like a code
-  -- change that deleted the tests.
+  -- The failure would be quiet in the worst way. Nothing errors: the
+  -- step runs, the tests pass, and the `.cov` dump is simply denied at
+  -- exit -- so the only symptom is the coverage ratchet, files losing
+  -- most of their lines at once in a way that reads like a code change
+  -- deleted the tests.
   --
   -- Asked through `cosmic.coverage`, not by reading the variable here.
   -- `COSMIC_COVERAGE` is overloaded: `1` means "collect" and names no
@@ -460,9 +460,10 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   --
   -- Each loader FILE that exists gets exec: a file grant runs the
   -- loader without opening the directory around it -- granting the
-  -- extraction DIRECTORY handed every step rw+exec on the entire home
-  -- when TMPDIR was unset. The scratch TMPDIR gets exec too (rw
-  -- above): the driver seeds $HOME's loaders into it before fencing
+  -- extraction DIRECTORY instead would hand every step rw+exec on the
+  -- entire home directory whenever TMPDIR is unset. The scratch TMPDIR
+  -- gets exec too (rw above): the driver seeds $HOME's loaders into it
+  -- before fencing
   -- (see driver.tl), because execve caches TMPDIR/HOME at process
   -- startup and a NESTED driver cannot read $HOME to find one here.
   if fs.is_dir(tmp) then

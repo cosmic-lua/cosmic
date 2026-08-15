@@ -1,7 +1,7 @@
 --- Help text generation for cosmic CLI.
 --- Produces the complete --help output: static option descriptions from
 --- sys/help.md with its derived lists filled in from the registries
---- that own them (#1003 — a hand-typed copy of a registry drifts), and
+--- that own them -- a hand-typed copy of a registry drifts -- and
 --- the dynamic module list from the embedded docs.
 
 local fs = require("cosmic.fs")
@@ -56,7 +56,6 @@ end
 local function generate(): string
   local lines: {string} = {}
 
-  -- Load static help text from embedded file
   local static_help, err = fs.read("/zip/sys/help.md")
   assert(static_help, "failed to load embedded help: " .. (err or "unknown error"))
 
@@ -113,7 +112,6 @@ local function generate(): string
     end
   end
 
-  -- Show guides list
   local guides = docs.guides()
   if #guides > 0 then
     local max_len = 0

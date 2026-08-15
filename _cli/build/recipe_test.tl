@@ -4,11 +4,10 @@
 -- `.SHELLFLAGS` already `-c`). One line, split on whitespace, run as
 -- argv through the modes table its sibling exercises directly.
 --
--- Split from init_test.tl at the line's own seam: that file tests what
--- each VERB does, given arguments; this one tests what happens to a
--- LINE on the way to a verb -- parse, refuse, fence, announce,
--- dispatch. The two halves share only the binary under test, and the
--- file-length gate is what forced the question of where they part.
+-- init_test.tl tests what each VERB does, given arguments; this file
+-- tests what happens to a LINE on the way to a verb -- parse, refuse,
+-- fence, announce, dispatch. The two files share only the binary
+-- under test.
 
 local child = require("cosmic.child")
 local env = require("cosmic.env")
@@ -129,9 +128,9 @@ local function test_recipe_refuses_shell()
 end
 test_recipe_refuses_shell()
 
--- Globs were the louder omission, because they are exactly what makes
--- make hand a line to SHELL: a recipe carrying one DOES reach cosmic,
--- and was taken as a literal argv word. `remove o/*.tmp` exited 0
+-- Globs matter for the same reason: they are exactly what makes make
+-- hand a line to SHELL, so a recipe carrying one DOES reach cosmic,
+-- where it is taken as a literal argv word. `remove o/*.tmp` exits 0
 -- having deleted nothing -- `remove` is rm -f, and a file literally
 -- named `*.tmp` is already missing. A line that reports success having
 -- done nothing is the failure the refusal exists to close.
@@ -226,10 +225,11 @@ test_exec_refuses_outside_the_root()
 
 -- The root check has to resolve SYMLINKS, not just normalize `..`.
 -- abspath refuses a path that climbs out lexically, but the kernel
--- follows links at spawn -- so `o/tool -> /bin/echo` had an abspath
--- under the root, passed the prefix test, and ran the host binary. That
--- made "exec resolves only to pinned bytes under o/, never PATH" a
--- stronger claim than the check enforced.
+-- follows links at spawn -- so a symlink like `o/tool -> /bin/echo`
+-- can have an abspath under the root that passes the prefix test
+-- while resolving to the host binary. Resolving the ROOT this way too
+-- is what makes "exec resolves only to pinned bytes under o/, never
+-- PATH" an enforced claim rather than merely a stated one.
 local function test_exec_refuses_a_symlink_out_of_the_root()
   local root = fs.join(tmpdir, "exec-root")
   assert(fs.remove_all(root))

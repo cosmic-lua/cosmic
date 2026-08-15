@@ -1,7 +1,6 @@
 --- The recipe steps themselves: one function per verb.
 ---
---- Split out of _cli.build when the vocabulary outgrew the 500-line
---- cap. The dispatcher next door owns the vocabulary (which names
+--- The dispatcher next door owns the vocabulary (which names
 --- exist, how a line is parsed); this file owns what each name does —
 --- except the three that do real work per source (`compile`,
 --- `capture`, `record`), which live in `_cli.build.work` with the
@@ -136,18 +135,19 @@ end
 
 --- remove <paths...> — rm -f: delete files, ignoring MISSING ones.
 ---
---- Only missing ones. Swallowing every error made "cannot unlink"
---- indistinguishable from "already gone", so a rule that could not
---- clear its output reported success and the next step ran against the
---- file it meant to replace.
+--- Only missing ones. Swallowing every error would make "cannot
+--- unlink" indistinguishable from "already gone", so a rule that could
+--- not clear its output would report success and the next step would
+--- run against the file it meant to replace.
 local function do_remove(args: {string}): integer
   for _, p in ipairs(args) do
     -- Attempt the unlink, and only ask what went wrong when it fails.
-    -- Guarding it with `fs.is_present` skipped DANGLING symlinks: exists
-    -- follows the link, so one whose target is gone reads as "already
-    -- gone" and was never unlinked -- and `link` makes symlinks, so a
-    -- rule clearing a stale one silently kept it. `islink` is the second
-    -- question because exists cannot see it either.
+    -- Guarding it with `fs.is_present` alone would skip DANGLING
+    -- symlinks: exists follows the link, so one whose target is gone
+    -- would read as "already gone" and never get unlinked -- and
+    -- `link` makes symlinks, so a rule clearing a stale one would
+    -- silently keep it. `islink` is the second question because exists
+    -- cannot see it either.
     local ok, uerr = fs.remove(p)
     if not ok and (fs.is_present(p) or fs.is_link(p)) then
       return fail("remove " .. p .. ": " .. (uerr or "unknown error"))
@@ -260,12 +260,13 @@ local function do_exec(args: {string}): integer
     return fail("usage: exec <program> [args...]")
   end
   -- REALPATH, not abspath, on both sides: abspath normalizes `..` but
-  -- does not follow symlinks, and the kernel does at spawn. So
-  -- `o/tool -> /bin/sh` had an abspath under the root, passed the
-  -- prefix test, and ran the host binary. Resolving the ROOT too
-  -- matters when the build directory is itself reached through a link.
-  -- A relative symlink inside `o/` still resolves inside it, so the
-  -- staging links a build makes keep working.
+  -- does not follow symlinks, and the kernel does at spawn. So a
+  -- symlink like `o/tool -> /bin/sh` can have an abspath under the
+  -- root that passes the prefix test while running the host binary.
+  -- Resolving the ROOT too matters when the build directory is itself
+  -- reached through a link. A relative symlink inside `o/` still
+  -- resolves inside it, so the staging links a build makes keep
+  -- working.
   local root_named = fs.absolute_path(env.get_or("COSMIC_EXEC_ROOT", "o"))
   local root = (fs.resolve(root_named) or root_named) as string -- cast: scalar fallback
   local named = fs.absolute_path(program)
@@ -305,18 +306,16 @@ end
 
 --- The closed vocabulary, and every name says what the step DOES.
 ---
---- Three were renamed together, because each was borrowing a word that
---- already means something else here:
+--- Each name avoids a word that already means something else here:
 ---
----   test        -> record       it records a result and always exits
----                               0; grading is `--report`'s job, and
----                               `--make test` is the verb that grades.
----                               A step called `test` that cannot fail
----                               a test is the worst of the three.
----   list        -> write-list   it WRITES its arguments to a file; it
----                               does not list anything.
----   require-*   -> assert-*     `require` is Lua's module loader, and
----                               these load nothing. They assert.
+---   record       it records a result and always exits 0; grading is
+---                `--report`'s job, and `--make test` is the verb
+---                that grades. A step called `test` that cannot fail
+---                a test would be the most misleading name here.
+---   write-list   it WRITES its arguments to a file; it does not list
+---                anything.
+---   assert-*     `require` is Lua's module loader, and these load
+---                nothing. They assert.
 local modes: {string: function({string}): integer} = {
   ["assert-elf"] = do_assert_elf,
   ["assert-marker"] = do_assert_marker,

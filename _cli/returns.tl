@@ -1,13 +1,12 @@
 --- The returns invariant: a fallible function returns at most two
 --- values, and slot 2 is its error.
 ---
---- D20 rule 11 decided this in principle — "the error must be reachable
---- from `local v, err = ...` and from `check.must`, so a tuple never
---- carries it in slot 3 or beyond" — and left it to review. This is the
---- rule made mechanical, so the class is closed by construction. It
---- gates every project cosmic builds, not just this tree: a caller who
---- has learned `local v, err = f()` may write it at EVERY cosmic call
---- site, including the ones in your own code.
+--- The error must be reachable from `local v, err = ...` and from
+--- `check.must`, so a tuple never carries it in slot 3 or beyond. This
+--- is that rule made mechanical, so the class is closed by
+--- construction. It gates every project cosmic builds, not just this
+--- tree: a caller who has learned `local v, err = f()` may write it at
+--- EVERY cosmic call site, including the ones in your own code.
 ---
 --- What counts as fallible is the declaration itself, never a guess
 --- about the body: slot 1 admits nil (`T | nil`, or `any`, which admits
@@ -19,20 +18,21 @@
 ---
 --- An infallible tuple is untouched: `string.partition` returns
 --- `string, string, string` and no slot of it could be an error, so
---- rule 11 has nothing to say about it. The fix for a flagged
+--- this rule has nothing to say about it. The fix for a flagged
 --- signature is a RECORD — one value carrying the extras, one error
 --- beside it.
 ---
 --- There is no escape hatch, and none is needed. A `cosmo.*` binding's
 --- tuple IS decided in C and cannot be folded — but it is already
 --- declared, once, in the generated `.d.tl` files, which describe C
---- interfaces and which lint exempts by POSITION. Every marker this
---- rule once carried turned out to mark a cosmic-side RESTATEMENT of
---- one of those declarations: a hand-copy that could drift from the
---- binding, and in two cases already had. Name the generated type
---- instead of retyping its shape (`cosmic.re`'s Regex is now
---- `cosmo.re`'s), cast the argument rather than the whole binding, or
---- declare `any...` when the arity genuinely is not yours to know.
+--- interfaces and which lint exempts by POSITION. A signature that
+--- looks like it needs an exemption is usually a cosmic-side
+--- RESTATEMENT of one of those declarations instead: a hand-copy that
+--- can drift from the binding. Name the generated type instead of
+--- retyping its shape (`cosmic.re`'s Regex names `cosmo.re`'s
+--- generated type rather than declaring its own), cast the argument
+--- rather than the whole binding, or declare `any...` when the arity
+--- genuinely is not yours to know.
 ---
 --- Token-exact, via the lexer, so a signature quoted inside a string
 --- or a doc comment never counts. The type grammar parsed here is the
