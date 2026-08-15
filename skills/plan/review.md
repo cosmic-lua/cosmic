@@ -38,6 +38,14 @@ read the issue first, then the PR against it:
    passes 1–4 but fails this one means the ISSUE was mis-specified:
    fix the specification (and file the ready-bar gap), don't wave the
    diff through.
+6. **it is the least thing.** ask of the diff: would a strictly
+   smaller one satisfy the same issue? name the surplus concretely —
+   a helper with one caller, an abstraction with one instance, an
+   option nobody asked for, generality the issue did not demand — and
+   request its removal before merge (goals.md's least-thing promise;
+   G9 is its measured half, this check is the judged half). the same
+   pressure reads the other way: a diff that grew because the ISSUE
+   over-asked is a ready-bar finding, filed like any other.
 
 ## the three verdicts
 

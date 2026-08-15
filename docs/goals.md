@@ -43,6 +43,14 @@ it.
 these are the claims cosmic makes, in priority order. the first is the
 anchor; the others serve it and are served by it.
 
+cutting across all three: every solution is the least thing that holds
+these promises. complexity is where silent bugs live, weight is work
+for every builder, and each module shipped is surface to keep honest —
+so surplus generality, speculative structure, and unpruned surface are
+defects even when they work. the measured half of this pressure is G9;
+the judged half is the reviewer's least-thing check
+(`skills/plan/review.md`).
+
 ### 1. no silent bugs
 
 the anchor promise, at full depth:
@@ -133,6 +141,29 @@ core invariants; the C layer runs under sanitizers in CI.
 - **measured by:** fuzzers exist and run on a cadence; findings become
   regression tests.
 - **win condition:** a release ships only after a clean fuzz window.
+
+### G9 — the least tree that keeps its promises
+
+the least-thing promise, measured. growth is not forbidden — features
+add weight — but it is never free or silent: every increase lands as a
+visible, reviewed baseline change in the diff that causes it, and the
+trend release over release is flat or down for everything not serving
+a promise. the two cadences are deliberate: the public surface
+ratchets per PR (surface changes rarely and deserves per-change
+scrutiny; a baseline file parallel implementers rarely touch), while
+tree size reports per release (line counts change with every PR, and a
+per-PR gate there would put one conflict-prone baseline in every
+diff).
+
+- **measured by:** a per-PR ratchet on the public module surface
+  (committed baseline of public names); a per-release size report
+  (source lines and file count per tree, binary size, AGENTS.md
+  doctrine size) published and compared release over release alongside
+  the perf history (G6's release-asset pattern).
+- **win condition:** the surface ratchet holds; the size report ships
+  with every release with growth named in the diffs that caused it;
+  doctrine size trends down (shared with G3); pruning work is opened
+  from the report's numbers, not from taste.
 
 ### G2 — contained where the platform can enforce it
 
