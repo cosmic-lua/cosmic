@@ -24,10 +24,43 @@ local function remove(path: string): boolean, string
   return true
 end
 
+-- A call may move fewer bytes than asked; big asks keep syscalls few.
+local COPY_CHUNK_BYTES = 0x40000000
+
+--- Drain srcfd into dstfd kernel-side via unix.copy_file_range: bytes
+--- never cross into userspace, so peak memory stays flat no matter the
+--- file size (whilp/cosmopolitan#240). Returns "done" at EOF,
+--- "fallback" when the platform or filesystem refuses the syscall
+--- before any byte moved (ENOSYS, EXDEV, EINVAL, EOPNOTSUPP), or nil
+--- and the error once bytes are in flight and the failure is real.
+--- @param srcfd integer Source file descriptor
+--- @param dstfd integer Destination file descriptor
+--- @return string | nil "done", "fallback", or nil on failure
+--- @return string Error message if failed
+local function kernel_copy(srcfd: integer, dstfd: integer): string | nil, string
+  local moved = false
+  while true do
+    local n, cerr, eno = unix.copy_file_range(srcfd, dstfd, COPY_CHUNK_BYTES)
+    if n then
+      if n == 0 then return "done" end
+      moved = true
+    elseif errno.is_code(eno, "EINTR") then
+      -- retry, matching cosmic.fd's signal-safety posture
+    elseif not moved and (errno.is_code(eno, "ENOSYS") or errno.is_code(eno, "EXDEV")
+      or errno.is_code(eno, "EINVAL") or errno.is_code(eno, "EOPNOTSUPP")) then
+      return "fallback"
+    else
+      return nil, cerr
+    end
+  end
+end
+
 --- Copy a file, preserving its permission bits.
 --- Follows symlinks: copying a symlink copies the target's contents.
 --- The destination is created (or truncated) and receives the source's
---- mode bits. Read and write retry automatically on EINTR, matching
+--- mode bits. Bytes move fd-to-fd inside the kernel where the platform
+--- supports copy_file_range; elsewhere the buffered stream pump takes
+--- over. Read and write retry automatically on EINTR, matching
 --- cosmic.fd's signal-safety posture.
 --- @param src string Path to the source file
 --- @param dst string Path to the destination file
@@ -50,15 +83,21 @@ local function copy(src: string, dst: string): boolean, string
     unix.close(srcfd)
     return false, errstr(derr, "copy: open: " .. dst)
   end
-  -- The pump is cosmic.stream.copy over fd Handles: one buffered-copy
-  -- algorithm for the whole stdlib, EINTR retried inside fd.Handle.
   local sh = cfd.wrap(srcfd)
   local dh = cfd.wrap(dstfd)
-  local copied, pump_err = stream.copy(dh, sh)
+  -- Kernel first; when it declines, the pump is cosmic.stream.copy over
+  -- fd Handles: one buffered-copy algorithm for the whole stdlib, EINTR
+  -- retried inside fd.Handle.
+  local verdict, verr = kernel_copy(srcfd, dstfd)
+  if verdict == "fallback" then
+    local copied, pump_err = stream.copy(dh, sh)
+    verdict = "done"
+    if copied == nil then verdict, verr = nil, tostring(pump_err) end
+  end
   local sok, scerr = sh:close()
   local dok, dcerr = dh:close()
-  if copied == nil then
-    return false, "copy: " .. src .. " -> " .. dst .. ": " .. tostring(pump_err)
+  if verdict == nil then
+    return false, "copy: " .. src .. " -> " .. dst .. ": " .. tostring(verr)
   end
   -- A failed close on the destination is how ENOSPC and write-back
   -- errors surface; reporting success past it hides a truncated copy.
