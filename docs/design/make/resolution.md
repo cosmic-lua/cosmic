@@ -430,15 +430,19 @@ embedded copies; they are now measured against what the graph built.
    compilation is **strict** — which is what makes 4 safe, and what
    makes the closure a cache rather than a semantics.
 
-## Open
+## Settled
 
-- **Does strict apply to the entry script itself?** It does not, and
-  that fell out rather than being chosen: the searcher only sees
-  REQUIRED modules, so a hand-run `cosmic foo.tl` keeps the lax on-ramp
-  `cosmic.teal`'s own doc comment promises. Worth confirming as intent,
-  because the alternative — strict inside a project, lax outside — is a
-  second rule keyed on "which project am I in", the ambiguity
-  `_make/root.tl` refuses to guess about.
+- **Strict does not apply to the entry script, by decision (#840).**
+  The searcher only sees REQUIRED modules, so a hand-run `cosmic
+  foo.tl` keeps the lax on-ramp `cosmic.teal`'s own doc comment
+  promises, even inside a project. The alternative — strict inside a
+  project, lax outside — is a second rule keyed on "which project am I
+  in", the ambiguity `_make/root.tl` refuses to guess about, and it
+  would silently revoke the on-ramp for anyone running a script from a
+  directory that happens to be a project. `cosmic/searcher.tl`'s
+  header carries the same statement where the code lives.
+
+## Open
 - **Where the fence draws the line for `run` and the generator
   pre-pass.** A test already reads `.` and the reasons are written down
   in `_cli/grants.tl`. `run` and the mini-graph inherit that today
