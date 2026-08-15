@@ -86,7 +86,7 @@ local function test_auto_version()
 end
 test_auto_version()
 
--- FIX 13: a spec with NO version string that declares its own --version
+-- A spec with NO version string that declares its own --version
 -- boolean flag must not have that flag mirrored onto parsed.version too
 -- (the doc says parsed.version is set for "specs with a version only").
 local function test_user_declared_version_flag_not_mirrored()
@@ -206,7 +206,7 @@ local function test_command_errors_name_the_commands()
   assert(d2 == nil, "unknown command is an error")
   assert(err2:find("unknown command 'frob'", 1, true), "got: " .. err2)
 
-  -- Errors are unprefixed (#991): a sub-parse failure reports the
+  -- Errors are unprefixed: a sub-parse failure reports the
   -- defect; the caller prints its own context.
   local d3, err3 = flags.command(make_cspec(), {"list", "--bogus"})
   assert(d3 == nil, "unknown sub-option is an error")
@@ -276,7 +276,7 @@ local function test_command_help_renders_overview_and_page()
 end
 test_command_help_renders_overview_and_page()
 
--- #991 surfaces: repeated flags collect in lists, arg_optional flags
+-- Repeated flags collect in lists, arg_optional flags
 -- read as "" when bare, and Dispatched.parsed is never nil.
 
 local function test_repeated_flag_collects_lists()

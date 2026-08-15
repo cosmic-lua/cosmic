@@ -95,7 +95,7 @@ end
 test_int_wide_range()
 
 local function test_int_invalid_args()
-  -- Contract violations throw (D22): a caller error is not a runtime
+  -- Contract violations throw: a caller error is not a runtime
   -- failure, so it does not get a return slot.
   local ok, err = pcall(rand.int, 10, 1)
   assert(not ok, "min > max must throw")

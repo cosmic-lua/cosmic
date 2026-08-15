@@ -16,7 +16,7 @@ local cosmo = require("cosmo")
 local type Category = cosmo.IpCategory
 
 --- Address family. The one value today is "inet"; the module header
---- states where "inet6" (whilp/cosmopolitan#144) arrives.
+--- states where "inet6" arrives.
 local enum Family
   "inet"
 end

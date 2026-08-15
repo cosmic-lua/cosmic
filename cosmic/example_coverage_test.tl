@@ -38,7 +38,7 @@ end
 local PUBLIC = public_names()
 
 -- Shrink only. Never add an entry; delete each one as lands its
--- example. (31 of 46 public modules at ratchet birth.)
+-- example.
 local MISSING_ALLOWED: {string} = {
   "check",
   "codec",

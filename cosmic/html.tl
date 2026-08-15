@@ -20,8 +20,8 @@ local ENTITIES < const >: {string: string} = {
   ["&apos;"] = "'",
 }
 
---- Unescape HTML entities: the inverse of escape() (D20 — a pair
---- ships both halves). Decodes the five entities escape() produces
+--- Unescape HTML entities: the inverse of escape() — a pair ships
+--- both halves. Decodes the five entities escape() produces
 --- (&amp; &lt; &gt; &quot; &#39;) plus their common aliases (&apos;,
 --- &#34;). Unknown entities pass through unchanged; this is not a
 --- general HTML parser.

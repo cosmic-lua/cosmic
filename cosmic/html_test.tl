@@ -35,7 +35,7 @@ local function test_escape_empty_string()
 end
 test_escape_empty_string()
 
--- FIX 7: single quotes must be escaped (important in HTML attribute contexts).
+-- Single quotes must be escaped (important in HTML attribute contexts).
 local function test_escape_single_quote()
   local result = html.escape("'")
   assert(result ~= "'", "single quote must be escaped, got bare '")

@@ -31,7 +31,7 @@ local function Example_errors()
     name = "greet",
     flags = {{long = "count", arg = "N", help = "repeat", required = true}},
   }
-  -- Errors arrive unprefixed (#991): the caller adds its own name.
+  -- Errors arrive unprefixed: the caller adds its own name.
   local _, err = flags.parse(spec, {"--nope"})
   print("greet: " .. err)
   local _, err2 = flags.parse(spec, {})

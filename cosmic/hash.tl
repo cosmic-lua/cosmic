@@ -91,7 +91,7 @@ end
 ---
 --- Infallible: `algo` is the typed enum, so the checker already rejects
 --- every bad value; a value smuggled past it through a cast is a
---- contract violation and throws (D22).
+--- contract violation and throws.
 --- @param algo Algo The digest algorithm
 --- @param data string The data to hash
 --- @return string The digest as raw bytes

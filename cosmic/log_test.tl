@@ -116,7 +116,7 @@ local function test_set_level_rejects_runtime_garbage()
 end
 test_set_level_rejects_runtime_garbage()
 
--- FIX 14: log() itself must not throw "compare nil with number" when a
+-- log() itself must not throw "compare nil with number" when a
 -- runtime string smuggled in through a cast has no entry in severity[].
 local function test_log_rejects_runtime_garbage_level()
   reset("info")
@@ -134,7 +134,7 @@ local function test_format_does_not_emit()
 end
 test_format_does_not_emit()
 
--- The sink contract (#994): every emitted line arrives with its
+-- The sink contract: every emitted line arrives with its
 -- level, so a destination that speaks severities (the syslog sink)
 -- need not re-parse the line.
 local function test_sink_receives_level()
@@ -152,12 +152,11 @@ local function test_sink_receives_level()
 end
 test_sink_receives_level()
 
--- Folded from cosmic.syslog (#994): the sink maps log's four levels
--- onto RFC 5424 wire severities internally, so the falsifiable
--- in-process contract is that every level maps and the write never
--- throws — delivery is unobservable here (containers usually lack
--- /dev/log), and a level that failed to map to its integer would
--- raise inside unix.syslog.
+-- The sink maps log's four levels onto RFC 5424 wire severities
+-- internally, so the falsifiable in-process contract is that every
+-- level maps and the write never throws — delivery is unobservable
+-- here (containers usually lack /dev/log), and a level that failed
+-- to map to its integer would raise inside unix.syslog.
 local function test_syslog_output_accepts_every_level_and_never_throws()
   local levels: {log.Level} = {"debug", "info", "warning", "error"}
   for _, level in ipairs(levels) do

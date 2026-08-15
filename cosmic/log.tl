@@ -3,7 +3,7 @@
 --- levels, a module-wide threshold, and optional key=value fields per
 --- line. Lines go to stderr by default; redirect with set_output (for
 --- tests, or to ship lines elsewhere). To write to the system log
---- daemon instead, install the bundled sink (#994: was cosmic.syslog):
+--- daemon instead, install the bundled sink:
 --- log.set_output(log.syslog_output).
 ---
 --- Example usage:
@@ -86,9 +86,8 @@ local syslog_priority < total >: {Level: integer} = {
   error = unix.LOG_ERR,
 }
 
---- An output sink that writes each line to the system log daemon
---- (#994: was cosmic.syslog). Install with
---- log.set_output(log.syslog_output). The level maps onto the RFC
+--- An output sink that writes each line to the system log daemon.
+--- Install with log.set_output(log.syslog_output). The level maps onto the RFC
 --- 5424 wire severity (debug=7, info=6, warning=4, error=3); delivery
 --- is whatever the host does with syslog(3) — syslogd on Linux and
 --- NetBSD, ReportEvent() on Windows, silently dropped elsewhere. An

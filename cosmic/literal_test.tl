@@ -194,7 +194,7 @@ local function test_a_literal_cannot_be_code()
 end
 test_a_literal_cannot_be_code()
 
--- format is the writer half (#1001): parse(format(v)) is identity on
+-- format is the writer half: parse(format(v)) is identity on
 -- the literal domain, and format's output IS a literal file — prefix,
 -- terminator and all — so what it writes, fetch could read as a pin.
 local function test_format_round_trips_the_literal_domain()
