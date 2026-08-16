@@ -4,7 +4,7 @@
 - **status:** active
 - **context:** goals.md listed seven goals in one flat tier, and three
   structural problems surfaced when the flow system
-  (`skills/plan`) tried to work backwards from them. first, G1 (the
+  (`skills/work`) tried to work backwards from them. first, G1 (the
   agent-eval harness) was load-bearing far beyond its slot: promise 2
   was "observed through agent evals," G2's ergonomics and G4's
   adoption clause were measured "in G1 transcripts" — so half the
@@ -25,7 +25,7 @@
     and the committed order in goals.md is what intake reads. the
     2026-08 tournament: G3 > G6 > G5 > G2, with G4 a bye
     (nearest-to-holding: finish, don't debate) and G7 dormant. the
-    method lives in `skills/plan/decompose.md`; a re-rank is a PR
+    method lives in `skills/work/decompose.md`; a re-rank is a PR
     that re-runs the contested pairs and records the matches.
   - **rivalry leaves the win conditions.** every open-ended bar
     becomes a ratchet against ourselves — no regression, trending the

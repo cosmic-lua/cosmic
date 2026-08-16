@@ -43,7 +43,7 @@ enablement issues that must land first.
 ## enablement issues
 
 an enablement countermeasure that is not trivial becomes its own
-issue, labeled `plan:enable`, held to the SAME ready bar and flowing
+issue, labeled `work:enable`, held to the SAME ready bar and flowing
 through the same board — implementers can and should build the lints
 and fixtures that protect their own future work. the feature slice
 carries `Blocked by: #N` so `next` sequences them correctly. never
