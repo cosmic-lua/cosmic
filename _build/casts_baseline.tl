@@ -39,7 +39,7 @@ return {
   ["_perf/harness_test.tl"] = 3,
   ["_perf/perf_test.tl"] = 2,
   ["_perf/run.tl"] = 3,
-  ["_plan/github.tl"] = 2,
+  ["_plan/github.tl"] = 4,
   ["_tool/benchmark.tl"] = 1,
   ["_tool/coverage/lines.tl"] = 11,
   ["_tool/coverage/report.tl"] = 2,

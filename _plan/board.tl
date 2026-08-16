@@ -3,11 +3,13 @@
 --- skills/plan/ operates. Verbs: status (the board and its WIP
 --- verdict), next (the one action to take, per role), check (ready-bar
 --- lint of an issue), move (column change, WIP-limited), edit (rewrite
---- a title/body in place), init (create the label vocabulary). Every
---- verb ends with a `plan-<verb>:` verdict line; read that, never a
---- piped exit status. WIP limits gate rightward motion and intake
---- only: a return (a leftward move) and a `new --finding` always land,
---- and an over-limit column blocks further pull until it drains.
+--- a title/body in place), init (create the label vocabulary), show
+--- (read an issue's spec and its comments), land (verify a PR then
+--- squash-merge it). Every verb ends with a `plan-<verb>:` verdict
+--- line; read that, never a piped exit status. WIP limits gate
+--- rightward motion and intake only: a return (a leftward move) and a
+--- `new --finding` always land, and an over-limit column blocks
+--- further pull until it drains.
 ---
 ---   cosmic --make run _plan/board.tl status [--repo OWNER/NAME]
 ---   cosmic --make run _plan/board.tl next [--role planner|implementer]
@@ -16,17 +18,21 @@
 ---   cosmic --make run _plan/board.tl new "title" [--body-file F] [--epic]
 ---   cosmic --make run _plan/board.tl new "title" --finding
 ---   cosmic --make run _plan/board.tl edit 123 --body-file F [--title T]
+---   cosmic --make run _plan/board.tl show 123
+---   cosmic --make run _plan/board.tl land 123 124
 ---   cosmic --make run _plan/board.tl init
 ---
 --- Auth is a GITHUB_TOKEN (or GH_TOKEN) env var — no gh CLI involved.
 --- This file is the argument parsing and dispatch half; the verbs
---- themselves are `_plan.verbs`.
+--- themselves are `_plan.verbs` (planner lane) and `_plan.implementer`
+--- (implementer lane).
 
 local flags = require("cosmic.flags")
 local proc = require("cosmic.proc")
 local gh = require("_plan.github")
 local model = require("_plan.model")
 local verbs = require("_plan.verbs")
+local implementer = require("_plan.implementer")
 
 local type Issue = model.Issue
 
@@ -67,6 +73,10 @@ local CSPEC: flags.CommandSpec = {
         flags = {repo_flag(),
           {long = "body-file", arg = "FILE", help = "replacement body markdown"},
           {long = "title", arg = "TITLE", help = "replacement title"}}}},
+    {name = "show", summary = "print ISSUE's title, column, body, and comments",
+      spec = {usage = "ISSUE [options]", flags = {repo_flag()}}},
+    {name = "land", summary = "verify PR closes ISSUE, then squash-merge it",
+      spec = {usage = "ISSUE PR [options]", flags = {repo_flag()}}},
     {name = "init", summary = "create the plan:* labels",
       spec = {flags = {repo_flag()}}},
   },
@@ -145,6 +155,23 @@ local function main(...: string): integer
     return verbs.cmd_new(repo, title, d.parsed.values["body-file"], column,
       d.parsed.switches["epic"], d.parsed.switches["enable"],
       d.parsed.switches["finding"], d.parsed.switches["force"])
+  end
+  if d.command == "show" then
+    local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
+    if n == nil then
+      io.stderr:write("show needs an issue number\n")
+      return 1
+    end
+    return implementer.cmd_show(repo, n)
+  end
+  if d.command == "land" then
+    local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
+    local pr = math.tointeger(tonumber(d.parsed.args[2] or ""))
+    if n == nil or pr == nil then
+      io.stderr:write("land needs an issue number and a PR number\n")
+      return 1
+    end
+    return implementer.cmd_land(repo, n, pr)
   end
   return verbs.cmd_init(repo)
 end

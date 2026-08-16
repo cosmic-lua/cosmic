@@ -32,6 +32,25 @@ local record RawIssue
   pull_request: {string: any}
 end
 
+--- One conversation comment, on an issue or a PR — the REST API uses
+--- the same endpoint and number space for both.
+local record RawComment
+  body: string
+  created_at: string
+  user: RawUser
+end
+
+--- The GitHub pull request fields the implementer lane reads.
+local record RawPull
+  number: integer
+  state: string
+  draft: boolean
+  merged: boolean
+  mergeable_state: string
+  body: string
+  html_url: string
+end
+
 --- One API exchange that got a response: its status and decoded body.
 local record ApiResult
   status: integer
@@ -274,10 +293,63 @@ local function ensure_label(repo: string, name: string, color: string,
   return true, nil
 end
 
+--- The conversation comments on an issue or PR, oldest first.
+--- @param repo string "owner/name"
+--- @param number integer Issue or PR number (same space)
+--- @return {RawComment} | nil The comments
+--- @return string Error message on failure
+local function list_issue_comments(repo: string, number: integer): {RawComment}, string
+  local path = ("/repos/%s/issues/%d/comments"):format(repo, number)
+  local res, err = api("GET", path, nil)
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("GET", path, res)
+  end
+  return res.value as {RawComment} -- cast: from any
+end
+
+--- One pull request, any state.
+--- @param repo string "owner/name"
+--- @param number integer PR number
+--- @return RawPull | nil The pull request
+--- @return string Error message on failure
+local function get_pull(repo: string, number: integer): RawPull, string
+  local path = ("/repos/%s/pulls/%d"):format(repo, number)
+  local res, err = api("GET", path, nil)
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("GET", path, res)
+  end
+  return res.value as RawPull -- cast: from any
+end
+
+--- Squash-merge a pull request.
+--- @param repo string "owner/name"
+--- @param number integer PR number
+--- @return boolean Success
+--- @return string Error message on failure
+local function merge_pull(repo: string, number: integer): boolean, string
+  local path = ("/repos/%s/pulls/%d/merge"):format(repo, number)
+  local res, err = api("PUT", path, {merge_method = "squash"})
+  if res == nil then
+    return false, err
+  end
+  if not is_success(res.status) then
+    return false, api_error("PUT", path, res)
+  end
+  return true, nil
+end
+
 local record github
   type RawIssue = RawIssue
   type RawLabel = RawLabel
   type RawUser = RawUser
+  type RawComment = RawComment
+  type RawPull = RawPull
   only_issues: function(list: {RawIssue}): {RawIssue}
   list_issues: function(repo: string, label: string): {RawIssue}, string
   get_issue: function(repo: string, number: integer): RawIssue, string
@@ -290,6 +362,9 @@ local record github
   add: {string}, remove: {string}): boolean, string
   ensure_label: function(repo: string, name: string, color: string,
   description: string): boolean, string
+  list_issue_comments: function(repo: string, number: integer): {RawComment}, string
+  get_pull: function(repo: string, number: integer): RawPull, string
+  merge_pull: function(repo: string, number: integer): boolean, string
 end
 
 local M: github = {
@@ -301,6 +376,9 @@ local M: github = {
   update_issue = update_issue,
   edit_labels = edit_labels,
   ensure_label = ensure_label,
+  list_issue_comments = list_issue_comments,
+  get_pull = get_pull,
+  merge_pull = merge_pull,
 }
 
 return M
