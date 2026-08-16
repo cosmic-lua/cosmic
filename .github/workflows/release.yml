@@ -164,28 +164,21 @@ jobs:
             o/bin/cosmic --make run _build/size.tl --out o/perf/size.json --binary o/bin/cosmic'
 
       # Same bootstrap shape as the perf baseline fetch above, over the
-      # `size.json` asset: the newest non-draft release that carries one
-      # is the baseline, SKIP when none does (a repo's first measured
-      # release). `gh` is not part of this container's image either (see
-      # the comment on this job above), hence the install; its embedded
-      # jq is enough to pick the release with no extra JSON tooling.
+      # `size.json` asset: baseline.tl's own --asset flag picks it, so
+      # this needs no extra tooling — the same cosmic.fetch-based lister
+      # that finds perf.json finds size.json.
       - name: compare tree size against the previous release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eux
-          apt-get update -y
-          apt-get install -y --no-install-recommends gh
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" bash -c '
-            mkdir -p o/perf/prev
-            tag=$(gh api "repos/${{ github.repository }}/releases?per_page=30" \
-              --jq "[.[] | select(.draft==false) | select(.assets[]?.name==\"size.json\")] | sort_by(.created_at) | last | .tag_name")
-            if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            o/bin/cosmic --make run _perf/baseline.tl --repo ${{ github.repository }} \
+              --asset size.json --out o/perf/prev/size.json | tee o/perf/size_baseline.txt
+            if grep -q "^perf-baseline: SKIP" o/perf/size_baseline.txt; then
               echo "size: SKIP (no baseline: first measured release)" > o/perf/size_compare.txt
             else
-              gh release download "$tag" --repo ${{ github.repository }} \
-                --pattern size.json --dir o/perf/prev --clobber
               o/bin/cosmic --make run _build/size.tl compare \
                 o/perf/prev/size.json o/perf/size.json | tee o/perf/size_compare.txt
             fi
