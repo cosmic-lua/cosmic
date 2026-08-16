@@ -152,14 +152,11 @@ if sub then
 end
 ```
 
-(`is` narrowing also does not survive an early-exit guard — `if not (x
-is Rec) then return end` does not narrow below it; write the plain
-truthiness form instead. and a guard whose block ends in `error(...)`
-rather than `return` does not narrow below itself either — the checker
-cannot see that the block is terminal; use `assert` there.) the errors
-these shapes produce name the
-un-narrowed type but not the cause: `cannot index key 'x' in ... of
-type Inner | nil`. the full pattern set is in
+(an early-exit guard whose block ends in `error(...)` rather than
+`return` does not narrow below itself — the checker cannot see that
+the block is terminal; use `assert` there.) the errors these shapes
+produce name the un-narrowed type but not the cause: `cannot index key
+'x' in ... of type Inner | nil`. the full pattern set is in
 `cosmic --docs guide.checking`.
 
 ## exported-record-types

@@ -55,9 +55,8 @@ end
 -- Example_sink demonstrates a sink over `string | errors.Failure` —
 -- the supertype this module carries, and the only way one signature
 -- accepts every module's error: narrow the string arm with `is string`
--- (an if/else, not an early-exit guard — `is` narrowing does not
--- survive those), and the else arm renders the structured error via
--- its __tostring.
+-- (an if/else here; `is` narrows the guarded variable), and the else
+-- arm renders the structured error via its __tostring.
 local function Example_sink()
   local errors = require("cosmic.errors")
   local fetch = require("cosmic.fetch")

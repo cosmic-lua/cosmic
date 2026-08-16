@@ -173,13 +173,11 @@ end
 a record whose runtime values are userdata needs Teal's `userdata` member
 in its own source (see `re.tl`'s Regex) — then `is` compiles to a
 `type() == "userdata"` test everywhere; `fs.Stat` declares it, so
-`st is fs.Stat` narrows. caveats: `is` narrowing does not
-survive an early-exit guard (`if not (x is Rec) then return end` does not
-narrow below it — unlike the plain truthiness guard, which does), and
-`is` with a required `cosmo.*` class relies on the cosmic searcher
-resolving the `.d.tl` marker — the one unsupported path is user code
-calling `require("tl").loader()`, which shadows the cosmic searcher
-with tl's silent one. in linear code, use `as` to cast when you know
+`st is fs.Stat` narrows. caveat: `is` with a required `cosmo.*` class
+relies on the cosmic searcher resolving the `.d.tl` marker — the one
+unsupported path is user code calling `require("tl").loader()`, which
+shadows the cosmic searcher with tl's silent one. in linear code, use
+`as` to cast when you know
 more than the type checker:
 
 ```teal

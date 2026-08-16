@@ -176,7 +176,7 @@ patch makes `assert` narrow as an EXPRESSION, so `local db =
 assert(sqlite.open(p))` is a plain `Database` — the primitive a Lua programmer
 reaches for works, with no cosmic-specific combinator in the way. What
 still does NOT narrow: record FIELDS (copy the field to a local and guard the
-local) and `is` early-exit guards (`if not (x is Rec) then return end`). The other tools:
+local). The other tools:
 
 - **In tests and examples, use `check.must`** for fallible returns: `local db =
   check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua
@@ -191,9 +191,7 @@ local) and `is` early-exit guards (`if not (x is Rec) then return end`). The oth
   dispatch over `any` (`if v is {string: any} then`). A record whose runtime
   values are userdata needs Teal's `userdata` member in its OWN source (see
   re.tl's Regex) — then `is` compiles to a `type(x) == "userdata"` test
-  everywhere (`fs.Stat` is one, so `st is fs.Stat` narrows). Caveat: `is`
-  narrowing does NOT survive an early-exit guard (`if not (x is Rec) then return
-  end` does not narrow below — unlike the plain truthiness guard). `is` works
+  everywhere (`fs.Stat` is one, so `st is fs.Stat` narrows). `is` works
   with required `cosmo.*` classes too — the cosmic searcher is the only loader
   cosmic installs, and it resolves `.d.tl` markers. The one unsupported path is
   user code calling `require("tl").loader()`, which shadows it with tl's silent one.
