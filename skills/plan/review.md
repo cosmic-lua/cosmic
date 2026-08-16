@@ -54,12 +54,14 @@ read the issue first, then the PR against it:
 ## the three verdicts
 
 - **accept.** the PR is ready to land: say so ON THE PR — a comment
-  naming what was verified and ending in the verdict — and leave the
-  merge to the goal owner. the planner judges; the owner lands. the
-  `Closes #N` closes the issue when it merges; if that completes the
-  epic's checklist, verify the epic's stated outcome actually holds
-  (run its observable test, not the children's) and close the epic
-  too.
+  naming what was verified and ending in the verdict — then `move N
+  doing`. landing is implementer-lane work: the finish-first rule
+  makes an accepted PR the first thing the next implementer session
+  picks up, and it squash-merges (the `Closes #N` closes the issue).
+  the planner judges; the implementer lands. when a landing closes an
+  epic's last child, the next planner pass verifies the epic's stated
+  outcome actually holds (run its observable test, not the
+  children's) and closes the epic.
 - **request changes.** concrete, quoted gaps on the PR, then `move N
   doing` — rework rejoins the implementer queue, where `next`'s
   finish-before-pull rule makes it the first thing an implementer
@@ -86,18 +88,20 @@ being reviewed.
 
 ## landings invalidate the queue
 
-every landing rewrites main, so an accept is not the end of the
-queue: any other PR in `plan:review` that regenerates the same
-committed baseline (`.cosmic-coverage`, a ratchet floor) now
-conflicts on its derived lines even when the real diffs are
-disjoint. after each landing, re-check the mergeability of what
-remains. a PR whose ONLY conflict is a regenerated file is rework,
-not a defect: request changes quoting exactly the recovery — merge
-main, run the regen command the gate prints, commit, re-confirm the
-gate — and expect the round to repeat if another PR lands first.
-the same conflict appearing on a second PR is enablement evidence
-under the feedback half below: file the countermeasure that deletes
-the contended line, rather than paying the tax once per PR.
+every landing rewrites main, so any other PR — accepted or still in
+review — that regenerates the same committed baseline
+(`.cosmic-coverage`, a ratchet floor) now conflicts on its derived
+lines even when the real diffs are disjoint. the recovery is
+mechanical and belongs to the implementer lane AT LANDING TIME:
+merge main, run the regen command the gate prints, commit, re-run
+the gate, land. no fresh verdict is needed when the ONLY conflict is
+a regenerated file — the reviewed diff did not change. anything
+beyond that (a source-line conflict, a gate that stays red after the
+regen) is not a landing anymore: `move N review` with the conflict
+described, and the planner re-judges. the same regenerated-file
+conflict appearing on a second PR is enablement evidence under the
+feedback half below: file the countermeasure that deletes the
+contended line, rather than paying the tax once per landing.
 
 ## the feedback half — never skip it
 

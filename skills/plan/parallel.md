@@ -115,9 +115,10 @@ not carry:
 - the commit trailers and the PR attribution footer;
 - a DRAFT PR referencing `Closes #N`, then `move N review` and the PR
   link commented on the issue;
-- **do not merge** — the verdict is a planner's job and the merge is
-  the goal owner's, and an agent with a green PR will otherwise
-  finish the job it thinks it has.
+- **do not merge** — a PR lands only after a planner accept, in a
+  later implementer pass; an agent with a green PR will otherwise
+  finish the job it thinks it has. the brief's loop ends at
+  `move N review`.
 
 carry the bounce rule verbatim (`SKILL.md`, "when the issue
 under-specifies"): comment naming exactly what is missing, `move N
