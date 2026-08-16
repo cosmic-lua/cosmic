@@ -117,7 +117,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     if is_tl and types.fmt_kinds[f.kind] then
       fmt_sources[#fmt_sources + 1] = f.path
     end
-    if project.compiled_kinds[f.kind] then
+    if types.compiled_kinds[f.kind] then
       if is_tl then
         tl_sources[#tl_sources + 1] = f.path
       else
@@ -154,7 +154,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     -- instead, which no rule expands: an EMPTY closure, never rebuilt,
     -- fenced away from its own imports.
     local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
-    if project.compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
+    if types.compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
       local spaths = deps.source_paths(deps.closure(proj, f, by_import))
       dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem, spaths)
       groups.add(gacc, f.path, stem, spaths)
@@ -164,7 +164,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     -- imports must be built before it and is exactly what its fence may
     -- read. The model already says so — a rule cannot ask for a closure
     -- nobody emitted, and `cosmic.mk` asks for all three.
-    if project.runs_against_the_stage[f.kind] then
+    if types.runs_against_the_stage[f.kind] then
       -- Declared reads (`--- reads: <path>`) join the closure: one
       -- declaration is prerequisite, content key, and fence grant.
       local built = deps.built_paths(deps.closure(proj, f, by_import))

@@ -93,7 +93,7 @@ end
 --- @return boolean, string Success, or false plus the error
 local function write_all(proj: Project): boolean, string
   for _, f in ipairs(proj.files) do
-    if project.runs_against_the_stage[f.kind] then
+    if types.runs_against_the_stage[f.kind] then
       local names, err = imports.env_of_file(proj.root, f.path)
       if not names then
         return false, "make: " .. (err or "bad env declaration")
