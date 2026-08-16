@@ -33,18 +33,15 @@ local BUILD_DIR < const > = "o"
 
 --- The reserved STEM of a unit's PAYLOAD generator: the one `*_gen`
 --- that is scoped to a binary rather than to its own subtree, and that
---- runs at the END of a build rather than before it. Both spellings,
---- like every other marker.
---- Named here because the model, the artifact staging, and the
---- validator all have to agree about it.
+--- runs at the END of a build rather than before it (both spellings,
+--- like every other marker). Named here because the model, the
+--- artifact staging, and the validator all have to agree about it.
 local PAYLOAD_GEN < const > = "embed_gen"
 
 --- The root unit: the project itself, rather than a `cmd/<name>/`
---- subtree. It is spelled as the empty string because a unit IS a
---- directory relative to the root, and the root's own relative path is
---- empty -- but the empty string is not self-describing at a call site,
---- and every place that read it re-derived the same consequences
---- inline. Named once, with `out_dir` for the derivation that recurred.
+--- subtree. Spelled as the empty string because a unit IS a directory
+--- relative to the root, and the root's own relative path is empty --
+--- named once, with `out_dir` for the derivation that recurred.
 local ROOT < const > = ""
 
 --- A unit's output directory, relative to the project root.
@@ -68,14 +65,10 @@ local function unit_label(unit: string): string
 end
 
 --- The payload directory: its contents map to the artifact root, which
---- is how a project ships a file the one layout rule cannot place.
----
---- It is scoped to a unit, not to the project: `embed/` at the root is
+--- is how a project ships a file the one layout rule cannot place. It
+--- is scoped to a unit, not to the project: `embed/` at the root is
 --- every binary's payload the way a root package is every binary's
---- module, and `cmd/<name>/embed/` is that binary's alone. Nothing new
---- enforces that — it is the scope rule the artifact already applies to
---- `cmd/<name>/**`, which is why one binary can carry a toolchain while
---- its sibling stays lean.
+--- module, and `cmd/<name>/embed/` is that binary's alone.
 local PAYLOAD_DIR < const > = "embed"
 
 --- Is this path inside some unit's payload directory?
@@ -423,9 +416,10 @@ local function paths_of(files: {File}): {string}
   return out
 end
 
---- Kinds compiled into `o/` — mirrors `graph.tl`'s own `compiled_kinds`,
---- duplicated rather than shared: this function's only caller reaches
---- it FROM `graph.tl`, so the reverse edge would be a cycle.
+--- Kinds compiled into `o/`, and kinds whose targets RUN against the
+--- compiled tree (built before them, and the whole of what their fence
+--- may read). Single-sourced here: `graph.tl` and `envstamp.tl` both
+--- already require this module, so neither needs its own copy.
 local compiled_kinds < const >: {Kind: boolean} = {
   module = true,
   entry = true,
@@ -434,12 +428,12 @@ local compiled_kinds < const >: {Kind: boolean} = {
   benchmark = true,
   gen = true,
 }
+local runs_against_the_stage < const >: {Kind: boolean} =
+{test = true, example = true, benchmark = true}
 
---- The distinct directories holding compiled sources, sorted.
----
---- What a coverage report needs to see a module NO test loaded: the
---- collected data names only files that ran, so a module with no test
---- at all is invisible without a directory to scan.
+--- The distinct directories holding compiled sources, sorted — what a
+--- coverage report needs to see a module NO test loaded: the collected
+--- data names only files that ran.
 --- @param proj Project The scanned project
 --- @return {string} Directory paths relative to the root
 local function source_dirs(proj: Project): {string}
@@ -477,6 +471,8 @@ local record ProjectModule
   segments: function(rel: string): {string}
   paths_of: function(files: {File}): {string}
   source_dirs: function(proj: Project): {string}
+  compiled_kinds: {Kind: boolean}
+  runs_against_the_stage: {Kind: boolean}
 end
 
 local M: ProjectModule = {
@@ -495,6 +491,8 @@ local M: ProjectModule = {
   segments = segments,
   paths_of = paths_of,
   source_dirs = source_dirs,
+  compiled_kinds = compiled_kinds,
+  runs_against_the_stage = runs_against_the_stage,
 }
 
 return M

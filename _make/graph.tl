@@ -27,7 +27,6 @@ local stamp = require("_make.stamp")
 local testrun = require("_make.testrun")
 local types = require("_make.types")
 
-local type Kind = types.Kind
 local type Project = types.Project
 
 --- Where the constant rules live inside the binary.
@@ -43,32 +42,6 @@ local MAKE_ENV < const > = "COSMIC_MAKE"
 
 --- Environment override for the job count.
 local JOBS_ENV < const > = "COSMIC_JOBS"
-
---- Kinds whose `.tl` sources compile into `$(O)`.
---- The kinds whose files are compiled into `o/`.
----
---- The facts writer below lists them for the compile rules.
---- `project.source_dirs` (which a coverage report scans for files no
---- test ever loaded) asks the same question over its own copy of this
---- set — it is a pure walk over `Project` and lives in `project.tl`
---- now, one file this module cannot reach without a cycle.
-local compiled_kinds < const >: {Kind: boolean} = {
-  module = true,
-  entry = true,
-  test = true,
-  example = true,
-  benchmark = true,
-  gen = true,
-}
-
---- Kinds whose targets RUN against the compiled tree, so each needs the
---- BUILT closure of what it imports: built before it, and the whole of
---- what its fence may read.
-local runs_against_the_stage < const >: {Kind: boolean} = {
-  test = true,
-  example = true,
-  benchmark = true,
-}
 
 --- Write `path` only when the bytes differ, so a no-op run does not
 --- touch an mtime the graph schedules on.
@@ -144,7 +117,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     if is_tl and types.fmt_kinds[f.kind] then
       fmt_sources[#fmt_sources + 1] = f.path
     end
-    if compiled_kinds[f.kind] then
+    if project.compiled_kinds[f.kind] then
       if is_tl then
         tl_sources[#tl_sources + 1] = f.path
       else
@@ -181,7 +154,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     -- instead, which no rule expands: an EMPTY closure, never rebuilt,
     -- fenced away from its own imports.
     local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
-    if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
+    if project.compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
       local spaths = deps.source_paths(deps.closure(proj, f, by_import))
       dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem, spaths)
       groups.add(gacc, f.path, stem, spaths)
@@ -191,7 +164,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     -- imports must be built before it and is exactly what its fence may
     -- read. The model already says so — a rule cannot ask for a closure
     -- nobody emitted, and `cosmic.mk` asks for all three.
-    if runs_against_the_stage[f.kind] then
+    if project.runs_against_the_stage[f.kind] then
       -- Declared reads (`--- reads: <path>`) join the closure: one
       -- declaration is prerequisite, content key, and fence grant.
       local built = deps.built_paths(deps.closure(proj, f, by_import))

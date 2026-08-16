@@ -25,16 +25,6 @@ local types = require("_make.types")
 
 local type Project = types.Project
 
---- Kinds that run against the compiled tree — mirrors `graph.tl`'s
---- `runs_against_the_stage` set. Duplicated rather than imported: this
---- module is called FROM `graph.tl`'s `materialize`, so the reverse
---- edge would be a cycle.
-local RUNS_AGAINST_THE_STAGE < const >: {string: boolean} = {
-  test = true,
-  example = true,
-  benchmark = true,
-}
-
 --- A stamp's path, relative to the project root. Dot-prefixed for the
 --- same reason `o/.stamp/` and `o/.coverage/` are: the source-tree
 --- mirror under `o/` maps `o/<path>` to the source at `<path>`, and a
@@ -103,7 +93,7 @@ end
 --- @return boolean, string Success, or false plus the error
 local function write_all(proj: Project): boolean, string
   for _, f in ipairs(proj.files) do
-    if RUNS_AGAINST_THE_STAGE[f.kind] then
+    if project.runs_against_the_stage[f.kind] then
       local names, err = imports.env_of_file(proj.root, f.path)
       if not names then
         return false, "make: " .. (err or "bad env declaration")
