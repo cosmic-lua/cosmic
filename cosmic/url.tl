@@ -168,9 +168,34 @@ local function parse(url: string): Url | nil, string
   }
 end
 
+--- Escape every leading slash in `s` past the first as `%2F`, leaving
+--- the rest of the string untouched. A path with no authority in front
+--- of it may not begin `//` in the output — that would re-read as a
+--- protocol-relative reference — so the extra leading slashes leave
+--- escaped; the first slash (the path marker itself) stays literal.
+--- @param s string The path-and-beyond portion of a formatted URL
+--- @return string The same string with its extra leading slashes escaped
+local function escape_leading_slashes(s: string): string
+  local i = 1
+  while s:sub(i, i) == "/" do
+    i = i + 1
+  end
+  local leading = i - 1
+  local extra = leading - 1 -- slashes past the first, which stays literal
+  if extra < 1 then
+    return s
+  end
+  return "/" .. string.rep("%2F", extra) .. s:sub(i)
+end
+
 --- Format a Url back into a string — the inverse of `parse`.
 --- Each component is escaped for its position, so a parse/format round
---- trip yields an equivalent URL.
+--- trip yields an equivalent URL. A path may not begin `//` in the
+--- output unless an authority (a host, even an empty one) precedes it —
+--- otherwise the leading slashes would re-read as a protocol-relative
+--- reference and the first path segment would become the host — so
+--- when there is no host, extra leading slashes past the first are
+--- escaped for their position (`//x` becomes `/%2Fx`).
 --- @param u Url The URL components to format
 --- @return string The formatted URL
 local function format(u: Url): string
@@ -178,7 +203,7 @@ local function format(u: Url): string
   if u.query then
     params = cosmo.ParseParams(u.query) as {{string}} -- cast: from any
   end
-  return cosmo.EncodeUrl({
+  local out = cosmo.EncodeUrl({
       scheme = u.scheme,
       user = u.user,
       pass = u.pass,
@@ -188,6 +213,16 @@ local function format(u: Url): string
       params = params,
       fragment = u.fragment,
     })
+
+  if u.host == nil and u.path and u.path:sub(1, 2) == "//" then
+    local prefix_end = 0
+    if u.scheme then
+      prefix_end = out:find(":", 1, true) or 0
+    end
+    out = out:sub(1, prefix_end) .. escape_leading_slashes(out:sub(prefix_end + 1))
+  end
+
+  return out
 end
 
 --- A parsed host:port pair; port is nil when the input carried none.
