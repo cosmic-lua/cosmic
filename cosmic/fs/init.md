@@ -80,6 +80,9 @@ local record FsModule
   is_accessible: function(path: string, mode: integer): boolean
   --  Set permission bits.
   set_mode: function(path: string, mode: integer): boolean, string
+  --  Parse octal digits ("755") into the integer a mode argument wants.
+  --  Infallible: anything not matching `^[0-7]+$` yields 0.
+  octal: function(digits: string): integer
   --  Set the file mode creation mask, returning the previous one.
   set_umask: function(mask: integer): integer
   --  Set owner and group.
