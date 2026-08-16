@@ -1,8 +1,10 @@
 --- Coverage ratchet: compare a coverage run against a committed baseline.
 ---
 --- The baseline (`.cosmic-coverage` at the project root) records covered/total
---- line counts per file plus a total row. The check fails when any
---- file's percentage drops more than a small tolerance below its
+--- line counts per file, and nothing else: the whole-tree total is
+--- summed from those rows rather than written, so two changes touching
+--- disjoint files do not collide on a shared line. The check fails when
+--- any file's percentage drops more than a small tolerance below its
 --- baseline, when the total percentage declines, or when the file set
 --- drifts (a new file missing from the baseline, or a stale baseline
 --- entry) — the ratchet only moves up. `cosmic --make coverage` runs the
@@ -47,7 +49,12 @@ local function pct(covered: integer, total: integer): number
 end
 
 --- Render reports as baseline text: one "path covered total" row per
---- file plus a final "total" row, sorted, diff-friendly.
+--- file, sorted, diff-friendly.
+---
+--- No whole-tree total row is written. Every regeneration would rewrite
+--- it, so it is the one line any two concurrent changes both touch even
+--- when their per-file rows are disjoint. `compare` sums the rows
+--- instead: the same number, with nothing left to collide on.
 ---
 --- `floor` is the baseline being replaced, and it makes the rewrite
 --- **one-way: a row is only ever lowered.** A file this run measures
@@ -70,29 +77,27 @@ local function render(reports: {FileReport}, floor?: {string: Entry}): string
     "# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.",
     "# columns: path covered-lines total-lines",
   }
-  local covered_sum = 0
-  local total_sum = 0
   for _, r in ipairs(reports) do
     local covered, total = r.covered, r.total
     local was = floor and floor[r.display]
     if was and pct(covered, total) > pct(was.covered, was.total) then
       covered, total = was.covered, was.total
     end
-    covered_sum = covered_sum + covered
-    total_sum = total_sum + total
     out[#out + 1] = string.format("%s %d %d", r.display, covered, total)
   end
-  out[#out + 1] = string.format("total %d %d", covered_sum, total_sum)
   return table.concat(out, "\n") .. "\n"
 end
 
---- A parsed baseline: the per-file rows and the total row, in one
---- record so the error keeps slot 2 — a fallible return has exactly
---- two slots, the value and the error.
+--- A parsed baseline: the per-file rows and a total row if the text
+--- carried one, in one record so the error keeps slot 2 — a fallible
+--- return has exactly two slots, the value and the error.
 local record Baseline
   --- Entries by path.
   rows: {string: Entry}
-  --- The total row; nil when the text carried none.
+  --- A "total" row, tolerated for compatibility with baselines written
+  --- before the row went away and no longer read by anything: the
+  --- whole-tree total is summed from `rows`. Nil when the text carried
+  --- no such row, which is what a freshly rendered baseline has.
   total: Entry
 end
 
@@ -126,15 +131,20 @@ local function parse(text: string): Baseline | nil, string
 end
 
 --- Compare current results against a parsed baseline.
+---
+--- The whole-tree total is summed from `entries` rather than read from
+--- a row: the baseline records per-file rows only, and the sum of them
+--- is the same number without the line every regeneration rewrites.
 --- @param reports {FileReport} Sorted results from report.compute
 --- @param entries {string: Entry} Baseline rows by path
---- @param total Entry|nil Baseline total row
 --- @return {string} Violations (empty when the ratchet holds)
-local function compare(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
+local function compare(reports: {FileReport}, entries: {string: Entry}): {string}
   local problems: {string} = {}
   local seen: {string: boolean} = {}
   local covered_sum = 0
   local total_sum = 0
+  local base_covered_sum = 0
+  local base_total_sum = 0
   for _, r in ipairs(reports) do
     seen[r.display] = true
     covered_sum = covered_sum + r.covered
@@ -155,21 +165,21 @@ local function compare(reports: {FileReport}, entries: {string: Entry}, total: E
       end
     end
   end
-  for path in pairs(entries) do
+  for path, base in pairs(entries) do
+    base_covered_sum = base_covered_sum + base.covered
+    base_total_sum = base_total_sum + base.total
     if not seen[path] then
       problems[#problems + 1] = string.format(
         "%s: stale baseline entry (file removed? run 'cosmic --make coverage --baseline' and commit)",
         path)
     end
   end
-  if total then
-    local have = pct(covered_sum, total_sum)
-    local want = pct(total.covered, total.total)
-    if have < want - total_tolerance_pp then
-      problems[#problems + 1] = string.format(
-        "total: coverage declined %.1f%% -> %.1f%% (%d/%d, baseline %d/%d)",
-        want, have, covered_sum, total_sum, total.covered, total.total)
-    end
+  local have = pct(covered_sum, total_sum)
+  local want = pct(base_covered_sum, base_total_sum)
+  if have < want - total_tolerance_pp then
+    problems[#problems + 1] = string.format(
+      "total: coverage declined %.1f%% -> %.1f%% (%d/%d, baseline %d/%d)",
+      want, have, covered_sum, total_sum, base_covered_sum, base_total_sum)
   end
   table.sort(problems)
   return problems
@@ -195,7 +205,7 @@ local function check(baseline_path: string, paths: {string}): integer
     io.stderr:write("coverage ratchet: " .. (perr or "malformed baseline") .. "\n")
     return 1
   end
-  local problems = compare(reports, parsed.rows, parsed.total)
+  local problems = compare(reports, parsed.rows)
   if #problems > 0 then
     local names: {string} = {}
     for _, p in ipairs(problems) do
@@ -322,7 +332,7 @@ local record BaselineModule
   type Baseline = Baseline
   render: function(reports: {FileReport}, floor?: {string: Entry}): string
   parse: function(text: string): Baseline | nil, string
-  compare: function(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
+  compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string
   lowered: function(before: string, after: string): {string}

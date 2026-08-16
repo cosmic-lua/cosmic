@@ -29,10 +29,22 @@ local function test_render_parse_roundtrip()
   local e = b.rows
   assert(e["lib/a.tl"].covered == 9 and e["lib/a.tl"].total == 10, "row a lost")
   assert(e["lib/b.tl"].covered == 0 and e["lib/b.tl"].total == 5, "row b lost")
-  assert(b.total and b.total.covered == 9 and b.total.total == 15,
-    "total row wrong")
+  -- The whole-tree total is DERIVED from the rows above, never written:
+  -- a committed total row is rewritten by every regeneration, so two
+  -- PRs with disjoint per-file rows still conflict on that one line.
+  assert(not text:find("\ntotal ", 1, true), "no total row is written:\n" .. text)
+  assert(b.total == nil, "and none is parsed back")
 end
 test_render_parse_roundtrip()
+
+-- A baseline still CARRYING a total row parses, so a branch cut before
+-- the row went away keeps working; the row is simply not read.
+local function test_parse_tolerates_a_legacy_total_row()
+  local b = check.must(baseline.parse("# h\n# c\nlib/a.tl 9 10\ntotal 9 10\n"))
+  assert(b.rows["lib/a.tl"].covered == 9, "per-file row lost")
+  assert(b.total and b.total.covered == 9, "legacy total row must still parse")
+end
+test_parse_tolerates_a_legacy_total_row()
 
 local function test_parse_rejects_garbage()
   local entries, err = baseline.parse("lib/a.tl nine ten\n")
@@ -46,7 +58,7 @@ local function violations(current: {{string, integer, integer}},
     base: {{string, integer, integer}}): {string}
   local text = baseline.render(reports(base))
   local parsed = check.must(baseline.parse(text))
-  return baseline.compare(reports(current), parsed.rows, parsed.total)
+  return baseline.compare(reports(current), parsed.rows)
 end
 
 local function test_holds_when_unchanged_or_improved()
@@ -96,8 +108,11 @@ end
 test_fails_on_file_set_drift()
 
 local function test_total_ratchet_catches_masked_decline()
-  -- both files stay inside per-file slack, but the sum drops enough
-  -- that the total row still catches it
+  -- Both files stay inside per-file slack, but the sum drops enough
+  -- that the whole-tree ratchet still catches it. The baseline carries
+  -- no total row, so this is the proof the DERIVED total gates exactly
+  -- as strictly as a written one: nothing but the per-file rows above
+  -- supplies the 4000/4000 it compares against.
   local base: {{string, integer, integer}} = {}
   local current: {{string, integer, integer}} = {}
   for i = 1, 20 do
@@ -108,6 +123,8 @@ local function test_total_ratchet_catches_masked_decline()
   assert(#probs == 1 and probs[1]:find("^total"),
     "total ratchet should catch distributed decline, got " ..
     #probs .. ": " .. tostring(probs[1]))
+  assert(probs[1]:find("100.0% -> 99.0% (3960/4000, baseline 4000/4000)", 1, true),
+    "the message reports the summed baseline, got: " .. probs[1])
 end
 test_total_ratchet_catches_masked_decline()
 
@@ -210,8 +227,7 @@ local function test_render_never_raises_a_committed_floor()
   assert(text:find("\nworse.tl 5 10\n", 1, true), "got:\n" .. text)
   assert(text:find("\ngrown.tl 8 10\n", 1, true), "got:\n" .. text)
   assert(text:find("\nnew.tl 3 4\n", 1, true), "got:\n" .. text)
-  -- the total sums the rows actually written, not the measurements
-  assert(text:find("\ntotal 20 34\n", 1, true), "got:\n" .. text)
+  assert(not text:find("\ntotal ", 1, true), "and no total row:\n" .. text)
 end
 test_render_never_raises_a_committed_floor()
 
