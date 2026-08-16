@@ -188,7 +188,12 @@ function format(u: Url): string
 
  Format a Url back into a string — the inverse of `parse`.
  Each component is escaped for its position, so a parse/format round
- trip yields an equivalent URL.
+ trip yields an equivalent URL. A path may not begin `//` in the
+ output unless an authority (a host, even an empty one) precedes it —
+ otherwise the leading slashes would re-read as a protocol-relative
+ reference and the first path segment would become the host — so
+ when there is no host, extra leading slashes past the first are
+ escaped for their position (`//x` becomes `/%2Fx`).
 
 **Parameters:**
 
