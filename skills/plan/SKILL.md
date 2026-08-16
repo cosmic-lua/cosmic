@@ -68,6 +68,7 @@ bin/cosmic --make run _plan/board.tl move 123 ready      # column change, WIP-li
 bin/cosmic --make run _plan/board.tl new "title" --epic  # open a board issue
 bin/cosmic --make run _plan/board.tl new "title" --finding  # file evidence; lands at the limit
 bin/cosmic --make run _plan/board.tl edit 123 --body-file F  # rewrite an issue body in place
+bin/cosmic --make run _plan/board.tl stats --days 7       # measure per-column flow (the review's numbers)
 bin/cosmic --make run _plan/board.tl init                # create the labels (once per repo)
 ```
 
