@@ -52,3 +52,92 @@ print(f(true))
     "boolean | nil must not narrow to nil in the negated branch")
 end
 test_boolean_union_is_not_truthiness_narrowed()
+
+-- Control: with no guard at all, `any` must not satisfy a typed
+-- parameter. Without this, test_early_exit_is_guard_narrows below would
+-- still pass if `any` were freely assignable, and would pin nothing.
+local function test_bare_any_does_not_satisfy_a_typed_parameter()
+  local path = fs.join(tmpdir, "narrow_bare_any.tl")
+  assert(fs.write(path, [[
+local function take_string(s: string): string
+  return s
+end
+local function f(v: any)
+  take_string(v)
+end
+f("hi")
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok,
+    "an unguarded `any` must not satisfy a typed parameter")
+end
+test_bare_any_does_not_satisfy_a_typed_parameter()
+
+-- `is` narrowing of a plain variable DOES survive a return-terminated
+-- early-exit guard, for a primitive, a record, and an array type. This
+-- pins the correction to AGENTS.md and the guides: the false caveat
+-- ("early-exit guards don't narrow") pushed writers toward needless
+-- `as` casts at exactly the sites the epic's cast waves are removing.
+local function test_early_exit_is_guard_narrows()
+  local path = fs.join(tmpdir, "narrow_early_exit.tl")
+  assert(fs.write(path, [[
+local record Rec
+  x: integer
+end
+local function take_string(s: string): string
+  return s
+end
+local function take_rec(r: Rec): integer
+  return r.x
+end
+local function take_array(a: {string}): integer
+  return #a
+end
+local function f_string(v: any)
+  if not (v is string) then return end
+  take_string(v)
+end
+local function f_rec(v: any)
+  if not (v is Rec) then return end
+  take_rec(v)
+end
+local function f_array(v: any)
+  if not (v is {string}) then return end
+  take_array(v)
+end
+f_string("hi")
+f_rec({x = 1})
+f_array({"a"})
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "an `is` guard ending in return must narrow the variable below it: "
+    .. table.concat(msgs, "; "))
+end
+test_early_exit_is_guard_narrows()
+
+-- The caveat that IS true: a guard whose block ends in `error(...)`
+-- rather than `return` does not narrow below itself — the checker
+-- cannot see that the block is terminal. Pinned so a future patch
+-- cannot quietly flip this back.
+local function test_error_terminated_guard_does_not_narrow()
+  local path = fs.join(tmpdir, "narrow_error_terminated.tl")
+  assert(fs.write(path, [[
+local function take_string(s: string): string
+  return s
+end
+local function f(v: any)
+  if not (v is string) then error("no") end
+  take_string(v)
+end
+f("hi")
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok,
+    "an `is` guard ending in error(...) must not narrow below itself")
+end
+test_error_terminated_guard_does_not_narrow()
