@@ -471,11 +471,11 @@ discipline). the backlog is GitHub issues labeled `perf`.
 
 ## The flow of work
 
-what to build next is decided by the `plan` skill (`skills/plan/SKILL.md`):
-GitHub issues flow kanban-style through `plan:shaping` → `plan:ready` →
-`plan:doing` → `plan:review` labels, WIP-limited, pulled right to left.
-start any session with `bin/cosmic --make run _plan/board.tl next`; all
-plan state lives in the issues, never in committed files.
+what to build next is decided by the `work` skill (`skills/work/SKILL.md`):
+GitHub issues flow kanban-style through `work:plan` → `work:ready` →
+`work:do` → `work:check` → `work:land` labels, WIP-limited, pulled right to
+left. start any session with `bin/cosmic --make run _work/board.tl next`;
+all board state lives in the issues, never in committed files.
 
 ## CI
 

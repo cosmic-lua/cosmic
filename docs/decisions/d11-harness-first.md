@@ -22,7 +22,7 @@
   sequence G1 → G2 → G4 is gone: outcomes are now ranked by paired
   comparison in goals.md (G3 > G6 > G5 > G2, with G4 a bye and G7
   dormant), and what gets built next is pulled off the board
-  (`skills/plan`) from that ranking, not from a sequence written once.
+  (`skills/work`) from that ranking, not from a sequence written once.
   the reason the sequence had to go is D25's first finding — half the
   goals could not state their distance-to-holding until G1 stood, so a
   plan that put G1 first also put everything else out of reach of

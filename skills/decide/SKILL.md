@@ -57,7 +57,7 @@ sequencing bet held on purpose
 [D11](../../docs/decisions/d11-harness-first.md)).
 
 **do not** open a record for: which work happens next (that is the
-board — `skills/plan`), a performance hypothesis (a `perf` issue —
+board — `skills/work`), a performance hypothesis (a `perf` issue —
 `skills/optimize`), a rule a comment can carry in place
 (`skills/docs-style`), or a change with no loser. a record nobody
 could have disagreed with dilutes the ones that matter.
@@ -78,7 +78,7 @@ what does not transfer is the separate lifecycle. an RFD is discussed
 before it is built, across teams, so it needs six states and a branch
 of its own. here the record lands **in the pull request that makes the
 change**, reviewed by the same planner review any change gets
-(`skills/plan/review.md`), and its state after merge is exactly one of
+(`skills/work/review.md`), and its state after merge is exactly one of
 three: it stands, it was amended, it was superseded. write the record
 first — before the diff — when the tradeoff is contested or the
 implementation is expensive; the draft is the cheapest place to

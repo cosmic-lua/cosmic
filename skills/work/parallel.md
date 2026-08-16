@@ -1,8 +1,8 @@
 # Fanning out: many implementer sessions at once
 
-the board's WIP limits are sized for parallel work — `plan:doing`
+the board's WIP limits are sized for parallel work — `work:do`
 holds 5 because five implementer sessions can run at once, and
-`plan:ready` holds 12 so there is a deep queue of independent slices
+`work:ready` holds 12 so there is a deep queue of independent slices
 to feed them (`SKILL.md`). this chapter is the other half of that
 design: how ONE orchestrating session runs several implementers
 concurrently without them colliding, and which parts of the system
@@ -14,12 +14,15 @@ and delegates step 3 to N agents, each in its own checkout.
 
 ## when to fan out
 
-- `plan:ready` holds two or more MUTUALLY INDEPENDENT slices and
-  `plan:doing` has room. the limit is a cap, not a target: fan out to
+- `work:ready` holds two or more MUTUALLY INDEPENDENT slices and
+  `work:do` has room. the limit is a cap, not a target: fan out to
   what is actually independent, never to what merely fits.
-- review still comes first. work flows right to left for an
-  orchestrator too — if `plan:review` has anything in it, a planner
-  verdict unblocks more than another implementer does.
+- work flows right to left for an orchestrator too. a `work:check`
+  card unblocks more as a planner verdict than as another implementer,
+  and `work:land` comes before both: the landing queue gates pulls, so
+  at or over its limit of 3 no fresh `ready → do` pull is offered at
+  all — and a wave of pulls is exactly what a fan-out is. land what is
+  accepted, then fan out.
 - never fan out to make ONE slice faster. a slice is sized for one
   session by construction (`decompose.md`), and splitting it across
   agents is how a diff arrives half-implemented twice.
@@ -32,10 +35,18 @@ that order yourself and SKIPPING any issue whose files a slice you
 already took is touching.
 
 the shape to watch for: one slice restructures a file, another edits
-it. #1118 splits `_plan/board.tl` in two; #1119 adds a verb to that
+it. one splits `_work/board.tl` in two; another adds a verb to that
 same file and says so in its own body. taken in one wave they produce
 two PRs that cannot both merge, and the second implementer's session
 is thrown away. take the next issue down instead.
+
+disjointness is judged on the MERGE, not on either branch. two slices
+that each GROW the same file are not disjoint when that file is near
+the 500-line cap: each branch clears the cap alone — 470 lines on one,
+480 on the other — and the merge is over it, a failure that belongs to
+neither diff and that neither implementer can see. treat a shared file
+with thin headroom exactly like a shared restructure, and take the
+next issue down.
 
 say which one you skipped and why, in the report and in the issue
 trail. an implementer stepping over the board's order silently is
@@ -46,9 +57,9 @@ file disjointness is the check `next` does NOT do, and it is yours.
 
 ## claim first, then spawn
 
-move each issue to `plan:doing` YOURSELF, one at a time, before
+move each issue to `work:do` YOURSELF, one at a time, before
 spawning anything. the move is the lock; an agent that claims its own
-issue races every other agent for the same column.
+issue races every other agent for the same phase.
 
 space the moves and read each verdict line. GitHub's list-by-label
 index lags a mutation by a few seconds, so a burst of moves can hit a
@@ -112,14 +123,14 @@ not carry:
   failure that never happened;
 - environment quirks the tree does not document (proxy variables,
   tokens);
-- the read command: `bin/cosmic --make run _plan/board.tl show N` —
+- the read command: `bin/cosmic --make run _work/board.tl show N` —
   run it even with the body pasted below, so the agent's own read
   stays inside the board tool (`SKILL.md`'s hard rules bind the brief
   exactly as they bind everyone else: no `gh`, no raw API call, for
   anything the tool has a verb for);
 - the commit trailers and the PR attribution footer;
 - a PR opened READY for review, not draft — referencing `Closes #N`,
-  then `move N review` and the PR link commented on the issue;
+  then `move N check` and the PR link commented on the issue;
 - the finding rule (`SKILL.md`, "when you find something out of
   scope"): file what you found with `--finding`, then return to the
   slice. an agent that cannot file it either loses the evidence or
@@ -127,11 +138,11 @@ not carry:
 - **do not land** — a PR lands only after a planner accept, via
   `land N PR`, in a later implementer pass; an agent with a green PR
   will otherwise finish the job it thinks it has. the brief's loop
-  ends at `move N review`.
+  ends at `move N check`.
 
 carry the bounce rule verbatim (`SKILL.md`, "when the issue
 under-specifies"): comment naming exactly what is missing, `move N
-shaping`, stop. an agent told to finish WILL improvise unless the
+plan`, stop. an agent told to finish WILL improvise unless the
 brief says that stopping is a good outcome.
 
 ## what never fans out
@@ -139,7 +150,7 @@ brief says that stopping is a good outcome.
 - **the review verdict.** it is the system's final gate and a
   sophisticated model's judgment (`review.md`); N agents reviewing N
   PRs is N unreviewed merges wearing a costume.
-- **refinement.** parallel planners contend on the same columns and
+- **refinement.** parallel planners contend on the same phases and
   the same goals list, and two of them will decompose the same goal
   twice.
 - **anything two slices share.** see above — this is the whole game.
@@ -149,10 +160,10 @@ brief says that stopping is a good outcome.
 an agent can die mid-loop, so reconciliation is the orchestrator's,
 not the board's:
 
-- every issue that went to `doing` is now in `review` with a PR, or
-  back in `shaping` with a bounce comment. anything else — `doing`
-  with no PR — is a dead session: move it back to `ready` by hand
-  rather than leaving the column jammed against its limit.
+- every issue that went to `do` is now in `check` with a PR, or back
+  in `plan` with a bounce comment. anything else — `do` with no PR —
+  is a dead session: move it back to `ready` by hand rather than
+  leaving the phase jammed against its limit.
 - run `status` and read it. the board is the truth of what happened,
   and a fan-out that half-failed looks fine from inside the session
   that launched it.

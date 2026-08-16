@@ -14,7 +14,7 @@ bin/*
 # ah agent harness
 .ah/
 
-# One checkout per parallel implementer session (skills/plan/parallel.md).
+# One checkout per parallel implementer session (skills/work/parallel.md).
 # `.claude/` itself is tracked — it carries the `skills` symlink.
 .claude/worktrees/
 

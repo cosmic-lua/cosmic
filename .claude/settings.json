@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bin/cosmic --make run _plan/board.tl *)",
+      "Bash(bin/cosmic --make run _work/board.tl *)",
       "Bash(bin/cosmic --make test *)",
       "Bash(bin/cosmic --make ci)",
       "Bash(bin/cosmic --make fetch)",
