@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fixture stand-in for the child-tcp task's built artifact. The real
+# artifact spawns a server child and reaps it; this stand-in never
+# spawns anything, so it trivially leaves no orphan behind.
+printf 'OK round-trip-42'
+exit 0

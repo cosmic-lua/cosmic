@@ -1,0 +1,1 @@
+-- Fixture stand-in for the agent's own test file.

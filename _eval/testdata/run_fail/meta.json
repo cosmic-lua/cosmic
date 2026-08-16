@@ -1,0 +1,12 @@
+{
+  "agent_tool": "claude",
+  "bin": "o/bin/cosmic",
+  "bin_sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "cosmic_version": "2026.08.16-fixture",
+  "isa": "x86_64",
+  "model": "sonnet",
+  "os": "linux",
+  "suite_version": 1,
+  "timeout_secs": 2400,
+  "timestamp": 1755302400
+}

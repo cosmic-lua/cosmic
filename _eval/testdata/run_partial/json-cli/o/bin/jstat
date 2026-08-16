@@ -1,0 +1,29 @@
+#!/bin/sh
+# Fixture stand-in for the json-cli task's built artifact (not a real
+# cosmic binary -- _eval/testdata/** is deliberately binary-free). The
+# functional check writes its own pinned testdata/items.json and
+# bad.json before invoking this, so the exact argv combinations below
+# are the only ones the check ever calls.
+cmd="$1"; a="$2"; b="$3"
+if [ "$cmd" = "list" ] && [ "$a" = "testdata/items.json" ]; then
+  printf 'alpha\nbeta\ngamma\ndelta\n'
+  exit 0
+elif [ "$cmd" = "list" ] && [ "$a" = "bad.json" ]; then
+  echo "jstat: invalid json in bad.json" >&2
+  exit 1
+elif [ "$cmd" = "filter" ] && [ "$a" = "testdata/items.json" ] && [ "$b" = "fruit" ]; then
+  printf 'alpha\ngamma\n'
+  exit 0
+elif [ "$cmd" = "filter" ] && [ "$a" = "testdata/items.json" ] && [ "$b" = "veg" ]; then
+  printf 'beta\ndelta\n'
+  exit 0
+elif [ "$cmd" = "summary" ] && [ "$a" = "testdata/items.json" ]; then
+  printf 'items=4 total=10 kinds=2\n'
+  exit 0
+elif [ "$cmd" = "summary" ] && [ "$a" = "testdata/missing.json" ]; then
+  echo "jstat: cannot read testdata/missing.json" >&2
+  exit 1
+else
+  echo "jstat: unrecognized invocation" >&2
+  exit 1
+fi
