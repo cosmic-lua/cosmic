@@ -4,6 +4,7 @@
 --- process exit code. Argument parsing and dispatch live in board.tl.
 
 local fs = require("cosmic.fs")
+local facts = require("_plan.facts")
 local gh = require("_plan.github")
 local model = require("_plan.model")
 
@@ -204,6 +205,9 @@ local function cmd_check(repo: string, number: integer): integer
       problems[#problems + 1] = ("blocked by open #%d"):format(b)
     end
   end
+  for _, f in ipairs(facts.problems(issue.body)) do
+    problems[#problems + 1] = f
+  end
   if issue.epic then
     problems[#problems + 1] = "is an epic (never marked ready; decompose it)"
   end
@@ -270,6 +274,9 @@ local function cmd_move(repo: string, number: integer, target: string,
     end
     if issue.epic then
       problems[#problems + 1] = "is an epic (decompose it instead)"
+    end
+    for _, f in ipairs(facts.problems(issue.body)) do
+      problems[#problems + 1] = f
     end
     if #problems > 0 then
       print("plan-move: REFUSED (ready bar: "
