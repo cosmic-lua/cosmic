@@ -53,9 +53,8 @@ local COLUMNS: {string} = {"shaping", "ready", "doing", "review"}
 --- ready drops from 20 to 12 — it peaked at 16 only during initial
 --- fill and never came within 4 of 20 afterward, with a floor of 6,
 --- while median ready->doing pickup latency was 81 min (p75: 278) —
---- long enough that queue inventory measurably went stale (tree-facts
---- drift on #1115; three regenerated-baseline conflict reworks). A
---- tighter cap forces staler entries to drain instead of sitting.
+--- long enough that queue inventory measurably went stale. A tighter
+--- cap forces staler entries to drain instead of sitting.
 --- doing's 5 and review's 10 are unchanged and healthy: doing peaked
 --- 5/5 for 17 min, review peaked 7/10 and never bound.
 --- Tripwires: revisit doing if its time-at-limit grows once the `land`
@@ -449,6 +448,7 @@ local record model
   has_marker: function(labels: {string}, marker: string): boolean
   is_return: function(from: string, to: string): boolean
   counts_against_limit: function(issue: Issue, column: string): boolean
+  limited_count: function(board: Board, column: string): integer
   ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
   facts: function(body: string): {Fact} | nil, string
@@ -466,6 +466,7 @@ local M: model = {
   has_marker = has_marker,
   is_return = is_return,
   counts_against_limit = counts_against_limit,
+  limited_count = counted,
   ready_gaps = ready_gaps,
   blockers = blockers,
   facts = facts,
