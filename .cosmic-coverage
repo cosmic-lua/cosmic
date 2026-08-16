@@ -26,6 +26,7 @@ _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
 _docs/publish.tl 115 177
+_fuzz/driver.tl 56 57
 _make/artifact.tl 161 178
 _make/binaries.tl 24 24
 _make/bytecode.tl 14 16
@@ -219,4 +220,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 15238 20531
+total 15294 20588
