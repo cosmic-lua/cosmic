@@ -88,13 +88,29 @@ local function fallible_shape_ok(label: string, value: any, err: any): boolean, 
   return true
 end
 
+--- Like fallible_shape_ok, but for contracts with no clean-nil case.
+--- compile()'s contract is `Regex | nil, string` -- unlike match/find,
+--- there is no "honest no-match" nil, so a nil value REQUIRES a
+--- non-empty string error rather than merely permitting one.
+--- @param label string What is being checked, for the failure message
+--- @param value any The first return
+--- @param err any The second return
+--- @return boolean True when the shape holds
+--- @return string What broke, when it doesn't
+local function fallible_shape_ok_no_clean_nil(label: string, value: any, err: any): boolean, string
+  if value == nil and (err == nil or type(err) ~= "string" or err == "") then
+    return false, label .. ": nil value without a non-empty error: " .. tostring(err)
+  end
+  return true
+end
+
 local function test_compile_totality()
   local ok, msg = driver.run({
       name = "re_compile_totality",
       gen = gen_pattern,
       check = function(input: string): boolean, string
         local rx, err = re.compile(input)
-        return fallible_shape_ok("compile", rx, err)
+        return fallible_shape_ok_no_clean_nil("compile", rx, err)
       end,
     })
   check.truthy(ok, msg)
