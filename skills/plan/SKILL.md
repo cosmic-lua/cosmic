@@ -81,6 +81,15 @@ SSL_CERT_FILE=<bundle>` (both read by the cosmos TLS root loader).
 on a cold clone, run `bin/cosmic --make fetch` once before the first
 board command — `--make run` resolves the tool against the tree and
 needs the pinned toolchain to exist.
+
+sessions run the board tool constantly — `next` is step 1 of both
+session loops below — and a harness's permission classifier can refuse
+it outright in some sessions while approving `status` in the very same
+shell. the project allowlist in `.claude/settings.json` pre-approves
+the loop's documented commands (the board tool, `--make test`, `--make
+ci`, `--make fetch`, and `_perf/*`) so that refusal cannot block the
+skill's own first step.
+
 one timing note: a `move`'s verdict line is the truth of the mutation;
 GitHub's list-by-label index can lag it by a few seconds, so an
 immediately following `status`/`next` may briefly show the old column
