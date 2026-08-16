@@ -151,6 +151,46 @@ jobs:
             fi
             exit 0'
 
+      # G9's per-release half (docs/goals.md; see _build/size.tl): the
+      # same measure-then-compare shape as the perf steps above, over
+      # tree size instead of speed. Never a gate — size.tl's compare
+      # mode has no threshold and always exits 0 — so this step cannot
+      # fail the release; it only produces the numbers the notes quote.
+      - name: measure the tree size
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -c '
+            o/bin/cosmic --make run _build/size.tl --out o/perf/size.json --binary o/bin/cosmic'
+
+      # Same bootstrap shape as the perf baseline fetch above, over the
+      # `size.json` asset: the newest non-draft release that carries one
+      # is the baseline, SKIP when none does (a repo's first measured
+      # release). `gh` is not part of this container's image either (see
+      # the comment on this job above), hence the install; its embedded
+      # jq is enough to pick the release with no extra JSON tooling.
+      - name: compare tree size against the previous release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          apt-get update -y
+          apt-get install -y --no-install-recommends gh
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" bash -c '
+            mkdir -p o/perf/prev
+            tag=$(gh api "repos/${{ github.repository }}/releases?per_page=30" \
+              --jq "[.[] | select(.draft==false) | select(.assets[]?.name==\"size.json\")] | sort_by(.created_at) | last | .tag_name")
+            if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+              echo "size: SKIP (no baseline: first measured release)" > o/perf/size_compare.txt
+            else
+              gh release download "$tag" --repo ${{ github.repository }} \
+                --pattern size.json --dir o/perf/prev --clobber
+              o/bin/cosmic --make run _build/size.tl compare \
+                o/perf/prev/size.json o/perf/size.json | tee o/perf/size_compare.txt
+            fi
+            exit 0'
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-lua
@@ -159,6 +199,8 @@ jobs:
             o/bin/cosmic-debug
             o/perf/perf.json
             o/perf/compare.txt
+            o/perf/size.json
+            o/perf/size_compare.txt
 
   release:
     runs-on: ubuntu-latest
@@ -188,7 +230,10 @@ jobs:
           debug_src=$(find artifacts -type f -name cosmic-debug | head -1)
           perf_src=$(find artifacts -type f -name perf.json | head -1)
           compare_src=$(find artifacts -type f -name compare.txt | head -1)
-          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ] || [ -z "$perf_src" ] || [ -z "$compare_src" ]; then
+          size_src=$(find artifacts -type f -name size.json | head -1)
+          size_compare_src=$(find artifacts -type f -name size_compare.txt | head -1)
+          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ] || [ -z "$perf_src" ] || [ -z "$compare_src" ] \
+              || [ -z "$size_src" ] || [ -z "$size_compare_src" ]; then
             echo "release assets not found in downloaded artifacts:" >&2
             find artifacts >&2
             exit 1
@@ -197,13 +242,15 @@ jobs:
           cp "$debug_src" release/cosmic-lua-debug
           cp "$perf_src" release/perf.json
           cp "$compare_src" release/compare.txt
+          cp "$size_src" release/size.json
+          cp "$size_compare_src" release/size-compare.txt
           chmod +x release/cosmic-lua release/cosmic-lua-debug
           tag="$TAG"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
-          notes=$(tail -n1 release/compare.txt)
+          notes=$(printf '%s\n%s\n' "$(tail -n1 release/compare.txt)" "$(tail -n1 release/size-compare.txt)")
           gh release create "$tag" \
             ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \
             --title "$tag" \
             --notes "$notes" \
             release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS \
-            release/perf.json release/compare.txt
+            release/perf.json release/compare.txt release/size.json release/size-compare.txt

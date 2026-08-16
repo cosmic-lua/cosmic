@@ -6,6 +6,7 @@ _build/casts_baseline.tl 0 1
 _build/public_surface.tl 44 61
 _build/public_surface_baseline.tl 0 1
 _build/ratchet.tl 36 36
+_build/size.tl 100 147
 _cli/args.tl 0 37
 _cli/build/batch.tl 102 118
 _cli/build/init.tl 43 47
@@ -88,7 +89,7 @@ _plan/github.tl 26 94
 _plan/implementer.tl 22 98
 _plan/model.tl 146 147
 _plan/stats.tl 172 220
-_plan/verbs.tl 0 229
+_plan/verbs.tl 0 233
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 151 165
 _tool/coverage/lines.tl 65 71
