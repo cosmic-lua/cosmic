@@ -29,7 +29,7 @@ end
 --- @param labels {string} Label names on the issue
 --- @return boolean True when the issue is in the land phase
 local function in_landing_queue(labels: {string}): boolean
-  return model.column_of(labels) == "land"
+  return model.phase_of(labels) == "land"
 end
 
 --- Pure: whether a PR body references "Closes #<issue>" (case-
@@ -65,7 +65,7 @@ local function cmd_show(repo: string, number: integer): integer
   for _, l in ipairs(raw.labels or {}) do
     names[#names + 1] = l.name
   end
-  local column = model.column_of(names)
+  local phase = model.phase_of(names)
   local tags = ""
   if model.has_marker(names, "epic") then
     tags = tags .. " [epic]"
@@ -77,7 +77,7 @@ local function cmd_show(repo: string, number: integer): integer
     tags = tags .. " [enable]"
   end
   print(("#%d %s"):format(raw.number, raw.title))
-  print((column or "none") .. tags)
+  print((phase or "none") .. tags)
   print(raw.html_url)
   print("")
   print(raw.body or "")
@@ -97,7 +97,7 @@ local function cmd_show(repo: string, number: integer): integer
     print("---")
     print(c.body or "")
   end
-  print(("work-show: #%d %s"):format(raw.number, column or "none"))
+  print(("work-show: #%d %s"):format(raw.number, phase or "none"))
   return 0
 end
 
@@ -156,7 +156,7 @@ local function cmd_land(repo: string, issue: integer, pr: integer): integer
   if not in_landing_queue(names) then
     print(("work-land: REFUSED (#%d is in %s, not land; only accepted work "
         .. "sits in the landing queue)"):format(
-        issue, model.column_of(names) or "no phase"))
+        issue, model.phase_of(names) or "no phase"))
     return 1
   end
   local comments, cerr = gh.list_issue_comments(repo, pr)

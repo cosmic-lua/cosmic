@@ -9,7 +9,7 @@
 local record Issue
   number: integer
   title: string
-  column: string
+  phase: string
   epic: boolean
   finding: boolean
   enable: boolean
@@ -38,7 +38,7 @@ local record NextAction
 end
 
 --- Phase order, left to right; pull works from the END of this list.
-local COLUMNS: {string} = {"plan", "ready", "do", "check", "land"}
+local PHASES: {string} = {"plan", "ready", "do", "check", "land"}
 
 --- WIP limits are policy, and policy is committed: tune them here, in
 --- a reviewed change, never ad hoc per session. Empirical basis (the
@@ -78,28 +78,27 @@ local READY_SECTIONS: {string} = {
   "Goal", "Change", "Non-goals", "Acceptance", "Enablement",
 }
 
-local COLUMN_SET: {string: boolean} = {}
-local COLUMN_INDEX: {string: integer} = {}
-for idx, c in ipairs(COLUMNS) do
-  COLUMN_SET[c] = true
-  COLUMN_INDEX[c] = idx
+local PHASE_SET: {string: boolean} = {}
+local PHASE_INDEX: {string: integer} = {}
+for idx, c in ipairs(PHASES) do
+  PHASE_SET[c] = true
+  PHASE_INDEX[c] = idx
 end
 
 --- Whether moving from one phase to another is a return: leftward
 --- motion between two known phases. WIP limits gate rightward motion
 --- and planner intake only. Returns are never refused, even over the
---- limit;
---- an over-limit phase blocks further pull until it drains. A bounce
---- back to plan and a rework send-back are the system correcting
---- itself, so nothing may refuse them. Anything else — an unknown
---- `from` (an issue not on the board, which is an entry), the same
---- phase, or rightward motion — is not a return.
+--- limit; an over-limit phase blocks further pull until it drains. A
+--- bounce back to plan and a rework send-back are the system
+--- correcting itself, so nothing may refuse them. Anything else — an
+--- unknown `from` (an issue not on the board, which is an entry), the
+--- same phase, or rightward motion — is not a return.
 --- @param from string Current phase name, or nil when not on the board
 --- @param to string Target phase name
 --- @return boolean True when the move is leftward between known phases
 local function is_return(from: string, to: string): boolean
-  local a = COLUMN_INDEX[from]
-  local b = COLUMN_INDEX[to]
+  local a = PHASE_INDEX[from]
+  local b = PHASE_INDEX[to]
   return a ~= nil and b ~= nil and b < a
 end
 
@@ -124,10 +123,10 @@ end
 --- (measured: epics permanently occupied an average 4.8 of plan's 12
 --- slots).
 --- @param issue Issue The issue
---- @param column string Phase the issue is being counted in
+--- @param phase string Phase the issue is being counted in
 --- @return boolean True when the issue counts against the phase's limit
-local function counts_against_limit(issue: Issue, column: string): boolean
-  return not (column == "plan" and issue.epic)
+local function counts_against_limit(issue: Issue, phase: string): boolean
+  return not (phase == "plan" and issue.epic)
 end
 
 --- Occupancy of one phase, counting only issues that count against its
@@ -135,23 +134,23 @@ end
 --- check and display shares, so the epic exemption applies everywhere
 --- at once.
 --- @param board Board The board
---- @param column string Phase name
+--- @param phase string Phase name
 --- @return integer Filtered occupancy
-local function counted(board: Board, column: string): integer
+local function counted(board: Board, phase: string): integer
   local n = 0
-  for _, i in ipairs(board[column] or {}) do
-    if counts_against_limit(i, column) then
+  for _, i in ipairs(board[phase] or {}) do
+    if counts_against_limit(i, phase) then
       n = n + 1
     end
   end
   return n
 end
 
---- The phase each older `plan:<column>` label spelling names. The
+--- The phase each older `plan:<phase>` label spelling names. The
 --- flow-stats replay reads historical label events, and renaming a
 --- label on GitHub does not rewrite the name recorded in an event that
 --- already happened, so both spellings are read. Drop this table and
---- its branch in `column_of` once no `plan:` label appears in any
+--- its branch in `phase_of` once no `plan:` label appears in any
 --- timeline the tool still reads.
 local LEGACY_PHASE: {string: string} = {
   shaping = "plan",
@@ -161,13 +160,13 @@ local LEGACY_PHASE: {string: string} = {
 }
 
 --- The phase a label set places an issue in, or nil when it carries
---- neither a `work:<phase>` label nor a `plan:<column>` one.
+--- neither a `work:<phase>` label nor a `plan:<phase>` one.
 --- @param labels {string} Label names on the issue
 --- @return string | nil Phase name
-local function column_of(labels: {string}): string
+local function phase_of(labels: {string}): string
   for _, l in ipairs(labels) do
     local phase = l:match("^work:(%l+)$")
-    if phase and COLUMN_SET[phase] then
+    if phase and PHASE_SET[phase] then
       return phase
     end
     local legacy = l:match("^plan:(%l+)$")
@@ -246,11 +245,11 @@ end
 --- Issues of one phase, oldest (lowest number) first. Returns a new
 --- sorted copy; the board is data, not scratch.
 --- @param board Board The board
---- @param column string Phase name
+--- @param phase string Phase name
 --- @return {Issue} Sorted issues, possibly empty
-local function oldest_first(board: Board, column: string): {Issue}
+local function oldest_first(board: Board, phase: string): {Issue}
   local list: {Issue} = {}
-  for _, i in ipairs(board[column] or {}) do
+  for _, i in ipairs(board[phase] or {}) do
     list[#list + 1] = i
   end
   table.sort(list, function(a: Issue, b: Issue): boolean
@@ -264,10 +263,10 @@ end
 --- @return {string} Violations, left-to-right phase order
 local function wip_violations(board: Board): {string}
   local out: {string} = {}
-  for _, col in ipairs(COLUMNS) do
-    local n = counted(board, col)
-    if n > LIMITS[col] then
-      out[#out + 1] = ("%s %d/%d over limit"):format(col, n, LIMITS[col])
+  for _, phase in ipairs(PHASES) do
+    local n = counted(board, phase)
+    if n > LIMITS[phase] then
+      out[#out + 1] = ("%s %d/%d over limit"):format(phase, n, LIMITS[phase])
     end
   end
   return out
@@ -428,28 +427,28 @@ local record model
   type Board = Board
   type NextAction = NextAction
   type IsOpen = IsOpen
-  COLUMNS: {string}
+  PHASES: {string}
   LIMITS: {string: integer}
   READY_SECTIONS: {string}
-  column_of: function(labels: {string}): string
+  phase_of: function(labels: {string}): string
   has_marker: function(labels: {string}, marker: string): boolean
   is_return: function(from: string, to: string): boolean
   admits_over_limit: function(from: string, to: string): boolean
-  counts_against_limit: function(issue: Issue, column: string): boolean
-  limited_count: function(board: Board, column: string): integer
+  counts_against_limit: function(issue: Issue, phase: string): boolean
+  limited_count: function(board: Board, phase: string): integer
   ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
-  oldest_first: function(board: Board, column: string): {Issue}
+  oldest_first: function(board: Board, phase: string): {Issue}
   wip_violations: function(board: Board): {string}
   next_action: function(board: Board, role: string, is_open: IsOpen):
   NextAction, string
 end
 
 local M: model = {
-  COLUMNS = COLUMNS,
+  PHASES = PHASES,
   LIMITS = LIMITS,
   READY_SECTIONS = READY_SECTIONS,
-  column_of = column_of,
+  phase_of = phase_of,
   has_marker = has_marker,
   is_return = is_return,
   admits_over_limit = admits_over_limit,

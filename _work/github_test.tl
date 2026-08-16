@@ -39,7 +39,7 @@ test_issue_patch_sends_only_supplied_fields()
 
 local function test_issue_patch_never_sends_labels()
   local p = github.issue_patch("t", "b")
-  assert(p["labels"] == nil, "columns move through move, never edit")
+  assert(p["labels"] == nil, "phases move through move, never edit")
   assert(github.issue_patch(nil, nil)["labels"] == nil, "empty patch is empty")
 end
 test_issue_patch_never_sends_labels()

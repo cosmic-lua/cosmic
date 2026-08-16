@@ -180,7 +180,7 @@ end
 
 --- An issue's timeline events — labels applied/removed and closes, in
 --- chronological order — which the flow-stats reader replays into
---- per-column stints. One page (100) suffices: a board issue
+--- per-phase stints. One page (100) suffices: a board issue
 --- accumulating 100+ label events across its lifetime is not a case
 --- worth paging for.
 --- @param repo string "owner/name"
@@ -237,7 +237,7 @@ local function create_issue(repo: string, title: string, body: string,
 end
 
 --- The PATCH body for an issue edit: only the fields the caller
---- supplied. Labels are never part of it — columns move through
+--- supplied. Labels are never part of it — phases move through
 --- edit_labels, which owns the WIP limits.
 --- @param title string Replacement title; nil to leave it alone
 --- @param body string Replacement body markdown; nil to leave it alone

@@ -12,7 +12,7 @@ local gh = require("_work.github")
 local model = require("_work.model")
 
 --- One issue-timeline event, reduced to what the flow reader needs: a
---- label applied/removed or the issue closing. `column` is the phase a
+--- label applied/removed or the issue closing. `phase` is the phase a
 --- "labeled"/"unlabeled" event's label names, or "" when the event
 --- carries no label or one that names no phase. `created_at` stays an
 --- ISO 8601 STRING here — stints() is where it becomes an epoch
@@ -20,7 +20,7 @@ local model = require("_work.model")
 local record LabeledEvent
   issue: integer
   kind: string -- "labeled" | "unlabeled" | "closed" (others are dropped)
-  column: string
+  phase: string
   created_at: string
 end
 
@@ -29,15 +29,15 @@ end
 --- still running as of the report (an "open" stint).
 local record Stint
   issue: integer
-  column: string
+  phase: string
   start: integer
   finish: integer -- nil when still open at report time
   ended: string -- "moved" | "closed" | "open"
 end
 
 --- Per-phase numbers for one report window.
-local record ColumnFlow
-  column: string
+local record PhaseFlow
+  phase: string
   stint_count: integer
   median_dwell_min: number
   max_dwell_min: number
@@ -65,7 +65,7 @@ end
 
 --- The measured flow for one report window.
 local record FlowReport
-  columns: {ColumnFlow}
+  phases: {PhaseFlow}
   backward: BackwardMoves
   pickup: PickupLatency
 end
@@ -84,8 +84,8 @@ end
 
 --- Reduce one issue's raw timeline events to LabeledEvents: only
 --- "labeled"/"unlabeled"/"closed" survive, and a label event's phase
---- is resolved through model.column_of — which reads both the current
---- `work:<phase>` labels and the older `plan:<column>` ones recorded
+--- is resolved through model.phase_of — which reads both the current
+--- `work:<phase>` labels and the older `plan:<phase>` ones recorded
 --- in past events — so a label naming no phase (e.g. "perf") reads as
 --- "" rather than crashing the reconstruction.
 --- @param issue integer The issue the events belong to
@@ -95,14 +95,14 @@ local function to_labeled_events(issue: integer, raw: {gh.RawEvent}): {LabeledEv
   local out: {LabeledEvent} = {}
   for _, e in ipairs(raw) do
     if e.event == "labeled" or e.event == "unlabeled" or e.event == "closed" then
-      local column = ""
+      local phase = ""
       if e.label then
-        column = model.column_of({e.label.name}) or ""
+        phase = model.phase_of({e.label.name}) or ""
       end
       out[#out + 1] = {
         issue = issue,
         kind = e.event,
-        column = column,
+        phase = phase,
         created_at = e.created_at,
       }
     end
@@ -123,36 +123,36 @@ end
 --- @return {Stint} That issue's stints, oldest first
 local function stints_for_issue(issue: integer, events: {LabeledEvent}): {Stint}
   local out: {Stint} = {}
-  local col: string = nil
+  local phase: string = nil
   local start: integer = nil
   for _, e in ipairs(events) do
     local at = epoch_of(e.created_at)
     if at ~= nil then
-      if e.kind == "labeled" and e.column ~= "" then
-        if col ~= nil and col ~= e.column then
-          out[#out + 1] = {issue = issue, column = col, start = start,
+      if e.kind == "labeled" and e.phase ~= "" then
+        if phase ~= nil and phase ~= e.phase then
+          out[#out + 1] = {issue = issue, phase = phase, start = start,
             finish = at, ended = "moved"}
-          col = e.column
+          phase = e.phase
           start = at
-        elseif col == nil then
-          col = e.column
+        elseif phase == nil then
+          phase = e.phase
           start = at
         end
-      elseif e.kind == "unlabeled" and e.column ~= "" and col == e.column then
-        out[#out + 1] = {issue = issue, column = col, start = start,
+      elseif e.kind == "unlabeled" and e.phase ~= "" and phase == e.phase then
+        out[#out + 1] = {issue = issue, phase = phase, start = start,
           finish = at, ended = "moved"}
-        col = nil
+        phase = nil
         start = nil
-      elseif e.kind == "closed" and col ~= nil then
-        out[#out + 1] = {issue = issue, column = col, start = start,
+      elseif e.kind == "closed" and phase ~= nil then
+        out[#out + 1] = {issue = issue, phase = phase, start = start,
           finish = at, ended = "closed"}
-        col = nil
+        phase = nil
         start = nil
       end
     end
   end
-  if col ~= nil then
-    out[#out + 1] = {issue = issue, column = col, start = start,
+  if phase ~= nil then
+    out[#out + 1] = {issue = issue, phase = phase, start = start,
       finish = nil, ended = "open"}
   end
   return out
@@ -293,27 +293,27 @@ end
 --- @return FlowReport The measured flow
 local function summarize(all_stints: {Stint}, now_iso: string): FlowReport
   local now_epoch = epoch_of(now_iso) or 0
-  local by_column: {string: {Stint}} = {}
-  for _, col in ipairs(model.COLUMNS) do
-    by_column[col] = {}
+  local by_phase: {string: {Stint}} = {}
+  for _, phase in ipairs(model.PHASES) do
+    by_phase[phase] = {}
   end
   for _, s in ipairs(all_stints) do
-    local list = by_column[s.column]
+    local list = by_phase[s.phase]
     if list then
       list[#list + 1] = s
     end
   end
-  local columns: {ColumnFlow} = {}
-  for _, col in ipairs(model.COLUMNS) do
-    local list = by_column[col]
+  local phases: {PhaseFlow} = {}
+  for _, phase in ipairs(model.PHASES) do
+    local list = by_phase[phase]
     local dwell: {number} = {}
     for _, s in ipairs(list) do
       local fin = s.finish or now_epoch
       dwell[#dwell + 1] = (fin - s.start) / 60.0
     end
-    local peak, at_limit_min = occupancy(list, now_epoch, model.LIMITS[col])
-    columns[#columns + 1] = {
-      column = col,
+    local peak, at_limit_min = occupancy(list, now_epoch, model.LIMITS[phase])
+    phases[#phases + 1] = {
+      phase = phase,
       stint_count = #list,
       median_dwell_min = median(dwell),
       max_dwell_min = max_of(dwell),
@@ -345,21 +345,21 @@ local function summarize(all_stints: {Stint}, now_iso: string): FlowReport
       local cur = list[i]
       local nxt = list[i + 1]
       if cur.ended == "moved" then
-        if nxt.column == "plan" then
+        if nxt.phase == "plan" then
           bounces = bounces + 1
-        elseif cur.column == "check" and nxt.column == "land" then
+        elseif cur.phase == "check" and nxt.phase == "land" then
           accepts = accepts + 1
-        elseif cur.column == "check" and nxt.column == "do" then
+        elseif cur.phase == "check" and nxt.phase == "do" then
           reworks = reworks + 1
         end
-        if cur.column == "ready" and nxt.column == "do" then
+        if cur.phase == "ready" and nxt.phase == "do" then
           pickup[#pickup + 1] = (cur.finish - cur.start) / 60.0
         end
       end
     end
   end
   return {
-    columns = columns,
+    phases = phases,
     backward = {bounces = bounces, accepts = accepts, reworks = reworks},
     pickup = {count = #pickup, median_min = median(pickup), max_min = max_of(pickup)},
   }
@@ -379,11 +379,11 @@ local function cmd_stats(repo: string, days: integer): integer
   local since_iso = time.format_iso8601(now_epoch - days * 86400)
   local numbers: {integer: boolean} = {}
   local issues: {integer} = {}
-  for _, col in ipairs(model.COLUMNS) do
-    local raw, err = gh.list_issues(repo, "work:" .. col,
+  for _, phase in ipairs(model.PHASES) do
+    local raw, err = gh.list_issues(repo, "work:" .. phase,
       {state = "all", since = since_iso})
     if raw == nil then
-      io.stderr:write(("listing %s: %s"):format(col, err) .. "\n")
+      io.stderr:write(("listing %s: %s"):format(phase, err) .. "\n")
       print("work-stats: ERROR")
       return 1
     end
@@ -411,9 +411,9 @@ local function cmd_stats(repo: string, days: integer): integer
       repo, days, #issues))
   print(("%-8s %6s %12s %11s %6s %13s"):format(
       "phase", "stints", "med dwell", "max dwell", "peak", "min at-limit"))
-  for _, c in ipairs(report.columns) do
+  for _, c in ipairs(report.phases) do
     print(("%-8s %6d %12.1f %11.1f %6d %13.1f"):format(
-        c.column, c.stint_count, c.median_dwell_min, c.max_dwell_min,
+        c.phase, c.stint_count, c.median_dwell_min, c.max_dwell_min,
         c.peak_occupancy, c.at_limit_min))
   end
   print(("verdicts: %d accept(s) (check->land), %d rework(s) (check->do), "
@@ -429,7 +429,7 @@ end
 local record stats
   type LabeledEvent = LabeledEvent
   type Stint = Stint
-  type ColumnFlow = ColumnFlow
+  type PhaseFlow = PhaseFlow
   type BackwardMoves = BackwardMoves
   type PickupLatency = PickupLatency
   type FlowReport = FlowReport

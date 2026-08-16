@@ -27,7 +27,7 @@ local function to_issue(raw: gh.RawIssue): Issue
   return {
     number = raw.number,
     title = raw.title,
-    column = model.column_of(names),
+    phase = model.phase_of(names),
     epic = model.has_marker(names, "epic"),
     finding = model.has_marker(names, "finding"),
     enable = model.has_marker(names, "enable"),
@@ -43,16 +43,16 @@ end
 --- @return string Error message on failure
 local function fetch_board(repo: string): Board, string
   local board: Board = {}
-  for _, col in ipairs(model.COLUMNS) do
-    local raw, err = gh.list_issues(repo, "work:" .. col)
+  for _, phase in ipairs(model.PHASES) do
+    local raw, err = gh.list_issues(repo, "work:" .. phase)
     if raw == nil then
-      return nil, ("listing %s: %s"):format(col, err)
+      return nil, ("listing %s: %s"):format(phase, err)
     end
     local list: {Issue} = {}
     for _, r in ipairs(raw) do
       list[#list + 1] = to_issue(r)
     end
-    board[col] = list
+    board[phase] = list
   end
   return board, nil
 end
@@ -97,15 +97,15 @@ end
 --- still has slack. `count` is the phase's occupancy BEFORE the entry;
 --- the note names the occupancy after it — the number that has to come
 --- back down before anything is pulled in.
---- @param column string Phase the issue enters
+--- @param phase string Phase the issue enters
 --- @param count integer Occupancy before the entry
 --- @return string | nil The note line, nil when the phase has slack
-local function over_limit_note(column: string, count: integer): string
-  if count < model.LIMITS[column] then
+local function over_limit_note(phase: string, count: integer): string
+  if count < model.LIMITS[phase] then
     return nil
   end
   return ("note: %s %d/%d over limit — drain before intake"):format(
-    column, count + 1, model.LIMITS[column])
+    phase, count + 1, model.LIMITS[phase])
 end
 
 --- status: render the board right to left and verdict on WIP.
@@ -119,15 +119,15 @@ local function cmd_status(repo: string): integer
     return 1
   end
   print("work board — " .. repo .. " (pull right to left)")
-  for idx = #model.COLUMNS, 1, -1 do
-    local col = model.COLUMNS[idx]
-    local list = model.oldest_first(board, col)
-    local counted = model.limited_count(board, col)
+  for idx = #model.PHASES, 1, -1 do
+    local phase = model.PHASES[idx]
+    local list = model.oldest_first(board, phase)
+    local counted = model.limited_count(board, phase)
     local exempt = #list - counted
     if exempt > 0 then
-      print(("%s %d/%d (+%d epics)"):format(col, counted, model.LIMITS[col], exempt))
+      print(("%s %d/%d (+%d epics)"):format(phase, counted, model.LIMITS[phase], exempt))
     else
-      print(("%s %d/%d"):format(col, counted, model.LIMITS[col]))
+      print(("%s %d/%d"):format(phase, counted, model.LIMITS[phase]))
     end
     for _, i in ipairs(list) do
       print(issue_line(i))
@@ -232,14 +232,14 @@ end
 local function cmd_move(repo: string, number: integer, target: string,
     force: boolean): integer
   local known = false
-  for _, c in ipairs(model.COLUMNS) do
+  for _, c in ipairs(model.PHASES) do
     if c == target then
       known = true
     end
   end
   if not known then
     io.stderr:write("unknown phase: " .. target .. " (expected "
-      .. table.concat(model.COLUMNS, ", ") .. ")\n")
+      .. table.concat(model.PHASES, ", ") .. ")\n")
     print("work-move: ERROR")
     return 1
   end
@@ -258,13 +258,13 @@ local function cmd_move(repo: string, number: integer, target: string,
   local issue = to_issue(raw)
   local count = model.limited_count(board, target)
   local at_limit = count >= model.LIMITS[target]
-  if at_limit and not force and not model.admits_over_limit(issue.column, target) then
+  if at_limit and not force and not model.admits_over_limit(issue.phase, target) then
     print(("work-move: REFUSED (%s %d/%d at limit; work right to left "
         .. "to drain it, or --force)"):format(
         target, count, model.LIMITS[target]))
     return 1
   end
-  if issue.column == "ready" and target == "do" and not force then
+  if issue.phase == "ready" and target == "do" and not force then
     local landed = model.limited_count(board, "land")
     if landed >= model.LIMITS["land"] then
       print(("work-move: REFUSED (the landing queue holds %d/%d; land the "
@@ -292,7 +292,7 @@ local function cmd_move(repo: string, number: integer, target: string,
     end
   end
   local remove: {string} = {}
-  for _, c in ipairs(model.COLUMNS) do
+  for _, c in ipairs(model.PHASES) do
     if c ~= target then
       remove[#remove + 1] = "work:" .. c
     end
@@ -335,14 +335,14 @@ local TEMPLATE < const > = [[
 --- @param repo string "owner/name"
 --- @param title string Issue title
 --- @param body_file string Path to a body markdown file; nil for the template
---- @param column string Target phase; ignored for a finding (always plan)
+--- @param phase string Target phase; ignored for a finding (always plan)
 --- @param epic boolean Mark as a decomposition parent
 --- @param enable boolean Mark as enablement work
 --- @param finding boolean Capture implementer evidence, past the WIP limit
 --- @param force boolean True to override the phase WIP limit
 --- @return integer Exit code
 local function cmd_new(repo: string, title: string, body_file: string,
-    column: string, epic: boolean, enable: boolean, finding: boolean,
+    phase: string, epic: boolean, enable: boolean, finding: boolean,
     force: boolean): integer
   if finding and epic then
     print("work-new: REFUSED (--finding conflicts with --epic; a finding "
@@ -350,7 +350,7 @@ local function cmd_new(repo: string, title: string, body_file: string,
     return 1
   end
   if finding then
-    column = "plan"
+    phase = "plan"
   end
   local body = TEMPLATE
   if body_file then
@@ -368,14 +368,14 @@ local function cmd_new(repo: string, title: string, body_file: string,
     print("work-new: ERROR")
     return 1
   end
-  local count = model.limited_count(board, column)
-  if count >= model.LIMITS[column] and not force and not finding then
+  local count = model.limited_count(board, phase)
+  if count >= model.LIMITS[phase] and not force and not finding then
     print(("work-new: REFUSED (%s %d/%d at limit; drain the board "
         .. "right to left first, or --force)"):format(
-        column, count, model.LIMITS[column]))
+        phase, count, model.LIMITS[phase]))
     return 1
   end
-  local labels: {string} = {"work:" .. column}
+  local labels: {string} = {"work:" .. phase}
   if epic then
     labels[#labels + 1] = "work:epic"
   end
@@ -392,11 +392,11 @@ local function cmd_new(repo: string, title: string, body_file: string,
     return 1
   end
   print("  " .. raw.html_url)
-  local note = over_limit_note(column, count)
+  local note = over_limit_note(phase, count)
   if note then
     print(note)
   end
-  print(("work-new: #%d %s"):format(raw.number, column))
+  print(("work-new: #%d %s"):format(raw.number, phase))
   return 0
 end
 
@@ -429,7 +429,7 @@ local function cmd_edit(repo: string, number: integer, body_file: string,
   end
   local issue = to_issue(raw)
   print("  " .. issue.url)
-  if issue.column == "ready" then
+  if issue.phase == "ready" then
     local gaps = model.ready_gaps(issue.body)
     if #gaps > 0 then
       print(("work-edit: #%d (ready-bar gaps: %s)"):format(
@@ -449,7 +449,7 @@ local record verbs
   cmd_move: function(repo: string, number: integer, target: string,
   force: boolean): integer
   cmd_new: function(repo: string, title: string, body_file: string,
-  column: string, epic: boolean, enable: boolean, finding: boolean,
+  phase: string, epic: boolean, enable: boolean, finding: boolean,
   force: boolean): integer
   cmd_edit: function(repo: string, number: integer, body_file: string,
   title: string): integer

@@ -66,8 +66,8 @@ local CSPEC: flags.CommandSpec = {
     {name = "new", summary = "open a TITLE issue on the board (WIP-limited)",
       spec = {usage = "TITLE [options]", flags = {repo_flag(),
           {long = "body-file", arg = "FILE", help = "issue body markdown"},
-          {long = "column", arg = "PHASE", default = "plan",
-            help = "target phase (default plan)"},
+          {long = "phase", arg = "PHASE", default = "plan",
+            help = "phase the issue enters"},
           {long = "epic", help = "mark as a decomposition parent"},
           {long = "enable", help = "mark as enablement work"},
           {long = "finding",
@@ -149,19 +149,19 @@ local function main(...: string): integer
       io.stderr:write("new needs a title\n")
       return 1
     end
-    local column = d.parsed.values["column"] or "plan"
+    local phase = d.parsed.values["phase"] or "plan"
     local known = false
-    for _, c in ipairs(model.COLUMNS) do
-      if c == column then
+    for _, c in ipairs(model.PHASES) do
+      if c == phase then
         known = true
       end
     end
     if not known then
-      io.stderr:write("unknown phase: " .. column .. " (expected "
-        .. table.concat(model.COLUMNS, ", ") .. ")\n")
+      io.stderr:write("unknown phase: " .. phase .. " (expected "
+        .. table.concat(model.PHASES, ", ") .. ")\n")
       return 1
     end
-    return verbs.cmd_new(repo, title, d.parsed.values["body-file"], column,
+    return verbs.cmd_new(repo, title, d.parsed.values["body-file"], phase,
       d.parsed.switches["epic"], d.parsed.switches["enable"],
       d.parsed.switches["finding"], d.parsed.switches["force"])
   end

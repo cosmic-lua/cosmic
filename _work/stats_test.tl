@@ -15,27 +15,27 @@ end
 
 local function test_stints_normal_flow_and_ready_pickup()
   local events: {LabeledEvent} = {
-    {issue = 101, kind = "labeled", column = "plan",
+    {issue = 101, kind = "labeled", phase = "plan",
       created_at = "2026-08-01T00:00:00Z"},
-    {issue = 101, kind = "labeled", column = "ready",
+    {issue = 101, kind = "labeled", phase = "ready",
       created_at = "2026-08-01T02:00:00Z"},
-    {issue = 101, kind = "labeled", column = "do",
+    {issue = 101, kind = "labeled", phase = "do",
       created_at = "2026-08-01T02:30:00Z"},
-    {issue = 101, kind = "labeled", column = "check",
+    {issue = 101, kind = "labeled", phase = "check",
       created_at = "2026-08-01T04:30:00Z"},
-    {issue = 101, kind = "labeled", column = "land",
+    {issue = 101, kind = "labeled", phase = "land",
       created_at = "2026-08-01T05:00:00Z"},
-    {issue = 101, kind = "closed", column = "",
+    {issue = 101, kind = "closed", phase = "",
       created_at = "2026-08-01T05:30:00Z"},
   }
   local s = stats.stints(events)
   assert(#s == 5, "expected 5 stints, got " .. tostring(#s))
-  local want_columns = {"plan", "ready", "do", "check", "land"}
+  local want_phases = {"plan", "ready", "do", "check", "land"}
   local want_dwell_min = {120, 30, 120, 30, 30}
   for i, st in ipairs(s) do
     assert(st.issue == 101, "stint " .. i .. " should carry issue 101")
-    assert(st.column == want_columns[i], ("stint %d: expected column %s, got %s")
-      :format(i, want_columns[i], st.column))
+    assert(st.phase == want_phases[i], ("stint %d: expected phase %s, got %s")
+      :format(i, want_phases[i], st.phase))
     assert(st.finish ~= nil, "stint " .. i .. " should have a finish")
     assert(st.finish - st.start == secs(want_dwell_min[i]),
       ("stint %d: expected %d min dwell, got %ds"):format(
@@ -62,11 +62,11 @@ test_stints_normal_flow_and_ready_pickup()
 
 local function test_bounce_ready_to_plan()
   local events: {LabeledEvent} = {
-    {issue = 102, kind = "labeled", column = "ready",
+    {issue = 102, kind = "labeled", phase = "ready",
       created_at = "2026-08-02T00:00:00Z"},
-    {issue = 102, kind = "labeled", column = "plan",
+    {issue = 102, kind = "labeled", phase = "plan",
       created_at = "2026-08-02T00:15:00Z"},
-    {issue = 102, kind = "closed", column = "",
+    {issue = 102, kind = "closed", phase = "",
       created_at = "2026-08-02T00:45:00Z"},
   }
   local s = stats.stints(events)
@@ -80,11 +80,11 @@ test_bounce_ready_to_plan()
 
 local function test_rework_check_to_do()
   local events: {LabeledEvent} = {
-    {issue = 103, kind = "labeled", column = "check",
+    {issue = 103, kind = "labeled", phase = "check",
       created_at = "2026-08-03T00:00:00Z"},
-    {issue = 103, kind = "labeled", column = "do",
+    {issue = 103, kind = "labeled", phase = "do",
       created_at = "2026-08-03T00:50:00Z"},
-    {issue = 103, kind = "closed", column = "",
+    {issue = 103, kind = "closed", phase = "",
       created_at = "2026-08-03T01:10:00Z"},
   }
   local s = stats.stints(events)
@@ -98,11 +98,11 @@ test_rework_check_to_do()
 
 local function test_accept_check_to_land()
   local events: {LabeledEvent} = {
-    {issue = 105, kind = "labeled", column = "check",
+    {issue = 105, kind = "labeled", phase = "check",
       created_at = "2026-08-06T00:00:00Z"},
-    {issue = 105, kind = "labeled", column = "land",
+    {issue = 105, kind = "labeled", phase = "land",
       created_at = "2026-08-06T00:20:00Z"},
-    {issue = 105, kind = "closed", column = "",
+    {issue = 105, kind = "closed", phase = "",
       created_at = "2026-08-06T00:35:00Z"},
   }
   local s = stats.stints(events)
@@ -118,7 +118,7 @@ local function test_open_at_now_stint_tolerates_crlf_timestamp()
   -- The trailing \r simulates a CRLF-flavored timestamp passed through
   -- verbatim by a JSON decoder; epoch_of must still parse it.
   local events: {LabeledEvent} = {
-    {issue = 104, kind = "labeled", column = "do",
+    {issue = 104, kind = "labeled", phase = "do",
       created_at = "2026-08-04T00:00:00Z\r"},
   }
   local s = stats.stints(events)
@@ -128,8 +128,8 @@ local function test_open_at_now_stint_tolerates_crlf_timestamp()
 
   -- 90 minutes after the stint started.
   local report = stats.summarize(s, "2026-08-04T01:30:00Z")
-  local doing = report.columns[3]
-  assert(doing.column == "do", "columns[3] should be do")
+  local doing = report.phases[3]
+  assert(doing.phase == "do", "phases[3] should be do")
   assert(doing.stint_count == 1, "expected 1 do stint")
   assert(doing.median_dwell_min == 90.0,
     "expected 90min dwell to now, got " .. tostring(doing.median_dwell_min))
@@ -145,16 +145,16 @@ local function test_occupancy_peak_and_at_limit_minutes()
   -- window: peak occupancy hits the limit for exactly that window.
   local events: {LabeledEvent} = {}
   for n = 201, 205 do
-    events[#events + 1] = {issue = n, kind = "labeled", column = "do",
+    events[#events + 1] = {issue = n, kind = "labeled", phase = "do",
       created_at = "2026-08-05T00:00:00Z"}
-    events[#events + 1] = {issue = n, kind = "closed", column = "",
+    events[#events + 1] = {issue = n, kind = "closed", phase = "",
       created_at = "2026-08-05T00:10:00Z"}
   end
   local s = stats.stints(events)
   assert(#s == 5, "expected 5 stints, got " .. tostring(#s))
   local report = stats.summarize(s, "2026-08-05T01:00:00Z")
-  local doing = report.columns[3]
-  assert(doing.column == "do", "columns[3] should be do")
+  local doing = report.phases[3]
+  assert(doing.phase == "do", "phases[3] should be do")
   assert(doing.stint_count == 5, "expected 5 do stints")
   assert(doing.median_dwell_min == 10.0,
     "expected 10min median dwell, got " .. tostring(doing.median_dwell_min))

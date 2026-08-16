@@ -49,15 +49,15 @@ local function all_closed(_n: integer): boolean
   return false
 end
 
-local function test_column_of()
-  local col = model.column_of({"perf", "work:ready", "work:epic"})
-  assert(col == "ready", "got: " .. tostring(col))
-  assert(model.column_of({"perf"}) == nil, "expected nil without a phase label")
-  assert(model.column_of({"work:bogus"}) == nil, "expected nil for bogus phase")
+local function test_phase_of()
+  local phase = model.phase_of({"perf", "work:ready", "work:epic"})
+  assert(phase == "ready", "got: " .. tostring(phase))
+  assert(model.phase_of({"perf"}) == nil, "expected nil without a phase label")
+  assert(model.phase_of({"work:bogus"}) == nil, "expected nil for bogus phase")
 end
-test_column_of()
+test_phase_of()
 
-local function test_column_of_reads_the_older_label_spelling()
+local function test_phase_of_reads_the_older_label_spelling()
   local want: {string: string} = {
     ["plan:shaping"] = "plan",
     ["plan:ready"] = "ready",
@@ -65,13 +65,13 @@ local function test_column_of_reads_the_older_label_spelling()
     ["plan:review"] = "check",
   }
   for label, phase in pairs(want) do
-    local got = model.column_of({label})
+    local got = model.phase_of({label})
     assert(got == phase, ("%s: got %s, want %s"):format(
         label, tostring(got), phase))
   end
-  assert(model.column_of({"plan:bogus"}) == nil, "an unmapped older label is nil")
+  assert(model.phase_of({"plan:bogus"}) == nil, "an unmapped older label is nil")
 end
-test_column_of_reads_the_older_label_spelling()
+test_phase_of_reads_the_older_label_spelling()
 
 local function test_has_marker()
   assert(model.has_marker({"work:epic"}, "epic"), "epic marker missed")
@@ -82,8 +82,8 @@ end
 test_has_marker()
 
 local function test_is_return_over_every_ordered_pair()
-  for i, from in ipairs(model.COLUMNS) do
-    for j, to in ipairs(model.COLUMNS) do
+  for i, from in ipairs(model.PHASES) do
+    for j, to in ipairs(model.PHASES) do
       local want = j < i
       local got = model.is_return(from, to)
       assert(got == want, ("%s -> %s: got %s, want %s"):format(
@@ -180,16 +180,16 @@ end
 test_oldest_first_sorts_copy()
 
 local function test_counts_against_limit()
-  for _, col in ipairs(model.COLUMNS) do
+  for _, phase in ipairs(model.PHASES) do
     local epic_i = issue(1, {epic = true})
     local plain_i = issue(2)
-    local want_epic = not (col == "plan")
-    assert(model.counts_against_limit(epic_i, col) == want_epic,
+    local want_epic = not (phase == "plan")
+    assert(model.counts_against_limit(epic_i, phase) == want_epic,
       ("%s epic: got %s, want %s"):format(
-        col, tostring(model.counts_against_limit(epic_i, col)),
+        phase, tostring(model.counts_against_limit(epic_i, phase)),
         tostring(want_epic)))
-    assert(model.counts_against_limit(plain_i, col),
-      col .. " non-epic should always count")
+    assert(model.counts_against_limit(plain_i, phase),
+      phase .. " non-epic should always count")
   end
 end
 test_counts_against_limit()

@@ -2,7 +2,7 @@
 --- writes, with the color and description it carries on GitHub, and
 --- `init`, the verb that creates them. Five of them are the phases,
 --- in board order; the other three are markers a phase label sits
---- beside. The phase NAMES are the model's (`model.COLUMNS`) — this
+--- beside. The phase NAMES are the model's (`model.PHASES`) — this
 --- module owns only how they appear on GitHub, so a color or wording
 --- change never touches the flow rules.
 
