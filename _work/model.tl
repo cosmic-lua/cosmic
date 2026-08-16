@@ -1,8 +1,8 @@
---- The board model: columns, WIP limits, the ready bar, and the
+--- The board model: phases, WIP limits, the ready bar, and the
 --- right-to-left pull order, as pure functions over already-fetched
 --- issues. No network, no subprocess — board.tl fetches through
---- _plan.gh and decides here, so every flow rule skills/plan/ asks an
---- agent to follow has exactly one executable definition, pinned by
+--- _work.github and decides here, so every flow rule skills/work/ asks
+--- an agent to follow has exactly one executable definition, pinned by
 --- model_test.tl.
 
 --- One issue as the board sees it, already reduced from the gh JSON.
@@ -18,7 +18,7 @@ local record Issue
   body: string
 end
 
---- Open issues grouped by column name ("shaping" ... "review").
+--- Open issues grouped by phase name ("plan" ... "land").
 local type Board = {string: {Issue}}
 
 --- Answers a blocker-state question the model cannot ask itself:
@@ -37,38 +37,43 @@ local record NextAction
   reason: string
 end
 
---- Column order, left to right; pull works from the END of this list.
-local COLUMNS: {string} = {"shaping", "ready", "doing", "review"}
+--- Phase order, left to right; pull works from the END of this list.
+local COLUMNS: {string} = {"plan", "ready", "do", "check", "land"}
 
 --- WIP limits are policy, and policy is committed: tune them here, in
 --- a reviewed change, never ad hoc per session. Empirical basis (the
 --- 2026-08-16 flow review: 468 min of board history, 52 issues, 13
 --- merged PRs, reconstructed from label events):
---- shaping's 12 is the binding constraint — it spent 222 min (47% of
---- the session) at or over limit, and every refusal incident on record
+--- plan's 12 is the binding constraint — it spent 222 min (47% of the
+--- session) at or over limit, and every refusal incident on record
 --- traces to it; the number stays and epics are exempted instead (see
 --- `counts_against_limit`), since they occupied an average 4.8 of the
---- 12 slots (45% of the column's item-minutes) without being work in
+--- 12 slots (45% of the phase's item-minutes) without being work in
 --- progress.
---- ready drops from 20 to 12 — it peaked at 16 only during initial
---- fill and never came within 4 of 20 afterward, with a floor of 6,
---- while median ready->doing pickup latency was 81 min (p75: 278) —
+--- ready's 12 is a tightening from 20: it peaked at 16 only during
+--- initial fill and never came within 4 of 20 afterward, with a floor
+--- of 6, while median ready->do pickup latency was 81 min (p75: 278) —
 --- long enough that queue inventory measurably went stale. A tighter
 --- cap forces staler entries to drain instead of sitting.
---- doing's 5 and review's 10 are unchanged and healthy: doing peaked
---- 5/5 for 17 min, review peaked 7/10 and never bound.
---- Tripwires: revisit doing if its time-at-limit grows once the `land`
---- verb exists (finished work awaiting landing then occupies claim
---- slots too); revisit review only if its peak ever exceeds 8.
+--- do's 5 and check's 10 are healthy: do peaked 5/5 for 17 min, check
+--- peaked 7/10 and never bound.
+--- land's 3 measures a different thing. An accepted PR is finished
+--- work in waiting, not work in progress, so the limit is not there to
+--- cap effort — it is there to make a broken merge path loud: three
+--- accepts sitting unmerged mean merging itself is what needs
+--- attention. 3 is a starting value, not a measurement.
+--- Tripwires: revisit land once a full week of flow data exists;
+--- revisit check only if its peak ever exceeds 8.
 local LIMITS: {string: integer} = {
-  shaping = 12,
+  plan = 12,
   ready = 12,
-  doing = 5,
-  review = 10,
+  ["do"] = 5,
+  check = 10,
+  land = 3,
 }
 
---- Headings a plan:ready issue body must carry (the ready bar; the
---- meaning of each section is skills/plan/decompose.md).
+--- Headings a work:ready issue body must carry (the ready bar; the
+--- meaning of each section is skills/work/decompose.md).
 local READY_SECTIONS: {string} = {
   "Goal", "Change", "Non-goals", "Acceptance", "Enablement",
 }
@@ -80,42 +85,57 @@ for idx, c in ipairs(COLUMNS) do
   COLUMN_INDEX[c] = idx
 end
 
---- Whether moving from one column to another is a return: leftward
---- motion between two known columns. WIP limits gate rightward motion
---- and planner intake only. Returns always land, even over the limit;
---- an over-limit column blocks further pull until it drains. A bounce
---- back to shaping and a rework send-back are the system correcting
+--- Whether moving from one phase to another is a return: leftward
+--- motion between two known phases. WIP limits gate rightward motion
+--- and planner intake only. Returns are never refused, even over the
+--- limit;
+--- an over-limit phase blocks further pull until it drains. A bounce
+--- back to plan and a rework send-back are the system correcting
 --- itself, so nothing may refuse them. Anything else — an unknown
 --- `from` (an issue not on the board, which is an entry), the same
---- column, or rightward motion — is not a return.
---- @param from string Current column name, or nil when not on the board
---- @param to string Target column name
---- @return boolean True when the move is leftward between known columns
+--- phase, or rightward motion — is not a return.
+--- @param from string Current phase name, or nil when not on the board
+--- @param to string Target phase name
+--- @return boolean True when the move is leftward between known phases
 local function is_return(from: string, to: string): boolean
   local a = COLUMN_INDEX[from]
   local b = COLUMN_INDEX[to]
   return a ~= nil and b ~= nil and b < a
 end
 
---- Whether an issue occupies a WIP-limit slot in a column: false
---- exactly for an epic sitting in shaping, true otherwise. An epic is
---- a container that lives in shaping until every child closes — not
---- work in progress — and counting it against the limit starves the
---- column (measured: epics permanently occupied an average 4.8 of
---- shaping's 12 slots).
---- @param issue Issue The issue
---- @param column string Column the issue is being counted in
---- @return boolean True when the issue counts against the column's limit
-local function counts_against_limit(issue: Issue, column: string): boolean
-  return not (column == "shaping" and issue.epic)
+--- Whether a move may land in a phase that is already at its limit: a
+--- return, or any move into `land`. A return is the system correcting
+--- itself, and a move into `land` is an accept — a verdict already
+--- made, and finished work rather than inventory — so neither is ever
+--- refused. The landing queue's own limit gates PULLS out of ready
+--- instead, so a full landing queue stops new work from starting
+--- rather than stranding work that is already done.
+--- @param from string Current phase name, or nil when not on the board
+--- @param to string Target phase name
+--- @return boolean True when the target's WIP limit does not bind the move
+local function admits_over_limit(from: string, to: string): boolean
+  return to == "land" or is_return(from, to)
 end
 
---- Occupancy of one column, counting only issues that count against its
---- limit (an epic in shaping does not). The one counting path every WIP
+--- Whether an issue occupies a WIP-limit slot in a phase: false
+--- exactly for an epic sitting in plan, true otherwise. An epic is a
+--- container that lives in plan until every child closes — not work in
+--- progress — and counting it against the limit starves the phase
+--- (measured: epics permanently occupied an average 4.8 of plan's 12
+--- slots).
+--- @param issue Issue The issue
+--- @param column string Phase the issue is being counted in
+--- @return boolean True when the issue counts against the phase's limit
+local function counts_against_limit(issue: Issue, column: string): boolean
+  return not (column == "plan" and issue.epic)
+end
+
+--- Occupancy of one phase, counting only issues that count against its
+--- limit (an epic in plan does not). The one counting path every WIP
 --- check and display shares, so the epic exemption applies everywhere
 --- at once.
 --- @param board Board The board
---- @param column string Column name
+--- @param column string Phase name
 --- @return integer Filtered occupancy
 local function counted(board: Board, column: string): integer
   local n = 0
@@ -127,27 +147,45 @@ local function counted(board: Board, column: string): integer
   return n
 end
 
---- The column a label set places an issue in, or nil when it carries
---- no plan:<column> label.
+--- The phase each older `plan:<column>` label spelling names. The
+--- flow-stats replay reads historical label events, and renaming a
+--- label on GitHub does not rewrite the name recorded in an event that
+--- already happened, so both spellings are read. Drop this table and
+--- its branch in `column_of` once no `plan:` label appears in any
+--- timeline the tool still reads.
+local LEGACY_PHASE: {string: string} = {
+  shaping = "plan",
+  ready = "ready",
+  doing = "do",
+  review = "check",
+}
+
+--- The phase a label set places an issue in, or nil when it carries
+--- neither a `work:<phase>` label nor a `plan:<column>` one.
 --- @param labels {string} Label names on the issue
---- @return string | nil Column name
+--- @return string | nil Phase name
 local function column_of(labels: {string}): string
   for _, l in ipairs(labels) do
-    local col = l:match("^plan:(%l+)$")
-    if col and COLUMN_SET[col] then
-      return col
+    local phase = l:match("^work:(%l+)$")
+    if phase and COLUMN_SET[phase] then
+      return phase
+    end
+    local legacy = l:match("^plan:(%l+)$")
+    if legacy and LEGACY_PHASE[legacy] then
+      return LEGACY_PHASE[legacy]
     end
   end
   return nil
 end
 
---- Whether a label set carries a given marker label.
+--- Whether a label set carries a given marker label (epic, enable,
+--- finding).
 --- @param labels {string} Label names on the issue
---- @param marker string Marker name without the plan: prefix
+--- @param marker string Marker name without the work: prefix
 --- @return boolean True when present
 local function has_marker(labels: {string}, marker: string): boolean
   for _, l in ipairs(labels) do
-    if l == "plan:" .. marker then
+    if l == "work:" .. marker then
       return true
     end
   end
@@ -188,77 +226,6 @@ local function ready_gaps(body: string): {string}
   return missing
 end
 
---- One measurable claim parsed from a ```facts fenced block: a shell
---- command and the stdout it must produce.
-local record Fact
-  command: string
-  expected: string
-end
-
---- Measurable claims parsed from every ```facts fenced block in a body.
---- Inside such a block, a line starting "$ " begins a command; the
---- following non-"$ " lines, up to the next "$ " line or the fence
---- close, are its expected stdout (joined with "\n", no trailing
---- newline). A block with no facts block returns an empty list. A
---- non-empty line before the first "$ " in a block, or a facts block
---- left unclosed at end of body, is malformed and returns nil plus a
---- message naming the problem and its line.
---- @param body string Issue body markdown
---- @return {Fact} | nil Parsed facts, possibly empty
---- @return string Error message naming the problem and its line
-local function facts(body: string): {Fact} | nil, string
-  local normalized = body:gsub("\r\n", "\n")
-  local out: {Fact} = {}
-  local state = "none" -- "none" | "facts" | "fence"
-  local open_line = 0
-  local cur: Fact = nil
-  local expected: {string} = {}
-  local lineno = 0
-  for line in (normalized .. "\n"):gmatch("([^\n]*)\n") do
-    lineno = lineno + 1
-    if state == "none" then
-      local info = line:match("^```(%S*)%s*$")
-      if info == "facts" then
-        state = "facts"
-        open_line = lineno
-      elseif info ~= nil then
-        state = "fence"
-      end
-    elseif state == "fence" then
-      if line:match("^```%s*$") then
-        state = "none"
-      end
-    else -- state == "facts"
-      if line:match("^```%s*$") then
-        if cur then
-          cur.expected = table.concat(expected, "\n")
-          out[#out + 1] = cur
-        end
-        state = "none"
-        cur = nil
-      else
-        local command = line:match("^%$%s+(.-)%s*$")
-        if command then
-          if cur then
-            cur.expected = table.concat(expected, "\n")
-            out[#out + 1] = cur
-          end
-          cur = {command = command}
-          expected = {}
-        elseif cur then
-          expected[#expected + 1] = line
-        elseif line:match("%S") then
-          return nil, ("facts: line %d: content before first $ command"):format(lineno)
-        end
-      end
-    end
-  end
-  if state == "facts" then
-    return nil, ("facts: line %d: unclosed block"):format(open_line)
-  end
-  return out
-end
-
 --- Issue numbers named on "blocked by" lines of a body. Any line
 --- containing the phrase contributes every #N it mentions; same-repo
 --- references only.
@@ -276,10 +243,10 @@ local function blockers(body: string): {integer}
   return out
 end
 
---- Issues of one column, oldest (lowest number) first. Returns a new
+--- Issues of one phase, oldest (lowest number) first. Returns a new
 --- sorted copy; the board is data, not scratch.
 --- @param board Board The board
---- @param column string Column name
+--- @param column string Phase name
 --- @return {Issue} Sorted issues, possibly empty
 local function oldest_first(board: Board, column: string): {Issue}
   local list: {Issue} = {}
@@ -292,9 +259,9 @@ local function oldest_first(board: Board, column: string): {Issue}
   return list
 end
 
---- WIP-limit violations, one line each ("doing 3/2 over limit").
+--- WIP-limit violations, one line each ("do 6/5 over limit").
 --- @param board Board The board
---- @return {string} Violations, left-to-right column order
+--- @return {string} Violations, left-to-right phase order
 local function wip_violations(board: Board): {string}
   local out: {string} = {}
   for _, col in ipairs(COLUMNS) do
@@ -330,22 +297,34 @@ local function first_pullable(board: Board, is_open: IsOpen): Issue
 end
 
 --- The implementer's next action, right to left: whatever is closest
---- to completion moves first. Doing — which holds both fresh claims
---- and rework a review verdict sent back — comes before pulling
---- (oldest first, with the pullable ready issue as the fallback for a
---- second concurrent session); then the oldest unblocked ready issue;
---- otherwise there is nothing to pull and a planner session is the
---- answer (review-column items wait on a planner, never on more
---- implementation).
+--- to completion moves first. Land leads: its issues are accepted,
+--- awaiting merge, and one merge finishes them. Then do —
+--- which holds both fresh claims and rework a check verdict sent back
+--- — oldest first, with the pullable ready issue as the fallback for a
+--- second concurrent session. Then the oldest unblocked ready issue,
+--- except while the landing queue is at its limit, when draining it
+--- rather than starting more work is the action. Otherwise there is
+--- nothing to pull and a planner session is the answer (check-phase
+--- items wait on a planner, never on more implementation).
 --- @param board Board The board
 --- @param is_open IsOpen Blocker-state oracle
 --- @return NextAction The decision
 local function next_for_implementer(board: Board, is_open: IsOpen): NextAction
-  local doing = oldest_first(board, "doing")
+  local landing = oldest_first(board, "land")
   local pullable = first_pullable(board, is_open)
+  if #landing > 0 then
+    return {
+      kind = "finish",
+      issue = landing[1],
+      alt = pullable,
+      reason = ("land holds %d/%d — #%d is accepted, awaiting merge"):format(
+        #landing, LIMITS["land"], landing[1].number),
+    }
+  end
+  local doing = oldest_first(board, "do")
   if #doing > 0 then
-    local reason = ("doing holds %d/%d — finish before pulling"):format(
-      #doing, LIMITS["doing"])
+    local reason = ("do holds %d/%d — finish before pulling"):format(
+      #doing, LIMITS["do"])
     if pullable then
       reason = reason .. ("; if #%d is another live session's claim, pull #%d")
       :format(doing[1].number, pullable.number)
@@ -353,16 +332,24 @@ local function next_for_implementer(board: Board, is_open: IsOpen): NextAction
     return {kind = "finish", issue = doing[1], alt = pullable, reason = reason}
   end
   if pullable then
+    local landed = counted(board, "land")
+    if landed >= LIMITS["land"] then
+      return {
+        kind = "none",
+        reason = ("the landing queue holds %d/%d — land the accepted work "
+          .. "before pulling more"):format(landed, LIMITS["land"]),
+      }
+    end
     return {
       kind = "pull",
       issue = pullable,
       reason = "oldest ready issue with no open blocker",
     }
   end
-  local waiting = #(board["review"] or {})
+  local waiting = #(board["check"] or {})
   local bottleneck = ""
   if waiting > 0 then
-    bottleneck = ("; %d issue(s) await planner review — that verdict is "
+    bottleneck = ("; %d issue(s) await a planner verdict — that verdict is "
       .. "the bottleneck"):format(waiting)
   end
   if #(board["ready"] or {}) > 0 then
@@ -379,40 +366,41 @@ local function next_for_implementer(board: Board, is_open: IsOpen): NextAction
   }
 end
 
---- The planner's next action, right to left: review waiting work
---- first; then refine shaping into ready while ready has slack; then
---- intake from the goals while shaping has slack; else nothing.
+--- The planner's next action, right to left: check waiting work first
+--- (land is the implementer's phase, so the planner's rightmost is
+--- check); then refine plan into ready while ready has slack; then
+--- intake from the goals while plan has slack; else nothing.
 --- @param board Board The board
 --- @return NextAction The decision
 local function next_for_planner(board: Board): NextAction
-  local review = oldest_first(board, "review")
-  if #review > 0 then
+  local checking = oldest_first(board, "check")
+  if #checking > 0 then
     return {
       kind = "review",
-      issue = review[1],
-      reason = "review is the rightmost occupied column — verdicts first",
+      issue = checking[1],
+      reason = "check is the rightmost planner phase — verdicts first",
     }
   end
-  local shaping = oldest_first(board, "shaping")
-  if #shaping > 0 and #(board["ready"] or {}) < LIMITS["ready"] then
+  local planning = oldest_first(board, "plan")
+  if #planning > 0 and #(board["ready"] or {}) < LIMITS["ready"] then
     return {
       kind = "refine",
-      issue = shaping[1],
-      reason = ("ready holds %d/%d — refine shaping toward the bar"):format(
-        #(board["ready"] or {}), LIMITS["ready"]),
+      issue = planning[1],
+      reason = ("ready holds %d/%d — refine a plan issue toward the bar")
+      :format(#(board["ready"] or {}), LIMITS["ready"]),
     }
   end
-  local shaping_count = counted(board, "shaping")
-  if shaping_count < LIMITS["shaping"] then
+  local plan_count = counted(board, "plan")
+  if plan_count < LIMITS["plan"] then
     return {
       kind = "intake",
-      reason = ("shaping holds %d/%d — work backwards from docs/goals.md")
-      :format(shaping_count, LIMITS["shaping"]),
+      reason = ("plan holds %d/%d — work backwards from docs/goals.md")
+      :format(plan_count, LIMITS["plan"]),
     }
   end
   return {
     kind = "none",
-    reason = "shaping and ready are at limit with nothing to review — "
+    reason = "plan and ready are at limit with nothing to check — "
     .. "implementation has to catch up before planning adds more",
   }
 end
@@ -440,18 +428,17 @@ local record model
   type Board = Board
   type NextAction = NextAction
   type IsOpen = IsOpen
-  type Fact = Fact
   COLUMNS: {string}
   LIMITS: {string: integer}
   READY_SECTIONS: {string}
   column_of: function(labels: {string}): string
   has_marker: function(labels: {string}, marker: string): boolean
   is_return: function(from: string, to: string): boolean
+  admits_over_limit: function(from: string, to: string): boolean
   counts_against_limit: function(issue: Issue, column: string): boolean
   limited_count: function(board: Board, column: string): integer
   ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
-  facts: function(body: string): {Fact} | nil, string
   oldest_first: function(board: Board, column: string): {Issue}
   wip_violations: function(board: Board): {string}
   next_action: function(board: Board, role: string, is_open: IsOpen):
@@ -465,11 +452,11 @@ local M: model = {
   column_of = column_of,
   has_marker = has_marker,
   is_return = is_return,
+  admits_over_limit = admits_over_limit,
   counts_against_limit = counts_against_limit,
   limited_count = counted,
   ready_gaps = ready_gaps,
   blockers = blockers,
-  facts = facts,
   oldest_first = oldest_first,
   wip_violations = wip_violations,
   next_action = next_action,

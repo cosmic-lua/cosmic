@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local github = require("_plan.github")
+local github = require("_work.github")
 
 local type RawIssue = github.RawIssue
 

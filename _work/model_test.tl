@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local model = require("_plan.model")
+local model = require("_work.model")
 
 local type Issue = model.Issue
 local type Board = model.Board
@@ -50,16 +50,34 @@ local function all_closed(_n: integer): boolean
 end
 
 local function test_column_of()
-  local col = model.column_of({"perf", "plan:ready", "plan:epic"})
+  local col = model.column_of({"perf", "work:ready", "work:epic"})
   assert(col == "ready", "got: " .. tostring(col))
-  assert(model.column_of({"perf"}) == nil, "expected nil without plan label")
-  assert(model.column_of({"plan:bogus"}) == nil, "expected nil for bogus column")
+  assert(model.column_of({"perf"}) == nil, "expected nil without a phase label")
+  assert(model.column_of({"work:bogus"}) == nil, "expected nil for bogus phase")
 end
 test_column_of()
 
+local function test_column_of_reads_the_older_label_spelling()
+  local want: {string: string} = {
+    ["plan:shaping"] = "plan",
+    ["plan:ready"] = "ready",
+    ["plan:doing"] = "do",
+    ["plan:review"] = "check",
+  }
+  for label, phase in pairs(want) do
+    local got = model.column_of({label})
+    assert(got == phase, ("%s: got %s, want %s"):format(
+        label, tostring(got), phase))
+  end
+  assert(model.column_of({"plan:bogus"}) == nil, "an unmapped older label is nil")
+end
+test_column_of_reads_the_older_label_spelling()
+
 local function test_has_marker()
-  assert(model.has_marker({"plan:epic"}, "epic"), "epic marker missed")
-  assert(not model.has_marker({"plan:ready"}, "epic"), "false epic marker")
+  assert(model.has_marker({"work:epic"}, "epic"), "epic marker missed")
+  assert(not model.has_marker({"work:ready"}, "epic"), "false epic marker")
+  assert(not model.has_marker({"plan:epic"}, "epic"),
+    "markers are read in the work: spelling only")
 end
 test_has_marker()
 
@@ -75,17 +93,32 @@ local function test_is_return_over_every_ordered_pair()
 end
 test_is_return_over_every_ordered_pair()
 
-local function test_is_return_unknown_column_is_not_a_return()
-  local nowhere: string = "plan"
+local function test_is_return_unknown_phase_is_not_a_return()
+  local nowhere: string = "backlog"
   local none: string = nil
-  assert(not model.is_return(nowhere, "shaping"),
-    "an unknown from-column is an entry, not a return")
-  assert(not model.is_return("doing", nowhere),
-    "an unknown to-column is not a return")
-  assert(not model.is_return(none, "shaping"),
-    "an issue on no column is an entry, not a return")
+  assert(not model.is_return(nowhere, "plan"),
+    "an unknown from-phase is an entry, not a return")
+  assert(not model.is_return("do", nowhere),
+    "an unknown to-phase is not a return")
+  assert(not model.is_return(none, "plan"),
+    "an issue on no phase is an entry, not a return")
 end
-test_is_return_unknown_column_is_not_a_return()
+test_is_return_unknown_phase_is_not_a_return()
+
+local function test_admits_over_limit()
+  local none: string = nil
+  assert(model.admits_over_limit("check", "land"),
+    "an accept is a verdict already made, never refused")
+  assert(model.admits_over_limit("do", "land"), "any move into land is admitted")
+  assert(model.admits_over_limit(none, "land"),
+    "even an entry straight into land is admitted")
+  assert(model.admits_over_limit("check", "do"), "a rework send-back is a return")
+  assert(not model.admits_over_limit("ready", "do"),
+    "a pull is rightward motion; the limit binds it")
+  assert(not model.admits_over_limit(none, "plan"),
+    "an entry is not a return; the limit binds it")
+end
+test_admits_over_limit()
 
 local function test_ready_gaps_complete()
   local gaps = model.ready_gaps(READY_BODY)
@@ -142,7 +175,7 @@ local function test_oldest_first_sorts_copy()
   local sorted = model.oldest_first(board, "ready")
   assert(sorted[1].number == 2 and sorted[3].number == 9, "sort broken")
   assert(board["ready"][1].number == 5, "input mutated")
-  assert(#model.oldest_first(board, "doing") == 0, "missing column not empty")
+  assert(#model.oldest_first(board, "do") == 0, "missing phase not empty")
 end
 test_oldest_first_sorts_copy()
 
@@ -150,7 +183,7 @@ local function test_counts_against_limit()
   for _, col in ipairs(model.COLUMNS) do
     local epic_i = issue(1, {epic = true})
     local plain_i = issue(2)
-    local want_epic = not (col == "shaping")
+    local want_epic = not (col == "plan")
     assert(model.counts_against_limit(epic_i, col) == want_epic,
       ("%s epic: got %s, want %s"):format(
         col, tostring(model.counts_against_limit(epic_i, col)),
@@ -161,31 +194,31 @@ local function test_counts_against_limit()
 end
 test_counts_against_limit()
 
-local function test_wip_violations_shaping_exempts_epics()
-  local shaping: {Issue} = {}
+local function test_wip_violations_plan_exempts_epics()
+  local planning: {Issue} = {}
   for n = 1, 11 do
-    shaping[#shaping + 1] = issue(n)
+    planning[#planning + 1] = issue(n)
   end
   for n = 100, 104 do
-    shaping[#shaping + 1] = issue(n, {epic = true})
+    planning[#planning + 1] = issue(n, {epic = true})
   end
-  local board: Board = {shaping = shaping}
+  local board: Board = {plan = planning}
   local v = model.wip_violations(board)
   assert(#v == 0, "11 counted + 5 epics under 12 should not violate: "
     .. table.concat(v, "; "))
 end
-test_wip_violations_shaping_exempts_epics()
+test_wip_violations_plan_exempts_epics()
 
 local function test_wip_violations()
-  local limit = model.LIMITS["doing"]
+  local limit = model.LIMITS["do"]
   local over: {Issue} = {}
   for n = 1, limit + 1 do
     over[#over + 1] = issue(n)
   end
-  local board: Board = {doing = over}
+  local board: Board = {["do"] = over}
   local v = model.wip_violations(board)
   assert(#v == 1, "expected one violation, got " .. tostring(#v))
-  local want = ("doing %d/%d over limit"):format(limit + 1, limit)
+  local want = ("do %d/%d over limit"):format(limit + 1, limit)
   assert(v[1] == want, "got: " .. v[1])
 end
 test_wip_violations()
@@ -208,14 +241,38 @@ local function test_implementer_pulls_when_blocker_closed()
 end
 test_implementer_pulls_when_blocker_closed()
 
-local function test_implementer_finishes_doing_first()
-  local board: Board = {doing = {issue(4)}, ready = {issue(6)}}
+local function test_implementer_finishes_do_first()
+  local board: Board = {["do"] = {issue(4)}, ready = {issue(6)}}
   local action = assert(model.next_action(board, "implementer", all_open))
   assert(action.kind == "finish", "got: " .. action.kind)
   assert(action.issue.number == 4, "got: " .. tostring(action.issue.number))
   assert(action.alt and action.alt.number == 6, "fallback should be #6")
 end
-test_implementer_finishes_doing_first()
+test_implementer_finishes_do_first()
+
+local function test_implementer_lands_before_do()
+  local board: Board = {land = {issue(9)}, ["do"] = {issue(4)}, ready = {issue(6)}}
+  local action = assert(model.next_action(board, "implementer", all_open))
+  assert(action.kind == "finish", "got: " .. action.kind)
+  assert(action.issue.number == 9,
+    "the land item is the most-finished work: " .. tostring(action.issue.number))
+  assert(action.reason:find("accepted, awaiting merge", 1, true) ~= nil,
+    "reason: " .. action.reason)
+end
+test_implementer_lands_before_do()
+
+local function test_implementer_never_pulls_while_land_is_full()
+  local landing: {Issue} = {}
+  for n = 1, model.LIMITS["land"] do
+    landing[#landing + 1] = issue(n)
+  end
+  local board: Board = {land = landing, ready = {issue(20)}}
+  local action = assert(model.next_action(board, "implementer", all_open))
+  assert(action.kind ~= "pull", "a full landing queue must not yield a pull")
+  assert(action.reason:find("land", 1, true) ~= nil,
+    "the reason must name the landing queue: " .. action.reason)
+end
+test_implementer_never_pulls_while_land_is_full()
 
 local function test_implementer_idle_when_all_blocked()
   local board: Board = {ready = {issue(8, {epic = true})}}
@@ -225,122 +282,56 @@ local function test_implementer_idle_when_all_blocked()
 end
 test_implementer_idle_when_all_blocked()
 
-local function test_implementer_none_names_review_bottleneck()
-  local board: Board = {review = {issue(4), issue(5)}}
+local function test_implementer_none_names_check_bottleneck()
+  local board: Board = {check = {issue(4), issue(5)}}
   local action = assert(model.next_action(board, "implementer", all_open))
   assert(action.kind == "none", "got: " .. action.kind)
-  assert(action.reason:find("2 issue(s) await planner review", 1, true) ~= nil,
+  assert(action.reason:find("2 issue(s) await a planner verdict", 1, true) ~= nil,
     "reason: " .. action.reason)
 end
-test_implementer_none_names_review_bottleneck()
+test_implementer_none_names_check_bottleneck()
 
-local function test_planner_reviews_first()
+local function test_planner_checks_first()
   local board: Board = {
-    review = {issue(9), issue(7)},
-    shaping = {issue(1)},
+    check = {issue(9), issue(7)},
+    plan = {issue(1)},
   }
   local action = assert(model.next_action(board, "planner", all_open))
   assert(action.kind == "review", "got: " .. action.kind)
-  assert(action.issue.number == 7, "oldest review first")
+  assert(action.issue.number == 7, "oldest check item first")
 end
-test_planner_reviews_first()
+test_planner_checks_first()
 
 local function test_planner_refines_when_ready_has_slack()
-  local board: Board = {shaping = {issue(2)}}
+  local board: Board = {plan = {issue(2)}}
   local action = assert(model.next_action(board, "planner", all_open))
   assert(action.kind == "refine", "got: " .. action.kind)
   assert(action.issue.number == 2, "got: " .. tostring(action.issue.number))
 end
 test_planner_refines_when_ready_has_slack()
 
-local function test_planner_intakes_when_shaping_has_slack()
+local function test_planner_intakes_when_plan_has_slack()
   local board: Board = {}
   local action = assert(model.next_action(board, "planner", all_open))
   assert(action.kind == "intake", "got: " .. action.kind)
   assert(action.reason:find("goals", 1, true) ~= nil, "reason: " .. action.reason)
 end
-test_planner_intakes_when_shaping_has_slack()
+test_planner_intakes_when_plan_has_slack()
 
 local function test_planner_none_when_saturated()
-  local shaping: {Issue} = {}
+  local planning: {Issue} = {}
   local ready: {Issue} = {}
-  for n = 1, model.LIMITS["shaping"] do
-    shaping[#shaping + 1] = issue(n)
+  for n = 1, model.LIMITS["plan"] do
+    planning[#planning + 1] = issue(n)
   end
   for n = 11, 10 + model.LIMITS["ready"] do
     ready[#ready + 1] = issue(n)
   end
-  local board: Board = {shaping = shaping, ready = ready}
+  local board: Board = {plan = planning, ready = ready}
   local action = assert(model.next_action(board, "planner", all_open))
   assert(action.kind == "none", "got: " .. action.kind)
 end
 test_planner_none_when_saturated()
-
-local function test_facts_none()
-  local got = assert(model.facts(READY_BODY))
-  assert(#got == 0, "expected no facts, got " .. tostring(#got))
-end
-test_facts_none()
-
-local function test_facts_two_in_one_block()
-  local body = "## Acceptance\n"
-  .. "```facts\n"
-  .. "$ echo hi\n"
-  .. "hi\n"
-  .. "there\n"
-  .. "$ true\n"
-  .. "```\n"
-  local got = assert(model.facts(body))
-  assert(#got == 2, "expected 2 facts, got " .. tostring(#got))
-  assert(got[1].command == "echo hi", "got: " .. got[1].command)
-  assert(got[1].expected == "hi\nthere", "got: " .. got[1].expected)
-  assert(got[2].command == "true", "got: " .. got[2].command)
-  assert(got[2].expected == "", "expected empty, got: " .. got[2].expected)
-end
-test_facts_two_in_one_block()
-
-local function test_facts_two_blocks()
-  local body = "```facts\n$ a\nA\n```\n\nprose\n\n```facts\n$ b\nB\n```\n"
-  local got = assert(model.facts(body))
-  assert(#got == 2, "expected 2 facts, got " .. tostring(#got))
-  assert(got[1].command == "a" and got[1].expected == "A", "got: " .. got[1].command)
-  assert(got[2].command == "b" and got[2].expected == "B", "got: " .. got[2].command)
-end
-test_facts_two_blocks()
-
-local function test_facts_crlf_body()
-  local body = "```facts\r\n$ echo hi\r\nhi\r\nthere\r\n```\r\n"
-  local got = assert(model.facts(body))
-  assert(#got == 1, "expected 1 fact, got " .. tostring(#got))
-  assert(got[1].command == "echo hi", "got: " .. got[1].command)
-  assert(got[1].expected == "hi\nthere", "got: " .. got[1].expected)
-end
-test_facts_crlf_body()
-
-local function test_facts_malformed_content_before_command()
-  local body = "```facts\nstray content\n$ echo hi\nhi\n```\n"
-  local got, err = model.facts(body)
-  assert(got == nil, "expected nil for malformed block")
-  assert(err ~= nil and err:find("line 2", 1, true) ~= nil,
-    "err should name line 2: " .. tostring(err))
-end
-test_facts_malformed_content_before_command()
-
-local function test_facts_unclosed_block()
-  local body = "```facts\n$ echo hi\nhi\n"
-  local got, err = model.facts(body)
-  assert(got == nil, "expected nil for unclosed block")
-  assert(err ~= nil and err:find("line 1", 1, true) ~= nil,
-    "err should name the opening line 1: " .. tostring(err))
-end
-test_facts_unclosed_block()
-
-local function test_facts_other_fence_not_parsed()
-  local body = "```text\n$ echo hi\nhi\n```\n"
-  local got = assert(model.facts(body))
-  assert(#got == 0, "content in a non-facts fence must not be parsed")
-end
-test_facts_other_fence_not_parsed()
 
 local function test_unknown_role_errors()
   local action, err = model.next_action({}, "manager", all_open)

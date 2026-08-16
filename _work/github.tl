@@ -1,7 +1,7 @@
---- GitHub REST adapter for the plan board: list a column, fetch and
+--- GitHub REST adapter for the work board: list a phase, fetch and
 --- create issues, swap labels, ensure the label vocabulary exists —
 --- over cosmic.fetch, no gh CLI. Everything network-shaped lives here
---- so _plan.model stays pure. Auth is a GITHUB_TOKEN (or GH_TOKEN)
+--- so _work.model stays pure. Auth is a GITHUB_TOKEN (or GH_TOKEN)
 --- env var; HTTPS_PROXY is honored, and behind a TLS-intercepting
 --- proxy set SSL_USE_SYSTEM_CERTS=1 SSL_CERT_FILE=<bundle> (read by
 --- the cosmos TLS root loader).
@@ -90,7 +90,7 @@ local function api(method: string, path: string, payload?: any): ApiResult, stri
         ["authorization"] = "Bearer " .. token,
         ["accept"] = "application/vnd.github+json",
         ["x-github-api-version"] = "2022-11-28",
-        ["user-agent"] = "cosmic-plan-board",
+        ["user-agent"] = "cosmic-work-board",
       },
     })
   if resp == nil then

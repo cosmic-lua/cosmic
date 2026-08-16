@@ -1,23 +1,22 @@
---- Flow-review stats: measures the board's own history instead of the
---- one-off scripts that produced the first review (#1168). Pure core
---- (stints, summarize) reconstructs per-issue column stints from
---- issue-timeline events and reports per-column dwell, occupancy, and
+--- Flow-review stats over the board's own history. The pure core
+--- (stints, summarize) reconstructs per-issue phase stints from
+--- issue-timeline events and reports per-phase dwell, occupancy, and
 --- backward-motion numbers; cmd_stats is the effect half that fetches
 --- the window's issues and their events and prints the report. This
 --- tool measures — it does not recommend; the planner reads the
---- numbers and judges (skills/plan/review.md's flow-review section).
+--- numbers and judges (skills/work/review.md's flow-review section).
 
 local time = require("cosmic.time")
 local str = require("cosmic.string")
-local gh = require("_plan.github")
-local model = require("_plan.model")
+local gh = require("_work.github")
+local model = require("_work.model")
 
 --- One issue-timeline event, reduced to what the flow reader needs: a
---- label applied/removed or the issue closing. `column` is the board
---- column a "labeled"/"unlabeled" event's label names, or "" when the
---- event carries no label or a non-plan:<column> one. `created_at`
---- stays an ISO 8601 STRING here — stints() is where it becomes an
---- epoch second, via the small pure helper below.
+--- label applied/removed or the issue closing. `column` is the phase a
+--- "labeled"/"unlabeled" event's label names, or "" when the event
+--- carries no label or one that names no phase. `created_at` stays an
+--- ISO 8601 STRING here — stints() is where it becomes an epoch
+--- second, via the small pure helper below.
 local record LabeledEvent
   issue: integer
   kind: string -- "labeled" | "unlabeled" | "closed" (others are dropped)
@@ -25,9 +24,9 @@ local record LabeledEvent
   created_at: string
 end
 
---- One continuous span an issue spent in one board column: when it
---- began, when (if ever) it ended, and how. `finish` is nil while the
---- span is still running as of the report (an "open" stint).
+--- One continuous span an issue spent in one phase: when it began,
+--- when (if ever) it ended, and how. `finish` is nil while the span is
+--- still running as of the report (an "open" stint).
 local record Stint
   issue: integer
   column: string
@@ -36,7 +35,7 @@ local record Stint
   ended: string -- "moved" | "closed" | "open"
 end
 
---- Per-column numbers for one report window.
+--- Per-phase numbers for one report window.
 local record ColumnFlow
   column: string
   stint_count: integer
@@ -46,14 +45,17 @@ local record ColumnFlow
   at_limit_min: number
 end
 
---- Backward motion in the window: bounces (`*→shaping`, sent back to
---- be reshaped) and returns (`review→doing`, a rework send-back).
+--- The verdicts and send-backs in the window, counted apart because
+--- they mean opposite things: an accept (`check→land`) is work moving
+--- on, a rework (`check→do`) is work sent back for changes, and a
+--- bounce (`*→plan`) is work sent back to be reshaped.
 local record BackwardMoves
   bounces: integer
-  returns: integer
+  accepts: integer
+  reworks: integer
 end
 
---- ready→doing pickup latency: how long a ready issue waited before an
+--- ready→do pickup latency: how long a ready issue waited before an
 --- implementer claimed it, over every such transition in the window.
 local record PickupLatency
   count: integer
@@ -81,9 +83,11 @@ local function epoch_of(created_at: string): integer | nil
 end
 
 --- Reduce one issue's raw timeline events to LabeledEvents: only
---- "labeled"/"unlabeled"/"closed" survive, and a label event's column
---- is resolved through model.column_of so a non-plan:<column> label
---- (e.g. "perf") reads as "" rather than crashing the reconstruction.
+--- "labeled"/"unlabeled"/"closed" survive, and a label event's phase
+--- is resolved through model.column_of — which reads both the current
+--- `work:<phase>` labels and the older `plan:<column>` ones recorded
+--- in past events — so a label naming no phase (e.g. "perf") reads as
+--- "" rather than crashing the reconstruction.
 --- @param issue integer The issue the events belong to
 --- @param raw {gh.RawEvent} Raw timeline events, oldest first
 --- @return {LabeledEvent} Normalized events, oldest first
@@ -107,9 +111,9 @@ local function to_labeled_events(issue: integer, raw: {gh.RawEvent}): {LabeledEv
 end
 
 --- Reconstruct one issue's stints from its own events, oldest first.
---- A "labeled" event for a new column closes the running stint
+--- A "labeled" event for a new phase closes the running stint
 --- ("moved") and opens the new one; "unlabeled" for the running
---- column's own label closes it ("moved") with no replacement yet
+--- phase's own label closes it ("moved") with no replacement yet
 --- open; "closed" closes the running stint ("closed"); an event whose
 --- timestamp does not parse is skipped rather than corrupting the
 --- reconstruction with a bogus instant. A stint still running when the
@@ -154,7 +158,7 @@ local function stints_for_issue(issue: integer, events: {LabeledEvent}): {Stint}
   return out
 end
 
---- Reconstruct every issue's column stints from its labeled/unlabeled/
+--- Reconstruct every issue's phase stints from its labeled/unlabeled/
 --- closed events. Events for several issues may be mixed in one list
 --- — this groups by `issue` first, so cmd_stats can hand it one big
 --- concatenated list straight off its per-issue fetch loop.
@@ -234,15 +238,15 @@ local record Delta
   d: integer
 end
 
---- Peak concurrent stints in one column's list, and the total minutes
+--- Peak concurrent stints in one phase's list, and the total minutes
 --- spent at or over `limit` concurrent stints — a sweep over
 --- start/finish instants. At a shared instant an ending stint is
 --- processed before a starting one, so a stint's exact-instant
 --- hand-off to another (one's finish equals the next's start) never
 --- registers as a transient extra peak.
---- @param list {Stint} Stints in one column
+--- @param list {Stint} Stints in one phase
 --- @param now_epoch integer "Now", substituted for an open stint's finish
---- @param limit integer The column's WIP limit
+--- @param limit integer The phase's WIP limit
 --- @return integer Peak concurrent stints
 --- @return number Minutes spent at or over the limit
 local function occupancy(list: {Stint}, now_epoch: integer,
@@ -279,12 +283,11 @@ local function occupancy(list: {Stint}, now_epoch: integer,
   return peak, at_limit_secs / 60.0
 end
 
---- Summarize a set of stints into a FlowReport: per column, stint
+--- Summarize a set of stints into a FlowReport: per phase, stint
 --- count, median/max dwell minutes, peak occupancy, and minutes at or
---- over the column's WIP limit (model.LIMITS); across all columns,
---- backward moves split into bounces and review→doing returns, and
---- ready→doing pickup latencies. An open stint's dwell and occupancy
---- run to `now_iso`.
+--- over the phase's WIP limit (model.LIMITS); across all phases, the
+--- bounces, accepts and reworks, and ready→do pickup latencies. An
+--- open stint's dwell and occupancy run to `now_iso`.
 --- @param all_stints {Stint} Stints from any number of issues
 --- @param now_iso string ISO 8601 "now", for open stints
 --- @return FlowReport The measured flow
@@ -330,7 +333,8 @@ local function summarize(all_stints: {Stint}, now_iso: string): FlowReport
     list[#list + 1] = s
   end
   local bounces = 0
-  local returns = 0
+  local accepts = 0
+  local reworks = 0
   local pickup: {number} = {}
   for _, issue in ipairs(order) do
     local list = by_issue[issue]
@@ -341,12 +345,14 @@ local function summarize(all_stints: {Stint}, now_iso: string): FlowReport
       local cur = list[i]
       local nxt = list[i + 1]
       if cur.ended == "moved" then
-        if nxt.column == "shaping" then
+        if nxt.column == "plan" then
           bounces = bounces + 1
-        elseif cur.column == "review" and nxt.column == "doing" then
-          returns = returns + 1
+        elseif cur.column == "check" and nxt.column == "land" then
+          accepts = accepts + 1
+        elseif cur.column == "check" and nxt.column == "do" then
+          reworks = reworks + 1
         end
-        if cur.column == "ready" and nxt.column == "doing" then
+        if cur.column == "ready" and nxt.column == "do" then
           pickup[#pickup + 1] = (cur.finish - cur.start) / 60.0
         end
       end
@@ -354,12 +360,12 @@ local function summarize(all_stints: {Stint}, now_iso: string): FlowReport
   end
   return {
     columns = columns,
-    backward = {bounces = bounces, returns = returns},
+    backward = {bounces = bounces, accepts = accepts, reworks = reworks},
     pickup = {count = #pickup, median_min = median(pickup), max_min = max_of(pickup)},
   }
 end
 
---- stats: fetch every plan-labeled issue updated in the last `days`
+--- stats: fetch every work-labeled issue updated in the last `days`
 --- days (open and closed), replay each one's timeline events through
 --- the pure core, and print the measured flow. `days` counts back from
 --- "now"; an issue with no events in that window (e.g. one that never
@@ -374,11 +380,11 @@ local function cmd_stats(repo: string, days: integer): integer
   local numbers: {integer: boolean} = {}
   local issues: {integer} = {}
   for _, col in ipairs(model.COLUMNS) do
-    local raw, err = gh.list_issues(repo, "plan:" .. col,
+    local raw, err = gh.list_issues(repo, "work:" .. col,
       {state = "all", since = since_iso})
     if raw == nil then
       io.stderr:write(("listing %s: %s"):format(col, err) .. "\n")
-      print("plan-stats: ERROR")
+      print("work-stats: ERROR")
       return 1
     end
     for _, i in ipairs(raw) do
@@ -393,7 +399,7 @@ local function cmd_stats(repo: string, days: integer): integer
     local raw, err = gh.list_issue_events(repo, n)
     if raw == nil then
       io.stderr:write(("events #%d: %s"):format(n, err) .. "\n")
-      print("plan-stats: ERROR")
+      print("work-stats: ERROR")
       return 1
     end
     for _, e in ipairs(to_labeled_events(n, raw)) do
@@ -401,21 +407,22 @@ local function cmd_stats(repo: string, days: integer): integer
     end
   end
   local report = summarize(stints(events), now_iso)
-  print(("plan flow — %s, last %d day(s), %d issue(s)"):format(
+  print(("work flow — %s, last %d day(s), %d issue(s)"):format(
       repo, days, #issues))
   print(("%-8s %6s %12s %11s %6s %13s"):format(
-      "column", "stints", "med dwell", "max dwell", "peak", "min at-limit"))
+      "phase", "stints", "med dwell", "max dwell", "peak", "min at-limit"))
   for _, c in ipairs(report.columns) do
     print(("%-8s %6d %12.1f %11.1f %6d %13.1f"):format(
         c.column, c.stint_count, c.median_dwell_min, c.max_dwell_min,
         c.peak_occupancy, c.at_limit_min))
   end
-  print(("backward moves: %d bounce(s) (*->shaping), %d return(s) "
-      .. "(review->doing)"):format(report.backward.bounces, report.backward.returns))
-  print(("ready->doing pickup latency: %d transition(s), median %.1f min, "
+  print(("verdicts: %d accept(s) (check->land), %d rework(s) (check->do), "
+      .. "%d bounce(s) (*->plan)"):format(
+      report.backward.accepts, report.backward.reworks, report.backward.bounces))
+  print(("ready->do pickup latency: %d transition(s), median %.1f min, "
       .. "max %.1f min"):format(
       report.pickup.count, report.pickup.median_min, report.pickup.max_min))
-  print("plan-stats: OK")
+  print("work-stats: OK")
   return 0
 end
 

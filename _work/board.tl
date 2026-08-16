@@ -1,40 +1,43 @@
 #!/usr/bin/env cosmic
---- Plan board CLI: the kanban of plan:* labeled GitHub issues that
---- skills/plan/ operates. Verbs: status (the board and its WIP
+--- Work board CLI: the kanban of work:* labeled GitHub issues that
+--- skills/work/ operates. Verbs: status (the board and its WIP
 --- verdict), next (the one action to take, per role), check (ready-bar
---- lint of an issue), move (column change, WIP-limited), edit (rewrite
+--- lint of an issue), move (phase change, WIP-limited), edit (rewrite
 --- a title/body in place), init (create the label vocabulary), show
 --- (read an issue's spec and its comments), land (verify a PR then
---- squash-merge it), stats (measure per-column flow over a window).
---- Every verb ends with a `plan-<verb>:` verdict line; read that, never
+--- squash-merge it), stats (measure per-phase flow over a window).
+--- Every verb ends with a `work-<verb>:` verdict line; read that, never
 --- a piped exit status. WIP limits gate rightward motion and intake
---- only: a return (a leftward move) and a `new --finding` always land,
---- and an over-limit column blocks further pull until it drains.
+--- only: a return (a leftward move), a move into land, and a
+--- `new --finding` are never refused, and an over-limit phase blocks
+--- further pull until it drains.
 ---
----   cosmic --make run _plan/board.tl status [--repo OWNER/NAME]
----   cosmic --make run _plan/board.tl next [--role planner|implementer]
----   cosmic --make run _plan/board.tl check 123
----   cosmic --make run _plan/board.tl move 123 ready [--force]
----   cosmic --make run _plan/board.tl new "title" [--body-file F] [--epic]
----   cosmic --make run _plan/board.tl new "title" --finding
----   cosmic --make run _plan/board.tl edit 123 --body-file F [--title T]
----   cosmic --make run _plan/board.tl show 123
----   cosmic --make run _plan/board.tl land 123 124
----   cosmic --make run _plan/board.tl stats [--days N]
----   cosmic --make run _plan/board.tl init
+---   cosmic --make run _work/board.tl status [--repo OWNER/NAME]
+---   cosmic --make run _work/board.tl next [--role planner|implementer]
+---   cosmic --make run _work/board.tl check 123
+---   cosmic --make run _work/board.tl move 123 ready [--force]
+---   cosmic --make run _work/board.tl new "title" [--body-file F] [--epic]
+---   cosmic --make run _work/board.tl new "title" --finding
+---   cosmic --make run _work/board.tl edit 123 --body-file F [--title T]
+---   cosmic --make run _work/board.tl show 123
+---   cosmic --make run _work/board.tl land 123 124
+---   cosmic --make run _work/board.tl stats [--days N]
+---   cosmic --make run _work/board.tl init
 ---
 --- Auth is a GITHUB_TOKEN (or GH_TOKEN) env var — no gh CLI involved.
 --- This file is the argument parsing and dispatch half; the verbs
---- themselves are `_plan.verbs` (planner lane), `_plan.implementer`
---- (implementer lane), and `_plan.stats` (flow measurement).
+--- themselves are `_work.verbs` (planner lane), `_work.implementer`
+--- (implementer lane), `_work.stats` (flow measurement), and
+--- `_work.labels` (the label vocabulary and the init that creates it).
 
 local flags = require("cosmic.flags")
 local proc = require("cosmic.proc")
-local gh = require("_plan.github")
-local model = require("_plan.model")
-local verbs = require("_plan.verbs")
-local implementer = require("_plan.implementer")
-local stats = require("_plan.stats")
+local gh = require("_work.github")
+local labels = require("_work.labels")
+local model = require("_work.model")
+local verbs = require("_work.verbs")
+local implementer = require("_work.implementer")
+local stats = require("_work.stats")
 
 local type Issue = model.Issue
 
@@ -47,7 +50,7 @@ end
 
 local CSPEC: flags.CommandSpec = {
   name = "board",
-  summary = "the plan kanban over plan:* labeled GitHub issues",
+  summary = "the work kanban over work:* labeled GitHub issues",
   commands = {
     {name = "status", summary = "render the board and its WIP verdict",
       spec = {flags = {repo_flag()}}},
@@ -57,33 +60,33 @@ local CSPEC: flags.CommandSpec = {
             help = "planner or implementer"}}}},
     {name = "check", summary = "ready-bar lint of ISSUE",
       spec = {usage = "ISSUE [options]", flags = {repo_flag()}}},
-    {name = "move", summary = "move ISSUE to COLUMN (WIP-limited)",
-      spec = {usage = "ISSUE COLUMN [options]", flags = {repo_flag(),
+    {name = "move", summary = "move ISSUE to PHASE (WIP-limited)",
+      spec = {usage = "ISSUE PHASE [options]", flags = {repo_flag(),
           {long = "force", help = "override the target WIP limit"}}}},
     {name = "new", summary = "open a TITLE issue on the board (WIP-limited)",
       spec = {usage = "TITLE [options]", flags = {repo_flag(),
           {long = "body-file", arg = "FILE", help = "issue body markdown"},
-          {long = "column", arg = "COL", default = "shaping",
-            help = "target column (default shaping)"},
+          {long = "column", arg = "PHASE", default = "plan",
+            help = "target phase (default plan)"},
           {long = "epic", help = "mark as a decomposition parent"},
           {long = "enable", help = "mark as enablement work"},
           {long = "finding",
             help = "capture implementer evidence; lands even at the WIP limit"},
-          {long = "force", help = "override the column WIP limit"}}}},
+          {long = "force", help = "override the phase WIP limit"}}}},
     {name = "edit", summary = "rewrite ISSUE's title and/or body in place",
       spec = {usage = "ISSUE [--body-file FILE] [--title TITLE]",
         flags = {repo_flag(),
           {long = "body-file", arg = "FILE", help = "replacement body markdown"},
           {long = "title", arg = "TITLE", help = "replacement title"}}}},
-    {name = "show", summary = "print ISSUE's title, column, body, and comments",
+    {name = "show", summary = "print ISSUE's title, phase, body, and comments",
       spec = {usage = "ISSUE [options]", flags = {repo_flag()}}},
     {name = "land", summary = "verify PR closes ISSUE, then squash-merge it",
       spec = {usage = "ISSUE PR [options]", flags = {repo_flag()}}},
-    {name = "stats", summary = "measure per-column flow over the last N days",
+    {name = "stats", summary = "measure per-phase flow over the last N days",
       spec = {flags = {repo_flag(),
           {long = "days", arg = "N", default = "7",
             help = "report window in days (default 7)"}}}},
-    {name = "init", summary = "create the plan:* labels",
+    {name = "init", summary = "create the work:* labels",
       spec = {flags = {repo_flag()}}},
   },
 }
@@ -121,7 +124,7 @@ local function main(...: string): integer
     local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
     local target = d.parsed.args[2]
     if n == nil or target == nil then
-      io.stderr:write("move needs an issue number and a column\n")
+      io.stderr:write("move needs an issue number and a phase\n")
       return 1
     end
     return verbs.cmd_move(repo, n, target, d.parsed.switches["force"])
@@ -146,7 +149,7 @@ local function main(...: string): integer
       io.stderr:write("new needs a title\n")
       return 1
     end
-    local column = d.parsed.values["column"] or "shaping"
+    local column = d.parsed.values["column"] or "plan"
     local known = false
     for _, c in ipairs(model.COLUMNS) do
       if c == column then
@@ -154,7 +157,7 @@ local function main(...: string): integer
       end
     end
     if not known then
-      io.stderr:write("unknown column: " .. column .. " (expected "
+      io.stderr:write("unknown phase: " .. column .. " (expected "
         .. table.concat(model.COLUMNS, ", ") .. ")\n")
       return 1
     end
@@ -187,7 +190,7 @@ local function main(...: string): integer
     end
     return stats.cmd_stats(repo, days)
   end
-  return verbs.cmd_init(repo)
+  return labels.cmd_init(repo)
 end
 
 if proc.is_main() then
