@@ -2,7 +2,7 @@
 
  Teal source read and written as data: one `return { … }` of literals.
  Lexed and matched, never loaded and never called; format/format_file
- write the same shape parse reads.
+ write what parse reads and refuse what parse would refuse.
  This is the reader behind `*_pin.tl` (`cosmic --make fetch`), and it
  is public because it has callers outside `cosmic/` — this repo's own
  build tooling reads its dependency pins with it, and any project
@@ -73,8 +73,8 @@ end
 local record LiteralModule
   parse: function(source: string, opts?: Options): {string: any} | nil, string
   parse_file: function(path: string, opts?: Options): {string: any} | nil, string
-  --  The format half: parse(format(v)) round-trips literal-domain
-  --  values; contract in cosmic._literal_format.
+  --  The format half: parse(format(v)) round-trips, a value outside the
+  --  domain is refused, output is a fmt fixpoint; see _literal_format.
   format: function(value: any): string | nil, string
   format_file: function(path: string, value: any): boolean, string
 end
