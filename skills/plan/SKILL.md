@@ -22,13 +22,16 @@ repo, and the system is designed so each does what it is best at:
   reviews what comes back.
 - an **implementer** — a less sophisticated model (Opus/Sonnet-class) —
   works backwards kanban-style: take the thing closest to completion
-  forward. rework a planner sent back, then in-flight work, then the
-  oldest ready issue — implement exactly what the issue says, and hand
-  the result back.
+  forward. land a PR a planner accepted, rework a planner sent back,
+  then in-flight work, then the oldest ready issue — implement exactly
+  what the issue says, and hand the result back.
 
-the final gate is always a planner: nothing merges until a
-sophisticated model has judged the implementation against the issue's
-definition of work AND the goal it traces to (`review.md`).
+the two lanes split the lifecycle cleanly: planners plan and review;
+implementers implement and MERGE. the final gate is still always a
+planner — nothing merges until a sophisticated model has judged the
+implementation against the issue's definition of work AND the goal it
+traces to (`review.md`) — but the landing itself, and the mechanical
+recovery a landing sometimes needs, are implementer-lane work.
 
 the planner's defining duty is not writing issues; it is making
 implementers succeed. when a piece of work is too ambiguous for an
@@ -147,22 +150,29 @@ flow: never step left while a right-hand column has work for you.
 one issue per session, exactly this loop:
 
 1. `next` names the issue, rightmost first: finish `plan:doing` —
-   which holds both fresh claims and rework a review verdict sent
-   back, the work closest to completion — before pulling the oldest
-   unblocked `plan:ready`. if it answers `none`, stop — do not invent
-   work; say a planner session is needed (`next` names the bottleneck).
+   which holds fresh claims, rework a review verdict sent back, and
+   accepted PRs awaiting their landing, the work closest to
+   completion — before pulling the oldest unblocked `plan:ready`. if
+   it answers `none`, stop — do not invent work; say a planner
+   session is needed (`next` names the bottleneck).
 2. claim it: `move N doing`, then comment on the issue that this
    session is on it (the move is the lock; the comment is the trail).
-   a doing item with an open PR and review comments is rework: skip
-   the claim ceremony, address the reviewer's quoted gaps on that PR,
-   and rejoin the loop at step 3.
+   a doing item with an open PR is read from the PR's latest planner
+   verdict: an ACCEPT means land it — squash-merge (recovering first
+   if main moved, per `review.md`'s landing rules); the `Closes #N`
+   closes the issue — and nothing else. quoted gaps mean rework: skip
+   the claim ceremony, address them on that PR, and rejoin the loop
+   at step 3.
 3. implement EXACTLY what the issue says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
 4. open the PR, referencing the issue (`Closes #N`), then `move N
    review` and comment the PR link on the issue.
-5. stop. review is the planner's job; do not merge your own PR.
+5. stop. the verdict is the planner's job; never merge a PR that does
+   not yet carry a planner accept. the accept arrives as the issue
+   returning to `doing` with the verdict on the PR — landing it is
+   step 2's first case, in this lane.
 
 **when the issue under-specifies** — you hit a decision the body does
 not settle, a command that does not exist, a contract question — do

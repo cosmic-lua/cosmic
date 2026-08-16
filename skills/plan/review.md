@@ -13,7 +13,11 @@ verdicts, every time.
 read the issue first, then the PR against it:
 
 1. **acceptance ran.** the PR quotes the issue's `Acceptance`
-   commands and their verdict lines (`ci: PASS`, the narrow checks).
+   commands and their verdict lines (`ci: PASS`, the narrow checks) —
+   and CI is green on the PR's CURRENT head. a branch that moved
+   since the quoted run (a rework push, a merge of main) needs its
+   fresh run read, not assumed; an in-progress run is a reason to
+   review the next card and come back, never to wave through.
    absent or failing evidence ends the review immediately — verdict
    2, "run the acceptance."
 2. **the diff is the Change.** everything in `## Change` is present;
@@ -49,10 +53,15 @@ read the issue first, then the PR against it:
 
 ## the three verdicts
 
-- **merge.** squash-merge the PR; the `Closes #N` closes the issue as
-  completed. if the epic's checklist is now fully checked, verify the
-  epic's stated outcome actually holds (run its observable test, not
-  the children's) and close the epic too.
+- **accept.** the PR is ready to land: say so ON THE PR — a comment
+  naming what was verified and ending in the verdict — then `move N
+  doing`. landing is implementer-lane work: the finish-first rule
+  makes an accepted PR the first thing the next implementer session
+  picks up, and it squash-merges (the `Closes #N` closes the issue).
+  the planner judges; the implementer lands. when a landing closes an
+  epic's last child, the next planner pass verifies the epic's stated
+  outcome actually holds (run its observable test, not the
+  children's) and closes the epic.
 - **request changes.** concrete, quoted gaps on the PR, then `move N
   doing` — rework rejoins the implementer queue, where `next`'s
   finish-before-pull rule makes it the first thing an implementer
@@ -67,9 +76,36 @@ read the issue first, then the PR against it:
   the work should not happen at all). rejection is cheap by design;
   wrong work merged is expensive.
 
+a research slice (deliverable: a comment, no PR) takes the same
+three verdicts, on its comment: accept means re-running the issue's
+acceptance checks against the tree — totals recomputed, cited
+`file:line`s read, claims spot-verified — then commenting the
+verdict and closing the issue as completed. the harvested follow-ups
+(epic checklist updates, new children, corrections to sibling
+issues) are the SAME session's refinement obligations, not a note
+for later: accepted research that seeds nothing has not finished
+being reviewed.
+
+## landings invalidate the queue
+
+every landing rewrites main, so any other PR — accepted or still in
+review — that regenerates the same committed baseline
+(`.cosmic-coverage`, a ratchet floor) now conflicts on its derived
+lines even when the real diffs are disjoint. the recovery is
+mechanical and belongs to the implementer lane AT LANDING TIME:
+merge main, run the regen command the gate prints, commit, re-run
+the gate, land. no fresh verdict is needed when the ONLY conflict is
+a regenerated file — the reviewed diff did not change. anything
+beyond that (a source-line conflict, a gate that stays red after the
+regen) is not a landing anymore: `move N review` with the conflict
+described, and the planner re-judges. the same regenerated-file
+conflict appearing on a second PR is enablement evidence under the
+feedback half below: file the countermeasure that deletes the
+contended line, rather than paying the tax once per landing.
+
 ## the feedback half — never skip it
 
-every non-merge verdict, and every bounce an implementer initiated,
+every non-accept verdict, and every bounce an implementer initiated,
 carries information about why a presumed-ready issue was not. before
 ending the session, the planner converts it:
 
