@@ -16,6 +16,7 @@ local project = require("_make.project")
 local selection = require("_make.select")
 local stage = require("_make.stage")
 local types = require("_make.types")
+local vcs = require("_make.vcs")
 
 local type Kind = types.Kind
 local type Project = types.Project
@@ -228,6 +229,13 @@ local function run_ci(by_name: function(string): Verb | nil, proj: Project,
         failed[#failed + 1] = s.verb
       end
     end
+  end
+  -- Second-to-last line, the same slot the coverage ratchet's `declined:`
+  -- line uses (_tool/coverage/baseline.tl): it must survive a truncated
+  -- view, on both the pass and the fail path.
+  local base_sha = vcs.diverged()
+  if base_sha then
+    io.write(vcs.notice(vcs.BASE_REF, base_sha) .. "\n")
   end
   if #failed > 0 then
     return stage.verdict("ci", false, table.concat(failed, " "))
