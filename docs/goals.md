@@ -5,7 +5,7 @@ goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
 when a goal holds — and **instruments** — how we see and steer, orthogonal
 to the outcomes they serve. outcomes are ranked; the order below is the
 rank, set by paired comparison ([D25](decisions/d25-outcomes-and-instruments.md),
-method in `skills/plan/decompose.md`) and changed only by a PR that
+method in `skills/work/decompose.md`) and changed only by a PR that
 re-runs the contested pairs. the tradeoffs behind these goals are
 recorded as decisions in [decisions/](decisions/) — read that before
 relitigating one.
@@ -49,7 +49,7 @@ for every builder, and each module shipped is surface to keep honest —
 so surplus generality, speculative structure, and unpruned surface are
 defects even when they work. the measured half of this pressure is G9;
 the judged half is the reviewer's least-thing check
-(`skills/plan/review.md`).
+(`skills/work/review.md`).
 
 ### 1. no silent bugs
 
@@ -97,7 +97,7 @@ release over release), never against a rival. where peers are the
 scoreboard, a published table records absolute standing; the ambition
 is that sustained ratcheting puts and keeps cosmic ahead, and the
 table says whether that is true — it never gates. intake
-(`skills/plan/SKILL.md`) walks this list top-down.
+(`skills/work/SKILL.md`) walks this list top-down.
 
 ### G3 — an honest type layer, no escape hatches
 
@@ -241,7 +241,7 @@ ergonomics (G2), gate adoption (G4).
 
 ### G8 — the flow system
 
-the system of work (`skills/plan`, the `plan:*` board): sophisticated
+the system of work (`skills/work`, the `work:*` board): sophisticated
 models decompose these goals into ready work, less sophisticated
 models implement it, and a sophisticated model's review is the final
 gate. its job is to make the outcomes above move and to say what the

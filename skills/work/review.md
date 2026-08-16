@@ -3,8 +3,8 @@
 review is the planner's first duty in every session (`SKILL.md`), and
 it is the system's FINAL GATE: nothing merges without a sophisticated
 model judging the implementation against the definition of work AND
-the goal it traces to. an issue sits in `plan:review` with a PR
-attached — that column means exactly "awaiting a planner verdict",
+the goal it traces to. an issue sits in `work:check` with a PR
+attached — that phase means exactly "awaiting a planner verdict",
 nothing else — and the planner ends that state with one of three
 verdicts, every time.
 
@@ -22,8 +22,8 @@ read the issue first, then the PR against it:
    2, "run the acceptance."
 2. **the diff is the Change.** everything in `## Change` is present;
    nothing outside it snuck in. scope creep gets cut even when it is
-   good — good ideas go to the board as shaping issues, not into an
-   unrelated diff.
+   good — good ideas go to the board as `work:plan` issues, not into
+   an unrelated diff.
 3. **the walls held.** `## Non-goals` items are untouched; frozen
    contracts (the `cosmo.*` C boundary, error strings and return
    shapes, verdict line formats, `definitions.lua` coupling) are
@@ -53,31 +53,38 @@ read the issue first, then the PR against it:
 
 ## the three verdicts
 
+three verdicts, three directions out of `check`: accept moves the
+issue right into `land`, request changes moves it one phase left into
+`do`, reject moves it all the way left into `plan`.
+
 - **accept.** the PR is ready to land: say so ON THE PR — a comment
-  whose FIRST line is exactly `plan-verdict: accept`, then a blank
+  whose FIRST line is exactly `work-verdict: accept`, then a blank
   line, then the prose naming what was verified — then `move N
-  doing`. the first line is the machine-readable half `land`
-  (`_plan/implementer.tl`) checks before it will merge anything; a
+  land`. the first line is the machine-readable half `land`
+  (`_work/implementer.tl`) checks before it will merge anything; a
   prose-only accept ("LGTM", "**Verdict: ACCEPT.**") is invisible to
-  the tool and therefore not an accept. landing is implementer-lane
-  work: the finish-first rule makes an accepted PR the first thing the
-  next implementer session picks up, and it squash-merges (the
+  the tool and therefore not an accept. the move is never refused —
+  a verdict already made is not inventory — and the landing itself is
+  implementer-lane work: `land N PR` refuses an issue that is not in
+  `work:land`, and the finish-first rule makes that landing the first
+  thing the next implementer session picks up, squash-merging it (the
   `Closes #N` closes the issue). the planner judges; the implementer
   lands. when a landing closes an
   epic's last child, the next planner pass verifies the epic's stated
   outcome actually holds (run its observable test, not the
   children's) and closes the epic.
 - **request changes.** concrete, quoted gaps on the PR, then `move N
-  doing` — rework rejoins the implementer queue, where `next`'s
+  do` — rework rejoins the implementer queue, where `next`'s
   finish-before-pull rule makes it the first thing an implementer
-  picks up (rework is the work closest to completion). the same PR
-  carries the fixes; the issue returns to `plan:review` with them.
-  use this when the work is right-shaped but incomplete. never leave
-  a changes-requested issue sitting in `plan:review`: that column
-  waits on planners, and implementers do not look there.
+  picks up after a landing (rework is the next-closest work to
+  completion). the same PR carries the fixes; the issue returns to
+  `work:check` with them. use this when the work is right-shaped but
+  incomplete. never leave a changes-requested issue sitting in
+  `work:check`: that phase waits on planners, and implementers do not
+  look there.
 - **reject.** the approach is wrong, or the issue itself was not
   actually ready. close the PR, comment what was learned, and move
-  the issue LEFT — `move N shaping` (or close it as not planned if
+  the issue LEFT — `move N plan` (or close it as not planned if
   the work should not happen at all). rejection is cheap by design;
   wrong work merged is expensive.
 
@@ -85,7 +92,8 @@ a research slice (deliverable: a comment, no PR) takes the same
 three verdicts, on its comment: accept means re-running the issue's
 acceptance checks against the tree — totals recomputed, cited
 `file:line`s read, claims spot-verified — then commenting the
-verdict and closing the issue as completed. the harvested follow-ups
+verdict and closing the issue as completed, with no move into `land`
+because there is nothing to merge. the harvested follow-ups
 (epic checklist updates, new children, corrections to sibling
 issues) are the SAME session's refinement obligations, not a note
 for later: accepted research that seeds nothing has not finished
@@ -102,7 +110,7 @@ merge main, run the regen command the gate prints, commit, re-run
 the gate, land. no fresh verdict is needed when the ONLY conflict is
 a regenerated file — the reviewed diff did not change. anything
 beyond that (a source-line conflict, a gate that stays red after the
-regen) is not a landing anymore: `move N review` with the conflict
+regen) is not a landing anymore: `move N check` with the conflict
 described, and the planner re-judges. the same regenerated-file
 conflict appearing on a second PR is enablement evidence under the
 feedback half below: file the countermeasure that deletes the
@@ -116,7 +124,7 @@ ending the session, the planner converts it:
 
 1. name the wrong turn in one line (on the issue).
 2. pick the countermeasure by the `enable.md` ordering (core > docs >
-   skills) and file the `plan:enable` issue, or fix the ready-bar gap
+   skills) and file the `work:enable` issue, or fix the ready-bar gap
    directly if it was this one issue's specification failure.
 3. if the same wrong turn has now appeared twice, the countermeasure
    stops being optional: file it before refining anything new.
@@ -127,7 +135,7 @@ that claim — and the fix is a facts entry in the re-refined body, not
 a prose apology.
 
 findings enter the same loop from the implementer side: at the refine
-step the planner triages every open `plan:finding` — adopt it with a
+step the planner triages every open `work:finding` — adopt it with a
 goal trace, or close it as not planned — and one this review itself
 confirms is countermeasure evidence like any bounce.
 
