@@ -282,6 +282,58 @@ local function test_format_minimal()
 end
 test_format_minimal()
 
+-- format: a path with no authority may not emit a leading "//" — that
+-- would re-read as a protocol-relative reference and steer the first
+-- path segment into becoming the host on reparse.
+
+local function test_format_no_authority_escapes_double_slash_host_spoof()
+  local u = check.must(url.parse("/%2Fevil.example.com/x"))
+  assert(u.host == nil, "expected no host, got '" .. tostring(u.host) .. "'")
+  local formatted = url.format(u)
+  assert(formatted == "/%2Fevil.example.com/x", "expected '/%2Fevil.example.com/x', got '" .. formatted .. "'")
+  local reparsed = check.must(url.parse(formatted))
+  assert(reparsed.host == nil, "reparse must not spoof a host, got '" .. tostring(reparsed.host) .. "'")
+end
+test_format_no_authority_escapes_double_slash_host_spoof()
+
+local function test_format_no_authority_escapes_bare_double_slash()
+  local u = check.must(url.parse("/%2F"))
+  local formatted = url.format(u)
+  assert(formatted == "/%2F", "expected '/%2F', got '" .. formatted .. "'")
+end
+test_format_no_authority_escapes_bare_double_slash()
+
+local function test_format_no_authority_escapes_double_slash_before_colon()
+  -- Without the fix, this round trip mis-parses "//:fkiw" as an
+  -- authority with an invalid port and REFUSES on reparse.
+  local u = check.must(url.parse("/%2F:fkiw"))
+  local formatted = url.format(u)
+  assert(formatted == "/%2F:fkiw", "expected '/%2F:fkiw', got '" .. formatted .. "'")
+  check.must(url.parse(formatted))
+end
+test_format_no_authority_escapes_double_slash_before_colon()
+
+local function test_format_no_authority_double_slash_is_a_fixpoint()
+  for _, s in ipairs({"/%2Fevil.example.com/x", "/%2F", "/%2F:fkiw"}) do
+    local once = url.format(check.must(url.parse(s)))
+    local twice = url.format(check.must(url.parse(once)))
+    assert(once == twice, "not a fixpoint for '" .. s .. "': '" .. once .. "' vs '" .. twice .. "'")
+  end
+end
+test_format_no_authority_double_slash_is_a_fixpoint()
+
+local function test_format_with_authority_double_slash_path_unchanged()
+  -- With a real authority in front, the same escaped slash is harmless
+  -- and must NOT be rewritten.
+  local u = check.must(url.parse("http://h/%2Fa"))
+  local formatted = url.format(u)
+  assert(formatted == "http://h//a", "expected 'http://h//a', got '" .. formatted .. "'")
+  local reparsed = check.must(url.parse(formatted))
+  assert(reparsed.host == "h", "expected host 'h', got '" .. tostring(reparsed.host) .. "'")
+  assert(reparsed.path == "//a", "expected path '//a', got '" .. tostring(reparsed.path) .. "'")
+end
+test_format_with_authority_double_slash_path_unchanged()
+
 -- parse_host tests
 
 local function test_parse_host_with_port()

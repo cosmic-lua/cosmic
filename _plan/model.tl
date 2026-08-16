@@ -189,6 +189,77 @@ local function ready_gaps(body: string): {string}
   return missing
 end
 
+--- One measurable claim parsed from a ```facts fenced block: a shell
+--- command and the stdout it must produce.
+local record Fact
+  command: string
+  expected: string
+end
+
+--- Measurable claims parsed from every ```facts fenced block in a body.
+--- Inside such a block, a line starting "$ " begins a command; the
+--- following non-"$ " lines, up to the next "$ " line or the fence
+--- close, are its expected stdout (joined with "\n", no trailing
+--- newline). A block with no facts block returns an empty list. A
+--- non-empty line before the first "$ " in a block, or a facts block
+--- left unclosed at end of body, is malformed and returns nil plus a
+--- message naming the problem and its line.
+--- @param body string Issue body markdown
+--- @return {Fact} | nil Parsed facts, possibly empty
+--- @return string Error message naming the problem and its line
+local function facts(body: string): {Fact} | nil, string
+  local normalized = body:gsub("\r\n", "\n")
+  local out: {Fact} = {}
+  local state = "none" -- "none" | "facts" | "fence"
+  local open_line = 0
+  local cur: Fact = nil
+  local expected: {string} = {}
+  local lineno = 0
+  for line in (normalized .. "\n"):gmatch("([^\n]*)\n") do
+    lineno = lineno + 1
+    if state == "none" then
+      local info = line:match("^```(%S*)%s*$")
+      if info == "facts" then
+        state = "facts"
+        open_line = lineno
+      elseif info ~= nil then
+        state = "fence"
+      end
+    elseif state == "fence" then
+      if line:match("^```%s*$") then
+        state = "none"
+      end
+    else -- state == "facts"
+      if line:match("^```%s*$") then
+        if cur then
+          cur.expected = table.concat(expected, "\n")
+          out[#out + 1] = cur
+        end
+        state = "none"
+        cur = nil
+      else
+        local command = line:match("^%$%s+(.-)%s*$")
+        if command then
+          if cur then
+            cur.expected = table.concat(expected, "\n")
+            out[#out + 1] = cur
+          end
+          cur = {command = command}
+          expected = {}
+        elseif cur then
+          expected[#expected + 1] = line
+        elseif line:match("%S") then
+          return nil, ("facts: line %d: content before first $ command"):format(lineno)
+        end
+      end
+    end
+  end
+  if state == "facts" then
+    return nil, ("facts: line %d: unclosed block"):format(open_line)
+  end
+  return out
+end
+
 --- Issue numbers named on "blocked by" lines of a body. Any line
 --- containing the phrase contributes every #N it mentions; same-repo
 --- references only.
@@ -370,6 +441,7 @@ local record model
   type Board = Board
   type NextAction = NextAction
   type IsOpen = IsOpen
+  type Fact = Fact
   COLUMNS: {string}
   LIMITS: {string: integer}
   READY_SECTIONS: {string}
@@ -379,6 +451,7 @@ local record model
   counts_against_limit: function(issue: Issue, column: string): boolean
   ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
+  facts: function(body: string): {Fact} | nil, string
   oldest_first: function(board: Board, column: string): {Issue}
   wip_violations: function(board: Board): {string}
   next_action: function(board: Board, role: string, is_open: IsOpen):
@@ -395,6 +468,7 @@ local M: model = {
   counts_against_limit = counts_against_limit,
   ready_gaps = ready_gaps,
   blockers = blockers,
+  facts = facts,
   oldest_first = oldest_first,
   wip_violations = wip_violations,
   next_action = next_action,
