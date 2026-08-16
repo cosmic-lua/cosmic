@@ -131,4 +131,14 @@ local function test_compare_all_zero_deltas_when_reports_match()
 end
 test_compare_all_zero_deltas_when_reports_match()
 
+-- Every tracked tree is a real directory at the repo root. A rename
+-- that lands out from under this list (e.g. #1208's _plan/ -> _work/)
+-- must fail here, not silently zero a tree in the report.
+local function test_tracked_trees_are_real_directories()
+  for _, tree in ipairs(size.TREES) do
+    assert(fs.is_dir(tree), "tracked tree missing at repo root: " .. tree)
+  end
+end
+test_tracked_trees_are_real_directories()
+
 print("all size report tests passed")

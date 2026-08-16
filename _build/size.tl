@@ -24,6 +24,7 @@ local json = require("cosmic.json")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local public_surface = require("_build.public_surface")
+local casts = require("_build.casts")
 
 --- One tracked tree's `.tl` footprint.
 local record TreeStats
@@ -43,13 +44,9 @@ local record Report
   binary_bytes: integer | nil
 end
 
---- The trees this report counts, matching `_build.casts`'s TREES: every
---- tree of committed Teal source. `3p/` is vendored, not written here,
---- so it is not one.
-local TREES < const >: {string} = {
-  "_build", "_cli", "_docs", "_make", "_perf", "_plan", "_tool",
-  "_types", "cmd", "cosmic",
-}
+--- The trees this report counts: `_build.casts`'s TREES, the one home
+--- for the list of committed-Teal trees (`3p/` is vendored, not one).
+local TREES < const >: {string} = casts.TREES
 
 --- Count of logical lines in `content`: a trailing newline does not
 --- count as an extra blank line, and a file with no trailing newline
