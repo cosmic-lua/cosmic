@@ -102,6 +102,21 @@ local function issue_line(i: Issue): string
   return ("  #%d %s%s"):format(i.number, i.title, tags)
 end
 
+--- Occupancy of one column, counting only issues that count against its
+--- WIP limit (an epic in shaping does not).
+--- @param board Board The board
+--- @param column string Column name
+--- @return integer Filtered occupancy
+local function limited_count(board: Board, column: string): integer
+  local n = 0
+  for _, i in ipairs(board[column] or {}) do
+    if model.counts_against_limit(i, column) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
 --- The note a landing over the WIP limit prints, or nil when the
 --- column still has slack. `count` is the column's occupancy BEFORE
 --- the landing; the note names the occupancy after it, which is the
@@ -131,7 +146,13 @@ local function cmd_status(repo: string): integer
   for idx = #model.COLUMNS, 1, -1 do
     local col = model.COLUMNS[idx]
     local list = model.oldest_first(board, col)
-    print(("%s %d/%d"):format(col, #list, model.LIMITS[col]))
+    local counted = limited_count(board, col)
+    local exempt = #list - counted
+    if exempt > 0 then
+      print(("%s %d/%d (+%d epics)"):format(col, counted, model.LIMITS[col], exempt))
+    else
+      print(("%s %d/%d"):format(col, counted, model.LIMITS[col]))
+    end
     for _, i in ipairs(list) do
       print(issue_line(i))
     end
@@ -254,7 +275,7 @@ local function cmd_move(repo: string, number: integer, target: string,
     return 1
   end
   local issue = to_issue(raw)
-  local count = #(board[target] or {})
+  local count = limited_count(board, target)
   local at_limit = count >= model.LIMITS[target]
   if at_limit and not force and not model.is_return(issue.column, target) then
     print(("plan-move: REFUSED (%s %d/%d at limit; work right to left "
@@ -354,7 +375,7 @@ local function cmd_new(repo: string, title: string, body_file: string,
     print("plan-new: ERROR")
     return 1
   end
-  local count = #(board[column] or {})
+  local count = limited_count(board, column)
   if count >= model.LIMITS[column] and not force and not finding then
     print(("plan-new: REFUSED (%s %d/%d at limit; drain the board "
         .. "right to left first, or --force)"):format(

@@ -41,10 +41,29 @@ end
 local COLUMNS: {string} = {"shaping", "ready", "doing", "review"}
 
 --- WIP limits are policy, and policy is committed: tune them here, in
---- a reviewed change, never ad hoc per session.
+--- a reviewed change, never ad hoc per session. Empirical basis (the
+--- 2026-08-16 flow review: 468 min of board history, 52 issues, 13
+--- merged PRs, reconstructed from label events):
+--- shaping's 12 is the binding constraint — it spent 222 min (47% of
+--- the session) at or over limit, and every refusal incident on record
+--- traces to it; the number stays and epics are exempted instead (see
+--- `counts_against_limit`), since they occupied an average 4.8 of the
+--- 12 slots (45% of the column's item-minutes) without being work in
+--- progress.
+--- ready drops from 20 to 12 — it peaked at 16 only during initial
+--- fill and never came within 4 of 20 afterward, with a floor of 6,
+--- while median ready->doing pickup latency was 81 min (p75: 278) —
+--- long enough that queue inventory measurably went stale (tree-facts
+--- drift on #1115; three regenerated-baseline conflict reworks). A
+--- tighter cap forces staler entries to drain instead of sitting.
+--- doing's 5 and review's 10 are unchanged and healthy: doing peaked
+--- 5/5 for 17 min, review peaked 7/10 and never bound.
+--- Tripwires: revisit doing if its time-at-limit grows once the `land`
+--- verb exists (finished work awaiting landing then occupies claim
+--- slots too); revisit review only if its peak ever exceeds 8.
 local LIMITS: {string: integer} = {
   shaping = 12,
-  ready = 20,
+  ready = 12,
   doing = 5,
   review = 10,
 }
@@ -77,6 +96,36 @@ local function is_return(from: string, to: string): boolean
   local a = COLUMN_INDEX[from]
   local b = COLUMN_INDEX[to]
   return a ~= nil and b ~= nil and b < a
+end
+
+--- Whether an issue occupies a WIP-limit slot in a column: false
+--- exactly for an epic sitting in shaping, true otherwise. An epic is
+--- a container that lives in shaping until every child closes — not
+--- work in progress — and counting it against the limit starves the
+--- column (measured: epics permanently occupied an average 4.8 of
+--- shaping's 12 slots).
+--- @param issue Issue The issue
+--- @param column string Column the issue is being counted in
+--- @return boolean True when the issue counts against the column's limit
+local function counts_against_limit(issue: Issue, column: string): boolean
+  return not (column == "shaping" and issue.epic)
+end
+
+--- Occupancy of one column, counting only issues that count against its
+--- limit (an epic in shaping does not). The one counting path every WIP
+--- check and display shares, so the epic exemption applies everywhere
+--- at once.
+--- @param board Board The board
+--- @param column string Column name
+--- @return integer Filtered occupancy
+local function counted(board: Board, column: string): integer
+  local n = 0
+  for _, i in ipairs(board[column] or {}) do
+    if counts_against_limit(i, column) then
+      n = n + 1
+    end
+  end
+  return n
 end
 
 --- The column a label set places an issue in, or nil when it carries
@@ -179,7 +228,7 @@ end
 local function wip_violations(board: Board): {string}
   local out: {string} = {}
   for _, col in ipairs(COLUMNS) do
-    local n = #(board[col] or {})
+    local n = counted(board, col)
     if n > LIMITS[col] then
       out[#out + 1] = ("%s %d/%d over limit"):format(col, n, LIMITS[col])
     end
@@ -283,11 +332,12 @@ local function next_for_planner(board: Board): NextAction
         #(board["ready"] or {}), LIMITS["ready"]),
     }
   end
-  if #shaping < LIMITS["shaping"] then
+  local shaping_count = counted(board, "shaping")
+  if shaping_count < LIMITS["shaping"] then
     return {
       kind = "intake",
       reason = ("shaping holds %d/%d — work backwards from docs/goals.md")
-      :format(#shaping, LIMITS["shaping"]),
+      :format(shaping_count, LIMITS["shaping"]),
     }
   end
   return {
@@ -326,6 +376,7 @@ local record model
   column_of: function(labels: {string}): string
   has_marker: function(labels: {string}, marker: string): boolean
   is_return: function(from: string, to: string): boolean
+  counts_against_limit: function(issue: Issue, column: string): boolean
   ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
   oldest_first: function(board: Board, column: string): {Issue}
@@ -341,6 +392,7 @@ local M: model = {
   column_of = column_of,
   has_marker = has_marker,
   is_return = is_return,
+  counts_against_limit = counts_against_limit,
   ready_gaps = ready_gaps,
   blockers = blockers,
   oldest_first = oldest_first,
