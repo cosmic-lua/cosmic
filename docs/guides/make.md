@@ -434,7 +434,16 @@ line.
 
 the coverage floor is `.cosmic-coverage`, namespaced because a bare
 `.coverage` is coverage.py's binary data file and cosmic targets
-polyglot repos.
+polyglot repos. it is one row per file and no shared total line, and
+`coverage --baseline` lowers only the rows the ratchet would have
+failed on — every other row survives byte for byte, so two changes
+touching different files leave the file with nothing in common to
+conflict on. declare `.cosmic-coverage merge=union` in `.gitattributes`
+and what conflict remains resolves itself: both sides' rows land, and
+the ratchet reads a repeated path as its LOWER percentage — the safe
+direction, since a merge that raised a floor would fail a build for a
+decline neither side introduced. it says how many rows it resolved that
+way, and the next `--baseline` rewrites the file clean.
 
 ## Environment variables
 

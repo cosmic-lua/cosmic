@@ -122,6 +122,10 @@ and commit it to start the ratchet:
 cosmic --make coverage --baseline    # writes .cosmic-coverage
 ```
 
+it is a floor, not a snapshot: a later rewrite lowers only the rows that
+failed the ratchet and leaves every other row as committed, so the file
+stays still between real regressions.
+
 ## when something fails
 
 - a TYPE error names the file, line and type; the recurring traps carry

@@ -93,8 +93,9 @@ local function write_baseline(proj: Project): integer
     report[#report + 1] = dir
   end
   -- The baseline being replaced is an INPUT to its own rewrite: a row
-  -- this run measures better keeps the floor it already had, so a
-  -- rebaseline on any machine can only ever lower one.
+  -- this run would not have failed the ratchet on keeps the floor it
+  -- already had, so a rebaseline on any machine lowers only the rows a
+  -- check would have rejected and leaves the rest of the file still.
   local previous = fs.read(BASELINE)
   local floor = previous is string and previous or nil
   local text, err = baseline.text_for(report, floor)

@@ -47,9 +47,12 @@ belongs here the day it is written.
 
 The floors are deliberately **conservative** — most are well under what
 a full lane achieves, because the file is a floor and not a snapshot.
-Do not "refresh" it wholesale to make one row pass: rewriting it from
-whatever machine is at hand bakes that machine's environment into every
-row, which is the failure this whole file is about.
+Do not "refresh" it to make one row pass. A rewrite lowers only the rows
+this machine measures far enough below their floor to FAIL the ratchet,
+and leaves every other row exactly as committed — but for the
+environment-sensitive rows above, the rows that fail on a laptop are
+precisely the ones a laptop cannot measure. Baking that machine's
+environment into them is the failure this whole file is about.
 
 ## Why this file exists
 
