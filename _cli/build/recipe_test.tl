@@ -259,7 +259,7 @@ local function test_exec_allows_a_symlink_inside_the_root()
   assert(fs.make_dirs(root))
   local prog = fs.join(root, "prog")
   assert(fs.copy(test_bin, prog))
-  assert(fs.set_mode(prog, tonumber("755", 8) as integer)) -- cast: octal is integral
+  assert(fs.set_mode(prog, fs.octal("755")))
   local script = write_script("exec-linked.lua", "print('linked')\n")
   local link = fs.join(root, "exec-alias")
   assert(fs.symlink("prog", link))

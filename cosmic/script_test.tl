@@ -274,12 +274,12 @@ local function test_cache_refuses_a_shared_directory()
   assert(fs.make_dirs(dir))
   plant(dir, script, 'print("PLANTED")\n')
 
-  assert(fs.set_mode(dir, tonumber("700", 8) as integer)) -- cast: octal is integral
+  assert(fs.set_mode(dir, fs.octal("700")))
   local owned = run_cached(dir, script)
   assert(owned:find("PLANTED", 1, true),
     "a private cache is used, so the planted key is the right one: " .. owned)
 
-  assert(fs.set_mode(dir, tonumber("777", 8) as integer)) -- cast: octal is integral
+  assert(fs.set_mode(dir, fs.octal("777")))
   local shared = run_cached(dir, script)
   assert(shared:find("compiled fresh", 1, true),
     "a world-writable cache must be bypassed, not trusted: " .. shared)

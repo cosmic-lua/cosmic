@@ -318,14 +318,14 @@ local function extract_make(to: string): boolean, string
   -- installing a truncated engine that then fails every later build
   -- with no pointer back at the race.
   local tmp = to .. ".tmp." .. tostring(proc.getpid())
-  local wok, werr = fs.write(tmp, bytes, {mode = tonumber("755", 8) as integer}) -- cast: octal is integral
+  local wok, werr = fs.write(tmp, bytes, {mode = fs.octal("755")})
   if not wok then
     return false, "make: cannot write " .. tmp .. ": " .. (werr or "unknown error")
   end
   -- write's mode only applies on create, so set it unconditionally: an
   -- engine that is not executable is the one failure mode that reads as
   -- "no make binary" rather than as a permissions problem.
-  local _ok, _err = fs.set_mode(tmp, tonumber("755", 8) as integer) -- cast: octal is integral
+  local _ok, _err = fs.set_mode(tmp, fs.octal("755"))
   local rok, rerr = fs.move(tmp, to)
   if not rok then
     local _ok, _err = fs.remove(tmp)

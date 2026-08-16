@@ -32,7 +32,7 @@ local function test_copy_preserves_mode()
   local test_dir = setup()
   local src = fs.join(test_dir, "src.sh")
   touch(src, "#!/bin/sh\necho hi\n")
-  assert(fs.set_mode(src, tonumber("755", 8)))
+  assert(fs.set_mode(src, fs.octal("755")))
   local dst = fs.join(test_dir, "dst.sh")
 
   local ok, err = fs.copy(src, dst)
@@ -225,7 +225,7 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
 
   local ro = fs.join(test_dir, "readonly")
   assert(fs.write(ro, "x"))
-  assert(fs.set_mode(ro, tonumber("444", 8) as integer)) -- cast: octal
+  assert(fs.set_mode(ro, fs.octal("444")))
   assert(fs.set_times(ro, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   local before = check.must(fs.stat(ro), "stat should succeed")
   local ok, err = fs.touch(ro)

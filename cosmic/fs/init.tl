@@ -20,6 +20,7 @@ local fs_dir = require("cosmic.fs.dir")
 local fs_walk = require("cosmic.fs.walk")
 local fs_find = require("cosmic.fs.find")
 local fs_tree = require("cosmic.fs.tree")
+local fs_octal = require("cosmic.fs.octal")
 local cfd = require("cosmic.fd")
 local type Handle = cfd.Handle
 
@@ -146,6 +147,9 @@ local record FsModule
   is_accessible: function(path: string, mode: integer): boolean
   --- Set permission bits.
   set_mode: function(path: string, mode: integer): boolean, string
+  --- Parse octal digits ("755") into the integer a mode argument wants.
+  --- Infallible: anything not matching `^[0-7]+$` yields 0.
+  octal: function(digits: string): integer
   --- Set the file mode creation mask, returning the previous one.
   set_umask: function(mask: integer): integer
   --- Set owner and group.
@@ -277,6 +281,7 @@ local M: FsModule = {
   -- Permission operations (re-exported from fs_ops)
   is_accessible = fs_ops.is_accessible,
   set_mode = fs_ops.set_mode,
+  octal = fs_octal.octal,
   set_umask = fs_ops.set_umask,
   set_owner = fs_ops.set_owner,
 
