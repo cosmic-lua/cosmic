@@ -120,9 +120,27 @@ repo's AGENTS.md, get this wrong?** if yes, it is not ready.
   `Blocked by: #N` lines pointing at the enablement issues that must
   land first.
 
+**measured, not inferred.** every tree-fact the body relies on (a
+file's length or headroom, a pattern's match count, a function's
+location) is measured DURING the refinement pass that asserts it, and
+recorded in a ` ```facts ` block (`$ command` then expected output)
+that `board.tl check N` executes and enforces. a `Change` that grows a
+named file states that file's measured headroom as a fact — the
+500-line ceiling makes placement a capacity question (evidence:
+#1115's first bounce, 497/500 and 500/500). every count an
+`Acceptance` grep demands states the CURRENT (pre-change) value of the
+same pattern as a fact, and a widened or reworded pattern is a NEW
+fact, re-measured, never carried over (evidence: #1115's second
+bounce, 101 matches against an enumerated 21). a `Change` that narrows
+a function's contract enumerates that function's callers as a fact
+(`grep -rn` the call sites), so no caller is discovered broken at
+implementation time (evidence: #1139's PR #1159 — the refinement
+declared "none needed" and `cosmic/coverage` turned out to be using
+`literal.format` as a general encoder).
+
 ## a worked example
 
-```markdown
+````markdown
 ## Goal
 G4 — zero-config project gates, via epic #210
 
@@ -130,7 +148,16 @@ G4 — zero-config project gates, via epic #210
 Teach `--make ci` to print per-stage durations. In
 `_make/verbs.tl`, wrap each stage call with `cosmic.instrument`
 spans named `stage=<name>`; print one `<stage>: <secs>s` line as
-each stage ends, before the existing verdict line.
+each stage ends, before the existing verdict line. the file's current
+headroom and its current instrumentation count are both facts,
+measured now and recorded below:
+
+```facts
+$ wc -l < _make/verbs.tl
+340
+$ grep -c "cosmic.instrument" _make/verbs.tl
+0
+```
 
 ## Non-goals
 No new flags. No change to the `ci: PASS`/`ci: FAIL` verdict line
@@ -145,7 +172,7 @@ format — downstream scripts parse it. No timing inside stages.
 ## Enablement
 none needed — `cosmic.instrument` already covers this; conventions
 are in AGENTS.md.
-```
+````
 
 ## anti-patterns
 
