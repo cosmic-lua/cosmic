@@ -81,10 +81,10 @@ _perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
-_plan/board.tl 0 53
+_plan/board.tl 0 64
 _plan/github.tl 26 94
 _plan/model.tl 146 147
-_plan/verbs.tl 0 183
+_plan/verbs.tl 0 205
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 153 167
 _tool/coverage/lines.tl 65 71
@@ -157,7 +157,8 @@ cosmic/format/types.tl 98 113
 cosmic/fs/dir.tl 60 73
 cosmic/fs/file.tl 28 46
 cosmic/fs/find.tl 111 134
-cosmic/fs/init.tl 0 16
+cosmic/fs/init.tl 0 17
+cosmic/fs/octal.tl 2 2
 cosmic/fs/ops.tl 97 138
 cosmic/fs/path.tl 151 162
 cosmic/fs/tree.tl 37 64

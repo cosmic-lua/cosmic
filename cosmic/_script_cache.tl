@@ -35,9 +35,9 @@ local user = require("cosmic.user")
 --- Bits that must not be set on the cache directory: group and other
 --- write. If anyone else can create files there, they can choose what
 --- this process executes.
-local SHARED_WRITE < const > = tonumber("022", 8) as integer -- cast: octal is integral
-local OWNER_ONLY < const > = tonumber("700", 8) as integer -- cast: octal is integral
-local OWNER_FILE < const > = tonumber("600", 8) as integer -- cast: octal is integral
+local SHARED_WRITE < const > = fs.octal("022")
+local OWNER_ONLY < const > = fs.octal("700")
+local OWNER_FILE < const > = fs.octal("600")
 
 --- @return string The cache directory (override with COSMIC_TL_CACHE_DIR)
 local function cache_dir(): string

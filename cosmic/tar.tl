@@ -64,7 +64,7 @@ end
 local function octal_field(block: string, from: integer, len: integer): integer
   local digits = block:sub(from, from + len - 1):match("([0-7]+)")
   if not digits then return 0 end
-  return tonumber(digits, 8) as integer -- cast: octal digits parse integral
+  return fs.octal(digits)
 end
 
 --- Verify the header checksum: the byte sum of the block with the
@@ -157,7 +157,7 @@ local function write_entry(hdr: Header, name: string, payload: string,
       return false, "mkdir " .. fs.dirname(dest) .. " failed: " .. (derr or "unknown error")
     end
     local mode = hdr.mode % 512 -- permission bits only (0777 mask)
-    if mode == 0 then mode = tonumber("644", 8) as integer end -- cast: octal is integral
+    if mode == 0 then mode = fs.octal("644") end
     local ok, err = fs.write(dest, payload, {mode = mode})
     if not ok then
       return false, "write " .. dest .. " failed: " .. (err or "unknown error")

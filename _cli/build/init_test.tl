@@ -31,7 +31,7 @@ end
 local function test_copy_preserves_mode()
   local src = fs.join(tmpdir, "tool.sh")
   local dst = fs.join(tmpdir, "out/deep/tool.sh")
-  assert(fs.write(src, "#!/bin/sh\n", {mode = tonumber("755", 8) as integer})) -- cast: octal is integral
+  assert(fs.write(src, "#!/bin/sh\n", {mode = fs.octal("755")}))
   local code, _out, err = run_driver("copy", src, dst)
   assert(code == 0, "copy failed (" .. tostring(code) .. "): " .. err)
   assert(fs.read(dst) == "#!/bin/sh\n", "copy content")
@@ -89,7 +89,7 @@ local function test_compile_unchanged_restamps_without_rewriting()
   local t1 = st1:modify_time()
   local body = fs.read(out)
   -- read-only: the second run must not write, only restamp
-  assert(fs.set_mode(out, tonumber("444", 8) as integer)) -- cast: octal is integral
+  assert(fs.set_mode(out, fs.octal("444")))
   code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "second compile failed")
   local st2 = assert(fs.stat(out))

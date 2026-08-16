@@ -100,14 +100,14 @@ local function test_the_probe_reads_the_answer()
   assert(fs.make_dirs(dir))
   local fake = fs.join(dir, "lookalike")
   assert(fs.write(fake, "#!/bin/sh\necho 'usage: lookalike [options]'\nexit 0\n"))
-  assert(fs.set_mode(fake, tonumber("755", 8) as integer)) -- cast: octal literal
+  assert(fs.set_mode(fake, fs.octal("755")))
   assert(not converge.drives_a_build(fake),
     "a binary that exits 0 without answering is not an engine")
 
   -- And one that never answers at all does not hang the gate.
   local reader = fs.join(dir, "reader")
   assert(fs.write(reader, "#!/bin/sh\ncat > /dev/null\nexit 0\n"))
-  assert(fs.set_mode(reader, tonumber("755", 8) as integer)) -- cast: octal literal
+  assert(fs.set_mode(reader, fs.octal("755")))
   assert(not converge.drives_a_build(reader),
     "a binary that reads stdin gets EOF and still fails the probe")
 
@@ -137,7 +137,7 @@ test_the_probe_mark_is_help_usages_own_constant()
 local function script(path: string, body: string): string
   assert(fs.make_dirs(fs.dirname(path)))
   assert(fs.write(path, "#!/bin/sh\n" .. body))
-  assert(fs.set_mode(path, tonumber("755", 8) as integer)) -- cast: octal literal
+  assert(fs.set_mode(path, fs.octal("755")))
   return path
 end
 
