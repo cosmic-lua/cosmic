@@ -102,9 +102,13 @@ being reviewed.
 ## landings invalidate the queue
 
 every landing rewrites main, so any other PR — accepted or still in
-review — that regenerates the same committed baseline
-(`.cosmic-coverage`, a ratchet floor) now conflicts on its derived
-lines even when the real diffs are disjoint. the recovery is
+review — may now conflict with what landed. a committed ratchet floor
+is the classic source of one: two disjoint diffs collide on the derived
+lines they both rewrite. `.cosmic-coverage` mostly does not anymore — a
+`--baseline` rewrite lowers only the rows the ratchet would have failed
+on, and the file merges with git's `union` strategy, so both sides'
+rows land and the ratchet reads a repeated path as its lower
+percentage. expect this to be rare. when it does happen the recovery is
 mechanical and belongs to the implementer lane AT LANDING TIME:
 merge main, run the regen command the gate prints, commit, re-run
 the gate, land. no fresh verdict is needed when the ONLY conflict is

@@ -7,8 +7,14 @@
 --- any file's percentage drops more than a small tolerance below its
 --- baseline, when the total percentage declines, or when the file set
 --- drifts (a new file missing from the baseline, or a stale baseline
---- entry) — the ratchet only moves up. `cosmic --make coverage` runs the
---- check; `cosmic --make coverage --baseline` rewrites the baseline.
+--- entry). `cosmic --make coverage` runs the check; `cosmic --make
+--- coverage --baseline` rewrites it, lowering only the rows this run
+--- would have failed on and leaving every other row exactly as
+--- committed — a floor moves down by a deliberate rewrite and up only
+--- by hand. The file is declared `merge=union` in `.gitattributes`, so
+--- two branches editing the same region produce both rows instead of a
+--- conflict, and `parse` resolves a repeated path to its lower
+--- percentage.
 ---
 --- A library module: `require`d for its API (`gate`, `text_for`,
 --- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
@@ -56,19 +62,34 @@ end
 --- when their per-file rows are disjoint. `compare` sums the rows
 --- instead: the same number, with nothing left to collide on.
 ---
---- `floor` is the baseline being replaced, and it makes the rewrite
---- **one-way: a row is only ever lowered.** A file this run measures
---- BETTER than its floor keeps the floor's numbers, untouched.
+--- `floor` is the baseline being replaced, and a row is rewritten ONLY
+--- when this run would fail the ratchet against it -- the same
+--- `pct < floor_pct - file_tolerance_pp` test `compare` raises a problem
+--- on. Every other row keeps the floor's numbers byte for byte: an
+--- improvement, a flat percentage over a grown line universe, and a
+--- decline sitting inside the per-file slack all leave the row alone.
 ---
---- Because the file is a floor, not a snapshot. Several rows were set
---- by hand to the number the strictest environment produces -- the
---- non-root CI builder, a host without Landlock or namespaces -- and
---- only that environment can measure them. A rewrite from whatever
---- machine is at hand raises them to what THIS machine reaches, the
---- ratchet cannot object (raising a floor is not a decline), and CI
---- fails on a row nobody edited. Ratcheting a floor UP stays a
---- deliberate edit; `--baseline` exists to record that coverage got
---- worse, and it now does only that.
+--- Two consequences of that rule:
+---
+--- A decline inside the tolerance does not lower the floor, so a run of
+--- them cannot accumulate into a slow slide downward. The floor holds
+--- where it was set until a check actually fails against it.
+---
+--- A file whose line universe grew at a flat percentage keeps its old
+--- absolute counts, so a row's numbers can lag the file's current size.
+--- Improved rows already behave that way, which makes the whole-tree
+--- sum `compare` derives an approximation of the same kind.
+---
+--- The narrowness earns two things. The file is a floor, not a
+--- snapshot: several rows were set by hand to the number the strictest
+--- environment produces -- the non-root CI builder, a host without
+--- Landlock or namespaces -- and only that environment can measure
+--- them. A rewrite from whatever machine is at hand would raise them to
+--- what THIS machine reaches, the ratchet cannot object (raising a
+--- floor is not a decline), and CI fails on a row nobody edited. And a
+--- rewrite that touches only the failing rows leaves the rest of the
+--- file still, so two changes landing near each other have almost no
+--- lines in common to conflict on.
 --- @param reports {FileReport} Sorted results from report.compute
 --- @param floor {string: Entry} The baseline being replaced, if any
 --- @return string
@@ -80,17 +101,22 @@ local function render(reports: {FileReport}, floor?: {string: Entry}): string
   for _, r in ipairs(reports) do
     local covered, total = r.covered, r.total
     local was = floor and floor[r.display]
-    if was and pct(covered, total) > pct(was.covered, was.total) then
-      covered, total = was.covered, was.total
+    if was then
+      local slack = file_tolerance_pp(total)
+      local fails = pct(covered, total) < pct(was.covered, was.total) - slack
+      if not fails then
+        covered, total = was.covered, was.total
+      end
     end
     out[#out + 1] = string.format("%s %d %d", r.display, covered, total)
   end
   return table.concat(out, "\n") .. "\n"
 end
 
---- A parsed baseline: the per-file rows and a total row if the text
---- carried one, in one record so the error keeps slot 2 — a fallible
---- return has exactly two slots, the value and the error.
+--- A parsed baseline: the per-file rows, a total row if the text
+--- carried one, and how many repeated paths were resolved, in one
+--- record so the error keeps slot 2 — a fallible return has exactly
+--- two slots, the value and the error.
 local record Baseline
   --- Entries by path.
   rows: {string: Entry}
@@ -99,15 +125,46 @@ local record Baseline
   --- whole-tree total is summed from `rows`. Nil when the text carried
   --- no such row, which is what a freshly rendered baseline has.
   total: Entry
+  --- How many rows named a path an earlier row already claimed. Zero
+  --- for a freshly rendered baseline; positive for one a `union` merge
+  --- has doubled rows in.
+  duplicates: integer
+end
+
+--- Which of two rows for the same path is the safer floor: the lower
+--- percentage. A merge must never silently RAISE a floor, or CI fails
+--- on a decline neither side introduced. Ties break on the smaller line
+--- universe and then the smaller covered count, so the answer does not
+--- depend on the order the rows appear in.
+--- @param a Entry One row for the path
+--- @param b Entry The other row for the path
+--- @return Entry
+local function safer_floor(a: Entry, b: Entry): Entry
+  local pa, pb = pct(a.covered, a.total), pct(b.covered, b.total)
+  if pa ~= pb then
+    return pa < pb and a or b
+  end
+  if a.total ~= b.total then
+    return a.total < b.total and a or b
+  end
+  return a.covered <= b.covered and a or b
 end
 
 --- Parse baseline text into per-file entries plus the total row.
+---
+--- A path may appear more than once, and that is valid input rather
+--- than malformed: `.cosmic-coverage` merges with git's `union`
+--- strategy, so a region two branches both edited arrives carrying both
+--- versions of every row in it. Repeats resolve to the lower
+--- percentage, and `Baseline.duplicates` counts them so a caller can
+--- say the file wants a clean rewrite.
 --- @param text string Baseline file content
---- @return Baseline | nil The rows and total, or nil on a malformed line
+--- @return Baseline | nil The rows, total and duplicate count, or nil on a malformed line
 --- @return string? Error message on malformed input
 local function parse(text: string): Baseline | nil, string
   local entries: {string: Entry} = {}
   local total: Entry = nil
+  local duplicates = 0
   local lineno = 0
   for line in text:gmatch("[^\n]+") do
     lineno = lineno + 1
@@ -120,6 +177,11 @@ local function parse(text: string): Baseline | nil, string
         covered = math.tointeger(tonumber(covered)),
         total = math.tointeger(tonumber(all)),
       }
+      local held = path == "total" and total or entries[path]
+      if held then
+        duplicates = duplicates + 1
+        entry = safer_floor(held, entry)
+      end
       if path == "total" then
         total = entry
       else
@@ -127,7 +189,7 @@ local function parse(text: string): Baseline | nil, string
       end
     end
   end
-  return {rows = entries, total = total}
+  return {rows = entries, total = total, duplicates = duplicates}
 end
 
 --- Compare current results against a parsed baseline.
@@ -186,6 +248,11 @@ local function compare(reports: {FileReport}, entries: {string: Entry}): {string
 end
 
 --- Run the ratchet check against a baseline file.
+---
+--- A baseline carrying repeated paths — what a `union` merge of two
+--- branches produces — is checked against the resolved rows and the
+--- repetition is named on stderr, so a merged-but-untidied file is
+--- visible rather than silent. `--baseline` rewrites it clean.
 --- @param baseline_path string Path to the committed baseline
 --- @param paths {string} Report inputs (see report.compute)
 --- @return integer Exit code: 0 when the ratchet holds, 1 otherwise
@@ -204,6 +271,11 @@ local function check(baseline_path: string, paths: {string}): integer
   if not parsed then
     io.stderr:write("coverage ratchet: " .. (perr or "malformed baseline") .. "\n")
     return 1
+  end
+  if parsed.duplicates > 0 then
+    io.stderr:write(string.format(
+        "coverage ratchet: %s carries %d duplicate row(s), resolved to the lower coverage; run 'cosmic --make coverage --baseline' to rewrite it clean\n",
+        baseline_path, parsed.duplicates))
   end
   local problems = compare(reports, parsed.rows)
   if #problems > 0 then
@@ -333,6 +405,7 @@ local record BaselineModule
   render: function(reports: {FileReport}, floor?: {string: Entry}): string
   parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
+  check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string
   lowered: function(before: string, after: string): {string}
@@ -342,6 +415,7 @@ local M: BaselineModule = {
   render = render,
   parse = parse,
   compare = compare,
+  check = check,
   gate = gate,
   text_for = text_for,
   lowered = lowered,
