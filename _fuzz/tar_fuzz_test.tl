@@ -77,6 +77,17 @@ local function hostile_entry(name: string, content: string): string
   .. tar_entry("placeholder", content, fs.octal("644"), "0", "")
 end
 
+--- A regular-file entry whose hostile name is written straight into the
+--- fixed 100-byte header name field, with no pax override -- so
+--- extract()'s handling of the ordinary name path is fuzzed too, not
+--- only the pax-encoded one. Not valid for a name holding an embedded
+--- NUL: the fixed field truncates at the first NUL (see str_field in
+--- cosmic/tar.tl), so that class can only reach extract() intact via
+--- hostile_entry's pax override.
+local function hostile_entry_plain(name: string, content: string): string
+  return tar_entry(name, content, fs.octal("644"), "0", "")
+end
+
 local function end_marker(): string
   return string.rep("\0", 2 * BLOCK)
 end
@@ -180,10 +191,11 @@ test_truncation_totality()
 
 -- ---- property 3: no write ever escapes destdir ----
 
--- Hostile member names, each otherwise carried by a correctly
--- checksummed entry (see hostile_entry). is_unsafe_entry_name is
--- expected to refuse every one of these before any filesystem write is
--- attempted; the property does not assume that -- it watches the disk.
+-- Hostile member names, each delivered via a correctly checksummed
+-- entry through the pax path override or the plain header name field
+-- (see gen_hostile_entry). is_unsafe_entry_name is expected to refuse
+-- every one of these before any filesystem write is attempted; the
+-- property does not assume that -- it watches the disk.
 local HOSTILE_NAMES = {
   "../x",
   "a/../../x",
@@ -200,8 +212,25 @@ local HOSTILE_NAMES = {
 -- what the guard allows.
 local DEST_NESTING = "L1/L2/L3/L4/L5/L6/L7/L8"
 
+--- Build a hostile-named entry, alternating at random between the pax
+--- path-override delivery and the plain header-name-field delivery. A
+--- name with an embedded NUL always goes through pax -- the fixed
+--- field would truncate it at the NUL before it ever reached
+--- extract()'s unsafe-name check.
+--- @param name string The hostile member name to deliver
+--- @return string The entry bytes
+local function gen_hostile_entry(name: string): string
+  if name:find("\0", 1, true) or math.random(2) == 1 then
+    return hostile_entry(name, driver.bytes(16))
+  end
+  return hostile_entry_plain(name, driver.bytes(16))
+end
+
 --- Build an archive mixing a few benign filler entries with one to
---- three hostile-named entries, all correctly checksummed.
+--- three hostile-named entries, all correctly checksummed. Each hostile
+--- entry independently picks pax or plain-header delivery (see
+--- gen_hostile_entry), so both paths into extract() get covered across
+--- the run.
 --- @return string The archive bytes
 local function gen_no_escape_archive(): string
   local parts: {string} = {}
@@ -210,7 +239,7 @@ local function gen_no_escape_archive(): string
   end
   for _ = 1, math.random(1, 3) do
     local name = HOSTILE_NAMES[math.random(1, #HOSTILE_NAMES)]
-    parts[#parts + 1] = hostile_entry(name, driver.bytes(16))
+    parts[#parts + 1] = gen_hostile_entry(name)
   end
   for _ = 1, math.random(0, 2) do
     parts[#parts + 1] = tar_entry(random_name(10), driver.bytes(16), fs.octal("644"), "0", "")
@@ -221,6 +250,17 @@ end
 
 local escape_iteration = 0
 
+--- The containment walk covers only the case_root tree (case_root and
+--- everything under it, per DEST_NESTING) -- not TEST_TMPDIR itself,
+--- which also holds this test's own archive and directory fixtures and
+--- so cannot be walked as "everything must be under dest" without
+--- false positives. That narrowing has a blind spot: an absolute-name
+--- escape ("/x") or a ".."-chain deeper than DEST_NESTING would land
+--- outside case_root entirely and go unobserved by this walk. For
+--- those two classes the property below degrades to proving only that
+--- extract() did not throw -- not that nothing actually escaped. A
+--- loud-rejection property for the absolute-name class is a separate,
+--- not-yet-specced piece of work.
 local function test_no_escape()
   local ok, msg = driver.run({
       name = "tar_no_escape",
