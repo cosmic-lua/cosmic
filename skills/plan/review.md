@@ -54,11 +54,16 @@ read the issue first, then the PR against it:
 ## the three verdicts
 
 - **accept.** the PR is ready to land: say so ON THE PR — a comment
-  naming what was verified and ending in the verdict — then `move N
-  doing`. landing is implementer-lane work: the finish-first rule
-  makes an accepted PR the first thing the next implementer session
-  picks up, and it squash-merges (the `Closes #N` closes the issue).
-  the planner judges; the implementer lands. when a landing closes an
+  whose FIRST line is exactly `plan-verdict: accept`, then a blank
+  line, then the prose naming what was verified — then `move N
+  doing`. the first line is the machine-readable half `land`
+  (`_plan/implementer.tl`) checks before it will merge anything; a
+  prose-only accept ("LGTM", "**Verdict: ACCEPT.**") is invisible to
+  the tool and therefore not an accept. landing is implementer-lane
+  work: the finish-first rule makes an accepted PR the first thing the
+  next implementer session picks up, and it squash-merges (the
+  `Closes #N` closes the issue). the planner judges; the implementer
+  lands. when a landing closes an
   epic's last child, the next planner pass verifies the epic's stated
   outcome actually holds (run its observable test, not the
   children's) and closes the epic.

@@ -19,6 +19,7 @@ return {
   ["_make/runverb.tl"] = 1,
   ["_make/stage.tl"] = 4,
   ["_make/stage_test.tl"] = 1,
+  ["_perf/baseline.tl"] = 1,
   ["_perf/bench/child_bench.tl"] = 1,
   ["_perf/bench/download_bench.tl"] = 1,
   ["_perf/bench/embed_bench.tl"] = 4,

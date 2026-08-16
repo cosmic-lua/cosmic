@@ -68,6 +68,8 @@ bin/cosmic --make run _plan/board.tl move 123 ready      # column change, WIP-li
 bin/cosmic --make run _plan/board.tl new "title" --epic  # open a board issue
 bin/cosmic --make run _plan/board.tl new "title" --finding  # file evidence; lands at the limit
 bin/cosmic --make run _plan/board.tl edit 123 --body-file F  # rewrite an issue body in place
+bin/cosmic --make run _plan/board.tl show 123             # read an issue — the body is the spec
+bin/cosmic --make run _plan/board.tl land 123 456         # verify an accept, then squash-merge the PR
 bin/cosmic --make run _plan/board.tl stats --days 7       # measure per-column flow (the review's numbers)
 bin/cosmic --make run _plan/board.tl init                # create the labels (once per repo)
 ```
@@ -102,8 +104,8 @@ columns, left to right (an issue carries exactly one column label):
 
 | label | meaning | WIP limit |
 |-------|---------|-----------|
-| `plan:shaping` | traced to a goal, still ambiguous — planner territory | 12 |
-| `plan:ready` | meets the ready bar (`decompose.md`); pullable | 20 |
+| `plan:shaping` | traced to a goal, still ambiguous — planner territory (epics don't count against this limit) | 12 |
+| `plan:ready` | meets the ready bar (`decompose.md`); pullable | 12 |
 | `plan:doing` | in implementation: claimed work and rework | 5 |
 | `plan:review` | PR open; awaiting a planner verdict | 10 |
 
@@ -173,21 +175,27 @@ one issue per session, exactly this loop:
    accepted PRs awaiting their landing, the work closest to
    completion — before pulling the oldest unblocked `plan:ready`. if
    it answers `none`, stop — do not invent work; say a planner
-   session is needed (`next` names the bottleneck).
+   session is needed (`next` names the bottleneck). read the named
+   issue with `bin/cosmic --make run _plan/board.tl show N` — the
+   body is the spec.
 2. claim it: `move N doing`, then comment on the issue that this
    session is on it (the move is the lock; the comment is the trail).
-   a doing item with an open PR is read from the PR's latest planner
-   verdict: an ACCEPT means land it — squash-merge (recovering first
-   if main moved, per `review.md`'s landing rules); the `Closes #N`
-   closes the issue — and nothing else. quoted gaps mean rework: skip
-   the claim ceremony, address them on that PR, and rejoin the loop
-   at step 3.
+   a doing item with an open PR: `show N` carries the PR link and the
+   latest planner verdict. an ACCEPT means land it: `bin/cosmic
+   --make run _plan/board.tl land N PR` (recovering first if main
+   moved, per `review.md`'s landing rules) — the verb itself enforces
+   the accept comment, the closes-reference, and mergeability, so a
+   landing without a planner accept is impossible rather than
+   forbidden. quoted gaps mean rework: skip the claim ceremony,
+   address them on that PR, and rejoin the loop at step 3.
 3. implement EXACTLY what the issue says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
-4. open the PR, referencing the issue (`Closes #N`), then `move N
-   review` and comment the PR link on the issue.
+4. open the PR READY for review, not draft — the `plan:review` column
+   already carries the review state, and `land` cannot un-draft a PR
+   (the REST API has no such call). reference the issue (`Closes
+   #N`), then `move N review` and comment the PR link on the issue.
 5. stop. the verdict is the planner's job; never merge a PR that does
    not yet carry a planner accept. the accept arrives as the issue
    returning to `doing` with the verdict on the PR — landing it is
@@ -225,6 +233,15 @@ are `parallel.md`.
   this directory carry method only. (the `perf` label keeps its own
   hypothesis backlog under the `optimize` skill; a plan issue may link
   to a perf issue, never duplicate it.)
+- board state moves and reads through `_plan/board.tl` only. reading
+  an issue is `show N`; landing an accepted PR is `land N PR`; a
+  session, either lane, never reaches for `gh`, `curl`, or a raw
+  GitHub API call for anything the tool has a verb for — and when the
+  tool LACKS a verb the session needs, that gap is filed with `new
+  --finding` and worked around by hand ONCE, never scripted into
+  prose, briefs, or issue bodies. the boundary, stated honestly: the
+  planner lane's review reads (PR diffs, CI runs) sit outside the
+  tool today and earn verbs on their own evidence.
 - the ready bar is never lowered to make an issue pullable, and the
   WIP limits are never widened to make a move succeed. `--force`
   exists for repair (a mislabeled issue, a split epic), not for flow.
