@@ -12,7 +12,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local BLOCK = 512
 
 local function oct(s: string): integer
-  return tonumber(s, 8) as integer -- cast: octal digits parse integral
+  return fs.octal(s)
 end
 
 local function pad(s: string, len: integer): string

@@ -190,7 +190,7 @@ local function test_find_make_never_searches_path()
   assert(fs.remove_all(box))
   assert(fs.make_dirs(fs.join(box, "bin")))
   assert(fs.write(fs.join(box, "bin", "make"), "#!/bin/sh\nexit 0\n",
-      {mode = tonumber("755", 8) as integer})) -- cast: octal is integral
+      {mode = fs.octal("755")}))
   local saved_path = cenv.get("PATH")
   local saved_make = cenv.get("COSMIC_MAKE")
   assert(cenv.unset("COSMIC_MAKE"))
@@ -257,7 +257,7 @@ local function test_extract_make_is_executable()
   assert(ok, "extraction should succeed: " .. tostring(err))
   assert(fs.is_file(to), "the engine should land at " .. to)
   local st = check.must(fs.stat(to))
-  local exec_bit = tonumber("100", 8) as integer -- cast: octal is integral
+  local exec_bit = fs.octal("100")
   assert(st:mode() & exec_bit ~= 0, "the extracted engine must be executable")
   assert(not fs.is_present(to .. ".tmp"), "the temp file must not survive")
 end

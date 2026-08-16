@@ -66,6 +66,7 @@ bin/cosmic --make run _plan/board.tl next                # implementer by defaul
 bin/cosmic --make run _plan/board.tl check 123           # ready-bar lint
 bin/cosmic --make run _plan/board.tl move 123 ready      # column change, WIP-limited
 bin/cosmic --make run _plan/board.tl new "title" --epic  # open a board issue
+bin/cosmic --make run _plan/board.tl new "title" --finding  # file evidence; lands at the limit
 bin/cosmic --make run _plan/board.tl edit 123 --body-file F  # rewrite an issue body in place
 bin/cosmic --make run _plan/board.tl init                # create the labels (once per repo)
 ```
@@ -103,10 +104,11 @@ wait for a planner without jamming doing. what makes the deep ready
 column safe is independence — see "sizing a slice" in `decompose.md`.
 
 done is a closed issue — completed when the work merged, not planned
-when the planner killed it (a recorded dead end, kept forever). two
+when the planner killed it (a recorded dead end, kept forever). three
 marker labels ride alongside the column: `plan:epic` (a decomposition
-parent — never pulled, closes when its children close) and
-`plan:enable` (work that exists to make implementers succeed).
+parent — never pulled, closes when its children close), `plan:enable`
+(work that exists to make implementers succeed), and `plan:finding`
+(evidence an implementer hit in passing, awaiting a planner's triage).
 
 an issue is **blocked** when its body has a line containing `blocked
 by` naming open issues (`Blocked by: #99`). `next` skips blocked
@@ -114,10 +116,16 @@ issues; `check` reports them.
 
 **work flows right to left.** finishing beats starting: review before
 refining, refining before intake, and an implementer finishes doing
-before pulling ready. the WIP limits are what make this real — a full
-column REFUSES new entries (`move` says so) and the fix is to drain
-the columns to its right, not to widen the limit. limits are policy,
-committed in `_plan/model.tl`, tuned only by a reviewed change.
+before pulling ready. the WIP limits are what make this real — they
+gate rightward moves and planner intake, so a full column REFUSES a
+pull (`move` says so) and the fix is to drain the columns to its
+right, not to widen the limit. what a limit never refuses is work
+coming back: a bounce to shaping, a rework send-back, and a
+`--finding` always land, because a full board must never be the reason
+a correction or a piece of evidence is dropped — an over-limit column
+blocks further pull until it drains, and nothing else. limits are
+policy, committed in `_plan/model.tl`, tuned only by a reviewed
+change.
 
 ## the planner session
 
@@ -183,6 +191,18 @@ is a good outcome: it is the ready bar failing loudly instead of a
 silent wrong guess, and every bounce becomes enablement evidence
 (`enable.md`).
 
+**when you find something out of scope** — a real defect, a stale
+doc, a gap the slice sits next to but does not own — it goes to the
+board, never into the diff. file it with `bin/cosmic --make run
+_plan/board.tl new "title" --finding --body-file F`, where the body is
+one paragraph of evidence: what you observed, where, and the commands
+that show it. no ready-bar sections are expected of you and no goal
+trace is required — a finding is captured evidence, and the planner
+traces it or closes it at triage. it lands even when `plan:shaping` is
+at its limit, so a full column is never a reason to drop what you saw.
+then return to the slice: do not refine the finding, do not fix it in
+passing, do not widen the diff to cover it.
+
 one session takes one issue. running SEVERAL implementer sessions at
 once is a different move with its own mechanics — a disjoint set, a
 checkout per session, a brief that carries the issue body — and those
@@ -206,7 +226,11 @@ are `parallel.md`.
 - every issue traces to a goal: its `Goal` section names a `G<n>` from
   docs/goals.md or a parent epic that does. work that traces to no
   goal is closed as not planned, however good the idea — open a goals
-  amendment PR instead when the goals themselves are wrong.
+  amendment PR instead when the goals themselves are wrong. a
+  `plan:finding` is the one exemption, and only until triage: it is
+  captured evidence, not planned work, so it carries no trace when
+  filed and earns one when a planner adopts it (the marker comes off),
+  or it is closed as not planned like anything else.
 - repo conventions are not relaxed for implementers: `--make ci` and
   the contract freezes in AGENTS.md bind every PR regardless of which
   model wrote it. when a convention keeps tripping implementers, the

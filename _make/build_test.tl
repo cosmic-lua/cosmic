@@ -464,7 +464,7 @@ local function test_a_variant_base_ships_the_payload_twice()
   for _, name in ipairs({"base", "base-debug"}) do
     local path = fs.join(gendir, name)
     assert(fs.write(path, runtime))
-    assert(fs.set_mode(path, tonumber("755", 8) as integer)) -- cast: octal is integral
+    assert(fs.set_mode(path, fs.octal("755")))
   end
 
   assert(in_process(root, "build") == 0, "build should succeed")

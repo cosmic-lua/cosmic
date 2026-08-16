@@ -25,7 +25,7 @@ cmd/cosmic/embed_gen.tl  its payload generator: what the artifact carries
 embed/cosmic.mk       the rules `--make` feeds to make, shipped at /zip/cosmic.mk
 cosmic/               standard library modules (*.tl) — the PUBLIC API
   init.tl              entry point helper: cosmic.main()
-  fs/                  fs directory module (init, path, ops, file, walk, types)
+  fs/                  fs directory module (init, path, ops, file, walk, octal, types)
   *.tl                 library modules
   *_test.tl            tests
   *_example.tl         runnable examples
