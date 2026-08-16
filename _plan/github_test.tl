@@ -24,3 +24,22 @@ local function test_only_issues_empty()
   assert(#github.only_issues({}) == 0, "empty in, empty out")
 end
 test_only_issues_empty()
+
+local function test_issue_patch_sends_only_supplied_fields()
+  local both = github.issue_patch("t", "b")
+  assert(both["title"] == "t" and both["body"] == "b", "both fields ride")
+  local only_body = github.issue_patch(nil, "b")
+  assert(only_body["title"] == nil, "an unsupplied title stays out")
+  assert(only_body["body"] == "b", "the body rides")
+  local only_title = github.issue_patch("t", nil)
+  assert(only_title["body"] == nil, "an unsupplied body stays out")
+  assert(only_title["title"] == "t", "the title rides")
+end
+test_issue_patch_sends_only_supplied_fields()
+
+local function test_issue_patch_never_sends_labels()
+  local p = github.issue_patch("t", "b")
+  assert(p["labels"] == nil, "columns move through move, never edit")
+  assert(github.issue_patch(nil, nil)["labels"] == nil, "empty patch is empty")
+end
+test_issue_patch_never_sends_labels()

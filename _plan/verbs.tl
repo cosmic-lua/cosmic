@@ -332,6 +332,48 @@ local function cmd_new(repo: string, title: string, body_file: string,
   return 0
 end
 
+--- edit: rewrite an issue's title and/or body in place. Labels are
+--- untouched — columns move through `move`, which owns the WIP limits.
+--- An edit that leaves a plan:ready issue below the ready bar still
+--- lands; the verdict names the gaps so the damage is visible now
+--- rather than at the next `check`.
+--- @param repo string "owner/name"
+--- @param number integer Issue number
+--- @param body_file string Path to a body markdown file; nil to keep the body
+--- @param title string Replacement title; nil to keep the title
+--- @return integer Exit code
+local function cmd_edit(repo: string, number: integer, body_file: string,
+    title: string): integer
+  local body: string = nil
+  if body_file then
+    local data, rerr = fs.read(body_file)
+    if data == nil then
+      io.stderr:write(rerr .. "\n")
+      print("plan-edit: ERROR")
+      return 1
+    end
+    body = data
+  end
+  local raw, err = gh.update_issue(repo, number, title, body)
+  if raw == nil then
+    io.stderr:write(err .. "\n")
+    print("plan-edit: ERROR")
+    return 1
+  end
+  local issue = to_issue(raw)
+  print("  " .. issue.url)
+  if issue.column == "ready" then
+    local gaps = model.ready_gaps(issue.body)
+    if #gaps > 0 then
+      print(("plan-edit: #%d (ready-bar gaps: %s)"):format(
+          number, table.concat(gaps, ", ")))
+      return 0
+    end
+  end
+  print(("plan-edit: #%d"):format(number))
+  return 0
+end
+
 --- init: create the label vocabulary, idempotently.
 --- @param repo string "owner/name"
 --- @return integer Exit code
@@ -358,6 +400,8 @@ local record verbs
   force: boolean): integer
   cmd_new: function(repo: string, title: string, body_file: string,
   column: string, epic: boolean, enable: boolean, force: boolean): integer
+  cmd_edit: function(repo: string, number: integer, body_file: string,
+  title: string): integer
   cmd_init: function(repo: string): integer
 end
 
@@ -368,6 +412,7 @@ local M: verbs = {
   cmd_check = cmd_check,
   cmd_move = cmd_move,
   cmd_new = cmd_new,
+  cmd_edit = cmd_edit,
   cmd_init = cmd_init,
 }
 
