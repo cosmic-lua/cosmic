@@ -8,6 +8,7 @@ local fs = require("cosmic.fs")
 local facts = require("_work.facts")
 local gh = require("_work.github")
 local model = require("_work.model")
+local verdict = require("_work.verdict")
 
 local type Issue = model.Issue
 local type Board = model.Board
@@ -224,10 +225,16 @@ end
 --- while land is at its limit, so accepted work merges before more
 --- work starts. An issue on no phase is an entry, not a return, and
 --- the limit binds it.
+--- A move into `check` asks for a verdict, so it is refused while one
+--- already stands unanswered: a `work-verdict: request changes` on the
+--- issue's PR with no commit after it means there is nothing new to
+--- review. A verdict read that fails refuses too — a move that cannot
+--- see the review state is the wrong turn this gate exists to stop.
 --- @param repo string "owner/name"
 --- @param number integer Issue number
 --- @param target string Target phase
---- @param force boolean True to override the WIP limit and the pull gate
+--- @param force boolean True to override the WIP limit, the pull gate,
+--- and the standing-verdict gate
 --- @return integer Exit code
 local function cmd_move(repo: string, number: integer, target: string,
     force: boolean): integer
@@ -270,6 +277,19 @@ local function cmd_move(repo: string, number: integer, target: string,
       print(("work-move: REFUSED (the landing queue holds %d/%d; land the "
           .. "accepted work before pulling more, or --force)"):format(
           landed, model.LIMITS["land"]))
+      return 1
+    end
+  end
+  if target == "check" and not force then
+    local state, serr = verdict.standing(repo, number)
+    if state == nil then
+      print(("work-move: REFUSED (cannot read the PR's verdict: %s; "
+          .. "--force to move anyway)"):format(serr))
+      return 1
+    end
+    local blocked = verdict.blocks_check(state)
+    if blocked then
+      print("work-move: REFUSED (" .. blocked .. ")")
       return 1
     end
   end

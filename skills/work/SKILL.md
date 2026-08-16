@@ -201,7 +201,11 @@ one issue per session, exactly this loop:
    `work:ready`. if it answers `none`, stop — do not invent work; say
    a planner session is needed (`next` names the bottleneck). read the
    named issue with `bin/cosmic --make run _work/board.tl show N` —
-   the body is the spec.
+   the body is the spec. its first line after the URL is the standing
+   verdict on the issue's PR, resolved from the PR rather than the
+   issue thread: which verdict was posted last, the head commit it was
+   written against, and `UNANSWERED` when no commit followed a
+   `request changes`.
 2. which phase it came from decides this step. a `work:land` issue is
    already judged: `show N` carries the PR link and the accept, and
    landing it is `bin/cosmic --make run _work/board.tl land N PR`
@@ -221,7 +225,13 @@ one issue per session, exactly this loop:
 4. open the PR READY for review, not draft — the `work:check` phase
    already carries the review state, and `land` cannot un-draft a PR
    (the REST API has no such call). reference the issue (`Closes
-   #N`), then `move N check` and comment the PR link on the issue.
+   #N`), then `move N check` and comment the PR link on the issue. the
+   move is refused while a `request changes` stands unanswered on that
+   PR — the refusal names the verdict and the head it was written
+   against. it reads whether the head ADVANCED past the verdict, not
+   whether the gap was addressed, so a merge of main counts as
+   movement: the gate stops the empty round trip, and reading the
+   quoted gaps is still yours.
 5. stop. the verdict is the planner's job; never merge a PR that does
    not yet carry a planner accept. the accept arrives as the issue
    moving to `work:land` with the verdict on the PR — landing it is

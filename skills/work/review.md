@@ -78,7 +78,10 @@ issue right into `land`, request changes moves it one phase left into
   finish-before-pull rule makes it the first thing an implementer
   picks up after a landing (rework is the next-closest work to
   completion). the same PR carries the fixes; the issue returns to
-  `work:check` with them. use this when the work is right-shaped but
+  `work:check` with them — and cannot return before them: `show N`
+  prints the standing verdict off the PR, and `move N check` refuses
+  while a `request changes` has no commit after it, so a card can no
+  longer arrive for review with nothing new to judge. use this when the work is right-shaped but
   incomplete. never leave a changes-requested issue sitting in
   `work:check`: that phase waits on planners, and implementers do not
   look there.
