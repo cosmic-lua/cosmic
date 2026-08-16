@@ -299,7 +299,9 @@ end
 --- @return {RawComment} | nil The comments
 --- @return string Error message on failure
 local function list_issue_comments(repo: string, number: integer): {RawComment}, string
-  local path = ("/repos/%s/issues/%d/comments"):format(repo, number)
+  -- capped at the first 100 comments; a thread that long is out of scope
+  -- until it happens, and this bound is what makes that failure diagnosable
+  local path = ("/repos/%s/issues/%d/comments?per_page=100"):format(repo, number)
   local res, err = api("GET", path, nil)
   if res == nil then
     return nil, err
