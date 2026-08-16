@@ -1,9 +1,9 @@
 # coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
 3p/tl/tl_patch.tl 0 1
-_build/casts.tl 60 78
+_build/casts.tl 47 65
 _build/casts_baseline.tl 0 1
-_build/public_surface.tl 57 71
+_build/public_surface.tl 44 61
 _build/public_surface_baseline.tl 0 1
 _build/ratchet.tl 36 36
 _cli/args.tl 0 37
@@ -81,12 +81,12 @@ _perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
-_plan/board.tl 0 53
+_plan/board.tl 0 64
 _plan/github.tl 26 94
 _plan/model.tl 146 147
-_plan/verbs.tl 0 183
+_plan/verbs.tl 0 224
 _tool/benchmark.tl 145 172
-_tool/coverage/baseline.tl 153 167
+_tool/coverage/baseline.tl 151 165
 _tool/coverage/lines.tl 65 71
 _tool/coverage/report.tl 203 224
 _tool/doc/comments.tl 53 53

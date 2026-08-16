@@ -91,19 +91,4 @@ local function test_count_reads_justification_comments()
 end
 test_count_reads_justification_comments()
 
--- The floor is a diff people read: sorted, one pair per line, and
--- readable back as data by the same module that wrote it.
-local function test_the_baseline_renders_sorted_and_parses_back()
-  local counts: {string: integer} = {["b/two.tl"] = 2, ["a/one.tl"] = 1}
-  local source = casts.render(counts)
-  assert(source == 'return {\n  ["a/one.tl"] = 1,\n  ["b/two.tl"] = 2,\n}\n',
-    "rendered:\n" .. source)
-  local path = fs.join(check.must(os.getenv("TEST_TMPDIR")), "floor.tl")
-  assert(fs.write(path, source))
-  local read = check.must(casts.baseline(path))
-  assert(read["a/one.tl"] == 1 and read["b/two.tl"] == 2,
-    "the baseline reads back as counts")
-end
-test_the_baseline_renders_sorted_and_parses_back()
-
 print("all cast ratchet tests passed")

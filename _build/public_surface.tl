@@ -24,12 +24,12 @@
 --- `cosmic/doc/visibility.tl`, where a second copy of it would be the
 --- drift this gate exists to prevent.
 ---
---- The baseline is written by the renderer below rather than by
---- `cosmic.literal.format`, because a baseline is read as a diff: one
---- name per line, sorted, so a review sees the names that changed and
---- nothing else. The grammar `cosmic.literal` reads admits keyed
---- entries only, so the set is spelled `["<name>"] = true` — the names
---- are the keys, and `cosmic.literal` reads the file back.
+--- The set is written by `cosmic.literal.format_file` and read back by
+--- `cosmic.literal.parse_file`, so one module owns both directions. Its
+--- layout is what a baseline needs anyway: one entry per line, sorted,
+--- so a review sees the names that changed and nothing else. The grammar
+--- admits keyed entries only, so the set is spelled `["<name>"] = true`
+--- — the names are the keys.
 
 -- The position rule, asked rather than copied. `cosmic.doc` re-exports
 -- it: the rule itself lives in a shard no file outside cosmic/ may
@@ -103,23 +103,6 @@ local function baseline(path?: string): {string} | nil, string
   return out
 end
 
---- The baseline file's source: one name per line, sorted.
---- @param names {string} The public module names, in any order
---- @return string The file's bytes, newline-terminated
-local function render(names: {string}): string
-  local sorted: {string} = {}
-  for _, name in ipairs(names) do
-    sorted[#sorted + 1] = name
-  end
-  table.sort(sorted)
-  local out: {string} = {"return {"}
-  for _, name in ipairs(sorted) do
-    out[#out + 1] = string.format("  [%q] = true,", name)
-  end
-  out[#out + 1] = "}"
-  return table.concat(out, "\n") .. "\n"
-end
-
 --- Rewrite the baseline from a fresh enumeration of the tree.
 --- @param ... string Command-line arguments
 --- @return integer The exit status
@@ -131,7 +114,11 @@ local function main(...: string): integer
     return 1
   end
   local names = modules(".")
-  local ok, err = fs.write(BASELINE, render(names))
+  local set: {string: boolean} = {}
+  for _, name in ipairs(names) do
+    set[name] = true
+  end
+  local ok, err = literal.format_file(BASELINE, set)
   if not ok then
     io.stderr:write("public_surface: " .. err .. "\n")
     return 1
@@ -150,7 +137,6 @@ local record PublicSurfaceModule
   BASELINE: string
   modules: function(root: string): {string}
   baseline: function(path?: string): {string} | nil, string
-  render: function(names: {string}): string
   main: function(...: string): integer
 end
 
@@ -158,7 +144,6 @@ local M: PublicSurfaceModule = {
   BASELINE = BASELINE,
   modules = modules,
   baseline = baseline,
-  render = render,
   main = main,
 }
 

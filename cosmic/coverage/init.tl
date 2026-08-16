@@ -14,7 +14,7 @@
 ---
 --- start/stop nest: a script that exercises coverage itself while
 --- running under coverage leaves the outer collection running.
-local literal = require("cosmic.literal")
+local cosmo = require("cosmo")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
@@ -212,12 +212,16 @@ local function dump(dir?: string): boolean, string
   if ccov then
     hits = ccov.snapshot()
   end
-  -- literal.format includes the `return` prefix; the reader
-  -- (_tool.coverage.report) loads the body as-is.
-  local body, enc_err = literal.format({version = 1, hits = hits})
-  if not body then
+  -- A .cov file is Lua the reader LOADS, in an empty environment, not
+  -- a literal file it parses: hit tables are keyed by line number, and
+  -- `cosmic.literal` admits string keys only. So the general Lua
+  -- encoder writes it, and the `return` prefix and terminating newline
+  -- are added here — the shape `_tool.coverage.report` expects.
+  local encoded, enc_err = cosmo.EncodeLua({version = 1, hits = hits})
+  if not encoded then
     return false, "coverage: " .. (enc_err or "encode failed")
   end
+  local body = "return " .. encoded .. "\n"
   local wok, werr = fs.write(fs.join(d, dump_name), body)
   if not wok then
     return false, "coverage: " .. (werr or "write failed")

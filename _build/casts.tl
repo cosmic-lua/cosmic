@@ -14,10 +14,11 @@
 ---
 ---     bin/cosmic --make run _build/casts.tl --baseline
 ---
---- The floor is written here rather than by `cosmic.literal.format`
---- because a baseline is read as a diff: one `path = count` pair per
---- line, sorted by path, so a review sees the files whose counts
---- changed and nothing else. `cosmic.literal` reads it back.
+--- The floor is written by `cosmic.literal.format_file` and read back by
+--- `cosmic.literal.parse_file`: the same module writes and reads it, and
+--- its layout is what a baseline needs anyway — one `["path"] = count`
+--- entry per line, sorted by path, so a review sees the files whose
+--- counts changed and nothing else.
 
 local fs = require("cosmic.fs")
 local literal = require("cosmic.literal")
@@ -104,24 +105,6 @@ local function baseline(path?: string): {string: integer} | nil, string
   return out
 end
 
---- The baseline file's source: one `path = count` pair per line, sorted
---- by path.
---- @param counts {string: integer} Counts by root-relative path
---- @return string The file's bytes, newline-terminated
-local function render(counts: {string: integer}): string
-  local paths: {string} = {}
-  for path in pairs(counts) do
-    paths[#paths + 1] = path
-  end
-  table.sort(paths)
-  local out: {string} = {"return {"}
-  for _, path in ipairs(paths) do
-    out[#out + 1] = string.format("  [%q] = %d,", path, counts[path])
-  end
-  out[#out + 1] = "}"
-  return table.concat(out, "\n") .. "\n"
-end
-
 --- Rewrite the baseline from a fresh count of the tree.
 --- @param ... string Command-line arguments
 --- @return integer The exit status
@@ -138,7 +121,7 @@ local function main(...: string): integer
     files = files + 1
     total = total + n
   end
-  local ok, err = fs.write(BASELINE, render(counts))
+  local ok, err = literal.format_file(BASELINE, counts)
   if not ok then
     io.stderr:write("casts: " .. err .. "\n")
     return 1
@@ -157,7 +140,6 @@ local record CastsModule
   BASELINE: string
   count: function(root: string): {string: integer}
   baseline: function(path?: string): {string: integer} | nil, string
-  render: function(counts: {string: integer}): string
   main: function(...: string): integer
 end
 
@@ -165,7 +147,6 @@ local M: CastsModule = {
   BASELINE = BASELINE,
   count = count,
   baseline = baseline,
-  render = render,
   main = main,
 }
 
