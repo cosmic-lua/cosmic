@@ -81,11 +81,11 @@ _perf/harness.tl 136 147
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
-_plan/board.tl 0 78
+_plan/board.tl 0 64
+_plan/facts.tl 0 19
 _plan/github.tl 26 94
-_plan/implementer.tl 22 98
 _plan/model.tl 146 147
-_plan/verbs.tl 0 224
+_plan/verbs.tl 0 229
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 153 167
 _tool/coverage/lines.tl 65 71
