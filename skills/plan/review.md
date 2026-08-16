@@ -116,6 +116,11 @@ ending the session, the planner converts it:
 3. if the same wrong turn has now appeared twice, the countermeasure
    stops being optional: file it before refining anything new.
 
+a bounce that quotes a wrong or unmeasured tree-fact names its
+countermeasure directly — the facts block was missing or stale for
+that claim — and the fix is a facts entry in the re-refined body, not
+a prose apology.
+
 findings enter the same loop from the implementer side: at the refine
 step the planner triages every open `plan:finding` — adopt it with a
 goal trace, or close it as not planned — and one this review itself
