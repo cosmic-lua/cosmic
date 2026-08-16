@@ -4,7 +4,7 @@ working backwards is the planner's core move: start from a goal's win
 condition, find the largest gap between it and today, and keep cutting
 until each piece clears the ready bar. refinement is incremental —
 a goal does not decompose in one sitting, and is not supposed to; each
-planner session takes the oldest shaping issue ONE rung down.
+planner session takes the oldest `work:plan` issue ONE rung down.
 
 ## the refinement ladder
 
@@ -15,13 +15,13 @@ labels; moving down a rung is what "refine" means.
    the board. ambitious and ambiguous by design ("no silent bugs",
    "best tool-building tool"). goals change by PR to goals.md, never
    by issue.
-2. **epic** — `plan:epic` + `plan:shaping`: one outcome in service of
+2. **epic** — `work:epic` + `work:plan`: one outcome in service of
    a named goal, still too big or too undecided to hand over.
    *exit test:* the outcome is observable ("a fresh clone can X", "the
    eval suite scores Y") and the epic body lists its child slices as a
    checklist of issue numbers, each of which exists.
-3. **slice** — `plan:shaping` without the epic marker, then
-   `plan:ready` once it clears the bar: one session, one PR, one
+3. **slice** — `work:plan` without the epic marker, then
+   `work:ready` once it clears the bar: one session, one PR, one
    implementer.
    *exit test:* the ready bar below, checked by `board.tl check N` and
    the planner's own read.
@@ -72,7 +72,7 @@ implementer can hold in its head (~400 lines touched is the smell
 threshold, not a rule), zero decisions left open. if writing the
 `Change` section forces the word "and" between two independent
 changes, cut it in two. if a slice cannot be sized without research,
-the research IS the slice: a `plan:enable` issue whose deliverable is
+the research IS the slice: a `work:enable` issue whose deliverable is
 a comment (findings) and the follow-up slices, not code.
 
 slices are also sized for each other: implementer sessions run in
@@ -93,7 +93,7 @@ other way. and a slice near a frozen contract names the contract in
 
 ## the ready bar
 
-a `plan:ready` issue body carries exactly these five sections.
+a `work:ready` issue body carries exactly these five sections.
 `board.tl check N` lints that each is present and non-empty (and
 `move N ready` refuses an issue that fails the same lint); only the
 planner can judge their content. the test for every sentence: **could a competent but
@@ -177,7 +177,7 @@ are in AGENTS.md.
 ## anti-patterns
 
 - **research verbs in Change** ("investigate", "explore", "figure
-  out") — that is a shaping issue or an enablement research slice,
+  out") — that is a `work:plan` issue or an enablement research slice,
   not ready work.
 - **acceptance by vibes** ("works correctly", "is faster") — commands
   and verdict lines, or it does not go in Acceptance. for performance
