@@ -5,13 +5,16 @@
 --- lint of an issue), move (column change, WIP-limited), edit (rewrite
 --- a title/body in place), init (create the label vocabulary). Every
 --- verb ends with a `plan-<verb>:` verdict line; read that, never a
---- piped exit status.
+--- piped exit status. WIP limits gate rightward motion and intake
+--- only: a return (a leftward move) and a `new --finding` always land,
+--- and an over-limit column blocks further pull until it drains.
 ---
 ---   cosmic --make run _plan/board.tl status [--repo OWNER/NAME]
 ---   cosmic --make run _plan/board.tl next [--role planner|implementer]
 ---   cosmic --make run _plan/board.tl check 123
 ---   cosmic --make run _plan/board.tl move 123 ready [--force]
 ---   cosmic --make run _plan/board.tl new "title" [--body-file F] [--epic]
+---   cosmic --make run _plan/board.tl new "title" --finding
 ---   cosmic --make run _plan/board.tl edit 123 --body-file F [--title T]
 ---   cosmic --make run _plan/board.tl init
 ---
@@ -56,6 +59,8 @@ local CSPEC: flags.CommandSpec = {
             help = "target column (default shaping)"},
           {long = "epic", help = "mark as a decomposition parent"},
           {long = "enable", help = "mark as enablement work"},
+          {long = "finding",
+            help = "capture implementer evidence; lands even at the WIP limit"},
           {long = "force", help = "override the column WIP limit"}}}},
     {name = "edit", summary = "rewrite ISSUE's title and/or body in place",
       spec = {usage = "ISSUE [--body-file FILE] [--title TITLE]",
@@ -139,7 +144,7 @@ local function main(...: string): integer
     end
     return verbs.cmd_new(repo, title, d.parsed.values["body-file"], column,
       d.parsed.switches["epic"], d.parsed.switches["enable"],
-      d.parsed.switches["force"])
+      d.parsed.switches["finding"], d.parsed.switches["force"])
   end
   return verbs.cmd_init(repo)
 end

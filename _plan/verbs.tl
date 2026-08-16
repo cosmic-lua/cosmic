@@ -18,6 +18,7 @@ local LABELS: {{string}} = {
   {"plan:review", "5319E7", "PR open; awaiting a planner verdict"},
   {"plan:epic", "C5DEF5", "decomposition parent; never pulled"},
   {"plan:enable", "F9D0C4", "exists to make implementers succeed"},
+  {"plan:finding", "D93F0B", "implementer evidence; lands even at the limit"},
 }
 
 --- Reduce a gh issue to the model's shape.
@@ -37,6 +38,7 @@ local function to_issue(raw: gh.RawIssue): Issue
     title = raw.title,
     column = model.column_of(names),
     epic = model.has_marker(names, "epic"),
+    finding = model.has_marker(names, "finding"),
     enable = model.has_marker(names, "enable"),
     assignee = assignee,
     url = raw.html_url,
@@ -80,13 +82,16 @@ local function open_oracle(repo: string): model.IsOpen
   end
 end
 
---- One board line: "#123 title [epic] [enable] (assignee)".
+--- One board line: "#123 title [epic] [finding] [enable] (assignee)".
 --- @param i Issue The issue
 --- @return string The rendered line
 local function issue_line(i: Issue): string
   local tags = ""
   if i.epic then
     tags = tags .. " [epic]"
+  end
+  if i.finding then
+    tags = tags .. " [finding]"
   end
   if i.enable then
     tags = tags .. " [enable]"
@@ -95,6 +100,21 @@ local function issue_line(i: Issue): string
     tags = tags .. " (" .. i.assignee .. ")"
   end
   return ("  #%d %s%s"):format(i.number, i.title, tags)
+end
+
+--- The note a landing over the WIP limit prints, or nil when the
+--- column still has slack. `count` is the column's occupancy BEFORE
+--- the landing; the note names the occupancy after it, which is the
+--- number that has to come back down before anything is pulled in.
+--- @param column string Column the issue lands in
+--- @param count integer Occupancy before the landing
+--- @return string | nil The note line, nil when the column has slack
+local function over_limit_note(column: string, count: integer): string
+  if count < model.LIMITS[column] then
+    return nil
+  end
+  return ("note: %s %d/%d over limit — drain before intake"):format(
+    column, count + 1, model.LIMITS[column])
 end
 
 --- status: render the board right to left and verdict on WIP.
@@ -195,7 +215,13 @@ local function cmd_check(repo: string, number: integer): integer
   return 0
 end
 
---- move: change an issue's column, refusing to overfill the target.
+--- move: change an issue's column, refusing to overfill the target —
+--- except for a return, which always lands. A leftward move is the
+--- system correcting itself (a bounce back to shaping, a rework
+--- send-back), so the WIP limit does not bind it; landing one over the
+--- limit prints a note naming the column to drain before more work is
+--- pulled into it. An issue on no column is an entry, not a return,
+--- and the limit binds it as before.
 --- @param repo string "owner/name"
 --- @param number integer Issue number
 --- @param target string Target column
@@ -221,21 +247,22 @@ local function cmd_move(repo: string, number: integer, target: string,
     print("plan-move: ERROR")
     return 1
   end
+  local raw, gerr = gh.get_issue(repo, number)
+  if raw == nil then
+    io.stderr:write(gerr .. "\n")
+    print("plan-move: ERROR")
+    return 1
+  end
+  local issue = to_issue(raw)
   local count = #(board[target] or {})
-  if count >= model.LIMITS[target] and not force then
+  local at_limit = count >= model.LIMITS[target]
+  if at_limit and not force and not model.is_return(issue.column, target) then
     print(("plan-move: REFUSED (%s %d/%d at limit; work right to left "
         .. "to drain it, or --force)"):format(
         target, count, model.LIMITS[target]))
     return 1
   end
   if target == "ready" and not force then
-    local raw, gerr = gh.get_issue(repo, number)
-    if raw == nil then
-      io.stderr:write(gerr .. "\n")
-      print("plan-move: ERROR")
-      return 1
-    end
-    local issue = to_issue(raw)
     local problems: {string} = {}
     local gaps = model.ready_gaps(issue.body)
     if #gaps > 0 then
@@ -262,6 +289,10 @@ local function cmd_move(repo: string, number: integer, target: string,
     print("plan-move: ERROR")
     return 1
   end
+  local note = over_limit_note(target, count)
+  if note then
+    print(note)
+  end
   print(("plan-move: #%d -> %s"):format(number, target))
   return 0
 end
@@ -280,17 +311,33 @@ local TEMPLATE < const > = [[
 ## Enablement
 ]]
 
---- new: open an issue on the board, WIP-limited like any other entry.
+--- new: open an issue on the board, WIP-limited like any other entry —
+--- except a finding, which always lands. A finding is evidence an
+--- implementer hit in passing, and a full column must never be a
+--- reason to drop it: it enters shaping regardless of the limit,
+--- marked so a planner can triage it, and prints the same over-limit
+--- note a return does. Findings are not decomposition parents, so
+--- `finding` and `epic` refuse each other.
 --- @param repo string "owner/name"
 --- @param title string Issue title
 --- @param body_file string Path to a body markdown file; nil for the template
---- @param column string Target column
+--- @param column string Target column; ignored for a finding (always shaping)
 --- @param epic boolean Mark as a decomposition parent
 --- @param enable boolean Mark as enablement work
+--- @param finding boolean Capture implementer evidence, past the WIP limit
 --- @param force boolean True to override the column WIP limit
 --- @return integer Exit code
 local function cmd_new(repo: string, title: string, body_file: string,
-    column: string, epic: boolean, enable: boolean, force: boolean): integer
+    column: string, epic: boolean, enable: boolean, finding: boolean,
+    force: boolean): integer
+  if finding and epic then
+    print("plan-new: REFUSED (--finding conflicts with --epic; a finding "
+      .. "is evidence, not a decomposition parent)")
+    return 1
+  end
+  if finding then
+    column = "shaping"
+  end
   local body = TEMPLATE
   if body_file then
     local data, rerr = fs.read(body_file)
@@ -308,7 +355,7 @@ local function cmd_new(repo: string, title: string, body_file: string,
     return 1
   end
   local count = #(board[column] or {})
-  if count >= model.LIMITS[column] and not force then
+  if count >= model.LIMITS[column] and not force and not finding then
     print(("plan-new: REFUSED (%s %d/%d at limit; drain the board "
         .. "right to left first, or --force)"):format(
         column, count, model.LIMITS[column]))
@@ -317,6 +364,9 @@ local function cmd_new(repo: string, title: string, body_file: string,
   local labels: {string} = {"plan:" .. column}
   if epic then
     labels[#labels + 1] = "plan:epic"
+  end
+  if finding then
+    labels[#labels + 1] = "plan:finding"
   end
   if enable then
     labels[#labels + 1] = "plan:enable"
@@ -328,6 +378,10 @@ local function cmd_new(repo: string, title: string, body_file: string,
     return 1
   end
   print("  " .. raw.html_url)
+  local note = over_limit_note(column, count)
+  if note then
+    print(note)
+  end
   print(("plan-new: #%d %s"):format(raw.number, column))
   return 0
 end
@@ -399,7 +453,8 @@ local record verbs
   cmd_move: function(repo: string, number: integer, target: string,
   force: boolean): integer
   cmd_new: function(repo: string, title: string, body_file: string,
-  column: string, epic: boolean, enable: boolean, force: boolean): integer
+  column: string, epic: boolean, enable: boolean, finding: boolean,
+  force: boolean): integer
   cmd_edit: function(repo: string, number: integer, body_file: string,
   title: string): integer
   cmd_init: function(repo: string): integer

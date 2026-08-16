@@ -11,6 +11,7 @@ local record Issue
   title: string
   column: string
   epic: boolean
+  finding: boolean
   enable: boolean
   assignee: string
   url: string
@@ -55,8 +56,27 @@ local READY_SECTIONS: {string} = {
 }
 
 local COLUMN_SET: {string: boolean} = {}
-for _, c in ipairs(COLUMNS) do
+local COLUMN_INDEX: {string: integer} = {}
+for idx, c in ipairs(COLUMNS) do
   COLUMN_SET[c] = true
+  COLUMN_INDEX[c] = idx
+end
+
+--- Whether moving from one column to another is a return: leftward
+--- motion between two known columns. WIP limits gate rightward motion
+--- and planner intake only. Returns always land, even over the limit;
+--- an over-limit column blocks further pull until it drains. A bounce
+--- back to shaping and a rework send-back are the system correcting
+--- itself, so nothing may refuse them. Anything else — an unknown
+--- `from` (an issue not on the board, which is an entry), the same
+--- column, or rightward motion — is not a return.
+--- @param from string Current column name, or nil when not on the board
+--- @param to string Target column name
+--- @return boolean True when the move is leftward between known columns
+local function is_return(from: string, to: string): boolean
+  local a = COLUMN_INDEX[from]
+  local b = COLUMN_INDEX[to]
+  return a ~= nil and b ~= nil and b < a
 end
 
 --- The column a label set places an issue in, or nil when it carries
@@ -305,6 +325,7 @@ local record model
   READY_SECTIONS: {string}
   column_of: function(labels: {string}): string
   has_marker: function(labels: {string}, marker: string): boolean
+  is_return: function(from: string, to: string): boolean
   ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
   oldest_first: function(board: Board, column: string): {Issue}
@@ -319,6 +340,7 @@ local M: model = {
   READY_SECTIONS = READY_SECTIONS,
   column_of = column_of,
   has_marker = has_marker,
+  is_return = is_return,
   ready_gaps = ready_gaps,
   blockers = blockers,
   oldest_first = oldest_first,

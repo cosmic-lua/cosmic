@@ -63,6 +63,30 @@ local function test_has_marker()
 end
 test_has_marker()
 
+local function test_is_return_over_every_ordered_pair()
+  for i, from in ipairs(model.COLUMNS) do
+    for j, to in ipairs(model.COLUMNS) do
+      local want = j < i
+      local got = model.is_return(from, to)
+      assert(got == want, ("%s -> %s: got %s, want %s"):format(
+          from, to, tostring(got), tostring(want)))
+    end
+  end
+end
+test_is_return_over_every_ordered_pair()
+
+local function test_is_return_unknown_column_is_not_a_return()
+  local nowhere: string = "plan"
+  local none: string = nil
+  assert(not model.is_return(nowhere, "shaping"),
+    "an unknown from-column is an entry, not a return")
+  assert(not model.is_return("doing", nowhere),
+    "an unknown to-column is not a return")
+  assert(not model.is_return(none, "shaping"),
+    "an issue on no column is an entry, not a return")
+end
+test_is_return_unknown_column_is_not_a_return()
+
 local function test_ready_gaps_complete()
   local gaps = model.ready_gaps(READY_BODY)
   assert(#gaps == 0, "unexpected gaps: " .. table.concat(gaps, ", "))
