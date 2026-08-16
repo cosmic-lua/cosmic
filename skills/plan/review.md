@@ -116,6 +116,11 @@ ending the session, the planner converts it:
 3. if the same wrong turn has now appeared twice, the countermeasure
    stops being optional: file it before refining anything new.
 
+findings enter the same loop from the implementer side: at the refine
+step the planner triages every open `plan:finding` — adopt it with a
+goal trace, or close it as not planned — and one this review itself
+confirms is countermeasure evidence like any bounce.
+
 this loop is what makes the system converge: goals pull work onto the
 board, reviews push friction back into enablement, and over time the
 share of issues a less sophisticated model completes without a bounce

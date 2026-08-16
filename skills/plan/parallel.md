@@ -115,6 +115,10 @@ not carry:
 - the commit trailers and the PR attribution footer;
 - a DRAFT PR referencing `Closes #N`, then `move N review` and the PR
   link commented on the issue;
+- the finding rule (`SKILL.md`, "when you find something out of
+  scope"): file what you found with `--finding`, then return to the
+  slice. an agent that cannot file it either loses the evidence or
+  widens its diff to fix it;
 - **do not merge** — a PR lands only after a planner accept, in a
   later implementer pass; an agent with a green PR will otherwise
   finish the job it thinks it has. the brief's loop ends at
