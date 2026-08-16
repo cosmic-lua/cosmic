@@ -55,7 +55,17 @@ test_interfaces_format()
 -- /tmp: sun_path caps a unix socket path at ~108 bytes, TEST_TMPDIR's
 -- per-test scratch runs right up against that in CI, and the fence
 -- does not grant the system scratch. TMPDIR is the driver's short pin.
-local sock_base = os.getenv("TMPDIR") or "/tmp"
+-- TMPDIR itself can be a long harness scratchpad path, so it is subject
+-- to the same budget, with the fallback keeping the test running rather
+-- than skipped.
+local function socket_base(): string
+  local base = os.getenv("TMPDIR")
+  if base and #base + #"/cosmic_net_XXXXXX" + #"/test.sock" <= 100 then
+    return base
+  end
+  return "/tmp"
+end
+local sock_base = socket_base()
 
 local function test_unix_domain_socket_bind_connect()
   local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
