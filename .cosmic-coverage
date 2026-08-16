@@ -64,14 +64,14 @@ _perf/bench/download_bench.tl 0 104
 _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
 _perf/bench/format_bench.tl 0 40
-_perf/bench/fs_bench.tl 97 106
+_perf/bench/fs_bench.tl 102 116
 _perf/bench/fuzzy_bench.tl 0 19
 _perf/bench/http_bench.tl 87 138
-_perf/bench/json_bench.tl 66 76
-_perf/bench/micro_bench.tl 110 120
+_perf/bench/json_bench.tl 73 88
+_perf/bench/micro_bench.tl 119 138
 _perf/bench/re_bench.tl 0 47
 _perf/bench/sqlite_bench.tl 90 124
-_perf/bench/startup_bench.tl 73 85
+_perf/bench/startup_bench.tl 76 94
 _perf/bench/stream_bench.tl 0 80
 _perf/bench/tar_bench.tl 0 90
 _perf/bench/teal_bench.tl 0 34
@@ -88,7 +88,7 @@ _plan/github.tl 26 94
 _plan/implementer.tl 22 98
 _plan/model.tl 146 147
 _plan/stats.tl 172 220
-_plan/verbs.tl 0 229
+_plan/verbs.tl 0 233
 _tool/benchmark.tl 145 172
 _tool/coverage/baseline.tl 151 165
 _tool/coverage/lines.tl 65 71

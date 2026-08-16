@@ -34,7 +34,7 @@ end
 --- PERF_BIN wins; then TEST_BIN/cosmic (set by the test harness); then
 --- the interpreter running this script (arg[-1], per cosmic.child docs).
 --- @return string Path to the binary, or nil if none was found
-local function find_bin(): string
+local function find_bin(): string | nil
   local envbin = os.getenv("PERF_BIN")
   if envbin and #envbin > 0 then
     return envbin
@@ -46,7 +46,11 @@ local function find_bin(): string
       return p
     end
   end
-  return rawget(arg, -1) as string -- cast: from any
+  local last = rawget(arg, -1)
+  if last is string then
+    return last
+  end
+  return nil
 end
 
 --- Source text for module i: returns the integer i after defining a padded
@@ -142,7 +146,10 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(packed_exe)
       end,
       check = function(_: any, res2: any): boolean, string
-        if res2 as string ~= want then -- cast: from any
+        if not (res2 is string) then
+          return false, "embed_run_startup: result is not a string"
+        end
+        if res2 ~= want then
           return false, "wrong output: " .. tostring(res2) .. " want " .. want
         end
         return true

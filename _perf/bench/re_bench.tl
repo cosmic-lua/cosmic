@@ -51,8 +51,11 @@ local function scenarios(): {pt.Scenario}, string
         return m.caps
       end,
       check = function(_: any, res: any): boolean, string
-        local caps = res as {string} -- cast: from any
-        if caps == nil or #caps ~= 7 then
+        if not (res is {string}) then
+          return false, "re_match_log_line: result is not a {string}"
+        end
+        local caps = res
+        if #caps ~= 7 then
           return false, "wrong capture count"
         end
         if caps[1] ~= "2026" or caps[5] ~= "GET" or caps[7] ~= "200" then
@@ -71,8 +74,11 @@ local function scenarios(): {pt.Scenario}, string
         return caps
       end,
       check = function(_: any, res: any): boolean, string
-        local caps = res as {string} -- cast: from any
-        if caps == nil or #caps ~= 7 or caps[5] ~= "GET" then
+        if not (res is {string}) then
+          return false, "re_search_compiled: result is not a {string}"
+        end
+        local caps = res
+        if #caps ~= 7 or caps[5] ~= "GET" then
           return false, "wrong compiled captures"
         end
         return true
@@ -84,9 +90,12 @@ local function scenarios(): {pt.Scenario}, string
         return (re.split(COLON_LIST, ":"))
       end,
       check = function(_: any, res: any): boolean, string
-        local fields = res as {string} -- cast: from any
-        if fields == nil or #fields ~= COLON_FIELDS then
-          return false, "wrong field count: " .. tostring(fields and #fields)
+        if not (res is {string}) then
+          return false, "re_split_colon_list: result is not a {string}"
+        end
+        local fields = res
+        if #fields ~= COLON_FIELDS then
+          return false, "wrong field count: " .. tostring(#fields)
         end
         if fields[1] ~= "" or fields[2] ~= "/usr/bin" or fields[#fields] ~= "" then
           return false, "wrong fields"
@@ -100,10 +109,10 @@ local function scenarios(): {pt.Scenario}, string
         return (re.gsub(GSUB_TEXT, "[0-9]+", "N"))
       end,
       check = function(_: any, res: any): boolean, string
-        local out = res as string -- cast: from any
-        if out == nil then
-          return false, "gsub returned nil"
+        if not (res is string) then
+          return false, "re_gsub_redact_numbers: result is not a string"
         end
+        local out = res
         if out:find("%d") then
           return false, "digits survived redaction"
         end

@@ -68,7 +68,10 @@ local function scenarios(): {pt.Scenario}, string
         return count
       end,
       check = function(_: any, res: any): boolean, string
-        local count = res as integer -- cast: from any
+        if not (res is integer) then
+          return false, "fs_walk_tree: result is not an integer"
+        end
+        local count = res
         if count ~= tree_entries then
           return false, string.format("walked %s entries, want %d",
             tostring(count), tree_entries)
@@ -90,7 +93,10 @@ local function scenarios(): {pt.Scenario}, string
         return count
       end,
       check = function(_: any, res: any): boolean, string
-        local count = res as integer -- cast: from any
+        if not (res is integer) then
+          return false, "fs_files_tree: result is not an integer"
+        end
+        local count = res
         if count ~= DIRS * FILES_PER_DIR then
           return false, string.format("found %s *.txt files, want %d",
             tostring(count), DIRS * FILES_PER_DIR)
@@ -108,7 +114,10 @@ local function scenarios(): {pt.Scenario}, string
         return data
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= BLOB then -- cast: from any
+        if not (res is string) then
+          return false, "fs_barf_slurp_64k: result is not a string"
+        end
+        if res ~= BLOB then
           return false, "read back different content"
         end
         return true
@@ -123,7 +132,10 @@ local function scenarios(): {pt.Scenario}, string
         return fs.relative_path("dir-1/file-1.txt")
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "dir-1/file-1.txt" then -- cast: from any
+        if not (res is string) then
+          return false, "fs_relpath_relative: result is not a string"
+        end
+        if res ~= "dir-1/file-1.txt" then
           return false, "wrong relpath: " .. tostring(res)
         end
         return true
@@ -155,7 +167,10 @@ local function scenarios(): {pt.Scenario}, string
             expected = expected + #("data-" .. d .. "-" .. f .. "\n")
           end
         end
-        if res as number ~= expected then -- cast: from any
+        if not (res is number) then
+          return false, "fs_stat_tree: result is not a number"
+        end
+        if res ~= expected then
           return false, string.format("stat size total %s, want %d",
             tostring(res), expected)
         end

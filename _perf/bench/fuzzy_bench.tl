@@ -37,10 +37,12 @@ local function scenarios(): {pt.Scenario}, string
         return fuzzy.find_similar(QUERY, CANDIDATES)
       end,
       check = function(_: any, res: any): boolean, string
-        local matches = res as {fuzzy.Match} -- cast: from any
-        if matches == nil or #matches ~= 1 then
-          return false, "expected exactly one match, got " ..
-          tostring(matches and #matches)
+        if not (res is {fuzzy.Match}) then
+          return false, "fuzzy_find_similar: result is not a {fuzzy.Match}"
+        end
+        local matches = res
+        if #matches ~= 1 then
+          return false, "expected exactly one match, got " .. tostring(#matches)
         end
         if matches[1].value ~= "install" then
           return false, "wrong match: " .. tostring(matches[1].value)
