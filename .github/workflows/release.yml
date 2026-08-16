@@ -112,12 +112,53 @@ jobs:
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             o/bin/cosmic --make ci
 
+      # A failure here fails the release: scenario check() failures mean
+      # the binary this run is about to publish is WRONG, not slow. This
+      # is the same _perf harness that measures a local dev tree, run
+      # twice — once for the record, once so the compare step below has
+      # an A/A self-check to separate a real regression from noise.
+      - name: measure the release
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            o/bin/cosmic --make run _perf/run.tl --out o/perf/perf.json
+            o/bin/cosmic --make run _perf/run.tl --out o/perf/selfcheck.json'
+
+      # Report-only: releases publish perf.json and a compare verdict
+      # against the previous release, so the chain of release assets IS
+      # the perf history (see _perf/baseline.tl) — but a speed
+      # regression report must not block a release in this slice; #1122
+      # owns promotion to a gate, once this slice has produced history
+      # to gate against. Only the baseline-fetch + compare chain is
+      # guarded to always succeed; the harness runs above are not.
+      - name: compare against the previous release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" bash -c '
+            o/bin/cosmic --make run _perf/baseline.tl --repo ${{ github.repository }} \
+              --out o/perf/prev/perf.json | tee o/perf/baseline.txt
+            if grep -q "^perf-baseline: SKIP" o/perf/baseline.txt; then
+              echo "perf-compare: SKIP (no baseline: first measured release)" > o/perf/compare.txt
+            else
+              o/bin/cosmic --make run _perf/gate.tl compare \
+                o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
+                | tee o/perf/compare.txt
+            fi
+            exit 0'
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-lua
           path: |
             o/bin/cosmic
             o/bin/cosmic-debug
+            o/perf/perf.json
+            o/perf/compare.txt
 
   release:
     runs-on: ubuntu-latest
@@ -145,17 +186,24 @@ jobs:
           find artifacts -type f -name '*.zip' -execdir unzip -o {} \;
           cosmic_src=$(find artifacts -type f -name cosmic | head -1)
           debug_src=$(find artifacts -type f -name cosmic-debug | head -1)
-          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ]; then
-            echo "cosmic binaries not found in downloaded artifacts:" >&2
+          perf_src=$(find artifacts -type f -name perf.json | head -1)
+          compare_src=$(find artifacts -type f -name compare.txt | head -1)
+          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ] || [ -z "$perf_src" ] || [ -z "$compare_src" ]; then
+            echo "release assets not found in downloaded artifacts:" >&2
             find artifacts >&2
             exit 1
           fi
           cp "$cosmic_src" release/cosmic-lua
           cp "$debug_src" release/cosmic-lua-debug
+          cp "$perf_src" release/perf.json
+          cp "$compare_src" release/compare.txt
           chmod +x release/cosmic-lua release/cosmic-lua-debug
           tag="$TAG"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
+          notes=$(tail -n1 release/compare.txt)
           gh release create "$tag" \
             ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \
             --title "$tag" \
-            release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS
+            --notes "$notes" \
+            release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS \
+            release/perf.json release/compare.txt
