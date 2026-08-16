@@ -405,6 +405,7 @@ local record BaselineModule
   render: function(reports: {FileReport}, floor?: {string: Entry}): string
   parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
+  check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string
   lowered: function(before: string, after: string): {string}
@@ -414,6 +415,7 @@ local M: BaselineModule = {
   render = render,
   parse = parse,
   compare = compare,
+  check = check,
   gate = gate,
   text_for = text_for,
   lowered = lowered,

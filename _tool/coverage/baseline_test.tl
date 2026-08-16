@@ -288,6 +288,32 @@ local function test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
 end
 test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
 
+-- Two rows can tie on percentage, so the resolution has to keep going.
+-- The smaller line universe wins first: 1/2 and 2/4 are both 50%, and
+-- the 2-line row is the one a check would measure against.
+local function test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
+  local b = check.must(baseline.parse("# h\n# c\na.tl 1 2\na.tl 2 4\n"))
+  assert(b.rows["a.tl"].total == 2 and b.rows["a.tl"].covered == 1,
+    "smaller universe wins, got " .. b.rows["a.tl"].covered .. "/" ..
+    b.rows["a.tl"].total)
+  local flipped = check.must(baseline.parse("# h\n# c\na.tl 2 4\na.tl 1 2\n"))
+  assert(flipped.rows["a.tl"].total == 2,
+    "and wins from the other side too, got " .. flipped.rows["a.tl"].total)
+end
+test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
+
+-- Two branches can each append the same new row, in regions far enough
+-- apart that the merge keeps both copies. Nothing distinguishes them,
+-- and the resolution still has to answer: the row survives intact and
+-- is counted as the repeat it is.
+local function test_parse_resolves_identical_duplicate_rows()
+  local b = check.must(baseline.parse("# h\n# c\na.tl 9 10\na.tl 9 10\n"))
+  assert(b.rows["a.tl"].covered == 9 and b.rows["a.tl"].total == 10,
+    "identical rows resolve to themselves")
+  assert(b.duplicates == 1, "and are still a duplicate, got " .. b.duplicates)
+end
+test_parse_resolves_identical_duplicate_rows()
+
 -- A freshly rendered baseline has nothing to resolve, and the count
 -- says so rather than being absent.
 local function test_parse_counts_no_duplicates_in_a_clean_baseline()
@@ -350,6 +376,66 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
     "and must name every declining file, got: " .. last)
 end
 test_a_failing_ratchet_names_the_rows_that_moved()
+
+--- A directory `report.compute` can read: one source file with three
+--- executable lines and one `.cov` file, since compute refuses a run
+--- with no coverage data at all. The hits inside name an absolute path,
+--- which normalize declines, so the source scan supplies the row and it
+--- measures 0 of 3.
+--- @param name string Subdirectory of TEST_TMPDIR to build it in
+--- @return string The fixture root
+--- @return string The display path its one row carries
+local function coverage_fixture(name: string): string, string
+  local fs = require("cosmic.fs")
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local root = fs.join(tmpdir, name)
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(fs.join(root, "lib")))
+  local src = fs.join(root, "lib/a.tl")
+  assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))
+  assert(fs.write(fs.join(root, "one.cov"),
+      '{version=1,hits={["' .. src .. '"]={[1]=1}}}'))
+  return root, src
+end
+
+-- The two ways `check` refuses before it can compare anything: no
+-- baseline to read, and a baseline it cannot parse. Both are exit 1
+-- with the reason on stderr, so a gate never reports "ok" for a
+-- comparison it did not make.
+local function test_check_refuses_an_unreadable_or_malformed_baseline()
+  local fs = require("cosmic.fs")
+  local root, _src = coverage_fixture("ratchet-refuses")
+  assert(baseline.check(fs.join(root, "absent"), {root}) == 1,
+    "a baseline that cannot be read is not a pass")
+  local garbage = fs.join(root, "garbage")
+  assert(fs.write(garbage, "lib/a.tl nine ten\n"))
+  assert(baseline.check(garbage, {root}) == 1,
+    "a baseline that cannot be parsed is not a pass")
+end
+test_check_refuses_an_unreadable_or_malformed_baseline()
+
+-- A merged baseline gates against the RESOLVED rows and says so. The
+-- duplicate note and the `ok` line land on this test's own streams,
+-- which is the price of exercising the real function rather than a
+-- child whose coverage nobody collects.
+local function test_check_gates_against_the_resolved_rows()
+  local fs = require("cosmic.fs")
+  local root, src = coverage_fixture("ratchet-resolved")
+  -- The run measures 0 of 3. The high row alone would fail the ratchet;
+  -- the low one is the floor that holds, so a pass here is the proof
+  -- that the lower row is what gated.
+  local floor = fs.join(root, "floor")
+  assert(fs.write(floor, "# h\n" .. src .. " 3 3\n" .. src .. " 0 3\n"))
+  assert(baseline.check(floor, {root}) == 0,
+    "the lower duplicate row is the floor, and it holds")
+  -- Without the low row the same run fails, which is what makes the
+  -- assertion above about resolution rather than about slack.
+  local high = fs.join(root, "high")
+  assert(fs.write(high, "# h\n" .. src .. " 3 3\n"))
+  assert(baseline.check(high, {root}) == 1,
+    "the high row on its own is a decline")
+end
+test_check_gates_against_the_resolved_rows()
 
 -- A merged baseline still gates, and does not do it quietly. A `union`
 -- merge leaves duplicate rows behind; the check reads them (resolved to
