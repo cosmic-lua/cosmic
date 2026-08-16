@@ -259,3 +259,25 @@ local function test_embed_is_payload_whatever_it_is_named()
     "a module whose name starts with 'embed' is still a module")
 end
 test_embed_is_payload_whatever_it_is_named()
+
+-- The directories a coverage report scans for files no test loaded.
+-- Compiled kinds only: a `testdata/` fixture or an `embed/` payload
+-- directory holding a .tl is not a source directory, and scanning one
+-- would report a deliberately-broken fixture as 0% covered.
+local function test_source_dirs_are_the_compiled_ones()
+  local proj: Project = {
+    root = "/p",
+    binaries = {},
+    files = {
+      {path = "main.tl", kind = "entry"} as File, -- cast: partial record fixture
+      {path = "pkg/a.tl", kind = "module"} as File, -- cast: partial record fixture
+      {path = "pkg/a_test.tl", kind = "test"} as File, -- cast: partial record fixture
+      {path = "pkg/testdata/broken.tl", kind = "testdata"} as File, -- cast: partial record fixture
+      {path = "embed/vendor.tl", kind = "payload"} as File, -- cast: partial record fixture
+      {path = "README.md", kind = "asset"} as File, -- cast: partial record fixture
+    },
+  }
+  local got = table.concat(project.source_dirs(proj), " ")
+  assert(got == ". pkg", "got: " .. got)
+end
+test_source_dirs_are_the_compiled_ones()

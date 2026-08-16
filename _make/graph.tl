@@ -19,6 +19,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local deps = require("_make.deps")
+local envstamp = require("_make.envstamp")
 local groups = require("_make.groups")
 local imports = require("_make.imports")
 local project = require("_make.project")
@@ -46,9 +47,11 @@ local JOBS_ENV < const > = "COSMIC_JOBS"
 --- Kinds whose `.tl` sources compile into `$(O)`.
 --- The kinds whose files are compiled into `o/`.
 ---
---- Two callers ask: the facts writer below (which lists them for the
---- compile rules) and `source_dirs` (which a coverage report scans for
---- files no test ever loaded).
+--- The facts writer below lists them for the compile rules.
+--- `project.source_dirs` (which a coverage report scans for files no
+--- test ever loaded) asks the same question over its own copy of this
+--- set — it is a pure walk over `Project` and lives in `project.tl`
+--- now, one file this module cannot reach without a cycle.
 local compiled_kinds < const >: {Kind: boolean} = {
   module = true,
   entry = true,
@@ -66,32 +69,6 @@ local runs_against_the_stage < const >: {Kind: boolean} = {
   example = true,
   benchmark = true,
 }
-
---- The distinct directories holding compiled sources, sorted.
----
---- What a coverage report needs to see a module NO test loaded: the
---- collected data names only files that ran, so a module with no test
---- at all is invisible without a directory to scan.
---- @param proj Project The scanned project
---- @return {string} Directory paths relative to the root
-local function source_dirs(proj: Project): {string}
-  local seen: {string: boolean} = {}
-  local out: {string} = {}
-  for _, f in ipairs(proj.files) do
-    if compiled_kinds[f.kind] then
-      local dir = fs.dirname(f.path)
-      if dir == "" then
-        dir = "."
-      end
-      if not seen[dir] then
-        seen[dir] = true
-        out[#out + 1] = dir
-      end
-    end
-  end
-  table.sort(out)
-  return out
-end
 
 --- Write `path` only when the bytes differ, so a no-op run does not
 --- touch an mtime the graph schedules on.
@@ -225,6 +202,17 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       for _, r in ipairs(extra) do
         built[#built + 1] = r
       end
+      -- Declared env reads (`--- env: <NAME>`) join `deps_<stem>`, NOT
+      -- `srcdeps_<stem>` — an env change must not recompile, only
+      -- re-run. The stamp file itself carries the value; see
+      -- _make/envstamp.tl.
+      local envnames, eerr = imports.env_of_file(proj.root, f.path)
+      if not envnames then
+        return nil, "make: " .. (eerr or "bad env declaration")
+      end
+      if #envnames > 0 then
+        built[#built + 1] = envstamp.path_of(stem)
+      end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
     end
   end
@@ -251,7 +239,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     assign("benchmarks", benchmarks),
     assign("assets", assets),
     assign("lint_sources", lint_sources),
-    assign("coverage_dirs", source_dirs(proj)),
+    assign("coverage_dirs", project.source_dirs(proj)),
     -- The runner tests exec, and its prerequisite: _make/testrun.tl.
     testrun.mk_facts(proj),
   }
@@ -288,6 +276,13 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   -- with an honest mtime -- before make reads a rule. Same
   -- write-if-changed contract as both makefiles, for the same reason.
   ok, err = stamp.write_all(proj, cosmic)
+  if not ok then
+    return nil, err
+  end
+  -- Same reason, for a test's declared env values: deps_<stem> already
+  -- names the stamp file (project_mk above), so it must exist with an
+  -- honest mtime before make reads a rule too.
+  ok, err = envstamp.write_all(proj)
   if not ok then
     return nil, err
   end
@@ -480,7 +475,6 @@ local record GraphModule
   find_make: function(): string | nil, string
   jobs_flag: function(): string
   run: function(proj: Project, target: string, overrides: {string}, cosmic: string, extra?: {string}): integer, string
-  source_dirs: function(proj: Project): {string}
 end
 
 local M: GraphModule = {
@@ -494,7 +488,6 @@ local M: GraphModule = {
   find_make = find_make,
   jobs_flag = jobs_flag,
   run = run,
-  source_dirs = source_dirs,
 }
 
 return M

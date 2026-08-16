@@ -299,28 +299,6 @@ local function test_jobs_flag()
 end
 test_jobs_flag()
 
--- The directories a coverage report scans for files no test loaded.
--- Compiled kinds only: a `testdata/` fixture or an `embed/` payload
--- directory holding a .tl is not a source directory, and scanning one
--- would report a deliberately-broken fixture as 0% covered.
-local function test_source_dirs_are_the_compiled_ones()
-  local proj: types.Project = {
-    root = "/p",
-    binaries = {},
-    files = {
-      {path = "main.tl", kind = "entry"} as types.File, -- cast: partial record fixture
-      {path = "pkg/a.tl", kind = "module"} as types.File, -- cast: partial record fixture
-      {path = "pkg/a_test.tl", kind = "test"} as types.File, -- cast: partial record fixture
-      {path = "pkg/testdata/broken.tl", kind = "testdata"} as types.File, -- cast: partial record fixture
-      {path = "embed/vendor.tl", kind = "payload"} as types.File, -- cast: partial record fixture
-      {path = "README.md", kind = "asset"} as types.File, -- cast: partial record fixture
-    },
-  }
-  local got = table.concat(graph.source_dirs(proj), " ")
-  assert(got == ". pkg", "got: " .. got)
-end
-test_source_dirs_are_the_compiled_ones()
-
 print("all graph tests passed")
 
 -- `--- reads:` declarations: a test's non-import inputs join its
@@ -350,3 +328,24 @@ local function test_project_mk_carries_declared_reads()
     "and say why, got: " .. tostring(err))
 end
 test_project_mk_carries_declared_reads()
+
+-- `--- env:` declarations: a test's declared env names join its
+-- deps_* closure as the env STAMP path (_make/envstamp.tl), NOT
+-- srcdeps_* — an env change must invalidate the cached verdict, never
+-- trigger a recompile. An undeclared sibling gets no stamp at all.
+local function test_project_mk_carries_declared_env()
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "envdepsXXXXXX")))
+  check.must(fs.make_dirs(fs.join(dir, "cmd", "app")))
+  check.must(fs.write(fs.join(dir, "cmd", "app", "main.tl"), "print('x')\n"))
+  check.must(fs.write(fs.join(dir, "x_test.tl"),
+      "--- env: FOO\nprint('ok')\n"))
+  check.must(fs.write(fs.join(dir, "y_test.tl"), "print('ok')\n"))
+  local proj = check.must(project.scan(dir))
+  local mk = check.must(graph.project_mk(proj, "/bin/cosmic"))
+  assert(mk:find("deps_x_test", 1, true) and mk:find("o/.env/x_test.env", 1, true),
+    "the declared env name must land the stamp in x_test's closure:\n" .. mk)
+  local ydeps = mk:match("deps_y_test := ([^\n]*)")
+  assert(ydeps and not ydeps:find("o/.env/", 1, true),
+    "an undeclared sibling must not get an env stamp:\n" .. mk)
+end
+test_project_mk_carries_declared_env()

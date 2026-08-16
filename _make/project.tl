@@ -423,6 +423,44 @@ local function paths_of(files: {File}): {string}
   return out
 end
 
+--- Kinds compiled into `o/` — mirrors `graph.tl`'s own `compiled_kinds`,
+--- duplicated rather than shared: this function's only caller reaches
+--- it FROM `graph.tl`, so the reverse edge would be a cycle.
+local compiled_kinds < const >: {Kind: boolean} = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  gen = true,
+}
+
+--- The distinct directories holding compiled sources, sorted.
+---
+--- What a coverage report needs to see a module NO test loaded: the
+--- collected data names only files that ran, so a module with no test
+--- at all is invisible without a directory to scan.
+--- @param proj Project The scanned project
+--- @return {string} Directory paths relative to the root
+local function source_dirs(proj: Project): {string}
+  local seen: {string: boolean} = {}
+  local out: {string} = {}
+  for _, f in ipairs(proj.files) do
+    if compiled_kinds[f.kind] then
+      local dir = fs.dirname(f.path)
+      if dir == "" then
+        dir = "."
+      end
+      if not seen[dir] then
+        seen[dir] = true
+        out[#out + 1] = dir
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 local record ProjectModule
   IGNORE_FILE: string
   BUILD_DIR: string
@@ -438,6 +476,7 @@ local record ProjectModule
   of_kind: function(project: Project, kinds: {Kind}): {File}
   segments: function(rel: string): {string}
   paths_of: function(files: {File}): {string}
+  source_dirs: function(proj: Project): {string}
 end
 
 local M: ProjectModule = {
@@ -455,6 +494,7 @@ local M: ProjectModule = {
   of_kind = of_kind,
   segments = segments,
   paths_of = paths_of,
+  source_dirs = source_dirs,
 }
 
 return M

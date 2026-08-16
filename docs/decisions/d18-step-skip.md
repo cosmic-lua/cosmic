@@ -1,7 +1,7 @@
 # D18 — expensive recipe steps skip on input bytes, not just on mtime
 
 - **date:** 2026-08
-- **status:** amended 2026-08 (declared reads)
+- **status:** amended 2026-08 (declared env)
 - **context:** make schedules on mtime, and mtimes lie in exactly the
   situations that hurt: a branch switch restamps every source, a CI
   cache restore sits under a fresh checkout, a `touch` sweep — and the
@@ -73,3 +73,33 @@
   imports + declared reads is the eventual follow-up that would turn
   any remaining undeclared read into a loud denial instead of silent
   staleness.
+- **amended 2026-08 (declared env):** the same gap existed one layer
+  down, for an environment VALUE instead of a file: nothing in the
+  tree depends on `FUZZ_ITERS` or `FUZZ_SEED`, so a run that only
+  changed one of them left every prerequisite of a `.got` unmoved, and
+  even a forced recipe hit the content key's fixed `ENV_SWITCHES` list,
+  which the two variables are not on — a run genuinely meant to fuzz
+  deeper replayed the last cached PASS instead. The fix mirrors the
+  declared-reads channel exactly: a `--- env: <NAME> <NAME> ...`
+  doc-comment line (`_make.imports.env_of_file`) names environment
+  variables a test reads; the build stamps their CURRENT values into a
+  hashed file (`o/.env/<stem>.env`, `_make/envstamp.tl`) and that stamp
+  joins `deps_<stem>`, exactly like a declared read path — a
+  prerequisite (mtime scheduling), a content-key input (its bytes ride
+  in via `--deps`), and a fence grant, in one stroke. The file stores
+  the HASH of `NAME=value` (or bare `NAME` for an unset variable — unset
+  and empty must hash differently, or a step branching on "is this set
+  at all" could not observe the difference) rather than the plaintext
+  value, so `o/` never collects a secret a declared name happens to
+  name. A declared name refuses the build when it fails the identifier
+  pattern or collides with `ENV_SWITCHES` — the latter is already in
+  every step key, and `COSMIC_COVERAGE` specifically is rewritten
+  per-lane by the runner before the child ever sees it
+  (`_tool/testrun.tl:54-68`), so a declaration would stamp a value the
+  child does not run with. "Hash the whole environment" stays rejected
+  for the same reason it was rejected the first time: make already
+  assumes the environment is inert outside the fixed switch list, and a
+  declaration channel is strictly more honest than widening that
+  assumption, not less. Undeclared env is unchanged: it caches exactly
+  as before, which is the point — only a name a test actually declares
+  can move its stamp.

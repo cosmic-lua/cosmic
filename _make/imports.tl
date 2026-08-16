@@ -192,10 +192,87 @@ local function reads_of_file(root: string, path: string): {string} | nil, string
   return out
 end
 
+--- Names already folded into every step's content key
+--- (`_cli/build/work.tl`'s `ENV_SWITCHES`, D18): `CI`, `COSMIC_COVERAGE`,
+--- `COSMIC_FENCE`, `COSMIC_FIXPOINT`, `COSMIC_BENCHMARK_MIN_MS`.
+--- Mirrored here rather than imported — this module has no dependency
+--- on `_cli/build`, and the set is small and load-bearing enough that a
+--- drift would show up as a refusal, not a silent gap. An `--- env:`
+--- declaration naming one of these would stamp a value the reader
+--- never sees: it is already in the key, and `COSMIC_COVERAGE`
+--- specifically is rewritten per-lane by the runner
+--- (`_tool/testrun.tl:54-68`) to an isolated per-test directory, so the
+--- ambient value a declaration would hash is not even what the child runs
+--- with.
+local ENV_SWITCHES < const >: {string: boolean} = {
+  CI = true,
+  COSMIC_COVERAGE = true,
+  COSMIC_FENCE = true,
+  COSMIC_FIXPOINT = true,
+  COSMIC_BENCHMARK_MIN_MS = true,
+}
+
+--- Environment variable names a test declares it READS, from
+--- `--- env: <NAME> <NAME> ...` doc-comment lines — multi-token, unlike
+--- `reads_scan`'s one-path-per-line grammar, because a test commonly
+--- reads more than one variable at once (`FUZZ_SEED` and `FUZZ_ITERS`
+--- together).
+--- @param src string The file's contents
+--- @return {string} Declared names, in file order, possibly repeated
+local function env_scan(src: string): {string}
+  local out: {string} = {}
+  for line in (src .. "\n"):gmatch("([^\n]*)\n") do
+    local rest = line:match("^%-%-%- env: (.+)$")
+    if rest then
+      for name in rest:gmatch("%S+") do
+        out[#out + 1] = name
+      end
+    end
+  end
+  return out
+end
+
+--- The declared env reads of a source file: sorted, de-duplicated
+--- names. A name that is not a valid identifier, or that names a D18
+--- switch already in every step key, refuses loudly — the same
+--- posture `reads_of_file` takes toward a stale path, because a
+--- declaration the build cannot honor is a declaration gone stale.
+--- @param root string Absolute project root
+--- @param path string Source file path relative to root
+--- @return {string} | nil Sorted, de-duplicated names
+--- @return string The error when a declared name is invalid
+local function env_of_file(root: string, path: string): {string} | nil, string
+  local content = fs.read(fs.join(root, path))
+  if not content then
+    return {}
+  end
+  local seen: {string: boolean} = {}
+  local out: {string} = {}
+  for _, name in ipairs(env_scan(content)) do
+    if not name:match("^[A-Za-z_][A-Za-z0-9_]*$") then
+      return nil, path .. " declares `env: " .. name ..
+      "`, which is not a valid environment variable name"
+    end
+    if ENV_SWITCHES[name] then
+      return nil, path .. " declares `env: " .. name ..
+      "`, which is already a D18 step-key switch (stamped in every " ..
+      "step already)"
+    end
+    if not seen[name] then
+      seen[name] = true
+      out[#out + 1] = name
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 local record ImportsModule
   scan: function(src: string): {string}
   of_file: function(path: string): {string}
   reads_of_file: function(root: string, path: string): {string} | nil, string
+  env_scan: function(src: string): {string}
+  env_of_file: function(root: string, path: string): {string} | nil, string
   forget: function()
 end
 
@@ -203,6 +280,8 @@ local M: ImportsModule = {
   scan = scan,
   of_file = of_file,
   reads_of_file = reads_of_file,
+  env_scan = env_scan,
+  env_of_file = env_of_file,
   forget = forget,
 }
 
