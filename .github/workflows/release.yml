@@ -153,9 +153,11 @@ jobs:
 
       # G9's per-release half (docs/goals.md; see _build/size.tl): the
       # same measure-then-compare shape as the perf steps above, over
-      # tree size instead of speed. Never a gate — size.tl's compare
-      # mode has no threshold and always exits 0 — so this step cannot
-      # fail the release; it only produces the numbers the notes quote.
+      # tree size instead of speed. This step runs size.tl in report
+      # mode under `set -eux` with no guard, so a failure here (e.g. an
+      # encode/make_dirs/write error) fails the release. Only the
+      # baseline-fetch + compare chain below is guarded to always
+      # succeed; this measurement step is not.
       - name: measure the tree size
         shell: bash
         run: |
