@@ -112,17 +112,22 @@ not carry:
   failure that never happened;
 - environment quirks the tree does not document (proxy variables,
   tokens);
+- the read command: `bin/cosmic --make run _plan/board.tl show N` —
+  run it even with the body pasted below, so the agent's own read
+  stays inside the board tool (`SKILL.md`'s hard rules bind the brief
+  exactly as they bind everyone else: no `gh`, no raw API call, for
+  anything the tool has a verb for);
 - the commit trailers and the PR attribution footer;
-- a DRAFT PR referencing `Closes #N`, then `move N review` and the PR
-  link commented on the issue;
+- a PR opened READY for review, not draft — referencing `Closes #N`,
+  then `move N review` and the PR link commented on the issue;
 - the finding rule (`SKILL.md`, "when you find something out of
   scope"): file what you found with `--finding`, then return to the
   slice. an agent that cannot file it either loses the evidence or
   widens its diff to fix it;
-- **do not merge** — a PR lands only after a planner accept, in a
-  later implementer pass; an agent with a green PR will otherwise
-  finish the job it thinks it has. the brief's loop ends at
-  `move N review`.
+- **do not land** — a PR lands only after a planner accept, via
+  `land N PR`, in a later implementer pass; an agent with a green PR
+  will otherwise finish the job it thinks it has. the brief's loop
+  ends at `move N review`.
 
 carry the bounce rule verbatim (`SKILL.md`, "when the issue
 under-specifies"): comment naming exactly what is missing, `move N
