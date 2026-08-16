@@ -101,8 +101,8 @@ columns, left to right (an issue carries exactly one column label):
 
 | label | meaning | WIP limit |
 |-------|---------|-----------|
-| `plan:shaping` | traced to a goal, still ambiguous — planner territory | 12 |
-| `plan:ready` | meets the ready bar (`decompose.md`); pullable | 20 |
+| `plan:shaping` | traced to a goal, still ambiguous — planner territory (epics don't count against this limit) | 12 |
+| `plan:ready` | meets the ready bar (`decompose.md`); pullable | 12 |
 | `plan:doing` | in implementation: claimed work and rework | 5 |
 | `plan:review` | PR open; awaiting a planner verdict | 10 |
 

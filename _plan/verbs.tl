@@ -132,7 +132,13 @@ local function cmd_status(repo: string): integer
   for idx = #model.COLUMNS, 1, -1 do
     local col = model.COLUMNS[idx]
     local list = model.oldest_first(board, col)
-    print(("%s %d/%d"):format(col, #list, model.LIMITS[col]))
+    local counted = model.limited_count(board, col)
+    local exempt = #list - counted
+    if exempt > 0 then
+      print(("%s %d/%d (+%d epics)"):format(col, counted, model.LIMITS[col], exempt))
+    else
+      print(("%s %d/%d"):format(col, counted, model.LIMITS[col]))
+    end
     for _, i in ipairs(list) do
       print(issue_line(i))
     end
@@ -258,7 +264,7 @@ local function cmd_move(repo: string, number: integer, target: string,
     return 1
   end
   local issue = to_issue(raw)
-  local count = #(board[target] or {})
+  local count = model.limited_count(board, target)
   local at_limit = count >= model.LIMITS[target]
   if at_limit and not force and not model.is_return(issue.column, target) then
     print(("plan-move: REFUSED (%s %d/%d at limit; work right to left "
@@ -361,7 +367,7 @@ local function cmd_new(repo: string, title: string, body_file: string,
     print("plan-new: ERROR")
     return 1
   end
-  local count = #(board[column] or {})
+  local count = model.limited_count(board, column)
   if count >= model.LIMITS[column] and not force and not finding then
     print(("plan-new: REFUSED (%s %d/%d at limit; drain the board "
         .. "right to left first, or --force)"):format(
