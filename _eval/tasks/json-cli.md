@@ -9,7 +9,7 @@ Build a command-line tool that reports on a JSON inventory file. First create th
 ]
 ```
 
-The tool is a compiled binary `o/bin/jstat` (source at `cmd/jstat/main.tl`, built with the tool's build command) with three subcommands. `jstat list <path>` prints each record's `name`, one per line, in file order. `jstat filter <path> <kind>` prints the names of records whose `kind` field equals the argument, one per line, in file order. `jstat summary <path>` prints exactly one line of the form `items=<n> total=<sum of counts> kinds=<distinct kind count>`. Any failure — missing file, unreadable JSON, unknown subcommand, missing argument — must print a one-line error message to stderr, print nothing to stdout, and exit non-zero. Ship tests for the tool's logic and take the project to a green `ci` gate.
+The tool is a compiled binary `o/bin/jstat` (source at `cmd/jstat/main.tl`, built with the tool's build command) with three subcommands. `jstat list <file>` prints each record's `name`, one per line, in file order. `jstat filter <file> <kind>` prints the names of records whose `kind` field equals the argument, one per line, in file order. `jstat summary <file>` prints exactly one line of the form `items=<n> total=<sum of count> kinds=<distinct kind values>`. Any failure — missing file, unreadable JSON, unknown subcommand, missing argument — must print a one-line error message to stderr, print nothing to stdout, and exit non-zero. Ship tests for the tool's logic and take the project to a green `ci` gate.
 
 ## Acceptance facts
 

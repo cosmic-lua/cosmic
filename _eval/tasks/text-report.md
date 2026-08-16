@@ -10,7 +10,7 @@ Build a log-report tool. First create the fixture `testdata/events.log` with exa
 2026-08-01T13:59:59Z WARN slow
 ```
 
-Each line is `<ISO8601 UTC timestamp> <LEVEL> <message>`. The tool is a compiled binary `o/bin/logreport` (source `cmd/logreport/main.tl`) taking one argument, the log file path. It parses every line, aggregates events into one-hour UTC buckets — an event belongs to the bucket its timestamp falls in, so a timestamp exactly on the hour (`11:00:00`) belongs to the `11:00` bucket, not the previous one — and prints one line per non-empty bucket in ascending time order, formatted `<bucket ISO hour> <count>`, followed by a final line `total <n>`. An empty input file produces just `total 0`. A missing or unreadable file prints an error to stderr and exits non-zero. Ship tests (including a bucket-boundary case) and take the project to a green `ci` gate.
+Each line is `<ISO 8601 UTC timestamp> <LEVEL> <message>`. The tool is a compiled binary `o/bin/logreport` (source `cmd/logreport/main.tl`) taking one argument, the log file path. It parses every line, aggregates events into one-hour UTC buckets — an event belongs to the bucket its timestamp falls in, so a timestamp exactly on the hour (`11:00:00`) belongs to the `11:00` bucket, not the previous one — and prints one line per non-empty bucket in ascending time order, formatted `<YYYY-MM-DDTHH:00Z> <count>`, followed by a final line `total <n>`. An empty input file produces just `total 0`. A missing or unreadable file prints an error to stderr and exits non-zero. Ship tests (including a bucket-boundary case) and take the project to a green `ci` gate.
 
 ## Acceptance facts
 

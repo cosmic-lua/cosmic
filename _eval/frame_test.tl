@@ -31,5 +31,3 @@ local function test_frame_byte_equals_skill_template()
     "'s fenced prompt template (the copy has drifted)")
 end
 test_frame_byte_equals_skill_template()
-
-print("OK frame_test")

@@ -125,6 +125,19 @@ local function test_stage_rejects_missing_bin()
 end
 test_stage_rejects_missing_bin()
 
+--- The probe directory is part of the reproducible run directory,
+--- same as the workspaces, so its creation can fail just like theirs:
+--- block it with a plain file where the directory needs to go.
+local function test_stage_rejects_when_probe_dir_blocked()
+  local bin = fixture_bin()
+  local out = fs.join(tmpdir, "stage-run-probe-blocked-" .. tostring(os.time()))
+  check.must(fs.make_dirs(out))
+  check.must(fs.write(fs.join(out, "probe"), "not a directory"))
+  local code = stage.main("--bin", bin, "--out", out)
+  assert(code ~= 0, "staging must fail when the probe directory can't be created")
+end
+test_stage_rejects_when_probe_dir_blocked()
+
 local function test_parse_args_requires_bin_and_out()
   assert(stage.parse_args({"--out", "x"}).err ~= nil, "--bin should be required")
   assert(stage.parse_args({"--bin", "x"}).err ~= nil, "--out should be required")
@@ -132,5 +145,3 @@ local function test_parse_args_requires_bin_and_out()
     "both flags present should parse cleanly")
 end
 test_parse_args_requires_bin_and_out()
-
-print("OK stage_test")

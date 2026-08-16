@@ -63,5 +63,3 @@ local function test_missing_file_errors()
   assert(err ~= nil and #err > 0, "missing suite file should report an error")
 end
 test_missing_file_errors()
-
-print("OK suite_test")

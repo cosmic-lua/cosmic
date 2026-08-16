@@ -258,9 +258,10 @@ local function probe_command(out: string): string
 end
 
 --- One task's launch command, unaltered from skills/agent-eval/
---- SKILL.md's recipe: per-task HOME nested under the task's own
---- workspace, output relative to it (final.txt, err.txt) since the
---- command itself `cd`s there first.
+--- SKILL.md's recipe: per-task HOME beside the task's own workspace
+--- (never nested inside it -- the workspace holds only the binary and
+--- the agent's own work products), output relative to the workspace
+--- (final.txt, err.txt) since the command itself `cd`s there first.
 --- @param out string The run directory
 --- @param id string The task id
 --- @return string The launch command, newline-terminated
@@ -269,7 +270,7 @@ local function launch_command(out: string, id: string): string
   return "cd " .. dir .. "\n" ..
   "env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \\\n" ..
   "    -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION \\\n" ..
-  "    HOME=" .. fs.join(dir, "home-" .. id) .. " \\\n" ..
+  "    HOME=" .. fs.join(out, "home-" .. id) .. " \\\n" ..
   "  timeout " .. LAUNCH_TIMEOUT_SECS .. " " .. LAUNCH_AGENT_TOOL ..
   " -p \"$(cat prompt.txt)\" \\\n" ..
   "  --model " .. LAUNCH_MODEL .. " --allowedTools \"Bash Read Write Edit Glob Grep\" \\\n" ..
@@ -321,6 +322,14 @@ local function main(...: string): integer
     io.stderr:write("stage: make " .. a.out .. ": " .. tostring(mkerr) .. "\n")
     return 1
   end
+  -- The probe directory is part of the reproducible run directory,
+  -- same as the workspaces: the printed probe command `cd`s into it.
+  local pmkok, pmkerr = fs.make_dirs(fs.join(a.out, "probe"))
+  if not pmkok then
+    io.stderr:write("stage: make " .. fs.join(a.out, "probe") .. ": " ..
+      tostring(pmkerr) .. "\n")
+    return 1
+  end
   for _, task in ipairs(manifest.tasks) do
     local ok, terr = stage_task(a.out, a.bin, frame, task)
     if not ok then
@@ -355,28 +364,16 @@ local record stage
   main: function(...: string): integer
   parse_args: function(argv: {string}): Args
   load_manifest: function(path: string): eval_types.Manifest | nil, string
-  stage_task: function(out: string, bin: string, frame: string,
-  task: eval_types.Task): boolean, string
-  collect_meta: function(bin: string, manifest: eval_types.Manifest):
-  eval_types.Meta | nil, string
-  project_text: function(brief_md: string): string
-  fill_frame: function(frame: string, project: string): string | nil, string
   commands_text: function(out: string, manifest: eval_types.Manifest): string
   MANIFEST_PATH: string
-  FRAME_PATH: string
 end
 
 local M: stage = {
   main = main,
   parse_args = parse_args,
   load_manifest = load_manifest,
-  stage_task = stage_task,
-  collect_meta = collect_meta,
-  project_text = project_text,
-  fill_frame = fill_frame,
   commands_text = commands_text,
   MANIFEST_PATH = MANIFEST_PATH,
-  FRAME_PATH = FRAME_PATH,
 }
 
 return M
