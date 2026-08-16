@@ -70,6 +70,7 @@ bin/cosmic --make run _plan/board.tl new "title" --finding  # file evidence; lan
 bin/cosmic --make run _plan/board.tl edit 123 --body-file F  # rewrite an issue body in place
 bin/cosmic --make run _plan/board.tl show 123             # read an issue — the body is the spec
 bin/cosmic --make run _plan/board.tl land 123 456         # verify an accept, then squash-merge the PR
+bin/cosmic --make run _plan/board.tl stats --days 7       # measure per-column flow (the review's numbers)
 bin/cosmic --make run _plan/board.tl init                # create the labels (once per repo)
 ```
 

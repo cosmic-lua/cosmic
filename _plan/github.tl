@@ -40,6 +40,16 @@ local record RawComment
   user: RawUser
 end
 
+--- One issue timeline event, as the REST events endpoint returns it.
+--- `event` names the kind ("labeled", "unlabeled", "closed", and
+--- others the flow-stats reader ignores); `label` carries the label
+--- name and is present only on "labeled"/"unlabeled" events.
+local record RawEvent
+  event: string
+  created_at: string
+  label: RawLabel
+end
+
 --- The GitHub pull request fields the implementer lane reads.
 local record RawPull
   number: integer
@@ -134,14 +144,30 @@ local function only_issues(list: {RawIssue}): {RawIssue}
   return out
 end
 
---- Open issues carrying one label.
+--- Optional narrowing for list_issues, beyond its default (open issues,
+--- no window): `state` is "open"/"closed"/"all", defaulting to "open";
+--- `since` (ISO 8601) restricts to issues updated at or after it.
+local record ListWindow
+  state: string
+  since: string
+end
+
+--- Issues carrying one label, open by default; pass `opts` to widen the
+--- state or add an updated-since window (the flow-stats reader wants
+--- both: closed issues count too, and only the report window matters).
 --- @param repo string "owner/name"
 --- @param label string Label to filter on
+--- @param opts ListWindow? State/window narrowing; nil for open, no window
 --- @return {RawIssue} | nil Issues (never PRs)
 --- @return string Error message on failure
-local function list_issues(repo: string, label: string): {RawIssue}, string
-  local path = ("/repos/%s/issues?state=open&per_page=100&labels=%s")
-  :format(repo, url.escape_param(label))
+local function list_issues(repo: string, label: string,
+    opts?: ListWindow): {RawIssue}, string
+  local state = (opts and opts.state) or "open"
+  local path = ("/repos/%s/issues?state=%s&per_page=100&labels=%s")
+  :format(repo, state, url.escape_param(label))
+  if opts and opts.since then
+    path = path .. "&since=" .. url.escape_param(opts.since)
+  end
   local res, err = api("GET", path, nil)
   if res == nil then
     return nil, err
@@ -150,6 +176,27 @@ local function list_issues(repo: string, label: string): {RawIssue}, string
     return nil, api_error("GET", path, res)
   end
   return only_issues(res.value as {RawIssue}) -- cast: from any
+end
+
+--- An issue's timeline events — labels applied/removed and closes, in
+--- chronological order — which the flow-stats reader replays into
+--- per-column stints. One page (100) suffices: a board issue
+--- accumulating 100+ label events across its lifetime is not a case
+--- worth paging for.
+--- @param repo string "owner/name"
+--- @param number integer Issue number
+--- @return {RawEvent} | nil The events, oldest first
+--- @return string Error message on failure
+local function list_issue_events(repo: string, number: integer): {RawEvent}, string
+  local path = ("/repos/%s/issues/%d/events?per_page=100"):format(repo, number)
+  local res, err = api("GET", path, nil)
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("GET", path, res)
+  end
+  return res.value as {RawEvent} -- cast: from any
 end
 
 --- One issue, any state.
@@ -351,9 +398,13 @@ local record github
   type RawLabel = RawLabel
   type RawUser = RawUser
   type RawComment = RawComment
+  type RawEvent = RawEvent
   type RawPull = RawPull
+  type ListWindow = ListWindow
   only_issues: function(list: {RawIssue}): {RawIssue}
-  list_issues: function(repo: string, label: string): {RawIssue}, string
+  list_issues: function(repo: string, label: string, opts?: ListWindow):
+  {RawIssue}, string
+  list_issue_events: function(repo: string, number: integer): {RawEvent}, string
   get_issue: function(repo: string, number: integer): RawIssue, string
   create_issue: function(repo: string, title: string, body: string,
   labels: {string}): RawIssue, string
@@ -372,6 +423,7 @@ end
 local M: github = {
   only_issues = only_issues,
   list_issues = list_issues,
+  list_issue_events = list_issue_events,
   get_issue = get_issue,
   create_issue = create_issue,
   issue_patch = issue_patch,

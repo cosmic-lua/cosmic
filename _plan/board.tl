@@ -5,11 +5,11 @@
 --- lint of an issue), move (column change, WIP-limited), edit (rewrite
 --- a title/body in place), init (create the label vocabulary), show
 --- (read an issue's spec and its comments), land (verify a PR then
---- squash-merge it). Every verb ends with a `plan-<verb>:` verdict
---- line; read that, never a piped exit status. WIP limits gate
---- rightward motion and intake only: a return (a leftward move) and a
---- `new --finding` always land, and an over-limit column blocks
---- further pull until it drains.
+--- squash-merge it), stats (measure per-column flow over a window).
+--- Every verb ends with a `plan-<verb>:` verdict line; read that, never
+--- a piped exit status. WIP limits gate rightward motion and intake
+--- only: a return (a leftward move) and a `new --finding` always land,
+--- and an over-limit column blocks further pull until it drains.
 ---
 ---   cosmic --make run _plan/board.tl status [--repo OWNER/NAME]
 ---   cosmic --make run _plan/board.tl next [--role planner|implementer]
@@ -20,12 +20,13 @@
 ---   cosmic --make run _plan/board.tl edit 123 --body-file F [--title T]
 ---   cosmic --make run _plan/board.tl show 123
 ---   cosmic --make run _plan/board.tl land 123 124
+---   cosmic --make run _plan/board.tl stats [--days N]
 ---   cosmic --make run _plan/board.tl init
 ---
 --- Auth is a GITHUB_TOKEN (or GH_TOKEN) env var — no gh CLI involved.
 --- This file is the argument parsing and dispatch half; the verbs
---- themselves are `_plan.verbs` (planner lane) and `_plan.implementer`
---- (implementer lane).
+--- themselves are `_plan.verbs` (planner lane), `_plan.implementer`
+--- (implementer lane), and `_plan.stats` (flow measurement).
 
 local flags = require("cosmic.flags")
 local proc = require("cosmic.proc")
@@ -33,6 +34,7 @@ local gh = require("_plan.github")
 local model = require("_plan.model")
 local verbs = require("_plan.verbs")
 local implementer = require("_plan.implementer")
+local stats = require("_plan.stats")
 
 local type Issue = model.Issue
 
@@ -77,6 +79,10 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "ISSUE [options]", flags = {repo_flag()}}},
     {name = "land", summary = "verify PR closes ISSUE, then squash-merge it",
       spec = {usage = "ISSUE PR [options]", flags = {repo_flag()}}},
+    {name = "stats", summary = "measure per-column flow over the last N days",
+      spec = {flags = {repo_flag(),
+          {long = "days", arg = "N", default = "7",
+            help = "report window in days (default 7)"}}}},
     {name = "init", summary = "create the plan:* labels",
       spec = {flags = {repo_flag()}}},
   },
@@ -172,6 +178,14 @@ local function main(...: string): integer
       return 1
     end
     return implementer.cmd_land(repo, n, pr)
+  end
+  if d.command == "stats" then
+    local days = math.tointeger(tonumber(d.parsed.values["days"] or "7"))
+    if days == nil or days < 1 then
+      io.stderr:write("stats needs a positive --days\n")
+      return 1
+    end
+    return stats.cmd_stats(repo, days)
   end
   return verbs.cmd_init(repo)
 end
