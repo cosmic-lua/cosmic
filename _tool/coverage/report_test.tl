@@ -2,10 +2,19 @@
 --- Tests for coverage report merging and rendering helpers.
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local literal = require("cosmic.literal")
 local report = require("_tool.coverage.report")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
+
+--- A .cov body in the shape the collector writes: Lua the reader loads,
+--- with the `return` prefix and integer line keys. Written out here
+--- rather than encoded, so the fixture states the on-disk format the
+--- reader is being tested against.
+--- @param inner string The table body, without the `return`
+--- @return string The file's bytes
+local function cov_body(inner: string): string
+  return "return " .. inner .. "\n"
+end
 
 -- format_ranges
 
@@ -101,10 +110,7 @@ test_normalize_accepts_existing_tl_script()
 
 local function test_read_cov_roundtrip()
   local path = fs.join(tmpdir, "rt.cov")
-  local body = check.must(literal.format({
-        version = 1,
-        hits = {["@x.lua"] = {[3] = 7}},
-      }), "encode failed")
+  local body = cov_body('{version = 1, hits = {["@x.lua"] = {[3] = 7}}}')
   assert(fs.write(path, body))
   local h = check.must(report.read_cov(path))
   assert(h["@x.lua"][3] == 7, "hit count lost in roundtrip")
@@ -129,8 +135,7 @@ local function test_read_cov_rejects_garbage_and_bad_version()
   assert(err and #err > 0, "garbage must carry an error")
 
   local badver = fs.join(tmpdir, "badver.cov")
-  local body = check.must(literal.format({version = 99, hits = {}}))
-  assert(fs.write(badver, body))
+  assert(fs.write(badver, cov_body("{version = 99, hits = {}}")))
   hits, err = report.read_cov(badver)
   assert(hits == nil, "unsupported version must not decode")
   assert(err and #err > 0, "unsupported version must carry an error")
@@ -151,11 +156,9 @@ local function test_report_renders_merged_data()
   local covroot = fs.join(tmpdir, "covroot")
   assert(fs.make_dirs(covroot))
   -- two processes hitting the same repo file merge into one row
-  for i, hits in ipairs({{[9] = 1}, {[9] = 2, [10] = 1}}) do
-    local body = check.must(literal.format({
-          version = 1,
-          hits = {["@o/cosmic/codec.lua"] = hits},
-        }))
+  for i, hits in ipairs({"{[9] = 1}", "{[9] = 2, [10] = 1}"}) do
+    local body = cov_body(
+      '{version = 1, hits = {["@o/cosmic/codec.lua"] = ' .. hits .. "}}")
     assert(fs.write(fs.join(covroot, i .. ".cov"), body))
   end
   local code = report.report({covroot})

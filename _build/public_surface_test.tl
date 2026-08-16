@@ -83,19 +83,4 @@ local function test_a_tree_without_cosmic_has_no_surface()
 end
 test_a_tree_without_cosmic_has_no_surface()
 
--- The set is a diff people read: sorted, one name per line, and
--- readable back by the same module that wrote it.
-local function test_the_baseline_renders_sorted_and_parses_back()
-  local source = surface.render({"cosmic.zip", "cosmic.ansi"})
-  assert(source ==
-    'return {\n  ["cosmic.ansi"] = true,\n  ["cosmic.zip"] = true,\n}\n',
-    "rendered:\n" .. source)
-  local path = fs.join(check.must(os.getenv("TEST_TMPDIR")), "set.tl")
-  assert(fs.write(path, source))
-  local read = check.must(surface.baseline(path))
-  assert(#read == 2 and read[1] == "cosmic.ansi" and read[2] == "cosmic.zip",
-    "the baseline reads back as sorted names: " .. table.concat(read, " "))
-end
-test_the_baseline_renders_sorted_and_parses_back()
-
 print("all public surface ratchet tests passed")

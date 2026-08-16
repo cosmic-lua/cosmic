@@ -214,15 +214,89 @@ local function test_format_round_trips_the_literal_domain()
 end
 test_format_round_trips_the_literal_domain()
 
--- Outside the literal domain format still serializes (a loadstring can
--- read it back), but parse refuses it: integer keys are not pin grammar.
-local function test_format_beyond_the_domain_is_not_parseable()
-  local src = assert(literal.format({[1] = "a", [2] = "b"}))
-  local v, err = literal.parse(src, {file = "t", noun = "pin"})
-  assert(not v, "an array is outside the literal grammar")
-  assert(err and #err > 0, "the refusal carries a message")
+-- The layout is not an accident of some encoder: it is the contract.
+-- One sorted, bracketed entry per line, two spaces per nesting depth,
+-- a comma on every entry -- which is what makes the output a file the
+-- repo's own `--check fmt` leaves alone (proved in
+-- cosmic/format/literal_format_test.tl) and a diff a reviewer can read.
+local function test_format_writes_the_layout_it_promises()
+  local v: {string: any} = {
+    zed = true, alpha = "a\tb", count = 7, ratio = 1.5,
+    ["a\tkey"] = {inner = "x"},
+  }
+  local src, err = literal.format(v)
+  assert(src, "format failed: " .. tostring(err))
+  local want = 'return {\n' ..
+  '  ["a\\9key"] = {\n' ..
+  '    ["inner"] = "x",\n' ..
+  '  },\n' ..
+  '  ["alpha"] = "a\\9b",\n' ..
+  '  ["count"] = 7,\n' ..
+  '  ["ratio"] = 1.5,\n' ..
+  '  ["zed"] = true,\n' ..
+  '}\n'
+  assert(src == want, "rendered:\n" .. src)
+  assert(literal.format({}) == "return {}\n", "an empty table is `return {}`")
 end
-test_format_beyond_the_domain_is_not_parseable()
+test_format_writes_the_layout_it_promises()
+
+-- Exact bytes are one half; the other is that those bytes read back as
+-- the same value, which is the property the pair exists for.
+local function test_format_round_trips_a_nested_fixture()
+  local v: {string: any} = {
+    alpha = "a\tb", count = 7, ratio = 1.5, zed = true,
+    ["a\tkey"] = {inner = "x"},
+  }
+  local got = read(assert(literal.format(v)))
+  assert(got.alpha == "a\tb" and got.count == 7 and got.ratio == 1.5
+    and got.zed == true, "scalars survive")
+  local inner = got["a\tkey"] as {string: any} -- cast: from any
+  assert(inner.inner == "x", "the nested table survives")
+end
+test_format_round_trips_a_nested_fixture()
+
+-- format refuses exactly what parse would refuse, and says which key
+-- path it choked on -- so a caller fixes the value rather than reading
+-- back a file the reader rejects.
+local function test_format_refuses_what_parse_would_refuse()
+  local _arr_src, arr = literal.format({[1] = "a", [2] = "b"})
+  assert(arr and arr:find("not a string key", 1, true),
+    "an array is refused: " .. tostring(arr))
+  assert(arr:find("1", 1, true), "the message names the key: " .. arr)
+
+  local _fn_src, fn = literal.format({outer = {inner = print}})
+  assert(fn and fn:find("outer.inner: ", 1, true),
+    "a function is refused by key path: " .. tostring(fn))
+  assert(fn:find("not a literal", 1, true), "and by reason: " .. fn)
+
+  local _key_src, key = literal.format({outer = {[true] = 1}})
+  assert(key and key:find("outer.", 1, true),
+    "a non-string key is refused by key path: " .. tostring(key))
+  assert(key:find("not a string key", 1, true), "and by reason: " .. key)
+
+  local _top_src, top = literal.format("not a table")
+  assert(top and top:find("not a literal table", 1, true),
+    "a non-table top value is refused: " .. tostring(top))
+end
+test_format_refuses_what_parse_would_refuse()
+
+-- Depth is a cap on both halves or neither: format must stop where
+-- parse stops, or it writes a file the reader refuses.
+local function test_format_refuses_nesting_past_the_cap()
+  local deep: {string: any} = {}
+  local cursor = deep
+  for _ = 1, 40 do
+    local next_level: {string: any} = {}
+    cursor.a = next_level
+    cursor = next_level
+  end
+  cursor.leaf = 1
+  local src, err = literal.format(deep)
+  assert(not src, "a value past the cap is refused")
+  assert(err and err:find("nests deeper", 1, true),
+    "named by reason, got: " .. tostring(err))
+end
+test_format_refuses_nesting_past_the_cap()
 
 local function test_format_file_round_trips_through_parse_file()
   local fs = require("cosmic.fs")
