@@ -95,8 +95,10 @@ local function test_corrupt_totality()
       end,
       check = function(input: string): boolean, string
         local out, err = compress.decompress(input)
-        if out == nil and err == nil then
-          return false, "nil result with no error message"
+        if out == nil then
+          if err == nil or #err == 0 then
+            return false, "nil result with no error message"
+          end
         end
         return true
       end,
@@ -128,8 +130,10 @@ local function test_mutation_totality()
       gen = gen_mutated_compressed,
       check = function(mutated: string): boolean, string
         local out, err = compress.decompress(mutated)
-        if out == nil and err == nil then
-          return false, "nil result with no error message"
+        if out == nil then
+          if err == nil or #err == 0 then
+            return false, "nil result with no error message"
+          end
         end
         return true
       end,
