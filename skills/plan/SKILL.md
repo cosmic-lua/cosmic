@@ -66,6 +66,7 @@ bin/cosmic --make run _plan/board.tl next                # implementer by defaul
 bin/cosmic --make run _plan/board.tl check 123           # ready-bar lint
 bin/cosmic --make run _plan/board.tl move 123 ready      # column change, WIP-limited
 bin/cosmic --make run _plan/board.tl new "title" --epic  # open a board issue
+bin/cosmic --make run _plan/board.tl edit 123 --body-file F  # rewrite an issue body in place
 bin/cosmic --make run _plan/board.tl init                # create the labels (once per repo)
 ```
 

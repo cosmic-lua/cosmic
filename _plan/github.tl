@@ -93,6 +93,14 @@ local function is_success(status: integer): boolean
   return status >= 200 and status < 300
 end
 
+--- The single issue a successful exchange carried, as a RawIssue: the
+--- one place the decoded JSON crosses into the record type.
+--- @param res ApiResult A successful exchange
+--- @return RawIssue The issue it carried
+local function issue_of(res: ApiResult): RawIssue
+  return res.value as RawIssue -- cast: from any
+end
+
 --- Issues only: the REST issues endpoints return pull requests too,
 --- marked by a pull_request key; the board never boards a PR.
 --- @param list {RawIssue} Mixed issues and PRs
@@ -139,7 +147,7 @@ local function get_issue(repo: string, number: integer): RawIssue, string
   if not is_success(res.status) then
     return nil, api_error("GET", path, res)
   end
-  return res.value as RawIssue -- cast: from any
+  return issue_of(res)
 end
 
 --- Create an issue.
@@ -159,7 +167,44 @@ local function create_issue(repo: string, title: string, body: string,
   if not is_success(res.status) then
     return nil, api_error("POST", path, res)
   end
-  return res.value as RawIssue -- cast: from any
+  return issue_of(res)
+end
+
+--- The PATCH body for an issue edit: only the fields the caller
+--- supplied. Labels are never part of it — columns move through
+--- edit_labels, which owns the WIP limits.
+--- @param title string Replacement title; nil to leave it alone
+--- @param body string Replacement body markdown; nil to leave it alone
+--- @return {string: any} The request payload
+local function issue_patch(title?: string, body?: string): {string: any}
+  local payload: {string: any} = {}
+  if title ~= nil then
+    payload["title"] = title
+  end
+  if body ~= nil then
+    payload["body"] = body
+  end
+  return payload
+end
+
+--- Rewrite an issue's title and/or body in place.
+--- @param repo string "owner/name"
+--- @param number integer Issue number
+--- @param title string Replacement title; nil to leave it alone
+--- @param body string Replacement body markdown; nil to leave it alone
+--- @return RawIssue | nil The updated issue
+--- @return string Error message on failure
+local function update_issue(repo: string, number: integer,
+    title?: string, body?: string): RawIssue, string
+  local path = ("/repos/%s/issues/%d"):format(repo, number)
+  local res, err = api("PATCH", path, issue_patch(title, body))
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("PATCH", path, res)
+  end
+  return issue_of(res)
 end
 
 --- Swap labels on an issue: removals first (absent labels are fine),
@@ -238,6 +283,9 @@ local record github
   get_issue: function(repo: string, number: integer): RawIssue, string
   create_issue: function(repo: string, title: string, body: string,
   labels: {string}): RawIssue, string
+  issue_patch: function(title?: string, body?: string): {string: any}
+  update_issue: function(repo: string, number: integer,
+  title?: string, body?: string): RawIssue, string
   edit_labels: function(repo: string, number: integer,
   add: {string}, remove: {string}): boolean, string
   ensure_label: function(repo: string, name: string, color: string,
@@ -249,6 +297,8 @@ local M: github = {
   list_issues = list_issues,
   get_issue = get_issue,
   create_issue = create_issue,
+  issue_patch = issue_patch,
+  update_issue = update_issue,
   edit_labels = edit_labels,
   ensure_label = ensure_label,
 }

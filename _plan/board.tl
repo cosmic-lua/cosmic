@@ -2,15 +2,17 @@
 --- Plan board CLI: the kanban of plan:* labeled GitHub issues that
 --- skills/plan/ operates. Verbs: status (the board and its WIP
 --- verdict), next (the one action to take, per role), check (ready-bar
---- lint of an issue), move (column change, WIP-limited), init (create
---- the label vocabulary). Every verb ends with a `plan-<verb>:`
---- verdict line; read that, never a piped exit status.
+--- lint of an issue), move (column change, WIP-limited), edit (rewrite
+--- a title/body in place), init (create the label vocabulary). Every
+--- verb ends with a `plan-<verb>:` verdict line; read that, never a
+--- piped exit status.
 ---
 ---   cosmic --make run _plan/board.tl status [--repo OWNER/NAME]
 ---   cosmic --make run _plan/board.tl next [--role planner|implementer]
 ---   cosmic --make run _plan/board.tl check 123
 ---   cosmic --make run _plan/board.tl move 123 ready [--force]
 ---   cosmic --make run _plan/board.tl new "title" [--body-file F] [--epic]
+---   cosmic --make run _plan/board.tl edit 123 --body-file F [--title T]
 ---   cosmic --make run _plan/board.tl init
 ---
 --- Auth is a GITHUB_TOKEN (or GH_TOKEN) env var — no gh CLI involved.
@@ -55,6 +57,11 @@ local CSPEC: flags.CommandSpec = {
           {long = "epic", help = "mark as a decomposition parent"},
           {long = "enable", help = "mark as enablement work"},
           {long = "force", help = "override the column WIP limit"}}}},
+    {name = "edit", summary = "rewrite ISSUE's title and/or body in place",
+      spec = {usage = "ISSUE [--body-file FILE] [--title TITLE]",
+        flags = {repo_flag(),
+          {long = "body-file", arg = "FILE", help = "replacement body markdown"},
+          {long = "title", arg = "TITLE", help = "replacement title"}}}},
     {name = "init", summary = "create the plan:* labels",
       spec = {flags = {repo_flag()}}},
   },
@@ -97,6 +104,20 @@ local function main(...: string): integer
       return 1
     end
     return verbs.cmd_move(repo, n, target, d.parsed.switches["force"])
+  end
+  if d.command == "edit" then
+    local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
+    if n == nil then
+      io.stderr:write("edit needs an issue number\n")
+      return 1
+    end
+    local body_file = d.parsed.values["body-file"]
+    local title = d.parsed.values["title"]
+    if body_file == nil and title == nil then
+      io.stderr:write("edit needs --body-file and/or --title\n")
+      return 1
+    end
+    return verbs.cmd_edit(repo, n, body_file, title)
   end
   if d.command == "new" then
     local title = d.parsed.args[1]
