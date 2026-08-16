@@ -28,6 +28,9 @@ _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
 _docs/publish.tl 115 177
+_eval/eval_types.tl 2 2
+_eval/stage.tl 165 205
+_eval/suite.tl 0 1
 _fuzz/driver.tl 56 57
 _make/artifact.tl 161 178
 _make/binaries.tl 24 24
@@ -88,7 +91,7 @@ _plan/implementer.tl 22 98
 _plan/model.tl 146 147
 _plan/verbs.tl 0 229
 _tool/benchmark.tl 145 172
-_tool/coverage/baseline.tl 153 167
+_tool/coverage/baseline.tl 151 165
 _tool/coverage/lines.tl 65 71
 _tool/coverage/report.tl 203 224
 _tool/doc/comments.tl 53 53
