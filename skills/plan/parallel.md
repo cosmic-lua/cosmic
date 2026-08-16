@@ -2,7 +2,7 @@
 
 the board's WIP limits are sized for parallel work — `plan:doing`
 holds 5 because five implementer sessions can run at once, and
-`plan:ready` holds 20 so there is a deep queue of independent slices
+`plan:ready` holds 12 so there is a deep queue of independent slices
 to feed them (`SKILL.md`). this chapter is the other half of that
 design: how ONE orchestrating session runs several implementers
 concurrently without them colliding, and which parts of the system

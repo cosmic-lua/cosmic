@@ -146,6 +146,36 @@ local function test_oldest_first_sorts_copy()
 end
 test_oldest_first_sorts_copy()
 
+local function test_counts_against_limit()
+  for _, col in ipairs(model.COLUMNS) do
+    local epic_i = issue(1, {epic = true})
+    local plain_i = issue(2)
+    local want_epic = not (col == "shaping")
+    assert(model.counts_against_limit(epic_i, col) == want_epic,
+      ("%s epic: got %s, want %s"):format(
+        col, tostring(model.counts_against_limit(epic_i, col)),
+        tostring(want_epic)))
+    assert(model.counts_against_limit(plain_i, col),
+      col .. " non-epic should always count")
+  end
+end
+test_counts_against_limit()
+
+local function test_wip_violations_shaping_exempts_epics()
+  local shaping: {Issue} = {}
+  for n = 1, 11 do
+    shaping[#shaping + 1] = issue(n)
+  end
+  for n = 100, 104 do
+    shaping[#shaping + 1] = issue(n, {epic = true})
+  end
+  local board: Board = {shaping = shaping}
+  local v = model.wip_violations(board)
+  assert(#v == 0, "11 counted + 5 epics under 12 should not violate: "
+    .. table.concat(v, "; "))
+end
+test_wip_violations_shaping_exempts_epics()
+
 local function test_wip_violations()
   local limit = model.LIMITS["doing"]
   local over: {Issue} = {}
