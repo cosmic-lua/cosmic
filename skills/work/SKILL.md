@@ -210,8 +210,9 @@ one item per session, exactly this loop:
    `gitboard show ID` — the spec sidecar is the spec, and the item's
    `verdict`/`pr` fields carry the standing review state.
 2. which phase it came from decides this step. a `land` item is
-   already judged: its `pr` field names the accepted PR — merge it
-   (squash), then `gitboard done ID`. a `do` item with a
+   already judged, and `gitboard land ID` is the whole step: it
+   squash-merges the PR its `pr` field names and ends the item, in
+   that order. a `do` item with a
    `request changes` verdict is rework: address the quoted gaps on
    that PR and rejoin the loop at step 3. a fresh `ready` item is
    claimed: `move ID do --claim <session>` — the move is the lock, and
@@ -221,12 +222,13 @@ one item per session, exactly this loop:
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
-4. open the PR on GitHub READY for review, not draft, then hand it
-   over WITH its number: `gitboard move ID check --pr N` — the move
-   refuses a handover that names no PR, because that field is the link
-   the reviewer follows and the one the landing step reads back.
-   reference the item id in the PR body (`Board: <id>`) too, for
-   whoever is reading from the GitHub side.
+4. open the PR READY for review, carrying `Board: <id>` in its body
+   and quoting the Acceptance commands you ran, then hand it over WITH
+   its number: `gitboard move ID check --pr N`. the move refuses each
+   of those in turn — a draft, a body that names no item, one that
+   does not show the commands having been run, a head whose CI already
+   concluded failure — because each is something a reviewer would
+   discover instead of reviewing.
 5. stop. the verdict is the planner's job; never merge a PR that has
    not been accepted. the accept arrives as the item moving to `land`
    with `verdict = accept` — landing it is step 2's first case, in
@@ -262,10 +264,9 @@ checkout per session, a brief that carries the spec — and those are
   under the `optimize` skill; a board item may link to a perf issue,
   never duplicate it.)
 - board state moves and reads through `gitboard` only. when the tool
-  LACKS a verb the session needs (landing still merges the PR by
-  hand), work around it ONCE by editing the item file and committing —
-  the file format is the contract — and file the missing verb as a
-  finding.
+  LACKS a verb the session needs, work around it ONCE by editing the
+  item file and committing — the file format is the contract — and
+  file the missing verb as a finding.
 - the ready bar is never lowered to make an item pullable, and the
   WIP limits are never widened to make a move succeed. `--force`
   exists for repair, not for flow.
