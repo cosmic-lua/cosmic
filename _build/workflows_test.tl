@@ -54,6 +54,38 @@ local function lines_with(path: string, key: string): {{integer, string}}
   return out
 end
 
+--- The body of one step in a workflow: from the line whose trimmed text
+--- is `- name: <name>` up to (not including) the next line at that same
+--- indentation. Scanned line by line, the same technique `jobs_in` uses
+--- and for the same reason: step names contain `-`, which is a
+--- quantifier in a Lua pattern, so building a pattern out of the name
+--- would silently match the wrong block.
+--- @param path string The workflow file
+--- @param name string The step's `name:` text, unquoted
+--- @return string The step's lines, including its own `- name:` line
+local function step_body(path: string, name: string): string
+  local target = "- name: " .. name
+  local indent: string = nil
+  local body: {string} = {}
+  for line in check.must(fs.read(path)):gmatch("([^\n]*)\n?") do
+    local lead = line:match("^(%s*)%- ")
+    if indent then
+      if lead == indent then
+        break
+      end
+      body[#body + 1] = line
+    else
+      local trimmed = line:match("^%s*(.-)%s*$")
+      if trimmed == target then
+        indent = lead
+        body[#body + 1] = line
+      end
+    end
+  end
+  assert(indent, path .. ": step '" .. name .. "' not found")
+  return table.concat(body, "\n")
+end
+
 -- One distinct container reference across every workflow. This is the
 -- assertion the six copies exist for: they are only "a visible pin per
 -- lane" if they are the same pin.
@@ -274,5 +306,29 @@ local function test_every_containerised_job_drops_to_a_non_root_builder()
   end
 end
 test_every_containerised_job_drops_to_a_non_root_builder()
+
+-- The release perf compare's exit status must actually reach the step:
+-- it arrives through `| tee`, and a pipeline's status is tee's without
+-- `pipefail`, so a one-token edit that drops it could turn the gate
+-- back into a report without any other test noticing.
+local function test_the_release_perf_compare_propagates_its_verdict()
+  local path = WORKFLOWS .. "/release.yml"
+  local body = step_body(path, "compare against the previous release")
+  assert(body:find("pipefail", 1, true),
+    path .. ": the compare step must run under `pipefail` — the compare's " ..
+    "status arrives through `| tee`, and a pipeline's status is tee's " ..
+    "without it")
+  assert(body:find('exit "$rc"', 1, true),
+    path .. ": the compare step must propagate the compare's exit code " ..
+    "via `exit \"$rc\"`")
+  assert(not body:find("|| true", 1, true),
+    path .. ": the compare step must not swallow its exit code with `|| true`")
+  assert(not body:find("continue-on-error", 1, true),
+    path .. ": the compare step must not disable failure with " ..
+    "`continue-on-error`")
+  assert(body:find("perf-compare: SKIP", 1, true),
+    path .. ": the bootstrap path (no baseline yet) must still succeed")
+end
+test_the_release_perf_compare_propagates_its_verdict()
 
 print("all workflow ratchet tests passed")

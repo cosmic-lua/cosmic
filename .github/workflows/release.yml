@@ -10,6 +10,11 @@ on:
         required: false
         type: boolean
         default: true
+      perf_gate:
+        description: 'Fail the release on a perf regression'
+        required: false
+        type: boolean
+        default: true
 
 # The build job runs the whole gate — arbitrary tree code and tests —
 # with the checkout token persisted in .git/config, so the default token
@@ -126,20 +131,30 @@ jobs:
             o/bin/cosmic --make run _perf/run.tl --out o/perf/perf.json
             o/bin/cosmic --make run _perf/run.tl --out o/perf/selfcheck.json'
 
-      # Report-only: releases publish perf.json and a compare verdict
-      # against the previous release, so the chain of release assets IS
-      # the perf history (see _perf/baseline.tl) — but a speed
-      # regression report must not block a release in this slice; #1122
-      # owns promotion to a gate, once this slice has produced history
-      # to gate against. Only the baseline-fetch + compare chain is
-      # guarded to always succeed; the harness runs above are not.
+      # Releases publish perf.json and a compare verdict against the
+      # previous release, so the chain of release assets IS the perf
+      # history (see _perf/baseline.tl). A `perf-compare: FAIL` verdict
+      # fails this step, which fails this job, so the `release` job
+      # (`needs: build`) never runs and a regressing release publishes
+      # no assets — the ratchet's point, since the baseline then stays
+      # the last release that passed. A `perf-baseline: FAIL` (network
+      # or API failure) fails the step too; the next cron fire retries.
+      # `perf-compare: SKIP (no baseline)` still succeeds. `perf_gate:
+      # false` on a dispatch is the one way to publish a new baseline
+      # when the scenario set legitimately changed —
+      # `_perf/compare.tl:115-121` counts a scenario present in the
+      # baseline and missing from the current run as a failure, so a
+      # rename with the gate on would block every later release too.
       - name: compare against the previous release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PERF_GATE: ${{ github.event.inputs.perf_gate == 'false' && 'false' || 'true' }}
         run: |
-          set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" bash -c '
+          set -ux
+          rc=0
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" \
+            bash -eo pipefail -c '
             o/bin/cosmic --make run _perf/baseline.tl --repo ${{ github.repository }} \
               --out o/perf/prev/perf.json | tee o/perf/baseline.txt
             if grep -q "^perf-baseline: SKIP" o/perf/baseline.txt; then
@@ -148,8 +163,17 @@ jobs:
               o/bin/cosmic --make run _perf/gate.tl compare \
                 o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
                 | tee o/perf/compare.txt
-            fi
-            exit 0'
+            fi' || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            [ -f o/perf/compare.txt ] && cat o/perf/compare.txt >&2
+            tail -n1 o/perf/baseline.txt >&2
+            echo "perf gate: this release regressed against the previous one and was not published." >&2
+            echo "  re-run the release workflow to re-measure: a real regression reproduces, noise does not." >&2
+            echo "  if it reproduces, work it under skills/optimize/SKILL.md; never weaken a scenario or its check()." >&2
+            echo "  after a deliberate scenario rename or removal, re-baseline by dispatching this workflow once with perf_gate: false." >&2
+            if [ "$PERF_GATE" = "true" ]; then exit "$rc"; fi
+            echo "perf gate: DISABLED by workflow input — regression reported, not enforced." >&2
+          fi
 
       # G9's per-release half (docs/goals.md; see _build/size.tl): the
       # same measure-then-compare shape as the perf steps above, over
