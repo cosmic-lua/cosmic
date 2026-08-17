@@ -6,6 +6,7 @@ _build/casts_baseline.tl 0 1
 _build/public_surface.tl 44 61
 _build/public_surface_baseline.tl 0 1
 _build/ratchet.tl 36 36
+_build/size.tl 100 147
 _cli/args.tl 0 37
 _cli/build/batch.tl 102 118
 _cli/build/init.tl 43 47
@@ -61,6 +62,7 @@ _make/stamp.tl 107 118
 _make/testrun.tl 50 58
 _make/types.tl 39 39
 _make/validate.tl 244 249
+_make/vcs.tl 27 35
 _perf/baseline.tl 37 96
 _perf/bench/child_bench.tl 0 11
 _perf/bench/download_bench.tl 0 104
@@ -109,14 +111,17 @@ _types/gentype_types.tl 2 2
 _types/tlast.tl 160 177
 _types/tlast_gen.tl 0 14
 _types/types_gen.tl 0 44
+_work/api.tl 10 27
 _work/board.tl 0 86
+_work/close.tl 17 44
 _work/facts.tl 0 19
 _work/github.tl 26 94
-_work/implementer.tl 25 112
+_work/implementer.tl 18 109
 _work/labels.tl 0 13
 _work/model.tl 146 147
 _work/stats.tl 172 220
 _work/verbs.tl 0 228
+_work/verdict.tl 75 107
 cmd/cosmic/embed_gen.tl 0 178
 cmd/cosmic/main.tl 0 235
 cosmic/_fields.tl 5 7

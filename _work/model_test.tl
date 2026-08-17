@@ -24,6 +24,8 @@ none needed
 
 local record IssueOpts
   epic: boolean
+  finding: boolean
+  enable: boolean
   body: string
 end
 
@@ -36,6 +38,8 @@ local function issue(n: integer, opts?: IssueOpts): Issue
   }
   if opts then
     if opts.epic then i.epic = true end
+    if opts.finding then i.finding = true end
+    if opts.enable then i.enable = true end
     if opts.body then i.body = opts.body end
   end
   return i
@@ -105,20 +109,46 @@ local function test_is_return_unknown_phase_is_not_a_return()
 end
 test_is_return_unknown_phase_is_not_a_return()
 
-local function test_admits_over_limit()
+local function test_admits_over_limit_motion()
   local none: string = nil
-  assert(model.admits_over_limit("check", "land"),
+  local plain = issue(1)
+  assert(model.admits_over_limit(plain, "check", "land", false),
     "an accept is a verdict already made, never refused")
-  assert(model.admits_over_limit("do", "land"), "any move into land is admitted")
-  assert(model.admits_over_limit(none, "land"),
+  assert(model.admits_over_limit(plain, "do", "land", false),
+    "any move into land is admitted")
+  assert(model.admits_over_limit(plain, none, "land", false),
     "even an entry straight into land is admitted")
-  assert(model.admits_over_limit("check", "do"), "a rework send-back is a return")
-  assert(not model.admits_over_limit("ready", "do"),
+  assert(model.admits_over_limit(plain, "check", "do", false),
+    "a rework send-back is a return")
+  assert(not model.admits_over_limit(plain, "ready", "do", false),
     "a pull is rightward motion; the limit binds it")
-  assert(not model.admits_over_limit(none, "plan"),
+  assert(not model.admits_over_limit(plain, none, "plan", false),
     "an entry is not a return; the limit binds it")
 end
-test_admits_over_limit()
+test_admits_over_limit_motion()
+
+local function test_admits_over_limit_unoccupied_slot()
+  local none: string = nil
+  local epic = issue(2, {epic = true})
+  assert(model.admits_over_limit(epic, none, "plan", false),
+    "an epic filed into plan occupies no slot the limit measures")
+  assert(model.admits_over_limit(epic, "ready", "plan", false),
+    "an epic arriving in plan by a move is admitted the same way")
+  assert(not model.admits_over_limit(epic, none, "ready", false),
+    "an epic outside plan counts, so the limit binds it")
+end
+test_admits_over_limit_unoccupied_slot()
+
+local function test_admits_over_limit_evidence_and_mandate()
+  local none: string = nil
+  assert(model.admits_over_limit(issue(3, {finding = true}), none, "plan", false),
+    "captured evidence is never dropped for a full board")
+  assert(model.admits_over_limit(issue(4), none, "plan", true),
+    "a countermeasure a verdict required is a decision already made")
+  assert(not model.admits_over_limit(issue(5, {enable = true}), none, "plan", false),
+    "ordinary enablement intake queues behind the limit like any other")
+end
+test_admits_over_limit_evidence_and_mandate()
 
 local function test_ready_gaps_complete()
   local gaps = model.ready_gaps(READY_BODY)

@@ -7,20 +7,15 @@
 
 local gh = require("_work.github")
 local model = require("_work.model")
+local verdict = require("_work.verdict")
 
 --- Pure: whether a comment's first line is exactly the machine-
---- readable accept a planner's verdict carries, tolerant of a `\r\n`
---- body.
---- Both spellings count: `work-verdict: accept` and the older
---- `plan-verdict: accept`, which open PRs still carry. Drop the older
---- one once no open PR carries it.
+--- readable accept a planner's verdict carries. The grammar itself
+--- (both spellings, the first-line anchor) is _work.verdict's.
 --- @param comment_body string Comment body
 --- @return boolean True when the first line is an accept verdict
 local function is_accept(comment_body: string): boolean
-  local body = comment_body or ""
-  local first = body:match("^([^\n]*)")
-  first = first:gsub("\r$", "")
-  return first == "work-verdict: accept" or first == "plan-verdict: accept"
+  return verdict.parse(comment_body) == "accept"
 end
 
 --- Pure: whether a label set places an issue in the landing queue, the
@@ -32,25 +27,23 @@ local function in_landing_queue(labels: {string}): boolean
   return model.phase_of(labels) == "land"
 end
 
---- Pure: whether a PR body references "Closes #<issue>" (case-
---- insensitive on the verb), anchored on the full digit run so `#70`
---- never matches a search for `#7`.
+--- Pure: whether a PR body references "Closes #<issue>". The grammar
+--- is _work.verdict's, which resolves an issue's PR by the same
+--- reference.
 --- @param pr_body string PR body
 --- @param issue integer Issue number the PR must close
 --- @return boolean True when the reference is present
 local function closes(pr_body: string, issue: integer): boolean
-  local body = pr_body or ""
-  for num in body:gmatch("[Cc]loses #(%d+)") do
-    if tonumber(num) == issue then
-      return true
-    end
-  end
-  return false
+  return verdict.closes(pr_body, issue)
 end
 
---- show: print an issue's title, phase, URL, body verbatim, and every
---- conversation comment — the read half of the implementer loop (the
---- body IS the spec).
+--- show: print an issue's title, phase, URL, the standing verdict on
+--- its PR, its body verbatim, and every conversation comment — the read
+--- half of the implementer loop (the body IS the spec). The verdict
+--- comes before the body because it is what decides whether this card
+--- is fresh work or rework, and it is posted where `show` otherwise
+--- never looks. A failed verdict read is reported in place and does not
+--- fail the show: the spec is what `show` owes its caller.
 --- @param repo string "owner/name"
 --- @param number integer Issue number
 --- @return integer Exit code
@@ -79,6 +72,12 @@ local function cmd_show(repo: string, number: integer): integer
   print(("#%d %s"):format(raw.number, raw.title))
   print((phase or "none") .. tags)
   print(raw.html_url)
+  local state, serr = verdict.standing(repo, number)
+  if state then
+    print(verdict.line(state))
+  else
+    print("verdict: unavailable (" .. serr .. ")")
+  end
   print("")
   print(raw.body or "")
   local comments, cerr = gh.list_issue_comments(repo, number)

@@ -72,28 +72,35 @@ issue right into `land`, request changes moves it one phase left into
   lands. when a landing closes an
   epic's last child, the next planner pass verifies the epic's stated
   outcome actually holds (run its observable test, not the
-  children's) and closes the epic.
+  children's) and closes the epic with `close N` — an epic sits in
+  `plan`, which the close verb accepts, and completed is its default
+  reason.
 - **request changes.** concrete, quoted gaps on the PR, then `move N
   do` — rework rejoins the implementer queue, where `next`'s
   finish-before-pull rule makes it the first thing an implementer
   picks up after a landing (rework is the next-closest work to
   completion). the same PR carries the fixes; the issue returns to
-  `work:check` with them. use this when the work is right-shaped but
+  `work:check` with them — and cannot return before them: `show N`
+  prints the standing verdict off the PR, and `move N check` refuses
+  while a `request changes` has no commit after it, so a card can no
+  longer arrive for review with nothing new to judge. use this when the work is right-shaped but
   incomplete. never leave a changes-requested issue sitting in
   `work:check`: that phase waits on planners, and implementers do not
   look there.
 - **reject.** the approach is wrong, or the issue itself was not
   actually ready. close the PR, comment what was learned, and move
-  the issue LEFT — `move N plan` (or close it as not planned if
-  the work should not happen at all). rejection is cheap by design;
+  the issue LEFT — `move N plan` (or `close N --reason not-planned`
+  if the work should not happen at all; a close from `check` is one
+  the verb accepts, so the rejection needs no move first). rejection
+  is cheap by design;
   wrong work merged is expensive.
 
 a research slice (deliverable: a comment, no PR) takes the same
 three verdicts, on its comment: accept means re-running the issue's
 acceptance checks against the tree — totals recomputed, cited
 `file:line`s read, claims spot-verified — then commenting the
-verdict and closing the issue as completed, with no move into `land`
-because there is nothing to merge. the harvested follow-ups
+verdict and closing the issue as completed — `close N`, straight from
+`check`, with no move into `land` because there is nothing to merge. the harvested follow-ups
 (epic checklist updates, new children, corrections to sibling
 issues) are the SAME session's refinement obligations, not a note
 for later: accepted research that seeds nothing has not finished
@@ -102,9 +109,13 @@ being reviewed.
 ## landings invalidate the queue
 
 every landing rewrites main, so any other PR — accepted or still in
-review — that regenerates the same committed baseline
-(`.cosmic-coverage`, a ratchet floor) now conflicts on its derived
-lines even when the real diffs are disjoint. the recovery is
+review — may now conflict with what landed. a committed ratchet floor
+is the classic source of one: two disjoint diffs collide on the derived
+lines they both rewrite. `.cosmic-coverage` mostly does not anymore — a
+`--baseline` rewrite lowers only the rows the ratchet would have failed
+on, and the file merges with git's `union` strategy, so both sides'
+rows land and the ratchet reads a repeated path as its lower
+percentage. expect this to be rare. when it does happen the recovery is
 mechanical and belongs to the implementer lane AT LANDING TIME:
 merge main, run the regen command the gate prints, commit, re-run
 the gate, land. no fresh verdict is needed when the ONLY conflict is
@@ -124,10 +135,16 @@ ending the session, the planner converts it:
 
 1. name the wrong turn in one line (on the issue).
 2. pick the countermeasure by the `enable.md` ordering (core > docs >
-   skills) and file the `work:enable` issue, or fix the ready-bar gap
-   directly if it was this one issue's specification failure.
+   skills) and file the `work:enable` issue (`new "title" --enable
+   --body-file F`), or fix the ready-bar gap directly if it was this
+   one issue's specification failure.
 3. if the same wrong turn has now appeared twice, the countermeasure
-   stops being optional: file it before refining anything new.
+   stops being optional: file it before refining anything new, with
+   `--mandated` in place of `--enable`. that flag says a verdict
+   already required this filing, so a full `plan` cannot refuse it and
+   it lands as `work:enable` — never as a `work:finding`, which means
+   implementer evidence awaiting triage and is the one signal triage
+   reads.
 
 a bounce that quotes a wrong or unmeasured tree-fact names its
 countermeasure directly — the facts block was missing or stale for
@@ -136,8 +153,10 @@ a prose apology.
 
 findings enter the same loop from the implementer side: at the refine
 step the planner triages every open `work:finding` — adopt it with a
-goal trace, or close it as not planned — and one this review itself
-confirms is countermeasure evidence like any bounce.
+goal trace, or close it: `close N --reason not-planned` for a finding
+that will not be worked, `close N` for one work already landed has
+covered, so the record says which of the two happened. a finding this
+review itself confirms is countermeasure evidence like any bounce.
 
 this loop is what makes the system converge: goals pull work onto the
 board, reviews push friction back into enablement, and over time the

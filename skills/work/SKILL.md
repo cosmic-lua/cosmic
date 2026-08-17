@@ -69,9 +69,11 @@ bin/cosmic --make run _work/board.tl check 123           # ready-bar lint
 bin/cosmic --make run _work/board.tl move 123 ready      # phase change, WIP-limited
 bin/cosmic --make run _work/board.tl new "title" --epic  # open a board issue
 bin/cosmic --make run _work/board.tl new "title" --finding  # file evidence; never refused at the limit
+bin/cosmic --make run _work/board.tl new "title" --mandated  # a countermeasure a verdict required; same
 bin/cosmic --make run _work/board.tl edit 123 --body-file F  # rewrite an issue body in place
 bin/cosmic --make run _work/board.tl show 123             # read an issue — the body is the spec
 bin/cosmic --make run _work/board.tl land 123 456         # verify an accept, then squash-merge the PR
+bin/cosmic --make run _work/board.tl close 123 --reason not-planned  # end an issue with no PR to close it
 bin/cosmic --make run _work/board.tl stats --days 7       # measure per-phase flow (the review's numbers)
 bin/cosmic --make run _work/board.tl init                # create the labels (once per repo)
 ```
@@ -139,7 +141,16 @@ the ready bar, while the phase `check` is where a PR awaits a verdict.
 its name because it is the one that checks an issue against the bar.
 
 done is a closed issue — completed when the work merged, not planned
-when the planner killed it (a recorded dead end, kept forever). three
+when the planner killed it (a recorded dead end, kept forever). a
+merge closes its issue through the PR's `Closes #N`, and every other
+ending is the `close` verb: `close N` records completed, `close N
+--reason not-planned` records the dead end. it closes from `plan` and
+from `check` — the two phases where a decision ends an issue — and
+refuses `ready`, `do` and `land`, where a close would make a card
+vanish mid-flow; a card that must end from one of those moves left
+first (`move N plan`), and that move is a return, so nothing refuses
+it. phase labels are left on the closed issue: the board lists open
+issues only, and the label is the history `stats` replays. three
 marker labels ride alongside the phase: `work:epic` (a decomposition
 parent — never pulled, closes when its children close), `work:enable`
 (work that exists to make implementers succeed), and `work:finding`
@@ -154,13 +165,29 @@ before refining, refining before intake, and an implementer lands and
 finishes `do` before pulling ready. the WIP limits are what make this
 real — they gate rightward moves and planner intake, so a full phase
 REFUSES a pull (`move` says so) and the fix is to drain the phases to
-its right, not to widen the limit. what a limit never refuses is a
-decision already made: a bounce to `plan`, a rework send-back, an
-accept into `land`, and a `--finding` all go through, because a full
-board must never be the reason a correction, a verdict, or a piece of
-evidence is dropped — an over-limit phase blocks further pull until it
-drains, and nothing else. limits are policy, committed in
-`_work/model.tl`, tuned only by a reviewed change.
+its right, not to widen the limit.
+
+a limit refuses an arrival only when that arrival would occupy one of
+the phase's slots AND is not a decision already made. both halves are
+one rule (`model.admits_over_limit`), asked by `move` and `new` alike,
+so a card that moves and a card that is filed are refused on the same
+terms:
+
+- **occupies no slot** — an epic arriving in `plan` is a container, not
+  work in progress, and the phase does not count it; refusing to file
+  one would be the limit binding something it does not measure.
+- **a decision already made** — a bounce to `plan`, a rework send-back,
+  an accept into `land`, a `--finding`, and a `--mandated`
+  countermeasure (a filing the feedback half already required, below)
+  all go through, because a full board must never be the reason a
+  correction, a verdict, a piece of evidence, or a countermeasure is
+  dropped.
+
+everything else queues, including ordinary `--enable` intake: a
+countermeasure nobody's verdict demanded is planned work like any
+other. an over-limit phase blocks further pull until it drains, and
+nothing else. limits are policy, committed in `_work/model.tl`, tuned
+only by a reviewed change.
 
 ## the planner session
 
@@ -201,7 +228,11 @@ one issue per session, exactly this loop:
    `work:ready`. if it answers `none`, stop — do not invent work; say
    a planner session is needed (`next` names the bottleneck). read the
    named issue with `bin/cosmic --make run _work/board.tl show N` —
-   the body is the spec.
+   the body is the spec. its first line after the URL is the standing
+   verdict on the issue's PR, resolved from the PR rather than the
+   issue thread: which verdict was posted last, the head commit it was
+   written against, and `UNANSWERED` when no commit followed a
+   `request changes`.
 2. which phase it came from decides this step. a `work:land` issue is
    already judged: `show N` carries the PR link and the accept, and
    landing it is `bin/cosmic --make run _work/board.tl land N PR`
@@ -221,7 +252,13 @@ one issue per session, exactly this loop:
 4. open the PR READY for review, not draft — the `work:check` phase
    already carries the review state, and `land` cannot un-draft a PR
    (the REST API has no such call). reference the issue (`Closes
-   #N`), then `move N check` and comment the PR link on the issue.
+   #N`), then `move N check` and comment the PR link on the issue. the
+   move is refused while a `request changes` stands unanswered on that
+   PR — the refusal names the verdict and the head it was written
+   against. it reads whether the head ADVANCED past the verdict, not
+   whether the gap was addressed, so a merge of main counts as
+   movement: the gate stops the empty round trip, and reading the
+   quoted gaps is still yours.
 5. stop. the verdict is the planner's job; never merge a PR that does
    not yet carry a planner accept. the accept arrives as the issue
    moving to `work:land` with the verdict on the PR — landing it is
@@ -261,7 +298,8 @@ are `parallel.md`.
   hypothesis backlog under the `optimize` skill; a board issue may link
   to a perf issue, never duplicate it.)
 - board state moves and reads through `_work/board.tl` only. reading
-  an issue is `show N`; landing an accepted PR is `land N PR`; a
+  an issue is `show N`; landing an accepted PR is `land N PR`; ending
+  an issue no PR closes is `close N`; a
   session, either lane, never reaches for `gh`, `curl`, or a raw
   GitHub API call for anything the tool has a verb for — and when the
   tool LACKS a verb the session needs, that gap is filed with `new
@@ -279,7 +317,8 @@ are `parallel.md`.
   to the board, not into the diff.
 - every issue traces to a goal: its `Goal` section names a `G<n>` from
   docs/goals.md or a parent epic that does. work that traces to no
-  goal is closed as not planned, however good the idea — open a goals
+  goal is closed as not planned (`close N --reason not-planned`),
+  however good the idea — open a goals
   amendment PR instead when the goals themselves are wrong. a
   `work:finding` is the one exemption, and only until triage: it is
   captured evidence, not planned work, so it carries no trace when

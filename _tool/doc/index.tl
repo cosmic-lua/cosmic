@@ -3,6 +3,11 @@
 
 local doc = require("_tool.doc")
 local doc_exports = require("_tool.doc.exports")
+local doc_types = require("cosmic.doc")
+local type ModuleDoc = doc_types.ModuleDoc
+local type FunctionDoc = doc_types.FunctionDoc
+local type RecordDoc = doc_types.RecordDoc
+local type ExampleDoc = doc_types.ExampleDoc
 -- This script is compiled and run by the pinned BOOTSTRAP cosmic, whose
 -- embedded types predate the current tree; use the signature-stable
 -- cosmo.Slurp instead of cosmic.fs.read so it works under both, and
@@ -16,7 +21,13 @@ end
 
 --- Normalize directory-module init shards to the module name users
 --- require: cosmic.fs.init -> cosmic.fs, cosmic.init -> cosmic.
-local function normalize_init(modules: {string: any})
+--- `exports_by_name` is renamed in lockstep: a directory module's export
+--- list is recorded (in `generate`) under its pre-rename name, and
+--- `flatten_shards` below looks it up under the name shards merge into
+--- — so the rename has to move both, or a directory module's own
+--- export list would go missing as its filter.
+local function normalize_init(modules: {string: ModuleDoc},
+    exports_by_name: {string: {string: boolean}})
   local renames: {string: string} = {}
   for name in pairs(modules) do
     local parent = name:match("^(.+)%.init$")
@@ -27,33 +38,29 @@ local function normalize_init(modules: {string: any})
   for from, to in pairs(renames) do
     modules[to] = modules[from]
     modules[from] = nil
+    exports_by_name[to] = exports_by_name[from]
+    exports_by_name[from] = nil
   end
 end
 
---- Append `src`'s entries of `key` (functions/records/examples) onto
---- `dst`, skipping names `dst` already carries — the parent's own doc
---- wins over a shard's on a collision. `allowed`, when given, restricts
---- the merge to entries whose name it contains.
-local function merge_entries(dst: {string: any}, src: {string: any},
-    key: string, allowed?: {string: boolean})
-  local from = src[key] as {any} -- cast: from any
+--- Append `from`'s entries onto `into`, skipping names `into` already
+--- carries — the parent's own doc wins over a shard's on a collision.
+--- `allowed`, when given, restricts the merge to entries whose name it
+--- contains. Generic over the element type because functions, records
+--- and examples are three different element types that a record cannot
+--- share a single field-name-indexed helper over.
+local function merge_list<T>(into: {T}, from: {T},
+    name_of: function(T): (string), allowed?: {string: boolean})
   if not from or #from == 0 then
     return
   end
-  dst[key] = dst[key] or {}
-  local into = dst[key] as {any} -- cast: from any
   local have: {string: boolean} = {}
   for _, entry in ipairs(into) do
-    local entry_name = (entry as {string: any}).name -- cast: from any
-    if entry_name is string then
-      have[entry_name] = true
-    end
+    have[name_of(entry)] = true
   end
   for _, entry in ipairs(from) do
-    local entry_name = (entry as {string: any}).name -- cast: from any
-    local named = entry_name is string
-    local permitted = not allowed or (named and allowed[entry_name as string]) -- cast: narrowed by named
-    if permitted and (not named or not have[entry_name as string]) then -- cast: narrowed by named
+    local entry_name = name_of(entry)
+    if (not allowed or allowed[entry_name]) and not have[entry_name] then
       table.insert(into, entry)
     end
   end
@@ -69,7 +76,12 @@ end
 --- collisions); the shard entries stay in the index, addressable by
 --- their own names as before. Runs after normalize_init so the parent
 --- is already at the name users require.
-local function flatten_shards(modules: {string: any})
+--- @param modules The index being built, keyed by module name
+--- @param exports_by_name Each module's own export list, by name — the
+---        parent's list filters which of a shard's functions merge
+---        onto its page; never part of the shipped index itself.
+local function flatten_shards(modules: {string: ModuleDoc},
+    exports_by_name: {string: {string: boolean}})
   local shard_names: {string} = {}
   for name in pairs(modules) do
     shard_names[#shard_names + 1] = name
@@ -79,22 +91,23 @@ local function flatten_shards(modules: {string: any})
   for _, name in ipairs(shard_names) do
     local parent_name = name:match("^(.+)%.[%w_]+$")
     if parent_name and modules[parent_name] then
-      local parent = modules[parent_name] as {string: any} -- cast: from any
-      local shard = modules[name] as {string: any} -- cast: from any
+      local parent = modules[parent_name]
+      local shard = modules[name]
       -- Functions are filtered by the parent's own export list where it
       -- states one, so a shard's private helpers stay off the page;
       -- records and examples merge whole — signatures name the records,
       -- and an example is a demo either way.
-      local filter = parent.exports as {string: boolean} -- cast: stored by generate
-      merge_entries(parent, shard, "functions", filter)
-      merge_entries(parent, shard, "records")
-      merge_entries(parent, shard, "examples")
+      local filter = exports_by_name[parent_name]
+      parent.functions = parent.functions or {}
+      merge_list(parent.functions, shard.functions,
+        function(f: FunctionDoc): (string) return f.name end, filter)
+      parent.records = parent.records or {}
+      merge_list(parent.records, shard.records,
+        function(r: RecordDoc): (string) return r.name end)
+      parent.examples = parent.examples or {}
+      merge_list(parent.examples, shard.examples,
+        function(e: ExampleDoc): (string) return e.name end)
     end
-  end
-  -- The export lists were carried for this pass only; the index the
-  -- binary ships stays exactly what it documents.
-  for _, name in ipairs(shard_names) do
-    (modules[name] as {string: any}).exports = nil -- cast: from any
   end
 end
 
@@ -109,13 +122,13 @@ end
 --- whose embedded stdlib may not carry that module. The two copies must
 --- agree; `cosmic/doc/public_test.tl` asserts they do, against
 --- `cosmic.doc.visibility` rather than against a second hand-kept list.
-local function mark_visibility(modules: {string: any})
+local function mark_visibility(modules: {string: ModuleDoc})
   for name, module_doc in pairs(modules) do
     local is_cosmo = name == "cosmo" or name:match("^cosmo%.") ~= nil
     local leaf = name:match("^cosmic%.([%w_]+)$")
     local public = leaf ~= nil and leaf:sub(1, 1) ~= "_"
     if not is_cosmo and not public then
-      (module_doc as {string: any}).internal = true -- cast: from any
+      module_doc.internal = true
     end
   end
 end
@@ -133,8 +146,13 @@ end
 --- @return Error message if generation failed
 local function generate(files: {string},
     names?: {string: string}): string | nil, string
-  local modules: {string: any} = {}
-  local example_files: {string: any} = {} -- Store example docs separately
+  local modules: {string: ModuleDoc} = {}
+  local example_files: {string: ModuleDoc} = {} -- Store example docs separately
+  -- Each module's own export list, by name — a scratch map, never part
+  -- of the shipped index (see flatten_shards). Keyed by the name a
+  -- module is FIRST registered under below, before normalize_init may
+  -- rename it.
+  local exports_by_name: {string: {string: boolean}} = {}
 
   for i = 1, #files do
     local file_path = files[i]
@@ -145,7 +163,7 @@ local function generate(files: {string},
     end
 
     -- Parse based on file type
-    local module_doc: any
+    local module_doc: ModuleDoc
     if file_path:match("%.d%.tl$") then
       module_doc = doc.parse_dtl(source, file_path)
     else
@@ -166,17 +184,18 @@ local function generate(files: {string},
       example_files[base_name] = module_doc
     else
       if not file_path:match("%.d%.tl$") then
-        -- The export list rides along for flatten_shards below, and is
-        -- stripped again before the index is encoded.
+        -- The export list rides in exports_by_name for flatten_shards
+        -- below, keyed by this module's name — never stored on the
+        -- ModuleDoc itself, so there is nothing to strip before the
+        -- index is encoded.
         -- The same publishable view the markdown page is rendered
         -- from, so a page and a symbol lookup answer alike. The surface
         -- rides along for flatten_shards below, which filters a SHARD's
         -- exports against the parent that re-exports them — a different
         -- question from what one module publishes.
-        local records = (module_doc as {string: any}).records -- cast: from any
-        doc.publishable(module_doc as doc.ModuleDoc, source); -- cast: parsed above
-        (module_doc as {string: any}).exports = -- cast: from any
-        doc_exports.export_surface(source, records as {{string: any}}) -- cast: from any
+        local records = module_doc.records
+        doc.publishable(module_doc, source)
+        exports_by_name[name] = doc_exports.export_surface(source, records)
       end
       modules[name] = module_doc
     end
@@ -189,7 +208,7 @@ local function generate(files: {string},
   -- init rename then finds the name taken and skips, and the module's
   -- real doc is stranded under `cosmic.flags.init` while the page
   -- users see is the bare example.
-  normalize_init(modules)
+  normalize_init(modules, exports_by_name)
 
   -- Merge examples from _example files into corresponding modules
   for base_name, example_doc in pairs(example_files) do
@@ -205,13 +224,9 @@ local function generate(files: {string},
     local mod = modules[base_name]
     if mod then
       -- Merge examples into the module's examples
-      local mod_table = mod as {string: any} -- cast: from any
-      local example_table = example_doc as {string: any} -- cast: from any
-      if example_table.examples then
-        mod_table.examples = mod_table.examples or {}
-        for _, ex in ipairs(example_table.examples as {any}) do -- cast: from any
-          table.insert(mod_table.examples as {any}, ex) -- cast: from any
-        end
+      mod.examples = mod.examples or {}
+      for _, ex in ipairs(example_doc.examples) do
+        table.insert(mod.examples, ex)
       end
     else
       -- No source module with this name (e.g. deploy_example.tl):
@@ -221,7 +236,7 @@ local function generate(files: {string},
     end
   end
 
-  flatten_shards(modules)
+  flatten_shards(modules, exports_by_name)
   mark_visibility(modules)
 
   return cosmo.EncodeLua({modules = modules})

@@ -5,6 +5,9 @@
 --- parser because both the publishable view and the shard merge in
 --- `index.tl` ask the same question, and one answer serves them.
 
+local doc_types = require("cosmic.doc")
+local type RecordDoc = doc_types.RecordDoc
+
 --- The names a module states in a table literal it assigns to its
 --- module table: `local M: FsModule = { read = ..., }`, the bare
 --- `M = { ... }` a step after `local M: EnvModule`, and the inline
@@ -64,10 +67,10 @@ end
 --- directly), and `render.tl` has always read exports that way.
 --- Whichever record it is, its function fields are exported names.
 --- @param source string The module source
---- @param records {{string:any}} The records the parser found
+--- @param records {RecordDoc} The records the parser found
 --- @param into {string:boolean} The surface being accumulated
 --- @return boolean Whether any record contributed a name
-local function record_exports(source: string, records: {{string: any}},
+local function record_exports(source: string, records: {RecordDoc},
     into: {string: boolean}): boolean
   if not records then
     return false
@@ -75,10 +78,9 @@ local function record_exports(source: string, records: {{string: any}},
   local returned = source:match("\nreturn%s+([%w_]+)%s*\n?$")
   local found = false
   for _, rec in ipairs(records) do
-    local name = rec.name as string -- cast: from any
+    local name = rec.name
     if name == returned or name:match("Module$") then
-      local fields = rec.fields as {{string}} -- cast: from any
-      for _, field in ipairs(fields or {}) do
+      for _, field in ipairs(rec.fields or {}) do
         if field[2] and field[2]:match("^function") then
           into[field[1]] = true
           found = true
@@ -99,11 +101,11 @@ end
 --- visible and harmless; a documented function nobody can call costs
 --- the reader a build.
 --- @param source string The module source
---- @param records {{string:any}} The records the parser found
+--- @param records {RecordDoc} The records the parser found
 --- @return {string:boolean} The exported names, possibly empty
 --- @return {string:string} Aliased exports: exported name -> local name
 local function export_surface(source: string,
-    records: {{string: any}}): {string: boolean}, {string: string}
+    records: {RecordDoc}): {string: boolean}, {string: string}
   local names: {string: boolean} = {}
   local aliases: {string: string} = {}
   local literal = scan_exports(source, aliases)
@@ -128,7 +130,7 @@ end
 ---
 local record ExportsModule
   export_surface: function(source: string,
-  records: {{string: any}}): {string: boolean}, {string: string}
+  records: {RecordDoc}): {string: boolean}, {string: string}
 end
 
 local M: ExportsModule = {

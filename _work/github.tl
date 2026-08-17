@@ -1,14 +1,16 @@
 --- GitHub REST adapter for the work board: list a phase, fetch and
---- create issues, swap labels, ensure the label vocabulary exists —
---- over cosmic.fetch, no gh CLI. Everything network-shaped lives here
---- so _work.model stays pure. Auth is a GITHUB_TOKEN (or GH_TOKEN)
---- env var; HTTPS_PROXY is honored, and behind a TLS-intercepting
---- proxy set SSL_USE_SYSTEM_CERTS=1 SSL_CERT_FILE=<bundle> (read by
---- the cosmos TLS root loader).
+--- create issues, swap labels, read a PR and its head commit, ensure
+--- the label vocabulary exists — no gh CLI. Everything network-shaped
+--- lives here so _work.model stays pure; the authenticated transport
+--- these calls share is _work.api.
 
-local env = require("cosmic.env")
-local fetch = require("cosmic.fetch")
 local url = require("cosmic.url")
+local api_mod = require("_work.api")
+
+local type ApiResult = api_mod.ApiResult
+local api = api_mod.call
+local api_error = api_mod.error_of
+local is_success = api_mod.is_success
 
 --- The GitHub issue fields the board reads, as the REST API names
 --- them. `pull_request` is present exactly when the "issue" is a PR —
@@ -50,6 +52,11 @@ local record RawEvent
   label: RawLabel
 end
 
+--- A git ref as the PR endpoints carry it; only its SHA is read.
+local record RawRef
+  sha: string
+end
+
 --- The GitHub pull request fields the implementer lane reads.
 local record RawPull
   number: integer
@@ -59,67 +66,36 @@ local record RawPull
   mergeable_state: string
   body: string
   html_url: string
+  head: RawRef
 end
 
---- One API exchange that got a response: its status and decoded body.
-local record ApiResult
-  status: integer
-  value: any
+--- The commit fields the verdict read needs: its SHA and the committer
+--- date, which is what "did anything follow the verdict" compares
+--- against.
+local record RawCommitDetail
+  date: string
 end
 
-local API < const > = "https://api.github.com"
-
---- One authenticated REST call. nil only when no response arrived
---- (missing token, transport failure); an HTTP error status is a
---- result — callers branch on res.status.
---- @param method string HTTP method
---- @param path string Path under api.github.com, leading slash
---- @param payload any? JSON request body
---- @return ApiResult | nil The exchange
---- @return string Error message when no response arrived
-local function api(method: string, path: string, payload?: any): ApiResult, string
-  local token = env.get("GITHUB_TOKEN") or env.get("GH_TOKEN")
-  if token == nil or token == "" then
-    return nil, "no GitHub token: set GITHUB_TOKEN (or GH_TOKEN)"
-  end
-  local resp, err = fetch.fetch(API .. path, {
-      method = method,
-      json = payload,
-      proxy = env.get("HTTPS_PROXY") or env.get("https_proxy"),
-      headers = {
-        ["authorization"] = "Bearer " .. token,
-        ["accept"] = "application/vnd.github+json",
-        ["x-github-api-version"] = "2022-11-28",
-        ["user-agent"] = "cosmic-work-board",
-      },
-    })
-  if resp == nil then
-    return nil, ("%s %s: %s"):format(method, path, tostring(err))
-  end
-  local value: any = nil
-  if resp.body and #resp.body > 0 then
-    value = resp:json()
-  end
-  return {status = resp.status, value = value}, nil
+local record RawCommitMeta
+  committer: RawCommitDetail
 end
 
---- Render a non-2xx exchange as an error message, using GitHub's own
---- "message" field when it sent one.
---- @param method string HTTP method
---- @param path string Request path
---- @param res ApiResult The exchange
---- @return string The message
-local function api_error(method: string, path: string, res: ApiResult): string
-  local detail = ""
-  local v = res.value
-  if v is {string: any} then
-    detail = ": " .. tostring(v["message"])
-  end
-  return ("%s %s: HTTP %d%s"):format(method, path, res.status, detail)
+local record RawCommit
+  sha: string
+  commit: RawCommitMeta
 end
 
-local function is_success(status: integer): boolean
-  return status >= 200 and status < 300
+--- One issue timeline entry. `event` names the kind; the board reads
+--- "cross-referenced" ones, whose `source.issue` is the referencing
+--- issue or pull request.
+local record RawSource
+  issue: RawIssue
+end
+
+local record RawTimelineEntry
+  event: string
+  created_at: string
+  source: RawSource
 end
 
 --- The single issue a successful exchange carried, as a RawIssue: the
@@ -273,6 +249,26 @@ local function update_issue(repo: string, number: integer,
   return issue_of(res)
 end
 
+--- Close an issue, recording why it ended. `reason` is GitHub's own
+--- `state_reason` spelling: "completed" or "not_planned".
+--- @param repo string "owner/name"
+--- @param number integer Issue number
+--- @param reason string The state_reason to record
+--- @return RawIssue | nil The closed issue
+--- @return string Error message on failure
+local function close_issue(repo: string, number: integer,
+    reason: string): RawIssue, string
+  local path = ("/repos/%s/issues/%d"):format(repo, number)
+  local res, err = api("PATCH", path, {state = "closed", state_reason = reason})
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("PATCH", path, res)
+  end
+  return issue_of(res)
+end
+
 --- Swap labels on an issue: removals first (absent labels are fine),
 --- then additions.
 --- @param repo string "owner/name"
@@ -376,6 +372,46 @@ local function get_pull(repo: string, number: integer): RawPull, string
   return res.value as RawPull -- cast: from any
 end
 
+--- An issue's timeline, oldest first — the events endpoint the board
+--- already reads omits cross-references, and a cross-reference is how
+--- a PR announces that it closes an issue. One page (100) suffices:
+--- the read only wants the referencing pull requests, and an issue
+--- accumulating 100+ timeline entries is past the point where the
+--- board tracks it.
+--- @param repo string "owner/name"
+--- @param number integer Issue number
+--- @return {RawTimelineEntry} | nil The entries, oldest first
+--- @return string Error message on failure
+local function list_issue_timeline(repo: string,
+    number: integer): {RawTimelineEntry}, string
+  local path = ("/repos/%s/issues/%d/timeline?per_page=100"):format(repo, number)
+  local res, err = api("GET", path, nil)
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("GET", path, res)
+  end
+  return res.value as {RawTimelineEntry} -- cast: from any
+end
+
+--- One commit, by SHA.
+--- @param repo string "owner/name"
+--- @param sha string Commit SHA
+--- @return RawCommit | nil The commit
+--- @return string Error message on failure
+local function get_commit(repo: string, sha: string): RawCommit, string
+  local path = ("/repos/%s/commits/%s"):format(repo, url.escape_param(sha))
+  local res, err = api("GET", path, nil)
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("GET", path, res)
+  end
+  return res.value as RawCommit -- cast: from any
+end
+
 --- Squash-merge a pull request.
 --- @param repo string "owner/name"
 --- @param number integer PR number
@@ -400,6 +436,9 @@ local record github
   type RawComment = RawComment
   type RawEvent = RawEvent
   type RawPull = RawPull
+  type RawRef = RawRef
+  type RawCommit = RawCommit
+  type RawTimelineEntry = RawTimelineEntry
   type ListWindow = ListWindow
   only_issues: function(list: {RawIssue}): {RawIssue}
   list_issues: function(repo: string, label: string, opts?: ListWindow):
@@ -411,12 +450,17 @@ local record github
   issue_patch: function(title?: string, body?: string): {string: any}
   update_issue: function(repo: string, number: integer,
   title?: string, body?: string): RawIssue, string
+  close_issue: function(repo: string, number: integer,
+  reason: string): RawIssue, string
   edit_labels: function(repo: string, number: integer,
   add: {string}, remove: {string}): boolean, string
   ensure_label: function(repo: string, name: string, color: string,
   description: string): boolean, string
   list_issue_comments: function(repo: string, number: integer): {RawComment}, string
+  list_issue_timeline: function(repo: string, number: integer):
+  {RawTimelineEntry}, string
   get_pull: function(repo: string, number: integer): RawPull, string
+  get_commit: function(repo: string, sha: string): RawCommit, string
   merge_pull: function(repo: string, number: integer): boolean, string
 end
 
@@ -428,10 +472,13 @@ local M: github = {
   create_issue = create_issue,
   issue_patch = issue_patch,
   update_issue = update_issue,
+  close_issue = close_issue,
   edit_labels = edit_labels,
   ensure_label = ensure_label,
   list_issue_comments = list_issue_comments,
+  list_issue_timeline = list_issue_timeline,
   get_pull = get_pull,
+  get_commit = get_commit,
   merge_pull = merge_pull,
 }
 

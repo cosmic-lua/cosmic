@@ -7,7 +7,9 @@
 local fs = require("cosmic.fs")
 local facts = require("_work.facts")
 local gh = require("_work.github")
+local labels = require("_work.labels")
 local model = require("_work.model")
+local verdict = require("_work.verdict")
 
 local type Issue = model.Issue
 local type Board = model.Board
@@ -93,19 +95,23 @@ local function issue_line(i: Issue): string
   return ("  #%d %s%s"):format(i.number, i.title, tags)
 end
 
---- The note an entry over the WIP limit prints, or nil when the phase
---- still has slack. `count` is the phase's occupancy BEFORE the entry;
---- the note names the occupancy after it — the number that has to come
---- back down before anything is pulled in.
+--- The note an arrival over the WIP limit prints, or nil when the
+--- phase still has slack. `count` is the phase's occupancy BEFORE the
+--- arrival; the note names the occupancy after it — the number that
+--- has to come back down before anything is pulled in — so an arrival
+--- the phase does not count leaves the figure where it was.
 --- @param phase string Phase the issue enters
---- @param count integer Occupancy before the entry
+--- @param count integer Occupancy before the arrival
+--- @param occupies boolean True when the arrival takes one of the slots
 --- @return string | nil The note line, nil when the phase has slack
-local function over_limit_note(phase: string, count: integer): string
+local function over_limit_note(phase: string, count: integer,
+    occupies: boolean): string
   if count < model.LIMITS[phase] then
     return nil
   end
+  local after = occupies and count + 1 or count
   return ("note: %s %d/%d over limit — drain before intake"):format(
-    phase, count + 1, model.LIMITS[phase])
+    phase, after, model.LIMITS[phase])
 end
 
 --- status: render the board right to left and verdict on WIP.
@@ -216,18 +222,25 @@ local function cmd_check(repo: string, number: integer): integer
 end
 
 --- move: change an issue's phase, refusing to overfill the target —
---- except for the two moves `model.admits_over_limit` names: a return
---- (the system correcting itself) and a move into `land` (an accept
---- already given). Landing one over the limit prints a note naming the
+--- except for the arrivals `model.admits_over_limit` admits: a return
+--- (the system correcting itself), a move into `land` (an accept
+--- already given), and an issue the target would not count anyway (an
+--- epic arriving in plan). Landing one over the limit prints a note naming the
 --- phase to drain before more work is pulled into it. The landing
 --- queue binds the other end instead: a pull (ready -> do) is refused
 --- while land is at its limit, so accepted work merges before more
 --- work starts. An issue on no phase is an entry, not a return, and
 --- the limit binds it.
+--- A move into `check` asks for a verdict, so it is refused while one
+--- already stands unanswered: a `work-verdict: request changes` on the
+--- issue's PR with no commit after it means there is nothing new to
+--- review. A verdict read that fails refuses too — a move that cannot
+--- see the review state is the wrong turn this gate exists to stop.
 --- @param repo string "owner/name"
 --- @param number integer Issue number
 --- @param target string Target phase
---- @param force boolean True to override the WIP limit and the pull gate
+--- @param force boolean True to override the WIP limit, the pull gate,
+--- and the standing-verdict gate
 --- @return integer Exit code
 local function cmd_move(repo: string, number: integer, target: string,
     force: boolean): integer
@@ -258,7 +271,8 @@ local function cmd_move(repo: string, number: integer, target: string,
   local issue = to_issue(raw)
   local count = model.limited_count(board, target)
   local at_limit = count >= model.LIMITS[target]
-  if at_limit and not force and not model.admits_over_limit(issue.phase, target) then
+  local admitted = model.admits_over_limit(issue, issue.phase, target, false)
+  if at_limit and not force and not admitted then
     print(("work-move: REFUSED (%s %d/%d at limit; work right to left "
         .. "to drain it, or --force)"):format(
         target, count, model.LIMITS[target]))
@@ -270,6 +284,19 @@ local function cmd_move(repo: string, number: integer, target: string,
       print(("work-move: REFUSED (the landing queue holds %d/%d; land the "
           .. "accepted work before pulling more, or --force)"):format(
           landed, model.LIMITS["land"]))
+      return 1
+    end
+  end
+  if target == "check" and not force then
+    local state, serr = verdict.standing(repo, number)
+    if state == nil then
+      print(("work-move: REFUSED (cannot read the PR's verdict: %s; "
+          .. "--force to move anyway)"):format(serr))
+      return 1
+    end
+    local blocked = verdict.blocks_check(state)
+    if blocked then
+      print("work-move: REFUSED (" .. blocked .. ")")
       return 1
     end
   end
@@ -303,7 +330,8 @@ local function cmd_move(repo: string, number: integer, target: string,
     print("work-move: ERROR")
     return 1
   end
-  local note = over_limit_note(target, count)
+  local note = over_limit_note(target, count,
+    model.counts_against_limit(issue, target))
   if note then
     print(note)
   end
@@ -325,13 +353,16 @@ local TEMPLATE < const > = [[
 ## Enablement
 ]]
 
---- new: open an issue on the board, WIP-limited like any other entry —
---- except a finding, which is never refused. A finding is evidence an
---- implementer hit in passing, and a full phase must never be a reason
---- to drop it: it enters plan regardless of the limit, marked for a
---- planner to triage, and prints the same over-limit note a return
---- does. Findings are not decomposition parents, so `finding` and
---- `epic` refuse each other.
+--- new: open an issue on the board. The entry is WIP-limited on the
+--- same terms a move is, through `model.admits_over_limit` over the
+--- issue this is about to create: a finding is captured evidence and
+--- is never refused, an epic entering plan occupies no slot there so
+--- the limit does not measure it, and `mandated` names a filing a
+--- verdict already required. An admitted entry over the limit prints
+--- the same note a return does. A mandated filing is enablement work
+--- by construction, so it carries `work:enable` whether or not
+--- `enable` was passed; a finding is neither a decomposition parent
+--- nor a planner's countermeasure, so it refuses both.
 --- @param repo string "owner/name"
 --- @param title string Issue title
 --- @param body_file string Path to a body markdown file; nil for the template
@@ -339,19 +370,23 @@ local TEMPLATE < const > = [[
 --- @param epic boolean Mark as a decomposition parent
 --- @param enable boolean Mark as enablement work
 --- @param finding boolean Capture implementer evidence, past the WIP limit
+--- @param mandated boolean File a countermeasure a verdict already required
 --- @param force boolean True to override the phase WIP limit
 --- @return integer Exit code
 local function cmd_new(repo: string, title: string, body_file: string,
     phase: string, epic: boolean, enable: boolean, finding: boolean,
-    force: boolean): integer
-  if finding and epic then
-    print("work-new: REFUSED (--finding conflicts with --epic; a finding "
-      .. "is evidence, not a decomposition parent)")
+    mandated: boolean, force: boolean): integer
+  if finding and (epic or mandated) then
+    print("work-new: REFUSED (--finding conflicts with --epic and --mandated; "
+      .. "a finding is captured evidence, not a decomposition parent and not "
+      .. "a countermeasure a verdict already required)")
     return 1
   end
   if finding then
     phase = "plan"
   end
+  local entry: Issue = {title = title, phase = phase, epic = epic,
+    finding = finding, enable = enable or mandated}
   local body = TEMPLATE
   if body_file then
     local data, rerr = fs.read(body_file)
@@ -369,30 +404,22 @@ local function cmd_new(repo: string, title: string, body_file: string,
     return 1
   end
   local count = model.limited_count(board, phase)
-  if count >= model.LIMITS[phase] and not force and not finding then
+  local admitted = model.admits_over_limit(entry, nil, phase, mandated)
+  if count >= model.LIMITS[phase] and not force and not admitted then
     print(("work-new: REFUSED (%s %d/%d at limit; drain the board "
         .. "right to left first, or --force)"):format(
         phase, count, model.LIMITS[phase]))
     return 1
   end
-  local labels: {string} = {"work:" .. phase}
-  if epic then
-    labels[#labels + 1] = "work:epic"
-  end
-  if finding then
-    labels[#labels + 1] = "work:finding"
-  end
-  if enable then
-    labels[#labels + 1] = "work:enable"
-  end
-  local raw, err = gh.create_issue(repo, title, body, labels)
+  local raw, err = gh.create_issue(repo, title, body, labels.labels_of(entry))
   if raw == nil then
     io.stderr:write(err .. "\n")
     print("work-new: ERROR")
     return 1
   end
   print("  " .. raw.html_url)
-  local note = over_limit_note(phase, count)
+  local note = over_limit_note(phase, count,
+    model.counts_against_limit(entry, phase))
   if note then
     print(note)
   end
@@ -450,7 +477,7 @@ local record verbs
   force: boolean): integer
   cmd_new: function(repo: string, title: string, body_file: string,
   phase: string, epic: boolean, enable: boolean, finding: boolean,
-  force: boolean): integer
+  mandated: boolean, force: boolean): integer
   cmd_edit: function(repo: string, number: integer, body_file: string,
   title: string): integer
 end

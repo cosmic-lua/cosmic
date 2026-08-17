@@ -370,7 +370,7 @@ end
 --- @param source string The module source the doc was parsed from
 --- @return ModuleDoc That same doc
 local function publishable(doc: ModuleDoc, source: string): ModuleDoc
-  local surface, aliases = doc_exports.export_surface(source, doc.records as {{string: any}}) -- cast: from any
+  local surface, aliases = doc_exports.export_surface(source, doc.records)
   local exported_as: {string: string} = {}
   for exported, local_name in pairs(aliases) do
     exported_as[local_name] = exported

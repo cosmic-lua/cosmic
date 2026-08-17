@@ -5,7 +5,8 @@
 --- lint of an issue), move (phase change, WIP-limited), edit (rewrite
 --- a title/body in place), init (create the label vocabulary), show
 --- (read an issue's spec and its comments), land (verify a PR then
---- squash-merge it), stats (measure per-phase flow over a window).
+--- squash-merge it), close (end an issue that has no PR to close it),
+--- stats (measure per-phase flow over a window).
 --- Every verb ends with a `work-<verb>:` verdict line; read that, never
 --- a piped exit status. WIP limits gate rightward motion and intake
 --- only: a return (a leftward move), a move into land, and a
@@ -18,20 +19,24 @@
 ---   cosmic --make run _work/board.tl move 123 ready [--force]
 ---   cosmic --make run _work/board.tl new "title" [--body-file F] [--epic]
 ---   cosmic --make run _work/board.tl new "title" --finding
+---   cosmic --make run _work/board.tl new "title" --mandated
 ---   cosmic --make run _work/board.tl edit 123 --body-file F [--title T]
 ---   cosmic --make run _work/board.tl show 123
 ---   cosmic --make run _work/board.tl land 123 124
+---   cosmic --make run _work/board.tl close 123 [--reason not-planned]
 ---   cosmic --make run _work/board.tl stats [--days N]
 ---   cosmic --make run _work/board.tl init
 ---
 --- Auth is a GITHUB_TOKEN (or GH_TOKEN) env var — no gh CLI involved.
 --- This file is the argument parsing and dispatch half; the verbs
 --- themselves are `_work.verbs` (planner lane), `_work.implementer`
---- (implementer lane), `_work.stats` (flow measurement), and
---- `_work.labels` (the label vocabulary and the init that creates it).
+--- (implementer lane), `_work.close` (the close verb), `_work.stats`
+--- (flow measurement), and `_work.labels` (the label vocabulary and
+--- the init that creates it).
 
 local flags = require("cosmic.flags")
 local proc = require("cosmic.proc")
+local closing = require("_work.close")
 local gh = require("_work.github")
 local labels = require("_work.labels")
 local model = require("_work.model")
@@ -72,6 +77,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "enable", help = "mark as enablement work"},
           {long = "finding",
             help = "capture implementer evidence; lands even at the WIP limit"},
+          {long = "mandated",
+            help = "a countermeasure a verdict required; implies --enable"},
           {long = "force", help = "override the phase WIP limit"}}}},
     {name = "edit", summary = "rewrite ISSUE's title and/or body in place",
       spec = {usage = "ISSUE [--body-file FILE] [--title TITLE]",
@@ -82,6 +89,11 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "ISSUE [options]", flags = {repo_flag()}}},
     {name = "land", summary = "verify PR closes ISSUE, then squash-merge it",
       spec = {usage = "ISSUE PR [options]", flags = {repo_flag()}}},
+    {name = "close", summary = "close ISSUE, recording whether the work happened",
+      spec = {usage = "ISSUE [--reason completed|not-planned]",
+        flags = {repo_flag(),
+          {long = "reason", arg = "REASON", default = "completed",
+            help = "completed or not-planned"}}}},
     {name = "stats", summary = "measure per-phase flow over the last N days",
       spec = {flags = {repo_flag(),
           {long = "days", arg = "N", default = "7",
@@ -163,7 +175,8 @@ local function main(...: string): integer
     end
     return verbs.cmd_new(repo, title, d.parsed.values["body-file"], phase,
       d.parsed.switches["epic"], d.parsed.switches["enable"],
-      d.parsed.switches["finding"], d.parsed.switches["force"])
+      d.parsed.switches["finding"], d.parsed.switches["mandated"],
+      d.parsed.switches["force"])
   end
   if d.command == "show" then
     local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
@@ -181,6 +194,14 @@ local function main(...: string): integer
       return 1
     end
     return implementer.cmd_land(repo, n, pr)
+  end
+  if d.command == "close" then
+    local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
+    if n == nil then
+      io.stderr:write("close needs an issue number\n")
+      return 1
+    end
+    return closing.cmd_close(repo, n, d.parsed.values["reason"] or "completed")
   end
   if d.command == "stats" then
     local days = math.tointeger(tonumber(d.parsed.values["days"] or "7"))

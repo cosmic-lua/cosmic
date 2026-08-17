@@ -231,6 +231,97 @@ local function test_render_never_raises_a_committed_floor()
 end
 test_render_never_raises_a_committed_floor()
 
+-- A rewrite lowers a row only when the ratchet would have FAILED on it.
+-- Everything else keeps the committed numbers, so a regeneration is a
+-- near-empty diff: a percentage that held, a percentage that held while
+-- the file grew, and a dip inside the per-file slack all leave the row
+-- exactly as it was.
+local function test_render_rewrites_only_rows_the_ratchet_would_fail()
+  local floor = check.must(baseline.parse(
+      "# h\n# c\nflat.tl 40 50\nslack.tl 180 200\nreal.tl 180 200\n")).rows
+  local text = baseline.render(reports({
+        -- 80% either way: identical percentage, different counts
+        {"flat.tl", 44, 55},
+        -- 0.5pp down, inside the file's 1.0pp slack
+        {"slack.tl", 179, 200},
+        -- 10pp down, well outside it: this is the one that moves
+        {"real.tl", 160, 200},
+      }), floor)
+  assert(text:find("\nflat.tl 40 50\n", 1, true), "got:\n" .. text)
+  assert(text:find("\nslack.tl 180 200\n", 1, true), "got:\n" .. text)
+  assert(text:find("\nreal.tl 160 200\n", 1, true), "got:\n" .. text)
+  local moved = baseline.lowered(
+    "# h\n# c\nflat.tl 40 50\nslack.tl 180 200\nreal.tl 180 200\n", text)
+  assert(#moved == 1, "only the failing row moved, got " .. #moved ..
+    ": " .. table.concat(moved, "; "))
+  assert(moved[1]:find("real.tl", 1, true), "got: " .. moved[1])
+  assert(moved[1]:find("90.0% -> 80.0%", 1, true), "got: " .. moved[1])
+end
+test_render_rewrites_only_rows_the_ratchet_would_fail()
+
+-- A tiny file's slack is two lines rather than a percentage, and the
+-- rewrite reads the same slack the check does: one line of nine is a
+-- 11pp drop the ratchet forgives, so the floor holds.
+local function test_render_keeps_a_tiny_files_floor_within_its_line_slack()
+  local floor = check.must(baseline.parse("# h\n# c\ntiny.tl 9 9\n")).rows
+  local text = baseline.render(reports({{"tiny.tl", 8, 9}}), floor)
+  assert(text:find("\ntiny.tl 9 9\n", 1, true), "got:\n" .. text)
+end
+test_render_keeps_a_tiny_files_floor_within_its_line_slack()
+
+-- `.cosmic-coverage` merges with git's `union` strategy, so a row two
+-- branches both edited arrives twice. The lower percentage wins: a
+-- merge that RAISED a floor would fail CI on a decline neither side
+-- introduced.
+local function test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
+  local b = check.must(baseline.parse(
+      "# h\n# c\n" ..
+      "a.tl 9 10\n" ..
+      "a.tl 4 10\n" ..
+      "b.tl 1 4\n" ..
+      "b.tl 9 10\n"))
+  assert(b.rows["a.tl"].covered == 4, "later lower row wins, got " ..
+    b.rows["a.tl"].covered)
+  assert(b.rows["b.tl"].covered == 1 and b.rows["b.tl"].total == 4,
+    "earlier lower row wins too")
+  assert(b.duplicates == 2, "both repeats counted, got " .. b.duplicates)
+end
+test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
+
+-- Two rows can tie on percentage, so the resolution has to keep going.
+-- The smaller line universe wins first: 1/2 and 2/4 are both 50%, and
+-- the 2-line row is the one a check would measure against.
+local function test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
+  local b = check.must(baseline.parse("# h\n# c\na.tl 1 2\na.tl 2 4\n"))
+  assert(b.rows["a.tl"].total == 2 and b.rows["a.tl"].covered == 1,
+    "smaller universe wins, got " .. b.rows["a.tl"].covered .. "/" ..
+    b.rows["a.tl"].total)
+  local flipped = check.must(baseline.parse("# h\n# c\na.tl 2 4\na.tl 1 2\n"))
+  assert(flipped.rows["a.tl"].total == 2,
+    "and wins from the other side too, got " .. flipped.rows["a.tl"].total)
+end
+test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
+
+-- Two branches can each append the same new row, in regions far enough
+-- apart that the merge keeps both copies. Nothing distinguishes them,
+-- and the resolution still has to answer: the row survives intact and
+-- is counted as the repeat it is.
+local function test_parse_resolves_identical_duplicate_rows()
+  local b = check.must(baseline.parse("# h\n# c\na.tl 9 10\na.tl 9 10\n"))
+  assert(b.rows["a.tl"].covered == 9 and b.rows["a.tl"].total == 10,
+    "identical rows resolve to themselves")
+  assert(b.duplicates == 1, "and are still a duplicate, got " .. b.duplicates)
+end
+test_parse_resolves_identical_duplicate_rows()
+
+-- A freshly rendered baseline has nothing to resolve, and the count
+-- says so rather than being absent.
+local function test_parse_counts_no_duplicates_in_a_clean_baseline()
+  local b = check.must(baseline.parse("# h\n# c\na.tl 9 10\nb.tl 1 4\n"))
+  assert(b.duplicates == 0, "clean baseline, got " .. b.duplicates)
+end
+test_parse_counts_no_duplicates_in_a_clean_baseline()
+
 -- With no floor to compare against, render records what it measured.
 local function test_render_without_a_floor_records_the_run()
   local text = baseline.render(reports({{"a.tl", 9, 10}}))
@@ -285,5 +376,109 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
     "and must name every declining file, got: " .. last)
 end
 test_a_failing_ratchet_names_the_rows_that_moved()
+
+--- A directory `report.compute` can read: one source file with three
+--- executable lines and one `.cov` file, since compute refuses a run
+--- with no coverage data at all. The hits inside name an absolute path,
+--- which normalize declines, so the source scan supplies the row and it
+--- measures 0 of 3.
+--- @param name string Subdirectory of TEST_TMPDIR to build it in
+--- @return string The fixture root
+--- @return string The display path its one row carries
+local function coverage_fixture(name: string): string, string
+  local fs = require("cosmic.fs")
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local root = fs.join(tmpdir, name)
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(fs.join(root, "lib")))
+  local src = fs.join(root, "lib/a.tl")
+  assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))
+  assert(fs.write(fs.join(root, "one.cov"),
+      '{version=1,hits={["' .. src .. '"]={[1]=1}}}'))
+  return root, src
+end
+
+-- The two ways `check` refuses before it can compare anything: no
+-- baseline to read, and a baseline it cannot parse. Both are exit 1
+-- with the reason on stderr, so a gate never reports "ok" for a
+-- comparison it did not make.
+local function test_check_refuses_an_unreadable_or_malformed_baseline()
+  local fs = require("cosmic.fs")
+  local root, _src = coverage_fixture("ratchet-refuses")
+  assert(baseline.check(fs.join(root, "absent"), {root}) == 1,
+    "a baseline that cannot be read is not a pass")
+  local garbage = fs.join(root, "garbage")
+  assert(fs.write(garbage, "lib/a.tl nine ten\n"))
+  assert(baseline.check(garbage, {root}) == 1,
+    "a baseline that cannot be parsed is not a pass")
+end
+test_check_refuses_an_unreadable_or_malformed_baseline()
+
+-- A merged baseline gates against the RESOLVED rows and says so. The
+-- duplicate note and the `ok` line land on this test's own streams,
+-- which is the price of exercising the real function rather than a
+-- child whose coverage nobody collects.
+local function test_check_gates_against_the_resolved_rows()
+  local fs = require("cosmic.fs")
+  local root, src = coverage_fixture("ratchet-resolved")
+  -- The run measures 0 of 3. The high row alone would fail the ratchet;
+  -- the low one is the floor that holds, so a pass here is the proof
+  -- that the lower row is what gated.
+  local floor = fs.join(root, "floor")
+  assert(fs.write(floor, "# h\n" .. src .. " 3 3\n" .. src .. " 0 3\n"))
+  assert(baseline.check(floor, {root}) == 0,
+    "the lower duplicate row is the floor, and it holds")
+  -- Without the low row the same run fails, which is what makes the
+  -- assertion above about resolution rather than about slack.
+  local high = fs.join(root, "high")
+  assert(fs.write(high, "# h\n" .. src .. " 3 3\n"))
+  assert(baseline.check(high, {root}) == 1,
+    "the high row on its own is a decline")
+end
+test_check_gates_against_the_resolved_rows()
+
+-- A merged baseline still gates, and does not do it quietly. A `union`
+-- merge leaves duplicate rows behind; the check reads them (resolved to
+-- the lower coverage) and names them on stderr, so the file's untidy
+-- state is visible in the run that tolerated it rather than surviving
+-- unnoticed until someone opens the diff.
+local function test_check_gates_a_merged_baseline_and_names_the_duplicates()
+  local fs = require("cosmic.fs")
+  local child = require("cosmic.child")
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local root = fs.join(tmpdir, "ratchet-merged")
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(fs.join(root, "lib")))
+  assert(fs.write(fs.join(root, "lib/a.tl"),
+      "local x = 1\nlocal y = 2\nreturn x + y\n"))
+  -- Paths inside the .cov are relative, so the child runs WITH `root`
+  -- as its cwd: that is what lets the collector's chunk name and the
+  -- source scan agree on one display path.
+  assert(fs.write(fs.join(root, "one.cov"),
+      '{version=1,hits={["@lib/a.tl"]={[1]=1,[2]=1,[3]=1}}}'))
+  -- The same path twice, as a union merge of two edits leaves it. The
+  -- lower row (2/3) is the floor that gates; the run measures 3/3, so
+  -- the ratchet holds.
+  local floor = fs.join(root, "floor")
+  assert(fs.write(floor, "# h\nlib/a.tl 3 3\nlib/a.tl 2 3\n"))
+
+  -- Absolute, because the child runs with `root` as its cwd and TEST_BIN
+  -- is relative to the repo root.
+  local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN") or "", "cosmic"))
+  check.needs("a built cosmic at " .. cosmic, fs.is_file(cosmic))
+  local script = fs.join(root, "run.lua")
+  assert(fs.write(script,
+      'os.exit(require("_tool.coverage.baseline").gate("floor", "", ' ..
+      '{"one.cov", "lib"}))\n'))
+  local r = check.must(child.run({cosmic, script}, {cwd = root}))
+  local err = r.stderr or ""
+  assert(r.code == 0, "a merged baseline must still hold, got " ..
+    tostring(r.code) .. ": " .. err)
+  assert((r.stdout or ""):find("coverage ratchet ok", 1, true),
+    "the ratchet holds, got: " .. tostring(r.stdout))
+  assert(err:find("1 duplicate row(s), resolved to the lower coverage", 1, true),
+    "the duplicate rows must be named, got: " .. err)
+end
+test_check_gates_a_merged_baseline_and_names_the_duplicates()
 
 print("all baseline tests passed")
