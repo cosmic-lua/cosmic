@@ -9,12 +9,27 @@
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local flow = require("_work.flow")
+local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local store = require("_work.store")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+
+-- Git reads a global (and system) config before it does anything, and
+-- a config it cannot READ is fatal, not skipped: under the build
+-- fence the home directory is outside the granted trees, so every git
+-- call here — the fixtures' and the store's own — dies on
+-- `unable to access '~/.gitconfig'`. Pointing this process at an
+-- empty config makes the fixtures depend on no ambient state at all,
+-- which is what a test of git behaviour wants regardless of the
+-- fence. The store itself is deliberately NOT hermetic: a real
+-- session's push needs the user's credentials and config.
+local hermetic_config < const > = fs.join(tmpdir, "gitconfig-empty")
+assert(fs.write(hermetic_config, ""))
+assert(env.set("GIT_CONFIG_GLOBAL", hermetic_config))
+assert(env.set("GIT_CONFIG_NOSYSTEM", "1"))
 
 --- Run one git command in `cwd`, failing the test loudly if it does
 --- not exit zero — fixture setup, not the code under test.
@@ -70,6 +85,15 @@ local function init_shared(name: string, clones: integer): string, {string}
   return bare, out
 end
 
+--- How many commits a checkout carries — fixture arithmetic for the
+--- one-commit-per-mutation property.
+local function commit_count(cwd: string): integer
+  local r = check.must(child.run({"git", "rev-list", "--count", "HEAD"},
+      {cwd = cwd}))
+  assert(r.ok, "git rev-list failed: " .. r.stderr)
+  return math.tointeger(tonumber((r.stdout:gsub("%s+$", "")))) or -1
+end
+
 local counter = 0
 
 --- A fresh deterministic id; later calls sort later.
@@ -93,12 +117,12 @@ local function test_save_load_spec_and_history()
   local s = check.must(store.open(root))
   local it = make_item("plan")
   local short = it.id:sub(1, 8)
-  assert(store.save(s, it, "## Goal\nG1\n", "new " .. short))
+  assert(store.save(s, it, "new " .. short, "## Goal\nG1\n"))
   local loaded = check.must(store.load(s, it.id))
   assert(loaded.phase == "plan", "phase: " .. loaded.phase)
   assert(store.read_spec(s, it.id) == "## Goal\nG1\n", "spec sidecar")
   loaded.phase = "ready"
-  assert(store.save(s, loaded, nil, "move " .. short .. " plan -> ready"))
+  assert(store.save(s, loaded, "move " .. short .. " plan -> ready"))
   assert(store.read_spec(s, it.id) == "## Goal\nG1\n",
     "a nil spec leaves the sidecar alone")
   local events = check.must(store.history(s, it.id))
@@ -114,8 +138,8 @@ local function test_resolve_prefixes()
   local s = check.must(store.open(root))
   local a = make_item("plan")
   local b = make_item("plan")
-  assert(store.save(s, a, nil, "new a"))
-  assert(store.save(s, b, nil, "new b"))
+  assert(store.save(s, a, "new a"))
+  assert(store.save(s, b, "new b"))
   assert(check.must(store.resolve(s, a.id)) == a.id, "full ids resolve")
   assert(check.must(store.resolve(s, a.id:sub(1, 26))) == a.id,
     "a unique prefix resolves")
@@ -128,12 +152,44 @@ local function test_resolve_prefixes()
 end
 test_resolve_prefixes()
 
+-- Everything one mutation touches lands in ONE commit, because that
+-- is what makes publish's "drop the refused mutation" exact.
+local function test_save_writes_every_touched_item_as_one_commit()
+  local root = init_state_repo("atomic")
+  local s = check.must(store.open(root))
+  local parent = make_item("plan")
+  assert(store.save(s, parent, "new parent"))
+  local before = commit_count(root)
+  local kid = make_item("plan")
+  parent.phase = ""
+  assert(store.save(s, kid, "new kid", nil, {parent}))
+  assert(commit_count(root) == before + 1,
+    ("one mutation, one commit: %d -> %d"):format(before, commit_count(root)))
+  assert(check.must(store.load(s, parent.id)).phase == "",
+    "the de-phased parent is in that commit")
+  assert(check.must(store.load(s, kid.id)).phase == "plan", "so is the child")
+end
+test_save_writes_every_touched_item_as_one_commit()
+
+-- A mutation that changes nothing must say so, not surface git's
+-- exit code with the explanation on a stream nobody read.
+local function test_save_refuses_a_no_op()
+  local root = init_state_repo("noop")
+  local s = check.must(store.open(root))
+  local it = make_item("plan")
+  assert(store.save(s, it, "new item"))
+  local ok, err = store.save(s, it, "move it nowhere")
+  assert(not ok, "an unchanged item is not a commit")
+  assert(err:find("nothing to record", 1, true), "got: " .. err)
+end
+test_save_refuses_a_no_op()
+
 local function test_publish_fast_forward()
   local bare, clones = init_shared("ff", 2)
   assert(bare)
   local a = check.must(store.open(clones[1]))
   local it = make_item("plan")
-  assert(store.save(a, it, nil, "new item"))
+  assert(store.save(a, it, "new item"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
@@ -150,24 +206,24 @@ local function test_publish_cas_refuses_over_limit()
   local _, clones = init_shared("cas", 2)
   local a = check.must(store.open(clones[1]))
   for i = 1, 4 do
-    assert(store.save(a, make_item("do"), nil, ("busy %d"):format(i)))
+    assert(store.save(a, make_item("do"), ("busy %d"):format(i)))
   end
   local mine = make_item("ready")
   local yours = make_item("ready")
-  assert(store.save(a, mine, nil, "new mine"))
-  assert(store.save(a, yours, nil, "new yours"))
+  assert(store.save(a, mine, "new mine"))
+  assert(store.save(a, yours, "new yours"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
 
   local ia = check.must(store.load(a, mine.id))
   ia.phase = "do"
-  assert(store.save(a, ia, nil, "move mine ready -> do"))
+  assert(store.save(a, ia, "move mine ready -> do"))
   assert(store.publish(a))
 
   local ib = check.must(store.load(b, yours.id))
   ib.phase = "do"
-  assert(store.save(b, ib, nil, "move yours ready -> do"))
+  assert(store.save(b, ib, "move yours ready -> do"))
   local ok, err = store.publish(b, function(): string
       local merged = check.must(store.list(b))
       local board = flow.board(merged)
@@ -186,3 +242,42 @@ local function test_publish_cas_refuses_over_limit()
   assert(#(merged["do"] or {}) == 5, "do holds exactly its limit")
 end
 test_publish_cas_refuses_over_limit()
+
+-- Two sessions editing the SAME item cannot rebase past each other.
+-- git stops mid-rebase with conflict markers in the item file, which
+-- is a state no later verb survives — a conflicted item is not
+-- parseable literal data, so even `status` would die. The loser must
+-- come back to a clean checkout holding the winner's state.
+local function test_publish_unwinds_a_conflicting_rebase()
+  local _, clones = init_shared("conflict", 2)
+  local a = check.must(store.open(clones[1]))
+  local contested = make_item("ready")
+  assert(store.save(a, contested, "new contested"))
+  assert(store.publish(a))
+  local b = check.must(store.open(clones[2]))
+  assert(store.sync(b))
+
+  local ia = check.must(store.load(a, contested.id))
+  ia.phase = "do"
+  ia.claim = "session-a"
+  assert(store.save(a, ia, "move contested ready -> do"))
+  assert(store.publish(a))
+
+  local ib = check.must(store.load(b, contested.id))
+  ib.phase = "check"
+  ib.pr = 7
+  assert(store.save(b, ib, "move contested ready -> check"))
+  local ok, err = store.publish(b)
+  assert(not ok, "the losing edit of the same item must be refused")
+  assert(err:find("concurrent edit", 1, true), "got: " .. err)
+  assert(err:find(contested.id:sub(1, 8), 1, true),
+    "the refusal names the contested item: " .. err)
+
+  assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
+    "no rebase may be left in progress")
+  local after = check.must(store.load(b, contested.id))
+  assert(after.phase == "do" and after.claim == "session-a",
+    "the loser's checkout holds the winner's state: " .. after.phase)
+  assert(store.list(b), "the board stays readable after the refusal")
+end
+test_publish_unwinds_a_conflicting_rebase()

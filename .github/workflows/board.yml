@@ -1,0 +1,47 @@
+name: board
+
+# The board branch carries the machinery that moves every work item,
+# and main's workflows are filtered to main — so without this lane the
+# board's own tests run only when someone remembers to run them. It
+# gates what it can gate: the whole `--make ci` (fmt, check, lint,
+# coverage-with-tests) over this branch's tree.
+#
+# The gate is cheap here — a few seconds of tests plus the pinned
+# cosmic download — so this lane skips main's fence, cache and
+# fixpoint lanes. There is no artifact to reproduce: nothing on this
+# branch builds a binary.
+on:
+  push:
+    branches: [board]
+  pull_request:
+    branches: [board]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    # A green run takes well under a minute; anything near this is a hang.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # The store's tests build scratch repositories and commit to
+      # them. Every git call the store makes carries its own committer
+      # (`-c user.email`), so no global identity is needed — but git
+      # refuses to operate in a checkout it considers foreign, and the
+      # runner's ownership differs from the checkout's.
+      - name: trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # `bin/cosmic` fetches the one pinned cosmic, verifies its
+      # sha256, and execs it; `--make ci` ends with a PASS/FAIL verdict
+      # line and signals through its exit code.
+      - name: gate
+        run: bin/cosmic --make ci

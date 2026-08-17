@@ -12,13 +12,13 @@
 --- it, so the label board's carve-outs (the epic exemption, the
 --- finding exception, the mandated flag) have nothing to except. What
 --- remains of `admits_over_limit` is two lines. The ready bar
---- (`_work.model.ready_gaps`) is reused as-is over the spec sidecar.
+--- (`_work.spec.ready_gaps`) is applied to the spec sidecar.
 --- WIP limits carry the label board's empirically tuned values;
 --- retuning them is a reviewed change here too. Ids are KSUIDs, so
 --- sorting by id IS sorting by age and "oldest first" needs no other
 --- field.
 local it = require("_work.item")
-local model = require("_work.model")
+local spec = require("_work.spec")
 
 local type Item = it.Item
 
@@ -184,7 +184,7 @@ end
 --- @param i Item The item
 --- @param index Index Items by id
 --- @return Item | nil The root
-local function root_of(i: Item, index: Index): Item
+local function root_of(i: Item, index: Index): Item | nil
   local cur = i
   for _ = 1, MAX_DEPTH do
     if it.is_root(cur) then
@@ -198,31 +198,61 @@ local function root_of(i: Item, index: Index): Item
   return nil
 end
 
---- Graph problems across the whole tree: parents that do not exist,
---- chains that never reach a root, phased items that are not workable
---- leaves, and phased work that traces to no ranked goal. This is
---- the goal trace as a checked property instead of a prose
---- convention.
+--- ONE item's graph problems: a parent that does not exist, a chain
+--- that never reaches a root, a phase held by something that is not a
+--- workable leaf, work that traces to no ranked goal, and the reverse
+--- — an open leaf left with no phase, which is off the board without
+--- being finished. This is the goal trace as a checked property
+--- instead of a prose convention.
+---
+--- Scoped to the one item on purpose: the ready bar asks it of the
+--- item being promoted, so an unrelated item's broken chain can never
+--- refuse a promotion that has nothing to do with it. `status` asks
+--- it of everything, which is where board-wide health belongs.
+--- @param i Item The item
+--- @param items {Item} All items
+--- @param index Index Items by id
+--- @return {string} Problems, possibly empty
+local function item_problems(i: Item, items: {Item}, index: Index): {string}
+  local out: {string} = {}
+  if not it.is_root(i) and index[i.parent] == nil then
+    out[#out + 1] = ("%s: parent %s does not exist"):format(i.id, i.parent)
+    return out
+  end
+  if not it.is_open(i) then
+    return out
+  end
+  if (i.phase or "") == "" then
+    if not it.is_root(i) and not has_open_children(items, i.id) then
+      out[#out + 1] = ("%s: a workable leaf with no phase — it is off the "
+        .. "board without being finished; move it into plan or end it")
+      :format(i.id)
+    end
+    return out
+  end
+  if has_open_children(items, i.id) then
+    out[#out + 1] = ("%s: phased but has open children — finish the "
+      .. "decomposition or clear its phase"):format(i.id)
+  end
+  local root = root_of(i, index)
+  if root == nil then
+    out[#out + 1] = ("%s: parent chain is broken or cyclic"):format(i.id)
+  elseif (root.rank or 0) < 1 then
+    out[#out + 1] = ("%s: traces to %s, which is unranked — adopt the "
+      .. "finding or rank the root"):format(i.id, root.id)
+  end
+  return out
+end
+
+--- Every item's graph problems, for board-wide health.
 --- @param items {Item} All items
 --- @return {string} Problems, possibly empty
 local function trace_problems(items: {Item}): {string}
   local index = by_id(items)
   local out: {string} = {}
   for _, i in ipairs(items) do
-    if not it.is_root(i) and index[i.parent] == nil then
-      out[#out + 1] = ("%s: parent %s does not exist"):format(i.id, i.parent)
-    elseif it.is_open(i) and (i.phase or "") ~= "" then
-      if has_open_children(items, i.id) then
-        out[#out + 1] = ("%s: phased but has open children — finish the "
-          .. "decomposition or clear its phase"):format(i.id)
-      end
-      local root = root_of(i, index)
-      if root == nil then
-        out[#out + 1] = ("%s: parent chain is broken or cyclic"):format(i.id)
-      elseif (root.rank or 0) < 1 then
-        out[#out + 1] = ("%s: traces to %s, which is unranked — adopt the "
-          .. "finding or rank the root"):format(i.id, root.id)
-      end
+    for _, p in ipairs(item_problems(i, items, index)) do
+      out[#out + 1] = p
     end
   end
   return out
@@ -232,7 +262,7 @@ end
 --- @param b Board The board
 --- @param index Index Items by id
 --- @return Item | nil The pullable item
-local function first_pullable(b: Board, index: Index): Item
+local function first_pullable(b: Board, index: Index): Item | nil
   for _, i in ipairs(oldest_first(b, "ready")) do
     if not is_blocked(i, index) then
       return i
@@ -392,7 +422,8 @@ end
 --- @param role_name string "planner" or "implementer"
 --- @return NextAction | nil The decision
 --- @return string Error message for an unknown role
-local function next_action(items: {Item}, role_name: string): NextAction, string
+local function next_action(items: {Item}, role_name: string):
+  NextAction | nil, string
   if role_name == "implementer" then
     return next_for_implementer(items)
   end
@@ -418,11 +449,13 @@ local record flow
   oldest_first: function(b: Board, phase: string): {Item}
   wip_violations: function(b: Board): {string}
   is_blocked: function(i: Item, index: Index): boolean
-  root_of: function(i: Item, index: Index): Item
+  root_of: function(i: Item, index: Index): Item | nil
+  item_problems: function(i: Item, items: {Item}, index: Index): {string}
   trace_problems: function(items: {Item}): {string}
   goals: function(items: {Item}): {Item}, {string: boolean}
   findings: function(items: {Item}): {Item}
-  next_action: function(items: {Item}, role_name: string): NextAction, string
+  next_action: function(items: {Item}, role_name: string):
+  NextAction | nil, string
   ready_gaps: function(body: string): {string}
 end
 
@@ -438,11 +471,12 @@ local M: flow = {
   wip_violations = wip_violations,
   is_blocked = is_blocked,
   root_of = root_of,
+  item_problems = item_problems,
   trace_problems = trace_problems,
   goals = goals,
   findings = findings,
   next_action = next_action,
-  ready_gaps = model.ready_gaps,
+  ready_gaps = spec.ready_gaps,
 }
 
 return M

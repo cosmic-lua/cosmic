@@ -16,7 +16,7 @@
 ---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
 ---   cosmic --make run _work/gitboard.tl check 2akQ
----   cosmic --make run _work/gitboard.tl move 2akQ ready
+---   cosmic --make run _work/gitboard.tl move 2akQ check --pr 42
 ---   cosmic --make run _work/gitboard.tl status | tree | next [--role R]
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
@@ -66,6 +66,7 @@ local CSPEC: flags.CommandSpec = {
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION", help = "record who took it"},
+          {long = "pr", arg = "N", help = "the PR carrying the work"},
           {long = "force", help = "override the target WIP limit"}}}},
     {name = "verdict", summary = "record a review verdict; the move it implies follows",
       spec = {usage = "ID KIND [options]", flags = {dir_flag(),
@@ -177,7 +178,8 @@ local function main(...: string): integer
       io.stderr:write("move needs a phase\n")
       return 1
     end
-    return verbs.cmd_move(s, id, target, d.parsed.values["claim"],
+    local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
+    return verbs.cmd_move(s, id, target, d.parsed.values["claim"], pr,
       d.parsed.switches["force"])
   end
   if d.command == "verdict" then

@@ -70,8 +70,13 @@ local function git_ok(s: Store, argv: {string}): child.Result | nil, string
     return nil, err
   end
   if not r.ok then
-    return nil, ("git %s failed: %s"):format(
-      table.concat(argv, " "), ((r.stderr or ""):gsub("%s+$", "")))
+    -- Git reports some refusals on stdout ("nothing to commit"), so a
+    -- stderr-only message would be an empty one.
+    local detail = (r.stderr or ""):gsub("%s+$", "")
+    if detail == "" then
+      detail = (r.stdout or ""):gsub("%s+$", "")
+    end
+    return nil, ("git %s failed: %s"):format(table.concat(argv, " "), detail)
   end
   return r
 end
@@ -184,7 +189,7 @@ local function list(s: Store): {item.Item} | nil, string
   for _, path in ipairs(found) do
     local t, perr = literal.parse_file(path)
     if t == nil then
-      return nil, perr
+      return nil, ("%s: %s"):format(path, perr)
     end
     local it, derr = item.decode(t)
     if it == nil then
@@ -195,17 +200,13 @@ local function list(s: Store): {item.Item} | nil, string
   return out
 end
 
---- Write an item (and, when given, its spec sidecar) and commit both
---- as one mutation. The commit is local; `publish` is what makes it
---- the board's truth.
+--- Write one item and its spec sidecar, and stage both.
 --- @param s Store The store
 --- @param it item.Item The item
 --- @param spec string Replacement spec markdown; nil leaves the sidecar alone
---- @param message string Commit subject, e.g. "move fetch-retry ready -> do"
 --- @return boolean True on success
 --- @return string Error message
-local function save(s: Store, it: item.Item, spec: string,
-    message: string): boolean, string
+local function stage(s: Store, it: item.Item, spec?: string): boolean, string
   local bad = item.problems(it)
   if #bad > 0 then
     return false, table.concat(bad, "; ")
@@ -228,6 +229,43 @@ local function save(s: Store, it: item.Item, spec: string,
   if aerr then
     return false, aerr
   end
+  return true
+end
+
+--- Write an item (and, when given, its spec sidecar and further items
+--- the same mutation touches) and commit them as ONE commit. Every
+--- board mutation is exactly one commit, which is what lets `publish`
+--- undo a refused one by dropping a single commit: a decomposition
+--- that de-phases a parent while filing its child writes both here,
+--- so the pair can never half-land.
+--- @param s Store The store
+--- @param it item.Item The item
+--- @param message string Commit subject, e.g. "move fetch-retry ready -> do"
+--- @param spec string Replacement spec markdown; omitted leaves the sidecar alone
+--- @param also {item.Item} Further items to write into the same commit
+--- @return boolean True on success
+--- @return string Error message; "nothing to record" when state is unchanged
+local function save(s: Store, it: item.Item, message: string,
+    spec?: string, also?: {item.Item}): boolean, string
+  local ok, err = stage(s, it, spec)
+  if not ok then
+    return false, err
+  end
+  for _, other in ipairs(also or {}) do
+    local staged, serr = stage(s, other, nil)
+    if not staged then
+      return false, serr
+    end
+  end
+  -- A mutation that changes nothing stages nothing, and `git commit`
+  -- reports that on STDOUT while exiting non-zero — which reads as a
+  -- bare "git commit failed:" unless it is caught here. Re-running an
+  -- identical verdict or spec is the way to meet it.
+  local clean = git(s, {"diff", "--cached", "--quiet"})
+  if clean ~= nil and clean.ok then
+    return false, ("nothing to record: %s leaves the board unchanged"):format(
+      message)
+  end
   local _, cerr = git_ok(s, {"commit", "-q", "-m", message})
   if cerr then
     return false, cerr
@@ -243,9 +281,59 @@ local function has_origin(s: Store): boolean
   return r ~= nil and r.ok and r.stdout:find("origin", 1, true) ~= nil
 end
 
---- Pull concurrent state: rebase this checkout's unpublished commits
---- onto the remote. A store with no origin is local-only and syncs
---- trivially.
+--- The items a stopped rebase left conflicted, as one readable list.
+--- @param s Store The store
+--- @return string Item ids, or "" when the paths cannot be read
+local function conflicted_items(s: Store): string
+  local r = git(s, {"diff", "--name-only", "--diff-filter=U"})
+  if r == nil or not r.ok then
+    return ""
+  end
+  local ids: {string} = {}
+  for line in r.stdout:gmatch("([^\n]+)") do
+    local id = line:match("^items/(.+)%.tl$") or line:match("^items/(.+)%.md$")
+    if id then
+      ids[#ids + 1] = id:sub(1, 8)
+    end
+  end
+  return table.concat(ids, " ")
+end
+
+--- Rebase this checkout's unpublished commits onto the remote.
+---
+--- Two sessions editing the SAME item conflict, and git stops the
+--- rebase mid-flight with markers in the item file — a state where
+--- every later verb fails, reads included, because a conflicted item
+--- is no longer parseable literal data. So a stopped rebase is always
+--- unwound here: the checkout goes back to where it started and the
+--- caller is told which items collided, rather than being left to
+--- discover a half-applied rebase.
+--- @param s Store The store
+--- @return boolean True when the rebase completed
+--- @return string Error message naming the conflicting items
+local function rebase_onto_remote(s: Store): boolean, string
+  local r, err = git(s, {"pull", "-q", "--rebase", "origin"})
+  if r == nil then
+    return false, err
+  end
+  if r.ok then
+    return true
+  end
+  local ids = conflicted_items(s)
+  local _, aerr = git(s, {"rebase", "--abort"})
+  if aerr then
+    return false, aerr
+  end
+  if ids == "" then
+    return false, ("git pull --rebase failed: %s"):format(
+      ((r.stderr or ""):gsub("%s+$", "")))
+  end
+  return false, ("concurrent edit of %s — the rebase was undone; "
+    .. "sync and re-apply your change"):format(ids)
+end
+
+--- Pull concurrent state. A store with no origin is local-only and
+--- syncs trivially.
 --- @param s Store The store
 --- @return boolean True on success
 --- @return string Error message
@@ -253,11 +341,7 @@ local function sync(s: Store): boolean, string
   if not has_origin(s) then
     return true
   end
-  local _, err = git_ok(s, {"pull", "-q", "--rebase", "origin"})
-  if err then
-    return false, err
-  end
-  return true
+  return rebase_onto_remote(s)
 end
 
 --- Publish the last commit: push, and treat a rejected push as the
@@ -266,6 +350,11 @@ end
 --- mutation no longer holds, drop the commit and refuse — the same
 --- refusal `move` gives at the limit, arriving late instead of never.
 --- Bounded retries; a store with no origin publishes trivially.
+---
+--- Dropping the mutation is `reset --hard HEAD~1`, which is exact
+--- because `save` writes every item one mutation touches into ONE
+--- commit. A caller that committed twice for a single logical change
+--- would have half of it survive the refusal, so it must not.
 --- @param s Store The store
 --- @param revalidate Revalidate Invariant re-check; nil skips it
 --- @return boolean True once the commit is on the remote
@@ -282,9 +371,21 @@ local function publish(s: Store, revalidate?: Revalidate): boolean, string
     if pushed.ok then
       return true
     end
-    local _, rerr = git_ok(s, {"pull", "-q", "--rebase", "origin"})
-    if rerr then
-      return false, rerr
+    local rebased, rerr = rebase_onto_remote(s)
+    if not rebased then
+      -- The mutation cannot be replayed over the winner's, so it is
+      -- refused: drop it and take the remote's state, leaving a clean
+      -- checkout to re-apply the change in.
+      local _, uerr = git_ok(s, {"reset", "-q", "--hard", "HEAD~1"})
+      if uerr then
+        return false, ("%s (and the local commit could not be dropped: %s)")
+        :format(rerr, uerr)
+      end
+      local _, serr = rebase_onto_remote(s)
+      if serr then
+        return false, serr
+      end
+      return false, ("refused after concurrent update: %s"):format(rerr)
     end
     if revalidate then
       local problem = revalidate()
@@ -332,8 +433,9 @@ local record store
   resolve: function(s: Store, prefix: string): string | nil, string
   read_spec: function(s: Store, id: string): string
   list: function(s: Store): {item.Item} | nil, string
-  save: function(s: Store, it: item.Item, spec: string, message: string):
-  boolean, string
+  stage: function(s: Store, it: item.Item, spec?: string): boolean, string
+  save: function(s: Store, it: item.Item, message: string, spec?: string,
+  also?: {item.Item}): boolean, string
   sync: function(s: Store): boolean, string
   publish: function(s: Store, revalidate?: Revalidate): boolean, string
   history: function(s: Store, id: string): {Event} | nil, string
@@ -347,6 +449,7 @@ local M: store = {
   resolve = resolve,
   read_spec = read_spec,
   list = list,
+  stage = stage,
   save = save,
   sync = sync,
   publish = publish,
