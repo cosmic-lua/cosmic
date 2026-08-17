@@ -54,6 +54,7 @@ bin/
   pr.yml               CI on push/PR (--make ci)
   docs.yml             publish docs on push to main
   release.yml          daily release build
+  fuzz.yml             daily deep fuzz (--make test _fuzz)
 ```
 
 **the repo root is the module root**:
@@ -492,9 +493,8 @@ queue; pull requests carry fixes and review as before.
   the real pins, rebuilds at another path, and byte-compares against `build`'s artifact.
   `smoke` runs that artifact on real macOS/Windows runners. All Linux lanes are
   privileged and non-root: the quicksand tests unshare and mount, identity moves coverage
-- **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs`
-  branch on push to main
-- **release.yml**: daily release, built twice — the pinned cosmic builds
-  one from the tree, and THAT one builds what ships, so a release is
-  produced by its own code, not the pin. cron runs default to a
-  prerelease; a real one needs `workflow_dispatch` with `prerelease: false`
+- **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs` branch on push to main
+- **release.yml**: daily release, built twice — the pinned cosmic builds one from the tree, and
+  THAT one builds what ships, so a release is produced by its own code, not the pin. cron runs
+  default to a prerelease; a real one needs `workflow_dispatch` with `prerelease: false`
+- **fuzz.yml**: daily deep fuzz, `0 9 * * *` (three hours after release.yml's `0 6`, so the two never contend). `_fuzz` at FUZZ_ITERS=50000 (2000 on its own `pull_request` trigger), seeded `date -u +%Y%m%d` unless a `workflow_dispatch` input overrides it for replay; a red run fails loudly but never blocks or delays a release

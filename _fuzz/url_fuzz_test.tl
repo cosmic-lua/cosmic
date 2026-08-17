@@ -8,6 +8,7 @@
 --- The table-valued property still generates a string — the driver's input
 --- is what the failure message carries, so the query tables are encoded as
 --- length-prefixed bytes and decoded inside the check.
+--- env: FUZZ_SEED FUZZ_ITERS
 
 local check = require("cosmic.check")
 local deep = require("cosmic.deep")

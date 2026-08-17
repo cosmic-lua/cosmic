@@ -1,0 +1,125 @@
+name: fuzz
+
+# Depth needs its own schedule: pr.yml runs every fuzz property at the
+# 256 default on every push, shallow by design. This lane runs the SAME
+# properties at FUZZ_ITERS=50000 once a day, three hours after
+# release.yml's 0 6 cron, so the two lanes never contend and a find
+# always lands on a tree that has already shipped. A red run here never
+# blocks anything -- see the deep step below, which carries no guard and
+# no `continue-on-error` for the opposite reason: a lane that cannot
+# fail is not a lane.
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'FUZZ_SEED override (default: today, UTC, as YYYYMMDD)'
+        type: string
+        default: ''
+      iters:
+        description: 'FUZZ_ITERS override (default: 50000)'
+        type: string
+        default: ''
+  # So the lane's own plumbing is proven on the PR that adds it, and on
+  # every later change to it or to what it runs -- at the shallow
+  # FUZZ_ITERS=2000 the plan step below picks for pull_request.
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/fuzz.yml'
+      - '_fuzz/**'
+
+permissions:
+  contents: read
+
+# PR runs supersede each other like every other PR lane; scheduled runs
+# never cancel each other -- a 09:00 run in flight must not be killed by
+# tomorrow's 09:00 run starting under the same group.
+concurrency:
+  group: fuzz-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Same pinned container and non-root builder as every Linux lane (see
+  # pr.yml and docs.yml); `_build/workflows_test.tl` ratchets the
+  # `image:` and `options:` lines identical across every workflow.
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Deliberately no `actions/cache` step: a deep lane must never
+      # inherit a shallow run's markers.
+      #
+      # One seed for the whole run, from the environment rather than a
+      # clock read inside a test, so one line reproduces the whole lane.
+      # A `workflow_dispatch` input overrides for replay; otherwise the
+      # seed rotates daily. The iteration budget is uniform across every
+      # module for the same reason `_fuzz/driver.tl` reads a single
+      # `FUZZ_ITERS`: per-module values would invalidate the envstamp of
+      # modules run under a different value and re-run them for nothing.
+      - name: plan
+        id: plan
+        shell: bash
+        run: |
+          set -eux
+          seed="${{ github.event.inputs.seed }}"
+          if [ -z "$seed" ]; then
+            seed=$(date -u +%Y%m%d)
+          fi
+          iters="${{ github.event.inputs.iters }}"
+          if [ -z "$iters" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              iters=2000
+            else
+              iters=50000
+            fi
+          fi
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "iters=$iters" >> "$GITHUB_OUTPUT"
+
+      # The seed is recorded three times total: here on stdout and in
+      # the step summary (with a copy-pasteable reproduce command), and
+      # a third time inside any driver failure message
+      # (`_fuzz/driver.tl:66-69`). No guard: a red property must fail
+      # this step, and this job, loudly.
+      - name: deep fuzz
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -eux
+          echo "deep-fuzz: seed=${{ steps.plan.outputs.seed }} iters=${{ steps.plan.outputs.iters }}"
+          {
+            echo "deep-fuzz: seed=${{ steps.plan.outputs.seed }} iters=${{ steps.plan.outputs.iters }}"
+            echo "FUZZ_SEED=${{ steps.plan.outputs.seed }} FUZZ_ITERS=${{ steps.plan.outputs.iters }} bin/cosmic --make test _fuzz"
+          } >> "$GITHUB_STEP_SUMMARY"
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            FUZZ_SEED="${{ steps.plan.outputs.seed }}" \
+            FUZZ_ITERS="${{ steps.plan.outputs.iters }}" \
+            bash -ec 'bin/cosmic --make fetch; bin/cosmic --make test _fuzz'
+
+      # `if: always()` is on the upload, not on the deep step: the run
+      # is the artifact, so a failing input must survive log truncation
+      # even though the step above it failed. Paths match what the test
+      # rule records under (`record $(basename $@)`, embed/cosmic.mk:188-189).
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: always()
+        with:
+          name: deep-fuzz-${{ steps.plan.outputs.seed }}
+          path: |
+            o/_fuzz/*.test.out
+            o/_fuzz/*.test.err
+            o/_fuzz/*.test.time
