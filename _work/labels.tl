@@ -7,6 +7,7 @@
 --- change never touches the flow rules.
 
 local gh = require("_work.github")
+local model = require("_work.model")
 
 --- One label: name, hex color, description.
 local record Label
@@ -35,6 +36,26 @@ local LABELS: {Label} = {
     description = "implementer evidence; filed even at the limit"},
 }
 
+--- The labels an issue carries on GitHub: its phase, then every marker
+--- it is marked with, in board order. The write half of the vocabulary
+--- `model.phase_of` and `model.has_marker` read, so a filing and a
+--- reading never disagree about how a marker is spelled.
+--- @param issue model.Issue The issue as the board sees it
+--- @return {string} Label names, phase first
+local function labels_of(issue: model.Issue): {string}
+  local names: {string} = {"work:" .. issue.phase}
+  if issue.epic then
+    names[#names + 1] = "work:epic"
+  end
+  if issue.finding then
+    names[#names + 1] = "work:finding"
+  end
+  if issue.enable then
+    names[#names + 1] = "work:enable"
+  end
+  return names
+end
+
 --- init: create the label vocabulary, idempotently. Prints its own
 --- output including the trailing `work-init:` verdict line, like every
 --- other board verb.
@@ -57,11 +78,13 @@ end
 local record labels
   type Label = Label
   LABELS: {Label}
+  labels_of: function(issue: model.Issue): {string}
   cmd_init: function(repo: string): integer
 end
 
 local M: labels = {
   LABELS = LABELS,
+  labels_of = labels_of,
   cmd_init = cmd_init,
 }
 

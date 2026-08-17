@@ -102,20 +102,6 @@ local function is_return(from: string, to: string): boolean
   return a ~= nil and b ~= nil and b < a
 end
 
---- Whether a move may land in a phase that is already at its limit: a
---- return, or any move into `land`. A return is the system correcting
---- itself, and a move into `land` is an accept — a verdict already
---- made, and finished work rather than inventory — so neither is ever
---- refused. The landing queue's own limit gates PULLS out of ready
---- instead, so a full landing queue stops new work from starting
---- rather than stranding work that is already done.
---- @param from string Current phase name, or nil when not on the board
---- @param to string Target phase name
---- @return boolean True when the target's WIP limit does not bind the move
-local function admits_over_limit(from: string, to: string): boolean
-  return to == "land" or is_return(from, to)
-end
-
 --- Whether an issue occupies a WIP-limit slot in a phase: false
 --- exactly for an epic sitting in plan, true otherwise. An epic is a
 --- container that lives in plan until every child closes — not work in
@@ -127,6 +113,37 @@ end
 --- @return boolean True when the issue counts against the phase's limit
 local function counts_against_limit(issue: Issue, phase: string): boolean
   return not (phase == "plan" and issue.epic)
+end
+
+--- Whether a phase's WIP limit lets an arrival in while that phase is
+--- already at the limit — the one rule both `move` and `new` ask, so
+--- an issue that moves and an issue that is filed are refused on the
+--- same terms. `issue` is the arrival as the board will see it: the
+--- issue being moved, or the one about to be created, whose `from` is
+--- nil because an entry comes from nowhere. Four admissions:
+--- an arrival the phase would not count occupies no slot there, so the
+--- limit has nothing to measure — an epic in plan is a container, not
+--- work in progress, and refusing to file one is the limit binding
+--- something it does not count; captured evidence is never dropped for
+--- a full board; `mandated` is a filing a verdict already required —
+--- the feedback half's second-occurrence countermeasure — which no
+--- label shows, so the filing asserts it; and a return or a move into
+--- `land` is the system correcting itself or an accept, both decisions
+--- already made. The landing queue's own limit gates PULLS out of
+--- ready instead, so a full landing queue stops new work from starting
+--- rather than stranding work that is already done.
+--- @param issue Issue The arrival, as the board will see it
+--- @param from string Current phase name, or nil for an entry
+--- @param to string Target phase name
+--- @param mandated boolean True when a verdict already required the filing
+--- @return boolean True when the target's WIP limit does not bind it
+local function admits_over_limit(issue: Issue, from: string, to: string,
+    mandated: boolean): boolean
+  return not counts_against_limit(issue, to)
+  or issue.finding
+  or mandated
+  or to == "land"
+  or is_return(from, to)
 end
 
 --- Occupancy of one phase, counting only issues that count against its
@@ -433,7 +450,8 @@ local record model
   phase_of: function(labels: {string}): string
   has_marker: function(labels: {string}, marker: string): boolean
   is_return: function(from: string, to: string): boolean
-  admits_over_limit: function(from: string, to: string): boolean
+  admits_over_limit: function(issue: Issue, from: string, to: string,
+  mandated: boolean): boolean
   counts_against_limit: function(issue: Issue, phase: string): boolean
   limited_count: function(board: Board, phase: string): integer
   ready_gaps: function(body: string): {string}

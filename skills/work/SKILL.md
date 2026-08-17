@@ -69,6 +69,7 @@ bin/cosmic --make run _work/board.tl check 123           # ready-bar lint
 bin/cosmic --make run _work/board.tl move 123 ready      # phase change, WIP-limited
 bin/cosmic --make run _work/board.tl new "title" --epic  # open a board issue
 bin/cosmic --make run _work/board.tl new "title" --finding  # file evidence; never refused at the limit
+bin/cosmic --make run _work/board.tl new "title" --mandated  # a countermeasure a verdict required; same
 bin/cosmic --make run _work/board.tl edit 123 --body-file F  # rewrite an issue body in place
 bin/cosmic --make run _work/board.tl show 123             # read an issue — the body is the spec
 bin/cosmic --make run _work/board.tl land 123 456         # verify an accept, then squash-merge the PR
@@ -164,13 +165,29 @@ before refining, refining before intake, and an implementer lands and
 finishes `do` before pulling ready. the WIP limits are what make this
 real — they gate rightward moves and planner intake, so a full phase
 REFUSES a pull (`move` says so) and the fix is to drain the phases to
-its right, not to widen the limit. what a limit never refuses is a
-decision already made: a bounce to `plan`, a rework send-back, an
-accept into `land`, and a `--finding` all go through, because a full
-board must never be the reason a correction, a verdict, or a piece of
-evidence is dropped — an over-limit phase blocks further pull until it
-drains, and nothing else. limits are policy, committed in
-`_work/model.tl`, tuned only by a reviewed change.
+its right, not to widen the limit.
+
+a limit refuses an arrival only when that arrival would occupy one of
+the phase's slots AND is not a decision already made. both halves are
+one rule (`model.admits_over_limit`), asked by `move` and `new` alike,
+so a card that moves and a card that is filed are refused on the same
+terms:
+
+- **occupies no slot** — an epic arriving in `plan` is a container, not
+  work in progress, and the phase does not count it; refusing to file
+  one would be the limit binding something it does not measure.
+- **a decision already made** — a bounce to `plan`, a rework send-back,
+  an accept into `land`, a `--finding`, and a `--mandated`
+  countermeasure (a filing the feedback half already required, below)
+  all go through, because a full board must never be the reason a
+  correction, a verdict, a piece of evidence, or a countermeasure is
+  dropped.
+
+everything else queues, including ordinary `--enable` intake: a
+countermeasure nobody's verdict demanded is planned work like any
+other. an over-limit phase blocks further pull until it drains, and
+nothing else. limits are policy, committed in `_work/model.tl`, tuned
+only by a reviewed change.
 
 ## the planner session
 

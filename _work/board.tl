@@ -19,6 +19,7 @@
 ---   cosmic --make run _work/board.tl move 123 ready [--force]
 ---   cosmic --make run _work/board.tl new "title" [--body-file F] [--epic]
 ---   cosmic --make run _work/board.tl new "title" --finding
+---   cosmic --make run _work/board.tl new "title" --mandated
 ---   cosmic --make run _work/board.tl edit 123 --body-file F [--title T]
 ---   cosmic --make run _work/board.tl show 123
 ---   cosmic --make run _work/board.tl land 123 124
@@ -76,6 +77,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "enable", help = "mark as enablement work"},
           {long = "finding",
             help = "capture implementer evidence; lands even at the WIP limit"},
+          {long = "mandated",
+            help = "a countermeasure a verdict required; implies --enable"},
           {long = "force", help = "override the phase WIP limit"}}}},
     {name = "edit", summary = "rewrite ISSUE's title and/or body in place",
       spec = {usage = "ISSUE [--body-file FILE] [--title TITLE]",
@@ -172,7 +175,8 @@ local function main(...: string): integer
     end
     return verbs.cmd_new(repo, title, d.parsed.values["body-file"], phase,
       d.parsed.switches["epic"], d.parsed.switches["enable"],
-      d.parsed.switches["finding"], d.parsed.switches["force"])
+      d.parsed.switches["finding"], d.parsed.switches["mandated"],
+      d.parsed.switches["force"])
   end
   if d.command == "show" then
     local n = math.tointeger(tonumber(d.parsed.args[1] or ""))
