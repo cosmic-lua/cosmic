@@ -29,21 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     # A green run takes well under a minute; anything near this is a hang.
     timeout-minutes: 10
-    env:
-      # This branch has no `cmd/`, so nothing here builds a cosmic to
-      # re-exec into: `--make` runs under the PINNED release from
-      # first verb to last, where main's gate always runs under the
-      # binary it just built. That makes the pin's own fence the one
-      # this branch's tests execute inside, and a pin that predates
-      # landlock's REFER grant denies cross-directory rename with
-      # EXDEV — which is exactly how git finalizes objects out of a
-      # push's receive quarantine, so every test that pushes dies.
-      #
-      # Remove this the moment `bin/cosmic.pin` names a release
-      # carrying that grant (any release cut after the work-board
-      # move); the fence is worth running under, and it is what caught
-      # these tests reading an ambient git config.
-      COSMIC_FENCE: "0"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
