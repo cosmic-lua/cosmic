@@ -72,7 +72,9 @@ issue right into `land`, request changes moves it one phase left into
   lands. when a landing closes an
   epic's last child, the next planner pass verifies the epic's stated
   outcome actually holds (run its observable test, not the
-  children's) and closes the epic.
+  children's) and closes the epic with `close N` — an epic sits in
+  `plan`, which the close verb accepts, and completed is its default
+  reason.
 - **request changes.** concrete, quoted gaps on the PR, then `move N
   do` — rework rejoins the implementer queue, where `next`'s
   finish-before-pull rule makes it the first thing an implementer
@@ -87,16 +89,18 @@ issue right into `land`, request changes moves it one phase left into
   look there.
 - **reject.** the approach is wrong, or the issue itself was not
   actually ready. close the PR, comment what was learned, and move
-  the issue LEFT — `move N plan` (or close it as not planned if
-  the work should not happen at all). rejection is cheap by design;
+  the issue LEFT — `move N plan` (or `close N --reason not-planned`
+  if the work should not happen at all; a close from `check` is one
+  the verb accepts, so the rejection needs no move first). rejection
+  is cheap by design;
   wrong work merged is expensive.
 
 a research slice (deliverable: a comment, no PR) takes the same
 three verdicts, on its comment: accept means re-running the issue's
 acceptance checks against the tree — totals recomputed, cited
 `file:line`s read, claims spot-verified — then commenting the
-verdict and closing the issue as completed, with no move into `land`
-because there is nothing to merge. the harvested follow-ups
+verdict and closing the issue as completed — `close N`, straight from
+`check`, with no move into `land` because there is nothing to merge. the harvested follow-ups
 (epic checklist updates, new children, corrections to sibling
 issues) are the SAME session's refinement obligations, not a note
 for later: accepted research that seeds nothing has not finished
@@ -143,8 +147,10 @@ a prose apology.
 
 findings enter the same loop from the implementer side: at the refine
 step the planner triages every open `work:finding` — adopt it with a
-goal trace, or close it as not planned — and one this review itself
-confirms is countermeasure evidence like any bounce.
+goal trace, or close it: `close N --reason not-planned` for a finding
+that will not be worked, `close N` for one work already landed has
+covered, so the record says which of the two happened. a finding this
+review itself confirms is countermeasure evidence like any bounce.
 
 this loop is what makes the system converge: goals pull work onto the
 board, reviews push friction back into enablement, and over time the
