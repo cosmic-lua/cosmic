@@ -17,6 +17,7 @@ _work/       the machinery: gitboard (CLI), gitverbs (mutations),
              store (git-backed persistence), flow (the rules), item
              (the record), ksuid (ids) — plus the legacy label-board
              tool, kept while GitHub issues remain the inbound queue
+cmd/gitboard the binary this branch builds: `o/bin/gitboard`
 bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 ```
 
@@ -33,10 +34,22 @@ worktree — `--dir` then defaults to it and needs no argument:
 ```
 git worktree add o/board board     # once per checkout
 cd o/board
-bin/cosmic --make fetch            # once, on a cold worktree
-bin/cosmic --make run _work/gitboard.tl status
-bin/cosmic --make run _work/gitboard.tl next
+bin/cosmic --make build            # once, on a cold worktree
+o/bin/gitboard status
+o/bin/gitboard next
 ```
+
+`o/bin/gitboard` is an ordinary cosmic binary carrying `_work/**`, so
+a verb is one process and its output is only the verdict line. Before
+the branch has built, `bin/cosmic --make run _work/gitboard.tl <verb>`
+runs the same CLI through make.
+
+Building a binary is not the same as building the TOOLCHAIN. A gate
+re-execs into what the tree built only for a project that defines
+`cosmic/**` and ships a binary called `cosmic`; this branch does
+neither, so every `--make` verb here runs under the pinned release.
+The pin therefore decides which fence the tests execute inside, which
+is why `bin/cosmic.pin` matters here beyond reproducibility.
 
 Every mutation is ONE commit here, and publishing it is a push. A
 rejected push is the compare half of a compare-and-swap: the tool
