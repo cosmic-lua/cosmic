@@ -6,7 +6,9 @@ model judging the implementation against the definition of work AND
 the goal it traces to. an item sits in `check` with a PR attached —
 that phase means exactly "awaiting a planner verdict", nothing else —
 and the planner ends that state with one of three verdicts, every
-time.
+time. `check` is the only phase a verdict may end, and the verb
+refuses one from anywhere else: an accept reaches `land` past every
+gate between them, so it may only be given where review happens.
 
 ## the review itself
 
@@ -131,10 +133,13 @@ ending the session, the planner converts it:
    --parent <goal> --spec-file F`), or fix the ready-bar gap directly
    if it was this one item's specification failure.
 3. if the same wrong turn has now appeared twice, the countermeasure
-   stops being optional: file it before refining anything new. no
-   flag enforces this anymore — filing is never refusable, so the
-   rule is the planner's own discipline, and a review that skips it
-   twice is itself a finding.
+   stops being optional: file it before refining anything new.
+
+every non-accept verdict carries this in `--enable`, and the verb
+refuses one without it: `--enable <item-id>` names the countermeasure
+filed, `--enable 'none: <reason>'` records that this item's own spec
+was the fault. what the flag cannot judge is whether the reason is a
+real one — that part is still the planner's.
 
 a bounce that quotes a wrong or unmeasured tree-fact names its
 countermeasure directly — the facts block was missing or stale for

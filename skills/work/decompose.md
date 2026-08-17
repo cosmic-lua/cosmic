@@ -32,9 +32,9 @@ position in the graph; moving down a rung is what "refine" means.
 decomposition mechanics: children point at their parent (the
 `--parent` edge), so there is no checklist to maintain and none to go
 stale — `tree` renders the decomposition from the edges. a slice that
-needs another slice first carries it in `blocked_by` (`next` skips
-items with open blockers; until a verb exists, set the field by
-editing the item file and committing). when every child is done, the
+needs another slice first records it with `gitboard block ID BLOCKER`
+(`next` skips items with open blockers, and the verb refuses an edge
+that would deadlock the pair). when every child is done, the
 planner verifies the container's outcome actually holds and ends it
 (`review.md`).
 
@@ -134,11 +134,11 @@ question. every count an `Acceptance` grep demands states the CURRENT
 reworded pattern is a NEW fact, re-measured, never carried over. a
 `Change` that narrows a function's contract enumerates that
 function's callers as a fact (`grep -rn` the call sites), so no
-caller is discovered broken at implementation time. the label-era
-tool executed facts blocks mechanically; `gitboard check` does not
-yet — re-measure by hand at refinement until that verb lands, and
-hold the discipline regardless: a stale fact bounces the slice
-exactly as it always did.
+caller is discovered broken at implementation time. `check` and
+`move ID ready` RUN the block — in the product checkout the facts
+describe, not the board worktree asking — so a stale fact refuses the
+promotion rather than surviving to bounce the slice later. write them
+to be run.
 
 ## a worked example
 
