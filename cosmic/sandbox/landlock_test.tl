@@ -36,6 +36,13 @@ local function test_access_mask_composition()
   -- Rewriting is what a build does on its second run.
   assert((landlock.RW & landlock.TRUNCATE) == landlock.TRUNCATE,
     "RW must include TRUNCATE, or rw means write-once")
+  -- REFER is the same shape one ABI earlier: handled by ALL, and
+  -- without it in the grant, rename(2) between two directories of a
+  -- granted rw tree fails EXDEV — rw would mean create-but-never-move,
+  -- and git (whose object store finalizes by cross-directory rename)
+  -- cannot run in a fenced rw tree.
+  assert((landlock.RW & landlock.REFER) == landlock.REFER,
+    "RW must include REFER, or rw means never-move")
   -- RW is read + write only: it must NOT silently grant execute, or a
   -- box's rw path (e.g. /tmp) would become write+exec (a sandbox
   -- weakening the caller never asked for).
@@ -200,3 +207,70 @@ local function test_restrict_bad_rule_path_returns_error()
     "error should identify the failing open: " .. tostring(err))
 end
 test_restrict_bad_rule_path_returns_error()
+
+-- An rw grant must admit moving an entry between two directories of
+-- its own tree: REFER rides in WRITE (like TRUNCATE), or rename(2)
+-- inside a granted tree fails EXDEV — which is how git-under-the-fence
+-- surfaced it, every push finalizing objects by cross-directory
+-- rename. The move OUT of the rw tree into a read-only one must still
+-- be denied: REFER composes per-tree, it does not leak across grants.
+local function test_rw_grant_allows_rename_within_its_tree()
+  if not landlock.available() then
+    check.enforce_skip("landlock unavailable (kernel lacks landlock)")
+    return
+  end
+  local v = landlock.abi()
+  if v ~= nil and v < 2 then
+    -- ABI 1 has no REFER: the kernel denies cross-directory moves
+    -- outright and no grant can allow them.
+    check.enforce_skip("landlock ABI < 2 cannot grant REFER")
+    return
+  end
+  local rw_dir = fs.join(tmpdir, "refer-rw")
+  local ro_dir = fs.join(tmpdir, "refer-ro")
+  assert(fs.make_dirs(fs.join(rw_dir, "a")))
+  assert(fs.make_dirs(fs.join(rw_dir, "b")))
+  assert(fs.make_dirs(ro_dir))
+  assert(fs.write(fs.join(rw_dir, "a", "obj.txt"), "payload"))
+  assert(fs.write(fs.join(rw_dir, "a", "leak.txt"), "payload"))
+
+  -- os.rename, deliberately: it is raw rename(2), where fs.move would
+  -- fall back to copy+unlink on EXDEV and mask the very denial this
+  -- test measures.
+  local script = fs.join(tmpdir, "landlock_refer.lua")
+  assert(fs.write(script, string.format([[
+local ll = require("cosmic.sandbox.landlock")
+local ok, err = ll.restrict{ rules = {
+  { path = %q, access = ll.RW },
+  { path = %q, access = ll.READ },
+} }
+if not ok then
+  io.write("skipped: " .. tostring(err) .. "\n")
+  os.exit(0)
+end
+local moved = os.rename(%q, %q)
+io.write(moved and "within-ok\n" or "within-denied\n")
+local leaked = os.rename(%q, %q)
+io.write(leaked and "across-leaked\n" or "across-blocked\n")
+]], rw_dir, ro_dir,
+        fs.join(rw_dir, "a", "obj.txt"), fs.join(rw_dir, "b", "obj.txt"),
+        fs.join(rw_dir, "a", "leak.txt"), fs.join(ro_dir, "leak.txt"))))
+
+  local h = check.must(child.start({cosmic, script}))
+  local __r1 = check.must(h:wait())
+  local ok, out = __r1.ok, __r1.stdout
+  if not ok then
+    check.enforce_skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    return
+  end
+  if out:find("skipped", 1, true) then
+    check.enforce_skip("landlock restrict blocked: " .. out, true)
+    return
+  end
+  assert(out:find("within-ok", 1, true),
+    "rename within the rw tree must succeed: " .. out)
+  assert(out:find("across-blocked", 1, true),
+    "rename into a read-only tree must stay denied: " .. out)
+  check.enforced("landlock rw rename")
+end
+test_rw_grant_allows_rename_within_its_tree()
