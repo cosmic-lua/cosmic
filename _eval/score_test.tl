@@ -6,10 +6,11 @@ local score = require("_eval.score")
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- Copy a committed _eval/testdata fixture run dir into a scratch
---- directory. score.main WRITES results.json into the run dir it
---- scores, and every check writes its own pinned fixture inputs into
---- each workspace -- neither may ever touch the committed tree, so
---- every test here scores a throwaway copy.
+--- directory. score.main never writes into the run dir it is given --
+--- it stages its own scoring copy under o/_eval/scored/ (see
+--- score.out_dir_for) -- so this is purely test isolation: a test that
+--- mutates its input (e.g. rewriting probe.txt) before scoring must do
+--- so on a private copy, never the committed fixture.
 --- @param name string The fixture's directory name under _eval/testdata
 --- @return string The scratch copy's path
 local function copy_fixture(name: string): string
@@ -20,10 +21,11 @@ local function copy_fixture(name: string): string
   return dst
 end
 
---- @param dir string A scored run dir (results.json already written)
---- @return {string: any} The decoded results.json
+--- @param dir string The run dir argument a scoring call was given
+--- @return {string: any} The decoded results.json from that call's
+--- staged scoring copy (see score.out_dir_for)
 local function read_results(dir: string): {string: any}
-  local body = check.must(fs.read(fs.join(dir, "results.json")))
+  local body = check.must(fs.read(fs.join(score.out_dir_for(dir), "results.json")))
   return check.must(json.decode_object(body)) as {string: any} -- cast: from any
 end
 
@@ -100,7 +102,8 @@ local function test_run_partial_writes_complete_results_and_fails()
   assert(printed == "eval: FAIL (sqlite-indexer)",
     "expected the exact verdict line naming the failing task id, got " ..
     string.format("%q", printed))
-  assert(fs.is_file(fs.join(dir, "results.json")), "results.json must still be written")
+  assert(fs.is_file(fs.join(score.out_dir_for(dir), "results.json")),
+    "results.json must still be written")
   local results = read_results(dir)
   assert(results.verdict == "FAIL", "expected verdict FAIL, got " .. tostring(results.verdict))
   local rows = results.rows as {{string: any}} -- cast: from any
@@ -193,7 +196,7 @@ local function test_missing_meta_json_fails_cleanly()
   check.must(fs.remove(fs.join(dir, "meta.json")))
   local code = score.main(dir)
   assert(code ~= 0, "scoring a run dir with no meta.json must fail")
-  assert(not fs.is_file(fs.join(dir, "results.json")),
+  assert(not fs.is_file(fs.join(score.out_dir_for(dir), "results.json")),
     "no results.json should be written when meta.json cannot be loaded")
 end
 test_missing_meta_json_fails_cleanly()
@@ -203,6 +206,29 @@ local function test_missing_run_dir_fails_cleanly()
   assert(code ~= 0, "scoring a nonexistent run dir must fail")
 end
 test_missing_run_dir_fails_cleanly()
+
+--- The one test that scores through a genuinely RELATIVE path into a
+--- COMMITTED fixture, unlike every test above (copy_fixture's scratch
+--- copies are always absolute TEST_TMPDIR paths and cannot reach this
+--- shape). Proves both halves of the fix at once: a relative run dir
+--- argument scores correctly (the cwd-independence fix), and nothing
+--- lands in the committed tree afterward (the never-writes-into-input
+--- fix) -- results.json, and the fixture inputs contained-task's check
+--- materializes into its workspace.
+local function test_relative_rundir_scores_without_touching_committed_tree()
+  local rel = "_eval/testdata/run_pass"
+  local code, printed = score_and_capture(rel)
+  assert(code == 0, "run_pass via a relative path should exit 0, got " .. code)
+  assert(printed == "eval: PASS",
+    "expected the exact verdict line 'eval: PASS', got " .. string.format("%q", printed))
+  assert(not fs.is_file(fs.join(rel, "results.json")),
+    "scoring must never write results.json into the committed run dir")
+  assert(not fs.is_dir(fs.join(rel, "contained-task", "testdata")),
+    "scoring must never materialize a check's fixture inputs into the committed run dir")
+  local results = read_results(rel)
+  assert(results.verdict == "PASS", "expected verdict PASS, got " .. tostring(results.verdict))
+end
+test_relative_rundir_scores_without_touching_committed_tree()
 
 local function test_requires_exactly_one_argument()
   assert(score.parse_args({}).err ~= nil, "no arguments should be an error")

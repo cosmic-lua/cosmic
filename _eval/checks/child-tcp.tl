@@ -7,10 +7,12 @@
 --- reap its child, not orphan it).
 ---
 --- Does NOT exercise `echotrip serve` directly as a scorer-side TCP
---- client -- that acceptance fact was judged not worth the fixture
---- complexity a live round-trip requires (see the issue for the
---- reasoning); the ten-run repetition above is what catches the
---- brief's actual S-trap.
+--- client: orchestrator mode IS the serve path (the artifact with no
+--- args spawns its own `serve` child, reads the readiness line,
+--- connects, and round-trips), so the ten-run repetition above already
+--- exercises bind, readiness, echo, and exit against real agent code --
+--- a separate client would only add a live round-trip against a fixture
+--- stand-in server, not real production code.
 local fs = require("cosmic.fs")
 local support = require("_eval.checks.support")
 

@@ -39,7 +39,7 @@ _eval/checks/support.tl 70 80
 _eval/checks/text-report.tl 36 41
 _eval/eval_types.tl 2 2
 _eval/journal.tl 107 110
-_eval/score.tl 162 178
+_eval/score.tl 166 187
 _eval/stage.tl 165 205
 _eval/suite.tl 0 1
 _fuzz/driver.tl 56 57

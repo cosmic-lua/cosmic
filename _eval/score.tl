@@ -12,9 +12,15 @@
 --- otherwise the task's committed functional check runs against the
 --- produced artifact -- never the agent's claims -- and the journal
 --- (NOTES.md, final.txt) is best-effort parsed for the fields that
---- have no other source. Writes <run dir>/results.json in the
---- eval_types.EvalResults shape and ends with `eval: PASS` or
---- `eval: FAIL (<failing task ids>)`.
+--- have no other source.
+---
+--- Never writes into `<run dir>` itself: the argument is a caller-owned
+--- path (sometimes a committed fixture) and checks materialize their
+--- own pinned inputs into the workspace they check, so the whole tree
+--- is mirrored once, up front, into `o/_eval/scored/<basename>` (this
+--- project's own build-output root) and every later step -- checks,
+--- journal parse, results.json -- runs against that copy only. See
+--- `out_dir_for` for the exact destination a caller can look up.
 ---
 --- Exit codes: 0 on PASS; 1 on FAIL or any failure (printed to stderr).
 local flags = require("cosmic.flags")
@@ -58,6 +64,47 @@ local SPEC: flags.Spec = {
   name = "score.lua",
   flags = {},
 }
+
+--- Build-output root scoring copies are staged into -- never the run
+--- dir argument itself, which score.tl must leave untouched. `o/` is
+--- this project's own build-output convention.
+local OUT_ROOT < const > = "o/_eval/scored"
+
+--- Where `stage_scoring_copy` stages a scoring copy of `rundir_arg` and
+--- where results.json ends up -- one basename-keyed slot under
+--- OUT_ROOT, so a caller that needs to inspect results.json (a test,
+--- an operator) can find it without re-deriving the naming rule.
+--- @param rundir_arg string The run dir argument, as given on argv
+--- @return string The scoring copy's path (always absolute)
+local function out_dir_for(rundir_arg: string): string
+  local abs = fs.absolute_path(rundir_arg)
+  return fs.absolute_path(fs.join(OUT_ROOT, fs.basename(abs)))
+end
+
+--- Mirror `rundir_arg` into its `out_dir_for` slot and return that
+--- copy's (absolute) path. Every later step -- meta/probe loading,
+--- checks, journal parsing, results.json -- runs against the copy, so
+--- `rundir_arg` is only ever read here, never written to. Staging into
+--- an ABSOLUTE destination also closes a distinct bug: `cosmic.child`
+--- applies `cwd` in the spawned child before exec, so a relative
+--- workspace joined into argv[0] would resolve a second time against
+--- the child's new cwd and fail with ENOENT; every workspace built from
+--- this copy is absolute, so that double resolution cannot happen.
+--- @param rundir_arg string The run dir argument, as given on argv
+--- @return string|nil The scoring copy's path
+--- @return string The error, when the copy could not be staged
+local function stage_scoring_copy(rundir_arg: string): string | nil, string
+  local dst = out_dir_for(rundir_arg)
+  local rok, rerr = fs.remove_all(dst)
+  if not rok then
+    return nil, "clear " .. dst .. ": " .. tostring(rerr)
+  end
+  local cok, cerr = fs.copy_tree(rundir_arg, dst)
+  if not cok then
+    return nil, "stage " .. rundir_arg .. " -> " .. dst .. ": " .. tostring(cerr)
+  end
+  return dst
+end
 
 --- Parse command-line arguments: exactly one positional, the run dir.
 --- @param argv {string} Raw arguments
@@ -249,21 +296,26 @@ local function main(...: string): integer
     io.stderr:write("score: no such run directory: " .. a.rundir .. "\n")
     return 1
   end
+  local run_dir, sterr = stage_scoring_copy(a.rundir)
+  if not run_dir then
+    io.stderr:write("score: " .. tostring(sterr) .. "\n")
+    return 1
+  end
   local manifest, merr = stage.load_manifest(stage.MANIFEST_PATH)
   if not manifest then
     io.stderr:write("score: " .. tostring(merr) .. "\n")
     return 1
   end
-  local meta, meerr = load_meta(a.rundir)
+  local meta, meerr = load_meta(run_dir)
   if not meta then
     io.stderr:write("score: " .. tostring(meerr) .. "\n")
     return 1
   end
-  fold_probe(a.rundir, meta)
+  fold_probe(run_dir, meta)
 
   local rows: {eval_types.Row} = {}
   for _, task in ipairs(manifest.tasks) do
-    rows[#rows + 1] = score_row(a.rundir, task)
+    rows[#rows + 1] = score_row(run_dir, task)
   end
 
   local verdict, failing_ids = compute_verdict(manifest, rows)
@@ -277,7 +329,7 @@ local function main(...: string): integer
     io.stderr:write("score: encode results.json: " .. tostring(eerr) .. "\n")
     return 1
   end
-  local wok, werr = fs.write(fs.join(a.rundir, "results.json"), encoded)
+  local wok, werr = fs.write(fs.join(run_dir, "results.json"), encoded)
   if not wok then
     io.stderr:write("score: write results.json: " .. tostring(werr) .. "\n")
     return 1
@@ -302,6 +354,7 @@ local record score_module
   score_row: function(run_dir: string, task: eval_types.Task): eval_types.Row
   compute_verdict: function(manifest: eval_types.Manifest, rows: {eval_types.Row}):
   string, {string}
+  out_dir_for: function(rundir_arg: string): string
 end
 
 local M: score_module = {
@@ -310,6 +363,7 @@ local M: score_module = {
   load_meta = load_meta,
   score_row = score_row,
   compute_verdict = compute_verdict,
+  out_dir_for = out_dir_for,
 }
 
 return M
