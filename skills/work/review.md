@@ -135,10 +135,16 @@ ending the session, the planner converts it:
 
 1. name the wrong turn in one line (on the issue).
 2. pick the countermeasure by the `enable.md` ordering (core > docs >
-   skills) and file the `work:enable` issue, or fix the ready-bar gap
-   directly if it was this one issue's specification failure.
+   skills) and file the `work:enable` issue (`new "title" --enable
+   --body-file F`), or fix the ready-bar gap directly if it was this
+   one issue's specification failure.
 3. if the same wrong turn has now appeared twice, the countermeasure
-   stops being optional: file it before refining anything new.
+   stops being optional: file it before refining anything new, with
+   `--mandated` in place of `--enable`. that flag says a verdict
+   already required this filing, so a full `plan` cannot refuse it and
+   it lands as `work:enable` — never as a `work:finding`, which means
+   implementer evidence awaiting triage and is the one signal triage
+   reads.
 
 a bounce that quotes a wrong or unmeasured tree-fact names its
 countermeasure directly — the facts block was missing or stale for
