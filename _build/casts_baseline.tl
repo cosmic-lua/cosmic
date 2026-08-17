@@ -1,6 +1,7 @@
 return {
   ["_build/casts.tl"] = 2,
   ["_build/casts_test.tl"] = 2,
+  ["_build/size.tl"] = 1,
   ["_cli/build/init_test.tl"] = 3,
   ["_cli/build/steps.tl"] = 2,
   ["_cli/lint.tl"] = 2,

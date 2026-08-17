@@ -151,6 +151,41 @@ jobs:
             fi
             exit 0'
 
+      # G9's per-release half (docs/goals.md; see _build/size.tl): the
+      # same measure-then-compare shape as the perf steps above, over
+      # tree size instead of speed. This step runs size.tl in report
+      # mode under `set -eux` with no guard, so a failure here (e.g. an
+      # encode/make_dirs/write error) fails the release. Only the
+      # baseline-fetch + compare chain below is guarded to always
+      # succeed; this measurement step is not.
+      - name: measure the tree size
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -c '
+            o/bin/cosmic --make run _build/size.tl --out o/perf/size.json --binary o/bin/cosmic'
+
+      # Same bootstrap shape as the perf baseline fetch above, over the
+      # `size.json` asset: baseline.tl's own --asset flag picks it, so
+      # this needs no extra tooling — the same cosmic.fetch-based lister
+      # that finds perf.json finds size.json.
+      - name: compare tree size against the previous release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" bash -c '
+            o/bin/cosmic --make run _perf/baseline.tl --repo ${{ github.repository }} \
+              --asset size.json --out o/perf/prev/size.json | tee o/perf/size_baseline.txt
+            if grep -q "^perf-baseline: SKIP" o/perf/size_baseline.txt; then
+              echo "size: SKIP (no baseline: first measured release)" > o/perf/size_compare.txt
+            else
+              o/bin/cosmic --make run _build/size.tl compare \
+                o/perf/prev/size.json o/perf/size.json | tee o/perf/size_compare.txt
+            fi
+            exit 0'
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-lua
@@ -159,6 +194,8 @@ jobs:
             o/bin/cosmic-debug
             o/perf/perf.json
             o/perf/compare.txt
+            o/perf/size.json
+            o/perf/size_compare.txt
 
   release:
     runs-on: ubuntu-latest
@@ -188,7 +225,10 @@ jobs:
           debug_src=$(find artifacts -type f -name cosmic-debug | head -1)
           perf_src=$(find artifacts -type f -name perf.json | head -1)
           compare_src=$(find artifacts -type f -name compare.txt | head -1)
-          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ] || [ -z "$perf_src" ] || [ -z "$compare_src" ]; then
+          size_src=$(find artifacts -type f -name size.json | head -1)
+          size_compare_src=$(find artifacts -type f -name size_compare.txt | head -1)
+          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ] || [ -z "$perf_src" ] || [ -z "$compare_src" ] \
+              || [ -z "$size_src" ] || [ -z "$size_compare_src" ]; then
             echo "release assets not found in downloaded artifacts:" >&2
             find artifacts >&2
             exit 1
@@ -197,13 +237,15 @@ jobs:
           cp "$debug_src" release/cosmic-lua-debug
           cp "$perf_src" release/perf.json
           cp "$compare_src" release/compare.txt
+          cp "$size_src" release/size.json
+          cp "$size_compare_src" release/size-compare.txt
           chmod +x release/cosmic-lua release/cosmic-lua-debug
           tag="$TAG"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
-          notes=$(tail -n1 release/compare.txt)
+          notes=$(printf '%s\n%s\n' "$(tail -n1 release/compare.txt)" "$(tail -n1 release/size-compare.txt)")
           gh release create "$tag" \
             ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \
             --title "$tag" \
             --notes "$notes" \
             release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS \
-            release/perf.json release/compare.txt
+            release/perf.json release/compare.txt release/size.json release/size-compare.txt

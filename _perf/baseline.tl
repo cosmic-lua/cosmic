@@ -1,18 +1,18 @@
 #!/usr/bin/env cosmic
---- Fetch the previous release's perf.json, as the ratchet's raw
+--- Fetch a previous release's named asset, as the ratchet's raw
 --- material: a release measures itself (see _perf/run.tl), and this
 --- script recovers the last measurement to compare the new one
 --- against.
 ---
----   cosmic -- o/_perf/baseline.lua --repo OWNER/NAME --out PATH
+---   cosmic -- o/_perf/baseline.lua --repo OWNER/NAME --out PATH [--asset NAME]
 ---
 --- Lists releases (GET /repos/OWNER/NAME/releases?per_page=30, newest
 --- first) via cosmic.fetch, authenticated with GH_TOKEN or
 --- GITHUB_TOKEN when set (unauthenticated otherwise — the API allows
 --- it, just at a lower rate limit). The previous release is the
 --- newest one by created_at, prereleases included and drafts
---- excluded, that carries an asset named exactly "perf.json". Its
---- asset is downloaded to --out.
+--- excluded, that carries an asset named exactly --asset (default
+--- "perf.json"). Its asset is downloaded to --out.
 ---
 --- Verdict line, always the last line printed:
 ---   perf-baseline: OK <tag>            asset downloaded to --out
@@ -50,20 +50,23 @@ local ASSET_NAME < const > = "perf.json"
 local API_URL < const > = "https://api.github.com/repos/%s/releases?per_page=30"
 
 local USAGE = [[
-usage: baseline.lua --repo OWNER/NAME --out PATH
+usage: baseline.lua --repo OWNER/NAME --out PATH [--asset NAME]
 ]]
 
 local SPEC: flags.Spec = {
   name = "baseline.lua",
   flags = {
     {long = "repo", arg = "OWNER/NAME", required = true, help = "GitHub repo to query"},
-    {long = "out", arg = "PATH", required = true, help = "write the baseline perf.json here"},
+    {long = "out", arg = "PATH", required = true, help = "write the baseline asset here"},
+    {long = "asset", arg = "NAME", default = ASSET_NAME,
+      help = "release asset name to fetch (default perf.json)"},
   },
 }
 
 local record Args
   repo: string
   out: string
+  asset: string
   help: boolean
   err: string
 end
@@ -80,6 +83,7 @@ local function parse_args(argv: {string}): Args
   end
   a.repo = parsed.values["repo"]
   a.out = parsed.values["out"]
+  a.asset = parsed.values["asset"]
   a.help = parsed.help
   return a
 end
@@ -98,16 +102,17 @@ local function find_asset(release: Release, name: string): Asset | nil
 end
 
 --- The previous release: the newest one by created_at (ISO 8601, so
---- lexicographic order is chronological order) that carries a
---- `perf.json` asset. Drafts are excluded; prereleases are eligible —
---- almost every release this repo cuts is one. Pure: no network, so
---- it is directly unit-testable on literal fixtures.
+--- lexicographic order is chronological order) that carries the named
+--- asset. Drafts are excluded; prereleases are eligible — almost every
+--- release this repo cuts is one. Pure: no network, so it is directly
+--- unit-testable on literal fixtures.
 --- @param releases {Release} Releases as GitHub's API returns them
+--- @param asset_name string Exact asset name a qualifying release must carry
 --- @return Release | nil The previous release, or nil when none qualifies
-local function pick_baseline(releases: {Release}): Release | nil
+local function pick_baseline(releases: {Release}, asset_name: string): Release | nil
   local best: Release = nil
   for _, r in ipairs(releases) do
-    if not r.draft and find_asset(r, ASSET_NAME) ~= nil then
+    if not r.draft and find_asset(r, asset_name) ~= nil then
       if best == nil or r.created_at > best.created_at then
         best = r
       end
@@ -189,7 +194,7 @@ local function main(...: string): integer
     print("perf-baseline: FAIL (" .. lerr .. ")")
     return 1
   end
-  local best = pick_baseline(releases)
+  local best = pick_baseline(releases, a.asset)
   if best == nil then
     print("perf-baseline: SKIP (no baseline)")
     return 0
@@ -197,7 +202,7 @@ local function main(...: string): integer
   -- pick_baseline only selects releases that carry the asset, so this
   -- cannot miss; assert narrows it to a plain Asset rather than
   -- Asset | nil.
-  local asset = assert(find_asset(best, ASSET_NAME))
+  local asset = assert(find_asset(best, a.asset))
   local dok, derr = download_asset(asset.browser_download_url, a.out)
   if not dok then
     print("perf-baseline: FAIL (" .. derr .. ")")
@@ -217,7 +222,7 @@ local record baseline
   type Args = Args
   main: function(...: string): integer
   parse_args: function(argv: {string}): Args
-  pick_baseline: function(releases: {Release}): Release | nil
+  pick_baseline: function(releases: {Release}, asset_name: string): Release | nil
   find_asset: function(release: Release, name: string): Asset | nil
 end
 

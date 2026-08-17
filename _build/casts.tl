@@ -138,6 +138,8 @@ end
 local record CastsModule
   --- The committed floor's path, relative to the project root.
   BASELINE: string
+  --- The trees this count covers: every tree of committed Teal source.
+  TREES: {string}
   count: function(root: string): {string: integer}
   baseline: function(path?: string): {string: integer} | nil, string
   main: function(...: string): integer
@@ -145,6 +147,7 @@ end
 
 local M: CastsModule = {
   BASELINE = BASELINE,
+  TREES = TREES,
   count = count,
   baseline = baseline,
   main = main,
