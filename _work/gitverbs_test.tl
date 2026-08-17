@@ -8,11 +8,26 @@
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local flow = require("_work.flow")
+local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+
+-- Git reads a global (and system) config before it does anything, and
+-- a config it cannot READ is fatal, not skipped: under the build
+-- fence the home directory is outside the granted trees, so every git
+-- call here — the fixtures' and the store's own — dies on
+-- `unable to access '~/.gitconfig'`. Pointing this process at an
+-- empty config makes the fixtures depend on no ambient state at all,
+-- which is what a test of git behaviour wants regardless of the
+-- fence. The store itself is deliberately NOT hermetic: a real
+-- session's push needs the user's credentials and config.
+local hermetic_config < const > = fs.join(tmpdir, "gitconfig-empty")
+assert(fs.write(hermetic_config, ""))
+assert(env.set("GIT_CONFIG_GLOBAL", hermetic_config))
+assert(env.set("GIT_CONFIG_NOSYSTEM", "1"))
 
 local READY_SPEC < const > = [[
 ## Goal
