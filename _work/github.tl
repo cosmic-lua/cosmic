@@ -249,6 +249,26 @@ local function update_issue(repo: string, number: integer,
   return issue_of(res)
 end
 
+--- Close an issue, recording why it ended. `reason` is GitHub's own
+--- `state_reason` spelling: "completed" or "not_planned".
+--- @param repo string "owner/name"
+--- @param number integer Issue number
+--- @param reason string The state_reason to record
+--- @return RawIssue | nil The closed issue
+--- @return string Error message on failure
+local function close_issue(repo: string, number: integer,
+    reason: string): RawIssue, string
+  local path = ("/repos/%s/issues/%d"):format(repo, number)
+  local res, err = api("PATCH", path, {state = "closed", state_reason = reason})
+  if res == nil then
+    return nil, err
+  end
+  if not is_success(res.status) then
+    return nil, api_error("PATCH", path, res)
+  end
+  return issue_of(res)
+end
+
 --- Swap labels on an issue: removals first (absent labels are fine),
 --- then additions.
 --- @param repo string "owner/name"
@@ -430,6 +450,8 @@ local record github
   issue_patch: function(title?: string, body?: string): {string: any}
   update_issue: function(repo: string, number: integer,
   title?: string, body?: string): RawIssue, string
+  close_issue: function(repo: string, number: integer,
+  reason: string): RawIssue, string
   edit_labels: function(repo: string, number: integer,
   add: {string}, remove: {string}): boolean, string
   ensure_label: function(repo: string, name: string, color: string,
@@ -450,6 +472,7 @@ local M: github = {
   create_issue = create_issue,
   issue_patch = issue_patch,
   update_issue = update_issue,
+  close_issue = close_issue,
   edit_labels = edit_labels,
   ensure_label = ensure_label,
   list_issue_comments = list_issue_comments,

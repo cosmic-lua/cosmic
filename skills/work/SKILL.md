@@ -72,6 +72,7 @@ bin/cosmic --make run _work/board.tl new "title" --finding  # file evidence; nev
 bin/cosmic --make run _work/board.tl edit 123 --body-file F  # rewrite an issue body in place
 bin/cosmic --make run _work/board.tl show 123             # read an issue — the body is the spec
 bin/cosmic --make run _work/board.tl land 123 456         # verify an accept, then squash-merge the PR
+bin/cosmic --make run _work/board.tl close 123 --reason not-planned  # end an issue with no PR to close it
 bin/cosmic --make run _work/board.tl stats --days 7       # measure per-phase flow (the review's numbers)
 bin/cosmic --make run _work/board.tl init                # create the labels (once per repo)
 ```
@@ -139,7 +140,16 @@ the ready bar, while the phase `check` is where a PR awaits a verdict.
 its name because it is the one that checks an issue against the bar.
 
 done is a closed issue — completed when the work merged, not planned
-when the planner killed it (a recorded dead end, kept forever). three
+when the planner killed it (a recorded dead end, kept forever). a
+merge closes its issue through the PR's `Closes #N`, and every other
+ending is the `close` verb: `close N` records completed, `close N
+--reason not-planned` records the dead end. it closes from `plan` and
+from `check` — the two phases where a decision ends an issue — and
+refuses `ready`, `do` and `land`, where a close would make a card
+vanish mid-flow; a card that must end from one of those moves left
+first (`move N plan`), and that move is a return, so nothing refuses
+it. phase labels are left on the closed issue: the board lists open
+issues only, and the label is the history `stats` replays. three
 marker labels ride alongside the phase: `work:epic` (a decomposition
 parent — never pulled, closes when its children close), `work:enable`
 (work that exists to make implementers succeed), and `work:finding`
@@ -271,7 +281,8 @@ are `parallel.md`.
   hypothesis backlog under the `optimize` skill; a board issue may link
   to a perf issue, never duplicate it.)
 - board state moves and reads through `_work/board.tl` only. reading
-  an issue is `show N`; landing an accepted PR is `land N PR`; a
+  an issue is `show N`; landing an accepted PR is `land N PR`; ending
+  an issue no PR closes is `close N`; a
   session, either lane, never reaches for `gh`, `curl`, or a raw
   GitHub API call for anything the tool has a verb for — and when the
   tool LACKS a verb the session needs, that gap is filed with `new
@@ -289,7 +300,8 @@ are `parallel.md`.
   to the board, not into the diff.
 - every issue traces to a goal: its `Goal` section names a `G<n>` from
   docs/goals.md or a parent epic that does. work that traces to no
-  goal is closed as not planned, however good the idea — open a goals
+  goal is closed as not planned (`close N --reason not-planned`),
+  however good the idea — open a goals
   amendment PR instead when the goals themselves are wrong. a
   `work:finding` is the one exemption, and only until triage: it is
   captured evidence, not planned work, so it carries no trace when
