@@ -3,6 +3,8 @@
     "allow": [
       "Bash(bin/cosmic --make run _work/gitboard.tl *)",
       "Bash(cd o/board && bin/cosmic --make run _work/gitboard.tl *)",
+      "Bash(o/bin/gitboard *)",
+      "Bash(cd o/board && o/bin/gitboard *)",
       "Bash(git worktree add o/board board)",
       "Bash(bin/cosmic --make test *)",
       "Bash(bin/cosmic --make ci)",
