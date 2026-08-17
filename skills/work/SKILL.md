@@ -105,6 +105,25 @@ and hands back a clean checkout, so re-read and re-apply.
 force-pushed.** rewriting published state history breaks every
 checkout's compare-and-swap at once.
 
+**where TLS is intercepted, trusting the interceptor is an explicit
+opt-in.** cosmic loads the system CA bundle only when
+`SSL_USE_SYSTEM_CERTS` is set — a locally-installed CA never joins the
+trust store just by being installed. so in an environment that
+re-terminates TLS (a corporate egress proxy, a sandboxed runner) the
+two verbs that reach GitHub — `move … check`, whose refusals read the
+PR, and `land`, which merges it — fail every call with
+`badcert_not_trusted` until the session says otherwise:
+
+```bash
+export SSL_USE_SYSTEM_CERTS=1   # only where a proxy re-terminates TLS
+```
+
+`sync` and the push half are git's, and git reads its own CA
+configuration, so they keep working and the failure looks like one
+verb being broken rather than the environment. set the variable in the
+session, never in a committed file: it is a statement about where the
+session runs, not about the board.
+
 ## roles emerge from the graph
 
 an item carries no kind field; its role is its position in the
