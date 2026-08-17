@@ -241,16 +241,20 @@ ergonomics (G2), gate adoption (G4).
 
 ### G8 — the flow system
 
-the system of work (`skills/work`, the `work:*` board): sophisticated
-models decompose these goals into ready work, less sophisticated
-models implement it, and a sophisticated model's review is the final
-gate. its job is to make the outcomes above move and to say what the
-movement costs.
+the system of work (`skills/work`, the board on the `board` branch):
+sophisticated models decompose these goals into ready work, less
+sophisticated models implement it, and a sophisticated model's review
+is the final gate. its job is to make the outcomes above move and to
+say what the movement costs.
 
 - **measured by:** flow health per release — ready→merged lead time,
   WIP-limit adherence, no column starved or saturated for a whole
   release — and the cost ratchet: tokens × model tier per merged
-  slice, tracked and trending down.
+  slice, tracked and trending down. the measurement is currently
+  UNBUILT for the file-based board: every transition is a commit on
+  the `board` branch, so `git log` holds the flow record, but nothing
+  reads it yet — the label-era `stats` tool measured GitHub timelines,
+  which no longer carry the board.
 - **win condition:** the board runs the repo's work with flow health
   holding and cost per merged slice ratcheting down. delegation share
   (how much lands implemented by less sophisticated models) is an

@@ -66,10 +66,11 @@ but the item is the record the tool reads.
   and the landing itself is implementer-lane work: the finish-first
   rule makes it the first thing the next implementer session picks
   up, squash-merging the PR and running `done ID`. the planner
-  judges; the implementer lands. when a landing completes a
-  container's last child, the next planner pass verifies the
-  container's stated outcome actually holds (run its observable test,
-  not the children's) and ends it with `done ID`.
+  judges; the implementer lands. a landing that completes a
+  container's last child returns that container to `plan` in the same
+  commit, where the next planner pass verifies its stated outcome
+  actually holds (run its observable test, not the children's) and
+  ends it with `done ID`.
 - **request changes** — quote the concrete gaps on the PR, then
   `verdict ID "request changes" --pr N --head SHA` moves the item
   back to `do`, where `next`'s finish-before-pull rule makes the
