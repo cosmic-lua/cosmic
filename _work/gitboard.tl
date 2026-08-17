@@ -20,6 +20,7 @@
 ---   cosmic --make run _work/gitboard.tl move 2akQ check --pr 42
 ---   cosmic --make run _work/gitboard.tl status | tree | next [--role R]
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
+---   cosmic --make run _work/gitboard.tl land 2akQ
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
 ---   cosmic --make run _work/gitboard.tl show 2akQ
 ---   cosmic --make run _work/gitboard.tl sync
@@ -29,6 +30,7 @@
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
+local land = require("_work.gitland")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -42,6 +44,7 @@ local view = require("_work.gitview")
 local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["move"] = true, ["verdict"] = true, ["done"] = true,
+  ["land"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -108,6 +111,10 @@ local CSPEC: flags.CommandSpec = {
           {long = "reason", arg = "REASON", default = "completed",
             help = "completed or not-planned"},
           {long = "force", help = "end an item even from ready/do"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
+    {name = "land", summary = "squash-merge an accepted item's PR, then end it",
+      spec = {usage = "ID [options]", flags = {dir_flag(),
+          {long = "force", help = "land without an accept in land"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "show", summary = "print ID's fields, role, spec, and git history",
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
@@ -241,6 +248,10 @@ local function main(...: string): integer
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "",
       d.parsed.values["enable"] or "")
+  end
+  if d.command == "land" then
+    return land.cmd_land(s, id, d.parsed.switches["force"],
+      d.parsed.values["why"] or "")
   end
   if d.command == "done" then
     return verbs.cmd_done(s, id, d.parsed.values["reason"] or "completed",

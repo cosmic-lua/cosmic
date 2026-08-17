@@ -306,6 +306,13 @@ local function cmd_move(s: store.Store, id: string, target: string,
     return gate.verdict_line("move", false,
       ("REFUSED: a handover to check names its PR — pass --pr N"))
   end
+  if target == "check" and not force then
+    local refusal = gate.handover_refusal(s, id,
+      (pr or 0) ~= 0 and pr or it.pr, store.read_spec(s, id))
+    if refusal then
+      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
+    end
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
   end

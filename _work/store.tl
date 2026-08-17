@@ -273,7 +273,9 @@ local function save(s: Store, it: item.Item, message: string,
   return true
 end
 
---- Whether the store has an `origin` remote to publish to.
+--- Whether the store has an `origin` remote to publish to. A store
+--- without one is local-only: it publishes trivially, and the gates
+--- that ask GitHub about a pull request have nothing to ask.
 --- @param s Store The store
 --- @return boolean True when origin exists
 local function has_origin(s: Store): boolean
@@ -460,6 +462,7 @@ local record store
   stage: function(s: Store, it: item.Item, spec?: string): boolean, string
   save: function(s: Store, it: item.Item, message: string, spec?: string,
   also?: {item.Item}): boolean, string
+  has_origin: function(s: Store): boolean
   main_worktree: function(s: Store): string | nil, string
   sync: function(s: Store): boolean, string
   publish: function(s: Store, revalidate?: Revalidate): boolean, string
@@ -476,6 +479,7 @@ local M: store = {
   list = list,
   stage = stage,
   save = save,
+  has_origin = has_origin,
   main_worktree = main_worktree,
   sync = sync,
   publish = publish,

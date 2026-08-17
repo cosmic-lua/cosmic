@@ -10,8 +10,10 @@
 --- alongside — a de-phased parent committed on its own would survive
 --- the refusal of the child that caused it.
 local facts = require("_work.facts")
+local gh = require("_work.gh")
 local flow = require("_work.flow")
 local item = require("_work.item")
+local review = require("_work.review")
 local spec = require("_work.spec")
 local store = require("_work.store")
 
@@ -162,6 +164,44 @@ local function fact_problems(s: store.Store, body: string, root?: string):
   return facts.fact_failures(parsed, where)
 end
 
+--- The refusal a handover into `check` earns from GitHub, or nil when
+--- the request is worth a reviewer's time: open, not a draft, joined
+--- to its item by a `Board:` line, quoting the acceptance commands it
+--- claims to have run, and not already known to fail CI.
+---
+--- A missing token is itself a refusal rather than a silent pass —
+--- a gate that waves things through when it cannot see is worse than
+--- no gate — and `--force` is the way past it, exactly as with every
+--- other refusal here.
+--- @param s store.Store The store
+--- @param id string The item being handed over
+--- @param number integer The PR number
+--- @param body string The item's spec sidecar
+--- @return string | nil The refusal
+local function handover_refusal(s: store.Store, id: string, number: integer,
+    body: string): string
+  -- A local-only board has no pull requests to ask about, the same
+  -- reason publishing there is a no-op.
+  if not store.has_origin(s) then
+    return nil
+  end
+  local p, perr = gh.pull(s, number)
+  if p == nil then
+    return ("cannot read PR #%d: %s; --force to hand it over anyway"):format(
+      number, perr)
+  end
+  local blocked = review.blocks_check(p, id, spec.acceptance_commands(body))
+  if blocked then
+    return blocked
+  end
+  local runs, cerr = gh.checks(s, p.head_sha)
+  if runs == nil then
+    return ("cannot read CI for %s: %s; --force to hand it over anyway")
+    :format(p.head_sha:sub(1, 7), cerr)
+  end
+  return review.blocks_on_ci(runs)
+end
+
 --- The problems that keep an item from `ready`: it must be workable,
 --- its spec must fill the ready-bar sections, and the whole graph
 --- must be traceable. The one list `check` reports and `move ID
@@ -241,6 +281,8 @@ local record gitgate
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
   fact_problems: function(s: store.Store, body: string, root?: string): {string}
+  handover_refusal: function(s: store.Store, id: string, number: integer,
+  body: string): string
   ready_problems: function(s: store.Store, it: item.Item, all: {item.Item},
   root?: string): {string}
 end
@@ -254,6 +296,7 @@ local M: gitgate = {
   dephased_container = dephased_container,
   rephased_parent = rephased_parent,
   fact_problems = fact_problems,
+  handover_refusal = handover_refusal,
   ready_problems = ready_problems,
 }
 
