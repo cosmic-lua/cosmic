@@ -29,6 +29,7 @@ local record RawIssue
   body: string
   html_url: string
   state: string
+  created_at: string
   labels: {RawLabel}
   assignees: {RawUser}
   pull_request: {string: any}

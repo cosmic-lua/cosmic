@@ -16,6 +16,7 @@ local record Issue
   assignee: string
   url: string
   body: string
+  created_at: string
 end
 
 --- Open issues grouped by phase name ("plan" ... "land").
@@ -27,7 +28,7 @@ local type IsOpen = function(n: integer): boolean
 
 --- The tool's one answer to "what should I do now".
 local record NextAction
-  --- "review" | "refine" | "intake" | "finish" | "pull" | "none"
+  --- "review" | "refine" | "triage" | "intake" | "finish" | "pull" | "none"
   kind: string
   --- The issue the action targets; nil for intake and none.
   issue: Issue
@@ -102,36 +103,35 @@ local function is_return(from: string, to: string): boolean
   return a ~= nil and b ~= nil and b < a
 end
 
---- Whether an issue occupies a WIP-limit slot in a phase: false
---- exactly for an epic sitting in plan, true otherwise. An epic is a
---- container that lives in plan until every child closes — not work in
---- progress — and counting it against the limit starves the phase
---- (measured: epics permanently occupied an average 4.8 of plan's 12
---- slots).
+--- Whether an issue occupies a WIP-limit slot in a phase: false for an
+--- epic or an untriaged finding sitting in plan, true otherwise. Both
+--- are not work in progress — an epic is a container until every
+--- child closes (measured: an average 4.8 of plan's 12 slots), and an
+--- untriaged finding carries no goal trace until a planner adopts it,
+--- leaving plan by adoption or closure rather than the ready bar — so
+--- counting either against the limit starves the phase of slots for
+--- genuinely adopted work (measured 2026-08-17: exempting findings too
+--- moves the phase from 24/12 to a still-over-but-honest 15/12).
 --- @param issue Issue The issue
 --- @param phase string Phase the issue is being counted in
 --- @return boolean True when the issue counts against the phase's limit
 local function counts_against_limit(issue: Issue, phase: string): boolean
-  return not (phase == "plan" and issue.epic)
+  return not (phase == "plan" and (issue.epic or issue.finding))
 end
 
 --- Whether a phase's WIP limit lets an arrival in while that phase is
 --- already at the limit — the one rule both `move` and `new` ask, so
 --- an issue that moves and an issue that is filed are refused on the
---- same terms. `issue` is the arrival as the board will see it: the
---- issue being moved, or the one about to be created, whose `from` is
---- nil because an entry comes from nowhere. Four admissions:
---- an arrival the phase would not count occupies no slot there, so the
---- limit has nothing to measure — an epic in plan is a container, not
---- work in progress, and refusing to file one is the limit binding
---- something it does not count; captured evidence is never dropped for
---- a full board; `mandated` is a filing a verdict already required —
---- the feedback half's second-occurrence countermeasure — which no
---- label shows, so the filing asserts it; and a return or a move into
---- `land` is the system correcting itself or an accept, both decisions
---- already made. The landing queue's own limit gates PULLS out of
---- ready instead, so a full landing queue stops new work from starting
---- rather than stranding work that is already done.
+--- same terms. `issue` is the arrival as the board will see it; `from`
+--- is nil for an entry (nowhere to return from). Three admissions: an
+--- arrival the phase would not count occupies no slot there — an epic
+--- or untriaged finding in plan, via `counts_against_limit`, which is
+--- why evidence needs no disjunct of its own here; `mandated` is a
+--- filing a verdict already required, which no label shows, so the
+--- filing asserts it; and a return or a move into `land` is a decision
+--- already made. The landing queue's own limit gates pulls out of
+--- ready instead, so a full landing queue stops new work rather than
+--- stranding work that is already done.
 --- @param issue Issue The arrival, as the board will see it
 --- @param from string Current phase name, or nil for an entry
 --- @param to string Target phase name
@@ -140,7 +140,6 @@ end
 local function admits_over_limit(issue: Issue, from: string, to: string,
     mandated: boolean): boolean
   return not counts_against_limit(issue, to)
-  or issue.finding
   or mandated
   or to == "land"
   or is_return(from, to)
@@ -384,8 +383,10 @@ end
 
 --- The planner's next action, right to left: check waiting work first
 --- (land is the implementer's phase, so the planner's rightmost is
---- check); then refine plan into ready while ready has slack; then
---- intake from the goals while plan has slack; else nothing.
+--- check); then refine adopted plan work into ready while ready has
+--- slack; then triage untriaged findings — adopt or close, never
+--- refine, since a finding carries no goal trace to refine toward;
+--- then intake from the goals while plan has slack; else nothing.
 --- @param board Board The board
 --- @return NextAction The decision
 local function next_for_planner(board: Board): NextAction
@@ -398,12 +399,29 @@ local function next_for_planner(board: Board): NextAction
     }
   end
   local planning = oldest_first(board, "plan")
-  if #planning > 0 and #(board["ready"] or {}) < LIMITS["ready"] then
+  local refine_target: Issue = nil
+  local finding_target: Issue = nil
+  for _, i in ipairs(planning) do
+    if i.finding then
+      finding_target = finding_target or i
+    else
+      refine_target = refine_target or i
+    end
+  end
+  if refine_target and #(board["ready"] or {}) < LIMITS["ready"] then
     return {
       kind = "refine",
-      issue = planning[1],
+      issue = refine_target,
       reason = ("ready holds %d/%d — refine a plan issue toward the bar")
       :format(#(board["ready"] or {}), LIMITS["ready"]),
+    }
+  end
+  if finding_target then
+    return {
+      kind = "triage",
+      issue = finding_target,
+      reason = "an untriaged finding is waiting — adopt it onto the board "
+      .. "or close it",
     }
   end
   local plan_count = counted(board, "plan")

@@ -224,6 +224,27 @@ local function test_counts_against_limit()
 end
 test_counts_against_limit()
 
+local function test_counts_against_limit_exempts_findings_in_plan_only()
+  for _, phase in ipairs(model.PHASES) do
+    local finding_i = issue(1, {finding = true})
+    local want = not (phase == "plan")
+    assert(model.counts_against_limit(finding_i, phase) == want,
+      ("%s finding: got %s, want %s"):format(
+        phase, tostring(model.counts_against_limit(finding_i, phase)),
+        tostring(want)))
+  end
+end
+test_counts_against_limit_exempts_findings_in_plan_only()
+
+local function test_counts_against_limit_enable_always_counts()
+  local enable_i = issue(1, {enable = true})
+  for _, phase in ipairs(model.PHASES) do
+    assert(model.counts_against_limit(enable_i, phase),
+      phase .. ": an enable issue is adopted work and always counts")
+  end
+end
+test_counts_against_limit_enable_always_counts()
+
 local function test_wip_violations_plan_exempts_epics()
   local planning: {Issue} = {}
   for n = 1, 11 do
@@ -339,6 +360,30 @@ local function test_planner_refines_when_ready_has_slack()
   assert(action.issue.number == 2, "got: " .. tostring(action.issue.number))
 end
 test_planner_refines_when_ready_has_slack()
+
+local function test_planner_never_refines_a_finding()
+  local board: Board = {plan = {issue(1, {finding = true})}}
+  local action = assert(model.next_action(board, "planner", all_open))
+  assert(action.kind ~= "refine", "a finding must never be a refine target")
+end
+test_planner_never_refines_a_finding()
+
+local function test_planner_triages_a_finding_when_nothing_to_refine()
+  local board: Board = {plan = {issue(3, {finding = true})}}
+  local action = assert(model.next_action(board, "planner", all_open))
+  assert(action.kind == "triage", "got: " .. action.kind)
+  assert(action.issue.number == 3, "got: " .. tostring(action.issue.number))
+end
+test_planner_triages_a_finding_when_nothing_to_refine()
+
+local function test_planner_refines_before_triaging_an_older_finding()
+  local board: Board = {plan = {issue(1, {finding = true}), issue(2)}}
+  local action = assert(model.next_action(board, "planner", all_open))
+  assert(action.kind == "refine", "refine leads even over an older finding: "
+    .. "got " .. action.kind)
+  assert(action.issue.number == 2, "got: " .. tostring(action.issue.number))
+end
+test_planner_refines_before_triaging_an_older_finding()
 
 local function test_planner_intakes_when_plan_has_slack()
   local board: Board = {}

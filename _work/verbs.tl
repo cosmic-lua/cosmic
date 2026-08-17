@@ -9,6 +9,7 @@ local facts = require("_work.facts")
 local gh = require("_work.github")
 local labels = require("_work.labels")
 local model = require("_work.model")
+local render = require("_work.render")
 local verdict = require("_work.verdict")
 
 local type Issue = model.Issue
@@ -36,6 +37,7 @@ local function to_issue(raw: gh.RawIssue): Issue
     assignee = assignee,
     url = raw.html_url,
     body = raw.body or "",
+    created_at = raw.created_at,
   }
 end
 
@@ -129,11 +131,10 @@ local function cmd_status(repo: string): integer
     local phase = model.PHASES[idx]
     local list = model.oldest_first(board, phase)
     local counted = model.limited_count(board, phase)
-    local exempt = #list - counted
-    if exempt > 0 then
-      print(("%s %d/%d (+%d epics)"):format(phase, counted, model.LIMITS[phase], exempt))
-    else
-      print(("%s %d/%d"):format(phase, counted, model.LIMITS[phase]))
+    print(("%s %d/%d%s"):format(phase, counted, model.LIMITS[phase],
+        render.exempt_suffix(list, phase)))
+    if phase == "plan" then
+      print(render.finding_pressure(list))
     end
     for _, i in ipairs(list) do
       print(issue_line(i))
@@ -406,9 +407,13 @@ local function cmd_new(repo: string, title: string, body_file: string,
   local count = model.limited_count(board, phase)
   local admitted = model.admits_over_limit(entry, nil, phase, mandated)
   if count >= model.LIMITS[phase] and not force and not admitted then
-    print(("work-new: REFUSED (%s %d/%d at limit; drain the board "
+    local detour = ""
+    if phase == "plan" then
+      detour = " evidence can be captured now with --finding, adopted at triage later;"
+    end
+    print(("work-new: REFUSED (%s %d/%d at limit;%s drain the board "
         .. "right to left first, or --force)"):format(
-        phase, count, model.LIMITS[phase]))
+        phase, count, model.LIMITS[phase], detour))
     return 1
   end
   local raw, err = gh.create_issue(repo, title, body, labels.labels_of(entry))
