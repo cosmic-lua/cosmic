@@ -49,6 +49,14 @@ local function dir_flag(): flags.Flag
     help = "state repository checkout"}
 end
 
+--- Where a spec's `facts` commands run: the product checkout they
+--- describe, not the board worktree asking them. Defaults to the
+--- repository's main working tree, which git knows.
+local function root_flag(): flags.Flag
+  return {long = "root", arg = "DIR",
+    help = "product checkout the spec's facts describe"}
+end
+
 local CSPEC: flags.CommandSpec = {
   name = "gitboard",
   summary = "the work kanban over committed item files (proof of concept)",
@@ -71,7 +79,7 @@ local CSPEC: flags.CommandSpec = {
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag()}}},
     {name = "check", summary = "ready-bar and graph lint of ID",
-      spec = {usage = "ID [options]", flags = {dir_flag()}}},
+      spec = {usage = "ID [options]", flags = {dir_flag(), root_flag()}}},
     {name = "status", summary = "render the kanban and its WIP verdict",
       spec = {flags = {dir_flag()}}},
     {name = "tree", summary = "render goals, their subtrees, and the triage queue",
@@ -87,7 +95,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "claim", arg = "SESSION", help = "record who took it"},
           {long = "pr", arg = "N", help = "the PR carrying the work"},
           {long = "force", help = "override the target WIP limit"},
-          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
+          {long = "why", arg = "REASON", help = "why --force was needed"},
+          root_flag()}}},
     {name = "verdict", summary = "record a review verdict; the move it implies follows",
       spec = {usage = "ID KIND [options]", flags = {dir_flag(),
           {long = "pr", arg = "N", help = "the PR the verdict judges"},
@@ -210,7 +219,7 @@ local function main(...: string): integer
     return verbs.cmd_spec(s, id, file)
   end
   if d.command == "check" then
-    return verbs.cmd_check(s, id)
+    return verbs.cmd_check(s, id, d.parsed.values["root"] or "")
   end
   if d.command == "move" then
     local target = d.parsed.args[2]
@@ -220,7 +229,8 @@ local function main(...: string): integer
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     return verbs.cmd_move(s, id, target, d.parsed.values["claim"], pr,
-      d.parsed.switches["force"], d.parsed.values["why"] or "")
+      d.parsed.switches["force"], d.parsed.values["why"] or "",
+      d.parsed.values["root"] or "")
   end
   if d.command == "verdict" then
     local kind = d.parsed.args[2]

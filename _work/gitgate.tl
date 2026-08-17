@@ -9,6 +9,7 @@
 --- beyond its subject travels with it rather than being committed
 --- alongside — a de-phased parent committed on its own would survive
 --- the refusal of the child that caused it.
+local facts = require("_work.facts")
 local flow = require("_work.flow")
 local item = require("_work.item")
 local spec = require("_work.spec")
@@ -124,6 +125,43 @@ local function dephased_container(parent: item.Item): {item.Item}
   return {parent}
 end
 
+--- The spec's measured claims, re-run. A fact describes the PRODUCT
+--- tree, and the verb asking it runs from the board worktree, so the
+--- commands need the main checkout as their working directory — asked
+--- of git unless the caller named one.
+---
+--- A board with no product tree beside it (a standalone clone) cannot
+--- evaluate a fact at all, and says so rather than reporting every
+--- claim as failed against the wrong tree.
+--- @param s store.Store The store
+--- @param body string The spec sidecar's markdown
+--- @param root string Where to run them; nil asks git
+--- @return {string} Problems, empty when every fact holds
+local function fact_problems(s: store.Store, body: string, root?: string):
+  {string}
+  local parsed, perr = facts.parse(body)
+  if parsed == nil then
+    return {perr}
+  end
+  if #parsed == 0 then
+    return {}
+  end
+  local where = root or ""
+  if where == "" then
+    local found, werr = store.main_worktree(s)
+    if found == nil then
+      return {("facts cannot run: %s"):format(werr)}
+    end
+    where = found
+  end
+  if where == s.root then
+    return {"this spec states facts, but the board is not a worktree of a "
+      .. "product checkout — the commands describe a tree that is not here; "
+      .. "pass --root <checkout>"}
+  end
+  return facts.fact_failures(parsed, where)
+end
+
 --- The problems that keep an item from `ready`: it must be workable,
 --- its spec must fill the ready-bar sections, and the whole graph
 --- must be traceable. The one list `check` reports and `move ID
@@ -131,9 +169,10 @@ end
 --- @param s store.Store The store
 --- @param it item.Item The item
 --- @param all {item.Item} Every item
+--- @param root string Where the spec's facts run; nil asks git for it
 --- @return {string} Problems, empty when the item meets the bar
 local function ready_problems(s: store.Store, it: item.Item,
-    all: {item.Item}): {string}
+    all: {item.Item}, root?: string): {string}
   local index = flow.by_id(all)
   local out = flow.item_problems(it, all, index)
   local r = flow.role(it, all)
@@ -157,6 +196,9 @@ local function ready_problems(s: store.Store, it: item.Item,
   if spec.claims_blocker(body) and #(it.blocked_by or {}) == 0 then
     out[#out + 1] = "Enablement names a blocker, but blocked_by is empty — "
     .. "record it with `gitboard block <id> <blocker>`"
+  end
+  for _, p in ipairs(fact_problems(s, body, root)) do
+    out[#out + 1] = p
   end
   return out
 end
@@ -198,8 +240,9 @@ local record gitgate
   message: string, from: string, also?: {item.Item}): boolean, string
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
-  ready_problems: function(s: store.Store, it: item.Item, all: {item.Item}):
-  {string}
+  fact_problems: function(s: store.Store, body: string, root?: string): {string}
+  ready_problems: function(s: store.Store, it: item.Item, all: {item.Item},
+  root?: string): {string}
 end
 
 local M: gitgate = {
@@ -210,6 +253,7 @@ local M: gitgate = {
   commit_and_publish = commit_and_publish,
   dephased_container = dephased_container,
   rephased_parent = rephased_parent,
+  fact_problems = fact_problems,
   ready_problems = ready_problems,
 }
 
