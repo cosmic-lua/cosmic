@@ -2,43 +2,8 @@
 # Fixture stand-in for the child-tcp task's built artifact.
 #
 # Orchestrator mode (no args) never spawns anything, so it trivially
-# leaves no orphan behind. Serve mode stands in for the real TCP echo
-# server with nc, self-selecting a port rather than a true OS-assigned
-# ephemeral one -- fine for a fixture, since the check only verifies
-# the PORT=<n> line's shape and the round-trip, never the real
-# artifact's readiness-race S-trap.
-if [ "$1" = "serve" ]; then
-  port=$((20000 + $$ % 20000))
-  fifo="${TMPDIR:-/tmp}/echotrip-fifo-$$"
-  mkfifo "$fifo"
-  nc -l 127.0.0.1 "$port" < "$fifo" | tee "$fifo" > /dev/null &
-  srv_pid=$!
-  # Poll /proc/net/tcp for the listener actually reaching LISTEN state
-  # instead of a fixed grace sleep before announcing readiness -- a
-  # fixed sleep only narrows the bind-vs-announce race, it never closes
-  # it (under CI contention nc can still not be listening after a
-  # generous sleep). Reading /proc/net/tcp, rather than probing with a
-  # real connect, is deliberate: this nc has no -k, so it accepts
-  # exactly one connection and exits -- a readiness PROBE connection
-  # would itself be that one connection, starving the real scorer
-  # client that connects after seeing the PORT= line. Linux-only, like
-  # the check module's own /proc-based orphan scan; this fixture only
-  # ever runs on the eval host.
-  port_hex=$(printf '%04X' "$port")
-  i=0
-  while ! awk -v p=":$port_hex" '$2 ~ p && $4 == "0A" {found=1} END{exit !found}' \
-      /proc/net/tcp 2>/dev/null; do
-    i=$((i + 1))
-    if [ "$i" -ge 100 ]; then
-      break
-    fi
-    sleep 0.02
-  done
-  printf 'PORT=%d\n' "$port"
-  wait "$srv_pid"
-  code=$?
-  rm -f "$fifo"
-  exit "$code"
-fi
+# leaves no orphan behind. The check only exercises orchestrator mode
+# (ten repeated runs); "serve" mode is not exercised by the scorer, so
+# this stub does not need to implement it.
 printf 'OK round-trip-42\n'
 exit 0
