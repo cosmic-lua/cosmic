@@ -3,6 +3,7 @@ local gh = require("_work.github")
 local verdict = require("_work.verdict")
 
 local type Standing = verdict.Standing
+local type Comment = verdict.Comment
 
 local function test_parse_reads_every_kind()
   assert(verdict.parse("work-verdict: accept") == "accept", "accept")
@@ -190,3 +191,120 @@ local function test_line_renders_the_quiet_cases()
     "a PR awaiting its first verdict says so")
 end
 test_line_renders_the_quiet_cases()
+
+--- A `request changes` verdict comment, with the given `enable:` line
+--- (or none) tacked on as its own trailing line.
+local function reject_comment(enable_line: string): {Comment}
+  local body = "work-verdict: request changes\n\nsome gap"
+  if enable_line then
+    body = body .. "\n\n" .. enable_line
+  end
+  return {{body = body, created_at = "2026-08-16T22:43:45Z"}}
+end
+
+local function test_latest_captures_a_numbered_enable_trailer()
+  local v = verdict.latest(reject_comment("enable: #1243"))
+  assert(v ~= nil, "the comment still parses to a verdict")
+  assert(v.enable == "enable: #1243", "got: " .. tostring(v.enable))
+end
+test_latest_captures_a_numbered_enable_trailer()
+
+local function test_latest_captures_a_reasoned_none_trailer()
+  local v = verdict.latest(
+    reject_comment("enable: none (the ready-bar gap was this issue's own)"))
+  assert(v.enable == "enable: none (the ready-bar gap was this issue's own)",
+    "got: " .. tostring(v.enable))
+end
+test_latest_captures_a_reasoned_none_trailer()
+
+local function test_latest_does_not_parse_a_reasonless_none()
+  local v = verdict.latest(reject_comment("enable: none"))
+  assert(v.enable == nil,
+    "'enable: none' with no parenthesised reason is not the grammar; got: "
+    .. tostring(v.enable))
+end
+test_latest_does_not_parse_a_reasonless_none()
+
+local function test_latest_leaves_enable_nil_when_absent()
+  local v = verdict.latest(reject_comment(nil))
+  assert(v.enable == nil, "a comment with no enable: line carries none")
+end
+test_latest_leaves_enable_nil_when_absent()
+
+--- A `request changes` standing verdict, optionally carrying an
+--- `enable:` trailer, the state `blocks_send_back` reads.
+local function rejected(enable: string): Standing
+  local s = unanswered()
+  s.enable = enable
+  return s
+end
+
+local function test_blocks_send_back_passes_a_numbered_trailer()
+  assert(verdict.blocks_send_back(rejected("enable: #1243")) == nil,
+    "an 'enable: #N' trailer is the countermeasure filed")
+end
+test_blocks_send_back_passes_a_numbered_trailer()
+
+local function test_blocks_send_back_passes_a_reasoned_none()
+  assert(verdict.blocks_send_back(
+      rejected("enable: none (the ready-bar gap was this issue's own)")) == nil,
+    "an 'enable: none (<reason>)' trailer is the deliberate no-countermeasure case")
+end
+test_blocks_send_back_passes_a_reasoned_none()
+
+local function test_blocks_send_back_refuses_a_reasonless_none()
+  -- a bare "enable: none" never reaches Standing.enable (test above), so the
+  -- Standing this call site sees is the same as the trailer-absent case
+  local msg = verdict.blocks_send_back(rejected(nil))
+  assert(msg ~= nil, "no parsed trailer means the countermeasure was not filed")
+end
+test_blocks_send_back_refuses_a_reasonless_none()
+
+local function test_blocks_send_back_refuses_without_a_trailer()
+  local msg = verdict.blocks_send_back(rejected(nil))
+  assert(msg ~= nil, "a request-changes verdict with no trailer blocks the move")
+  assert(msg:find("PR #1185", 1, true), "got: " .. tostring(msg))
+  assert(msg:find("request changes", 1, true), "names the verdict kind: "
+    .. tostring(msg))
+  assert(msg:find("enable: #<issue>", 1, true), "names the numbered form: "
+    .. tostring(msg))
+  assert(msg:find("enable: none (<reason>)", 1, true), "names the none form: "
+    .. tostring(msg))
+end
+test_blocks_send_back_refuses_without_a_trailer()
+
+local function test_blocks_send_back_passes_an_accept_with_no_trailer()
+  local accepted = rejected(nil)
+  accepted.kind = "accept"
+  assert(verdict.blocks_send_back(accepted) == nil,
+    "an accept carries no trailer and must keep passing")
+end
+test_blocks_send_back_passes_an_accept_with_no_trailer()
+
+local function test_blocks_send_back_passes_an_issue_with_no_pr()
+  assert(verdict.blocks_send_back({pr = 0, answered = false}) == nil,
+    "no PR closes the issue, so there is nothing to check a trailer against")
+end
+test_blocks_send_back_passes_an_issue_with_no_pr()
+
+--- Mirrors the guard in `_work/verbs.tl`'s `cmd_move`: `blocks_send_back`
+--- only runs when the move leaves `check` toward `do` or `plan` and
+--- `--force` was not passed — the predicate itself carries no force
+--- parameter, exactly like `blocks_check`.
+local function gate(phase: string, target: string, force: boolean,
+    s: Standing): string
+  if phase == "check" and (target == "do" or target == "plan") and not force then
+    return s and verdict.blocks_send_back(s)
+  end
+  return nil
+end
+
+local function test_force_bypasses_the_send_back_gate()
+  assert(gate("check", "do", false, rejected(nil)) ~= nil,
+    "without --force, a missing trailer blocks the move")
+  assert(gate("check", "do", true, rejected(nil)) == nil,
+    "--force bypasses the gate before blocks_send_back ever runs")
+  assert(gate("check", "plan", true, rejected(nil)) == nil,
+    "--force bypasses on the plan target too")
+end
+test_force_bypasses_the_send_back_gate()

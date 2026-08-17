@@ -27,6 +27,9 @@ local record Verdict
   kind: string
   --- ISO 8601 UTC, as GitHub emits it
   at: string
+  --- The verbatim `enable:` trailer line, or nil when the comment
+  --- carries none.
+  enable: string
 end
 
 --- The review state of one issue's PR. `pr` is 0 when no open pull
@@ -41,6 +44,9 @@ local record Standing
   head_sha: string
   head_at: string
   answered: boolean
+  --- The verbatim `enable:` trailer line from the standing verdict's
+  --- comment, or nil when it carries none.
+  enable: string
 end
 
 local KINDS: {string: boolean} = {
@@ -81,6 +87,22 @@ local function closes(pr_body: string, issue: integer): boolean
   return false
 end
 
+--- The `enable:` trailer a verdict comment carries, or nil when none of
+--- its lines match. A line must read exactly `enable: #<N>` or
+--- `enable: none (<reason>)` — a reason-less `enable: none` does not
+--- match, nor does the word appearing inside prose.
+--- @param comment_body string Comment body
+--- @return string | nil The trailer line, verbatim
+local function parse_enable(comment_body: string): string
+  for raw in (comment_body or ""):gmatch("([^\n]*)\n?") do
+    local trailer = raw:gsub("\r$", "")
+    if trailer:match("^enable: #%d+$") or trailer:match("^enable: none %(.+%)$") then
+      return trailer
+    end
+  end
+  return nil
+end
+
 --- The last verdict in a comment list, or nil when it carries none.
 --- Comments arrive oldest first, so the last recognized one is the
 --- standing verdict.
@@ -91,7 +113,7 @@ local function latest(comments: {Comment}): Verdict
   for _, c in ipairs(comments) do
     local kind = parse(c.body or "")
     if kind then
-      out = {kind = kind, at = c.created_at or ""}
+      out = {kind = kind, at = c.created_at or "", enable = parse_enable(c.body or "")}
     end
   end
   return out
@@ -149,6 +171,22 @@ local function blocks_check(s: Standing): string
   return ("PR #%d carries an unanswered 'work-verdict: request changes' "
     .. "from %s; head %s is from %s — push the rework first, or --force")
   :format(s.pr, s.at, (s.head_sha or "?"):sub(1, 7), s.head_at or "?")
+end
+
+--- The refusal a move OUT of `check` toward `do` or `plan` earns, or nil
+--- when nothing blocks it: an accept (no trailer required), no PR
+--- closing the issue, or the standing verdict already carries an
+--- `enable:` trailer. Otherwise the countermeasure is missing and the
+--- move is refused until it is added.
+--- @param s Standing The PR's review state
+--- @return string | nil The refusal message
+local function blocks_send_back(s: Standing): string
+  if s.kind == "accept" or s.pr == 0 or s.enable then
+    return nil
+  end
+  return ("PR #%d carries a '%s' verdict with no 'enable:' trailer; add "
+    .. "'enable: #<issue>' or 'enable: none (<reason>)' to the verdict "
+    .. "comment, or --force"):format(s.pr, s.kind or "no verdict")
 end
 
 --- The standing verdict as `show` prints it: one headline, the head
@@ -229,6 +267,7 @@ local function standing(repo: string, issue: integer): Standing, string
   if v then
     out.kind = v.kind
     out.at = v.at
+    out.enable = v.enable
     out.answered = is_answered(v.at, out.head_at)
   end
   return out
@@ -244,6 +283,7 @@ local record verdict
   is_answered: function(verdict_at: string, head_at: string): boolean
   linked_pr: function(entries: {gh.RawTimelineEntry}, issue: integer): integer
   blocks_check: function(s: Standing): string
+  blocks_send_back: function(s: Standing): string
   line: function(s: Standing): string
   standing: function(repo: string, issue: integer): Standing, string
 end
@@ -255,6 +295,7 @@ local M: verdict = {
   is_answered = is_answered,
   linked_pr = linked_pr,
   blocks_check = blocks_check,
+  blocks_send_back = blocks_send_back,
   line = line,
   standing = standing,
 }

@@ -300,6 +300,11 @@ local function cmd_move(repo: string, number: integer, target: string,
       return 1
     end
   end
+  if issue.phase == "check" and (target == "do" or target == "plan") and not force then
+    local state = verdict.standing(repo, number)
+    local blocked = state and verdict.blocks_send_back(state)
+    if blocked then print("work-move: REFUSED (" .. blocked .. ")"); return 1 end
+  end
   if target == "ready" and not force then
     local problems: {string} = {}
     local gaps = model.ready_gaps(issue.body)
