@@ -40,6 +40,32 @@ jobs:
       - name: trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # TEMPORARY: the store's local-push fixture fails here with EXDEV
+      # migrating objects out of the receive quarantine, which cannot
+      # happen when the quarantine sits inside the object directory it
+      # migrates into. This step reproduces the fixture in plain shell
+      # and prints what the runner's git and filesystem actually do.
+      # Delete it once the fixture is fixed.
+      - name: diagnose the local push
+        run: |
+          git --version
+          df -T "$PWD" || true
+          d=$(mktemp -d "$PWD/diag-XXXXXX")
+          git init -q --bare "$d/bare.git"
+          git -C "$d/bare.git" config core.createObject rename
+          git clone -q "$d/bare.git" "$d/seed"
+          : > "$d/seed/f"
+          git -C "$d/seed" -c user.email=t@t -c user.name=t add -A
+          git -C "$d/seed" -c user.email=t@t -c user.name=t commit -qm init
+          echo "--- push ---"
+          git -C "$d/seed" push origin HEAD 2>&1 | tail -20 || echo "PUSH FAILED"
+          echo "--- devices (objects dir, quarantine parent, tmp) ---"
+          stat -c '%d %n' "$d/bare.git/objects" "$d/seed/.git/objects" "$d" /tmp
+          echo "--- does a bare rename across those work? ---"
+          : > "$d/bare.git/objects/probe"
+          mv "$d/bare.git/objects/probe" "$d/bare.git/objects/probe2" \
+            && echo "rename within objects/: ok" || echo "rename within objects/: FAILED"
+
       # `bin/cosmic` fetches the one pinned cosmic, verifies its
       # sha256, and execs it; `--make ci` ends with a PASS/FAIL verdict
       # line and signals through its exit code.
