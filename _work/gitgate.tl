@@ -56,7 +56,7 @@ end
 --- @return string Error message
 local function commit_and_publish(s: store.Store, it: item.Item, spec: string,
     message: string, from: string, also?: {item.Item}): boolean, string
-  local saved, serr = store.save(s, it, spec, message, also)
+  local saved, serr = store.save(s, it, message, spec, also)
   if not saved then
     return false, serr
   end

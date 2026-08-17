@@ -72,12 +72,6 @@ local LIMITS: {string: integer} = {
   land = 3,
 }
 
---- Headings a work:ready issue body must carry (the ready bar; the
---- meaning of each section is skills/work/decompose.md).
-local READY_SECTIONS: {string} = {
-  "Goal", "Change", "Non-goals", "Acceptance", "Enablement",
-}
-
 local PHASE_SET: {string: boolean} = {}
 local PHASE_INDEX: {string: integer} = {}
 for idx, c in ipairs(PHASES) do
@@ -206,40 +200,6 @@ local function has_marker(labels: {string}, marker: string): boolean
     end
   end
   return false
-end
-
---- Ready-bar lint: the required sections a body is missing or has
---- left empty. A heading counts at any level ("## Goal", "# goal"),
---- matched on the heading text alone, case-insensitively — and only
---- when at least one non-blank line follows it before the next
---- heading, so a pasted template with hollow sections still fails.
---- A thematic break (---) ends the current section: trailing footers
---- appended below one are nobody's content.
---- @param body string Issue body markdown
---- @return {string} Missing/empty section names, in READY_SECTIONS order
-local function ready_gaps(body: string): {string}
-  local filled: {string: boolean} = {}
-  local current: string = nil
-  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
-    local text = line:match("^#+%s+(.-)%s*$")
-    if text then
-      current = text:lower()
-      if filled[current] == nil then
-        filled[current] = false
-      end
-    elseif line:match("^%s*%-%-%-+%s*$") then
-      current = nil
-    elseif current and line:match("%S") then
-      filled[current] = true
-    end
-  end
-  local missing: {string} = {}
-  for _, name in ipairs(READY_SECTIONS) do
-    if not filled[name:lower()] then
-      missing[#missing + 1] = name
-    end
-  end
-  return missing
 end
 
 --- Issue numbers named on "blocked by" lines of a body. Any line
@@ -446,7 +406,6 @@ local record model
   type IsOpen = IsOpen
   PHASES: {string}
   LIMITS: {string: integer}
-  READY_SECTIONS: {string}
   phase_of: function(labels: {string}): string
   has_marker: function(labels: {string}, marker: string): boolean
   is_return: function(from: string, to: string): boolean
@@ -454,7 +413,6 @@ local record model
   mandated: boolean): boolean
   counts_against_limit: function(issue: Issue, phase: string): boolean
   limited_count: function(board: Board, phase: string): integer
-  ready_gaps: function(body: string): {string}
   blockers: function(body: string): {integer}
   oldest_first: function(board: Board, phase: string): {Issue}
   wip_violations: function(board: Board): {string}
@@ -465,14 +423,12 @@ end
 local M: model = {
   PHASES = PHASES,
   LIMITS = LIMITS,
-  READY_SECTIONS = READY_SECTIONS,
   phase_of = phase_of,
   has_marker = has_marker,
   is_return = is_return,
   admits_over_limit = admits_over_limit,
   counts_against_limit = counts_against_limit,
   limited_count = counted,
-  ready_gaps = ready_gaps,
   blockers = blockers,
   oldest_first = oldest_first,
   wip_violations = wip_violations,

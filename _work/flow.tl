@@ -12,13 +12,13 @@
 --- it, so the label board's carve-outs (the epic exemption, the
 --- finding exception, the mandated flag) have nothing to except. What
 --- remains of `admits_over_limit` is two lines. The ready bar
---- (`_work.model.ready_gaps`) is reused as-is over the spec sidecar.
+--- (`_work.spec.ready_gaps`) is applied to the spec sidecar.
 --- WIP limits carry the label board's empirically tuned values;
 --- retuning them is a reviewed change here too. Ids are KSUIDs, so
 --- sorting by id IS sorting by age and "oldest first" needs no other
 --- field.
 local it = require("_work.item")
-local model = require("_work.model")
+local spec = require("_work.spec")
 
 local type Item = it.Item
 
@@ -184,7 +184,7 @@ end
 --- @param i Item The item
 --- @param index Index Items by id
 --- @return Item | nil The root
-local function root_of(i: Item, index: Index): Item
+local function root_of(i: Item, index: Index): Item | nil
   local cur = i
   for _ = 1, MAX_DEPTH do
     if it.is_root(cur) then
@@ -262,7 +262,7 @@ end
 --- @param b Board The board
 --- @param index Index Items by id
 --- @return Item | nil The pullable item
-local function first_pullable(b: Board, index: Index): Item
+local function first_pullable(b: Board, index: Index): Item | nil
   for _, i in ipairs(oldest_first(b, "ready")) do
     if not is_blocked(i, index) then
       return i
@@ -422,7 +422,8 @@ end
 --- @param role_name string "planner" or "implementer"
 --- @return NextAction | nil The decision
 --- @return string Error message for an unknown role
-local function next_action(items: {Item}, role_name: string): NextAction, string
+local function next_action(items: {Item}, role_name: string):
+  NextAction | nil, string
   if role_name == "implementer" then
     return next_for_implementer(items)
   end
@@ -448,12 +449,13 @@ local record flow
   oldest_first: function(b: Board, phase: string): {Item}
   wip_violations: function(b: Board): {string}
   is_blocked: function(i: Item, index: Index): boolean
-  root_of: function(i: Item, index: Index): Item
+  root_of: function(i: Item, index: Index): Item | nil
   item_problems: function(i: Item, items: {Item}, index: Index): {string}
   trace_problems: function(items: {Item}): {string}
   goals: function(items: {Item}): {Item}, {string: boolean}
   findings: function(items: {Item}): {Item}
-  next_action: function(items: {Item}, role_name: string): NextAction, string
+  next_action: function(items: {Item}, role_name: string):
+  NextAction | nil, string
   ready_gaps: function(body: string): {string}
 end
 
@@ -474,7 +476,7 @@ local M: flow = {
   goals = goals,
   findings = findings,
   next_action = next_action,
-  ready_gaps = model.ready_gaps,
+  ready_gaps = spec.ready_gaps,
 }
 
 return M

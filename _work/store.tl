@@ -240,13 +240,13 @@ end
 --- so the pair can never half-land.
 --- @param s Store The store
 --- @param it item.Item The item
---- @param spec string Replacement spec markdown; nil leaves the sidecar alone
 --- @param message string Commit subject, e.g. "move fetch-retry ready -> do"
+--- @param spec string Replacement spec markdown; omitted leaves the sidecar alone
 --- @param also {item.Item} Further items to write into the same commit
 --- @return boolean True on success
 --- @return string Error message; "nothing to record" when state is unchanged
-local function save(s: Store, it: item.Item, spec: string,
-    message: string, also?: {item.Item}): boolean, string
+local function save(s: Store, it: item.Item, message: string,
+    spec?: string, also?: {item.Item}): boolean, string
   local ok, err = stage(s, it, spec)
   if not ok then
     return false, err
@@ -434,7 +434,7 @@ local record store
   read_spec: function(s: Store, id: string): string
   list: function(s: Store): {item.Item} | nil, string
   stage: function(s: Store, it: item.Item, spec?: string): boolean, string
-  save: function(s: Store, it: item.Item, spec: string, message: string,
+  save: function(s: Store, it: item.Item, message: string, spec?: string,
   also?: {item.Item}): boolean, string
   sync: function(s: Store): boolean, string
   publish: function(s: Store, revalidate?: Revalidate): boolean, string
