@@ -14,7 +14,7 @@
 --- (NOTES.md, final.txt) is best-effort parsed for the fields that
 --- have no other source. Writes <run dir>/results.json in the
 --- eval_types.EvalResults shape and ends with `eval: PASS` or
---- `eval: FAIL (<n> silent bugs)`.
+--- `eval: FAIL (<failing task ids>)`.
 ---
 --- Exit codes: 0 on PASS; 1 on FAIL or any failure (printed to stderr).
 local flags = require("cosmic.flags")
@@ -41,18 +41,10 @@ local TASK_BIN < const >: {string: string} = {
   ["contained-task"] = "o/bin/copybox",
 }
 
---- Every task's functional check, keyed the same way as TASK_BIN. Each
---- check module's filename is its task id, so this table is the one
---- place that wires id to implementation.
-local CHECKS < const >: {string: function(string): (integer, {string})} = {
-  ["json-cli"] = require("_eval.checks.json-cli").check,
-  ["module-tests"] = require("_eval.checks.module-tests").check,
-  ["sqlite-indexer"] = require("_eval.checks.sqlite-indexer").check,
-  ["child-tcp"] = require("_eval.checks.child-tcp").check,
-  ["text-report"] = require("_eval.checks.text-report").check,
-  ["multi-module-build"] = require("_eval.checks.multi-module-build").check,
-  ["contained-task"] = require("_eval.checks.contained-task").check,
-}
+--- Every task's functional check, keyed the same way as TASK_BIN.
+--- Shared with checks_test.tl via _eval.checks.registry, the one place
+--- that wires id to implementation, so the two lists cannot drift.
+local CHECKS < const > = require("_eval.checks.registry").CHECKS
 
 local record Args
   rundir: string
@@ -216,30 +208,28 @@ end
 --- @param manifest Manifest The suite (task.status names proven/new)
 --- @param rows {Row} The scored rows, one per manifest task
 --- @return string "PASS" or "FAIL"
---- @return integer The silent-bug total over proven tasks (for the
---- verdict line; 0 does not by itself imply PASS)
+--- @return {string} The ids of proven tasks that fail the gate -- not
+--- "completed", or "completed" with silent_bugs > 0 -- in manifest
+--- order; empty exactly when the verdict is PASS.
 local function compute_verdict(manifest: eval_types.Manifest,
-    rows: {eval_types.Row}): string, integer
+    rows: {eval_types.Row}): string, {string}
   local by_id: {string: eval_types.Row} = {}
   for _, row in ipairs(rows) do
     by_id[row.task] = row
   end
-  local all_completed = true
-  local bug_total = 0
+  local failing_ids: {string} = {}
   for _, task in ipairs(manifest.tasks) do
     if task.status == "proven" then
       local row = by_id[task.id]
-      if row == nil or row.status ~= "completed" then
-        all_completed = false
-      else
-        bug_total = bug_total + row.silent_bugs
+      if row == nil or row.status ~= "completed" or row.silent_bugs > 0 then
+        failing_ids[#failing_ids + 1] = task.id
       end
     end
   end
-  if all_completed and bug_total == 0 then
-    return "PASS", bug_total
+  if #failing_ids == 0 then
+    return "PASS", failing_ids
   end
-  return "FAIL", bug_total
+  return "FAIL", failing_ids
 end
 
 --- CLI entry point.
@@ -276,7 +266,7 @@ local function main(...: string): integer
     rows[#rows + 1] = score_row(a.rundir, task)
   end
 
-  local verdict, bug_total = compute_verdict(manifest, rows)
+  local verdict, failing_ids = compute_verdict(manifest, rows)
   local results: eval_types.EvalResults = {
     meta = meta,
     rows = rows,
@@ -297,7 +287,7 @@ local function main(...: string): integer
     print("eval: PASS")
     return 0
   end
-  print("eval: FAIL (" .. bug_total .. " silent bugs)")
+  print("eval: FAIL (" .. table.concat(failing_ids, ", ") .. ")")
   return 1
 end
 
@@ -311,7 +301,7 @@ local record score_module
   load_meta: function(run_dir: string): eval_types.ResultMeta | nil, string
   score_row: function(run_dir: string, task: eval_types.Task): eval_types.Row
   compute_verdict: function(manifest: eval_types.Manifest, rows: {eval_types.Row}):
-  string, integer
+  string, {string}
 end
 
 local M: score_module = {

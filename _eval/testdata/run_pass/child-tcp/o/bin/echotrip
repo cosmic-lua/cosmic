@@ -1,6 +1,28 @@
 #!/bin/sh
-# Fixture stand-in for the child-tcp task's built artifact. The real
-# artifact spawns a server child and reaps it; this stand-in never
-# spawns anything, so it trivially leaves no orphan behind.
-printf 'OK round-trip-42'
+# Fixture stand-in for the child-tcp task's built artifact.
+#
+# Orchestrator mode (no args) never spawns anything, so it trivially
+# leaves no orphan behind. Serve mode stands in for the real TCP echo
+# server with nc, self-selecting a port rather than a true OS-assigned
+# ephemeral one -- fine for a fixture, since the check only verifies
+# the PORT=<n> line's shape and the round-trip, never the real
+# artifact's readiness-race S-trap.
+if [ "$1" = "serve" ]; then
+  port=$((20000 + $$ % 20000))
+  fifo="${TMPDIR:-/tmp}/echotrip-fifo-$$"
+  mkfifo "$fifo"
+  nc -l 127.0.0.1 "$port" < "$fifo" | tee "$fifo" > /dev/null &
+  srv_pid=$!
+  # A fixed grace period for nc to bind before announcing readiness --
+  # a fixture stand-in, not the real solution, so this is fine here;
+  # the real artifact must use the no-sleep readiness-line pattern
+  # this check actually verifies.
+  sleep 0.3
+  printf 'PORT=%d\n' "$port"
+  wait "$srv_pid"
+  code=$?
+  rm -f "$fifo"
+  exit "$code"
+fi
+printf 'OK round-trip-42\n'
 exit 0

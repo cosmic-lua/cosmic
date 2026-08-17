@@ -28,11 +28,12 @@ _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
 _docs/publish.tl 115 177
-_eval/checks/child-tcp.tl 28 35
+_eval/checks/child-tcp.tl 56 82
 _eval/checks/contained-task.tl 35 45
 _eval/checks/json-cli.tl 32 38
 _eval/checks/module-tests.tl 31 37
 _eval/checks/multi-module-build.tl 36 45
+_eval/checks/registry.tl 11 11
 _eval/checks/sqlite-indexer.tl 38 41
 _eval/checks/support.tl 70 80
 _eval/checks/text-report.tl 36 41

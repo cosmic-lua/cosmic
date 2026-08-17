@@ -62,6 +62,9 @@ local function check(workspace: string): integer, {string}
   end
 
   support.expect_test_file_present(acc, workspace)
+  -- The brief's fact is a TEST covering the on-the-hour boundary, not
+  -- merely a test file's presence -- assert the literal that proves it.
+  support.expect_source_contains(acc, workspace, "11:00:00")
 
   return support.result(acc)
 end

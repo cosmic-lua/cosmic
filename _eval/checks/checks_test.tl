@@ -4,18 +4,11 @@ local support = require("_eval.checks.support")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
---- Every task's check function, keyed by task id -- the same table
---- score.tl builds, duplicated here so this file can drive each check
---- directly without going through a full score.main() run.
-local CHECKS < const >: {string: function(string): (integer, {string})} = {
-  ["json-cli"] = require("_eval.checks.json-cli").check,
-  ["module-tests"] = require("_eval.checks.module-tests").check,
-  ["sqlite-indexer"] = require("_eval.checks.sqlite-indexer").check,
-  ["child-tcp"] = require("_eval.checks.child-tcp").check,
-  ["text-report"] = require("_eval.checks.text-report").check,
-  ["multi-module-build"] = require("_eval.checks.multi-module-build").check,
-  ["contained-task"] = require("_eval.checks.contained-task").check,
-}
+--- Every task's check function, keyed by task id -- the same registry
+--- score.tl scores real runs with, so this file can drive each check
+--- directly (without going through a full score.main() run) against
+--- the identical list.
+local CHECKS < const > = require("_eval.checks.registry").CHECKS
 
 local TASKS < const >: {string} = {
   "json-cli", "module-tests", "sqlite-indexer", "child-tcp",

@@ -73,6 +73,11 @@ local function check(workspace: string): integer, {string}
   end
 
   support.expect_test_file_present(acc, workspace)
+  -- The brief's fact is a TEST that spawns copybox in both denied and
+  -- granted modes, not merely a test file's presence -- assert the
+  -- literal invocations that prove it.
+  support.expect_source_contains(acc, workspace, "--deny-write")
+  support.expect_source_contains(acc, workspace, "o/out")
 
   return support.result(acc)
 end

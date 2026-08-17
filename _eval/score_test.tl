@@ -27,10 +27,38 @@ local function read_results(dir: string): {string: any}
   return check.must(json.decode_object(body)) as {string: any} -- cast: from any
 end
 
+--- Run score.main(dir) and capture exactly what it prints via print()
+--- -- the verdict line, and nothing io.stderr:write reports -- the same
+--- swap-and-restore pattern _tool/example.tl and _tool/benchmark.tl use
+--- to pin a CLI's exact console output, without paying for a real
+--- subprocess spawn.
+--- @param dir string The run dir to score
+--- @return integer score.main's exit code
+--- @return string Every print()'d line, newline-joined, no trailing newline
+local function score_and_capture(dir: string): integer, string
+  local old_print = _G.print
+  local lines: {string} = {}
+  _G.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local ok, result = pcall(score.main, dir)
+  _G.print = old_print
+  if not ok then
+    error(result, 0)
+  end
+  return result as integer, table.concat(lines, "\n") -- cast: pcall result
+end
+
 local function test_run_pass_ends_pass_exit_zero()
   local dir = copy_fixture("run_pass")
-  local code = score.main(dir)
+  local code, printed = score_and_capture(dir)
   assert(code == 0, "run_pass should exit 0, got " .. code)
+  assert(printed == "eval: PASS",
+    "expected the exact verdict line 'eval: PASS', got " .. string.format("%q", printed))
   local results = read_results(dir)
   assert(results.verdict == "PASS", "expected verdict PASS, got " .. tostring(results.verdict))
 end
@@ -38,8 +66,11 @@ test_run_pass_ends_pass_exit_zero()
 
 local function test_run_fail_ends_fail_nonzero_with_silent_bug()
   local dir = copy_fixture("run_fail")
-  local code = score.main(dir)
+  local code, printed = score_and_capture(dir)
   assert(code ~= 0, "run_fail should exit non-zero, got " .. code)
+  assert(printed == "eval: FAIL (json-cli)",
+    "expected the exact verdict line naming the failing task id, got " ..
+    string.format("%q", printed))
   local results = read_results(dir)
   assert(results.verdict == "FAIL", "expected verdict FAIL, got " .. tostring(results.verdict))
   local rows = results.rows as {{string: any}} -- cast: from any
@@ -60,8 +91,15 @@ test_run_fail_ends_fail_nonzero_with_silent_bug()
 
 local function test_run_partial_writes_complete_results_and_fails()
   local dir = copy_fixture("run_partial")
-  local code = score.main(dir)
+  local code, printed = score_and_capture(dir)
   assert(code ~= 0, "run_partial should exit non-zero (an unrun suite is not a clean window)")
+  -- sqlite-indexer is the only PROVEN task missing its built artifact
+  -- (see below); an incomplete proven task fails the gate on its own,
+  -- and the verdict line must name it, not a bug count that reads 0
+  -- here and would misreport this as clean.
+  assert(printed == "eval: FAIL (sqlite-indexer)",
+    "expected the exact verdict line naming the failing task id, got " ..
+    string.format("%q", printed))
   assert(fs.is_file(fs.join(dir, "results.json")), "results.json must still be written")
   local results = read_results(dir)
   assert(results.verdict == "FAIL", "expected verdict FAIL, got " .. tostring(results.verdict))
