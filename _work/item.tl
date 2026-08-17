@@ -39,6 +39,9 @@ local record Item
   verdict: string
   --- Head commit the verdict was written against.
   verdict_head: string
+  --- The countermeasure a non-accept verdict filed: an item id, or
+  --- "none: <reason>". "" when no such verdict stands.
+  enable: string
   --- Why a finished item ended: "completed" | "not-planned"; "" while
   --- open. A non-empty resolution IS what "done" means.
   resolution: string
@@ -118,7 +121,7 @@ local function problems(it: Item): {string}
     end
   end
   if is_root(it) and ((it.claim or "") ~= "" or (it.pr or 0) ~= 0
-    or (it.verdict or "") ~= "") then
+    or (it.verdict or "") ~= "" or (it.enable or "") ~= "") then
     out[#out + 1] = "claim/pr/verdict belong to worked items, not roots"
   end
   for _, b in ipairs(it.blocked_by or {}) do
@@ -150,6 +153,7 @@ local function decode(t: {string: any}): Item | nil, string
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
     verdict = tostring(t.verdict or ""),
     verdict_head = tostring(t.verdict_head or ""),
+    enable = tostring(t.enable or ""),
     resolution = tostring(t.resolution or ""),
   }
   local bad = problems(it)
@@ -178,6 +182,7 @@ local function encode(it: Item): {string: any}
   if (it.pr or 0) ~= 0 then t.pr = it.pr end
   if (it.verdict or "") ~= "" then t.verdict = it.verdict end
   if (it.verdict_head or "") ~= "" then t.verdict_head = it.verdict_head end
+  if (it.enable or "") ~= "" then t.enable = it.enable end
   if (it.resolution or "") ~= "" then t.resolution = it.resolution end
   return t
 end

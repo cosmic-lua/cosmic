@@ -11,6 +11,7 @@
 --- the refusal of the child that caused it.
 local flow = require("_work.flow")
 local item = require("_work.item")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 --- Print a verb's verdict line and return its exit code.
@@ -42,21 +43,49 @@ local function wip_refusal(b: flow.Board, from: string, to: string): string
     to, #(b[to] or {}), limit)
 end
 
+--- The refusal a bare `--force` earns, or nil when the mutation may
+--- proceed. `--force` is for repair, never for flow — and a forced
+--- mutation with no stated reason is indistinguishable in the log from
+--- an ordinary one, which is exactly what makes that rule
+--- unenforceable after the fact.
+--- @param force boolean Whether --force was passed
+--- @param why string The stated reason
+--- @return string | nil The refusal
+local function force_refusal(force: boolean, why: string): string
+  if not force or (why or ""):match("%S") ~= nil then
+    return nil
+  end
+  return "--force needs --why <reason>: a forced mutation is a repair, "
+  .. "and the log has to say what it repaired"
+end
+
+--- The suffix a forced mutation adds to its commit subject, so the
+--- reason travels with the change rather than with the session.
+--- @param force boolean Whether --force was passed
+--- @param why string The stated reason
+--- @return string The suffix, "" when nothing was forced
+local function forced_suffix(force: boolean, why: string): string
+  if not force then
+    return ""
+  end
+  return (" (forced: %s)"):format(why)
+end
+
 --- Save an item and publish the commit, re-checking the WIP gate
 --- against the merged state when the push loses a race. Everything
 --- one mutation touches goes in through `also`, so a refusal after a
 --- lost race drops the whole mutation rather than half of it.
 --- @param s store.Store The store
 --- @param it item.Item The mutated item
---- @param spec string Replacement spec, or nil to leave the sidecar alone
+--- @param body string Replacement spec markdown, or nil to leave the sidecar alone
 --- @param message string Commit subject
 --- @param from string Phase the mutation left, or nil for an entry
 --- @param also {item.Item} Further items the same mutation writes
 --- @return boolean True once committed (and pushed, given a remote)
 --- @return string Error message
-local function commit_and_publish(s: store.Store, it: item.Item, spec: string,
+local function commit_and_publish(s: store.Store, it: item.Item, body: string,
     message: string, from: string, also?: {item.Item}): boolean, string
-  local saved, serr = store.save(s, it, message, spec, also)
+  local saved, serr = store.save(s, it, message, body, also)
   if not saved then
     return false, serr
   end
@@ -119,8 +148,15 @@ local function ready_problems(s: store.Store, it: item.Item,
       out[#out + 1] = ("blocked_by names %s, which is not an item"):format(b)
     end
   end
-  for _, gap in ipairs(flow.ready_gaps(store.read_spec(s, it.id))) do
+  local body = store.read_spec(s, it.id)
+  for _, gap in ipairs(flow.ready_gaps(body)) do
     out[#out + 1] = ("spec section missing or empty: %s"):format(gap)
+  end
+  -- A blocker stated only in prose is one `next` cannot see, so the
+  -- slice pulls as if nothing were sequenced before it.
+  if spec.claims_blocker(body) and #(it.blocked_by or {}) == 0 then
+    out[#out + 1] = "Enablement names a blocker, but blocked_by is empty — "
+    .. "record it with `gitboard block <id> <blocker>`"
   end
   return out
 end
@@ -156,7 +192,9 @@ end
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
   wip_refusal: function(b: flow.Board, from: string, to: string): string
-  commit_and_publish: function(s: store.Store, it: item.Item, spec: string,
+  force_refusal: function(force: boolean, why: string): string
+  forced_suffix: function(force: boolean, why: string): string
+  commit_and_publish: function(s: store.Store, it: item.Item, body: string,
   message: string, from: string, also?: {item.Item}): boolean, string
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
@@ -167,6 +205,8 @@ end
 local M: gitgate = {
   verdict_line = verdict_line,
   wip_refusal = wip_refusal,
+  force_refusal = force_refusal,
+  forced_suffix = forced_suffix,
   commit_and_publish = commit_and_publish,
   dephased_container = dephased_container,
   rephased_parent = rephased_parent,

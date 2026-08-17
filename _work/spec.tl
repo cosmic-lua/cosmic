@@ -45,14 +45,43 @@ local function ready_gaps(body: string): {string}
   return missing
 end
 
+--- Whether a spec's Enablement section states a blocker. The section
+--- either records that none is needed or names the items that must
+--- land first, and the second form has to be mirrored in the item's
+--- `blocked_by` — prose is not something `next` can read, so a
+--- dependency left only here sequences nothing.
+---
+--- Deliberately about the CLAIM, not the id: "Blocked by: #1252" and
+--- "blocked on <ksuid>" both count, because the question is whether
+--- the planner said a dependency exists, not which one they meant.
+--- @param body string The spec sidecar's markdown
+--- @return boolean True when the Enablement section claims a blocker
+local function claims_blocker(body: string): boolean
+  local inside = false
+  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+    local text = line:match("^#+%s+(.-)%s*$")
+    if text then
+      inside = text:lower() == "enablement"
+    elseif inside then
+      local lower = line:lower()
+      if lower:match("blocked%s+by") or lower:match("blocked%s+on") then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 local record spec
   READY_SECTIONS: {string}
+  claims_blocker: function(body: string): boolean
   ready_gaps: function(body: string): {string}
 end
 
 local M: spec = {
   READY_SECTIONS = READY_SECTIONS,
   ready_gaps = ready_gaps,
+  claims_blocker = claims_blocker,
 }
 
 return M

@@ -13,6 +13,7 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
+local vrd = require("_work.gitverdict")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -101,7 +102,8 @@ local function file_item(s: store.Store, title: string, parent: string,
   for _, i in ipairs(check.must(store.list(s))) do
     before[i.id] = true
   end
-  assert(verbs.cmd_new(s, title, parent, rank, nil, force) == 0,
+  assert(verbs.cmd_new(s, title, parent, rank, nil, force,
+      force and "test fixture" or "") == 0,
     "new should be accepted: " .. title)
   for _, i in ipairs(check.must(store.list(s))) do
     if not before[i.id] then
@@ -163,11 +165,12 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
   -- the tenth loses the race at the merged state, not locally.
   assert(store.sync(b))
   for i = 1, 5 do
-    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, 0, nil, true) == 0)
+    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, 0, nil, true,
+        "test fixture") == 0)
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "plan", "the parent-to-be starts on the board")
-  assert(verbs.cmd_new(a, "the refused child", phased.id, 0, nil, false) ~= 0,
+  assert(verbs.cmd_new(a, "the refused child", phased.id, 0, nil, false, "") ~= 0,
     "filing under a full plan must be refused after the rebase")
   local after = check.must(store.load(a, phased.id))
   assert(after.phase == "plan",
@@ -193,7 +196,7 @@ local function test_the_ready_bar_is_the_items_own()
   assert(#flow.trace_problems(all) > 0, "the board does have a problem")
   assert(verbs.cmd_check(s, leaf) == 0,
     "a sound item meets the bar while another item is broken")
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
     "and it may be promoted")
   assert(check.must(store.load(s, leaf)).phase == "ready", "it moved")
 end
@@ -203,7 +206,7 @@ test_the_ready_bar_is_the_items_own()
 local function test_the_ready_bar_still_refuses_a_hollow_spec()
   local s = init_state_repo("hollow")
   local _, leaf = goal_with_leaf(s)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) ~= 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
     "no spec, no ready")
   assert(check.must(store.load(s, leaf)).phase == "plan", "it stayed put")
 end
@@ -217,7 +220,7 @@ local function test_done_returns_a_finished_container_to_plan()
   local kid = file_item(s, "only child", leaf, 0, false)
   assert(check.must(store.load(s, leaf)).phase == "", "the parent stepped off")
   local before = commits(s)
-  assert(verbs.cmd_done(s, kid, "completed", false) == 0)
+  assert(verbs.cmd_done(s, kid, "completed", false, "") == 0)
   assert(commits(s) == before + 1, "the close and the return are one commit")
   assert(check.must(store.load(s, leaf)).phase == "plan",
     "its last child closed, so the container returns to plan")
@@ -234,7 +237,7 @@ local function test_done_leaves_a_still_decomposing_container_alone()
   local _, leaf = goal_with_leaf(s)
   local first = file_item(s, "first child", leaf, 0, false)
   local _second = file_item(s, "second child", leaf, 0, false)
-  assert(verbs.cmd_done(s, first, "completed", false) == 0)
+  assert(verbs.cmd_done(s, first, "completed", false, "") == 0)
   assert(check.must(store.load(s, leaf)).phase == "",
     "one child still open: the container keeps decomposing")
 end
@@ -257,9 +260,9 @@ local function test_move_records_the_pr()
   local s = init_state_repo("pr")
   local _, leaf = goal_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 4242, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 4242, false, "") == 0)
   local got = check.must(store.load(s, leaf))
   assert(got.pr == 4242, "the PR rides the move into check: " .. got.pr)
   assert(got.claim == "session-a", "the claim survives it")
@@ -283,23 +286,23 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
   local first = ""
   goal, first = goal_with_leaf(s)
   give_spec(s, first)
-  assert(verbs.cmd_move(s, first, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, first, "do", "session-a", 0, false) == 0)
+  assert(verbs.cmd_move(s, first, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, first, "do", "session-a", 0, false, "") == 0)
   local pulled: {string} = {first}
   for i = 2, flow.LIMITS["do"] do
     local id = file_item(s, ("slice %d"):format(i), goal, 0, false)
     give_spec(s, id)
-    assert(verbs.cmd_move(s, id, "ready", nil, 0, false) == 0)
-    assert(verbs.cmd_move(s, id, "do", "session-a", 0, false) == 0)
+    assert(verbs.cmd_move(s, id, "ready", nil, 0, false, "") == 0)
+    assert(verbs.cmd_move(s, id, "do", "session-a", 0, false, "") == 0)
     pulled[#pulled + 1] = id
   end
   local extra = file_item(s, "one too many", goal, 0, false)
   give_spec(s, extra)
-  assert(verbs.cmd_move(s, extra, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false) ~= 0,
+  assert(verbs.cmd_move(s, extra, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false, "") ~= 0,
     "do is full: the arrival queues")
   assert(check.must(store.load(s, extra)).phase == "ready", "it stayed put")
-  assert(verbs.cmd_move(s, pulled[1], "plan", nil, 0, false) == 0,
+  assert(verbs.cmd_move(s, pulled[1], "plan", nil, 0, false, "") == 0,
     "a return is never refused")
   assert(check.must(store.load(s, pulled[1])).claim == "",
     "and a return clears the claim")
@@ -313,15 +316,15 @@ local function test_verdict_judges_only_what_is_in_check()
   local s = init_state_repo("verdict-phase")
   local _, leaf = goal_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_verdict(s, leaf, "accept", 0, "abc1234") ~= 0,
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "none: test") ~= 0,
     "a plan item has not been reviewed")
   assert(check.must(store.load(s, leaf)).phase == "plan", "and did not move")
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false) == 0)
-  assert(verbs.cmd_verdict(s, leaf, "accept", 7, "abc1234") ~= 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 7, "abc1234", "none: test") ~= 0,
     "nor has an item still being worked")
-  assert(verbs.cmd_move(s, leaf, "check", nil, 7, false) == 0)
-  assert(verbs.cmd_verdict(s, leaf, "accept", 7, "abc1234") == 0,
+  assert(verbs.cmd_move(s, leaf, "check", nil, 7, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 7, "abc1234", "none: test") == 0,
     "from check it lands")
   assert(check.must(store.load(s, leaf)).phase == "land", "in land")
 end
@@ -333,16 +336,16 @@ local function test_check_refuses_a_handover_with_no_pr()
   local s = init_state_repo("check-pr")
   local _, leaf = goal_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false) ~= 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
     "a handover naming no PR is refused")
   assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false, "") == 0)
   -- Rework returns to `do` and comes back on the SAME PR, already
   -- recorded, so the second handover needs no --pr of its own.
-  assert(verbs.cmd_verdict(s, leaf, "request changes", 0, "abc1234") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false) == 0,
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234", "none: test") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0,
     "the recorded PR carries the rework back")
 end
 test_check_refuses_a_handover_with_no_pr()
@@ -384,7 +387,91 @@ local function test_ready_bar_names_a_blocker_that_is_not_an_item()
     check.must(store.list(s)))
   assert(#problems == 1 and problems[1]:find("not an item", 1, true),
     "the bar names it: " .. table.concat(problems, "; "))
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) ~= 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
     "and the promotion is refused")
 end
 test_ready_bar_names_a_blocker_that_is_not_an_item()
+
+-- Every non-accept verdict is evidence about why a presumed-ready item
+-- was not, and that evidence is lost unless the countermeasure is
+-- filed with it. The trailer takes an item id or a reasoned "none".
+local function test_a_non_accept_verdict_files_its_countermeasure()
+  local s = init_state_repo("enable")
+  local goal, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 5, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa", "") ~= 0,
+    "no trailer at all is refused")
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa", "none") ~= 0,
+    "a reasonless none is not the grammar")
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa",
+      "3HyArM3A3zHuRxn3VYCvKmUZ7KW") ~= 0,
+    "nor is the id of an item that does not exist")
+  local counter = file_item(s, "the countermeasure", goal, 0, false)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa", counter) == 0,
+    "a filed countermeasure passes")
+  assert(check.must(store.load(s, leaf)).enable == counter, "and is recorded")
+  -- An accept has no bounce to explain, so it carries no trailer.
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 5, "bbb", "") == 0,
+    "an accept needs none")
+  assert(check.must(store.load(s, leaf)).enable == "",
+    "and clears the standing one")
+end
+test_a_non_accept_verdict_files_its_countermeasure()
+
+-- A verdict judges a head; judging the same one twice says nothing
+-- happened in between, which is not a fresh round.
+local function test_a_verdict_refuses_a_head_it_already_judged()
+  local s = init_state_repo("head")
+  local _, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 6, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 6, "cafe123",
+      "none: this item's own spec was the gap") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 6, "cafe123",
+      "none: still the same gap") ~= 0,
+    "the same head twice has nothing new to judge")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe456", "") == 0,
+    "a moved head does")
+end
+test_a_verdict_refuses_a_head_it_already_judged()
+
+-- --force is for repair, and a repair the log cannot explain is
+-- indistinguishable from ordinary flow.
+local function test_force_states_its_reason_and_the_log_keeps_it()
+  local s = init_state_repo("why")
+  local _, leaf = goal_with_leaf(s)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true, "") ~= 0,
+    "a bare --force is refused")
+  assert(check.must(store.load(s, leaf)).phase == "plan", "and changes nothing")
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true,
+      "repairing a spec the importer mangled") == 0)
+  local events = check.must(store.history(s, leaf))
+  assert(events[1].subject:find("forced: repairing a spec", 1, true),
+    "the reason rides the commit: " .. events[1].subject)
+end
+test_force_states_its_reason_and_the_log_keeps_it()
+
+-- A blocker stated in prose and nowhere else sequences nothing: `next`
+-- reads the field, not the sidecar.
+local function test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
+  local s = init_state_repo("mirror")
+  local goal, leaf = goal_with_leaf(s)
+  local blocker = file_item(s, "the one that lands first", goal, 0, false)
+  local path = fs.join(tmpdir, "blocked-spec.md")
+  assert(fs.write(path, (READY_SPEC:gsub("Nothing needed.",
+          "Blocked by: the slice above."))))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
+    "prose claims a blocker the field does not carry")
+  assert(verbs.cmd_block(s, leaf, blocker, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
+    "recording it satisfies the bar")
+end
+test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()

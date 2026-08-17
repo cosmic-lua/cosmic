@@ -41,7 +41,11 @@ local function cmd_init(dir: string): integer
 end
 
 local function cmd_new(s: store.Store, title: string, parent: string,
-    rank: integer, spec: string, force: boolean): integer
+    rank: integer, spec: string, force: boolean, why: string): integer
+  local forced = gate.force_refusal(force, why)
+  if forced then
+    return gate.verdict_line("new", false, "REFUSED: " .. forced)
+  end
   local all, aerr = store.list(s)
   if all == nil then
     return gate.verdict_line("new", false, aerr)
@@ -77,7 +81,8 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     also = gate.dephased_container(parent_item)
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
-    ("new %s %s"):format(it.id:sub(1, 8), title), nil, also)
+    ("new %s %s%s"):format(it.id:sub(1, 8), title,
+      gate.forced_suffix(force, why)), nil, also)
   if not ok then
     return gate.verdict_line("new", false, err)
   end
@@ -255,7 +260,11 @@ local function cmd_check(s: store.Store, id: string): integer
 end
 
 local function cmd_move(s: store.Store, id: string, target: string,
-    claim: string, pr: integer, force: boolean): integer
+    claim: string, pr: integer, force: boolean, why: string): integer
+  local forced = gate.force_refusal(force, why)
+  if forced then
+    return gate.verdict_line("move", false, "REFUSED: " .. forced)
+  end
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("move", false, lerr)
@@ -316,62 +325,13 @@ local function cmd_move(s: store.Store, id: string, target: string,
     end
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("move %s %s -> %s"):format(id:sub(1, 8), from, target), from)
+    ("move %s %s -> %s%s"):format(id:sub(1, 8), from, target,
+      gate.forced_suffix(force, why)), from)
   if not ok then
     return gate.verdict_line("move", false, err)
   end
   return gate.verdict_line("move", true,
     ("%s %s -> %s"):format(id:sub(1, 8), from, target))
-end
-
---- The phase each verdict sends an item to: the three directions out
---- of check.
-local VERDICT_MOVES: {string: string} = {
-  ["accept"] = "land",
-  ["request changes"] = "do",
-  ["reject"] = "plan",
-}
-
-local function cmd_verdict(s: store.Store, id: string, kind: string,
-    pr: integer, head: string): integer
-  local target = VERDICT_MOVES[kind]
-  if target == nil then
-    return gate.verdict_line("verdict", false, ("unknown verdict: %s"):format(kind))
-  end
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return gate.verdict_line("verdict", false, lerr)
-  end
-  -- `check` means exactly "awaiting a planner verdict", so it is the
-  -- one phase a verdict may end. Judging from anywhere else would let
-  -- an accept carry unreviewed work straight into land, past every
-  -- gate between them.
-  if (it.phase or "") ~= "check" then
-    local where = it.phase
-    if where == "" then
-      where = "no phase"
-    end
-    return gate.verdict_line("verdict", false,
-      ("%s is in %s — a verdict judges work in check"):format(
-        id:sub(1, 8), where))
-  end
-  local from = it.phase
-  it.verdict = kind
-  it.verdict_head = head or ""
-  if pr ~= nil and pr ~= 0 then
-    it.pr = pr
-  end
-  it.phase = target
-  -- A verdict is a decision already made: an accept enters land and a
-  -- send-back is a return, so no WIP gate applies in any direction.
-  local ok, err = gate.commit_and_publish(s, it, nil,
-    ("verdict %s %s (%s -> %s)"):format(id:sub(1, 8), kind, from, target),
-    from)
-  if not ok then
-    return gate.verdict_line("verdict", false, err)
-  end
-  return gate.verdict_line("verdict", true,
-    ("%s on %s: %s -> %s"):format(kind, id:sub(1, 8), from, target))
 end
 
 --- Phases `done` refuses to end from without --force: the mid-flow
@@ -381,7 +341,11 @@ end
 local NO_DONE: {string: boolean} = {ready = true, ["do"] = true}
 
 local function cmd_done(s: store.Store, id: string, reason: string,
-    force: boolean): integer
+    force: boolean, why: string): integer
+  local forced = gate.force_refusal(force, why)
+  if forced then
+    return gate.verdict_line("done", false, "REFUSED: " .. forced)
+  end
   if reason ~= "completed" and reason ~= "not-planned" then
     return gate.verdict_line("done", false, ("unknown reason: %s"):format(reason))
   end
@@ -408,7 +372,8 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   it.resolution = reason
   local back = gate.rephased_parent(it, all)
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("done %s %s (from %s)"):format(id:sub(1, 8), reason, from), from, back)
+    ("done %s %s (from %s)%s"):format(id:sub(1, 8), reason, from,
+      gate.forced_suffix(force, why)), from, back)
   if not ok then
     return gate.verdict_line("done", false, err)
   end
@@ -432,18 +397,16 @@ end
 local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_new: function(s: store.Store, title: string, parent: string,
-  rank: integer, spec: string, force: boolean): integer
+  rank: integer, spec: string, force: boolean, why: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
   cmd_check: function(s: store.Store, id: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
-  claim: string, pr: integer, force: boolean): integer
-  cmd_verdict: function(s: store.Store, id: string, kind: string,
-  pr: integer, head: string): integer
+  claim: string, pr: integer, force: boolean, why: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
-  force: boolean): integer
+  force: boolean, why: string): integer
   cmd_sync: function(s: store.Store): integer
 end
 
@@ -455,7 +418,6 @@ local M: gitverbs = {
   cmd_spec = cmd_spec,
   cmd_check = cmd_check,
   cmd_move = cmd_move,
-  cmd_verdict = cmd_verdict,
   cmd_done = cmd_done,
   cmd_sync = cmd_sync,
 }

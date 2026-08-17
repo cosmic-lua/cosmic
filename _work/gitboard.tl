@@ -31,7 +31,18 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
+local vrd = require("_work.gitverdict")
 local view = require("_work.gitview")
+
+--- The verbs that write. Each one publishes, so each needs the
+--- remote's state before it reads the board at all: mutating a stale
+--- checkout produces a change computed against items someone else has
+--- already moved. Reads stay local and offline, and are as current as
+--- the last sync.
+local MUTATES: {string: boolean} = {
+  ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
+  ["spec"] = true, ["move"] = true, ["verdict"] = true, ["done"] = true,
+}
 
 local function dir_flag(): flags.Flag
   return {long = "dir", arg = "DIR", default = ".",
@@ -49,7 +60,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "parent", arg = "ID", help = "the item this decomposes"},
           {long = "rank", arg = "N", help = "rank a parentless item as a goal"},
           {long = "spec-file", arg = "FILE", help = "spec markdown sidecar"},
-          {long = "force", help = "override the plan WIP limit"}}}},
+          {long = "force", help = "override the plan WIP limit"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "attach", summary = "put ID under PARENT (triage a finding, re-parent)",
       spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
     {name = "block", summary = "record that ID waits on BLOCKER",
@@ -74,16 +86,20 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION", help = "record who took it"},
           {long = "pr", arg = "N", help = "the PR carrying the work"},
-          {long = "force", help = "override the target WIP limit"}}}},
+          {long = "force", help = "override the target WIP limit"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "verdict", summary = "record a review verdict; the move it implies follows",
       spec = {usage = "ID KIND [options]", flags = {dir_flag(),
           {long = "pr", arg = "N", help = "the PR the verdict judges"},
-          {long = "head", arg = "SHA", help = "head commit it judges"}}}},
+          {long = "head", arg = "SHA", help = "head commit it judges"},
+          {long = "enable", arg = "VALUE",
+            help = "countermeasure a non-accept verdict files: ID or 'none: why'"}}}},
     {name = "done", summary = "end ID, recording why",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "reason", arg = "REASON", default = "completed",
             help = "completed or not-planned"},
-          {long = "force", help = "end an item even from ready/do"}}}},
+          {long = "force", help = "end an item even from ready/do"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "show", summary = "print ID's fields, role, spec, and git history",
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
     {name = "sync", summary = "rebase onto the remote's state",
@@ -112,6 +128,14 @@ local function main(...: string): integer
   if s == nil then
     io.stderr:write(tostring(serr) .. "\n")
     return 1
+  end
+  if MUTATES[d.command] then
+    local synced, syerr = store.sync(s)
+    if not synced then
+      io.stderr:write(("gitboard-%s: could not sync before mutating: %s\n")
+        :format(d.command, syerr))
+      return 1
+    end
   end
   if d.command == "status" then
     return view.cmd_status(s)
@@ -154,7 +178,7 @@ local function main(...: string): integer
       spec = body
     end
     return verbs.cmd_new(s, title, parent, rank, spec,
-      d.parsed.switches["force"])
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   local id, rerr = store.resolve(s, d.parsed.args[1] or "")
   if id == nil then
@@ -196,7 +220,7 @@ local function main(...: string): integer
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     return verbs.cmd_move(s, id, target, d.parsed.values["claim"], pr,
-      d.parsed.switches["force"])
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   if d.command == "verdict" then
     local kind = d.parsed.args[2]
@@ -205,11 +229,12 @@ local function main(...: string): integer
       return 1
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
-    return verbs.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "")
+    return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "",
+      d.parsed.values["enable"] or "")
   end
   if d.command == "done" then
     return verbs.cmd_done(s, id, d.parsed.values["reason"] or "completed",
-      d.parsed.switches["force"])
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   return view.cmd_show(s, id)
 end
