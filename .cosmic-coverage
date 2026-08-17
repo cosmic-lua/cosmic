@@ -116,6 +116,7 @@ cmd/cosmic/embed_gen.tl 0 178
 cmd/cosmic/main.tl 0 235
 cosmic/_fields.tl 5 7
 cosmic/_literal_format.tl 8 14
+cosmic/_literal_lex.tl 85 89
 cosmic/_script_cache.tl 72 79
 cosmic/_seal_coverage.tl 11 13
 cosmic/_teal_ast.tl 30 37

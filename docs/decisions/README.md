@@ -61,3 +61,4 @@ build when the committed copy drifts.
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | active | [→](d24-structured-failures.md) |
 | D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | active | [→](d25-outcomes-and-instruments.md) |
 | D26 | a decision record: four sections, a status header, amended in place | active | [→](d26-decision-records.md) |
+| D27 | every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default | active | [→](d27-one-committed-floor.md) |

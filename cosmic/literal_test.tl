@@ -311,4 +311,71 @@ local function test_format_file_round_trips_through_parse_file()
 end
 test_format_file_round_trips_through_parse_file()
 
+-- A repeated key is invisible in a pin (a typo silently keeping the last
+-- value) and unsafe in a committed floor, where a union merge produces
+-- duplicates BY DESIGN -- so the default is to refuse, naming the line
+-- it repeats on and the line it was first seen on.
+local function test_duplicate_key_refused_by_default()
+  local err = refused("return {\n  a = 1,\n  a = 2,\n}")
+  assert(err:find("repeats the key 'a'", 1, true),
+    "names the key, got: " .. err)
+  assert(err:find("t:3:", 1, true), "names the repeating line, got: " .. err)
+  assert(err:find("first at line 2", 1, true), "names the first line, got: " .. err)
+end
+test_duplicate_key_refused_by_default()
+
+-- The two key spellings are the same key: `a =` and `["a"] =` must be
+-- caught as one duplicate, not read as two different entries.
+local function test_duplicate_key_across_spellings()
+  local err = refused('return {\n  a = 1,\n  ["a"] = 2,\n}')
+  assert(err:find("repeats the key 'a'", 1, true),
+    "names the key, got: " .. err)
+  assert(err:find("t:3:", 1, true), "names the bracketed line, got: " .. err)
+  assert(err:find("first at line 2", 1, true),
+    "names the identifier line, got: " .. err)
+end
+test_duplicate_key_across_spellings()
+
+-- The check runs at every depth, not just the root table.
+local function test_duplicate_key_inside_a_nested_table()
+  local err = refused("return {\n  outer = {\n    a = 1,\n    a = 2,\n  },\n}")
+  assert(err:find("repeats the key 'a'", 1, true),
+    "names the key, got: " .. err)
+  assert(err:find("first at line 3", 1, true), "names the first line, got: " .. err)
+end
+test_duplicate_key_inside_a_nested_table()
+
+-- `seen` is per table: the same key in two DIFFERENT nested tables is
+-- not a duplicate, because a union merge across independent floors is
+-- exactly the shape this contract must allow.
+local function test_same_key_in_different_nested_tables_is_not_a_duplicate()
+  local t = read("return {\n  x = { a = 1 },\n  y = { a = 2 },\n}")
+  local x, y = t.x, t.y
+  if x is {string: any} and y is {string: any} then
+    assert(x.a == 1 and y.a == 2, "each nested table keeps its own 'a'")
+  else
+    assert(false, "x and y must both read as tables")
+  end
+end
+test_same_key_in_different_nested_tables_is_not_a_duplicate()
+
+-- The opt-in resolver: when set, a repeated key is never refused, and
+-- whatever it returns is stored as-is -- including nil.
+local function test_on_duplicate_resolves_instead_of_refusing()
+  local seen: {any} = {}
+  local v, err = literal.parse("return {\n  a = 1,\n  a = 2,\n}", {
+      file = "t", noun = "pin",
+      on_duplicate = function(_key: string, first: any, second: any): any
+        seen[#seen + 1] = first
+        seen[#seen + 1] = second
+        return "resolved"
+      end,
+    })
+  assert(v, "expected a value, got a refusal: " .. tostring(err))
+  assert(v.a == "resolved", "the resolver's return value lands in the parsed table")
+  assert(seen[1] == 1 and seen[2] == 2,
+    "the resolver saw the first and second values")
+end
+test_on_duplicate_resolves_instead_of_refusing()
+
 print("all literal tests passed")
