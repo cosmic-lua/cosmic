@@ -30,9 +30,9 @@ superseded, or to nothing at all.
   one slug. A per-item repo would have to be threaded through `slug`'s three
   callers, not just added to the record.
 
-## Change (direction settled 2026-08-17)
+## Change
 
-One board, here. whilp/cosmic's board grows the ability to hold an item whose
+Direction settled 2026-08-17: one board, here. whilp/cosmic's board grows the ability to hold an item whose
 diff lands in another repo; whilp/cosmopolitan does NOT get its own `board`
 branch. A second board would duplicate the machinery, split the goal trace that
 makes cross-repo work legible in the first place (a cosmopolitan fix exists to
