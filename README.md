@@ -17,14 +17,6 @@ _work/       the machinery: gitboard (CLI), gitverbs (mutations),
              store (git-backed persistence), flow (the rules), spec
              (the ready bar's section grammar), item (the record),
              ksuid (ids)
-
-             plus four modules from the label board that outlived it:
-             stats measures flow, and it is the only implementation of
-             that measurement anywhere — it reads GitHub timelines,
-             which no longer carry the board, so it is the reference
-             for a port over `git log`, not a working tool. api,
-             github and model are what it needs to compile. The label
-             board's own CLI and verbs are gone.
 cmd/gitboard the binary this branch builds: `o/bin/gitboard`
 bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 ```
@@ -33,6 +25,14 @@ Roles derive from the graph — there is no kind field: a ranked root is
 a goal, an unranked root is a finding awaiting triage, an item with
 open children is a container being decomposed, and a parented leaf is
 workable (the only thing that holds a board phase).
+
+What the verbs ARE lives here and only here: `gitboard help` lists
+them, `gitboard help <verb>` gives one its options, and both are
+generated from the CLI, so neither can drift from the tool. The
+phases' WIP limits are `_work/flow.tl`'s `LIMITS`, printed by `status`
+as each phase against its own. The `work` skill on `main` says what
+the verbs are FOR and when a session reaches for which; it deliberately
+restates none of the above, so a verb added here needs no edit there.
 
 ## Using it from a cosmic checkout
 

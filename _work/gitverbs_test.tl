@@ -8,132 +8,22 @@
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local flow = require("_work.flow")
-local env = require("cosmic.env")
+local gate = require("_work.gitgate")
 local fs = require("cosmic.fs")
 local store = require("_work.store")
+local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
+local vrd = require("_work.gitverdict")
 
-local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+local tmpdir = fixture.tmpdir
+local READY_SPEC < const > = fixture.READY_SPEC
+local init_state_repo = fixture.init_state_repo
+local init_shared = fixture.init_shared
+local file_item = fixture.file_item
+local commits = fixture.commits
+local give_spec = fixture.give_spec
+local goal_with_leaf = fixture.goal_with_leaf
 
--- Git reads a global (and system) config before it does anything, and
--- a config it cannot READ is fatal, not skipped: under the build
--- fence the home directory is outside the granted trees, so every git
--- call here — the fixtures' and the store's own — dies on
--- `unable to access '~/.gitconfig'`. Pointing this process at an
--- empty config makes the fixtures depend on no ambient state at all,
--- which is what a test of git behaviour wants regardless of the
--- fence. The store itself is deliberately NOT hermetic: a real
--- session's push needs the user's credentials and config.
-local hermetic_config < const > = fs.join(tmpdir, "gitconfig-empty")
-assert(fs.write(hermetic_config, ""))
-assert(env.set("GIT_CONFIG_GLOBAL", hermetic_config))
-assert(env.set("GIT_CONFIG_NOSYSTEM", "1"))
-
-local READY_SPEC < const > = [[
-## Goal
-Serves the ranked goal above it.
-## Change
-Do exactly this.
-## Non-goals
-Not that.
-## Acceptance
-`cosmic --make ci`
-## Enablement
-Nothing needed.
-]]
-
---- Run one git command in `cwd`, failing loudly — fixture setup.
-local function git(cwd: string, argv: {string})
-  local full: {string} = {"git", "-c", "user.email=test@example.com",
-    "-c", "user.name=test", "-c", "core.createObject=rename"}
-  for _, a in ipairs(argv) do
-    full[#full + 1] = a
-  end
-  local r = check.must(child.run(full, {cwd = cwd}))
-  assert(r.ok, "git " .. table.concat(argv, " ") .. " failed: " .. r.stderr)
-end
-
---- A fresh local-only state repo with one seed commit.
-local function init_state_repo(name: string): store.Store
-  local root = fs.join(tmpdir, "verbs-" .. name)
-  assert(fs.remove_all(root))
-  assert(fs.make_dirs(fs.join(root, "items")))
-  git(root, {"init", "-q"})
-  assert(fs.write(fs.join(root, "items", ".gitkeep"), ""))
-  git(root, {"add", "-A"})
-  git(root, {"commit", "-q", "-m", "init"})
-  return check.must(store.open(root))
-end
-
---- A bare "remote" seeded with an empty items/ tree, plus two clones.
-local function init_shared(name: string): store.Store, store.Store
-  local base = fs.join(tmpdir, "verbs-shared-" .. name)
-  assert(fs.remove_all(base))
-  assert(fs.make_dirs(base))
-  local bare = fs.join(base, "remote.git")
-  git(base, {"init", "-q", "--bare", bare})
-  git(bare, {"config", "core.createObject", "rename"})
-  local seed = fs.join(base, "seed")
-  git(base, {"clone", "-q", bare, seed})
-  assert(fs.make_dirs(fs.join(seed, "items")))
-  assert(fs.write(fs.join(seed, "items", ".gitkeep"), ""))
-  git(seed, {"add", "-A"})
-  git(seed, {"commit", "-q", "-m", "init"})
-  git(seed, {"push", "-q", "origin", "HEAD"})
-  local out: {store.Store} = {}
-  for i = 1, 2 do
-    local dir = fs.join(base, ("clone%d"):format(i))
-    git(base, {"clone", "-q", bare, dir})
-    git(dir, {"config", "core.createObject", "rename"})
-    out[#out + 1] = check.must(store.open(dir))
-  end
-  return out[1], out[2]
-end
-
---- File an item through `new` and return its id. A KSUID orders by
---- its one-second timestamp, so items minted inside the same second
---- sort by their random half — "the newest item" is not something a
---- test can read off the sorted list. The set difference is.
-local function file_item(s: store.Store, title: string, parent: string,
-    rank: integer, force: boolean): string
-  local before: {string: boolean} = {}
-  for _, i in ipairs(check.must(store.list(s))) do
-    before[i.id] = true
-  end
-  assert(verbs.cmd_new(s, title, parent, rank, nil, force) == 0,
-    "new should be accepted: " .. title)
-  for _, i in ipairs(check.must(store.list(s))) do
-    if not before[i.id] then
-      return i.id
-    end
-  end
-  error("new filed nothing: " .. title)
-end
-
---- How many commits a store's checkout carries.
-local function commits(s: store.Store): integer
-  local r = check.must(child.run({"git", "rev-list", "--count", "HEAD"},
-      {cwd = s.root}))
-  assert(r.ok, "git rev-list failed: " .. r.stderr)
-  return math.tointeger(tonumber((r.stdout:gsub("%s+$", "")))) or -1
-end
-
---- A spec sidecar meeting the ready bar, through the spec verb.
-local function give_spec(s: store.Store, id: string)
-  local path = fs.join(tmpdir, "ready-spec.md")
-  assert(fs.write(path, READY_SPEC))
-  assert(verbs.cmd_spec(s, id, path) == 0, "spec should be accepted")
-end
-
---- A goal with one workable leaf under it, both filed through `new`.
-local function goal_with_leaf(s: store.Store): string, string
-  local goal = file_item(s, "a ranked goal", "", 1, false)
-  return goal, file_item(s, "a workable slice", goal, 0, false)
-end
-
--- A decomposition writes the child AND the parent it de-phases, and
--- they are one commit: half of it reaching the board would leave a
--- parent off the board with nothing decomposing it.
 local function test_decomposition_is_one_commit()
   local s = init_state_repo("decompose")
   local _, leaf = goal_with_leaf(s)
@@ -162,11 +52,12 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
   -- the tenth loses the race at the merged state, not locally.
   assert(store.sync(b))
   for i = 1, 5 do
-    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, 0, nil, true) == 0)
+    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, 0, nil, true,
+        "test fixture") == 0)
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "plan", "the parent-to-be starts on the board")
-  assert(verbs.cmd_new(a, "the refused child", phased.id, 0, nil, false) ~= 0,
+  assert(verbs.cmd_new(a, "the refused child", phased.id, 0, nil, false, "") ~= 0,
     "filing under a full plan must be refused after the rebase")
   local after = check.must(store.load(a, phased.id))
   assert(after.phase == "plan",
@@ -190,9 +81,9 @@ local function test_the_ready_bar_is_the_items_own()
   local _stray = file_item(s, "work under it", finding, 0, false)
   local all = check.must(store.list(s))
   assert(#flow.trace_problems(all) > 0, "the board does have a problem")
-  assert(verbs.cmd_check(s, leaf) == 0,
+  assert(verbs.cmd_check(s, leaf, "") == 0,
     "a sound item meets the bar while another item is broken")
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
     "and it may be promoted")
   assert(check.must(store.load(s, leaf)).phase == "ready", "it moved")
 end
@@ -202,7 +93,7 @@ test_the_ready_bar_is_the_items_own()
 local function test_the_ready_bar_still_refuses_a_hollow_spec()
   local s = init_state_repo("hollow")
   local _, leaf = goal_with_leaf(s)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) ~= 0,
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
     "no spec, no ready")
   assert(check.must(store.load(s, leaf)).phase == "plan", "it stayed put")
 end
@@ -216,7 +107,7 @@ local function test_done_returns_a_finished_container_to_plan()
   local kid = file_item(s, "only child", leaf, 0, false)
   assert(check.must(store.load(s, leaf)).phase == "", "the parent stepped off")
   local before = commits(s)
-  assert(verbs.cmd_done(s, kid, "completed", false) == 0)
+  assert(verbs.cmd_done(s, kid, "completed", false, "") == 0)
   assert(commits(s) == before + 1, "the close and the return are one commit")
   assert(check.must(store.load(s, leaf)).phase == "plan",
     "its last child closed, so the container returns to plan")
@@ -233,7 +124,7 @@ local function test_done_leaves_a_still_decomposing_container_alone()
   local _, leaf = goal_with_leaf(s)
   local first = file_item(s, "first child", leaf, 0, false)
   local _second = file_item(s, "second child", leaf, 0, false)
-  assert(verbs.cmd_done(s, first, "completed", false) == 0)
+  assert(verbs.cmd_done(s, first, "completed", false, "") == 0)
   assert(check.must(store.load(s, leaf)).phase == "",
     "one child still open: the container keeps decomposing")
 end
@@ -243,12 +134,11 @@ test_done_leaves_a_still_decomposing_container_alone()
 local function test_a_no_op_mutation_is_named()
   local s = init_state_repo("noop")
   local _, leaf = goal_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 42, false) == 0)
-  assert(verbs.cmd_verdict(s, leaf, "request changes", 42, "abc1234") == 0)
-  assert(verbs.cmd_verdict(s, leaf, "request changes", 42, "abc1234") ~= 0,
-    "the same verdict twice records nothing the second time")
+  local path = fs.join(tmpdir, "ready-spec.md")
+  assert(fs.write(path, READY_SPEC))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_spec(s, leaf, path) ~= 0,
+    "the same spec twice records nothing the second time")
 end
 test_a_no_op_mutation_is_named()
 
@@ -257,9 +147,9 @@ local function test_move_records_the_pr()
   local s = init_state_repo("pr")
   local _, leaf = goal_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 4242, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 4242, false, "") == 0)
   local got = check.must(store.load(s, leaf))
   assert(got.pr == 4242, "the PR rides the move into check: " .. got.pr)
   assert(got.claim == "session-a", "the claim survives it")
@@ -283,25 +173,156 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
   local first = ""
   goal, first = goal_with_leaf(s)
   give_spec(s, first)
-  assert(verbs.cmd_move(s, first, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, first, "do", "session-a", 0, false) == 0)
+  assert(verbs.cmd_move(s, first, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, first, "do", "session-a", 0, false, "") == 0)
   local pulled: {string} = {first}
   for i = 2, flow.LIMITS["do"] do
     local id = file_item(s, ("slice %d"):format(i), goal, 0, false)
     give_spec(s, id)
-    assert(verbs.cmd_move(s, id, "ready", nil, 0, false) == 0)
-    assert(verbs.cmd_move(s, id, "do", "session-a", 0, false) == 0)
+    assert(verbs.cmd_move(s, id, "ready", nil, 0, false, "") == 0)
+    assert(verbs.cmd_move(s, id, "do", "session-a", 0, false, "") == 0)
     pulled[#pulled + 1] = id
   end
   local extra = file_item(s, "one too many", goal, 0, false)
   give_spec(s, extra)
-  assert(verbs.cmd_move(s, extra, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false) ~= 0,
+  assert(verbs.cmd_move(s, extra, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false, "") ~= 0,
     "do is full: the arrival queues")
   assert(check.must(store.load(s, extra)).phase == "ready", "it stayed put")
-  assert(verbs.cmd_move(s, pulled[1], "plan", nil, 0, false) == 0,
+  assert(verbs.cmd_move(s, pulled[1], "plan", nil, 0, false, "") == 0,
     "a return is never refused")
   assert(check.must(store.load(s, pulled[1])).claim == "",
     "and a return clears the claim")
 end
 test_wip_limits_bind_arrivals_but_never_returns()
+
+-- The reviewer follows the pr field to the diff, and so does the
+-- landing step that reads it back, so the handover must name one.
+local function test_check_refuses_a_handover_with_no_pr()
+  local s = init_state_repo("check-pr")
+  local _, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
+    "a handover naming no PR is refused")
+  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false, "") == 0)
+  -- Rework returns to `do` and comes back on the SAME PR, already
+  -- recorded, so the second handover needs no --pr of its own.
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234", "none: test") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0,
+    "the recorded PR carries the rework back")
+end
+test_check_refuses_a_handover_with_no_pr()
+
+-- Landing order is a board fact like any other: one verb, one commit,
+-- and refusals where hand-editing the field wrote nonsense.
+local function test_block_records_landing_order_and_refuses_nonsense()
+  local s = init_state_repo("block")
+  local goal, first = goal_with_leaf(s)
+  local second = file_item(s, "the slice that waits", goal, 0, false)
+  assert(verbs.cmd_block(s, second, first, false) == 0)
+  assert(#check.must(store.load(s, second)).blocked_by == 1,
+    "the blocker is recorded")
+  assert(verbs.cmd_block(s, second, first, false) ~= 0,
+    "recording it twice records nothing")
+  assert(verbs.cmd_block(s, second, second, false) ~= 0,
+    "an item cannot block itself")
+  assert(verbs.cmd_block(s, first, second, false) ~= 0,
+    "and the reverse edge would deadlock both")
+  assert(#check.must(store.load(s, first)).blocked_by == 0,
+    "the refused edge is not written")
+  assert(verbs.cmd_block(s, second, first, true) == 0, "unblock drops it")
+  assert(#check.must(store.load(s, second)).blocked_by == 0, "leaving none")
+  assert(verbs.cmd_block(s, second, first, true) ~= 0,
+    "and dropping what is not there is refused")
+end
+test_block_records_landing_order_and_refuses_nonsense()
+
+-- A blocker id with no item behind it never blocks, so it reads as
+-- "sequenced" and pulls anyway. The ready bar is where that is caught.
+local function test_ready_bar_names_a_blocker_that_is_not_an_item()
+  local s = init_state_repo("dangling")
+  local _, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  local it = check.must(store.load(s, leaf))
+  it.blocked_by = {"3HyArM3A3zHuRxn3VYCvKmUZ7KW"}
+  assert(store.save(s, it, "hand-edited blocker"))
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 1 and problems[1]:find("not an item", 1, true),
+    "the bar names it: " .. table.concat(problems, "; "))
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
+    "and the promotion is refused")
+end
+test_ready_bar_names_a_blocker_that_is_not_an_item()
+
+-- --force is for repair, and a repair the log cannot explain is
+-- indistinguishable from ordinary flow.
+local function test_force_states_its_reason_and_the_log_keeps_it()
+  local s = init_state_repo("why")
+  local _, leaf = goal_with_leaf(s)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true, "") ~= 0,
+    "a bare --force is refused")
+  assert(check.must(store.load(s, leaf)).phase == "plan", "and changes nothing")
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true,
+      "repairing a spec the importer mangled") == 0)
+  local events = check.must(store.history(s, leaf))
+  assert(events[1].subject:find("forced: repairing a spec", 1, true),
+    "the reason rides the commit: " .. events[1].subject)
+end
+test_force_states_its_reason_and_the_log_keeps_it()
+
+-- A blocker stated in prose and nowhere else sequences nothing: `next`
+-- reads the field, not the sidecar.
+local function test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
+  local s = init_state_repo("mirror")
+  local goal, leaf = goal_with_leaf(s)
+  local blocker = file_item(s, "the one that lands first", goal, 0, false)
+  local path = fs.join(tmpdir, "blocked-spec.md")
+  assert(fs.write(path, (READY_SPEC:gsub("Nothing needed.",
+          "Blocked by: the slice above."))))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
+    "prose claims a blocker the field does not carry")
+  assert(verbs.cmd_block(s, leaf, blocker, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
+    "recording it satisfies the bar")
+end
+test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
+
+-- A spec's measured claims are re-run at the bar, in the product
+-- checkout they describe rather than in the board worktree asking.
+local function test_the_ready_bar_reruns_the_specs_facts()
+  local s = init_state_repo("facts")
+  local _, leaf = goal_with_leaf(s)
+  local tree = fs.join(tmpdir, "facts-product")
+  assert(fs.remove_all(tree))
+  assert(fs.make_dirs(tree))
+  assert(fs.write(fs.join(tree, "counted.txt"), "a\nb\nc\n"))
+  local path = fs.join(tmpdir, "facts-spec.md")
+  assert(fs.write(path,
+      READY_SPEC .. "\n```facts\n$ wc -l < counted.txt\n3\n```\n"))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", tree) == 0,
+    "a fact that holds in the named root passes the bar")
+  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
+  -- The tree moves on; the claim does not, and that is a bounce.
+  assert(fs.write(fs.join(tree, "counted.txt"), "a\nb\nc\nd\n"))
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", tree) ~= 0,
+    "a stale fact is refused")
+  assert(verbs.cmd_check(s, leaf, tree) ~= 0, "and check names it")
+end
+test_the_ready_bar_reruns_the_specs_facts()
+
+-- A board with no product checkout beside it cannot evaluate a fact at
+-- all; saying so beats reporting every claim as failed.
+local function test_facts_without_a_product_tree_say_so()
+  local s = init_state_repo("factsroot")
+  local body = READY_SPEC .. "\n```facts\n$ wc -l < counted.txt\n3\n```\n"
+  local got = gate.fact_problems(s, body)
+  assert(#got == 1 and got[1]:find("not a worktree of a product", 1, true),
+    "got: " .. table.concat(got, "; "))
+end
+test_facts_without_a_product_tree_say_so()

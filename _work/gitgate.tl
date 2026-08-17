@@ -9,8 +9,12 @@
 --- beyond its subject travels with it rather than being committed
 --- alongside — a de-phased parent committed on its own would survive
 --- the refusal of the child that caused it.
+local facts = require("_work.facts")
+local gh = require("_work.gh")
 local flow = require("_work.flow")
 local item = require("_work.item")
+local review = require("_work.review")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 --- Print a verb's verdict line and return its exit code.
@@ -42,21 +46,49 @@ local function wip_refusal(b: flow.Board, from: string, to: string): string
     to, #(b[to] or {}), limit)
 end
 
+--- The refusal a bare `--force` earns, or nil when the mutation may
+--- proceed. `--force` is for repair, never for flow — and a forced
+--- mutation with no stated reason is indistinguishable in the log from
+--- an ordinary one, which is exactly what makes that rule
+--- unenforceable after the fact.
+--- @param force boolean Whether --force was passed
+--- @param why string The stated reason
+--- @return string | nil The refusal
+local function force_refusal(force: boolean, why: string): string
+  if not force or (why or ""):match("%S") ~= nil then
+    return nil
+  end
+  return "--force needs --why <reason>: a forced mutation is a repair, "
+  .. "and the log has to say what it repaired"
+end
+
+--- The suffix a forced mutation adds to its commit subject, so the
+--- reason travels with the change rather than with the session.
+--- @param force boolean Whether --force was passed
+--- @param why string The stated reason
+--- @return string The suffix, "" when nothing was forced
+local function forced_suffix(force: boolean, why: string): string
+  if not force then
+    return ""
+  end
+  return (" (forced: %s)"):format(why)
+end
+
 --- Save an item and publish the commit, re-checking the WIP gate
 --- against the merged state when the push loses a race. Everything
 --- one mutation touches goes in through `also`, so a refusal after a
 --- lost race drops the whole mutation rather than half of it.
 --- @param s store.Store The store
 --- @param it item.Item The mutated item
---- @param spec string Replacement spec, or nil to leave the sidecar alone
+--- @param body string Replacement spec markdown, or nil to leave the sidecar alone
 --- @param message string Commit subject
 --- @param from string Phase the mutation left, or nil for an entry
 --- @param also {item.Item} Further items the same mutation writes
 --- @return boolean True once committed (and pushed, given a remote)
 --- @return string Error message
-local function commit_and_publish(s: store.Store, it: item.Item, spec: string,
+local function commit_and_publish(s: store.Store, it: item.Item, body: string,
     message: string, from: string, also?: {item.Item}): boolean, string
-  local saved, serr = store.save(s, it, message, spec, also)
+  local saved, serr = store.save(s, it, message, body, also)
   if not saved then
     return false, serr
   end
@@ -95,6 +127,81 @@ local function dephased_container(parent: item.Item): {item.Item}
   return {parent}
 end
 
+--- The spec's measured claims, re-run. A fact describes the PRODUCT
+--- tree, and the verb asking it runs from the board worktree, so the
+--- commands need the main checkout as their working directory — asked
+--- of git unless the caller named one.
+---
+--- A board with no product tree beside it (a standalone clone) cannot
+--- evaluate a fact at all, and says so rather than reporting every
+--- claim as failed against the wrong tree.
+--- @param s store.Store The store
+--- @param body string The spec sidecar's markdown
+--- @param root string Where to run them; nil asks git
+--- @return {string} Problems, empty when every fact holds
+local function fact_problems(s: store.Store, body: string, root?: string):
+  {string}
+  local parsed, perr = facts.parse(body)
+  if parsed == nil then
+    return {perr}
+  end
+  if #parsed == 0 then
+    return {}
+  end
+  local where = root or ""
+  if where == "" then
+    local found, werr = store.main_worktree(s)
+    if found == nil then
+      return {("facts cannot run: %s"):format(werr)}
+    end
+    where = found
+  end
+  if where == s.root then
+    return {"this spec states facts, but the board is not a worktree of a "
+      .. "product checkout — the commands describe a tree that is not here; "
+      .. "pass --root <checkout>"}
+  end
+  return facts.fact_failures(parsed, where)
+end
+
+--- The refusal a handover into `check` earns from GitHub, or nil when
+--- the request is worth a reviewer's time: open, not a draft, joined
+--- to its item by a `Board:` line, quoting the acceptance commands it
+--- claims to have run, and not already known to fail CI.
+---
+--- A missing token is itself a refusal rather than a silent pass —
+--- a gate that waves things through when it cannot see is worse than
+--- no gate — and `--force` is the way past it, exactly as with every
+--- other refusal here.
+--- @param s store.Store The store
+--- @param id string The item being handed over
+--- @param number integer The PR number
+--- @param body string The item's spec sidecar
+--- @return string | nil The refusal
+local function handover_refusal(s: store.Store, id: string, number: integer,
+    body: string): string
+  -- A local-only board has no pull requests to ask about, the same
+  -- reason publishing there is a no-op.
+  if not store.has_origin(s) then
+    return nil
+  end
+  local p, perr = gh.pull(s, number)
+  if p == nil then
+    return ("cannot read PR #%d: %s; --force to hand it over anyway"):format(
+      number, perr)
+  end
+  local blocked = review.blocks_check(p, id, spec.acceptance_commands(body))
+  if blocked then
+    return blocked
+  end
+  local runs, cerr = gh.checks(s, p.head_sha)
+  if runs == nil then
+    return ("cannot read CI for %s: %s; --force to hand it over anyway")
+    :format(p.head_sha:sub(1, 7), cerr)
+  end
+  return review.blocks_on_ci(runs)
+end
+
 --- The problems that keep an item from `ready`: it must be workable,
 --- its spec must fill the ready-bar sections, and the whole graph
 --- must be traceable. The one list `check` reports and `move ID
@@ -102,16 +209,36 @@ end
 --- @param s store.Store The store
 --- @param it item.Item The item
 --- @param all {item.Item} Every item
+--- @param root string Where the spec's facts run; nil asks git for it
 --- @return {string} Problems, empty when the item meets the bar
 local function ready_problems(s: store.Store, it: item.Item,
-    all: {item.Item}): {string}
-  local out = flow.item_problems(it, all, flow.by_id(all))
+    all: {item.Item}, root?: string): {string}
+  local index = flow.by_id(all)
+  local out = flow.item_problems(it, all, index)
   local r = flow.role(it, all)
   if r ~= "work" then
     out[#out + 1] = ("%s is a %s, not workable"):format(it.id:sub(1, 8), r)
   end
-  for _, gap in ipairs(flow.ready_gaps(store.read_spec(s, it.id))) do
+  -- A blocker id with no item behind it never blocks (`flow.is_blocked`
+  -- reasons about state the board holds), so a mistyped one reads as
+  -- "sequenced" and pulls anyway. The bar is where that is caught.
+  for _, b in ipairs(it.blocked_by or {}) do
+    if index[b] == nil then
+      out[#out + 1] = ("blocked_by names %s, which is not an item"):format(b)
+    end
+  end
+  local body = store.read_spec(s, it.id)
+  for _, gap in ipairs(flow.ready_gaps(body)) do
     out[#out + 1] = ("spec section missing or empty: %s"):format(gap)
+  end
+  -- A blocker stated only in prose is one `next` cannot see, so the
+  -- slice pulls as if nothing were sequenced before it.
+  if spec.claims_blocker(body) and #(it.blocked_by or {}) == 0 then
+    out[#out + 1] = "Enablement names a blocker, but blocked_by is empty — "
+    .. "record it with `gitboard block <id> <blocker>`"
+  end
+  for _, p in ipairs(fact_problems(s, body, root)) do
+    out[#out + 1] = p
   end
   return out
 end
@@ -147,20 +274,29 @@ end
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
   wip_refusal: function(b: flow.Board, from: string, to: string): string
-  commit_and_publish: function(s: store.Store, it: item.Item, spec: string,
+  force_refusal: function(force: boolean, why: string): string
+  forced_suffix: function(force: boolean, why: string): string
+  commit_and_publish: function(s: store.Store, it: item.Item, body: string,
   message: string, from: string, also?: {item.Item}): boolean, string
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
-  ready_problems: function(s: store.Store, it: item.Item, all: {item.Item}):
-  {string}
+  fact_problems: function(s: store.Store, body: string, root?: string): {string}
+  handover_refusal: function(s: store.Store, id: string, number: integer,
+  body: string): string
+  ready_problems: function(s: store.Store, it: item.Item, all: {item.Item},
+  root?: string): {string}
 end
 
 local M: gitgate = {
   verdict_line = verdict_line,
   wip_refusal = wip_refusal,
+  force_refusal = force_refusal,
+  forced_suffix = forced_suffix,
   commit_and_publish = commit_and_publish,
   dephased_container = dephased_container,
   rephased_parent = rephased_parent,
+  fact_problems = fact_problems,
+  handover_refusal = handover_refusal,
   ready_problems = ready_problems,
 }
 

@@ -41,7 +41,11 @@ local function cmd_init(dir: string): integer
 end
 
 local function cmd_new(s: store.Store, title: string, parent: string,
-    rank: integer, spec: string, force: boolean): integer
+    rank: integer, spec: string, force: boolean, why: string): integer
+  local forced = gate.force_refusal(force, why)
+  if forced then
+    return gate.verdict_line("new", false, "REFUSED: " .. forced)
+  end
   local all, aerr = store.list(s)
   if all == nil then
     return gate.verdict_line("new", false, aerr)
@@ -77,7 +81,8 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     also = gate.dephased_container(parent_item)
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
-    ("new %s %s"):format(it.id:sub(1, 8), title), nil, also)
+    ("new %s %s%s"):format(it.id:sub(1, 8), title,
+      gate.forced_suffix(force, why)), nil, also)
   if not ok then
     return gate.verdict_line("new", false, err)
   end
@@ -144,6 +149,77 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
       (it.phase ~= "" and " — workable, in plan") or ""))
 end
 
+--- block/unblock: the `blocked_by` field as a verb, so the landing
+--- order between two slices is recorded the same way every other
+--- board fact is — one mutation, one commit, one refusal when it does
+--- not hold. Hand-editing the field was the standing workaround, and
+--- it wrote duplicate ids and ids of items that do not exist; both
+--- are refused here, and an existing duplicate is collapsed by the
+--- next write.
+--- @param s store.Store The store
+--- @param id string The waiting item
+--- @param blocker string The item it waits on
+--- @param remove boolean True to drop the blocker instead of adding it
+--- @return integer 0 on success, 1 otherwise
+local function cmd_block(s: store.Store, id: string, blocker: string,
+    remove: boolean): integer
+  local verb = remove and "unblock" or "block"
+  local all, aerr = store.list(s)
+  if all == nil then
+    return gate.verdict_line(verb, false, aerr)
+  end
+  local index = flow.by_id(all)
+  local it = index[id]
+  if it == nil then
+    return gate.verdict_line(verb, false, ("no item %s"):format(id))
+  end
+  if index[blocker] == nil then
+    return gate.verdict_line(verb, false, ("no item %s"):format(blocker))
+  end
+  if id == blocker then
+    return gate.verdict_line(verb, false, "an item cannot block itself")
+  end
+  -- A blocker that already waits on this item, through any chain,
+  -- would leave both permanently unpullable — and `next` would say
+  -- nothing, because it just skips what is blocked.
+  if not remove and flow.waits_on(index, blocker, id) then
+    return gate.verdict_line(verb, false,
+      ("%s already waits on %s — blocking would deadlock both"):format(
+        blocker:sub(1, 8), id:sub(1, 8)))
+  end
+  local kept: {string} = {}
+  local seen: {string: boolean} = {}
+  local had = false
+  for _, b in ipairs(it.blocked_by or {}) do
+    if b == blocker then
+      had = true
+    elseif not seen[b] then
+      seen[b] = true
+      kept[#kept + 1] = b
+    end
+  end
+  if remove and not had then
+    return gate.verdict_line(verb, false,
+      ("%s does not wait on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
+  end
+  if not remove then
+    kept[#kept + 1] = blocker
+  end
+  it.blocked_by = kept
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)), it.phase)
+  if not ok then
+    return gate.verdict_line(verb, false, err)
+  end
+  local shape = "now waits on"
+  if remove then
+    shape = "no longer waits on"
+  end
+  return gate.verdict_line(verb, true,
+    ("%s %s %s (%d blocker(s))"):format(id:sub(1, 8), shape,
+      blocker:sub(1, 8), #kept))
+end
+
 local function cmd_spec(s: store.Store, id: string, file: string): integer
   local it, lerr = store.load(s, id)
   if it == nil then
@@ -161,7 +237,7 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
-local function cmd_check(s: store.Store, id: string): integer
+local function cmd_check(s: store.Store, id: string, root: string): integer
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("check", false, lerr)
@@ -170,7 +246,7 @@ local function cmd_check(s: store.Store, id: string): integer
   if all == nil then
     return gate.verdict_line("check", false, aerr)
   end
-  local problems = gate.ready_problems(s, it, all)
+  local problems = gate.ready_problems(s, it, all, root)
   for _, p in ipairs(problems) do
     print("  " .. p)
   end
@@ -184,7 +260,12 @@ local function cmd_check(s: store.Store, id: string): integer
 end
 
 local function cmd_move(s: store.Store, id: string, target: string,
-    claim: string, pr: integer, force: boolean): integer
+    claim: string, pr: integer, force: boolean, why: string,
+    root?: string): integer
+  local forced = gate.force_refusal(force, why)
+  if forced then
+    return gate.verdict_line("move", false, "REFUSED: " .. forced)
+  end
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("move", false, lerr)
@@ -208,13 +289,28 @@ local function cmd_move(s: store.Store, id: string, target: string,
   -- so a repair move out of no-phase is judged on where it lands.
   it.phase = target
   if target == "ready" and not force then
-    local problems = gate.ready_problems(s, it, all)
+    local problems = gate.ready_problems(s, it, all, root)
     if #problems > 0 then
       for _, p in ipairs(problems) do
         print("  " .. p)
       end
       return gate.verdict_line("move", false,
         ("REFUSED: %s misses the ready bar"):format(id:sub(1, 8)))
+    end
+  end
+  -- A handover to check is a handover to a REVIEWER, and the reviewer
+  -- follows the pr field to the diff — as does the landing step that
+  -- reads it back. Without one the item says "judge something" and
+  -- names nothing.
+  if target == "check" and (pr or 0) == 0 and (it.pr or 0) == 0 and not force then
+    return gate.verdict_line("move", false,
+      ("REFUSED: a handover to check names its PR — pass --pr N"))
+  end
+  if target == "check" and not force then
+    local refusal = gate.handover_refusal(s, id,
+      (pr or 0) ~= 0 and pr or it.pr, store.read_spec(s, id))
+    if refusal then
+      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
   if claim ~= nil and claim ~= "" then
@@ -237,54 +333,13 @@ local function cmd_move(s: store.Store, id: string, target: string,
     end
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("move %s %s -> %s"):format(id:sub(1, 8), from, target), from)
+    ("move %s %s -> %s%s"):format(id:sub(1, 8), from, target,
+      gate.forced_suffix(force, why)), from)
   if not ok then
     return gate.verdict_line("move", false, err)
   end
   return gate.verdict_line("move", true,
     ("%s %s -> %s"):format(id:sub(1, 8), from, target))
-end
-
---- The phase each verdict sends an item to: the three directions out
---- of check.
-local VERDICT_MOVES: {string: string} = {
-  ["accept"] = "land",
-  ["request changes"] = "do",
-  ["reject"] = "plan",
-}
-
-local function cmd_verdict(s: store.Store, id: string, kind: string,
-    pr: integer, head: string): integer
-  local target = VERDICT_MOVES[kind]
-  if target == nil then
-    return gate.verdict_line("verdict", false, ("unknown verdict: %s"):format(kind))
-  end
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return gate.verdict_line("verdict", false, lerr)
-  end
-  if (it.phase or "") == "" then
-    return gate.verdict_line("verdict", false,
-      ("%s is not on the board — verdicts judge phased work"):format(
-        id:sub(1, 8)))
-  end
-  local from = it.phase
-  it.verdict = kind
-  it.verdict_head = head or ""
-  if pr ~= nil and pr ~= 0 then
-    it.pr = pr
-  end
-  it.phase = target
-  -- A verdict is a decision already made: an accept enters land and a
-  -- send-back is a return, so no WIP gate applies in any direction.
-  local ok, err = gate.commit_and_publish(s, it, nil,
-    ("verdict %s %s (%s -> %s)"):format(id:sub(1, 8), kind, from, target),
-    from)
-  if not ok then
-    return gate.verdict_line("verdict", false, err)
-  end
-  return gate.verdict_line("verdict", true,
-    ("%s on %s: %s -> %s"):format(kind, id:sub(1, 8), from, target))
 end
 
 --- Phases `done` refuses to end from without --force: the mid-flow
@@ -294,7 +349,11 @@ end
 local NO_DONE: {string: boolean} = {ready = true, ["do"] = true}
 
 local function cmd_done(s: store.Store, id: string, reason: string,
-    force: boolean): integer
+    force: boolean, why: string): integer
+  local forced = gate.force_refusal(force, why)
+  if forced then
+    return gate.verdict_line("done", false, "REFUSED: " .. forced)
+  end
   if reason ~= "completed" and reason ~= "not-planned" then
     return gate.verdict_line("done", false, ("unknown reason: %s"):format(reason))
   end
@@ -321,7 +380,8 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   it.resolution = reason
   local back = gate.rephased_parent(it, all)
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("done %s %s (from %s)"):format(id:sub(1, 8), reason, from), from, back)
+    ("done %s %s (from %s)%s"):format(id:sub(1, 8), reason, from,
+      gate.forced_suffix(force, why)), from, back)
   if not ok then
     return gate.verdict_line("done", false, err)
   end
@@ -345,16 +405,17 @@ end
 local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_new: function(s: store.Store, title: string, parent: string,
-  rank: integer, spec: string, force: boolean): integer
+  rank: integer, spec: string, force: boolean, why: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
+  cmd_block: function(s: store.Store, id: string, blocker: string,
+  remove: boolean): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
-  cmd_check: function(s: store.Store, id: string): integer
+  cmd_check: function(s: store.Store, id: string, root: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
-  claim: string, pr: integer, force: boolean): integer
-  cmd_verdict: function(s: store.Store, id: string, kind: string,
-  pr: integer, head: string): integer
+  claim: string, pr: integer, force: boolean, why: string,
+  root?: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
-  force: boolean): integer
+  force: boolean, why: string): integer
   cmd_sync: function(s: store.Store): integer
 end
 
@@ -362,10 +423,10 @@ local M: gitverbs = {
   cmd_init = cmd_init,
   cmd_new = cmd_new,
   cmd_attach = cmd_attach,
+  cmd_block = cmd_block,
   cmd_spec = cmd_spec,
   cmd_check = cmd_check,
   cmd_move = cmd_move,
-  cmd_verdict = cmd_verdict,
   cmd_done = cmd_done,
   cmd_sync = cmd_sync,
 }

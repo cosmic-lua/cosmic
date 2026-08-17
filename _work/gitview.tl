@@ -12,6 +12,7 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local act = require("_work.action")
 local store = require("_work.store")
 
 local verdict_line = gate.verdict_line
@@ -141,10 +142,12 @@ end
 --- The one next action for a role, as the verdict detail.
 --- @param all {item.Item} Every item
 --- @param role string "planner" or "implementer"
+--- @param session string This session's name, "" when unnamed
 --- @return string | nil The action, its target, and the rule behind it
 --- @return string Error message for an unknown role
-local function next_report(all: {item.Item}, role: string): string | nil, string
-  local action, nerr = flow.next_action(all, role)
+local function next_report(all: {item.Item}, role: string, session?: string):
+  string | nil, string
+  local action, nerr = act.for_role(all, role, session)
   if action == nil then
     return nil, nerr
   end
@@ -155,12 +158,12 @@ local function next_report(all: {item.Item}, role: string): string | nil, string
   return ("%s%s — %s"):format(action.kind, target, action.reason)
 end
 
-local function cmd_next(s: store.Store, role: string): integer
+local function cmd_next(s: store.Store, role: string, session?: string): integer
   local all, aerr = store.list(s)
   if all == nil then
     return verdict_line("next", false, aerr)
   end
-  local detail, nerr = next_report(all, role)
+  local detail, nerr = next_report(all, role, session)
   if detail == nil then
     return verdict_line("next", false, nerr)
   end
@@ -242,12 +245,13 @@ end
 local record gitview
   status_report: function(all: {item.Item}): {string}, string
   tree_report: function(all: {item.Item}): {string}, string
-  next_report: function(all: {item.Item}, role: string): string | nil, string
+  next_report: function(all: {item.Item}, role: string, session?: string):
+  string | nil, string
   show_report: function(it: item.Item, all: {item.Item}, spec: string,
   events: {store.Event}): {string}, string
   cmd_status: function(s: store.Store): integer
   cmd_tree: function(s: store.Store): integer
-  cmd_next: function(s: store.Store, role: string): integer
+  cmd_next: function(s: store.Store, role: string, session?: string): integer
   cmd_show: function(s: store.Store, id: string): integer
 end
 

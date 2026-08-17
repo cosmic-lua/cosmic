@@ -1,7 +1,7 @@
---- The flow rules over the item graph: pure functions from a list of
---- items to decisions, no network and no filesystem. There are no
---- kinds — an item's ROLE derives from its position in the graph, and
---- this module is where that derivation lives:
+--- The flow rules over the item graph: pure functions over a list of
+--- items, no network and no filesystem. There are no kinds — an
+--- item's ROLE derives from its position in the graph, and this
+--- module is where that derivation lives:
 ---
 ---   goal      a ranked root
 ---   finding   an unranked root (captured evidence, awaiting triage)
@@ -17,6 +17,10 @@
 --- retuning them is a reviewed change here too. Ids are KSUIDs, so
 --- sorting by id IS sorting by age and "oldest first" needs no other
 --- field.
+---
+--- What a role should DO with all this is `_work.action`: the rules and
+--- the policy that consults them are separate modules, so growing one
+--- never crowds the other against the file-length cap.
 local it = require("_work.item")
 local spec = require("_work.spec")
 
@@ -27,16 +31,6 @@ local type Board = {string: {Item}}
 
 --- Items indexed by id.
 local type Index = {string: Item}
-
---- The tool's one answer to "what should I do now".
-local record NextAction
-  --- "review" | "refine" | "triage" | "intake" | "finish" | "pull" | "none"
-  kind: string
-  --- The item the action targets; nil for intake-with-no-goal and none.
-  item: Item
-  --- The rule that chose this action, stated for the human/agent.
-  reason: string
-end
 
 local LIMITS: {string: integer} = {
   plan = 12,
@@ -179,6 +173,34 @@ local function is_blocked(i: Item, index: Index): boolean
   return false
 end
 
+--- Whether `from` waits on `target`, directly or through a chain of
+--- blockers. Bounded by the items already walked, so a cycle already
+--- in the data cannot spin here — which is what lets the `block` verb
+--- ask this question of data that may already hold one.
+--- @param index Index Items by id
+--- @param from string The waiting item's id
+--- @param target string The id it might be waiting on
+--- @param seen {string: boolean} Ids already walked; nil to start
+--- @return boolean True when a blocker chain leads from `from` to `target`
+local function waits_on(index: Index, from: string, target: string,
+    seen?: {string: boolean}): boolean
+  local walked = seen or {}
+  if walked[from] then
+    return false
+  end
+  walked[from] = true
+  local i = index[from]
+  if i == nil then
+    return false
+  end
+  for _, b in ipairs(i.blocked_by or {}) do
+    if b == target or waits_on(index, b, target, walked) then
+      return true
+    end
+  end
+  return false
+end
+
 --- The root an item's parent chain reaches, or nil for a broken or
 --- cyclic chain.
 --- @param i Item The item
@@ -258,19 +280,6 @@ local function trace_problems(items: {Item}): {string}
   return out
 end
 
---- The oldest ready item an implementer may pull: no open blocker.
---- @param b Board The board
---- @param index Index Items by id
---- @return Item | nil The pullable item
-local function first_pullable(b: Board, index: Index): Item | nil
-  for _, i in ipairs(oldest_first(b, "ready")) do
-    if not is_blocked(i, index) then
-      return i
-    end
-  end
-  return nil
-end
-
 --- The open goals ranked, each with whether live work already drives
 --- it (an open item whose parent chain reaches it).
 --- @param items {Item} All items
@@ -317,128 +326,10 @@ local function findings(items: {Item}): {Item}
   return out
 end
 
---- The implementer's next action, right to left: land, then do, then
---- pull ready. Whatever is closest to completion moves first.
---- @param items {Item} All items
---- @return NextAction The decision
-local function next_for_implementer(items: {Item}): NextAction
-  local b = board(items)
-  local index = by_id(items)
-  local landing = oldest_first(b, "land")
-  if #landing > 0 then
-    return {
-      kind = "finish",
-      item = landing[1],
-      reason = ("land holds %d/%d — %s is accepted, awaiting merge"):format(
-        #landing, LIMITS["land"], landing[1].id:sub(1, 8)),
-    }
-  end
-  local doing = oldest_first(b, "do")
-  if #doing > 0 then
-    return {
-      kind = "finish",
-      item = doing[1],
-      reason = ("do holds %d/%d — finish before pulling"):format(
-        #doing, LIMITS["do"]),
-    }
-  end
-  local pullable = first_pullable(b, index)
-  if pullable then
-    return {
-      kind = "pull",
-      item = pullable,
-      reason = "oldest ready item with no open blocker",
-    }
-  end
-  local waiting = #(b["check"] or {})
-  if waiting > 0 then
-    return {
-      kind = "none",
-      reason = ("%d item(s) await a planner verdict — that verdict is the "
-        .. "bottleneck"):format(waiting),
-    }
-  end
-  return {kind = "none", reason = "no ready work — a planner session must "
-    .. "refine or intake"}
-end
-
---- The planner's next action: verdicts first, then refine plan toward
---- ready while ready has slack, then triage findings, then intake the
---- top-ranked goal that no live work drives, else nothing.
---- @param items {Item} All items
---- @return NextAction The decision
-local function next_for_planner(items: {Item}): NextAction
-  local b = board(items)
-  local checking = oldest_first(b, "check")
-  if #checking > 0 then
-    return {
-      kind = "review",
-      item = checking[1],
-      reason = "check is the rightmost planner phase — verdicts first",
-    }
-  end
-  local planning = oldest_first(b, "plan")
-  if #planning > 0 and #(b["ready"] or {}) < LIMITS["ready"] then
-    return {
-      kind = "refine",
-      item = planning[1],
-      reason = ("ready holds %d/%d — refine a plan item toward the bar")
-      :format(#(b["ready"] or {}), LIMITS["ready"]),
-    }
-  end
-  local triage = findings(items)
-  if #triage > 0 then
-    return {
-      kind = "triage",
-      item = triage[1],
-      reason = ("%d finding(s) await triage — attach it under a goal or "
-        .. "close it"):format(#triage),
-    }
-  end
-  if #(b["plan"] or {}) < LIMITS["plan"] then
-    local ranked, live = goals(items)
-    for _, g in ipairs(ranked) do
-      if not live[g.id] then
-        return {
-          kind = "intake",
-          item = g,
-          reason = ("goal %s (rank %d) has no live work — decompose it")
-          :format(g.id:sub(1, 8), g.rank),
-        }
-      end
-    end
-    return {kind = "intake", reason = "every open goal has live work — work "
-      .. "backwards from the top-ranked one with slack"}
-  end
-  return {
-    kind = "none",
-    reason = "plan and ready are at limit with nothing to check — "
-    .. "implementation has to catch up before planning adds more",
-  }
-end
-
---- The next action for a role.
---- @param items {Item} All items
---- @param role_name string "planner" or "implementer"
---- @return NextAction | nil The decision
---- @return string Error message for an unknown role
-local function next_action(items: {Item}, role_name: string):
-  NextAction | nil, string
-  if role_name == "implementer" then
-    return next_for_implementer(items)
-  end
-  if role_name == "planner" then
-    return next_for_planner(items)
-  end
-  return nil, "unknown role: " .. tostring(role_name)
-  .. " (expected planner or implementer)"
-end
-
 local record flow
   type Item = Item
   type Board = Board
   type Index = Index
-  type NextAction = NextAction
   LIMITS: {string: integer}
   is_return: function(from: string, to: string): boolean
   admits_over_limit: function(from: string, to: string): boolean
@@ -449,13 +340,13 @@ local record flow
   oldest_first: function(b: Board, phase: string): {Item}
   wip_violations: function(b: Board): {string}
   is_blocked: function(i: Item, index: Index): boolean
+  waits_on: function(index: Index, from: string, target: string,
+  seen?: {string: boolean}): boolean
   root_of: function(i: Item, index: Index): Item | nil
   item_problems: function(i: Item, items: {Item}, index: Index): {string}
   trace_problems: function(items: {Item}): {string}
   goals: function(items: {Item}): {Item}, {string: boolean}
   findings: function(items: {Item}): {Item}
-  next_action: function(items: {Item}, role_name: string):
-  NextAction | nil, string
   ready_gaps: function(body: string): {string}
 end
 
@@ -470,12 +361,12 @@ local M: flow = {
   oldest_first = oldest_first,
   wip_violations = wip_violations,
   is_blocked = is_blocked,
+  waits_on = waits_on,
   root_of = root_of,
   item_problems = item_problems,
   trace_problems = trace_problems,
   goals = goals,
   findings = findings,
-  next_action = next_action,
   ready_gaps = spec.ready_gaps,
 }
 

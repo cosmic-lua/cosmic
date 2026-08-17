@@ -45,14 +45,84 @@ local function ready_gaps(body: string): {string}
   return missing
 end
 
+--- Whether a spec's Enablement section states a blocker. The section
+--- either records that none is needed or names the items that must
+--- land first, and the second form has to be mirrored in the item's
+--- `blocked_by` — prose is not something `next` can read, so a
+--- dependency left only here sequences nothing.
+---
+--- Deliberately about the CLAIM, not the id: "Blocked by: #1252" and
+--- "blocked on <ksuid>" both count, because the question is whether
+--- the planner said a dependency exists, not which one they meant.
+--- @param body string The spec sidecar's markdown
+--- @return boolean True when the Enablement section claims a blocker
+local function claims_blocker(body: string): boolean
+  local inside = false
+  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+    local text = line:match("^#+%s+(.-)%s*$")
+    if text then
+      inside = text:lower() == "enablement"
+    elseif inside then
+      local lower = line:lower()
+      if lower:match("blocked%s+by") or lower:match("blocked%s+on") then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- Leading tokens that make a backticked span a COMMAND rather than a
+--- verdict line or a filename. Acceptance sections quote both — "`bin/
+--- cosmic --make ci` ends `ci: PASS`" — and only the first half is
+--- something a PR body has to show having been run.
+local COMMAND_HEADS: {string: boolean} = {
+  ["grep"] = true, ["wc"] = true, ["git"] = true, ["make"] = true,
+  ["diff"] = true, ["test"] = true, ["ls"] = true, ["cat"] = true,
+}
+
+--- The commands a spec's Acceptance section states. A backticked span
+--- counts when its first token names a command — anything containing
+--- "cosmic", a path that is run (`./x`, `o/bin/x`), or one of the
+--- shell tools above — so `ci: PASS` and a bare `12` are left out of
+--- what a PR body is asked to quote.
+--- @param body string The spec sidecar's markdown
+--- @return {string} The commands, in the order the section states them
+local function acceptance_commands(body: string): {string}
+  local out: {string} = {}
+  local seen: {string: boolean} = {}
+  local inside = false
+  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+    local text = line:match("^#+%s+(.-)%s*$")
+    if text then
+      inside = text:lower() == "acceptance"
+    elseif inside then
+      for span in line:gmatch("`([^`]+)`") do
+        local head = span:match("^%s*(%S+)")
+        if head ~= nil and not seen[span]
+        and (head:find("cosmic", 1, true) or head:find("^%./")
+          or head:find("^o/bin/") or COMMAND_HEADS[head]) then
+          seen[span] = true
+          out[#out + 1] = span
+        end
+      end
+    end
+  end
+  return out
+end
+
 local record spec
   READY_SECTIONS: {string}
+  acceptance_commands: function(body: string): {string}
+  claims_blocker: function(body: string): boolean
   ready_gaps: function(body: string): {string}
 end
 
 local M: spec = {
   READY_SECTIONS = READY_SECTIONS,
   ready_gaps = ready_gaps,
+  acceptance_commands = acceptance_commands,
+  claims_blocker = claims_blocker,
 }
 
 return M
