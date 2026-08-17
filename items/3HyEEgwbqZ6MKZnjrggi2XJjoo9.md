@@ -1,42 +1,58 @@
-Imported from whilp/cosmic#1126.
-
 ## Goal
 
-G1 — the agent-eval instrument (docs/goals.md). Instruments are worked when an
-outcome&#39;s measurement needs them: G6&#39;s cycles-per-task ratchet (epic #1120 explicitly
-walls it off as G1&#39;s) and G4&#39;s win condition (&#34;G1 agents adopt it unprompted&#34;) are
-both unmeasurable until this instrument stands.
+G1 — the agent-eval instrument (docs/goals.md), via epic #1126. This item WAS the
+epic container; both its board-tracked children (#1147 manifest+stage, #1179
+score+checks+verdict) have landed, so per the decomposition ladder it returned to
+`plan` and is refined here into the next slice in the epic's own dependency-ordered
+follow-up list rather than spawned as a new child, because `plan` is currently well
+over its WIP limit (drain first, add later): "a history format and release-asset
+retention of journals." The remaining follow-ups named in the original epic body —
+per-release cadence wiring, the noise-aware comparison/ratchet gate, peer sandboxes,
+folding the round-4 backlog into task selection — are NOT this item; they get their
+own `gitboard new --parent <this item, or the G1 goal>` once plan has slack again.
 
 ## Outcome (observable)
 
-goals.md&#39;s win condition, verbatim targets: a versioned suite of fixed tasks, run on
-a per-release cadence with tracked history, peer sandboxes (Python/Node/Go) on the
-same tasks, and zero-silent-bugs enforced as the one hard gate on every run.
+Today a run's `EvalResults` record (`_eval/eval_types.tl`, written by `_eval/score.tl`)
+and the raw per-task journals (`NOTES.md` + `final.txt` in each task's run-dir
+workspace) both exist only in the operator's local run directory and vanish once it is
+cleaned up — nothing commits, uploads, or retains either. This item defines the
+retained on-disk/asset shape for both and wires their publication, so a later child
+(the per-release cadence wiring, and the comparison/ratchet gate) has durable history
+to read.
 
-## Evidence (2026-08-15 survey; definition accepted 2026-08-16 on #1135)
+Precedent to follow directly: `_perf/baseline.tl` + `release.yml`'s existing
+perf/size asset chain — `_perf/run.tl` produces `perf.json`, `release.yml` uploads it
+as a release asset, and `_perf/baseline.tl` fetches the previous release's named asset
+over the GitHub REST API to compare against. Eval should get the analogous fetch
+helper and the analogous `release.yml` upload step for (a) each run's `results.json`
+(the `EvalResults` record, uploaded as-is — one file per release, mirroring
+`perf.json`, not an aggregated/appended series) and (b) a retained bundle of the raw
+per-task journals (`NOTES.md` + `final.txt` for all seven tasks), since those files
+exist only transiently in the operator's run dir today and `Row.journal_path`
+(`eval_types.tl`) already points at them by task id.
 
-The suite v1 definition is settled (the accepted comment on #1135 is the record):
-seven fixed tasks (four proven by the past rounds, three new including the G2
-containment task), the results.json record format keyed by `bin_sha` and
-`suite_version`, and the versioning mechanism — a new `_eval/` tree with the manifest
-as `cosmic.literal` data and executable per-task checks, rejected alternative
-documented. Known caveats the definition absorbed: no raw journals survive from the
-four past rounds, the metric unit changed between rounds (so history restarts at
-suite v1), and round 3 ran no agents.
+## Non-goals
 
-## Children
+Not this item: actually triggering/scheduling an eval run per release (the epic's
+next follow-up, "per-release cadence wiring"); the noise-aware comparison or ratchet
+gate that will consume this history (the epic's follow-up after that, analogous to
+`_perf/gate.tl`); peer sandboxes; folding the round-4 backlog into task selection.
+This item only defines the retained format and the fetch/upload mechanics a later
+child builds on — it does not need to change `_eval/stage.tl` or `_eval/score.tl`'s
+existing behavior beyond what retention requires.
 
-- [x] #1135 — eval suite v1 definition: inventory the studies, fix the task list (accepted)
-- [ ] #1147 — eval suite v1: manifest, briefs, stage (ready; briefs pinned 2026-08-16)
-- [ ] #1179 — eval suite v1: score, checks, verdict (ready; blocked by #1147)
+## Enablement
 
-Further children, in dependency order after #1147 runs once: history format +
-release-asset retention of journals; per-release cadence wiring; the noise-aware
-comparison/ratchet gate (`_perf/gate.tl`&#39;s analogue); peer sandboxes (Python/Node/Go
-on the same briefs); folding the round-4 backlog (docs/agent-usability.md:291-313)
-into task selection. One decision a later child must settle: whether repo tooling may
-ever invoke the agent CLI itself (#1147&#39;s stage/score split deliberately sidesteps
-it).
+research needed before this is ready: the exact asset-naming and fetch-helper shape
+should mirror `_perf/baseline.tl` and `release.yml`'s perf/size steps closely enough
+to reuse their pattern rather than invent a new one — read both first. Whether the
+journal bundle is a tarball (`cosmic.tar`/`cosmic.compress`) or a per-task file set as
+separate assets is an open design call for the planner to settle before this item
+moves to ready, grounded in a fact-check of `release.yml`'s current asset list and
+upload step shape.
 
 ---
-_Generated by [Claude Code](https://claude.ai/code)_
+Origin: planner refinement pass, following #1135's accepted comment (§4/§6), which
+named "a history format and release-asset retention of journals" as the next
+follow-up after #1147/#1179 landed. No prior GitHub issue existed for this slice.
