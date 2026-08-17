@@ -6,6 +6,7 @@
 --- those are local to that file, so this one rebuilds the same
 --- minimal, correctly-checksummed 512-byte-header archives rather than
 --- reaching into it.
+--- env: FUZZ_SEED FUZZ_ITERS
 
 local check = require("cosmic.check")
 local driver = require("_fuzz.driver")

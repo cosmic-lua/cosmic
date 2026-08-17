@@ -2,6 +2,7 @@
 --- bytes (archives, fetched bodies), so it must invert compress exactly
 --- and reject corruption loudly — a string result or `nil, message`,
 --- never a throw.
+--- env: FUZZ_SEED FUZZ_ITERS
 
 local check = require("cosmic.check")
 local compress = require("cosmic.compress")

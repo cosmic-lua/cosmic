@@ -2,6 +2,7 @@
 --- through the POSIX ERE C binding must never crash the process, and
 --- neither must matching, finding or substituting against arbitrary
 --- text once a pattern compiles.
+--- env: FUZZ_SEED FUZZ_ITERS
 
 local check = require("cosmic.check")
 local driver = require("_fuzz.driver")

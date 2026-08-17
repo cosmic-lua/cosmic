@@ -3,6 +3,7 @@
 --- encoding is still answered rather than thrown on. Every property runs
 --- under _fuzz.driver, so a failure names the seed, the iteration and the
 --- failing input in base64, and FUZZ_SEED replays it.
+--- env: FUZZ_SEED FUZZ_ITERS
 
 local check = require("cosmic.check")
 local deep = require("cosmic.deep")
