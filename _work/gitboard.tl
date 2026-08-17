@@ -14,6 +14,7 @@
 ---   cosmic --make run _work/gitboard.tl new "a goal" --rank 1
 ---   cosmic --make run _work/gitboard.tl new "a piece of it" --parent 2ai3
 ---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
+---   cosmic --make run _work/gitboard.tl block 2akQ 2ai3 | unblock 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
 ---   cosmic --make run _work/gitboard.tl check 2akQ
 ---   cosmic --make run _work/gitboard.tl move 2akQ check --pr 42
@@ -51,6 +52,10 @@ local CSPEC: flags.CommandSpec = {
           {long = "force", help = "override the plan WIP limit"}}}},
     {name = "attach", summary = "put ID under PARENT (triage a finding, re-parent)",
       spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
+    {name = "block", summary = "record that ID waits on BLOCKER",
+      spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
+    {name = "unblock", summary = "drop BLOCKER from ID's blockers",
+      spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag()}}},
     {name = "check", summary = "ready-bar and graph lint of ID",
@@ -62,7 +67,9 @@ local CSPEC: flags.CommandSpec = {
     {name = "next", summary = "the one next action for a role",
       spec = {flags = {dir_flag(),
           {long = "role", arg = "ROLE", default = "implementer",
-            help = "planner or implementer"}}}},
+            help = "planner or implementer"},
+          {long = "session", arg = "SESSION",
+            help = "this session; skips do items another session claimed"}}}},
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION", help = "record who took it"},
@@ -113,7 +120,8 @@ local function main(...: string): integer
     return view.cmd_tree(s)
   end
   if d.command == "next" then
-    return view.cmd_next(s, d.parsed.values["role"] or "implementer")
+    return view.cmd_next(s, d.parsed.values["role"] or "implementer",
+      d.parsed.values["session"] or "")
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
@@ -160,6 +168,14 @@ local function main(...: string): integer
       return 1
     end
     return verbs.cmd_attach(s, id, parent)
+  end
+  if d.command == "block" or d.command == "unblock" then
+    local blocker, berr = store.resolve(s, d.parsed.args[2] or "")
+    if blocker == nil then
+      io.stderr:write(tostring(berr) .. "\n")
+      return 1
+    end
+    return verbs.cmd_block(s, id, blocker, d.command == "unblock")
   end
   if d.command == "spec" then
     local file = d.parsed.args[2]

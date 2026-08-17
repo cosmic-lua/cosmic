@@ -105,10 +105,19 @@ end
 --- @return {string} Problems, empty when the item meets the bar
 local function ready_problems(s: store.Store, it: item.Item,
     all: {item.Item}): {string}
-  local out = flow.item_problems(it, all, flow.by_id(all))
+  local index = flow.by_id(all)
+  local out = flow.item_problems(it, all, index)
   local r = flow.role(it, all)
   if r ~= "work" then
     out[#out + 1] = ("%s is a %s, not workable"):format(it.id:sub(1, 8), r)
+  end
+  -- A blocker id with no item behind it never blocks (`flow.is_blocked`
+  -- reasons about state the board holds), so a mistyped one reads as
+  -- "sequenced" and pulls anyway. The bar is where that is caught.
+  for _, b in ipairs(it.blocked_by or {}) do
+    if index[b] == nil then
+      out[#out + 1] = ("blocked_by names %s, which is not an item"):format(b)
+    end
   end
   for _, gap in ipairs(flow.ready_gaps(store.read_spec(s, it.id))) do
     out[#out + 1] = ("spec section missing or empty: %s"):format(gap)

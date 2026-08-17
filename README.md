@@ -17,14 +17,6 @@ _work/       the machinery: gitboard (CLI), gitverbs (mutations),
              store (git-backed persistence), flow (the rules), spec
              (the ready bar's section grammar), item (the record),
              ksuid (ids)
-
-             plus four modules from the label board that outlived it:
-             stats measures flow, and it is the only implementation of
-             that measurement anywhere — it reads GitHub timelines,
-             which no longer carry the board, so it is the reference
-             for a port over `git log`, not a working tool. api,
-             github and model are what it needs to compile. The label
-             board's own CLI and verbs are gone.
 cmd/gitboard the binary this branch builds: `o/bin/gitboard`
 bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 ```

@@ -3,8 +3,9 @@
 -- the emergent-role claim itself: with no kind field anywhere, a
 -- ranked root behaves as a goal, an unranked root as a finding, an
 -- item with open children as a container, and a parented leaf as the
--- only thing the kanban moves — plus the pull order, the two-line
--- admits rule, and the goal trace as a checked graph property.
+-- only thing the kanban moves — plus the two-line admits rule, the
+-- blocker relation, and the goal trace as a checked graph property.
+-- What a role does with all this is `_work/action_test.tl`.
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
@@ -66,18 +67,6 @@ local function test_admissions_at_the_limit()
 end
 test_admissions_at_the_limit()
 
-local function test_implementer_finishes_before_pulling()
-  local goal = make({rank = 1})
-  local ready = make({parent = goal.id, phase = "ready"})
-  local doing = make({parent = goal.id, phase = "do"})
-  local landing = make({parent = goal.id, phase = "land"})
-  local items: {item.Item} = {goal, ready, doing, landing}
-  local action = check.must(flow.next_action(items, "implementer"))
-  assert(action.kind == "finish" and action.item.id == landing.id,
-    "land first, got " .. action.kind)
-end
-test_implementer_finishes_before_pulling()
-
 local function test_blocked_items_are_skipped()
   local goal = make({rank = 1})
   local open_blocker = make({parent = goal.id, phase = "do"})
@@ -85,9 +74,6 @@ local function test_blocked_items_are_skipped()
       blocked_by = open_blocker.id})
   local free = make({parent = goal.id, phase = "ready"})
   local items: {item.Item} = {goal, open_blocker, blocked, free}
-  local action = check.must(flow.next_action(items, "implementer"))
-  assert(action.kind == "finish" and action.item.id == open_blocker.id,
-    "do drains first")
   local index = flow.by_id(items)
   assert(flow.is_blocked(blocked, index), "open blocker blocks")
   assert(not flow.is_blocked(free, index), "no blocker")
@@ -99,22 +85,6 @@ local function test_blocked_items_are_skipped()
     "a done blocker does not block")
 end
 test_blocked_items_are_skipped()
-
-local function test_planner_triages_findings_then_intakes()
-  local goal = make({rank = 1})
-  local idle_goal = make({rank = 2})
-  local worked = make({parent = goal.id, phase = "do"})
-  local finding = make({})
-  local items: {item.Item} = {goal, idle_goal, worked, finding}
-  local action = check.must(flow.next_action(items, "planner"))
-  assert(action.kind == "triage" and action.item.id == finding.id,
-    "findings before intake: " .. action.kind)
-  local no_findings: {item.Item} = {goal, idle_goal, worked}
-  local intake = check.must(flow.next_action(no_findings, "planner"))
-  assert(intake.kind == "intake" and intake.item.id == idle_goal.id,
-    "the top-ranked goal with no live work: " .. intake.kind)
-end
-test_planner_triages_findings_then_intakes()
 
 local function test_trace_problems()
   local goal = make({rank = 1})
@@ -133,3 +103,27 @@ local function test_trace_problems()
   assert(text:find("unranked", 1, true), "trace to a finding: " .. text)
 end
 test_trace_problems()
+
+local function test_waits_on_follows_a_blocker_chain()
+  local goal = make({rank = 1})
+  local a = make({parent = goal.id, phase = "ready"})
+  local b = make({parent = goal.id, phase = "ready", blocked_by = a.id})
+  local c = make({parent = goal.id, phase = "ready", blocked_by = b.id})
+  local index = flow.by_id({goal, a, b, c})
+  assert(flow.waits_on(index, c.id, a.id), "c waits on a through b")
+  assert(not flow.waits_on(index, a.id, c.id), "and a waits on nothing")
+end
+test_waits_on_follows_a_blocker_chain()
+
+local function test_waits_on_terminates_on_a_cycle_already_in_the_data()
+  local goal = make({rank = 1})
+  local a = make({parent = goal.id, phase = "ready"})
+  local b = make({parent = goal.id, phase = "ready", blocked_by = a.id})
+  a.blocked_by = {b.id}
+  local index = flow.by_id({goal, a, b})
+  assert(flow.waits_on(index, a.id, b.id), "the cycle is still reported")
+  local elsewhere = make({parent = goal.id, phase = "ready"})
+  assert(not flow.waits_on(index, a.id, elsewhere.id),
+    "and a walk that finds nothing still returns rather than spinning")
+end
+test_waits_on_terminates_on_a_cycle_already_in_the_data()

@@ -144,6 +144,77 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
       (it.phase ~= "" and " — workable, in plan") or ""))
 end
 
+--- block/unblock: the `blocked_by` field as a verb, so the landing
+--- order between two slices is recorded the same way every other
+--- board fact is — one mutation, one commit, one refusal when it does
+--- not hold. Hand-editing the field was the standing workaround, and
+--- it wrote duplicate ids and ids of items that do not exist; both
+--- are refused here, and an existing duplicate is collapsed by the
+--- next write.
+--- @param s store.Store The store
+--- @param id string The waiting item
+--- @param blocker string The item it waits on
+--- @param remove boolean True to drop the blocker instead of adding it
+--- @return integer 0 on success, 1 otherwise
+local function cmd_block(s: store.Store, id: string, blocker: string,
+    remove: boolean): integer
+  local verb = remove and "unblock" or "block"
+  local all, aerr = store.list(s)
+  if all == nil then
+    return gate.verdict_line(verb, false, aerr)
+  end
+  local index = flow.by_id(all)
+  local it = index[id]
+  if it == nil then
+    return gate.verdict_line(verb, false, ("no item %s"):format(id))
+  end
+  if index[blocker] == nil then
+    return gate.verdict_line(verb, false, ("no item %s"):format(blocker))
+  end
+  if id == blocker then
+    return gate.verdict_line(verb, false, "an item cannot block itself")
+  end
+  -- A blocker that already waits on this item, through any chain,
+  -- would leave both permanently unpullable — and `next` would say
+  -- nothing, because it just skips what is blocked.
+  if not remove and flow.waits_on(index, blocker, id) then
+    return gate.verdict_line(verb, false,
+      ("%s already waits on %s — blocking would deadlock both"):format(
+        blocker:sub(1, 8), id:sub(1, 8)))
+  end
+  local kept: {string} = {}
+  local seen: {string: boolean} = {}
+  local had = false
+  for _, b in ipairs(it.blocked_by or {}) do
+    if b == blocker then
+      had = true
+    elseif not seen[b] then
+      seen[b] = true
+      kept[#kept + 1] = b
+    end
+  end
+  if remove and not had then
+    return gate.verdict_line(verb, false,
+      ("%s does not wait on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
+  end
+  if not remove then
+    kept[#kept + 1] = blocker
+  end
+  it.blocked_by = kept
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)), it.phase)
+  if not ok then
+    return gate.verdict_line(verb, false, err)
+  end
+  local shape = "now waits on"
+  if remove then
+    shape = "no longer waits on"
+  end
+  return gate.verdict_line(verb, true,
+    ("%s %s %s (%d blocker(s))"):format(id:sub(1, 8), shape,
+      blocker:sub(1, 8), #kept))
+end
+
 local function cmd_spec(s: store.Store, id: string, file: string): integer
   local it, lerr = store.load(s, id)
   if it == nil then
@@ -217,6 +288,14 @@ local function cmd_move(s: store.Store, id: string, target: string,
         ("REFUSED: %s misses the ready bar"):format(id:sub(1, 8)))
     end
   end
+  -- A handover to check is a handover to a REVIEWER, and the reviewer
+  -- follows the pr field to the diff — as does the landing step that
+  -- reads it back. Without one the item says "judge something" and
+  -- names nothing.
+  if target == "check" and (pr or 0) == 0 and (it.pr or 0) == 0 and not force then
+    return gate.verdict_line("move", false,
+      ("REFUSED: a handover to check names its PR — pass --pr N"))
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
   end
@@ -263,10 +342,18 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if it == nil then
     return gate.verdict_line("verdict", false, lerr)
   end
-  if (it.phase or "") == "" then
+  -- `check` means exactly "awaiting a planner verdict", so it is the
+  -- one phase a verdict may end. Judging from anywhere else would let
+  -- an accept carry unreviewed work straight into land, past every
+  -- gate between them.
+  if (it.phase or "") ~= "check" then
+    local where = it.phase
+    if where == "" then
+      where = "no phase"
+    end
     return gate.verdict_line("verdict", false,
-      ("%s is not on the board — verdicts judge phased work"):format(
-        id:sub(1, 8)))
+      ("%s is in %s — a verdict judges work in check"):format(
+        id:sub(1, 8), where))
   end
   local from = it.phase
   it.verdict = kind
@@ -347,6 +434,8 @@ local record gitverbs
   cmd_new: function(s: store.Store, title: string, parent: string,
   rank: integer, spec: string, force: boolean): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
+  cmd_block: function(s: store.Store, id: string, blocker: string,
+  remove: boolean): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
   cmd_check: function(s: store.Store, id: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
@@ -362,6 +451,7 @@ local M: gitverbs = {
   cmd_init = cmd_init,
   cmd_new = cmd_new,
   cmd_attach = cmd_attach,
+  cmd_block = cmd_block,
   cmd_spec = cmd_spec,
   cmd_check = cmd_check,
   cmd_move = cmd_move,

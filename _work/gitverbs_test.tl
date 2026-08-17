@@ -8,6 +8,7 @@
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local flow = require("_work.flow")
+local gate = require("_work.gitgate")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local store = require("_work.store")
@@ -243,12 +244,11 @@ test_done_leaves_a_still_decomposing_container_alone()
 local function test_a_no_op_mutation_is_named()
   local s = init_state_repo("noop")
   local _, leaf = goal_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 42, false) == 0)
-  assert(verbs.cmd_verdict(s, leaf, "request changes", 42, "abc1234") == 0)
-  assert(verbs.cmd_verdict(s, leaf, "request changes", 42, "abc1234") ~= 0,
-    "the same verdict twice records nothing the second time")
+  local path = fs.join(tmpdir, "ready-spec.md")
+  assert(fs.write(path, READY_SPEC))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_spec(s, leaf, path) ~= 0,
+    "the same spec twice records nothing the second time")
 end
 test_a_no_op_mutation_is_named()
 
@@ -305,3 +305,86 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
     "and a return clears the claim")
 end
 test_wip_limits_bind_arrivals_but_never_returns()
+
+-- `check` means "awaiting a planner verdict", so it is the one phase
+-- a verdict may end: judging from anywhere else would carry unreviewed
+-- work into land past every gate between them.
+local function test_verdict_judges_only_what_is_in_check()
+  local s = init_state_repo("verdict-phase")
+  local _, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_verdict(s, leaf, "accept", 0, "abc1234") ~= 0,
+    "a plan item has not been reviewed")
+  assert(check.must(store.load(s, leaf)).phase == "plan", "and did not move")
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false) == 0)
+  assert(verbs.cmd_verdict(s, leaf, "accept", 7, "abc1234") ~= 0,
+    "nor has an item still being worked")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 7, false) == 0)
+  assert(verbs.cmd_verdict(s, leaf, "accept", 7, "abc1234") == 0,
+    "from check it lands")
+  assert(check.must(store.load(s, leaf)).phase == "land", "in land")
+end
+test_verdict_judges_only_what_is_in_check()
+
+-- The reviewer follows the pr field to the diff, and so does the
+-- landing step that reads it back, so the handover must name one.
+local function test_check_refuses_a_handover_with_no_pr()
+  local s = init_state_repo("check-pr")
+  local _, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false) == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false) ~= 0,
+    "a handover naming no PR is refused")
+  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false) == 0)
+  -- Rework returns to `do` and comes back on the SAME PR, already
+  -- recorded, so the second handover needs no --pr of its own.
+  assert(verbs.cmd_verdict(s, leaf, "request changes", 0, "abc1234") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false) == 0,
+    "the recorded PR carries the rework back")
+end
+test_check_refuses_a_handover_with_no_pr()
+
+-- Landing order is a board fact like any other: one verb, one commit,
+-- and refusals where hand-editing the field wrote nonsense.
+local function test_block_records_landing_order_and_refuses_nonsense()
+  local s = init_state_repo("block")
+  local goal, first = goal_with_leaf(s)
+  local second = file_item(s, "the slice that waits", goal, 0, false)
+  assert(verbs.cmd_block(s, second, first, false) == 0)
+  assert(#check.must(store.load(s, second)).blocked_by == 1,
+    "the blocker is recorded")
+  assert(verbs.cmd_block(s, second, first, false) ~= 0,
+    "recording it twice records nothing")
+  assert(verbs.cmd_block(s, second, second, false) ~= 0,
+    "an item cannot block itself")
+  assert(verbs.cmd_block(s, first, second, false) ~= 0,
+    "and the reverse edge would deadlock both")
+  assert(#check.must(store.load(s, first)).blocked_by == 0,
+    "the refused edge is not written")
+  assert(verbs.cmd_block(s, second, first, true) == 0, "unblock drops it")
+  assert(#check.must(store.load(s, second)).blocked_by == 0, "leaving none")
+  assert(verbs.cmd_block(s, second, first, true) ~= 0,
+    "and dropping what is not there is refused")
+end
+test_block_records_landing_order_and_refuses_nonsense()
+
+-- A blocker id with no item behind it never blocks, so it reads as
+-- "sequenced" and pulls anyway. The ready bar is where that is caught.
+local function test_ready_bar_names_a_blocker_that_is_not_an_item()
+  local s = init_state_repo("dangling")
+  local _, leaf = goal_with_leaf(s)
+  give_spec(s, leaf)
+  local it = check.must(store.load(s, leaf))
+  it.blocked_by = {"3HyArM3A3zHuRxn3VYCvKmUZ7KW"}
+  assert(store.save(s, it, "hand-edited blocker"))
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 1 and problems[1]:find("not an item", 1, true),
+    "the bar names it: " .. table.concat(problems, "; "))
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false) ~= 0,
+    "and the promotion is refused")
+end
+test_ready_bar_names_a_blocker_that_is_not_an_item()

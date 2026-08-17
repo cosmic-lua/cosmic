@@ -1,16 +1,13 @@
 # coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
-_work/api.tl 10 27
+_work/action.tl 97 103
 _work/flow.tl 209 229
 _work/gitboard.tl 0 92
 _work/gitgate.tl 60 65
-_work/github.tl 50 161
 _work/gitverbs.tl 172 229
 _work/gitview.tl 122 160
 _work/item.tl 88 93
 _work/ksuid.tl 68 75
-_work/model.tl 184 185
 _work/spec.tl 28 28
-_work/stats.tl 175 223
 _work/store.tl 171 202
 cmd/gitboard/main.tl 0 2
