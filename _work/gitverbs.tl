@@ -1,15 +1,22 @@
 --- The gitboard verbs: every `cmd_*` behind `_work/gitboard.tl`'s
 --- dispatch, over `_work.store` (persistence) and `_work.flow`
---- (policy). Split from the CLI the way `_work.verbs` splits from
---- `_work.board`. Every verb prints a `gitboard-<verb>:` verdict line
---- and returns its exit code; mutations commit locally and publish
+--- (policy). Verbs receive FULL ids — the dispatcher resolves
+--- prefixes — and every verb prints a `gitboard-<verb>:` verdict line
+--- and returns its exit code. Mutations commit locally and publish
 --- through `store.publish`, whose rejected-push path rebases onto
 --- concurrent state and re-checks the WIP invariant before pushing
 --- again.
+---
+--- Decomposition and triage are both `attach`: giving an item a
+--- parent is the whole operation, because roles derive from the graph
+--- — a finding becomes work by gaining a parent, and a phased item
+--- becomes a container (losing its phase) the moment a child attaches
+--- under it.
 local child = require("cosmic.child")
 local flow = require("_work.flow")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
+local ksuid = require("_work.ksuid")
 local store = require("_work.store")
 
 --- Print a verb's verdict line and return its exit code.
@@ -25,8 +32,8 @@ local function verdict_line(verb: string, ok: boolean, detail: string): integer
   return 1
 end
 
---- The WIP refusal a slice's arrival in a phase earns, or nil when it
---- may enter. The one gate `new` and `move` share.
+--- The WIP refusal an arrival in a phase earns, or nil when it may
+--- enter. The one gate `new` and `move` share.
 --- @param b flow.Board The board
 --- @param from string Current phase, or nil for an entry
 --- @param to string Target phase
@@ -73,6 +80,26 @@ local function commit_and_publish(s: store.Store, it: item.Item, spec: string,
     end)
 end
 
+--- De-phase an item that just became a container: a child attached
+--- under it, so it is no longer workable and leaves the board. Its
+--- claim clears with the phase.
+--- @param s store.Store The store
+--- @param parent item.Item The item that gained a child
+--- @return boolean True on success (or nothing to do)
+--- @return string Error message
+local function dephase_container(s: store.Store,
+    parent: item.Item): boolean, string
+  if (parent.phase or "") == "" then
+    return true
+  end
+  local was = parent.phase
+  parent.phase = ""
+  parent.claim = ""
+  return store.save(s, parent,
+    nil, ("decompose %s: left %s, now a container"):format(
+      parent.id:sub(1, 8), was))
+end
+
 local function cmd_init(dir: string): integer
   if not fs.is_dir(fs.join(dir, ".git")) then
     local r, err = child.run({"git", "init", "-q", dir})
@@ -93,21 +120,25 @@ local function cmd_init(dir: string): integer
     ("state repository ready at %s"):format(dir))
 end
 
-local function cmd_new(s: store.Store, kind: string, id: string, title: string,
-    parent: string, rank: integer, spec: string, force: boolean): integer
-  local existing = store.load(s, id)
-  if existing ~= nil then
-    return verdict_line("new", false,
-      ("item %s already exists (%s)"):format(id, existing.kind))
+local function cmd_new(s: store.Store, title: string, parent: string,
+    rank: integer, spec: string, force: boolean): integer
+  local all, aerr = store.list(s)
+  if all == nil then
+    return verdict_line("new", false, aerr)
   end
+  local index = flow.by_id(all)
   local phase = ""
-  if kind == "slice" then
+  local parent_item: item.Item = nil
+  if parent ~= "" then
+    parent_item = index[parent]
+    if parent_item == nil then
+      return verdict_line("new", false, ("no item %s"):format(parent))
+    end
     phase = "plan"
   end
-  local stamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
   local it: item.Item = {
-    id = id, kind = kind, title = title, parent = parent or "",
-    phase = phase, rank = rank or 0, opened = stamp,
+    id = ksuid.new(), title = title, parent = parent,
+    phase = phase, rank = rank or 0,
     blocked_by = {}, claim = "", pr = 0, verdict = "",
     verdict_head = "", resolution = "",
   }
@@ -115,31 +146,87 @@ local function cmd_new(s: store.Store, kind: string, id: string, title: string,
   if #bad > 0 then
     return verdict_line("new", false, table.concat(bad, "; "))
   end
-  local all, aerr = store.list(s)
-  if all == nil then
-    return verdict_line("new", false, aerr)
-  end
-  if kind == "slice" and not force then
+  if phase ~= "" and not force then
     local refusal = wip_refusal(flow.board(all), nil, phase)
     if refusal then
       return verdict_line("new", false, "REFUSED: " .. refusal)
     end
   end
-  all[#all + 1] = it
-  local trace = flow.trace_problems(all)
-  if #trace > 0 then
-    return verdict_line("new", false, table.concat(trace, "; "))
+  if parent_item ~= nil then
+    local cleared, derr = dephase_container(s, parent_item)
+    if not cleared then
+      return verdict_line("new", false, derr)
+    end
   end
   local ok, err = commit_and_publish(s, it, spec,
-    ("new %s %s (%s)"):format(kind, id, title), nil)
+    ("new %s %s"):format(it.id:sub(1, 8), title), nil)
   if not ok then
     return verdict_line("new", false, err)
   end
-  local entered = phase
-  if entered == "" then
-    entered = kind
+  local entered = "a root — rank it as a goal, or triage it as a finding"
+  if phase ~= "" then
+    entered = "plan"
+  elseif (rank or 0) > 0 then
+    entered = ("goal, rank %d"):format(rank)
   end
-  return verdict_line("new", true, ("%s enters %s"):format(id, entered))
+  return verdict_line("new", true, ("%s enters %s"):format(it.id, entered))
+end
+
+local function cmd_attach(s: store.Store, id: string, parent: string): integer
+  local all, aerr = store.list(s)
+  if all == nil then
+    return verdict_line("attach", false, aerr)
+  end
+  local index = flow.by_id(all)
+  local it = index[id]
+  local parent_item = index[parent]
+  if it == nil then
+    return verdict_line("attach", false, ("no item %s"):format(id))
+  end
+  if parent_item == nil then
+    return verdict_line("attach", false, ("no item %s"):format(parent))
+  end
+  if id == parent then
+    return verdict_line("attach", false, "an item cannot parent itself")
+  end
+  local up = flow.root_of(parent_item, index)
+  if up == nil then
+    return verdict_line("attach", false,
+      ("%s's own parent chain is broken"):format(parent:sub(1, 8)))
+  end
+  local cur = parent_item
+  while cur ~= nil do
+    if cur.id == id then
+      return verdict_line("attach", false,
+        ("attaching under %s would make a cycle"):format(parent:sub(1, 8)))
+    end
+    cur = index[cur.parent or ""]
+  end
+  it.parent = parent
+  it.rank = 0
+  -- Adoption makes a leaf workable: it enters plan, ungated — triage
+  -- is a decision already made, the same admission the label board
+  -- gave findings.
+  if item.is_open(it) and (it.phase or "") == ""
+  and not flow.has_open_children(all, id) then
+    it.phase = "plan"
+  end
+  local bad = item.problems(it)
+  if #bad > 0 then
+    return verdict_line("attach", false, table.concat(bad, "; "))
+  end
+  local cleared, derr = dephase_container(s, parent_item)
+  if not cleared then
+    return verdict_line("attach", false, derr)
+  end
+  local ok, err = commit_and_publish(s, it, nil,
+    ("attach %s under %s"):format(id:sub(1, 8), parent:sub(1, 8)), nil)
+  if not ok then
+    return verdict_line("attach", false, err)
+  end
+  return verdict_line("attach", true,
+    ("%s now under %s%s"):format(id:sub(1, 8), parent:sub(1, 8),
+      (it.phase ~= "" and " — workable, in plan") or ""))
 end
 
 local function cmd_spec(s: store.Store, id: string, file: string): integer
@@ -152,23 +239,28 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
     return verdict_line("spec", false, rerr)
   end
   local ok, err = commit_and_publish(s, it, body,
-    ("spec %s"):format(id), it.phase)
+    ("spec %s"):format(id:sub(1, 8)), it.phase)
   if not ok then
     return verdict_line("spec", false, err)
   end
-  return verdict_line("spec", true, ("%s's spec replaced"):format(id))
+  return verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
---- The problems that keep a slice from `ready`: hollow or missing
---- ready-bar sections in its spec, plus any hierarchy problem. The
---- one list `check` reports and `move ID ready` enforces.
+--- The problems that keep an item from `ready`: it must be workable,
+--- its spec must fill the ready-bar sections, and the whole graph
+--- must be traceable. The one list `check` reports and `move ID
+--- ready` enforces.
 --- @param s store.Store The store
---- @param it item.Item The slice
+--- @param it item.Item The item
 --- @param all {item.Item} Every item
---- @return {string} Problems, empty when the slice meets the bar
+--- @return {string} Problems, empty when the item meets the bar
 local function ready_problems(s: store.Store, it: item.Item,
     all: {item.Item}): {string}
   local out = flow.trace_problems(all)
+  local r = flow.role(it, all)
+  if r ~= "work" then
+    out[#out + 1] = ("%s is a %s, not workable"):format(it.id:sub(1, 8), r)
+  end
   for _, gap in ipairs(flow.ready_gaps(store.read_spec(s, it.id))) do
     out[#out + 1] = ("spec section missing or empty: %s"):format(gap)
   end
@@ -180,10 +272,6 @@ local function cmd_check(s: store.Store, id: string): integer
   if it == nil then
     return verdict_line("check", false, lerr)
   end
-  if it.kind ~= "slice" then
-    return verdict_line("check", true,
-      ("%s is a %s — the ready bar binds slices"):format(id, it.kind))
-  end
   local all, aerr = store.list(s)
   if all == nil then
     return verdict_line("check", false, aerr)
@@ -194,89 +282,11 @@ local function cmd_check(s: store.Store, id: string): integer
   end
   if #problems > 0 then
     return verdict_line("check", false,
-      ("%s misses the ready bar (%d problem(s))"):format(id, #problems))
+      ("%s misses the ready bar (%d problem(s))"):format(id:sub(1, 8),
+        #problems))
   end
-  return verdict_line("check", true, ("%s meets the ready bar"):format(id))
-end
-
-local function cmd_status(s: store.Store): integer
-  local all, aerr = store.list(s)
-  if all == nil then
-    return verdict_line("status", false, aerr)
-  end
-  local b = flow.board(all)
-  local index = flow.by_id(all)
-  for _, phase in ipairs(item.PHASES) do
-    print(("%-6s %d/%d"):format(phase, #(b[phase] or {}), flow.LIMITS[phase]))
-    for _, i in ipairs(flow.oldest_first(b, phase)) do
-      local marks = ""
-      if i.claim ~= "" then marks = marks .. " @" .. i.claim end
-      if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
-      if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
-      print(("  %-20s %s%s"):format(i.id, i.title, marks))
-    end
-  end
-  local violations = flow.wip_violations(b)
-  if #violations > 0 then
-    return verdict_line("status", true,
-      "WIP: " .. table.concat(violations, "; "))
-  end
-  return verdict_line("status", true, "WIP ok")
-end
-
-local function cmd_tree(s: store.Store): integer
-  local all, aerr = store.list(s)
-  if all == nil then
-    return verdict_line("tree", false, aerr)
-  end
-  local ranked, live = flow.goals(all)
-  for _, g in ipairs(ranked) do
-    local driven = ""
-    if not live[g.id] then
-      driven = " (no live work)"
-    end
-    print(("G%d %-18s %s%s"):format(g.rank, g.id, g.title, driven))
-    for _, e in ipairs(all) do
-      if e.parent == g.id and item.is_open(e) then
-        local tag = e.kind
-        if e.kind == "slice" then
-          tag = e.phase
-        end
-        print(("  %-20s [%s] %s"):format(e.id, tag, e.title))
-        for _, sl in ipairs(all) do
-          if sl.parent == e.id and item.is_open(sl) then
-            print(("    %-18s [%s] %s"):format(sl.id, sl.phase, sl.title))
-          end
-        end
-      end
-    end
-  end
-  local findings = 0
-  for _, i in ipairs(all) do
-    if i.kind == "finding" and item.is_open(i) then
-      findings = findings + 1
-      print(("finding: %-12s %s"):format(i.id, i.title))
-    end
-  end
-  return verdict_line("tree", true,
-    ("%d open goal(s), %d finding(s) awaiting triage"):format(#ranked, findings))
-end
-
-local function cmd_next(s: store.Store, role: string): integer
-  local all, aerr = store.list(s)
-  if all == nil then
-    return verdict_line("next", false, aerr)
-  end
-  local action, nerr = flow.next_action(all, role)
-  if action == nil then
-    return verdict_line("next", false, nerr)
-  end
-  local target = ""
-  if action.item then
-    target = (" %s %s"):format(action.item.id, action.item.title)
-  end
-  return verdict_line("next", true,
-    ("%s%s — %s"):format(action.kind, target, action.reason))
+  return verdict_line("check", true,
+    ("%s meets the ready bar"):format(id:sub(1, 8)))
 end
 
 local function cmd_move(s: store.Store, id: string, target: string,
@@ -285,18 +295,20 @@ local function cmd_move(s: store.Store, id: string, target: string,
   if it == nil then
     return verdict_line("move", false, lerr)
   end
-  if it.kind ~= "slice" then
+  local all, aerr = store.list(s)
+  if all == nil then
+    return verdict_line("move", false, aerr)
+  end
+  local r = flow.role(it, all)
+  if r ~= "work" then
     return verdict_line("move", false,
-      ("%s is a %s — only slices move through phases"):format(id, it.kind))
+      ("%s is a %s — only workable leaves move through phases"):format(
+        id:sub(1, 8), r))
   end
   local from = it.phase
   if from == target then
     return verdict_line("move", false,
-      ("%s is already in %s"):format(id, target))
-  end
-  local all, aerr = store.list(s)
-  if all == nil then
-    return verdict_line("move", false, aerr)
+      ("%s is already in %s"):format(id:sub(1, 8), target))
   end
   if target == "ready" and not force then
     local problems = ready_problems(s, it, all)
@@ -305,7 +317,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
         print("  " .. p)
       end
       return verdict_line("move", false,
-        ("REFUSED: %s misses the ready bar"):format(id))
+        ("REFUSED: %s misses the ready bar"):format(id:sub(1, 8)))
     end
   end
   it.phase = target
@@ -326,14 +338,15 @@ local function cmd_move(s: store.Store, id: string, target: string,
     end
   end
   local ok, err = commit_and_publish(s, it, nil,
-    ("move %s %s -> %s"):format(id, from, target), from)
+    ("move %s %s -> %s"):format(id:sub(1, 8), from, target), from)
   if not ok then
     return verdict_line("move", false, err)
   end
-  return verdict_line("move", true, ("%s %s -> %s"):format(id, from, target))
+  return verdict_line("move", true,
+    ("%s %s -> %s"):format(id:sub(1, 8), from, target))
 end
 
---- The phase each verdict sends a slice to: the three directions out
+--- The phase each verdict sends an item to: the three directions out
 --- of check.
 local VERDICT_MOVES: {string: string} = {
   ["accept"] = "land",
@@ -351,9 +364,10 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if it == nil then
     return verdict_line("verdict", false, lerr)
   end
-  if it.kind ~= "slice" then
+  if (it.phase or "") == "" then
     return verdict_line("verdict", false,
-      ("%s is a %s — verdicts judge slices"):format(id, it.kind))
+      ("%s is not on the board — verdicts judge phased work"):format(
+        id:sub(1, 8)))
   end
   local from = it.phase
   it.verdict = kind
@@ -365,18 +379,19 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- A verdict is a decision already made: an accept enters land and a
   -- send-back is a return, so no WIP gate applies in any direction.
   local ok, err = commit_and_publish(s, it, nil,
-    ("verdict %s %s (%s -> %s)"):format(id, kind, from, target), from)
+    ("verdict %s %s (%s -> %s)"):format(id:sub(1, 8), kind, from, target),
+    from)
   if not ok then
     return verdict_line("verdict", false, err)
   end
   return verdict_line("verdict", true,
-    ("%s on %s: %s -> %s"):format(kind, id, from, target))
+    ("%s on %s: %s -> %s"):format(kind, id:sub(1, 8), from, target))
 end
 
---- Slice phases `done` refuses to end from without --force: the
---- mid-flow phases where an ending would make work vanish. Completing
---- from land IS the landing; a not-planned ending there would discard
---- an accept, so only "completed" passes.
+--- Phases `done` refuses to end from without --force: the mid-flow
+--- phases where an ending would make work vanish. Completing from
+--- land IS the landing; a not-planned ending there would discard an
+--- accept, so only "completed" passes.
 local NO_DONE: {string: boolean} = {ready = true, ["do"] = true}
 
 local function cmd_done(s: store.Store, id: string, reason: string,
@@ -392,59 +407,22 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   or (it.phase == "land" and reason ~= "completed")
   if refused and not force then
     return verdict_line("done", false,
-      ("REFUSED: %s is mid-flow in %s — move it left first"):format(id, it.phase))
+      ("REFUSED: %s is mid-flow in %s — move it left first"):format(
+        id:sub(1, 8), it.phase))
   end
   local from = it.phase
   if from == "" then
-    from = it.kind
+    from = "unphased"
   end
   it.phase = ""
   it.resolution = reason
   local ok, err = commit_and_publish(s, it, nil,
-    ("done %s %s (from %s)"):format(id, reason, from), from)
+    ("done %s %s (from %s)"):format(id:sub(1, 8), reason, from), from)
   if not ok then
     return verdict_line("done", false, err)
   end
-  return verdict_line("done", true, ("%s %s (%s)"):format(id, reason, from))
-end
-
-local function cmd_show(s: store.Store, id: string): integer
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return verdict_line("show", false, lerr)
-  end
-  print(("%s [%s] %s"):format(it.id, it.kind, it.title))
-  if it.parent ~= "" then print(("parent: %s"):format(it.parent)) end
-  if it.phase ~= "" then print(("phase: %s"):format(it.phase)) end
-  if it.rank ~= 0 then print(("rank: %d"):format(it.rank)) end
-  if it.claim ~= "" then print(("claim: %s"):format(it.claim)) end
-  if it.pr ~= 0 then print(("pr: #%d"):format(it.pr)) end
-  if it.verdict ~= "" then
-    print(("verdict: %s (head %s)"):format(it.verdict, it.verdict_head))
-  end
-  if #it.blocked_by > 0 then
-    print("blocked by: " .. table.concat(it.blocked_by, " "))
-  end
-  if it.resolution ~= "" then print(("resolution: %s"):format(it.resolution)) end
-  local spec = store.read_spec(s, id)
-  if spec ~= "" then
-    print("--- spec ---")
-    io.write(spec)
-  end
-  local events = store.history(s, id)
-  if events then
-    for _, e in ipairs(events) do
-      print(("  %s %s %s"):format(e.at, e.sha, e.subject))
-    end
-  end
-  local state = it.phase
-  if state == "" then
-    state = it.resolution
-    if state == "" then
-      state = "open"
-    end
-  end
-  return verdict_line("show", true, ("%s is %s"):format(id, state))
+  return verdict_line("done", true,
+    ("%s %s (%s)"):format(id:sub(1, 8), reason, from))
 end
 
 local function cmd_sync(s: store.Store): integer
@@ -456,36 +434,32 @@ local function cmd_sync(s: store.Store): integer
 end
 
 local record gitverbs
+  verdict_line: function(verb: string, ok: boolean, detail: string): integer
   cmd_init: function(dir: string): integer
-  cmd_new: function(s: store.Store, kind: string, id: string, title: string,
-  parent: string, rank: integer, spec: string, force: boolean): integer
+  cmd_new: function(s: store.Store, title: string, parent: string,
+  rank: integer, spec: string, force: boolean): integer
+  cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
   cmd_check: function(s: store.Store, id: string): integer
-  cmd_status: function(s: store.Store): integer
-  cmd_tree: function(s: store.Store): integer
-  cmd_next: function(s: store.Store, role: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
   claim: string, force: boolean): integer
   cmd_verdict: function(s: store.Store, id: string, kind: string,
   pr: integer, head: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
   force: boolean): integer
-  cmd_show: function(s: store.Store, id: string): integer
   cmd_sync: function(s: store.Store): integer
 end
 
 local M: gitverbs = {
+  verdict_line = verdict_line,
   cmd_init = cmd_init,
   cmd_new = cmd_new,
+  cmd_attach = cmd_attach,
   cmd_spec = cmd_spec,
   cmd_check = cmd_check,
-  cmd_status = cmd_status,
-  cmd_tree = cmd_tree,
-  cmd_next = cmd_next,
   cmd_move = cmd_move,
   cmd_verdict = cmd_verdict,
   cmd_done = cmd_done,
-  cmd_show = cmd_show,
   cmd_sync = cmd_sync,
 }
 

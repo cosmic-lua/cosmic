@@ -1,62 +1,62 @@
 #!/usr/bin/env cosmic
--- The flow rules are pure functions over item lists, pinned here the
--- way model_test.tl pins the label board's: the board holds open
--- slices only, two admissions survive at the limit (returns and land),
--- the pull order runs right to left with land gating pull, and the
--- goal trace is checked structurally instead of read from prose.
+-- The flow rules are pure functions over item lists. What they pin is
+-- the emergent-role claim itself: with no kind field anywhere, a
+-- ranked root behaves as a goal, an unranked root as a finding, an
+-- item with open children as a container, and a parented leaf as the
+-- only thing the kanban moves — plus the pull order, the two-line
+-- admits rule, and the goal trace as a checked graph property.
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
 local item = require("_work.item")
+local ksuid = require("_work.ksuid")
 
 local counter = 0
 
---- One valid item; opened stamps increase in creation order so
---- "oldest first" is the order this file created things.
-local function make(kind: string, id: string, over: {string: any}): item.Item
+--- A fresh deterministic id; later calls sort later, so creation
+--- order is age order exactly as live ksuids behave.
+local function fresh_id(): string
   counter = counter + 1
-  local t: {string: any} = {
-    id = id, kind = kind, title = id,
-    opened = ("2026-08-17T00:00:%02dZ"):format(counter),
-  }
-  if kind == "goal" then
-    t.rank = 1
-  end
-  if kind == "epic" then
-    t.parent = "g-one"
-  end
-  if kind == "slice" then
-    t.parent = "e-one"
-    t.phase = "ready"
-  end
+  return check.must(ksuid.encode(1700000000 + counter, ("\0"):rep(16)))
+end
+
+--- One valid item.
+local function make(over: {string: any}): item.Item
+  local t: {string: any} = {id = fresh_id(), title = "item"}
   for k, v in pairs(over or {}) do
     t[k] = v
-  end
-  -- A nil override vanishes under pairs, so "done" clears phase here:
-  -- a resolved slice may not carry one and decode enforces it.
-  if t.resolution ~= nil and tostring(t.resolution) ~= "" then
-    t.phase = nil
   end
   return check.must(item.decode(t))
 end
 
-local function test_board_holds_open_slices_only()
-  local items: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("epic", "e-one", {}),
-    make("slice", "s-one", {}),
-    make("slice", "s-done", {resolution = "completed"}),
-    make("finding", "f-one", {}),
-  }
+local function test_roles_emerge_from_the_graph()
+  local goal = make({rank = 1})
+  local finding = make({})
+  local epic = make({parent = goal.id})
+  local leaf = make({parent = epic.id, phase = "ready"})
+  local items: {item.Item} = {goal, finding, epic, leaf}
+  assert(flow.role(goal, items) == "goal", "ranked root")
+  assert(flow.role(finding, items) == "finding", "unranked root")
+  assert(flow.role(epic, items) == "container", "open children")
+  assert(flow.role(leaf, items) == "work", "parented leaf")
+end
+test_roles_emerge_from_the_graph()
+
+local function test_board_holds_open_phased_items_only()
+  local goal = make({rank = 1})
+  local worked = make({parent = goal.id, phase = "ready"})
+  local unphased = make({parent = goal.id})
+  local done = make({parent = goal.id, resolution = "completed"})
+  local items: {item.Item} = {goal, worked, unphased, done}
   local b = flow.board(items)
-  assert(#(b["ready"] or {}) == 1, "one open slice in ready")
   local total = 0
   for _, list in pairs(b) do
     total = total + #list
   end
-  assert(total == 1, "goals, epics, findings, and done slices are off the board")
+  assert(total == 1 and b["ready"][1].id == worked.id,
+    "roots, containers-in-waiting, and done items are off the board")
 end
-test_board_holds_open_slices_only()
+test_board_holds_open_phased_items_only()
 
 local function test_admissions_at_the_limit()
   assert(flow.admits_over_limit("check", "land"), "an accept always lands")
@@ -66,87 +66,70 @@ local function test_admissions_at_the_limit()
 end
 test_admissions_at_the_limit()
 
-local function test_implementer_pull_order()
-  local items: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("epic", "e-one", {}),
-    make("slice", "s-ready", {}),
-    make("slice", "s-doing", {phase = "do"}),
-    make("slice", "s-landing", {phase = "land"}),
-  }
+local function test_implementer_finishes_before_pulling()
+  local goal = make({rank = 1})
+  local ready = make({parent = goal.id, phase = "ready"})
+  local doing = make({parent = goal.id, phase = "do"})
+  local landing = make({parent = goal.id, phase = "land"})
+  local items: {item.Item} = {goal, ready, doing, landing}
   local action = check.must(flow.next_action(items, "implementer"))
-  assert(action.kind == "finish" and action.item.id == "s-landing",
-    "land first, got " .. action.kind .. " " .. tostring(action.item))
+  assert(action.kind == "finish" and action.item.id == landing.id,
+    "land first, got " .. action.kind)
 end
-test_implementer_pull_order()
+test_implementer_finishes_before_pulling()
 
-local function test_full_landing_queue_drains_before_pull()
-  local items: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("epic", "e-one", {}),
-    make("slice", "s-ready", {}),
-  }
-  local first = ""
-  for i = 1, flow.LIMITS["land"] do
-    local id = ("s-land-%d"):format(i)
-    if first == "" then
-      first = id
-    end
-    items[#items + 1] = make("slice", id, {phase = "land"})
-  end
+local function test_blocked_items_are_skipped()
+  local goal = make({rank = 1})
+  local open_blocker = make({parent = goal.id, phase = "do"})
+  local blocked = make({parent = goal.id, phase = "ready",
+      blocked_by = open_blocker.id})
+  local free = make({parent = goal.id, phase = "ready"})
+  local items: {item.Item} = {goal, open_blocker, blocked, free}
   local action = check.must(flow.next_action(items, "implementer"))
-  assert(action.kind == "finish" and action.item.id == first,
-    "a full landing queue drains before any fresh pull: " .. action.kind)
-end
-test_full_landing_queue_drains_before_pull()
-
-local function test_blocked_slice_is_skipped()
-  local items: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("epic", "e-one", {}),
-    make("slice", "s-blocked", {blocked_by = "s-doing"}),
-    make("slice", "s-free", {}),
-    make("slice", "s-doing", {resolution = "completed"}),
-  }
-  local open_blocker: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("epic", "e-one", {}),
-    make("slice", "s-open", {phase = "do"}),
-    make("slice", "s-blocked", {blocked_by = "s-open"}),
-    make("slice", "s-free", {}),
-  }
-  local index = flow.by_id(open_blocker)
-  assert(flow.is_blocked(index["s-blocked"], index), "open blocker blocks")
-  assert(not flow.is_blocked(index["s-free"], index), "no blocker")
-  local closed_index = flow.by_id(items)
-  assert(not flow.is_blocked(closed_index["s-blocked"], closed_index),
+  assert(action.kind == "finish" and action.item.id == open_blocker.id,
+    "do drains first")
+  local index = flow.by_id(items)
+  assert(flow.is_blocked(blocked, index), "open blocker blocks")
+  assert(not flow.is_blocked(free, index), "no blocker")
+  local done_blocker = make({parent = goal.id, resolution = "completed"})
+  local was_blocked = make({parent = goal.id, phase = "ready",
+      blocked_by = done_blocker.id})
+  local later = flow.by_id({goal, done_blocker, was_blocked})
+  assert(not flow.is_blocked(was_blocked, later),
     "a done blocker does not block")
 end
-test_blocked_slice_is_skipped()
+test_blocked_items_are_skipped()
 
-local function test_planner_intake_names_the_undriven_goal()
-  local items: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("goal", "g-two", {rank = 2}),
-    make("epic", "e-one", {}),
-    make("slice", "s-one", {phase = "do"}),
-  }
+local function test_planner_triages_findings_then_intakes()
+  local goal = make({rank = 1})
+  local idle_goal = make({rank = 2})
+  local worked = make({parent = goal.id, phase = "do"})
+  local finding = make({})
+  local items: {item.Item} = {goal, idle_goal, worked, finding}
   local action = check.must(flow.next_action(items, "planner"))
-  assert(action.kind == "intake" and action.item.id == "g-two",
-    "the top-ranked goal with no live work: " .. tostring(action.item))
+  assert(action.kind == "triage" and action.item.id == finding.id,
+    "findings before intake: " .. action.kind)
+  local no_findings: {item.Item} = {goal, idle_goal, worked}
+  local intake = check.must(flow.next_action(no_findings, "planner"))
+  assert(intake.kind == "intake" and intake.item.id == idle_goal.id,
+    "the top-ranked goal with no live work: " .. intake.kind)
 end
-test_planner_intake_names_the_undriven_goal()
+test_planner_triages_findings_then_intakes()
 
 local function test_trace_problems()
-  local items: {item.Item} = {
-    make("goal", "g-one", {}),
-    make("epic", "e-one", {}),
-    make("slice", "s-orphan", {parent = "nowhere"}),
-    make("epic", "e-bad", {parent = "e-one"}),
-  }
+  local goal = make({rank = 1})
+  local finding = make({})
+  local orphan = make({parent = fresh_id(), phase = "plan"})
+  local epic = make({parent = goal.id})
+  local phased_parent = make({parent = goal.id, phase = "do"})
+  local kid = make({parent = phased_parent.id, phase = "plan"})
+  local untraced = make({parent = finding.id, phase = "plan"})
+  local items: {item.Item} = {goal, finding, orphan, epic, phased_parent,
+    kid, untraced}
   local problems = flow.trace_problems(items)
-  assert(#problems == 2, "want 2 problems, got " .. #problems)
-  assert(problems[1]:find("does not exist", 1, true), problems[1])
-  assert(problems[2]:find("must be a goal", 1, true), problems[2])
+  local text = table.concat(problems, "\n")
+  assert(text:find("does not exist", 1, true), "orphan parent: " .. text)
+  assert(text:find("has open children", 1, true), "phased container: " .. text)
+  assert(text:find("unranked", 1, true), "trace to a finding: " .. text)
 end
 test_trace_problems()

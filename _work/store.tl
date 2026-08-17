@@ -124,6 +124,40 @@ local function load_item(s: Store, id: string): item.Item | nil, string
   return item.decode(t)
 end
 
+--- The full id a unique prefix names — KSUIDs are 27 characters, so
+--- verbs accept any unambiguous prefix the way git accepts short
+--- hashes. An exact-length id resolves without touching the
+--- directory.
+--- @param s Store The store
+--- @param prefix string An id or a prefix of one
+--- @return string | nil The full id
+--- @return string Error message: nothing matched, or the matches
+local function resolve(s: Store, prefix: string): string | nil, string
+  if prefix == nil or prefix == "" or prefix:match("^%w+$") == nil then
+    return nil, ("not an id prefix: %s"):format(tostring(prefix))
+  end
+  if fs.is_file(item_path(s, prefix)) then
+    return prefix
+  end
+  local found, ferr = fs.find(fs.join(s.root, "items"),
+    {glob = prefix .. "*.tl", max_depth = 1, sorted = true})
+  if found == nil then
+    return nil, ferr
+  end
+  local matches: {string} = {}
+  for _, path in ipairs(found) do
+    matches[#matches + 1] = fs.basename(path):gsub("%.tl$", "")
+  end
+  if #matches == 0 then
+    return nil, ("no item matches %s"):format(prefix)
+  end
+  if #matches > 1 then
+    return nil, ("%s is ambiguous: %s"):format(prefix,
+      table.concat(matches, " "))
+  end
+  return matches[1]
+end
+
 --- An item's spec sidecar, "" when it has none.
 --- @param s Store The store
 --- @param id string Item id
@@ -292,6 +326,7 @@ local record store
   item_path: function(s: Store, id: string): string
   spec_path: function(s: Store, id: string): string
   load: function(s: Store, id: string): item.Item | nil, string
+  resolve: function(s: Store, prefix: string): string | nil, string
   read_spec: function(s: Store, id: string): string
   list: function(s: Store): {item.Item} | nil, string
   save: function(s: Store, it: item.Item, spec: string, message: string):
@@ -306,6 +341,7 @@ local M: store = {
   item_path = item_path,
   spec_path = spec_path,
   load = load_item,
+  resolve = resolve,
   read_spec = read_spec,
   list = list,
   save = save,

@@ -11,14 +11,13 @@ local child = require("cosmic.child")
 local flow = require("_work.flow")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
+local ksuid = require("_work.ksuid")
 local store = require("_work.store")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- Run one git command in `cwd`, failing the test loudly if it does
---- not exit zero — fixture setup, not the code under test. Objects
---- finalize by rename for the same reason store.tl's do: link-based
---- finalization fails with EXDEV on CI containers' overlay mounts.
+--- not exit zero — fixture setup, not the code under test.
 local function git(cwd: string, argv: {string})
   local full: {string} = {"git", "-c", "user.email=test@example.com",
     "-c", "user.name=test", "-c", "core.createObject=rename"}
@@ -42,12 +41,18 @@ local function init_state_repo(name: string): string
 end
 
 --- A bare "remote" seeded with an empty items/ tree, plus n clones.
+--- The bare side finalizes objects by rename in ITS OWN config: a
+--- file:// push spawns receive-pack with the pusher's `-c` env
+--- scrubbed (git's local transport clears GIT_CONFIG_PARAMETERS), and
+--- link-based finalization fails with EXDEV on the overlay mounts CI
+--- containers run tests on.
 local function init_shared(name: string, clones: integer): string, {string}
   local base = fs.join(tmpdir, "shared-" .. name)
   assert(fs.remove_all(base))
   assert(fs.make_dirs(base))
   local bare = fs.join(base, "remote.git")
   git(base, {"init", "-q", "--bare", bare})
+  git(bare, {"config", "core.createObject", "rename"})
   local seed = fs.join(base, "seed")
   git(base, {"clone", "-q", bare, seed})
   assert(fs.make_dirs(fs.join(seed, "items")))
@@ -59,6 +64,7 @@ local function init_shared(name: string, clones: integer): string, {string}
   for i = 1, clones do
     local dir = fs.join(base, ("clone%d"):format(i))
     git(base, {"clone", "-q", bare, dir})
+    git(dir, {"config", "core.createObject", "rename"})
     out[#out + 1] = dir
   end
   return bare, out
@@ -66,85 +72,100 @@ end
 
 local counter = 0
 
---- A minimal valid slice (under an implicit hierarchy the store does
---- not check — trace rules are flow's, exercised in flow_test).
-local function make_slice(id: string, phase: string): item.Item
+--- A fresh deterministic id; later calls sort later.
+local function fresh_id(): string
   counter = counter + 1
+  return check.must(ksuid.encode(1700000000 + counter, ("\0"):rep(16)))
+end
+
+local PARENT = check.must(ksuid.encode(1690000000, ("\1"):rep(16)))
+
+--- A minimal valid workable item (under a parent the store never
+--- checks — graph rules are flow's, exercised in flow_test).
+local function make_item(phase: string): item.Item
   return check.must(item.decode({
-        id = id, kind = "slice", title = "slice " .. id, parent = "e-one",
-        phase = phase, opened = ("2026-08-17T00:00:%02dZ"):format(counter),
+        id = fresh_id(), title = "an item", parent = PARENT, phase = phase,
       }))
 end
 
 local function test_save_load_spec_and_history()
   local root = init_state_repo("roundtrip")
   local s = check.must(store.open(root))
-  assert(store.save(s, make_slice("fly", "plan"), "## Goal\nG1\n",
-      "new slice fly (plan)"))
-  local it = check.must(store.load(s, "fly"))
-  assert(it.phase == "plan", "phase: " .. it.phase)
-  assert(store.read_spec(s, "fly") == "## Goal\nG1\n", "spec sidecar")
-  it.phase = "ready"
-  assert(store.save(s, it, nil, "move fly plan -> ready"))
-  assert(store.read_spec(s, "fly") == "## Goal\nG1\n",
+  local it = make_item("plan")
+  local short = it.id:sub(1, 8)
+  assert(store.save(s, it, "## Goal\nG1\n", "new " .. short))
+  local loaded = check.must(store.load(s, it.id))
+  assert(loaded.phase == "plan", "phase: " .. loaded.phase)
+  assert(store.read_spec(s, it.id) == "## Goal\nG1\n", "spec sidecar")
+  loaded.phase = "ready"
+  assert(store.save(s, loaded, nil, "move " .. short .. " plan -> ready"))
+  assert(store.read_spec(s, it.id) == "## Goal\nG1\n",
     "a nil spec leaves the sidecar alone")
-  local events = check.must(store.history(s, "fly"))
+  local events = check.must(store.history(s, it.id))
   assert(#events == 2, "want 2 events, got " .. #events)
-  assert(events[1].subject == "move fly plan -> ready", events[1].subject)
-  assert(events[2].subject == "new slice fly (plan)", events[2].subject)
-  local missing, merr = store.load(s, "nope")
+  assert(events[1].subject:find("plan %-> ready"), events[1].subject)
+  local missing, merr = store.load(s, fresh_id())
   assert(missing == nil and merr:find("no item", 1, true), "missing item")
 end
 test_save_load_spec_and_history()
 
-local function test_list_reads_every_item()
-  local root = init_state_repo("list")
+local function test_resolve_prefixes()
+  local root = init_state_repo("resolve")
   local s = check.must(store.open(root))
-  assert(store.save(s, make_slice("aa", "ready"), nil, "new aa"))
-  assert(store.save(s, make_slice("bb", "do"), nil, "new bb"))
-  local all = check.must(store.list(s))
-  assert(#all == 2, "want 2 items, got " .. #all)
-  local b = flow.board(all)
-  assert(#(b["ready"] or {}) == 1 and #(b["do"] or {}) == 1, "board groups")
+  local a = make_item("plan")
+  local b = make_item("plan")
+  assert(store.save(s, a, nil, "new a"))
+  assert(store.save(s, b, nil, "new b"))
+  assert(check.must(store.resolve(s, a.id)) == a.id, "full ids resolve")
+  assert(check.must(store.resolve(s, a.id:sub(1, 26))) == a.id,
+    "a unique prefix resolves")
+  -- The deterministic ids share all but their trailing bytes, so the
+  -- short common prefix is ambiguous by construction.
+  local amb, aerr = store.resolve(s, a.id:sub(1, 4))
+  assert(amb == nil and aerr:find("ambiguous", 1, true), "ambiguity is named")
+  local none, nerr = store.resolve(s, "zzzz")
+  assert(none == nil and nerr:find("no item", 1, true), "a miss is named")
 end
-test_list_reads_every_item()
+test_resolve_prefixes()
 
 local function test_publish_fast_forward()
   local bare, clones = init_shared("ff", 2)
   assert(bare)
   local a = check.must(store.open(clones[1]))
-  assert(store.save(a, make_slice("first", "plan"), nil, "new first (plan)"))
+  local it = make_item("plan")
+  assert(store.save(a, it, nil, "new item"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
-  local it = check.must(store.load(b, "first"))
-  assert(it.phase == "plan", "the published item reaches the second clone")
+  local got = check.must(store.load(b, it.id))
+  assert(got.phase == "plan", "the published item reaches the second clone")
 end
 test_publish_fast_forward()
 
 -- Two sessions race the do limit (5): both see 4/5 and move a ready
--- slice in. The first push wins; the loser's publish rebases onto the
+-- item in. The first push wins; the loser's publish rebases onto the
 -- merged state, finds do at 6/5, drops its own commit, and refuses —
 -- the compare-and-swap the label board's lagged index cannot give.
 local function test_publish_cas_refuses_over_limit()
   local _, clones = init_shared("cas", 2)
   local a = check.must(store.open(clones[1]))
   for i = 1, 4 do
-    local id = ("busy-%d"):format(i)
-    assert(store.save(a, make_slice(id, "do"), nil, "new " .. id))
+    assert(store.save(a, make_item("do"), nil, ("busy %d"):format(i)))
   end
-  assert(store.save(a, make_slice("mine", "ready"), nil, "new mine"))
-  assert(store.save(a, make_slice("yours", "ready"), nil, "new yours"))
+  local mine = make_item("ready")
+  local yours = make_item("ready")
+  assert(store.save(a, mine, nil, "new mine"))
+  assert(store.save(a, yours, nil, "new yours"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
 
-  local ia = check.must(store.load(a, "mine"))
+  local ia = check.must(store.load(a, mine.id))
   ia.phase = "do"
   assert(store.save(a, ia, nil, "move mine ready -> do"))
   assert(store.publish(a))
 
-  local ib = check.must(store.load(b, "yours"))
+  local ib = check.must(store.load(b, yours.id))
   ib.phase = "do"
   assert(store.save(b, ib, nil, "move yours ready -> do"))
   local ok, err = store.publish(b, function(): string
@@ -157,9 +178,9 @@ local function test_publish_cas_refuses_over_limit()
     end)
   assert(not ok, "the losing move must be refused")
   assert(err:find("refused after concurrent update", 1, true), "got: " .. err)
-  local back = check.must(store.load(b, "yours"))
-  assert(back.phase == "ready", "the refused slice is back in ready")
-  local winner = check.must(store.load(b, "mine"))
+  local back = check.must(store.load(b, yours.id))
+  assert(back.phase == "ready", "the refused item is back in ready")
+  local winner = check.must(store.load(b, mine.id))
   assert(winner.phase == "do", "the winning move is visible after the rebase")
   local merged = flow.board(check.must(store.list(b)))
   assert(#(merged["do"] or {}) == 5, "do holds exactly its limit")

@@ -1,79 +1,91 @@
 # work state in a git repository
 
 A design exploration, with a working spike: move the work system — its
-coordination state AND its hierarchy — out of GitHub labels and
-comments and into files committed in a git repository. Long-lived
-ranked goals, the epics that decompose them, the slices an implementer
-pulls, and the findings awaiting triage are all first-class items in
-that repository. Pull requests stay on GitHub and keep doing what they
-are good at: a PR holds a diff, its CI, and its review conversation.
-Issues shrink to an inbound queue — a bug report or an external
-request arrives there and is imported as a finding — instead of being
-the board's storage. Nothing accumulates claim comments, PR-link
-comments, or `work-verdict:` comments, because no state lives where
-those comments used to put it.
+coordination state, its hierarchy, and eventually its machinery — out
+of GitHub labels and comments and into files committed under git.
+Pull requests stay on GitHub and keep doing what they are good at: a
+PR holds a diff, its CI, and its review conversation. Issues shrink to
+an inbound queue — a bug report arrives there and is imported as a
+finding — instead of being the board's storage. Nothing accumulates
+claim comments, PR-link comments, or `work-verdict:` comments, because
+no state lives where those comments used to put it.
 
-The spike is `_work/item.tl` (the item codec), `_work/flow.tl` (the
-simplified flow model), `_work/store.tl` (the git-backed store), and
-`_work/gitboard.tl` (the CLI), with tests alongside. The ready-bar
-section grammar is reused from `_work.model` unchanged; everything
-else about the model gets SIMPLER here, and the section below on
-dissolved carve-outs is the argument that the simplification is real.
+The spike is `_work/ksuid.tl` (ids), `_work/item.tl` (the item codec),
+`_work/flow.tl` (the flow rules), `_work/store.tl` (the git-backed
+store), and `_work/gitboard.tl` + `_work/gitverbs.tl` (the CLI), with
+tests alongside. The ready-bar section grammar is reused from
+`_work.model` unchanged; everything else got SIMPLER, and the section
+on emergent roles below is where most of the simplification comes
+from.
 
-## the shape
+## one record, no kinds: roles emerge from the graph
 
-One repository (the "state repo" — in practice a new repo such as
-`whilp/cosmic-work`) holds one file per item, with prose in a markdown
-sidecar:
+There is a single item record and no kind field. An item's role is its
+position in the dependency graph — the same convention this repo
+builds by, where a file's role is its position in the tree:
+
+| position | role |
+|----------|------|
+| ranked root | a **goal**: long-lived, ordered by rank |
+| unranked root | a **finding**: captured evidence, awaiting triage |
+| parented, open children | a **container** being decomposed |
+| parented leaf | **workable** — the only thing that holds a phase |
+
+Roles change by changing the graph, never by editing a type tag:
+
+- **decomposition is `attach`** (or `new --parent`). A workable item
+  that gains a child stops being workable: the tool clears its phase
+  in the same mutation, and it leaves the board. "Epic" is not a thing
+  an item is; it is a thing an item is currently doing.
+- **triage is `attach`, too.** A finding adopted under a goal becomes
+  a workable leaf and enters `plan` — one operation, no marker labels,
+  no kind rewrite. Ranking a root makes it a goal; closing it
+  (`done --reason not-planned`) records the dead end.
+- the goal trace is a checked property: every phased item must reach a
+  RANKED root through its parent chain (`flow.trace_problems`), or the
+  tool says which link is broken. No prose `Goal:` section to drift.
+
+The label board's WIP rule needed four carve-outs (epics in plan do
+not count; findings are never refused; `--mandated` filings are never
+refused; returns/accepts always pass). Roots and containers are never
+phased, so the first three have nothing to except; what remains of
+`admits_over_limit` is two lines — a return is never refused, and an
+accept always lands. The WIP limits keep the label board's empirically
+tuned values; the exceptions go because the structures that needed
+them went.
+
+## ids are KSUIDs
+
+An item's id is a KSUID: 4 bytes of timestamp + 16 random bytes,
+base62-encoded to 27 characters (`_work/ksuid.tl`). Three properties
+pay for the opacity:
+
+- **no counter to race**: two sessions minting items never coordinate,
+  where issue numbers came from GitHub's central sequence;
+- **lexicographic order is creation order**: "oldest first" is a plain
+  sort of ids — no `opened` field to drift from the truth;
+- **stable across re-parenting**: a finding keeps its identity through
+  adoption; history follows one file.
+
+Verbs accept any unambiguous prefix (`gitboard show 3I1v4K`), the way
+git accepts short hashes; ambiguity is reported with the candidates.
+
+## the shape on disk
 
 ```
 items/
-  fast-startup.tl     a goal: ranked, long-lived
-  make-cache.tl       an epic decomposing it
-  stamp-env.tl        a slice an implementer pulls
-  stamp-env.md        that slice's spec: the ready-bar sections
+  3I1v3H5UUa6WhTm6NutqYQYbwsC.tl    a ranked root — a goal
+  3I1v3eb4z53ihA5kv6c9nLcoDF3.tl    under it, currently a container
+  3I1v4KhH3u5mVU6gMEZbrfGcdvo.tl    a workable leaf, in plan
+  3I1v4KhH3u5mVU6gMEZbrfGcdvo.md    that leaf's spec (ready-bar sections)
 ```
 
 An item is `cosmic.literal` data — a file that can declare values and
-nothing else:
-
-```lua
-return {
-  ["claim"] = "session-a",
-  ["id"] = "stamp-env",
-  ["kind"] = "slice",
-  ["opened"] = "2026-08-17T05:14:31Z",
-  ["parent"] = "make-cache",
-  ["phase"] = "check",
-  ["pr"] = 1250,
-  ["title"] = "stamp env deps into the graph",
-  ["verdict"] = "request changes",
-  ["verdict_head"] = "f00dcafe",
-}
-```
-
-Zero values are omitted on write, so a fresh item is four lines and a
-diff shows exactly what moved. Ids are slugs, not numbers: two
-sessions creating items never race a counter, and `blocked_by` reads
-as prose ("blocked_by = "fetch-retry docs-split"").
-
-The hierarchy is structural, not prose convention:
-
-- a **goal** carries a rank (1 is the top promise) and no parent —
-  the committed, ranked outcome list that today lives in
-  docs/goals.md;
-- an **epic** carries `parent = <goal>`;
-- a **slice** carries `parent = <epic or goal>` and is the ONLY kind
-  with a phase; its spec sidecar carries the ready-bar sections
-  (Goal/Change/Non-goals/Acceptance/Enablement — the same grammar,
-  checked by the same `ready_gaps` function, over a file instead of an
-  issue body);
-- a **finding** is captured evidence: parentless and unphased until a
-  planner adopts it into a slice or closes it.
-
-`flow.trace_problems` checks the parent chain — a slice that reaches
-no goal is a structural error the tool reports, not a missing prose
-section a reviewer must notice.
+nothing else; zero values are omitted, so a fresh item is two lines
+and a diff shows exactly what moved. The spec prose lives in the
+markdown sidecar, checked by the same `ready_gaps` section grammar the
+label board applies to issue bodies. `move <id> ready` refuses a
+hollow spec with the missing sections named.
 
 Three properties fall out of "state is committed files":
 
@@ -81,77 +93,80 @@ Three properties fall out of "state is committed files":
   commit-then-push. A rejected push means another session moved first;
   the store rebases onto the winner, re-asks the WIP invariant against
   the MERGED state, and drops its own commit if the limit now binds
-  (`store.publish`). This is strictly stronger than the label board:
-  GitHub's label index is eventually consistent, so the current tool
-  documents a "pause and retry" ritual for spurious refusals and can
-  double-admit under a race. The git board cannot.
-- **git log is the flow record.** `stats` today reconstructs history
-  by replaying label events through the GitHub timeline API, paginated
-  and rate-limited, with a legacy-label table for renames. Here,
-  `git log -- items/stamp-env.tl` IS the history — every transition,
-  its time, and the session that made it, readable offline in
-  milliseconds (`store.history`).
-- **reads need no network and no token.** `status`, `tree`, and
-  `next` are a directory scan after a `git pull`.
+  (`store.publish`). Strictly stronger than the label board, whose
+  eventually-consistent index needs a "pause and retry" ritual and can
+  double-admit under a race.
+- **git log is the flow record.** `git log -- items/<id>.tl` is the
+  item's history — every transition, its time, its session — readable
+  offline in milliseconds. The `stats` timeline-replay machinery
+  becomes a log walk.
+- **reads need no network and no token.** `status`, `tree`, `next`
+  are a directory scan after a `git pull`.
 
-## the model gets simpler, measurably
+## a branch of cosmic, not a second repository
 
-The label board hangs everything on one issue list, so its WIP rule
-needs four carve-outs (`model.admits_over_limit`): epics in plan do
-not count, findings are never refused, `--mandated` filings are never
-refused, and returns/accepts always pass. With the hierarchy
-first-class, phase belongs to open slices only, and three of the four
-dissolve structurally:
+The state does not need its own repository: it needs its own HISTORY.
+A dedicated branch of whilp/cosmic — `work`, created orphan like the
+`docs` branch, holding `items/**` and, once the direction settles, the
+machinery (`_work/**`, `skills/work/**`) — gives it that, and a
+session reaches it as a second worktree of the clone it already has:
 
-- an epic cannot crowd `plan` because an epic is never IN a phase;
-- filing a finding cannot collide with a limit because a finding is
-  never in a phase either;
-- `--mandated` existed to push a required countermeasure past a full
-  `plan`; a countermeasure is an unphased finding or a new slice
-  decomposed later, so the flag has nothing left to force.
+```
+git worktree add o/work work    # once per checkout; o/ is already ignored
+gitboard status --dir o/work    # every verb takes the worktree as --dir
+```
 
-What remains is two lines: a return is never refused, and an accept
-always lands. The goal trace stops being a prose section (`Goal:
-G3...`) and becomes a parent edge the tool validates. The WIP limits
-keep the empirically tuned values from `_work/model.tl` — the numbers
-carry over; the exceptions do not, because the structures that needed
-them are gone.
+No second clone, no second credential, no new repo to administer:
+pushing `work` uses the same remote and the same auth as pushing a
+topic branch, and the push-CAS works identically on a branch. The
+machinery moves out of main's history (a WIP-limit tune stops being a
+product commit) without leaving the repository.
+
+One discipline makes it sound: **the work branch is append-only —
+never rebased, never force-pushed.** Rebasing published state history
+re-writes commits other sessions have built on; every clone's CAS
+assumptions break at once. This also answers "periodically rebase onto
+main": don't — the branch shares no files with main, so there is
+nothing to reconcile, and an orphan history stays permanently
+disjoint. The one moving part is the toolchain: the work branch pins
+cosmic through its own `bin/cosmic.pin` like any cosmic project, and
+bumping that pin is how it tracks the product. (If sharing history
+with main is ever wanted, `git merge main` preserves the state
+commits; rebase is the one operation the design forbids.)
+
+Costs, honestly: pushes to `work` show up in the repository's activity
+and must be excluded from CI triggers (a one-line branch filter in the
+workflows); branch protection needs configuring for one branch rather
+than a repo; and a runaway session with push rights to the repo could
+still force-push it — the same protection rule (no force pushes,
+linear history) answers it.
 
 ## what it looks like in practice
 
 ```
-$ gitboard new goal fast-startup "binary startup under 20ms" --rank 1
-$ gitboard new epic make-cache "cache the build graph" --parent fast-startup
-$ gitboard new slice stamp-env "stamp env deps" --parent make-cache
-gitboard-new: stamp-env enters plan
-
-$ gitboard move stamp-env ready
-  spec section missing or empty: Goal
-  ...
-gitboard-move: REFUSED: stamp-env misses the ready bar
-$ gitboard spec stamp-env spec.md        # the refined spec, as markdown
-$ gitboard move stamp-env ready
-gitboard-move: stamp-env plan -> ready
-
+$ gitboard new "binary startup under 20ms" --rank 1
+gitboard-new: 3I1v3H5U... enters goal, rank 1
+$ gitboard new "cache the build graph" --parent 3I1v3H
+gitboard-new: 3I1v3eb4... enters plan            # a parented leaf: workable
+$ gitboard new "stamp env deps" --parent 3I1v3e
+gitboard-new: 3I1v4KhH... enters plan
+$ gitboard show 3I1v3e | head -2                  # gaining a child de-phased it
+role: container
 $ gitboard tree
-G1 fast-startup       binary startup under 20ms
-  make-cache           [epic] cache the build graph
-    stamp-env          [ready] stamp env deps
-G2 learnable          a new agent ships in one session (no live work)
+G1 3I1v3H5U binary startup under 20ms
+  3I1v3eb4 [container] cache the build graph
+    3I1v4KhH [plan] stamp env deps
 ```
 
-The implementer session is unchanged in shape: `next` names the pull,
-`move stamp-env do --claim session-a` is the lock, the PR opens on
-GitHub as before, `move stamp-env check` hands it to a planner. The
-planner's verdict records on the item and the move it implies follows
-in the same commit — accept is `check -> land`, request-changes is
-`check -> do`, reject is `-> plan`. Intake stops being "walk
-docs/goals.md by hand": `next --role planner` answers `intake
-learnable — goal learnable (rank 2) has no live work`, because goals
-and their live-work state are data.
-
-Every mutation syncs first, gates against fresh state, commits, and
-publishes; between sessions there is nothing to do.
+The session loops keep their shape. Implementer: `next` names the
+pull, `move 3I1v4K do --claim session-a` is the lock, the PR opens on
+GitHub as before, `move 3I1v4K check` hands it over. Planner: `next
+--role planner` orders verdicts first, then refining plan items toward
+ready (the spec sidecar plus `check`), then triaging findings —
+`attach <finding> <parent>` adopts one into plan in a single move —
+then intake, which names the top-ranked goal with no live work under
+it. A verdict records on the item and the move it implies follows in
+the same commit; nothing is posted anywhere.
 
 ## why literal files, not sqlite or markdown
 
@@ -168,22 +183,8 @@ publishes; between sessions there is nothing to do.
   it, and an item written through it is typed on the way in and
   validated on the way out (`item.problems` reports every defect of a
   hand-edited file at once). One file per item means two sessions
-  touching different items NEVER conflict; two sessions touching the
-  same item conflict exactly when they should.
-
-## the side effect: an operations repo
-
-Once the work system lives in its own repository, the machinery that
-operates it wants to live there too. The state repo is an ordinary
-cosmic project — `bin/cosmic` + pin, its own CI running `--make ci`
-over the board tooling — and can absorb `_work/**`, `skills/work/**`,
-and eventually the other repo-operations tooling (`agent-eval`, docs
-publishing) that is about DEVELOPING cosmic rather than BEING cosmic.
-cosmic then carries product only, and a WIP-limit tune stops being a
-commit in the product's history. The cost is a second clone in every
-session and a version-skew question, answered the way cosmic answers
-it for itself: the ops repo pins cosmic, sessions run the ops repo's
-checkout.
+  touching different items NEVER conflict; two touching the same item
+  conflict exactly when they should.
 
 ## pros and cons
 
@@ -191,48 +192,49 @@ Gained:
 
 - no state comments on issues or PRs; GitHub surfaces stay
   human-facing
-- goals, epics, slices, findings as one validated structure; the
-  goal trace and the ready bar both checked by the tool
-- real CAS on every mutation; the lagged-index refusal ritual goes away
-- offline, tokenless, zero-API reads; history for free and complete
-- a simpler flow model: the carve-outs dissolve instead of porting
-- transitions carry provenance in commit messages without polluting
-  any human-facing surface
-- the ops-repo consolidation above
+- one record, no kinds: roles, adoption, and decomposition are graph
+  operations the tool can check, not conventions a reviewer must
+  notice
+- goals live IN the system: ranked items, so intake is computed
+- real CAS on every mutation; ids without a central counter; history
+  for free; offline tokenless reads
+- state and machinery consolidated on a branch of the repo that
+  already exists, reachable as a worktree
 
 Lost or newly owned:
 
 - **PR linkage is cross-system.** An item says `check` while its PR
-  is already merged or closed. The design needs a reconciliation verb
-  (`gitboard fsck`: cross-check open slices' `pr` fields against
-  GitHub) run at session start — drift becomes detectable, but it
-  exists. This is narrower than the label board's version of the
-  problem (only the PR edge crosses systems now), but it is real.
-- **visibility.** GitHub stops showing the board. Mitigations: a
-  rendered board page in the docs publish; anything that makes labels
-  load-bearing again is the trap to refuse.
-- **write access.** Sessions need push rights to the state repo, and
-  a runaway session could force-push history. Branch protection (no
-  force pushes, linear history) answers most of it.
+  is already merged. A reconciliation verb (`gitboard fsck`
+  cross-checking `pr` fields against GitHub) run at session start
+  makes drift detectable; it cannot make it impossible.
+- **visibility.** GitHub stops showing the board; ids are opaque
+  where issue numbers were memorable. Mitigations: `tree`/`status`
+  are one command with no token, and a rendered board page can ride
+  the docs publish. Anything that makes labels load-bearing again is
+  the trap to refuse.
+- **intent is inferred, not declared.** A leaf meant for further
+  decomposition looks workable until its children exist. The phase
+  mechanism absorbs this — nothing is pullable until a planner moves
+  it to `ready` past the spec bar — but "this will be an epic" now
+  lives in the planner's head or the spec text, not in a field.
 - **blockers only see items.** `is_blocked` consults items, not
   GitHub. Acceptable — the board reasons about state it holds — but a
   real semantic change.
-- **one more clone, one more auth surface** in every session brief.
 
 ## what the spike shows, and does not
 
-Shows: the codec round-trips every kind through the formatter's
-fixpoint; phase discipline is enforced (only open slices are phased);
-the hierarchy is validated structurally; the ready bar runs over spec
-sidecars with the same section grammar as today; the board, pull
-order, blocker skip, and planner intake all run from files; publish
-resolves a genuine two-clone race over the `do` limit by refusing the
-loser after rebase (`store_test.tl`); and the full lifecycle — goal,
-epic, slice, spec, ready, claim, check, verdict, land, done — runs
-end to end with history intact.
+Shows: KSUIDs whose lexicographic order is creation order, with
+prefix resolution in every verb; one kind-less record whose roles
+derive from the graph; decomposition and triage as `attach`, with the
+de-phase-on-decompose mechanic live; the ready bar over spec sidecars
+with the label board's own section grammar; the goal trace as a
+checked graph property; the board, pull order, blocker skip, finding
+triage, and goal-aware intake all running from files; and publish
+resolving a genuine two-clone race over the `do` limit by refusing
+the loser after rebase (`store_test.tl`).
 
 Does not show: GitHub reconciliation (`fsck`, a `land` verb that
 merges the real PR, importing inbound issues as findings), the
-`stats` port over `git log`, migration of the live board (a one-shot
-import reading labels and writing items), or the ops-repo split.
-Those are the follow-on slices if the direction holds.
+`stats` port over `git log`, migration of the live board, or actually
+cutting the `work` branch and moving the machinery onto it. Those are
+the follow-on slices if the direction holds.

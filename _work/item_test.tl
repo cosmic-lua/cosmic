@@ -1,116 +1,106 @@
 #!/usr/bin/env cosmic
 -- The item codec is pure: encode omits zero values, decode fills them
--- back in and validates per kind, and the two round-trip through
--- cosmic.literal byte-for-byte. Phase discipline is the point: only an
--- open slice carries one, which is what dissolves the label board's
--- epic and finding carve-outs.
+-- back in and validates, and the two round-trip through cosmic.literal
+-- byte-for-byte. The per-item rules pin the emergent-role invariants a
+-- single file can carry: only parented items hold phases or
+-- coordination fields, only roots hold ranks, done items hold neither
+-- phase nor claim to a slot.
 
 local check = require("cosmic.check")
 local item = require("_work.item")
+local ksuid = require("_work.ksuid")
 local literal = require("cosmic.literal")
 
-local function base(kind: string): {string: any}
-  local t: {string: any} = {
-    id = "sample-" .. kind, kind = kind, title = "a " .. kind,
-    opened = "2026-08-17T00:00:00Z",
-  }
-  if kind == "goal" then
-    t.rank = 1
-  end
-  if kind == "epic" then
-    t.parent = "sample-goal"
-  end
-  if kind == "slice" then
-    t.parent = "sample-epic"
-    t.phase = "plan"
-  end
-  return t
+local ZEROS = ("\0"):rep(16)
+local ID = check.must(ksuid.encode(1700000001, ZEROS))
+local PARENT = check.must(ksuid.encode(1700000000, ZEROS))
+
+local function base(): {string: any}
+  return {id = ID, title = "an item"}
 end
 
-local function test_every_kind_round_trips()
-  for _, kind in ipairs({"goal", "epic", "slice", "finding"}) do
-    local it = check.must(item.decode(base(kind)))
-    local text = check.must(literal.format(item.encode(it)))
-    local back = check.must(item.decode(check.must(literal.parse(text))))
-    assert(back.id == it.id and back.kind == kind, kind .. " round-trips")
-    assert(back.opened == it.opened, "opened survives")
-  end
-end
-test_every_kind_round_trips()
-
-local function test_slice_fields_round_trip()
-  local t = base("slice")
-  t.phase = "check"
-  t.claim = "session-a"
-  t.pr = 456
-  t.verdict = "request changes"
-  t.verdict_head = "abc1234"
-  t.blocked_by = "other-slice third-slice"
-  local it = check.must(item.decode(t))
-  local back = check.must(item.decode(
-      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
-  assert(back.claim == "session-a" and back.pr == 456, "coordination fields")
-  assert(back.verdict == "request changes", "verdict")
-  assert(#back.blocked_by == 2 and back.blocked_by[2] == "third-slice",
-    "blocked_by")
-end
-test_slice_fields_round_trip()
-
-local function test_phase_belongs_to_open_slices_only()
-  local goal = base("goal")
-  goal.phase = "plan"
-  local bad, err = item.decode(goal)
-  assert(bad == nil and err:find("only slices are phased", 1, true),
-    "a phased goal is refused: " .. tostring(err))
-  local slice = base("slice")
-  slice.phase = nil
-  local unphased, uerr = item.decode(slice)
-  assert(unphased == nil and uerr:find("needs a phase", 1, true),
-    "an open unphased slice is refused: " .. tostring(uerr))
-  slice.phase = "do"
-  slice.resolution = "completed"
-  local done, derr = item.decode(slice)
-  assert(done == nil and derr:find("no phase", 1, true),
-    "a done slice keeps no phase: " .. tostring(derr))
-end
-test_phase_belongs_to_open_slices_only()
-
-local function test_kind_rules()
-  local goal = base("goal")
-  goal.rank = nil
-  local unranked, rerr = item.decode(goal)
-  assert(unranked == nil and rerr:find("rank", 1, true), "a goal needs a rank")
-  local epic = base("epic")
-  epic.parent = nil
-  local orphan, perr = item.decode(epic)
-  assert(orphan == nil and perr:find("parent", 1, true),
-    "an epic needs a parent")
-  local epic2 = base("epic")
-  epic2.claim = "session-a"
-  local claimed, cerr = item.decode(epic2)
-  assert(claimed == nil and cerr:find("belong to slices", 1, true),
-    "claims belong to slices: " .. tostring(cerr))
-  local finding = check.must(item.decode(base("finding")))
-  assert(finding.parent == "" and finding.phase == "",
-    "a finding is parentless and unphased until adopted")
-end
-test_kind_rules()
-
-local function test_encode_omits_zero_values()
-  local it = check.must(item.decode(base("finding")))
+local function test_root_round_trips_minimal()
+  local it = check.must(item.decode(base()))
+  assert(item.is_root(it) and item.is_open(it), "a bare item is an open root")
   local t = item.encode(it)
   local keys = 0
   for _ in pairs(t) do
     keys = keys + 1
   end
-  assert(keys == 4, "want only id/kind/title/opened, got " .. keys .. " keys")
+  assert(keys == 2, "want only id/title, got " .. keys .. " keys")
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(t))))))
+  assert(back.id == ID and back.title == "an item", "round-trips")
 end
-test_encode_omits_zero_values()
+test_root_round_trips_minimal()
 
-local function test_id_grammar()
-  assert(item.is_id("fetch-retry-2"), "slugs pass")
-  assert(not item.is_id("Fetch"), "uppercase refused")
-  assert(not item.is_id("2fast"), "leading digit refused")
-  assert(not item.is_id(""), "empty refused")
+local function test_worked_item_round_trips()
+  local t = base()
+  t.parent = PARENT
+  t.phase = "check"
+  t.claim = "session-a"
+  t.pr = 456
+  t.verdict = "request changes"
+  t.verdict_head = "abc1234"
+  t.blocked_by = PARENT .. " " .. ID
+  local it = check.must(item.decode(t))
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
+  assert(back.parent == PARENT and back.phase == "check", "position fields")
+  assert(back.claim == "session-a" and back.pr == 456, "coordination fields")
+  assert(#back.blocked_by == 2 and back.blocked_by[1] == PARENT, "blocked_by")
 end
-test_id_grammar()
+test_worked_item_round_trips()
+
+local function test_roots_hold_ranks_not_phases()
+  local goal = base()
+  goal.rank = 1
+  local g = check.must(item.decode(goal))
+  assert(g.rank == 1, "a ranked root decodes")
+  local phased = base()
+  phased.phase = "plan"
+  local bad, err = item.decode(phased)
+  assert(bad == nil and err:find("root is never phased", 1, true),
+    "a phased root is refused: " .. tostring(err))
+  local claimed = base()
+  claimed.claim = "session-a"
+  local cbad, cerr = item.decode(claimed)
+  assert(cbad == nil and cerr:find("not roots", 1, true),
+    "a claimed root is refused: " .. tostring(cerr))
+end
+test_roots_hold_ranks_not_phases()
+
+local function test_parented_items_hold_phases_not_ranks()
+  local ranked = base()
+  ranked.parent = PARENT
+  ranked.rank = 2
+  local bad, err = item.decode(ranked)
+  assert(bad == nil and err:find("rank belongs to roots", 1, true),
+    "a ranked child is refused: " .. tostring(err))
+end
+test_parented_items_hold_phases_not_ranks()
+
+local function test_done_items_carry_no_phase()
+  local t = base()
+  t.parent = PARENT
+  t.phase = "land"
+  t.resolution = "completed"
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("no phase", 1, true),
+    "a done phased item is refused: " .. tostring(err))
+  t.phase = nil
+  local done = check.must(item.decode(t))
+  assert(not item.is_open(done), "resolution IS done")
+end
+test_done_items_carry_no_phase()
+
+local function test_id_discipline()
+  local bad, err = item.decode({id = "not-a-ksuid", title = "t"})
+  assert(bad == nil and err:find("ksuid", 1, true), "ids are ksuids")
+  local blocked = base()
+  blocked.blocked_by = "junk"
+  local bbad, berr = item.decode(blocked)
+  assert(bbad == nil and berr:find("non%-id"), "blocker ids are ksuids: "
+    .. tostring(berr))
+end
+test_id_discipline()

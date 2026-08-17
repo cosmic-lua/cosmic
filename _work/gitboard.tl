@@ -1,34 +1,36 @@
 #!/usr/bin/env cosmic
 --- Work board CLI over a state REPOSITORY instead of GitHub labels: a
---- proof of concept where the hierarchy is first-class. Long-lived
---- ranked GOALS decompose into EPICS, epics into SLICES an
---- implementer pulls across the kanban; FINDINGS capture evidence
---- until a planner adopts them. Each item is `items/<id>.tl` in a git
---- checkout (`_work.store`), its spec prose the sidecar
---- `items/<id>.md`; the flow rules are `_work.flow`. Pull requests
+--- proof of concept where roles emerge from the dependency graph.
+--- There are no kinds — a ranked root is a goal, an unranked root is
+--- a finding awaiting triage, a parented item with open children is a
+--- container being decomposed, and a parented leaf is workable: the
+--- only thing that crosses the kanban. Each item is `items/<ksuid>.tl`
+--- in a git checkout (`_work.store`), its spec prose the sidecar
+--- `items/<ksuid>.md`; the flow rules are `_work.flow`. Pull requests
 --- stay on GitHub and carry the fix; issues shrink to an inbound
---- queue. Every verb ends with a `gitboard-<verb>:` verdict line.
+--- queue. Ids are KSUIDs; every verb accepts an unambiguous prefix.
 ---
 ---   cosmic --make run _work/gitboard.tl init [--dir D]
----   cosmic --make run _work/gitboard.tl new goal fast-startup "t" --rank 1
----   cosmic --make run _work/gitboard.tl new epic make-cache "t" --parent fast-startup
----   cosmic --make run _work/gitboard.tl new slice stamp-env "t" --parent make-cache
----   cosmic --make run _work/gitboard.tl spec stamp-env SPEC.md
----   cosmic --make run _work/gitboard.tl check stamp-env
----   cosmic --make run _work/gitboard.tl move stamp-env ready
+---   cosmic --make run _work/gitboard.tl new "a goal" --rank 1
+---   cosmic --make run _work/gitboard.tl new "a piece of it" --parent 2ai3
+---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
+---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
+---   cosmic --make run _work/gitboard.tl check 2akQ
+---   cosmic --make run _work/gitboard.tl move 2akQ ready
 ---   cosmic --make run _work/gitboard.tl status | tree | next [--role R]
----   cosmic --make run _work/gitboard.tl verdict stamp-env accept [--pr N]
----   cosmic --make run _work/gitboard.tl done stamp-env [--reason not-planned]
----   cosmic --make run _work/gitboard.tl show stamp-env
+---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
+---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
+---   cosmic --make run _work/gitboard.tl show 2akQ
 ---   cosmic --make run _work/gitboard.tl sync
 ---
---- This file is the argument parsing and dispatch half; the verbs
---- themselves are `_work.gitverbs`.
+--- This file is the argument parsing, prefix resolution, and dispatch
+--- half; the verbs themselves are `_work.gitverbs`.
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
+local view = require("_work.gitview")
 
 local function dir_flag(): flags.Flag
   return {long = "dir", arg = "DIR", default = ".",
@@ -41,25 +43,27 @@ local CSPEC: flags.CommandSpec = {
   commands = {
     {name = "init", summary = "create items/ (and a git repo if needed)",
       spec = {flags = {dir_flag()}}},
-    {name = "new", summary = "open a KIND item named ID titled TITLE",
-      spec = {usage = "KIND ID TITLE [options]", flags = {dir_flag(),
+    {name = "new", summary = "open an item titled TITLE; role comes from the graph",
+      spec = {usage = "TITLE [options]", flags = {dir_flag(),
           {long = "parent", arg = "ID", help = "the item this decomposes"},
-          {long = "rank", arg = "N", help = "goal rank (goals only)"},
+          {long = "rank", arg = "N", help = "rank a parentless item as a goal"},
           {long = "spec-file", arg = "FILE", help = "spec markdown sidecar"},
           {long = "force", help = "override the plan WIP limit"}}}},
+    {name = "attach", summary = "put ID under PARENT (triage a finding, re-parent)",
+      spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag()}}},
-    {name = "check", summary = "ready-bar and hierarchy lint of ID",
+    {name = "check", summary = "ready-bar and graph lint of ID",
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
-    {name = "status", summary = "render the slice kanban and its WIP verdict",
+    {name = "status", summary = "render the kanban and its WIP verdict",
       spec = {flags = {dir_flag()}}},
-    {name = "tree", summary = "render goals, their epics, and their slices",
+    {name = "tree", summary = "render goals, their subtrees, and the triage queue",
       spec = {flags = {dir_flag()}}},
     {name = "next", summary = "the one next action for a role",
       spec = {flags = {dir_flag(),
           {long = "role", arg = "ROLE", default = "implementer",
             help = "planner or implementer"}}}},
-    {name = "move", summary = "move slice ID to PHASE (WIP-limited)",
+    {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION", help = "record who took it"},
           {long = "force", help = "override the target WIP limit"}}}},
@@ -71,8 +75,8 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "reason", arg = "REASON", default = "completed",
             help = "completed or not-planned"},
-          {long = "force", help = "end a slice even from ready/do"}}}},
-    {name = "show", summary = "print ID's fields, spec, and git history",
+          {long = "force", help = "end an item even from ready/do"}}}},
+    {name = "show", summary = "print ID's fields, role, spec, and git history",
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
     {name = "sync", summary = "rebase onto the remote's state",
       spec = {flags = {dir_flag()}}},
@@ -102,26 +106,34 @@ local function main(...: string): integer
     return 1
   end
   if d.command == "status" then
-    return verbs.cmd_status(s)
+    return view.cmd_status(s)
   end
   if d.command == "tree" then
-    return verbs.cmd_tree(s)
+    return view.cmd_tree(s)
   end
   if d.command == "next" then
-    return verbs.cmd_next(s, d.parsed.values["role"] or "implementer")
+    return view.cmd_next(s, d.parsed.values["role"] or "implementer")
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
   end
   if d.command == "new" then
-    local kind = d.parsed.args[1]
-    local id = d.parsed.args[2]
-    local title = d.parsed.args[3]
-    if kind == nil or id == nil or title == nil or title == "" then
-      io.stderr:write("new needs KIND ID TITLE\n")
+    local title = d.parsed.args[1]
+    if title == nil or title == "" then
+      io.stderr:write("new needs a title\n")
       return 1
     end
     local rank = math.tointeger(tonumber(d.parsed.values["rank"] or "0")) or 0
+    local parent = ""
+    local parent_prefix = d.parsed.values["parent"]
+    if parent_prefix ~= nil then
+      local resolved, perr = store.resolve(s, parent_prefix)
+      if resolved == nil then
+        io.stderr:write(tostring(perr) .. "\n")
+        return 1
+      end
+      parent = resolved
+    end
     local spec: string = nil
     local spec_file = d.parsed.values["spec-file"]
     if spec_file ~= nil then
@@ -132,13 +144,21 @@ local function main(...: string): integer
       end
       spec = body
     end
-    return verbs.cmd_new(s, kind, id, title, d.parsed.values["parent"] or "",
-      rank, spec, d.parsed.switches["force"])
+    return verbs.cmd_new(s, title, parent, rank, spec,
+      d.parsed.switches["force"])
   end
-  local id = d.parsed.args[1]
-  if id == nil or id == "" then
-    io.stderr:write(d.command .. " needs an item id\n")
+  local id, rerr = store.resolve(s, d.parsed.args[1] or "")
+  if id == nil then
+    io.stderr:write(tostring(rerr) .. "\n")
     return 1
+  end
+  if d.command == "attach" then
+    local parent, perr = store.resolve(s, d.parsed.args[2] or "")
+    if parent == nil then
+      io.stderr:write(tostring(perr) .. "\n")
+      return 1
+    end
+    return verbs.cmd_attach(s, id, parent)
   end
   if d.command == "spec" then
     local file = d.parsed.args[2]
@@ -173,7 +193,7 @@ local function main(...: string): integer
     return verbs.cmd_done(s, id, d.parsed.values["reason"] or "completed",
       d.parsed.switches["force"])
   end
-  return verbs.cmd_show(s, id)
+  return view.cmd_show(s, id)
 end
 
 if proc.is_main() then
