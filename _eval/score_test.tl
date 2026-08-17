@@ -88,6 +88,19 @@ local function test_run_fail_ends_fail_nonzero_with_silent_bug()
     tostring(bugs))
   assert(found.status == "completed",
     "json-cli should still be completed (built, just wrong), got " .. tostring(found.status))
+  -- run_fail is seeded with exactly ONE defect. Every other row must
+  -- score clean, or a marker a later check learns to look for -- added
+  -- to run_pass only -- would silently record unintended defects here
+  -- too, invisible for as long as the affected task stays "new" and
+  -- never gates the verdict.
+  for _, row in ipairs(rows) do
+    if row.task ~= "json-cli" then
+      local row_bugs = row.silent_bugs as number -- cast: from any
+      assert(row_bugs == 0, tostring(row.task) ..
+        ": run_fail should only seed a defect in json-cli, got silent_bugs = " ..
+        tostring(row_bugs))
+    end
+  end
 end
 test_run_fail_ends_fail_nonzero_with_silent_bug()
 

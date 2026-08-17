@@ -17,10 +17,13 @@
 --- Never writes into `<run dir>` itself: the argument is a caller-owned
 --- path (sometimes a committed fixture) and checks materialize their
 --- own pinned inputs into the workspace they check, so the whole tree
---- is mirrored once, up front, into `o/_eval/scored/<basename>` (this
---- project's own build-output root) and every later step -- checks,
---- journal parse, results.json -- runs against that copy only. See
---- `out_dir_for` for the exact destination a caller can look up.
+--- is mirrored once, up front, into a process-private temp directory
+--- (under `TEST_TMPDIR`/`TMPDIR` when set, `/tmp` otherwise -- never
+--- this project's own `o/`, which is root-owned in CI's coverage lane,
+--- and never relative to the caller's cwd) and every later step --
+--- checks, journal parse, results.json -- runs against that copy
+--- only. See `out_dir_for` for the exact destination a caller can
+--- look up.
 ---
 --- Exit codes: 0 on PASS; 1 on FAIL or any failure (printed to stderr).
 local flags = require("cosmic.flags")
@@ -65,20 +68,30 @@ local SPEC: flags.Spec = {
   flags = {},
 }
 
---- Build-output root scoring copies are staged into -- never the run
---- dir argument itself, which score.tl must leave untouched. `o/` is
---- this project's own build-output convention.
-local OUT_ROOT < const > = "o/_eval/scored"
+--- The process-private temp root scoring copies are staged under --
+--- never the run dir argument itself, which score.tl must leave
+--- untouched, and never this project's own `o/`: CI's coverage lane
+--- runs as an unprivileged user against a root-owned `o/`, so writing
+--- there fails with EACCES. `TEST_TMPDIR` is the same convention every
+--- test in this tree already honors; `TMPDIR` is its non-test
+--- equivalent; `/tmp` is the fallback so a bare CLI invocation from any
+--- cwd stages to the same well-known, OS-reclaimed location instead of
+--- littering wherever the caller happened to be standing.
+--- @return string The absolute temp root scoring copies live under
+local function scored_root(): string
+  local base = os.getenv("TEST_TMPDIR") or os.getenv("TMPDIR") or "/tmp"
+  return fs.join(base, "cosmic-eval-scored")
+end
 
 --- Where `stage_scoring_copy` stages a scoring copy of `rundir_arg` and
 --- where results.json ends up -- one basename-keyed slot under
---- OUT_ROOT, so a caller that needs to inspect results.json (a test,
---- an operator) can find it without re-deriving the naming rule.
+--- scored_root(), so a caller that needs to inspect results.json (a
+--- test, an operator) can find it without re-deriving the naming rule.
 --- @param rundir_arg string The run dir argument, as given on argv
 --- @return string The scoring copy's path (always absolute)
 local function out_dir_for(rundir_arg: string): string
   local abs = fs.absolute_path(rundir_arg)
-  return fs.absolute_path(fs.join(OUT_ROOT, fs.basename(abs)))
+  return fs.absolute_path(fs.join(scored_root(), fs.basename(abs)))
 end
 
 --- Mirror `rundir_arg` into its `out_dir_for` slot and return that
