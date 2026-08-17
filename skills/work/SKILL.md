@@ -101,6 +101,17 @@ no retry ritual, and no half-landed mutation. two sessions editing the
 SAME item cannot rebase past each other; that refusal names the items
 and hands back a clean checkout, so re-read and re-apply.
 
+**a mutation publishes itself, and board state never goes through a
+pull request.** the verb commits and pushes in one step, so there is
+nothing to stage, nothing to batch, and no moment where a session
+decides it has accumulated enough to publish — a claim, a verdict, a
+bounce and an ended item are each on the remote as the verb returns.
+pull requests are `main`'s: opening one over `items/**` would put a
+review gate in front of state the tool has already validated, and
+leave the board stale for as long as it sat there. a change to the
+branch's own machinery is a different subject, and the branch's
+`README.md` has it.
+
 **the `board` branch is append-only: never rebased, never
 force-pushed.** rewriting published state history breaks every
 checkout's compare-and-swap at once.
