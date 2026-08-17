@@ -146,9 +146,9 @@ local function admits_over_limit(issue: Issue, from: string, to: string,
 end
 
 --- Occupancy of one phase, counting only issues that count against its
---- limit (an epic in plan does not). The one counting path every WIP
---- check and display shares, so the epic exemption applies everywhere
---- at once.
+--- limit (an epic or untriaged finding in plan does not). The one
+--- counting path every WIP check and display shares, so both
+--- exemptions apply everywhere at once.
 --- @param board Board The board
 --- @param phase string Phase name
 --- @return integer Filtered occupancy

@@ -110,7 +110,7 @@ because nobody acts there — it is a buffer:
 
 | label | meaning | WIP limit |
 |-------|---------|-----------|
-| `work:plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar (epics exempt) | 12 |
+| `work:plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar (epics and findings exempt) | 12 |
 | `work:ready` | meets the ready bar (`decompose.md`); nobody's until an implementer pulls it | 12 |
 | `work:do` | claimed work and rework — the implementer's, until a PR opens or a bounce | 5 |
 | `work:check` | PR open; the planner's, until a verdict | 10 |

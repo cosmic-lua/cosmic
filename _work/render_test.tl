@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local render = require("_work.render")
 local model = require("_work.model")
+local time = require("cosmic.time")
 
 local type Issue = model.Issue
 
@@ -66,10 +67,24 @@ end
 test_finding_pressure_zero()
 
 local function test_finding_pressure_counts_and_ages_the_oldest()
-  local old = finding(1, "2020-01-01T00:00:00Z")
-  local list = {old, finding(2, "2026-01-01T00:00:00Z")}
+  local five_days_ago = time.format_iso8601((time.now()) - 5 * 86400)
+  local right_now = time.format_iso8601((time.now()))
+  local list = {finding(1, five_days_ago), finding(2, right_now)}
   local line = render.finding_pressure(list)
-  assert(line:find("findings: 2", 1, true) ~= nil, "got: " .. line)
-  assert(line:find("old)", 1, true) ~= nil, "got: " .. line)
+  assert(line == "  findings: 2 (oldest 5d old)", "got: " .. line)
 end
 test_finding_pressure_counts_and_ages_the_oldest()
+
+--- `finding_pressure` trusts the caller's ordering (the doc comment
+--- requires oldest-first) rather than comparing dates itself, so the
+--- FIRST finding in the list is the one aged — even when a later entry
+--- is chronologically older.
+local function test_finding_pressure_ages_list_order_not_true_oldest()
+  local one_day_ago = time.format_iso8601(time.now() - 1 * 86400)
+  local thirty_days_ago = time.format_iso8601(time.now() - 30 * 86400)
+  local newer_but_first = finding(1, one_day_ago)
+  local older_but_second = finding(2, thirty_days_ago)
+  local line = render.finding_pressure({newer_but_first, older_but_second})
+  assert(line == "  findings: 2 (oldest 1d old)", "got: " .. line)
+end
+test_finding_pressure_ages_list_order_not_true_oldest()

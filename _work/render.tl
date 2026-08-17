@@ -14,9 +14,10 @@ local type Issue = model.Issue
 --- The exempt-class suffix for a phase's occupancy line, naming every
 --- exempt class actually present in a fixed epics-then-findings order.
 --- Empty when the phase exempts nothing — every phase but `plan` today,
---- and `plan` itself once it holds neither. Classifies only the issues
---- `counts_against_limit` already skips, so a phase whose exemption
---- rule changes needs no new branch here.
+--- and `plan` itself once it holds neither. Sorts the issues
+--- `counts_against_limit` already skips into a named bucket per class
+--- (epic, finding); a class with no bucket here is exempt from the
+--- limit but invisible in this suffix until one is added.
 --- @param list {Issue} Every issue in the phase
 --- @param phase string Phase name
 --- @return string The suffix, e.g. " (+7 epics, +9 findings)", or ""
@@ -27,7 +28,7 @@ local function exempt_suffix(list: {Issue}, phase: string): string
     if not model.counts_against_limit(i, phase) then
       if i.epic then
         epics = epics + 1
-      else
+      elseif i.finding then
         findings = findings + 1
       end
     end
