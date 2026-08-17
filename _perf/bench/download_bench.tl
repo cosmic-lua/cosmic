@@ -135,10 +135,10 @@ local function scenarios(): {pt.Scenario}, string
         return table.concat(parts)
       end,
       check = function(_: any, res: any): boolean, string
-        local body = res as string -- cast: from any
-        if body == nil then
-          return false, "no result"
+        if not (res is string) then
+          return false, "http_stream_read_1mb: result is not a string"
         end
+        local body = res
         if #body ~= #BODY then
           return false, string.format("got %d bytes, want %d", #body, #BODY)
         end

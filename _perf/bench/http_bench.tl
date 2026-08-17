@@ -90,10 +90,10 @@ local function scenarios(): {pt.Scenario}, string
         if res is string then
           return false, res
         end
-        local r = res as fetch.Response -- cast: from any
-        if r == nil then
-          return false, "no result"
+        if not (res is fetch.Response) then
+          return false, "http_fetch_get: result is not a fetch.Response"
         end
+        local r = res
         if r.status ~= 200 then
           return false, "status " .. tostring(r.status)
         end
@@ -125,10 +125,10 @@ local function scenarios(): {pt.Scenario}, string
         if res is string then
           return false, res
         end
-        local r = res as fetch.Response -- cast: from any
-        if r == nil then
-          return false, "no result"
+        if not (res is fetch.Response) then
+          return false, "http_fetch_get_with_headers: result is not a fetch.Response"
         end
+        local r = res
         if r.status ~= 200 then
           return false, "status " .. tostring(r.status)
         end
@@ -158,8 +158,11 @@ local function scenarios(): {pt.Scenario}, string
         return buf
       end,
       check = function(_: any, res: any): boolean, string
-        local s = res as string -- cast: from any
-        if s == nil or not s:find("200 OK", 1, true) then
+        if not (res is string) then
+          return false, "http_tcp_roundtrip: result is not a string"
+        end
+        local s = res
+        if not s:find("200 OK", 1, true) then
           return false, "no 200 response"
         end
         if not s:find(BODY, 1, true) then

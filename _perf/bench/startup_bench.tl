@@ -36,7 +36,7 @@ end
 --- PERF_BIN wins; then TEST_BIN/cosmic (set by the test harness); then
 --- the interpreter running this script (arg[-1], per cosmic.child docs).
 --- @return string Path to the binary, or nil if none was found
-local function find_bin(): string
+local function find_bin(): string | nil
   local envbin = os.getenv("PERF_BIN")
   if envbin and #envbin > 0 then
     return envbin
@@ -48,7 +48,11 @@ local function find_bin(): string
       return p
     end
   end
-  return rawget(arg, -1) as string -- cast: from any
+  local last = rawget(arg, -1)
+  if last is string then
+    return last
+  end
+  return nil
 end
 
 --- Spawn the binary with the given argv tail and return trimmed stdout.
@@ -102,7 +106,10 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(bin, {hello_lua})
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= HELLO then -- cast: from any
+        if not (res is string) then
+          return false, "startup_run_lua: result is not a string"
+        end
+        if res ~= HELLO then
           return false, "wrong output: " .. tostring(res)
         end
         return true
@@ -115,7 +122,10 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(bin, {hello_tl})
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= HELLO then -- cast: from any
+        if not (res is string) then
+          return false, "startup_run_teal: result is not a string"
+        end
+        if res ~= HELLO then
           return false, "wrong output: " .. tostring(res)
         end
         return true
@@ -128,8 +138,11 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(bin, {"--compile", compile_tl})
       end,
       check = function(_: any, res: any): boolean, string
-        local out = res as string -- cast: from any
-        if out == nil or not out:find("local function dist", 1, true) then
+        if not (res is string) then
+          return false, "startup_compile_teal: result is not a string"
+        end
+        local out = res
+        if not out:find("local function dist", 1, true) then
           return false, "compile output missing function"
         end
         if out:find("record", 1, true) then

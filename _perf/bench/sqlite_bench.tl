@@ -109,15 +109,22 @@ local function scenarios(): {pt.Scenario}, string
       -- Validated against the row's own id (the harness may run extra
       -- probe iterations, so query_id has moved on by check time).
       check = function(_: any, res: any): boolean, string
-        local row = res as {string: any} -- cast: from any
-        if row == nil then
-          return false, "no row returned"
+        if not (res is {string: any}) then
+          return false, "sqlite_point_query: result is not a {string: any}"
         end
-        local id = row.id as number -- cast: from any
-        if id == nil or row.name ~= "row-" .. math.floor(id) then
+        local row = res
+        local id = row.id
+        if not (id is number) then
+          return false, "sqlite_point_query: id is not a number"
+        end
+        if row.name ~= "row-" .. math.floor(id) then
           return false, "wrong row: " .. tostring(row.name)
         end
-        if row.score as number ~= id * 0.25 then -- cast: from any
+        local score = row.score
+        if not (score is number) then
+          return false, "sqlite_point_query: score is not a number"
+        end
+        if score ~= id * 0.25 then
           return false, "wrong score: " .. tostring(row.score)
         end
         return true
@@ -131,17 +138,20 @@ local function scenarios(): {pt.Scenario}, string
         return row
       end,
       check = function(_: any, res: any): boolean, string
-        local row = res as {string: any} -- cast: from any
-        if row == nil then
-          return false, "no row returned"
+        if not (res is {string: any}) then
+          return false, "sqlite_scan_aggregate: result is not a {string: any}"
         end
+        local row = res
         if row.n ~= ROWS then
           return false, "wrong count: " .. tostring(row.n)
         end
         -- SUM(i * 0.25) for i in 1..ROWS
         local expected = ROWS * (ROWS + 1) / 2 * 0.25
-        local total = row.total as number -- cast: from any
-        if total == nil or math.abs(total - expected) > 0.001 then
+        local total = row.total
+        if not (total is number) then
+          return false, "sqlite_scan_aggregate: total is not a number"
+        end
+        if math.abs(total - expected) > 0.001 then
           return false, "wrong sum: " .. tostring(row.total)
         end
         return true

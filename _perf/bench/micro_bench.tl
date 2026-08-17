@@ -69,7 +69,10 @@ local function scenarios(): {pt.Scenario}, string
         return hash.sha256_hex(A_MILLION)
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= SHA_A_MILLION then -- cast: from any
+        if not (res is string) then
+          return false, "hash_sha256_1mb: result is not a string"
+        end
+        if res ~= SHA_A_MILLION then
           return false, "digest mismatch: " .. tostring(res)
         end
         return true
@@ -84,7 +87,10 @@ local function scenarios(): {pt.Scenario}, string
         return hash.sha256_hex(ABC)
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= SHA_ABC then -- cast: from any
+        if not (res is string) then
+          return false, "hash_sha256_small: result is not a string"
+        end
+        if res ~= SHA_ABC then
           return false, "digest mismatch: " .. tostring(res)
         end
         return true
@@ -97,7 +103,10 @@ local function scenarios(): {pt.Scenario}, string
         return (codec.decode_hex(encoded))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= BLOB then -- cast: from any
+        if not (res is string) then
+          return false, "codec_hex_roundtrip_64k: result is not a string"
+        end
+        if res ~= BLOB then
           return false, "hex roundtrip corrupted data"
         end
         return true
@@ -110,7 +119,10 @@ local function scenarios(): {pt.Scenario}, string
         return (codec.decode_base64(encoded))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= BLOB then -- cast: from any
+        if not (res is string) then
+          return false, "codec_base64_roundtrip_64k: result is not a string"
+        end
+        if res ~= BLOB then
           return false, "base64 roundtrip corrupted data"
         end
         return true
@@ -123,7 +135,10 @@ local function scenarios(): {pt.Scenario}, string
         return (compress.decompress(packed))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= BLOB then -- cast: from any
+        if not (res is string) then
+          return false, "compress_roundtrip_64k: result is not a string"
+        end
+        if res ~= BLOB then
           return false, "compression roundtrip corrupted data"
         end
         return true
@@ -141,7 +156,10 @@ local function scenarios(): {pt.Scenario}, string
         return (compress.decompress(packed, {format = "raw"}))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= ABC then -- cast: from any
+        if not (res is string) then
+          return false, "compress_raw_roundtrip_small: result is not a string"
+        end
+        if res ~= ABC then
           return false, "raw roundtrip corrupted data"
         end
         return true
@@ -153,8 +171,11 @@ local function scenarios(): {pt.Scenario}, string
         return cstr.split(CSV, ",")
       end,
       check = function(_: any, res: any): boolean, string
-        local fields = res as {string} -- cast: from any
-        if fields == nil or #fields ~= CSV_FIELDS then
+        if not (res is {string}) then
+          return false, "string_split_csv: result is not a {string}"
+        end
+        local fields = res
+        if #fields ~= CSV_FIELDS then
           return false, "wrong field count"
         end
         if fields[1] ~= "field-1" or fields[CSV_FIELDS] ~= "field-" .. CSV_FIELDS then
@@ -171,7 +192,10 @@ local function scenarios(): {pt.Scenario}, string
         return (a as ip.Addr):format()
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "192.168.1.1" then -- cast: from any
+        if not (res is string) then
+          return false, "net_ip_roundtrip: result is not a string"
+        end
+        if res ~= "192.168.1.1" then
           return false, "ip roundtrip mismatch: " .. tostring(res)
         end
         return true
@@ -186,7 +210,10 @@ local function scenarios(): {pt.Scenario}, string
         return (url.unescape_param(QUERY_ENCODED))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= QUERY_VALUE then -- cast: from any
+        if not (res is string) then
+          return false, "url_decode_query_value: result is not a string"
+        end
+        if res ~= QUERY_VALUE then
           return false, "url decode roundtrip corrupted data"
         end
         return true

@@ -136,10 +136,10 @@ local function scenarios(): {pt.Scenario}, string
         return stats
       end,
       check = function(_: any, result: any): boolean, string
-        local s = result as LineStats -- cast: from any
-        if s == nil then
-          return false, "no result"
+        if not (result is LineStats) then
+          return false, "stream_lines_iterate: result is not a LineStats"
         end
+        local s = result
         if s.count ~= NUM_LINES then
           return false, "line count " .. tostring(s.count) ..
           " != " .. tostring(NUM_LINES)

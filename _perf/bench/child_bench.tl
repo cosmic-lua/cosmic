@@ -17,7 +17,10 @@ local function scenarios(): {pt.Scenario}, string
         return result.code
       end,
       check = function(_: any, res: any): boolean, string
-        if res as integer ~= 0 then -- cast: from any
+        if not (res is integer) then
+          return false, "child_spawn_true: result is not an integer"
+        end
+        if res ~= 0 then
           return false, "expected exit code 0, got " .. tostring(res)
         end
         return true

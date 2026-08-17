@@ -58,10 +58,10 @@ local function scenarios(): {pt.Scenario}, string
         return teal.check(SOURCE)
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as teal.CheckResult -- cast: from any
-        if r == nil then
-          return false, "no result"
+        if not (res is teal.CheckResult) then
+          return false, "teal_check_module: result is not a teal.CheckResult"
         end
+        local r = res
         if not r.ok then
           return false, "check failed: " .. teal.format_issues(r.errors)
         end

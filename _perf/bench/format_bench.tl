@@ -60,10 +60,10 @@ local function scenarios(): {pt.Scenario}, string
         return format.format(SOURCE, "bench_module.tl")
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as format.FormatResult -- cast: from any
-        if r == nil then
-          return false, "no result"
+        if not (res is format.FormatResult) then
+          return false, "format_module_source: result is not a format.FormatResult"
         end
+        local r = res
         if not r.ok then
           return false, "format failed: " .. format.format_issues(r.errors)
         end

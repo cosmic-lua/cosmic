@@ -33,7 +33,7 @@ end
 --- PERF_BIN wins; then TEST_BIN/cosmic (set by the test harness); then
 --- the interpreter running this script (arg[-1], per cosmic.child docs).
 --- @return string Path to the binary, or nil if none was found
-local function find_bin(): string
+local function find_bin(): string | nil
   local envbin = os.getenv("PERF_BIN")
   if envbin and #envbin > 0 then
     return envbin
@@ -45,7 +45,11 @@ local function find_bin(): string
       return p
     end
   end
-  return rawget(arg, -1) as string -- cast: from any
+  local last = rawget(arg, -1)
+  if last is string then
+    return last
+  end
+  return nil
 end
 
 --- Create DIRS directories of FILES_PER_DIR small files under srcdir.
@@ -137,10 +141,10 @@ local function scenarios(): {pt.Scenario}, string
         return (embed.write({srcdir}, {output = packed_exe, exe_path = bin}))
       end,
       check = function(_: any, res: any): boolean, string
-        local count = res as integer -- cast: from any
-        if not count then
-          return false, "embed.write failed"
+        if not (res is integer) then
+          return false, "embed_run_tree: result is not an integer"
         end
+        local count = res
         if count ~= total_files then
           return false, string.format("embedded %d files, want %d",
             count, total_files)
@@ -170,11 +174,14 @@ local function scenarios(): {pt.Scenario}, string
         return (embed.extract(extract_dir, {exe_path = packed_exe}))
       end,
       check = function(ctx: any, res: any): boolean, string
-        local count = res as integer -- cast: from any
-        local expected = ctx as integer -- cast: from any
-        if not count then
-          return false, "embed.extract failed"
+        if not (res is integer) then
+          return false, "embed_extract_tree: result is not an integer"
         end
+        if not (ctx is integer) then
+          return false, "embed_extract_tree: context is not an integer"
+        end
+        local count = res
+        local expected = ctx
         if count ~= expected then
           return false, string.format("extracted %d files, want %d",
             count, expected)
