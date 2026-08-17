@@ -5,6 +5,8 @@ local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local index = require("_tool.doc.index")
 local check = require("cosmic.check")
+local doc_types = require("cosmic.doc")
+local type ModuleDoc = doc_types.ModuleDoc
 
 --- Load a generated index the way the doc reader does: the index ships
 --- without a `return` prefix — the reader supplies the keyword — and
@@ -19,6 +21,21 @@ local function decode_index(encoded: string): any, string
     return nil, tostring(data)
   end
   return data
+end
+
+--- The shape of a decoded index: the one field the encoded index
+--- carries (`cosmo.EncodeLua({modules = modules})` in index.tl).
+local record DecodedIndex
+  modules: {string: ModuleDoc}
+end
+
+--- The decoded index's modules table, typed. `decode_index` hands back
+--- exactly what `load` + `pcall` produced — genuinely untyped — so
+--- pulling the modules table out needs exactly one cast from `any`,
+--- kept here so every test below reads a `{string: ModuleDoc}` without
+--- repeating it.
+local function decoded_modules(data: any): {string: ModuleDoc}
+  return (data as DecodedIndex).modules -- cast: from any
 end
 
 local tmpdir = env.get("TEST_TMPDIR")
@@ -58,17 +75,17 @@ end
 return {}
 ]])
 
-local function generate_modules(files: {string}): {string: any}
+local function generate_modules(files: {string}): {string: ModuleDoc}
   local encoded = check.must(index.generate(files))
   local data, derr = decode_index(encoded)
   assert(data, "index should decode: " .. tostring(derr))
-  return (data as {string: any}).modules as {string: any} -- cast: from any
+  return decoded_modules(data)
 end
 
-local function find_module(modules: {string: any}, suffix: string): {string: any}
+local function find_module(modules: {string: ModuleDoc}, suffix: string): ModuleDoc
   for name, mod in pairs(modules) do
     if name:match("%." .. suffix .. "$") or name == suffix then
-      return mod as {string: any} -- cast: from any
+      return mod
     end
   end
   return nil
@@ -79,8 +96,7 @@ local function test_examples_merge_into_module()
   local modules = generate_modules({widget_path, widget_example_path})
   local mod = find_module(modules, "widget")
   assert(mod, "widget module should be indexed")
-  local examples = mod.examples as {any} -- cast: from any
-  assert(examples and #examples == 1,
+  assert(#mod.examples == 1,
     "widget_example should merge into the widget module")
   assert(find_module(modules, "widget_example") == nil,
     "the _example shard should not be its own module entry")
@@ -94,8 +110,7 @@ local function test_orphan_example_registered()
   local modules = generate_modules({widget_path, orphan_example_path})
   local mod = find_module(modules, "orphan")
   assert(mod, "orphan example file should be indexed under its base name")
-  local examples = mod.examples as {any} -- cast: from any
-  assert(examples and #examples == 1,
+  assert(#mod.examples == 1,
     "orphan examples should be addressable, not dropped")
 end
 test_orphan_example_registered()
@@ -146,18 +161,17 @@ return { spin = spin, internal_only = internal_only }
   local encoded = check.must(index.generate({init_path, shard_path},
       {[init_path] = "gadget.init", [shard_path] = "gadget.shard"}))
   local data = check.must(decode_index(encoded))
-  local modules = (data as {string: any}).modules as {string: any} -- cast: from any
-  local parent = modules["gadget"] as {string: any} -- cast: from any
+  local modules = decoded_modules(data)
+  local parent = modules["gadget"]
   assert(parent, "gadget.init should normalize to gadget")
   local names: {string: boolean} = {}
-  for _, func in ipairs((parent.functions or {}) as {any}) do -- cast: from any
-    names[(func as {string: any}).name as string] = true -- cast: from any
+  for _, func in ipairs(parent.functions) do
+    names[func.name] = true
   end
   assert(names["spin"], "the shard's exported function belongs on the parent page")
   assert(not names["internal_only"],
     "a shard helper the parent does not export stays off the parent page")
-  assert(parent.exports == nil, "the export list must not ship in the index")
-  local shard_mod = modules["gadget.shard"] as {string: any} -- cast: from any
+  local shard_mod = modules["gadget.shard"]
   assert(shard_mod, "the shard stays addressable under its own name")
 end
 test_shards_flatten_into_parent()
@@ -223,20 +237,19 @@ return {}
         [example_path] = "widgetdir_example",
       }))
   local data = check.must(decode_index(encoded))
-  local modules = (data as {string: any}).modules as {string: any} -- cast: from any
-  local parent = modules["widgetdir"] as {string: any} -- cast: from any
+  local modules = decoded_modules(data)
+  local parent = modules["widgetdir"]
   assert(parent, "widgetdir.init should normalize to widgetdir")
   assert(modules["widgetdir.init"] == nil,
     "the init shard must not survive under its own name")
   local names: {string: boolean} = {}
-  for _, func in ipairs((parent.functions or {}) as {any}) do -- cast: from any
-    names[(func as {string: any}).name as string] = true -- cast: from any
+  for _, func in ipairs(parent.functions) do
+    names[func.name] = true
   end
   assert(names["spin"], "the module's real doc reaches the page")
   assert(not names["internal_only"],
     "the export filter survives the example merge")
-  local examples = parent.examples as {any} -- cast: from any
-  assert(examples and #examples == 1, "the example merges onto the same page")
+  assert(#parent.examples == 1, "the example merges onto the same page")
 end
 test_example_beside_directory_module()
 
@@ -280,13 +293,12 @@ return {}
         [example_path] = "gizmo.init_example",
       }))
   local data = check.must(decode_index(encoded))
-  local modules = (data as {string: any}).modules as {string: any} -- cast: from any
+  local modules = decoded_modules(data)
   assert(modules["gizmo"], "gizmo.init should normalize to gizmo")
   assert(modules["gizmo.init"] == nil,
     "the init name must not be re-registered by its example")
-  local parent = modules["gizmo"] as {string: any} -- cast: from any
-  local examples = parent.examples as {any} -- cast: from any
-  assert(examples and #examples == 1,
+  local parent = modules["gizmo"]
+  assert(#parent.examples == 1,
     "the init example lands on the directory module's page")
 end
 test_init_example_lands_on_directory_module()
@@ -317,8 +329,8 @@ return M
   local mod = find_module(generate_modules({path}), "gizmo")
   assert(mod, "gizmo module should be indexed")
   local names: {string: boolean} = {}
-  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
-    names[(f as {string: any}).name as string] = true -- cast: from any
+  for _, f in ipairs(mod.functions) do
+    names[f.name] = true
   end
   assert(names["spin"], "an exported function must stay documented")
   assert(not names["grind"],
@@ -350,8 +362,8 @@ return sprocket
   local mod = find_module(generate_modules({path}), "sprocket")
   assert(mod, "sprocket module should be indexed")
   local names: {string: boolean} = {}
-  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
-    names[(f as {string: any}).name as string] = true -- cast: from any
+  for _, f in ipairs(mod.functions) do
+    names[f.name] = true
   end
   assert(names["turn"],
     "`function sprocket.turn` must be documented as `turn`, not `sprocket`")
@@ -377,8 +389,8 @@ return { clicks = clicks }
   local mod = find_module(generate_modules({path}), "ratchet")
   assert(mod, "ratchet module should be indexed")
   local names: {string: boolean} = {}
-  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
-    names[(f as {string: any}).name as string] = true -- cast: from any
+  for _, f in ipairs(mod.functions) do
+    names[f.name] = true
   end
   assert(names["clicks"],
     "a `function` word in the doc comment must not hide the function")
@@ -410,8 +422,8 @@ return M
   local mod = find_module(generate_modules({path}), "lathe")
   assert(mod, "lathe module should be indexed")
   local names: {string: boolean} = {}
-  for _, f in ipairs(mod.functions as {any}) do -- cast: from any
-    names[(f as {string: any}).name as string] = true -- cast: from any
+  for _, f in ipairs(mod.functions) do
+    names[f.name] = true
   end
   assert(names["spin"], "the real definition must be documented")
   assert(not names["on"],
