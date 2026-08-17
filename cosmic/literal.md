@@ -20,24 +20,6 @@
 
 ## Types
 
-### Token
-
- One lexical token: its raw text, what it is, and the line it began on.
- This module lexes for itself rather than borrowing `tl.lex`: a
- stripped artifact keeps `cosmic/**` and drops `tl.lua`, so a shared
- lexer would make `require("cosmic.literal")` throw in exactly the
- artifacts whose authors want a config file that cannot do anything.
- The grammar needs identifiers, strings, numbers and punctuation;
- that is the lexer below, with no dependency beyond `cosmic.fs`.
-
-```teal
-local record Token
-  tk: string
-  kind: string
-  y: integer
-end
-```
-
 ### Parsed
 
  One parsed table literal: the value, and the index just past its
@@ -64,6 +46,9 @@ local record Options
   --  noun "pin", so the same grammar complains about "a pin". Default
   --  "literal".
   noun: string
+  --  Resolves a key repeated within one table instead of refusing it.
+  --  Default nil: a repeated key is refused, naming both lines.
+  on_duplicate: OnDuplicate
 end
 ```
 
@@ -80,6 +65,27 @@ local record LiteralModule
 end
 ```
 
+### Token
+
+ One lexical token: its raw text, what it is, and the line it began on.
+ Lexing itself lives in `cosmic._literal_lex` (see that module's
+ header for why this module lexes for itself rather than borrowing
+ `tl.lex`); `Token` and `lex` are re-exposed here because `parse_table`
+ and `parse` are their callers.
+
+alias of `cosmic._literal_lex.Token` — field and method table: `cosmic --docs cosmic._literal_lex.Token`
+
+### OnDuplicate
+
+ Resolves a repeated key: called with the value already stored for it
+ and the newly parsed one for the SAME key in the SAME table. Its
+ return value is stored as-is — a nil return stores nil. The resolver
+ is infallible: it decides between the two values, it does not fail;
+ a duplicate key with no resolver is refused instead, in
+ `parse_table` below.
+
+alias of `function`
+
 ## Functions
 
 ### parse
@@ -89,11 +95,12 @@ function parse(source: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read the literal a file returns, without running it.
+ errors; on_duplicate: resolves a repeated key instead of refusing it
 
 **Parameters:**
 
 - `source` (string) - The file's contents
-- `opts` (Options?) - file: name for messages; noun: file kind in errors
+- `opts` (Options?) - file: name for messages; noun: file kind in
 
 **Returns:**
 
@@ -107,7 +114,7 @@ function parse_file(path: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read a file as a literal table, without running it.
- (defaults to the path)
+ (defaults to the path); on_duplicate: resolves a repeated key
 
 **Parameters:**
 
