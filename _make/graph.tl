@@ -43,28 +43,6 @@ local MAKE_ENV < const > = "COSMIC_MAKE"
 --- Environment override for the job count.
 local JOBS_ENV < const > = "COSMIC_JOBS"
 
---- Write `path` only when the bytes differ, so a no-op run does not
---- touch an mtime the graph schedules on.
---- @param path string Destination
---- @param content string Desired contents
---- @return boolean, string Success, or false plus the error
-local function write_if_changed(path: string, content: string): boolean, string
-  if fs.read(path) == content then
-    return true
-  end
-  local ok, err = fs.make_dirs(fs.dirname(path))
-  if not ok then
-    return false, "make: cannot create " .. fs.dirname(path) .. ": " ..
-    (err or "unknown error")
-  end
-  local wok, werr = fs.write(path, content)
-  if not wok then
-    return false, "make: cannot write " .. path .. ": " ..
-    (werr or "unknown error")
-  end
-  return true
-end
-
 --- Render one `name := a b c` line, sorted so the file is a function of
 --- the tree and nothing else.
 --- @param name string Variable name
@@ -234,13 +212,13 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
     RULES_ZIP .. ")"
   end
   local out = fs.join(project.BUILD_DIR, "cosmic.mk")
-  local ok, err = write_if_changed(out, rules)
+  local ok, err = stamp.write_if_changed(out, rules)
   if not ok then
     return nil, err
   end
   local mk, mkerr = project_mk(proj, cosmic)
   if not mk then return nil, mkerr end
-  ok, err = write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
+  ok, err = stamp.write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
     mk)
   if not ok then
     return nil, err

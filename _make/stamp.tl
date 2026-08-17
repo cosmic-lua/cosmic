@@ -258,6 +258,7 @@ local record StampModule
   identity: function(tool: string, pins: {string}, cosmic: string): string
   path_of: function(tool: string): string
   write_all: function(proj: Project, cosmic: string): boolean, string
+  write_if_changed: function(path: string, content: string): boolean, string
 end
 
 local M: StampModule = {
@@ -267,6 +268,7 @@ local M: StampModule = {
   identity = identity,
   path_of = path_of,
   write_all = write_all,
+  write_if_changed = write_if_changed,
 }
 
 return M

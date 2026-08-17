@@ -12,15 +12,16 @@
 --- content-key input (D18's `--deps` bytes), and a fence grant, the
 --- same three answers one stroke gives a declared `reads:` path.
 ---
---- Mirrors `_make/stamp.tl`'s write-if-changed contract exactly: a
---- stamp is rewritten only when its bytes change, so an unmoved value
---- never touches the mtime the graph schedules on.
+--- Reuses `_make/stamp.tl`'s `write_if_changed`: a stamp is rewritten
+--- only when its bytes change, so an unmoved value never touches the
+--- mtime the graph schedules on.
 
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local imports = require("_make.imports")
 local project = require("_make.project")
+local stamp = require("_make.stamp")
 local types = require("_make.types")
 
 local type Project = types.Project
@@ -59,28 +60,6 @@ local function content(names: {string}): string
   return hash.sha256_hex(table.concat(lines, "\n")) .. "\n"
 end
 
---- Write `path` only when the bytes differ, so an unmoved value does
---- not touch the mtime the graph schedules on.
---- @param path string Destination
---- @param body string Desired contents
---- @return boolean, string Success, or false plus the error
-local function write_if_changed(path: string, body: string): boolean, string
-  if fs.read(path) == body then
-    return true
-  end
-  local ok, err = fs.make_dirs(fs.dirname(path))
-  if not ok then
-    return false, "make: cannot create " .. fs.dirname(path) .. ": " ..
-    (err or "unknown error")
-  end
-  local wok, werr = fs.write(path, body)
-  if not wok then
-    return false, "make: cannot write " .. path .. ": " ..
-    (werr or "unknown error")
-  end
-  return true
-end
-
 --- Write every declaring file's stamp, for the whole project.
 ---
 --- Called from `materialize`, before make runs. Written for every file
@@ -100,7 +79,7 @@ local function write_all(proj: Project): boolean, string
       end
       if #names > 0 then
         local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
-        local ok, werr = write_if_changed(path_of(stem), content(names))
+        local ok, werr = stamp.write_if_changed(path_of(stem), content(names))
         if not ok then
           return false, werr
         end
