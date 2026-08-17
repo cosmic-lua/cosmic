@@ -60,9 +60,20 @@ local FILE_BITS < const > = READ_FILE | WRITE_FILE | EXECUTE | TRUNCATE
 --- behind write-if-changed, which usually creates rather than rewrites,
 --- and surfaced as the one recipe that always rewrites (`copy`) failing
 --- with EACCES on its second build. `abi_mask` strips it below ABI 3.
+--- REFER is part of WRITE for the same reason: with it handled but not
+--- granted, "read-write" meant "create, but never move" -- rename(2)
+--- and link(2) between two directories of the same rw tree failed with
+--- EXDEV -- and the workload that surfaced it is git, whose object
+--- store finalizes every push by cross-directory rename. Moving an
+--- entry between two DIFFERENTLY-granted trees still requires REFER
+--- plus the matching make/remove rights on both sides, so the grant
+--- widens nothing across trees. `abi_mask` strips it below ABI 2 (on
+--- ABI 1 kernels landlock denies cross-directory moves outright and no
+--- grant can allow them).
 local WRITE < const > = WRITE_FILE | TRUNCATE | REMOVE_FILE | REMOVE_DIR
 | MAKE_REG | MAKE_DIR | MAKE_SYM
 | MAKE_SOCK | MAKE_FIFO | MAKE_CHAR | MAKE_BLOCK
+| REFER
 local RW < const > = READ | WRITE
 local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
 

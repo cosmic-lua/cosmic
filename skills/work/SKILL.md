@@ -1,13 +1,14 @@
 ---
 name: work
 description: >
-  The system of work for cosmic: work backwards from the goals in
-  docs/goals.md, decompose ambitious outcomes into GitHub issues that
-  flow kanban-style across a WIP-limited board, and refine each issue
-  until a less sophisticated model can implement it reliably. Use when
-  planning what to build next, refining or decomposing work, pulling
-  the next issue to implement, reviewing an implementer's PR, or
-  landing an accepted one.
+  The system of work for cosmic: work backwards from ranked goals,
+  decompose ambitious outcomes into workable items that flow
+  kanban-style across a WIP-limited board, and refine each item until
+  a less sophisticated model can implement it reliably. The board
+  lives on the orphan `board` branch as committed files, operated by
+  gitboard. Use when planning what to build next, refining or
+  decomposing work, pulling the next item to implement, reviewing an
+  implementer's PR, or landing an accepted one.
 ---
 
 # The system of work for cosmic
@@ -25,25 +26,22 @@ repo, and the system is designed so each does what it is best at:
   works backwards kanban-style: take the thing closest to completion
   forward. land a PR a planner accepted, then finish what is already
   in `do` (rework a planner sent back, and claimed work), then pull the
-  oldest ready issue — implement exactly what the issue says, and hand
+  oldest ready item — implement exactly what its spec says, and hand
   the result back.
 
 the two lanes split the lifecycle cleanly: planners plan and review;
 implementers implement and MERGE. the final gate is still always a
 planner — nothing merges until a sophisticated model has judged the
-implementation against the issue's definition of work AND the goal it
-traces to (`review.md`) — but the landing itself, and the mechanical
-recovery a landing sometimes needs, are implementer-lane work.
+implementation against the item's spec AND the goal it traces to
+(`review.md`) — but the landing itself is implementer-lane work.
 
-the planner's defining duty is not writing issues; it is making
+the planner's defining duty is not writing specs; it is making
 implementers succeed. when a piece of work is too ambiguous for an
 implementer, the planner does not hand it over anyway — it either
-refines the issue further or changes the system (core first, then
+refines the spec further or changes the system (core first, then
 docs, then skills) until the ambiguity is gone. see `enable.md`.
 
-like `optimize` and `agent-eval`, this is repo tooling for developing
-cosmic itself — not embedded in the binary, not part of the published
-API. the chapters:
+the chapters:
 
 - `SKILL.md` — this file: the board, the roles, the session loops, the
   rules.
@@ -57,273 +55,208 @@ API. the chapters:
 
 ## the board in one minute
 
-ALL work state lives in GitHub issues. an issue's phase is a label;
-the board is whatever the labels say; there is no other tracker and
-nothing to commit. the tool is `_work/board.tl`:
+ALL work state lives on the orphan `board` branch of whilp/cosmic:
+one committed file per item (`items/<ksuid>.tl`, `cosmic.literal`
+data) with its spec prose in the sidecar `items/<ksuid>.md`. The
+branch also carries the machinery (`_work/`) and its own `bin/cosmic`
+trust root, so it is a runnable cosmic project on its own. Reach it
+as a worktree of the checkout you already have:
 
 ```bash
-bin/cosmic --make run _work/board.tl status              # the board + WIP verdict
-bin/cosmic --make run _work/board.tl next --role planner # the one next action
-bin/cosmic --make run _work/board.tl next                # implementer by default
-bin/cosmic --make run _work/board.tl check 123           # ready-bar lint
-bin/cosmic --make run _work/board.tl move 123 ready      # phase change, WIP-limited
-bin/cosmic --make run _work/board.tl new "title" --epic  # open a board issue
-bin/cosmic --make run _work/board.tl new "title" --finding  # file evidence; never refused at the limit
-bin/cosmic --make run _work/board.tl new "title" --mandated  # a countermeasure a verdict required; same
-bin/cosmic --make run _work/board.tl edit 123 --body-file F  # rewrite an issue body in place
-bin/cosmic --make run _work/board.tl show 123             # read an issue — the body is the spec
-bin/cosmic --make run _work/board.tl land 123 456         # verify an accept, then squash-merge the PR
-bin/cosmic --make run _work/board.tl close 123 --reason not-planned  # end an issue with no PR to close it
-bin/cosmic --make run _work/board.tl stats --days 7       # measure per-phase flow (the review's numbers)
-bin/cosmic --make run _work/board.tl init                # create the labels (once per repo)
+git worktree add o/board board        # once per checkout
+cd o/board && bin/cosmic --make fetch # once, on a cold worktree
 ```
 
-every verb ends with a `work-<verb>:` verdict line — read that, never
-a piped exit status. the default repo is whilp/cosmic; `--repo
-whilp/cosmopolitan` targets the C core's board. the tool talks to the
-GitHub REST API directly through cosmic's own fetch — no gh CLI: it
-needs a `GITHUB_TOKEN` (or `GH_TOKEN`) env var, honors `HTTPS_PROXY`,
-and behind a TLS-intercepting proxy wants `SSL_USE_SYSTEM_CERTS=1
-SSL_CERT_FILE=<bundle>` (both read by the cosmos TLS root loader).
-on a cold clone, run `bin/cosmic --make fetch` once before the first
-board command — `--make run` resolves the tool against the tree and
-needs the pinned toolchain to exist.
+every verb runs from the board worktree; `gitboard` below means
+`bin/cosmic --make run _work/gitboard.tl` with the worktree as the
+working directory:
 
-sessions run the board tool constantly — `next` is step 1 of both
-session loops below — and a harness's permission classifier can refuse
-it outright in some sessions while approving `status` in the very same
-shell. the project allowlist in `.claude/settings.json` pre-approves
-the loop's documented commands (the board tool, `--make test`, `--make
-ci`, `--make fetch`, and `_perf/*`) so that refusal cannot block the
-skill's own first step.
+```bash
+gitboard status               # the kanban and its WIP verdict
+gitboard tree                 # goals, their subtrees, the triage queue
+gitboard next [--role planner]  # the one next action (implementer default)
+gitboard new "title" [--parent ID] [--rank N] [--spec-file F]
+gitboard attach ID PARENT     # triage a finding, decompose, re-parent
+gitboard spec ID FILE         # replace ID's spec sidecar
+gitboard check ID             # ready-bar and graph lint
+gitboard move ID PHASE [--claim SESSION]   # phase change, WIP-limited
+gitboard verdict ID KIND [--pr N] [--head SHA]  # review verdict + its move
+gitboard done ID [--reason not-planned]    # end an item
+gitboard show ID              # fields, role, spec, git history
+gitboard sync                 # rebase onto the remote's state
+```
 
-one timing note: a `move`'s verdict line is the truth of the mutation;
-GitHub's list-by-label index can lag it by a few seconds, so an
-immediately following `status`/`next` may briefly show the old phase
-— reread, never re-move. the same lagged index feeds the WIP checks in
-`new` and `move`, so a burst of creations or moves can hit a spurious
-`REFUSED` at the limit: pause and retry, never reach for `--force`.
+every verb ends with a `gitboard-<verb>:` verdict line — read that,
+never a piped exit status. ids are KSUIDs; every verb accepts an
+unambiguous prefix (`gitboard show 3I1v4K`), git-style. reads need no
+network and no token; a mutation commits on `board` and publishes
+(push). a rejected push is the compare half of a compare-and-swap:
+the tool rebases onto whoever moved first, re-checks the WIP
+invariant against the merged board, and refuses if the limit now
+binds — there is no lagged index and no retry ritual.
 
-phases, left to right (an issue carries exactly one phase label). a
-phase is named for the action performed in it; `ready` is the one noun,
+**the `board` branch is append-only: never rebased, never
+force-pushed.** rewriting published state history breaks every
+checkout's compare-and-swap at once.
+
+## roles emerge from the graph
+
+an item carries no kind field; its role is its position in the
+dependency graph, the way a file's role in cosmic is its position in
+the tree:
+
+| position | role |
+|----------|------|
+| ranked root | a **goal**: long-lived, ordered by rank |
+| unranked root | a **finding**: captured evidence, awaiting triage |
+| parented, open children | a **container** being decomposed |
+| parented leaf | **workable** — the only thing that holds a phase |
+
+roles change by changing the graph: `attach` is both decomposition (a
+workable item that gains a child is de-phased into a container in the
+same mutation) and triage (an adopted finding becomes a plan-phase
+leaf). the goal trace is a checked property — every phased item must
+reach a ranked root through its parent chain, and `check` names the
+broken link when one cannot.
+
+phases, left to right (only workable leaves carry one). a phase is
+named for the action performed in it; `ready` is the one noun,
 because nobody acts there — it is a buffer:
 
-| label | meaning | WIP limit |
+| phase | meaning | WIP limit |
 |-------|---------|-----------|
-| `work:plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar (epics exempt) | 12 |
-| `work:ready` | meets the ready bar (`decompose.md`); nobody's until an implementer pulls it | 12 |
-| `work:do` | claimed work and rework — the implementer's, until a PR opens or a bounce | 5 |
-| `work:check` | PR open; the planner's, until a verdict | 10 |
-| `work:land` | accepted; the implementer's, until the merge | 3 |
+| `plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar | 12 |
+| `ready` | meets the ready bar (`decompose.md`); nobody's until an implementer pulls it | 12 |
+| `do` | claimed work and rework — the implementer's, until a PR opens or a bounce | 5 |
+| `check` | PR open; the planner's, until a verdict | 10 |
+| `land` | accepted; the implementer's, until the merge | 3 |
 
-the limits are sized for implementer sessions running in parallel:
-ready holds a deep queue of mutually independent slices, do matches
-the number of concurrent sessions, and check gives finished work room
-to wait for a planner without jamming do. what makes the deep ready
-phase safe is independence — see "sizing a slice" in `decompose.md`.
-
-land's limit works the other way round. an accept is NEVER refused — a
-verdict already made is not inventory, so `check → land` always goes
-through, exactly like every return and every finding. the 3 gates
-PULLS instead: while the landing queue is at or over it, `next` will
-not offer a fresh `ready → do` pull and the tool refuses one, because
-accepted work that cannot merge is the thing to fix first. `land` is
-already the tool's verb for merging, so the phase and the verb that
-empties it are the same word.
-
-the three review verdicts are three directions out of `check`
-(`review.md`): accept is `check → land`, rightward; request changes is
-`check → do`, leftward; reject is `→ plan`, far left.
-
-one name does double duty: the verb `check N` lints an issue against
-the ready bar, while the phase `check` is where a PR awaits a verdict.
-`move N check` and `check N` are different operations — the verb keeps
-its name because it is the one that checks an issue against the bar.
-
-done is a closed issue — completed when the work merged, not planned
-when the planner killed it (a recorded dead end, kept forever). a
-merge closes its issue through the PR's `Closes #N`, and every other
-ending is the `close` verb: `close N` records completed, `close N
---reason not-planned` records the dead end. it closes from `plan` and
-from `check` — the two phases where a decision ends an issue — and
-refuses `ready`, `do` and `land`, where a close would make a card
-vanish mid-flow; a card that must end from one of those moves left
-first (`move N plan`), and that move is a return, so nothing refuses
-it. phase labels are left on the closed issue: the board lists open
-issues only, and the label is the history `stats` replays. three
-marker labels ride alongside the phase: `work:epic` (a decomposition
-parent — never pulled, closes when its children close), `work:enable`
-(work that exists to make implementers succeed), and `work:finding`
-(evidence an implementer hit in passing, awaiting a planner's triage).
-
-an issue is **blocked** when its body has a line containing `blocked
-by` naming open issues (`Blocked by: #99`). `next` skips blocked
-issues; `check` reports them.
+the limits carry the label board's empirically tuned values. at the
+limit, exactly two arrivals are admitted: a return (leftward motion —
+the system correcting itself) and a move into `land` (an accept is a
+decision already made). everything else queues; an over-limit phase
+blocks further pull until it drains and nothing else. goals,
+containers, and findings are never phased, so no exemption vocabulary
+exists for them — they occupy no slot to exempt.
 
 **work flows right to left.** finishing beats starting: verdicts
 before refining, refining before intake, and an implementer lands and
-finishes `do` before pulling ready. the WIP limits are what make this
-real — they gate rightward moves and planner intake, so a full phase
-REFUSES a pull (`move` says so) and the fix is to drain the phases to
-its right, not to widen the limit.
+finishes `do` before pulling ready.
 
-a limit refuses an arrival only when that arrival would occupy one of
-the phase's slots AND is not a decision already made. both halves are
-one rule (`model.admits_over_limit`), asked by `move` and `new` alike,
-so a card that moves and a card that is filed are refused on the same
-terms:
-
-- **occupies no slot** — an epic arriving in `plan` is a container, not
-  work in progress, and the phase does not count it; refusing to file
-  one would be the limit binding something it does not measure.
-- **a decision already made** — a bounce to `plan`, a rework send-back,
-  an accept into `land`, a `--finding`, and a `--mandated`
-  countermeasure (a filing the feedback half already required, below)
-  all go through, because a full board must never be the reason a
-  correction, a verdict, a piece of evidence, or a countermeasure is
-  dropped.
-
-everything else queues, including ordinary `--enable` intake: a
-countermeasure nobody's verdict demanded is planned work like any
-other. an over-limit phase blocks further pull until it drains, and
-nothing else. limits are policy, committed in `_work/model.tl`, tuned
-only by a reviewed change.
+GitHub keeps two jobs. pull requests carry fixes: the diff, its CI,
+and its review conversation, exactly as before. issues are the
+INBOUND queue only — a bug report or an external request arrives
+there and a planner imports it as a finding (`gitboard new` with the
+evidence as `--spec-file`, no parent) at triage; no workflow state
+ever returns to labels or issue comments.
 
 ## the planner session
 
-run `next --role planner` and do what it says; the rule it applies is,
-in order:
+run `next --role planner` and do what it says; the rule it applies
+is, in order:
 
-1. **check** — anything in `work:check` gets a verdict first
+1. **review** — anything in `check` gets a verdict first
    (`review.md`). this is the strongest lever: it unblocks
    implementers and harvests friction evidence.
-2. **refine** — while `work:ready` has slack, take the oldest
-   `work:plan` issue one rung down the ladder (`decompose.md`):
-   decompose an epic, or drive a slice to the ready bar. before a
-   `move N ready`, run the enablement check (`enable.md`) and
-   `check N` — both must pass.
-3. **intake** — while `work:plan` has slack, work backwards from
-   [docs/goals.md](../../docs/goals.md): walk the RANKED outcome list
-   top-down and take the first goal whose win condition has real
-   slack and no live epic already driving it; name the most valuable
-   missing outcome and open it as a `work:plan` issue (usually an
-   epic). the rank is committed and re-derived by paired comparison
-   when contested (`decompose.md`); instruments (G1, G8) get worked
-   when an outcome's measurement needs them.
-4. **nothing** — plan and ready are full and check is empty:
-   implementation has to catch up. do not open more issues; a longer
+2. **refine** — while `ready` has slack, take the oldest `plan` item
+   one rung down the ladder (`decompose.md`): decompose a container's
+   outcome further, or drive a leaf to the ready bar. before a
+   `move ID ready`, run the enablement check (`enable.md`) and
+   `check ID` — both must pass.
+3. **triage** — findings await adoption: `attach` each under the goal
+   or container its evidence serves (it enters `plan`), or end it —
+   `done ID` when landed work already covers it, `done ID --reason
+   not-planned` for a recorded dead end.
+4. **intake** — while `plan` has slack, `next` names the top-ranked
+   goal with no live work under it; decompose it (`gitboard new
+   "outcome" --parent <goal>`). the rank is data on the goal items,
+   re-derived by paired comparison when contested (`decompose.md`);
+   the outcome prose stays in docs/goals.md.
+5. **nothing** — plan and ready are full and check is empty:
+   implementation has to catch up. do not open more items; a longer
    backlog is not progress.
 
-a planner session may touch several cards, but it respects the same
+a planner session may touch several items, but it respects the same
 flow: never step left while a right-hand phase has work for you.
 
 ## the implementer session
 
-one issue per session, exactly this loop:
+one item per session, exactly this loop:
 
-1. `next` names the issue, rightmost first: land what sits in
-   `work:land` — an accepted PR is the most-finished work there is —
-   then finish `work:do`, which holds fresh claims and the rework a
-   verdict sent back, before pulling the oldest unblocked
-   `work:ready`. if it answers `none`, stop — do not invent work; say
-   a planner session is needed (`next` names the bottleneck). read the
-   named issue with `bin/cosmic --make run _work/board.tl show N` —
-   the body is the spec. its first line after the URL is the standing
-   verdict on the issue's PR, resolved from the PR rather than the
-   issue thread: which verdict was posted last, the head commit it was
-   written against, and `UNANSWERED` when no commit followed a
-   `request changes`.
-2. which phase it came from decides this step. a `work:land` issue is
-   already judged: `show N` carries the PR link and the accept, and
-   landing it is `bin/cosmic --make run _work/board.tl land N PR`
-   (recovering first if main moved, per `review.md`'s landing rules) —
-   the verb itself enforces the accept comment, the closes-reference,
-   and mergeability, and refuses an issue that is not in `work:land`,
-   so a landing without a planner accept is impossible rather than
-   forbidden. a `work:do` issue whose PR carries quoted gaps is
-   rework: skip the claim ceremony, address them on that PR, and
-   rejoin the loop at step 3. a fresh `work:ready` issue is claimed:
-   `move N do`, then comment on the issue that this session is on it
-   (the move is the lock; the comment is the trail).
-3. implement EXACTLY what the issue says. its `Change` is the scope,
+1. `next` names the item, rightmost first: land what sits in `land` —
+   an accepted PR is the most-finished work there is — then finish
+   `do`, before pulling the oldest unblocked `ready` leaf. if it
+   answers `none`, stop — do not invent work; say a planner session
+   is needed (`next` names the bottleneck). read the item with
+   `gitboard show ID` — the spec sidecar is the spec, and the item's
+   `verdict`/`pr` fields carry the standing review state.
+2. which phase it came from decides this step. a `land` item is
+   already judged: its `pr` field names the accepted PR — merge it
+   (squash), then `gitboard done ID`. a `do` item with a
+   `request changes` verdict is rework: address the quoted gaps on
+   that PR and rejoin the loop at step 3. a fresh `ready` item is
+   claimed: `move ID do --claim <session>` — the move is the lock.
+3. implement EXACTLY what the spec says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
-4. open the PR READY for review, not draft — the `work:check` phase
-   already carries the review state, and `land` cannot un-draft a PR
-   (the REST API has no such call). reference the issue (`Closes
-   #N`), then `move N check` and comment the PR link on the issue. the
-   move is refused while a `request changes` stands unanswered on that
-   PR — the refusal names the verdict and the head it was written
-   against. it reads whether the head ADVANCED past the verdict, not
-   whether the gap was addressed, so a merge of main counts as
-   movement: the gate stops the empty round trip, and reading the
-   quoted gaps is still yours.
-5. stop. the verdict is the planner's job; never merge a PR that does
-   not yet carry a planner accept. the accept arrives as the issue
-   moving to `work:land` with the verdict on the PR — landing it is
-   step 2's first case, in this lane.
+4. open the PR on GitHub READY for review, not draft, then
+   `gitboard move ID check` and record the PR:
+   `gitboard verdict` is the planner's; the implementer sets the link
+   by moving with the PR open and referencing the item id in the PR
+   body (`Board: <id>`), so the reviewer joins the two.
+5. stop. the verdict is the planner's job; never merge a PR that has
+   not been accepted. the accept arrives as the item moving to `land`
+   with `verdict = accept` — landing it is step 2's first case, in
+   this lane.
 
-**when the issue under-specifies** — you hit a decision the body does
-not settle, a command that does not exist, a contract question — do
-not improvise. comment on the issue naming exactly what is missing,
-`move N plan`, leave the PR draft or close it, and stop. a bounce
-is a good outcome: it is the ready bar failing loudly instead of a
-silent wrong guess, and every bounce becomes enablement evidence
-(`enable.md`).
+**when the spec under-specifies** — you hit a decision the sidecar
+does not settle, a command that does not exist, a contract question —
+do not improvise. `gitboard move ID plan` (a return, never refused)
+with the gap named in the PR-or-item trail, leave the PR draft or
+close it, and stop. a bounce is a good outcome: it is the ready bar
+failing loudly instead of a silent wrong guess, and every bounce
+becomes enablement evidence (`enable.md`).
 
 **when you find something out of scope** — a real defect, a stale
 doc, a gap the slice sits next to but does not own — it goes to the
-board, never into the diff. file it with `bin/cosmic --make run
-_work/board.tl new "title" --finding --body-file F`, where the body is
-one paragraph of evidence: what you observed, where, and the commands
-that show it. no ready-bar sections are expected of you and no goal
-trace is required — a finding is captured evidence, and the planner
-traces it or closes it at triage. filing is never refused, even when
-`work:plan` is at its limit, so a full phase is never a reason to drop
-what you saw.
-then return to the slice: do not refine the finding, do not fix it in
-passing, do not widen the diff to cover it.
+board, never into the diff: `gitboard new "title" --spec-file F`,
+where F is one paragraph of evidence. an unparented item IS a
+finding; no trace is required of you, and filing is never refused —
+findings hold no phase, so no limit has anything to say. then return
+to the slice: do not refine the finding, do not fix it in passing,
+do not widen the diff to cover it.
 
-one session takes one issue. running SEVERAL implementer sessions at
+one session takes one item. running SEVERAL implementer sessions at
 once is a different move with its own mechanics — a disjoint set, a
-checkout per session, a brief that carries the issue body — and those
-are `parallel.md`.
+checkout per session, a brief that carries the spec — and those are
+`parallel.md`.
 
 ## hard rules (guardrails)
 
-- ALL work state lives in GitHub issues and their labels — never in
-  committed backlog files, notes docs, or TODO comments. the files in
-  this directory carry method only. (the `perf` label keeps its own
-  hypothesis backlog under the `optimize` skill; a board issue may link
-  to a perf issue, never duplicate it.)
-- board state moves and reads through `_work/board.tl` only. reading
-  an issue is `show N`; landing an accepted PR is `land N PR`; ending
-  an issue no PR closes is `close N`; a
-  session, either lane, never reaches for `gh`, `curl`, or a raw
-  GitHub API call for anything the tool has a verb for — and when the
-  tool LACKS a verb the session needs, that gap is filed with `new
-  --finding` and worked around by hand ONCE, never scripted into
-  prose, briefs, or issue bodies. the boundary, stated honestly: the
-  planner lane's review reads (PR diffs, CI runs) sit outside the
-  tool today and earn verbs on their own evidence.
-- the ready bar is never lowered to make an issue pullable, and the
+- ALL work state lives in items on the `board` branch — never in
+  GitHub labels, issue comments, notes docs, or TODO comments in the
+  product tree. (the `perf` label keeps its own hypothesis backlog
+  under the `optimize` skill; a board item may link to a perf issue,
+  never duplicate it.)
+- board state moves and reads through `gitboard` only. when the tool
+  LACKS a verb the session needs (blockers today are the `blocked_by`
+  field with no verb; landing merges the PR by hand), work around it
+  ONCE by editing the item file and committing — the file format is
+  the contract — and file the missing verb as a finding.
+- the ready bar is never lowered to make an item pullable, and the
   WIP limits are never widened to make a move succeed. `--force`
-  exists for repair (a mislabeled issue, a split epic), not for flow.
-- epics are never pulled. an epic in `work:ready` is a bug; `check`
-  says so.
-- implementers implement what the issue says; planners decide what
-  issues say. a scope question discovered mid-implementation goes back
+  exists for repair, not for flow.
+- a container is never pulled: only workable leaves hold phases, and
+  the tool de-phases an item the moment a child attaches under it.
+- implementers implement what the spec says; planners decide what
+  specs say. a scope question discovered mid-implementation goes back
   to the board, not into the diff.
-- every issue traces to a goal: its `Goal` section names a `G<n>` from
-  docs/goals.md or a parent epic that does. work that traces to no
-  goal is closed as not planned (`close N --reason not-planned`),
-  however good the idea — open a goals
-  amendment PR instead when the goals themselves are wrong. a
-  `work:finding` is the one exemption, and only until triage: it is
-  captured evidence, not planned work, so it carries no trace when
-  filed and earns one when a planner adopts it (the marker comes off),
-  or it is closed as not planned like anything else.
+- every phased item traces to a ranked goal — checked structurally by
+  `gitboard check`, not by convention. work that traces to no goal is
+  ended as not planned, however good the idea — re-rank the goals
+  (rank fields + a docs/goals.md PR) when the goals themselves are
+  wrong.
 - repo conventions are not relaxed for implementers: `--make ci` and
   the contract freezes in AGENTS.md bind every PR regardless of which
   model wrote it. when a convention keeps tripping implementers, the

@@ -3,108 +3,99 @@
 review is the planner's first duty in every session (`SKILL.md`), and
 it is the system's FINAL GATE: nothing merges without a sophisticated
 model judging the implementation against the definition of work AND
-the goal it traces to. an issue sits in `work:check` with a PR
-attached — that phase means exactly "awaiting a planner verdict",
-nothing else — and the planner ends that state with one of three
-verdicts, every time.
+the goal it traces to. an item sits in `check` with a PR attached —
+that phase means exactly "awaiting a planner verdict", nothing else —
+and the planner ends that state with one of three verdicts, every
+time.
 
 ## the review itself
 
-read the issue first, then the PR against it:
+read the item first (`gitboard show ID` — the spec sidecar), then the
+PR against it:
 
-1. **acceptance ran.** the PR quotes the issue's `Acceptance`
+1. **acceptance ran.** the PR quotes the spec's `Acceptance`
    commands and their verdict lines (`ci: PASS`, the narrow checks) —
    and CI is green on the PR's CURRENT head. a branch that moved
    since the quoted run (a rework push, a merge of main) needs its
    fresh run read, not assumed; an in-progress run is a reason to
-   review the next card and come back, never to wave through.
+   review the next item and come back, never to wave through.
    absent or failing evidence ends the review immediately — verdict
    2, "run the acceptance."
 2. **the diff is the Change.** everything in `## Change` is present;
    nothing outside it snuck in. scope creep gets cut even when it is
-   good — good ideas go to the board as `work:plan` issues, not into
-   an unrelated diff.
+   good — good ideas go to the board as items, not into an unrelated
+   diff.
 3. **the walls held.** `## Non-goals` items are untouched; frozen
    contracts (the `cosmo.*` C boundary, error strings and return
    shapes, verdict line formats, `definitions.lua` coupling) are
-   unmoved unless the issue explicitly moved them.
+   unmoved unless the spec explicitly moved them.
 4. **conventions hold.** AGENTS.md binds: naming, error shapes, file
    caps, cast justifications. anything a gate should have caught but
    did not is itself a finding — for the enablement backlog, not
    just this PR.
-5. **it serves the Goal.** re-read the issue's `## Goal` trace and
-   judge the change as built against it: does this diff actually move
-   the named goal's win condition (or the parent epic's outcome), or
-   does it satisfy the letter of Acceptance while missing the point?
-   this is the judgment only the planner can make — acceptance
-   commands prove the issue was implemented; only reading the goal
-   proves the issue was worth implementing as built. a diff that
-   passes 1–4 but fails this one means the ISSUE was mis-specified:
+5. **it serves the Goal.** walk the item's parent chain to its goal
+   and judge the change as built against it: does this diff actually
+   move the goal's win condition (or the parent container's outcome),
+   or does it satisfy the letter of Acceptance while missing the
+   point? this is the judgment only the planner can make — acceptance
+   commands prove the spec was implemented; only reading the goal
+   proves the spec was worth implementing as built. a diff that
+   passes 1–4 but fails this one means the SPEC was mis-specified:
    fix the specification (and file the ready-bar gap), don't wave the
    diff through.
 6. **it is the least thing.** ask of the diff: would a strictly
-   smaller one satisfy the same issue? name the surplus concretely —
+   smaller one satisfy the same spec? name the surplus concretely —
    a helper with one caller, an abstraction with one instance, an
-   option nobody asked for, generality the issue did not demand — and
+   option nobody asked for, generality the spec did not demand — and
    request its removal before merge (goals.md's least-thing promise;
    G9 is its measured half, this check is the judged half). the same
-   pressure reads the other way: a diff that grew because the ISSUE
+   pressure reads the other way: a diff that grew because the SPEC
    over-asked is a ready-bar finding, filed like any other.
 
 ## the three verdicts
 
-three verdicts, three directions out of `check`: accept moves the
-issue right into `land`, request changes moves it one phase left into
-`do`, reject moves it all the way left into `plan`.
+three verdicts, three directions out of `check`, and one verb records
+each: `gitboard verdict ID <kind> --pr N --head SHA` stores the
+verdict and the head commit it judged on the item and performs the
+move it implies, in one board commit. nothing is posted to the PR to
+carry state — write review prose on the PR for the humans reading it,
+but the item is the record the tool reads.
 
-- **accept.** the PR is ready to land: say so ON THE PR — a comment
-  whose FIRST line is exactly `work-verdict: accept`, then a blank
-  line, then the prose naming what was verified — then `move N
-  land`. the first line is the machine-readable half `land`
-  (`_work/implementer.tl`) checks before it will merge anything; a
-  prose-only accept ("LGTM", "**Verdict: ACCEPT.**") is invisible to
-  the tool and therefore not an accept. the move is never refused —
-  a verdict already made is not inventory — and the landing itself is
-  implementer-lane work: `land N PR` refuses an issue that is not in
-  `work:land`, and the finish-first rule makes that landing the first
-  thing the next implementer session picks up, squash-merging it (the
-  `Closes #N` closes the issue). the planner judges; the implementer
-  lands. when a landing closes an
-  epic's last child, the next planner pass verifies the epic's stated
-  outcome actually holds (run its observable test, not the
-  children's) and closes the epic with `close N` — an epic sits in
-  `plan`, which the close verb accepts, and completed is its default
-  reason.
-- **request changes.** concrete, quoted gaps on the PR, then `move N
-  do` — rework rejoins the implementer queue, where `next`'s
-  finish-before-pull rule makes it the first thing an implementer
-  picks up after a landing (rework is the next-closest work to
-  completion). the same PR carries the fixes; the issue returns to
-  `work:check` with them — and cannot return before them: `show N`
-  prints the standing verdict off the PR, and `move N check` refuses
-  while a `request changes` has no commit after it, so a card can no
-  longer arrive for review with nothing new to judge. use this when the work is right-shaped but
-  incomplete. never leave a changes-requested issue sitting in
-  `work:check`: that phase waits on planners, and implementers do not
-  look there.
-- **reject.** the approach is wrong, or the issue itself was not
-  actually ready. close the PR, comment what was learned, and move
-  the issue LEFT — `move N plan` (or `close N --reason not-planned`
-  if the work should not happen at all; a close from `check` is one
-  the verb accepts, so the rejection needs no move first). rejection
-  is cheap by design;
-  wrong work merged is expensive.
+- **accept** — `verdict ID accept` moves the item into `land`. the
+  move is never refused — a verdict already made is not inventory —
+  and the landing itself is implementer-lane work: the finish-first
+  rule makes it the first thing the next implementer session picks
+  up, squash-merging the PR and running `done ID`. the planner
+  judges; the implementer lands. when a landing completes a
+  container's last child, the next planner pass verifies the
+  container's stated outcome actually holds (run its observable test,
+  not the children's) and ends it with `done ID`.
+- **request changes** — quote the concrete gaps on the PR, then
+  `verdict ID "request changes" --pr N --head SHA` moves the item
+  back to `do`, where `next`'s finish-before-pull rule makes the
+  rework the first thing an implementer picks up after a landing.
+  the same PR carries the fixes; the item returns to `check` with
+  them. the item's `verdict_head` records which commit was judged, so
+  a reviewer can see at a glance whether anything new followed the
+  verdict — read it before re-reviewing, and treat an unmoved head as
+  nothing to judge. use this when the work is right-shaped but
+  incomplete. never leave a changes-requested item sitting in
+  `check`: that phase waits on planners, and implementers do not look
+  there.
+- **reject** — the approach is wrong, or the item was not actually
+  ready. close the PR, record what was learned in the item's spec,
+  and `verdict ID reject` sends it all the way back to `plan` (or
+  `done ID --reason not-planned` if the work should not happen at
+  all). rejection is cheap by design; wrong work merged is expensive.
 
-a research slice (deliverable: a comment, no PR) takes the same
-three verdicts, on its comment: accept means re-running the issue's
-acceptance checks against the tree — totals recomputed, cited
-`file:line`s read, claims spot-verified — then commenting the
-verdict and closing the issue as completed — `close N`, straight from
-`check`, with no move into `land` because there is nothing to merge. the harvested follow-ups
-(epic checklist updates, new children, corrections to sibling
-issues) are the SAME session's refinement obligations, not a note
-for later: accepted research that seeds nothing has not finished
-being reviewed.
+a research slice (deliverable: recorded findings, no PR) takes the
+same three verdicts: accept means re-running the spec's acceptance
+checks against the tree — totals recomputed, cited `file:line`s read,
+claims spot-verified — then `done ID`, with no move into `land`
+because there is nothing to merge. the harvested follow-ups (new
+children, corrections to sibling specs) are the SAME session's
+refinement obligations, not a note for later: accepted research that
+seeds nothing has not finished being reviewed.
 
 ## landings invalidate the queue
 
@@ -121,7 +112,7 @@ merge main, run the regen command the gate prints, commit, re-run
 the gate, land. no fresh verdict is needed when the ONLY conflict is
 a regenerated file — the reviewed diff did not change. anything
 beyond that (a source-line conflict, a gate that stays red after the
-regen) is not a landing anymore: `move N check` with the conflict
+regen) is not a landing anymore: `move ID check` with the conflict
 described, and the planner re-judges. the same regenerated-file
 conflict appearing on a second PR is enablement evidence under the
 feedback half below: file the countermeasure that deletes the
@@ -130,37 +121,36 @@ contended line, rather than paying the tax once per landing.
 ## the feedback half — never skip it
 
 every non-accept verdict, and every bounce an implementer initiated,
-carries information about why a presumed-ready issue was not. before
+carries information about why a presumed-ready item was not. before
 ending the session, the planner converts it:
 
-1. name the wrong turn in one line (on the issue).
+1. name the wrong turn in one line (in the item's spec).
 2. pick the countermeasure by the `enable.md` ordering (core > docs >
-   skills) and file the `work:enable` issue (`new "title" --enable
-   --body-file F`), or fix the ready-bar gap directly if it was this
-   one issue's specification failure.
+   skills) and file the enablement item (`gitboard new "title"
+   --parent <goal> --spec-file F`), or fix the ready-bar gap directly
+   if it was this one item's specification failure.
 3. if the same wrong turn has now appeared twice, the countermeasure
-   stops being optional: file it before refining anything new, with
-   `--mandated` in place of `--enable`. that flag says a verdict
-   already required this filing, so a full `plan` cannot refuse it and
-   it lands as `work:enable` — never as a `work:finding`, which means
-   implementer evidence awaiting triage and is the one signal triage
-   reads.
+   stops being optional: file it before refining anything new. no
+   flag enforces this anymore — filing is never refusable, so the
+   rule is the planner's own discipline, and a review that skips it
+   twice is itself a finding.
 
 a bounce that quotes a wrong or unmeasured tree-fact names its
 countermeasure directly — the facts block was missing or stale for
-that claim — and the fix is a facts entry in the re-refined body, not
+that claim — and the fix is a facts entry in the re-refined spec, not
 a prose apology.
 
-findings enter the same loop from the implementer side: at the refine
-step the planner triages every open `work:finding` — adopt it with a
-goal trace, or close it: `close N --reason not-planned` for a finding
-that will not be worked, `close N` for one work already landed has
-covered, so the record says which of the two happened. a finding this
-review itself confirms is countermeasure evidence like any bounce.
+findings enter the same loop from the implementer side: at the triage
+step the planner takes every unranked root — `attach` it under the
+goal its evidence serves (it enters `plan`), or end it: `done ID
+--reason not-planned` for a finding that will not be worked, `done
+ID` for one that landed work already covers, so the record says which
+of the two happened. a finding this review itself confirms is
+countermeasure evidence like any bounce.
 
 this loop is what makes the system converge: goals pull work onto the
 board, reviews push friction back into enablement, and over time the
-share of issues a less sophisticated model completes without a bounce
+share of items a less sophisticated model completes without a bounce
 is the measure that planning is working. a rising bounce rate means
 the ready bar drifted or enablement debt is due — spend the next
 planner sessions there, not on intake.
