@@ -175,13 +175,13 @@ end
 
 --- The refusal a move OUT of `check` toward `do` or `plan` earns, or nil
 --- when nothing blocks it: an accept (no trailer required), no PR
---- closing the issue, or the standing verdict already carries an
---- `enable:` trailer. Otherwise the countermeasure is missing and the
---- move is refused until it is added.
+--- closing the issue, no verdict posted yet, or the standing verdict
+--- already carries an `enable:` trailer. Otherwise the countermeasure is
+--- missing and the move is refused until it is added.
 --- @param s Standing The PR's review state
 --- @return string | nil The refusal message
 local function blocks_send_back(s: Standing): string
-  if s.kind == "accept" or s.pr == 0 or s.enable then
+  if s.kind == nil or s.kind == "accept" or s.pr == 0 or s.enable then
     return nil
   end
   return ("PR #%d carries a '%s' verdict with no 'enable:' trailer; add "

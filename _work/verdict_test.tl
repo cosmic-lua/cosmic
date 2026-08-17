@@ -252,14 +252,6 @@ local function test_blocks_send_back_passes_a_reasoned_none()
 end
 test_blocks_send_back_passes_a_reasoned_none()
 
-local function test_blocks_send_back_refuses_a_reasonless_none()
-  -- a bare "enable: none" never reaches Standing.enable (test above), so the
-  -- Standing this call site sees is the same as the trailer-absent case
-  local msg = verdict.blocks_send_back(rejected(nil))
-  assert(msg ~= nil, "no parsed trailer means the countermeasure was not filed")
-end
-test_blocks_send_back_refuses_a_reasonless_none()
-
 local function test_blocks_send_back_refuses_without_a_trailer()
   local msg = verdict.blocks_send_back(rejected(nil))
   assert(msg ~= nil, "a request-changes verdict with no trailer blocks the move")
@@ -286,6 +278,14 @@ local function test_blocks_send_back_passes_an_issue_with_no_pr()
     "no PR closes the issue, so there is nothing to check a trailer against")
 end
 test_blocks_send_back_passes_an_issue_with_no_pr()
+
+local function test_blocks_send_back_passes_a_pr_with_no_verdict_yet()
+  local fresh = rejected(nil)
+  fresh.kind = nil
+  assert(verdict.blocks_send_back(fresh) == nil,
+    "a PR with no verdict comment at all has no trailer to name, so it passes")
+end
+test_blocks_send_back_passes_a_pr_with_no_verdict_yet()
 
 --- Mirrors the guard in `_work/verbs.tl`'s `cmd_move`: `blocks_send_back`
 --- only runs when the move leaves `check` toward `do` or `plan` and

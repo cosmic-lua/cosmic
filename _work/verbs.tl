@@ -221,6 +221,14 @@ local function cmd_check(repo: string, number: integer): integer
   return 0
 end
 
+local function standing_or_refuse(repo: string, number: integer): verdict.Standing
+  local state, serr = verdict.standing(repo, number)
+  if state == nil then
+    print(("work-move: REFUSED (cannot read the PR's verdict: %s; --force to move anyway)"):format(serr))
+  end
+  return state
+end
+
 --- move: change an issue's phase, refusing to overfill the target —
 --- except for the arrivals `model.admits_over_limit` admits: a return
 --- (the system correcting itself), a move into `land` (an accept
@@ -288,21 +296,13 @@ local function cmd_move(repo: string, number: integer, target: string,
     end
   end
   if target == "check" and not force then
-    local state, serr = verdict.standing(repo, number)
-    if state == nil then
-      print(("work-move: REFUSED (cannot read the PR's verdict: %s; "
-          .. "--force to move anyway)"):format(serr))
-      return 1
-    end
+    local state = standing_or_refuse(repo, number); if state == nil then return 1 end
     local blocked = verdict.blocks_check(state)
-    if blocked then
-      print("work-move: REFUSED (" .. blocked .. ")")
-      return 1
-    end
+    if blocked then print("work-move: REFUSED (" .. blocked .. ")"); return 1 end
   end
   if issue.phase == "check" and (target == "do" or target == "plan") and not force then
-    local state = verdict.standing(repo, number)
-    local blocked = state and verdict.blocks_send_back(state)
+    local state = standing_or_refuse(repo, number); if state == nil then return 1 end
+    local blocked = verdict.blocks_send_back(state)
     if blocked then print("work-move: REFUSED (" .. blocked .. ")"); return 1 end
   end
   if target == "ready" and not force then
