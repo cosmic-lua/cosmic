@@ -34,6 +34,13 @@ local function is_excluded(path: string): boolean
   if path:find("/testdata/", 1, true) or path:sub(1, 9) == "testdata/" then
     return true
   end
+  -- The work board's item files (items/<ksuid>.tl) are literal data
+  -- like pins — read by cosmic.literal, never executed — and the tree
+  -- excludes them from the build model via .cosmicignore; the report
+  -- walks directories on its own, so it excludes them by position too.
+  if path:find("/items/", 1, true) or path:sub(1, 6) == "items/" then
+    return true
+  end
   if path:match("_test%.tl$") or path:match("_test%.lua$") then
     return true
   end
