@@ -26,6 +26,14 @@ a goal, an unranked root is a finding awaiting triage, an item with
 open children is a container being decomposed, and a parented leaf is
 workable (the only thing that holds a board phase).
 
+What the verbs ARE lives here and only here: `gitboard help` lists
+them, `gitboard help <verb>` gives one its options, and both are
+generated from the CLI, so neither can drift from the tool. The
+phases' WIP limits are `_work/flow.tl`'s `LIMITS`, printed by `status`
+as each phase against its own. The `work` skill on `main` says what
+the verbs are FOR and when a session reaches for which; it deliberately
+restates none of the above, so a verb added here needs no edit there.
+
 ## Using it from a cosmic checkout
 
 The machinery lives HERE, not on main, so the verbs run from this
