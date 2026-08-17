@@ -67,11 +67,13 @@ local record eval_types
     timeout_secs: integer
   end
 
-  --- Scoring-time metadata, written to <run dir>/results.json by
-  --- score.tl. Field-for-field mirror of the staged Meta plus the two
-  --- probe fields Meta deliberately omits (see Meta's doc comment):
-  --- the operator-captured probe.txt, folded in here once staging is
-  --- done and the operator has run the leak probe.
+  --- Scoring-time metadata, part of the results.json record score.tl
+  --- writes to its `--out PATH` (or, with no `--out`, to a default
+  --- location whose absolute path it prints before the verdict line --
+  --- see score.tl's module doc comment). Field-for-field mirror of the
+  --- staged Meta plus the two probe fields Meta deliberately omits (see
+  --- Meta's doc comment): the operator-captured probe.txt, folded in
+  --- here once staging is done and the operator has run the leak probe.
   record ResultMeta
     timestamp: number
     suite_version: integer
@@ -144,7 +146,11 @@ local record eval_types
     friction: {string}
   end
 
-  --- The on-disk results format (JSON), written to <run dir>/results.json.
+  --- The on-disk results format (JSON). score.tl writes it to its
+  --- `--out PATH` when given; with no `--out`, to a default location
+  --- (never the run dir being scored, and never the staging copy that
+  --- gets removed when scoring finishes) whose absolute path it prints
+  --- on the line before the verdict line.
   record EvalResults
     meta: ResultMeta
     rows: {Row}

@@ -17,13 +17,19 @@
 --- Never writes into `<run dir>` itself: the argument is a caller-owned
 --- path (sometimes a committed fixture) and checks materialize their
 --- own pinned inputs into the workspace they check, so the whole tree
---- is mirrored once, up front, into a process-private temp directory
---- (under `TEST_TMPDIR`/`TMPDIR` when set, `/tmp` otherwise -- never
---- this project's own `o/`, which is root-owned in CI's coverage lane,
---- and never relative to the caller's cwd) and every later step --
---- checks, journal parse, results.json -- runs against that copy
---- only. See `out_dir_for` for the exact destination a caller can
---- look up.
+--- is mirrored once, up front, into a genuinely process-private
+--- staging directory via `fs.temp_dir` (mkdtemp, under `TEST_TMPDIR`/
+--- `TMPDIR` when set, `/tmp` otherwise -- never this project's own
+--- `o/`, which is root-owned in CI's coverage lane, and never relative
+--- to the caller's cwd). mkdtemp guarantees a unique path per run, so
+--- two run dirs that share a basename cannot collide. Every later step
+--- -- checks, journal parse, results.json -- runs against that copy
+--- only, and the copy is removed once scoring finishes.
+---
+--- `results.json` is written to `--out PATH` when given; otherwise to
+--- a default location (independent of both the staging copy, which is
+--- removed, and the read-only run dir argument) whose absolute path is
+--- printed on the line before the verdict line.
 ---
 --- Exit codes: 0 on PASS; 1 on FAIL or any failure (printed to stderr).
 local flags = require("cosmic.flags")
@@ -57,66 +63,79 @@ local CHECKS < const > = require("_eval.checks.registry").CHECKS
 
 local record Args
   rundir: string
+  out: string
   help: boolean
   err: string
 end
 
-local USAGE < const > = "usage: score.lua <run dir>\n"
+local USAGE < const > = "usage: score.lua [--out PATH] <run dir>\n"
 
 local SPEC: flags.Spec = {
   name = "score.lua",
-  flags = {},
+  flags = {
+    {long = "out", arg = "PATH",
+      help = "write results.json to PATH instead of the default location"},
+  },
 }
 
---- The process-private temp root scoring copies are staged under --
---- never the run dir argument itself, which score.tl must leave
---- untouched, and never this project's own `o/`: CI's coverage lane
---- runs as an unprivileged user against a root-owned `o/`, so writing
---- there fails with EACCES. `TEST_TMPDIR` is the same convention every
---- test in this tree already honors; `TMPDIR` is its non-test
---- equivalent; `/tmp` is the fallback so a bare CLI invocation from any
---- cwd stages to the same well-known, OS-reclaimed location instead of
---- littering wherever the caller happened to be standing.
---- @return string The absolute temp root scoring copies live under
-local function scored_root(): string
-  local base = os.getenv("TEST_TMPDIR") or os.getenv("TMPDIR") or "/tmp"
-  return fs.join(base, "cosmic-eval-scored")
+--- The base directory temp dirs (staging copies, the default
+--- results.json location) are created under -- never this project's
+--- own `o/`: CI's coverage lane runs as an unprivileged user against a
+--- root-owned `o/`, so writing there fails with EACCES. `TEST_TMPDIR`
+--- is the same convention every test in this tree already honors;
+--- `TMPDIR` is its non-test equivalent; `/tmp` is the fallback so a
+--- bare CLI invocation from any cwd stages to a well-known,
+--- OS-reclaimed location instead of littering wherever the caller
+--- happened to be standing.
+--- @return string The absolute base directory for this run's temp dirs
+local function temp_base(): string
+  return os.getenv("TEST_TMPDIR") or os.getenv("TMPDIR") or "/tmp"
 end
 
---- Where `stage_scoring_copy` stages a scoring copy of `rundir_arg` and
---- where results.json ends up -- one basename-keyed slot under
---- scored_root(), so a caller that needs to inspect results.json (a
---- test, an operator) can find it without re-deriving the naming rule.
---- @param rundir_arg string The run dir argument, as given on argv
---- @return string The scoring copy's path (always absolute)
-local function out_dir_for(rundir_arg: string): string
-  local abs = fs.absolute_path(rundir_arg)
-  return fs.absolute_path(fs.join(scored_root(), fs.basename(abs)))
-end
-
---- Mirror `rundir_arg` into its `out_dir_for` slot and return that
---- copy's (absolute) path. Every later step -- meta/probe loading,
---- checks, journal parsing, results.json -- runs against the copy, so
---- `rundir_arg` is only ever read here, never written to. Staging into
---- an ABSOLUTE destination also closes a distinct bug: `cosmic.child`
---- applies `cwd` in the spawned child before exec, so a relative
---- workspace joined into argv[0] would resolve a second time against
---- the child's new cwd and fail with ENOENT; every workspace built from
---- this copy is absolute, so that double resolution cannot happen.
+--- Mirror `rundir_arg` into a fresh, genuinely process-private staging
+--- directory (via `fs.temp_dir`/mkdtemp) and return that copy's
+--- (absolute) path. Every later step -- meta/probe loading, checks,
+--- journal parsing -- runs against the copy, so `rundir_arg` is only
+--- ever read here, never written to. mkdtemp guarantees a unique path
+--- on every call regardless of what `rundir_arg` is named, so two run
+--- dirs that happen to share a basename (e.g. two directories both
+--- named "run_pass" at different paths) stage into two independent
+--- directories -- there is no shared, basename-keyed slot for a second
+--- scoring call to collide with. Staging into an ABSOLUTE destination
+--- also closes a distinct bug: `cosmic.child` applies `cwd` in the
+--- spawned child before exec, so a relative workspace joined into
+--- argv[0] would resolve a second time against the child's new cwd and
+--- fail with ENOENT; mkdtemp always returns an absolute path, so that
+--- double resolution cannot happen. The caller is responsible for
+--- removing the returned directory once scoring finishes.
 --- @param rundir_arg string The run dir argument, as given on argv
 --- @return string|nil The scoring copy's path
 --- @return string The error, when the copy could not be staged
 local function stage_scoring_copy(rundir_arg: string): string | nil, string
-  local dst = out_dir_for(rundir_arg)
-  local rok, rerr = fs.remove_all(dst)
-  if not rok then
-    return nil, "clear " .. dst .. ": " .. tostring(rerr)
+  local dst, terr = fs.temp_dir(fs.join(temp_base(), "cosmic-eval-scored-XXXXXX"))
+  if not dst then
+    return nil, "create staging dir: " .. tostring(terr)
   end
   local cok, cerr = fs.copy_tree(rundir_arg, dst)
   if not cok then
+    local _ok, _err = fs.remove_all(dst)
     return nil, "stage " .. rundir_arg .. " -> " .. dst .. ": " .. tostring(cerr)
   end
   return dst
+end
+
+--- The default `results.json` destination when no `--out` is given: a
+--- fresh temp file whose lifetime is independent of both the staging
+--- copy (removed once scoring finishes) and the read-only run dir
+--- argument (score.tl never writes into its input).
+--- @return string|nil The absolute path results.json should be written to
+--- @return string The error, when the destination could not be created
+local function default_results_path(): string | nil, string
+  local dir, terr = fs.temp_dir(fs.join(temp_base(), "cosmic-eval-results-XXXXXX"))
+  if not dir then
+    return nil, "create results dir: " .. tostring(terr)
+  end
+  return fs.join(dir, "results.json")
 end
 
 --- Parse command-line arguments: exactly one positional, the run dir.
@@ -136,6 +155,7 @@ local function parse_args(argv: {string}): Args
       #parsed.args
     else
       a.rundir = parsed.args[1]
+      a.out = parsed.values.out
     end
   end
   return a
@@ -292,28 +312,16 @@ local function compute_verdict(manifest: eval_types.Manifest,
   return "FAIL", failing_ids
 end
 
---- CLI entry point.
---- @param ... string Command-line arguments
+--- Run every scoring step against an already-staged copy: load the
+--- manifest and meta, fold the probe, score every task's row, compute
+--- the verdict, and write results.json to `out` (or, when `out` is
+--- nil/empty, to a fresh default location whose absolute path is
+--- printed on the line before the verdict line).
+--- @param run_dir string The staged scoring copy (see stage_scoring_copy)
+--- @param out string|nil The --out destination for results.json, or
+--- nil/"" for the default location
 --- @return integer Exit code: 0 on PASS, 1 on FAIL or any failure
-local function main(...: string): integer
-  local a = parse_args({...})
-  if a.help then
-    print(USAGE)
-    return 0
-  end
-  if a.err then
-    io.stderr:write("score: " .. a.err .. "\n" .. USAGE)
-    return 1
-  end
-  if not fs.is_dir(a.rundir) then
-    io.stderr:write("score: no such run directory: " .. a.rundir .. "\n")
-    return 1
-  end
-  local run_dir, sterr = stage_scoring_copy(a.rundir)
-  if not run_dir then
-    io.stderr:write("score: " .. tostring(sterr) .. "\n")
-    return 1
-  end
+local function score_staged(run_dir: string, out: string): integer
   local manifest, merr = stage.load_manifest(stage.MANIFEST_PATH)
   if not manifest then
     io.stderr:write("score: " .. tostring(merr) .. "\n")
@@ -342,10 +350,25 @@ local function main(...: string): integer
     io.stderr:write("score: encode results.json: " .. tostring(eerr) .. "\n")
     return 1
   end
-  local wok, werr = fs.write(fs.join(run_dir, "results.json"), encoded)
+
+  local dest = out
+  local printed_default = false
+  if not dest or dest == "" then
+    local dpath, derr = default_results_path()
+    if not dpath then
+      io.stderr:write("score: " .. tostring(derr) .. "\n")
+      return 1
+    end
+    dest = dpath
+    printed_default = true
+  end
+  local wok, werr = fs.write(dest, encoded)
   if not wok then
     io.stderr:write("score: write results.json: " .. tostring(werr) .. "\n")
     return 1
+  end
+  if printed_default then
+    print(fs.absolute_path(dest))
   end
 
   if verdict == "PASS" then
@@ -354,6 +377,37 @@ local function main(...: string): integer
   end
   print("eval: FAIL (" .. table.concat(failing_ids, ", ") .. ")")
   return 1
+end
+
+--- CLI entry point.
+--- @param ... string Command-line arguments
+--- @return integer Exit code: 0 on PASS, 1 on FAIL or any failure
+local function main(...: string): integer
+  local a = parse_args({...})
+  if a.help then
+    print(USAGE)
+    return 0
+  end
+  if a.err then
+    io.stderr:write("score: " .. a.err .. "\n" .. USAGE)
+    return 1
+  end
+  if not fs.is_dir(a.rundir) then
+    io.stderr:write("score: no such run directory: " .. a.rundir .. "\n")
+    return 1
+  end
+  local run_dir, sterr = stage_scoring_copy(a.rundir)
+  if not run_dir then
+    io.stderr:write("score: " .. tostring(sterr) .. "\n")
+    return 1
+  end
+  -- The staging copy is removed unconditionally once scoring is done
+  -- -- PASS, FAIL, or an error inside score_staged -- so it never
+  -- outlives the run it was created for. score_staged only returns
+  -- (it never throws), so this always runs.
+  local code = score_staged(run_dir, a.out)
+  local _ok, _err = fs.remove_all(run_dir)
+  return code
 end
 
 if proc.is_main() then
@@ -367,7 +421,6 @@ local record score_module
   score_row: function(run_dir: string, task: eval_types.Task): eval_types.Row
   compute_verdict: function(manifest: eval_types.Manifest, rows: {eval_types.Row}):
   string, {string}
-  out_dir_for: function(rundir_arg: string): string
 end
 
 local M: score_module = {
@@ -376,7 +429,6 @@ local M: score_module = {
   load_meta = load_meta,
   score_row = score_row,
   compute_verdict = compute_verdict,
-  out_dir_for = out_dir_for,
 }
 
 return M
