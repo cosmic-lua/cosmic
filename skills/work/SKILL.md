@@ -67,33 +67,49 @@ git worktree add o/board board        # once per checkout
 cd o/board && bin/cosmic --make fetch # once, on a cold worktree
 ```
 
+the branch is an ordinary cosmic project, so a change to the MACHINERY
+is gated like any other: `bin/cosmic --make ci` from the worktree, and
+the `board` workflow runs the same gate on every push there.
+
 every verb runs from the board worktree; `gitboard` below means
 `bin/cosmic --make run _work/gitboard.tl` with the worktree as the
 working directory:
 
 ```bash
-gitboard status               # the kanban and its WIP verdict
+gitboard sync                 # rebase onto the remote's state — FIRST
+gitboard status               # the kanban, its WIP verdict, graph health
 gitboard tree                 # goals, their subtrees, the triage queue
 gitboard next [--role planner]  # the one next action (implementer default)
 gitboard new "title" [--parent ID] [--rank N] [--spec-file F]
 gitboard attach ID PARENT     # triage a finding, decompose, re-parent
 gitboard spec ID FILE         # replace ID's spec sidecar
-gitboard check ID             # ready-bar and graph lint
-gitboard move ID PHASE [--claim SESSION]   # phase change, WIP-limited
+gitboard check ID             # ready-bar and graph lint of THAT item
+gitboard move ID PHASE [--claim SESSION] [--pr N]  # phase change, WIP-limited
 gitboard verdict ID KIND [--pr N] [--head SHA]  # review verdict + its move
 gitboard done ID [--reason not-planned]    # end an item
 gitboard show ID              # fields, role, spec, git history
-gitboard sync                 # rebase onto the remote's state
 ```
+
+**start every session with `sync`.** reads are a directory scan of
+the worktree, so they are only as current as the last pull; a mutation
+publishes against the remote and would discover a stale checkout the
+hard way, as a refusal after the fact.
 
 every verb ends with a `gitboard-<verb>:` verdict line — read that,
 never a piped exit status. ids are KSUIDs; every verb accepts an
-unambiguous prefix (`gitboard show 3I1v4K`), git-style. reads need no
-network and no token; a mutation commits on `board` and publishes
-(push). a rejected push is the compare half of a compare-and-swap:
-the tool rebases onto whoever moved first, re-checks the WIP
-invariant against the merged board, and refuses if the limit now
-binds — there is no lagged index and no retry ritual.
+unambiguous prefix (`gitboard show 3I1v4K`), git-style. a KSUID orders
+by its one-second timestamp, so "oldest first" is exact across
+seconds and arbitrary within one — the board's queues are stable, not
+the mint order of items filed in the same breath.
+
+reads need no network and no token; a mutation is ONE commit on
+`board` and publishes (push). a rejected push is the compare half of a
+compare-and-swap: the tool rebases onto whoever moved first, re-checks
+the WIP invariant against the merged board, and refuses if the limit
+now binds, dropping its own commit whole — there is no lagged index,
+no retry ritual, and no half-landed mutation. two sessions editing the
+SAME item cannot rebase past each other; that refusal names the items
+and hands back a clean checkout, so re-read and re-apply.
 
 **the `board` branch is append-only: never rebased, never
 force-pushed.** rewriting published state history breaks every
@@ -117,7 +133,16 @@ workable item that gains a child is de-phased into a container in the
 same mutation) and triage (an adopted finding becomes a plan-phase
 leaf). the goal trace is a checked property — every phased item must
 reach a ranked root through its parent chain, and `check` names the
-broken link when one cannot.
+broken link when THAT item cannot. the board's own health (every
+item's chain, and any leaf left off the board) reads from `status`:
+one item's broken chain is everyone's to see and nobody's reason to be
+refused a promotion.
+
+decomposition is reversible without ceremony. an item that gains a
+child is de-phased in the same commit; when its LAST open child ends,
+the item returns to `plan` in the closing commit, which is where the
+planner verifies the outcome its children were supposed to deliver and
+ends it.
 
 phases, left to right (only workable leaves carry one). a phase is
 named for the action performed in it; `ready` is the one noun,
@@ -200,11 +225,12 @@ one item per session, exactly this loop:
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
-4. open the PR on GitHub READY for review, not draft, then
-   `gitboard move ID check` and record the PR:
-   `gitboard verdict` is the planner's; the implementer sets the link
-   by moving with the PR open and referencing the item id in the PR
-   body (`Board: <id>`), so the reviewer joins the two.
+4. open the PR on GitHub READY for review, not draft, then hand it
+   over WITH its number: `gitboard move ID check --pr N`. the `pr`
+   field is the link the reviewer follows and the one the landing step
+   reads back, so a handover without it leaves the next session
+   guessing. reference the item id in the PR body (`Board: <id>`) too,
+   for whoever is reading from the GitHub side.
 5. stop. the verdict is the planner's job; never merge a PR that has
    not been accepted. the accept arrives as the item moving to `land`
    with `verdict = accept` — landing it is step 2's first case, in
@@ -253,7 +279,8 @@ checkout per session, a brief that carries the spec — and those are
   specs say. a scope question discovered mid-implementation goes back
   to the board, not into the diff.
 - every phased item traces to a ranked goal — checked structurally by
-  `gitboard check`, not by convention. work that traces to no goal is
+  `gitboard check` for the item at hand and by `gitboard status` for
+  the board, not by convention. work that traces to no goal is
   ended as not planned, however good the idea — re-rank the goals
   (rank fields + a docs/goals.md PR) when the goals themselves are
   wrong.

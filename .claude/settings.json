@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(bin/cosmic --make run _work/gitboard.tl *)",
+      "Bash(cd o/board && bin/cosmic --make run _work/gitboard.tl *)",
+      "Bash(git worktree add o/board board)",
       "Bash(bin/cosmic --make test *)",
       "Bash(bin/cosmic --make ci)",
       "Bash(bin/cosmic --make fetch)",
