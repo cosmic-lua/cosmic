@@ -64,16 +64,22 @@ as a worktree of the checkout you already have:
 
 ```bash
 git worktree add o/board board        # once per checkout
-cd o/board && bin/cosmic --make fetch # once, on a cold worktree
+cd o/board && bin/cosmic --make build # once, on a cold worktree
 ```
+
+that build produces `o/bin/gitboard`, the binary this branch ships,
+and `gitboard` below means running it from the worktree — one process,
+one verdict line, no make output interleaved with the answer. (In a
+checkout that has not built yet, `bin/cosmic --make run
+_work/gitboard.tl <verb>` runs the same CLI.)
 
 the branch is an ordinary cosmic project, so a change to the MACHINERY
 is gated like any other: `bin/cosmic --make ci` from the worktree, and
-the `board` workflow runs the same gate on every push there.
-
-every verb runs from the board worktree; `gitboard` below means
-`bin/cosmic --make run _work/gitboard.tl` with the worktree as the
-working directory:
+the `board` workflow runs the same gate on every push there. it is NOT
+a toolchain, though: a gate re-execs into what the tree built only for
+a project that defines `cosmic/**` and ships a binary called `cosmic`,
+so every `--make` verb there runs under the branch's pinned cosmic.
+that pin, not main, is what the machinery's tests execute inside.
 
 ```bash
 gitboard sync                 # rebase onto the remote's state — FIRST
