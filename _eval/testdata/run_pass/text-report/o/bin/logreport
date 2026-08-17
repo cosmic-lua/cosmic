@@ -1,0 +1,16 @@
+#!/bin/sh
+# Fixture stand-in for the text-report task's built artifact.
+a="$1"
+if [ "$a" = "testdata/events.log" ]; then
+  printf '2026-08-01T10:00Z 2\n2026-08-01T11:00Z 2\n2026-08-01T12:00Z 2\n2026-08-01T13:00Z 1\ntotal 7\n'
+  exit 0
+elif [ "$a" = "empty.log" ]; then
+  printf 'total 0\n'
+  exit 0
+elif [ "$a" = "testdata/absent.log" ]; then
+  echo "logreport: cannot read testdata/absent.log" >&2
+  exit 1
+else
+  echo "logreport: unrecognized invocation" >&2
+  exit 1
+fi

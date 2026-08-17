@@ -1,0 +1,28 @@
+#!/bin/sh
+# Fixture stand-in for the sqlite-indexer task's built artifact.
+cmd="$1"; a="$2"; b="$3"
+if [ "$cmd" = "index" ]; then
+  : > "$b" 2>/dev/null || true
+  exit 0
+elif [ "$cmd" = "lookup" ] && [ "$b" = "a.txt" ]; then
+  printf '6 b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060\n'
+  exit 0
+elif [ "$cmd" = "lookup" ] && [ "$b" = "sub/b.txt" ]; then
+  printf '5 f2c82decdd7181cf98945929a62598db7e6b477e11f6e0eb0ae97020eff151ad\n'
+  exit 0
+elif [ "$cmd" = "lookup" ] && [ "$b" = "sub/deep/c.txt" ]; then
+  printf '6 b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060\n'
+  exit 0
+elif [ "$cmd" = "lookup" ] && [ "$b" = "sub/b.txt/b.txt" ]; then
+  echo "findex: no such path: sub/b.txt/b.txt" >&2
+  exit 1
+elif [ "$cmd" = "lookup" ] && [ "$b" = "nope.txt" ]; then
+  echo "findex: no such path: nope.txt" >&2
+  exit 1
+elif [ "$cmd" = "dupes" ]; then
+  printf 'a.txt sub/deep/c.txt\n'
+  exit 0
+else
+  echo "findex: unrecognized invocation" >&2
+  exit 1
+fi

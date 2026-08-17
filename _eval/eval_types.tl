@@ -66,6 +66,100 @@ local record eval_types
     agent_tool: string
     timeout_secs: integer
   end
+
+  --- Scoring-time metadata, part of the results.json record score.tl
+  --- writes to its `--out PATH` (or, with no `--out`, to a default
+  --- location whose absolute path it prints before the verdict line --
+  --- see score.tl's module doc comment). Field-for-field mirror of the
+  --- staged Meta plus the two probe fields Meta deliberately omits (see
+  --- Meta's doc comment): the operator-captured probe.txt, folded in
+  --- here once staging is done and the operator has run the leak probe.
+  record ResultMeta
+    timestamp: number
+    suite_version: integer
+    bin: string
+    bin_sha: string
+    cosmic_version: string
+    os: string
+    isa: string
+    model: string
+    agent_tool: string
+    timeout_secs: integer
+    --- probe.txt's raw contents, verbatim. Empty when the file is
+    --- missing from the run dir (never guessed).
+    probe_output: string
+    --- True iff probe_output contains anything but the READY/NONE
+    --- pair the probe prompt asks for (see stage.tl's probe_command).
+    --- Recorded, never a reason to abort scoring — the operator judges
+    --- the run's validity from this field.
+    leaked: boolean
+  end
+
+  --- One task's scored row.
+  record Row
+    task: string
+    --- "completed" (artifact built and checked), "incomplete" (no
+    --- built artifact -- NOT a silent bug), or "error" (the task's
+    --- workspace itself is missing from the run dir).
+    status: string
+    --- From the task's committed functional check, never the agent's
+    --- claims. 0 when status is not "completed" -- the check never ran.
+    silent_bugs: integer
+    --- Journal-derived, NULLABLE in v1: the retained artifacts are
+    --- NOTES.md/final.txt only, and neither reliably yields a count of
+    --- distinct --check failures without transcript retention (a named
+    --- follow-up child on the epic). Left nil rather than guessed.
+    checker_errors: integer
+    --- Journal-derived, NULLABLE in v1, same reason as checker_errors:
+    --- "cycles" needs a transcript of tool calls this slice does not
+    --- retain. Left nil rather than guessed.
+    cycles: integer
+    --- Parsed from final.txt's five-line reply, when it parses.
+    attempts_first_build: integer
+    --- Parsed from final.txt's five-line reply, when it parses.
+    attempts_green_ci: integer
+    --- G4: did the agent reach the project's own gate unprompted.
+    --- Journal-derived and NULLABLE in v1, same reason as cycles and
+    --- checker_errors -- there is no transcript to derive it from
+    --- mechanically, so it is left nil rather than guessed.
+    gate_adopted: boolean
+    --- G2, contained-task only. Journal-derived, same limitation as
+    --- cycles/checker_errors/gate_adopted: no transcript exists in v1
+    --- to count denials or recovery steps from, so both stay nil for
+    --- every task and every platform rather than being guessed. Kept
+    --- as separate fields (not folded into cycles) because a later,
+    --- transcript-backed slice fills these in without touching the
+    --- rest of the row.
+    denials: integer
+    denial_recovery_steps: integer
+    --- From NOTES.md section (f), best-effort parsed. nil when the
+    --- section is missing or its answer does not parse either way --
+    --- never guessed. false is a lower bound: the row's other numbers
+    --- may be optimistic.
+    self_report_clean: boolean
+    --- Path (relative to the run dir) to the task's workspace, which
+    --- holds NOTES.md and final.txt -- the two files the journal is
+    --- parsed from.
+    journal_path: string
+    --- NOTES.md section (b), verbatim, one entry per ranked item.
+    --- Empty when the section is missing or unparseable.
+    friction: {string}
+  end
+
+  --- The on-disk results format (JSON). score.tl writes it to its
+  --- `--out PATH` when given; with no `--out`, to a default location
+  --- (never the run dir being scored, and never the staging copy that
+  --- gets removed when scoring finishes) whose absolute path it prints
+  --- on the line before the verdict line.
+  record EvalResults
+    meta: ResultMeta
+    rows: {Row}
+    --- "PASS" iff every proven task's row is "completed" AND
+    --- sum(silent_bugs) == 0 over proven tasks. See score.tl's verdict
+    --- function for the exact rule, including why an incomplete or
+    --- errored proven task fails the gate on its own.
+    verdict: string
+  end
 end
 
 return eval_types

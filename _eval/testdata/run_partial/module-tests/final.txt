@@ -1,0 +1,5 @@
+yes
+2
+3
+the flags module docs could use one more worked example
+none, no prior familiarity

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Fixture stand-in for the module-tests task's built artifact.
+case "$1" in
+  "Hello, World!")
+    printf 'hello-world\n'
+    ;;
+  "  --Multi--  Space__Test  ")
+    printf 'multi-space-test\n'
+    ;;
+  "!!!")
+    printf '\n'
+    ;;
+  *)
+    printf '\n'
+    ;;
+esac
+exit 0

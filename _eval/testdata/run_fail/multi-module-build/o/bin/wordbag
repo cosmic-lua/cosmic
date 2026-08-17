@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fixture stand-in for the multi-module-build task's built artifact.
+if [ "$1" = "testdata/sample.txt" ]; then
+  printf 'the 3\ndog 2\nbarks 1\nunique 9\n'
+  exit 0
+else
+  echo "wordbag: unrecognized invocation" >&2
+  exit 1
+fi

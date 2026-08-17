@@ -1,0 +1,20 @@
+#!/bin/sh
+# Fixture stand-in for the contained-task task's built artifact.
+if [ "$1" = "caps" ]; then
+  printf 'fs=true\n'
+  exit 0
+elif [ "$1" = "--deny-write" ]; then
+  dst="$3"
+  printf 'denied: write to %s -- add it to the sandbox policy'"'"'s fs.rw list\n' "$dst"
+  exit 1
+elif [ ! -f "$1" ]; then
+  echo "copybox: no such file: $1" >&2
+  exit 1
+else
+  src="$1"; dstdir="$2"
+  base=$(basename "$src")
+  cp "$src" "$dstdir/$base"
+  size=$(wc -c < "$src" | tr -d ' ')
+  printf 'copied %s bytes\n' "$size"
+  exit 0
+fi

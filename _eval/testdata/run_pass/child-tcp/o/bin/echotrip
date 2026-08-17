@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fixture stand-in for the child-tcp task's built artifact.
+#
+# Orchestrator mode (no args) never spawns anything, so it trivially
+# leaves no orphan behind. The check only exercises orchestrator mode
+# (ten repeated runs); "serve" mode is not exercised by the scorer, so
+# this stub does not need to implement it.
+printf 'OK round-trip-42\n'
+exit 0
