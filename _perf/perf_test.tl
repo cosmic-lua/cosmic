@@ -1,3 +1,4 @@
+--- reads: _perf/bench
 -- Smoke test for the perf harness: every bench module must load, every
 -- scenario must define a functional check, carry a unique name, and pass
 -- end to end with tiny settings. This keeps the scenarios from bit-rotting
@@ -6,6 +7,12 @@
 -- The module list is DERIVED from _perf/bench/*_bench.tl rather than
 -- hardcoded: a hardcoded list silently stops covering a new bench module
 -- (add one, forget to list it, no check-presence ratchet ever runs it).
+--
+-- `reads: _perf/bench` above puts the 17 bench sources into this test's
+-- dependency closure. Without it, `_make/imports.tl`'s static scanner never
+-- sees the computed `require(name)` below (MODULES is built from a glob, not
+-- literal requires), so a bench-only diff can never invalidate this test's
+-- cached PASS — leaving the coverage recorded for those files stale.
 
 local fs = require("cosmic.fs")
 local harness = require("_perf.harness")
