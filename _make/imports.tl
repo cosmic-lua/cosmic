@@ -136,20 +136,24 @@ local function of_file(path: string): {string}
   return found
 end
 
---- Non-import files a test declares it READS, from `--- reads: <path>`
---- doc-comment lines. The content key hashes only declared inputs, and
---- a ratchet test's subject (docs/decisions, .github/workflows) is no
---- import — undeclared, an edit to it would replay the test's cached
---- verdict instead of re-running it. Paths are relative to the project
---- root; a directory declares every file under it.
+--- Non-import files a test declares it READS, from `--- reads: <path>
+--- <path> ...` doc-comment lines — multi-token, like `env_scan`, because a
+--- ratchet test commonly scans more than one tree at once. The content key
+--- hashes only declared inputs, and a ratchet test's subject
+--- (docs/decisions, .github/workflows) is no import — undeclared, an edit
+--- to it would replay the test's cached verdict instead of re-running it.
+--- Paths are relative to the project root; a directory declares every
+--- file under it.
 --- @param src string The file's contents
 --- @return {string} Declared read paths, in file order
 local function reads_scan(src: string): {string}
   local out: {string} = {}
   for line in (src .. "\n"):gmatch("([^\n]*)\n") do
-    local path = line:match("^%-%-%- reads: (%S+)%s*$")
-    if path then
-      out[#out + 1] = path
+    local rest = line:match("^%-%-%- reads: (.+)$")
+    if rest then
+      for token in rest:gmatch("%S+") do
+        out[#out + 1] = token
+      end
     end
   end
   return out
@@ -213,10 +217,9 @@ local ENV_SWITCHES < const >: {string: boolean} = {
 }
 
 --- Environment variable names a test declares it READS, from
---- `--- env: <NAME> <NAME> ...` doc-comment lines — multi-token, unlike
---- `reads_scan`'s one-path-per-line grammar, because a test commonly
---- reads more than one variable at once (`FUZZ_SEED` and `FUZZ_ITERS`
---- together).
+--- `--- env: <NAME> <NAME> ...` doc-comment lines — multi-token, like
+--- `reads_scan`, because a test commonly reads more than one variable
+--- at once (`FUZZ_SEED` and `FUZZ_ITERS` together).
 --- @param src string The file's contents
 --- @return {string} Declared names, in file order, possibly repeated
 local function env_scan(src: string): {string}
@@ -270,6 +273,7 @@ end
 local record ImportsModule
   scan: function(src: string): {string}
   of_file: function(path: string): {string}
+  reads_scan: function(src: string): {string}
   reads_of_file: function(root: string, path: string): {string} | nil, string
   env_scan: function(src: string): {string}
   env_of_file: function(root: string, path: string): {string} | nil, string
@@ -279,6 +283,7 @@ end
 local M: ImportsModule = {
   scan = scan,
   of_file = of_file,
+  reads_scan = reads_scan,
   reads_of_file = reads_of_file,
   env_scan = env_scan,
   env_of_file = env_of_file,

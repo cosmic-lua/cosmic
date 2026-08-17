@@ -117,8 +117,8 @@ end
 test_an_unreadable_file_has_no_edges()
 
 -- `env_scan` is multi-token by design: a test commonly reads more than
--- one variable at once (FUZZ_SEED and FUZZ_ITERS together), unlike
--- `reads_scan`'s one-path-per-line grammar.
+-- one variable at once (FUZZ_SEED and FUZZ_ITERS together), the same
+-- grammar `reads_scan` uses below.
 local function test_env_scan_splits_on_whitespace()
   local got = table.concat(
     imports.env_scan("--- env: A B C\nprint('x')\n"), ",")
@@ -164,5 +164,62 @@ local function test_env_of_file_with_no_declaration_is_empty()
   assert(#got == 0, "expected no declarations, got " .. #got)
 end
 test_env_of_file_with_no_declaration_is_empty()
+
+-- `reads_scan` is multi-token, mirroring `env_scan`: a `--- reads:` line
+-- names every declared path, not just the first.
+local function test_reads_scan_splits_on_whitespace()
+  local got = table.concat(
+    imports.reads_scan("--- reads: a.tl b.tl c.tl\nprint('x')\n"), ",")
+  assert(got == "a.tl,b.tl,c.tl", "got: " .. got)
+end
+test_reads_scan_splits_on_whitespace()
+
+-- A single-path declaration is the one-token case of the same grammar
+-- and must keep working unchanged.
+local function test_reads_scan_single_path_unchanged()
+  local got = table.concat(imports.reads_scan("--- reads: a.tl\nprint('x')\n"), ",")
+  assert(got == "a.tl", "got: " .. got)
+end
+test_reads_scan_single_path_unchanged()
+
+--- A fresh fixture directory holding one file, for reads_of_file cases.
+local function reads_fixture(name: string, src: string): string
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "reads-" .. name .. "-XXXXXX")))
+  check.must(fs.write(fs.join(dir, "x_test.tl"), src))
+  return dir
+end
+
+-- A multi-path declaration must land every declared path, not just the
+-- first, once the paths themselves exist.
+local function test_reads_of_file_multi_path()
+  local dir = reads_fixture("multi", "--- reads: a.tl b.tl\nprint('x')\n")
+  check.must(fs.write(fs.join(dir, "a.tl"), "a\n"))
+  check.must(fs.write(fs.join(dir, "b.tl"), "b\n"))
+  local got = check.must(imports.reads_of_file(dir, "x_test.tl"))
+  assert(table.concat(got, ",") == "a.tl,b.tl", "got: " .. table.concat(got, ","))
+end
+test_reads_of_file_multi_path()
+
+-- A single-path declaration is unchanged by the multi-token grammar.
+local function test_reads_of_file_single_path_unchanged()
+  local dir = reads_fixture("single", "--- reads: a.tl\nprint('x')\n")
+  check.must(fs.write(fs.join(dir, "a.tl"), "a\n"))
+  local got = check.must(imports.reads_of_file(dir, "x_test.tl"))
+  assert(table.concat(got, ",") == "a.tl", "got: " .. table.concat(got, ","))
+end
+test_reads_of_file_single_path_unchanged()
+
+-- One missing path among several must still refuse loudly, naming the
+-- missing one -- a multi-path declaration either parses fully or
+-- refuses; it never silently drops the bad token.
+local function test_reads_of_file_refuses_one_missing_among_several()
+  local dir = reads_fixture("missing", "--- reads: a.tl no-such.tl\nprint('x')\n")
+  check.must(fs.write(fs.join(dir, "a.tl"), "a\n"))
+  local got, err = imports.reads_of_file(dir, "x_test.tl")
+  assert(got == nil, "a missing declared path must refuse")
+  assert(err and err:find("no-such.tl", 1, true),
+    "the message must name it, got: " .. tostring(err))
+end
+test_reads_of_file_refuses_one_missing_among_several()
 
 print("all imports tests passed")

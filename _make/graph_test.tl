@@ -319,6 +319,16 @@ local function test_project_mk_carries_declared_reads()
     mk:find("notes/a.md", 1, true),
     "the declared read must appear in the test's closure:\n" .. mk)
 
+  -- Multi-token: a two-path declaration must land BOTH paths in the
+  -- closure, not just the first.
+  check.must(fs.write(fs.join(dir, "extra.md"), "extra\n"))
+  check.must(fs.write(fs.join(dir, "x_test.tl"),
+      "--- reads: notes/a.md extra.md\nprint('ok')\n"))
+  local proj_multi = check.must(project.scan(dir))
+  local mk_multi = check.must(graph.project_mk(proj_multi, "/bin/cosmic"))
+  assert(mk_multi:find("notes/a.md", 1, true) and mk_multi:find("extra.md", 1, true),
+    "a two-path declaration must land both paths in the closure:\n" .. mk_multi)
+
   check.must(fs.write(fs.join(dir, "x_test.tl"),
       "--- reads: gone\nprint('ok')\n"))
   local proj2 = check.must(project.scan(dir))
