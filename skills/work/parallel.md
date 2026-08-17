@@ -1,12 +1,11 @@
 # Fanning out: many implementer sessions at once
 
-the board's WIP limits are sized for parallel work — `work:do`
-holds 5 because five implementer sessions can run at once, and
-`work:ready` holds 12 so there is a deep queue of independent slices
-to feed them (`SKILL.md`). this chapter is the other half of that
-design: how ONE orchestrating session runs several implementers
-concurrently without them colliding, and which parts of the system
-never fan out.
+the board's WIP limits are sized for parallel work — `do` holds 5
+because five implementer sessions can run at once, and `ready` holds
+12 so there is a deep queue of independent slices to feed them
+(`SKILL.md`). this chapter is the other half of that design: how ONE
+orchestrating session runs several implementers concurrently without
+them colliding, and which parts of the system never fan out.
 
 the orchestrator is not a new role. it pulls from the same board by
 the same rules; it just does step 2 of the implementer loop N times
@@ -14,31 +13,29 @@ and delegates step 3 to N agents, each in its own checkout.
 
 ## when to fan out
 
-- `work:ready` holds two or more MUTUALLY INDEPENDENT slices and
-  `work:do` has room. the limit is a cap, not a target: fan out to
-  what is actually independent, never to what merely fits.
-- work flows right to left for an orchestrator too. a `work:check`
-  card unblocks more as a planner verdict than as another implementer,
-  and `work:land` comes before both: the landing queue gates pulls, so
-  at or over its limit of 3 no fresh `ready → do` pull is offered at
-  all — and a wave of pulls is exactly what a fan-out is. land what is
-  accepted, then fan out.
+- `ready` holds two or more MUTUALLY INDEPENDENT slices and `do` has
+  room. the limit is a cap, not a target: fan out to what is actually
+  independent, never to what merely fits.
+- work flows right to left for an orchestrator too. a `check` item
+  unblocks more as a planner verdict than as another implementer, and
+  `land` comes before both: land what is accepted, then fan out — a
+  wave of pulls on top of a full landing queue starts work while
+  finished work waits.
 - never fan out to make ONE slice faster. a slice is sized for one
   session by construction (`decompose.md`), and splitting it across
   agents is how a diff arrives half-implemented twice.
 
 ## picking the set: disjointness beats board order
 
-`next` names exactly one issue — the oldest unblocked ready — and it
+`next` names exactly one item — the oldest unblocked ready — and it
 does not know what else you are about to take. taking N means walking
-that order yourself and SKIPPING any issue whose files a slice you
+that order yourself and SKIPPING any item whose files a slice you
 already took is touching.
 
 the shape to watch for: one slice restructures a file, another edits
-it. one splits `_work/board.tl` in two; another adds a verb to that
-same file and says so in its own body. taken in one wave they produce
-two PRs that cannot both merge, and the second implementer's session
-is thrown away. take the next issue down instead.
+it. taken in one wave they produce two PRs that cannot both merge,
+and the second implementer's session is thrown away. take the next
+item down instead.
 
 disjointness is judged on the MERGE, not on either branch. two slices
 that each GROW the same file are not disjoint when that file is near
@@ -46,36 +43,46 @@ the 500-line cap: each branch clears the cap alone — 470 lines on one,
 480 on the other — and the merge is over it, a failure that belongs to
 neither diff and that neither implementer can see. treat a shared file
 with thin headroom exactly like a shared restructure, and take the
-next issue down.
+next item down.
 
-say which one you skipped and why, in the report and in the issue
-trail. an implementer stepping over the board's order silently is
-indistinguishable from a bug.
+say which one you skipped and why, in the report and in the item's
+spec trail. an orchestrator stepping over the board's order silently
+is indistinguishable from a bug.
 
-`Blocked by:` chains are already handled — `next` skips them.
+`blocked_by` chains are already handled — `next` skips them.
 file disjointness is the check `next` does NOT do, and it is yours.
 
 ## claim first, then spawn
 
-move each issue to `work:do` YOURSELF, one at a time, before
-spawning anything. the move is the lock; an agent that claims its own
-issue races every other agent for the same phase.
+move each item to `do` YOURSELF (`move ID do --claim <session>`), one
+at a time, before spawning anything. the move is the lock; an agent
+that claims its own item races every other agent for the same phase.
 
-space the moves and read each verdict line. GitHub's list-by-label
-index lags a mutation by a few seconds, so a burst of moves can hit a
-spurious `REFUSED` at the limit — pause and retry, never `--force`
+read each move's verdict line. a lost race is not a lagged index
+anymore: a rejected publish rebases onto whoever moved first,
+re-checks the limit against the merged board, and REFUSES explicitly
+if it now binds — re-read the board and continue, never `--force`
 (`SKILL.md`'s hard rules bind the orchestrator exactly as they bind
 everyone else).
+
+## the board stays with the orchestrator
+
+agents do not run board verbs. the orchestrator claims before
+spawning, moves each item to `check` when its PR opens, and files
+what the agents found — so no agent needs the board worktree, push
+rights to `board`, or any state beyond its own slice. the agent's
+job is the diff; the board's truth is one session's responsibility
+per wave.
 
 ## one worktree, one branch, one PR
 
 - **one worktree per agent.** a shared checkout means two sessions
   editing the same tree and one `o/` racing itself; the builds
   interleave and both results are garbage.
-- **one branch per issue**, named after it. never stack two slices on
-  one branch: one branch is one PR is one issue, and a stacked branch
-  cannot be reviewed, reverted, or merged as the slice it claims to
-  be.
+- **one branch per item**, named after its id prefix. never stack two
+  slices on one branch: one branch is one PR is one slice, and a
+  stacked branch cannot be reviewed, reverted, or merged as the slice
+  it claims to be.
 - **a fresh worktree has no `o/`.** the brief must start with
   `bin/cosmic --make fetch`, or the agent's first `--make` command
   fails on a cold tree and it starts debugging the toolchain instead
@@ -110,10 +117,10 @@ everyone else).
 
 ## the brief
 
-an agent knows nothing this session knows. paste the issue BODY
-verbatim rather than pointing at its number — "read #N and do it"
+an agent knows nothing this session knows. paste the spec sidecar
+verbatim rather than pointing at an id — "read the board and do it"
 turns a specified slice back into an interpretation, which is the one
-thing the ready bar exists to prevent. then add what the issue does
+thing the ready bar exists to prevent. then add what the spec does
 not carry:
 
 - the branch name, and the instruction to start from the latest
@@ -123,27 +130,22 @@ not carry:
   failure that never happened;
 - environment quirks the tree does not document (proxy variables,
   tokens);
-- the read command: `bin/cosmic --make run _work/board.tl show N` —
-  run it even with the body pasted below, so the agent's own read
-  stays inside the board tool (`SKILL.md`'s hard rules bind the brief
-  exactly as they bind everyone else: no `gh`, no raw API call, for
-  anything the tool has a verb for);
 - the commit trailers and the PR attribution footer;
-- a PR opened READY for review, not draft — referencing `Closes #N`,
-  then `move N check` and the PR link commented on the issue;
-- the finding rule (`SKILL.md`, "when you find something out of
-  scope"): file what you found with `--finding`, then return to the
-  slice. an agent that cannot file it either loses the evidence or
-  widens its diff to fix it;
-- **do not land** — a PR lands only after a planner accept, via
-  `land N PR`, in a later implementer pass; an agent with a green PR
-  will otherwise finish the job it thinks it has. the brief's loop
-  ends at `move N check`.
+- a PR opened READY for review, not draft, carrying `Board: <id>` in
+  its body so the reviewer joins the PR to its item — the orchestrator
+  runs `move ID check` when it sees the PR;
+- the finding rule: report anything found out of scope — a real
+  defect, a stale doc — in the final message as one paragraph of
+  evidence each, and return to the slice. the orchestrator files each
+  as a board finding; an agent that cannot hand evidence somewhere
+  either loses it or widens its diff to fix it;
+- **do not merge** — a PR lands only after a planner accept, in a
+  later implementer pass. the brief's loop ends at the opened PR.
 
-carry the bounce rule verbatim (`SKILL.md`, "when the issue
-under-specifies"): comment naming exactly what is missing, `move N
-plan`, stop. an agent told to finish WILL improvise unless the
-brief says that stopping is a good outcome.
+carry the bounce rule verbatim (`SKILL.md`, "when the spec
+under-specifies"): report exactly what is missing and stop — the
+orchestrator returns the item to `plan`. an agent told to finish WILL
+improvise unless the brief says that stopping is a good outcome.
 
 ## what never fans out
 
@@ -151,8 +153,7 @@ brief says that stopping is a good outcome.
   sophisticated model's judgment (`review.md`); N agents reviewing N
   PRs is N unreviewed merges wearing a costume.
 - **refinement.** parallel planners contend on the same phases and
-  the same goals list, and two of them will decompose the same goal
-  twice.
+  the same goals, and two of them will decompose the same goal twice.
 - **anything two slices share.** see above — this is the whole game.
 
 ## after the wave
@@ -160,9 +161,9 @@ brief says that stopping is a good outcome.
 an agent can die mid-loop, so reconciliation is the orchestrator's,
 not the board's:
 
-- every issue that went to `do` is now in `check` with a PR, or back
-  in `plan` with a bounce comment. anything else — `do` with no PR —
-  is a dead session: move it back to `ready` by hand rather than
+- every item that went to `do` is now in `check` with a PR, or back
+  in `plan` with the gap recorded. anything else — `do` with no PR —
+  is a dead session: move it back to `ready` yourself rather than
   leaving the phase jammed against its limit.
 - run `status` and read it. the board is the truth of what happened,
   and a fan-out that half-failed looks fine from inside the session

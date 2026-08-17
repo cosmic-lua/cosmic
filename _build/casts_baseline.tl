@@ -35,7 +35,6 @@ return {
   ["_types/gentype.tl"] = 3,
   ["_types/tlast.tl"] = 6,
   ["_types/tlast_test.tl"] = 3,
-  ["_work/github.tl"] = 7,
   ["cmd/cosmic/embed_gen.tl"] = 2,
   ["cmd/cosmic/main.tl"] = 4,
   ["cosmic/_literal_format.tl"] = 1,

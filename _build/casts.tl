@@ -32,7 +32,7 @@ local BASELINE < const > = "_build/casts_baseline.tl"
 --- `3p/` is not one — its contents are vendored, not written here.
 local TREES < const >: {string} = {
   "_build", "_cli", "_docs", "_make", "_perf", "_tool",
-  "_types", "_work", "cmd", "cosmic",
+  "_types", "cmd", "cosmic",
 }
 
 --- Cast-justification comments in one file's text.

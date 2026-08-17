@@ -6,7 +6,6 @@
 --- reads: _perf
 --- reads: _tool
 --- reads: _types
---- reads: _work
 --- reads: cmd
 --- reads: cosmic
 -- Ratchet over the tree's `as`-cast count.
