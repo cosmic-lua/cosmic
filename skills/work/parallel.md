@@ -1,9 +1,9 @@
 # Fanning out: many implementer sessions at once
 
-the board's WIP limits are sized for parallel work — `do` holds 5
-because five implementer sessions can run at once, and `ready` holds
-12 so there is a deep queue of independent slices to feed them
-(`SKILL.md`). this chapter is the other half of that design: how ONE
+the board's WIP limits are sized for parallel work — `do` admits
+several implementer sessions at once, and `ready` holds a queue deep
+enough to feed them independent slices (`status` prints both against
+their limits). this chapter is the other half of that design: how ONE
 orchestrating session runs several implementers concurrently without
 them colliding, and which parts of the system never fan out.
 
@@ -57,6 +57,9 @@ file disjointness is the check `next` does NOT do, and it is yours.
 move each item to `do` YOURSELF (`move ID do --claim <session>`), one
 at a time, before spawning anything. the move is the lock; an agent
 that claims its own item races every other agent for the same phase.
+name that session to `next` too (`next --session <session>`): a claim
+is only a lock against a session that reads it, and `next` without one
+will happily hand you back work another orchestrator is running.
 
 read each move's verdict line. a lost race is not a lagged index
 anymore: a rejected publish rebases onto whoever moved first,

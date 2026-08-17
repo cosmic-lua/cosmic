@@ -69,32 +69,16 @@ cd o/board && bin/cosmic --make build # once, on a cold worktree
 
 that build produces `o/bin/gitboard`, the binary this branch ships,
 and `gitboard` below means running it from the worktree — one process,
-one verdict line, no make output interleaved with the answer. (In a
-checkout that has not built yet, `bin/cosmic --make run
-_work/gitboard.tl <verb>` runs the same CLI.)
+one verdict line, no make output interleaved with the answer.
 
-the branch is an ordinary cosmic project, so a change to the MACHINERY
-is gated like any other: `bin/cosmic --make ci` from the worktree, and
-the `board` workflow runs the same gate on every push there. it is NOT
-a toolchain, though: a gate re-execs into what the tree built only for
-a project that defines `cosmic/**` and ships a binary called `cosmic`,
-so every `--make` verb there runs under the branch's pinned cosmic.
-that pin, not main, is what the machinery's tests execute inside.
-
-```bash
-gitboard sync                 # rebase onto the remote's state — FIRST
-gitboard status               # the kanban, its WIP verdict, graph health
-gitboard tree                 # goals, their subtrees, the triage queue
-gitboard next [--role planner]  # the one next action (implementer default)
-gitboard new "title" [--parent ID] [--rank N] [--spec-file F]
-gitboard attach ID PARENT     # triage a finding, decompose, re-parent
-gitboard spec ID FILE         # replace ID's spec sidecar
-gitboard check ID             # ready-bar and graph lint of THAT item
-gitboard move ID PHASE [--claim SESSION] [--pr N]  # phase change, WIP-limited
-gitboard verdict ID KIND [--pr N] [--head SHA]  # review verdict + its move
-gitboard done ID [--reason not-planned]    # end an item
-gitboard show ID              # fields, role, spec, git history
-```
+**the verbs are the tool's to describe, not this skill's.** `gitboard
+help` lists them and `gitboard help <verb>` gives one its options,
+generated from the CLI itself, so that listing is current by
+construction and cannot drift from what the tool does. how the
+machinery is run, built and gated is the branch's own `README.md`,
+beside it. what the verbs are FOR — when to reach for which, and what
+the system means by them — is this skill, and that is the only half
+that belongs on `main`.
 
 **start every session with `sync`.** reads are a directory scan of
 the worktree, so they are only as current as the last pull; a mutation
@@ -154,13 +138,17 @@ phases, left to right (only workable leaves carry one). a phase is
 named for the action performed in it; `ready` is the one noun,
 because nobody acts there — it is a buffer:
 
-| phase | meaning | WIP limit |
-|-------|---------|-----------|
-| `plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar | 12 |
-| `ready` | meets the ready bar (`decompose.md`); nobody's until an implementer pulls it | 12 |
-| `do` | claimed work and rework — the implementer's, until a PR opens or a bounce | 5 |
-| `check` | PR open; the planner's, until a verdict | 10 |
-| `land` | accepted; the implementer's, until the merge | 3 |
+| phase | meaning |
+|-------|---------|
+| `plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar |
+| `ready` | meets the ready bar (`decompose.md`); nobody's until an implementer pulls it |
+| `do` | claimed work and rework — the implementer's, until a PR opens or a bounce |
+| `check` | PR open; the planner's, until a verdict |
+| `land` | accepted; the implementer's, until the merge |
+
+every phase is WIP-limited. the numbers are the tool's — `status`
+prints each phase against its own — and retuning one is a reviewed
+change to the machinery, not a reading of this table.
 
 the limits carry the label board's empirically tuned values. at the
 limit, exactly two arrivals are admitted: a return (leftward motion —
@@ -226,17 +214,19 @@ one item per session, exactly this loop:
    (squash), then `gitboard done ID`. a `do` item with a
    `request changes` verdict is rework: address the quoted gaps on
    that PR and rejoin the loop at step 3. a fresh `ready` item is
-   claimed: `move ID do --claim <session>` — the move is the lock.
+   claimed: `move ID do --claim <session>` — the move is the lock, and
+   `next --session <session>` is how you hold it: it never hands you
+   an item another session claimed.
 3. implement EXACTLY what the spec says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
 4. open the PR on GitHub READY for review, not draft, then hand it
-   over WITH its number: `gitboard move ID check --pr N`. the `pr`
-   field is the link the reviewer follows and the one the landing step
-   reads back, so a handover without it leaves the next session
-   guessing. reference the item id in the PR body (`Board: <id>`) too,
-   for whoever is reading from the GitHub side.
+   over WITH its number: `gitboard move ID check --pr N` — the move
+   refuses a handover that names no PR, because that field is the link
+   the reviewer follows and the one the landing step reads back.
+   reference the item id in the PR body (`Board: <id>`) too, for
+   whoever is reading from the GitHub side.
 5. stop. the verdict is the planner's job; never merge a PR that has
    not been accepted. the accept arrives as the item moving to `land`
    with `verdict = accept` — landing it is step 2's first case, in
@@ -272,10 +262,10 @@ checkout per session, a brief that carries the spec — and those are
   under the `optimize` skill; a board item may link to a perf issue,
   never duplicate it.)
 - board state moves and reads through `gitboard` only. when the tool
-  LACKS a verb the session needs (blockers today are the `blocked_by`
-  field with no verb; landing merges the PR by hand), work around it
-  ONCE by editing the item file and committing — the file format is
-  the contract — and file the missing verb as a finding.
+  LACKS a verb the session needs (landing still merges the PR by
+  hand), work around it ONCE by editing the item file and committing —
+  the file format is the contract — and file the missing verb as a
+  finding.
 - the ready bar is never lowered to make an item pullable, and the
   WIP limits are never widened to make a move succeed. `--force`
   exists for repair, not for flow.

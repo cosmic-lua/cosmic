@@ -474,9 +474,9 @@ discipline). the backlog is GitHub issues labeled `perf`.
 what to build next is decided by the `work` skill (`skills/work/SKILL.md`):
 work items flow kanban-style through `plan` → `ready` → `do` → `check` → `land`,
 WIP-limited, pulled right to left. the board lives on the orphan `board` branch —
-one `items/<ksuid>.tl` per item, the machinery beside it — reached as a worktree:
-`git worktree add o/board board`; from `o/board`, `bin/cosmic --make build` once,
-then `o/bin/gitboard next` starts any session. issues remain only the inbound
+one `items/<ksuid>.tl` per item, the machinery beside it — reached as a worktree.
+the skill has the bootstrap and what the system means; the board branch's own
+README and `gitboard help` have the tool. issues remain only the inbound
 queue; pull requests carry fixes and review as before.
 
 ## CI

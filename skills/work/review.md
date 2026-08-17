@@ -6,7 +6,9 @@ model judging the implementation against the definition of work AND
 the goal it traces to. an item sits in `check` with a PR attached —
 that phase means exactly "awaiting a planner verdict", nothing else —
 and the planner ends that state with one of three verdicts, every
-time.
+time. `check` is the only phase a verdict may end, and the verb
+refuses one from anywhere else: an accept reaches `land` past every
+gate between them, so it may only be given where review happens.
 
 ## the review itself
 
