@@ -10,12 +10,15 @@ local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local net = require("cosmic.net")
 local stream = require("cosmic.stream")
+local time = require("cosmic.time")
 local support = require("_eval.checks.support")
 
 local BIN < const > = "o/bin/echotrip"
 local WANT_STDOUT < const > = "OK round-trip-42\n"
 local RUNS < const > = 10
 local PROBE < const > = "probe"
+local DIAL_RETRY_TOTAL_MS < const > = 2000
+local DIAL_RETRY_STEP_MS < const > = 25
 
 --- Best-effort scan of /proc for a process whose EXECUTABLE resolves to
 --- `bin_path` exactly. /proc/<pid>/exe is a symlink the kernel points
@@ -49,6 +52,43 @@ local function process_running(bin_path: string): boolean
   end
   dir:close()
   return found
+end
+
+--- Dial 127.0.0.1:port with a short bounded retry, closing the gap
+--- between the server printing its `PORT=<n>` readiness line and the
+--- listening socket actually being ready to accept -- the same class
+--- of readiness race the module doc describes for the repeated-run
+--- assertion above, but on the client's connect instead of the
+--- server's bind. A printed port number promises the server intends
+--- to listen there, not that accept(2) is live yet: nothing guarantees
+--- the process scheduler ran the bind before the pipe byte reached us.
+--- Retries every step_ms up to a total_ms budget rather than a single
+--- fixed sleep, so it succeeds as soon as the server is ready and only
+--- spends the full budget when it never becomes ready. total_ms and
+--- step_ms default to DIAL_RETRY_TOTAL_MS/DIAL_RETRY_STEP_MS and are
+--- parameters only so a test can shrink the budget instead of paying
+--- the full two seconds to exercise the retry-then-give-up path.
+--- @param port integer The port to connect to
+--- @param total_ms integer? The total retry budget in milliseconds
+--- @param step_ms integer? The delay between attempts in milliseconds
+--- @return net.Socket | nil The connected socket, or nil after the retry budget
+--- @return string The last dial error, when nil
+local function dial_with_retry(port: integer, total_ms?: integer, step_ms?: integer):
+  net.Socket | nil, string
+  local deadline = time.monotonic_ms() + (total_ms or DIAL_RETRY_TOTAL_MS)
+  local step = step_ms or DIAL_RETRY_STEP_MS
+  local last_err = "no attempt made"
+  while true do
+    local sock, derr = net.dial("127.0.0.1", port)
+    if sock then
+      return sock
+    end
+    last_err = tostring(derr)
+    if time.monotonic_ms() >= deadline then
+      return nil, last_err
+    end
+    local _remaining, _serr = time.sleep_ms(step)
+  end
 end
 
 --- Exercise `echotrip serve` as the brief's second Acceptance fact
@@ -93,10 +133,11 @@ local function check_serve_mode(acc: support.Acc, workspace: string)
     return
   end
 
-  local sock, derr = net.dial("127.0.0.1", port)
+  local sock, derr = dial_with_retry(port)
   if not sock then
     support.fail(acc, "echotrip serve: scorer TCP client could not connect on port " ..
-      tostring(port) .. ": " .. tostring(derr))
+      tostring(port) .. " within " .. tostring(DIAL_RETRY_TOTAL_MS) .. "ms: " ..
+      tostring(derr))
     local _ok, _serr = h:stop()
     local _r, _werr = h:wait(1000)
     return
@@ -150,10 +191,13 @@ end
 
 local record child_tcp_check
   check: function(workspace: string): integer, {string}
+  dial_with_retry: function(port: integer, total_ms?: integer, step_ms?: integer):
+  net.Socket | nil, string
 end
 
 local M: child_tcp_check = {
   check = check,
+  dial_with_retry = dial_with_retry,
 }
 
 return M

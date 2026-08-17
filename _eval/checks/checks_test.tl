@@ -1,6 +1,9 @@
 local fs = require("cosmic.fs")
 local check = require("cosmic.check")
+local net = require("cosmic.net")
+local time = require("cosmic.time")
 local support = require("_eval.checks.support")
+local child_tcp = require("_eval.checks.child-tcp")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -78,6 +81,28 @@ local function test_expect_test_file_present_catches_absence()
   assert(count == 1, "a workspace with no *_test.tl should record one finding")
 end
 test_expect_test_file_present_catches_absence()
+
+--- The retry-then-give-up path of child-tcp's dial_with_retry never
+--- runs against the run_pass fixture above (its serve mode is ready on
+--- the first attempt by construction), so it needs its own coverage: a
+--- port nothing is listening on, with a tiny budget so the test stays
+--- fast, confirming both the nil result and that the loop actually
+--- spent its budget retrying rather than giving up on the first
+--- ECONNREFUSED.
+local function test_dial_with_retry_gives_up_after_its_budget_on_a_closed_port()
+  local probe = check.must(net.listen_tcp("127.0.0.1", 0))
+  local port = check.must(probe:local_endpoint()).port
+  check.must(probe:close())
+
+  local start = time.monotonic_ms()
+  local sock, err = child_tcp.dial_with_retry(port, 80, 20)
+  local elapsed = time.monotonic_ms() - start
+  assert(sock == nil, "expected no connection to a port nothing listens on")
+  assert(err ~= nil and #err > 0, "expected a non-empty dial error")
+  assert(elapsed >= 80, "expected the retry loop to spend its full budget, took " ..
+    tostring(elapsed) .. "ms")
+end
+test_dial_with_retry_gives_up_after_its_budget_on_a_closed_port()
 
 local function test_expect_source_contains_catches_absence()
   local dir = fs.join(tmpdir, "checks-no-source-match-" ..
