@@ -70,6 +70,15 @@ local function init_shared(name: string, clones: integer): string, {string}
   return bare, out
 end
 
+--- How many commits a checkout carries — fixture arithmetic for the
+--- one-commit-per-mutation property.
+local function commit_count(cwd: string): integer
+  local r = check.must(child.run({"git", "rev-list", "--count", "HEAD"},
+      {cwd = cwd}))
+  assert(r.ok, "git rev-list failed: " .. r.stderr)
+  return math.tointeger(tonumber((r.stdout:gsub("%s+$", "")))) or -1
+end
+
 local counter = 0
 
 --- A fresh deterministic id; later calls sort later.
@@ -127,6 +136,38 @@ local function test_resolve_prefixes()
   assert(none == nil and nerr:find("no item", 1, true), "a miss is named")
 end
 test_resolve_prefixes()
+
+-- Everything one mutation touches lands in ONE commit, because that
+-- is what makes publish's "drop the refused mutation" exact.
+local function test_save_writes_every_touched_item_as_one_commit()
+  local root = init_state_repo("atomic")
+  local s = check.must(store.open(root))
+  local parent = make_item("plan")
+  assert(store.save(s, parent, nil, "new parent"))
+  local before = commit_count(root)
+  local kid = make_item("plan")
+  parent.phase = ""
+  assert(store.save(s, kid, nil, "new kid", {parent}))
+  assert(commit_count(root) == before + 1,
+    ("one mutation, one commit: %d -> %d"):format(before, commit_count(root)))
+  assert(check.must(store.load(s, parent.id)).phase == "",
+    "the de-phased parent is in that commit")
+  assert(check.must(store.load(s, kid.id)).phase == "plan", "so is the child")
+end
+test_save_writes_every_touched_item_as_one_commit()
+
+-- A mutation that changes nothing must say so, not surface git's
+-- exit code with the explanation on a stream nobody read.
+local function test_save_refuses_a_no_op()
+  local root = init_state_repo("noop")
+  local s = check.must(store.open(root))
+  local it = make_item("plan")
+  assert(store.save(s, it, nil, "new item"))
+  local ok, err = store.save(s, it, nil, "move it nowhere")
+  assert(not ok, "an unchanged item is not a commit")
+  assert(err:find("nothing to record", 1, true), "got: " .. err)
+end
+test_save_refuses_a_no_op()
 
 local function test_publish_fast_forward()
   local bare, clones = init_shared("ff", 2)
@@ -186,3 +227,42 @@ local function test_publish_cas_refuses_over_limit()
   assert(#(merged["do"] or {}) == 5, "do holds exactly its limit")
 end
 test_publish_cas_refuses_over_limit()
+
+-- Two sessions editing the SAME item cannot rebase past each other.
+-- git stops mid-rebase with conflict markers in the item file, which
+-- is a state no later verb survives — a conflicted item is not
+-- parseable literal data, so even `status` would die. The loser must
+-- come back to a clean checkout holding the winner's state.
+local function test_publish_unwinds_a_conflicting_rebase()
+  local _, clones = init_shared("conflict", 2)
+  local a = check.must(store.open(clones[1]))
+  local contested = make_item("ready")
+  assert(store.save(a, contested, nil, "new contested"))
+  assert(store.publish(a))
+  local b = check.must(store.open(clones[2]))
+  assert(store.sync(b))
+
+  local ia = check.must(store.load(a, contested.id))
+  ia.phase = "do"
+  ia.claim = "session-a"
+  assert(store.save(a, ia, nil, "move contested ready -> do"))
+  assert(store.publish(a))
+
+  local ib = check.must(store.load(b, contested.id))
+  ib.phase = "check"
+  ib.pr = 7
+  assert(store.save(b, ib, nil, "move contested ready -> check"))
+  local ok, err = store.publish(b)
+  assert(not ok, "the losing edit of the same item must be refused")
+  assert(err:find("concurrent edit", 1, true), "got: " .. err)
+  assert(err:find(contested.id:sub(1, 8), 1, true),
+    "the refusal names the contested item: " .. err)
+
+  assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
+    "no rebase may be left in progress")
+  local after = check.must(store.load(b, contested.id))
+  assert(after.phase == "do" and after.claim == "session-a",
+    "the loser's checkout holds the winner's state: " .. after.phase)
+  assert(store.list(b), "the board stays readable after the refusal")
+end
+test_publish_unwinds_a_conflicting_rebase()
