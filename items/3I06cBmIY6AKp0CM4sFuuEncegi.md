@@ -1,4 +1,6 @@
-Imported from whilp/cosmic#1190.
+Imported from whilp/cosmic#1190. Refined 2026-08-17 against the current `_work/`
+layout (the tool was renamed from `work` to `gitboard` and its verbs split into
+per-file modules since this item's facts were first measured — see below).
 
 ## Goal
 
@@ -7,165 +9,162 @@ the goal directly).
 
 ## Change
 
-Make a refused merge say which of two things happened — GitHub refused this
-token permission, or the merge failed for any other reason — and what the
-operator does next. Three files, one new module.
+**Why this is a re-refine, not a fresh card.** The item's original facts named
+`_work/github.tl` and `_work/implementer.tl`, which no longer exist — the tool
+was refactored into per-verb modules (`_work/gh.tl` transport, `_work/gitland.tl`
+the land verb, `_work/gitverbs.tl` the other verbs, `_work/gitboard.tl` dispatch,
+`_work/gitgate.tl` shared gate/verdict machinery). That refactor also already
+added a partial 403 short-circuit inside `gh.merge` (today's lines 130-135) —
+but `merge` still returns a bare `boolean, string`, so `_work/gitland.tl`'s
+`cmd_land` cannot classify a failure by the numeric HTTP status; it only prints
+whatever string `merge` hands back, with no REFUSED/ERROR distinction and no
+"ask a maintainer" text on the 403 path. This item still holds: make a refused
+merge say which of two things happened, against the CURRENT tree.
 
-**1. New `_work/merge.tl`** — the merge half of a landing: the squash-merge
-call plus the pure rendering of what GitHub answered. It exists as its own
-module because `_work/github.tl` has 15 lines of headroom against the 500-line
-cap (fact below) and this change needs ~20 there. Move `merge_pull` here,
-renamed, and widen its return so the HTTP status survives:
+The original design put the new code in a separate `_work/merge.tl` because
+`_work/github.tl` had only 15 lines of headroom. That constraint is gone:
+`_work/gh.tl` today has 344 lines of headroom (156/500), so the classifier
+belongs directly in it — one module, no new file for ~25 lines of pure code.
 
-- `local record Result` with two fields — `status: integer` (the status GitHub
-  answered) and `detail: string` (`_work.api`&#39;s `error_of` rendering, `&#34;&#34;` on
-  success).
-- `squash(repo: string, pr: integer): Result | nil, string` — the same
-  `PUT /repos/%s/pulls/%d/merge` with `{merge_method = &#34;squash&#34;}` that
-  `merge_pull` sends today. `nil` plus a message ONLY when no response arrived
-  (`api.call` returned nil); a non-2xx status is a `Result`, not an error,
-  because the caller must classify it. Fill `detail` with
-  `api_error(&#34;PUT&#34;, path, res)` only when `is_success(res.status)` is false.
-- `is_merged(res: Result): boolean` — pure; `api.is_success(res.status)`. It
-  exists so `_work/implementer.tl` never requires `_work.api` itself.
-- `refusal(issue: integer, pr: integer, res: Result): string` — pure; the
-  verdict line minus the `work-land: ` prefix, exactly two shapes:
-  - `status == 403` →
-    `REFUSED (403: this token may not merge PR # into the base branch — a
-    permission refusal, not the diff. The accept stands and # stays in
-    work:land: ask a maintainer to squash-merge PR #. )`
-  - every other non-2xx →
-    `ERROR (the merge of PR # failed and nothing was merged; #
-    stays in work:land — re-run land once the cause clears. )`
+1. **`_work/gh.tl`** — widen `merge`'s return from `boolean, string` to
+   `Result | nil, string`:
+   - Add `local record Result` with `status: integer` and `detail: string`
+     (`""` on success).
+   - Change `merge(s: store.Store, number: integer): Result | nil, string`:
+     `nil, err` ONLY when `api.call` returns nil (no response arrived — the
+     transport-failure branch, unchanged). Otherwise always return a `Result`:
+     `detail = api.error_of("PUT", path, res)` when `not api.is_success(res.status)`,
+     `detail = ""` on success. Delete the existing ad-hoc 403 short-circuit
+     (current lines 130-135) — classification moves to the pure helper below,
+     which branches on the field, not inline in `merge`.
+   - Add `is_merged(res: Result): boolean` — pure; `api.is_success(res.status)`.
+   - Add `refusal(pr: integer, res: Result): string` — pure; exactly two shapes,
+     both interpolating `res.detail` verbatim as the final clause so GitHub's own
+     message still reaches the operator:
+     - `status == 403` →
+       `REFUSED (403: this token may not merge PR #<pr> into the base branch —
+       a permission refusal, not the diff. The accept stands and PR #<pr> stays
+       in land — ask a maintainer to squash-merge PR #<pr>. <res.detail>)`
+     - every other non-2xx →
+       `ERROR (the merge of PR #<pr> failed and nothing was merged; PR #<pr>
+       stays in land — re-run land once the cause clears. <res.detail>)`
+   - Update the `gh` record's `merge` signature and the `M` table entries to
+     match; add `Result`, `is_merged` and `refusal` to both.
+2. **`_work/gitland.tl`** — replace the merge tail (today's lines 49-52) with:
+   ```teal
+   local res, merr = gh.merge(s, it.pr)
+   if res == nil then
+     return gate.verdict_line("land", false, merr)
+   end
+   if not gh.is_merged(res) then
+     return gate.verdict_line("land", false, gh.refusal(it.pr, res))
+   end
+   ```
+   The no-response branch keeps today's bare error string (no REFUSED/ERROR
+   wrapper) — only a response-bearing failure gains the new classified text.
+   `cmd_land` already does not call `verbs.cmd_done` on any merge failure (it
+   returns before reaching that line), so "stays in land" is already true
+   structurally; this item only fixes what gets printed.
+3. **`_work/gh_test.tl`** (new — no test file for `_work/gh.tl` exists today):
+   pure tests for `is_merged` and `refusal`, `Result` values written as
+   literals, no network and no token:
+   - `test_refusal_names_the_permission_wall` — `refusal(1196, {status = 403,
+     detail = "d"})` starts with `REFUSED (`, contains
+     `permission refusal, not the diff`, contains `ask a maintainer`, ends
+     with `d)`.
+   - `test_refusal_reports_other_failures_as_error` — `refusal(2, {status =
+     500, detail = "d"})` starts with `ERROR (`, contains `re-run land`.
+   - `test_is_merged_reads_the_status` — true for `{status = 200}`, false for
+     `{status = 403}` and `{status = 500}`.
 
-  Both interpolate `res.detail` verbatim as the final clause, so GitHub&#39;s own
-  message (&#34;Merging into a protected base branch is not permitted for this
-  session type.&#34;) still reaches the operator.
-
-**2. `_work/github.tl`** — delete `merge_pull` (its doc block, its function,
-its `github` record signature line, its `M` entry). Nothing else in the file
-moves. It has exactly one caller in the tree (fact below), which step 3
-rewrites, so `merge_pull` disappears entirely — leave no alias behind.
-
-**3. `_work/implementer.tl`** — add `local merge = require(&#34;_work.merge&#34;)`
-beside the existing requires, and replace the six-line merge tail of `cmd_land`
-(lines 185-190 today, pinned as a fact below) with:
-
-```teal
-  local res, merr = merge.squash(repo, pr)
-  if res == nil then
-    io.stderr:write(merr .. &#34;\n&#34;)
-    print(&#34;work-land: ERROR&#34;)
-    return 1
-  end
-  if not merge.is_merged(res) then
-    print(&#34;work-land: &#34; .. merge.refusal(issue, pr, res))
-    return 1
-  end
-```
-
-The no-response branch keeps today&#39;s bare `work-land: ERROR` with the detail on
-stderr; only a response-bearing failure gains the new text.
-
-**4. New `_work/merge_test.tl`** — a `*_test.tl` in the house pattern (each
-`test_*` called on the line after its `end`), covering the pure half only, with
-`Result` values written as literals and no network and no token:
-
-- `test_refusal_names_the_permission_wall` — `refusal(1137, 1196, {status =
-  403, detail = &#34;d&#34;})` starts with `REFUSED (`, contains
-  `permission refusal, not the diff`, contains `ask a maintainer`, and ends with
-  `d)`.
-- `test_refusal_reports_other_failures_as_error` — `refusal(1, 2, {status =
-  500, detail = &#34;d&#34;})` starts with `ERROR (` and contains `re-run land`.
-- `test_is_merged_reads_the_status` — true for `{status = 200}`, false for
-  `{status = 403}` and `{status = 500}`.
-
-Moving code between files moves per-file coverage, and `.cosmic-coverage` is
-keyed by path with no entry for `_work/merge.tl`. If the coverage ratchet
-complains, run exactly the regen command its failure message prints
+Moving the classifier into `gh.tl` in place (rather than a new file) means no
+coverage-baseline path shuffle; if the coverage ratchet still complains, run
+exactly the regen command its failure message prints
 (`bin/cosmic --make coverage --baseline`) and commit the rewritten
 `.cosmic-coverage`. That is in scope; weakening the gate any other way is not.
 
-Every tree-fact above, measured on `a3cd318`:
+Every tree-fact above, measured on the `board` branch worktree at HEAD,
+2026-08-17:
 
 ```facts
-$ wc -l &lt; _work/github.tl
-485
-$ wc -l &lt; _work/implementer.tl
-211
-$ wc -l &lt; _work/implementer_test.tl
-80
-$ grep -rln &#34;merge_pull&#34; --include=*.tl --exclude-dir=o . | sort
-./_work/github.tl
-./_work/implementer.tl
-$ sed -n &#39;185,190p&#39; _work/implementer.tl
-  local ok, merr = gh.merge_pull(repo, pr)
-  if not ok then
-    io.stderr:write(merr .. &#34;\n&#34;)
-    print(&#34;work-land: ERROR&#34;)
-    return 1
+$ wc -l < _work/gh.tl
+156
+$ wc -l < _work/gitland.tl
+66
+$ grep -rn "gh\.merge\b" --include=*.tl . --exclude-dir=o
+./_work/gitland.tl:49:  local merged, merr = gh.merge(s, it.pr)
+$ sed -n '45,54p' _work/gitland.tl
+  if (it.pr or 0) == 0 then
+    return gate.verdict_line("land", false,
+      ("REFUSED: %s names no PR to merge"):format(id:sub(1, 8)))
   end
-$ grep -rn &#34;403&#34; --include=*.tl _work | wc -l
-0
-$ ls _work/merge.tl _work/merge_test.tl 2&gt;/dev/null | wc -l
+  local merged, merr = gh.merge(s, it.pr)
+  if not merged then
+    return gate.verdict_line("land", false, merr)
+  end
+  print(("gitboard-land: merged PR #%d"):format(it.pr))
+  return verbs.cmd_done(s, id, "completed", force, why)
+end
+$ grep -n "403" --include=*.tl -r _work --exclude-dir=o
+_work/gh.tl:130:  -- 403 is its own answer: the request is fine and this token may not
+_work/gh.tl:132:  if res.status == 403 then
+_work/gh.tl:133:    return false, ("PR #%d: this token may not merge (403) — a human with "
+_work/gh.tl:134:      .. "write access has to land it"):format(number)
+$ ls _work/gh_test.tl 2>/dev/null | wc -l
 0
 ```
 
 ## Non-goals
 
-- **The draft refusal is not this card.** `_work/implementer.tl`&#39;s
-  `PR #%d is a draft; mark it ready for review — the REST API cannot` (one match
-  today) stays byte-identical, and so does its position in the gate sequence.
-  Un-drafting is a separate slice, and it must land after this one.
+- **The other bare-`REFUSED:`/`ERROR` sites in `cmd_land` are untouched.**
+  `_work/gitland.tl`'s no-PR, wrong-phase, no-accept and no-response branches
+  keep their current strings and their current position in the gate sequence
+  — only the response-bearing merge failure gains classified text.
 - **No GraphQL.** `_work/api.tl` stays REST-only and is not edited at all: no
-  new transport, no `node_id` on `RawPull`, no mutation.
-- **The verdict vocabulary is frozen.** `work-land:` lines begin with `REFUSED`,
-  `ERROR`, or the success form `#%d via PR #%d`. Do not invent a third word
-  (`BLOCKED`, `DENIED`) and do not change the three other bare
-  `work-land: ERROR` sites in `cmd_land` (the get_pull, get_issue and
-  list_issue_comments failures).
-- **No new gate order and no new gates.** The closes / merged / open / draft /
-  phase / accept / `mergeable_state` sequence keeps its current order and its
-  current strings. `work-verdict: accept` remains the accept gate.
-- **No retry, no auto-merge, no fallback merge path.** A 403 is reported, never
-  worked around: nothing in this diff may attempt a second merge, a different
-  merge method, or a push.
-- **`_work/github.tl` gains no lines.** It has 15 of headroom; the only edit
-  there is the deletion. Do not park the new record or the classifier in it, and
-  do not split it further in this PR.
-- **No status classification by string-matching.** `_work.api`&#39;s
-  `&#34;%s %s: HTTP %d%s&#34;` message is for humans; branch on `res.status`, the field.
+  new transport, no `node_id`, no mutation.
+- **The verdict-line prefix is frozen at `gitboard-land:`.** Do not revert to
+  the old `work-land:` prefix the original issue used — the tool has since
+  been renamed and `gate.verdict_line` already supplies the current prefix
+  from the verb name; nothing in this change touches `verdict_line` itself.
+- **No new gate order and no new gates.** The phase / accept / no-PR / merge
+  sequence in `cmd_land` keeps its current order and its current strings for
+  every branch this item does not name above.
+- **No retry, no auto-merge, no fallback merge path.** A 403 is reported,
+  never worked around: nothing in this diff may attempt a second merge, a
+  different merge method, or a push.
+- **No status classification by string-matching.** `_work.api`'s
+  `"%s %s: HTTP %d%s"` message is for humans; branch on `res.status`, the
+  field.
+- **`_work/gitverbs.tl` and `_work/gitboard.tl` are not touched.** The merge
+  call and its classification are entirely inside `gitland.tl`/`gh.tl`.
+- **Do not create a new `_work/merge.tl`.** The original design's reason for
+  a separate module (15 lines of headroom on the old `github.tl`) no longer
+  holds; `gh.tl` has 344 lines of headroom today, and splitting it now would
+  be an unforced module for ~25 lines of pure code.
 
 ## Acceptance
 
-- `bin/cosmic --make ci` ends `ci: PASS`.
-- `bin/cosmic --make test _work/merge_test.tl` ends `test: PASS (1 file)`.
-- `bin/cosmic --make test _work/implementer_test.tl` ends `test: PASS (1 file)`
-  — the existing pure tests are untouched.
-- `grep -rln &#34;merge_pull&#34; --include=*.tl --exclude-dir=o . | sort` prints
-  nothing (it prints `./_work/github.tl` and `./_work/implementer.tl` today).
-- `grep -c &#34;status == 403&#34; _work/merge.tl` prints `1` — the classification
-  branches on the FIELD, not on a substring of `api.error_of`&#39;s prose. The
-  pattern matches nowhere in `_work/**` today (`grep -rn &#34;status == 403&#34;
-  --include=*.tl _work | wc -l` prints `0`). Do not widen this to `grep -c
-  &#34;403&#34;`: the message text also carries `403`, so that pattern counts two
-  lines, not one.
-- `grep -c &#34;permission refusal, not the diff&#34; _work/merge.tl` prints `1`.
-- `grep -c &#34;REST API cannot&#34; _work/implementer.tl` prints `1` — the draft
-  refusal is unchanged (it prints `1` today).
-- `wc -l &lt; _work/github.tl` prints a number below `485`.
+- `bin/cosmic --make ci` ends `ci: PASS`, run from the `board` branch worktree
+  (its own `README.md` has the bootstrap).
+- `bin/cosmic --make test _work/gh_test.tl` ends `test: PASS (1 file)`.
+- `grep -c "status == 403" _work/gh.tl` prints `1` — the classification
+  branches on the FIELD. The pattern matches nowhere else in `_work/**` today
+  outside `gh.tl` itself.
+- `grep -c "permission refusal, not the diff" _work/gh.tl` prints `1`.
+- `grep -c "REFUSED (403" _work/gh.tl` prints `1`.
+- `grep -rn "gh\.merge\b" --include=*.tl . --exclude-dir=o | grep -v _test` prints
+  exactly `./_work/gitland.tl:...` (still the one caller — unchanged count).
+- `grep -c "gh\.is_merged\|gh\.refusal" _work/gitland.tl` prints `2`.
 
 ## Enablement
 
 none needed. Every countermeasure this slice wants is already a gate:
-`--check lint` enforces the 500-line cap that decides the placement above, the
-`fallible-returns` lint refuses a third return slot on the widened signature,
-`--check types` fails on the unused `gh` alias if the require is dropped, and
-CI&#39;s loopback-only network namespace fails loudly if the new test reaches for a
-token. The one wrong turn no gate catches — parking the new code in
-`_work/github.tl` and hitting the cap — is answered by the measured headroom
-fact and the explicit placement in `Change`.
-
-
----
-_Generated by [Claude Code](https://claude.ai/code)_
+`--check lint` enforces the 500-line cap that decided the placement above
+(now trivially satisfied — `gh.tl` stays well under 500 even after growing by
+~25 lines), the `fallible-returns` lint refuses a third return slot on the
+widened `merge` signature, `--check types` fails on any unused import or a
+`Result` field typo, and CI's loopback-only network namespace fails loudly if
+the new test reaches for a token. The one wrong turn no gate catches — reviving
+the old separate-module design after the headroom pressure that motivated it
+is gone — is answered by the measured headroom fact above and the explicit
+placement decision in `Change`.
