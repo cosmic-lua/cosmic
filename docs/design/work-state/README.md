@@ -112,8 +112,8 @@ machinery (`_work/**`, `skills/work/**`) — gives it that, and a
 session reaches it as a second worktree of the clone it already has:
 
 ```
-git worktree add o/work work    # once per checkout; o/ is already ignored
-gitboard status --dir o/work    # every verb takes the worktree as --dir
+git worktree add o/board board    # once per checkout; o/ is already ignored
+gitboard status --dir o/board    # every verb takes the worktree as --dir
 ```
 
 No second clone, no second credential, no new repo to administer:
