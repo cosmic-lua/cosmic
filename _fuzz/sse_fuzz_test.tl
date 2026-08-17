@@ -1,6 +1,7 @@
 --- Fuzz properties for cosmic.sse: the parser must not care where the
 --- network cut the bytes, must terminate on arbitrary input, and must
 --- read back what format wrote.
+--- env: FUZZ_SEED FUZZ_ITERS
 
 local check = require("cosmic.check")
 local driver = require("_fuzz.driver")

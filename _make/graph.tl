@@ -19,6 +19,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local deps = require("_make.deps")
+local envstamp = require("_make.envstamp")
 local groups = require("_make.groups")
 local imports = require("_make.imports")
 local project = require("_make.project")
@@ -26,7 +27,6 @@ local stamp = require("_make.stamp")
 local testrun = require("_make.testrun")
 local types = require("_make.types")
 
-local type Kind = types.Kind
 local type Project = types.Project
 
 --- Where the constant rules live inside the binary.
@@ -42,78 +42,6 @@ local MAKE_ENV < const > = "COSMIC_MAKE"
 
 --- Environment override for the job count.
 local JOBS_ENV < const > = "COSMIC_JOBS"
-
---- Kinds whose `.tl` sources compile into `$(O)`.
---- The kinds whose files are compiled into `o/`.
----
---- Two callers ask: the facts writer below (which lists them for the
---- compile rules) and `source_dirs` (which a coverage report scans for
---- files no test ever loaded).
-local compiled_kinds < const >: {Kind: boolean} = {
-  module = true,
-  entry = true,
-  test = true,
-  example = true,
-  benchmark = true,
-  gen = true,
-}
-
---- Kinds whose targets RUN against the compiled tree, so each needs the
---- BUILT closure of what it imports: built before it, and the whole of
---- what its fence may read.
-local runs_against_the_stage < const >: {Kind: boolean} = {
-  test = true,
-  example = true,
-  benchmark = true,
-}
-
---- The distinct directories holding compiled sources, sorted.
----
---- What a coverage report needs to see a module NO test loaded: the
---- collected data names only files that ran, so a module with no test
---- at all is invisible without a directory to scan.
---- @param proj Project The scanned project
---- @return {string} Directory paths relative to the root
-local function source_dirs(proj: Project): {string}
-  local seen: {string: boolean} = {}
-  local out: {string} = {}
-  for _, f in ipairs(proj.files) do
-    if compiled_kinds[f.kind] then
-      local dir = fs.dirname(f.path)
-      if dir == "" then
-        dir = "."
-      end
-      if not seen[dir] then
-        seen[dir] = true
-        out[#out + 1] = dir
-      end
-    end
-  end
-  table.sort(out)
-  return out
-end
-
---- Write `path` only when the bytes differ, so a no-op run does not
---- touch an mtime the graph schedules on.
---- @param path string Destination
---- @param content string Desired contents
---- @return boolean, string Success, or false plus the error
-local function write_if_changed(path: string, content: string): boolean, string
-  if fs.read(path) == content then
-    return true
-  end
-  local ok, err = fs.make_dirs(fs.dirname(path))
-  if not ok then
-    return false, "make: cannot create " .. fs.dirname(path) .. ": " ..
-    (err or "unknown error")
-  end
-  local wok, werr = fs.write(path, content)
-  if not wok then
-    return false, "make: cannot write " .. path .. ": " ..
-    (werr or "unknown error")
-  end
-  return true
-end
 
 --- Render one `name := a b c` line, sorted so the file is a function of
 --- the tree and nothing else.
@@ -167,7 +95,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     if is_tl and types.fmt_kinds[f.kind] then
       fmt_sources[#fmt_sources + 1] = f.path
     end
-    if compiled_kinds[f.kind] then
+    if types.compiled_kinds[f.kind] then
       if is_tl then
         tl_sources[#tl_sources + 1] = f.path
       else
@@ -204,7 +132,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     -- instead, which no rule expands: an EMPTY closure, never rebuilt,
     -- fenced away from its own imports.
     local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
-    if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
+    if types.compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
       local spaths = deps.source_paths(deps.closure(proj, f, by_import))
       dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem, spaths)
       groups.add(gacc, f.path, stem, spaths)
@@ -214,7 +142,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     -- imports must be built before it and is exactly what its fence may
     -- read. The model already says so — a rule cannot ask for a closure
     -- nobody emitted, and `cosmic.mk` asks for all three.
-    if runs_against_the_stage[f.kind] then
+    if types.runs_against_the_stage[f.kind] then
       -- Declared reads (`--- reads: <path>`) join the closure: one
       -- declaration is prerequisite, content key, and fence grant.
       local built = deps.built_paths(deps.closure(proj, f, by_import))
@@ -224,6 +152,17 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       end
       for _, r in ipairs(extra) do
         built[#built + 1] = r
+      end
+      -- Declared env reads (`--- env: <NAME>`) join `deps_<stem>`, NOT
+      -- `srcdeps_<stem>` — an env change must not recompile, only
+      -- re-run. The stamp file itself carries the value; see
+      -- _make/envstamp.tl.
+      local envnames, eerr = imports.env_of_file(proj.root, f.path)
+      if not envnames then
+        return nil, "make: " .. (eerr or "bad env declaration")
+      end
+      if #envnames > 0 then
+        built[#built + 1] = envstamp.path_of(stem)
       end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
     end
@@ -251,7 +190,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
     assign("benchmarks", benchmarks),
     assign("assets", assets),
     assign("lint_sources", lint_sources),
-    assign("coverage_dirs", source_dirs(proj)),
+    assign("coverage_dirs", project.source_dirs(proj)),
     -- The runner tests exec, and its prerequisite: _make/testrun.tl.
     testrun.mk_facts(proj),
   }
@@ -273,13 +212,13 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
     RULES_ZIP .. ")"
   end
   local out = fs.join(project.BUILD_DIR, "cosmic.mk")
-  local ok, err = write_if_changed(out, rules)
+  local ok, err = stamp.write_if_changed(out, rules)
   if not ok then
     return nil, err
   end
   local mk, mkerr = project_mk(proj, cosmic)
   if not mk then return nil, mkerr end
-  ok, err = write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
+  ok, err = stamp.write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
     mk)
   if not ok then
     return nil, err
@@ -288,6 +227,13 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   -- with an honest mtime -- before make reads a rule. Same
   -- write-if-changed contract as both makefiles, for the same reason.
   ok, err = stamp.write_all(proj, cosmic)
+  if not ok then
+    return nil, err
+  end
+  -- Same reason, for a test's declared env values: deps_<stem> already
+  -- names the stamp file (project_mk above), so it must exist with an
+  -- honest mtime before make reads a rule too.
+  ok, err = envstamp.write_all(proj)
   if not ok then
     return nil, err
   end
@@ -480,7 +426,6 @@ local record GraphModule
   find_make: function(): string | nil, string
   jobs_flag: function(): string
   run: function(proj: Project, target: string, overrides: {string}, cosmic: string, extra?: {string}): integer, string
-  source_dirs: function(proj: Project): {string}
 end
 
 local M: GraphModule = {
@@ -494,7 +439,6 @@ local M: GraphModule = {
   find_make = find_make,
   jobs_flag = jobs_flag,
   run = run,
-  source_dirs = source_dirs,
 }
 
 return M

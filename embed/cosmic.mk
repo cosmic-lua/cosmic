@@ -181,7 +181,10 @@ test: $(O)/test-summary.txt
 # `$(COSMIC)` and `testrun_dep` is empty: the d17 rule against naming
 # the binary as a prerequisite stands, while the runner file is
 # content-addressed, so as a prerequisite it moves exactly when the
-# toolchain or the payload did.
+# toolchain or the payload did. A test declaring `--- env: NAME` also
+# carries a hashed env stamp (`o/.env/<stem>.env`, `_make/envstamp.tl`)
+# inside `deps_$*`, so a changed declared value is a changed
+# prerequisite instead of a replayed cached verdict.
 $(O)/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*) $(testrun_dep)
 	record $(basename $@) $(testrun) $< --deps $(deps_$*) ;
 

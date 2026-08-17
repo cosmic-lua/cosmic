@@ -41,6 +41,7 @@ _make/clean.tl 28 38
 _make/converge.tl 34 62
 _make/deps.tl 73 73
 _make/docs.tl 13 31
+_make/envstamp.tl 48 52
 _make/extract.tl 51 72
 _make/fetch.tl 118 148
 _make/generate.tl 40 50
@@ -52,7 +53,7 @@ _make/init.tl 166 222
 _make/law.tl 54 56
 _make/patch.tl 81 87
 _make/pin.tl 80 81
-_make/policy.tl 45 106
+_make/policy.tl 44 104
 _make/project.tl 181 193
 _make/root.tl 53 58
 _make/runverb.tl 72 89

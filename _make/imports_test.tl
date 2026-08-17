@@ -116,4 +116,53 @@ local function test_an_unreadable_file_has_no_edges()
 end
 test_an_unreadable_file_has_no_edges()
 
+-- `env_scan` is multi-token by design: a test commonly reads more than
+-- one variable at once (FUZZ_SEED and FUZZ_ITERS together), unlike
+-- `reads_scan`'s one-path-per-line grammar.
+local function test_env_scan_splits_on_whitespace()
+  local got = table.concat(
+    imports.env_scan("--- env: A B C\nprint('x')\n"), ",")
+  assert(got == "A,B,C", "got: " .. got)
+end
+test_env_scan_splits_on_whitespace()
+
+--- A fresh fixture directory holding one file, for env_of_file cases.
+local function env_fixture(name: string, src: string): string
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "env-" .. name .. "-XXXXXX")))
+  check.must(fs.write(fs.join(dir, "x_test.tl"), src))
+  return dir
+end
+
+local function test_env_of_file_sorts_and_dedupes()
+  local dir = env_fixture("dedupe", "--- env: B A A\nprint('x')\n")
+  local got = check.must(imports.env_of_file(dir, "x_test.tl"))
+  assert(table.concat(got, ",") == "A,B", "got: " .. table.concat(got, ","))
+end
+test_env_of_file_sorts_and_dedupes()
+
+local function test_env_of_file_refuses_a_bad_name()
+  local dir = env_fixture("badname", "--- env: 9BAD\nprint('x')\n")
+  local got, err = imports.env_of_file(dir, "x_test.tl")
+  assert(got == nil, "a bad name must refuse")
+  assert(err and err:find("9BAD", 1, true),
+    "the message must name it, got: " .. tostring(err))
+end
+test_env_of_file_refuses_a_bad_name()
+
+local function test_env_of_file_refuses_an_env_switch()
+  local dir = env_fixture("switch", "--- env: COSMIC_COVERAGE\nprint('x')\n")
+  local got, err = imports.env_of_file(dir, "x_test.tl")
+  assert(got == nil, "an ENV_SWITCHES name must refuse")
+  assert(err and err:find("COSMIC_COVERAGE", 1, true),
+    "the message must name it, got: " .. tostring(err))
+end
+test_env_of_file_refuses_an_env_switch()
+
+local function test_env_of_file_with_no_declaration_is_empty()
+  local dir = env_fixture("none", "print('x')\n")
+  local got = check.must(imports.env_of_file(dir, "x_test.tl"))
+  assert(#got == 0, "expected no declarations, got " .. #got)
+end
+test_env_of_file_with_no_declaration_is_empty()
+
 print("all imports tests passed")

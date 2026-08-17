@@ -52,7 +52,7 @@ build when the committed copy drifts.
 | D15 | an artifact carries its modules and `embed/**`; shipping is opt-in | active | [→](d15-shipping-is-opt-in.md) |
 | D16 | every build input is enumerable from committed files, the version stamp included | active | [→](d16-enumerable-build-inputs.md) |
 | D17 | a graph rule's tool prerequisite is a per-tool stamp, not the binary | active | [→](d17-tool-stamps.md) |
-| D18 | expensive recipe steps skip on input bytes, not just on mtime | amended 2026-08 (declared reads) | [→](d18-step-skip.md) |
+| D18 | expensive recipe steps skip on input bytes, not just on mtime | amended 2026-08 (declared env) | [→](d18-step-skip.md) |
 | D19 | what "public" means for toolchain modules, and the visibility lint | amended 2026-08 (a root `_tool/` tree) | [→](d19-toolchain-visibility.md) |
 | D20 | the naming charter, and the renames that applied it | amended 2026-08 (the kept-POSIX set; rule 11) | [→](d20-naming-charter.md) |
 | D21 | carried patches: the middle path between pin and fork | active | [→](d21-carried-tl-patch.md) |

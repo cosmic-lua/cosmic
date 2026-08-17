@@ -168,6 +168,13 @@ local record make_types
   --- be unacceptable.
   lint_kinds: {Kind: boolean}
 
+  --- Kinds compiled into `o/`, and kinds whose targets RUN against the
+  --- compiled tree (built before them, and the whole of what their fence
+  --- may read). Single-sourced here: `graph.tl` and `envstamp.tl` both
+  --- already require this module, so neither needs its own copy.
+  compiled_kinds: {Kind: boolean}
+  runs_against_the_stage: {Kind: boolean}
+
   --- The kind vocabulary, as a value.
   ---
   --- `Kind` is a type, and Teal erases types: compile this file and the
@@ -224,6 +231,21 @@ make_types.fmt_kinds = {
   ["payload-gen"] = true,
   pin = true,
   types = true,
+}
+
+make_types.compiled_kinds = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  gen = true,
+}
+
+make_types.runs_against_the_stage = {
+  test = true,
+  example = true,
+  benchmark = true,
 }
 
 return make_types

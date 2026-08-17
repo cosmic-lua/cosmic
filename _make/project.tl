@@ -33,10 +33,9 @@ local BUILD_DIR < const > = "o"
 
 --- The reserved STEM of a unit's PAYLOAD generator: the one `*_gen`
 --- that is scoped to a binary rather than to its own subtree, and that
---- runs at the END of a build rather than before it. Both spellings,
---- like every other marker.
---- Named here because the model, the artifact staging, and the
---- validator all have to agree about it.
+--- runs at the END of a build rather than before it (both spellings,
+--- like every other marker). Named here because the model, the
+--- artifact staging, and the validator all have to agree about it.
 local PAYLOAD_GEN < const > = "embed_gen"
 
 --- The root unit: the project itself, rather than a `cmd/<name>/`
@@ -423,6 +422,32 @@ local function paths_of(files: {File}): {string}
   return out
 end
 
+--- The distinct directories holding compiled sources, sorted.
+---
+--- What a coverage report needs to see a module NO test loaded: the
+--- collected data names only files that ran, so a module with no test
+--- at all is invisible without a directory to scan.
+--- @param proj Project The scanned project
+--- @return {string} Directory paths relative to the root
+local function source_dirs(proj: Project): {string}
+  local seen: {string: boolean} = {}
+  local out: {string} = {}
+  for _, f in ipairs(proj.files) do
+    if types.compiled_kinds[f.kind] then
+      local dir = fs.dirname(f.path)
+      if dir == "" then
+        dir = "."
+      end
+      if not seen[dir] then
+        seen[dir] = true
+        out[#out + 1] = dir
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 local record ProjectModule
   IGNORE_FILE: string
   BUILD_DIR: string
@@ -438,6 +463,7 @@ local record ProjectModule
   of_kind: function(project: Project, kinds: {Kind}): {File}
   segments: function(rel: string): {string}
   paths_of: function(files: {File}): {string}
+  source_dirs: function(proj: Project): {string}
 end
 
 local M: ProjectModule = {
@@ -455,6 +481,7 @@ local M: ProjectModule = {
   of_kind = of_kind,
   segments = segments,
   paths_of = paths_of,
+  source_dirs = source_dirs,
 }
 
 return M

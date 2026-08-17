@@ -11,7 +11,6 @@
 
 local baseline = require("_tool.coverage.baseline")
 local fs = require("cosmic.fs")
-local graph = require("_make.graph")
 local project = require("_make.project")
 local selection = require("_make.select")
 local stage = require("_make.stage")
@@ -78,7 +77,7 @@ local function run_coverage(v: Verb, proj: Project, paths: {string},
   -- not measure.
   local only = #paths > 0 and "selection" or ""
   local report: {string} = {fs.join(project.BUILD_DIR, COVERAGE_DIR)}
-  for _, dir in ipairs(graph.source_dirs(proj)) do
+  for _, dir in ipairs(project.source_dirs(proj)) do
     report[#report + 1] = dir
   end
   local code = baseline.gate(BASELINE, only, report)
@@ -90,7 +89,7 @@ end
 --- @return integer Exit code
 local function write_baseline(proj: Project): integer
   local report: {string} = {fs.join(project.BUILD_DIR, COVERAGE_DIR)}
-  for _, dir in ipairs(graph.source_dirs(proj)) do
+  for _, dir in ipairs(project.source_dirs(proj)) do
     report[#report + 1] = dir
   end
   -- The baseline being replaced is an INPUT to its own rewrite: a row
