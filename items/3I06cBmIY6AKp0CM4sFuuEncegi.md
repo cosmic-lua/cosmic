@@ -104,12 +104,10 @@ $ sed -n '45,54p' _work/gitland.tl
   end
   print(("gitboard-land: merged PR #%d"):format(it.pr))
   return verbs.cmd_done(s, id, "completed", force, why)
-end
 $ grep -n "403" --include=*.tl -r _work --exclude-dir=o
 _work/gh.tl:130:  -- 403 is its own answer: the request is fine and this token may not
 _work/gh.tl:132:  if res.status == 403 then
 _work/gh.tl:133:    return false, ("PR #%d: this token may not merge (403) — a human with "
-_work/gh.tl:134:      .. "write access has to land it"):format(number)
 $ ls _work/gh_test.tl 2>/dev/null | wc -l
 0
 ```
