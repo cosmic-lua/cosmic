@@ -1,13 +1,14 @@
 #!/usr/bin/env cosmic
 --- Tests for the fs batch: copy_tree, temp_file, glob-only patterns,
---- Dir:read d_type, access default. New/changed surfaces are reached via
---- casts so this file typechecks red (pre-change) and green alike.
+--- Dir:read d_type, access default. Reaches fs directly and typed,
+--- except for the one removed-surface probe (fsa) that asserts
+--- retired names are absent from the typed record.
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
-local fsa = fs as {string: any} -- cast: signature transition
+local fsa = fs as {string: any} -- cast: probe removed surface
 
 local function write_file(path: string, content: string, mode?: integer)
   assert(fs.write(path, content, {mode = mode}))
@@ -26,11 +27,8 @@ local function test_copytree()
   -- symlink cycle: sub/loop -> .. must be recreated, not descended into
   assert(fs.symlink("..", fs.join(src, "sub", "loop")))
 
-  -- cast: from any
-  local copy_tree = fsa.copy_tree as function(string, string): boolean, string
-  assert(copy_tree, "fs.copy_tree should exist")
   local dst = fs.join(base, "dst")
-  local ok, err = copy_tree(src, dst)
+  local ok, err = fs.copy_tree(src, dst)
   assert(ok, "copy_tree failed: " .. tostring(err))
 
   assert(fs.read(fs.join(dst, "a.txt")) == "alpha", "file content copied")
@@ -48,9 +46,7 @@ end
 test_copytree()
 
 local function test_copytree_missing_src_errors()
-  -- cast: from any
-  local copy_tree = fsa.copy_tree as function(string, string): boolean, string
-  local ok, err = copy_tree(fs.join(TEST_TMPDIR, "nope"), fs.join(TEST_TMPDIR, "out"))
+  local ok, err = fs.copy_tree(fs.join(TEST_TMPDIR, "nope"), fs.join(TEST_TMPDIR, "out"))
   assert(ok == false, "copy_tree of missing src must fail")
   assert(err and err:match("ENOENT"), "error names ENOENT: " .. tostring(err))
 end
@@ -73,9 +69,7 @@ local function test_copytree_symlink_overwrite()
   -- without an unlink first, unix.symlink() fails EEXIST here.
   assert(fs.symlink("nonexistent-old-target", fs.join(dst, "link")))
 
-  -- cast: from any
-  local copy_tree = fsa.copy_tree as function(string, string): boolean, string
-  local ok, err = copy_tree(src, dst)
+  local ok, err = fs.copy_tree(src, dst)
   assert(ok, "copy_tree must overwrite an existing symlink: " .. tostring(err))
   assert(fs.is_link(fs.join(dst, "link")), "destination is still a symlink")
   assert(fs.readlink(fs.join(dst, "link")) == "a.txt",
@@ -100,9 +94,7 @@ local function test_copytree_dir_mode_exact()
   assert(fs.make_dirs(dst))
   assert(fs.set_mode(dst, tonumber("777", 8)))
 
-  -- cast: from any
-  local copy_tree = fsa.copy_tree as function(string, string): boolean, string
-  local ok, err = copy_tree(src, dst)
+  local ok, err = fs.copy_tree(src, dst)
   assert(ok, "copy_tree failed: " .. tostring(err))
   local st = check.must(fs.stat(dst))
   assert((st:mode() & tonumber("777", 8)) == src_mode,
@@ -114,33 +106,19 @@ test_copytree_dir_mode_exact()
 
 -- 2. temp_file: Handle + path on the happy path; fs.mkstemp is gone.
 local function test_tmpfile_handle_and_path()
-  local temp_file = fsa.temp_file as function(string): any, string -- cast: from any
-  assert(temp_file, "fs.temp_file should exist")
-  local tf, err = temp_file(fs.join(TEST_TMPDIR, "traps_XXXXXX"))
-  assert(tf, "temp_file failed: " .. tostring(err))
-  local t = tf as {string: any} -- cast: from any
-  local h = t.handle
-  local hh = h as {string: any} -- cast: from any
-  local path = t.path as string -- cast: from any
-  -- cast: from any
-  assert((hh.write as function(any, string): number, string)(h, "via handle"))
-  assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
-  assert(fs.read(path) == "via handle", "fs.read sees what the Handle wrote")
-  assert(fs.remove(path))
+  local tf = check.must(fs.temp_file(fs.join(TEST_TMPDIR, "traps_XXXXXX")))
+  assert(tf.handle:write("via handle"))
+  assert(tf.handle:close())
+  assert(fs.read(tf.path) == "via handle", "fs.read sees what the Handle wrote")
+  assert(fs.remove(tf.path))
 end
 test_tmpfile_handle_and_path()
 
 local function test_tmpfile_default_template()
-  local temp_file = fsa.temp_file as function(): any, string -- cast: from any
-  local tf = temp_file()
-  assert(tf, "temp_file() with no template should create somewhere sane")
-  local t = tf as {string: any} -- cast: from any
-  local h = t.handle
-  local hh = h as {string: any} -- cast: from any
-  local path = t.path as string -- cast: from any
-  assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
-  assert(fs.is_file(path), "returned path exists")
-  assert(fs.remove(path))
+  local tf = check.must(fs.temp_file())
+  assert(tf.handle:close())
+  assert(fs.is_file(tf.path), "returned path exists")
+  assert(fs.remove(tf.path))
 end
 test_tmpfile_default_template()
 
@@ -204,22 +182,19 @@ local function test_dir_read_returns_d_type()
   assert(fs.make_dirs(fs.join(dir, "subdir")))
   write_file(fs.join(dir, "plain.txt"), "p")
 
-  assert(fsa.DT_DIR ~= nil, "fs.DT_DIR should be exported")
-  assert(fsa.DT_REG ~= nil, "fs.DT_REG should be exported")
+  assert(fs.DT_DIR ~= nil, "fs.DT_DIR should be exported")
+  assert(fs.DT_REG ~= nil, "fs.DT_REG should be exported")
   local d = assert(fs.open_dir(dir))
-  local dd = d as {string: any} -- cast: signature transition
-  local read = dd.read as function(any): string, number -- cast: from any
-  local close = dd.close as function(any) -- cast: from any
   local kinds: {string: number} = {}
   while true do
-    local name, kind = read(d)
+    local name, kind = d:read()
     if not name then break end
     kinds[name] = kind
   end
-  close(d)
-  assert(kinds["subdir"] == fsa.DT_DIR,
+  d:close()
+  assert(kinds["subdir"] == fs.DT_DIR,
     "Dir:read must report DT_DIR for a subdir, got " .. tostring(kinds["subdir"]))
-  assert(kinds["plain.txt"] == fsa.DT_REG,
+  assert(kinds["plain.txt"] == fs.DT_REG,
     "Dir:read must report DT_REG for a file, got " .. tostring(kinds["plain.txt"]))
   assert(fs.remove_all(dir))
 end

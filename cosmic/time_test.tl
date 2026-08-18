@@ -53,14 +53,10 @@ end
 test_sleep_ms_invalid_names_errno()
 
 -- sleep_ms's remainder is a single milliseconds number -- no more
--- (secs, nanos) two-integer arithmetic in retry loops. Reached via
--- casts so this file's typechecking does not depend on sleep_ms's
--- exact declared signature.
+-- (secs, nanos) two-integer arithmetic in retry loops.
 
 local function test_sleep_ms_uninterrupted_returns_zero_ms()
-  -- cast: signature transition
-  local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
-  local rem, err = sleep_ms(1)
+  local rem, err = time.sleep_ms(1)
   assert(rem == 0, "uninterrupted sleep_ms returns 0 ms, got " .. tostring(rem))
   assert(err == nil, "no error on a clean sleep, got " .. tostring(err))
 end
@@ -68,8 +64,6 @@ test_sleep_ms_uninterrupted_returns_zero_ms()
 
 local function test_sleep_ms_interrupted_returns_ms_remainder()
   local signal = require("cosmic.signal")
-  -- cast: signature transition
-  local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
 
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Single-shot timer: interrupt the sleep after ~50ms.
@@ -79,7 +73,7 @@ local function test_sleep_ms_interrupted_returns_ms_remainder()
         interval_ms = 0,
       }))
 
-  local rem, err = sleep_ms(2000)
+  local rem, err = time.sleep_ms(2000)
 
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.

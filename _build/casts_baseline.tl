@@ -69,7 +69,7 @@ return {
   ["cosmic/fs/octal.tl"] = 1,
   ["cosmic/fs/ops.tl"] = 2,
   ["cosmic/fs/path_test.tl"] = 1,
-  ["cosmic/fs/traps_test.tl"] = 19,
+  ["cosmic/fs/traps_test.tl"] = 1,
   ["cosmic/fs/tree.tl"] = 1,
   ["cosmic/fs/types.tl"] = 14,
   ["cosmic/fs/walk.tl"] = 4,
@@ -127,7 +127,6 @@ return {
   ["cosmic/teal.tl"] = 1,
   ["cosmic/teal_config_test.tl"] = 2,
   ["cosmic/time.tl"] = 7,
-  ["cosmic/time_test.tl"] = 2,
   ["cosmic/url.tl"] = 3,
   ["cosmic/zip.tl"] = 2,
 }
