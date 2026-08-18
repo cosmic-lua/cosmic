@@ -1,5 +1,5 @@
---- The gitboard read verbs: status, tree, next, and show — every
---- verb that renders state without mutating it, split from
+--- The gitboard read verbs: status, tree, next, show, and find —
+--- every verb that renders state without mutating it, split from
 --- `_work.gitverbs` (the mutations) so each file stays within the
 --- repo's size rule. The verdict-line convention is shared through
 --- `_work.gitgate`, so reading the board pulls in no mutation code.
@@ -254,6 +254,116 @@ local function cmd_show(s: store.Store, id: string): integer
   return verdict_line("show", true, verdict)
 end
 
+--- The longest excerpt text a body line contributes, leaving room
+--- for its four-space indent inside the house column width.
+local EXCERPT_MAX < const > = 86
+
+--- Whether `hay` contains `needle`, case-insensitively and as plain
+--- text. A search term is what a session typed, so it is never a Lua
+--- pattern: a term carrying `.` or `%` matches those characters.
+--- @param hay string The text searched
+--- @param needle string The term, already lowercased
+--- @return boolean True when the term occurs
+local function contains(hay: string, needle: string): boolean
+  return hay:lower():find(needle, 1, true) ~= nil
+end
+
+--- What to call a matched item in one word: its phase while it holds
+--- one, else the role its graph position gives it, and its
+--- resolution once it has ended.
+--- @param i item.Item The matched item
+--- @param all {item.Item} Every item
+--- @return string The tag
+local function find_tag(i: item.Item, all: {item.Item}): string
+  if not item.is_open(i) then
+    return ("done: %s"):format(i.resolution)
+  end
+  if i.phase ~= "" then
+    return i.phase
+  end
+  return flow.role(i, all)
+end
+
+--- The first body line containing `needle`, whitespace-trimmed and
+--- truncated to the excerpt width; "" when no line does.
+--- @param body string The spec sidecar
+--- @param needle string The term, already lowercased
+--- @return string The excerpt, possibly empty
+local function excerpt_of(body: string, needle: string): string
+  for line in body:gmatch("[^\n]+") do
+    if contains(line, needle) then
+      local text = line:match("^%s*(.-)%s*$")
+      if #text > EXCERPT_MAX then
+        text = text:sub(1, EXCERPT_MAX - 3) .. "..."
+      end
+      return text
+    end
+  end
+  return ""
+end
+
+--- Every item whose title or spec sidecar contains `text`, oldest
+--- first — ids are KSUIDs, so id order is the order they were filed.
+---
+--- ENDED items are included, tagged with their resolution: the
+--- question this answers is whether something has already been
+--- filed, and a finding closed as a duplicate answers it exactly as
+--- well as an open one does. A match found only in the body carries
+--- the line that matched, so the hit is legible without a `show`.
+---
+--- Sidecars arrive as a map rather than being read here, the way
+--- `show_report` takes the one spec it prints: the report stays pure
+--- over already-read state, and `cmd_find` owns the store reads.
+--- @param all {item.Item} Every item
+--- @param specs {string: string} Spec sidecar body, by item id
+--- @param text string The term, matched case-insensitively as plain text
+--- @return {string} The lines to print
+--- @return string The verdict detail
+local function find_report(all: {item.Item}, specs: {string: string},
+    text: string): {string}, string
+  local needle = text:lower()
+  local hits: {item.Item} = {}
+  for _, i in ipairs(all) do
+    if contains(i.title, needle) or contains(specs[i.id] or "", needle) then
+      hits[#hits + 1] = i
+    end
+  end
+  table.sort(hits, function(x: item.Item, y: item.Item): boolean
+      return x.id < y.id
+    end)
+  local out: {string} = {}
+  for _, i in ipairs(hits) do
+    out[#out + 1] = ("%s [%s] %s"):format(i.id:sub(1, 8), find_tag(i, all),
+      i.title)
+    if not contains(i.title, needle) then
+      local ex = excerpt_of(specs[i.id] or "", needle)
+      if ex ~= "" then
+        out[#out + 1] = "    " .. ex
+      end
+    end
+  end
+  return out, ("%d item(s) matching \"%s\""):format(#hits, text)
+end
+
+local function cmd_find(s: store.Store, text: string): integer
+  if text == "" then
+    return verdict_line("find", false, "find needs a search term")
+  end
+  local all, aerr = store.list(s)
+  if all == nil then
+    return verdict_line("find", false, aerr)
+  end
+  local specs: {string: string} = {}
+  for _, i in ipairs(all) do
+    specs[i.id] = store.read_spec(s, i.id)
+  end
+  local lines, verdict = find_report(all, specs, text)
+  for _, line in ipairs(lines) do
+    print(line)
+  end
+  return verdict_line("find", true, verdict)
+end
+
 local record gitview
   status_report: function(all: {item.Item}): {string}, string
   tree_report: function(all: {item.Item}): {string}, string
@@ -261,10 +371,13 @@ local record gitview
   string | nil, string
   show_report: function(it: item.Item, all: {item.Item}, spec: string,
   events: {store.Event}): {string}, string
+  find_report: function(all: {item.Item}, specs: {string: string},
+  text: string): {string}, string
   cmd_status: function(s: store.Store): integer
   cmd_tree: function(s: store.Store): integer
   cmd_next: function(s: store.Store, role: string, session?: string): integer
   cmd_show: function(s: store.Store, id: string): integer
+  cmd_find: function(s: store.Store, text: string): integer
 end
 
 local M: gitview = {
@@ -272,10 +385,12 @@ local M: gitview = {
   tree_report = tree_report,
   next_report = next_report,
   show_report = show_report,
+  find_report = find_report,
   cmd_status = cmd_status,
   cmd_tree = cmd_tree,
   cmd_next = cmd_next,
   cmd_show = cmd_show,
+  cmd_find = cmd_find,
 }
 
 return M

@@ -23,6 +23,7 @@
 ---   cosmic --make run _work/gitboard.tl land 2akQ
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
 ---   cosmic --make run _work/gitboard.tl show 2akQ
+---   cosmic --make run _work/gitboard.tl find "some text"
 ---   cosmic --make run _work/gitboard.tl sync
 ---
 --- This file is the argument parsing, prefix resolution, and dispatch
@@ -118,6 +119,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "show", summary = "print ID's fields, role, spec, and git history",
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
+    {name = "find", summary = "list items whose title or spec contains TEXT",
+      spec = {usage = "TEXT [options]", flags = {dir_flag()}}},
     {name = "sync", summary = "rebase onto the remote's state",
       spec = {flags = {dir_flag()}}},
   },
@@ -165,6 +168,9 @@ local function main(...: string): integer
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
+  end
+  if d.command == "find" then
+    return view.cmd_find(s, d.parsed.args[1] or "")
   end
   if d.command == "new" then
     local title = d.parsed.args[1]
