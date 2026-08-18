@@ -1,5 +1,43 @@
 Imported from whilp/cosmic#1203.
 
+## Refinement blocker (2026-08-18) — not resolved, do not move to ready
+
+Re-checked against the CURRENT `board` worktree while attempting to drive
+this item to the ready bar. Two separate problems found and only the first
+is fixed here:
+
+1. **Fixed.** The spec sidecar carried raw HTML entities (`&#39;`, `&#34;`,
+   `&lt;`, `&amp;`) baked into its prose and its `facts` commands — same
+   defect as finding 3I4832Yh, this time breaking `gitboard check`'s fact
+   execution itself (a `$ wc -l &lt; file` fact runs literally through
+   `/bin/sh -c` and does nothing like the intended redirect), not just the
+   PR-quoting gate 3I4832Yh named. Decoded via `gitboard spec` in this
+   pass; see 3I4832Yh, whose evidence this reinforces (now three
+   occurrences — the countermeasure there should stop being optional).
+2. **Not fixed — blocks ready.** `_work/stats.tl` and `_work/model.tl`, the
+   two files this item's Change and Acceptance cite throughout (the
+   `PhaseFlow` record, the `LIMITS` table, the `stats` CLI verb this
+   section is supposed to document), **do not exist in the current board
+   tree.** `LIMITS` now lives in `_work/flow.tl` (confirmed:
+   `grep -n "^local LIMITS" _work/flow.tl` → line 35), but no `PhaseFlow`
+   record, no dwell/stint/occupancy reporting, and no `stats` verb exist
+   anywhere in `_work/**` today (confirmed:
+   `grep -rln "PhaseFlow\|stint_count\|flow-review" _work/*.tl` → no
+   matches). `git log --oneline -- _work/stats.tl _work/model.tl` shows
+   both existed before the board's `d1cdc9fe` orphan-history reset
+   ("board: the work system and its state, on their own history") and
+   were not carried forward into it — the measurement tooling this item
+   was written to document was dropped in that reset, not merely renamed.
+   This item cannot be refined to the ready bar as scoped: there is
+   nothing left to write a `## tuning the limits: the flow review`
+   section ABOUT. Before this item can move again, a planner needs to
+   decide whether the `stats`/flow-review measurement tool gets rebuilt
+   under the new `_work/` layout (a different, larger item this one would
+   then depend on) or whether the flow-review method is redesigned around
+   whatever the current tree actually offers. Left in `plan`, unscoped,
+   for that decision — do not re-attempt this refinement without first
+   answering that question.
+
 ## Goal
 
 G8 — the flow system, via epic #1117. The board's WIP limits are committed
@@ -16,21 +54,33 @@ and the four-phase board (`shaping`/`ready`/`doing`/`review`); both are gone, an
 the tooling the method assumed to be proposed now exists. Land the corrected
 text, at the path `_work/stats.tl` already names.
 
-The measured state of the three files this touches:
+The measured state of `skills/work/review.md`, this item's target root
+(a fresh clone of `whilp/cosmic`, not the `board` worktree — the facts
+below are the only ones `check`/`move ready` can verify against a single
+root):
 
 ```facts
 $ wc -l < skills/work/review.md
-166
+162
 $ grep -ci "flow review" skills/work/review.md
 0
 $ grep -c "board.tl stats" skills/work/review.md
 0
 $ grep -cE "_plan/|plan:\*|shaping|column" skills/work/review.md
 0
-$ grep -c "flow-review section" _work/stats.tl
-1
 $ test -d skills/plan && echo yes || echo no
 no
+```
+
+Reference only — verified by hand against the `board` worktree
+(`git worktree add o/board board`) at refinement time, 2026-08-18; a
+second, board-rooted `check` run cannot be automated today (the tool
+takes one `--root`), so treat these as citations to confirm by eye
+against `_work/stats.tl` and `_work/model.tl` before writing the
+section, not as machine-checked facts:
+
+```
+$ grep -c "flow-review section" _work/stats.tl      # 1
 $ sed -n '/^local LIMITS/,/^}/p' _work/model.tl
 local LIMITS: {string: integer} = {
   plan = 12,
@@ -48,10 +98,8 @@ local record PhaseFlow
   peak_occupancy: integer
   at_limit_min: number
 end
-$ grep -c "p75" _work/stats.tl
-0
-$ grep -c "counts_against_limit" _work/stats.tl
-0
+$ grep -c "p75" _work/stats.tl                        # 0
+$ grep -c "counts_against_limit" _work/stats.tl        # 0
 ```
 
 ### `skills/work/review.md`
