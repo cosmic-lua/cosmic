@@ -7,3 +7,13 @@
 # never raise a floor — and says so, and
 # `cosmic --make coverage --baseline` rewrites the file clean.
 .cosmic-coverage merge=union
+
+# Both floors are one sorted `["key"] = value,` per line, so the common
+# collision is two branches touching alphabetically-adjacent keys. The
+# union merge strategy below takes both sides' lines and yields the
+# correct union with no duplicate keys; a real collision, where both
+# branches changed the SAME key, still surfaces -- `_tool.floor`'s
+# reader refuses a true duplicate key by default and names the regen
+# command, rather than silently picking one side.
+_build/casts_baseline.tl merge=union
+_build/public_surface_baseline.tl merge=union

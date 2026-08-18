@@ -24,19 +24,19 @@
 --- `cosmic/doc/visibility.tl`, where a second copy of it would be the
 --- drift this gate exists to prevent.
 ---
---- The set is written by `cosmic.literal.format_file` and read back by
---- `cosmic.literal.parse_file`, so one module owns both directions. Its
---- layout is what a baseline needs anyway: one entry per line, sorted,
---- so a review sees the names that changed and nothing else. The grammar
---- admits keyed entries only, so the set is spelled `["<name>"] = true`
---- — the names are the keys.
+--- The set is written and read back through `_tool.floor`, over
+--- `cosmic.literal.format_file`/`parse_file`, so one module owns both
+--- directions. Its layout is what a baseline needs anyway: one entry per
+--- line, sorted, so a review sees the names that changed and nothing
+--- else. The grammar admits keyed entries only, so the set is spelled
+--- `["<name>"] = true` — the names are the keys.
 
 -- The position rule, asked rather than copied. `cosmic.doc` re-exports
 -- it: the rule itself lives in a shard no file outside cosmic/ may
 -- require.
 local doc = require("cosmic.doc")
+local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
-local literal = require("cosmic.literal")
 local proc = require("cosmic.proc")
 
 --- The committed set: where this module writes it and the test reads
@@ -91,7 +91,7 @@ end
 --- @return {string}|nil The public module names
 --- @return string The error when the file cannot be read or parsed
 local function baseline(path?: string): {string} | nil, string
-  local data, err = literal.parse_file(path or BASELINE)
+  local data, err = floor.read(path or BASELINE)
   if not data then
     return nil, err
   end
@@ -118,7 +118,7 @@ local function main(...: string): integer
   for _, name in ipairs(names) do
     set[name] = true
   end
-  local ok, err = literal.format_file(BASELINE, set)
+  local ok, err = floor.write(BASELINE, set)
   if not ok then
     io.stderr:write("public_surface: " .. err .. "\n")
     return 1

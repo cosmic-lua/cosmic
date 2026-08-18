@@ -14,14 +14,14 @@
 ---
 ---     bin/cosmic --make run _build/casts.tl --baseline
 ---
---- The floor is written by `cosmic.literal.format_file` and read back by
---- `cosmic.literal.parse_file`: the same module writes and reads it, and
---- its layout is what a baseline needs anyway — one `["path"] = count`
---- entry per line, sorted by path, so a review sees the files whose
---- counts changed and nothing else.
+--- The floor is written and read back through `_tool.floor`, over
+--- `cosmic.literal.format_file`/`parse_file`: the same module writes and
+--- reads it, and its layout is what a baseline needs anyway — one
+--- `["path"] = count` entry per line, sorted by path, so a review sees
+--- the files whose counts changed and nothing else.
 
+local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
-local literal = require("cosmic.literal")
 local proc = require("cosmic.proc")
 
 --- The committed floor: where this module writes it and the test reads
@@ -94,7 +94,7 @@ end
 --- @return {string: integer}|nil Counts by root-relative path
 --- @return string The error when the file cannot be read or parsed
 local function baseline(path?: string): {string: integer} | nil, string
-  local data, err = literal.parse_file(path or BASELINE)
+  local data, err = floor.read(path or BASELINE)
   if not data then
     return nil, err
   end
@@ -121,7 +121,7 @@ local function main(...: string): integer
     files = files + 1
     total = total + n
   end
-  local ok, err = literal.format_file(BASELINE, counts)
+  local ok, err = floor.write(BASELINE, counts)
   if not ok then
     io.stderr:write("casts: " .. err .. "\n")
     return 1
