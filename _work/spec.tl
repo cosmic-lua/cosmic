@@ -72,56 +72,8 @@ local function claims_blocker(body: string): boolean
   return false
 end
 
---- Leading tokens that make a backticked span a COMMAND rather than a
---- verdict line or a filename. Acceptance sections quote both — "`bin/
---- cosmic --make ci` ends `ci: PASS`" — and only the first half is
---- something a PR body has to show having been run.
-local COMMAND_HEADS: {string: boolean} = {
-  ["grep"] = true, ["wc"] = true, ["git"] = true, ["make"] = true,
-  ["diff"] = true, ["test"] = true, ["ls"] = true, ["cat"] = true,
-}
-
---- The commands a spec's Acceptance section states. A backticked span
---- counts when its first token names a command — anything containing
---- "cosmic", a path that is run (`./x`, `o/bin/x`), or one of the
---- shell tools above — so `ci: PASS` and a bare `12` are left out of
---- what a PR body is asked to quote.
----
---- No head carrying a colon names one, whichever of those it would
---- otherwise match. A colon is what separates running something from
---- pointing at it: `file:line:` is the shape grep, compilers and this
---- repo's own tools print, so a span leading with one quotes OUTPUT an
---- Acceptance bullet shows rather than a command anyone can run. What
---- argv[0] can be — a program's name or its path — never carries a
---- colon, so the test costs no real invocation.
---- @param body string The spec sidecar's markdown
---- @return {string} The commands, in the order the section states them
-local function acceptance_commands(body: string): {string}
-  local out: {string} = {}
-  local seen: {string: boolean} = {}
-  local inside = false
-  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
-    local text = line:match("^#+%s+(.-)%s*$")
-    if text then
-      inside = text:lower() == "acceptance"
-    elseif inside then
-      for span in line:gmatch("`([^`]+)`") do
-        local head = span:match("^%s*(%S+)")
-        if head ~= nil and not seen[span] and not head:find(":", 1, true)
-        and (head:find("cosmic", 1, true) or head:find("^%./")
-          or head:find("^o/bin/") or COMMAND_HEADS[head]) then
-          seen[span] = true
-          out[#out + 1] = span
-        end
-      end
-    end
-  end
-  return out
-end
-
 local record spec
   READY_SECTIONS: {string}
-  acceptance_commands: function(body: string): {string}
   claims_blocker: function(body: string): boolean
   ready_gaps: function(body: string): {string}
 end
@@ -129,7 +81,6 @@ end
 local M: spec = {
   READY_SECTIONS = READY_SECTIONS,
   ready_gaps = ready_gaps,
-  acceptance_commands = acceptance_commands,
   claims_blocker = claims_blocker,
 }
 

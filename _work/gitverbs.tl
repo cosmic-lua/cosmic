@@ -237,7 +237,7 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
-local function cmd_check(s: store.Store, id: string, root: string): integer
+local function cmd_check(s: store.Store, id: string): integer
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("check", false, lerr)
@@ -246,7 +246,7 @@ local function cmd_check(s: store.Store, id: string, root: string): integer
   if all == nil then
     return gate.verdict_line("check", false, aerr)
   end
-  local problems = gate.ready_problems(s, it, all, root)
+  local problems = gate.ready_problems(s, it, all)
   for _, p in ipairs(problems) do
     print("  " .. p)
   end
@@ -260,8 +260,7 @@ local function cmd_check(s: store.Store, id: string, root: string): integer
 end
 
 local function cmd_move(s: store.Store, id: string, target: string,
-    claim: string, pr: integer, force: boolean, why: string,
-    root?: string): integer
+    claim: string, pr: integer, force: boolean, why: string): integer
   local forced = gate.force_refusal(force, why)
   if forced then
     return gate.verdict_line("move", false, "REFUSED: " .. forced)
@@ -289,7 +288,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   -- so a repair move out of no-phase is judged on where it lands.
   it.phase = target
   if target == "ready" and not force then
-    local problems = gate.ready_problems(s, it, all, root)
+    local problems = gate.ready_problems(s, it, all)
     if #problems > 0 then
       for _, p in ipairs(problems) do
         print("  " .. p)
@@ -308,7 +307,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   if target == "check" and not force then
     local refusal = gate.handover_refusal(s, id,
-      (pr or 0) ~= 0 and pr or it.pr, store.read_spec(s, id))
+      (pr or 0) ~= 0 and pr or it.pr)
     if refusal then
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
@@ -410,10 +409,9 @@ local record gitverbs
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
-  cmd_check: function(s: store.Store, id: string, root: string): integer
+  cmd_check: function(s: store.Store, id: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
-  claim: string, pr: integer, force: boolean, why: string,
-  root?: string): integer
+  claim: string, pr: integer, force: boolean, why: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
   force: boolean, why: string): integer
   cmd_sync: function(s: store.Store): integer

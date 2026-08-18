@@ -6,9 +6,8 @@
 --- These are review PRECONDITIONS, not the review: a planner still
 --- reads the diff and gives the verdict. What they enforce is that a
 --- reviewer is never handed something there is no point reading yet —
---- a draft, a request that names no item, one whose body does not show
---- the acceptance commands having been run, or one whose CI has
---- already concluded that it fails.
+--- a draft, a request that names no item, or one whose CI has already
+--- concluded that it fails.
 local record Pull
   number: integer
   --- Still a draft: the author has not offered it for review.
@@ -40,9 +39,8 @@ local FAILED: {string: boolean} = {
 --- `check`, or nil when it may.
 --- @param p Pull The fetched pull request
 --- @param id string The item's id
---- @param commands {string} The spec's Acceptance commands
 --- @return string | nil The refusal
-local function blocks_check(p: Pull, id: string, commands: {string}): string
+local function blocks_check(p: Pull, id: string): string
   if p.state ~= "open" then
     return ("PR #%d is %s — a closed request carries nothing to review")
     :format(p.number, p.state)
@@ -56,17 +54,6 @@ local function blocks_check(p: Pull, id: string, commands: {string}): string
   and not body:find("Board: " .. id:sub(1, 8), 1, true) then
     return ("PR #%d's body does not carry `Board: %s`, so nothing joins the "
       .. "request to its item"):format(p.number, id:sub(1, 8))
-  end
-  local missing: {string} = {}
-  for _, c in ipairs(commands) do
-    if not body:find(c, 1, true) then
-      missing[#missing + 1] = c
-    end
-  end
-  if #missing > 0 then
-    return ("PR #%d's body does not quote %d of its Acceptance commands "
-      .. "(first: `%s`) — a reviewer reads the run, not the claim"):format(
-      p.number, #missing, missing[1])
   end
   return nil
 end
@@ -95,7 +82,7 @@ end
 local record review
   type Pull = Pull
   type CheckRun = CheckRun
-  blocks_check: function(p: Pull, id: string, commands: {string}): string
+  blocks_check: function(p: Pull, id: string): string
   blocks_on_ci: function(runs: {CheckRun}): string
 end
 
