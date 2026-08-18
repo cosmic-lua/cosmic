@@ -177,11 +177,11 @@ local record RandModule
   insecure64: function(): integer
 end
 $ grep -rn "insecure_source" . --include=*.tl
-(no output — name is free)
 $ grep -n "math.random(" cosmic/fetch/init.tl
 286:      math.random() * math.min(max_delay_ms, base_delay_ms * 2 ^ (attempt - 1))))
 $ sed -n '1,4p' docs/decisions/d22-infallible-csprng.md
 # D22 — the CSPRNG surface is infallible; a broken one crashes
+
 - **date:** 2026-08
 - **status:** active
 $ ls docs/decisions/ | tail -1
