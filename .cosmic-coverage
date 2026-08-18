@@ -22,6 +22,7 @@ _cli/lint.tl 190 215
 _cli/lint_render.tl 26 26
 _cli/main_handlers.tl 11 221
 _cli/pattern_args.tl 132 135
+_cli/reads_lint.tl 34 34
 _cli/require_hints.tl 104 124
 _cli/returns.tl 100 132
 _cli/run.tl 28 33
