@@ -2,8 +2,8 @@ Imported from whilp/cosmic#1238.
 
 ## Goal
 
-G4 — &#34;a gate&#39;s PASS means something&#34; — applied to the gates themselves. The
-repo&#39;s doctrine is that a mistake which keeps happening becomes a mechanism
+G4 — "a gate's PASS means something" — applied to the gates themselves. The
+repo's doctrine is that a mistake which keeps happening becomes a mechanism
 (the fallible-returns lint, the `-- cast:` justification, the find-needle lint,
 the coverage ratchet). Copy-pasted function bodies are currently outside that
 set: `fmt`, `check`, `example`, `lint`, `coverage` and `repro` all pass a tree
@@ -15,9 +15,9 @@ had to be made twice on one card.
 
 ## The wrong turn
 
-Issue #1156&#39;s `## Change` said the relocation of `source_dirs` should &#34;mirror&#34;
-existing patterns. A literal-minded implementer reads &#34;mirror&#34; as &#34;write one
-like it&#34; rather than &#34;import it&#34;, and duplication is the choice that leaves no
+Issue #1156's `## Change` said the relocation of `source_dirs` should "mirror"
+existing patterns. A literal-minded implementer reads "mirror" as "write one
+like it" rather than "import it", and duplication is the choice that leaves no
 error behind — nothing fails, so nothing teaches. On this one card it happened
 three times:
 
@@ -33,8 +33,8 @@ three times:
 3. **`ENV_SWITCHES`** — mirrored into `_make/imports.tl:204-212` rather than
    imported from `_cli/build/work.tl:59`. This one is spec-mandated (Change item
    1 spelled the list out) and drift fails **loud** as a refused declaration, so
-   it stays — but it is the same reflex, and the comment&#39;s stated reason (&#34;this
-   module has no dependency on `_cli/build`&#34;) is true of `imports.tl` and false
+   it stays — but it is the same reflex, and the comment's stated reason ("this
+   module has no dependency on `_cli/build`") is true of `imports.tl` and false
    of the `_make` tree, which already requires `_cli.build` at
    `_make/generate.tl:13`.
 
@@ -55,9 +55,9 @@ A `--make lint` check that fails on identical function bodies within a tree.
   normalization catches the observed cases.
 - **Floor it by size** so trivial accessors and one-line forwarders do not trip
   it. Pick the threshold from a measurement over the current tree, not a guess,
-  and record the number in the check&#39;s doc comment.
-- **The failure message names both sites and says what to do**: &#34;identical body
-  at A and B — export one and require it&#34;. Per `enable.md`, an error message
+  and record the number in the check's doc comment.
+- **The failure message names both sites and says what to do**: "identical body
+  at A and B — export one and require it". Per `enable.md`, an error message
   that says what to do instead is itself the countermeasure.
 
 ## Non-goals
@@ -67,7 +67,7 @@ cross-tree analysis, no configurable thresholds beyond the one size floor. Not a
 ratchet with a committed baseline — if the initial run finds pre-existing
 duplicates, either fix them in this slice or exempt them by an explicit,
 commented allowlist, so the check starts at zero rather than at a number.
-No change to `_make/imports.tl`&#39;s `ENV_SWITCHES` mirror, which is spec-mandated
+No change to `_make/imports.tl`'s `ENV_SWITCHES` mirror, which is spec-mandated
 and fails loud; if the check flags it, allowlist it with that reason.
 No change to any of the three sites above — all are already resolved on
 `main` via PR #1185.
@@ -76,7 +76,7 @@ No change to any of the three sites above — all are already resolved on
 
 - Reintroducing any one of the three duplications above (as a scratch edit)
   makes `bin/cosmic --make lint` fail, naming both sites.
-- The check&#39;s own test pins: a true duplicate fails; the same body with
+- The check's own test pins: a true duplicate fails; the same body with
   different parameter names fails; two bodies differing by one statement pass;
   a body under the size floor passes.
 - `bin/cosmic --make ci` ends `ci: PASS` on the tree as it stands, with no

@@ -127,3 +127,18 @@ local function test_waits_on_terminates_on_a_cycle_already_in_the_data()
     "and a walk that finds nothing still returns rather than spinning")
 end
 test_waits_on_terminates_on_a_cycle_already_in_the_data()
+
+local function test_the_triage_queue_has_a_bound()
+  local queue: {item.Item} = {}
+  for _ = 1, flow.TRIAGE_LIMIT do
+    queue[#queue + 1] = make({})
+  end
+  assert(flow.triage_violation(queue) == nil,
+    "a queue at the bound is not a violation")
+  queue[#queue + 1] = make({})
+  local over = flow.triage_violation(queue)
+  local want = ("triage %d/%d over limit"):format(flow.TRIAGE_LIMIT + 1,
+    flow.TRIAGE_LIMIT)
+  assert(over == want, "got: " .. tostring(over))
+end
+test_the_triage_queue_has_a_bound()

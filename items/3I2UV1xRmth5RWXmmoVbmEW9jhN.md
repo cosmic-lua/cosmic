@@ -16,7 +16,7 @@ Mandated by the 2026-08-17 review round. Twice in a row on the same PR, same
 shape:
 
 - **PR #1209 round 3.** The 04:23Z verdict named two one-line fixes for the
-  scorer&#39;s cwd problem — resolve the run dir to an absolute path once, or pass
+  scorer's cwd problem — resolve the run dir to an absolute path once, or pass
   `bin_rel` as argv[0] since `cwd` is already the workspace. What landed was a
   `remove_all` + `copy_tree` mirror into a relative `o/_eval/scored`, a new
   exported `out_dir_for` seam, and rewritten test plumbing. Neither named fix was
@@ -24,13 +24,13 @@ shape:
 - **PR #1209 round 4.** The 07:26Z verdict named three things: stage into a
   process-private temp dir via `fs.temp_dir` honouring `TEST_TMPDIR`; remove the
   copy when scoring finishes; close the basename collision. None was done, and
-  `_eval/score.tl:20` and `:71` both assert the destination *is* &#34;process-private&#34;
+  `_eval/score.tl:20` and `:71` both assert the destination *is* "process-private"
   when `scored_root()` returns a fixed shared `/cosmic-eval-scored`
-  — the doc comment&#39;s own next sentence calls it &#34;the same well-known,
-  OS-reclaimed location&#34;, contradicting the claim three lines above it.
+  — the doc comment's own next sentence calls it "the same well-known,
+  OS-reclaimed location", contradicting the claim three lines above it.
 
 Worth stating because it shapes the fix: in both rounds the implementer may have
-been *right* that the named fix was insufficient. Round 4&#39;s staging really is
+been *right* that the named fix was insufficient. Round 4's staging really is
 load-bearing — the checks write fixtures into the workspace by design
 (`_eval/checks/support.tl:202-213`, `json-cli.tl:25,30`,
 `contained-task.tl:23-36`), so a bare absolute-path one-liner would still have
@@ -44,7 +44,7 @@ The shape, not yet chosen. A `request changes` verdict enumerates its gaps as an
 ordered list in a form the tool can read, and `move N check` refuses until the
 rework carries a per-gap answer — `closed` or `diverged ()` — for each.
 
-This is the mirror image of #1202&#39;s `enable:` trailer and should copy its
+This is the mirror image of #1202's `enable:` trailer and should copy its
 mechanics rather than invent new ones: a line-anchored grammar parsed out of a
 comment body, a pure predicate in `_work/verdict.tl` beside `blocks_check` and
 `blocks_send_back`, and one guarded call site in `cmd_move`. #1202 also
@@ -74,7 +74,7 @@ No change to the three verdicts, their meanings, or the `work-verdict:`
 first-line grammar. No fourth verdict. Do not make diverging from a named fix
 harder or discouraged — the goal is that a divergence is *stated*, and a
 `diverged ()` answer must be as easy to write as `closed`. No judgement of
-whether an answer is correct; presence and shape only, like #1202&#39;s trailer.
+whether an answer is correct; presence and shape only, like #1202's trailer.
 No retroactive enforcement on verdicts already posted.
 
 ## Blocked by: #1202

@@ -20,19 +20,19 @@ by now share a reader.
   alias for the coverage case — CLAUDE.md and CI both name it.
 - Every ratchet failure, in BOTH directions, ends with the exact command that
   regenerates its floor, and says what a legitimate justification is when the
-  move is an increase. Today only `_build/casts_test.tl`&#39;s DECREASE branch does
-  (`REBASELINE`, line 26); its increase branch says &#34;remove them, or justify
-  the increase in the PR&#34; and names no command.
+  move is an increase. Today only `_build/casts_test.tl`'s DECREASE branch does
+  (`REBASELINE`, line 26); its increase branch says "remove them, or justify
+  the increase in the PR" and names no command.
 - One failure shape across the three gates, so a session that has read one has
   read all three.
-- Update CLAUDE.md&#39;s testing section and `skills/work/decompose.md`&#39;s ratchet
-  clause — it already tells a slice to &#34;run exactly the regen command the
-  gate&#39;s failure message prints&#34;, and this makes that instruction true for
+- Update CLAUDE.md's testing section and `skills/work/decompose.md`'s ratchet
+  clause — it already tells a slice to "run exactly the regen command the
+  gate's failure message prints", and this makes that instruction true for
   every gate in both directions.
 
 ## Non-goals
 
-No change to what any gate measures, to any tolerance, or to any floor&#39;s
+No change to what any gate measures, to any tolerance, or to any floor's
 values. No new ratchets. `--make baseline` regenerates and never checks — the
 gates keep that job, and a verb that did both would invite regenerating inside
 CI. No change to the `ci: PASS` / `ci: FAIL` verdict line format.
@@ -44,7 +44,7 @@ Sketch — replace with measured commands at refinement.
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make baseline` regenerates all three floors and leaves an
   unchanged tree byte-identical.
-- Each gate&#39;s failure message is asserted by its own test, in both directions,
+- Each gate's failure message is asserted by its own test, in both directions,
   to contain the regen command.
 - `bin/cosmic --make help` lists `baseline`.
 

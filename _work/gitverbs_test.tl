@@ -81,7 +81,7 @@ local function test_the_ready_bar_is_the_items_own()
   local _stray = file_item(s, "work under it", finding, 0, false)
   local all = check.must(store.list(s))
   assert(#flow.trace_problems(all) > 0, "the board does have a problem")
-  assert(verbs.cmd_check(s, leaf, "") == 0,
+  assert(verbs.cmd_check(s, leaf) == 0,
     "a sound item meets the bar while another item is broken")
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
     "and it may be promoted")
@@ -291,38 +291,3 @@ local function test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
     "recording it satisfies the bar")
 end
 test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
-
--- A spec's measured claims are re-run at the bar, in the product
--- checkout they describe rather than in the board worktree asking.
-local function test_the_ready_bar_reruns_the_specs_facts()
-  local s = init_state_repo("facts")
-  local _, leaf = goal_with_leaf(s)
-  local tree = fs.join(tmpdir, "facts-product")
-  assert(fs.remove_all(tree))
-  assert(fs.make_dirs(tree))
-  assert(fs.write(fs.join(tree, "counted.txt"), "a\nb\nc\n"))
-  local path = fs.join(tmpdir, "facts-spec.md")
-  assert(fs.write(path,
-      READY_SPEC .. "\n```facts\n$ wc -l < counted.txt\n3\n```\n"))
-  assert(verbs.cmd_spec(s, leaf, path) == 0)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", tree) == 0,
-    "a fact that holds in the named root passes the bar")
-  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
-  -- The tree moves on; the claim does not, and that is a bounce.
-  assert(fs.write(fs.join(tree, "counted.txt"), "a\nb\nc\nd\n"))
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", tree) ~= 0,
-    "a stale fact is refused")
-  assert(verbs.cmd_check(s, leaf, tree) ~= 0, "and check names it")
-end
-test_the_ready_bar_reruns_the_specs_facts()
-
--- A board with no product checkout beside it cannot evaluate a fact at
--- all; saying so beats reporting every claim as failed.
-local function test_facts_without_a_product_tree_say_so()
-  local s = init_state_repo("factsroot")
-  local body = READY_SPEC .. "\n```facts\n$ wc -l < counted.txt\n3\n```\n"
-  local got = gate.fact_problems(s, body)
-  assert(#got == 1 and got[1]:find("not a worktree of a product", 1, true),
-    "got: " .. table.concat(got, "; "))
-end
-test_facts_without_a_product_tree_say_so()

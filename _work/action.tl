@@ -6,7 +6,8 @@
 --- Both roles work right to left — whatever is closest to completion
 --- moves first — because finishing beats starting: an implementer
 --- lands, then finishes `do`, then pulls `ready`; a planner gives
---- verdicts, then refines, then triages, then takes in new work.
+--- verdicts, then drains a triage queue past its bound, then refines,
+--- then triages what is left, then takes in new work.
 ---
 --- A claim is a LOCK, and this is where that means something: `do`
 --- holds five because five implementer sessions run at once, so a
@@ -119,9 +120,12 @@ local function next_for_implementer(items: {Item}, session: string): Action
     .. "refine or intake"}
 end
 
---- The planner's next action: verdicts first, then refine plan toward
---- ready while ready has slack, then triage findings, then intake the
---- top-ranked goal that no live work drives, else nothing.
+--- The planner's next action: verdicts first, then drain the triage
+--- queue when it stands over `flow.TRIAGE_LIMIT` — an inbox nobody
+--- empties is a channel that only takes — then refine plan toward
+--- ready while ready has slack, then triage whatever findings remain,
+--- then intake the top-ranked goal that no live work drives, else
+--- nothing.
 --- @param items {Item} All items
 --- @return Action The decision
 local function next_for_planner(items: {Item}): Action
@@ -134,6 +138,15 @@ local function next_for_planner(items: {Item}): Action
       reason = "check is the rightmost planner phase — verdicts first",
     }
   end
+  local triage = flow.findings(items)
+  if #triage > flow.TRIAGE_LIMIT then
+    return {
+      kind = "triage",
+      item = triage[1],
+      reason = ("%d finding(s) awaiting triage, over the bound of %d — "
+        .. "draining outranks refining"):format(#triage, flow.TRIAGE_LIMIT),
+    }
+  end
   local planning = flow.oldest_first(b, "plan")
   if #planning > 0 and #(b["ready"] or {}) < flow.LIMITS["ready"] then
     return {
@@ -143,7 +156,6 @@ local function next_for_planner(items: {Item}): Action
       :format(#(b["ready"] or {}), flow.LIMITS["ready"]),
     }
   end
-  local triage = flow.findings(items)
   if #triage > 0 then
     return {
       kind = "triage",

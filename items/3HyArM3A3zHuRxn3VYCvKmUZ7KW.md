@@ -11,7 +11,7 @@ classified, and moving down.
 
 - CI ratchets per-file `as`-cast counts against a committed baseline: a PR that adds a
   cast fails a gate; a PR that removes casts tightens the committed floor.
-  **Known defect, measured 2026-08-17:** `_build/casts.tl`&#39;s `TREES` constant — the
+  **Known defect, measured 2026-08-17:** `_build/casts.tl`'s `TREES` constant — the
   definition of what is gated — omits `_eval/` and `_fuzz/`, so 14 live casts sit
   outside the gate and can grow without limit. Until that is fixed, this outcome is
   measurably false for those two trees. See wave 7 (S6, to be filed).
@@ -19,7 +19,7 @@ classified, and moving down.
   a concrete, sized slice. The classification is the census on #1114 (549 sites as of
   2026-08-15); the current count is below.
 - The first removal wave has landed and the ratcheted total is strictly below the
-  census&#39;s 549.
+  census's 549.
 
 ## Where the count stands (measured 2026-08-17, at `a3cd318`)
 
@@ -27,15 +27,15 @@ The gated number is whatever `_build/casts.tl` counts — its `TREES` constant i
 definition, not an ad-hoc directory list — and it is exactly the committed floor:
 
 ```
-$ grep -oE &#39;= [0-9]+&#39; _build/casts_baseline.tl | awk &#39;{s+=$2; n++} END {print s, n}&#39;
+$ grep -oE '= [0-9]+' _build/casts_baseline.tl | awk '{s+=$2; n++} END {print s, n}'
 445 132
 
-$ git grep -c -- &#34;-- cast:&#34; -- &#34;*.tl&#34; | awk -F: &#39;{s+=$NF} END {print s}&#39;
+$ git grep -c -- "-- cast:" -- "*.tl" | awk -F: '{s+=$NF} END {print s}'
 459
 
-$ git grep -c -- &#34;-- cast:&#34; -- &#34;*.tl&#34; \
-    | grep -vE &#34;^(_build|_cli|_docs|_make|_perf|_tool|_types|_work|cmd|cosmic)/&#34; \
-    | awk -F: &#39;{s+=$NF} END {print s}&#39;
+$ git grep -c -- "-- cast:" -- "*.tl" \
+    | grep -vE "^(_build|_cli|_docs|_make|_perf|_tool|_types|_work|cmd|cosmic)/" \
+    | awk -F: '{s+=$NF} END {print s}'
 14
 ```
 
@@ -45,12 +45,12 @@ hole — `_eval/stage.tl` 9, `_eval/stage_test.tl` 3, `_fuzz/compress_fuzz_test.
 
 **Wave 1 (#1192) has landed** as PR #1195 (`6831dcc`), and it landed exactly on its
 prediction: the previous pass at `3e15d15` measured 510 in the tree / 496 gated across
-146 files and forecast &#34;510 -&gt; 459 and the floor 496 -&gt; 445&#34; when #1195 merged. Both
+146 files and forecast "510 -> 459 and the floor 496 -> 445" when #1195 merged. Both
 numbers are now measured at those values, so the forecast is closed rather than
 carried. `_perf/bench` is down to its floor:
 
 ```
-$ git grep -c -- &#34;-- cast:&#34; -- &#34;_perf/bench/*_bench.tl&#34; | awk -F: &#39;{s+=$NF} END {print s+0}&#39;
+$ git grep -c -- "-- cast:" -- "_perf/bench/*_bench.tl" | awk -F: '{s+=$NF} END {print s+0}'
 2
 ```
 
@@ -63,12 +63,12 @@ The census (the accepted comment on #1114) classified all 549 sites (547 real ca
 2 are `_cli/lint.tl` quoting its own marker syntax): `removable-now` 298,
 `narrowing-gap` 86, `binding-boundary` 57, `inherent` 56, `needs-helper` 52. More than
 half sit behind the one reason string `from any`, of which two groups are
-single-decision waves: `_perf`&#39;s Scenario record typed over `any` (59 sites) and
-`_tool/doc`&#39;s index model passed as `{string: any}` although `doc.ModuleDoc` exists
+single-decision waves: `_perf`'s Scenario record typed over `any` (59 sites) and
+`_tool/doc`'s index model passed as `{string: any}` although `doc.ModuleDoc` exists
 (43 sites).
 
 The classification still holds; only the totals have moved. `from any` remains the
-largest class by far — 240 sites, &gt;47% of the tree — and remains where the cheap wins
+largest class by far — 240 sites, >47% of the tree — and remains where the cheap wins
 are.
 
 ## Children
@@ -86,15 +86,15 @@ are.
    A file that reaches a module through `as {string: any}` because the surface it
    exercises was in flight is carrying dead scaffolding once that surface lands. Two
    remain, and both surfaces are landed and fully typed:
-   `cosmic/fs/traps_test.tl` (19 casts -&gt; 1) and `cosmic/time_test.tl` (2 -&gt; 0), both
+   `cosmic/fs/traps_test.tl` (19 casts -> 1) and `cosmic/time_test.tl` (2 -> 0), both
    re-measured at `a3cd318` and unchanged. All of
    `fs.copy_tree`, `fs.temp_file`, `TempFile.handle`/`.path`, `Dir:read`/`:close`,
    `fs.DT_DIR`/`fs.DT_REG` and `time.sleep_ms` are declared and were type-checked
-   cast-free against the local build; the one survivor is `traps_test.tl`&#39;s
+   cast-free against the local build; the one survivor is `traps_test.tl`'s
    `local fsa = fs as {string: any}`, which the removed-surface probes genuinely need
    (`fs.access` is a compile error — that is what those tests assert), and whose reason
    string becomes `probe removed surface`. Deletion only, no `is` guards, so it adds no
-   unhit branches: #1201&#39;s coverage obstacle cannot reach it — `.cosmic-coverage` holds
+   unhit branches: #1201's coverage obstacle cannot reach it — `.cosmic-coverage` holds
    zero `_test.tl` rows. This retires the `signature transition` reason string from the
    tree (4 sites, both files). Cheapest remaining large win; take it before wave 3.
 
@@ -102,7 +102,7 @@ are.
    **Retired 2026-08-16, measured.** A generic `Scenario` cannot express what
    `BenchModule.scenarios()` returns: the list holds differently-typed scenarios, and
    the checker refuses `{Scenario}` given a `Scenario`
-   (`type parameter &lt;&gt;: got StateA, expected `). The 51 in-scope
+   (`type parameter <>: got StateA, expected `). The 51 in-scope
    sites in `_perf/bench/*_bench.tl` are `res`/context narrowings, not one state-type
    change, and they come out with `is` guards and NO type change — that is #1192. The
    remaining 9 `_perf/*.tl` sites (module-loading and JSON boundaries) are a separate,
@@ -120,7 +120,7 @@ are.
    One site survives, and is the intended floor for this tree:
 
    ```
-   $ git grep -c -- &#34;-- cast:&#34; -- &#34;_tool/doc/*.tl&#34;
+   $ git grep -c -- "-- cast:" -- "_tool/doc/*.tl"
    _tool/doc/index_test.tl:1
    ```
 
@@ -131,10 +131,10 @@ are.
    enum rows (3), `a stub verb`/`partial literal` (2): ~15 pure deletions.
 
 4. `to_integer` — the honest `integer | nil, string` parser for the runtime
-   number-&gt;integer family (~37 hex/decimal/`%d` sites); NOT `math.tointeger`, whose tl
-   declaration swallows nil (census §&#34;fine print&#34;).
+   number->integer family (~37 hex/decimal/`%d` sites); NOT `math.tointeger`, whose tl
+   declaration swallows nil (census §"fine print").
 
-5. `binding-boundary` (57) — one annotation pass on whilp/cosmopolitan&#39;s
+5. `binding-boundary` (57) — one annotation pass on whilp/cosmopolitan's
    `definitions.lua` + `_types/gentl.tl` widenings; file against the cosmopolitan board.
 
 6. `narrowing-gap` (86) — the D5 upstream-first backlog: terminal-call gap (21),
@@ -145,7 +145,7 @@ are.
    may already be removable with no patch at all.
 
 7. **Close the ratchet hole (S6, `work:enable`, to be filed).** Add `_eval` and `_fuzz`
-   to `_build/casts.tl`&#39;s `TREES`, regenerate `_build/casts_baseline.tl`, and commit
+   to `_build/casts.tl`'s `TREES`, regenerate `_build/casts_baseline.tl`, and commit
    the 14 sites into the floor. One line plus a baseline regen. It must land as its own
    PR — never folded into a cast-removal slice, since a gate that lands inside the PR
    it polices proves nothing. Not ordered after wave 6; file it whenever a slot opens.
@@ -153,12 +153,12 @@ are.
 ## What the tree actually does, measured 2026-08-16
 
 Probed against the local build with a control (bare `any` into a typed parameter
-fails, so the passes are the guard&#39;s doing):
+fails, so the passes are the guard's doing):
 
 - `if not (x is T) then return … end` **narrows** below the guard — for `string`,
   `integer`, `number`, a record, `{string}`, `{any}`, `{{string: any}}`.
 - `if not (x is T) then error(…) end` does NOT narrow.
-- `is` cannot be applied to a FIELD at all: `can only use &#39;is&#39; on variables`. Copy to
+- `is` cannot be applied to a FIELD at all: `can only use 'is' on variables`. Copy to
   a local first.
 
 AGENTS.md, `docs/guides/checking.md` and `docs/guides/gotchas.md` stated the first of
@@ -175,7 +175,7 @@ enablement slice before it is a wave; do not file it as ordinary removal work.
 
 `inherent` (56 sites) is the floor the census implies: metatable identity, deliberate
 stdlib patching, deliberate-invalid-input tests, dual-shape params, removed-surface
-probes. G3&#39;s literal &#34;zero casts&#34; needs those to become something other than casts, or
+probes. G3's literal "zero casts" needs those to become something other than casts, or
 the goal to name the justified-and-classified floor as the exception. That is a goals.md
 amendment PR, owned by a planner, due before wave 6 completes — not a slice.
 

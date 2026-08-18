@@ -9,6 +9,7 @@
 local check = require("cosmic.check")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local fixture = require("_work.fixture")
 local store = require("_work.store")
 local view = require("_work.gitview")
 
@@ -133,3 +134,110 @@ local function test_show_names_an_items_own_graph_problem()
   assert(verdict:find("is open", 1, true), verdict)
 end
 test_show_names_an_items_own_graph_problem()
+
+local function test_status_counts_the_triage_queue_against_its_bound()
+  local lines, verdict = view.status_report(board_items())
+  assert(has(lines, "^triage 0/8$"), table.concat(lines, "\n"))
+  assert(not verdict:find("triage", 1, true),
+    "an empty queue is no violation: " .. verdict)
+  local items = board_items()
+  for _ = 1, 9 do
+    items[#items + 1] = check.must(item.decode({id = fresh_id(),
+          title = "a finding"}))
+  end
+  local over, over_verdict = view.status_report(items)
+  assert(has(over, "^triage 9/8$"), table.concat(over, "\n"))
+  assert(over_verdict:find("triage 9/8 over limit", 1, true), over_verdict)
+end
+test_status_counts_the_triage_queue_against_its_bound()
+
+--- The fixture plus one ended item, so a search can be asked the
+--- question it exists for: has this already been filed?
+local ENDED < const > = fresh_id()
+
+local function searchable_items(): {item.Item}
+  local items = board_items()
+  items[#items + 1] = check.must(item.decode({id = ENDED,
+        title = "a closed duplicate", parent = CONTAINER,
+        resolution = "not-planned"}))
+  return items
+end
+
+local function test_find_matches_titles_and_spec_bodies()
+  local specs: {string: string} = {
+    [CONTAINER] = "## Goal\n   serves the widget pipeline\nand nothing else\n",
+  }
+  local titled, tverdict = view.find_report(searchable_items(), specs, "leaf")
+  assert(#titled == 1, table.concat(titled, "\n"))
+  assert(has(titled, "^" .. LEAF:sub(1, 8) .. " %[do%] a leaf$"),
+    table.concat(titled, "\n"))
+  assert(tverdict == "1 item(s) matching \"leaf\"", tverdict)
+  local bodied, bverdict = view.find_report(searchable_items(), specs, "widget")
+  assert(has(bodied, "^" .. CONTAINER:sub(1, 8) .. " %[container%] a container$"),
+    "a body-only hit still names the item: " .. table.concat(bodied, "\n"))
+  assert(has(bodied, "^    serves the widget pipeline$"),
+    "and carries the line that matched, trimmed: "
+    .. table.concat(bodied, "\n"))
+  assert(bverdict == "1 item(s) matching \"widget\"", bverdict)
+end
+test_find_matches_titles_and_spec_bodies()
+
+local function test_find_ignores_case_in_both_directions()
+  local specs: {string: string} = {[LIMBO] = "The WIDGET again\n"}
+  local upper = view.find_report(searchable_items(), specs, "A GOAL")
+  assert(has(upper, GOAL:sub(1, 8) .. " %[goal%] a goal"),
+    "an upper-case term finds a lower-case title: "
+    .. table.concat(upper, "\n"))
+  local lower = view.find_report(searchable_items(), specs, "widget")
+  assert(has(lower, "^    The WIDGET again$"),
+    "and a lower-case one an upper-case body: " .. table.concat(lower, "\n"))
+end
+test_find_ignores_case_in_both_directions()
+
+local function test_find_includes_ended_items_tagged_by_resolution()
+  local lines, verdict = view.find_report(searchable_items(), {}, "duplicate")
+  assert(has(lines, "^" .. ENDED:sub(1, 8)
+      .. " %[done: not%-planned%] a closed duplicate$"),
+    "a finding already filed AND closed is exactly what a duplicate check "
+    .. "must see: " .. table.concat(lines, "\n"))
+  assert(verdict == "1 item(s) matching \"duplicate\"", verdict)
+end
+test_find_includes_ended_items_tagged_by_resolution()
+
+local function test_find_reports_no_match_as_a_verdict_not_an_error()
+  local lines, verdict = view.find_report(searchable_items(), {}, "sasquatch")
+  assert(#lines == 0, table.concat(lines, "\n"))
+  assert(verdict == "0 item(s) matching \"sasquatch\"", verdict)
+end
+test_find_reports_no_match_as_a_verdict_not_an_error()
+
+local function test_find_matches_the_term_literally_not_as_a_pattern()
+  local dotted = fresh_id()
+  local decoy = fresh_id()
+  local items = searchable_items()
+  items[#items + 1] = check.must(item.decode({id = dotted,
+        title = "the a.b gate", parent = CONTAINER}))
+  items[#items + 1] = check.must(item.decode({id = decoy,
+        title = "the axb gate", parent = CONTAINER}))
+  local lines, verdict = view.find_report(items, {}, "a.b")
+  assert(#lines == 1 and has(lines, dotted:sub(1, 8) .. " %[work%] "),
+    "a term is text, never a pattern: " .. table.concat(lines, "\n"))
+  assert(verdict == "1 item(s) matching \"a.b\"", verdict)
+  local pct = view.find_report(items, {[dotted] = "100% of the time\n"}, "100%")
+  assert(has(pct, "^    100%% of the time$"),
+    "and a term with a Lua escape is no different: "
+    .. table.concat(pct, "\n"))
+end
+test_find_matches_the_term_literally_not_as_a_pattern()
+
+local function test_find_reads_the_sidecars_and_refuses_an_empty_term()
+  local s = fixture.init_state_repo("find")
+  local _goal, leaf = fixture.goal_with_leaf(s)
+  fixture.give_spec(s, leaf)
+  assert(view.cmd_find(s, "") == 1,
+    "no term is a refusal on the verdict line, never a crash")
+  assert(view.cmd_find(s, "ranked goal") == 0, "a title hit is a clean read")
+  assert(view.cmd_find(s, "Serves the ranked goal above it") == 0,
+    "and so is one only the sidecar carries, which cmd_find reads")
+end
+test_find_reads_the_sidecars_and_refuses_an_empty_term()

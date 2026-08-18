@@ -2,9 +2,9 @@ Imported from whilp/cosmic#1251.
 
 ## Goal
 
-G8 — the flow system. The skill files are the planner&#39;s and implementer&#39;s
-interface to the board; when the tool&#39;s behaviour and the manual disagree, the
-manual wins in the reader&#39;s head and the tool wins in fact. Every such
+G8 — the flow system. The skill files are the planner's and implementer's
+interface to the board; when the tool's behaviour and the manual disagree, the
+manual wins in the reader's head and the tool wins in fact. Every such
 disagreement costs a review round or a wrong turn.
 
 ## Evidence
@@ -13,15 +13,15 @@ Filed as a mandated countermeasure from the `request changes` verdict on PR
 #1248 (issue #1229) — second occurrence of the same wrong turn:
 
 - **Round 1 (#1248):** the finding exemption shipped with
-  `skills/work/SKILL.md`&#39;s `work:plan` phase-table row still reading &#34;epics
-  exempt&#34;. The reviewer had to find it.
+  `skills/work/SKILL.md`'s `work:plan` phase-table row still reading "epics
+  exempt". The reviewer had to find it.
 - **Round 2 (#1248):** that row was fixed, and three further sentences the same
-  change falsifies were left standing — `SKILL.md`&#39;s planner rule list (four
+  change falsifies were left standing — `SKILL.md`'s planner rule list (four
   steps: check, refine, intake, nothing) has no `triage` step even though
-  `_work/model.tl:421` now returns `kind = &#34;triage&#34;`; `SKILL.md`&#39;s refine step
-  says &#34;the oldest `work:plan` issue&#34; where `_work/model.tl:402-409` now takes
+  `_work/model.tl:421` now returns `kind = "triage"`; `SKILL.md`'s refine step
+  says "the oldest `work:plan` issue" where `_work/model.tl:402-409` now takes
   the oldest *non-finding* one; and `skills/work/review.md` still says findings
-  are triaged &#34;at the refine step&#34;, which this change separates into its own
+  are triaged "at the refine step", which this change separates into its own
   action.
 
 The pattern is not carelessness — it is that nothing enumerates which prose a
@@ -31,7 +31,7 @@ pointed and no further. A third round on #1248 would find more of the same.
 Earlier instances of the same class outside #1248: #1203 records a skill section
 describing `_plan/*` paths and a proposed `stats` verb months after both moved.
 
-## Countermeasure (core, per enable.md&#39;s ordering)
+## Countermeasure (core, per enable.md's ordering)
 
 A gate that pins the doctrine against the code, so the sweep is mechanical
 instead of remembered. Two assertions, both cheap:
@@ -40,11 +40,11 @@ instead of remembered. Two assertions, both cheap:
    is named in the corresponding rule list in `skills/work/SKILL.md`.
    `_work/model.tl:31` already carries the kind enum as a doc comment, which is
    the seam to read.
-2. Every class `model.counts_against_limit` exempts is named in `SKILL.md`&#39;s
+2. Every class `model.counts_against_limit` exempts is named in `SKILL.md`'s
    phase-table row for the phase it is exempt in.
 
 Note before implementing: the kind strings and the prose words deliberately
-differ (`review` is written &#34;check&#34;, `none` is written &#34;nothing&#34;), so this needs
+differ (`review` is written "check", `none` is written "nothing"), so this needs
 a small committed mapping table rather than bare substring presence. That
 mapping is the thing to review carefully — a mapping nobody maintains is the
 same failure one level up.

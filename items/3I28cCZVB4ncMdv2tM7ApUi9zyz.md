@@ -2,7 +2,7 @@ Imported from whilp/cosmic#1243.
 
 ## Goal
 
-G8 — the flow system. The ready bar&#39;s &#34;measured, not inferred&#34; rule exists so an
+G8 — the flow system. The ready bar's "measured, not inferred" rule exists so an
 implementer never meets a tree-fact the planner guessed. Today the rule is prose
 in `decompose.md` and nothing enforces the one case it was written for: an
 `## Acceptance` command that asserts a COUNT. `board.tl check N` executes a
@@ -11,11 +11,11 @@ that should exist is missing.
 
 ## Evidence (this wrong turn, twice)
 
-1. **#1115&#39;s second bounce** — an acceptance grep demanded a count of 21 against
+1. **#1115's second bounce** — an acceptance grep demanded a count of 21 against
    a pattern that matched 101. Cited in `decompose.md` as the reason the rule was
    written.
 2. **#1178, reviewed 2026-08-17** — `## Acceptance` asserted
-   `grep -c &#39;deps__build/env_vars_test :=.*_cli&#39; o/project.mk` -&gt; `1`. The command
+   `grep -c 'deps__build/env_vars_test :=.*_cli' o/project.mk` -> `1`. The command
    returns `2` on an unfixed tree and `2` on a fixed one (the unanchored pattern
    also matches the `srcdeps__build/env_vars_test :=` line, which contains
    `deps__build/env_vars_test :=` as a substring), so as written it could neither
@@ -23,7 +23,7 @@ that should exist is missing.
    `board.tl check 1178` had nothing to run and passed the issue to ready.
 
 Prose stating the rule has now failed twice, which is what makes this mandated
-rather than optional (`review.md`, feedback half, step 3). `enable.md`&#39;s ordering
+rather than optional (`review.md`, feedback half, step 3). `enable.md`'s ordering
 puts the countermeasure in core: the linter already reads the body.
 
 ## Change (to be settled in refinement)
@@ -32,7 +32,7 @@ Teach `board.tl check N` (and therefore `move N ready`, which runs the same lint
 to REFUSE an issue whose `## Acceptance` section contains a counting command with
 no ` ```facts ` block in the body. The refinement pass settles:
 
-- the detector: which command shapes count as &#34;asserting a count&#34; (`grep -c`,
+- the detector: which command shapes count as "asserting a count" (`grep -c`,
   `wc -l`, `wc -w`, a trailing `| wc`, `ls | wc`), and whether detection is by
   command shape alone or also requires an expected value in the prose.
 - the strength: refuse whenever a counting command appears with no facts block at
@@ -41,7 +41,7 @@ no ` ```facts ` block in the body. The refinement pass settles:
   #1178 actually needed; measure how many currently-ready issues it would refuse
   before choosing it.
 - the message: a refusal names the offending command and the fact it wants, in
-  the tool&#39;s existing refusal shape.
+  the tool's existing refusal shape.
 - where it lives: `_work/facts.tl` already owns the facts grammar and is the
   natural home; confirm during refinement.
 
@@ -50,12 +50,12 @@ no ` ```facts ` block in the body. The refinement pass settles:
 No change to the five required sections or to the facts-block grammar itself. No
 change to how facts are EXECUTED (that half works). No retroactive sweep of
 issues already past ready — the gate binds the next `move N ready`, not the
-board&#39;s history.
+board's history.
 
 ## Enablement
 
 Filed as the mandated countermeasure to the 2026-08-17 accept on #1178; the
-refinement pass owes the measurement named under &#34;the strength&#34; above.
+refinement pass owes the measurement named under "the strength" above.
 
 
 ---

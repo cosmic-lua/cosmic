@@ -403,30 +403,6 @@ local function publish(s: Store, revalidate?: Revalidate): boolean, string
   return false, "publish did not converge after 3 attempts"
 end
 
---- The repository's MAIN working tree — the first entry `git worktree
---- list` prints. The board is reached as a linked worktree of an
---- ordinary cosmic checkout, so this is where that checkout lives, and
---- it is asked of git rather than derived from the store's path: a
---- worktree can sit anywhere, and guessing `../..` would be right only
---- for the conventional layout.
----
---- Equal to the store root when the board is a standalone clone with
---- no product tree beside it. The caller decides whether that matters.
---- @param s Store The store
---- @return string | nil The main worktree's absolute path
---- @return string Error message
-local function main_worktree(s: Store): string | nil, string
-  local r, err = git_ok(s, {"worktree", "list", "--porcelain"})
-  if r == nil then
-    return nil, err
-  end
-  local first = r.stdout:match("^worktree ([^\n]+)")
-  if first == nil then
-    return nil, "git worktree list named no worktree"
-  end
-  return first
-end
-
 --- One item's mutation history, newest first, from git alone.
 --- @param s Store The store
 --- @param id string Item id
@@ -463,7 +439,6 @@ local record store
   save: function(s: Store, it: item.Item, message: string, spec?: string,
   also?: {item.Item}): boolean, string
   has_origin: function(s: Store): boolean
-  main_worktree: function(s: Store): string | nil, string
   sync: function(s: Store): boolean, string
   publish: function(s: Store, revalidate?: Revalidate): boolean, string
   history: function(s: Store, id: string): {Event} | nil, string
@@ -480,7 +455,6 @@ local M: store = {
   stage = stage,
   save = save,
   has_origin = has_origin,
-  main_worktree = main_worktree,
   sync = sync,
   publish = publish,
   history = history,

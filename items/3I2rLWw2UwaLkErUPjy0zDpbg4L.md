@@ -2,7 +2,7 @@ Imported from whilp/cosmic#1253.
 
 ## Goal
 
-G8 — the flow system. `_work/verbs.tl` holds most of the board&#39;s verbs and has no
+G8 — the flow system. `_work/verbs.tl` holds most of the board's verbs and has no
 usable headroom: 495 of 500 lines today, and exactly 500 once #1247 — accepted
 and sitting in `work:land` — merges. Every further change to a board verb is
 blocked on a restructure discovered at implementation time, under review
@@ -12,12 +12,12 @@ pressure, which is when it does the most damage.
 
 Filed as a mandated countermeasure, promised in the accept verdict on PR #1247
 (issue #1202). The wrong turn — *a design distorted by a board-tool module at the
-500-line cap* — has distorted this file&#39;s design twice:
+500-line cap* — has distorted this file's design twice:
 
-- **#1115&#39;s first bounce:** 497/500, then 500/500.
+- **#1115's first bounce:** 497/500, then 500/500.
 - **#1202 round 1:** the file was at the cap, the correct fail-closed code did not
   fit, the implementer wrote to a five-line budget, and the result was a gate that
-  failed OPEN when the PR&#39;s verdict state could not be read. Round 2 fixed it only
+  failed OPEN when the PR's verdict state could not be read. Round 2 fixed it only
   by extracting a helper for net-zero lines. The cap caused a real defect, not an
   inconvenience.
 
@@ -26,13 +26,13 @@ possible statement of the problem:
 
 - `standing_or_refuse` is the only file-local function in `_work/verbs.tl` with no
   `---` doc comment; the other eight all carry one with `@param`/`@return`.
-- `cmd_move`&#39;s doc block still describes only the move *into* `check` and not the
+- `cmd_move`'s doc block still describes only the move *into* `check` and not the
   send-back gate #1202 added to it.
 
 ```facts
-$ wc -l &lt; _work/verbs.tl
+$ wc -l < _work/verbs.tl
 495
-$ grep -c &#39;^local function cmd_&#39; _work/verbs.tl
+$ grep -c '^local function cmd_' _work/verbs.tl
 6
 ```
 
@@ -42,7 +42,7 @@ exactly 500. Re-measure before starting rather than trusting either number.
 ## Change
 
 Move `cmd_move` and its gates out of `_work/verbs.tl` into a new `_work/move.tl`,
-following `_work/close.tl`&#39;s precedent exactly: a doc-comment header stating what
+following `_work/close.tl`'s precedent exactly: a doc-comment header stating what
 the module owns, the command function returning the process exit code, and
 dispatch from `_work/board.tl`.
 
@@ -56,7 +56,7 @@ that describes the send-back gate as well as the move into `check`.
 
 ## Non-goals
 
-No behaviour change. Not one gate&#39;s condition, order, or refusal string moves —
+No behaviour change. Not one gate's condition, order, or refusal string moves —
 every `work-move: REFUSED (...)` message must be byte-identical, because sessions
 and tests read those lines.
 
@@ -65,19 +65,19 @@ turn and has its own card.
 
 Do not change `model.LIMITS`, `model.PHASES`, `admits_over_limit`, or anything in
 `_work/verdict.tl`. Do not add, remove, or rename a verb. Do not relax
-`_tool/lint.tl`&#39;s `file-length` check.
+`_tool/lint.tl`'s `file-length` check.
 
 ## Acceptance
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
-- `wc -l &lt; _work/verbs.tl` is under 400, and `bin/cosmic --make lint` reports no
+- `wc -l < _work/verbs.tl` is under 400, and `bin/cosmic --make lint` reports no
   `file-length` finding.
 - `bin/cosmic --make test _work/model_test.tl _work/verdict_test.tl` ends
   `test: PASS (2 files)`, unchanged.
 - `bin/cosmic --make run _work/board.tl move` with no issue number still prints
   its existing usage error, and `bin/cosmic --make run _work/board.tl status`
   still ends `work-board:` — dispatch survives the move.
-- `grep -c &#39;^--- &#39; _work/move.tl` is greater than 0 and `standing_or_refuse`
+- `grep -c '^--- ' _work/move.tl` is greater than 0 and `standing_or_refuse`
   carries a `---` block with `@param` and `@return`.
 
 ## Enablement

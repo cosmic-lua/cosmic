@@ -7,13 +7,13 @@ epics #1112 and #1117; G6 is the next ranked outcome with real slack.
 
 ## Outcome (observable)
 
-- Every release carries a `perf.json` asset (the harness&#39;s results under the released
-  binary) and a compare verdict against the previous release&#39;s asset — so per-release
+- Every release carries a `perf.json` asset (the harness's results under the released
+  binary) and a compare verdict against the previous release's asset — so per-release
   history is the chain of release assets, with no new storage system.
 - The compare is a hard release gate once enough history exists to set a defensible
   noise policy (child slice, blocked on the data).
 - A peer table (the same defining-path metrics for CPython, Node, Go) is published
-  with each release, reporting standing without gating (goals.md: &#34;it never gates&#34;).
+  with each release, reporting standing without gating (goals.md: "it never gates").
 
 ## Evidence (2026-08-15 survey)
 
@@ -33,7 +33,7 @@ The measurement half of G6 exists; the ratchet half does not:
 
 ## Walls
 
-The agent cycles-per-task ratchet is G1&#39;s (the eval instrument), not this epic&#39;s.
+The agent cycles-per-task ratchet is G1's (the eval instrument), not this epic's.
 Never weaken a scenario or its `check()` to make a number pass (optimize skill rule);
 the release gate slice must fail on wrongness (a scenario check failing) even while
 the speed compare is report-only.
@@ -44,6 +44,6 @@ the speed compare is report-only.
 - [ ] #1122 — promote the release perf compare to a hard gate (blocked: needs history)
 - [ ] #1123 — peer table v1: the defining paths against CPython, Node, Go
 
-The gate and peer-table slices stay in shaping until the first slice&#39;s data exists —
-the gate&#39;s noise policy and the peer table&#39;s fairness rules are decisions that want
+The gate and peer-table slices stay in shaping until the first slice's data exists —
+the gate's noise policy and the peer table's fairness rules are decisions that want
 real runner measurements, not guesses.

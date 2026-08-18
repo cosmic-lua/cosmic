@@ -3,10 +3,10 @@ Imported from whilp/cosmic#1245.
 ## Goal
 
 G8 — the flow system. `skills/work/parallel.md` makes concurrent implementer
-sessions the documented way of working, and `--make` is the project&#39;s one build
+sessions the documented way of working, and `--make` is the project's one build
 entry point. A build that corrupts a shared `o/` under that documented
 concurrency, and can leave behind an artifact that reports success on nothing,
-makes the flow system&#39;s own parallelism unsafe. It is also the anchor promise
+makes the flow system's own parallelism unsafe. It is also the anchor promise
 inverted: a gate whose verdict is a lie is the silent bug the whole apparatus
 exists to prevent.
 
@@ -21,7 +21,7 @@ sub-session ran its own `--make run` in the same checkout (`/home/user/cosmic`).
 Three distinct failures, all from the same race, in this order:
 
 ```
-make: cosmic-debug: error: failed to add &#39;sys/help.md&#39; to zip: open source: No such file or directory
+make: cosmic-debug: error: failed to add 'sys/help.md' to zip: open source: No such file or directory
 run: FAIL (cosmic failed)
 
 make: cannot read o/cmd/cosmic/embed_gen/embed/cosmic/_version.lua: open ...: ENOENT (run build first)
@@ -40,20 +40,20 @@ The dangerous outcome is the fourth state, not these three. After one such race
 
 ```
 $ o/bin/cosmic --make run _work/board.tl status
-usage: o/bin/cosmic [options] [script [args]]     # bare Lua&#39;s help
+usage: o/bin/cosmic [options] [script [args]]     # bare Lua's help
 $ echo $?
 0
 $ o/bin/cosmic --version
-o/bin/cosmic: unrecognized option &#39;--version&#39;
+o/bin/cosmic: unrecognized option '--version'
 ```
 
-Exit 0 with Lua&#39;s usage text on stdout. Anything reading that as a verdict — a
+Exit 0 with Lua's usage text on stdout. Anything reading that as a verdict — a
 recipe, a script, a session grepping for `PASS` — sees a successful run of
-nothing. The earlier symptom of the same corruption was `module &#39;cosmic.searcher&#39;
+nothing. The earlier symptom of the same corruption was `module 'cosmic.searcher'
 not found` with a `/zip/` traceback, which at least fails loudly.
 
 Why this is worth a card and not just operator discipline: `--make` is the
-project&#39;s one build entry point, parallel implementer sessions are the documented
+project's one build entry point, parallel implementer sessions are the documented
 way of working (`skills/work/parallel.md`), and the failure mode is a binary that
 reports success. Candidate shapes for the fix: an exclusive lock on `o/` for the
 duration of a build (refusing or waiting, with a message naming the holder), or
@@ -62,7 +62,7 @@ making the staged binary appear atomically (build to a temp path, rename into
 also fixes the reader side, which the first does not.
 
 Related but distinct: #1212 (COSMIC_MAKE_ROOT leaking into spawned test children
-in nested worktrees) is about one build&#39;s environment reaching another; this is
+in nested worktrees) is about one build's environment reaching another; this is
 two builds sharing one output directory.
 
 ## Refinement notes
@@ -78,8 +78,8 @@ asserted:
    build, for instance). Read `_make/` and state which files own staging and
    installation before picking.
 2. **What a payload-less binary should do.** Independent of the race: the
-   artifact&#39;s own entry point can assert its payload is present and fail loudly
-   with a verdict line instead of falling through to bare Lua&#39;s argument
+   artifact's own entry point can assert its payload is present and fail loudly
+   with a verdict line instead of falling through to bare Lua's argument
    handling. That is a separate, smaller, independently verifiable slice, and it
    is the one that converts every future instance of this class from silent to
    loud. It may well be worth cutting out and landing first.
@@ -89,7 +89,7 @@ asserted:
 Adopted from `work:finding` at triage on 2026-08-17: goal trace stated above
 (G8, with the anchor promise as the reason it cannot stay silent), `work:finding`
 marker removed, `work:enable` applied — the countermeasure exists to make
-concurrent implementer sessions safe, which is enablement by `enable.md`&#39;s
+concurrent implementer sessions safe, which is enablement by `enable.md`'s
 definition. The evidence is left verbatim as filed; the two open shape questions
 are recorded as refinement notes rather than settled here, so the next planner
 pass does not mistake this for ready work.
