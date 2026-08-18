@@ -46,9 +46,12 @@ local function cmd_land(s: store.Store, id: string, force: boolean,
     return gate.verdict_line("land", false,
       ("REFUSED: %s names no PR to merge"):format(id:sub(1, 8)))
   end
-  local merged, merr = gh.merge(s, it.pr)
-  if not merged then
+  local res, merr = gh.merge(s, it.pr)
+  if res == nil then
     return gate.verdict_line("land", false, merr)
+  end
+  if not gh.is_merged(res) then
+    return gate.verdict_line("land", false, gh.refusal(it.pr, res))
   end
   print(("gitboard-land: merged PR #%d"):format(it.pr))
   return verbs.cmd_done(s, id, "completed", force, why)
