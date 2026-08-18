@@ -1,5 +1,22 @@
 Imported from whilp/cosmic#1198.
 
+## Superseded — not planned
+
+Refined 2026-08-18: every file this Change targets (`_work/stats.tl`,
+`_work/stats_test.tl`, `_work/model.tl`, `_work/github.tl`, `_work/board.tl`) was
+deleted from `main` in #1257 ("work: the skill's honour-system rules become the
+tool's refusals"), the commit that finished migrating the flow system off
+GitHub-issue labels onto the git-backed `board` branch. There is nothing left to
+window-scope: the label-era `stats` tool this item patches no longer exists in any
+branch's current tree. G8's own goal text already says so — "the label-era `stats`
+tool measured GitHub timelines, which no longer carry the board" — and names the
+real, still-open gap: G8's flow-health measurement is UNBUILT for the file-based
+board, and needs a new instrument reading the `board` branch's own git log (one
+commit per item transition) rather than GitHub issue timelines. That is a different
+shape of tool against different files, not a rescue of this spec, so it is ended
+here rather than refined further. The real gap is refiled as a fresh child under
+G8's goal.
+
 ## Goal
 
 G8 — the flow system (docs/goals.md). `stats` is the instrument the flow review
