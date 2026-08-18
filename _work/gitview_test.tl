@@ -102,17 +102,15 @@ local function test_tree_marks_a_root_nothing_is_driving()
 end
 test_tree_marks_a_root_nothing_is_driving()
 
-local function test_next_answers_per_role()
-  local mine = check.must(view.next_report(board_items(), "implementer"))
-  assert(mine:find("finish", 1, true) and mine:find(LEAF:sub(1, 8), 1, true),
-    "work in do is finished before anything is pulled: " .. mine)
-  local theirs = check.must(view.next_report(board_items(), "planner"))
-  assert(theirs:find("intake", 1, true) or theirs:find("refine", 1, true),
-    "the planner refines or takes in: " .. theirs)
-  local bad, err = view.next_report(board_items(), "nobody")
-  assert(bad == nil and err:find("unknown role", 1, true), tostring(err))
+local function test_next_names_one_action_and_its_rule()
+  local report = view.next_report(board_items())
+  assert(report:find("finish", 1, true)
+    and report:find(LEAF:sub(1, 8), 1, true),
+    "work in do is finished before anything is pulled: " .. report)
+  assert(report:find("—", 1, true),
+    "and the rule that chose it is stated: " .. report)
 end
-test_next_answers_per_role()
+test_next_names_one_action_and_its_rule()
 
 local function test_show_prints_fields_role_and_history()
   local all = board_items()

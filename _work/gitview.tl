@@ -158,18 +158,14 @@ local function cmd_tree(s: store.Store): integer
   return verdict_line("tree", true, verdict)
 end
 
---- The one next action for a role, as the verdict detail.
+--- The one next action, as the verdict detail. Acting on it moves
+--- the board, so a session taking several asks again after each one
+--- rather than reading a list.
 --- @param all {item.Item} Every item
---- @param role string "planner" or "implementer"
 --- @param session string This session's name, "" when unnamed
---- @return string | nil The action, its target, and the rule behind it
---- @return string Error message for an unknown role
-local function next_report(all: {item.Item}, role: string, session?: string):
-  string | nil, string
-  local action, nerr = act.for_role(all, role, session)
-  if action == nil then
-    return nil, nerr
-  end
+--- @return string The action, its target, and the rule behind it
+local function next_report(all: {item.Item}, session?: string): string
+  local action = act.next_action(all, session)
   local target = ""
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
@@ -177,16 +173,12 @@ local function next_report(all: {item.Item}, role: string, session?: string):
   return ("%s%s — %s"):format(action.kind, target, action.reason)
 end
 
-local function cmd_next(s: store.Store, role: string, session?: string): integer
+local function cmd_next(s: store.Store, session?: string): integer
   local all, aerr = store.list(s)
   if all == nil then
     return verdict_line("next", false, aerr)
   end
-  local detail, nerr = next_report(all, role, session)
-  if detail == nil then
-    return verdict_line("next", false, nerr)
-  end
-  return verdict_line("next", true, detail)
+  return verdict_line("next", true, next_report(all, session))
 end
 
 --- One item's fields, role, spec, history, and its own graph
@@ -382,15 +374,14 @@ end
 local record gitview
   status_report: function(all: {item.Item}): {string}, string
   tree_report: function(all: {item.Item}): {string}, string
-  next_report: function(all: {item.Item}, role: string, session?: string):
-  string | nil, string
+  next_report: function(all: {item.Item}, session?: string): string
   show_report: function(it: item.Item, all: {item.Item}, spec: string,
   events: {store.Event}): {string}, string
   find_report: function(all: {item.Item}, specs: {string: string},
   text: string): {string}, string
   cmd_status: function(s: store.Store): integer
   cmd_tree: function(s: store.Store): integer
-  cmd_next: function(s: store.Store, role: string, session?: string): integer
+  cmd_next: function(s: store.Store, session?: string): integer
   cmd_show: function(s: store.Store, id: string): integer
   cmd_find: function(s: store.Store, text: string): integer
 end

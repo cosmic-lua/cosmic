@@ -1,8 +1,9 @@
 #!/usr/bin/env cosmic
--- What the one next action is, per role. The order is the system's
--- central claim — finishing beats starting, both ways down the board
--- — and the claim filter is what makes that order safe to ask when
--- several implementer sessions run at once.
+-- What the one next action is. There is one worker and one ordering,
+-- and that ordering is the system's central claim: finishing beats
+-- starting, all the way down the board. The claim filter is what
+-- makes it safe to ask when several sessions run at once — and what
+-- keeps a session from reviewing what it built.
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
@@ -28,17 +29,17 @@ local function make(over: {string: any}): item.Item
   return check.must(item.decode(t))
 end
 
-local function test_implementer_finishes_before_pulling()
+local function test_finishing_beats_pulling()
   local goal = make({})
   local ready = make({parent = goal.id, phase = "ready"})
   local doing = make({parent = goal.id, phase = "do"})
   local landing = make({parent = goal.id, phase = "land"})
   local items: {item.Item} = {goal, ready, doing, landing}
-  local action = check.must(act.for_role(items, "implementer"))
+  local action = act.next_action(items)
   assert(action.kind == "finish" and action.item.id == landing.id,
     "land first, got " .. action.kind)
 end
-test_implementer_finishes_before_pulling()
+test_finishing_beats_pulling()
 
 local function test_blocked_ready_items_are_not_pulled()
   local goal = make({})
@@ -47,7 +48,7 @@ local function test_blocked_ready_items_are_not_pulled()
       blocked_by = blocker.id})
   local free = make({parent = goal.id, phase = "ready"})
   local items: {item.Item} = {goal, blocker, blocked, free}
-  local action = check.must(act.for_role(items, "implementer"))
+  local action = act.next_action(items)
   assert(action.kind == "pull" and action.item.id == free.id,
     "the blocked item is skipped for the free one: " .. action.kind)
 end
@@ -58,11 +59,10 @@ local function test_another_sessions_claim_is_not_handed_over()
   local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
   local ready = make({parent = goal.id, phase = "ready"})
   local items: {item.Item} = {goal, theirs, ready}
-  local mine = check.must(act.for_role(items, "implementer", "session-B"))
+  local mine = act.next_action(items, "session-B")
   assert(mine.kind == "pull" and mine.item.id == ready.id,
     "B pulls rather than finishing A's claim: " .. mine.kind)
-  local theirs_again = check.must(
-    act.for_role(items, "implementer", "session-A"))
+  local theirs_again = act.next_action(items, "session-A")
   assert(theirs_again.kind == "finish" and theirs_again.item.id == theirs.id,
     "A finishes its own claim: " .. theirs_again.kind)
 end
@@ -72,7 +72,7 @@ local function test_an_unclaimed_do_item_is_anyones()
   local goal = make({})
   local loose = make({parent = goal.id, phase = "do"})
   local items: {item.Item} = {goal, loose}
-  local action = check.must(act.for_role(items, "implementer", "session-B"))
+  local action = act.next_action(items, "session-B")
   assert(action.kind == "finish" and action.item.id == loose.id,
     "an unclaimed do item is finishable by anyone: " .. action.kind)
 end
@@ -82,7 +82,7 @@ local function test_an_unnamed_session_skips_nothing_but_says_whose()
   local goal = make({})
   local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
   local items: {item.Item} = {goal, theirs}
-  local action = check.must(act.for_role(items, "implementer"))
+  local action = act.next_action(items)
   assert(action.kind == "finish" and action.item.id == theirs.id,
     "a session that names nothing is held back by nothing")
   assert(action.reason:find("claimed by session-A", 1, true),
@@ -94,7 +94,7 @@ local function test_held_work_with_nothing_to_pull_says_so()
   local goal = make({})
   local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
   local items: {item.Item} = {goal, theirs}
-  local action = check.must(act.for_role(items, "implementer", "session-B"))
+  local action = act.next_action(items, "session-B")
   assert(action.kind == "none", "nothing for B to do: " .. action.kind)
   assert(action.reason:find("claimed by other sessions", 1, true),
     "and the reason names why: " .. action.reason)
@@ -103,39 +103,69 @@ test_held_work_with_nothing_to_pull_says_so()
 
 -- Placement is what separates the two: an unplaced capture is
 -- triage, a placed root nothing drives is intake.
-local function test_planner_triages_captures_then_intakes()
+-- The phased half outranks all of this, so the live work here is held
+-- by ANOTHER session: that is what leaves the intake half to decide.
+local function test_triage_then_intake()
   local idle = make({})
   local driven = make({beats = idle.id})
-  local worked = make({parent = driven.id, phase = "do"})
+  local worked = make({parent = driven.id, phase = "do", claim = "session-B"})
   local captured = make({})
   local items: {item.Item} = {idle, driven, worked, captured}
-  local action = check.must(act.for_role(items, "planner"))
+  local action = act.next_action(items, "session-A")
   assert(action.kind == "triage" and action.item.id == captured.id,
     "an unplaced capture outranks intake: " .. action.kind)
   local drained: {item.Item} = {idle, driven, worked}
-  local intake = check.must(act.for_role(drained, "planner"))
+  local intake = act.next_action(drained, "session-A")
   assert(intake.kind == "intake" and intake.item.id == idle.id,
     "the placed root with no live work: " .. intake.kind)
 end
-test_planner_triages_captures_then_intakes()
+test_triage_then_intake()
 
-local function test_planner_reviews_before_everything()
+-- One worker builds and reviews, so the distance between the two is
+-- no longer a model boundary — it is the claim, which survives the
+-- move into `check` and says who did the work.
+local function test_a_session_is_not_handed_its_own_work_to_review()
+  local root = make({})
+  local mine = make({parent = root.id, phase = "check", pr = 7,
+      claim = "session-A"})
+  local items: {item.Item} = {root, mine}
+  local same = act.next_action(items, "session-A")
+  assert(same.kind ~= "review",
+    "the session that built it is not handed the verdict: " .. same.kind)
+  assert(same.reason:find("built by this session", 1, true), same.reason)
+  local other = act.next_action(items, "session-B")
+  assert(other.kind == "review" and other.item.id == mine.id,
+    "another session reviews it: " .. other.kind)
+  local anon = act.next_action(items)
+  assert(anon.kind == "review",
+    "a session that names nothing has no distance to keep: " .. anon.kind)
+end
+test_a_session_is_not_handed_its_own_work_to_review()
+
+-- Skipping its own review must not strand the session: the ordering
+-- carries on to the left, and it takes the next thing it MAY do.
+local function test_skipping_its_own_review_falls_through()
+  local root = make({})
+  local mine = make({parent = root.id, phase = "check", pr = 7,
+      claim = "session-A"})
+  local ready = make({parent = root.id, phase = "ready"})
+  local items: {item.Item} = {root, mine, ready}
+  local action = act.next_action(items, "session-A")
+  assert(action.kind == "pull" and action.item.id == ready.id,
+    "it pulls instead of stalling: " .. action.kind)
+end
+test_skipping_its_own_review_falls_through()
+
+local function test_verdicts_come_before_refinement()
   local goal = make({})
   local planning = make({parent = goal.id, phase = "plan"})
   local checking = make({parent = goal.id, phase = "check", pr = 7})
   local items: {item.Item} = {goal, planning, checking}
-  local action = check.must(act.for_role(items, "planner"))
+  local action = act.next_action(items)
   assert(action.kind == "review" and action.item.id == checking.id,
     "verdicts come before refinement: " .. action.kind)
 end
-test_planner_reviews_before_everything()
-
-local function test_an_unknown_role_is_an_error()
-  local action, err = act.for_role({}, "reviewer")
-  assert(action == nil, "no action for an unknown role")
-  assert(err:find("unknown role", 1, true), "got: " .. tostring(err))
-end
-test_an_unknown_role_is_an_error()
+test_verdicts_come_before_refinement()
 
 local function test_an_over_bound_triage_queue_outranks_refining()
   local goal = make({})
@@ -147,11 +177,11 @@ local function test_an_over_bound_triage_queue_outranks_refining()
     oldest = oldest or finding
     items[#items + 1] = finding
   end
-  local under = check.must(act.for_role(items, "planner"))
+  local under = act.next_action(items)
   assert(under.kind == "refine" and under.item.id == planning.id,
     "at the bound, ready has slack and refinement still wins: " .. under.kind)
   items[#items + 1] = make({})
-  local over = check.must(act.for_role(items, "planner"))
+  local over = act.next_action(items)
   assert(over.kind == "triage" and over.item.id == oldest.id,
     "past the bound, the oldest finding is drained first: " .. over.kind)
   assert(over.reason:find("outranks refining", 1, true), over.reason)
@@ -165,8 +195,8 @@ local function test_verdicts_outrank_an_over_bound_triage_queue()
   for _ = 1, flow.TRIAGE_LIMIT + 1 do
     items[#items + 1] = make({})
   end
-  local action = check.must(act.for_role(items, "planner"))
+  local action = act.next_action(items)
   assert(action.kind == "review" and action.item.id == checking.id,
-    "check is still the rightmost planner phase: " .. action.kind)
+    "check is still the rightmost phase: " .. action.kind)
 end
 test_verdicts_outrank_an_over_bound_triage_queue()
