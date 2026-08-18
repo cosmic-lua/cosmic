@@ -274,3 +274,54 @@ io.write(leaked and "across-leaked\n" or "across-blocked\n")
   check.enforced("landlock rw rename")
 end
 test_rw_grant_allows_rename_within_its_tree()
+
+-- Options.handled narrows which access categories the ruleset
+-- controls; a rule's access must be intersected against the ACTUAL
+-- handled set, not just the ABI mask, or a rule requesting more than
+-- `handled` grants exceeds handled_access_fs and landlock_add_rule(2)
+-- returns EINVAL. Enforcement is irreversible, so the live check runs
+-- in a subprocess.
+local function test_narrowed_handled_intersects_rule_access()
+  if not landlock.available() then
+    check.enforce_skip("landlock unavailable (kernel lacks landlock)")
+    return
+  end
+  local dir = fs.join(tmpdir, "narrowed-handled")
+  assert(fs.make_dirs(dir))
+
+  local script = fs.join(tmpdir, "landlock_narrowed_handled.lua")
+  assert(fs.write(script, string.format([[
+local ll = require("cosmic.sandbox.landlock")
+local ok, err = ll.restrict{
+  handled = ll.READ,
+  rules = { { path = %q, access = ll.RW } },
+}
+if not ok then
+  io.write("restrict-failed: " .. tostring(err) .. "\n")
+  os.exit(0)
+end
+io.write("restrict-ok\n")
+]], dir)))
+
+  local h = check.must(child.start({cosmic, script}))
+  local __r1 = check.must(h:wait())
+  local ok, out = __r1.ok, __r1.stdout
+  if not ok then
+    check.enforce_skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    return
+  end
+  if out:find("restrict-failed", 1, true) then
+    -- The EINVAL this test pins came from add_rule when a rule's
+    -- access exceeded a narrowed handled set; that regression is a
+    -- hard failure. Anything else (create_ruleset / restrict_self
+    -- blocked by an outer sandbox) is a strict skip.
+    assert(not out:find("add_rule(", 1, true),
+      "a rule wider than a narrowed handled must not EINVAL: " .. out)
+    check.enforce_skip("landlock restrict blocked: " .. out, true)
+    return
+  end
+  assert(out:find("restrict-ok", 1, true),
+    "restrict must succeed when a rule's access exceeds handled: " .. out)
+  check.enforced("landlock handled/rule-access intersection")
+end
+test_narrowed_handled_intersects_rule_access()

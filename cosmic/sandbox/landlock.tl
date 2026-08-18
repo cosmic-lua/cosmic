@@ -215,7 +215,11 @@ local function restrict(opts?: RestrictOptions): boolean, string
     if not rule.path then
       return fail(string.format("landlock: rule[%d] missing path", i))
     end
-    local access = (rule.access or 0) & mask
+    -- A rule's access must be a subset of `handled`, or
+    -- landlock_add_rule(2) returns EINVAL — intersect against the
+    -- actual handled set (not just the ABI mask) so a caller that
+    -- narrows `handled` gets exactly that access, never a kernel error.
+    local access = (rule.access or 0) & handled
     local pfd, perr = unix.open(rule.path,
       (unix.O_PATH) | (unix.O_CLOEXEC))
     if not pfd then
