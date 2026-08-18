@@ -62,3 +62,73 @@ local function test_ready_gaps_empty_section_counts()
   assert(gaps[1] == "Goal", "hollow heading should count as a gap")
 end
 test_ready_gaps_empty_section_counts()
+
+--- An Acceptance section that quotes commands and output side by side.
+local ACCEPT_BODY < const > = [[
+## Acceptance
+
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `grep -rn "gh.merge" --include=*.tl .` prints exactly
+  `./_work/gitland.tl:12: local function land` — still the one caller.
+- `./o/bin/gitboard status` prints each phase against its limit.
+- `o/bin/gitboard find land` names the item.
+- `wc -l _work/spec.tl` prints a number under 500.
+
+## Enablement
+none needed
+]]
+
+--- The commands an Acceptance body states, keyed for membership tests.
+local function command_set(body: string): {string: boolean}
+  local set: {string: boolean} = {}
+  for _, c in ipairs(spec.acceptance_commands(body)) do
+    set[c] = true
+  end
+  return set
+end
+
+local function test_acceptance_commands_extracts_invocations()
+  local cmds = command_set(ACCEPT_BODY)
+  assert(cmds["bin/cosmic --make ci"], "a cosmic-headed span is a command")
+  assert(cmds["./o/bin/gitboard status"], "a ./ path is an invocation")
+  assert(cmds["o/bin/gitboard find land"], "an o/bin/ path is an invocation")
+  assert(cmds['grep -rn "gh.merge" --include=*.tl .'], "grep heads a command")
+  assert(cmds["wc -l _work/spec.tl"], "wc heads a command")
+  assert(not cmds["ci: PASS"], "a verdict line is not a command")
+end
+test_acceptance_commands_extracts_invocations()
+
+local function test_acceptance_commands_location_is_not_a_command()
+  local cmds = command_set(ACCEPT_BODY)
+  assert(not cmds["./_work/gitland.tl:12: local function land"],
+    "a file:line: span is a location, not a command")
+  local elided = spec.acceptance_commands(
+    "## Acceptance\n- `grep -rn x .` prints `./_work/gitland.tl:...`\n")
+  assert(#elided == 1, "expected only the grep: " .. table.concat(elided, ", "))
+  assert(elided[1] == "grep -rn x .", "got: " .. tostring(elided[1]))
+end
+test_acceptance_commands_location_is_not_a_command()
+
+local function test_acceptance_commands_order_and_dedup()
+  local cmds = spec.acceptance_commands(
+    "## Acceptance\n- `wc -l a.tl` then `bin/cosmic --make ci`\n"
+    .. "- `wc -l a.tl` again, then `./o/bin/gitboard status`\n")
+  assert(#cmds == 3, "expected 3, got: " .. table.concat(cmds, " | "))
+  assert(cmds[1] == "wc -l a.tl", "got: " .. tostring(cmds[1]))
+  assert(cmds[2] == "bin/cosmic --make ci", "got: " .. tostring(cmds[2]))
+  assert(cmds[3] == "./o/bin/gitboard status", "got: " .. tostring(cmds[3]))
+end
+test_acceptance_commands_order_and_dedup()
+
+local function test_acceptance_commands_cosmic_head_location_excluded()
+  local cmds = spec.acceptance_commands(
+    '## Acceptance\n'
+    .. '- `grep -rn "landlock_create_ruleset()" cosmic/ --include=*.tl` prints\n'
+    .. '  exactly one line (`cosmic/sandbox/landlock.tl:158:...`)\n'
+    .. '- `bin/cosmic --make ci` ends `ci: PASS`.\n')
+  assert(#cmds == 2, "expected 2, got: " .. table.concat(cmds, " | "))
+  assert(cmds[1] == 'grep -rn "landlock_create_ruleset()" cosmic/ --include=*.tl',
+    "got: " .. tostring(cmds[1]))
+  assert(cmds[2] == "bin/cosmic --make ci", "got: " .. tostring(cmds[2]))
+end
+test_acceptance_commands_cosmic_head_location_excluded()

@@ -86,6 +86,14 @@ local COMMAND_HEADS: {string: boolean} = {
 --- "cosmic", a path that is run (`./x`, `o/bin/x`), or one of the
 --- shell tools above — so `ci: PASS` and a bare `12` are left out of
 --- what a PR body is asked to quote.
+---
+--- No head carrying a colon names one, whichever of those it would
+--- otherwise match. A colon is what separates running something from
+--- pointing at it: `file:line:` is the shape grep, compilers and this
+--- repo's own tools print, so a span leading with one quotes OUTPUT an
+--- Acceptance bullet shows rather than a command anyone can run. What
+--- argv[0] can be — a program's name or its path — never carries a
+--- colon, so the test costs no real invocation.
 --- @param body string The spec sidecar's markdown
 --- @return {string} The commands, in the order the section states them
 local function acceptance_commands(body: string): {string}
@@ -99,7 +107,7 @@ local function acceptance_commands(body: string): {string}
     elseif inside then
       for span in line:gmatch("`([^`]+)`") do
         local head = span:match("^%s*(%S+)")
-        if head ~= nil and not seen[span]
+        if head ~= nil and not seen[span] and not head:find(":", 1, true)
         and (head:find("cosmic", 1, true) or head:find("^%./")
           or head:find("^o/bin/") or COMMAND_HEADS[head]) then
           seen[span] = true
