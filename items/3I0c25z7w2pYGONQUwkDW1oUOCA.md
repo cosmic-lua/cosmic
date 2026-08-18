@@ -1,14 +1,14 @@
 Imported from whilp/cosmic#1207.
 
-Observed during an implementer session (2026-08-16): `_plan/board.tl move N review` returned `plan-move: #N -&gt; review` for #1137, #1156, and #1192, and an immediate `status`/`show` read confirmed the `plan:review` label. Several minutes later (after a concurrent implementer session had been active on the board, working issue #1197 in parallel), a direct `mcp github issue get_labels` read on all three issues showed them back on `plan:doing` with no intervening comment, `move`, or bounce recorded on any of the three issues&#39; comment trails — i.e. the label reverted with no audit trail. Re-running `move N review` a second time fixed all three, and they have stayed on `plan:review` since (confirmed by repeated direct reads).
+Observed during an implementer session (2026-08-16): `_plan/board.tl move N review` returned `plan-move: #N -> review` for #1137, #1156, and #1192, and an immediate `status`/`show` read confirmed the `plan:review` label. Several minutes later (after a concurrent implementer session had been active on the board, working issue #1197 in parallel), a direct `mcp github issue get_labels` read on all three issues showed them back on `plan:doing` with no intervening comment, `move`, or bounce recorded on any of the three issues' comment trails — i.e. the label reverted with no audit trail. Re-running `move N review` a second time fixed all three, and they have stayed on `plan:review` since (confirmed by repeated direct reads).
 
 Repro commands used:
 ```
 SSL_USE_SYSTEM_CERTS=1 SSL_CERT_FILE=/root/.ccr/ca-bundle.crt bin/cosmic --make run _plan/board.tl move 1137 review
 ```
-then, minutes later, a direct GitHub API read of the issue&#39;s labels showed `plan:doing` again.
+then, minutes later, a direct GitHub API read of the issue's labels showed `plan:doing` again.
 
-This looks like a race between two concurrent sessions both mutating GitHub label state on the same repo around the same time window (14:36-18:20 UTC), possibly a non-atomic read-modify-write in `move`&#39;s label PATCH colliding with another session&#39;s own board.tl activity. Filing as evidence for triage; no fix attempted here and no diff touches board.tl.
+This looks like a race between two concurrent sessions both mutating GitHub label state on the same repo around the same time window (14:36-18:20 UTC), possibly a non-atomic read-modify-write in `move`'s label PATCH colliding with another session's own board.tl activity. Filing as evidence for triage; no fix attempted here and no diff touches board.tl.
 
 
 ---

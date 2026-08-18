@@ -3,10 +3,10 @@ Imported from whilp/cosmic#1236.
 ## Goal
 
 G5 — adversarial verification, extended outward. Sibling of epic #1125, not a
-duplicate of it: #1125&#39;s outcome is *cosmic&#39;s own parsers are fuzzed* and it is
-nearly done. This epic&#39;s outcome is *a user project can fuzz its own code with
+duplicate of it: #1125's outcome is *cosmic's own parsers are fuzzed* and it is
+nearly done. This epic's outcome is *a user project can fuzz its own code with
 one import*, which is a distribution promise rather than a coverage one, and
-also serves the &#34;best tool-building tool&#34; payoff in docs/goals.md.
+also serves the "best tool-building tool" payoff in docs/goals.md.
 
 ## Outcome (observable)
 
@@ -15,14 +15,14 @@ parser, run it in the ordinary test gate, get a *minimized* failing input when
 it breaks, and re-run that exact input forever after — without pulling in
 anything that is not in the binary.
 
-## The design anchor: Go&#39;s `go test -fuzz`
+## The design anchor: Go's `go test -fuzz`
 
-The right comparison is not Hypothesis (a library you install) but Go&#39;s native
+The right comparison is not Hypothesis (a library you install) but Go's native
 fuzzing (a facility the distribution ships), because that is the posture cosmic
-would be adopting. `_fuzz/driver.tl` has already converged on Go&#39;s central
+would be adopting. `_fuzz/driver.tl` has already converged on Go's central
 design choice independently, which is good evidence the shape is right:
 
-- **Go&#39;s dual mode.** A fuzz target runs as an ordinary deterministic unit test
+- **Go's dual mode.** A fuzz target runs as an ordinary deterministic unit test
   over its seed corpus during `go test`, and only becomes an evolutionary
   fuzzing loop under the explicit `-fuzz` flag. `_fuzz` does exactly this with
   a fixed default seed and `FUZZ_SEED`/`FUZZ_ITERS`, which is why it rides
@@ -36,10 +36,10 @@ Where Go is ahead, and what each gap costs here:
    and the one users would feel first.
 2. **Corpus as committed files.** Go writes each failing input to
    `testdata/fuzz/FuzzXxx/` and it becomes a permanent seed, replayed on every
-   subsequent run with no human step. cosmic&#39;s equivalent is a seed number in a
+   subsequent run with no human step. cosmic's equivalent is a seed number in a
    message plus the convention that a human writes regression tests (as #1161
    did, with five). Better discipline, entirely manual. Note the repo already
-   has the `testdata/` convention (never embedded) that Go&#39;s model needs.
+   has the `testdata/` convention (never embedded) that Go's model needs.
 3. **Crash isolation.** Go runs targets in worker processes, so a hard crash,
    OOM, or hang is caught and attributed to the input that caused it. `_fuzz`
    uses `pcall`, which catches Lua errors but not a segfault in a C binding, an
@@ -64,7 +64,7 @@ fixed set of scalar types (`[]byte`, `string`, the numerics, `bool`, `rune`),
 so Go users encode structured inputs into bytes by hand — which is precisely
 the workaround `_fuzz/sse_fuzz_test.tl` and `_fuzz/url_fuzz_test.tl` already
 perform with length-prefixed strings, and `_fuzz/json_fuzz_test.tl` performs
-with a module-level `generated` side channel. Rust&#39;s answer (the `arbitrary`
+with a module-level `generated` side channel. Rust's answer (the `arbitrary`
 crate deriving structured values from a byte stream) is the better model, and
 it composes with minimization rather than fighting it.
 
@@ -72,7 +72,7 @@ it composes with minimization rather than fighting it.
 
 `gen: function(): string` returning an opaque string is close to the worst
 shape for minimization — it admits only byte-level delta debugging on the
-output. Hypothesis&#39;s approach is the cheap way out and it fits here: generate a
+output. Hypothesis's approach is the cheap way out and it fits here: generate a
 *choice sequence*, interpret it through generators, then shrink the choice
 sequence and re-run the generator. Simplifying the draws tends to simplify the
 value, with no per-type shrinker required.
@@ -93,13 +93,13 @@ a later refinement pass.
    one, which is the substrate for minimization.
 3. Minimization: shrink the recorded draw sequence, re-running the generator;
    the failure message reports the minimized input.
-4. Per-input timeout and step budget in the driver; `sse`&#39;s hand-rolled
+4. Per-input timeout and step budget in the driver; `sse`'s hand-rolled
    `Drained.is_bounded` bound is deleted in favor of it.
 5. Crash isolation via `cosmic.child`, so a C-layer fault is attributed to its
    input instead of killing the run.
 6. Corpus persistence under `testdata/`, replayed before generated inputs.
-7. Discard accounting (Hypothesis&#39;s `assume()` and its health check). Live
-   motivation: `url`&#39;s `format_fixpoint` returns true on an unparseable input,
+7. Discard accounting (Hypothesis's `assume()` and its health check). Live
+   motivation: `url`'s `format_fixpoint` returns true on an unparseable input,
    so a generator that drifted to 90% unparseable would still report 256
    passing iterations and prove nearly nothing.
 8. The publishing move itself: placement, `--docs` entry, examples, and the
@@ -123,7 +123,7 @@ should be paid deliberately, with a decision record if it is contested.
   migrate onto the published API as it stabilizes; their properties and the
   found-bug protocol from #1125 are unchanged.
 - Does not supersede #1125 or #1134 (scheduled deep-fuzz). This epic is the
-  library; those are cosmic&#39;s own use of it.
+  library; those are cosmic's own use of it.
 - No public API is frozen before minimization exists — the `Options` contract
   is expected to move, and publishing it early is the thing this epic must not
   do.
@@ -134,5 +134,5 @@ should be paid deliberately, with a decision record if it is contested.
 open `work:plan`, of which 6 are epics and 10 are findings). Epics are exempt,
 so this card is filed now; its children are deliberately NOT filed yet, because
 they would be refused at the limit and would crowd out refinement capacity.
-Decomposition is a later planner pass, per `decompose.md` (&#34;a goal does not
-decompose in one sitting&#34;).
+Decomposition is a later planner pass, per `decompose.md` ("a goal does not
+decompose in one sitting").

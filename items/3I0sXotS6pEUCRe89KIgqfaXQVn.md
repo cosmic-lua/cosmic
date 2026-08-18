@@ -1,36 +1,36 @@
 Imported from whilp/cosmic#1212.
 
-Running `bin/cosmic --make ci` from an implementer session&#39;s nested git
+Running `bin/cosmic --make ci` from an implementer session's nested git
 worktree (`.claude/worktrees/` inside the shared checkout) requires
 `COSMIC_MAKE_ROOT` to be set, or the root-discovery ancestor scan in
-`_make/root.tl` refuses with &#34;ambiguous root&#34; (the shared checkout also
+`_make/root.tl` refuses with "ambiguous root" (the shared checkout also
 looks like a project root). With `COSMIC_MAKE_ROOT` exported in the
-session&#39;s shell, two `_make`/`_cli` tests that spawn their own nested
+session's shell, two `_make`/`_cli` tests that spawn their own nested
 `cosmic --make …` child processes over disposable fixtures fail, because
-the env var leaks into those children and overrides the fixture&#39;s own
+the env var leaks into those children and overrides the fixture's own
 root instead of letting cwd decide it:
 
 - `_cli/main_handlers_test.tl:162` (`test_make_dispatches_verb_and_paths`):
   `--make check should pass here, got 1: make: nothing to do under: a.tl`
 - `_make/check_test.tl:97` (`test_clean_project_passes`): `r.out` is the
-  OUTER worktree&#39;s own multi-hundred-file build/check output rather than
-  the fixture&#39;s expected 5-file &#34;make: root=&#34; banner —
-  `child.start`&#39;s explicit `env` table (PATH/COSMIC_MAKE/TMPDIR/NO_COLOR/
+  OUTER worktree's own multi-hundred-file build/check output rather than
+  the fixture's expected 5-file "make: root=" banner —
+  `child.start`'s explicit `env` table (PATH/COSMIC_MAKE/TMPDIR/NO_COLOR/
   COSMIC_NO_WELCOME) does not clear `COSMIC_MAKE_ROOT`, so the inherited
-  value wins over the fixture&#39;s cwd.
+  value wins over the fixture's cwd.
 
 Verified this is not caused by any content change: identical two
 failures reproduce on a clean `origin/main` checkout in the same nested
 worktree, before any edit (`git stash` back to `cca2fb0`, same
 `COSMIC_MAKE_ROOT`, same `bin/cosmic --make ci` invocation). `fmt`,
-`check`, `example`, and `lint` all pass; only the `coverage` stage&#39;s
+`check`, `example`, and `lint` all pass; only the `coverage` stage's
 process-spawning tests are affected. A third test,
 `_types/tl_conformance_test.tl`, failed once with `ENOENT` on
 `o/_types/types_gen/tl.d.tl` and passed on a second run — looks like an
 unrelated generation race, also outside `_make/build_test.tl` et al.
 
-Not fixed here: it&#39;s an environment/tooling gap in how nested implementer
-worktrees drive `--make ci`, not a defect in the tree&#39;s source, and it is
+Not fixed here: it's an environment/tooling gap in how nested implementer
+worktrees drive `--make ci`, not a defect in the tree's source, and it is
 not in the scope of issue #1177 (a pure test-file split). Commands to
 reproduce are above; `_cli/main_handlers_test.tl` and
 `_make/check_test.tl` are the two files to look at.

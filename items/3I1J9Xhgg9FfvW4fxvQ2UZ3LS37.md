@@ -14,26 +14,26 @@ Convert `.cosmic-coverage` to the `cosmic.literal` format and make
 deleting its own line scan, its `path covered total` split, its repeated-path
 resolution and its canonical write.
 
-- The floor becomes one `[&#34;path&#34;] = {covered, total},` per line, sorted by
+- The floor becomes one `["path"] = {covered, total},` per line, sorted by
   path — the same shape and the same sort the other two floors have, and a
   `cosmic --check fmt` fixpoint like them.
 - The repeated-path rule survives unchanged in meaning: the lower percentage
   wins, expressed now as the `worse` resolver the helper passes to
   `on_duplicate`. Its comment in `.gitattributes` stays true and should be
   updated to name the mechanism rather than the hand-rolled parser.
-- What stays coverage&#39;s own: the tolerances (`total_tolerance_pp`,
-  `file_tolerance_pp`), the file-set drift check, and `lowered`&#39;s rule that a
+- What stays coverage's own: the tolerances (`total_tolerance_pp`,
+  `file_tolerance_pp`), the file-set drift check, and `lowered`'s rule that a
   rewrite lowers only the rows this run would have failed on. Those are
   judgment, and judgment stays in the gate.
 - The conversion of the committed file itself is part of this diff: the same
   rows, the same numbers, a different encoding. State the row count before and
-  after as a fact, and show that no row&#39;s numbers moved.
+  after as a fact, and show that no row's numbers moved.
 
 ## Non-goals
 
-No change to the tolerances, to the ratio semantics, or to any row&#39;s numbers —
+No change to the tolerances, to the ratio semantics, or to any row's numbers —
 a coverage percentage that moves in this PR is a bug. No change to
-`--make coverage`&#39;s flags or its output lines. No change to `merge=union` on
+`--make coverage`'s flags or its output lines. No change to `merge=union` on
 the floor; only the comment above it. The failure-message contract is #C4.
 
 ## Acceptance

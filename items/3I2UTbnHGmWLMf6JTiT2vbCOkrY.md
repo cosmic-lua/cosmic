@@ -2,8 +2,8 @@ Imported from whilp/cosmic#1249.
 
 ## Goal
 
-G8 — the flow system. Review check 1 (`skills/work/review.md:15-22`) is &#34;acceptance
-ran&#34;: the PR quotes the issue&#39;s `## Acceptance` commands and their verdict lines.
+G8 — the flow system. Review check 1 (`skills/work/review.md:15-22`) is "acceptance
+ran": the PR quotes the issue's `## Acceptance` commands and their verdict lines.
 It is the first gate of every review and the cheapest one to satisfy, and it is
 enforced by nothing. A card that arrives without it costs a full planner round to
 discover, which is the most expensive way to learn a command was not run.
@@ -13,8 +13,8 @@ discover, which is the most expensive way to learn a command was not run.
 Mandated by the 2026-08-17 review round. Two distinct cards, past the
 two-occurrence threshold:
 
-- **#1179 / PR #1209** — &#34;paste the real verdict lines into the PR body, not only
-  into a comment&#34; was asked at 19:25Z, 22:44Z and 04:23Z. Three asks, three
+- **#1179 / PR #1209** — "paste the real verdict lines into the PR body, not only
+  into a comment" was asked at 19:25Z, 22:44Z and 04:23Z. Three asks, three
   rounds, one prose request each time.
 - **#1229 / PR #1248** (head `8908d84`) — three of six acceptance bullets are
   narrated rather than quoted (`board.tl status`, `next --role planner`, and the
@@ -24,14 +24,14 @@ two-occurrence threshold:
 
 This is the sibling of #1244, not a duplicate of it. #1244 refuses a head whose
 CI has already concluded failure — a verdict line that is *false* of the head.
-This one is about a verdict line that is *absent*. Both are &#34;the body does not
-carry the evidence review check 1 asks for&#34;, and the two together are what make
+This one is about a verdict line that is *absent*. Both are "the body does not
+carry the evidence review check 1 asks for", and the two together are what make
 that check mechanical instead of aspirational.
 
 ## Change (to be settled in refinement)
 
 The shape, not yet chosen. `move N check` gains a body check: for each command
-the issue&#39;s `## Acceptance` section names, the PR body must contain that command
+the issue's `## Acceptance` section names, the PR body must contain that command
 and a verdict line after it, or the move is refused naming the missing ones.
 
 The parsing halves both already exist and should be reused rather than rebuilt:
@@ -53,7 +53,7 @@ after those two land.
 ## Non-goals
 
 No change to the three verdicts or to the `work-verdict:` first-line grammar. No
-judgement of whether a quoted verdict line is *true* — that is #1244&#39;s half, and
+judgement of whether a quoted verdict line is *true* — that is #1244's half, and
 this gate is presence-only. No refusal on any move other than into `check`. Do
 not fold this together with #1244: they are independently verifiable and touch
 the same 500-line file, so they want separate diffs and a stated landing order.

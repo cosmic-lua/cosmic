@@ -12,28 +12,28 @@ the next verb is an ordinary slice.
 Filed as a mandated countermeasure. The wrong turn — *a design distorted by a
 board-tool module sitting at the 500-line cap* — is now at its third occurrence:
 
-- **#1115&#39;s first bounce:** `_work/verbs.tl` at 497/500, then 500/500.
+- **#1115's first bounce:** `_work/verbs.tl` at 497/500, then 500/500.
 - **#1202 round 1:** the correct fail-closed code did not fit a file at 500/500, so
   the implementer wrote it to a five-line budget and shipped a gate that failed
   OPEN on an unreadable verdict. The capacity limit caused the defect.
-- **#1204&#39;s refinement (2026-08-17, this card&#39;s cause):** `_work/github.tl` is at
+- **#1204's refinement (2026-08-17, this card's cause):** `_work/github.tl` is at
   485/500 with 15 lines of headroom, and the comment-POST that #1204 needs costs
   26 — 8 doc-comment lines, a 2-line signature, an 11-line body, `html_url` on
   `RawComment`, 2 record lines, 1 module-table line, landing at 511. A tight
   version (one-line signature, 6-line doc) still lands at 505.
-  `_tool/lint.tl`&#39;s `file-length` check is a raw line count with no exemption for
+  `_tool/lint.tl`'s `file-length` check is a raw line count with no exemption for
   `_work/**`, so this is a hard gate failure, not a style nit.
 
 ```facts
-$ wc -l &lt; _work/github.tl
+$ wc -l < _work/github.tl
 485
-$ grep -c &#39;api(&#34;POST&#34;&#39; _work/github.tl
+$ grep -c 'api("POST"' _work/github.tl
 3
 $ grep -c create_issue_comment _work/github.tl
 0
 ```
 
-The placement is not the problem and must not be &#34;solved&#34; by moving the POST
+The placement is not the problem and must not be "solved" by moving the POST
 elsewhere: `_work/github.tl` is the ONLY module that requires `_work.api`, and
 putting a second HTTP caller anywhere else breaks a real, currently-unbroken
 invariant. The file needs headroom, not a bypass.
@@ -59,26 +59,26 @@ Move only. No signature change, no doc-comment rewrite, no field added or remove
 no new record, no function relocated, and no behaviour change of any kind — a
 reviewer must be able to read this diff as a pure relocation.
 
-Do not add the comment POST here; that is #1204&#39;s Change and a countermeasure that
+Do not add the comment POST here; that is #1204's Change and a countermeasure that
 lands inside the PR it enables proves nothing.
 
 Do not touch `_work/api.tl`, `list_issue_comments`, or `_work/verbs.tl`. The
 `_work/verbs.tl` split is the sibling half of this wrong turn and has its own card.
 
-Do not relax or exempt anything in `_tool/lint.tl`&#39;s `file-length` check. The cap
+Do not relax or exempt anything in `_tool/lint.tl`'s `file-length` check. The cap
 is doing its job here; the file is what is wrong.
 
 ## Acceptance
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make lint` reports no `file-length` finding, and
-  `wc -l &lt; _work/github.tl` is under 450.
+  `wc -l < _work/github.tl` is under 450.
 - `bin/cosmic --make test _work/github_test.tl _work/verdict_test.tl` ends
   `test: PASS (2 files)`.
 - `bin/cosmic --make run _work/board.tl status` still prints a board and ends
-  `work-board:` — the module&#39;s callers are unaffected at runtime, not just at
+  `work-board:` — the module's callers are unaffected at runtime, not just at
   compile time.
-- `grep -rn &#39;require(&#34;_work.raw&#34;)&#39; _work/` names `_work/github.tl` and nothing
+- `grep -rn 'require("_work.raw")' _work/` names `_work/github.tl` and nothing
   else, proving the re-export rather than a spread of imports.
 
 ## Enablement
