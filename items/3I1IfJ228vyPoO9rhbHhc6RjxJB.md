@@ -12,8 +12,8 @@ enforced, degraded, or skipped — so "sandboxed" never silently means
 less than what was asked, on any kernel. Observable when it holds:
 
 - a policy granting `rw` on one tree permits a cross-directory rename
-  inside that tree on a Landlock ABI ≥ 2 kernel (today it is denied
-  everywhere, by omission).
+  inside that tree on a Landlock ABI ≥ 2 kernel. (Holds — see defect 2
+  below.)
 - a structurally valid policy never dies with a kernel `EINVAL`; bad
   narrowing fails at `validate`, before anything is applied.
 - an **ABI drift alarm** exists: a test fails when the running kernel
@@ -43,22 +43,25 @@ The ceiling is in the C layer: `struct landlock_ruleset_attr` in
 `libc/calls/landlock.h` (whilp/cosmopolitan) has only the ABI-1
 field, and `lunix.c` exposes only `LANDLOCK_RULE_PATH_BENEATH`.
 
-Four defects in the Teal layer, independent of the ceiling:
+Four defects in the Teal layer, independent of the ceiling. Two of
+them have since landed and are recorded here as closed, so a later
+refinement neither re-derives nor re-files them:
 
-1. **`handled` never intersects rule access.** `landlock.tl` masks
-   `handled` and each rule's access by the ABI mask but never by each
-   other; per landlock_add_rule(2), a rule whose access is not a
-   subset of the handled set is `EINVAL`. Any caller narrowing
-   `handled` (a public field on `sandbox.Options`) fails at the first
-   rule. Unhit in-tree only because nothing passes it.
-2. **`REFER` is handled but never granted.** `ALL` includes `REFER`
-   so it lands in the handled set, but no group mask in
-   `cosmic/sandbox/plan.tl` carries it — cross-directory rename/link
-   is denied even between two directories inside the same `rw` grant.
-   The libc's own unveil path grants `REFER` with `"r"`
-   (`libc/calls/unveil.c`), so the facade is silently stricter than
-   the mechanism it fronts. `fs.write_atomic` escapes only because
-   mkstemp stages beside the destination.
+1. ~~**`handled` never intersects rule access.**~~ **Landed.**
+   `landlock.tl:222` now computes each rule's access as `(rule.access
+   or 0) & handled` — the intersection against the ACTUAL handled set,
+   not just the ABI mask — so a caller narrowing `handled` gets
+   exactly that access instead of a kernel `EINVAL` at the first rule.
+   `landlock_test.tl`'s `test_narrowed_handled_intersects_rule_access`
+   proves it.
+2. ~~**`REFER` is handled but never granted.**~~ **Landed.**
+   `landlock.tl`'s `WRITE` mask ORs in `REFER` (with the
+   cross-directory-rename motivation in its doc comment) and
+   `abi_mask` strips it below ABI 2, so an `rw` grant permits a
+   cross-directory rename inside its own tree on an ABI ≥ 2 kernel and
+   degrades honestly below one. `landlock_test.tl`'s
+   `test_rw_grant_allows_rename_within_its_tree` and
+   `test_access_mask_composition` prove it.
 3. **`fs.optional` pre-checks existence** (`cosmo_path.exists` before
    the open): TOCTOU — a path vanishing between check and open still
    kills the whole restrict — and dangling symlinks pass the check
@@ -117,10 +120,12 @@ truncate half is documented.
 
 ## Decomposition sketch
 
-Phase 1 — Teal-only correctness, no C change, mutually independent:
-defect 1 (+ the `handled` field decision), defect 2 (`REFER` with
-`rw` on ABI ≥ 2), defects 3–4, the single probe, the report/strict
-rework, the drift alarm.
+Phase 1 — Teal-only correctness, no C change, mutually independent.
+Defects 1 and 2 have landed and are out of the sketch; what remains:
+defects 3–4, the single probe, the report/strict rework, the drift
+alarm. The `handled` field decision rides with whatever slice takes
+defect 4's report rework, since the honest report is what makes a
+narrowed `handled` observable.
 
 Phase 2 — the C ceiling, on whilp/cosmopolitan's board (cited here by
 URL; `Blocked by:` is same-repo only): binding slices per R6, then a
