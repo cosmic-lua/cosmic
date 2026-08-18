@@ -102,12 +102,13 @@ cosmic/fs/traps_test.tl:210:  local dd = d as {string: any} -- cast: signature t
 cosmic/time_test.tl:61:  -- cast: signature transition
 cosmic/time_test.tl:71:  -- cast: signature transition
 
-$ git grep -n -- "-- cast:.*probe removed surface"
+$ git grep -n -- "-- cast:.*probe removed surface" -- cosmic/compress_test.tl
 cosmic/compress_test.tl:171:  local m = compress as {string: any} -- cast: probe removed surface
 
-$ grep -n "function copy_tree\|copy_tree:" cosmic/fs/init.tl cosmic/fs/tree.tl
+$ grep -n "^local function copy_tree\|^  copy_tree:" cosmic/fs/init.tl cosmic/fs/tree.tl
 cosmic/fs/init.tl:141:  copy_tree: function(src: string, dst: string): boolean, string
 cosmic/fs/tree.tl:110:local function copy_tree(src: string, dst: string): boolean, string
+cosmic/fs/tree.tl:115:  copy_tree: function(src: string, dst: string): boolean, string
 
 $ grep -n "temp_file:\|temp_fd:\|DT_DIR:\|DT_REG:" cosmic/fs/init.tl
 165:  temp_file: function(template?: string): fs_ops.TempFile | nil, string
@@ -119,7 +120,7 @@ $ grep -n "record TempFile" -A6 cosmic/fs/ops.tl
 366:local record TempFile
 367-  --- Open handle to the created file; the Handle owns the descriptor.
 368-  handle: Handle
-369-  --- Path to the created file. NOT unlinked automatically -- remove it
+369-  --- Path to the created file. NOT unlinked automatically — remove it
 370-  --- when done. For an anonymous file with no path at all, use temp_fd().
 371-  path: string
 372-end
@@ -138,28 +139,23 @@ $ grep -n "record Handle is" -A11 cosmic/fd.tl
 38-  datasync: function(self: Handle): boolean, string
 39-  dup: function(self: Handle, newfd?: integer, flags?: integer, lowest?: integer): Handle | nil, string
 
-$ grep -n "function open_dir" -A1 cosmic/fs/dir.tl
+$ grep -n "^local function open_dir(" -A1 cosmic/fs/dir.tl
 167:local function open_dir(path: string): Dir | nil, string
 168-  -- `is` is safe here since every cosmic-installed loader (dispatcher
 
-$ grep -n "record Dir$" -A16 cosmic/fs/types.tl
-122:  record Dir
-123-    metamethod __close: function(self: Dir)
-124-    read: function(self: Dir): string | nil, integer
-125-    close: function(self: Dir)
-126-    fd: function(self: Dir): integer
-127-    rewind: function(self: Dir)
-128-    tell: function(self: Dir): integer
+$ grep -n "read: function(self: Dir)\|close: function(self: Dir)\|fd: function(self: Dir)\|rewind: function(self: Dir)\|tell: function(self: Dir)" cosmic/fs/types.tl
+129:    read: function(self: Dir): string | nil, integer
+131:    close: function(self: Dir)
+133:    fd: function(self: Dir): integer
+135:    rewind: function(self: Dir)
+137:    tell: function(self: Dir): integer
 
-$ grep -n "sleep_ms" cosmic/time.tl | head -3
+$ grep -n "^local function sleep_ms\|  sleep_ms: function\|  sleep_ms = sleep_ms" cosmic/time.tl
 106:local function sleep_ms(ms: number): integer | nil, string
 390:  sleep_ms: function(ms: number): integer | nil, string
 411:  sleep_ms = sleep_ms,
 
 $ grep -n "^  access\b\|  access:\|access =\|mkstemp" cosmic/fs/init.tl
-(no output -- neither `access` nor `mkstemp` is a declared field on fs, confirming
-both retired-surface probes in test_is_accessible / test_mkstemp_is_gone genuinely
-need to index through `any`)
 
 $ grep -c '_test.tl' .cosmic-coverage
 0
