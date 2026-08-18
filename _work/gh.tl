@@ -112,38 +112,70 @@ local function checks(s: store.Store, sha: string): {review.CheckRun} | nil, str
   return out
 end
 
---- Squash-merge a pull request: the landing itself.
+--- One merge attempt's outcome: the HTTP status GitHub answered with,
+--- and the rendered detail — empty on success, GitHub's own message
+--- (via `api.error_of`) on any non-2xx.
+local record Result
+  status: integer
+  detail: string
+end
+
+--- Squash-merge a pull request: the landing itself. `nil, err` only
+--- when no response arrived at all (transport failure) — an HTTP
+--- error status is still a `Result`, for `is_merged`/`refusal` to
+--- classify.
 --- @param s store.Store The store
 --- @param number integer The PR number
---- @return boolean True once merged
---- @return string Error message
-local function merge(s: store.Store, number: integer): boolean, string
+--- @return Result | nil The exchange's outcome
+--- @return string Error message when no response arrived
+local function merge(s: store.Store, number: integer): Result | nil, string
   local repo, serr = slug(s)
   if repo == nil then
-    return false, serr
+    return nil, serr
   end
   local path = ("/repos/%s/pulls/%d/merge"):format(repo, number)
   local res, err = api.call("PUT", path, {merge_method = "squash"})
   if res == nil then
-    return false, err
-  end
-  -- 403 is its own answer: the request is fine and this token may not
-  -- merge it. Saying so beats "the merge failed".
-  if res.status == 403 then
-    return false, ("PR #%d: this token may not merge (403) — a human with "
-      .. "write access has to land it"):format(number)
+    return nil, err
   end
   if not api.is_success(res.status) then
-    return false, api.error_of("PUT", path, res)
+    return {status = res.status, detail = api.error_of("PUT", path, res)}
   end
-  return true
+  return {status = res.status, detail = ""}
+end
+
+--- Whether a merge outcome landed the PR.
+--- @param res Result The merge outcome
+--- @return boolean True on a 2xx
+local function is_merged(res: Result): boolean
+  return api.is_success(res.status)
+end
+
+--- Render a merge that did not land as text an operator acts on: a
+--- 403 is a permission wall, distinct from every other failure.
+--- @param pr integer The PR number
+--- @param res Result The merge outcome
+--- @return string The message
+local function refusal(pr: integer, res: Result): string
+  if res.status == 403 then
+    return ("REFUSED (403: this token may not merge PR #%d into the base "
+      .. "branch — a permission refusal, not the diff. The accept stands "
+      .. "and PR #%d stays in land — ask a maintainer to squash-merge "
+      .. "PR #%d. %s)"):format(pr, pr, pr, res.detail)
+  end
+  return ("ERROR (the merge of PR #%d failed and nothing was merged; "
+    .. "PR #%d stays in land — re-run land once the cause clears. %s)")
+  :format(pr, pr, res.detail)
 end
 
 local record gh
+  type Result = Result
   slug: function(s: store.Store): string | nil, string
   pull: function(s: store.Store, number: integer): review.Pull | nil, string
   checks: function(s: store.Store, sha: string): {review.CheckRun} | nil, string
-  merge: function(s: store.Store, number: integer): boolean, string
+  merge: function(s: store.Store, number: integer): Result | nil, string
+  is_merged: function(res: Result): boolean
+  refusal: function(pr: integer, res: Result): string
 end
 
 local M: gh = {
@@ -151,6 +183,8 @@ local M: gh = {
   pull = pull,
   checks = checks,
   merge = merge,
+  is_merged = is_merged,
+  refusal = refusal,
 }
 
 return M
