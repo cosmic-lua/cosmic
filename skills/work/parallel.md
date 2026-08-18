@@ -1,14 +1,14 @@
-# Fanning out: many implementer sessions at once
+# Fanning out: many sessions at once
 
 the board's WIP limits are sized for parallel work — `do` admits
-several implementer sessions at once, and `ready` holds a queue deep
+several sessions at once, and `ready` holds a queue deep
 enough to feed them independent slices (`status` prints both against
 their limits). this chapter is the other half of that design: how ONE
-orchestrating session runs several implementers concurrently without
+orchestrating session runs several workers concurrently without
 them colliding, and which parts of the system never fan out.
 
 the orchestrator is not a new role. it pulls from the same board by
-the same rules; it just does step 2 of the implementer loop N times
+the same rules; it just does the pull step N times
 and delegates step 3 to N agents, each in its own checkout.
 
 ## when to fan out
@@ -17,7 +17,7 @@ and delegates step 3 to N agents, each in its own checkout.
   room. the limit is a cap, not a target: fan out to what is actually
   independent, never to what merely fits.
 - work flows right to left for an orchestrator too. a `check` item
-  unblocks more as a planner verdict than as another implementer, and
+  unblocks more as a verdict than as another pull, and
   `land` comes before both: land what is accepted, then fan out — a
   wave of pulls on top of a full landing queue starts work while
   finished work waits.
@@ -33,14 +33,14 @@ SKIPPING any item whose files a slice you already took is touching.
 
 the shape to watch for: one slice restructures a file, another edits
 it. taken in one wave they produce two PRs that cannot both merge,
-and the second implementer's session is thrown away. take the next
+and the second session's work is thrown away. take the next
 item down instead.
 
 disjointness is judged on the MERGE, not on either branch. two slices
 that each GROW the same file are not disjoint when that file is near
 the 500-line cap: each branch clears the cap alone — 470 lines on one,
 480 on the other — and the merge is over it, a failure that belongs to
-neither diff and that neither implementer can see. treat a shared file
+neither diff and that neither session can see. treat a shared file
 with thin headroom exactly like a shared restructure, and take the
 next item down.
 
@@ -145,8 +145,9 @@ not carry:
   evidence each, and return to the slice. the orchestrator files each
   as an unparented board item; an agent that cannot hand evidence
   either loses it or widens its diff to fix it;
-- **do not merge** — a PR lands only after a planner accept, in a
-  later implementer pass. the brief's loop ends at the opened PR.
+- **do not merge** — a PR lands only after an accept, in a later
+  pass by a session that did not build it. the brief's loop ends at
+  the opened PR.
 
 carry the bounce rule verbatim (`SKILL.md`, "when the spec
 under-specifies"): report exactly what is missing and stop — the
@@ -158,7 +159,7 @@ improvise unless the brief says that stopping is a good outcome.
 - **the review verdict.** it is the system's final gate and a
   sophisticated model's judgment (`review.md`); N agents reviewing N
   PRs is N unreviewed merges wearing a costume.
-- **refinement.** parallel planners contend on the same phases and
+- **refinement.** parallel refiners contend on the same phases and
   the same outcomes, and two will decompose the same one twice.
 - **anything two slices share.** see above — this is the whole game.
 

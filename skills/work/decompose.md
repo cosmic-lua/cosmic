@@ -1,10 +1,10 @@
 # Decomposing: from ambiguous goals to workable items
 
-working backwards is the planner's core move: start from an outcome's
+working backwards is the core move: start from an outcome's
 win condition, find the largest gap between it and today, and keep
 cutting until each piece clears the ready bar. refinement is
 incremental — an outcome does not decompose in one sitting, and is not
-supposed to; each planner session takes the first `plan` item ONE rung
+supposed to; a refine action takes the first `plan` item ONE rung
 down.
 
 ## the refinement ladder
@@ -25,10 +25,10 @@ position in the graph; moving down a rung is what "refine" means.
    `attach`) and the tool de-phases it in the same mutation.
    *exit test:* the outcome is observable ("a fresh clone can X", "the
    eval suite scores Y") and its child leaves exist under it.
-3. **slice** — a workable leaf: one session, one PR, one implementer.
+3. **slice** — a workable leaf: one session, one PR.
    born in `plan`, moved to `ready` once it clears the bar.
    *exit test:* the ready bar below, checked by `gitboard check ID`
-   and the planner's own read.
+   and a considered read of its content.
 
 decomposition mechanics: children point at their parent (the
 `--parent` edge), so there is no checklist to maintain and none to go
@@ -36,12 +36,12 @@ stale — `tree` renders the decomposition from the edges. a slice that
 needs another slice first records it with `gitboard block ID BLOCKER`
 (`next` skips items with open blockers, and the verb refuses an edge
 that would deadlock the pair). when every child is done, the
-planner verifies the container's outcome actually holds and ends it
+session verifies the container's outcome actually holds and ends it
 (`review.md`).
 
 ## ordering the work: paired comparison
 
-intake walks the placed roots top-down (`next --role planner` names
+intake walks the placed roots top-down (`next` names
 the highest-placed one with no live work), so the order has to be
 real — and it is not asserted anywhere. it is DERIVED from committed
 comparisons, so deriving it is the same act as recording one: put a
@@ -81,15 +81,15 @@ not.
 
 ## sizing a slice
 
-a ready slice is sized for one implementer session: one PR, a diff an
-implementer can hold in its head (~400 lines touched is the smell
+a ready slice is sized for one session: one PR, a diff a session can
+hold in its head (~400 lines touched is the smell
 threshold, not a rule), zero decisions left open. if writing the
 `Change` section forces the word "and" between two independent
 changes, cut it in two. if a slice cannot be sized without research,
 the research IS the slice: an enablement item whose deliverable is
 recorded evidence and the follow-up slices, not code.
 
-slices are also sized for each other: implementer sessions run in
+slices are also sized for each other: sessions run in
 parallel, so prefer cutting an outcome into file-disjoint slices (two
 ready slices touching the same files invite merge conflicts and
 serialized rework). a `blocked_by` chain is the tool for real landing
@@ -110,13 +110,13 @@ other way. and a slice near a frozen contract names the contract in
 a ready slice's spec sidecar carries exactly these five sections.
 `gitboard check ID` lints that each is present and non-empty, and
 that the item has a position in the priority order (`move ID ready`
-refuses a slice that fails the same lint); only the planner can judge
+refuses a slice that fails the same lint); only a reader can judge
 their content. the test for every sentence: **could a competent but
-literal-minded implementer, with no context beyond this spec and the
+literal-minded session, with no context beyond this spec and the
 repo's AGENTS.md, get this wrong?** if yes, it is not ready.
 
 - `## Goal` — one line naming the outcome (or container result) this
-  serves, for the reader. prose, judged by the planner: the tool
+  serves, for the reader. prose, judged by a person: the tool
   checks that the item has a POSITION in the priority order, not what
   this line says.
 - `## Change` — what to build, naming the files to touch and the
@@ -125,14 +125,14 @@ repo's AGENTS.md, get this wrong?** if yes, it is not ready.
   "investigate", or "support".
 - `## Non-goals` — the walls: contracts that must not move, files not
   to touch, adjacent improvements not to make. this section is what
-  keeps a diligent implementer from helpfully breaking something.
+  keeps a diligent session from helpfully breaking something.
 - `## Acceptance` — the exact commands to run and the verdict lines
   they must end with. `bin/cosmic --make ci` ending `ci: PASS` is the
   floor; add the narrow checks that prove THIS change (a specific
   test file, a fixture build, a `--docs` lookup showing the new
   entry). anything not checkable by a command is not acceptance —
   rewrite it until it is.
-- `## Enablement` — the planner's record of the enablement check
+- `## Enablement` — the record of the enablement check
   (`enable.md`): either `none needed` with a word on why, or the
   blocker items (by id) that must land first, mirrored in
   `blocked_by`.
@@ -150,7 +150,7 @@ what the same pattern returns TODAY, and a widened or reworded
 pattern is re-measured rather than carried over.
 
 naming the command beside its output is what makes the claim
-checkable, by a reviewer or by the implementer holding the spec.
+checkable, by a reviewer or by whoever holds the spec next.
 nothing runs these on the item's behalf and nothing pretends to: a
 measurement that has gone stale is caught by whoever runs it next,
 which is the reason to write every one of them to be runnable.
@@ -194,11 +194,11 @@ are in AGENTS.md.
 - **acceptance by vibes** ("works correctly", "is faster") — commands
   and verdict lines, or it does not go in Acceptance. for performance
   work, the `optimize` skill's gates are the acceptance.
-- **hidden decisions** ("pick a reasonable format") — the planner
+- **hidden decisions** ("pick a reasonable format") — refinement
   picks; the spec states the pick.
 - **scope by omission** — an empty Non-goals section on a change near
   a frozen contract (the `cosmo.*` C boundary, error strings, verdict
-  line formats) is a planner error; name the walls.
+  line formats) is a refinement error; name the walls.
 - **decomposing to dust** — slices so small the overhead dominates
   (rename-only items, one-liner items in a chain). a slice earns
   its place by being independently verifiable, not by being tiny.
