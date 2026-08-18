@@ -98,12 +98,12 @@ $ wc -l cosmic/sandbox/unveil.tl cosmic/quicksand/init.tl cosmic/sandbox/landloc
   295 cosmic/sandbox/landlock.tl
   327 cosmic/sandbox/landlock_test.tl
   186 cosmic/quicksand/init_test.tl
+ 1137 total
 $ grep -rn "landlock_create_ruleset()" cosmic/ --include=*.tl | grep -v _test
 cosmic/quicksand/init.tl:82:  local abi = unix.landlock_create_ruleset()
 cosmic/sandbox/landlock.tl:158:    local v, err = unix.landlock_create_ruleset()
 cosmic/sandbox/unveil.tl:79:    local abi = unix.landlock_create_ruleset()
 $ grep -rln "landlock_create_ruleset()" cosmic/ --include=*_test.tl
-(no output — no existing test calls the bare probe form directly)
 $ grep -n "landlock_create_ruleset" cosmic/sandbox/landlock.tl
 158:    local v, err = unix.landlock_create_ruleset()
 205:  local rs, cerr = unix.landlock_create_ruleset(handled, 0)
@@ -111,6 +111,7 @@ $ grep -rn "cosmic.sandbox" cosmic/quicksand/*.tl
 cosmic/quicksand/caps.tl:48:  --- the cosmic.sandbox mechanism shards (pledge, unveil, landlock).
 cosmic/quicksand/init.tl:7:--- `cosmic.sandbox` facade (landlock + pledge) for its fs and syscall
 cosmic/quicksand/types.tl:8:local sandbox = require("cosmic.sandbox")
+cosmic/quicksand/types.tl:51:--- The filesystem policy is cosmic.sandbox's Fs schema (ro/rw/exec
 cosmic/quicksand/types.tl:65:--- The system-call policy is cosmic.sandbox's Sys schema (pledge
 $ grep -n "^local .* = require" cosmic/sandbox/landlock.tl
 24:local unix = require("cosmo.unix")
@@ -207,10 +208,10 @@ Predicted wrong turns and how this spec heads them off:
   so there is no shared-file temptation; the Non-goals section still
   names both explicitly since `landlock.tl` is common ground all three
   slices read.
-- **Blocks / is blocked by**: this slice is a prerequisite for the
-  epic's "ABI drift alarm" item (a test that fails when the running
-  kernel reports a Landlock ABI above the highest one `abi_mask`
-  models) — that item should carry `blocked_by` pointing at this one
-  once both exist on the board, so `next` sequences them correctly.
-  This slice itself has no blockers and does not depend on defect 3,
-  defect 4, or anything else landing first.
+- **Sequencing note for later filing**: the epic's future "ABI drift
+  alarm" item (a test that fails when the running kernel reports a
+  Landlock ABI above the highest one `abi_mask` models) will build on
+  the one-probe shape this slice establishes — when that item is filed,
+  its own board record should record this one as a prerequisite. This
+  slice itself carries no dependency of its own: no blocker, and no
+  wait on defect 3, defect 4, or anything else landing first.
