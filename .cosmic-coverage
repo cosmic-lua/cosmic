@@ -29,6 +29,7 @@ _cli/visibility.tl 24 25
 _cli/welcome.tl 0 25
 _docs/derive.tl 54 81
 _docs/publish.tl 115 177
+_eval/bundle.tl 58 80
 _eval/checks/child-tcp.tl 56 82
 _eval/checks/contained-task.tl 35 45
 _eval/checks/json-cli.tl 32 38
