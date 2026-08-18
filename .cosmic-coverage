@@ -96,6 +96,9 @@ _perf/bench/time_bench.tl 0 14
 _perf/compare.tl 105 107
 _perf/gate.tl 95 115
 _perf/harness.tl 136 147
+_perf/peers/peers.tl 56 146
+_perf/peers/report.tl 82 84
+_perf/peers/run.tl 0 99
 _perf/perf_types.tl 2 2
 _perf/run.tl 97 191
 _perf/stats.tl 67 67
