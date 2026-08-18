@@ -28,3 +28,40 @@ time (or in the store/render layer) so stored spec text carries real
 characters throughout, and re-run the decode over already-imported items so
 old items don't carry the pollution forward. The quoting gate's substring
 match is correct; the data feeding it is not.
+
+## Second occurrence (2026-08-18) — confirms the fix shape, raises the stakes
+
+Found again while refining item 3I0L8yuR, and worse than the first sighting:
+this time the pollution broke `gitboard check`'s own `facts` execution, not
+just the PR-quoting gate. `items/3I0L8yuRpu3qARCS9LGEi5Lo517.md` carried 71
+raw entities (42 `&#34;`, 22 `&#39;`, 6 `&amp;`, 1 `&lt;`) including inside
+`$`-prefixed fact commands, e.g. `$ wc -l &lt; skills/work/review.md` and
+`$ grep -ci &#34;flow review&#34; skills/work/review.md`. `_work/facts.tl`
+runs a fact's command verbatim through `/bin/sh -c` — `&lt;` is not a
+redirect, it is the literal three characters `&`, `l`, `t`, `;`, and a
+bare `&` backgrounds the preceding token — so EVERY fact on this item
+reported a false failure (`wc -l` alone, backgrounded, reads empty stdin
+and prints `0`; `grep -ci &#34;flow` similarly runs disconnected from its
+pattern and prints nothing). `gitboard check` therefore cannot evaluate
+ANY fact containing a quote, apostrophe, ampersand, or angle bracket —
+which is most facts blocks that grep or redirect, i.e. most items on this
+board. Worked around this occurrence by hand: fetched the raw committed
+bytes with `git show HEAD:items/<id>.md`, ran them through Python's
+`html.unescape`, and replaced the sidecar with `gitboard spec`. Confirmed
+by diff that decoding only touched the entity sequences (the two `&amp;`
+occurrences were both `&amp;&amp;` → `&&` in shell facts, correctly
+recovered — no legitimate literal ampersand exists in this item's text to
+false-positive on).
+
+Per `review.md`'s feedback rule ("if the same wrong turn has now appeared
+twice, the countermeasure stops being optional"): this is now two
+independent items, hit two different ways (a review-time PR-quoting
+refusal, and a refine-time fact-verification failure that silently makes
+`check`/`move ready` unusable on a whole class of items rather than
+erroring loudly). Filing the countermeasure is no longer optional —
+whichever planner or implementer next has ready-queue slack should pull
+this rather than intake something new. Suggested acceptance for the fix:
+after landing it, re-running `gitboard check` on an item with a
+known-polluted sidecar (or a synthetic fixture carrying `&#34;`/`&lt;`
+inside a facts command) should show the entity decoded and the fact
+evaluated against its real command, not silently misexecuted.
