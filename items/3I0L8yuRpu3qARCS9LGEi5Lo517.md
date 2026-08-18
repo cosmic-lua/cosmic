@@ -1,42 +1,40 @@
 Imported from whilp/cosmic#1203.
 
-## Refinement blocker (2026-08-18) — not resolved, do not move to ready
+## Refinement decision (2026-08-18) — resolved, re-scope before next pass
 
-Re-checked against the CURRENT `board` worktree while attempting to drive
-this item to the ready bar. Two separate problems found and only the first
-is fixed here:
+Re-verified against the CURRENT `board` worktree: `_work/stats.tl` and
+`_work/model.tl` still do not exist (`ls _work/*.tl` lists 26 files,
+none named `stats.tl` or `model.tl`; `LIMITS` lives in `_work/flow.tl`
+line 35; `grep -rln "PhaseFlow\|stint_count\|flow-review" _work/*.tl`
+matches nothing). The prior pass left the choice open: rebuild the
+`stats` instrument under the new `_work/` layout, or redesign the
+flow-review method around what the tree actually offers today.
 
-1. **Fixed.** The spec sidecar carried raw HTML entities (`&#39;`, `&#34;`,
-   `&lt;`, `&amp;`) baked into its prose and its `facts` commands — same
-   defect as finding 3I4832Yh, this time breaking `gitboard check`'s fact
-   execution itself (a `$ wc -l &lt; file` fact runs literally through
-   `/bin/sh -c` and does nothing like the intended redirect), not just the
-   PR-quoting gate 3I4832Yh named. Decoded via `gitboard spec` in this
-   pass; see 3I4832Yh, whose evidence this reinforces (now three
-   occurrences — the countermeasure there should stop being optional).
-2. **Not fixed — blocks ready.** `_work/stats.tl` and `_work/model.tl`, the
-   two files this item's Change and Acceptance cite throughout (the
-   `PhaseFlow` record, the `LIMITS` table, the `stats` CLI verb this
-   section is supposed to document), **do not exist in the current board
-   tree.** `LIMITS` now lives in `_work/flow.tl` (confirmed:
-   `grep -n "^local LIMITS" _work/flow.tl` → line 35), but no `PhaseFlow`
-   record, no dwell/stint/occupancy reporting, and no `stats` verb exist
-   anywhere in `_work/**` today (confirmed:
-   `grep -rln "PhaseFlow\|stint_count\|flow-review" _work/*.tl` → no
-   matches). `git log --oneline -- _work/stats.tl _work/model.tl` shows
-   both existed before the board's `d1cdc9fe` orphan-history reset
-   ("board: the work system and its state, on their own history") and
-   were not carried forward into it — the measurement tooling this item
-   was written to document was dropped in that reset, not merely renamed.
-   This item cannot be refined to the ready bar as scoped: there is
-   nothing left to write a `## tuning the limits: the flow review`
-   section ABOUT. Before this item can move again, a planner needs to
-   decide whether the `stats`/flow-review measurement tool gets rebuilt
-   under the new `_work/` layout (a different, larger item this one would
-   then depend on) or whether the flow-review method is redesigned around
-   whatever the current tree actually offers. Left in `plan`, unscoped,
-   for that decision — do not re-attempt this refinement without first
-   answering that question.
+**Decision: redesign around what exists; do not rebuild `stats` as a
+prerequisite.** Reasoning: the board itself is one day old
+(`d1cdc9fe`, 2026-08-17) — there is not yet enough phase-dwell history
+for a dedicated median/peak-occupancy report to say anything a human
+can't read directly off `gitboard show ID`'s own history log, which
+already prints every phase move as a timestamped, greppable commit
+message. Building a new instrumented reporting verb now, before the
+history exists to make its output meaningful, inverts G6's own
+"measured, not inferred" discipline applied to this repo's process
+data. The flow-review method this item writes should describe reading
+`git log` over `items/*.tl` on the `board` branch directly — same data
+`stats` would have reported, gathered by hand — not depend on a verb
+that would need to be designed, built and reviewed before this item
+could even start.
+
+**This re-scopes the entire `## Change` section below**, which still
+describes adopting PR #1171 by documenting a `_work/board.tl stats`
+verb (dwell minutes, peak occupancy, the `PhaseFlow` record) that does
+not exist. That prose is superseded by this decision and needs a full
+rewrite — a `git log`-based method, in the same ten-corrections shape,
+with every `stats`/`PhaseFlow`/`board.tl stats` reference replaced by
+the raw-log equivalent — before this item can be checked or moved.
+Left in `plan`; the next refinement pass does that rewrite, not this
+one (refinement is one rung at a time, and deciding direction is that
+rung for this pass).
 
 ## Goal
 
