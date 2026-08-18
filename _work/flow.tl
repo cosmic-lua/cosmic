@@ -40,6 +40,14 @@ local LIMITS: {string: integer} = {
   land = 3,
 }
 
+--- The triage queue is not a phase and holds no WIP slot, but an
+--- unbounded one starves: findings are the only channel by which an
+--- implementer reports friction, and a queue nobody drains makes that
+--- channel write-only. This is the depth past which draining it
+--- outranks refining. A first value, tuned by the flow review the
+--- same way `LIMITS` is.
+local TRIAGE_LIMIT < const > = 8
+
 --- The most parent hops a trace walks before calling the chain
 --- cyclic; deeper nesting than this is its own design smell.
 local MAX_DEPTH < const > = 16
@@ -326,11 +334,25 @@ local function findings(items: {Item}): {Item}
   return out
 end
 
+--- The triage queue's own limit violation, in the one line shape
+--- `wip_violations` uses. Triage holds no phase, so `wip_violations`
+--- — which walks the phases — never sees it; the bound still binds.
+--- @param items {Item} All items
+--- @return string | nil The violation line, nil at or under the bound
+local function triage_violation(items: {Item}): string | nil
+  local n = #findings(items)
+  if n > TRIAGE_LIMIT then
+    return ("triage %d/%d over limit"):format(n, TRIAGE_LIMIT)
+  end
+  return nil
+end
+
 local record flow
   type Item = Item
   type Board = Board
   type Index = Index
   LIMITS: {string: integer}
+  TRIAGE_LIMIT: integer
   is_return: function(from: string, to: string): boolean
   admits_over_limit: function(from: string, to: string): boolean
   by_id: function(items: {Item}): Index
@@ -347,11 +369,13 @@ local record flow
   trace_problems: function(items: {Item}): {string}
   goals: function(items: {Item}): {Item}, {string: boolean}
   findings: function(items: {Item}): {Item}
+  triage_violation: function(items: {Item}): string | nil
   ready_gaps: function(body: string): {string}
 end
 
 local M: flow = {
   LIMITS = LIMITS,
+  TRIAGE_LIMIT = TRIAGE_LIMIT,
   is_return = is_return,
   admits_over_limit = admits_over_limit,
   by_id = by_id,
@@ -367,6 +391,7 @@ local M: flow = {
   trace_problems = trace_problems,
   goals = goals,
   findings = findings,
+  triage_violation = triage_violation,
   ready_gaps = spec.ready_gaps,
 }
 

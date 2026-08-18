@@ -133,3 +133,19 @@ local function test_show_names_an_items_own_graph_problem()
   assert(verdict:find("is open", 1, true), verdict)
 end
 test_show_names_an_items_own_graph_problem()
+
+local function test_status_counts_the_triage_queue_against_its_bound()
+  local lines, verdict = view.status_report(board_items())
+  assert(has(lines, "^triage 0/8$"), table.concat(lines, "\n"))
+  assert(not verdict:find("triage", 1, true),
+    "an empty queue is no violation: " .. verdict)
+  local items = board_items()
+  for _ = 1, 9 do
+    items[#items + 1] = check.must(item.decode({id = fresh_id(),
+          title = "a finding"}))
+  end
+  local over, over_verdict = view.status_report(items)
+  assert(has(over, "^triage 9/8$"), table.concat(over, "\n"))
+  assert(over_verdict:find("triage 9/8 over limit", 1, true), over_verdict)
+end
+test_status_counts_the_triage_queue_against_its_bound()

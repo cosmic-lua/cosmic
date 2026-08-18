@@ -21,6 +21,9 @@ local verdict_line = gate.verdict_line
 --- Health reports HERE rather than in the ready bar: one item's
 --- broken chain is everyone's to see and nobody's reason to be
 --- refused a promotion.
+---
+--- The triage queue counts here too, against its own bound, because
+--- a queue past it is the planner's next action.
 --- @param all {item.Item} Every item
 --- @return {string} The lines to print
 --- @return string The verdict detail
@@ -39,12 +42,21 @@ local function status_report(all: {item.Item}): {string}, string
       out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
     end
   end
+  -- The triage queue is not a phase, so it carries a count and no
+  -- item lines: findings are not on the board, and `tree` is where
+  -- they are listed one by one.
+  out[#out + 1] = ("%-6s %d/%d"):format("triage", #flow.findings(all),
+    flow.TRIAGE_LIMIT)
   local graph = flow.trace_problems(all)
   for _, p in ipairs(graph) do
     out[#out + 1] = "  graph: " .. p
   end
   local verdict = "WIP ok"
   local violations = flow.wip_violations(b)
+  local over_triage = flow.triage_violation(all)
+  if over_triage then
+    violations[#violations + 1] = over_triage
+  end
   if #violations > 0 then
     verdict = "WIP: " .. table.concat(violations, "; ")
   end

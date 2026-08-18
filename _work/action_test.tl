@@ -5,6 +5,7 @@
 -- several implementer sessions run at once.
 
 local check = require("cosmic.check")
+local flow = require("_work.flow")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local act = require("_work.action")
@@ -133,3 +134,37 @@ local function test_an_unknown_role_is_an_error()
   assert(err:find("unknown role", 1, true), "got: " .. tostring(err))
 end
 test_an_unknown_role_is_an_error()
+
+local function test_an_over_bound_triage_queue_outranks_refining()
+  local goal = make({rank = 1})
+  local planning = make({parent = goal.id, phase = "plan"})
+  local items: {item.Item} = {goal, planning}
+  local oldest: item.Item = nil
+  for _ = 1, flow.TRIAGE_LIMIT do
+    local finding = make({})
+    oldest = oldest or finding
+    items[#items + 1] = finding
+  end
+  local under = check.must(act.for_role(items, "planner"))
+  assert(under.kind == "refine" and under.item.id == planning.id,
+    "at the bound, ready has slack and refinement still wins: " .. under.kind)
+  items[#items + 1] = make({})
+  local over = check.must(act.for_role(items, "planner"))
+  assert(over.kind == "triage" and over.item.id == oldest.id,
+    "past the bound, the oldest finding is drained first: " .. over.kind)
+  assert(over.reason:find("outranks refining", 1, true), over.reason)
+end
+test_an_over_bound_triage_queue_outranks_refining()
+
+local function test_verdicts_outrank_an_over_bound_triage_queue()
+  local goal = make({rank = 1})
+  local checking = make({parent = goal.id, phase = "check", pr = 7})
+  local items: {item.Item} = {goal, checking}
+  for _ = 1, flow.TRIAGE_LIMIT + 1 do
+    items[#items + 1] = make({})
+  end
+  local action = check.must(act.for_role(items, "planner"))
+  assert(action.kind == "review" and action.item.id == checking.id,
+    "check is still the rightmost planner phase: " .. action.kind)
+end
+test_verdicts_outrank_an_over_bound_triage_queue()
