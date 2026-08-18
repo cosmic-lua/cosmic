@@ -31,7 +31,8 @@ local BASELINE < const > = "_build/casts_baseline.tl"
 --- The trees the count covers: every tree of committed Teal source.
 --- `3p/` is not one — its contents are vendored, not written here.
 local TREES < const >: {string} = {
-  "_build", "_cli", "_docs", "_make", "_perf", "_tool",
+  "_build", "_cli", "_docs", "_eval",
+  "_fuzz", "_make", "_perf", "_tool",
   "_types", "cmd", "cosmic",
 }
 
