@@ -137,6 +137,8 @@ local UNCONTAINERISED < const >: {string: string} = {
   "the cross-OS matrix: native macOS/Windows runners are the point",
   ["release.yml:release"] =
   "no build machinery: artifact download + `gh release create`",
+  ["release.yml:peers"] =
+  "peer versions are the runner image's: the pinned container has no node and no go",
 }
 
 -- What a lane pins about its environment, per job.
