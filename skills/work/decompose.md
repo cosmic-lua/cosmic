@@ -134,11 +134,12 @@ question. every count an `Acceptance` grep demands states the CURRENT
 reworded pattern is a NEW fact, re-measured, never carried over. a
 `Change` that narrows a function's contract enumerates that
 function's callers as a fact (`grep -rn` the call sites), so no
-caller is discovered broken at implementation time. `check` and
-`move ID ready` RUN the block — in the product checkout the facts
-describe, not the board worktree asking — so a stale fact refuses the
-promotion rather than surviving to bounce the slice later. write them
-to be run.
+caller is discovered broken at implementation time. recording the
+command beside its output is what makes the claim checkable: a
+reviewer, or the implementer holding the spec, re-runs it in the
+product checkout the facts describe and sees for itself. nothing runs
+a facts block on the item's behalf, so a fact that has gone stale is
+caught by whoever runs it next — write every one of them to be run.
 
 ## a worked example
 

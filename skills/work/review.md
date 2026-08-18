@@ -15,14 +15,16 @@ gate between them, so it may only be given where review happens.
 read the item first (`gitboard show ID` — the spec sidecar), then the
 PR against it:
 
-1. **acceptance ran.** the PR quotes the spec's `Acceptance`
-   commands and their verdict lines (`ci: PASS`, the narrow checks) —
-   and CI is green on the PR's CURRENT head. a branch that moved
-   since the quoted run (a rework push, a merge of main) needs its
-   fresh run read, not assumed; an in-progress run is a reason to
-   review the next item and come back, never to wave through.
-   absent or failing evidence ends the review immediately — verdict
-   2, "run the acceptance."
+1. **acceptance ran.** demand the evidence yourself: the spec's
+   `Acceptance` commands, run, ending on the verdict lines they must
+   (`ci: PASS`, the narrow checks) — and CI green on the PR's CURRENT
+   head. nothing upstream of the review establishes this; the
+   implementer owes it and you are the one who checks it was paid. a
+   branch that moved since the quoted run (a rework push, a merge of
+   main) needs its fresh run read, not assumed; an in-progress run is
+   a reason to review the next item and come back, never to wave
+   through. absent or failing evidence ends the review immediately —
+   verdict 2, "run the acceptance."
 2. **the diff is the Change.** everything in `## Change` is present;
    nothing outside it snuck in. scope creep gets cut even when it is
    good — good ideas go to the board as items, not into an unrelated
@@ -191,10 +193,9 @@ measure, per phase, over the window:
 
 then decide by these rules, in order:
 
-1. **check the arrivals before the number.** `_work/flow.tl`'s
-   `admits_over_limit(from, to)` is two lines — `to == "land" or
-   is_return(from, to)` — a full phase admits only a return or an
-   accept, everything else queues. because containers never hold a
+1. **check the arrivals before the number.** a full phase still
+   admits the motion that cannot wait (`_work/flow.tl` states which),
+   and everything else queues. because containers never hold a
    phase, a raw occupancy count read from the log is already a count
    of genuine work in progress: when a hand count shows a phase over
    its `LIMITS` value, check whether the arrivals that pushed it
@@ -244,8 +245,8 @@ real one — that part is still the planner's.
 
 a bounce that quotes a wrong or unmeasured tree-fact names its
 countermeasure directly — the facts block was missing or stale for
-that claim — and the fix is a facts entry in the re-refined spec, not
-a prose apology.
+that claim — and the fix is a freshly measured facts entry in the
+re-refined spec, not a prose apology.
 
 findings enter the same loop from the implementer side: at the triage
 step the planner takes every unranked root — `attach` it under the

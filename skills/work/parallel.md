@@ -27,10 +27,9 @@ and delegates step 3 to N agents, each in its own checkout.
 
 ## picking the set: disjointness beats board order
 
-`next` names exactly one item — the oldest unblocked ready — and it
-does not know what else you are about to take. taking N means walking
-that order yourself and SKIPPING any item whose files a slice you
-already took is touching.
+`next` names exactly one item, and it does not know what else you are
+about to take. taking N means walking the board's order yourself and
+SKIPPING any item whose files a slice you already took is touching.
 
 the shape to watch for: one slice restructures a file, another edits
 it. taken in one wave they produce two PRs that cannot both merge,
@@ -137,6 +136,10 @@ not carry:
 - a PR opened READY for review, not draft, carrying `Board: <id>` in
   its body so the reviewer joins the PR to its item — the orchestrator
   runs `move ID check` when it sees the PR;
+- the acceptance run in that body: the spec's commands and the verdict
+  lines they ended on. an agent that ran them and said so in its final
+  message has told the orchestrator, not the reviewer, and the
+  reviewer is who needs it;
 - the finding rule: report anything found out of scope — a real
   defect, a stale doc — in the final message as one paragraph of
   evidence each, and return to the slice. the orchestrator files each
