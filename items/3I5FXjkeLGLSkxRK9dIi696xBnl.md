@@ -143,7 +143,7 @@ $ grep -n "^local function open_dir(" -A1 cosmic/fs/dir.tl
 167:local function open_dir(path: string): Dir | nil, string
 168-  -- `is` is safe here since every cosmic-installed loader (dispatcher
 
-$ grep -n "read: function(self: Dir)\|close: function(self: Dir)\|fd: function(self: Dir)\|rewind: function(self: Dir)\|tell: function(self: Dir)" cosmic/fs/types.tl
+$ grep -n "^    read: function(self: Dir)\|^    close: function(self: Dir)\|^    fd: function(self: Dir)\|^    rewind: function(self: Dir)\|^    tell: function(self: Dir)" cosmic/fs/types.tl
 129:    read: function(self: Dir): string | nil, integer
 131:    close: function(self: Dir)
 133:    fd: function(self: Dir): integer
