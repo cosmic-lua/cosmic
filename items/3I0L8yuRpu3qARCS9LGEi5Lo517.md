@@ -1,56 +1,19 @@
 Imported from whilp/cosmic#1203.
 
-## Refinement decision (2026-08-18) — resolved, re-scope before next pass
-
-Re-verified against the CURRENT `board` worktree: `_work/stats.tl` and
-`_work/model.tl` still do not exist (`ls _work/*.tl` lists 26 files,
-none named `stats.tl` or `model.tl`; `LIMITS` lives in `_work/flow.tl`
-line 35; `grep -rln "PhaseFlow\|stint_count\|flow-review" _work/*.tl`
-matches nothing). The prior pass left the choice open: rebuild the
-`stats` instrument under the new `_work/` layout, or redesign the
-flow-review method around what the tree actually offers today.
-
-**Decision: redesign around what exists; do not rebuild `stats` as a
-prerequisite.** Reasoning: the board itself is one day old
-(`d1cdc9fe`, 2026-08-17) — there is not yet enough phase-dwell history
-for a dedicated median/peak-occupancy report to say anything a human
-can't read directly off `gitboard show ID`'s own history log, which
-already prints every phase move as a timestamped, greppable commit
-message. Building a new instrumented reporting verb now, before the
-history exists to make its output meaningful, inverts G6's own
-"measured, not inferred" discipline applied to this repo's process
-data. The flow-review method this item writes should describe reading
-`git log` over `items/*.tl` on the `board` branch directly — same data
-`stats` would have reported, gathered by hand — not depend on a verb
-that would need to be designed, built and reviewed before this item
-could even start.
-
-**This re-scopes the entire `## Change` section below**, which still
-describes adopting PR #1171 by documenting a `_work/board.tl stats`
-verb (dwell minutes, peak occupancy, the `PhaseFlow` record) that does
-not exist. That prose is superseded by this decision and needs a full
-rewrite — a `git log`-based method, in the same ten-corrections shape,
-with every `stats`/`PhaseFlow`/`board.tl stats` reference replaced by
-the raw-log equivalent — before this item can be checked or moved.
-Left in `plan`; the next refinement pass does that rewrite, not this
-one (refinement is one rung at a time, and deciding direction is that
-rung for this pass).
-
 ## Goal
 
 G8 — the flow system, via epic #1117. The board's WIP limits are committed
 policy, and the method that tunes them by measurement is not written down
-anywhere: `_work/stats.tl` was built to feed that method and its own doc comment
-points readers at a section of `skills/work/review.md` that does not exist. This
-slice writes that section, correcting the text drafted on PR #1171 to describe
-the tooling the tree has.
+anywhere. This slice writes that section, describing a method against the
+tooling the tree actually has today: reading the `board` branch's own git
+history by hand.
 
 ## Change
 
 Adopt PR #1171. Its 51 lines are a method written against `skills/plan/SKILL.md`
 and the four-phase board (`shaping`/`ready`/`doing`/`review`); both are gone, and
-the tooling the method assumed to be proposed now exists. Land the corrected
-text, at the path `_work/stats.tl` already names.
+the board's own git history — not a reporting verb — is the tooling the method
+now reads. Land the corrected text.
 
 The measured state of `skills/work/review.md`, this item's target root
 (a fresh clone of `whilp/cosmic`, not the `board` worktree — the facts
@@ -74,12 +37,11 @@ Reference only — verified by hand against the `board` worktree
 (`git worktree add o/board board`) at refinement time, 2026-08-18; a
 second, board-rooted `check` run cannot be automated today (the tool
 takes one `--root`), so treat these as citations to confirm by eye
-against `_work/stats.tl` and `_work/model.tl` before writing the
-section, not as machine-checked facts:
+against `_work/flow.tl` and `items/*.tl`'s own git history before
+writing the section, not as machine-checked facts:
 
 ```
-$ grep -c "flow-review section" _work/stats.tl      # 1
-$ sed -n '/^local LIMITS/,/^}/p' _work/model.tl
+$ sed -n '/^local LIMITS/,/^}/p' _work/flow.tl
 local LIMITS: {string: integer} = {
   plan = 12,
   ready = 12,
@@ -87,17 +49,25 @@ local LIMITS: {string: integer} = {
   check = 10,
   land = 3,
 }
-$ sed -n '/^local record PhaseFlow/,/^end/p' _work/stats.tl
-local record PhaseFlow
-  phase: string
-  stint_count: integer
-  median_dwell_min: number
-  max_dwell_min: number
-  peak_occupancy: integer
-  at_limit_min: number
+$ sed -n '/^local function admits_over_limit/,/^end/p' _work/flow.tl
+local function admits_over_limit(from: string, to: string): boolean
+  return to == "land" or is_return(from, to)
 end
-$ grep -c "p75" _work/stats.tl                        # 0
-$ grep -c "counts_against_limit" _work/stats.tl        # 0
+$ grep -c "counts_against_limit\|PhaseFlow" _work/flow.tl _work/gitverbs.tl _work/gitverdict.tl
+_work/flow.tl:0
+_work/gitverbs.tl:0
+_work/gitverdict.tl:0
+$ git log --format='%s' -- items/*.tl | awk '{print $1}' | sort | uniq -c | sort -rn
+     21 move
+     15 done
+     13 new
+      6 verdict
+      2 unblock
+      2 attach
+$ git log --format='%ad %h %s' --date=iso-strict -- items/*.tl | grep -m3 -E ' (verdict|move) '
+2026-08-18T03:41:17+00:00 970b2fe1 move 3I06cBmI ready -> do
+2026-08-18T03:39:46+00:00 c65e7182 verdict 3HyCSe5U accept (check -> land)
+2026-08-18T00:43:33+00:00 90f28e40 verdict 3HyCSe5U request changes (check -> do)
 ```
 
 ### `skills/work/review.md`
@@ -109,47 +79,88 @@ the convergence paragraph stays the chapter's last word. Its content is PR
 
 1. **vocabulary**: every "column" becomes "phase" (7 occurrences). The board has
    five named phases; nothing in this repo is called a column.
-2. **the data source**: the record is every `labeled`/`unlabeled` event carrying a
-   `work:` label. State that the replay also reads the historical
-   `plan:` spellings (`model.LEGACY_PHASE`), because renaming a label on
-   GitHub does not rewrite the name in an event that already happened.
-3. **name the instrument**: the section must name
-   `bin/cosmic --make run _work/board.tl stats --days N` and what it prints —
-   per phase: stint count, median and max dwell minutes, peak occupancy, minutes
-   at or over the limit; then the accept/rework/bounce counts and the `ready→do`
-   pickup latency. PR #1171's text tells the planner to "measure, per column"
-   and names no tool, because the verb did not exist when it was written.
-4. **cut p75**: `stats` reports median and max dwell only. Drop p75 from the
-   dwell bullet, or state plainly that p75 is a hand computation off the raw
-   stints.
+2. **the data source**: the record is the `board` branch's own git history over
+   `items/*.tl` — every mutation is exactly one commit, pushed as it happens, so
+   `git log` over that path is the complete, current record with nothing
+   separate to fall behind it. Drop the label-event framing entirely
+   (`labeled`/`unlabeled`, the `work:` label, legacy `plan:` spellings): PR
+   #1171 read GitHub label timelines because the board was label-based when it
+   was written. The board is committed files now, and the phase a move targets
+   is text in a commit subject, not a label name.
+3. **name the instrument**: the section must name the actual method —
+   `git log --format='%ad %h %s' --date=iso-strict -- items/*.tl`, read by
+   hand. A commit subject's first word is its verb (`new`, `attach`, `move`,
+   `verdict`, `done`, `block`/`unblock`); a `move` or `verdict` subject also
+   names the item's 8-character id prefix and its `<from> -> <to>` phase pair.
+   Pairing successive lines for one id gives that item's stints: a stint
+   starts at a `new`/`attach` commit that sets phase to `plan`, or at a
+   `move`/`verdict` commit's target, and ends at the next commit naming that
+   id. From the paired timestamps a planner counts stints per phase by hand,
+   computes each stint's dwell (end minus start), and walks the ordered log
+   tracking a running per-phase set of open ids to get peak concurrent
+   occupancy; the same walk gives accept/rework/bounce counts and the
+   `ready -> do` pickup latency (time between the two moves). A `move` subject
+   carrying a trailing `(forced: ...)` is a repair, not organic flow, and is
+   excluded. State plainly that this is a hand method — grep and arithmetic
+   over timestamps — not a report a tool prints: PR #1171's text told the
+   planner to "measure, per column" and named no tool because the verb it
+   expected did not exist when it was written, and none is being built to
+   replace it now either — the board's history is a day old, too thin yet for
+   an instrumented report to say more than a direct read already does.
+4. **drop p75; keep median and max, and say why by hand**: the board's history
+   is one day old at review time, and a phase with a dozen stints has too few
+   points for a percentile to mean anything a human can't get more honestly
+   from just reading the sorted list. State median (the middle value once the
+   stints' dwell minutes are sorted by hand) and max, and point at the paired
+   `move`/`verdict` lines themselves as the citation, not a formula.
 5. **mark the one unmeasurable metric**: keep the "refusals and their cost"
-   bullet, and say that no label timeline records a refusal — a refused move
-   leaves no event — so that item comes from the session's own log, not from
-   `stats`.
-6. **the occupancy caveat**: `stats` counts every stint in a phase and does not
-   apply `counts_against_limit`, so its `peak` and `min at-limit` for `plan`
-   include epics, while the live board's own count excludes them. A `plan`
-   number is compared to the limit only after the epics are subtracted.
-7. **rewrite the backward-moves bullet**: three kinds, not two — a bounce
-   (`*→plan`) sends work back for re-specification, a rework (`check→do`) is a request-changes send-back
-   and is the rework signal, an accept (`check→land`) is a verdict moving work
-   on. PR #1171 calls `check→do` "the accept path working"; that described a
-   board with no `land` phase and is now inverted.
-8. **restate decision rule 1**: the epic exemption is not a proposal to
-   consider. `model.counts_against_limit` already exempts an epic sitting in
-   `plan`, and `model.admits_over_limit` is the single rule for an arrival at a
-   full phase. The rule becomes: before moving a number, ask whether the phase is
-   full of things that are not work in progress, and exempt them from the count
-   the way `plan` already does.
+   bullet, and say that a refused move never becomes a commit — the verb
+   prints its `REFUSED:` verdict line to the terminal and makes no mutation —
+   so `git log` has nothing to show for it. That item comes from the session's
+   own log, not from the log on disk.
+6. **drop the occupancy caveat; nothing needs exempting**: an item that gains a
+   child is de-phased in the SAME commit as the `attach` that gives it one, so
+   a container never carries a phase and never appears as a `move` target —
+   there is no epic sitting in `plan` for a hand count to subtract, unlike the
+   label-era board PR #1171 was written against. A stint list read from
+   `move`/`verdict` lines already counts only workable leaves; state this
+   plainly instead of describing a subtraction step.
+7. **rewrite the backward-moves bullet**: three log shapes carry backward
+   motion, and a hand read must not conflate them. A bounce is a plain
+   `move <id> <phase> -> plan` line with no `verdict` prefix — an implementer
+   returning work it found under-specified, or a planner catching a `ready`
+   item that should not have passed the bar — and it sends work back for
+   re-specification. A rework is `verdict <id> "request changes" (check -> do)`
+   — a targeted send-back naming concrete gaps, the rework signal.
+   `verdict <id> reject (check -> plan)` is a third, harsher bounce: the
+   approach itself was wrong. None of these is
+   `verdict <id> accept (check -> land)`, which moves right, not back — a hand
+   count that greps for `verdict` lines and calls anything backward must
+   exclude accept explicitly, or it inflates the bounce rate with decisions
+   that were never bounces.
+8. **restate decision rule 1, on the real function**: `_work/flow.tl`'s
+   `admits_over_limit(from, to)` is two lines — `to == "land" or
+   is_return(from, to)` — a full phase admits only a return or an accept,
+   everything else queues. Because containers never hold a phase (point 6), a
+   raw occupancy count read from the log is already a count of genuine work in
+   progress; decision rule 1 is not "exempt the things that aren't work" —
+   there is nothing left to exempt — it is: when a hand count shows a phase
+   over its `LIMITS` value, check whether the arrivals that pushed it there
+   were returns or accepts, which the limit already lets through, before
+   treating the number as a real signal that the limit itself is wrong.
 9. **keep rules 2, 3 and 4 as written**, and point rule 2's "record a tripwire
-   instead" at the tripwire lines that already sit in `_work/model.tl`'s `LIMITS`
-   comment.
-10. **correct the closing paragraph**: the path is `_work/model.tl`, not
-    `_plan/model.tl`, and the comment block beside `LIMITS` already carries a
-    review's empirical basis and tripwires — so a flow review APPENDS its
-    evidence to that block, it does not create it. Also drop the trigger phrase
-    "refuses returns-adjacent work": returns are never refused, so the trigger is
-    a refusal of ordinary intake or an ordinary pull, twice in one session.
+   instead" at the actual location: the module doc comment at the top of
+   `_work/flow.tl`, which today carries one line ("WIP limits carry the label
+   board's empirically tuned values") and no evidence log yet — a flow
+   review's tripwire is the first line that comment gains, not an addition to
+   a list that already exists.
+10. **correct the closing paragraph**: the path is `_work/flow.tl`, not
+    `_plan/model.tl`, and its doc comment does not yet carry a review's
+    empirical basis or any tripwires — a flow review's findings are the FIRST
+    evidence appended there, establishing that block rather than extending one
+    that already exists. Also drop the trigger phrase "refuses
+    returns-adjacent work": returns are never refused, so the trigger is a
+    refusal of ordinary intake or an ordinary pull, twice in one session.
 
 ### `skills/work/SKILL.md`
 
@@ -158,8 +169,8 @@ Two one-line edits, no new section:
 - the chapter list's `review.md` entry ("the planner's review verdicts and the
   friction feedback loop") gains the flow review, so the method is discoverable
   from the chapter map.
-- the sentence closing the board section — "limits are policy, committed in
-  `_work/model.tl`, tuned only by a reviewed change" — gains a pointer to
+- the sentence closing the WIP-limits paragraph — "retuning one is a reviewed
+  change to the machinery, not a reading of this table" — gains a pointer to
   `review.md`'s flow review, so a reader who finds the limits finds the method.
 
 ### PR #1171 mechanics
@@ -173,15 +184,15 @@ Two one-line edits, no new section:
 
 ## Non-goals
 
-- **No change to `_work/model.tl`'s limit numbers.** `plan = 12`, `ready = 12`,
+- **No change to `_work/flow.tl`'s limit numbers.** `plan = 12`, `ready = 12`,
   `do = 5`, `check = 10`, `land = 3` all stay exactly as they are. This slice
   writes the method that would tune them and tunes nothing.
-- **No new metrics in `stats`.** p75 dwell, a refusal counter, and an
-  epic-filtered occupancy are three separate issues. `_work/stats.tl` is not
-  edited at all, its doc comment included — the section is written at the path
-  that comment already names, so no code moves.
-- No new evidence appended to `_work/model.tl`'s `LIMITS` comment: running a
-  fresh flow review is not in this slice.
+- **No new tooling.** This slice is prose describing a manual git-log method;
+  no new verb, module, or report is added, and `_work/flow.tl` is not edited.
+  p75 dwell, a refusal counter, and an epic-filtered occupancy are not built
+  either — the method says plainly which of these a hand read cannot do.
+- No new evidence appended to `_work/flow.tl`'s doc comment: running a fresh
+  flow review is not in this slice.
 - No new or reorganized sections in `decompose.md`, `enable.md`, or
   `parallel.md`, and no change to `review.md`'s existing four sections.
 - No history in the prose (`docs-style`): the section states the rules as they
@@ -196,8 +207,9 @@ Two one-line edits, no new section:
   compile at full strictness or not claim to be Teal.
 - `grep -qi "## tuning the limits: the flow review" skills/work/review.md && echo present`
   prints `present` (the section is absent today: the facts block measures 0).
-- `grep -q "board.tl stats" skills/work/review.md && echo present` prints
-  `present` (0 today).
+- `grep -qE "board\.tl stats|_work/(stats|model)\.tl|PhaseFlow" skills/work/review.md
+  && echo present` prints nothing — the section names no reporting verb and no
+  module that does not exist; all four spellings measure 0 today.
 - `grep -cE "_plan/|plan:\*|shaping|column" skills/work/review.md` prints `0` —
   it prints 0 today, and the corrected section must not reintroduce any of the
   four stale spellings. Mind the substring: write "sends work back for
@@ -207,10 +219,11 @@ Two one-line edits, no new section:
 
 ## Enablement
 
-none needed — every mechanism the section describes already exists in the tree
-(`_work/stats.tl`'s report, `model.counts_against_limit`,
-`model.admits_over_limit`, the `LIMITS` comment block). This slice is prose over
-shipped tooling, and its conventions are in AGENTS.md and the `docs-style` skill.
+none needed — the section describes a manual method (reading `git log` by
+hand); it needs no new verb, module, or report, and `_work/flow.tl`'s `LIMITS`
+table and `admits_over_limit` function already carry everything the method
+reads. This slice is prose only, and its conventions are in AGENTS.md and the
+`docs-style` skill.
 
 
 ---
