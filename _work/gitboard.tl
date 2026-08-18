@@ -21,7 +21,7 @@
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
 ---   cosmic --make run _work/gitboard.tl check 2akQ
 ---   cosmic --make run _work/gitboard.tl move 2akQ check --pr 42
----   cosmic --make run _work/gitboard.tl status | tree | next [--role R]
+---   cosmic --make run _work/gitboard.tl status | tree | next [--session S]
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl land 2akQ
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
@@ -87,12 +87,11 @@ local CSPEC: flags.CommandSpec = {
       spec = {flags = {dir_flag()}}},
     {name = "tree", summary = "render the roots, their subtrees, and the triage queue",
       spec = {flags = {dir_flag()}}},
-    {name = "next", summary = "the one next action for a role",
+    {name = "next", summary = "the one next action to take now",
       spec = {flags = {dir_flag(),
-          {long = "role", arg = "ROLE", default = "implementer",
-            help = "planner or implementer"},
           {long = "session", arg = "SESSION",
-            help = "this session; skips do items another session claimed"}}}},
+            help = "this session; skips work another session claimed and "
+            .. "reviews of what this one built"}}}},
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION", help = "record who took it"},
@@ -161,8 +160,7 @@ local function main(...: string): integer
     return view.cmd_tree(s)
   end
   if d.command == "next" then
-    return view.cmd_next(s, d.parsed.values["role"] or "implementer",
-      d.parsed.values["session"] or "")
+    return view.cmd_next(s, d.parsed.values["session"] or "")
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
