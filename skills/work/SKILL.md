@@ -48,8 +48,8 @@ the chapters:
 - `decompose.md` — working backwards from goals; the refinement
   ladder; the ready bar in full, with a worked example.
 - `enable.md` — making implementers succeed: core > docs > skills.
-- `review.md` — the planner's review verdicts and the friction
-  feedback loop.
+- `review.md` — the planner's review verdicts, the friction feedback
+  loop, and the flow review that tunes WIP limits.
 - `parallel.md` — running several implementer sessions at once:
   picking a disjoint set, isolation, and the brief an agent needs.
 
@@ -178,7 +178,8 @@ because nobody acts there — it is a buffer:
 
 every phase is WIP-limited. the numbers are the tool's — `status`
 prints each phase against its own — and retuning one is a reviewed
-change to the machinery, not a reading of this table.
+change to the machinery, not a reading of this table: `review.md`'s
+flow review is the method that earns one.
 
 the limits carry the label board's empirically tuned values. at the
 limit, exactly two arrivals are admitted: a return (leftward motion —
