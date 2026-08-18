@@ -52,11 +52,12 @@ local function test_worked_item_round_trips()
 end
 test_worked_item_round_trips()
 
-local function test_roots_hold_ranks_not_phases()
-  local goal = base()
-  goal.rank = 1
-  local g = check.must(item.decode(goal))
-  assert(g.rank == 1, "a ranked root decodes")
+local function test_roots_hold_edges_not_phases()
+  local root = base()
+  root.beats = PARENT
+  local g = check.must(item.decode(root))
+  assert(#g.beats == 1 and g.beats[1] == PARENT,
+    "a root's priority edge decodes")
   local phased = base()
   phased.phase = "plan"
   local bad, err = item.decode(phased)
@@ -68,17 +69,21 @@ local function test_roots_hold_ranks_not_phases()
   assert(cbad == nil and cerr:find("not roots", 1, true),
     "a claimed root is refused: " .. tostring(cerr))
 end
-test_roots_hold_ranks_not_phases()
+test_roots_hold_edges_not_phases()
 
-local function test_parented_items_hold_phases_not_ranks()
-  local ranked = base()
-  ranked.parent = PARENT
-  ranked.rank = 2
-  local bad, err = item.decode(ranked)
-  assert(bad == nil and err:find("rank belongs to roots", 1, true),
-    "a ranked child is refused: " .. tostring(err))
+local function test_priority_edges_name_other_items()
+  local looping = base()
+  looping.beats = ID
+  local bad, err = item.decode(looping)
+  assert(bad == nil and err:find("nothing outranks itself", 1, true),
+    "a self-edge is refused: " .. tostring(err))
+  local junk = base()
+  junk.beats = "not-an-id"
+  local jbad, jerr = item.decode(junk)
+  assert(jbad == nil and jerr:find("beats names a non-id", 1, true),
+    "a non-id edge is refused: " .. tostring(jerr))
 end
-test_parented_items_hold_phases_not_ranks()
+test_priority_edges_name_other_items()
 
 local function test_done_items_carry_no_phase()
   local t = base()

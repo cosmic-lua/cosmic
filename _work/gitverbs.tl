@@ -9,9 +9,11 @@
 ---
 --- Decomposition and triage are both `attach`: giving an item a
 --- parent is the whole operation, because roles derive from the graph
---- — a finding becomes work by gaining a parent, and a phased item
---- becomes a container (losing its phase) the moment a child attaches
---- under it.
+--- — a captured item becomes work by gaining a parent, and a phased
+--- item becomes a container (losing its phase) the moment a child
+--- attaches under it. Priority is the other half of triage and has
+--- its own verb, `compare`, because an item can be placed without
+--- being adopted and adopted without being compared.
 local child = require("cosmic.child")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
@@ -41,7 +43,7 @@ local function cmd_init(dir: string): integer
 end
 
 local function cmd_new(s: store.Store, title: string, parent: string,
-    rank: integer, spec: string, force: boolean, why: string): integer
+    spec: string, force: boolean, why: string): integer
   local forced = gate.force_refusal(force, why)
   if forced then
     return gate.verdict_line("new", false, "REFUSED: " .. forced)
@@ -62,7 +64,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   end
   local it: item.Item = {
     id = ksuid.new(), title = title, parent = parent,
-    phase = phase, rank = rank or 0,
+    phase = phase, beats = {},
     blocked_by = {}, claim = "", pr = 0, verdict = "",
     verdict_head = "", resolution = "",
   }
@@ -86,11 +88,9 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   if not ok then
     return gate.verdict_line("new", false, err)
   end
-  local entered = "a root — rank it as a goal, or triage it as a finding"
+  local entered = "triage — attach it under something, or compare it"
   if phase ~= "" then
     entered = "plan"
-  elseif (rank or 0) > 0 then
-    entered = ("goal, rank %d"):format(rank)
   end
   return gate.verdict_line("new", true, ("%s enters %s"):format(it.id, entered))
 end
@@ -126,7 +126,6 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
     cur = index[cur.parent or ""]
   end
   it.parent = parent
-  it.rank = 0
   -- Adoption makes a leaf workable: it enters plan, ungated — triage
   -- is a decision already made, the same admission the label board
   -- gave findings.
@@ -404,7 +403,7 @@ end
 local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_new: function(s: store.Store, title: string, parent: string,
-  rank: integer, spec: string, force: boolean, why: string): integer
+  spec: string, force: boolean, why: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean): integer

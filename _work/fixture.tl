@@ -10,6 +10,7 @@ local check = require("cosmic.check")
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
+local cmp = require("_work.gitcompare")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 
@@ -31,7 +32,7 @@ assert(env.set("GIT_CONFIG_NOSYSTEM", "1"))
 
 local READY_SPEC < const > = [[
 ## Goal
-Serves the ranked goal above it.
+Serves the outcome above it.
 ## Change
 Do exactly this.
 ## Non-goals
@@ -95,12 +96,12 @@ end
 --- sort by their random half — "the newest item" is not something a
 --- test can read off the sorted list. The set difference is.
 local function file_item(s: store.Store, title: string, parent: string,
-    rank: integer, force: boolean): string
+    force: boolean): string
   local before: {string: boolean} = {}
   for _, i in ipairs(check.must(store.list(s))) do
     before[i.id] = true
   end
-  assert(verbs.cmd_new(s, title, parent, rank, nil, force,
+  assert(verbs.cmd_new(s, title, parent, nil, force,
       force and "test fixture" or "") == 0,
     "new should be accepted: " .. title)
   for _, i in ipairs(check.must(store.list(s))) do
@@ -126,10 +127,17 @@ local function give_spec(s: store.Store, id: string)
   assert(verbs.cmd_spec(s, id, path) == 0, "spec should be accepted")
 end
 
---- A goal with one workable leaf under it, both filed through `new`.
-local function goal_with_leaf(s: store.Store): string, string
-  local goal = file_item(s, "a ranked goal", "", 1, false)
-  return goal, file_item(s, "a workable slice", goal, 0, false)
+--- An organizing root with one workable leaf under it, both filed
+--- through `new`. The root is COMPARED against a peer so that it —
+--- and everything beneath it — has a position in the priority order:
+--- an unplaced root would leave its leaf unpromotable, which is the
+--- rule under test elsewhere, not a property of this fixture.
+local function root_with_leaf(s: store.Store): string, string
+  local root = file_item(s, "an outcome", "", false)
+  local peer = file_item(s, "a lesser outcome", "", false)
+  assert(cmp.cmd_compare(s, root, peer, false) == 0,
+    "compare should be accepted")
+  return root, file_item(s, "a workable slice", root, false)
 end
 
 -- A decomposition writes the child AND the parent it de-phases, and
@@ -143,10 +151,10 @@ local record fixture
   init_state_repo: function(name: string): store.Store
   init_shared: function(name: string): store.Store, store.Store
   file_item: function(s: store.Store, title: string, parent: string,
-  rank: integer, force: boolean): string
+  force: boolean): string
   commits: function(s: store.Store): integer
   give_spec: function(s: store.Store, id: string)
-  goal_with_leaf: function(s: store.Store): string, string
+  root_with_leaf: function(s: store.Store): string, string
 end
 
 local M: fixture = {
@@ -158,7 +166,7 @@ local M: fixture = {
   file_item = file_item,
   commits = commits,
   give_spec = give_spec,
-  goal_with_leaf = goal_with_leaf,
+  root_with_leaf = root_with_leaf,
 }
 
 return M

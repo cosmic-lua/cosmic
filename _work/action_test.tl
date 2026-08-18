@@ -29,7 +29,7 @@ local function make(over: {string: any}): item.Item
 end
 
 local function test_implementer_finishes_before_pulling()
-  local goal = make({rank = 1})
+  local goal = make({})
   local ready = make({parent = goal.id, phase = "ready"})
   local doing = make({parent = goal.id, phase = "do"})
   local landing = make({parent = goal.id, phase = "land"})
@@ -41,7 +41,7 @@ end
 test_implementer_finishes_before_pulling()
 
 local function test_blocked_ready_items_are_not_pulled()
-  local goal = make({rank = 1})
+  local goal = make({})
   local blocker = make({parent = goal.id, phase = "plan"})
   local blocked = make({parent = goal.id, phase = "ready",
       blocked_by = blocker.id})
@@ -54,7 +54,7 @@ end
 test_blocked_ready_items_are_not_pulled()
 
 local function test_another_sessions_claim_is_not_handed_over()
-  local goal = make({rank = 1})
+  local goal = make({})
   local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
   local ready = make({parent = goal.id, phase = "ready"})
   local items: {item.Item} = {goal, theirs, ready}
@@ -69,7 +69,7 @@ end
 test_another_sessions_claim_is_not_handed_over()
 
 local function test_an_unclaimed_do_item_is_anyones()
-  local goal = make({rank = 1})
+  local goal = make({})
   local loose = make({parent = goal.id, phase = "do"})
   local items: {item.Item} = {goal, loose}
   local action = check.must(act.for_role(items, "implementer", "session-B"))
@@ -79,7 +79,7 @@ end
 test_an_unclaimed_do_item_is_anyones()
 
 local function test_an_unnamed_session_skips_nothing_but_says_whose()
-  local goal = make({rank = 1})
+  local goal = make({})
   local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
   local items: {item.Item} = {goal, theirs}
   local action = check.must(act.for_role(items, "implementer"))
@@ -91,7 +91,7 @@ end
 test_an_unnamed_session_skips_nothing_but_says_whose()
 
 local function test_held_work_with_nothing_to_pull_says_so()
-  local goal = make({rank = 1})
+  local goal = make({})
   local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
   local items: {item.Item} = {goal, theirs}
   local action = check.must(act.for_role(items, "implementer", "session-B"))
@@ -101,24 +101,26 @@ local function test_held_work_with_nothing_to_pull_says_so()
 end
 test_held_work_with_nothing_to_pull_says_so()
 
-local function test_planner_triages_findings_then_intakes()
-  local goal = make({rank = 1})
-  local idle_goal = make({rank = 2})
-  local worked = make({parent = goal.id, phase = "do"})
-  local finding = make({})
-  local items: {item.Item} = {goal, idle_goal, worked, finding}
+-- Placement is what separates the two: an unplaced capture is
+-- triage, a placed root nothing drives is intake.
+local function test_planner_triages_captures_then_intakes()
+  local idle = make({})
+  local driven = make({beats = idle.id})
+  local worked = make({parent = driven.id, phase = "do"})
+  local captured = make({})
+  local items: {item.Item} = {idle, driven, worked, captured}
   local action = check.must(act.for_role(items, "planner"))
-  assert(action.kind == "triage" and action.item.id == finding.id,
-    "findings before intake: " .. action.kind)
-  local no_findings: {item.Item} = {goal, idle_goal, worked}
-  local intake = check.must(act.for_role(no_findings, "planner"))
-  assert(intake.kind == "intake" and intake.item.id == idle_goal.id,
-    "the top-ranked goal with no live work: " .. intake.kind)
+  assert(action.kind == "triage" and action.item.id == captured.id,
+    "an unplaced capture outranks intake: " .. action.kind)
+  local drained: {item.Item} = {idle, driven, worked}
+  local intake = check.must(act.for_role(drained, "planner"))
+  assert(intake.kind == "intake" and intake.item.id == idle.id,
+    "the placed root with no live work: " .. intake.kind)
 end
-test_planner_triages_findings_then_intakes()
+test_planner_triages_captures_then_intakes()
 
 local function test_planner_reviews_before_everything()
-  local goal = make({rank = 1})
+  local goal = make({})
   local planning = make({parent = goal.id, phase = "plan"})
   local checking = make({parent = goal.id, phase = "check", pr = 7})
   local items: {item.Item} = {goal, planning, checking}
@@ -136,7 +138,7 @@ end
 test_an_unknown_role_is_an_error()
 
 local function test_an_over_bound_triage_queue_outranks_refining()
-  local goal = make({rank = 1})
+  local goal = make({})
   local planning = make({parent = goal.id, phase = "plan"})
   local items: {item.Item} = {goal, planning}
   local oldest: item.Item = nil
@@ -157,7 +159,7 @@ end
 test_an_over_bound_triage_queue_outranks_refining()
 
 local function test_verdicts_outrank_an_over_bound_triage_queue()
-  local goal = make({rank = 1})
+  local goal = make({})
   local checking = make({parent = goal.id, phase = "check", pr = 7})
   local items: {item.Item} = {goal, checking}
   for _ = 1, flow.TRIAGE_LIMIT + 1 do

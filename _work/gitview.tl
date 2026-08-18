@@ -13,6 +13,7 @@ local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local act = require("_work.action")
+local prio = require("_work.priority")
 local store = require("_work.store")
 
 local verdict_line = gate.verdict_line
@@ -30,11 +31,12 @@ local verdict_line = gate.verdict_line
 local function status_report(all: {item.Item}): {string}, string
   local b = flow.board(all)
   local index = flow.by_id(all)
+  local pos = prio.positions(all)
   local out: {string} = {}
   for _, phase in ipairs(item.PHASES) do
     out[#out + 1] = ("%-6s %d/%d"):format(phase, #(b[phase] or {}),
       flow.LIMITS[phase])
-    for _, i in ipairs(flow.oldest_first(b, phase)) do
+    for _, i in ipairs(flow.queued(b, phase, pos)) do
       local marks = ""
       if i.claim ~= "" then marks = marks .. " @" .. i.claim end
       if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
@@ -43,11 +45,11 @@ local function status_report(all: {item.Item}): {string}, string
     end
   end
   -- The triage queue is not a phase, so it carries a count and no
-  -- item lines: findings are not on the board, and `tree` is where
-  -- they are listed one by one.
-  out[#out + 1] = ("%-6s %d/%d"):format("triage", #flow.findings(all),
+  -- item lines: untriaged roots are not on the board, and `tree` is
+  -- where they are listed one by one.
+  out[#out + 1] = ("%-6s %d/%d"):format("triage", #flow.untriaged(all),
     flow.TRIAGE_LIMIT)
-  local graph = flow.trace_problems(all)
+  local graph = flow.graph_problems(all)
   for _, p in ipairs(graph) do
     out[#out + 1] = "  graph: " .. p
   end
@@ -83,8 +85,9 @@ end
 --- @param all {item.Item} Every item
 --- @param parent string The parent id whose children render
 --- @param depth integer Current indent depth
+--- @param pos {string: prio.Position} Position by item id
 local function render_children(out: {string}, all: {item.Item}, parent: string,
-    depth: integer)
+    depth: integer, pos: {string: prio.Position})
   if depth > 6 then
     return
   end
@@ -94,10 +97,7 @@ local function render_children(out: {string}, all: {item.Item}, parent: string,
       kids[#kids + 1] = i
     end
   end
-  table.sort(kids, function(x: item.Item, y: item.Item): boolean
-      return x.id < y.id
-    end)
-  for _, k in ipairs(kids) do
+  for _, k in ipairs(prio.sorted(kids, pos)) do
     -- An unphased leaf is NOT a container: it is off the board with
     -- nothing decomposing it, and calling it one would hide that.
     local tag = k.phase
@@ -109,34 +109,41 @@ local function render_children(out: {string}, all: {item.Item}, parent: string,
     end
     out[#out + 1] = ("%s%s [%s] %s"):format(("  "):rep(depth), k.id:sub(1, 8),
       tag, k.title)
-    render_children(out, all, k.id, depth + 1)
+    render_children(out, all, k.id, depth + 1, pos)
   end
 end
 
---- Goals in rank order with their open subtrees, then the findings
---- awaiting triage.
+--- The organizing roots in priority order with their open subtrees,
+--- then the triage queue. A root's line carries its standing — how
+--- many items it outranks — because that number is the whole of why
+--- it sits where it does.
 --- @param all {item.Item} Every item
 --- @return {string} The lines to print
 --- @return string The verdict detail
 local function tree_report(all: {item.Item}): {string}, string
-  local ranked, live = flow.goals(all)
+  local pos = prio.positions(all)
+  local ordered, live = flow.roots(all)
   local out: {string} = {}
-  for _, g in ipairs(ranked) do
+  for _, g in ipairs(ordered) do
     local driven = ""
     if not live[g.id] then
       driven = " (no live work)"
     end
-    out[#out + 1] = ("G%d %s %s%s"):format(g.rank, g.id:sub(1, 8), g.title,
+    local band = prio.key_of(pos, g.id)
+    out[#out + 1] = ("[>%d] %s %s%s"):format(band, g.id:sub(1, 8), g.title,
       driven)
-    render_children(out, all, g.id, 1)
+    render_children(out, all, g.id, 1, pos)
   end
-  local triage = flow.findings(all)
+  local triage = flow.untriaged(all)
   for _, f in ipairs(triage) do
-    out[#out + 1] = ("finding %s %s"):format(f.id:sub(1, 8), f.title)
-    render_children(out, all, f.id, 1)
+    local placed = ""
+    if not prio.is_placed(pos, f.id) then
+      placed = " (unplaced)"
+    end
+    out[#out + 1] = ("triage %s %s%s"):format(f.id:sub(1, 8), f.title, placed)
   end
-  return out, ("%d open goal(s), %d finding(s) awaiting triage"):format(
-    #ranked, #triage)
+  return out, ("%d organizing root(s), %d item(s) awaiting triage"):format(
+    #ordered, #triage)
 end
 
 local function cmd_tree(s: store.Store): integer
@@ -201,7 +208,15 @@ local function show_report(it: item.Item, all: {item.Item}, spec: string,
   end
   if it.parent ~= "" then out[#out + 1] = ("parent: %s"):format(it.parent) end
   if it.phase ~= "" then out[#out + 1] = ("phase: %s"):format(it.phase) end
-  if it.rank ~= 0 then out[#out + 1] = ("rank: %d"):format(it.rank) end
+  local band, own = prio.key_of(prio.positions(all), it.id)
+  if band < 0 then
+    out[#out + 1] = "priority: unplaced — nothing has been compared against it"
+  else
+    out[#out + 1] = ("priority: band %d, outranks %d"):format(band, own)
+  end
+  if #it.beats > 0 then
+    out[#out + 1] = "outranks: " .. table.concat(it.beats, " ")
+  end
   if it.claim ~= "" then out[#out + 1] = ("claim: %s"):format(it.claim) end
   if it.pr ~= 0 then out[#out + 1] = ("pr: #%d"):format(it.pr) end
   if it.verdict ~= "" then

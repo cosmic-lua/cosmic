@@ -9,6 +9,10 @@
 --- verdicts, then drains a triage queue past its bound, then refines,
 --- then triages what is left, then takes in new work.
 ---
+--- Every queue this reads is PRIORITY order with age as the last
+--- word (`_work.priority`), so "the oldest ready item" is really
+--- "the most important one, oldest among equals".
+---
 --- A claim is a LOCK, and this is where that means something: `do`
 --- holds five because five implementer sessions run at once, so a
 --- session that names itself is never handed an item another session
@@ -16,6 +20,7 @@
 --- claim rendered in the reason instead.
 local flow = require("_work.flow")
 local item = require("_work.item")
+local prio = require("_work.priority")
 
 local type Item = item.Item
 
@@ -29,12 +34,14 @@ local record Action
   reason: string
 end
 
---- The oldest ready item an implementer may pull: no open blocker.
+--- The first ready item an implementer may pull: no open blocker.
 --- @param b flow.Board The board
 --- @param index flow.Index Items by id
+--- @param pos {string: prio.Position} Position by item id
 --- @return Item | nil The pullable item
-local function first_pullable(b: flow.Board, index: flow.Index): Item | nil
-  for _, i in ipairs(flow.oldest_first(b, "ready")) do
+local function first_pullable(b: flow.Board, index: flow.Index,
+    pos: {string: prio.Position}): Item | nil
+  for _, i in ipairs(flow.queued(b, "ready", pos)) do
     if not flow.is_blocked(i, index) then
       return i
     end
@@ -42,18 +49,20 @@ local function first_pullable(b: flow.Board, index: flow.Index): Item | nil
   return nil
 end
 
---- The oldest `do` item this session may finish, and how many claimed
+--- The first `do` item this session may finish, and how many claimed
 --- by other sessions it stepped over. An unclaimed item is anyone's; a
 --- session's own claim is its own to finish; with no session named
 --- nothing is held, because a lone session has no one to collide with.
 --- @param b flow.Board The board
 --- @param session string This session's name, "" when unnamed
+--- @param pos {string: prio.Position} Position by item id
 --- @return Item | nil The item to finish
 --- @return integer How many held items were skipped
-local function finishable(b: flow.Board, session: string): Item | nil, integer
+local function finishable(b: flow.Board, session: string,
+    pos: {string: prio.Position}): Item | nil, integer
   local first: Item = nil
   local held = 0
-  for _, i in ipairs(flow.oldest_first(b, "do")) do
+  for _, i in ipairs(flow.queued(b, "do", pos)) do
     if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session then
       held = held + 1
     elseif first == nil then
@@ -71,7 +80,8 @@ end
 local function next_for_implementer(items: {Item}, session: string): Action
   local b = flow.board(items)
   local index = flow.by_id(items)
-  local landing = flow.oldest_first(b, "land")
+  local pos = prio.positions(items)
+  local landing = flow.queued(b, "land", pos)
   if #landing > 0 then
     return {
       kind = "finish",
@@ -80,7 +90,7 @@ local function next_for_implementer(items: {Item}, session: string): Action
         #landing, flow.LIMITS["land"], landing[1].id:sub(1, 8)),
     }
   end
-  local doing, held = finishable(b, session)
+  local doing, held = finishable(b, session, pos)
   if doing then
     local whose = ""
     if (doing.claim or "") ~= "" then
@@ -93,12 +103,12 @@ local function next_for_implementer(items: {Item}, session: string): Action
         #(b["do"] or {}), flow.LIMITS["do"], whose),
     }
   end
-  local pullable = first_pullable(b, index)
+  local pullable = first_pullable(b, index, pos)
   if pullable then
     return {
       kind = "pull",
       item = pullable,
-      reason = "oldest ready item with no open blocker",
+      reason = "highest-priority ready item with no open blocker",
     }
   end
   if held > 0 then
@@ -123,14 +133,15 @@ end
 --- The planner's next action: verdicts first, then drain the triage
 --- queue when it stands over `flow.TRIAGE_LIMIT` — an inbox nobody
 --- empties is a channel that only takes — then refine plan toward
---- ready while ready has slack, then triage whatever findings remain,
---- then intake the top-ranked goal that no live work drives, else
---- nothing.
+--- ready while ready has slack, then triage whatever captured
+--- evidence remains, then intake the highest-priority root that no
+--- live work drives, else nothing.
 --- @param items {Item} All items
 --- @return Action The decision
 local function next_for_planner(items: {Item}): Action
   local b = flow.board(items)
-  local checking = flow.oldest_first(b, "check")
+  local pos = prio.positions(items)
+  local checking = flow.queued(b, "check", pos)
   if #checking > 0 then
     return {
       kind = "review",
@@ -138,16 +149,16 @@ local function next_for_planner(items: {Item}): Action
       reason = "check is the rightmost planner phase — verdicts first",
     }
   end
-  local triage = flow.findings(items)
+  local triage = flow.untriaged(items)
   if #triage > flow.TRIAGE_LIMIT then
     return {
       kind = "triage",
       item = triage[1],
-      reason = ("%d finding(s) awaiting triage, over the bound of %d — "
+      reason = ("%d item(s) awaiting triage, over the bound of %d — "
         .. "draining outranks refining"):format(#triage, flow.TRIAGE_LIMIT),
     }
   end
-  local planning = flow.oldest_first(b, "plan")
+  local planning = flow.queued(b, "plan", pos)
   if #planning > 0 and #(b["ready"] or {}) < flow.LIMITS["ready"] then
     return {
       kind = "refine",
@@ -160,24 +171,24 @@ local function next_for_planner(items: {Item}): Action
     return {
       kind = "triage",
       item = triage[1],
-      reason = ("%d finding(s) await triage — attach it under a goal or "
-        .. "close it"):format(#triage),
+      reason = ("%d item(s) await triage — attach it under something "
+        .. "placed, compare it, or close it"):format(#triage),
     }
   end
   if #(b["plan"] or {}) < flow.LIMITS["plan"] then
-    local ranked, live = flow.goals(items)
-    for _, g in ipairs(ranked) do
+    local ordered, live = flow.roots(items)
+    for _, g in ipairs(ordered) do
       if not live[g.id] then
         return {
           kind = "intake",
           item = g,
-          reason = ("goal %s (rank %d) has no live work — decompose it")
-          :format(g.id:sub(1, 8), g.rank),
+          reason = ("%s has no live work — decompose it"):format(
+            g.id:sub(1, 8)),
         }
       end
     end
-    return {kind = "intake", reason = "every open goal has live work — work "
-      .. "backwards from the top-ranked one with slack"}
+    return {kind = "intake", reason = "every open root has live work — work "
+      .. "backwards from the highest-priority one with slack"}
   end
   return {
     kind = "none",
@@ -206,8 +217,10 @@ end
 
 local record action
   type Action = Action
-  first_pullable: function(b: flow.Board, index: flow.Index): Item | nil
-  finishable: function(b: flow.Board, session: string): Item | nil, integer
+  first_pullable: function(b: flow.Board, index: flow.Index,
+  pos: {string: prio.Position}): Item | nil
+  finishable: function(b: flow.Board, session: string,
+  pos: {string: prio.Position}): Item | nil, integer
   for_role: function(items: {Item}, role_name: string, session?: string):
   Action | nil, string
 end

@@ -22,13 +22,13 @@ local init_shared = fixture.init_shared
 local file_item = fixture.file_item
 local commits = fixture.commits
 local give_spec = fixture.give_spec
-local goal_with_leaf = fixture.goal_with_leaf
+local root_with_leaf = fixture.root_with_leaf
 
 local function test_decomposition_is_one_commit()
   local s = init_state_repo("decompose")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   local before = commits(s)
-  local _kid = file_item(s, "a sub-slice", leaf, 0, false)
+  local _kid = file_item(s, "a sub-slice", leaf, false)
   assert(commits(s) == before + 1,
     ("one mutation, one commit: %d -> %d"):format(before, commits(s)))
   assert(check.must(store.load(s, leaf)).phase == "",
@@ -42,22 +42,22 @@ test_decomposition_is_one_commit()
 -- and rides along on the next push.
 local function test_a_refused_decomposition_leaves_the_parent_phased()
   local a, b = init_shared("refuse")
-  local goal, leaf = goal_with_leaf(a)
+  local goal, leaf = root_with_leaf(a)
   local last_filler = ""
   for i = 1, 9 do
-    last_filler = file_item(a, ("filler %d"):format(i), leaf, 0, false)
+    last_filler = file_item(a, ("filler %d"):format(i), leaf, false)
   end
   -- The leaf is a container now; plan holds its 9 children. The other
   -- clone fills plan past the limit before this one files a tenth, so
   -- the tenth loses the race at the merged state, not locally.
   assert(store.sync(b))
   for i = 1, 5 do
-    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, 0, nil, true,
+    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, nil, true,
         "test fixture") == 0)
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "plan", "the parent-to-be starts on the board")
-  assert(verbs.cmd_new(a, "the refused child", phased.id, 0, nil, false, "") ~= 0,
+  assert(verbs.cmd_new(a, "the refused child", phased.id, nil, false, "") ~= 0,
     "filing under a full plan must be refused after the rebase")
   local after = check.must(store.load(a, phased.id))
   assert(after.phase == "plan",
@@ -74,13 +74,13 @@ test_a_refused_decomposition_leaves_the_parent_phased()
 -- promotion that has nothing to do with it.
 local function test_the_ready_bar_is_the_items_own()
   local s = init_state_repo("readybar")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   -- An unrelated broken chain: work under an unranked root.
-  local finding = file_item(s, "a finding", "", 0, false)
-  local _stray = file_item(s, "work under it", finding, 0, false)
+  local finding = file_item(s, "a finding", "", false)
+  local _stray = file_item(s, "work under it", finding, false)
   local all = check.must(store.list(s))
-  assert(#flow.trace_problems(all) > 0, "the board does have a problem")
+  assert(#flow.graph_problems(all) > 0, "the board does have a problem")
   assert(verbs.cmd_check(s, leaf) == 0,
     "a sound item meets the bar while another item is broken")
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
@@ -92,7 +92,7 @@ test_the_ready_bar_is_the_items_own()
 -- A hollow spec still refuses, naming the sections it lacks.
 local function test_the_ready_bar_still_refuses_a_hollow_spec()
   local s = init_state_repo("hollow")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
     "no spec, no ready")
   assert(check.must(store.load(s, leaf)).phase == "plan", "it stayed put")
@@ -103,8 +103,8 @@ test_the_ready_bar_still_refuses_a_hollow_spec()
 -- planner verifies the outcome the children were meant to deliver.
 local function test_done_returns_a_finished_container_to_plan()
   local s = init_state_repo("return")
-  local _, leaf = goal_with_leaf(s)
-  local kid = file_item(s, "only child", leaf, 0, false)
+  local _, leaf = root_with_leaf(s)
+  local kid = file_item(s, "only child", leaf, false)
   assert(check.must(store.load(s, leaf)).phase == "", "the parent stepped off")
   local before = commits(s)
   assert(verbs.cmd_done(s, kid, "completed", false, "") == 0)
@@ -112,18 +112,18 @@ local function test_done_returns_a_finished_container_to_plan()
   assert(check.must(store.load(s, leaf)).phase == "plan",
     "its last child closed, so the container returns to plan")
   local all = check.must(store.list(s))
-  assert(#flow.trace_problems(all) == 0,
+  assert(#flow.graph_problems(all) == 0,
     "and nothing is left off the board: "
-    .. table.concat(flow.trace_problems(all), "; "))
+    .. table.concat(flow.graph_problems(all), "; "))
 end
 test_done_returns_a_finished_container_to_plan()
 
 -- A container with children left open stays off the board.
 local function test_done_leaves_a_still_decomposing_container_alone()
   local s = init_state_repo("stillbusy")
-  local _, leaf = goal_with_leaf(s)
-  local first = file_item(s, "first child", leaf, 0, false)
-  local _second = file_item(s, "second child", leaf, 0, false)
+  local _, leaf = root_with_leaf(s)
+  local first = file_item(s, "first child", leaf, false)
+  local _second = file_item(s, "second child", leaf, false)
   assert(verbs.cmd_done(s, first, "completed", false, "") == 0)
   assert(check.must(store.load(s, leaf)).phase == "",
     "one child still open: the container keeps decomposing")
@@ -133,7 +133,7 @@ test_done_leaves_a_still_decomposing_container_alone()
 -- Re-running a mutation that records the same values says so.
 local function test_a_no_op_mutation_is_named()
   local s = init_state_repo("noop")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   local path = fs.join(tmpdir, "ready-spec.md")
   assert(fs.write(path, READY_SPEC))
   assert(verbs.cmd_spec(s, leaf, path) == 0)
@@ -145,7 +145,7 @@ test_a_no_op_mutation_is_named()
 -- The implementer records the PR with the move that hands it over.
 local function test_move_records_the_pr()
   local s = init_state_repo("pr")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
@@ -159,8 +159,8 @@ test_move_records_the_pr()
 -- Attaching under one's own descendant would make a cycle.
 local function test_attach_refuses_a_cycle()
   local s = init_state_repo("cycle")
-  local _, leaf = goal_with_leaf(s)
-  local kid = file_item(s, "a child", leaf, 0, false)
+  local _, leaf = root_with_leaf(s)
+  local kid = file_item(s, "a child", leaf, false)
   assert(verbs.cmd_attach(s, leaf, kid) ~= 0, "a cycle must be refused")
   assert(check.must(store.load(s, leaf)).parent ~= kid, "and not written")
 end
@@ -171,19 +171,19 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
   local s = init_state_repo("wip")
   local goal = ""
   local first = ""
-  goal, first = goal_with_leaf(s)
+  goal, first = root_with_leaf(s)
   give_spec(s, first)
   assert(verbs.cmd_move(s, first, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, first, "do", "session-a", 0, false, "") == 0)
   local pulled: {string} = {first}
   for i = 2, flow.LIMITS["do"] do
-    local id = file_item(s, ("slice %d"):format(i), goal, 0, false)
+    local id = file_item(s, ("slice %d"):format(i), goal, false)
     give_spec(s, id)
     assert(verbs.cmd_move(s, id, "ready", nil, 0, false, "") == 0)
     assert(verbs.cmd_move(s, id, "do", "session-a", 0, false, "") == 0)
     pulled[#pulled + 1] = id
   end
-  local extra = file_item(s, "one too many", goal, 0, false)
+  local extra = file_item(s, "one too many", goal, false)
   give_spec(s, extra)
   assert(verbs.cmd_move(s, extra, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false, "") ~= 0,
@@ -200,7 +200,7 @@ test_wip_limits_bind_arrivals_but_never_returns()
 -- landing step that reads it back, so the handover must name one.
 local function test_check_refuses_a_handover_with_no_pr()
   local s = init_state_repo("check-pr")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
@@ -220,8 +220,8 @@ test_check_refuses_a_handover_with_no_pr()
 -- and refusals where hand-editing the field wrote nonsense.
 local function test_block_records_landing_order_and_refuses_nonsense()
   local s = init_state_repo("block")
-  local goal, first = goal_with_leaf(s)
-  local second = file_item(s, "the slice that waits", goal, 0, false)
+  local goal, first = root_with_leaf(s)
+  local second = file_item(s, "the slice that waits", goal, false)
   assert(verbs.cmd_block(s, second, first, false) == 0)
   assert(#check.must(store.load(s, second)).blocked_by == 1,
     "the blocker is recorded")
@@ -244,7 +244,7 @@ test_block_records_landing_order_and_refuses_nonsense()
 -- "sequenced" and pulls anyway. The ready bar is where that is caught.
 local function test_ready_bar_names_a_blocker_that_is_not_an_item()
   local s = init_state_repo("dangling")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   local it = check.must(store.load(s, leaf))
   it.blocked_by = {"3HyArM3A3zHuRxn3VYCvKmUZ7KW"}
@@ -262,7 +262,7 @@ test_ready_bar_names_a_blocker_that_is_not_an_item()
 -- indistinguishable from ordinary flow.
 local function test_force_states_its_reason_and_the_log_keeps_it()
   local s = init_state_repo("why")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true, "") ~= 0,
     "a bare --force is refused")
   assert(check.must(store.load(s, leaf)).phase == "plan", "and changes nothing")
@@ -278,8 +278,8 @@ test_force_states_its_reason_and_the_log_keeps_it()
 -- reads the field, not the sidecar.
 local function test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
   local s = init_state_repo("mirror")
-  local goal, leaf = goal_with_leaf(s)
-  local blocker = file_item(s, "the one that lands first", goal, 0, false)
+  local goal, leaf = root_with_leaf(s)
+  local blocker = file_item(s, "the one that lands first", goal, false)
   local path = fs.join(tmpdir, "blocked-spec.md")
   assert(fs.write(path, (READY_SPEC:gsub("Nothing needed.",
           "Blocked by: the slice above."))))

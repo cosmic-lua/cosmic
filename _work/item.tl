@@ -5,16 +5,24 @@
 --- item's role emerges from where it sits in the dependency graph,
 --- the same way a file's role in cosmic emerges from its position:
 ---
----   a ranked root        is a goal (long-lived, ordered by rank)
----   an unranked root     is a finding (captured evidence, awaiting triage)
+---   a root
+---     with open children is a container being decomposed
+---     with none          is untriaged — captured, not yet placed
 ---   a parented item
 ---     with open children is a container being decomposed
 ---     with none          is workable — the only thing that holds a PHASE
 ---
+--- There is no goal tier either: every item is the same record, and
+--- what makes one more important than another is a committed
+--- comparison (`beats`), never a field asserting its own rank. The
+--- outcome prose that gives the tree its meaning lives in
+--- `docs/goals.md` on `main` and is read by people, not by this.
+---
 --- What this file validates is per-item shape (fields, exclusivity
---- rules); what needs the whole graph — leaf-ness, the trace to a
---- ranked root — lives in `_work.flow`. The id carries creation time
---- (`_work.ksuid`), so nothing here records when.
+--- rules); what needs the whole graph — leaf-ness, a position in the
+--- priority order — lives in `_work.flow` and `_work.priority`. The
+--- id carries creation time (`_work.ksuid`), so nothing here records
+--- when.
 local ksuid = require("_work.ksuid")
 
 local record Item
@@ -25,8 +33,11 @@ local record Item
   parent: string
   --- Board phase; workable items only, "" otherwise.
   phase: string
-  --- Roots only: 1 is the top promise. 0 means unranked.
-  rank: integer
+  --- Items this one is ranked ABOVE, each by id: the priority
+  --- relation, recorded on the winner of a comparison. Stored as one
+  --- "id id" string — the literal domain has no lists. Any item may
+  --- carry them; the order itself is derived in `_work.priority`.
+  beats: {string}
   --- Open items this one waits on. Stored as one "id id" string —
   --- the literal domain has no lists.
   blocked_by: {string}
@@ -75,8 +86,8 @@ local function is_open(it: Item): boolean
   return (it.resolution or "") == ""
 end
 
---- Whether an item is a root: no parent. A ranked root is a goal; an
---- unranked one is a finding awaiting triage.
+--- Whether an item is a root: no parent. A root with open children
+--- organizes a subtree; a childless one is awaiting triage.
 --- @param it Item The item
 --- @return boolean True when parentless
 local function is_root(it: Item): boolean
@@ -102,12 +113,6 @@ local function problems(it: Item): {string}
   if not RESOLUTIONS[it.resolution or ""] then
     out[#out + 1] = ("unknown resolution: %s"):format(tostring(it.resolution))
   end
-  if (it.rank or 0) < 0 then
-    out[#out + 1] = "rank must be 0 (unranked) or positive"
-  end
-  if (it.rank or 0) > 0 and not is_root(it) then
-    out[#out + 1] = "rank belongs to roots; a parented item carries none"
-  end
   local phase = it.phase or ""
   if phase ~= "" then
     if not PHASE_SET[phase] then
@@ -129,6 +134,13 @@ local function problems(it: Item): {string}
       out[#out + 1] = ("blocked_by names a non-id: %s"):format(tostring(b))
     end
   end
+  for _, b in ipairs(it.beats or {}) do
+    if not ksuid.is_id(b) then
+      out[#out + 1] = ("beats names a non-id: %s"):format(tostring(b))
+    elseif b == it.id then
+      out[#out + 1] = "beats names the item itself; nothing outranks itself"
+    end
+  end
   return out
 end
 
@@ -142,12 +154,16 @@ local function decode(t: {string: any}): Item | nil, string
   for ref in tostring(t.blocked_by or ""):gmatch("%S+") do
     blocked[#blocked + 1] = ref
   end
+  local beats: {string} = {}
+  for ref in tostring(t.beats or ""):gmatch("%S+") do
+    beats[#beats + 1] = ref
+  end
   local it: Item = {
     id = tostring(t.id or ""),
     title = tostring(t.title or ""),
     parent = tostring(t.parent or ""),
     phase = tostring(t.phase or ""),
-    rank = math.tointeger(tonumber(tostring(t.rank or "0"))) or 0,
+    beats = beats,
     blocked_by = blocked,
     claim = tostring(t.claim or ""),
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
@@ -174,7 +190,9 @@ local function encode(it: Item): {string: any}
   }
   if (it.parent or "") ~= "" then t.parent = it.parent end
   if (it.phase or "") ~= "" then t.phase = it.phase end
-  if (it.rank or 0) ~= 0 then t.rank = it.rank end
+  if #(it.beats or {}) > 0 then
+    t.beats = table.concat(it.beats, " ")
+  end
   if #(it.blocked_by or {}) > 0 then
     t.blocked_by = table.concat(it.blocked_by, " ")
   end

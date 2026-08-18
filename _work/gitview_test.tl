@@ -25,6 +25,7 @@ local GOAL < const > = fresh_id()
 local CONTAINER < const > = fresh_id()
 local LEAF < const > = fresh_id()
 local LIMBO < const > = fresh_id()
+local LESSER < const > = fresh_id()
 
 --- Whether any line matches a Lua pattern.
 local function has(lines: {string}, pattern: string): boolean
@@ -36,17 +37,19 @@ local function has(lines: {string}, pattern: string): boolean
   return false
 end
 
---- The standing fixture: a ranked goal, a container under it with one
---- open child in `do`, and a leaf left with no phase.
+--- The standing fixture: a placed root (it outranks LESSER, which is
+--- what gives everything beneath it a position), a container under it
+--- with one open child in `do`, and a leaf left with no phase.
 local function board_items(): {item.Item}
   return {
-    check.must(item.decode({id = GOAL, title = "a goal", rank = 1})),
+    check.must(item.decode({id = GOAL, title = "a goal", beats = LESSER})),
     check.must(item.decode({id = CONTAINER, title = "a container",
           parent = GOAL})),
     check.must(item.decode({id = LEAF, title = "a leaf", parent = CONTAINER,
           phase = "do", claim = "session-a", pr = 42})),
     check.must(item.decode({id = LIMBO, title = "off the board",
           parent = GOAL})),
+    check.must(item.decode({id = LESSER, title = "a lesser outcome"})),
   }
 end
 
@@ -74,28 +77,30 @@ test_status_reports_a_phase_over_its_limit()
 
 local function test_tree_separates_containers_from_unphased_leaves()
   local lines, verdict = view.tree_report(board_items())
-  assert(has(lines, "^G1 " .. GOAL:sub(1, 8) .. " a goal$"),
-    table.concat(lines, "\n"))
+  assert(has(lines, "^%[>1%] " .. GOAL:sub(1, 8) .. " a goal$"),
+    "a placed root leads with what it outranks: " .. table.concat(lines, "\n"))
   assert(has(lines, CONTAINER:sub(1, 8) .. " %[container%]"),
     "an item with an open child is a container")
   assert(has(lines, LIMBO:sub(1, 8) .. " %[unphased%]"),
     "a leaf with no phase is NOT one: " .. table.concat(lines, "\n"))
   assert(has(lines, LEAF:sub(1, 8) .. " %[do%]"), "the leaf shows its phase")
-  assert(verdict == "1 open goal(s), 0 finding(s) awaiting triage", verdict)
+  assert(verdict == "2 organizing root(s), 0 item(s) awaiting triage", verdict)
 end
 test_tree_separates_containers_from_unphased_leaves()
 
-local function test_tree_marks_a_goal_nothing_is_driving()
-  local only_goal: {item.Item} = {
-    check.must(item.decode({id = GOAL, title = "a goal", rank = 1})),
-    check.must(item.decode({id = LIMBO, title = "a finding"})),
+local function test_tree_marks_a_root_nothing_is_driving()
+  local only_root: {item.Item} = {
+    check.must(item.decode({id = GOAL, title = "a goal", beats = LESSER})),
+    check.must(item.decode({id = LESSER, title = "a lesser outcome"})),
+    check.must(item.decode({id = LIMBO, title = "a capture"})),
   }
-  local lines, verdict = view.tree_report(only_goal)
+  local lines, verdict = view.tree_report(only_root)
   assert(has(lines, "%(no live work%)"), table.concat(lines, "\n"))
-  assert(has(lines, "^finding " .. LIMBO:sub(1, 8)), "findings queue below")
-  assert(verdict:find("1 finding(s)", 1, true), verdict)
+  assert(has(lines, "^triage " .. LIMBO:sub(1, 8)),
+    "an unplaced capture queues below: " .. table.concat(lines, "\n"))
+  assert(verdict:find("1 item(s) awaiting triage", 1, true), verdict)
 end
-test_tree_marks_a_goal_nothing_is_driving()
+test_tree_marks_a_root_nothing_is_driving()
 
 local function test_next_answers_per_role()
   local mine = check.must(view.next_report(board_items(), "implementer"))
@@ -185,7 +190,7 @@ test_find_matches_titles_and_spec_bodies()
 local function test_find_ignores_case_in_both_directions()
   local specs: {string: string} = {[LIMBO] = "The WIDGET again\n"}
   local upper = view.find_report(searchable_items(), specs, "A GOAL")
-  assert(has(upper, GOAL:sub(1, 8) .. " %[goal%] a goal"),
+  assert(has(upper, GOAL:sub(1, 8) .. " %[container%] a goal"),
     "an upper-case term finds a lower-case title: "
     .. table.concat(upper, "\n"))
   local lower = view.find_report(searchable_items(), specs, "widget")
@@ -232,7 +237,7 @@ test_find_matches_the_term_literally_not_as_a_pattern()
 
 local function test_find_reads_the_sidecars_and_refuses_an_empty_term()
   local s = fixture.init_state_repo("find")
-  local _goal, leaf = fixture.goal_with_leaf(s)
+  local _goal, leaf = fixture.root_with_leaf(s)
   fixture.give_spec(s, leaf)
   assert(view.cmd_find(s, "") == 1,
     "no term is a refusal on the verdict line, never a crash")
