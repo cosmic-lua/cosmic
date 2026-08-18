@@ -3,7 +3,7 @@
 review is the planner's first duty in every session (`SKILL.md`), and
 it is the system's FINAL GATE: nothing merges without a sophisticated
 model judging the implementation against the definition of work AND
-the goal it traces to. an item sits in `check` with a PR attached —
+the outcome it serves. an item sits in `check` with a PR attached —
 that phase means exactly "awaiting a planner verdict", nothing else —
 and the planner ends that state with one of three verdicts, every
 time. `check` is the only phase a verdict may end, and the verb
@@ -37,12 +37,12 @@ PR against it:
    caps, cast justifications. anything a gate should have caught but
    did not is itself a finding — for the enablement backlog, not
    just this PR.
-5. **it serves the Goal.** walk the item's parent chain to its goal
+5. **it serves the Goal.** walk the item's parent chain to its root
    and judge the change as built against it: does this diff actually
-   move the goal's win condition (or the parent container's outcome),
+   move that outcome's win condition (or the parent container's),
    or does it satisfy the letter of Acceptance while missing the
    point? this is the judgment only the planner can make — acceptance
-   commands prove the spec was implemented; only reading the goal
+   commands prove the spec was implemented; only reading the outcome
    proves the spec was worth implementing as built. a diff that
    passes 1–4 but fails this one means the SPEC was mis-specified:
    fix the specification (and file the ready-bar gap), don't wave the
@@ -232,7 +232,7 @@ ending the session, the planner converts it:
 1. name the wrong turn in one line (in the item's spec).
 2. pick the countermeasure by the `enable.md` ordering (core > docs >
    skills) and file the enablement item (`gitboard new "title"
-   --parent <goal> --spec-file F`), or fix the ready-bar gap directly
+   --parent <root> --spec-file F`), or fix the ready-bar gap directly
    if it was this one item's specification failure.
 3. if the same wrong turn has now appeared twice, the countermeasure
    stops being optional: file it before refining anything new.
@@ -248,15 +248,16 @@ countermeasure directly — the facts block was missing or stale for
 that claim — and the fix is a freshly measured facts entry in the
 re-refined spec, not a prose apology.
 
-findings enter the same loop from the implementer side: at the triage
-step the planner takes every unranked root — `attach` it under the
-goal its evidence serves (it enters `plan`), or end it: `done ID
---reason not-planned` for a finding that will not be worked, `done
+captured evidence enters the same loop from the implementer side: at
+the triage step the planner takes every unplaced root — `attach` it
+under the outcome its evidence serves (it enters `plan`), `compare` it
+into the order as an outcome of its own, or end it: `done ID
+--reason not-planned` for one that will not be worked, `done
 ID` for one that landed work already covers, so the record says which
 of the two happened. a finding this review itself confirms is
 countermeasure evidence like any bounce.
 
-this loop is what makes the system converge: goals pull work onto the
+this loop is what makes the system converge: outcomes pull work onto the
 board, reviews push friction back into enablement, and over time the
 share of items a less sophisticated model completes without a bounce
 is the measure that planning is working. a rising bounce rate means

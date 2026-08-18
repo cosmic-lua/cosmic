@@ -140,10 +140,10 @@ not carry:
   lines they ended on. an agent that ran them and said so in its final
   message has told the orchestrator, not the reviewer, and the
   reviewer is who needs it;
-- the finding rule: report anything found out of scope — a real
+- the capture rule: report anything found out of scope — a real
   defect, a stale doc — in the final message as one paragraph of
   evidence each, and return to the slice. the orchestrator files each
-  as a board finding; an agent that cannot hand evidence somewhere
+  as an unparented board item; an agent that cannot hand evidence
   either loses it or widens its diff to fix it;
 - **do not merge** — a PR lands only after a planner accept, in a
   later implementer pass. the brief's loop ends at the opened PR.
@@ -159,7 +159,7 @@ improvise unless the brief says that stopping is a good outcome.
   sophisticated model's judgment (`review.md`); N agents reviewing N
   PRs is N unreviewed merges wearing a costume.
 - **refinement.** parallel planners contend on the same phases and
-  the same goals, and two of them will decompose the same goal twice.
+  the same outcomes, and two will decompose the same one twice.
 - **anything two slices share.** see above — this is the whole game.
 
 ## after the wave

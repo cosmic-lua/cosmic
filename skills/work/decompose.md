@@ -1,25 +1,26 @@
 # Decomposing: from ambiguous goals to workable items
 
-working backwards is the planner's core move: start from a goal's win
-condition, find the largest gap between it and today, and keep cutting
-until each piece clears the ready bar. refinement is incremental —
-a goal does not decompose in one sitting, and is not supposed to; each
-planner session takes the oldest `plan` item ONE rung down.
+working backwards is the planner's core move: start from an outcome's
+win condition, find the largest gap between it and today, and keep
+cutting until each piece clears the ready bar. refinement is
+incremental — an outcome does not decompose in one sitting, and is not
+supposed to; each planner session takes the first `plan` item ONE rung
+down.
 
 ## the refinement ladder
 
 three rungs, each with an exit test. an item names its rung by its
 position in the graph; moving down a rung is what "refine" means.
 
-1. **goal** — a ranked root on the board; its outcome prose, its
+1. **outcome** — a placed root on the board; its prose, its
    measurement, and its win condition live in
    [docs/goals.md](../../docs/goals.md). ambitious and ambiguous by
-   design ("no silent bugs", "best tool-building tool"). goals change
-   by PR to goals.md plus a rank edit on the board, never by ordinary
-   refinement.
-2. **container** — an item under a goal with open children: one
-   outcome in service of the goal, still too big or too undecided to
-   hand over. an item BECOMES a container by decomposition — attach a
+   design ("no silent bugs", "best tool-building tool"). an outcome
+   changes by PR to goals.md, and its standing against the others by
+   `gitboard compare`, never by ordinary refinement.
+2. **container** — an item under an outcome with open children: one
+   result in service of it, still too big or too undecided to hand
+   over. an item BECOMES a container by decomposition — attach a
    child under it (`gitboard new "child" --parent <id>`, or
    `attach`) and the tool de-phases it in the same mutation.
    *exit test:* the outcome is observable ("a fresh clone can X", "the
@@ -38,33 +39,45 @@ that would deadlock the pair). when every child is done, the
 planner verifies the container's outcome actually holds and ends it
 (`review.md`).
 
-## ranking the outcomes: paired comparison
+## ordering the work: paired comparison
 
-intake walks the ranked goals top-down (`next --role planner` names
-the top-ranked goal with no live work), so the rank has to be real —
-and when it is contested (a new goal enters, the context shifts, two
-containers fight for capacity), the planner re-derives it with
-**paired comparison** rather than argument: put each contested pair to
-the goal owner, ONE question at a time —
+intake walks the placed roots top-down (`next --role planner` names
+the highest-placed one with no live work), so the order has to be
+real — and it is not asserted anywhere. it is DERIVED from committed
+comparisons, so deriving it is the same act as recording one: put a
+contested pair to the goal owner, ONE question at a time —
 
 > if cosmic could hold only one of these win conditions over the next
 > several releases, which is the better cosmic?
 
-count wins; let transitivity close the untested pairs (A > B and
-B > C settles A vs C); give byes to goals that are nearly holding
-(finish, don't debate) or dormant. an intransitive cycle
-(A > B > C > A) is never averaged away — it means the comparison
-question was ambiguous; restate what "better" means and re-run just
-the cycle's pairs. AHP (Saaty) is the heavyweight variant with
-weighted judgments and a consistency ratio; at a half-dozen goals the
-plain tournament converges in a handful of questions and its record
-is legible.
+— and commit the answer with `gitboard compare <winner> <loser>`.
+transitivity closes the untested pairs for you (A > B and B > C
+settles A vs C, with nobody asked), so a handful of questions orders a
+half-dozen outcomes. give byes to outcomes that are nearly holding
+(finish, don't debate) or dormant.
 
-the result is committed twice, deliberately: the goals' `rank` fields
-on the board are what intake reads, and a PR to goals.md reorders the
-outcome list and records the matches in its description
+the same verb orders anything, at any height: two containers fighting
+for capacity, two slices under one parent, a capture against the
+outcome it might displace. a comparison at any height places
+everything beneath it, so ordering two outcomes orders their subtrees,
+and comparing two leaves refines the order inside a band without
+disturbing the bands.
+
+an intransitive cycle (A > B > C > A) is never averaged away —
+`status` reports it and the tool refuses the edge that would close
+one, because a cycle means the comparison question was ambiguous.
+restate what "better" means, `uncompare` the edge that no longer
+holds, and re-ask just that pair. AHP (Saaty) is the heavyweight
+variant with weighted judgments and a consistency ratio; the plain
+tournament converges faster and its record is the commit log.
+
+each answer is committed as it is given: `compare` is one commit on
+the board, which is what intake reads, and a PR to goals.md reorders
+the outcome prose and records the matches in its description
 ([D25](../../docs/decisions/d25-outcomes-and-instruments.md)). a
-ranking that lives in a conversation is not a ranking.
+ranking that lives in a conversation is not a ranking — which is the
+whole reason the comparisons are the stored thing and the order is
+not.
 
 ## sizing a slice
 
@@ -74,10 +87,10 @@ threshold, not a rule), zero decisions left open. if writing the
 `Change` section forces the word "and" between two independent
 changes, cut it in two. if a slice cannot be sized without research,
 the research IS the slice: an enablement item whose deliverable is
-recorded findings and the follow-up slices, not code.
+recorded evidence and the follow-up slices, not code.
 
 slices are also sized for each other: implementer sessions run in
-parallel, so prefer cutting a goal into file-disjoint slices (two
+parallel, so prefer cutting an outcome into file-disjoint slices (two
 ready slices touching the same files invite merge conflicts and
 serialized rework). a `blocked_by` chain is the tool for real landing
 order — one enablement slice unblocking many parallel siblings is a
@@ -96,15 +109,16 @@ other way. and a slice near a frozen contract names the contract in
 
 a ready slice's spec sidecar carries exactly these five sections.
 `gitboard check ID` lints that each is present and non-empty, and
-that the item's parent chain reaches a ranked goal (`move ID ready`
+that the item has a position in the priority order (`move ID ready`
 refuses a slice that fails the same lint); only the planner can judge
 their content. the test for every sentence: **could a competent but
 literal-minded implementer, with no context beyond this spec and the
 repo's AGENTS.md, get this wrong?** if yes, it is not ready.
 
-- `## Goal` — one line naming the goal (or container outcome) this
-  serves, for the reader; the parent edge on the item is the
-  authoritative trace the tool checks.
+- `## Goal` — one line naming the outcome (or container result) this
+  serves, for the reader. prose, judged by the planner: the tool
+  checks that the item has a POSITION in the priority order, not what
+  this line says.
 - `## Change` — what to build, naming the files to touch and the
   shape of the change in each. imperative and concrete: "add verb X
   to `_cli/build/`, dispatching to ...", never "improve", "clean up",
@@ -126,20 +140,20 @@ repo's AGENTS.md, get this wrong?** if yes, it is not ready.
 **measured, not inferred.** every tree-fact the spec relies on (a
 file's length or headroom, a pattern's match count, a function's
 location) is measured DURING the refinement pass that asserts it, and
-recorded in a ` ```facts ` block (`$ command` then expected output).
-a `Change` that grows a named file states that file's measured
-headroom as a fact — the 500-line ceiling makes placement a capacity
-question. every count an `Acceptance` grep demands states the CURRENT
-(pre-change) value of the same pattern as a fact, and a widened or
-reworded pattern is a NEW fact, re-measured, never carried over. a
-`Change` that narrows a function's contract enumerates that
-function's callers as a fact (`grep -rn` the call sites), so no
-caller is discovered broken at implementation time. recording the
-command beside its output is what makes the claim checkable: a
-reviewer, or the implementer holding the spec, re-runs it in the
-product checkout the facts describe and sees for itself. nothing runs
-a facts block on the item's behalf, so a fact that has gone stale is
-caught by whoever runs it next — write every one of them to be run.
+written into the prose with the command that produced it. a `Change`
+that grows a named file states that file's measured headroom — the
+500-line ceiling makes placement a capacity question. a `Change` that
+narrows a function's contract enumerates that function's callers
+(`grep -rn` the call sites), so no caller is discovered broken at
+implementation time. an `Acceptance` that greps for a count states
+what the same pattern returns TODAY, and a widened or reworded
+pattern is re-measured rather than carried over.
+
+naming the command beside its output is what makes the claim
+checkable, by a reviewer or by the implementer holding the spec.
+nothing runs these on the item's behalf and nothing pretends to: a
+measurement that has gone stale is caught by whoever runs it next,
+which is the reason to write every one of them to be runnable.
 
 ## a worked example
 
@@ -153,16 +167,9 @@ G4 — zero-config project gates (this item's parent is the G4 root)
 Teach `--make ci` to print per-stage durations. In
 `_make/verbs.tl`, wrap each stage call with `cosmic.instrument`
 spans named `stage=<name>`; print one `<stage>: <secs>s` line as
-each stage ends, before the existing verdict line. the file's current
-headroom and its current instrumentation count are both facts,
-measured now and recorded below:
-
-```facts
-$ wc -l < _make/verbs.tl
-340
-$ grep -c "cosmic.instrument" _make/verbs.tl
-0
-```
+each stage ends, before the existing verdict line. measured now:
+`wc -l < _make/verbs.tl` is 340 (160 lines of headroom under the
+500-line cap) and `grep -c "cosmic.instrument" _make/verbs.tl` is 0.
 
 ## Non-goals
 No new flags. No change to the `ci: PASS`/`ci: FAIL` verdict line

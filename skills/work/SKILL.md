@@ -1,8 +1,8 @@
 ---
 name: work
 description: >
-  The system of work for cosmic: work backwards from ranked goals,
-  decompose ambitious outcomes into workable items that flow
+  The system of work for cosmic: work backwards from the outcomes
+  that matter most, decompose them into workable items that flow
   kanban-style across a WIP-limited board, and refine each item until
   a less sophisticated model can implement it reliably. The board
   lives on the orphan `board` branch as committed files, operated by
@@ -32,7 +32,7 @@ repo, and the system is designed so each does what it is best at:
 the two lanes split the lifecycle cleanly: planners plan and review;
 implementers implement and MERGE. the final gate is still always a
 planner — nothing merges until a sophisticated model has judged the
-implementation against the item's spec AND the goal it traces to
+implementation against the item's spec AND the outcome it serves
 (`review.md`) — but the landing itself is implementer-lane work.
 
 the planner's defining duty is not writing specs; it is making
@@ -45,7 +45,7 @@ the chapters:
 
 - `SKILL.md` — this file: the board, the roles, the session loops, the
   rules.
-- `decompose.md` — working backwards from goals; the refinement
+- `decompose.md` — working backwards from outcomes; the refinement
   ladder; the ready bar in full, with a worked example.
 - `enable.md` — making implementers succeed: core > docs > skills.
 - `review.md` — the planner's review verdicts, the friction feedback
@@ -143,20 +143,33 @@ the tree:
 
 | position | role |
 |----------|------|
-| ranked root | a **goal**: long-lived, ordered by rank |
-| unranked root | a **finding**: captured evidence, awaiting triage |
-| parented, open children | a **container** being decomposed |
+| open children | a **container** being decomposed |
+| parentless leaf | a **root**: an outcome, or evidence awaiting triage |
 | parented leaf | **workable** — the only thing that holds a phase |
+
+there is no goal tier and no `rank` field: importance is a RELATION
+between items, not a number an item asserts about itself. `gitboard
+compare A B` commits one judgment — A outranks B — and every order the
+board renders is DERIVED from the accumulated comparisons.
+transitivity closes the pairs nobody was asked about, a comparison at
+any height places everything beneath it, and age is the last word
+among items no comparison separates. what separates the two kinds of
+root is therefore placement, not a marker: a root somebody has
+compared is an outcome to decompose, and one no comparison reaches is
+what the triage queue holds.
 
 roles change by changing the graph: `attach` is both decomposition (a
 workable item that gains a child is de-phased into a container in the
-same mutation) and triage (an adopted finding becomes a plan-phase
-leaf). the goal trace is a checked property — every phased item must
-reach a ranked root through its parent chain, and `check` names the
-broken link when THAT item cannot. the board's own health (every
-item's chain, and any leaf left off the board) reads from `status`:
-one item's broken chain is everyone's to see and nobody's reason to be
-refused a promotion.
+same mutation) and triage (an adopted capture becomes a plan-phase
+leaf). PLACEMENT is the checked property: every phased item must have
+a position in the priority order, itself or through an ancestor, and
+`check` says so when THAT item does not. the question is ordinal —
+where does this sit against everything else — rather than
+genealogical, so an item nothing has been compared against has no
+answer to it. the board's own health (every item's placement and
+chain, any leaf left off the board, and any cycle the comparisons
+hold) reads from `status`: one item's problem is everyone's to see and
+nobody's reason to be refused a promotion.
 
 decomposition is reversible without ceremony. an item that gains a
 child is de-phased in the same commit; when its LAST open child ends,
@@ -170,7 +183,7 @@ because nobody acts there — it is a buffer:
 
 | phase | meaning |
 |-------|---------|
-| `plan` | traced to a goal, still ambiguous — the planner's until it meets the ready bar |
+| `plan` | placed, still ambiguous — the planner's until it meets the ready bar |
 | `ready` | meets the ready bar (`decompose.md`); nobody's until an implementer pulls it |
 | `do` | claimed work and rework — the implementer's, until a PR opens or a bounce |
 | `check` | PR open; the planner's, until a verdict |
@@ -187,9 +200,8 @@ correcting itself, and an accept is a decision already made rather
 than new inventory. everything else queues until the phase drains,
 and which arrivals qualify is the tool's rule to state rather than
 this table's — an over-limit phase blocks further pull and nothing
-else. goals, containers, and findings are never phased, so no
-exemption vocabulary exists for them — they occupy no slot to
-exempt.
+else. roots and containers are never phased, so no exemption
+vocabulary exists for them — they occupy no slot to exempt.
 
 **work flows right to left.** finishing beats starting: verdicts
 before refining, refining before intake, and an implementer lands and
@@ -198,9 +210,9 @@ finishes `do` before pulling ready.
 GitHub keeps two jobs. pull requests carry fixes: the diff, its CI,
 and its review conversation, exactly as before. issues are the
 INBOUND queue only — a bug report or an external request arrives
-there and a planner imports it as a finding (`gitboard new` with the
-evidence as `--spec-file`, no parent) at triage; no workflow state
-ever returns to labels or issue comments.
+there and a planner imports it as an unparented item (`gitboard new`
+with the evidence as `--spec-file`, no parent) at triage; no workflow
+state ever returns to labels or issue comments.
 
 ## the planner session
 
@@ -219,14 +231,17 @@ what each kind of action is:
   (`decompose.md`): decompose a container's outcome further, or drive
   a leaf to the ready bar. before a `move ID ready`, run the
   enablement check (`enable.md`) and `check ID` — both must pass.
-- **triage** — findings await adoption: `attach` each under the goal
-  or container its evidence serves (it enters `plan`), or end it —
-  `done ID` when landed work already covers it, `done ID --reason
-  not-planned` for a recorded dead end.
-- **intake** — decompose a top-ranked goal that no live work drives
-  (`gitboard new "outcome" --parent <goal>`). the rank is data on the
-  goal items, re-derived by paired comparison when contested
-  (`decompose.md`); the outcome prose stays in docs/goals.md.
+- **triage** — unplaced captures await a decision: `attach` each under
+  the outcome or container its evidence serves (it enters `plan`),
+  `compare` it against something to place it as an outcome in its own
+  right, or end it — `done ID` when landed work already covers it,
+  `done ID --reason not-planned` for a recorded dead end.
+- **intake** — decompose the highest-placed root that no live work
+  drives (`gitboard new "outcome" --parent <root>`). its position is
+  derived from the comparisons on the board, re-derived by asking one
+  more pair when contested (`decompose.md`); the outcome prose stays
+  in docs/goals.md, which nothing derives from — it is context a
+  planner reads to interpret and adjust the tree.
 - **nothing** — implementation has to catch up. do not open more
   items; a longer backlog is not progress.
 
@@ -283,9 +298,9 @@ becomes enablement evidence (`enable.md`).
 doc, a gap the slice sits next to but does not own — it goes to the
 board, never into the diff: `gitboard new "title" --spec-file F`,
 where F is one paragraph of evidence. an unparented item IS a
-finding; no trace is required of you, and filing is never refused —
-findings hold no phase, so no limit has anything to say. then return
-to the slice: do not refine the finding, do not fix it in passing,
+capture; no trace is required of you, and filing is never refused —
+an unparented item holds no phase, so no limit has anything to say.
+then return to the slice: do not refine it, do not fix it in passing,
 do not widen the diff to cover it.
 
 one session takes one item. running SEVERAL implementer sessions at
@@ -303,7 +318,7 @@ checkout per session, a brief that carries the spec — and those are
 - board state moves and reads through `gitboard` only. when the tool
   LACKS a verb the session needs, work around it ONCE by editing the
   item file and committing — the file format is the contract — and
-  file the missing verb as a finding.
+  file the missing verb as an unparented item.
 - the ready bar is never lowered to make an item pullable, and the
   WIP limits are never widened to make a move succeed. `--force`
   exists for repair, not for flow.
@@ -312,12 +327,14 @@ checkout per session, a brief that carries the spec — and those are
 - implementers implement what the spec says; planners decide what
   specs say. a scope question discovered mid-implementation goes back
   to the board, not into the diff.
-- every phased item traces to a ranked goal — checked structurally by
-  `gitboard check` for the item at hand and by `gitboard status` for
-  the board, not by convention. work that traces to no goal is
-  ended as not planned, however good the idea — re-rank the goals
-  (rank fields + a docs/goals.md PR) when the goals themselves are
-  wrong.
+- every phased item has a position in the priority order — checked
+  structurally by `gitboard check` for the item at hand and by
+  `gitboard status` for the board, not by convention. an item nothing
+  has been compared against, at any height, is not workable: place it
+  or end it as not planned, however good the idea. when the ORDER
+  itself is wrong, change it with `compare`/`uncompare` (plus a
+  docs/goals.md PR when the outcome prose moves), never by lowering
+  the bar for one item.
 - repo conventions are not relaxed for implementers: `--make ci` and
   the contract freezes in AGENTS.md bind every PR regardless of which
   model wrote it. when a convention keeps tripping implementers, the

@@ -43,7 +43,7 @@ mirrored in the slice's `blocked_by`.
 ## enablement items
 
 an enablement countermeasure that is not trivial becomes its own
-item, attached under the goal whose work it protects, held to the
+item, attached under the outcome whose work it protects, held to the
 SAME ready bar and flowing through the same board — implementers can
 and should build the lints and fixtures that protect their own future
 work. the feature slice carries the enabler in `blocked_by` so `next`
@@ -53,7 +53,7 @@ nothing.
 
 enablement can also be a research slice: "run the failing path, write
 down what an implementer sees, propose the countermeasure" — its
-deliverable is recorded findings and follow-up items, not code.
+deliverable is recorded evidence and follow-up items, not code.
 
 ## evidence: where enablement work comes from
 
