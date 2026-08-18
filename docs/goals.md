@@ -3,12 +3,15 @@
 this document says why cosmic exists, what "good" means here, and how each
 goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
 when a goal holds — and **instruments** — how we see and steer, orthogonal
-to the outcomes they serve. outcomes are ranked; the order below is the
-rank, set by paired comparison ([D25](decisions/d25-outcomes-and-instruments.md),
-method in `skills/work/decompose.md`) and changed only by a PR that
-re-runs the contested pairs. the tradeoffs behind these goals are
-recorded as decisions in [decisions/](decisions/) — read that before
-relitigating one.
+to the outcomes they serve. outcomes are ordered, by paired comparison
+([D25](decisions/d25-outcomes-and-instruments.md), method in
+`skills/work/decompose.md`): each answer is committed on the board as
+one `gitboard compare` edge, and the order is DERIVED from those
+comparisons rather than asserted anywhere. the list below is that
+order written out for a reader, so changing it means re-asking the
+contested pairs and landing both — the comparisons and this PR. the
+tradeoffs behind these goals are recorded as decisions in
+[decisions/](decisions/) — read that before relitigating one.
 
 ## Mission
 
@@ -97,7 +100,9 @@ release over release), never against a rival. where peers are the
 scoreboard, a published table records absolute standing; the ambition
 is that sustained ratcheting puts and keeps cosmic ahead, and the
 table says whether that is true — it never gates. intake
-(`skills/work/SKILL.md`) walks this list top-down.
+(`skills/work/SKILL.md`) walks the board's derived order top-down;
+this list is the prose that says what each outcome MEANS, and nothing
+is derived from it.
 
 ### G3 — an honest type layer, no escape hatches
 
@@ -195,7 +200,7 @@ ratcheting against a committed baseline. user projects inherit exactly
 the discipline cosmic applies to itself. (only durable gates transfer —
 scaffolding that polices a temporary toolchain gap, like cast
 justification, does not; see G3.) the verb exists and is the
-documented idiom today; this goal sat out the ranking as
+documented idiom today; this goal took a bye in the comparisons as
 nearest-to-holding — finish it, don't debate it.
 
 - **measured by:** a scaffolded project gets a meaningful `PASS`/`FAIL`
@@ -209,11 +214,12 @@ batteries include serving: the test for a battery is "should a
 cosmic-built binary be able to do this without shelling out or
 vendoring C" — which includes an HTTP(S) server and a real concurrency
 model, since single-file portable services are a natural payoff of
-`--embed`. deliberately not urgent; direction, not deadline; unranked
-until activated.
+`--embed`. deliberately not urgent; direction, not deadline; it sits
+at the bottom of the order until activated.
 
-- **measured by:** not yet. when this activates, it enters the ranking
-  and gets eval tasks and win conditions like everything else.
+- **measured by:** not yet. when this activates, it is compared into
+  the order and gets eval tasks and win conditions like everything
+  else.
 
 ## Instruments
 
