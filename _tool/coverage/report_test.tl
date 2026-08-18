@@ -74,6 +74,13 @@ local function test_normalize_maps_embedded_directory_modules()
     "a leaf module maps to its own source")
   assert(report.normalize("@/zip/cosmic/fs.lua", "") == "cosmic/fs/init.tl",
     "a directory module maps to its init.tl")
+  -- The second return value (`parse`) must be the same readable .tl source
+  -- as `display`, not the raw zip chunk path -- the zip chunk is compiled
+  -- Lua bytecode (or absent), which static executable-line analysis cannot
+  -- parse, silently collapsing the reported total to hits-only.
+  local display, parse = report.normalize("@/zip/cosmic/url.lua", "")
+  assert(parse == display, "got: " .. tostring(parse))
+  assert(parse == "cosmic/url.tl", "got: " .. tostring(parse))
 end
 test_normalize_maps_embedded_directory_modules()
 
