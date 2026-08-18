@@ -47,12 +47,21 @@ local function run(argv: {string}, output_base: string): integer, string
     return 1, tmpdir_err or "failed to create temp dir"
   end
 
-  -- Build environment with TEST_TMPDIR
+  -- Build environment with TEST_TMPDIR. COSMIC_COVERAGE is intercepted
+  -- rather than inherited, below, so each test gets its own coverage
+  -- directory instead of the outer one; the make-root override below it
+  -- is dropped outright, since it is the escape hatch a caller that
+  -- cannot chdir uses to override root discovery, and a test fixture
+  -- process is never such a caller — inheriting it would override the
+  -- cwd every fixture project depends on, corrupting its own root
+  -- detection.
   local child_env: {string} = {}
   local cov_requested = false
   for key, val in pairs(env.all()) do
     if key == "COSMIC_COVERAGE" then
       cov_requested = val ~= "" and val ~= "0"
+    elseif key == "COSMIC_MAKE_ROOT" then
+      -- skip: never inherited (see comment above)
     else
       child_env[#child_env + 1] = key .. "=" .. val
     end
