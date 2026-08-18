@@ -3,10 +3,14 @@
 --- item's ROLE derives from its position in the graph, and this
 --- module is where that derivation lives:
 ---
----   goal      a ranked root
----   finding   an unranked root (captured evidence, awaiting triage)
----   container a parented item with open children (being decomposed)
+---   container an item with open children (being decomposed)
+---   root      a parentless item, organizing or awaiting a decision
 ---   work      a parented leaf — the only role that holds a phase
+---
+--- There is no goal tier: every item is the same record, and what
+--- makes one outrank another is a committed comparison, derived into
+--- an order by `_work.priority`. A queue is therefore priority order
+--- with age as the last word, not age alone.
 ---
 --- The board is open PHASED items; roots and containers are never on
 --- it, so the label board's carve-outs (the epic exemption, the
@@ -14,14 +18,13 @@
 --- remains of `admits_over_limit` is two lines. The ready bar
 --- (`_work.spec.ready_gaps`) is applied to the spec sidecar.
 --- WIP limits carry the label board's empirically tuned values;
---- retuning them is a reviewed change here too. Ids are KSUIDs, so
---- sorting by id IS sorting by age and "oldest first" needs no other
---- field.
+--- retuning them is a reviewed change here too.
 ---
 --- What a role should DO with all this is `_work.action`: the rules and
 --- the policy that consults them are separate modules, so growing one
 --- never crowds the other against the file-length cap.
 local it = require("_work.item")
+local prio = require("_work.priority")
 local spec = require("_work.spec")
 
 local type Item = it.Item
@@ -41,9 +44,9 @@ local LIMITS: {string: integer} = {
 }
 
 --- The triage queue is not a phase and holds no WIP slot, but an
---- unbounded one starves: findings are the only channel by which an
---- implementer reports friction, and a queue nobody drains makes that
---- channel write-only. This is the depth past which draining it
+--- unbounded one starves: captured evidence is the only channel by
+--- which an implementer reports friction, and a queue nobody drains
+--- makes that channel write-only. This is the depth past which draining it
 --- outranks refining. A first value, tuned by the flow review the
 --- same way `LIMITS` is.
 local TRIAGE_LIMIT < const > = 8
@@ -103,19 +106,18 @@ local function has_open_children(items: {Item}, id: string): boolean
   return false
 end
 
---- The role an item's graph position gives it.
+--- The role an item's graph position gives it. A root with children
+--- and a parented one with children are the same thing — something
+--- being decomposed — so nothing distinguishes them here.
 --- @param i Item The item
 --- @param items {Item} All items
---- @return string "goal" | "finding" | "container" | "work"
+--- @return string "container" | "root" | "work"
 local function role(i: Item, items: {Item}): string
-  if it.is_root(i) then
-    if (i.rank or 0) > 0 then
-      return "goal"
-    end
-    return "finding"
-  end
   if has_open_children(items, i.id) then
     return "container"
+  end
+  if it.is_root(i) then
+    return "root"
   end
   return "work"
 end
@@ -135,20 +137,17 @@ local function board(items: {Item}): Board
   return out
 end
 
---- Items of one phase, oldest first — id order IS age order, because
---- ids are KSUIDs. Returns a new sorted copy.
+--- Items of one phase in queue order: priority first, age last.
+--- Positions arrive from the caller rather than being derived here,
+--- so rendering five phases derives the order once. Returns a new
+--- sorted copy.
 --- @param b Board The board
 --- @param phase string Phase name
+--- @param pos {string: prio.Position} Position by item id
 --- @return {Item} Sorted items, possibly empty
-local function oldest_first(b: Board, phase: string): {Item}
-  local list: {Item} = {}
-  for _, i in ipairs(b[phase] or {}) do
-    list[#list + 1] = i
-  end
-  table.sort(list, function(x: Item, y: Item): boolean
-      return x.id < y.id
-    end)
-  return list
+local function queued(b: Board, phase: string,
+    pos: {string: prio.Position}): {Item}
+  return prio.sorted(b[phase] or {}, pos)
 end
 
 --- WIP-limit violations, one line each ("do 6/5 over limit").
@@ -230,10 +229,15 @@ end
 
 --- ONE item's graph problems: a parent that does not exist, a chain
 --- that never reaches a root, a phase held by something that is not a
---- workable leaf, work that traces to no ranked goal, and the reverse
---- — an open leaf left with no phase, which is off the board without
---- being finished. This is the goal trace as a checked property
---- instead of a prose convention.
+--- workable leaf, phased work with no position in the priority
+--- order, and the reverse — an open leaf left with no phase, which is
+--- off the board without being finished.
+---
+--- Placement is what the goal trace used to be. The old rule asked
+--- whether a chain reached a RANKED root, which answered "is this
+--- worth doing" by genealogy; the question is now ordinal — where
+--- does this sit against everything else — and an item nothing has
+--- been compared against, at any height, has no answer to it.
 ---
 --- Scoped to the one item on purpose: the ready bar asks it of the
 --- item being promoted, so an unrelated item's broken chain can never
@@ -242,8 +246,10 @@ end
 --- @param i Item The item
 --- @param items {Item} All items
 --- @param index Index Items by id
+--- @param pos {string: prio.Position} Positions; derived here when omitted
 --- @return {string} Problems, possibly empty
-local function item_problems(i: Item, items: {Item}, index: Index): {string}
+local function item_problems(i: Item, items: {Item}, index: Index,
+    pos?: {string: prio.Position}): {string}
   local out: {string} = {}
   if not it.is_root(i) and index[i.parent] == nil then
     out[#out + 1] = ("%s: parent %s does not exist"):format(i.id, i.parent)
@@ -267,41 +273,56 @@ local function item_problems(i: Item, items: {Item}, index: Index): {string}
   local root = root_of(i, index)
   if root == nil then
     out[#out + 1] = ("%s: parent chain is broken or cyclic"):format(i.id)
-  elseif (root.rank or 0) < 1 then
-    out[#out + 1] = ("%s: traces to %s, which is unranked — adopt the "
-      .. "finding or rank the root"):format(i.id, root.id)
+  end
+  local at = pos or prio.positions(items)
+  if not prio.is_placed(at, i.id) then
+    out[#out + 1] = ("%s: has no position in the priority order — compare "
+      .. "it against something with `gitboard compare <id> <id>`, or attach "
+      .. "it under an item that has one"):format(i.id)
   end
   return out
 end
 
---- Every item's graph problems, for board-wide health.
+--- Every item's graph problems, plus any cycle the priority edges
+--- hold, for board-wide health.
 --- @param items {Item} All items
 --- @return {string} Problems, possibly empty
-local function trace_problems(items: {Item}): {string}
+local function graph_problems(items: {Item}): {string}
   local index = by_id(items)
+  local at = prio.positions(items)
   local out: {string} = {}
   for _, i in ipairs(items) do
-    for _, p in ipairs(item_problems(i, items, index)) do
+    for _, p in ipairs(item_problems(i, items, index, at)) do
       out[#out + 1] = p
     end
   end
+  for _, p in ipairs(prio.cycle_problems(items)) do
+    out[#out + 1] = p
+  end
   return out
 end
 
---- The open goals ranked, each with whether live work already drives
---- it (an open item whose parent chain reaches it).
+--- The open roots that have a POSITION, in priority order, each with
+--- whether live work already drives it (an open item whose parent
+--- chain reaches it). These are what the board used to call goals;
+--- nothing marks them as such any more — a root is one of these by
+--- having been compared against something, which is the only claim
+--- to importance the board recognises.
 --- @param items {Item} All items
---- @return {Item} Open goals, rank order
---- @return {string: boolean} goal id -> has live work
-local function goals(items: {Item}): {Item}, {string: boolean}
+--- @return {Item} Open placed roots, priority order
+--- @return {string: boolean} root id -> has live work
+local function roots(items: {Item}): {Item}, {string: boolean}
   local index = by_id(items)
+  local at = prio.positions(items)
   local out: {Item} = {}
   local live: {string: boolean} = {}
   for _, i in ipairs(items) do
     if it.is_open(i) then
-      if it.is_root(i) and (i.rank or 0) > 0 then
-        out[#out + 1] = i
-      elseif not it.is_root(i) then
+      if it.is_root(i) then
+        if prio.is_placed(at, i.id) then
+          out[#out + 1] = i
+        end
+      else
         local root = root_of(i, index)
         if root ~= nil then
           live[root.id] = true
@@ -309,29 +330,31 @@ local function goals(items: {Item}): {Item}, {string: boolean}
       end
     end
   end
-  table.sort(out, function(x: Item, y: Item): boolean
-      if x.rank ~= y.rank then
-        return x.rank < y.rank
-      end
-      return x.id < y.id
-    end)
-  return out, live
+  return prio.sorted(out, at), live
 end
 
---- Open findings (unranked roots), oldest first: the triage queue.
+--- The triage queue: open, childless, parentless items that no
+--- comparison has placed. Captured evidence, nothing decomposing it,
+--- nothing having adopted it, and no claim yet about how much it
+--- matters — which is exactly the state triage exists to resolve, by
+--- attaching it under something placed, comparing it, or ending it.
+---
+--- Placement is what separates this queue from intake: a root
+--- somebody HAS compared is an outcome the planner decomposes
+--- (`roots`), even with no children yet.
 --- @param items {Item} All items
---- @return {Item} Findings, possibly empty
-local function findings(items: {Item}): {Item}
+--- @return {Item} Unplaced roots, age order
+local function untriaged(items: {Item}): {Item}
+  local at = prio.positions(items)
   local out: {Item} = {}
   for _, i in ipairs(items) do
-    if it.is_open(i) and it.is_root(i) and (i.rank or 0) == 0 then
+    if it.is_open(i) and it.is_root(i)
+    and not has_open_children(items, i.id)
+    and not prio.is_placed(at, i.id) then
       out[#out + 1] = i
     end
   end
-  table.sort(out, function(x: Item, y: Item): boolean
-      return x.id < y.id
-    end)
-  return out
+  return prio.sorted(out, at)
 end
 
 --- The triage queue's own limit violation, in the one line shape
@@ -340,7 +363,7 @@ end
 --- @param items {Item} All items
 --- @return string | nil The violation line, nil at or under the bound
 local function triage_violation(items: {Item}): string | nil
-  local n = #findings(items)
+  local n = #untriaged(items)
   if n > TRIAGE_LIMIT then
     return ("triage %d/%d over limit"):format(n, TRIAGE_LIMIT)
   end
@@ -359,16 +382,18 @@ local record flow
   has_open_children: function(items: {Item}, id: string): boolean
   role: function(i: Item, items: {Item}): string
   board: function(items: {Item}): Board
-  oldest_first: function(b: Board, phase: string): {Item}
+  queued: function(b: Board, phase: string,
+  pos: {string: prio.Position}): {Item}
   wip_violations: function(b: Board): {string}
   is_blocked: function(i: Item, index: Index): boolean
   waits_on: function(index: Index, from: string, target: string,
   seen?: {string: boolean}): boolean
   root_of: function(i: Item, index: Index): Item | nil
-  item_problems: function(i: Item, items: {Item}, index: Index): {string}
-  trace_problems: function(items: {Item}): {string}
-  goals: function(items: {Item}): {Item}, {string: boolean}
-  findings: function(items: {Item}): {Item}
+  item_problems: function(i: Item, items: {Item}, index: Index,
+  pos?: {string: prio.Position}): {string}
+  graph_problems: function(items: {Item}): {string}
+  roots: function(items: {Item}): {Item}, {string: boolean}
+  untriaged: function(items: {Item}): {Item}
   triage_violation: function(items: {Item}): string | nil
   ready_gaps: function(body: string): {string}
 end
@@ -382,15 +407,15 @@ local M: flow = {
   has_open_children = has_open_children,
   role = role,
   board = board,
-  oldest_first = oldest_first,
+  queued = queued,
   wip_violations = wip_violations,
   is_blocked = is_blocked,
   waits_on = waits_on,
   root_of = root_of,
   item_problems = item_problems,
-  trace_problems = trace_problems,
-  goals = goals,
-  findings = findings,
+  graph_problems = graph_problems,
+  roots = roots,
+  untriaged = untriaged,
   triage_violation = triage_violation,
   ready_gaps = spec.ready_gaps,
 }

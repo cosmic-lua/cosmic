@@ -1,18 +1,21 @@
 #!/usr/bin/env cosmic
 --- Work board CLI over a state REPOSITORY instead of GitHub labels: a
 --- proof of concept where roles emerge from the dependency graph.
---- There are no kinds — a ranked root is a goal, an unranked root is
---- a finding awaiting triage, a parented item with open children is a
---- container being decomposed, and a parented leaf is workable: the
---- only thing that crosses the kanban. Each item is `items/<ksuid>.tl`
+--- There are no kinds and no goal tier — an item with open children
+--- is a container being decomposed, a childless root is awaiting
+--- triage, and a parented leaf is workable: the only thing that
+--- crosses the kanban. Which items matter more is a recorded
+--- comparison (`compare`), derived into an order by `_work.priority`,
+--- never a number an item asserts about itself. Each item is `items/<ksuid>.tl`
 --- in a git checkout (`_work.store`), its spec prose the sidecar
 --- `items/<ksuid>.md`; the flow rules are `_work.flow`. Pull requests
 --- stay on GitHub and carry the fix; issues shrink to an inbound
 --- queue. Ids are KSUIDs; every verb accepts an unambiguous prefix.
 ---
 ---   cosmic --make run _work/gitboard.tl init [--dir D]
----   cosmic --make run _work/gitboard.tl new "a goal" --rank 1
+---   cosmic --make run _work/gitboard.tl new "an outcome"
 ---   cosmic --make run _work/gitboard.tl new "a piece of it" --parent 2ai3
+---   cosmic --make run _work/gitboard.tl compare 2ai3 2akQ | uncompare ...
 ---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl block 2akQ 2ai3 | unblock 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
@@ -31,6 +34,7 @@
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
+local cmp = require("_work.gitcompare")
 local land = require("_work.gitland")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
@@ -45,7 +49,7 @@ local view = require("_work.gitview")
 local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["move"] = true, ["verdict"] = true, ["done"] = true,
-  ["land"] = true,
+  ["land"] = true, ["compare"] = true, ["uncompare"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -62,12 +66,15 @@ local CSPEC: flags.CommandSpec = {
     {name = "new", summary = "open an item titled TITLE; role comes from the graph",
       spec = {usage = "TITLE [options]", flags = {dir_flag(),
           {long = "parent", arg = "ID", help = "the item this decomposes"},
-          {long = "rank", arg = "N", help = "rank a parentless item as a goal"},
           {long = "spec-file", arg = "FILE", help = "spec markdown sidecar"},
           {long = "force", help = "override the plan WIP limit"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
-    {name = "attach", summary = "put ID under PARENT (triage a finding, re-parent)",
+    {name = "attach", summary = "put ID under PARENT (adopt, re-parent)",
       spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
+    {name = "compare", summary = "record that ID outranks OTHER",
+      spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
+    {name = "uncompare", summary = "drop the edge putting ID over OTHER",
+      spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
     {name = "block", summary = "record that ID waits on BLOCKER",
       spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
     {name = "unblock", summary = "drop BLOCKER from ID's blockers",
@@ -78,7 +85,7 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
     {name = "status", summary = "render the kanban and its WIP verdict",
       spec = {flags = {dir_flag()}}},
-    {name = "tree", summary = "render goals, their subtrees, and the triage queue",
+    {name = "tree", summary = "render the roots, their subtrees, and the triage queue",
       spec = {flags = {dir_flag()}}},
     {name = "next", summary = "the one next action for a role",
       spec = {flags = {dir_flag(),
@@ -169,7 +176,6 @@ local function main(...: string): integer
       io.stderr:write("new needs a title\n")
       return 1
     end
-    local rank = math.tointeger(tonumber(d.parsed.values["rank"] or "0")) or 0
     local parent = ""
     local parent_prefix = d.parsed.values["parent"]
     if parent_prefix ~= nil then
@@ -190,7 +196,7 @@ local function main(...: string): integer
       end
       spec = body
     end
-    return verbs.cmd_new(s, title, parent, rank, spec,
+    return verbs.cmd_new(s, title, parent, spec,
       d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   local id, rerr = store.resolve(s, d.parsed.args[1] or "")
@@ -205,6 +211,14 @@ local function main(...: string): integer
       return 1
     end
     return verbs.cmd_attach(s, id, parent)
+  end
+  if d.command == "compare" or d.command == "uncompare" then
+    local other, oerr = store.resolve(s, d.parsed.args[2] or "")
+    if other == nil then
+      io.stderr:write(tostring(oerr) .. "\n")
+      return 1
+    end
+    return cmp.cmd_compare(s, id, other, d.command == "uncompare")
   end
   if d.command == "block" or d.command == "unblock" then
     local blocker, berr = store.resolve(s, d.parsed.args[2] or "")

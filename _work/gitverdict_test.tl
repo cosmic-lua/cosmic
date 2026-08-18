@@ -12,14 +12,14 @@ local vrd = require("_work.gitverdict")
 local init_state_repo = fixture.init_state_repo
 local file_item = fixture.file_item
 local give_spec = fixture.give_spec
-local goal_with_leaf = fixture.goal_with_leaf
+local root_with_leaf = fixture.root_with_leaf
 
 -- `check` means "awaiting a planner verdict", so it is the one phase
 -- a verdict may end: judging from anywhere else would carry unreviewed
 -- work into land past every gate between them.
 local function test_verdict_judges_only_what_is_in_check()
   local s = init_state_repo("verdict-phase")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "none: test") ~= 0,
     "a plan item has not been reviewed")
@@ -40,7 +40,7 @@ test_verdict_judges_only_what_is_in_check()
 -- filed with it. The trailer takes an item id or a reasoned "none".
 local function test_a_non_accept_verdict_files_its_countermeasure()
   local s = init_state_repo("enable")
-  local goal, leaf = goal_with_leaf(s)
+  local goal, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
@@ -52,7 +52,7 @@ local function test_a_non_accept_verdict_files_its_countermeasure()
   assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa",
       "3HyArM3A3zHuRxn3VYCvKmUZ7KW") ~= 0,
     "nor is the id of an item that does not exist")
-  local counter = file_item(s, "the countermeasure", goal, 0, false)
+  local counter = file_item(s, "the countermeasure", goal, false)
   assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa", counter) == 0,
     "a filed countermeasure passes")
   assert(check.must(store.load(s, leaf)).enable == counter, "and is recorded")
@@ -69,7 +69,7 @@ test_a_non_accept_verdict_files_its_countermeasure()
 -- happened in between, which is not a fresh round.
 local function test_a_verdict_refuses_a_head_it_already_judged()
   local s = init_state_repo("head")
-  local _, leaf = goal_with_leaf(s)
+  local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)

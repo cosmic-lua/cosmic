@@ -6,6 +6,7 @@ _work/fixture.tl 83 85
 _work/flow.tl 209 229
 _work/gh.tl 14 73
 _work/gitboard.tl 0 92
+_work/gitcompare.tl 41 47
 _work/gitgate.tl 107 124
 _work/gitland.tl 0 24
 _work/gitverbs.tl 172 229
@@ -13,6 +14,7 @@ _work/gitverdict.tl 52 57
 _work/gitview.tl 122 160
 _work/item.tl 88 93
 _work/ksuid.tl 68 75
+_work/priority.tl 119 126
 _work/review.tl 39 39
 _work/spec.tl 28 28
 _work/store.tl 171 202

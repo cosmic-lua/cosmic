@@ -12,19 +12,37 @@ push-as-compare-and-swap at once.
 items/       the board: one <ksuid>.tl per item (cosmic.literal data)
              with its spec prose in the matching <ksuid>.md
 _work/       the machinery: gitboard (CLI), gitverbs (mutations),
-             gitview (reads), gitgate (the WIP and ready gates, and
-             the commit-and-publish every mutation goes through),
-             store (git-backed persistence), flow (the rules), spec
+             gitcompare (the priority relation as a verb), gitview
+             (reads), gitgate (the WIP and ready gates, and the
+             commit-and-publish every mutation goes through), store
+             (git-backed persistence), flow (the rules), priority (the
+             comparison relation and the order derived from it), spec
              (the ready bar's section grammar), item (the record),
              ksuid (ids)
 cmd/gitboard the binary this branch builds: `o/bin/gitboard`
 bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 ```
 
-Roles derive from the graph — there is no kind field: a ranked root is
-a goal, an unranked root is a finding awaiting triage, an item with
-open children is a container being decomposed, and a parented leaf is
-workable (the only thing that holds a board phase).
+Roles derive from the graph — there is no kind field and no goal
+tier: an item with open children is a container being decomposed, a
+parentless one is a root, and a parented leaf is workable (the only
+thing that holds a board phase).
+
+Which items matter more is a RELATION, not a number an item asserts
+about itself. `compare A B` commits one judgment — A outranks B — as
+an edge on the winner, and `_work/priority.tl` derives every order
+from the accumulated edges: transitivity closes the pairs nobody was
+asked about, a comparison at any height places everything beneath it,
+and age is the last word among items no comparison separates. An item
+no edge reaches, at any height, is UNPLACED, and that is exactly what
+the triage queue holds; `check` refuses to promote work with no
+position, which is the property the goal trace used to carry. A cycle
+is reported, never averaged away: it means the comparison question was
+ambiguous, so the pair is restated and re-asked.
+
+The outcome prose those roots stand for lives in `docs/goals.md` on
+`main`. It is context a planner reads to interpret and adjust the
+tree — nothing here derives from it, and nothing checks it.
 
 What the verbs ARE lives here and only here: `gitboard help` lists
 them, `gitboard help <verb>` gives one its options, and both are
