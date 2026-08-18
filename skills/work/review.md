@@ -121,6 +121,107 @@ conflict appearing on a second PR is enablement evidence under the
 feedback half below: file the countermeasure that deletes the
 contended line, rather than paying the tax once per landing.
 
+## tuning the limits: the flow review
+
+the WIP limits are committed policy (the `LIMITS` table in
+`_work/flow.tl`), and the reviewed change that tunes them starts from
+measurement, never from a feeling that a phase is "too tight". the
+record is the `board` branch's own git history over `items/*.tl`:
+every mutation is exactly one commit, pushed as it happens, so `git
+log` over that path is the complete, current record with nothing
+separate to fall behind it.
+
+the instrument is `git log --format='%ad %h %s' --date=iso-strict --
+items/*.tl`, read by hand — grep and arithmetic over timestamps, not a
+report a tool prints. a commit subject's first word is its verb
+(`new`, `attach`, `move`, `verdict`, `done`, `block`/`unblock`); a
+`move` or `verdict` subject also names the item's 8-character id
+prefix and its `<from> -> <to>` phase pair. pairing successive lines
+for one id gives that item's stints: a stint starts at a `new`/`attach`
+commit that sets phase to `plan`, or at a `move`/`verdict` commit's
+target, and ends at the next commit naming that id. from the paired
+timestamps, count stints per phase by hand, compute each stint's dwell
+(end minus start), and walk the ordered log tracking a running
+per-phase set of open ids to get peak concurrent occupancy; the same
+walk gives accept/rework/bounce counts and the `ready -> do` pickup
+latency (time between the two moves). a `move` subject carrying a
+trailing `(forced: ...)` is a repair, not organic flow, and is
+excluded.
+
+run a flow review when a limit refuses ordinary intake or an ordinary
+pull twice in one session, or after every few dozen landed items.
+measure, per phase, over the window:
+
+- **dwell**: median and max minutes per phase stint — sort the
+  stints' dwell minutes by hand and read the middle value for the
+  median. a phase with a dozen or so stints has too few points for a
+  percentile beyond max to mean anything a sorted list does not
+  already show by eye; cite the paired `move`/`verdict` lines
+  themselves as evidence, not a formula.
+- **occupancy vs limit**: the peak concurrent count in each phase,
+  and the minutes spent at or over the `LIMITS` value for that phase —
+  a phase that never comes near its limit has an irrelevant number,
+  not a good one. an item that gains a child is de-phased in the same
+  commit as the `attach` that gives it one, so a container never
+  carries a phase and never appears as a `move` target; a stint list
+  read from `move`/`verdict` lines already counts only workable
+  leaves, with nothing to subtract.
+- **refusals and their cost**: what motion the limit actually
+  refused, and what that cost (lost evidence, stranded work, extra
+  planner loops). a refused move never becomes a commit — the verb
+  prints its `REFUSED:` line to the terminal and makes no mutation —
+  so `git log` has nothing to show for it; this item comes from the
+  session's own log, not from the log on disk.
+- **backward moves, split by kind**: three log shapes carry backward
+  motion, and a hand read must not conflate them. a bounce is a plain
+  `move <id> <phase> -> plan` line with no `verdict` prefix — an
+  implementer returning work it found under-specified, or a planner
+  catching a `ready` item that should not have passed the bar — and
+  it sends work back for re-specification. a rework is `verdict <id>
+  "request changes" (check -> do)` — a targeted send-back naming
+  concrete gaps, the rework signal. `verdict <id> reject (check ->
+  plan)` is a third, harsher bounce: the approach itself was wrong.
+  none of these is `verdict <id> accept (check -> land)`, which moves
+  right, not back — a hand count that greps for `verdict` lines and
+  calls anything backward must exclude accept explicitly, or it
+  inflates the bounce rate with decisions that were never bounces.
+- **pickup latency**: minutes from the move into `ready` to the move
+  into `do` — when this far exceeds implementation time, the queue is
+  inventory going stale (facts drift, baselines race), not readiness.
+
+then decide by these rules, in order:
+
+1. **check the arrivals before the number.** `_work/flow.tl`'s
+   `admits_over_limit(from, to)` is two lines — `to == "land" or
+   is_return(from, to)` — a full phase admits only a return or an
+   accept, everything else queues. because containers never hold a
+   phase, a raw occupancy count read from the log is already a count
+   of genuine work in progress: when a hand count shows a phase over
+   its `LIMITS` value, check whether the arrivals that pushed it
+   there were returns or accepts — which the limit already lets
+   through — before treating the number as a real signal that the
+   limit itself is wrong.
+2. **a limit earns a change only by BINDING**: sustained time at the
+   limit plus refusals with real cost. a peak below the limit means
+   leave the number alone and record a tripwire instead, in the
+   module doc comment at the top of `_work/flow.tl` — the comment
+   carries a single line about the limits' origin today, so a
+   tripwire is the first line it gains, not an addition to a list
+   that already exists.
+3. **an oversized queue is cut, not kept.** a phase that never binds
+   while its pickup latency dwarfs touch time is aging inventory;
+   shrink it until refinement runs closer to just-in-time.
+4. **throughput is usually implementer-bound.** the limits' real
+   lever is the rework tax — bounces, staleness conflicts, evidence
+   loss — so judge a tuning by the wasted-loop rate, not by merges
+   per hour.
+
+record the outcome where the numbers live: the module doc comment at
+the top of `_work/flow.tl` does not yet carry a review's empirical
+basis or any tripwires, so a flow review's findings are the FIRST
+evidence appended there, establishing that block rather than
+extending one that already exists.
+
 ## the feedback half — never skip it
 
 every non-accept verdict, and every bounce an implementer initiated,
