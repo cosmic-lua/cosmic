@@ -211,10 +211,11 @@ note=nil` regardless of merge order.
 ## Acceptance
 
 ```facts
-$ o/bin/cosmic --make test _tool/coverage/report_test.tl 2>&1 | tail -3
+$ o/bin/cosmic --make test _tool/coverage/report_test.tl 2>&1 | tail -4
 1 checks: 1 passed
 wall: 9ms  slowest: _tool/coverage/report_test.tl (9ms)
 test: PASS (1 file)
+note: fmt and lint did not run here — `cosmic --make ci` is the whole gate
 ```
 
 The existing suite passes today, before this slice's change; extend
