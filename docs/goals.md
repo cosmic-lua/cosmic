@@ -155,7 +155,7 @@ visible, reviewed baseline change in the diff that causes it, and the
 trend release over release is flat or down for everything not serving
 a promise. the two cadences are deliberate: the public surface
 ratchets per PR (surface changes rarely and deserves per-change
-scrutiny; a baseline file parallel implementers rarely touch), while
+scrutiny; a baseline file parallel sessions rarely touch), while
 tree size reports per release (line counts change with every PR, and a
 per-PR gate there would put one conflict-prone baseline in every
 diff).

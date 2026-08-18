@@ -1,6 +1,6 @@
-# Enabling: making implementers succeed
+# Enabling: making the next session succeed
 
-the planner's leverage is not writing smarter specs — it is changing
+the leverage is not writing smarter specs — it is changing
 the system so a less sophisticated model cannot help but get it right.
 this repo already works this way for humans and agents alike: the
 fallible-returns lint, the `-- cast:` justification, the find-needle
@@ -11,7 +11,7 @@ failure, as part of refining work toward the ready bar.
 
 ## the enablement check
 
-before any `move ID ready`, simulate the implementer: walk the spec's
+before any `move ID ready`, simulate the builder: walk the spec's
 `Change` as a literal-minded model would, and list every point where
 it could take a wrong turn — a decision the spec leaves open, a
 convention it could miss, an API that invites misuse, a failure it
@@ -44,7 +44,7 @@ mirrored in the slice's `blocked_by`.
 
 an enablement countermeasure that is not trivial becomes its own
 item, attached under the outcome whose work it protects, held to the
-SAME ready bar and flowing through the same board — implementers can
+SAME ready bar and flowing through the same board — sessions can
 and should build the lints and fixtures that protect their own future
 work. the feature slice carries the enabler in `blocked_by` so `next`
 sequences them correctly. never fold enablement into the feature
@@ -52,7 +52,7 @@ slice itself: a lint that lands inside the PR it polices proves
 nothing.
 
 enablement can also be a research slice: "run the failing path, write
-down what an implementer sees, propose the countermeasure" — its
+down what a session sees, propose the countermeasure" — its
 deliverable is recorded evidence and follow-up items, not code.
 
 ## evidence: where enablement work comes from
@@ -60,9 +60,9 @@ deliverable is recorded evidence and follow-up items, not code.
 predictions are seed; evidence is gold. three feeds, in rising order
 of cost:
 
-1. **review bounces.** every time an implementer bounces an item
-   back (`SKILL.md`, implementer step on under-specification) or a
-   review finds a wrong turn (`review.md`), the planner asks: which
+1. **review bounces.** every time a session bounces an item back
+   (`SKILL.md`, on under-specification) or a review finds a wrong
+   turn (`review.md`), ask: which
    countermeasure would have prevented this — and files it. a bounce
    with no enablement item filed is evidence dropped on the floor.
 2. **repeated review comments.** the second time a review makes the
@@ -74,11 +74,11 @@ of cost:
 ## what enablement is not
 
 - not a euphemism for lowering the bar: `--make ci`, the contract
-  freezes, and the conventions bind implementers fully. enablement
+  freezes, and the conventions bind every session fully. enablement
   makes the bar reachable, never lower.
 - not speculative infrastructure: a countermeasure is filed against a
   predicted or observed wrong turn on real planned work, and its
   spec names that work. tooling with no failure to prevent is scope
   creep with a virtuous name.
-- not planner-only work: enablement items are ordinary ready items;
-  implementers build them.
+- not a separate kind of work: enablement items are ordinary ready
+  items, pulled and built like any other.

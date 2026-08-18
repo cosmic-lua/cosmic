@@ -1,14 +1,23 @@
 # Reviewing: verdicts and the friction feedback loop
 
-review is the planner's first duty in every session (`SKILL.md`), and
-it is the system's FINAL GATE: nothing merges without a sophisticated
-model judging the implementation against the definition of work AND
-the outcome it serves. an item sits in `check` with a PR attached —
-that phase means exactly "awaiting a planner verdict", nothing else —
-and the planner ends that state with one of three verdicts, every
-time. `check` is the only phase a verdict may end, and the verb
-refuses one from anywhere else: an accept reaches `land` past every
-gate between them, so it may only be given where review happens.
+review is the first duty the ordering hands out that is not a merge
+(`SKILL.md`), and it is the system's FINAL GATE: nothing merges
+without a judgment of the implementation against the definition of
+work AND the outcome it serves. an item sits in `check` with a PR
+attached — that phase means exactly "awaiting a verdict", nothing
+else — and a session ends that state with one of three verdicts,
+every time.
+
+**never your own.** the claim recorded when the item was pulled
+survives into `check`, so `next --session NAME` routes a session's
+own work to somebody else and hands it something different. that distance
+is the whole value of the gate: honour it if you reach for `verdict`
+directly, and if you are the only session running, leave the item in
+`check` for the next wake rather than judging what you just built.
+
+`check` is the only phase a verdict may end, and the verb refuses one
+from anywhere else: an accept reaches `land` past every gate between
+them, so it may only be given where review happens.
 
 ## the review itself
 
@@ -19,7 +28,7 @@ PR against it:
    `Acceptance` commands, run, ending on the verdict lines they must
    (`ci: PASS`, the narrow checks) — and CI green on the PR's CURRENT
    head. nothing upstream of the review establishes this; the
-   implementer owes it and you are the one who checks it was paid. a
+   builder owes it and you are the one who checks it was paid. a
    branch that moved since the quoted run (a rework push, a merge of
    main) needs its fresh run read, not assumed; an in-progress run is
    a reason to review the next item and come back, never to wave
@@ -41,7 +50,7 @@ PR against it:
    and judge the change as built against it: does this diff actually
    move that outcome's win condition (or the parent container's),
    or does it satisfy the letter of Acceptance while missing the
-   point? this is the judgment only the planner can make — acceptance
+   point? this is the judgment no command can make — acceptance
    commands prove the spec was implemented; only reading the outcome
    proves the spec was worth implementing as built. a diff that
    passes 1–4 but fails this one means the SPEC was mis-specified:
@@ -67,26 +76,25 @@ but the item is the record the tool reads.
 
 - **accept** — `verdict ID accept` moves the item into `land`. the
   move is never refused — a verdict already made is not inventory —
-  and the landing itself is implementer-lane work: the finish-first
-  rule makes it the first thing the next implementer session picks
-  up, squash-merging the PR and running `done ID`. the planner
-  judges; the implementer lands. a landing that completes a
-  container's last child returns that container to `plan` in the same
-  commit, where the next planner pass verifies its stated outcome
+  and the landing is the next action the ordering hands out: the
+  finish-first rule makes it the first thing any session picks up,
+  squash-merging the PR and running `done ID`. a landing that
+  completes a container's last child returns that container to `plan`
+  in the same commit, where a later refine verifies its stated outcome
   actually holds (run its observable test, not the children's) and
   ends it with `done ID`.
 - **request changes** — quote the concrete gaps on the PR, then
   `verdict ID "request changes" --pr N --head SHA` moves the item
   back to `do`, where `next`'s finish-before-pull rule makes the
-  rework the first thing an implementer picks up after a landing.
+  rework the first thing a session picks up after a landing.
   the same PR carries the fixes; the item returns to `check` with
   them. the item's `verdict_head` records which commit was judged, so
   a reviewer can see at a glance whether anything new followed the
   verdict — read it before re-reviewing, and treat an unmoved head as
   nothing to judge. use this when the work is right-shaped but
   incomplete. never leave a changes-requested item sitting in
-  `check`: that phase waits on planners, and implementers do not look
-  there.
+  `check`: the ordering reads that phase as awaiting a verdict, so
+  nobody will pick the rework up from there.
 - **reject** — the approach is wrong, or the item was not actually
   ready. close the PR, record what was learned in the item's spec,
   and `verdict ID reject` sends it all the way back to `plan` (or
@@ -112,13 +120,13 @@ lines they both rewrite. `.cosmic-coverage` mostly does not anymore — a
 on, and the file merges with git's `union` strategy, so both sides'
 rows land and the ratchet reads a repeated path as its lower
 percentage. expect this to be rare. when it does happen the recovery is
-mechanical and belongs to the implementer lane AT LANDING TIME:
-merge main, run the regen command the gate prints, commit, re-run
+mechanical and belongs to the landing itself: merge main, run the
+regen command the gate prints, commit, re-run
 the gate, land. no fresh verdict is needed when the ONLY conflict is
 a regenerated file — the reviewed diff did not change. anything
 beyond that (a source-line conflict, a gate that stays red after the
 regen) is not a landing anymore: `move ID check` with the conflict
-described, and the planner re-judges. the same regenerated-file
+described, and it earns a fresh verdict. the same regenerated-file
 conflict appearing on a second PR is enablement evidence under the
 feedback half below: file the countermeasure that deletes the
 contended line, rather than paying the tax once per landing.
@@ -170,15 +178,15 @@ measure, per phase, over the window:
   leaves, with nothing to subtract.
 - **refusals and their cost**: what motion the limit actually
   refused, and what that cost (lost evidence, stranded work, extra
-  planner loops). a refused move never becomes a commit — the verb
+  loops). a refused move never becomes a commit — the verb
   prints its `REFUSED:` line to the terminal and makes no mutation —
   so `git log` has nothing to show for it; this item comes from the
   session's own log, not from the log on disk.
 - **backward moves, split by kind**: three log shapes carry backward
   motion, and a hand read must not conflate them. a bounce is a plain
-  `move <id> <phase> -> plan` line with no `verdict` prefix — an
-  implementer returning work it found under-specified, or a planner
-  catching a `ready` item that should not have passed the bar — and
+  `move <id> <phase> -> plan` line with no `verdict` prefix — work
+  returned as under-specified, or a `ready` item caught that should
+  not have passed the bar — and
   it sends work back for re-specification. a rework is `verdict <id>
   "request changes" (check -> do)` — a targeted send-back naming
   concrete gaps, the rework signal. `verdict <id> reject (check ->
@@ -212,7 +220,8 @@ then decide by these rules, in order:
 3. **an oversized queue is cut, not kept.** a phase that never binds
    while its pickup latency dwarfs touch time is aging inventory;
    shrink it until refinement runs closer to just-in-time.
-4. **throughput is usually implementer-bound.** the limits' real
+4. **throughput is usually bound by the doing, not the deciding.**
+   the limits' real
    lever is the rework tax — bounces, staleness conflicts, evidence
    loss — so judge a tuning by the wasted-loop rate, not by merges
    per hour.
@@ -225,9 +234,9 @@ extending one that already exists.
 
 ## the feedback half — never skip it
 
-every non-accept verdict, and every bounce an implementer initiated,
-carries information about why a presumed-ready item was not. before
-ending the session, the planner converts it:
+every non-accept verdict, and every bounce, carries information about
+why a presumed-ready item was not. before
+ending the session, convert it:
 
 1. name the wrong turn in one line (in the item's spec).
 2. pick the countermeasure by the `enable.md` ordering (core > docs >
@@ -241,15 +250,15 @@ every non-accept verdict carries this in `--enable`, and the verb
 refuses one without it: `--enable <item-id>` names the countermeasure
 filed, `--enable 'none: <reason>'` records that this item's own spec
 was the fault. what the flag cannot judge is whether the reason is a
-real one — that part is still the planner's.
+real one — that part is a judgment, not a field.
 
 a bounce that quotes a wrong or unmeasured tree-fact names its
-countermeasure directly — the facts block was missing or stale for
-that claim — and the fix is a freshly measured facts entry in the
-re-refined spec, not a prose apology.
+countermeasure directly — the spec asserted something about the tree
+without measuring it — and the fix is a freshly measured claim, with
+its command, in the re-refined spec, not a prose apology.
 
-captured evidence enters the same loop from the implementer side: at
-the triage step the planner takes every unplaced root — `attach` it
+captured evidence enters the same loop from the building side: at
+the triage step a session takes every unplaced root — `attach` it
 under the outcome its evidence serves (it enters `plan`), `compare` it
 into the order as an outcome of its own, or end it: `done ID
 --reason not-planned` for one that will not be worked, `done
@@ -257,9 +266,9 @@ ID` for one that landed work already covers, so the record says which
 of the two happened. a finding this review itself confirms is
 countermeasure evidence like any bounce.
 
-this loop is what makes the system converge: outcomes pull work onto the
-board, reviews push friction back into enablement, and over time the
-share of items a less sophisticated model completes without a bounce
-is the measure that planning is working. a rising bounce rate means
-the ready bar drifted or enablement debt is due — spend the next
-planner sessions there, not on intake.
+this loop is what makes the system converge: outcomes pull work onto
+the board, reviews push friction back into enablement, and over time
+the share of items a session completes from the spec alone, without a
+bounce, is the measure that refinement is working. a rising bounce
+rate means the ready bar drifted or enablement debt is due — spend
+the next sessions there, not on intake.
