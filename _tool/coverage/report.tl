@@ -104,7 +104,7 @@ local function normalize(src: string, cwd: string): string | nil, string
     -- above exists to fix, for 14 of this repo's own modules.
     for _, source in ipairs({zipped .. ".tl", zipped .. "/init.tl"}) do
       if not is_excluded(source) and fs.is_file(source) then
-        return source, p
+        return source, source
       end
     end
     return nil
