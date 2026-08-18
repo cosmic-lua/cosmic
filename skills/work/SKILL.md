@@ -181,13 +181,15 @@ prints each phase against its own — and retuning one is a reviewed
 change to the machinery, not a reading of this table: `review.md`'s
 flow review is the method that earns one.
 
-the limits carry the label board's empirically tuned values. at the
-limit, exactly two arrivals are admitted: a return (leftward motion —
-the system correcting itself) and a move into `land` (an accept is a
-decision already made). everything else queues; an over-limit phase
-blocks further pull until it drains and nothing else. goals,
-containers, and findings are never phased, so no exemption vocabulary
-exists for them — they occupy no slot to exempt.
+a full phase still admits the motion that cannot sensibly wait: a
+return is never refused, because leftward motion is the system
+correcting itself, and an accept is a decision already made rather
+than new inventory. everything else queues until the phase drains,
+and which arrivals qualify is the tool's rule to state rather than
+this table's — an over-limit phase blocks further pull and nothing
+else. goals, containers, and findings are never phased, so no
+exemption vocabulary exists for them — they occupy no slot to
+exempt.
 
 **work flows right to left.** finishing beats starting: verdicts
 before refining, refining before intake, and an implementer lands and
@@ -202,29 +204,31 @@ ever returns to labels or issue comments.
 
 ## the planner session
 
-run `next --role planner` and do what it says; the rule it applies
-is, in order:
+run `gitboard next --role planner` and do what it says. it names the
+one next action and the rule that chose it; the ordering is the
+tool's, and what it encodes is this skill's: work flows right to
+left, so finishing beats starting. verdicts are the strongest lever
+— they unblock implementers and harvest friction evidence — refining
+pays only while `ready` has somewhere to put the result, and an inbox
+nobody empties is a channel that only takes.
 
-1. **review** — anything in `check` gets a verdict first
-   (`review.md`). this is the strongest lever: it unblocks
-   implementers and harvests friction evidence.
-2. **refine** — while `ready` has slack, take the oldest `plan` item
-   one rung down the ladder (`decompose.md`): decompose a container's
-   outcome further, or drive a leaf to the ready bar. before a
-   `move ID ready`, run the enablement check (`enable.md`) and
-   `check ID` — both must pass.
-3. **triage** — findings await adoption: `attach` each under the goal
-   or container its evidence serves (it enters `plan`), or end it —
-   `done ID` when landed work already covers it, `done ID --reason
-   not-planned` for a recorded dead end.
-4. **intake** — while `plan` has slack, `next` names the top-ranked
-   goal with no live work under it; decompose it (`gitboard new
-   "outcome" --parent <goal>`). the rank is data on the goal items,
-   re-derived by paired comparison when contested (`decompose.md`);
-   the outcome prose stays in docs/goals.md.
-5. **nothing** — plan and ready are full and check is empty:
-   implementation has to catch up. do not open more items; a longer
-   backlog is not progress.
+what each kind of action is:
+
+- **review** — an item in `check` gets a verdict (`review.md`).
+- **refine** — take a `plan` item one rung down the ladder
+  (`decompose.md`): decompose a container's outcome further, or drive
+  a leaf to the ready bar. before a `move ID ready`, run the
+  enablement check (`enable.md`) and `check ID` — both must pass.
+- **triage** — findings await adoption: `attach` each under the goal
+  or container its evidence serves (it enters `plan`), or end it —
+  `done ID` when landed work already covers it, `done ID --reason
+  not-planned` for a recorded dead end.
+- **intake** — decompose a top-ranked goal that no live work drives
+  (`gitboard new "outcome" --parent <goal>`). the rank is data on the
+  goal items, re-derived by paired comparison when contested
+  (`decompose.md`); the outcome prose stays in docs/goals.md.
+- **nothing** — implementation has to catch up. do not open more
+  items; a longer backlog is not progress.
 
 a planner session may touch several items, but it respects the same
 flow: never step left while a right-hand phase has work for you.
@@ -233,13 +237,14 @@ flow: never step left while a right-hand phase has work for you.
 
 one item per session, exactly this loop:
 
-1. `next` names the item, rightmost first: land what sits in `land` —
-   an accepted PR is the most-finished work there is — then finish
-   `do`, before pulling the oldest unblocked `ready` leaf. if it
-   answers `none`, stop — do not invent work; say a planner session
-   is needed (`next` names the bottleneck). read the item with
-   `gitboard show ID` — the spec sidecar is the spec, and the item's
-   `verdict`/`pr` fields carry the standing review state.
+1. `gitboard next` names the item and the rule that chose it — right
+   to left, because an accepted PR is the most-finished work there
+   is and finishing beats starting: you owe each phase what it waits
+   on before you take on more. if it answers `none`, stop — do not
+   invent work; say a planner session is needed (`next` names the
+   bottleneck). read the item with `gitboard show ID` — the spec
+   sidecar is the spec, and the item's `verdict`/`pr` fields carry
+   the standing review state.
 2. which phase it came from decides this step. a `land` item is
    already judged, and `gitboard land ID` is the whole step: it
    squash-merges the PR its `pr` field names and ends the item, in
@@ -254,12 +259,13 @@ one item per session, exactly this loop:
    definition of done — run them and quote their verdict lines in the
    PR description.
 4. open the PR READY for review, carrying `Board: <id>` in its body
-   and quoting the Acceptance commands you ran, then hand it over WITH
-   its number: `gitboard move ID check --pr N`. the move refuses each
-   of those in turn — a draft, a body that names no item, one that
-   does not show the commands having been run, a head whose CI already
-   concluded failure — because each is something a reviewer would
-   discover instead of reviewing.
+   and the acceptance run in its description — that evidence is what
+   you OWE the reviewer, who reads it before reading the diff and
+   cannot reconstruct it from the branch. hand it over WITH its
+   number: `gitboard move ID check --pr N`. the move refuses a
+   request not yet worth a reviewer's time; read the refusal and fix
+   what it names, because anything it catches is something a reviewer
+   would otherwise discover instead of reviewing.
 5. stop. the verdict is the planner's job; never merge a PR that has
    not been accepted. the accept arrives as the item moving to `land`
    with `verdict = accept` — landing it is step 2's first case, in
