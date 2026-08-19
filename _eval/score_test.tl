@@ -63,7 +63,7 @@ local function score_and_capture(...: string): integer, string
   if not ok then
     error(result, 0)
   end
-  return result as integer, table.concat(lines, "\n") -- cast: pcall result
+  return result, table.concat(lines, "\n")
 end
 
 local function test_run_pass_ends_pass_exit_zero()

@@ -135,7 +135,7 @@ local function test_deep_nesting_is_refused_not_thrown()
   local ok, v, err = pcall(literal.parse, src, {file = "t", noun = "pin"})
   assert(ok, "reading a deep literal must not throw: " .. tostring(v))
   assert(not v, "a deep literal must be refused")
-  assert((err as string):find("nests deeper", 1, true), -- cast: pcall result
+  assert(err:find("nests deeper", 1, true),
     "the message names the reason, got: " .. tostring(err))
 
   -- The limit is far past any real config, so ordinary nesting passes.
@@ -159,7 +159,7 @@ local function test_a_crafted_value_is_refused_not_thrown()
   local ok, v, err = pcall(literal.parse,
     'return { x = "\\u{FFFFFFFFFF}" }', {file = "t", noun = "pin"})
   assert(ok, "an out-of-range code point must not throw: " .. tostring(v))
-  assert(not v and (err as string):find("malformed string", 1, true), -- cast: pcall result
+  assert(not v and err:find("malformed string", 1, true),
     "it is refused by name, got: " .. tostring(err))
 
   -- `0x.` matches the lexer's numeral shape and `tonumber` reads it as
@@ -169,7 +169,7 @@ local function test_a_crafted_value_is_refused_not_thrown()
     local nok, nv, nerr = pcall(literal.parse, src, {file = "t", noun = "pin"})
     assert(nok, src .. " must not throw: " .. tostring(nv))
     assert(not nv, src .. " must be refused, not silently dropped")
-    assert((nerr as string):find("malformed number", 1, true), -- cast: pcall result
+    assert(nerr:find("malformed number", 1, true),
       "named by reason, got: " .. tostring(nerr))
   end
 
