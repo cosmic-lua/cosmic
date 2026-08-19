@@ -16,10 +16,10 @@ less than what was asked, on any kernel. Observable when it holds:
   below.)
 - a structurally valid policy never dies with a kernel `EINVAL`; bad
   narrowing fails at `validate`, before anything is applied.
-- an **ABI drift alarm** exists: a test fails when the running kernel
-  reports a Landlock ABI above the highest one cosmic models, so a
-  kernel bump reopens this work instead of silently widening the
-  unenforced surface.
+- ~~an **ABI drift alarm** exists~~ — dropped by owner decision,
+  2026-08-19 (item 3I7BTeaT, not-planned): guarding against ABIs past 9
+  is not worth a slice while the ceiling sits at 3; the effort goes to
+  R6 directly.
 - the enforcement report distinguishes *full* / *degraded* /
   *skipped* per section, carries the mechanism and ABI, and a caller
   can demand full enforcement (`strict`) as the counterpart of
@@ -127,9 +127,11 @@ alarm. The `handled` field decision rides with whatever slice takes
 defect 4's report rework, since the honest report is what makes a
 narrowed `handled` observable.
 
-Phase 2 — the C ceiling, on whilp/cosmopolitan's board (cited here by
-URL; `Blocked by:` is same-repo only): binding slices per R6, then a
-release and a pin-bump slice here.
+Phase 2 — the C ceiling: whilp/cosmopolitan#266
+(https://github.com/whilp/cosmopolitan/issues/266, filed 2026-08-19 with
+the measured binding surface at `0980e033` and a three-wave plan, net
+ports first per R7) — then a release and a pin-bump slice here.
+`Blocked by:` is same-repo only, so the URL is the cross-repo edge.
 
 Phase 3 — the facade grows `net` (blocked on the pin bump), quicksand
 consumes it, fence posture decided and recorded (R8), TSYNC adopted,
