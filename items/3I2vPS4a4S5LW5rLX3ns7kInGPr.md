@@ -1,3 +1,10 @@
+## Goal
+
+G9 — the least tree that keeps its promises: one exclusion vocabulary.
+A tree the build model ignores (`.cosmicignore`) is ignored by every
+tool that scans independently, so an ignored tree cannot need a second,
+hand-maintained exclusion anywhere else.
+
 Observed during the 2026-08-17 board migration: the coverage report
 (`_tool/coverage/report.tl`) walks directories on its own and needed a
 hardcoded `items/` exclusion beside `testdata/`, even though the build
