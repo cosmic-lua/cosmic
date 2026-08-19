@@ -26,6 +26,7 @@ local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").format
 local seal_coverage = require("cosmic._seal_coverage").seal_coverage
+local landlock = require("cosmic.sandbox.landlock")
 
 --- The permission strings `allow` accepts: every combination of r/w/x/c
 --- in canonical rwxc order, as a Teal enum so typos ("rc" vs "cr",
@@ -59,29 +60,25 @@ local record Options
   best_effort: boolean
 end
 
-local avail: boolean = nil
-
 --- True when unveil is actually enforceable on this host: OpenBSD, or
 --- Linux with Landlock ABI >= 1. Derived, never probed with unveil
 --- itself — `unix.unveil(nil, nil)` is the commit call, so probing it
 --- would lock this very process into a deny-all sandbox. The libc backs
 --- unveil with Landlock on Linux, so it enforces exactly when Landlock
 --- does; everywhere else the raw call deliberately fails open, which is
---- precisely what this wrapper refuses to pass through. Cached.
+--- precisely what this wrapper refuses to pass through. The Linux
+--- answer delegates to cosmic.sandbox.landlock.available(), the one
+--- cached probe every Landlock-availability check shares.
 ---
 --- @return boolean True when unveil can be enforced
 local function available(): boolean
-  if avail ~= nil then return avail end
   local host = cosmo.GetHostOs()
   if host == "OPENBSD" then
-    avail = true
+    return true
   elseif host == "LINUX" then
-    local abi = unix.landlock_create_ruleset()
-    avail = abi ~= nil and (abi) >= 1
-  else
-    avail = false
+    return landlock.available()
   end
-  return avail
+  return false
 end
 
 local unsupported < const > = "unveil: unsupported on this host"

@@ -22,6 +22,7 @@ local caps = require("cosmic.quicksand.caps")
 local qproc = require("cosmic.quicksand.proc")
 local types = require("cosmic.quicksand.types")
 local errno = require("cosmic.errno")
+local landlock = require("cosmic.sandbox.landlock")
 
 --- Fine-grained feature availability on the current host; the record
 --- definition lives in cosmic.quicksand.types so the Box layers name
@@ -76,11 +77,11 @@ local function probe(fn: any): boolean
   return true
 end
 
---- Landlock availability: the kernel reports its ABI version from a
---- flag-less landlock_create_ruleset call; >= 1 means enforceable.
+--- Landlock availability, delegated to cosmic.sandbox.landlock's
+--- cached probe — the one place Landlock ABI knowledge lives,
+--- shared with cosmic.sandbox.unveil.
 local function probe_landlock(): boolean
-  local abi = unix.landlock_create_ruleset()
-  return abi ~= nil and abi >= 1
+  return landlock.available()
 end
 
 --- Probe whether the Box namespace trio can actually be entered: a

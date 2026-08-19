@@ -325,3 +325,29 @@ io.write("restrict-ok\n")
   check.enforced("landlock handled/rule-access intersection")
 end
 test_narrowed_handled_intersects_rule_access()
+
+-- Landlock ABI knowledge lives in exactly one place: this module's own
+-- bare probe of the kernel's ABI syscall. A second bare call site
+-- appearing anywhere else under cosmic/ is a duplicate probe reappearing
+-- (how the tree ended up with three copies in the first place); this
+-- guard fails the moment one does. The needle is built from parts so
+-- this guard's own source does not trip itself.
+local function test_only_landlock_tl_probes_the_bare_abi_call()
+  local needle = "unix." .. "landlock_create_ruleset" .. "()"
+  local found = check.must(fs.find("cosmic", {glob = "*.tl", recursive = true}))
+  local sites: {string} = {}
+  for _, path in ipairs(found) do
+    local text = check.must(fs.read(path))
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+      if line:find(needle, 1, true) then
+        sites[#sites + 1] = path
+      end
+    end
+  end
+  assert(#sites == 1,
+    "expected exactly one bare Landlock ABI probe call site, found:\n  " ..
+    table.concat(sites, "\n  "))
+  assert(sites[1] == "cosmic/sandbox/landlock.tl",
+    "the one bare call site must be cosmic/sandbox/landlock.tl, got: " .. sites[1])
+end
+test_only_landlock_tl_probes_the_bare_abi_call()
