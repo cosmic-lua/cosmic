@@ -24,3 +24,10 @@ limit has nothing to refuse. Distinct from 3I44Et1Z, which fixes the
 rebase-path re-check for non-arriving writes; this is the up-front check
 on decomposition specifically. G8 material — attach under 3HyRdT1J when
 plan drains.
+
+## Owner decision, 2026-08-19
+
+Confirmed by the goal owner: the up-front check should admit net-zero
+decomposition — when filing a first child under a plan-phase leaf, the
+same-mutation de-phase of the parent is accounted and the limit has
+nothing to refuse. Refine toward that shape.
