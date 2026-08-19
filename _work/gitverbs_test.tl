@@ -52,12 +52,12 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
   -- the tenth loses the race at the merged state, not locally.
   assert(store.sync(b))
   for i = 1, 5 do
-    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, nil, true,
+    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, nil, "", true,
         "test fixture") == 0)
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "plan", "the parent-to-be starts on the board")
-  assert(verbs.cmd_new(a, "the refused child", phased.id, nil, false, "") ~= 0,
+  assert(verbs.cmd_new(a, "the refused child", phased.id, nil, "", false, "") ~= 0,
     "filing under a full plan must be refused after the rebase")
   local after = check.must(store.load(a, phased.id))
   assert(after.phase == "plan",
@@ -291,3 +291,27 @@ local function test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
     "recording it satisfies the bar")
 end
 test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
+
+-- `new --repo` scopes the item's PR to a foreign repo; the field is
+-- what makes cross-repo work (a cosmopolitan fix serving a cosmic
+-- goal) visible instead of a URL buried in prose.
+local function test_new_repo_lands_the_field()
+  local s = init_state_repo("cross-repo")
+  local goal = file_item(s, "an outcome", "", false)
+  local before: {string: boolean} = {}
+  for _, i in ipairs(check.must(store.list(s))) do
+    before[i.id] = true
+  end
+  assert(verbs.cmd_new(s, "a cosmopolitan-side slice", goal, nil,
+      "whilp/cosmopolitan", false, "") == 0)
+  local found: string = nil
+  for _, i in ipairs(check.must(store.list(s))) do
+    if not before[i.id] then
+      found = i.id
+    end
+  end
+  assert(found ~= nil, "the new item is on the board")
+  local it = check.must(store.load(s, found))
+  assert(it.repo == "whilp/cosmopolitan", "show renders the field: " .. it.repo)
+end
+test_new_repo_lands_the_field()

@@ -53,7 +53,7 @@ local function cmd_land(s: store.Store, id: string, force: boolean,
   -- classifier: the PUT fails generically and the re-run's read lands
   -- here. Land already needs the API for the PUT, so a failed read is
   -- the same wall, named.
-  local p, perr = gh.pull(s, it.pr)
+  local p, perr = gh.pull(s, it.pr, it.repo)
   if p == nil then
     return gate.verdict_line("land", false,
       ("cannot read PR #%d: %s"):format(it.pr, perr))
@@ -62,7 +62,7 @@ local function cmd_land(s: store.Store, id: string, force: boolean,
     print(("gitboard-land: PR #%d was already merged"):format(it.pr))
     return verbs.cmd_done(s, id, "completed", force, why)
   end
-  local res, merr = gh.merge(s, it.pr)
+  local res, merr = gh.merge(s, it.pr, it.repo)
   if res == nil then
     return gate.verdict_line("land", false, merr)
   end

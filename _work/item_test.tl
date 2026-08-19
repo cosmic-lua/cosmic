@@ -99,6 +99,38 @@ local function test_done_items_carry_no_phase()
 end
 test_done_items_carry_no_phase()
 
+local function test_repo_scopes_a_workable_items_pr()
+  local t = base()
+  t.parent = PARENT
+  t.phase = "plan"
+  t.repo = "whilp/cosmopolitan"
+  local it = check.must(item.decode(t))
+  assert(it.repo == "whilp/cosmopolitan", "a well-formed repo decodes")
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
+  assert(back.repo == "whilp/cosmopolitan", "repo round-trips")
+
+  local default = check.must(item.decode(base()))
+  assert(default.repo == "", "unset repo defaults to the board's origin")
+  local dt = item.encode(default)
+  assert(dt.repo == nil, "a default repo carries no key at all")
+
+  local garbage = base()
+  garbage.parent = PARENT
+  garbage.phase = "plan"
+  garbage.repo = "not-a-slug"
+  local gbad, gerr = item.decode(garbage)
+  assert(gbad == nil and gerr:find("repo must be owner/name", 1, true),
+    "a malformed repo is refused: " .. tostring(gerr))
+
+  local rooted = base()
+  rooted.repo = "whilp/cosmopolitan"
+  local rbad, rerr = item.decode(rooted)
+  assert(rbad == nil and rerr:find("not roots", 1, true),
+    "a repo on a root is refused: " .. tostring(rerr))
+end
+test_repo_scopes_a_workable_items_pr()
+
 local function test_id_discipline()
   local bad, err = item.decode({id = "not-a-ksuid", title = "t"})
   assert(bad == nil and err:find("ksuid", 1, true), "ids are ksuids")

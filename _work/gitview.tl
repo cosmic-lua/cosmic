@@ -41,6 +41,7 @@ local function status_report(all: {item.Item}): {string}, string
       if i.claim ~= "" then marks = marks .. " @" .. i.claim end
       if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
       if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
+      if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
       out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
     end
   end
@@ -107,8 +108,10 @@ local function render_children(out: {string}, all: {item.Item}, parent: string,
         tag = "unphased"
       end
     end
-    out[#out + 1] = ("%s%s [%s] %s"):format(("  "):rep(depth), k.id:sub(1, 8),
-      tag, k.title)
+    local repo = ""
+    if k.repo ~= "" then repo = " [" .. k.repo .. "]" end
+    out[#out + 1] = ("%s%s [%s] %s%s"):format(("  "):rep(depth), k.id:sub(1, 8),
+      tag, k.title, repo)
     render_children(out, all, k.id, depth + 1, pos)
   end
 end
@@ -199,6 +202,7 @@ local function show_report(it: item.Item, all: {item.Item}, spec: string,
       os.date("!%Y-%m-%dT%H:%M:%SZ", seconds))
   end
   if it.parent ~= "" then out[#out + 1] = ("parent: %s"):format(it.parent) end
+  if it.repo ~= "" then out[#out + 1] = ("repo: %s"):format(it.repo) end
   if it.phase ~= "" then out[#out + 1] = ("phase: %s"):format(it.phase) end
   local band, own = prio.key_of(prio.positions(all), it.id)
   if band < 0 then
