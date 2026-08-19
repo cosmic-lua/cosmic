@@ -14,6 +14,7 @@ local literal = require("cosmic.literal")
 local ZEROS = ("\0"):rep(16)
 local ID = check.must(ksuid.encode(1700000001, ZEROS))
 local PARENT = check.must(ksuid.encode(1700000000, ZEROS))
+local OTHER = check.must(ksuid.encode(1699999999, ZEROS))
 
 local function base(): {string: any}
   return {id = ID, title = "an item"}
@@ -98,6 +99,34 @@ local function test_done_items_carry_no_phase()
   assert(not item.is_open(done), "resolution IS done")
 end
 test_done_items_carry_no_phase()
+
+-- A list field's invariants hold by validation, not by the writer's
+-- convention: `block` rebuilds its list through a `seen` set, but a
+-- migration or a hand-edit reaches the file directly, and a repeated
+-- entry over-reports the blocker count and renders twice in `show`.
+-- Refused rather than folded — silently deduping would hide whichever
+-- writer produced them.
+local function test_list_fields_refuse_a_repeated_entry()
+  local blocked = base()
+  blocked.blocked_by = PARENT .. " " .. OTHER .. " " .. PARENT
+  local bbad, berr = item.decode(blocked)
+  assert(bbad == nil and berr:find("blocked_by repeats " .. PARENT, 1, true),
+    "a repeated blocker is refused: " .. tostring(berr))
+
+  local ranked = base()
+  ranked.beats = PARENT .. " " .. OTHER .. " " .. OTHER
+  local rbad, rerr = item.decode(ranked)
+  assert(rbad == nil and rerr:find("beats repeats " .. OTHER, 1, true),
+    "a repeated beat is refused: " .. tostring(rerr))
+
+  local distinct = base()
+  distinct.blocked_by = PARENT .. " " .. OTHER
+  distinct.beats = PARENT .. " " .. OTHER
+  local ok = check.must(item.decode(distinct))
+  assert(#ok.blocked_by == 2 and #ok.beats == 2,
+    "distinct entries in each list are accepted")
+end
+test_list_fields_refuse_a_repeated_entry()
 
 local function test_id_discipline()
   local bad, err = item.decode({id = "not-a-ksuid", title = "t"})
