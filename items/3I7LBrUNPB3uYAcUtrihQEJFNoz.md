@@ -83,3 +83,51 @@ none needed — the shapes above close every open decision the epic
 assigned this slice (report grammar, footgun contract, strict
 interaction, the `handled` drop, record-vs-amend); consumers of the old
 return shape are enumerated from measurement.
+
+## Bounced 2026-08-19: the measurement missed real consumers outside cosmic/sandbox/
+
+Before writing any code, `grep -rn "sandbox\.\(apply\|availability\)" --include="*.tl"`
+found two call sites this spec's Enablement claim ("consumers of the old
+return shape are enumerated from measurement") does not cover and Non-goals
+does not exempt (Non-goals only exempts `cosmic.quicksand`, whose two
+`sandbox.apply`/`sandbox.validate` calls in `box/run.tl`/`box/init.tl` are
+genuinely unaffected — pure truthy checks, no field access, no type name):
+
+1. **`_cli/driver.tl:136-153`, `fence()`** — calls
+   `sandbox.apply({fs = fs_policy, best_effort = true})` with `fs` as the
+   ONLY requested section, specifically so a host with no landlock at all
+   still returns success (a falsy `.fs`), logs a stderr warning only when
+   `COSMIC_FENCE` is explicitly set, and lets the recipe **run unfenced by
+   design** — the comment at line 116-121 states this is deliberate. Change
+   item 3 ("the footgun dies by contract": every requested section ending
+   `"skipped"` makes `apply` return `nil, "sandbox: nothing enforced (…)"`,
+   even under `best_effort`) directly collides with this: fs-only +
+   best_effort on an unenforceable host is now the ALL-skipped case, so
+   `apply` would return an error where `fence()` currently expects and
+   requires a soft, non-fatal `{fs = false}`-shaped success. As written,
+   this slice turns "runs unfenced with a warning" into "dispatch fails
+   outright" on every host without Landlock — a real behavior change to
+   the build driver that neither the Change nor the Non-goals section
+   authorizes or even mentions. This is a genuine design call (does
+   `fence()` need its own carve-out? does the footgun contract only bind
+   when more than one section was requested? does `fence()` inspect the
+   error string and treat "nothing enforced" specially?) and not mine to
+   invent mid-implementation.
+2. **`_cli/driver.tl:140`**, `if enforced is sandbox.Availability then` —
+   `apply`'s return type is changing from `Availability` to `Report`
+   (item 2), so this `is` check needs to become `sandbox.Report` merely to
+   compile; mechanical, but still an unlisted touch site.
+3. **`_cli/fence_test.tl:61,110,208`** — all three read
+   `sandbox.availability().fs` as a plain boolean (`if not
+   sandbox.availability().fs then check.enforce_skip(...)`). Item 6 turns
+   `Availability.fs` into a `MechanismInfo` record (`available`,
+   `mechanism`, `abi`), which is always a non-nil table — so these checks
+   silently stop skipping on hosts without Landlock instead of failing
+   loudly, a correctness bug the "measured" claim missed. Needs
+   `.fs.available` at all three sites — mechanical once (1) is decided,
+   listed here so it is not rediscovered as a second surprise.
+
+Returned to `plan` for a decision on (1) — the fence's intentional
+"unenforceable host runs unfenced" tolerance — before the Change section
+can be implemented as written; (2) and (3) are mechanical follow-through
+once (1) is settled and can be folded into the same re-refined spec.
