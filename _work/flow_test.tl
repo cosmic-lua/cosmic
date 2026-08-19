@@ -67,6 +67,15 @@ local function test_admissions_at_the_limit()
 end
 test_admissions_at_the_limit()
 
+local function test_arrivals_versus_writes_that_move_nothing()
+  assert(flow.is_arrival(nil, "plan"), "an entry arrives")
+  assert(flow.is_arrival("do", "check"), "a cross-phase move arrives")
+  assert(not flow.is_arrival("plan", "plan"),
+    "a same-phase write (spec, block) does not arrive")
+  assert(not flow.is_arrival("plan", ""), "de-phasing arrives nowhere")
+end
+test_arrivals_versus_writes_that_move_nothing()
+
 local function test_blocked_items_are_skipped()
   local goal = make({})
   local open_blocker = make({parent = goal.id, phase = "do"})
