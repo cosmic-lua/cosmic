@@ -132,7 +132,7 @@ local function scan(root: string): {string}
             local text = fs.read(path)
             if text then
               for _, b in ipairs(bodies(text)) do
-                local key = b[2] as string -- cast: tuple element
+                local key = b[2]
                 local sites = groups[key]
                 if not sites then
                   sites = {}
@@ -140,7 +140,7 @@ local function scan(root: string): {string}
                 end
                 sites[#sites + 1] = {
                   path = tree .. "/" .. rest,
-                  line = b[1] as integer, -- cast: tuple element
+                  line = b[1],
                 }
               end
             end

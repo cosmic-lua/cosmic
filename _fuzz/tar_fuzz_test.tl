@@ -11,6 +11,7 @@
 local check = require("cosmic.check")
 local driver = require("_fuzz.driver")
 local fs = require("cosmic.fs")
+local source = require("_fuzz.source")
 local tar = require("cosmic.tar")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -96,13 +97,14 @@ end
 local NAME_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
 --- A short, filesystem-safe random name for a benign filler entry.
+--- @param src source.Recorder The source to draw from
 --- @param max_len integer The longest name to produce
 --- @return string The generated name
-local function random_name(max_len: integer): string
-  local n = math.random(1, max_len)
+local function random_name(src: source.Recorder, max_len: integer): string
+  local n = src:int(1, max_len)
   local out: {string} = {}
   for i = 1, n do
-    local at = math.random(1, #NAME_ALPHABET)
+    local at = src:int(1, #NAME_ALPHABET)
     out[i] = NAME_ALPHABET:sub(at, at)
   end
   return table.concat(out)
@@ -110,12 +112,13 @@ end
 
 --- Build a small archive of 2-4 regular files with random names, sizes
 --- and modes, then a proper end-of-archive marker.
+--- @param src source.Recorder The source to draw from
 --- @return string The archive bytes
-local function random_valid_archive(): string
+local function random_valid_archive(src: source.Recorder): string
   local parts: {string} = {}
-  for _ = 1, math.random(2, 4) do
-    parts[#parts + 1] = tar_entry(random_name(12), driver.bytes(200),
-      math.random(0, 511), "0", "")
+  for _ = 1, src:int(2, 4) do
+    parts[#parts + 1] = tar_entry(random_name(src, 12), driver.bytes(src, 200),
+      src:int(0, 511), "0", "")
   end
   parts[#parts + 1] = end_marker()
   return table.concat(parts)
@@ -157,8 +160,8 @@ local mutation_iteration = 0
 local function test_mutation_totality()
   local ok, msg = driver.run({
       name = "tar_mutation_totality",
-      gen = function(): string
-        return driver.mutate(random_valid_archive(), math.random(1, 16))
+      gen = function(src: source.Recorder): string
+        return driver.mutate(src, random_valid_archive(src), src:int(1, 16))
       end,
       check = function(input: string): boolean, string
         mutation_iteration = mutation_iteration + 1
@@ -174,11 +177,11 @@ local truncation_iteration = 0
 local function test_truncation_totality()
   local ok, msg = driver.run({
       name = "tar_truncation_totality",
-      gen = function(): string
-        local archive = random_valid_archive()
+      gen = function(src: source.Recorder): string
+        local archive = random_valid_archive(src)
         -- A cut at #archive itself is the untruncated archive; bias
         -- toward the interesting range by excluding it.
-        local at = math.random(0, #archive - 1)
+        local at = src:int(0, #archive - 1)
         return archive:sub(1, at)
       end,
       check = function(input: string): boolean, string
@@ -218,13 +221,14 @@ local DEST_NESTING = "L1/L2/L3/L4/L5/L6/L7/L8"
 --- name with an embedded NUL always goes through pax -- the fixed
 --- field would truncate it at the NUL before it ever reached
 --- extract()'s unsafe-name check.
+--- @param src source.Recorder The source to draw from
 --- @param name string The hostile member name to deliver
 --- @return string The entry bytes
-local function gen_hostile_entry(name: string): string
-  if name:find("\0", 1, true) or math.random(2) == 1 then
-    return hostile_entry(name, driver.bytes(16))
+local function gen_hostile_entry(src: source.Recorder, name: string): string
+  if name:find("\0", 1, true) or src:int(1, 2) == 1 then
+    return hostile_entry(name, driver.bytes(src, 16))
   end
-  return hostile_entry_plain(name, driver.bytes(16))
+  return hostile_entry_plain(name, driver.bytes(src, 16))
 end
 
 --- Build an archive mixing a few benign filler entries with one to
@@ -232,18 +236,21 @@ end
 --- entry independently picks pax or plain-header delivery (see
 --- gen_hostile_entry), so both paths into extract() get covered across
 --- the run.
+--- @param src source.Recorder The source to draw from
 --- @return string The archive bytes
-local function gen_no_escape_archive(): string
+local function gen_no_escape_archive(src: source.Recorder): string
   local parts: {string} = {}
-  for _ = 1, math.random(0, 2) do
-    parts[#parts + 1] = tar_entry(random_name(10), driver.bytes(16), fs.octal("644"), "0", "")
+  for _ = 1, src:int(0, 2) do
+    parts[#parts + 1] = tar_entry(random_name(src, 10), driver.bytes(src, 16),
+      fs.octal("644"), "0", "")
   end
-  for _ = 1, math.random(1, 3) do
-    local name = HOSTILE_NAMES[math.random(1, #HOSTILE_NAMES)]
-    parts[#parts + 1] = gen_hostile_entry(name)
+  for _ = 1, src:int(1, 3) do
+    local name = HOSTILE_NAMES[src:int(1, #HOSTILE_NAMES)]
+    parts[#parts + 1] = gen_hostile_entry(src, name)
   end
-  for _ = 1, math.random(0, 2) do
-    parts[#parts + 1] = tar_entry(random_name(10), driver.bytes(16), fs.octal("644"), "0", "")
+  for _ = 1, src:int(0, 2) do
+    parts[#parts + 1] = tar_entry(random_name(src, 10), driver.bytes(src, 16),
+      fs.octal("644"), "0", "")
   end
   parts[#parts + 1] = end_marker()
   return table.concat(parts)

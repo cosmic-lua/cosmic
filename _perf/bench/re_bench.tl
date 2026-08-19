@@ -70,7 +70,7 @@ local function scenarios(): {pt.Scenario}, string
       -- per-call compile cost.
       name = "re_search_compiled",
       fn = function(_: any): any
-        local _m, caps = (compiled as re.Regex):match(LOG_LINE) -- cast: record union after guard
+        local _m, caps = compiled:match(LOG_LINE)
         return caps
       end,
       check = function(_: any, res: any): boolean, string
