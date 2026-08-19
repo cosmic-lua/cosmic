@@ -57,7 +57,8 @@ confirm they belong in one slice:
   run `--make test` first"). The `declined:` line at
   `_tool/coverage/baseline.tl:218-230` is the existing precedent for saying so
   without moving the verdict.
-- **Give the valve a release.** Either `--baseline` raises a row when the honest
+- **Give the valve a release.** (Both halves are settled by the owner
+  decision below, which supersedes this section's either/or.)
 
 ## Owner decision, 2026-08-19 — refuse + honest regen
 
@@ -68,7 +69,9 @@ change. The one-way valve is deleted; the corpus guard and the diff
 review replace it. ("Keep the valve with an opt-in raise flag" and
 "refusal only" were considered and declined.)
 
-## Change (settled; measured 2026-08-19 at f420391)
+## Change
+
+Settled per the owner decision; measured 2026-08-19 at `f420391`.
 
 `_tool/coverage/baseline.tl` (424 lines):
 
