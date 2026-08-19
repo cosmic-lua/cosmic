@@ -13,22 +13,25 @@
 local check = require("cosmic.check")
 local deep = require("cosmic.deep")
 local driver = require("_fuzz.driver")
+local source = require("_fuzz.source")
 local url = require("cosmic.url")
 
 --- Draw one element of a list uniformly.
+--- @param src source.Recorder The source to draw from
 --- @param list {string} The choices
 --- @return string The chosen element
-local function pick(list: {string}): string
-  return list[math.random(1, #list)]
+local function pick(src: source.Recorder, list: {string}): string
+  return list[src:int(1, #list)]
 end
 
 --- Draw a run of lowercase letters, the shape of a scheme or a host label.
+--- @param src source.Recorder The source to draw from
 --- @param max_len integer The longest run to produce
 --- @return string The letters
-local function letters(max_len: integer): string
+local function letters(src: source.Recorder, max_len: integer): string
   local out: {string} = {}
-  for i = 1, math.random(1, max_len) do
-    out[i] = string.char(math.random(97, 122))
+  for i = 1, src:int(1, max_len) do
+    out[i] = string.char(src:int(97, 122))
   end
   return table.concat(out)
 end
@@ -42,15 +45,16 @@ local SPECIALS = {
 }
 
 --- Draw a URL component: mostly letters, sometimes a delimiter or escape.
+--- @param src source.Recorder The source to draw from
 --- @param max_parts integer The most pieces to concatenate
 --- @return string The component
-local function component(max_parts: integer): string
+local function component(src: source.Recorder, max_parts: integer): string
   local out: {string} = {}
-  for i = 1, math.random(1, max_parts) do
-    if math.random(1, 4) == 1 then
-      out[i] = pick(SPECIALS)
+  for i = 1, src:int(1, max_parts) do
+    if src:int(1, 4) == 1 then
+      out[i] = pick(src, SPECIALS)
     else
-      out[i] = letters(4)
+      out[i] = letters(src, 4)
     end
   end
   return table.concat(out)
@@ -58,19 +62,20 @@ end
 
 --- Draw a host: a dotted name, an IPv4 literal, or a bracketed IPv6-ish
 --- literal.
+--- @param src source.Recorder The source to draw from
 --- @return string The host
-local function host(): string
-  local kind = math.random(1, 10)
+local function host(src: source.Recorder): string
+  local kind = src:int(1, 10)
   if kind == 1 then
-    return "[" .. letters(4) .. "::" .. tostring(math.random(0, 9)) .. "]"
+    return "[" .. letters(src, 4) .. "::" .. tostring(src:int(0, 9)) .. "]"
   end
   if kind == 2 then
-    return string.format("%d.%d.%d.%d", math.random(0, 255), math.random(0, 255),
-      math.random(0, 255), math.random(0, 255))
+    return string.format("%d.%d.%d.%d", src:int(0, 255), src:int(0, 255),
+      src:int(0, 255), src:int(0, 255))
   end
   local labels: {string} = {}
-  for i = 1, math.random(1, 3) do
-    labels[i] = letters(6)
+  for i = 1, src:int(1, 3) do
+    labels[i] = letters(src, 6)
   end
   return table.concat(labels, ".")
 end
@@ -78,31 +83,32 @@ end
 --- Assemble a plausible URL from random parts: an optional
 --- scheme/userinfo/host/port authority, path segments, a query and a
 --- fragment, with unescaped and escaped characters throughout.
+--- @param src source.Recorder The source to draw from
 --- @return string The URL
-local function plausible_url(): string
+local function plausible_url(src: source.Recorder): string
   local out: {string} = {}
-  if math.random(1, 6) > 1 then
-    out[#out + 1] = letters(6) .. "://"
-    if math.random(1, 6) == 1 then
-      out[#out + 1] = component(2) .. ":" .. component(2) .. "@"
+  if src:int(1, 6) > 1 then
+    out[#out + 1] = letters(src, 6) .. "://"
+    if src:int(1, 6) == 1 then
+      out[#out + 1] = component(src, 2) .. ":" .. component(src, 2) .. "@"
     end
-    out[#out + 1] = host()
-    if math.random(1, 3) == 1 then
-      out[#out + 1] = ":" .. tostring(math.random(1, 65535))
+    out[#out + 1] = host(src)
+    if src:int(1, 3) == 1 then
+      out[#out + 1] = ":" .. tostring(src:int(1, 65535))
     end
   end
-  for _ = 1, math.random(0, 3) do
-    out[#out + 1] = "/" .. component(4)
+  for _ = 1, src:int(0, 3) do
+    out[#out + 1] = "/" .. component(src, 4)
   end
-  if math.random(1, 2) == 1 then
+  if src:int(1, 2) == 1 then
     local params: {string} = {}
-    for i = 1, math.random(1, 3) do
-      params[i] = component(2) .. "=" .. component(2)
+    for i = 1, src:int(1, 3) do
+      params[i] = component(src, 2) .. "=" .. component(src, 2)
     end
     out[#out + 1] = "?" .. table.concat(params, "&")
   end
-  if math.random(1, 3) == 1 then
-    out[#out + 1] = "#" .. component(3)
+  if src:int(1, 3) == 1 then
+    out[#out + 1] = "#" .. component(src, 3)
   end
   return table.concat(out)
 end
@@ -179,15 +185,16 @@ end
 
 --- Draw a query map: at most eight keys, each with one to three values,
 --- all of them arbitrary bytes.
+--- @param src source.Recorder The source to draw from
 --- @return {string:{string}} The map
-local function query_map(): {string: {string}}
+local function query_map(src: source.Recorder): {string: {string}}
   local params: {string: {string}} = {}
-  for _ = 1, math.random(0, 8) do
+  for _ = 1, src:int(0, 8) do
     local values: {string} = {}
-    for i = 1, math.random(1, 3) do
-      values[i] = driver.bytes(12)
+    for i = 1, src:int(1, 3) do
+      values[i] = driver.bytes(src, 12)
     end
-    params[driver.bytes(12)] = values
+    params[driver.bytes(src, 12)] = values
   end
   return params
 end
@@ -197,8 +204,8 @@ end
 local function test_parse_totality()
   local ok, message = driver.run({
       name = "parse_totality",
-      gen = function(): string
-        return driver.bytes(256)
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, 256)
       end,
       check = function(input: string): boolean, string
         local parsed, err = url.parse(input)
@@ -247,8 +254,8 @@ test_format_fixpoint()
 local function test_escape_inverse()
   local ok, message = driver.run({
       name = "escape_inverse",
-      gen = function(): string
-        return driver.bytes(128)
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, 128)
       end,
       check = function(input: string): boolean, string
         local escaped = url.escape_param(input)
@@ -272,8 +279,8 @@ test_escape_inverse()
 local function test_query_round_trip()
   local ok, message = driver.run({
       name = "query_round_trip",
-      gen = function(): string
-        return encode_params(query_map())
+      gen = function(src: source.Recorder): string
+        return encode_params(query_map(src))
       end,
       check = function(input: string): boolean, string
         local params, decode_err = decode_params(input)

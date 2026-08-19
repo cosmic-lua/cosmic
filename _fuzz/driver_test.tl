@@ -2,6 +2,8 @@ local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 local driver = require("_fuzz.driver")
 local env = require("cosmic.env")
+local rand = require("cosmic.rand")
+local source = require("_fuzz.source")
 
 local saved_seed = env.get("FUZZ_SEED")
 local saved_iters = env.get("FUZZ_ITERS")
@@ -26,8 +28,8 @@ local function always_fails(seen: {string}): driver.Options
   return {
     name = "always_fails",
     iters = 8,
-    gen = function(): string
-      return driver.bytes(16)
+    gen = function(src: source.Recorder): string
+      return driver.bytes(src, 16)
     end,
     check = function(input: string): boolean, string
       seen[#seen + 1] = input
@@ -56,7 +58,7 @@ local function test_a_throwing_check_is_reported_as_a_failure()
   local ok, msg = driver.run({
       name = "thrower",
       iters = 4,
-      gen = function(): string
+      gen = function(_src: source.Recorder): string
         return "input"
       end,
       check = function(_input: string): boolean, string
@@ -77,6 +79,7 @@ local function test_failure_message_carries_the_failing_input()
   check.equal(ok, false, "expected a failing run")
   check.truthy(msg:find("seed=", 1, true), "seed missing: " .. msg)
   check.truthy(msg:find("iteration=", 1, true), "iteration missing: " .. msg)
+  check.truthy(msg:find("draws=", 1, true), "draws missing: " .. msg)
   local encoded = msg:match("input%(base64%)=([A-Za-z0-9+/=]*)")
   check.truthy(encoded, "no base64 input in: " .. msg)
   local decoded = check.must(codec.decode_base64(encoded))
@@ -90,9 +93,9 @@ local function test_iters_option_overrides_the_environment()
   local ok, msg = driver.run({
       name = "counted",
       iters = 5,
-      gen = function(): string
+      gen = function(src: source.Recorder): string
         calls = calls + 1
-        return driver.bytes(8)
+        return driver.bytes(src, 8)
       end,
       check = function(_input: string): boolean, string
         return true
@@ -111,9 +114,9 @@ local function test_environment_supplies_iterations_and_the_default_seed()
   local calls = 0
   local ok, msg = driver.run({
       name = "from_env",
-      gen = function(): string
+      gen = function(src: source.Recorder): string
         calls = calls + 1
-        return driver.bytes(4)
+        return driver.bytes(src, 4)
       end,
       check = function(_input: string): boolean, string
         return true
@@ -127,29 +130,70 @@ end
 test_environment_supplies_iterations_and_the_default_seed()
 
 local function test_bytes_respects_its_length_bound()
-  math.randomseed(3)
+  local rec = source.new(rand.insecure_source(3))
   local longest = 0
   for _ = 1, 50 do
-    local sample = driver.bytes(8)
+    local sample = driver.bytes(rec, 8)
     check.truthy(#sample <= 8, "too long: " .. tostring(#sample))
     if #sample > longest then
       longest = #sample
     end
   end
   check.truthy(longest > 0, "bytes never produced any output")
-  check.equal(driver.bytes(0), "", "max_len 0 should produce an empty string")
+  check.equal(driver.bytes(rec, 0), "", "max_len 0 should produce an empty string")
 end
 test_bytes_respects_its_length_bound()
 
 local function test_mutate_edits_the_sample()
-  math.randomseed(5)
+  local rec = source.new(rand.insecure_source(5))
   local edited = 0
   for _ = 1, 50 do
-    if driver.mutate("sample", 1) ~= "sample" then
+    if driver.mutate(rec, "sample", 1) ~= "sample" then
       edited = edited + 1
     end
   end
   check.truthy(edited > 0, "mutate never changed the sample")
-  check.equal(#driver.mutate("", 1), 1, "an edit on an empty string should insert")
+  check.equal(#driver.mutate(rec, "", 1), 1, "an edit on an empty string should insert")
 end
 test_mutate_edits_the_sample()
+
+local function test_same_seed_draws_the_same_sequence()
+  local a = source.new(rand.insecure_source(11))
+  local b = source.new(rand.insecure_source(11))
+  local input_a = driver.bytes(a, 32)
+  local input_b = driver.bytes(b, 32)
+  check.equal(input_a, input_b, "same seed should draw the same bytes")
+  check.equal(#a.draws, #b.draws, "same seed should record the same draw count")
+  for i, da in ipairs(a.draws) do
+    local db = b.draws[i]
+    check.equal(da.kind, db.kind, "draw " .. i .. " kind mismatch")
+    check.equal(da.ivalue, db.ivalue, "draw " .. i .. " ivalue mismatch")
+  end
+end
+test_same_seed_draws_the_same_sequence()
+
+local function test_replay_regenerates_the_same_input()
+  local rec = source.new(rand.insecure_source(19))
+  local input = driver.bytes(rec, 24)
+  local replayed = source.replay(rec.draws)
+  local input2 = driver.bytes(replayed, 24)
+  check.equal(input, input2, "replay should regenerate the same input")
+  check.equal(#replayed.draws, #rec.draws, "replay should record the same draw count")
+end
+test_replay_regenerates_the_same_input()
+
+local function test_replay_past_the_end_fails_by_position()
+  local rec = source.new(rand.insecure_source(23))
+  driver.bytes(rec, 4) -- record a short sequence
+  local replayed = source.replay(rec.draws)
+  local ok, err = pcall(function(): boolean
+      for _ = 1, #rec.draws + 1 do
+        replayed:int(0, 255)
+      end
+      return true
+    end)
+  check.equal(ok, false, "replay should fail once draws are exhausted")
+  check.truthy(tostring(err):find(tostring(#rec.draws + 1), 1, true),
+    "error should name the position, got: " .. tostring(err))
+end
+test_replay_past_the_end_fails_by_position()

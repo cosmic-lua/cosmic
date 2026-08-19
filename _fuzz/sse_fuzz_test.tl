@@ -5,6 +5,7 @@
 
 local check = require("cosmic.check")
 local driver = require("_fuzz.driver")
+local source = require("_fuzz.source")
 local sse = require("cosmic.sse")
 local stream = require("cosmic.stream")
 
@@ -30,15 +31,18 @@ local ROUND_TRIP_BYTES = "abcXY09 \t:;.,-_=+/\\\"'{}[]<>|!@#$%&*()~ data:id:"
 local CHUNKING_BYTES = ROUND_TRIP_BYTES .. "\r\n\r\n"
 
 --- Draw a random string from an alphabet.
+--- @param src source.Recorder The source to draw from
 --- @param alphabet string The bytes to draw from
 --- @param min_len integer The shortest string to produce
 --- @param max_len integer The longest string to produce
 --- @return string The generated string
-local function random_text(alphabet: string, min_len: integer, max_len: integer): string
-  local n = math.random(min_len, max_len)
+local function random_text(
+    src: source.Recorder, alphabet: string, min_len: integer, max_len: integer
+  ): string
+  local n = src:int(min_len, max_len)
   local out: {string} = {}
   for i = 1, n do
-    local at = math.random(1, #alphabet)
+    local at = src:int(1, #alphabet)
     out[i] = alphabet:sub(at, at)
   end
   return table.concat(out)
@@ -48,36 +52,38 @@ end
 --- data is always non-empty: an event whose data buffer is empty is a
 --- no-op dispatch per spec, so format writes bytes the parser
 --- deliberately drops.
+--- @param src source.Recorder The source to draw from
 --- @param alphabet string The bytes field values are drawn from
 --- @return sse.Event The generated event
-local function random_event(alphabet: string): sse.Event
+local function random_event(src: source.Recorder, alphabet: string): sse.Event
   local ev: sse.Event = {
-    data = random_text(alphabet, 1, MAX_FIELD_LEN),
+    data = random_text(src, alphabet, 1, MAX_FIELD_LEN),
   }
-  if math.random(1, 2) == 1 then
-    ev.event = random_text(alphabet, 0, 8)
+  if src:int(1, 2) == 1 then
+    ev.event = random_text(src, alphabet, 0, 8)
   end
-  if math.random(1, 2) == 1 then
-    ev.id = random_text(alphabet, 0, 8)
+  if src:int(1, 2) == 1 then
+    ev.id = random_text(src, alphabet, 0, 8)
   end
-  if math.random(1, 3) == 1 then
-    ev.retry_ms = math.random(0, 100000)
+  if src:int(1, 3) == 1 then
+    ev.retry_ms = src:int(0, 100000)
   end
   return ev
 end
 
 --- Partition a byte count into 1..MAX_CHUNKS non-empty pieces.
+--- @param src source.Recorder The source to draw from
 --- @param total integer The number of bytes to partition
 --- @return {integer} The chunk lengths, summing to total
-local function random_split(total: integer): {integer}
+local function random_split(src: source.Recorder, total: integer): {integer}
   if total < 1 then
     return {}
   end
-  local wanted = math.random(0, math.min(MAX_CHUNKS - 1, total - 1))
+  local wanted = src:int(0, math.min(MAX_CHUNKS - 1, total - 1))
   local used: {integer: boolean} = {}
   local cuts: {integer} = {}
   while #cuts < wanted do
-    local cut = math.random(1, total - 1)
+    local cut = src:int(1, total - 1)
     if not used[cut] then
       used[cut] = true
       cuts[#cuts + 1] = cut
@@ -175,14 +181,14 @@ end
 -- lengths, then one LF, then the SSE bytes those lengths partition.
 -- The header is digits and commas only, so the first LF ends it no
 -- matter what the payload holds.
-local function gen_chunked_stream(): string
+local function gen_chunked_stream(src: source.Recorder): string
   local parts: {string} = {}
-  for i = 1, math.random(1, MAX_EVENTS) do
-    parts[i] = sse.format(random_event(CHUNKING_BYTES))
+  for i = 1, src:int(1, MAX_EVENTS) do
+    parts[i] = sse.format(random_event(src, CHUNKING_BYTES))
   end
   local bytes = table.concat(parts)
   local lengths: {string} = {}
-  for i, len in ipairs(random_split(#bytes)) do
+  for i, len in ipairs(random_split(src, #bytes)) do
     lengths[i] = tostring(len)
   end
   return table.concat(lengths, ",") .. "\n" .. bytes
@@ -236,8 +242,8 @@ test_chunking_invariance()
 local function test_parser_totality()
   local ok, msg = driver.run({
       name = "sse_parser_totality",
-      gen = function(): string
-        return driver.bytes(TOTALITY_INPUT_LEN)
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, TOTALITY_INPUT_LEN)
       end,
       check = function(input: string): boolean, string
         -- Every dispatched event needs at least its blank line, so one
@@ -272,9 +278,10 @@ test_parser_totality()
 local pending_event: sse.Event = nil
 
 --- Build a round-trippable event and return its wire form.
+--- @param src source.Recorder The source to draw from
 --- @return string The bytes format wrote
-local function gen_round_trip_wire(): string
-  pending_event = random_event(ROUND_TRIP_BYTES)
+local function gen_round_trip_wire(src: source.Recorder): string
+  pending_event = random_event(src, ROUND_TRIP_BYTES)
   return sse.format(pending_event)
 end
 
