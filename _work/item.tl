@@ -129,16 +129,26 @@ local function problems(it: Item): {string}
     or (it.verdict or "") ~= "" or (it.enable or "") ~= "") then
     out[#out + 1] = "claim/pr/verdict belong to worked items, not roots"
   end
+  local blocked_seen: {string: boolean} = {}
   for _, b in ipairs(it.blocked_by or {}) do
     if not ksuid.is_id(b) then
       out[#out + 1] = ("blocked_by names a non-id: %s"):format(tostring(b))
+    elseif blocked_seen[b] then
+      out[#out + 1] = ("blocked_by repeats %s"):format(b)
+    else
+      blocked_seen[b] = true
     end
   end
+  local beats_seen: {string: boolean} = {}
   for _, b in ipairs(it.beats or {}) do
     if not ksuid.is_id(b) then
       out[#out + 1] = ("beats names a non-id: %s"):format(tostring(b))
     elseif b == it.id then
       out[#out + 1] = "beats names the item itself; nothing outranks itself"
+    elseif beats_seen[b] then
+      out[#out + 1] = ("beats repeats %s"):format(b)
+    else
+      beats_seen[b] = true
     end
   end
   return out
