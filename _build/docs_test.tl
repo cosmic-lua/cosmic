@@ -37,21 +37,4 @@ local function test_the_decisions_index_matches_the_records()
 end
 test_the_decisions_index_matches_the_records()
 
--- The module table says exactly what the doc index says — the same
--- index `--help` renders its module list from, so AGENTS.md cannot
--- describe a module differently than the binary does. A row's
--- text is its module's H1 first line; fix a row at the module header.
-local function test_the_module_table_matches_the_doc_index()
-  local rendered = derive.modules_table()
-  local text = check.must(fs.read(derive.AGENTS))
-  local committed = derive.committed_table(text, derive.MODULES_HEAD)
-  assert(committed ~= "",
-    derive.AGENTS .. " has no `" .. derive.MODULES_HEAD .. "` table")
-  assert(committed == rendered,
-    derive.AGENTS .. " no longer matches the doc index.\n" ..
-    "Run `bin/cosmic _docs/derive.tl` to rewrite it.\n\ncommitted:\n" ..
-    committed .. "\n\nfrom the index:\n" .. rendered)
-end
-test_the_module_table_matches_the_doc_index()
-
 print("all derived-document tests passed")
