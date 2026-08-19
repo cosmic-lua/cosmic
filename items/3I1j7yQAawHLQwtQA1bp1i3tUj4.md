@@ -136,3 +136,23 @@ so this card is filed now; its children are deliberately NOT filed yet, because
 they would be refused at the limit and would crowd out refinement capacity.
 Decomposition is a later planner pass, per `decompose.md` ("a goal does not
 decompose in one sitting").
+
+## Refinement pass, 2026-08-19
+
+Child 1 has LANDED: 3I1iGY7Z (PR #1277) shipped
+`cosmic.rand.insecure_source(seed)` returning a private-state `Source`
+(`int`, `float`) — the blocker on this epic is satisfied and the
+`blocked_by` edge is now historical. What it deliberately did not do:
+`_fuzz/driver.tl` still seeds global `math.random` (measured at
+`bff1007`), so the driver migration leads child 2.
+
+Children 2 and 4 are filed to the ready bar as captures awaiting a plan
+slot (both carry attach notes): 3I7PCerj (draw-recording source; the
+driver drops `math.random`, inputs become choice sequences — the
+minimization substrate) and 3I7PFJE7 (per-input VM-instruction budget,
+mechanism pre-verified against the pinned binary; sse's hand-rolled
+bound deleted). Child 3 (shrinking) is specced next AFTER 2 lands —
+its shape depends on the recorded-draw structure 2 commits to. The
+placement decision (`cosmic.fuzz` vs `_tool`) stays open and is not
+needed before child 3; it must be settled (decision record if
+contested) before child 8, the publishing move.
