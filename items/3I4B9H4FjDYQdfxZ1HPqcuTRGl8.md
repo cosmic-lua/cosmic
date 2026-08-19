@@ -1,21 +1,69 @@
+## Goal
+
+G8 — the flow system: a constraint a spec imposes must be checkable by a
+command, or the review is the only gate and PR #1264 happens again (two
+of five new files 14–73% over the spec's own 200-line cap, four green CI
+runs, unnoticed until review).
+
 ## Evidence
 
-PR #1264 (item 3HyCSe5U, "peer table v1") shipped with two of five new files over
-the item's own spec-stated 200-line cap: `_perf/peers/peers.tl` at 346 lines (73%
-over) and `_perf/peers/run.tl` at 228 lines (14% over). `bin/cosmic --make lint`
-passed because the repo-wide gate only enforces the blanket 500-line cap
-(AGENTS.md) — nothing checks a file against a tighter cap an item's own spec
-states. The PR body's size claim ("all ≤500 lines, well under the cap") answered
-the wrong question: it satisfied the general house rule while missing the
-spec's explicit, narrower target, and no gate caught the mismatch before review.
+PR #1264 (item 3HyCSe5U): the spec's `Change` stated a 200-line per-file
+cap in prose; `--make lint` enforces only the blanket 500-line cap; the
+PR body's size claim answered the 500 question, not the 200 one; no gate
+sat between. The gap is general: a numeric bound stated in `Change`
+prose is invisible to every mechanism the flow has — the acceptance-
+quoting convention, the reviewer's checklist, and CI all key on
+`Acceptance` commands.
 
-This is a ready-bar/acceptance gap, not a one-off implementer slip: a spec that
-states a per-file cap tighter than 500 lines has no mechanical way to verify
-that cap short of a human counting lines during review. Candidate
-countermeasures (core > docs > skills, per skills/work/enable.md): teach the
-`ready` bar's spec grammar (`_work/spec.tl`) to parse an explicit per-file line
-cap out of the `Change` section and have `gitboard check`/the PR-quoting gate
-verify it mechanically, the same way it verifies Acceptance commands were
-quoted; short of that, at minimum the spec template/ready-bar guidance should
-tell implementers to self-check `wc -l` against a spec-stated cap before
-opening the PR.
+## Change
+
+The countermeasure is the docs rung, and the spec grammar stays out of
+prose-parsing — measured reason recorded below. One file,
+`skills/work/decompose.md` (204 lines, 296 of headroom;
+`.claude/skills` is a symlink to `skills/`, so one edit):
+
+1. In the ready-bar `## Acceptance` bullet (line 133's "anything not
+   checkable by a command is not acceptance — rewrite it until it is"):
+   add the corollary sentence — a numeric bound the spec IMPOSES (a
+   per-file line cap, a count ceiling, a size budget) is written as an
+   Acceptance command with its bound (`wc -l <file>` ≤ N, `grep -c` = N),
+   never as `Change` prose; `Change` may motivate the number, but the
+   Acceptance command is the contract, and a bound with no command is
+   the "acceptance by vibes" anti-pattern wearing digits.
+2. In the "two clauses to write into a slice" paragraph (line 100): make
+   it three, the third being exactly that rule, so refiners meet it
+   where they already collect slice-writing duties.
+3. In `## anti-patterns`: extend the "acceptance by vibes" entry with
+   the PR #1264 instance as the named example.
+
+Why not core (`_work/spec.tl`), recorded per enable.md's ordering:
+mechanically flagging cap-like prose in `Change` was probed against the
+board's own live specs on 2026-08-19 and false-positives immediately —
+two same-day ready specs (3I44Et1Z, 3I3qas9t) contain "423 lines, 77 of
+headroom" and "69 lines, well under cap" as measured DESCRIPTIONS with
+no bound imposed and correctly no `wc -l` acceptance. Prose cannot carry
+the imposed-vs-described distinction for a parser; a competent reader
+applies it trivially. What IS mechanizable stays: the bound, once in
+Acceptance, is a command the existing quoting convention and reviewer
+read already gate.
+
+## Non-goals
+
+- no `_work/spec.tl` or `gitboard check` change, and no new spec
+  section or structured `cap:` stanza — the rule rides the Acceptance
+  grammar that already exists.
+- no relitigation of the 500-line lint cap or any repo-wide size gate.
+- no retroactive edits to landed specs; the rule binds refinement from
+  now on.
+
+## Acceptance
+
+- `grep -c "wc -l" skills/work/decompose.md` prints ≥ 2 (the bullet's
+  corollary and the third clause).
+- `bin/cosmic --make ci` ends `ci: PASS`.
+
+## Enablement
+
+none needed — a self-contained docs edit; anchors, line numbers, and
+headroom measured above; the rejected-core reasoning is recorded so the
+next session does not re-probe it.
