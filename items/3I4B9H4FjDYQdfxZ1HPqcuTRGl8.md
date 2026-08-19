@@ -30,10 +30,20 @@ prose-parsing — measured reason recorded below. One file,
    never as `Change` prose; `Change` may motivate the number, but the
    Acceptance command is the contract, and a bound with no command is
    the "acceptance by vibes" anti-pattern wearing digits.
-2. In the "two clauses to write into a slice" paragraph (line 100): make
-   it three, the third being exactly that rule, so refiners meet it
-   where they already collect slice-writing duties.
-3. In `## anti-patterns`: extend the "acceptance by vibes" entry with
+2. Same bullet, the sibling rule (folded from 3I1mysET, whose two core
+   halves landed with PR #1209's merged version — `_eval/score.tl`'s
+   `stage_scoring_copy` now mirrors the run dir into mkdtemp and never
+   writes its input): an Acceptance command must be safe and meaningful
+   to run LITERALLY, verbatim, from the repo root — it may not write
+   into the committed tree, and the argument shapes it names must be
+   shapes a test actually covers. #1179's acceptance failed both ways:
+   its relative fixture path was the one shape the suite never tested
+   (and broke), and running it verbatim wrote ten stray files into the
+   committed fixture.
+3. In the "two clauses to write into a slice" paragraph (line 100): make
+   it "the clauses", adding both rules above where refiners already
+   collect slice-writing duties.
+4. In `## anti-patterns`: extend the "acceptance by vibes" entry with
    the PR #1264 instance as the named example.
 
 Why not core (`_work/spec.tl`), recorded per enable.md's ordering:
@@ -59,7 +69,9 @@ read already gate.
 ## Acceptance
 
 - `grep -c "wc -l" skills/work/decompose.md` prints ≥ 2 (the bullet's
-  corollary and the third clause).
+  corollary and the clauses paragraph).
+- `grep -c "committed tree" skills/work/decompose.md` prints ≥ 1 (the
+  run-literally rule).
 - `bin/cosmic --make ci` ends `ci: PASS`.
 
 ## Enablement
