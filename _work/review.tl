@@ -16,6 +16,8 @@ local record Pull
   head_sha: string
   --- "open" | "closed"
   state: string
+  --- Already merged, by any route.
+  merged: boolean
 end
 
 --- One CI check on a head commit, reduced to what a gate reads.
