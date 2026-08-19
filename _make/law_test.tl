@@ -19,14 +19,14 @@ local type Verb = types.Verb
 local function project_of(kinds: {Kind}): Project
   local files: {types.File} = {}
   for i, k in ipairs(kinds) do
-    files[#files + 1] = {path = "f" .. i .. ".tl", kind = k} as types.File -- cast: partial record fixture
+    files[#files + 1] = {path = "f" .. i .. ".tl", kind = k}
   end
   return {root = "/p", binaries = {}, files = files}
 end
 
 --- The verb row a name would carry, for the arms that only read it.
 local function verb(name: string): Verb
-  return {name = name} as Verb -- cast: partial record fixture
+  return {name = name}
 end
 
 -- An empty selection is every verb's whole set, so it always resolves.
