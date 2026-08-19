@@ -345,59 +345,13 @@ planned.
 
 ## Standard Library Modules
 
-all modules are under `cosmic/` and imported as `cosmic.*`:
+the standard library lives under `cosmic/` and imports as `cosmic.*`
+(`require("cosmic.fs")`, `require("cosmic.json")`). the authoritative
+list with one-line descriptions is served by the binary: `cosmic
+--docs` prints every module, `cosmic --docs <module>` one module's
+reference, and a module's description is its H1 first line — fix a
+description at the module header, never in prose here.
 
-| module | description |
-|--------|-------------|
-| ansi | ANSI terminal styling. |
-| check | Assertion helpers for tests with auto-formatted failure messages. |
-| child | Child process management. |
-| codec | Encoding and decoding utilities: bytes in, bytes out. |
-| compress | Compression and decompression utilities. |
-| coverage | Line coverage collection for cosmic programs. |
-| deep | Deep table operations. |
-| deploy | Examples for deploying cosmic scripts. |
-| doc | Query the documentation index embedded in the binary. |
-| embed | Embed files and directories into a cosmic executable. |
-| env | Environment variables: get/set/unset/list, dotenv, and env.d loading. |
-| errno | Error information from system calls. |
-| errors | The one sink-side supertype for structured errors. |
-| fd | File descriptor I/O operations. |
-| fetch | Structured HTTP fetch with retry, streaming, and honest error channels. |
-| flags | Declarative command-line flag parsing with a generated --help. |
-| format | Code formatter for Teal and Lua files. |
-| fs | Unified filesystem module. |
-| fuzzy | Fuzzy string matching utilities. |
-| hash | Cryptographic digests, HMAC, and Argon2 password hashing. |
-| html | HTML utilities. |
-| instrument | Timing and resource-usage spans, one `key=value` line each. |
-| ip | IP address parsing, formatting, and classification utilities. |
-| json | JSON encoding and decoding utilities. |
-| literal | Teal source read and written as data: one `return { … }` of literals. |
-| log | Leveled logging. |
-| net | Networking and socket utilities. |
-| poll | Typed interface for polling file descriptors. |
-| proc | Current process management. |
-| quicksand | Network + filesystem process isolation primitives. |
-| rand | Random bytes, integers, floats, choice, shuffle, and tokens. |
-| re | Regular expression matching using POSIX extended regex syntax. |
-| sandbox | One-call, fail-closed in-process sandbox: the one door. |
-| searcher | The cosmic-owned runtime `.tl` package searcher, replacing tl.loader(). |
-| shm | Shared memory for inter-process communication. |
-| signal | Signal handling utilities. |
-| sqlite | Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
-| sse | Server-Sent Events: parse a stream of them, format one for the wire. |
-| stream | The stream contract: byte-stream Reader/Writer interfaces. |
-| string | String utilities. |
-| sys | System information utilities. |
-| tar | In-process tarball extraction, without a host `tar`. |
-| teal | Teal compilation and type-checking. |
-| time | Time and clock utilities. |
-| tty | Terminal (TTY) utilities. |
-| url | URL encoding, decoding, parsing, formatting, and escaping utilities. |
-| user | User and group identity operations. |
-| uuid | UUID generation utilities. |
-| zip | ZIP archive reading and writing. |
 
 ## `--make` fixtures
 
