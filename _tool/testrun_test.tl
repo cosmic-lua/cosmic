@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local testrun = require("_tool.testrun")
 local fs = require("cosmic.fs")
+local env = require("cosmic.env")
 
 local TEST_BIN = os.getenv("TEST_BIN")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -100,6 +101,43 @@ exit 0
   assert(out == "TEST_TMPDIR works\n", "expected success message, got '" .. (out or "nil") .. "'")
 end
 test_run_sets_test_tmpdir()
+
+-- COSMIC_MAKE_ROOT must never reach a test child: a fixture project's own
+-- root detection depends on its cwd, and an inherited root would override
+-- that, corrupting it (the exact defect this test guards against).
+local function test_make_root_is_not_inherited()
+  local script = fs.join(TEST_TMPDIR, "test_make_root.sh")
+  local output_base = fs.join(TEST_TMPDIR, "result_make_root")
+
+  assert(fs.write(script, [[#!/bin/sh
+if [ -z "${COSMIC_MAKE_ROOT+set}" ]; then
+  echo "unset"
+else
+  echo "set: $COSMIC_MAKE_ROOT"
+fi
+]], {mode = tonumber("755", 8)}))
+
+  local had_prior, prior = true, env.get("COSMIC_MAKE_ROOT")
+  if prior == nil then
+    had_prior = false
+  end
+  assert(env.set("COSMIC_MAKE_ROOT", "/should/not/leak", true))
+
+  local exit_code = testrun.run({script}, output_base)
+
+  if had_prior then
+    assert(env.set("COSMIC_MAKE_ROOT", prior, true))
+  else
+    assert(env.unset("COSMIC_MAKE_ROOT"))
+  end
+
+  assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
+  local out = fs.read(output_base .. ".out")
+  assert(out == "unset\n",
+    "COSMIC_MAKE_ROOT must not be inherited by a test child, got '" ..
+    (out or "nil") .. "'")
+end
+test_make_root_is_not_inherited()
 
 -- Test run with nonexistent executable
 local function test_run_nonexistent()
