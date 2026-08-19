@@ -40,13 +40,13 @@ cosmic/instrument.tl:162-165   (tonumber(s) or 0) as integer   (4 sites)
 2. **Migrate the six sites**: `str.to_integer(x) or -1` /
    `... or 0` — the `or` narrows the nil away, so the cast AND its
    justification comment delete. No other call-shape changes.
-3. **Tests** (`cosmic/string_test.tl`): decimal, negative, base 16,
-   base 8, refusals ("7.5", "1e3" — yes, tonumber accepts 1e3 as 1000.0
-   and to_integer must refuse it as non-integral... measured decision:
-   REFUSE, integral VALUE is not integral TEXT — actually 1e3 IS
-   integral-valued; the rule is the VALUE: math.tointeger(1000.0)
-   succeeds, so "1e3" parses to 1000. Pin exactly that), whitespace,
-   empty string, plus one Example in `string_example.tl`.
+3. **Tests** (`cosmic/string_test.tl`): the rule is the VALUE, not the
+   spelling — anything tonumber accepts whose value is integral parses
+   (so "1e3" is 1000 and "0x1F" is 31), anything non-integral or
+   non-numeric refuses (so "7.5", "nan", "" are errors). Pin decimal,
+   negative, base 16, base 8, "1e3" accepted, "7.5"/"" refused,
+   surrounding whitespace tolerated; plus one Example in
+   `string_example.tl`.
 4. **Baseline regen**: the ratchet's failure prints the command; commit
    the regenerated `_build/casts_baseline.tl` (expected: −6 rows'
    worth from the two files).
