@@ -226,3 +226,76 @@ local function test_token_invalid_length()
   assert(tostring(err):match("positive"), "got: " .. tostring(err))
 end
 test_token_invalid_length()
+
+-- insecure_source
+
+local function test_insecure_source_reproducible()
+  local a = rand.insecure_source(42)
+  local b = rand.insecure_source(42)
+  for _ = 1, 20 do
+    assert(a:int(1, 1000000) == b:int(1, 1000000),
+      "same-seed Sources must produce identical int() draws")
+  end
+  for _ = 1, 20 do
+    assert(a:float() == b:float(),
+      "same-seed Sources must produce identical float() draws")
+  end
+end
+test_insecure_source_reproducible()
+
+local function test_insecure_source_differs_by_seed()
+  local a = rand.insecure_source(1)
+  local b = rand.insecure_source(2)
+  local differed = false
+  for _ = 1, 20 do
+    if a:int(1, 1000000) ~= b:int(1, 1000000) then
+      differed = true
+      break
+    end
+  end
+  assert(differed, "different seeds should not produce an identical sequence")
+end
+test_insecure_source_differs_by_seed()
+
+local function test_insecure_source_independent_of_math_random()
+  local a = rand.insecure_source(7)
+  local a_draws: {integer} = {}
+  for i = 1, 10 do
+    a_draws[i] = a:int(1, 1000000)
+  end
+
+  local b = rand.insecure_source(7)
+  local b_draws: {integer} = {}
+  for i = 1, 10 do
+    b_draws[i] = b:int(1, 1000000)
+    for _ = 1, i do
+      math.random()
+    end
+  end
+
+  for i = 1, 10 do
+    assert(a_draws[i] == b_draws[i],
+      "Source draws must not depend on interleaved math.random() calls")
+  end
+end
+test_insecure_source_independent_of_math_random()
+
+local function test_insecure_source_int_bounds()
+  local src = rand.insecure_source(99)
+  for _ = 1, 500 do
+    local n = src:int(-3, 7)
+    assert(n >= -3 and n <= 7, "Source:int(-3, 7) out of bounds: " .. n)
+    assert(math.type(n) == "integer", "Source:int should return an integer")
+  end
+end
+test_insecure_source_int_bounds()
+
+local function test_insecure_source_float_range()
+  local src = rand.insecure_source(101)
+  for _ = 1, 200 do
+    local f = src:float()
+    assert(f >= 0 and f < 1, "Source:float() out of [0,1): " .. tostring(f))
+    assert(math.type(f) == "float", "Source:float() should return a float")
+  end
+end
+test_insecure_source_float_range()
