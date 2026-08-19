@@ -20,3 +20,9 @@ byte changes until 3I1J9Xhg consumes the rule. `_tool/floor.tl` needs
 no change (it forwards to literal). Attach under the ratchet-unification
 container (3I1IoF4k) once plan has drained; 3I1J9Xhg's blocked_by
 already names this item.
+
+## Owner decision, 2026-08-19
+
+Confirmed by the goal owner: keep the grammar closed and add the inline
+layout rule (a nested table whose values are all scalars formats on one
+line). Sequence admission was considered and declined.
