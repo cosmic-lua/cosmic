@@ -197,6 +197,56 @@ test_restrict_single_file_rule()
 -- vendored Lua predecessor crashed here on a nil unix.O_PATH instead
 -- of returning an error).
 local function test_restrict_bad_rule_path_returns_error()
+
+  -- Under `optional`, an absent path and a dangling symlink are skipped
+  -- at open time (ENOENT) and the rest of the policy still enforces —
+  -- the pre-check this replaces would have raced, and passed the
+  -- dangling link only to die at the open anyway. Non-optional absence
+  -- still fails loudly (the test above).
+  local function test_optional_absent_rules_are_skipped()
+    if not landlock.available() then
+      check.enforce_skip("landlock unavailable (kernel lacks landlock)")
+      return
+    end
+    local allowed_dir = fs.join(tmpdir, "opt-allowed")
+    assert(fs.make_dirs(allowed_dir))
+    local allowed = fs.join(allowed_dir, "ok.txt")
+    assert(fs.write(allowed, "content"))
+    local absent = fs.join(tmpdir, "opt-no-such-path")
+    local dangling = fs.join(tmpdir, "opt-dangling")
+    assert(fs.symlink(fs.join(tmpdir, "opt-gone-target"), dangling))
+
+    local script = fs.join(tmpdir, "landlock_optional.lua")
+    assert(fs.write(script, string.format([[
+local landlock = require("cosmic.sandbox.landlock")
+local ok, err = landlock.restrict {
+  rules = {
+    {path = %q, access = landlock.READ, optional = true},
+    {path = %q, access = landlock.READ, optional = true},
+    {path = %q, access = landlock.READ, optional = true},
+  },
+}
+if not ok then io.write("skipped: ", tostring(err), "\n") os.exit(0) end
+local f = io.open(%q, "r")
+if f then io.write("allowed-ok\n"); f:close() else io.write("allowed-broken\n") end
+]], allowed_dir, absent, dangling, allowed)))
+
+    local h = check.must(child.start({cosmic, script}))
+    local __r = check.must(h:wait())
+    if not __r.ok then
+      check.enforce_skip("landlock restrict blocked (subprocess died before enforcing)", true)
+      return
+    end
+    local s = __r.stdout
+    if s:find("skipped", 1, true) then
+      check.enforce_skip("landlock restrict blocked: " .. s, true)
+      return
+    end
+    assert(s:find("allowed-ok", 1, true),
+      "optional absent rules must be skipped, not fatal: " .. s)
+    check.enforced("landlock")
+  end
+  test_optional_absent_rules_are_skipped()
   if not landlock.available() then return end
   local ok, err = landlock.restrict {
     rules = {{path = fs.join(tmpdir, "no-such-dir-xyz"),

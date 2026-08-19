@@ -225,6 +225,21 @@ local function test_plan_tuning_flags()
 end
 test_plan_tuning_flags()
 
+-- fs.optional rides each planned rule: the skip happens at open time
+-- inside landlock.restrict (never a pre-check, which would race), so
+-- the plan's only job is to stamp the flag through.
+local function test_plan_stamps_optional_onto_rules()
+  local opts = plan.for_landlock({ro = {"/a"}, rw = {"/b"}, optional = true})
+  for _, r in ipairs(opts.rules) do
+    assert(r.optional == true, r.path .. " should carry optional")
+  end
+  opts = plan.for_landlock({ro = {"/a"}})
+  for _, r in ipairs(opts.rules) do
+    assert(not r.optional, r.path .. " should not carry optional")
+  end
+end
+test_plan_stamps_optional_onto_rules()
+
 -- exec_promises is named to avoid reading as a path list beside
 -- fs.exec; the validator checks its tokens like promises.
 local function test_exec_promises_validated()
@@ -237,9 +252,10 @@ local function test_exec_promises_validated()
 end
 test_exec_promises_validated()
 
--- fs.optional drops rules for missing paths instead of failing the
--- whole policy; visible through merge + validate (the apply-side
--- filter is exercised by the live test when this host enforces).
+-- fs.optional tolerates missing paths at rule-open time instead of
+-- failing the whole policy; visible through merge + validate (the
+-- open-time skip is exercised by the landlock tests where this host
+-- enforces).
 local function test_merge_composes_policies()
   local merged = sandbox.merge(
     {fs = {ro = {"/etc"}, exec = {"/usr"}}, best_effort = true},
