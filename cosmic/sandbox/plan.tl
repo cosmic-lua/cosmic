@@ -48,8 +48,8 @@ local function add_rules(
 end
 
 --- Translate an fs policy to `landlock.restrict` options. Pure: no
---- syscalls, no side effects (the `optional` path filtering happens in
---- the facade, before this runs). `no_new_privs` and `handled` default
+--- syscalls, no side effects (`optional` rides each rule; the skip
+--- happens at open time, inside `landlock.restrict`). `no_new_privs` and `handled` default
 --- so landlock applies without CAP_SYS_ADMIN and controls the full
 --- current access set; the facade's Options can override both. An
 --- empty or nil policy produces an empty rules list, which denies
@@ -66,6 +66,11 @@ local function for_landlock(fs: Fs, no_new_privs?: boolean,
   add_rules(rules, seen, fs and fs.ro or nil, landlock.READ)
   add_rules(rules, seen, fs and fs.rw or nil, landlock.RW)
   add_rules(rules, seen, fs and fs.exec or nil, landlock.READ | landlock.EXEC)
+  if fs and fs.optional then
+    for _, r in ipairs(rules) do
+      r.optional = true
+    end
+  end
   return {
     handled = handled or landlock.ALL,
     rules = rules,

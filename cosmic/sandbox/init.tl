@@ -27,7 +27,6 @@
 --- narrowed by further calls. `cosmic.quicksand` consumes the same
 --- `fs`/`sys` schemas for its boxed workloads.
 local cosmo = require("cosmo")
-local cosmo_path = require("cosmo.path")
 local landlock = require("cosmic.sandbox.landlock")
 local pledge = require("cosmic.sandbox.pledge")
 local unveil = require("cosmic.sandbox.unveil")
@@ -123,31 +122,6 @@ local function is_available(): boolean
   return a.fs and a.sys
 end
 
---- Drop rules naming absent paths from one group. Only called under
---- fs.optional: landlock rules are OPENED, so a missing path otherwise
---- fails the whole restrict — and an optional policy prefers a
---- narrower sandbox over none.
-local function present_only(paths: {string}): {string}
-  if not paths then return nil end
-  local out: {string} = {}
-  for _, p in ipairs(paths) do
-    if cosmo_path.exists(p) then
-      out[#out + 1] = p
-    end
-  end
-  return out
-end
-
-local function effective_fs(fs: Fs): Fs
-  if not fs or not fs.optional then return fs end
-  return {
-    ro = present_only(fs.ro),
-    rw = present_only(fs.rw),
-    exec = present_only(fs.exec),
-    optional = true,
-  }
-end
-
 -- The unveil equivalents of the landlock group masks: ro exposes read
 -- only, exec exposes read + execute, rw exposes read + write +
 -- create/remove.
@@ -157,9 +131,10 @@ local function apply_fs_unveil(fs: Fs): boolean, string
     {fs.rw, "rwc"},
     {fs.exec, "rx"},
   }
+  local opts: unveil.Options = {missing_ok = fs.optional == true}
   for _, g in ipairs(groups) do
     for _, p in ipairs(g[1] or {}) do
-      local ok, err = unveil.allow(p, g[2])
+      local ok, err = unveil.allow(p, g[2], opts)
       if not ok then return false, err end
     end
   end
@@ -337,7 +312,7 @@ local function apply(opts: Options): Availability | nil, string
     do_sys = false
   end
   if do_fs then
-    local ok, err = apply_fs(effective_fs(opts.fs),
+    local ok, err = apply_fs(opts.fs,
       opts.no_new_privs ~= false, opts.handled)
     if not ok then return nil, "sandbox: fs: " .. tostring(err) end
   end

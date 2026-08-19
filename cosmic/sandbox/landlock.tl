@@ -21,6 +21,7 @@
 --- and non-Linux hosts; gate box setup on it. Pairs naturally with
 --- `cosmic.pledge` on Linux and is complementary to `cosmic.quicksand`
 --- network isolation.
+local errno = require("cosmic.errno")
 local unix = require("cosmo.unix")
 local seal_coverage = require("cosmic._seal_coverage").seal_coverage
 
@@ -86,6 +87,12 @@ local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
 local record Rule
   path: string
   access: integer
+  --- Skip this rule when its path is absent at open time: the rule
+  --- would grant nothing, and an optional policy prefers a narrower
+  --- sandbox over none. Absence is judged by the open itself (ENOENT),
+  --- never by a pre-check — a pre-check is a race, and a dangling
+  --- symlink passes it only to fail here anyway.
+  optional: boolean
 end
 
 --- Options for `restrict`. `handled` narrows which access categories
@@ -220,29 +227,32 @@ local function restrict(opts?: RestrictOptions): boolean, string
     -- actual handled set (not just the ABI mask) so a caller that
     -- narrows `handled` gets exactly that access, never a kernel error.
     local access = (rule.access or 0) & handled
-    local pfd, perr = unix.open(rule.path,
+    local pfd, perr, peno = unix.open(rule.path,
       (unix.O_PATH) | (unix.O_CLOEXEC))
-    if not pfd then
+    if not pfd and rule.optional and errno.is_code(peno, "ENOENT") then
+      -- Absent under optional: grant nothing for this path, keep going.
+    elseif not pfd then
       return fail(string.format("landlock: open(%q): %s",
           rule.path, tostring(perr)))
-    end
-    -- Directory-only rights on a non-directory rule are an EINVAL from
-    -- the kernel; strip them so file paths accept the composite masks
-    -- (READ, RW, ...). A rule left with no grantable bits is skipped —
-    -- landlock denies by default, so granting nothing needs no rule.
-    local st = unix.fstat(pfd)
-    if st and not unix.S_ISDIR(st:mode()) then
-      access = access & FILE_BITS
-    end
-    if access ~= 0 then
-      local ok, rerr = unix.landlock_add_rule(rsfd, pfd, access, 0)
-      if not ok then
-        unix.close(pfd)
-        return fail(string.format("landlock: add_rule(%q): %s",
-            rule.path, tostring(rerr)))
+    else
+      -- Directory-only rights on a non-directory rule are an EINVAL from
+      -- the kernel; strip them so file paths accept the composite masks
+      -- (READ, RW, ...). A rule left with no grantable bits is skipped —
+      -- landlock denies by default, so granting nothing needs no rule.
+      local st = unix.fstat(pfd)
+      if st and not unix.S_ISDIR(st:mode()) then
+        access = access & FILE_BITS
       end
+      if access ~= 0 then
+        local ok, rerr = unix.landlock_add_rule(rsfd, pfd, access, 0)
+        if not ok then
+          unix.close(pfd)
+          return fail(string.format("landlock: add_rule(%q): %s",
+              rule.path, tostring(rerr)))
+        end
+      end
+      unix.close(pfd)
     end
-    unix.close(pfd)
   end
   if opts.no_new_privs ~= false then
     local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)

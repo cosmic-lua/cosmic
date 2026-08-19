@@ -24,7 +24,8 @@
 ---   c  create and remove paths    (matches pledge "cpath")
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
-local errstr = require("cosmic.errno").format
+local errno = require("cosmic.errno")
+local errstr = errno.format
 local seal_coverage = require("cosmic._seal_coverage").seal_coverage
 local landlock = require("cosmic.sandbox.landlock")
 
@@ -58,6 +59,11 @@ end
 --- here.
 local record Options
   best_effort: boolean
+  --- Treat a path that does not exist as a successful no-op in
+  --- `allow`: an optional policy prefers a narrower sandbox over none,
+  --- and absence is judged by unveil(2)'s own ENOENT — never by a
+  --- pre-check, which would race and pass dangling symlinks.
+  missing_ok: boolean
 end
 
 --- True when unveil is actually enforceable on this host: OpenBSD, or
@@ -100,8 +106,11 @@ local function allow(path: string, permissions: Perm, opts?: Options): boolean, 
     return false, unsupported
   end
   seal_coverage()
-  local ok, err = unix.unveil(path, permissions)
+  local ok, err, eno = unix.unveil(path, permissions)
   if not ok then
+    if opts and opts.missing_ok and errno.is_code(eno, "ENOENT") then
+      return true
+    end
     return false, errstr(err, "unveil")
   end
   return true
