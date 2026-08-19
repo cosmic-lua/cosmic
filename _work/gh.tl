@@ -65,6 +65,7 @@ local function pull(s: store.Store, number: integer): review.Pull | nil, string
   return {
     number = number,
     draft = v["draft"] == true,
+    merged = v["merged"] == true,
     body = tostring(v["body"] or ""),
     head_sha = sha,
     state = tostring(v["state"] or ""),
