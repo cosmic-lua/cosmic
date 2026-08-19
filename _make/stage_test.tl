@@ -21,7 +21,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- A File of the given kind and path, as the walk would produce it.
 local function file(path: string, kind: types.Kind): File
-  return {path = path, kind = kind} as File -- cast: partial record fixture
+  return {path = path, kind = kind}
 end
 
 --- The paths of a candidate list, for comparison.

@@ -269,12 +269,12 @@ local function test_source_dirs_are_the_compiled_ones()
     root = "/p",
     binaries = {},
     files = {
-      {path = "main.tl", kind = "entry"} as File, -- cast: partial record fixture
-      {path = "pkg/a.tl", kind = "module"} as File, -- cast: partial record fixture
-      {path = "pkg/a_test.tl", kind = "test"} as File, -- cast: partial record fixture
-      {path = "pkg/testdata/broken.tl", kind = "testdata"} as File, -- cast: partial record fixture
-      {path = "embed/vendor.tl", kind = "payload"} as File, -- cast: partial record fixture
-      {path = "README.md", kind = "asset"} as File, -- cast: partial record fixture
+      {path = "main.tl", kind = "entry"},
+      {path = "pkg/a.tl", kind = "module"},
+      {path = "pkg/a_test.tl", kind = "test"},
+      {path = "pkg/testdata/broken.tl", kind = "testdata"},
+      {path = "embed/vendor.tl", kind = "payload"},
+      {path = "README.md", kind = "asset"},
     },
   }
   local got = table.concat(project.source_dirs(proj), " ")

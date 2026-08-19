@@ -406,7 +406,7 @@ end
 test_format_roundtrip()
 
 local function test_format_minimal_event()
-  local wire = sse.format({data = "hi"} as sse.Event) -- cast: partial literal
+  local wire = sse.format({data = "hi"})
   assert(wire == "data: hi\n\n", "minimal event is one data line + blank, got: " .. wire)
 end
 test_format_minimal_event()
