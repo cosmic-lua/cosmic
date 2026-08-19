@@ -43,45 +43,71 @@ time.
 
 ## Change
 
-A `--make lint` check that fails on identical function bodies within a tree.
+A whole-tree gate that fails on identical normalized function bodies.
+Refinement correction to the imported issue, from the tree's own
+mechanics: `--make lint` is per-file (`_cli/lint.tl`'s `lint_file`, one
+path per call from `_cli/main_handlers.tl:340`, and `_cli/lint.tl` is at
+448/500 lines besides), while every existing whole-tree gate is a
+`_build/` test — the cast ratchet (`_build/casts.tl` +
+`_build/casts_test.tl`) is the pattern to copy, TREES constant and all.
+So:
 
-- **Scope it to `_make/**` and `_cli/**` first** — the two trees where the
-  duplications were measured, and where the modules are small enough that a
-  false positive is cheap to inspect. Widening to `cosmic/**` is a follow-up
-  once the false-positive rate is known, not part of this slice.
-- **Key on the normalized body**: parameter names renamed to positional
-  placeholders, comments and whitespace stripped. Both defects above were
-  byte-identical under exactly that normalization, so the cheapest possible
-  normalization catches the observed cases.
-- **Floor it by size** so trivial accessors and one-line forwarders do not trip
-  it. Pick the threshold from a measurement over the current tree, not a guess,
-  and record the number in the check's doc comment.
-- **The failure message names both sites and says what to do**: "identical body
-  at A and B — export one and require it". Per `enable.md`, an error message
-  that says what to do instead is itself the countermeasure.
+1. **`_build/dupes.tl`** (new): the scanner.
+   - Files: every `.tl` under `TREES < const > = {"_make", "_cli"}`,
+     excluding `*_test.tl` and any path containing `testdata/`.
+   - Body extraction is textual and rests on a gate: `fmt` enforces
+     2-space indentation, so a top-level body spans from a line matching
+     `^(local )?function ` to the next line that is exactly `end` —
+     nested closers are indented and cannot match.
+   - Normalization: strip `--` comments to end of line, drop blank
+     lines, collapse runs of whitespace to one space; parse the
+     parameter names out of the header line and replace word-boundary
+     occurrences in the body with positional placeholders (`__p1`,
+     `__p2`, …). Both observed defects were byte-identical under less.
+   - Floor: a normalized body under **5 lines** is skipped. Measured
+     basis, 2026-08-19 at `f420391`, comment/whitespace normalization
+     over the same scope: 812 top-level functions, 9 duplicate groups,
+     of which exactly one is non-test — a 4-line `fail` forwarder
+     tripled across `_cli/build/{batch,steps,work}.tl` — and the
+     historical `write_if_changed` normalizes to ~14 lines. Floor 5
+     therefore exempts the trivial forwarder and starts the gate at
+     ZERO findings with no allowlist, while catching every observed
+     defect. Record the number and this basis in the doc comment.
+   - Failure message names both sites and the remedy:
+     `identical body at A:12 and B:34 — export one and require it`.
+2. **`_build/dupes_test.tl`** (new): the gate (scan the tree, assert no
+   findings) plus unit pins on the scanner run over inline fixtures: a
+   true duplicate fails; the same body with different parameter names
+   fails; two bodies differing by one statement pass; a 4-line body
+   passes.
 
 ## Non-goals
 
-Not a general clone detector: no near-miss or token-similarity matching, no
-cross-tree analysis, no configurable thresholds beyond the one size floor. Not a
-ratchet with a committed baseline — if the initial run finds pre-existing
-duplicates, either fix them in this slice or exempt them by an explicit,
-commented allowlist, so the check starts at zero rather than at a number.
-No change to `_make/imports.tl`'s `ENV_SWITCHES` mirror, which is spec-mandated
-and fails loud; if the check flags it, allowlist it with that reason.
-No change to any of the three sites above — all are already resolved on
-`main` via PR #1185.
+Not a general clone detector: no near-miss or token-similarity matching,
+no cross-tree analysis, no thresholds beyond the one size floor, no
+committed baseline — the gate starts and stays at zero. Test files are
+excluded from this slice: the same scan measured 8 duplicate groups of
+test-helper boilerplate (16-line setup helpers ×4 among them), and
+widening to them — whose real fix is shared fixtures — is a follow-up
+once this gate has a false-positive record, as is `cosmic/**`. Constants
+(`compiled_kinds`, `ENV_SWITCHES`) are out of scope: this keys on
+function bodies, per the evidence. No change to `_cli/lint.tl`. No
+change to the three historical sites, all resolved on `main` via #1185.
 
 ## Acceptance
 
-- Reintroducing any one of the three duplications above (as a scratch edit)
-  makes `bin/cosmic --make lint` fail, naming both sites.
-- The check's own test pins: a true duplicate fails; the same body with
-  different parameter names fails; two bodies differing by one statement pass;
-  a body under the size floor passes.
-- `bin/cosmic --make ci` ends `ci: PASS` on the tree as it stands, with no
-  baseline file added.
+- `bin/cosmic --make test _build/dupes_test.tl` ends
+  `test: PASS (1 files)`.
+- Reintroducing the `write_if_changed` duplication as a scratch edit
+  (copy `_make/stamp.tl:201-216` into `_make/graph.tl` under another
+  name) makes that same command fail, naming both sites; revert the
+  scratch.
+- `bin/cosmic --make ci` ends `ci: PASS` on the tree as it stands, with
+  no baseline file and no allowlist added.
 
+## Enablement
 
----
-_Generated by [Claude Code](https://claude.ai/code)_
+none needed — the pattern to copy (`_build/casts.tl` + test), the
+capacity fact that rules lint out (448/500), the floor, and the
+zero-findings start are all measured above; the fmt gate underwrites the
+textual body extraction.
