@@ -21,7 +21,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local function project_of(kinds: {Kind}): Project
   local files: {types.File} = {}
   for i, k in ipairs(kinds) do
-    files[#files + 1] = {path = "f" .. i .. ".tl", kind = k} as types.File -- cast: partial record fixture
+    files[#files + 1] = {path = "f" .. i .. ".tl", kind = k}
   end
   return {root = "/p", binaries = {}, files = files}
 end
@@ -47,7 +47,7 @@ local function registry(codes: {string: integer}): Stub
           ran[#ran + 1] = name
           return codes[name] or 0
         end,
-      } as Verb -- cast: a stub verb needs only name and run
+      }
     end,
   }
 end
