@@ -74,3 +74,12 @@ take; conventions (test call-after-define, doc comments) are AGENTS.md's.
 > Owner decision, 2026-08-19: threshold confirmed at the KNOWN ceiling
 > (KNOWN_ABI = 9), not the enforced ceiling (3); a red lane as standing
 > pressure was considered and declined.
+
+## Owner decision, 2026-08-19 (supersedes the one above): not planned
+
+The goal owner judged the alarm not valuable: a tripwire for ABIs past 9
+spends a slice guarding against a hypothetical while the REAL gap — the
+kernel ceiling sitting at ABI 3 against a known ABI 9 — goes unworked.
+The effort goes to R6 instead: upgrading whilp/cosmopolitan's Landlock
+bindings toward ABI 9, then the pin bump and the net section here. The
+G2 epic (3I1IfJ22) carries the pointer to that work.
