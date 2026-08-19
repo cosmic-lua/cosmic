@@ -1,27 +1,84 @@
-A mutation that changes no phase is refused by the phase-limit re-check whenever
-its push loses a race, so an over-limit column becomes intermittently
-un-editable — exactly when refinement, the thing that drains it, is what the
-board needs.
+## Goal
 
-Observed 2026-08-17 with plan at 20/12: `gitboard spec 3I3z2gOF <file>` (a spec
-sidecar replacement, no phase change) was refused twice with
-`gitboard-spec: refused after concurrent update: plan is over 12 after a
-concurrent move`, then succeeded unchanged on the third try once the other
-session (which was pushing `spec 3I06cBmI` and `move 3I06cBmI plan -> ready`)
-went quiet. Same command, same input, three different outcomes.
+G8 — the flow system: an over-limit column must stay editable, because
+the mutations that drain it (spec refinement, blocker bookkeeping) are
+exactly the ones being refused. Today they fail only when their push
+loses a race, so the same command has three different outcomes.
 
-Mechanism: `_work/gitgate.tl:89-107`. `commit_and_publish` passes a callback to
-`store.publish` that runs only on the rebase path (a rejected push). It re-reads
-the merged board and refuses when `#board[it.phase] > LIMITS[it.phase]` and
-`flow.admits_over_limit(from, it.phase)` is false. For `spec` — and for `block`,
-`unblock`, and any other verb that writes an item without moving it — `from` is
-nil and `it.phase` is whatever phase the item already sits in, so the check asks
-whether that phase is over its limit rather than whether THIS mutation is an
-arrival. It is not an arrival: the count is identical before and after. The
-refusal is therefore driven entirely by pre-existing state plus a lost race,
-and it drops the local commit whole, so the work has to be re-applied.
+## Evidence
 
-Two things to fix, arguably: the gate should re-check the limit only for a
-mutation that actually adds to a phase (a `from` different from `it.phase`, or
-an entry from nothing), and the message should not say "after a concurrent move"
-when neither the local mutation nor the remote one was a move.
+Observed 2026-08-17 with `plan` at 20/12: `gitboard spec 3I3z2gOF <file>`
+— no phase change — refused twice with `refused after concurrent update:
+plan is over 12 after a concurrent move`, then succeeded unchanged once
+the racing session went quiet.
+
+Mechanism, measured 2026-08-19: `_work/gitgate.tl`'s
+`commit_and_publish` (lines 88–110) re-checks the WIP limit on the
+rebase path with `#(b[it.phase]) > limit and not
+flow.admits_over_limit(from, it.phase)` — it never asks whether this
+mutation ARRIVES. The callers already state that: `spec`
+(`_work/gitverbs.tl:231`), `block`/`unblock` (`:208`), and
+`compare`/`uncompare` (`_work/gitcompare.tl:68`) all pass
+`from = it.phase`; entries (`new` `:85`, `attach` `:140`) pass `nil`;
+`move` (`:333`), `done` (`:380`), `verdict` (`_work/gitverdict.tl:96`)
+pass the real departed phase. So `from == it.phase` identifies a
+non-arriving write exactly, with no caller changes.
+
+## Change
+
+1. **`_work/flow.tl`** (423 lines, 77 of headroom): add a pure
+   predicate beside `is_return`/`admits_over_limit`:
+
+   ```teal
+   --- Whether a mutation adds an item to `to`: entries (nil `from`)
+   --- and cross-phase moves arrive; a write that leaves the item where
+   --- it stands (`from == to`) does not.
+   local function is_arrival(from: string, to: string): boolean
+     return to ~= "" and from ~= to
+   end
+   ```
+
+   Export it from the module record.
+2. **`_work/gitgate.tl`** (257 lines): in `commit_and_publish`'s rebase
+   callback, refuse only when `flow.is_arrival(from, it.phase)` AND the
+   count exceeds the limit AND not `flow.admits_over_limit(...)`.
+   Reword the refusal — the current text blames "a concurrent move"
+   whether or not any move happened:
+   `("%s is over %d and this mutation arrives into it"):format(it.phase,
+   limit)`. Update `from`'s @param doc: "phase the mutation left; equal
+   to `it.phase` for a write that moves nothing, nil for an entry".
+3. **`_work/flow_test.tl`** (145 lines): pin the predicate's truth
+   table: entry arrives, cross-phase move arrives, same-phase write does
+   not, de-phasing (`to == ""`) does not.
+4. **`_work/gitgate_test.tl`** (new file): using
+   `_work/fixture.tl`'s `init_shared` (two clones over one bare remote,
+   the same harness `_work/store_test.tl`'s
+   `test_publish_cas_refuses_over_limit` uses), pin both sides: a spec
+   write (`from == it.phase`) on an over-limit column publishes after
+   losing a race; a move into the same over-limit column is still
+   refused, with the new message.
+
+## Non-goals
+
+- no change to `store.publish`'s CAS shape or to `flow.LIMITS`.
+- no change to the up-front (pre-push) `wip_refusal` in `cmd_new`/
+  `cmd_move` — whether a net-zero `new --parent` should count its
+  parent's de-phase is a separate item (filed as its own capture, with
+  2026-08-19 evidence).
+- no caller changes: the `from` conventions above are already in place.
+
+## Acceptance
+
+On the board worktree:
+
+- `bin/cosmic --make test _work/flow_test.tl _work/gitgate_test.tl`
+  ends `test: PASS (2 files)`.
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `grep -n "is_arrival" _work/flow.tl _work/gitgate.tl` shows the
+  predicate defined, exported, and consumed in the rebase callback.
+
+## Enablement
+
+none needed — the fixture harness this needs already exists
+(`_work/fixture.tl`), and the caller-side `from` conventions are
+measured above rather than assumed.
