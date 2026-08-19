@@ -70,3 +70,7 @@ No cast is needed anywhere in this diff; `abi()` already returns
 none needed — the skip-when-nil rule and the threshold decision are
 stated above, which were the two wrong turns a literal builder could
 take; conventions (test call-after-define, doc comments) are AGENTS.md's.
+
+> Owner decision, 2026-08-19: threshold confirmed at the KNOWN ceiling
+> (KNOWN_ABI = 9), not the enforced ceiling (3); a red lane as standing
+> pressure was considered and declined.
