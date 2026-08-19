@@ -97,13 +97,19 @@ order — one enablement slice unblocking many parallel siblings is a
 good shape; a chain of siblings each blocking the next is a slice cut
 wrong.
 
-two clauses to write into a slice whenever they apply. a slice whose
+the clauses to write into a slice whenever they apply. a slice whose
 diff moves, adds, or removes gated material (casts, coverage, any
 committed baseline) should say what to do when a ratchet gate
 complains: run exactly the regen command the gate's failure message
 prints and commit the result — in scope, never a gate weakened any
-other way. and a slice near a frozen contract names the contract in
-`Non-goals` (see anti-patterns).
+other way. a slice near a frozen contract names the contract in
+`Non-goals` (see anti-patterns). a slice whose spec imposes a numeric
+bound (a per-file cap, a count ceiling, a size budget) writes it into
+`Acceptance` as a command with its bound, never as `Change` prose (see
+the ready bar below). and a slice whose `Acceptance` commands take
+path arguments or write files keeps them literal-runnable: safe and
+meaningful to run verbatim from the repo root, touching no committed
+file, and naming only argument shapes a test already covers.
 
 ## the ready bar
 
@@ -131,7 +137,16 @@ repo's AGENTS.md, get this wrong?** if yes, it is not ready.
   floor; add the narrow checks that prove THIS change (a specific
   test file, a fixture build, a `--docs` lookup showing the new
   entry). anything not checkable by a command is not acceptance —
-  rewrite it until it is.
+  rewrite it until it is. a numeric bound the spec IMPOSES (a
+  per-file line cap, a count ceiling, a size budget) is written as an
+  Acceptance command with its bound (`wc -l <file>` ≤ N, `grep -c` =
+  N), never as `Change` prose; `Change` may motivate the number, but
+  the Acceptance command is the contract, and a bound with no command
+  is the "acceptance by vibes" anti-pattern wearing digits. an
+  Acceptance command must be safe and meaningful to run literally,
+  verbatim, from the repo root: it may not write into the committed tree,
+  and the argument shapes it names must be shapes a test actually
+  covers.
 - `## Enablement` — the record of the enablement check
   (`enable.md`): either `none needed` with a word on why, or the
   blocker items (by id) that must land first, mirrored in
@@ -193,7 +208,11 @@ are in AGENTS.md.
   not ready work.
 - **acceptance by vibes** ("works correctly", "is faster") — commands
   and verdict lines, or it does not go in Acceptance. for performance
-  work, the `optimize` skill's gates are the acceptance.
+  work, the `optimize` skill's gates are the acceptance. a numeric
+  bound left in `Change` prose is the same anti-pattern wearing
+  digits: PR #1264 shipped two files 14–73% over its spec's 200-line
+  cap, unnoticed through four green CI runs, because the cap was
+  never an Acceptance command.
 - **hidden decisions** ("pick a reasonable format") — refinement
   picks; the spec states the pick.
 - **scope by omission** — an empty Non-goals section on a change near
