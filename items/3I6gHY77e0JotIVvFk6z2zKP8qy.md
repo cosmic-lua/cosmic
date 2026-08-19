@@ -58,3 +58,50 @@ whether validation should REJECT the file or whether the reader should
 normalise on load is the open question — rejecting turns one imported item
 into a board that fails `check` until repaired, which argues for repairing
 first and tightening second, in that order.
+
+## Refined to ready, 2026-08-19
+
+The instance is repaired: 3I1JDVLm's list was rebuilt with the verbs
+(`unblock` removes every copy of an id), so it now holds exactly one
+open blocker and the tree carries NO duplicated entry — measured:
+`grep -c '3I1J83Zr.*3I1J83Zr\|3I1J9Xhg.*3I1J9Xhg' items/*.tl` is 0.
+What remains is the gate that keeps it true.
+
+## Goal
+
+G8 — the flow system: representable board state is validated state; a
+list field's invariants hold by `problems()`, not by convention.
+
+## Change
+
+In `_work/item.tl` (227 lines), `problems()` (line 102): the
+`blocked_by` walk (lines 132–135) additionally refuses a repeated id —
+collect seen ids in a set, and a second occurrence appends
+`("blocked_by repeats %s"):format(b)`. Give `beats` the same rule in its
+walk directly below (lines 137–142): it is the same class of list field,
+validated today to a different depth (it refuses self-reference but not
+repeats). In `_work/item_test.tl` (111 lines): pin all four — a repeated
+blocker refused, a repeated beat refused, distinct entries in each
+accepted.
+
+## Non-goals
+
+- no dedup-on-decode: silently folding repeats would hide the writer bug
+  that produced them; the gate refuses, the writer fixes.
+- no change to the `block`/`unblock` verbs — `block` already refuses an
+  edge that exists (its `kept` rebuild), so the only writers of repeats
+  are file edits, which is exactly what validation exists to catch.
+- no other validation deepening.
+
+## Acceptance
+
+- `bin/cosmic --make test _work/item_test.tl` ends `test: PASS (1 files)`.
+- `bin/cosmic --make ci` ends `ci: PASS` on the board worktree — which
+  requires the repaired state above to stay repaired, since `status`
+  validates every item.
+
+## Enablement
+
+none needed — the instance is already repaired via verbs (see above), so
+the slice cannot be refused by its own new gate; the walk to extend and
+the test file are named with measured line numbers.
