@@ -59,3 +59,11 @@ returns only the lines named above — nothing else reads them.
 none needed — pure deletion plus a pointer; the consumers of the deleted
 surface are enumerated above from a measured grep, and the drift test
 that would have contradicted the deletion is removed in the same diff.
+
+## Builder note, 2026-08-19 (spec gap, recorded per the feedback loop)
+
+The diff deletes covered code and its test, so the coverage ratchet
+asked for its regen — which the standing decompose.md clause covers but
+THIS spec omitted. The regen was run exactly as printed and committed
+(one row). Ready-bar lesson: a slice deleting gated material carries
+the ratchet clause even when the deletion is of tests themselves.
