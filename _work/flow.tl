@@ -82,6 +82,17 @@ local function admits_over_limit(from: string, to: string): boolean
   return to == "land" or is_return(from, to)
 end
 
+--- Whether a mutation adds an item to `to`: entries (nil `from`) and
+--- cross-phase moves arrive; a write that leaves the item where it
+--- stands (`from == to`) does not.
+--- @param from string Phase the mutation left; equal to `it.phase` for
+---   a write that moves nothing, nil for an entry
+--- @param to string Target phase
+--- @return boolean True when the mutation adds an item to `to`
+local function is_arrival(from: string, to: string): boolean
+  return to ~= "" and from ~= to
+end
+
 --- Items indexed by id.
 --- @param items {Item} All items
 --- @return Index The index
@@ -378,6 +389,7 @@ local record flow
   TRIAGE_LIMIT: integer
   is_return: function(from: string, to: string): boolean
   admits_over_limit: function(from: string, to: string): boolean
+  is_arrival: function(from: string, to: string): boolean
   by_id: function(items: {Item}): Index
   has_open_children: function(items: {Item}, id: string): boolean
   role: function(i: Item, items: {Item}): string
@@ -403,6 +415,7 @@ local M: flow = {
   TRIAGE_LIMIT = TRIAGE_LIMIT,
   is_return = is_return,
   admits_over_limit = admits_over_limit,
+  is_arrival = is_arrival,
   by_id = by_id,
   has_open_children = has_open_children,
   role = role,
