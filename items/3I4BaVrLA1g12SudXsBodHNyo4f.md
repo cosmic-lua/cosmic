@@ -1,32 +1,80 @@
 ## Goal
 
-G8 — the flow system (docs/goals.md): "the measurement is currently UNBUILT for
-the file-based board: every transition is a commit on the `board` branch, so
-`git log` holds the flow record, but nothing reads it yet — the label-era `stats`
-tool measured GitHub timelines, which no longer carry the board." This item
-replaces 3I0L1TbU (ended not-planned: its target, the label-era `_work/stats.tl`
-GitHub-issue-timeline tool, was deleted from every branch by #1257, the same
-commit series that finished the board's migration onto git-backed state).
+G8 — the flow system: the measurement G8 names is unbuilt. Every board
+transition is one commit on the `board` branch, so `git log` over
+`items/**` IS the flow record; the flow review (`skills/work/review.md`)
+currently reads it by hand. This item builds the instrument that reads
+it mechanically, replacing the deleted label-era `stats.tl`.
 
-## Change (not yet refined — this is intake, not a ready spec)
+## Change
 
-Build the flow-health instrument G8 names, reading the `board` branch's own git
-log instead of GitHub issue timelines: for each `items/<ksuid>.tl` a phase move
-is one commit (see `_work/gitverbs.tl` on the `board` branch and its commit
-messages, e.g. "move ID PHASE -> PHASE"), so the flow record is `git log
---follow` (or a full-history walk) over `items/**` on `board`, not an API call.
-The report should recover what the old `_work/stats.tl` measured (dwell time per
-phase, WIP-limit adherence over time, bounce/rework/accept counts, pickup
-latency) from that commit history instead. This item needs a planner refinement
-pass (decompose.md) before it is ready-bar-eligible: at minimum it needs to
-settle where the new tool lives (probably `_work/stats.tl` on the `board`
-branch itself, beside `gitview.tl`/`gitverbs.tl`, since that is where the git
-log it reads lives), what its window/`--days` semantics are, and whether it
-needs a new `gitboard` verb or is a standalone script.
+The three questions intake left open, settled. Measured 2026-08-19 on
+the board branch:
+
+1. **Where: `_work/stats.tl` + a `gitboard stats` verb.** The log it
+   reads lives on this branch beside the machinery; "board state moves
+   and reads through gitboard only" makes a verb the door, and the
+   generated `gitboard help` picks it up with no skill edit. Read-only:
+   no network, no token, no mutation. The store's git plumbing already
+   exists (`_work/store.tl:51`, `git(s, argv)` over the checkout).
+2. **How it reads: file states, not subject parsing.** A commit
+   subject cannot distinguish `new` into `plan` from `new` into triage,
+   and hand-parsing `a -> b` strings re-implements what the item files
+   already say. The walk: `git log --reverse --format=%H|%aI --
+   items/*.tl` (plus `--since` when given); for each commit and each
+   item file it touches, read the file at that commit (`git show
+   <sha>:<path>`, parsed with `cosmic.literal` exactly as the store
+   parses it live) and diff `phase`/`resolution` against the previous
+   state. Subjects are consulted for exactly two things: the trailing
+   `(forced: …)` marker (repairs, excluded from flow numbers and
+   counted separately) and the verb word, which classifies a
+   backward move as bounce (`move`) vs rework (`verdict … "request
+   changes"`) vs reject (`verdict … reject`) — review.md's three kinds,
+   with accepts explicitly not backward.
+3. **What it reports** — the flow review's own list, so a review quotes
+   the tool instead of hand arithmetic. Per phase: stint count, dwell
+   median and max (minutes), peak concurrent occupancy against
+   `flow.LIMITS`, minutes spent at-or-over the limit. Globally:
+   accept / rework / bounce / reject counts, forced-move count,
+   pickup latency (ready→do) median and max. Output one `key=value`
+   line per number (the house instrument shape), then
+   `gitboard-stats: <N> transitions over <window>` as the verdict
+   line. `--since ISO8601` narrows the window; default is full
+   history. `--dir` as every verb.
+4. **Tests** (`_work/stats_test.tl`): `_work/fixture.tl`'s
+   `init_state_repo` builds a scripted history (new → ready → do →
+   check → verdict accept → done; one bounce; one forced move) with
+   committer dates pinned via `GIT_COMMITTER_DATE` env per commit, so
+   dwell numbers are exact; assert the table, the classification of
+   all three backward kinds, the forced exclusion, and the pickup
+   latency.
 
 ## Non-goals
 
-- Not a rescue of 3I0L1TbU's diff — that spec's line-level instructions (call
-  sites, facts block) are for files that no longer exist.
-- Not settled here: this card itself still needs refinement before an
-  implementer can pull it.
+- no persistence, no trend files, no chart output — one run, one
+  table; history is re-derivable, which is the point of reading the
+  log.
+- no refusal counting: a refused mutation never commits (review.md
+  documents this), so the tool cannot see it and must not pretend to —
+  the report says so in a fixed footer line rather than omitting it
+  silently.
+- no change to `flow.LIMITS` or any verb's behavior; no skill edits
+  (the flow review's hand method stays documented as the tool's
+  definition).
+
+## Acceptance
+
+On the board worktree:
+
+- `bin/cosmic --make test _work/stats_test.tl` ends
+  `test: PASS (1 files)`.
+- `o/bin/gitboard help` lists `stats`, and `o/bin/gitboard stats`
+  against the live board ends with its `gitboard-stats:` verdict line.
+- `bin/cosmic --make ci` ends `ci: PASS`.
+
+## Enablement
+
+none needed — the measurement definitions are review.md's (the tool
+implements that text, not a new theory), the git plumbing and fixture
+harness exist at the cited lines, and the file-state walk removes the
+subject-grammar ambiguity that would otherwise be the wrong turn.
