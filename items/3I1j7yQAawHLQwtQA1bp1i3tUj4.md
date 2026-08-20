@@ -48,11 +48,12 @@ Where Go is ahead, and what each gap costs here:
    `zip` likewise), a C-layer crash today kills the run with no attribution.
    `cosmic.child` is the in-box ingredient.
 4. **Timeouts.** Go has `-fuzztime`/`-fuzzminimizetime` and per-input hang
-   detection. `_fuzz` has none, and the need is already visible in the tree:
-   `_fuzz/sse_fuzz_test.tl` hand-rolls a per-property step bound
-   (`Drained.is_bounded`) because a streaming parser can fail to terminate.
-   One property solving this locally is the signal that it belongs in the
-   driver.
+   detection. Child 4 (3I7PFJE7, landed) closed most of this: `_fuzz/driver.tl`
+   now arms a per-`check()` VM-instruction budget, and `sse`'s hand-rolled
+   `Drained.is_bounded` bound was deleted in the same change. What is left is
+   the case the VM hook cannot cover — a hang inside a single C call, or any
+   hang when the hook slot is taken by the coverage collector — which child 5
+   (crash isolation) now also carries a wall-clock timeout for.
 5. **Coverage guidance.** Go and libFuzzer keep mutations that reach new code
    paths, which vastly outperforms blind random. `_fuzz` is blind. cosmic is
    unusually well placed here: `cosmic.coverage` is already a public module
@@ -156,3 +157,22 @@ its shape depends on the recorded-draw structure 2 commits to. The
 placement decision (`cosmic.fuzz` vs `_tool`) stays open and is not
 needed before child 3; it must be settled (decision record if
 contested) before child 8, the publishing move.
+
+## Refinement pass, 2026-08-20
+
+Child 4 (3I7PFJE7) LANDED: the per-`check()` VM-instruction budget is
+in `_fuzz/driver.tl`, and `_fuzz/sse_fuzz_test.tl`'s hand-rolled
+`Drained.is_bounded` bound is gone — item 4 above (§"Timeouts") is
+corrected accordingly rather than left citing deleted code.
+
+Child 5 (3IAXDNwC, crash isolation) is now driven to the ready bar.
+Its own spec carries the settled design (three spikes: `cosmic.child`'s
+`Result` already distinguishes signal/timeout/exit with no changes
+needed; a bare re-exec of the compiled test file is ~50x cheaper than
+`--make test`'s re-invocation; the re-exec argv is exactly `{arg[-1],
+arg[0]}`) — isolation lands as the driver's unconditional default per
+PROPERTY (one child process per `driver.run` call, iteration-level
+bisection only on an actual crash), not per iteration and not behind an
+opt-in flag, so no `*_fuzz_test.tl` file changes. That settles the open
+"opt-in vs. default" question this epic's spec posed for child 5: the
+earlier framing measured the wrong granularity.
