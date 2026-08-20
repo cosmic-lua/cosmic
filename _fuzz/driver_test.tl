@@ -49,7 +49,10 @@ local function test_same_seed_reproduces_the_same_failure()
   check.equal(ok_first, false, "expected a failing run")
   check.equal(ok_second, false, "expected a failing run")
   check.equal(first_msg, second_msg, "same seed reported different failures")
-  check.equal(#first, 1, "the loop should stop at the first failure")
+  check.truthy(first_msg:find("iteration=1", 1, true), "the loop should stop at the first failure")
+  -- always_fails's check also runs against shrink's candidate inputs, so
+  -- `seen` holds that exploration too; same seed shrinks identically.
+  check.equal(#first, #second, "same seed should shrink identically")
   check.equal(first[1], second[1], "same seed generated different inputs")
   check.truthy(first_msg:find("seed=42", 1, true), "seed missing: " .. first_msg)
 end
@@ -83,10 +86,31 @@ local function test_failure_message_carries_the_failing_input()
   check.truthy(msg:find("draws=", 1, true), "draws missing: " .. msg)
   local encoded = msg:match("input%(base64%)=([A-Za-z0-9+/=]*)")
   check.truthy(encoded, "no base64 input in: " .. msg)
-  local decoded = check.must(codec.decode_base64(encoded))
-  check.equal(decoded, seen[1], "base64 did not decode to the failing input")
+  -- the reported input is shrunk, so it need not equal the raw
+  -- iteration-1 input any more -- just decode cleanly.
+  check.must(codec.decode_base64(encoded))
 end
 test_failure_message_carries_the_failing_input()
+
+local function test_failure_message_reports_a_minimized_input()
+  assert(env.set("FUZZ_SEED", "5"))
+  local ok, msg = driver.run({
+      name = "fails_over_two_bytes",
+      iters = 32,
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, 256)
+      end,
+      check = function(input: string): boolean, string
+        return #input <= 2, "too long"
+      end,
+    })
+  restore()
+  check.equal(ok, false, "expected a failing run")
+  local encoded = msg:match("input%(base64%)=([A-Za-z0-9+/=]*)")
+  check.truthy(encoded, "no base64 input in: " .. msg)
+  check.truthy(#encoded <= 8, "input was not minimized, base64 length " .. #encoded)
+end
+test_failure_message_reports_a_minimized_input()
 
 local function test_iters_option_overrides_the_environment()
   assert(env.set("FUZZ_ITERS", "99"))

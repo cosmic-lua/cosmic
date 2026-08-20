@@ -13,6 +13,7 @@
 local codec = require("cosmic.codec")
 local env = require("cosmic.env")
 local rand = require("cosmic.rand")
+local shrink = require("_fuzz.shrink")
 local source = require("_fuzz.source")
 
 local DEFAULT_SEED = 1
@@ -131,17 +132,20 @@ local function run(opts: Options): boolean, string
     if armed then
       disarm_budget()
     end
-    if not ok then
-      local thrown = tostring(held)
-      local what = "threw: " .. thrown
-      if thrown == BUDGET_MESSAGE then
-        what = ("budget=%d exceeded"):format(budget)
+    if not ok or not held then
+      local what: string
+      if not ok then
+        local thrown = tostring(held)
+        what = "threw: " .. thrown
+        if thrown == BUDGET_MESSAGE then
+          what = ("budget=%d exceeded"):format(budget)
+        end
+      else
+        what = tostring(detail or "no detail")
       end
-      return false, failure(opts.name, seed, i, input, #rec.draws, what)
-    end
-    if not held then
-      return false,
-      failure(opts.name, seed, i, input, #rec.draws, tostring(detail or "no detail"))
+      local minimized_draws = shrink.shrink(opts.gen, opts.check, rec.draws)
+      local minimized_input = opts.gen(source.replay(minimized_draws))
+      return false, failure(opts.name, seed, i, minimized_input, #minimized_draws, what)
     end
   end
   return true, string.format("%s: %d iterations, seed=%d", opts.name, iters, seed)
