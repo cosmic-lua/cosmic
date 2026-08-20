@@ -3,6 +3,7 @@
 local baseline = require("_tool.coverage.baseline")
 local check = require("cosmic.check")
 local floor = require("_tool.floor")
+local fs = require("cosmic.fs")
 local rep = require("_tool.coverage.report")
 
 local type FileReport = rep.FileReport
@@ -148,7 +149,6 @@ end
 test_gate_skips_without_baseline()
 
 local function test_gate_checks_when_baseline_present()
-  local fs = require("cosmic.fs")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local path = fs.join(tmpdir, "gate-baseline.txt")
   assert(fs.write(path, check.must(baseline.render(reports({{"lib/a.tl", 9, 10}})))))
@@ -165,7 +165,6 @@ test_gate_checks_when_baseline_present()
 -- cannot disagree about the format -- and both refuse the same way when
 -- there is no data to render.
 local function test_text_for_returns_the_rendered_baseline()
-  local fs = require("cosmic.fs")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local empty = fs.join(tmpdir, "text-for-empty")
   assert(fs.make_dirs(empty))
@@ -329,7 +328,6 @@ test_render_without_a_floor_records_the_run()
 -- the per-file report, so one line naming every declining file,
 -- printed last, is what survives a truncated view.
 local function test_a_failing_ratchet_names_the_rows_that_moved()
-  local fs = require("cosmic.fs")
   local child = require("cosmic.child")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local root = fs.join(tmpdir, "ratchet-says")
@@ -374,7 +372,6 @@ test_a_failing_ratchet_names_the_rows_that_moved()
 --- @return string The fixture root
 --- @return string The display path its one row carries
 local function coverage_fixture(name: string): string, string
-  local fs = require("cosmic.fs")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local root = fs.join(tmpdir, name)
   assert(fs.remove_all(root))
@@ -391,7 +388,6 @@ end
 -- with the reason on stderr, so a gate never reports "ok" for a
 -- comparison it did not make.
 local function test_check_refuses_an_unreadable_or_malformed_baseline()
-  local fs = require("cosmic.fs")
   local root, _src = coverage_fixture("ratchet-refuses")
   assert(baseline.check(fs.join(root, "absent"), {root}) == 1,
     "a baseline that cannot be read is not a pass")
@@ -407,7 +403,6 @@ test_check_refuses_an_unreadable_or_malformed_baseline()
 -- which is the price of exercising the real function rather than a
 -- child whose coverage nobody collects.
 local function test_check_gates_against_the_resolved_rows()
-  local fs = require("cosmic.fs")
   local root, src = coverage_fixture("ratchet-resolved")
   -- The run measures 0 of 3. The high row alone would fail the ratchet;
   -- the low one is the floor that holds, so a pass here is the proof
@@ -431,7 +426,6 @@ test_check_gates_against_the_resolved_rows()
 -- state is visible in the run that tolerated it rather than surviving
 -- unnoticed until someone opens the diff.
 local function test_check_gates_a_merged_baseline_and_names_the_duplicates()
-  local fs = require("cosmic.fs")
   local child = require("cosmic.child")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local root = fs.join(tmpdir, "ratchet-merged")
@@ -471,13 +465,16 @@ test_check_gates_a_merged_baseline_and_names_the_duplicates()
 
 -- The migration this slice performs: `.cosmic-coverage` moved from
 -- "path covered total" lines to a `cosmic.literal` table, byte for
--- byte the same data. This test is the format's LAST reader: it
--- reproduces the deleted line-scan itself, against the pre-conversion
--- fixture, and checks every row against what `_tool.floor` reads back.
+-- byte the same data. BOTH sides are frozen fixtures, because the
+-- migration is a one-time fact between two texts while the live floor's
+-- rows move with every rebaseline — reading it here would pin today's
+-- file and fail the next run that adds a source file. This test is the
+-- old format's LAST reader: it reproduces the deleted line-scan itself.
 local function test_migration_preserves_every_row()
-  local fs = require("cosmic.fs")
-  local old_text = check.must(fs.read("_tool/coverage/testdata/pre_literal_baseline.txt"))
-  local new_rows = check.must(floor.read(".cosmic-coverage"))
+  local dir = "_tool/coverage/testdata/"
+  local old_text = check.must(fs.read(dir .. "pre_literal_baseline.txt"))
+  local new_rows = check.must(floor.parse(
+      check.must(fs.read(dir .. "post_literal_baseline.txt"))))
   local old_count, new_count = 0, 0
   for _ in pairs(new_rows) do new_count = new_count + 1 end
   for line in old_text:gmatch("[^\n]+") do
