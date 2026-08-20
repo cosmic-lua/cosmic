@@ -318,6 +318,7 @@ local function test_new_repo_lands_the_field()
   end
   assert(found ~= nil, "the new item is on the board")
   local it = check.must(store.load(s, found))
-  assert(it.repo == "whilp/cosmopolitan", "show renders the field: " .. it.repo)
+  assert(it.repo == "whilp/cosmopolitan",
+    "the field lands on the stored item: " .. it.repo)
 end
 test_new_repo_lands_the_field()
