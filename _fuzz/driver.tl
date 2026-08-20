@@ -21,6 +21,7 @@
 
 local child = require("cosmic.child")
 local codec = require("cosmic.codec")
+local corpus = require("_fuzz.corpus")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
 local rand = require("cosmic.rand")
@@ -129,6 +130,27 @@ local function failure(
     name, seed, iteration, codec.encode_base64(input), draws, detail)
 end
 
+--- Format the detail suffix a failing check() call produces. `ok` is
+--- the pcall status; when false, `held` is the thrown value (a
+--- BUDGET throw becomes `budget=<n> exceeded`, any other throw
+--- becomes `threw: <text>`). When true, `held` is the check's
+--- boolean and `detail` its message.
+--- @param ok boolean The pcall status
+--- @param held any The pcall's second return
+--- @param detail any The pcall's third return
+--- @param budget integer The instruction budget in force
+--- @return string The detail suffix
+local function detail_of(ok: boolean, held: any, detail: any, budget: integer): string
+  if not ok then
+    local thrown = tostring(held)
+    if thrown == BUDGET_MESSAGE then
+      return ("budget=%d exceeded"):format(budget)
+    end
+    return "threw: " .. thrown
+  end
+  return tostring(detail or "no detail")
+end
+
 --- Run a fuzz property over generated inputs, in this process.
 --- Draws one Recorder per iteration from rand.insecure_source(seed +
 --- iteration), then generates and checks inputs until one fails or the
@@ -148,6 +170,11 @@ end
 local function run_in_process(
     opts: Options, seed: integer, iters: integer, budget: integer
   ): boolean, string
+  local corpus_held, corpus_msg = corpus.replay(
+    opts.name, opts.check, budget, arm_budget, disarm_budget)
+  if not corpus_held then
+    return false, corpus_msg
+  end
   for i = 1, iters do
     local rec = source.new(rand.insecure_source(seed + i))
     local input = opts.gen(rec)
@@ -157,18 +184,10 @@ local function run_in_process(
       disarm_budget()
     end
     if not ok or not held then
-      local what: string
-      if not ok then
-        local thrown = tostring(held)
-        what = "threw: " .. thrown
-        if thrown == BUDGET_MESSAGE then
-          what = ("budget=%d exceeded"):format(budget)
-        end
-      else
-        what = tostring(detail or "no detail")
-      end
+      local what = detail_of(ok, held, detail, budget)
       local minimized_draws = shrink.shrink(opts.gen, opts.check, rec.draws)
       local minimized_input = opts.gen(source.replay(minimized_draws))
+      corpus.save(opts.name, minimized_input)
       return false, failure(opts.name, seed, i, minimized_input, #minimized_draws, what)
     end
   end
