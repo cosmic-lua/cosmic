@@ -157,7 +157,7 @@ What sent it back is this spec's own `Acceptance`: it named the working tree's
 `.cosmic-coverage` as the migration test's second input, and the implementation
 did exactly that — `assert(old_count == 249)` plus a per-row numeric assertion
 against the LIVE file. The floor's row set moves with the tree (226 -> 227 ->
-237 -> 238 across `43227b45`, `e138c492`, `a3cd3189`, `12e16174`), and the
+237 -> 238 across `43237b45`, `e138c492`, `a3cd3189`, `12e16174`), and the
 file-set drift check forces `--make coverage --baseline` whenever a source file
 appears or disappears, so the first such PR after this lands turns the test red
 on a change that has nothing to do with it; a `N row(s) lowered` rewrite does
