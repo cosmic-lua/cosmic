@@ -424,6 +424,26 @@ local function history(s: Store, id: string): {Event} | nil, string
   return out
 end
 
+--- When an item's file was last committed, as epoch seconds. Every
+--- board mutation is one commit, so this is the item's last touch —
+--- the fact claim staleness is judged from (`_work.health`).
+--- @param s Store The store
+--- @param id string Item id
+--- @return integer | nil Epoch seconds of the last commit naming it
+--- @return string Error message, also when it has no history
+local function touched_at(s: Store, id: string): integer | nil, string
+  local r, err = git_ok(s, {"log", "-1", "--format=%ct", "--",
+      fs.join("items", id .. ".tl")})
+  if r == nil then
+    return nil, err
+  end
+  local t = math.tointeger(tonumber(r.stdout:match("%d+") or ""))
+  if t == nil then
+    return nil, ("no commit history for %s"):format(id)
+  end
+  return t
+end
+
 local record store
   type Store = Store
   type Event = Event
@@ -442,6 +462,7 @@ local record store
   sync: function(s: Store): boolean, string
   publish: function(s: Store, revalidate?: Revalidate): boolean, string
   history: function(s: Store, id: string): {Event} | nil, string
+  touched_at: function(s: Store, id: string): integer | nil, string
 end
 
 local M: store = {
@@ -458,6 +479,7 @@ local M: store = {
   sync = sync,
   publish = publish,
   history = history,
+  touched_at = touched_at,
 }
 
 return M

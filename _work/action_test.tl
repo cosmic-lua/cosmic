@@ -316,3 +316,43 @@ local function test_a_full_check_stops_the_pull_too()
     "nothing pulls into a do it cannot hand over: " .. action.kind)
 end
 test_a_full_check_stops_the_pull_too()
+
+-- A claim is a lock whose holder may have died: past the lease the
+-- ordering offers the item to whoever asks, the way it already offers
+-- rework. Without ages nothing reads as stale, so callers with no git
+-- in reach keep the old behavior.
+local function test_a_stale_claim_is_offered_for_takeover()
+  local root = make({})
+  local theirs = make({parent = root.id, phase = "do", claim = "session-B"})
+  local items: {item.Item} = {root, theirs}
+  local fresh = act.next_action(items, "session-A")
+  assert(fresh.kind == "none",
+    "without ages the claim holds: " .. fresh.kind)
+  local ages: {string: integer} = {[theirs.id] = 5 * 60 * 60}
+  local action = act.next_action(items, "session-A", ages)
+  assert(action.kind == "finish" and action.item.id == theirs.id,
+    "past the lease the item is anyone's: " .. action.kind)
+  assert(action.reason:find("stale", 1, true)
+    and action.reason:find("--claim session-A", 1, true),
+    "the reason says how to take it over: " .. action.reason)
+end
+test_a_stale_claim_is_offered_for_takeover()
+
+-- A ready column where everything waits admits no pull however deep
+-- it is; the answer names the chain's deepest open blocker instead of
+-- silently refining around the stall.
+local function test_a_starved_ready_names_its_chain_root()
+  local root = make({})
+  local bottom = make({parent = root.id, phase = "plan"})
+  local middle = make({parent = root.id, phase = "plan",
+      blocked_by = bottom.id})
+  local waiting = make({parent = root.id, phase = "ready",
+      blocked_by = middle.id})
+  local items: {item.Item} = {root, bottom, middle, waiting}
+  local action = act.next_action(items, "session-A")
+  assert(action.kind == "unblock" and action.item.id == bottom.id,
+    "the chain root is the target: " .. action.kind)
+  assert(action.reason:find("every ready item is blocked", 1, true),
+    "and the reason says why: " .. action.reason)
+end
+test_a_starved_ready_names_its_chain_root()

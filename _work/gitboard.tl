@@ -36,6 +36,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local land = require("_work.gitland")
+local stall = require("_work.gitstall")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -50,6 +51,7 @@ local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["move"] = true, ["verdict"] = true, ["done"] = true,
   ["land"] = true, ["compare"] = true, ["uncompare"] = true,
+  ["stall"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -76,9 +78,14 @@ local CSPEC: flags.CommandSpec = {
     {name = "uncompare", summary = "drop the edge putting ID over OTHER",
       spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
     {name = "block", summary = "record that ID waits on BLOCKER",
-      spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
+      spec = {usage = "ID BLOCKER [options]", flags = {dir_flag(),
+          {long = "reason", arg = "WHY",
+            help = "what concretely cannot proceed until BLOCKER ends"}}}},
     {name = "unblock", summary = "drop BLOCKER from ID's blockers",
       spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
+    {name = "stall", summary = "record (or refresh) the standing stall "
+      .. "capture when next hands out nothing",
+      spec = {flags = {dir_flag()}}},
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag()}}},
     {name = "check", summary = "ready-bar and graph lint of ID",
@@ -165,6 +172,9 @@ local function main(...: string): integer
   if d.command == "sync" then
     return verbs.cmd_sync(s)
   end
+  if d.command == "stall" then
+    return stall.cmd_stall(s)
+  end
   if d.command == "find" then
     return view.cmd_find(s, d.parsed.args[1] or "")
   end
@@ -224,7 +234,8 @@ local function main(...: string): integer
       io.stderr:write(tostring(berr) .. "\n")
       return 1
     end
-    return verbs.cmd_block(s, id, blocker, d.command == "unblock")
+    return verbs.cmd_block(s, id, blocker, d.command == "unblock",
+      d.parsed.values["reason"] or "")
   end
   if d.command == "spec" then
     local file = d.parsed.args[2]

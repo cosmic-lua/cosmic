@@ -41,6 +41,12 @@ local record Item
   --- Open items this one waits on. Stored as one "id id" string —
   --- the literal domain has no lists.
   blocked_by: {string}
+  --- Why each blocker binds, by blocker id: what concretely cannot
+  --- proceed until it ends. A block is one cheap command with
+  --- board-wide flow consequences, and the reason is what lets a
+  --- later session judge whether the edge still holds. Entries whose
+  --- blocker left `blocked_by` are pruned on the next write.
+  block_reason: {string: string}
   --- The session that claimed it; "" when unclaimed.
   claim: string
   --- The PR under review; 0 when none.
@@ -133,6 +139,8 @@ local function problems(it: Item): {string}
   for _, b in ipairs(it.blocked_by or {}) do
     if not ksuid.is_id(b) then
       out[#out + 1] = ("blocked_by names a non-id: %s"):format(tostring(b))
+    elseif b == it.id then
+      out[#out + 1] = "blocked_by names the item itself; nothing waits on itself"
     elseif blocked_seen[b] then
       out[#out + 1] = ("blocked_by repeats %s"):format(b)
     else
@@ -164,6 +172,13 @@ local function decode(t: {string: any}): Item | nil, string
   for ref in tostring(t.blocked_by or ""):gmatch("%S+") do
     blocked[#blocked + 1] = ref
   end
+  local reasons: {string: string} = {}
+  local raw_reasons = t.block_reason
+  if raw_reasons is {string: any} then
+    for k, v in pairs(raw_reasons) do
+      reasons[k] = tostring(v)
+    end
+  end
   local beats: {string} = {}
   for ref in tostring(t.beats or ""):gmatch("%S+") do
     beats[#beats + 1] = ref
@@ -175,6 +190,7 @@ local function decode(t: {string: any}): Item | nil, string
     phase = tostring(t.phase or ""),
     beats = beats,
     blocked_by = blocked,
+    block_reason = reasons,
     claim = tostring(t.claim or ""),
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
     verdict = tostring(t.verdict or ""),
@@ -205,6 +221,21 @@ local function encode(it: Item): {string: any}
   end
   if #(it.blocked_by or {}) > 0 then
     t.blocked_by = table.concat(it.blocked_by, " ")
+    -- Reasons ride only for blockers still named, so an entry whose
+    -- edge was dropped heals on the next write, the way a duplicate
+    -- blocker does.
+    local reasons: {string: string} = {}
+    local any_reason = false
+    for _, b in ipairs(it.blocked_by) do
+      local why = (it.block_reason or {})[b]
+      if why ~= nil and why ~= "" then
+        reasons[b] = why
+        any_reason = true
+      end
+    end
+    if any_reason then
+      t.block_reason = reasons
+    end
   end
   if (it.claim or "") ~= "" then t.claim = it.claim end
   if (it.pr or 0) ~= 0 then t.pr = it.pr end

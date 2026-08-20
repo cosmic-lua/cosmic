@@ -222,20 +222,26 @@ local function test_block_records_landing_order_and_refuses_nonsense()
   local s = init_state_repo("block")
   local goal, first = root_with_leaf(s)
   local second = file_item(s, "the slice that waits", goal, false)
-  assert(verbs.cmd_block(s, second, first, false) == 0)
-  assert(#check.must(store.load(s, second)).blocked_by == 1,
-    "the blocker is recorded")
-  assert(verbs.cmd_block(s, second, first, false) ~= 0,
+  assert(verbs.cmd_block(s, second, first, false, "") ~= 0,
+    "a block with no reason is refused")
+  assert(verbs.cmd_block(s, second, first, false, "first lands the API") == 0)
+  local waited = check.must(store.load(s, second))
+  assert(#waited.blocked_by == 1, "the blocker is recorded")
+  assert(waited.block_reason[first] == "first lands the API",
+    "the reason rides on the edge")
+  assert(verbs.cmd_block(s, second, first, false, "again") ~= 0,
     "recording it twice records nothing")
-  assert(verbs.cmd_block(s, second, second, false) ~= 0,
+  assert(verbs.cmd_block(s, second, second, false, "self") ~= 0,
     "an item cannot block itself")
-  assert(verbs.cmd_block(s, first, second, false) ~= 0,
+  assert(verbs.cmd_block(s, first, second, false, "reverse") ~= 0,
     "and the reverse edge would deadlock both")
   assert(#check.must(store.load(s, first)).blocked_by == 0,
     "the refused edge is not written")
-  assert(verbs.cmd_block(s, second, first, true) == 0, "unblock drops it")
-  assert(#check.must(store.load(s, second)).blocked_by == 0, "leaving none")
-  assert(verbs.cmd_block(s, second, first, true) ~= 0,
+  assert(verbs.cmd_block(s, second, first, true, "") == 0, "unblock drops it")
+  local freed = check.must(store.load(s, second))
+  assert(#freed.blocked_by == 0, "leaving none")
+  assert(freed.block_reason[first] == nil, "the reason goes with the edge")
+  assert(verbs.cmd_block(s, second, first, true, "") ~= 0,
     "and dropping what is not there is refused")
 end
 test_block_records_landing_order_and_refuses_nonsense()
@@ -286,7 +292,7 @@ local function test_ready_bar_wants_a_prose_blocker_mirrored_in_the_field()
   assert(verbs.cmd_spec(s, leaf, path) == 0)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
     "prose claims a blocker the field does not carry")
-  assert(verbs.cmd_block(s, leaf, blocker, false) == 0)
+  assert(verbs.cmd_block(s, leaf, blocker, false, "sequenced behind it") == 0)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
     "recording it satisfies the bar")
 end
