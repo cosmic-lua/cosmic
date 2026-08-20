@@ -58,9 +58,14 @@ _tool/coverage/baseline.tl` is 3 (the hand-rolled scan this slice deletes).
   the pre-conversion baseline text (a fixture: `git show c935338a:.cosmic-coverage`,
   captured into `testdata/` at implementation time) with the OLD line-scan
   logic reproduced in the test itself (not the deleted production code —
-  the deletion is the point), parses the converted `.cosmic-coverage` with
-  `_tool.floor.read`, and asserts the two produce the same 249
-  `{path: {covered, total}}` pairs, none moved.
+  the deletion is the point), parses the CONVERTED text as a second frozen
+  fixture beside it (the same 249 rows, captured into `testdata/` at
+  implementation time) with `_tool.floor.parse`, and asserts the two produce
+  the same 249 `{path: {covered, total}}` pairs, none moved. No assertion in
+  this test may read the working tree's `.cosmic-coverage`: the migration is
+  a one-time fact between two frozen texts, while the live floor's row set
+  and numbers move with every rebaseline, so reading it would pin today's
+  file forever and fail the next PR that adds or removes a source file.
 - `git grep -c "gmatch\|line:match" -- _tool/coverage/baseline.tl` is 0
   (today: `grep -c 'gmatch\|line:match' _tool/coverage/baseline.tl` is 3 —
   the deleted hand-rolled scan).
@@ -139,3 +144,24 @@ since 2026-08-20's earlier pass. Confirmed the enabler actually delivers
 the layout this spec's `Change` assumes (see `Enablement` above, verified
 by spike rather than by reading `3I7BQPsM`'s own claim). This item now
 clears the ready bar and moves to `ready`.
+
+## Review finding, 2026-08-20 (request changes at `07ac88c4`, PR #1295)
+
+The first review's two gaps (production code bypassing `_tool/floor.tl`, and
+`.gitattributes` naming the wrong mechanism) are closed at `07ac88c4`, and the
+conversion itself verifies: 249 rows, every `covered`/`total` byte-identical to
+`bfa71210`'s, the hand-rolled scan gone, the dropped `Baseline.total` branch
+provably dead (no `^total ` row in the pre-conversion file).
+
+What sent it back is this spec's own `Acceptance`: it named the working tree's
+`.cosmic-coverage` as the migration test's second input, and the implementation
+did exactly that — `assert(old_count == 249)` plus a per-row numeric assertion
+against the LIVE file. The floor's row set moves with the tree (226 -> 227 ->
+237 -> 238 across `43227b45`, `e138c492`, `a3cd3189`, `12e16174`), and the
+file-set drift check forces `--make coverage --baseline` whenever a source file
+appears or disappears, so the first such PR after this lands turns the test red
+on a change that has nothing to do with it; a `N row(s) lowered` rewrite does
+the same to a frozen row's numbers. The `Acceptance` bullet above is corrected
+to freeze BOTH sides of the migration as fixtures. That is this item's ready-bar
+fix — no enablement item: the wrong turn was in this spec's text, not in a
+missing tool or a stale doc.
