@@ -227,9 +227,7 @@ local function test_format_writes_the_layout_it_promises()
   local src, err = literal.format(v)
   assert(src, "format failed: " .. tostring(err))
   local want = 'return {\n' ..
-  '  ["a\\9key"] = {\n' ..
-  '    ["inner"] = "x",\n' ..
-  '  },\n' ..
+  '  ["a\\9key"] = {["inner"] = "x"},\n' ..
   '  ["alpha"] = "a\\9b",\n' ..
   '  ["count"] = 7,\n' ..
   '  ["ratio"] = 1.5,\n' ..
@@ -254,6 +252,48 @@ local function test_format_round_trips_a_nested_fixture()
   assert(inner.inner == "x", "the nested table survives")
 end
 test_format_round_trips_a_nested_fixture()
+
+-- A flat nested table (every value a scalar) renders on one line, the
+-- same shape a committed floor's rows need for `merge=union` to merge
+-- cleanly -- and that line still parses back to the same table.
+local function test_a_flat_nested_table_renders_inline()
+  local src, err = literal.format({["a.tl"] = {["covered"] = 1, ["total"] = 2}})
+  assert(src, "format failed: " .. tostring(err))
+  local lines = 0
+  for _ in src:gmatch("[^\n]*\n") do
+    lines = lines + 1
+  end
+  assert(lines == 3, "expected exactly 3 lines, got " .. lines .. ":\n" .. src)
+  assert(src:find('["a.tl"] = {["covered"] = 1, ["total"] = 2},', 1, true),
+    "expected an inline row:\n" .. src)
+  local got = read(src)
+  local row = got["a.tl"] as {string: any} -- cast: from any
+  assert(row.covered == 1 and row.total == 2, "the inline row survives parsing")
+end
+test_a_flat_nested_table_renders_inline()
+
+-- The empty table's inline spelling, `{},`, also round-trips.
+local function test_an_empty_nested_table_renders_inline_and_round_trips()
+  local src = assert(literal.format({["a.tl"] = {}}))
+  assert(src:find('["a.tl"] = {},', 1, true), "expected an inline empty row:\n" .. src)
+  local got = read(src)
+  local row = got["a.tl"] as {string: any} -- cast: from any
+  assert(next(row) == nil, "the empty row survives parsing")
+end
+test_an_empty_nested_table_renders_inline_and_round_trips()
+
+-- A nested table that itself contains a table keeps the multi-line
+-- layout -- inlining is for flat (all-scalar) tables only.
+local function test_a_doubly_nested_table_stays_multi_line()
+  local src = assert(literal.format({outer = {inner = {["covered"] = 1, ["total"] = 2}}}))
+  local want = 'return {\n' ..
+  '  ["outer"] = {\n' ..
+  '    ["inner"] = {["covered"] = 1, ["total"] = 2},\n' ..
+  '  },\n' ..
+  '}\n'
+  assert(src == want, "rendered:\n" .. src)
+end
+test_a_doubly_nested_table_stays_multi_line()
 
 -- format refuses exactly what parse would refuse, and says which key
 -- path it choked on -- so a caller fixes the value rather than reading
