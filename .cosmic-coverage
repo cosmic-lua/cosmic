@@ -1,251 +1,251 @@
-return {
-  ["3p/tl/tl_patch.tl"] = {["covered"] = 0, ["total"] = 1},
-  ["_build/casts.tl"] = {["covered"] = 47, ["total"] = 65},
-  ["_build/casts_baseline.tl"] = {["covered"] = 0, ["total"] = 1},
-  ["_build/dupes.tl"] = {["covered"] = 94, ["total"] = 96},
-  ["_build/public_surface.tl"] = {["covered"] = 44, ["total"] = 61},
-  ["_build/public_surface_baseline.tl"] = {["covered"] = 0, ["total"] = 1},
-  ["_build/ratchet.tl"] = {["covered"] = 36, ["total"] = 36},
-  ["_build/size.tl"] = {["covered"] = 100, ["total"] = 147},
-  ["_cli/args.tl"] = {["covered"] = 0, ["total"] = 37},
-  ["_cli/build/batch.tl"] = {["covered"] = 102, ["total"] = 118},
-  ["_cli/build/init.tl"] = {["covered"] = 43, ["total"] = 47},
-  ["_cli/build/modules.tl"] = {["covered"] = 46, ["total"] = 49},
-  ["_cli/build/steps.tl"] = {["covered"] = 166, ["total"] = 219},
-  ["_cli/build/work.tl"] = {["covered"] = 161, ["total"] = 199},
-  ["_cli/check.tl"] = {["covered"] = 24, ["total"] = 31},
-  ["_cli/driver.tl"] = {["covered"] = 21, ["total"] = 34},
-  ["_cli/env_vars.tl"] = {["covered"] = 72, ["total"] = 72},
-  ["_cli/grants.tl"] = {["covered"] = 158, ["total"] = 168},
-  ["_cli/help.tl"] = {["covered"] = 46, ["total"] = 48},
-  ["_cli/lint.tl"] = {["covered"] = 190, ["total"] = 215},
-  ["_cli/lint_render.tl"] = {["covered"] = 26, ["total"] = 26},
-  ["_cli/main_handlers.tl"] = {["covered"] = 11, ["total"] = 221},
-  ["_cli/pattern_args.tl"] = {["covered"] = 132, ["total"] = 135},
-  ["_cli/reads_lint.tl"] = {["covered"] = 34, ["total"] = 34},
-  ["_cli/require_hints.tl"] = {["covered"] = 104, ["total"] = 124},
-  ["_cli/returns.tl"] = {["covered"] = 100, ["total"] = 132},
-  ["_cli/run.tl"] = {["covered"] = 28, ["total"] = 33},
-  ["_cli/visibility.tl"] = {["covered"] = 24, ["total"] = 25},
-  ["_cli/welcome.tl"] = {["covered"] = 0, ["total"] = 25},
-  ["_docs/derive.tl"] = {["covered"] = 69, ["total"] = 108},
-  ["_docs/publish.tl"] = {["covered"] = 115, ["total"] = 177},
-  ["_eval/bundle.tl"] = {["covered"] = 58, ["total"] = 80},
-  ["_eval/checks/child-tcp.tl"] = {["covered"] = 56, ["total"] = 82},
-  ["_eval/checks/contained-task.tl"] = {["covered"] = 35, ["total"] = 45},
-  ["_eval/checks/json-cli.tl"] = {["covered"] = 32, ["total"] = 38},
-  ["_eval/checks/module-tests.tl"] = {["covered"] = 31, ["total"] = 37},
-  ["_eval/checks/multi-module-build.tl"] = {["covered"] = 36, ["total"] = 45},
-  ["_eval/checks/registry.tl"] = {["covered"] = 11, ["total"] = 11},
-  ["_eval/checks/sqlite-indexer.tl"] = {["covered"] = 38, ["total"] = 41},
-  ["_eval/checks/support.tl"] = {["covered"] = 70, ["total"] = 80},
-  ["_eval/checks/text-report.tl"] = {["covered"] = 36, ["total"] = 41},
-  ["_eval/eval_types.tl"] = {["covered"] = 2, ["total"] = 2},
-  ["_eval/journal.tl"] = {["covered"] = 107, ["total"] = 110},
-  ["_eval/score.tl"] = {["covered"] = 166, ["total"] = 187},
-  ["_eval/stage.tl"] = {["covered"] = 165, ["total"] = 205},
-  ["_eval/suite.tl"] = {["covered"] = 0, ["total"] = 1},
-  ["_fuzz/driver.tl"] = {["covered"] = 71, ["total"] = 77},
-  ["_fuzz/shrink.tl"] = {["covered"] = 75, ["total"] = 104},
-  ["_fuzz/source.tl"] = {["covered"] = 34, ["total"] = 45},
-  ["_make/artifact.tl"] = {["covered"] = 161, ["total"] = 178},
-  ["_make/binaries.tl"] = {["covered"] = 24, ["total"] = 24},
-  ["_make/bytecode.tl"] = {["covered"] = 14, ["total"] = 16},
-  ["_make/check.tl"] = {["covered"] = 93, ["total"] = 95},
-  ["_make/clean.tl"] = {["covered"] = 28, ["total"] = 38},
-  ["_make/converge.tl"] = {["covered"] = 34, ["total"] = 62},
-  ["_make/deps.tl"] = {["covered"] = 73, ["total"] = 73},
-  ["_make/docs.tl"] = {["covered"] = 13, ["total"] = 31},
-  ["_make/envstamp.tl"] = {["covered"] = 48, ["total"] = 52},
-  ["_make/extract.tl"] = {["covered"] = 51, ["total"] = 72},
-  ["_make/fetch.tl"] = {["covered"] = 118, ["total"] = 148},
-  ["_make/generate.tl"] = {["covered"] = 40, ["total"] = 50},
-  ["_make/graph.tl"] = {["covered"] = 184, ["total"] = 210},
-  ["_make/groups.tl"] = {["covered"] = 37, ["total"] = 37},
-  ["_make/help.tl"] = {["covered"] = 21, ["total"] = 22},
-  ["_make/imports.tl"] = {["covered"] = 60, ["total"] = 63},
-  ["_make/init.tl"] = {["covered"] = 166, ["total"] = 222},
-  ["_make/law.tl"] = {["covered"] = 54, ["total"] = 56},
-  ["_make/patch.tl"] = {["covered"] = 81, ["total"] = 87},
-  ["_make/pin.tl"] = {["covered"] = 80, ["total"] = 81},
-  ["_make/policy.tl"] = {["covered"] = 44, ["total"] = 104},
-  ["_make/project.tl"] = {["covered"] = 181, ["total"] = 193},
-  ["_make/root.tl"] = {["covered"] = 53, ["total"] = 58},
-  ["_make/runverb.tl"] = {["covered"] = 72, ["total"] = 89},
-  ["_make/select.tl"] = {["covered"] = 33, ["total"] = 35},
-  ["_make/stage.tl"] = {["covered"] = 88, ["total"] = 96},
-  ["_make/stamp.tl"] = {["covered"] = 107, ["total"] = 118},
-  ["_make/testrun.tl"] = {["covered"] = 50, ["total"] = 58},
-  ["_make/types.tl"] = {["covered"] = 39, ["total"] = 39},
-  ["_make/validate.tl"] = {["covered"] = 244, ["total"] = 249},
-  ["_make/vcs.tl"] = {["covered"] = 27, ["total"] = 35},
-  ["_perf/baseline.tl"] = {["covered"] = 37, ["total"] = 96},
-  ["_perf/bench/child_bench.tl"] = {["covered"] = 0, ["total"] = 11},
-  ["_perf/bench/download_bench.tl"] = {["covered"] = 0, ["total"] = 104},
-  ["_perf/bench/embed_bench.tl"] = {["covered"] = 0, ["total"] = 88},
-  ["_perf/bench/embed_startup_bench.tl"] = {["covered"] = 0, ["total"] = 73},
-  ["_perf/bench/format_bench.tl"] = {["covered"] = 0, ["total"] = 40},
-  ["_perf/bench/fs_bench.tl"] = {["covered"] = 102, ["total"] = 116},
-  ["_perf/bench/fuzzy_bench.tl"] = {["covered"] = 0, ["total"] = 19},
-  ["_perf/bench/http_bench.tl"] = {["covered"] = 87, ["total"] = 138},
-  ["_perf/bench/json_bench.tl"] = {["covered"] = 73, ["total"] = 88},
-  ["_perf/bench/micro_bench.tl"] = {["covered"] = 119, ["total"] = 138},
-  ["_perf/bench/re_bench.tl"] = {["covered"] = 0, ["total"] = 47},
-  ["_perf/bench/sqlite_bench.tl"] = {["covered"] = 90, ["total"] = 124},
-  ["_perf/bench/startup_bench.tl"] = {["covered"] = 76, ["total"] = 94},
-  ["_perf/bench/stream_bench.tl"] = {["covered"] = 0, ["total"] = 80},
-  ["_perf/bench/tar_bench.tl"] = {["covered"] = 0, ["total"] = 90},
-  ["_perf/bench/teal_bench.tl"] = {["covered"] = 0, ["total"] = 34},
-  ["_perf/bench/time_bench.tl"] = {["covered"] = 0, ["total"] = 14},
-  ["_perf/compare.tl"] = {["covered"] = 105, ["total"] = 107},
-  ["_perf/gate.tl"] = {["covered"] = 95, ["total"] = 115},
-  ["_perf/harness.tl"] = {["covered"] = 136, ["total"] = 147},
-  ["_perf/peers/args.tl"] = {["covered"] = 0, ["total"] = 41},
-  ["_perf/peers/measure.tl"] = {["covered"] = 0, ["total"] = 77},
-  ["_perf/peers/peers.tl"] = {["covered"] = 56, ["total"] = 146},
-  ["_perf/peers/report.tl"] = {["covered"] = 82, ["total"] = 84},
-  ["_perf/peers/run.tl"] = {["covered"] = 0, ["total"] = 99},
-  ["_perf/perf_types.tl"] = {["covered"] = 2, ["total"] = 2},
-  ["_perf/run.tl"] = {["covered"] = 97, ["total"] = 191},
-  ["_perf/stats.tl"] = {["covered"] = 67, ["total"] = 67},
-  ["_tool/benchmark.tl"] = {["covered"] = 145, ["total"] = 172},
-  ["_tool/coverage/baseline.tl"] = {["covered"] = 151, ["total"] = 165},
-  ["_tool/coverage/lines.tl"] = {["covered"] = 65, ["total"] = 71},
-  ["_tool/coverage/report.tl"] = {["covered"] = 203, ["total"] = 224},
-  ["_tool/doc/comments.tl"] = {["covered"] = 53, ["total"] = 53},
-  ["_tool/doc/dtl.tl"] = {["covered"] = 8, ["total"] = 84},
-  ["_tool/doc/exports.tl"] = {["covered"] = 60, ["total"] = 62},
-  ["_tool/doc/index.tl"] = {["covered"] = 101, ["total"] = 107},
-  ["_tool/doc/init.tl"] = {["covered"] = 225, ["total"] = 251},
-  ["_tool/doc/scan.tl"] = {["covered"] = 67, ["total"] = 67},
-  ["_tool/example.tl"] = {["covered"] = 134, ["total"] = 167},
-  ["_tool/floor.tl"] = {["covered"] = 11, ["total"] = 11},
-  ["_tool/lint.tl"] = {["covered"] = 16, ["total"] = 17},
-  ["_tool/records.tl"] = {["covered"] = 88, ["total"] = 92},
-  ["_tool/testrun.tl"] = {["covered"] = 145, ["total"] = 180},
-  ["_types/gentl.tl"] = {["covered"] = 131, ["total"] = 155},
-  ["_types/gentype.tl"] = {["covered"] = 250, ["total"] = 305},
-  ["_types/gentype_defs.tl"] = {["covered"] = 17, ["total"] = 23},
-  ["_types/gentype_extract.tl"] = {["covered"] = 59, ["total"] = 59},
-  ["_types/gentype_parse.tl"] = {["covered"] = 255, ["total"] = 288},
-  ["_types/gentype_render.tl"] = {["covered"] = 295, ["total"] = 311},
-  ["_types/gentype_types.tl"] = {["covered"] = 2, ["total"] = 2},
-  ["_types/tlast.tl"] = {["covered"] = 160, ["total"] = 177},
-  ["_types/tlast_gen.tl"] = {["covered"] = 0, ["total"] = 14},
-  ["_types/types_gen.tl"] = {["covered"] = 0, ["total"] = 44},
-  ["cmd/cosmic/embed_gen.tl"] = {["covered"] = 0, ["total"] = 178},
-  ["cmd/cosmic/main.tl"] = {["covered"] = 0, ["total"] = 235},
-  ["cosmic/_fields.tl"] = {["covered"] = 5, ["total"] = 7},
-  ["cosmic/_literal_format.tl"] = {["covered"] = 8, ["total"] = 14},
-  ["cosmic/_literal_lex.tl"] = {["covered"] = 85, ["total"] = 89},
-  ["cosmic/_script_cache.tl"] = {["covered"] = 72, ["total"] = 79},
-  ["cosmic/_seal_coverage.tl"] = {["covered"] = 11, ["total"] = 13},
-  ["cosmic/_teal_ast.tl"] = {["covered"] = 30, ["total"] = 37},
-  ["cosmic/_teal_discard.tl"] = {["covered"] = 130, ["total"] = 148},
-  ["cosmic/_teal_engine.tl"] = {["covered"] = 123, ["total"] = 128},
-  ["cosmic/_teal_hints.tl"] = {["covered"] = 48, ["total"] = 48},
-  ["cosmic/ansi.tl"] = {["covered"] = 86, ["total"] = 86},
-  ["cosmic/check.tl"] = {["covered"] = 110, ["total"] = 114},
-  ["cosmic/child/fast.tl"] = {["covered"] = 40, ["total"] = 52},
-  ["cosmic/child/init.tl"] = {["covered"] = 0, ["total"] = 212},
-  ["cosmic/child/io.tl"] = {["covered"] = 106, ["total"] = 124},
-  ["cosmic/child/types.tl"] = {["covered"] = 4, ["total"] = 4},
-  ["cosmic/codec.tl"] = {["covered"] = 49, ["total"] = 55},
-  ["cosmic/compress.tl"] = {["covered"] = 19, ["total"] = 21},
-  ["cosmic/coverage/init.tl"] = {["covered"] = 54, ["total"] = 139},
-  ["cosmic/deep.tl"] = {["covered"] = 53, ["total"] = 53},
-  ["cosmic/doc/init.tl"] = {["covered"] = 210, ["total"] = 242},
-  ["cosmic/doc/lookup.tl"] = {["covered"] = 44, ["total"] = 69},
-  ["cosmic/doc/query.tl"] = {["covered"] = 224, ["total"] = 290},
-  ["cosmic/doc/show.tl"] = {["covered"] = 285, ["total"] = 338},
-  ["cosmic/doc/types.tl"] = {["covered"] = 2, ["total"] = 2},
-  ["cosmic/doc/visibility.tl"] = {["covered"] = 17, ["total"] = 17},
-  ["cosmic/embed/extract.tl"] = {["covered"] = 31, ["total"] = 59},
-  ["cosmic/embed/floor.tl"] = {["covered"] = 33, ["total"] = 38},
-  ["cosmic/embed/init.tl"] = {["covered"] = 143, ["total"] = 180},
-  ["cosmic/env.tl"] = {["covered"] = 24, ["total"] = 34},
-  ["cosmic/errno.tl"] = {["covered"] = 17, ["total"] = 26},
-  ["cosmic/errors.tl"] = {["covered"] = 2, ["total"] = 2},
-  ["cosmic/fd.tl"] = {["covered"] = 95, ["total"] = 118},
-  ["cosmic/fetch/body.tl"] = {["covered"] = 45, ["total"] = 67},
-  ["cosmic/fetch/extras.tl"] = {["covered"] = 196, ["total"] = 220},
-  ["cosmic/fetch/headers.tl"] = {["covered"] = 23, ["total"] = 23},
-  ["cosmic/fetch/init.tl"] = {["covered"] = 0, ["total"] = 139},
-  ["cosmic/flags/command.tl"] = {["covered"] = 94, ["total"] = 101},
-  ["cosmic/flags/getopt.tl"] = {["covered"] = 12, ["total"] = 28},
-  ["cosmic/flags/init.tl"] = {["covered"] = 0, ["total"] = 5},
-  ["cosmic/flags/parse.tl"] = {["covered"] = 141, ["total"] = 149},
-  ["cosmic/flags/types.tl"] = {["covered"] = 0, ["total"] = 2},
-  ["cosmic/format/init.tl"] = {["covered"] = 185, ["total"] = 224},
-  ["cosmic/format/rules.tl"] = {["covered"] = 208, ["total"] = 220},
-  ["cosmic/format/types.tl"] = {["covered"] = 98, ["total"] = 113},
-  ["cosmic/fs/dir.tl"] = {["covered"] = 60, ["total"] = 73},
-  ["cosmic/fs/file.tl"] = {["covered"] = 28, ["total"] = 46},
-  ["cosmic/fs/find.tl"] = {["covered"] = 111, ["total"] = 134},
-  ["cosmic/fs/init.tl"] = {["covered"] = 0, ["total"] = 17},
-  ["cosmic/fs/octal.tl"] = {["covered"] = 2, ["total"] = 2},
-  ["cosmic/fs/ops.tl"] = {["covered"] = 97, ["total"] = 138},
-  ["cosmic/fs/path.tl"] = {["covered"] = 151, ["total"] = 162},
-  ["cosmic/fs/tree.tl"] = {["covered"] = 37, ["total"] = 64},
-  ["cosmic/fs/types.tl"] = {["covered"] = 16, ["total"] = 51},
-  ["cosmic/fs/walk.tl"] = {["covered"] = 35, ["total"] = 49},
-  ["cosmic/fuzzy.tl"] = {["covered"] = 48, ["total"] = 50},
-  ["cosmic/hash.tl"] = {["covered"] = 71, ["total"] = 74},
-  ["cosmic/html.tl"] = {["covered"] = 19, ["total"] = 19},
-  ["cosmic/init.tl"] = {["covered"] = 16, ["total"] = 17},
-  ["cosmic/instrument.tl"] = {["covered"] = 76, ["total"] = 82},
-  ["cosmic/ip.tl"] = {["covered"] = 109, ["total"] = 109},
-  ["cosmic/json.tl"] = {["covered"] = 23, ["total"] = 24},
-  ["cosmic/literal.tl"] = {["covered"] = 211, ["total"] = 233},
-  ["cosmic/log.tl"] = {["covered"] = 68, ["total"] = 70},
-  ["cosmic/net/connect.tl"] = {["covered"] = 31, ["total"] = 37},
-  ["cosmic/net/init.tl"] = {["covered"] = 0, ["total"] = 120},
-  ["cosmic/net/socket.tl"] = {["covered"] = 205, ["total"] = 232},
-  ["cosmic/poll.tl"] = {["covered"] = 82, ["total"] = 96},
-  ["cosmic/proc/init.tl"] = {["covered"] = 24, ["total"] = 72},
-  ["cosmic/proc/rusage.tl"] = {["covered"] = 20, ["total"] = 28},
-  ["cosmic/quicksand/box/env.tl"] = {["covered"] = 27, ["total"] = 27},
-  ["cosmic/quicksand/box/init.tl"] = {["covered"] = 0, ["total"] = 70},
-  ["cosmic/quicksand/box/merge.tl"] = {["covered"] = 66, ["total"] = 67},
-  ["cosmic/quicksand/box/run.tl"] = {["covered"] = 0, ["total"] = 165},
-  ["cosmic/quicksand/caps.tl"] = {["covered"] = 59, ["total"] = 79},
-  ["cosmic/quicksand/init.tl"] = {["covered"] = 0, ["total"] = 49},
-  ["cosmic/quicksand/netns.tl"] = {["covered"] = 37, ["total"] = 55},
-  ["cosmic/quicksand/proc.tl"] = {["covered"] = 92, ["total"] = 135},
-  ["cosmic/quicksand/proxy.tl"] = {["covered"] = 48, ["total"] = 84},
-  ["cosmic/quicksand/proxy/dial.tl"] = {["covered"] = 22, ["total"] = 33},
-  ["cosmic/quicksand/proxy/http.tl"] = {["covered"] = 133, ["total"] = 164},
-  ["cosmic/quicksand/proxy/rules.tl"] = {["covered"] = 109, ["total"] = 110},
-  ["cosmic/quicksand/proxy/serve.tl"] = {["covered"] = 124, ["total"] = 233},
-  ["cosmic/quicksand/types.tl"] = {["covered"] = 3, ["total"] = 3},
-  ["cosmic/rand.tl"] = {["covered"] = 66, ["total"] = 73},
-  ["cosmic/re.tl"] = {["covered"] = 115, ["total"] = 125},
-  ["cosmic/sandbox/init.tl"] = {["covered"] = 119, ["total"] = 147},
-  ["cosmic/sandbox/landlock.tl"] = {["covered"] = 66, ["total"] = 114},
-  ["cosmic/sandbox/plan.tl"] = {["covered"] = 24, ["total"] = 24},
-  ["cosmic/sandbox/pledge.tl"] = {["covered"] = 24, ["total"] = 35},
-  ["cosmic/sandbox/unveil.tl"] = {["covered"] = 22, ["total"] = 39},
-  ["cosmic/searcher.tl"] = {["covered"] = 20, ["total"] = 29},
-  ["cosmic/shm.tl"] = {["covered"] = 126, ["total"] = 140},
-  ["cosmic/signal.tl"] = {["covered"] = 101, ["total"] = 109},
-  ["cosmic/sqlite/bind.tl"] = {["covered"] = 41, ["total"] = 44},
-  ["cosmic/sqlite/defaults.tl"] = {["covered"] = 15, ["total"] = 17},
-  ["cosmic/sqlite/extras.tl"] = {["covered"] = 79, ["total"] = 89},
-  ["cosmic/sqlite/init.tl"] = {["covered"] = 144, ["total"] = 163},
-  ["cosmic/sqlite/row_iter.tl"] = {["covered"] = 51, ["total"] = 59},
-  ["cosmic/sqlite/sqltext.tl"] = {["covered"] = 29, ["total"] = 41},
-  ["cosmic/sqlite/stmt_cache.tl"] = {["covered"] = 57, ["total"] = 67},
-  ["cosmic/sse.tl"] = {["covered"] = 98, ["total"] = 103},
-  ["cosmic/stream.tl"] = {["covered"] = 0, ["total"] = 2},
-  ["cosmic/string.tl"] = {["covered"] = 180, ["total"] = 183},
-  ["cosmic/sys.tl"] = {["covered"] = 14, ["total"] = 22},
-  ["cosmic/tar.tl"] = {["covered"] = 116, ["total"] = 126},
-  ["cosmic/teal.tl"] = {["covered"] = 92, ["total"] = 100},
-  ["cosmic/time.tl"] = {["covered"] = 131, ["total"] = 143},
-  ["cosmic/tty.tl"] = {["covered"] = 119, ["total"] = 126},
-  ["cosmic/url.tl"] = {["covered"] = 126, ["total"] = 141},
-  ["cosmic/user.tl"] = {["covered"] = 48, ["total"] = 61},
-  ["cosmic/uuid.tl"] = {["covered"] = 9, ["total"] = 9},
-  ["cosmic/zip.tl"] = {["covered"] = 72, ["total"] = 85},
-  ["tlconfig.lua"] = {["covered"] = 7, ["total"] = 7},
-}
+# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
+# columns: path covered-lines total-lines
+3p/tl/tl_patch.tl 0 1
+_build/casts.tl 47 65
+_build/casts_baseline.tl 0 1
+_build/dupes.tl 94 96
+_build/public_surface.tl 44 61
+_build/public_surface_baseline.tl 0 1
+_build/ratchet.tl 36 36
+_build/size.tl 100 147
+_cli/args.tl 0 37
+_cli/build/batch.tl 102 118
+_cli/build/init.tl 43 47
+_cli/build/modules.tl 46 49
+_cli/build/steps.tl 166 219
+_cli/build/work.tl 161 199
+_cli/check.tl 24 31
+_cli/driver.tl 21 34
+_cli/env_vars.tl 72 72
+_cli/grants.tl 158 168
+_cli/help.tl 46 48
+_cli/lint.tl 190 215
+_cli/lint_render.tl 26 26
+_cli/main_handlers.tl 11 221
+_cli/pattern_args.tl 132 135
+_cli/reads_lint.tl 34 34
+_cli/require_hints.tl 104 124
+_cli/returns.tl 100 132
+_cli/run.tl 28 33
+_cli/visibility.tl 24 25
+_cli/welcome.tl 0 25
+_docs/derive.tl 69 108
+_docs/publish.tl 115 177
+_eval/bundle.tl 58 80
+_eval/checks/child-tcp.tl 56 82
+_eval/checks/contained-task.tl 35 45
+_eval/checks/json-cli.tl 32 38
+_eval/checks/module-tests.tl 31 37
+_eval/checks/multi-module-build.tl 36 45
+_eval/checks/registry.tl 11 11
+_eval/checks/sqlite-indexer.tl 38 41
+_eval/checks/support.tl 70 80
+_eval/checks/text-report.tl 36 41
+_eval/eval_types.tl 2 2
+_eval/journal.tl 107 110
+_eval/score.tl 166 187
+_eval/stage.tl 165 205
+_eval/suite.tl 0 1
+_fuzz/driver.tl 71 77
+_fuzz/shrink.tl 75 104
+_fuzz/source.tl 34 45
+_make/artifact.tl 161 178
+_make/binaries.tl 24 24
+_make/bytecode.tl 14 16
+_make/check.tl 93 95
+_make/clean.tl 28 38
+_make/converge.tl 34 62
+_make/deps.tl 73 73
+_make/docs.tl 13 31
+_make/envstamp.tl 48 52
+_make/extract.tl 51 72
+_make/fetch.tl 118 148
+_make/generate.tl 40 50
+_make/graph.tl 184 210
+_make/groups.tl 37 37
+_make/help.tl 21 22
+_make/imports.tl 60 63
+_make/init.tl 166 222
+_make/law.tl 54 56
+_make/patch.tl 81 87
+_make/pin.tl 80 81
+_make/policy.tl 44 104
+_make/project.tl 181 193
+_make/root.tl 53 58
+_make/runverb.tl 72 89
+_make/select.tl 33 35
+_make/stage.tl 88 96
+_make/stamp.tl 107 118
+_make/testrun.tl 50 58
+_make/types.tl 39 39
+_make/validate.tl 244 249
+_make/vcs.tl 27 35
+_perf/baseline.tl 37 96
+_perf/bench/child_bench.tl 0 11
+_perf/bench/download_bench.tl 0 104
+_perf/bench/embed_bench.tl 0 88
+_perf/bench/embed_startup_bench.tl 0 73
+_perf/bench/format_bench.tl 0 40
+_perf/bench/fs_bench.tl 102 116
+_perf/bench/fuzzy_bench.tl 0 19
+_perf/bench/http_bench.tl 87 138
+_perf/bench/json_bench.tl 73 88
+_perf/bench/micro_bench.tl 119 138
+_perf/bench/re_bench.tl 0 47
+_perf/bench/sqlite_bench.tl 90 124
+_perf/bench/startup_bench.tl 76 94
+_perf/bench/stream_bench.tl 0 80
+_perf/bench/tar_bench.tl 0 90
+_perf/bench/teal_bench.tl 0 34
+_perf/bench/time_bench.tl 0 14
+_perf/compare.tl 105 107
+_perf/gate.tl 95 115
+_perf/harness.tl 136 147
+_perf/peers/args.tl 0 41
+_perf/peers/measure.tl 0 77
+_perf/peers/peers.tl 56 146
+_perf/peers/report.tl 82 84
+_perf/peers/run.tl 0 99
+_perf/perf_types.tl 2 2
+_perf/run.tl 97 191
+_perf/stats.tl 67 67
+_tool/benchmark.tl 145 172
+_tool/coverage/baseline.tl 151 165
+_tool/coverage/lines.tl 65 71
+_tool/coverage/report.tl 203 224
+_tool/doc/comments.tl 53 53
+_tool/doc/dtl.tl 8 84
+_tool/doc/exports.tl 60 62
+_tool/doc/index.tl 101 107
+_tool/doc/init.tl 225 251
+_tool/doc/scan.tl 67 67
+_tool/example.tl 134 167
+_tool/floor.tl 11 11
+_tool/lint.tl 16 17
+_tool/records.tl 88 92
+_tool/testrun.tl 145 180
+_types/gentl.tl 131 155
+_types/gentype.tl 250 305
+_types/gentype_defs.tl 17 23
+_types/gentype_extract.tl 59 59
+_types/gentype_parse.tl 255 288
+_types/gentype_render.tl 295 311
+_types/gentype_types.tl 2 2
+_types/tlast.tl 160 177
+_types/tlast_gen.tl 0 14
+_types/types_gen.tl 0 44
+cmd/cosmic/embed_gen.tl 0 178
+cmd/cosmic/main.tl 0 235
+cosmic/_fields.tl 5 7
+cosmic/_literal_format.tl 8 14
+cosmic/_literal_lex.tl 85 89
+cosmic/_script_cache.tl 72 79
+cosmic/_seal_coverage.tl 11 13
+cosmic/_teal_ast.tl 30 37
+cosmic/_teal_discard.tl 130 148
+cosmic/_teal_engine.tl 123 128
+cosmic/_teal_hints.tl 48 48
+cosmic/ansi.tl 86 86
+cosmic/check.tl 110 114
+cosmic/child/fast.tl 40 52
+cosmic/child/init.tl 0 212
+cosmic/child/io.tl 106 124
+cosmic/child/types.tl 4 4
+cosmic/codec.tl 49 55
+cosmic/compress.tl 19 21
+cosmic/coverage/init.tl 54 139
+cosmic/deep.tl 53 53
+cosmic/doc/init.tl 210 242
+cosmic/doc/lookup.tl 44 69
+cosmic/doc/query.tl 224 290
+cosmic/doc/show.tl 285 338
+cosmic/doc/types.tl 2 2
+cosmic/doc/visibility.tl 17 17
+cosmic/embed/extract.tl 31 59
+cosmic/embed/floor.tl 33 38
+cosmic/embed/init.tl 143 180
+cosmic/env.tl 24 34
+cosmic/errno.tl 17 26
+cosmic/errors.tl 2 2
+cosmic/fd.tl 95 118
+cosmic/fetch/body.tl 45 67
+cosmic/fetch/extras.tl 196 220
+cosmic/fetch/headers.tl 23 23
+cosmic/fetch/init.tl 0 139
+cosmic/flags/command.tl 94 101
+cosmic/flags/getopt.tl 12 28
+cosmic/flags/init.tl 0 5
+cosmic/flags/parse.tl 141 149
+cosmic/flags/types.tl 0 2
+cosmic/format/init.tl 185 224
+cosmic/format/rules.tl 208 220
+cosmic/format/types.tl 98 113
+cosmic/fs/dir.tl 60 73
+cosmic/fs/file.tl 28 46
+cosmic/fs/find.tl 111 134
+cosmic/fs/init.tl 0 17
+cosmic/fs/octal.tl 2 2
+cosmic/fs/ops.tl 97 138
+cosmic/fs/path.tl 151 162
+cosmic/fs/tree.tl 37 64
+cosmic/fs/types.tl 16 51
+cosmic/fs/walk.tl 35 49
+cosmic/fuzzy.tl 48 50
+cosmic/hash.tl 71 74
+cosmic/html.tl 19 19
+cosmic/init.tl 16 17
+cosmic/instrument.tl 76 82
+cosmic/ip.tl 109 109
+cosmic/json.tl 23 24
+cosmic/literal.tl 211 233
+cosmic/log.tl 68 70
+cosmic/net/connect.tl 31 37
+cosmic/net/init.tl 0 120
+cosmic/net/socket.tl 205 232
+cosmic/poll.tl 82 96
+cosmic/proc/init.tl 24 72
+cosmic/proc/rusage.tl 20 28
+cosmic/quicksand/box/env.tl 27 27
+cosmic/quicksand/box/init.tl 0 70
+cosmic/quicksand/box/merge.tl 66 67
+cosmic/quicksand/box/run.tl 0 165
+cosmic/quicksand/caps.tl 59 79
+cosmic/quicksand/init.tl 0 49
+cosmic/quicksand/netns.tl 37 55
+cosmic/quicksand/proc.tl 92 135
+cosmic/quicksand/proxy.tl 48 84
+cosmic/quicksand/proxy/dial.tl 22 33
+cosmic/quicksand/proxy/http.tl 133 164
+cosmic/quicksand/proxy/rules.tl 109 110
+cosmic/quicksand/proxy/serve.tl 124 233
+cosmic/quicksand/types.tl 3 3
+cosmic/rand.tl 66 73
+cosmic/re.tl 115 125
+cosmic/sandbox/init.tl 119 147
+cosmic/sandbox/landlock.tl 66 114
+cosmic/sandbox/plan.tl 24 24
+cosmic/sandbox/pledge.tl 24 35
+cosmic/sandbox/unveil.tl 22 39
+cosmic/searcher.tl 20 29
+cosmic/shm.tl 126 140
+cosmic/signal.tl 101 109
+cosmic/sqlite/bind.tl 41 44
+cosmic/sqlite/defaults.tl 15 17
+cosmic/sqlite/extras.tl 79 89
+cosmic/sqlite/init.tl 144 163
+cosmic/sqlite/row_iter.tl 51 59
+cosmic/sqlite/sqltext.tl 29 41
+cosmic/sqlite/stmt_cache.tl 57 67
+cosmic/sse.tl 98 103
+cosmic/stream.tl 0 2
+cosmic/string.tl 180 183
+cosmic/sys.tl 14 22
+cosmic/tar.tl 116 126
+cosmic/teal.tl 92 100
+cosmic/time.tl 131 143
+cosmic/tty.tl 119 126
+cosmic/url.tl 126 141
+cosmic/user.tl 48 61
+cosmic/uuid.tl 9 9
+cosmic/zip.tl 72 85
+tlconfig.lua 7 7

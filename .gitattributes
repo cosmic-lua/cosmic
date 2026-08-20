@@ -2,10 +2,9 @@
 # share, so a collision between disjoint diffs is an artifact of the
 # text and not a real disagreement. `union` takes both sides' rows
 # instead of stopping the merge, and GitHub's server-side merge honors
-# it. Duplicate rows are valid input: `_tool.coverage.baseline`'s
-# `on_duplicate` resolver resolves a repeated path to its lower
-# coverage — the safe direction, since a merge must never raise a
-# floor — and the check names the resolution, and
+# it. Duplicate rows are valid input: the ratchet resolves a repeated
+# path to its lower coverage — the safe direction, since a merge must
+# never raise a floor — and says so, and
 # `cosmic --make coverage --baseline` rewrites the file clean.
 .cosmic-coverage merge=union
 
