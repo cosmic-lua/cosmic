@@ -299,3 +299,20 @@ local function test_a_full_do_of_others_claims_is_not_a_pull()
     "and the held slots are named: " .. action.reason)
 end
 test_a_full_do_of_others_claims_is_not_a_pull()
+
+-- Pulling while `check` is full manufactures work whose only exit is a
+-- handover the gate refuses: the item enters `do` and stops there.
+-- Finishing beats starting, and a start that cannot finish is not one.
+local function test_a_full_check_stops_the_pull_too()
+  local root = make({})
+  local items: {item.Item} = {root}
+  for _ = 1, flow.LIMITS["check"] do
+    items[#items + 1] = make({parent = root.id, phase = "check", pr = 7,
+        claim = "session-A"})
+  end
+  items[#items + 1] = make({parent = root.id, phase = "ready"})
+  local action = act.next_action(items, "session-A")
+  assert(action.kind ~= "pull",
+    "nothing pulls into a do it cannot hand over: " .. action.kind)
+end
+test_a_full_check_stops_the_pull_too()
