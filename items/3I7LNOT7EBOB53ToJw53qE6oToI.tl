@@ -1,4 +1,6 @@
 return {
   ["id"] = "3I7LNOT7EBOB53ToJw53qE6oToI",
+  ["parent"] = "3I1IfJ228vyPoO9rhbHhc6RjxJB",
+  ["phase"] = "plan",
   ["title"] = "quicksand: Box consumes the landlock net tier where netns cannot start",
 }
