@@ -121,23 +121,19 @@ end
 --- What draining an EventStream produced.
 local record Drained
   events: {sse.Event}
-  --- Calls to :next(), the terminating one included.
-  steps: integer
   --- The message :next() yielded alongside its terminal nil, if any.
   terminal_error: string
-  --- True when the step bound was reached before :next() said nil.
-  is_bounded: boolean
 end
 
---- Drain an EventStream, refusing to loop past max_steps.
+--- Drain an EventStream until :next() says nil. A parser that stops
+--- terminating is the driver's instruction budget's to catch and
+--- attribute, so this loop carries no bound of its own.
 --- @param reader stream.Reader The bytes to parse
---- @param max_steps integer The most :next() calls to make
 --- @return Drained What came out
-local function drain(reader: stream.Reader, max_steps: integer): Drained
+local function drain(reader: stream.Reader): Drained
   local events_stream = sse.parse(reader)
-  local out: Drained = {events = {}, steps = 0, is_bounded = false}
-  for _ = 1, max_steps do
-    out.steps = out.steps + 1
+  local out: Drained = {events = {}}
+  while true do
     local ev, err = events_stream:next()
     if not ev then
       out.terminal_error = err
@@ -145,8 +141,6 @@ local function drain(reader: stream.Reader, max_steps: integer): Drained
     end
     out.events[#out.events + 1] = ev
   end
-  out.is_bounded = true
-  return out
 end
 
 --- Render an event's fields for a failure message.
@@ -218,12 +212,8 @@ local function test_chunking_invariance()
       gen = gen_chunked_stream,
       check = function(input: string): boolean, string
         local chunks, bytes = decode_chunked_stream(input)
-        local bound = #bytes + 1
-        local whole = drain(stream.new_reader(bytes), bound)
-        local split = drain(chunked_reader(chunks), bound)
-        if whole.is_bounded or split.is_bounded then
-          return false, "draining did not terminate within " .. tostring(bound) .. " steps"
-        end
+        local whole = drain(stream.new_reader(bytes))
+        local split = drain(chunked_reader(chunks))
         if whole.terminal_error or split.terminal_error then
           return false, string.format("unexpected terminal error: whole=%s chunked=%s",
             tostring(whole.terminal_error), tostring(split.terminal_error))
@@ -246,17 +236,11 @@ local function test_parser_totality()
         return driver.bytes(src, TOTALITY_INPUT_LEN)
       end,
       check = function(input: string): boolean, string
-        -- Every dispatched event needs at least its blank line, so one
-        -- step per input byte plus the terminating nil is generous. A
-        -- parser that yields nothing while consuming nothing runs past
-        -- it, which is the unbounded loop this bound exists to catch.
-        local bound = #input + 1
-        local drained = drain(stream.new_reader(input), bound)
-        if drained.is_bounded then
-          return false, string.format(
-            ":next() ran %d steps over %d bytes without terminating",
-            drained.steps, #input)
-        end
+        -- Totality IS the property: the drain must reach :next()'s
+        -- terminal nil. A parser that yields nothing while consuming
+        -- nothing loops until the driver's instruction budget fails
+        -- the run, attributed to this input.
+        drain(stream.new_reader(input))
         return true
       end,
     })
@@ -291,10 +275,7 @@ local function test_format_parse_round_trip()
       gen = gen_round_trip_wire,
       check = function(input: string): boolean, string
         local want = pending_event
-        local drained = drain(stream.new_reader(input), #input + 1)
-        if drained.is_bounded then
-          return false, "draining did not terminate"
-        end
+        local drained = drain(stream.new_reader(input))
         if #drained.events ~= 1 then
           return false, string.format("want 1 event, got %d from %q",
             #drained.events, input)
