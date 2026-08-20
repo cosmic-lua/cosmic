@@ -1,5 +1,6 @@
 local check = require("cosmic.check")
 local codec = require("cosmic.codec")
+local coverage = require("cosmic.coverage")
 local driver = require("_fuzz.driver")
 local env = require("cosmic.env")
 local rand = require("cosmic.rand")
@@ -197,3 +198,91 @@ local function test_replay_past_the_end_fails_by_position()
     "error should name the position, got: " .. tostring(err))
 end
 test_replay_past_the_end_fails_by_position()
+
+-- The two budget tests below arm the driver's instruction hook, which
+-- needs the VM's one hook slot: under the instrumented suite the
+-- coverage collector owns it and the budget stands down, so they
+-- bracket themselves with coverage.stop()/start() (nestable, counts
+-- kept) to run meaningfully under both the plain and instrumented
+-- suite.
+local function without_coverage(body: function())
+  local was_running = coverage.is_running()
+  if was_running then
+    coverage.stop()
+  end
+  body()
+  if was_running then
+    coverage.start()
+  end
+end
+
+local function test_a_looping_property_fails_within_its_budget()
+  without_coverage(function()
+      local ok, msg = driver.run({
+          name = "looper",
+          iters = 3,
+          budget = 100000,
+          gen = function(_src: source.Recorder): string
+            return "input"
+          end,
+          check = function(_input: string): boolean, string
+            while true do end
+          end,
+        })
+      check.equal(ok, false, "a looping property must fail, not hang")
+      check.truthy(msg:find("seed=", 1, true), "seed missing: " .. msg)
+      check.truthy(msg:find("iteration=1", 1, true), "iteration missing: " .. msg)
+      check.truthy(msg:find("budget=100000 exceeded", 1, true),
+        "the budget failure is named: " .. msg)
+    end)
+end
+test_a_looping_property_fails_within_its_budget()
+
+local function test_a_terminating_property_passes_under_its_budget()
+  local ok, msg = driver.run({
+      name = "well_within",
+      iters = 8,
+      budget = 100000,
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, 16)
+      end,
+      check = function(_input: string): boolean, string
+        return true
+      end,
+    })
+  check.truthy(ok, "a terminating property is unaffected by the budget: " .. msg)
+end
+test_a_terminating_property_passes_under_its_budget()
+
+-- The budget hook must not outlive the run that armed it: after a
+-- budget failure, a draw-heavy run whose TOTAL instruction count is far
+-- past the previous small budget still completes, which it could not if
+-- the old hook were still counting.
+local function test_the_budget_hook_is_cleared_between_runs()
+  without_coverage(function()
+      local failed = driver.run({
+          name = "arms_a_tiny_budget",
+          iters = 1,
+          budget = 1000,
+          gen = function(_src: source.Recorder): string
+            return "input"
+          end,
+          check = function(_input: string): boolean, string
+            while true do end
+          end,
+        })
+      check.equal(failed, false, "the tiny-budget run must fail first")
+      local ok, msg = driver.run({
+          name = "draw_heavy_afterwards",
+          iters = 64,
+          gen = function(src: source.Recorder): string
+            return driver.bytes(src, 256)
+          end,
+          check = function(input: string): boolean, string
+            return #input <= 256
+          end,
+        })
+      check.truthy(ok, "the hook from the failed run must be gone: " .. msg)
+    end)
+end
+test_the_budget_hook_is_cleared_between_runs()

@@ -46,7 +46,7 @@ _eval/journal.tl 107 110
 _eval/score.tl 166 187
 _eval/stage.tl 165 205
 _eval/suite.tl 0 1
-_fuzz/driver.tl 56 57
+_fuzz/driver.tl 71 77
 _fuzz/source.tl 34 45
 _make/artifact.tl 161 178
 _make/binaries.tl 24 24

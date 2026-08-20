@@ -18,6 +18,35 @@ local source = require("_fuzz.source")
 local DEFAULT_SEED = 1
 local DEFAULT_ITERS = 256
 
+--- VM instructions one check() invocation may spend before the run
+--- fails. Measured 2026-08-20 with a count hook at 1000-instruction
+--- granularity over every property in the tree: the costliest single
+--- invocation (tar_mutation_totality) stayed under 23k instructions,
+--- so this default sits more than 2000x above what the tree needs.
+local DEFAULT_BUDGET = 50000000
+
+--- What the budget hook throws. Raised with level 0, so a caught value
+--- equal to this string IS a budget failure, not a property throw.
+local BUDGET_MESSAGE = "_fuzz.driver: instruction budget exceeded"
+
+--- Arm the budget hook when the VM's one hook slot is free.
+--- @param budget integer VM instructions until the hook throws
+--- @return boolean True when the hook was armed
+local function arm_budget(budget: integer): boolean
+  if debug.gethook() ~= nil then
+    return false
+  end
+  debug.sethook(function() error(BUDGET_MESSAGE, 0) end, "", budget)
+  return true
+end
+
+--- Turn the budget hook off. tl's sethook declaration has no argless
+--- clearing form; an empty mask with no count is the same off state
+--- (Lua turns the hook off when mask and count are both zero).
+local function disarm_budget()
+  debug.sethook(function() end, "")
+end
+
 --- One fuzz property: what to generate, and what must hold for it.
 local record Options
   --- Reported at the head of every message.
@@ -29,6 +58,16 @@ local record Options
   check: function(input: string): boolean, string
   --- Iteration count. Overrides FUZZ_ITERS when set.
   iters: integer
+  --- VM instructions per check() invocation. Overrides DEFAULT_BUDGET
+  --- when set. A property that runs past it fails the run like any
+  --- other failure, reporting `budget=<n> exceeded`, so a hung parser
+  --- is attributed to its input instead of hanging the suite. The VM
+  --- has one debug-hook slot, so the budget arms only when that slot
+  --- is free: under the instrumented coverage stage the collector owns
+  --- it (cosmo.cov's C hook, which Lua can neither call nor reinstall)
+  --- and the budget stands down. A hang inside a single C call cannot
+  --- be caught either way — the hook fires between VM instructions.
+  budget: integer
 end
 
 --- Read an integer from the environment, falling back when unset or
@@ -74,19 +113,31 @@ end
 --- iteration), seeded by FUZZ_SEED (default 1), then generates and
 --- checks inputs until one fails or the iteration count is exhausted.
 --- The property runs under pcall, so a throw fails the run instead of
---- escaping it.
+--- escaping it, and — when the VM's hook slot is free — under an
+--- instruction-count hook, so a property that stops terminating fails
+--- within its budget instead of hanging.
 --- @param opts Options The property to run
 --- @return boolean True when every iteration held
 --- @return string The failure message, or a summary of the passing run
 local function run(opts: Options): boolean, string
   local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
   local iters = opts.iters or env_integer("FUZZ_ITERS", DEFAULT_ITERS)
+  local budget = opts.budget or DEFAULT_BUDGET
   for i = 1, iters do
     local rec = source.new(rand.insecure_source(seed + i))
     local input = opts.gen(rec)
+    local armed = arm_budget(budget)
     local ok, held, detail = pcall(opts.check, input)
+    if armed then
+      disarm_budget()
+    end
     if not ok then
-      return false, failure(opts.name, seed, i, input, #rec.draws, "threw: " .. tostring(held))
+      local thrown = tostring(held)
+      local what = "threw: " .. thrown
+      if thrown == BUDGET_MESSAGE then
+        what = ("budget=%d exceeded"):format(budget)
+      end
+      return false, failure(opts.name, seed, i, input, #rec.draws, what)
     end
     if not held then
       return false,
