@@ -14,9 +14,10 @@ Convert `.cosmic-coverage` to the `cosmic.literal` format and make
 deleting its own line scan, its `path covered total` split, its repeated-path
 resolution and its canonical write.
 
-- The floor becomes one `["path"] = {covered, total},` per line, sorted by
-  path — the same shape and the same sort the other two floors have, and a
-  `cosmic --check fmt` fixpoint like them.
+- The floor becomes one `["path"] = { ["covered"] = C, ["total"] = T },` per
+  line, sorted by path — the inline-nested-table layout `3I7BQPsM` adds to
+  `cosmic.literal.format`, the same shape and sort the other two floors have,
+  and a `cosmic --check fmt` fixpoint like them.
 - The repeated-path rule survives unchanged in meaning: the lower percentage
   wins, expressed now as the `worse` resolver the helper passes to
   `on_duplicate`. Its comment in `.gitattributes` stays true and should be
@@ -38,21 +39,40 @@ the floor; only the comment above it. The failure-message contract is #C4.
 
 ## Acceptance
 
-Sketch — replace with measured commands at refinement.
+Measured 2026-08-20 at `9c3f5325`: `.cosmic-coverage` is 251 lines — 249 data
+rows, 2 comment lines, 0 duplicate paths (`grep -vc '^#' .cosmic-coverage` is
+249; `wc -l < .cosmic-coverage` is 251; `grep -v '^#' .cosmic-coverage | awk
+'{print $1}' | sort | uniq -d | wc -l` is 0). `_tool/coverage/baseline.tl` is
+424 lines (76 of headroom under the 500-line cap) and
+`_tool/coverage/baseline_test.tl` is 484 lines (16 of headroom) — the parser
+tests this slice deletes are what makes room for the new ones.
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
-- After `--make coverage --baseline` on an unchanged tree, `.cosmic-coverage`
-  is byte-identical to what this PR committed.
-- Every path in the old floor is present in the new one with the same two
-  numbers, checked mechanically in the PR.
-- `bin/cosmic --make test _tool/coverage/baseline_test.tl` passes, minus the
-  tests of the parser that was deleted.
+- `bin/cosmic --make coverage --baseline` on an unchanged tree leaves
+  `.cosmic-coverage` byte-identical to what this PR commits (`git diff
+  --stat -- .cosmic-coverage` empty after re-running it).
+- `bin/cosmic --make test _tool/coverage/baseline_test.tl` ends `test: PASS
+  (1 files)`, including a `test_migration_preserves_every_row` that parses
+  the pre-conversion baseline text (a fixture: `git show 9c3f5325:.cosmic-coverage`,
+  captured into `testdata/` at implementation time) with the OLD line-scan
+  logic reproduced in the test itself (not the deleted production code —
+  the deletion is the point), parses the converted `.cosmic-coverage` with
+  `_tool.floor.read`, and asserts the two produce the same 249
+  `{path: {covered, total}}` pairs, none moved.
+- `git grep -c "gmatch\|line:match" -- _tool/coverage/baseline.tl` is 0
+  (today: `grep -c 'gmatch\|line:match' _tool/coverage/baseline.tl` is 3 —
+  the deleted hand-rolled scan).
+- `.gitattributes` line 9 (`.cosmic-coverage merge=union`)'s neighboring
+  comment, if it names the hand-rolled parser, is reworded to name
+  `cosmic.literal`/`_tool.floor` instead — checked by eye, not a command.
 
 ## Enablement
 
-Blocked by #C1. File-disjoint from #1223 (which owns `_build/` and the helper),
-so the two run in parallel; if #1223 lands first, this slice requires the helper
-rather than adding it.
+Blocked by `3I7BQPsM` (`cosmic.literal.format` inline-row layout) — mirrored
+in `blocked_by`. Stays in `plan` until that item lands. File-disjoint from
+`3I1J83Zr`/`3I1J6VKz` (the other ratchet-unification slices, now unblocked
+per the log below), so this can run in parallel with them once its own
+blocker clears.
 
 
 ---
@@ -92,3 +112,17 @@ in `plan` until it lands. The current floor, re-measured: 245 data rows,
 2 comment lines, no duplicate paths. `_tool/coverage/baseline_test.tl`
 is 484 lines — 16 under the cap — so the parser-test deletion this slice
 performs is also what makes room for any new row-shape tests.
+
+## Refinement pass, 2026-08-20
+
+`3I7BQPsM` (the blocker) has not landed yet — this item stays in `plan`,
+still blocked. What this pass did: replaced the `Acceptance` sketch with
+measured commands (row counts re-measured at `9c3f5325`: 249 data rows,
+up from 245 on 2026-08-19 — the tree has grown four rows since, including
+this session's own `_fuzz/shrink.tl` coverage entry), added a concrete
+migration-preserves-every-row test shape, and a mechanical grep proving
+the hand-rolled scan (`gmatch`/`line:match`, 3 matches today) is gone
+post-conversion. No change to `Goal`, `Change`, or `Non-goals` — those
+already held up under this reading. Next refinement pass, once `3I7BQPsM`
+lands: re-verify the row-count/headroom numbers haven't drifted further,
+then `move ID ready`.
