@@ -4,7 +4,9 @@ local coverage = require("cosmic.coverage")
 local driver = require("_fuzz.driver")
 local env = require("cosmic.env")
 local rand = require("cosmic.rand")
+local signal = require("cosmic.signal")
 local source = require("_fuzz.source")
+local time = require("cosmic.time")
 
 local saved_seed = env.get("FUZZ_SEED")
 local saved_iters = env.get("FUZZ_ITERS")
@@ -42,9 +44,9 @@ end
 local function test_same_seed_reproduces_the_same_failure()
   assert(env.set("FUZZ_SEED", "42"))
   local first: {string} = {}
-  local ok_first, first_msg = driver.run(always_fails(first))
+  local ok_first, first_msg = driver.run_unisolated(always_fails(first))
   local second: {string} = {}
-  local ok_second, second_msg = driver.run(always_fails(second))
+  local ok_second, second_msg = driver.run_unisolated(always_fails(second))
   restore()
   check.equal(ok_first, false, "expected a failing run")
   check.equal(ok_second, false, "expected a failing run")
@@ -59,7 +61,7 @@ end
 test_same_seed_reproduces_the_same_failure()
 
 local function test_a_throwing_check_is_reported_as_a_failure()
-  local ok, msg = driver.run({
+  local ok, msg = driver.run_unisolated({
       name = "thrower",
       iters = 4,
       gen = function(_src: source.Recorder): string
@@ -78,7 +80,7 @@ test_a_throwing_check_is_reported_as_a_failure()
 local function test_failure_message_carries_the_failing_input()
   assert(env.set("FUZZ_SEED", "7"))
   local seen: {string} = {}
-  local ok, msg = driver.run(always_fails(seen))
+  local ok, msg = driver.run_unisolated(always_fails(seen))
   restore()
   check.equal(ok, false, "expected a failing run")
   check.truthy(msg:find("seed=", 1, true), "seed missing: " .. msg)
@@ -94,7 +96,7 @@ test_failure_message_carries_the_failing_input()
 
 local function test_failure_message_reports_a_minimized_input()
   assert(env.set("FUZZ_SEED", "5"))
-  local ok, msg = driver.run({
+  local ok, msg = driver.run_unisolated({
       name = "fails_over_two_bytes",
       iters = 32,
       gen = function(src: source.Recorder): string
@@ -115,7 +117,7 @@ test_failure_message_reports_a_minimized_input()
 local function test_iters_option_overrides_the_environment()
   assert(env.set("FUZZ_ITERS", "99"))
   local calls = 0
-  local ok, msg = driver.run({
+  local ok, msg = driver.run_unisolated({
       name = "counted",
       iters = 5,
       gen = function(src: source.Recorder): string
@@ -137,7 +139,7 @@ local function test_environment_supplies_iterations_and_the_default_seed()
   assert(env.set("FUZZ_ITERS", "3"))
   assert(env.unset("FUZZ_SEED"))
   local calls = 0
-  local ok, msg = driver.run({
+  local ok, msg = driver.run_unisolated({
       name = "from_env",
       gen = function(src: source.Recorder): string
         calls = calls + 1
@@ -242,7 +244,7 @@ end
 
 local function test_a_looping_property_fails_within_its_budget()
   without_coverage(function()
-      local ok, msg = driver.run({
+      local ok, msg = driver.run_unisolated({
           name = "looper",
           iters = 3,
           budget = 100000,
@@ -263,7 +265,7 @@ end
 test_a_looping_property_fails_within_its_budget()
 
 local function test_a_terminating_property_passes_under_its_budget()
-  local ok, msg = driver.run({
+  local ok, msg = driver.run_unisolated({
       name = "well_within",
       iters = 8,
       budget = 100000,
@@ -284,7 +286,7 @@ test_a_terminating_property_passes_under_its_budget()
 -- the old hook were still counting.
 local function test_the_budget_hook_is_cleared_between_runs()
   without_coverage(function()
-      local failed = driver.run({
+      local failed = driver.run_unisolated({
           name = "arms_a_tiny_budget",
           iters = 1,
           budget = 1000,
@@ -296,7 +298,7 @@ local function test_the_budget_hook_is_cleared_between_runs()
           end,
         })
       check.equal(failed, false, "the tiny-budget run must fail first")
-      local ok, msg = driver.run({
+      local ok, msg = driver.run_unisolated({
           name = "draw_heavy_afterwards",
           iters = 64,
           gen = function(src: source.Recorder): string
@@ -310,3 +312,95 @@ local function test_the_budget_hook_is_cleared_between_runs()
     end)
 end
 test_the_budget_hook_is_cleared_between_runs()
+
+-- The three tests below exercise driver.run() itself (not
+-- run_unisolated), so each spawns at least one real child process via
+-- cosmic.child — the mechanism the isolation item added.
+
+-- Every test below calls driver.run() directly, and driver.run()
+-- always spawns a child that re-executes this WHOLE file. So when
+-- isolate() isolates test B's property, the child it spawns still
+-- reaches test A's driver.run() call in file order — which correctly
+-- reports "skipped" (see run()'s FUZZ_ISOLATE branch), the same
+-- signal a real *_fuzz_test.tl's check.truthy(ok, msg) already treats
+-- as a pass. A strict assertion here would not tolerate that; each
+-- test below skips its own assertions when it detects this call ran
+-- inside a SIBLING's isolated child instead of the top level.
+local function skipped_by_a_sibling(msg: string): boolean
+  return msg:find(": skipped (isolating a different property)", 1, true) ~= nil
+end
+
+local function test_a_crashing_check_is_attributed_to_its_iteration()
+  local counter = 0
+  local ok, msg = driver.run({
+      name = "driver_test_crash_attribution",
+      iters = 8,
+      gen = function(_src: source.Recorder): string
+        counter = counter + 1
+        return tostring(counter)
+      end,
+      check = function(input: string): boolean, string
+        if input == "5" then
+          assert(signal.raise(signal.SIGSEGV))
+        end
+        return true
+      end,
+    })
+  if ok and skipped_by_a_sibling(msg) then
+    return
+  end
+  check.equal(ok, false, "a crashing property must fail: " .. tostring(msg))
+  check.truthy(msg:find("crashed: signal", 1, true), "not reported as a crash: " .. msg)
+  check.truthy(msg:find("iteration=5", 1, true), "wrong iteration attributed: " .. msg)
+end
+test_a_crashing_check_is_attributed_to_its_iteration()
+
+local function test_a_hanging_check_is_reported_as_a_timeout()
+  local ok, msg = driver.run({
+      name = "driver_test_hang_timeout",
+      iters = 1,
+      timeout_ms = 200,
+      gen = function(_src: source.Recorder): string
+        return "input"
+      end,
+      check = function(_input: string): boolean, string
+        -- A C-layer sleep, not a Lua loop: outside the VM instruction
+        -- hook's reach, so only the wall-clock timeout catches it.
+        check.must(time.sleep_ms(2000))
+        return true
+      end,
+    })
+  if ok and skipped_by_a_sibling(msg) then
+    return
+  end
+  check.equal(ok, false, "a hanging property must fail: " .. tostring(msg))
+  check.truthy(msg:find("hung: exceeded 200ms", 1, true), "not reported as a hang: " .. msg)
+end
+test_a_hanging_check_is_reported_as_a_timeout()
+
+local function test_other_properties_in_the_file_are_skipped_when_isolating()
+  local saved_isolate = env.get("FUZZ_ISOLATE")
+  assert(env.set("FUZZ_ISOLATE", "some_other_property"))
+  local called = false
+  local ok, msg = driver.run({
+      name = "driver_test_not_the_isolated_one",
+      iters = 4,
+      gen = function(_src: source.Recorder): string
+        called = true
+        return "input"
+      end,
+      check = function(_input: string): boolean, string
+        called = true
+        return true
+      end,
+    })
+  if saved_isolate then
+    assert(env.set("FUZZ_ISOLATE", saved_isolate))
+  else
+    assert(env.unset("FUZZ_ISOLATE"))
+  end
+  check.truthy(ok, "a skipped property must report ok: " .. tostring(msg))
+  check.truthy(msg:find("skipped", 1, true), "not reported as skipped: " .. msg)
+  check.equal(called, false, "gen/check must not run for a skipped property")
+end
+test_other_properties_in_the_file_are_skipped_when_isolating()
