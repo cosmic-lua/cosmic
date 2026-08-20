@@ -157,8 +157,20 @@ local function test_repo_is_rendered_in_show_status_and_tree()
   local status_lines = view.status_report(all)
   assert(has(status_lines, "%[whilp/cosmopolitan%]"),
     "status marks the item with its repo: " .. table.concat(status_lines, "\n"))
-  assert(not has(status_lines, "^pr: #42.*%["),
-    "the same-repo LEAF is unmarked (regression guard)")
+  -- The mark means "cross-repo", so it must not reach a same-repo
+  -- line. Hold the LEAF's line before asserting about it: `status`
+  -- writes a PR as ` pr:42` where `show` writes `pr: #42`, and a
+  -- negative assertion over a pattern from the wrong report matches
+  -- nothing and passes however badly the mark leaks.
+  local leaf_line = ""
+  for _, line in ipairs(status_lines) do
+    if line:find("pr:42", 1, true) then
+      leaf_line = line
+    end
+  end
+  assert(leaf_line ~= "", "the LEAF's status line is there to check")
+  assert(not leaf_line:find("whilp/cosmopolitan", 1, true),
+    "the same-repo LEAF is unmarked: " .. leaf_line)
 
   local tree_lines = view.tree_report(all)
   assert(has(tree_lines, "%[whilp/cosmopolitan%]"),
