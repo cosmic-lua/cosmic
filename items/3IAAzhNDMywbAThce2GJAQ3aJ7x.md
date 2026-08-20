@@ -54,9 +54,16 @@ new source-level primitive is required.
    (every `still_fails` call — structural or value — counts one),
    chosen above the costliest generator in the tree today:
    `_fuzz/compress_fuzz_test.tl`'s round-trip generator draws up to
-   4097 values per input (`ROUND_TRIP_MAX_LEN = 4096`, line 12).
-   `shrink` stops and returns the best draws found so far once the
+   4097 values per input (`ROUND_TRIP_MAX_LEN = 4096`, line 12). One
+   counter is threaded through both the structural and value-shrink
+   phases (a single running total, not a per-phase budget); `shrink`
+   stops and returns the best draws found so far the moment the
    budget is spent, never throws for running out of budget.
+   Neither phase is guaranteed to find a global minimum — binary
+   search over an int/float draw assumes the failure is monotonic in
+   that value, which need not hold for an arbitrary property; this
+   slice reports whatever the bounded search converges to, not a
+   provably-smallest input.
 5. **`_fuzz/driver.tl` wiring**: in `run`, on a failing iteration,
    call `shrink.shrink(opts, rec.draws)`, replay the returned draws
    through `opts.gen` once more to get the minimized input, and report
