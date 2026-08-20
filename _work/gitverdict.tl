@@ -50,11 +50,23 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if all == nil then
     return gate.verdict_line("verdict", false, aerr)
   end
+  -- Prefixes resolve here rather than in the dispatcher, which cannot:
+  -- an --enable value is either an id or a reasoned `none`, and only
+  -- this verb knows which grammar it is looking at. Resolution failing
+  -- is not an error yet — the enablement check below names both shapes.
+  local filed = enable or ""
+  if kind ~= "accept" and filed ~= ""
+  and filed:match("^none[:%s]") == nil then
+    local resolved = store.resolve(s, filed)
+    if resolved ~= nil then
+      filed = resolved
+    end
+  end
   -- Every non-accept verdict carries information about why a presumed
   -- ready item was not, and that information is lost unless it is
   -- filed. The trailer is where the planner names the countermeasure —
   -- or says, on the record, that this item's own spec was the fault.
-  if kind ~= "accept" and not is_enablement(enable or "", flow.by_id(all)) then
+  if kind ~= "accept" and not is_enablement(filed, flow.by_id(all)) then
     return gate.verdict_line("verdict", false,
       ("REFUSED: a %s verdict files its countermeasure — pass "
         .. "--enable <item-id> or --enable 'none: <reason>'"):format(kind))
@@ -85,7 +97,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   it.verdict_head = head or ""
   it.enable = ""
   if kind ~= "accept" then
-    it.enable = enable
+    it.enable = filed
   end
   if pr ~= nil and pr ~= 0 then
     it.pr = pr
