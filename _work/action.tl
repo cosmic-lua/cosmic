@@ -60,10 +60,33 @@ local record Action
   reason: string
 end
 
+--- Whether an item carries a standing verdict that sent it BACK. A
+--- `request changes` verdict returns the item to `do` and leaves the
+--- claim naming who built it, so without this a rework would be
+--- actionable by exactly one session — and stranded, along with
+--- everything blocked on it, the moment that session stopped waking.
+--- Only an accept moves an item forward, so anything else standing on
+--- an item still in flight is work sent back for someone to do.
+--- @param i Item The item
+--- @return boolean True when a non-accept verdict stands on it
+local function is_rework(i: Item): boolean
+  local verdict = i.verdict or ""
+  return verdict ~= "" and verdict ~= "accept"
+end
+
 --- The first item of a phase this session may take, and how many it
 --- stepped over because another session holds them. An unclaimed item
 --- is anyone's; a session's own claim is its own; with no session
 --- named nothing is held.
+---
+--- Rework is anyone's too. A claim is a lock on work in progress, and
+--- a send-back ends the progress it was locking: the item is back in
+--- the queue with concrete gaps named on its PR, which is a thing any
+--- session can pick up. The claim stays put rather than being cleared,
+--- because it is also the record of who BUILT the item and that is
+--- what keeps the next verdict at arm's length — so a session taking
+--- over a rework hands it back with `--claim <itself>`, which the
+--- reason line says.
 --- @param b flow.Board The board
 --- @param phase string The phase to draw from
 --- @param session string This session's name, "" when unnamed
@@ -75,7 +98,8 @@ local function unheld(b: flow.Board, phase: string, session: string,
   local first: Item = nil
   local held = 0
   for _, i in ipairs(flow.queued(b, phase, pos)) do
-    if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session then
+    if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
+    and not is_rework(i) then
       held = held + 1
     elseif first == nil then
       first = i
@@ -95,7 +119,8 @@ local function held_names(b: flow.Board, session: string,
     pos: {string: prio.Position}): string
   local out: {string} = {}
   for _, i in ipairs(flow.queued(b, "do", pos)) do
-    if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session then
+    if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
+    and not is_rework(i) then
       out[#out + 1] = ("%s @%s"):format(i.id:sub(1, 8), i.claim)
     end
   end
@@ -200,7 +225,14 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
   local doing, held = unheld(b, "do", session, pos)
   if doing and handover_open then
     local whose = ""
-    if (doing.claim or "") ~= "" then
+    if is_rework(doing) and session ~= "" and doing.claim ~= session then
+      -- Taking over somebody's rework means the claim has to move, or
+      -- the item goes back to `check` still naming them and the next
+      -- verdict keeps its distance from the wrong session.
+      whose = (" (rework of %s's build — hand it back with --claim %s)")
+      :format(doing.claim ~= "" and doing.claim or "an earlier session",
+        session)
+    elseif (doing.claim or "") ~= "" then
       whose = (" (claimed by %s)"):format(doing.claim)
     end
     return {action = {

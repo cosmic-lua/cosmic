@@ -332,20 +332,21 @@ test_no_walk_ever_names_a_move_the_gate_refuses()
 --- Who acts next: whoever owns an unfinished `do` claim, and a fresh
 --- wake only when nobody does.
 ---
---- A claim has no expiry, and a `request changes` verdict returns an
---- item to `do` still carrying the claim of the session that built it
---- (`gitverdict` sets the phase and leaves the claim alone), so an item
---- in `do` is actionable by exactly one name. Draining therefore needs
---- the builder to come back to its own rework, which is what this
---- models. It is an assumption about the SESSIONS, made explicit so
---- these tests measure the ordering rather than the claim gap; the gap
---- itself is pinned by `test_a_rework_belongs_to_one_session_only`.
+--- A claim has no expiry, so work a session PULLED and did not hand
+--- over is actionable by that name alone, and draining needs it back.
+--- Rework is not in that set — a non-accept verdict makes the item
+--- anyone's, which is what `test_a_rework_is_offered_to_any_session`
+--- pins — so this resumes a builder only for work still in progress.
+--- The narrower this has to be, the less the walk assumes about the
+--- sessions and the more of the drain the ORDERING is doing.
 --- @param items {Item} All items
 --- @param wake integer The next fresh wake number
 --- @return string The session that acts
 local function actor(items: {Item}, wake: integer): string
   for _, i in ipairs(items) do
-    if item.is_open(i) and i.phase == "do" and (i.claim or "") ~= "" then
+    local verdict = i.verdict or ""
+    if item.is_open(i) and i.phase == "do" and (i.claim or "") ~= ""
+    and (verdict == "" or verdict == "accept") then
       return i.claim
     end
   end
@@ -444,13 +445,13 @@ local function test_a_finishable_board_drains_to_nothing()
 end
 test_a_finishable_board_drains_to_nothing()
 
--- The assumption `actor` makes, stated as a test so it cannot quietly
--- stop being true. A `request changes` verdict returns the item to
--- `do` and leaves the builder's claim on it, so the rework is
--- actionable by exactly one name. Every other session is told the item
--- is held and handed nothing — which is correct routing while that
--- session is alive, and a stranded item once it is not.
-local function test_a_rework_belongs_to_one_session_only()
+-- Rework is anyone's. A `request changes` verdict returns the item to
+-- `do` and leaves the claim naming who built it, so the claim alone
+-- would make the rework actionable by one session and strand it — with
+-- everything blocked on it — the moment that session stopped waking.
+-- The claim still routes the next VERDICT away from the builder, which
+-- is why the reason tells whoever takes it over to move the claim.
+local function test_a_rework_is_offered_to_any_session()
   local root = make({})
   local reworking = make({parent = root.id, phase = "do", claim = "session-A",
       pr = 7, verdict = "request changes", verdict_head = "abc123",
@@ -458,11 +459,18 @@ local function test_a_rework_belongs_to_one_session_only()
   local items: {Item} = {root, reworking}
   local builder = act.next_action(items, "session-A")
   assert(builder.kind == "finish" and builder.item.id == reworking.id,
-    "the builder picks its own rework up first: " .. builder.kind)
+    "the builder may still pick its own rework up: " .. builder.kind)
   local other = act.next_action(items, "session-B")
-  assert(other.kind == "none",
-    "and no other session is offered it: " .. other.kind)
-  assert(other.reason:find("@session-A", 1, true),
-    "but is told who holds it: " .. other.reason)
+  assert(other.kind == "finish" and other.item.id == reworking.id,
+    "and so may anybody else: " .. other.kind)
+  assert(other.reason:find("--claim session-B", 1, true),
+    "who is told to take the claim with it: " .. other.reason)
+  -- A claim with no verdict standing on it is work in progress, and
+  -- that is still one session's.
+  local fresh = make({parent = root.id, phase = "do", claim = "session-A"})
+  local building: {Item} = {root, fresh}
+  local nope = act.next_action(building, "session-B")
+  assert(nope.kind ~= "finish",
+    "work in progress stays its claimant's: " .. nope.kind)
 end
-test_a_rework_belongs_to_one_session_only()
+test_a_rework_is_offered_to_any_session()
