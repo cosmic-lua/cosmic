@@ -111,7 +111,10 @@ new source-level primitive is required.
   reported `input=` is no longer than a small bound (≤ 8 base64 bytes)
   for a property that fails on any input longer than 2 bytes, given a
   256-byte-capable generator.
-- `git grep -c "MAX_SHRINK_ATTEMPTS" -- _fuzz/shrink.tl` prints 1.
+- `git grep -c "^local MAX_SHRINK_ATTEMPTS" -- _fuzz/shrink.tl` prints 1
+  (the constant's declaration; it is read from several loop conditions
+  in the same file, so a plain `-c "MAX_SHRINK_ATTEMPTS"` prints more
+  than 1 and is not the intended check).
 - `bin/cosmic --make ci` ends `ci: PASS`.
 
 ## Enablement
