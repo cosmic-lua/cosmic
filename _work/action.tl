@@ -45,6 +45,7 @@
 --- distance to keep, and sees every claim rendered in the reason
 --- instead.
 local flow = require("_work.flow")
+local health = require("_work.health")
 local item = require("_work.item")
 local prio = require("_work.priority")
 
@@ -52,7 +53,8 @@ local type Item = item.Item
 
 --- One decided action: what to do, to what, and under which rule.
 local record Action
-  --- "review" | "refine" | "triage" | "intake" | "finish" | "pull" | "none"
+  --- "review" | "refine" | "triage" | "intake" | "finish" | "pull"
+  --- | "unblock" | "none"
   kind: string
   --- The item the action targets; nil for intake-with-no-root and none.
   item: Item
@@ -87,19 +89,27 @@ end
 --- what keeps the next verdict at arm's length — so a session taking
 --- over a rework hands it back with `--claim <itself>`, which the
 --- reason line says.
+---
+--- A STALE claim is anyone's for the same reason: the lease
+--- (`_work.health`) expiring means the claiming session stopped
+--- moving the board, and the sessions that claim work here cannot
+--- return an item when they die — so the lock outliving its holder is
+--- the expected failure, not an edge case. Absent ages disable the
+--- lease rather than guessing.
 --- @param b flow.Board The board
 --- @param phase string The phase to draw from
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
+--- @param ages health.Ages Seconds since last board commit, by id
 --- @return Item | nil The item to act on
 --- @return integer How many held items were skipped
 local function unheld(b: flow.Board, phase: string, session: string,
-    pos: {string: prio.Position}): Item | nil, integer
+    pos: {string: prio.Position}, ages: health.Ages): Item | nil, integer
   local first: Item = nil
   local held = 0
   for _, i in ipairs(flow.queued(b, phase, pos)) do
     if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    and not is_rework(i) then
+    and not is_rework(i) and not health.is_stale(i, ages) then
       held = held + 1
     elseif first == nil then
       first = i
@@ -114,13 +124,14 @@ end
 --- @param b flow.Board The board
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
+--- @param ages health.Ages Seconds since last board commit, by id
 --- @return string The held items, empty when none are
 local function held_names(b: flow.Board, session: string,
-    pos: {string: prio.Position}): string
+    pos: {string: prio.Position}, ages: health.Ages): string
   local out: {string} = {}
   for _, i in ipairs(flow.queued(b, "do", pos)) do
     if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    and not is_rework(i) then
+    and not is_rework(i) and not health.is_stale(i, ages) then
       out[#out + 1] = ("%s @%s"):format(i.id:sub(1, 8), i.claim)
     end
   end
@@ -187,9 +198,10 @@ end
 --- @param index flow.Index Items by id
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
+--- @param ages health.Ages Seconds since last board commit, by id
 --- @return Phased The decision and what it stepped over
 local function phased_action(b: flow.Board, index: flow.Index, session: string,
-    pos: {string: prio.Position}): Phased
+    pos: {string: prio.Position}, ages: health.Ages): Phased
   local landing = flow.queued(b, "land", pos)
   if #landing > 0 then
     return {action = {
@@ -222,7 +234,7 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
   -- (an unheld one would have been finished above), so the limit binds
   -- against this session and the move would be refused.
   local pull_open = #(b["do"] or {}) < flow.LIMITS["do"]
-  local doing, held = unheld(b, "do", session, pos)
+  local doing, held = unheld(b, "do", session, pos, ages)
   if doing and handover_open then
     local whose = ""
     if is_rework(doing) and session ~= "" and doing.claim ~= session then
@@ -232,6 +244,11 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
       whose = (" (rework of %s's build — hand it back with --claim %s)")
       :format(doing.claim ~= "" and doing.claim or "an earlier session",
         session)
+    elseif session ~= "" and doing.claim ~= session
+    and health.is_stale(doing, ages) then
+      whose = (" (%s's claim is stale %dh — take it over: move it with "
+        .. "--claim %s)"):format(doing.claim,
+        health.stale_hours(doing, ages), session)
     elseif (doing.claim or "") ~= "" then
       whose = (" (claimed by %s)"):format(doing.claim)
     end
@@ -337,19 +354,34 @@ local function intake_action(items: {Item}, b: flow.Board, index: flow.Index,
   return nil
 end
 
---- The one action to take now, right to left.
+--- The one action to take now, right to left. Ages are optional the
+--- way the session is: a caller without git in reach (the pure tests)
+--- omits them, and the lease and starvation reporting stand down
+--- rather than guessing.
 --- @param items {Item} All items
 --- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
 --- @return Action The decision
-local function next_action(items: {Item}, session?: string): Action
+local function next_action(items: {Item}, session?: string,
+    ages?: health.Ages): Action
   local who = session or ""
+  local aged = ages or {}
   local b = flow.board(items)
   local index = flow.by_id(items)
   local pos = prio.positions(items)
-  local ph = phased_action(b, index, who, pos)
+  local ph = phased_action(b, index, who, pos, aged)
   local phased = ph.action
   if phased then
     return phased
+  end
+  -- Starvation outranks the intake half: with every ready item
+  -- blocked, a promotion feeds a column no pull can drain, and the
+  -- refinement it displaces resumes the moment the chain root moves.
+  -- `next` names the root instead of silently skipping the blocked
+  -- (which is how a stalled board used to answer "refine" forever).
+  local root, starving = health.starved(b, index, aged)
+  if root ~= nil then
+    return {kind = "unblock", item = root, reason = starving}
   end
   local taking = intake_action(items, b, index, pos)
   if taking then
@@ -384,7 +416,7 @@ local function next_action(items: {Item}, session?: string): Action
       kind = "none",
       reason = ("%d do item(s) are claimed by other sessions and nothing "
         .. "is ready to pull: %s — take one over with `move <id> do "
-        .. "--claim <session>`"):format(ph.held, held_names(b, who, pos)),
+        .. "--claim <session>`"):format(ph.held, held_names(b, who, pos, aged)),
     }
   end
   return {
@@ -398,12 +430,13 @@ local record action
   type Action = Action
   type Phased = Phased
   unheld: function(b: flow.Board, phase: string, session: string,
-  pos: {string: prio.Position}): Item | nil, integer
+  pos: {string: prio.Position}, ages: health.Ages): Item | nil, integer
   reviewable: function(b: flow.Board, session: string,
   pos: {string: prio.Position}): Item | nil, integer
   first_pullable: function(b: flow.Board, index: flow.Index, session: string,
   pos: {string: prio.Position}): Item | nil
-  next_action: function(items: {Item}, session?: string): Action
+  next_action: function(items: {Item}, session?: string,
+  ages?: health.Ages): Action
 end
 
 local M: action = {

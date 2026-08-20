@@ -43,7 +43,7 @@ local function test_worked_item_round_trips()
   t.pr = 456
   t.verdict = "request changes"
   t.verdict_head = "abc1234"
-  t.blocked_by = PARENT .. " " .. ID
+  t.blocked_by = PARENT .. " " .. OTHER
   local it = check.must(item.decode(t))
   local back = check.must(item.decode(
       check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
@@ -138,3 +138,34 @@ local function test_id_discipline()
     .. tostring(berr))
 end
 test_id_discipline()
+
+local function test_block_reason_rides_the_edge_and_round_trips()
+  local t = base()
+  t.parent = PARENT
+  t.blocked_by = OTHER
+  t.block_reason = {[OTHER] = "the API lands there first"}
+  local it = check.must(item.decode(t))
+  assert(it.block_reason[OTHER] == "the API lands there first",
+    "the reason decodes")
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
+  assert(back.block_reason[OTHER] == "the API lands there first",
+    "and round-trips through the literal")
+  -- A reason whose edge is gone heals on the next write, like a
+  -- duplicate blocker does.
+  it.blocked_by = {}
+  local healed = item.encode(it)
+  assert(healed.block_reason == nil and healed.blocked_by == nil,
+    "an orphaned reason is not written")
+end
+test_block_reason_rides_the_edge_and_round_trips()
+
+local function test_an_item_cannot_wait_on_itself()
+  local t = base()
+  t.parent = PARENT
+  t.blocked_by = ID
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("itself", 1, true),
+    "a self-block is invalid: " .. tostring(err))
+end
+test_an_item_cannot_wait_on_itself()

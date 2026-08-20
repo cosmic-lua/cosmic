@@ -81,8 +81,8 @@ end
 local function signature(items: {Item}): string
   local parts: {string} = {}
   for _, i in ipairs(items) do
-    parts[#parts + 1] = ("%s:%s:%s:%s"):format(i.id:sub(1, 8), i.phase or "",
-      i.resolution or "", i.claim or "")
+    parts[#parts + 1] = ("%s:%s:%s:%s:%d"):format(i.id:sub(1, 8), i.phase or "",
+      i.resolution or "", i.claim or "", #(i.blocked_by or {}))
   end
   return table.concat(parts, "|")
 end
@@ -179,6 +179,22 @@ local function apply(items: {Item}, a: act.Action, session: string,
     local born = make({parent = it.id, title = "slice", phase = "plan"})
     items[#items + 1] = born
     gate.dephased_container(it)
+    return nil
+  end
+  if a.kind == "unblock" then
+    -- The walk resolves the starvation the way a session's `unblock`
+    -- does after judging the recorded reasons: the edges waiting on
+    -- the named chain root are dropped. The verb is not WIP-gated, so
+    -- neither is this.
+    for _, i in ipairs(items) do
+      local kept: {string} = {}
+      for _, b in ipairs(i.blocked_by or {}) do
+        if b ~= it.id then
+          kept[#kept + 1] = b
+        end
+      end
+      i.blocked_by = kept
+    end
     return nil
   end
   return ("unhandled action kind: %s"):format(a.kind)
