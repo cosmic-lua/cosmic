@@ -51,15 +51,46 @@ local function write(path: string, value: any): boolean, string
   return literal.format_file(path, value)
 end
 
+--- Parse floor bytes already in hand, without touching the filesystem.
+--- The text-level counterpart to `read`, for a caller that owns the
+--- read/write itself and needs the encoding forwarded on a string it
+--- holds — coverage's baseline reads once, then parses that same text
+--- twice (the ratchet and the lowered-row diff), so it cannot re-read
+--- per parse.
+--- @param text string The floor's contents
+--- @param opts Options? noun: file kind in errors; on_duplicate: resolves
+--- a repeated key instead of refusing it
+--- @return {string: any}|nil The declared table
+--- @return string The error message when the text is not a literal
+local function parse(text: string, opts?: Options): {string: any} | nil, string
+  return literal.parse(text, {
+      noun = opts and opts.noun,
+      on_duplicate = opts and opts.on_duplicate,
+    })
+end
+
+--- Format a value as floor bytes, without touching the filesystem. The
+--- text-level counterpart to `write`, for a caller that owns the write.
+--- @param value any The table to render
+--- @return string|nil The rendered floor, or nil when outside the domain
+--- @return string The error message when `value` is not representable
+local function format(value: any): string | nil, string
+  return literal.format(value)
+end
+
 local record FloorModule
   type Options = Options
   read: function(path: string, opts?: Options): {string: any} | nil, string
   write: function(path: string, value: any): boolean, string
+  parse: function(text: string, opts?: Options): {string: any} | nil, string
+  format: function(value: any): string | nil, string
 end
 
 local M: FloorModule = {
   read = read,
   write = write,
+  parse = parse,
+  format = format,
 }
 
 return M

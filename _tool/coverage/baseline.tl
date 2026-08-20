@@ -11,18 +11,20 @@
 --- coverage --baseline` rewrites it, lowering only the rows this run
 --- would have failed on and leaving every other row exactly as
 --- committed — a floor moves down by a deliberate rewrite and up only
---- by hand. The file is a `cosmic.literal` table, one `["path"] =
---- {["covered"] = C, ["total"] = T},` row per line (the same shape and
---- sort the other two committed floors use), and `merge=union` in
---- `.gitattributes` means two branches editing the same region produce
---- both rows instead of a conflict; `parse` resolves a repeated path to
---- its lower percentage via `literal.parse`'s `on_duplicate`.
+--- by hand. The file is a committed floor read and written through
+--- `_tool.floor` (the same module `_build/casts.tl` and
+--- `_build/public_surface.tl` share), one `["path"] = {["covered"] = C,
+--- ["total"] = T},` row per line (the same shape and sort the other two
+--- floors use), and `merge=union` in `.gitattributes` means two branches
+--- editing the same region produce both rows instead of a conflict;
+--- `parse` resolves a repeated path to its lower percentage via the
+--- `on_duplicate` resolver `floor.parse` forwards.
 ---
 --- A library module: `require`d for its API (`gate`, `text_for`,
 --- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
 --- here.
+local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
-local literal = require("cosmic.literal")
 local rep = require("_tool.coverage.report")
 
 local type FileReport = rep.FileReport
@@ -96,12 +98,12 @@ end
 --- @param reports {FileReport} Sorted results from report.compute
 --- @param floor {string: Entry} The baseline being replaced, if any
 --- @return string | nil The rendered baseline
---- @return string? Error message when a row falls outside `literal.format`'s domain
-local function render(reports: {FileReport}, floor?: {string: Entry}): string | nil, string
+--- @return string? Error message when a row falls outside the floor format's domain
+local function render(reports: {FileReport}, prev?: {string: Entry}): string | nil, string
   local value: {string: Entry} = {}
   for _, r in ipairs(reports) do
     local covered, total = r.covered, r.total
-    local was = floor and floor[r.display]
+    local was = prev and prev[r.display]
     if was then
       local slack = file_tolerance_pp(total)
       local fails = pct(covered, total) < pct(was.covered, was.total) - slack
@@ -111,7 +113,7 @@ local function render(reports: {FileReport}, floor?: {string: Entry}): string | 
     end
     value[r.display] = {covered = covered, total = total}
   end
-  return literal.format(value)
+  return floor.format(value)
 end
 
 --- A parsed baseline: the per-file rows, and how many repeated paths
@@ -147,7 +149,7 @@ end
 
 --- Validate and narrow one parsed row into an Entry.
 --- @param path string The row's key, for the error message
---- @param v any The value `literal.parse` stored for that key
+--- @param v any The value `floor.parse` stored for that key
 --- @return Entry | nil The row, when it has the right shape
 --- @return string? Error message when it does not
 local function to_entry(path: string, v: any): Entry | nil, string
@@ -168,10 +170,10 @@ end
 --- A path may appear more than once, and that is valid input rather
 --- than malformed: `.cosmic-coverage` merges with git's `union`
 --- strategy, so a region two branches both edited arrives carrying both
---- versions of every row in it. `literal.parse`'s `on_duplicate` calls
---- back here for each repeat, resolving to the lower percentage, and
---- `Baseline.duplicates` counts them so a caller can say the file wants
---- a clean rewrite.
+--- versions of every row in it. The `on_duplicate` resolver `floor.parse`
+--- forwards calls back here for each repeat, resolving to the lower
+--- percentage, and `Baseline.duplicates` counts them so a caller can say
+--- the file wants a clean rewrite.
 --- @param text string Baseline file content
 --- @return Baseline | nil The rows and duplicate count, or nil on malformed input
 --- @return string? Error message on malformed input
@@ -186,7 +188,7 @@ local function parse(text: string): Baseline | nil, string
     end
     return first
   end
-  local data, err = literal.parse(text,
+  local data, err = floor.parse(text,
     {noun = "coverage baseline", on_duplicate = on_duplicate})
   if not data then
     return nil, err
@@ -351,14 +353,14 @@ local function text_for(paths: {string},
   if not reports then
     return nil, cerr or "coverage: no data"
   end
-  local floor: {string: Entry} = nil
+  local prev_rows: {string: Entry} = nil
   if previous then
     local prev = parse(previous)
     if prev then
-      floor = prev.rows
+      prev_rows = prev.rows
     end
   end
-  return render(reports, floor)
+  return render(reports, prev_rows)
 end
 
 --- Which rows a rewrite would LOWER, and by how much.
@@ -407,7 +409,7 @@ end
 local record BaselineModule
   type Entry = Entry
   type Baseline = Baseline
-  render: function(reports: {FileReport}, floor?: {string: Entry}): string | nil, string
+  render: function(reports: {FileReport}, prev?: {string: Entry}): string | nil, string
   parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
   check: function(baseline_path: string, paths: {string}): integer
