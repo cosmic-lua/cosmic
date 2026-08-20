@@ -109,6 +109,51 @@ local function sorted_keys(t: {string: any}, path: string): {string} | nil, stri
   return keys
 end
 
+--- True when every value in `t` is a scalar this grammar accepts: no
+--- nested table anywhere in it, so the whole table renders on one
+--- line. Vacuously true for the empty table.
+--- @param t {string: any} The table
+--- @return boolean
+local function all_scalar_values(t: {string: any}): boolean
+  for _, v in pairs(t as {any: any}) do -- cast: runtime keys are unconstrained
+    if v is {string: any} then
+      return false
+    end
+  end
+  return true
+end
+
+--- Render a flat table's entries as one line: `{[k] = v, ...}`, or
+--- `{}` when empty -- no padding space just inside the braces, which
+--- is what makes this a `cosmic --check fmt` fixpoint: the general
+--- formatter strips that padding on an inline table. Every value must
+--- already be known scalar (checked by `all_scalar_values` before
+--- this is called).
+--- @param t {string: any} The table to render
+--- @param path string The table's key path, for a refusal message
+--- @return string|nil The one-line rendering, or nil on a refusal
+--- @return string The error naming the key path refused
+local function render_inline(t: {string: any}, path: string): string | nil, string
+  local keys, kerr = sorted_keys(t, path)
+  if not keys then
+    return nil, kerr
+  end
+  if #keys == 0 then
+    return "{}"
+  end
+  local parts: {string} = {}
+  for _, key in ipairs(keys) do
+    local v = t[key]
+    local here = under(path, key)
+    local text = scalar(v)
+    if not text then
+      return nil, refusal(here, "a " .. type(v) .. " is not a literal")
+    end
+    parts[#parts + 1] = "[" .. quoted(key) .. "] = " .. text
+  end
+  return "{" .. table.concat(parts, ", ") .. "}"
+end
+
 --- Append one table's entries to `out`, one per line.
 --- @param out {string} The lines rendered so far
 --- @param t {string: any} The table to render
@@ -134,12 +179,20 @@ local function render_table(out: {string}, t: {string: any}, depth: integer,
     -- on a line of its own.
     local lead = pad .. "[" .. quoted(key) .. "] = "
     if v is {string: any} then
-      out[#out + 1] = lead .. "{"
-      local ok, err = render_table(out, v, depth + 1, here)
-      if not ok then
-        return false, err
+      if all_scalar_values(v) then
+        local inline, ierr = render_inline(v, here)
+        if not inline then
+          return false, ierr
+        end
+        out[#out + 1] = lead .. inline .. ","
+      else
+        out[#out + 1] = lead .. "{"
+        local ok, err = render_table(out, v, depth + 1, here)
+        if not ok then
+          return false, err
+        end
+        out[#out + 1] = pad .. "},"
       end
-      out[#out + 1] = pad .. "},"
     else
       local text = scalar(v)
       if not text then
@@ -165,7 +218,11 @@ end
 --- The layout is fixed: `return {}` for an empty table, otherwise one
 --- entry per line, indented two spaces per nesting depth, every entry
 --- ending in a comma, every key bracketed and quoted, keys sorted
---- bytewise at every depth.
+--- bytewise at every depth. A nested table whose own values are all
+--- scalars (vacuously true when it is empty) is the one exception:
+--- it renders on the SAME line as its key, `{[k] = v, ...},` or
+--- `{},` when empty, instead of spanning multiple lines — a nested
+--- table containing a table keeps the multi-line layout.
 --- @param value any The value to serialize
 --- @return string | nil The literal source, or nil when the value is outside the domain
 --- @return string? Error message on failure, naming the key path refused

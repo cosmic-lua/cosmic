@@ -58,4 +58,14 @@ local function test_awkward_strings_and_numbers_are_a_fmt_fixpoint()
 end
 test_awkward_strings_and_numbers_are_a_fmt_fixpoint()
 
+-- A flat nested table renders inline, and the inline form -- including
+-- its empty spelling -- is also a fixpoint.
+local function test_a_flat_nested_table_is_inline_and_a_fmt_fixpoint()
+  assert_fixpoint({
+      ["a.tl"] = {["covered"] = 1, ["total"] = 2},
+      ["b.tl"] = {},
+    }, "flat nested")
+end
+test_a_flat_nested_table_is_inline_and_a_fmt_fixpoint()
+
 print("all literal-format fixpoint tests passed")
