@@ -2,6 +2,7 @@
 --- Tests for the coverage ratchet baseline.
 local baseline = require("_tool.coverage.baseline")
 local check = require("cosmic.check")
+local floor = require("_tool.floor")
 local rep = require("_tool.coverage.report")
 
 local type FileReport = rep.FileReport
@@ -19,44 +20,49 @@ local function reports(rows: {{string, integer, integer}}): {FileReport}
   return out
 end
 
+--- A baseline text literal from `{path, covered, total}` rows.
+--- @param rows {{string, integer, integer}} path, covered, total triples
+--- @return string A `return { ["path"] = {covered = C, total = T}, ... }` literal
+local function fixture(rows: {{string, integer, integer}}): string
+  local parts: {string} = {}
+  for _, row in ipairs(rows) do
+    parts[#parts + 1] = string.format("  [%s] = {covered = %d, total = %d},",
+      string.format("%q", row[1]), row[2], row[3])
+  end
+  return "return {\n" .. table.concat(parts, "\n") .. "\n}\n"
+end
+
+--- One line for the parse-then-compare a render assertion usually needs.
+local function assert_row(text: string, path: string, covered: integer, total: integer)
+  local e = check.must(baseline.parse(text)).rows[path]
+  assert(e and e.covered == covered and e.total == total,
+    string.format("%s: want %d/%d, got %s", path, covered, total,
+      e and (e.covered .. "/" .. e.total) or "missing"))
+end
+
 local function test_render_parse_roundtrip()
-  local text = baseline.render(reports({
-        {"lib/a.tl", 9, 10},
-        {"lib/b.tl", 0, 5},
-      }))
-  local parsed, err = baseline.parse(text)
-  local b = check.must(parsed, err)
-  local e = b.rows
-  assert(e["lib/a.tl"].covered == 9 and e["lib/a.tl"].total == 10, "row a lost")
-  assert(e["lib/b.tl"].covered == 0 and e["lib/b.tl"].total == 5, "row b lost")
-  -- The whole-tree total is DERIVED from the rows above, never written:
-  -- a committed total row is rewritten by every regeneration, so two
-  -- PRs with disjoint per-file rows still conflict on that one line.
-  assert(not text:find("\ntotal ", 1, true), "no total row is written:\n" .. text)
-  assert(b.total == nil, "and none is parsed back")
+  local text = check.must(baseline.render(reports({
+          {"lib/a.tl", 9, 10},
+          {"lib/b.tl", 0, 5},
+        })))
+  assert_row(text, "lib/a.tl", 9, 10)
+  assert_row(text, "lib/b.tl", 0, 5)
 end
 test_render_parse_roundtrip()
 
--- A baseline still CARRYING a total row parses, so a branch cut before
--- the row went away keeps working; the row is simply not read.
-local function test_parse_tolerates_a_legacy_total_row()
-  local b = check.must(baseline.parse("# h\n# c\nlib/a.tl 9 10\ntotal 9 10\n"))
-  assert(b.rows["lib/a.tl"].covered == 9, "per-file row lost")
-  assert(b.total and b.total.covered == 9, "legacy total row must still parse")
-end
-test_parse_tolerates_a_legacy_total_row()
-
-local function test_parse_rejects_garbage()
+local function test_parse_rejects_malformed_input()
   local entries, err = baseline.parse("lib/a.tl nine ten\n")
-  assert(entries == nil, "garbage row must not parse")
-  assert(err and err:find("line 1"), "error should name the line: " .. tostring(err))
+  assert(entries == nil and err and err ~= "", "non-literal garbage must not parse")
+  local bad, berr = baseline.parse('return {\n  ["a.tl"] = {covered = "nine", total = 10},\n}\n')
+  assert(bad == nil and berr and berr:find("a.tl", 1, true),
+    "a non-integer row must not parse, naming the bad row: " .. tostring(berr))
 end
-test_parse_rejects_garbage()
+test_parse_rejects_malformed_input()
 
 --- Compare current reports against a baseline built from the given rows.
 local function violations(current: {{string, integer, integer}},
     base: {{string, integer, integer}}): {string}
-  local text = baseline.render(reports(base))
+  local text = check.must(baseline.render(reports(base)))
   local parsed = check.must(baseline.parse(text))
   return baseline.compare(reports(current), parsed.rows)
 end
@@ -145,7 +151,7 @@ local function test_gate_checks_when_baseline_present()
   local fs = require("cosmic.fs")
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local path = fs.join(tmpdir, "gate-baseline.txt")
-  assert(fs.write(path, baseline.render(reports({{"lib/a.tl", 9, 10}}))))
+  assert(fs.write(path, check.must(baseline.render(reports({{"lib/a.tl", 9, 10}})))))
   -- an empty report set makes every baseline entry stale: the gate must
   -- delegate to check and FAIL, proving it does not skip when it
   -- should be checking
@@ -174,22 +180,14 @@ test_text_for_returns_the_rendered_baseline()
 -- counts: a file that grew lines and covered more of them has not
 -- lowered anything.
 local function test_lowered_names_only_real_declines()
-  local before = "# h\n# c\n" ..
-  "a.tl 8 10\n" ..
-  "b.tl 5 10\n" ..
-  "c.tl 10 10\n" ..
-  "total 23 30\n"
-  local after = "# h\n# c\n" ..
-  "a.tl 8 10\n" .. -- unchanged
-  "b.tl 3 10\n" .. -- lowered
-  "c.tl 12 12\n" .. -- grew, still 100%
-  "total 23 32\n" -- lowered as a percentage
+  local before = fixture({{"a.tl", 8, 10}, {"b.tl", 5, 10}, {"c.tl", 10, 10}})
+  -- a.tl unchanged, b.tl lowered, c.tl grew but stayed 100%
+  local after = fixture({{"a.tl", 8, 10}, {"b.tl", 3, 10}, {"c.tl", 12, 12}})
   local rows = baseline.lowered(before, after)
-  assert(#rows == 2, "want b.tl and total, got " .. #rows ..
+  assert(#rows == 1, "want only b.tl, got " .. #rows ..
     ": " .. table.concat(rows, "; "))
   assert(rows[1]:find("b.tl", 1, true), "got: " .. rows[1])
   assert(rows[1]:find("50.0% -> 30.0%", 1, true), "got: " .. rows[1])
-  assert(rows[2]:find("total", 1, true), "got: " .. rows[2])
 end
 test_lowered_names_only_real_declines()
 
@@ -197,8 +195,8 @@ test_lowered_names_only_real_declines()
 -- and a malformed baseline is not a decline report -- both answer with
 -- nothing rather than guessing.
 local function test_lowered_is_silent_when_it_cannot_tell()
-  local before = "# h\n# c\ngone.tl 9 10\ntotal 9 10\n"
-  local after = "# h\n# c\ntotal 9 10\n"
+  local before = fixture({{"gone.tl", 9, 10}})
+  local after = fixture({})
   assert(#baseline.lowered(before, after) == 0,
     "a row the rewrite dropped is not a lowered row")
   assert(#baseline.lowered("nonsense", after) == 0,
@@ -211,23 +209,22 @@ test_lowered_is_silent_when_it_cannot_tell()
 -- machine that measures more must not raise them, or CI fails on a row
 -- nobody edited.
 local function test_render_never_raises_a_committed_floor()
-  local floor = check.must(baseline.parse(
-      "# h\n# c\nkept.tl 4 10\nworse.tl 9 10\ngrown.tl 8 10\n")).rows
-  local text = baseline.render(reports({
-        -- measures better than its floor: the floor is kept verbatim
-        {"kept.tl", 9, 10},
-        -- measures worse: that is what a rebaseline is for
-        {"worse.tl", 5, 10},
-        -- more lines AND a better ratio: still not a reason to raise
-        {"grown.tl", 11, 12},
-        -- absent from the floor: recorded as measured
-        {"new.tl", 3, 4},
-      }), floor)
-  assert(text:find("\nkept.tl 4 10\n", 1, true), "got:\n" .. text)
-  assert(text:find("\nworse.tl 5 10\n", 1, true), "got:\n" .. text)
-  assert(text:find("\ngrown.tl 8 10\n", 1, true), "got:\n" .. text)
-  assert(text:find("\nnew.tl 3 4\n", 1, true), "got:\n" .. text)
-  assert(not text:find("\ntotal ", 1, true), "and no total row:\n" .. text)
+  local base_floor = check.must(baseline.parse(
+      fixture({{"kept.tl", 4, 10}, {"worse.tl", 9, 10}, {"grown.tl", 8, 10}}))).rows
+  local text = check.must(baseline.render(reports({
+          -- measures better than its floor: the floor is kept verbatim
+          {"kept.tl", 9, 10},
+          -- measures worse: that is what a rebaseline is for
+          {"worse.tl", 5, 10},
+          -- more lines AND a better ratio: still not a reason to raise
+          {"grown.tl", 11, 12},
+          -- absent from the floor: recorded as measured
+          {"new.tl", 3, 4},
+        }), base_floor))
+  assert_row(text, "kept.tl", 4, 10)
+  assert_row(text, "worse.tl", 5, 10)
+  assert_row(text, "grown.tl", 8, 10)
+  assert_row(text, "new.tl", 3, 4)
 end
 test_render_never_raises_a_committed_floor()
 
@@ -237,21 +234,20 @@ test_render_never_raises_a_committed_floor()
 -- the file grew, and a dip inside the per-file slack all leave the row
 -- exactly as it was.
 local function test_render_rewrites_only_rows_the_ratchet_would_fail()
-  local floor = check.must(baseline.parse(
-      "# h\n# c\nflat.tl 40 50\nslack.tl 180 200\nreal.tl 180 200\n")).rows
-  local text = baseline.render(reports({
-        -- 80% either way: identical percentage, different counts
-        {"flat.tl", 44, 55},
-        -- 0.5pp down, inside the file's 1.0pp slack
-        {"slack.tl", 179, 200},
-        -- 10pp down, well outside it: this is the one that moves
-        {"real.tl", 160, 200},
-      }), floor)
-  assert(text:find("\nflat.tl 40 50\n", 1, true), "got:\n" .. text)
-  assert(text:find("\nslack.tl 180 200\n", 1, true), "got:\n" .. text)
-  assert(text:find("\nreal.tl 160 200\n", 1, true), "got:\n" .. text)
-  local moved = baseline.lowered(
-    "# h\n# c\nflat.tl 40 50\nslack.tl 180 200\nreal.tl 180 200\n", text)
+  local before = fixture({{"flat.tl", 40, 50}, {"slack.tl", 180, 200}, {"real.tl", 180, 200}})
+  local base_floor = check.must(baseline.parse(before)).rows
+  local text = check.must(baseline.render(reports({
+          -- 80% either way: identical percentage, different counts
+          {"flat.tl", 44, 55},
+          -- 0.5pp down, inside the file's 1.0pp slack
+          {"slack.tl", 179, 200},
+          -- 10pp down, well outside it: this is the one that moves
+          {"real.tl", 160, 200},
+        }), base_floor))
+  assert_row(text, "flat.tl", 40, 50)
+  assert_row(text, "slack.tl", 180, 200)
+  assert_row(text, "real.tl", 160, 200)
+  local moved = baseline.lowered(before, text)
   assert(#moved == 1, "only the failing row moved, got " .. #moved ..
     ": " .. table.concat(moved, "; "))
   assert(moved[1]:find("real.tl", 1, true), "got: " .. moved[1])
@@ -263,9 +259,9 @@ test_render_rewrites_only_rows_the_ratchet_would_fail()
 -- rewrite reads the same slack the check does: one line of nine is a
 -- 11pp drop the ratchet forgives, so the floor holds.
 local function test_render_keeps_a_tiny_files_floor_within_its_line_slack()
-  local floor = check.must(baseline.parse("# h\n# c\ntiny.tl 9 9\n")).rows
-  local text = baseline.render(reports({{"tiny.tl", 8, 9}}), floor)
-  assert(text:find("\ntiny.tl 9 9\n", 1, true), "got:\n" .. text)
+  local base_floor = check.must(baseline.parse(fixture({{"tiny.tl", 9, 9}}))).rows
+  local text = check.must(baseline.render(reports({{"tiny.tl", 8, 9}}), base_floor))
+  assert_row(text, "tiny.tl", 9, 9)
 end
 test_render_keeps_a_tiny_files_floor_within_its_line_slack()
 
@@ -275,11 +271,7 @@ test_render_keeps_a_tiny_files_floor_within_its_line_slack()
 -- introduced.
 local function test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
   local b = check.must(baseline.parse(
-      "# h\n# c\n" ..
-      "a.tl 9 10\n" ..
-      "a.tl 4 10\n" ..
-      "b.tl 1 4\n" ..
-      "b.tl 9 10\n"))
+      fixture({{"a.tl", 9, 10}, {"a.tl", 4, 10}, {"b.tl", 1, 4}, {"b.tl", 9, 10}})))
   assert(b.rows["a.tl"].covered == 4, "later lower row wins, got " ..
     b.rows["a.tl"].covered)
   assert(b.rows["b.tl"].covered == 1 and b.rows["b.tl"].total == 4,
@@ -292,11 +284,11 @@ test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
 -- The smaller line universe wins first: 1/2 and 2/4 are both 50%, and
 -- the 2-line row is the one a check would measure against.
 local function test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
-  local b = check.must(baseline.parse("# h\n# c\na.tl 1 2\na.tl 2 4\n"))
+  local b = check.must(baseline.parse(fixture({{"a.tl", 1, 2}, {"a.tl", 2, 4}})))
   assert(b.rows["a.tl"].total == 2 and b.rows["a.tl"].covered == 1,
     "smaller universe wins, got " .. b.rows["a.tl"].covered .. "/" ..
     b.rows["a.tl"].total)
-  local flipped = check.must(baseline.parse("# h\n# c\na.tl 2 4\na.tl 1 2\n"))
+  local flipped = check.must(baseline.parse(fixture({{"a.tl", 2, 4}, {"a.tl", 1, 2}})))
   assert(flipped.rows["a.tl"].total == 2,
     "and wins from the other side too, got " .. flipped.rows["a.tl"].total)
 end
@@ -307,7 +299,7 @@ test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
 -- and the resolution still has to answer: the row survives intact and
 -- is counted as the repeat it is.
 local function test_parse_resolves_identical_duplicate_rows()
-  local b = check.must(baseline.parse("# h\n# c\na.tl 9 10\na.tl 9 10\n"))
+  local b = check.must(baseline.parse(fixture({{"a.tl", 9, 10}, {"a.tl", 9, 10}})))
   assert(b.rows["a.tl"].covered == 9 and b.rows["a.tl"].total == 10,
     "identical rows resolve to themselves")
   assert(b.duplicates == 1, "and are still a duplicate, got " .. b.duplicates)
@@ -317,27 +309,25 @@ test_parse_resolves_identical_duplicate_rows()
 -- A freshly rendered baseline has nothing to resolve, and the count
 -- says so rather than being absent.
 local function test_parse_counts_no_duplicates_in_a_clean_baseline()
-  local b = check.must(baseline.parse("# h\n# c\na.tl 9 10\nb.tl 1 4\n"))
+  local b = check.must(baseline.parse(fixture({{"a.tl", 9, 10}, {"b.tl", 1, 4}})))
   assert(b.duplicates == 0, "clean baseline, got " .. b.duplicates)
 end
 test_parse_counts_no_duplicates_in_a_clean_baseline()
 
 -- With no floor to compare against, render records what it measured.
 local function test_render_without_a_floor_records_the_run()
-  local text = baseline.render(reports({{"a.tl", 9, 10}}))
-  assert(text:find("\na.tl 9 10\n", 1, true), "got:\n" .. text)
+  local text = check.must(baseline.render(reports({{"a.tl", 9, 10}})))
+  assert_row(text, "a.tl", 9, 10)
 end
 test_render_without_a_floor_records_the_run()
 
 -- What a failing ratchet SAYS, which is the half nobody was testing:
 -- `gate` returning 1 was asserted, the report it prints on the way was
--- not. That report is the whole value of the gate — a floor that moved
--- and will not say which row is a gate you have to re-run to read.
---
--- The last line matters most and is the reason it exists. A failing
--- `--make ci` ends with 166 test results and a stage verdict, so the
--- per-file lines are hundreds back and fall out of any truncated view;
--- one line naming every declining file, printed last, survives that.
+-- not -- a floor that moved and will not say which row is a gate you
+-- have to re-run to read. The LAST line matters most: a failing
+-- `--make ci` ends with a stage verdict hundreds of lines back from
+-- the per-file report, so one line naming every declining file,
+-- printed last, is what survives a truncated view.
 local function test_a_failing_ratchet_names_the_rows_that_moved()
   local fs = require("cosmic.fs")
   local child = require("cosmic.child")
@@ -351,8 +341,8 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
   -- source scan is what supplies the zero-coverage row that declines.
   assert(fs.write(fs.join(root, "one.cov"),
       '{version=1,hits={["' .. src .. '"]={[1]=1}}}'))
-  local floor = fs.join(root, "floor")
-  assert(fs.write(floor, src .. " 3 3\n"))
+  local floor_path = fs.join(root, "floor")
+  assert(fs.write(floor_path, fixture({{src, 3, 3}})))
 
   -- A child, because the report goes to this process's stderr.
   local cosmic = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
@@ -362,7 +352,7 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
   local script = fs.join(root, "run.lua")
   assert(fs.write(script,
       'os.exit(require("_tool.coverage.baseline").gate(' ..
-      string.format("%q", floor) .. ', "", {' ..
+      string.format("%q", floor_path) .. ', "", {' ..
       string.format("%q", root) .. '}))\n'))
   local r = check.must(child.run({cosmic, script}))
   local err = r.stderr or ""
@@ -378,10 +368,8 @@ end
 test_a_failing_ratchet_names_the_rows_that_moved()
 
 --- A directory `report.compute` can read: one source file with three
---- executable lines and one `.cov` file, since compute refuses a run
---- with no coverage data at all. The hits inside name an absolute path,
---- which normalize declines, so the source scan supplies the row and it
---- measures 0 of 3.
+--- executable lines and one `.cov` file (compute refuses a run with no
+--- coverage data), measuring 0 of 3.
 --- @param name string Subdirectory of TEST_TMPDIR to build it in
 --- @return string The fixture root
 --- @return string The display path its one row carries
@@ -424,14 +412,14 @@ local function test_check_gates_against_the_resolved_rows()
   -- The run measures 0 of 3. The high row alone would fail the ratchet;
   -- the low one is the floor that holds, so a pass here is the proof
   -- that the lower row is what gated.
-  local floor = fs.join(root, "floor")
-  assert(fs.write(floor, "# h\n" .. src .. " 3 3\n" .. src .. " 0 3\n"))
-  assert(baseline.check(floor, {root}) == 0,
+  local floor_path = fs.join(root, "floor")
+  assert(fs.write(floor_path, fixture({{src, 3, 3}, {src, 0, 3}})))
+  assert(baseline.check(floor_path, {root}) == 0,
     "the lower duplicate row is the floor, and it holds")
   -- Without the low row the same run fails, which is what makes the
   -- assertion above about resolution rather than about slack.
   local high = fs.join(root, "high")
-  assert(fs.write(high, "# h\n" .. src .. " 3 3\n"))
+  assert(fs.write(high, fixture({{src, 3, 3}})))
   assert(baseline.check(high, {root}) == 1,
     "the high row on its own is a decline")
 end
@@ -459,8 +447,8 @@ local function test_check_gates_a_merged_baseline_and_names_the_duplicates()
   -- The same path twice, as a union merge of two edits leaves it. The
   -- lower row (2/3) is the floor that gates; the run measures 3/3, so
   -- the ratchet holds.
-  local floor = fs.join(root, "floor")
-  assert(fs.write(floor, "# h\nlib/a.tl 3 3\nlib/a.tl 2 3\n"))
+  local floor_path = fs.join(root, "floor")
+  assert(fs.write(floor_path, fixture({{"lib/a.tl", 3, 3}, {"lib/a.tl", 2, 3}})))
 
   -- Absolute, because the child runs with `root` as its cwd and TEST_BIN
   -- is relative to the repo root.
@@ -480,5 +468,33 @@ local function test_check_gates_a_merged_baseline_and_names_the_duplicates()
     "the duplicate rows must be named, got: " .. err)
 end
 test_check_gates_a_merged_baseline_and_names_the_duplicates()
+
+-- The migration this slice performs: `.cosmic-coverage` moved from
+-- "path covered total" lines to a `cosmic.literal` table, byte for
+-- byte the same data. This test is the format's LAST reader: it
+-- reproduces the deleted line-scan itself, against the pre-conversion
+-- fixture, and checks every row against what `_tool.floor` reads back.
+local function test_migration_preserves_every_row()
+  local fs = require("cosmic.fs")
+  local old_text = check.must(fs.read("_tool/coverage/testdata/pre_literal_baseline.txt"))
+  local new_rows = check.must(floor.read(".cosmic-coverage"))
+  local old_count, new_count = 0, 0
+  for _ in pairs(new_rows) do new_count = new_count + 1 end
+  for line in old_text:gmatch("[^\n]+") do
+    if not line:match("^#") then
+      local path, covered, total = line:match("^(%S+) (%d+) (%d+)$")
+      if path then
+        old_count = old_count + 1
+        local got = new_rows[path] as {string: any} -- cast: literal row, known Entry shape
+        assert(got and got.covered == tonumber(covered) and got.total == tonumber(total),
+          "row moved or missing during migration: " .. path)
+      end
+    end
+  end
+  assert(old_count == 249, "fixture row count drifted, got " .. old_count)
+  assert(new_count == old_count,
+    "row count changed during migration: " .. old_count .. " -> " .. new_count)
+end
+test_migration_preserves_every_row()
 
 print("all baseline tests passed")
