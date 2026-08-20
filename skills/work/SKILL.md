@@ -250,7 +250,16 @@ what each kind of action is:
   verdict sent back. address the quoted gaps on that PR and hand it
   over again.
 - **pull** — a fresh `ready` item. claim it first: `move ID do --claim
-  <session>` — the move is the lock. then the slice loop below.
+  <session>` — the move is the lock, and the lock is a lease: a claim
+  whose session stops committing to the board reads as stale after a
+  few hours, and `next` offers the item to whoever asks. then the
+  slice loop below.
+- **unblock** — every `ready` item waits on an open blocker, so
+  nothing pulls however deep the queue is. `next` names the chain's
+  deepest open item; resolving it is whatever its state calls for —
+  finish it, take over its stale claim, refine it — and when the
+  reason recorded on the edge no longer binds (the spec grew its own
+  workaround), drop the edge with `gitboard unblock`.
 - **refine** — take a `plan` item one rung down the ladder
   (`decompose.md`): decompose a container's outcome further, or drive
   a leaf to the ready bar. before a `move ID ready`, run the
@@ -267,7 +276,11 @@ what each kind of action is:
   in docs/goals.md, which nothing derives from — it is context to read
   when interpreting and adjusting the tree.
 - **none** — implementation has to catch up, or everything left is
-  yours to review and somebody else must. stop.
+  yours to review and somebody else must. before stopping, run
+  `gitboard stall`: it files (or refreshes) the one standing capture
+  naming the bottleneck, so the stall is a timestamped board object
+  the next triage sees rather than a vanished session log — and it
+  refuses when the board in fact has work. then stop.
 
 **placing a new outcome is not yours to decide alone.** a comparison
 answers "which of these is the better cosmic", and that judgment

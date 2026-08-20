@@ -67,6 +67,14 @@ if it now binds — re-read the board and continue, never `--force`
 (`SKILL.md`'s hard rules bind the orchestrator exactly as they bind
 everyone else).
 
+a claim is a lease, not a deed. every board mutation is a commit, so
+a claim that stops committing reads as stale after a few hours, and
+`next` then offers the item to whoever asks, takeover move named.
+plan the wave so each item's handover lands inside that window, and
+treat losing a claim you went quiet on as the system working: the
+alternative was the item stranded behind a dead session, which is
+exactly what the lease exists to end.
+
 ## the board stays with the orchestrator
 
 agents do not run board verbs. the orchestrator claims before
@@ -171,7 +179,10 @@ not the board's:
 - every item that went to `do` is now in `check` with a PR, or back
   in `plan` with the gap recorded. anything else — `do` with no PR —
   is a dead session: move it back to `ready` yourself rather than
-  leaving the phase jammed against its limit.
+  leaving the phase jammed against its limit. `status` marks such
+  claims `[claim stale Nh]` once the lease runs out and `next` offers
+  the takeover, but reconcile now rather than making the next session
+  wait out the lease.
 - run `status` and read it. the board is the truth of what happened,
   and a fan-out that half-failed looks fine from inside the session
   that launched it.
