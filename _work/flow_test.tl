@@ -67,6 +67,15 @@ local function test_admissions_at_the_limit()
 end
 test_admissions_at_the_limit()
 
+local function test_arrivals_versus_writes_that_move_nothing()
+  assert(flow.is_arrival(nil, "plan"), "an entry arrives")
+  assert(flow.is_arrival("do", "check"), "a cross-phase move arrives")
+  assert(not flow.is_arrival("plan", "plan"),
+    "a same-phase write (spec, block) does not arrive")
+  assert(not flow.is_arrival("plan", ""), "de-phasing arrives nowhere")
+end
+test_arrivals_versus_writes_that_move_nothing()
+
 local function test_blocked_items_are_skipped()
   local goal = make({})
   local open_blocker = make({parent = goal.id, phase = "do"})
@@ -143,3 +152,46 @@ local function test_the_triage_queue_has_a_bound()
   assert(over == want, "got: " .. tostring(over))
 end
 test_the_triage_queue_has_a_bound()
+
+-- The gate refuses an ordinary arrival from `count == limit` upward,
+-- so a phase sitting exactly at its number is already turning work
+-- away. Reporting only `count > limit` printed `WIP ok` over a board
+-- that could not accept another item.
+local function test_a_phase_at_its_limit_reports_arrivals_refused()
+  local root = make({})
+  local under: {item.Item} = {root}
+  for _ = 1, flow.LIMITS["do"] - 1 do
+    under[#under + 1] = make({parent = root.id, phase = "do"})
+  end
+  assert(#flow.wip_violations(flow.board(under)) == 0,
+    "below the limit reports nothing")
+  local at: {item.Item} = {root}
+  for _ = 1, flow.LIMITS["do"] do
+    at[#at + 1] = make({parent = root.id, phase = "do"})
+  end
+  local lines = flow.wip_violations(flow.board(at))
+  assert(#lines == 1 and lines[1]:find("at limit — arrivals refused", 1, true),
+    "at the limit it says arrivals are refused: " .. table.concat(lines, "; "))
+  local over: {item.Item} = {root}
+  for _ = 1, flow.LIMITS["do"] + 1 do
+    over[#over + 1] = make({parent = root.id, phase = "do"})
+  end
+  local past = flow.wip_violations(flow.board(over))
+  assert(#past == 1 and past[1]:find("over limit", 1, true),
+    "past it, the older line stands: " .. table.concat(past, "; "))
+end
+test_a_phase_at_its_limit_reports_arrivals_refused()
+
+-- `land` is the exception: an accept is admitted over the limit
+-- however full it is, so `land` at its number refuses nothing and has
+-- nothing to report.
+local function test_land_at_its_limit_refuses_nothing()
+  local root = make({})
+  local items: {item.Item} = {root}
+  for _ = 1, flow.LIMITS["land"] do
+    items[#items + 1] = make({parent = root.id, phase = "land"})
+  end
+  assert(#flow.wip_violations(flow.board(items)) == 0,
+    "a full land column is not turning anything away")
+end
+test_land_at_its_limit_refuses_nothing()

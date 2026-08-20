@@ -53,9 +53,11 @@ local function test_a_non_accept_verdict_files_its_countermeasure()
       "3HyArM3A3zHuRxn3VYCvKmUZ7KW") ~= 0,
     "nor is the id of an item that does not exist")
   local counter = file_item(s, "the countermeasure", goal, false)
-  assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa", counter) == 0,
-    "a filed countermeasure passes")
-  assert(check.must(store.load(s, leaf)).enable == counter, "and is recorded")
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa",
+      counter:sub(1, 10)) == 0,
+    "an unambiguous prefix names the countermeasure, as ids do everywhere")
+  assert(check.must(store.load(s, leaf)).enable == counter,
+    "and the FULL id is what gets recorded")
   -- An accept has no bounce to explain, so it carries no trailer.
   assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
   assert(vrd.cmd_verdict(s, leaf, "accept", 5, "bbb", "") == 0,

@@ -81,7 +81,8 @@ end
 --- @param it item.Item The mutated item
 --- @param body string Replacement spec markdown, or nil to leave the sidecar alone
 --- @param message string Commit subject
---- @param from string Phase the mutation left, or nil for an entry
+--- @param from string Phase the mutation left; equal to `it.phase` for
+---   a write that moves nothing, nil for an entry
 --- @param also {item.Item} Further items the same mutation writes
 --- @return boolean True once committed (and pushed, given a remote)
 --- @return string Error message
@@ -97,12 +98,17 @@ local function commit_and_publish(s: store.Store, it: item.Item, body: string,
         return "state repository unreadable after rebase"
       end
       -- The mutated item is already IN the merged state; ask whether its
-      -- phase ended up over-limit with an arrival the limit may refuse.
+      -- phase ended up over-limit with an ARRIVAL the limit may refuse —
+      -- a write that leaves the item where it stands must stay editable
+      -- even on a full column, or the mutations that drain it (spec
+      -- refinement, blocker bookkeeping) could never run.
       local limit = flow.LIMITS[it.phase]
       local b = flow.board(merged)
       if limit ~= nil and #(b[it.phase] or {}) > limit
+      and flow.is_arrival(from, it.phase)
       and not flow.admits_over_limit(from, it.phase) then
-        return ("%s is over %d after a concurrent move"):format(it.phase, limit)
+        return ("%s is over %d and this mutation arrives into it"):format(
+          it.phase, limit)
       end
       return nil
     end)

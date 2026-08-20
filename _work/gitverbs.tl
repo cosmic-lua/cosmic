@@ -155,14 +155,27 @@ end
 --- it wrote duplicate ids and ids of items that do not exist; both
 --- are refused here, and an existing duplicate is collapsed by the
 --- next write.
+---
+--- A block RECORDS ITS REASON: one cheap command sequences whole
+--- chains behind the blocker, and an edge nobody can later judge —
+--- does this still bind, or did the spec grow its own workaround? —
+--- can only be resolved by whoever remembers writing it. The reason
+--- travels on the item (`block_reason`), rendered by `show`, and is
+--- what a session weighs before dropping the edge.
 --- @param s store.Store The store
 --- @param id string The waiting item
 --- @param blocker string The item it waits on
 --- @param remove boolean True to drop the blocker instead of adding it
+--- @param reason string What concretely cannot proceed; required to add
 --- @return integer 0 on success, 1 otherwise
 local function cmd_block(s: store.Store, id: string, blocker: string,
-    remove: boolean): integer
+    remove: boolean, reason: string): integer
   local verb = remove and "unblock" or "block"
+  if not remove and (reason or ""):match("%S") == nil then
+    return gate.verdict_line(verb, false,
+      "REFUSED: a block records why the edge binds — pass --reason "
+      .. "'<what concretely cannot proceed until the blocker ends>'")
+  end
   local all, aerr = store.list(s)
   if all == nil then
     return gate.verdict_line(verb, false, aerr)
@@ -201,10 +214,24 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
     return gate.verdict_line(verb, false,
       ("%s does not wait on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
   end
+  -- Refused rather than re-recorded: a second block with a new reason
+  -- would silently rewrite the first one's, and the reason is the
+  -- record a later unblock is judged against.
+  if not remove and had then
+    return gate.verdict_line(verb, false,
+      ("%s already waits on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
+  end
   if not remove then
     kept[#kept + 1] = blocker
   end
   it.blocked_by = kept
+  local reasons = it.block_reason or {}
+  if remove then
+    reasons[blocker] = nil
+  else
+    reasons[blocker] = reason
+  end
+  it.block_reason = reasons
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)), it.phase)
   if not ok then
@@ -406,7 +433,7 @@ local record gitverbs
   spec: string, repo: string, force: boolean, why: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
-  remove: boolean): integer
+  remove: boolean, reason: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
   cmd_check: function(s: store.Store, id: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,

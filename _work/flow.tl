@@ -20,6 +20,44 @@
 --- WIP limits carry the label board's empirically tuned values;
 --- retuning them is a reviewed change here too.
 ---
+--- Their empirical basis, measured over the board branch's full
+--- history to 2026-08-20 (70.4 h, 382 commits over `items/`, 279
+--- transitions, 99 items, 62 ended), by the stint walk `review.md`
+--- describes:
+---
+---   phase  stints  dwell median  peak  limit  at-or-over
+---   plan       62       275 min    21     12   66.3 h (94%)
+---   ready      43       235 min    12     12    1.6 h (2%)
+---   do         38         6 min     3      5    0
+---   check      29       168 min     6     10    0
+---   land       33        13 min     4      3    8.0 h (11%)
+---
+--- `do` and `check` never came near their numbers, so those two are
+--- unjudged rather than confirmed; `land`'s peak is above its limit
+--- only because an accept is admitted over it, which is not a signal.
+--- The tripwires, each a reason to measure again rather than a rule:
+---
+---   plan   binds almost continuously and holds 992 of the 1155
+---          phased item-hours. Pickup latency out of `ready` runs
+---          173 min against a 6 min `do`, so most of that depth is
+---          inventory aging, not work in flight. While it binds,
+---          intake is closed — `action.next_action` decomposes a root
+---          only with room in `plan` — so the highest-placed roots go
+---          undecomposed for as long as a stalled chain holds the
+---          depth, whatever they outrank. That starvation is the cost
+---          of this number, not a separate fault: if a review confirms
+---          it a second time, this queue is cut, not kept.
+---   ready  never binds while holding the same aging; cut with plan
+---          rather than alone, since refinement fills it.
+---   do     revisit if peak reaches 5 with a mix of claims, which
+---          would mean concurrent sessions rather than the one worker
+---          measured here. Five slots all held by OTHER sessions is
+---          not a limit signal — it is the stalled-claim state
+---          `action.next_action` reports.
+---   check  revisit if peak reaches 10 with a mix of claims. Reaching
+---          10 all from ONE session is not a limit signal — it is the
+---          handover stall `action.next_action` reports.
+---
 --- What a role should DO with all this is `_work.action`: the rules and
 --- the policy that consults them are separate modules, so growing one
 --- never crowds the other against the file-length cap.
@@ -80,6 +118,17 @@ end
 --- @return boolean True when the target's WIP limit does not bind
 local function admits_over_limit(from: string, to: string): boolean
   return to == "land" or is_return(from, to)
+end
+
+--- Whether a mutation adds an item to `to`: entries (nil `from`) and
+--- cross-phase moves arrive; a write that leaves the item where it
+--- stands (`from == to`) does not.
+--- @param from string Phase the mutation left; equal to `it.phase` for
+---   a write that moves nothing, nil for an entry
+--- @param to string Target phase
+--- @return boolean True when the mutation adds an item to `to`
+local function is_arrival(from: string, to: string): boolean
+  return to ~= "" and from ~= to
 end
 
 --- Items indexed by id.
@@ -151,6 +200,15 @@ local function queued(b: Board, phase: string,
 end
 
 --- WIP-limit violations, one line each ("do 6/5 over limit").
+---
+--- A phase reports at TWO thresholds, because the gate has two. An
+--- ordinary arrival is refused from `count == limit` upward
+--- (`gitgate.wip_refusal` admits below the limit, not at it), so a
+--- phase sitting exactly at its number is already turning work away —
+--- and reporting only `count > limit` printed `WIP ok` over a board
+--- that could not accept another item. `land` is excluded from the
+--- at-limit line alone: an accept is admitted over the limit however
+--- full it is, so `land` at its number refuses nothing.
 --- @param b Board The board
 --- @return {string} Violations, left-to-right phase order
 local function wip_violations(b: Board): {string}
@@ -159,6 +217,9 @@ local function wip_violations(b: Board): {string}
     local n = #(b[phase] or {})
     if n > LIMITS[phase] then
       out[#out + 1] = ("%s %d/%d over limit"):format(phase, n, LIMITS[phase])
+    elseif n == LIMITS[phase] and not admits_over_limit("", phase) then
+      out[#out + 1] = ("%s %d/%d at limit — arrivals refused"):format(
+        phase, n, LIMITS[phase])
     end
   end
   return out
@@ -378,6 +439,7 @@ local record flow
   TRIAGE_LIMIT: integer
   is_return: function(from: string, to: string): boolean
   admits_over_limit: function(from: string, to: string): boolean
+  is_arrival: function(from: string, to: string): boolean
   by_id: function(items: {Item}): Index
   has_open_children: function(items: {Item}, id: string): boolean
   role: function(i: Item, items: {Item}): string
@@ -403,6 +465,7 @@ local M: flow = {
   TRIAGE_LIMIT = TRIAGE_LIMIT,
   is_return = is_return,
   admits_over_limit = admits_over_limit,
+  is_arrival = is_arrival,
   by_id = by_id,
   has_open_children = has_open_children,
   role = role,

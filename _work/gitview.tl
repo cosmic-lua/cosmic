@@ -10,6 +10,7 @@
 --- stdout.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local health = require("_work.health")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local act = require("_work.action")
@@ -18,17 +19,44 @@ local store = require("_work.store")
 
 local verdict_line = gate.verdict_line
 
+--- Seconds since each claimed, phased item's last board commit, read
+--- from git once per render. Only claimed items are asked about —
+--- staleness is a property of a claim — so the cost is a handful of
+--- `git log -1` calls, not one per item on the board.
+--- @param s store.Store The store
+--- @param all {item.Item} Every item
+--- @return health.Ages Ages by item id
+local function claim_ages(s: store.Store, all: {item.Item}): health.Ages
+  local ages: health.Ages = {}
+  local now = os.time()
+  for _, i in ipairs(all) do
+    if item.is_open(i) and (i.phase or "") ~= "" and (i.claim or "") ~= "" then
+      local t = store.touched_at(s, i.id)
+      if t ~= nil and t <= now then
+        ages[i.id] = now - t
+      end
+    end
+  end
+  return ages
+end
+
 --- The kanban, its per-item marks, and board-wide graph health.
 --- Health reports HERE rather than in the ready bar: one item's
 --- broken chain is everyone's to see and nobody's reason to be
 --- refused a promotion.
 ---
 --- The triage queue counts here too, against its own bound, because
---- a queue past it is the planner's next action.
+--- a queue past it is the planner's next action. Flow health beyond
+--- WIP conformance renders here as well: a stale claim, a blocker
+--- cycle, and a starved `ready` are each a stall `WIP ok` used to
+--- print over.
 --- @param all {item.Item} Every item
+--- @param ages health.Ages Seconds since last board commit, by id
 --- @return {string} The lines to print
 --- @return string The verdict detail
-local function status_report(all: {item.Item}): {string}, string
+local function status_report(all: {item.Item},
+    ages?: health.Ages): {string}, string
+  local aged = ages or {}
   local b = flow.board(all)
   local index = flow.by_id(all)
   local pos = prio.positions(all)
@@ -42,6 +70,10 @@ local function status_report(all: {item.Item}): {string}, string
       if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
       if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
       if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
+      if health.is_stale(i, aged) then
+        marks = marks .. (" [claim stale %dh]"):format(
+          health.stale_hours(i, aged))
+      end
       out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
     end
   end
@@ -51,8 +83,15 @@ local function status_report(all: {item.Item}): {string}, string
   out[#out + 1] = ("%-6s %d/%d"):format("triage", #flow.untriaged(all),
     flow.TRIAGE_LIMIT)
   local graph = flow.graph_problems(all)
+  for _, p in ipairs(health.blocker_cycle_problems(all)) do
+    graph[#graph + 1] = p
+  end
   for _, p in ipairs(graph) do
     out[#out + 1] = "  graph: " .. p
+  end
+  local starved_root, starving = health.starved(b, index, aged)
+  if starved_root ~= nil then
+    out[#out + 1] = "  flow: " .. starving
   end
   local verdict = "WIP ok"
   local violations = flow.wip_violations(b)
@@ -66,6 +105,9 @@ local function status_report(all: {item.Item}): {string}, string
   if #graph > 0 then
     verdict = ("%s; %d graph problem(s)"):format(verdict, #graph)
   end
+  if starved_root ~= nil then
+    verdict = verdict .. "; ready starved"
+  end
   return out, verdict
 end
 
@@ -74,7 +116,7 @@ local function cmd_status(s: store.Store): integer
   if all == nil then
     return verdict_line("status", false, aerr)
   end
-  local lines, verdict = status_report(all)
+  local lines, verdict = status_report(all, claim_ages(s, all))
   for _, line in ipairs(lines) do
     print(line)
   end
@@ -163,17 +205,24 @@ end
 
 --- The one next action, as the verdict detail. Acting on it moves
 --- the board, so a session taking several asks again after each one
---- rather than reading a list.
+--- rather than reading a list. A `none` carries the stall verb's
+--- name: the diagnosis belongs on the board, not in this terminal.
 --- @param all {item.Item} Every item
 --- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
 --- @return string The action, its target, and the rule behind it
-local function next_report(all: {item.Item}, session?: string): string
-  local action = act.next_action(all, session)
+local function next_report(all: {item.Item}, session?: string,
+    ages?: health.Ages): string
+  local action = act.next_action(all, session, ages)
   local target = ""
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
   end
-  return ("%s%s — %s"):format(action.kind, target, action.reason)
+  local hint = ""
+  if action.kind == "none" then
+    hint = " — record it on the board: `gitboard stall`"
+  end
+  return ("%s%s — %s%s"):format(action.kind, target, action.reason, hint)
 end
 
 local function cmd_next(s: store.Store, session?: string): integer
@@ -181,7 +230,7 @@ local function cmd_next(s: store.Store, session?: string): integer
   if all == nil then
     return verdict_line("next", false, aerr)
   end
-  return verdict_line("next", true, next_report(all, session))
+  return verdict_line("next", true, next_report(all, session, claim_ages(s, all)))
 end
 
 --- One item's fields, role, spec, history, and its own graph
@@ -221,6 +270,12 @@ local function show_report(it: item.Item, all: {item.Item}, spec: string,
   end
   if #it.blocked_by > 0 then
     out[#out + 1] = "blocked by: " .. table.concat(it.blocked_by, " ")
+    for _, b in ipairs(it.blocked_by) do
+      local why = (it.block_reason or {})[b]
+      if why ~= nil and why ~= "" then
+        out[#out + 1] = ("  %s: %s"):format(b:sub(1, 8), why)
+      end
+    end
   end
   if it.resolution ~= "" then
     out[#out + 1] = ("resolution: %s"):format(it.resolution)
@@ -376,9 +431,10 @@ local function cmd_find(s: store.Store, text: string): integer
 end
 
 local record gitview
-  status_report: function(all: {item.Item}): {string}, string
+  status_report: function(all: {item.Item}, ages?: health.Ages): {string}, string
   tree_report: function(all: {item.Item}): {string}, string
-  next_report: function(all: {item.Item}, session?: string): string
+  next_report: function(all: {item.Item}, session?: string,
+  ages?: health.Ages): string
   show_report: function(it: item.Item, all: {item.Item}, spec: string,
   events: {store.Event}): {string}, string
   find_report: function(all: {item.Item}, specs: {string: string},

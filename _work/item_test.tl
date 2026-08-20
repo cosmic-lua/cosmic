@@ -14,6 +14,7 @@ local literal = require("cosmic.literal")
 local ZEROS = ("\0"):rep(16)
 local ID = check.must(ksuid.encode(1700000001, ZEROS))
 local PARENT = check.must(ksuid.encode(1700000000, ZEROS))
+local OTHER = check.must(ksuid.encode(1699999999, ZEROS))
 
 local function base(): {string: any}
   return {id = ID, title = "an item"}
@@ -42,7 +43,7 @@ local function test_worked_item_round_trips()
   t.pr = 456
   t.verdict = "request changes"
   t.verdict_head = "abc1234"
-  t.blocked_by = PARENT .. " " .. ID
+  t.blocked_by = PARENT .. " " .. OTHER
   local it = check.must(item.decode(t))
   local back = check.must(item.decode(
       check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
@@ -131,6 +132,34 @@ local function test_repo_scopes_a_workable_items_pr()
 end
 test_repo_scopes_a_workable_items_pr()
 
+-- A list field's invariants hold by validation, not by the writer's
+-- convention: `block` rebuilds its list through a `seen` set, but a
+-- migration or a hand-edit reaches the file directly, and a repeated
+-- entry over-reports the blocker count and renders twice in `show`.
+-- Refused rather than folded — silently deduping would hide whichever
+-- writer produced them.
+local function test_list_fields_refuse_a_repeated_entry()
+  local blocked = base()
+  blocked.blocked_by = PARENT .. " " .. OTHER .. " " .. PARENT
+  local bbad, berr = item.decode(blocked)
+  assert(bbad == nil and berr:find("blocked_by repeats " .. PARENT, 1, true),
+    "a repeated blocker is refused: " .. tostring(berr))
+
+  local ranked = base()
+  ranked.beats = PARENT .. " " .. OTHER .. " " .. OTHER
+  local rbad, rerr = item.decode(ranked)
+  assert(rbad == nil and rerr:find("beats repeats " .. OTHER, 1, true),
+    "a repeated beat is refused: " .. tostring(rerr))
+
+  local distinct = base()
+  distinct.blocked_by = PARENT .. " " .. OTHER
+  distinct.beats = PARENT .. " " .. OTHER
+  local ok = check.must(item.decode(distinct))
+  assert(#ok.blocked_by == 2 and #ok.beats == 2,
+    "distinct entries in each list are accepted")
+end
+test_list_fields_refuse_a_repeated_entry()
+
 local function test_id_discipline()
   local bad, err = item.decode({id = "not-a-ksuid", title = "t"})
   assert(bad == nil and err:find("ksuid", 1, true), "ids are ksuids")
@@ -141,3 +170,34 @@ local function test_id_discipline()
     .. tostring(berr))
 end
 test_id_discipline()
+
+local function test_block_reason_rides_the_edge_and_round_trips()
+  local t = base()
+  t.parent = PARENT
+  t.blocked_by = OTHER
+  t.block_reason = {[OTHER] = "the API lands there first"}
+  local it = check.must(item.decode(t))
+  assert(it.block_reason[OTHER] == "the API lands there first",
+    "the reason decodes")
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
+  assert(back.block_reason[OTHER] == "the API lands there first",
+    "and round-trips through the literal")
+  -- A reason whose edge is gone heals on the next write, like a
+  -- duplicate blocker does.
+  it.blocked_by = {}
+  local healed = item.encode(it)
+  assert(healed.block_reason == nil and healed.blocked_by == nil,
+    "an orphaned reason is not written")
+end
+test_block_reason_rides_the_edge_and_round_trips()
+
+local function test_an_item_cannot_wait_on_itself()
+  local t = base()
+  t.parent = PARENT
+  t.blocked_by = ID
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("itself", 1, true),
+    "a self-block is invalid: " .. tostring(err))
+end
+test_an_item_cannot_wait_on_itself()
