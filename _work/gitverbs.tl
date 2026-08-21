@@ -73,7 +73,13 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     return gate.verdict_line("new", false, table.concat(bad, "; "))
   end
   if phase ~= "" and not force then
-    local refusal = gate.wip_refusal(flow.board(all), nil, phase)
+    -- A phased parent is a workable leaf, and gaining a child takes it
+    -- off the board in this same commit — so the slot the child fills
+    -- is the one the parent leaves. Net-zero decomposition is admitted
+    -- however full the column is; only a parent already off the board
+    -- (a container) makes this a real arrival.
+    local refusal = gate.wip_refusal(flow.board(all), nil, phase,
+      parent_item.phase or "")
     if refusal then
       return gate.verdict_line("new", false, "REFUSED: " .. refusal)
     end

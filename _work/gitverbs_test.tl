@@ -322,3 +322,87 @@ local function test_new_repo_lands_the_field()
     "the field lands on the stored item: " .. it.repo)
 end
 test_new_repo_lands_the_field()
+
+-- How many items a store's board holds in one phase.
+local function occupancy(s: store.Store, phase: string): integer
+  return #(flow.board(check.must(store.list(s)))[phase] or {})
+end
+
+-- Fill plan to its limit under `goal`, returning the leaves filed.
+local function fill_plan(s: store.Store, goal: string): {string}
+  local out: {string} = {}
+  while occupancy(s, "plan") < flow.LIMITS["plan"] do
+    out[#out + 1] = file_item(s, ("filler %d"):format(#out + 1), goal, false)
+  end
+  return out
+end
+
+-- Decomposing a workable leaf frees the slot it fills: the parent
+-- leaves the phase in the same commit the child enters it. The limit
+-- exists to force draining, so refusing the drain itself would be the
+-- gate working against its own purpose.
+local function test_a_full_plan_admits_a_net_zero_decomposition()
+  local s = init_state_repo("netzero")
+  local goal, leaf = root_with_leaf(s)
+  local _filled = fill_plan(s, goal)
+  local before = occupancy(s, "plan")
+  assert(before == flow.LIMITS["plan"], "plan starts full: " .. before)
+  local kid = file_item(s, "a sub-slice", leaf, false)
+  assert(occupancy(s, "plan") == before,
+    ("decomposition is net-zero: %d -> %d"):format(before,
+      occupancy(s, "plan")))
+  assert(check.must(store.load(s, leaf)).phase == "",
+    "the parent left the board in the same commit")
+  assert(check.must(store.load(s, kid)).phase == "plan", "the child took its slot")
+end
+test_a_full_plan_admits_a_net_zero_decomposition()
+
+-- A container is already off the board, so a second child frees
+-- nothing and is an ordinary arrival the full column refuses.
+local function test_a_full_plan_still_refuses_a_containers_next_child()
+  local s = init_state_repo("container")
+  local goal, leaf = root_with_leaf(s)
+  local _filled = fill_plan(s, goal)
+  local _first = file_item(s, "the first child", leaf, false)
+  local before = occupancy(s, "plan")
+  assert(verbs.cmd_new(s, "the second child", leaf, nil, "", false, "") ~= 0,
+    "plan is full and this arrival frees no slot")
+  assert(occupancy(s, "plan") == before, "and nothing was written")
+end
+test_a_full_plan_still_refuses_a_containers_next_child()
+
+-- A parent in a DIFFERENT phase frees a slot somewhere else, which is
+-- no help to the phase being entered.
+local function test_a_parent_in_another_phase_earns_no_credit()
+  local s = init_state_repo("elsewhere")
+  local goal, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  local _filled = fill_plan(s, goal)
+  local before = occupancy(s, "plan")
+  assert(verbs.cmd_new(s, "a child of a ready parent", leaf, nil, "",
+      false, "") ~= 0,
+    "the freed slot is ready's, and the child arrives into plan")
+  assert(occupancy(s, "plan") == before, "and nothing was written")
+end
+test_a_parent_in_another_phase_earns_no_credit()
+
+-- Adoption is admitted at any occupancy — triage is a decision already
+-- made — so the drain of an over-bound triage queue is never refused,
+-- whether what adopts the capture is a workable leaf or a container.
+local function test_adoption_is_admitted_by_a_full_plan()
+  local s = init_state_repo("adopt")
+  local goal, leaf = root_with_leaf(s)
+  local _filled = fill_plan(s, goal)
+  local under_leaf = file_item(s, "a capture", "", false)
+  local before = occupancy(s, "plan")
+  assert(verbs.cmd_attach(s, under_leaf, leaf) == 0,
+    "adopting under a workable leaf is net-zero")
+  assert(occupancy(s, "plan") == before, "so the column is unchanged")
+  local under_container = file_item(s, "another capture", "", false)
+  assert(verbs.cmd_attach(s, under_container, leaf) == 0,
+    "and adopting under the container it became is admitted too")
+  assert(occupancy(s, "plan") == before + 1,
+    "that one really does arrive")
+end
+test_adoption_is_admitted_by_a_full_plan()

@@ -31,14 +31,23 @@ end
 
 --- The WIP refusal an arrival in a phase earns, or nil when it may
 --- enter. The one gate `new` and `move` share.
+---
+--- `vacated` names a phase the SAME mutation empties a slot in. When
+--- it is the phase being entered, occupancy is unchanged once the
+--- mutation lands, and a limit that counted only the arrival would
+--- refuse the very drain it exists to force: decomposing a workable
+--- leaf de-phases the parent in the same commit, so a full column
+--- still admits the child that empties it.
 --- @param b flow.Board The board
 --- @param from string Current phase, or nil for an entry
 --- @param to string Target phase
+--- @param vacated string Phase this mutation frees a slot in, or nil
 --- @return string | nil The refusal
-local function wip_refusal(b: flow.Board, from: string, to: string): string
+local function wip_refusal(b: flow.Board, from: string, to: string,
+    vacated?: string): string
   local limit = flow.LIMITS[to]
   if limit == nil or #(b[to] or {}) < limit
-  or flow.admits_over_limit(from, to) then
+  or flow.admits_over_limit(from, to) or vacated == to then
     return nil
   end
   return ("%s is at %d/%d — drain it before pulling more"):format(
@@ -236,7 +245,8 @@ end
 
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
-  wip_refusal: function(b: flow.Board, from: string, to: string): string
+  wip_refusal: function(b: flow.Board, from: string, to: string,
+  vacated?: string): string
   force_refusal: function(force: boolean, why: string): string
   forced_suffix: function(force: boolean, why: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
