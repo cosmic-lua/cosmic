@@ -1,5 +1,5 @@
 return {
-  ["claim"] = "claude-3gubgy",
+  ["claim"] = "claude-i66dkr",
   ["id"] = "3I7LGcLaE6xqOwmNxcdBvRtT6Ft",
   ["parent"] = "3I1IfJ228vyPoO9rhbHhc6RjxJB",
   ["phase"] = "check",
