@@ -63,3 +63,26 @@ the way `do` does (and `next` withholds a finish another session holds),
 and whether `done` from `land` must read the PR and refuse a
 `completed` resolution for one that is not merged — `land`'s
 already-merged path proves the read is available.
+
+## Second occurrence, 2026-08-21, and it is starker
+
+Item `3I7C5igr` (PR #1304, claim `claude-fehbbm`), board history:
+
+```
+21:40:34  00a6afc2  verdict 3I7C5igr accept (check -> land)
+21:40:53  19a5f4ea  done 3I7C5igr completed (from land)
+```
+
+Nineteen seconds separate the accept from the close, and **no merge
+happened in between** — the reviewing session recorded the item
+completed without merging or reading the PR, which was still open. It
+merged only because a different session was watching the PR, saw the
+accept land, and squash-merged it (`a9ec21a5`) a minute later; that
+session's own `gitboard land` then got the same `is in no phase`
+refusal as the first occurrence.
+
+Had nobody been watching, the board would now carry `3I7C5igr` as
+`resolution: completed` with PR #1304 open forever, and no verb would
+ever contradict it. The first occurrence (`3I7LNDrF`) could be read as
+a narrow race; this one is the plain behaviour — `done` from `land`
+asks nothing about the PR it is closing.
