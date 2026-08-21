@@ -138,3 +138,42 @@ none needed — every site is enumerated from a grep re-run 2026-08-21 at
 `aaf4af95`, every parse result and the nil-throw hazard are measured
 against the pinned runtime and pinned in the tests above, and the
 ratchet's own message names the regen command.
+
+## Bounced 2026-08-21: the instrument.tl half needs a decision this spec does not make
+
+Implemented at main `aaf4af95` on branch
+`claude/zealous-hypatia-2wmkrz` (commit `0fb9c6b8`, draft PR). Change
+items 1, 2 (the two `testrun.tl` sites), 3 and 4 all hold as written —
+`--make test cosmic/string_test.tl _tool/testrun_test.tl
+cosmic/instrument_test.tl` ends `test: PASS (3 files)`, the grep prints
+`_tool/testrun.tl:1` and `cosmic/instrument.tl:3`, and the regenerated
+baseline moved exactly the three predicted rows. Two consequences of
+the FOUR `instrument.tl` sites were not foreseen:
+
+1. **A bootstrap ordering the spec does not mention.** `cosmic.instrument`
+   is on the boot surface, so the pinned release loads it from the tree
+   during `--make build`'s generate step while resolving `cosmic.string`
+   from its own `/zip/.tl/cosmic/string.tl`. Generation 1 therefore fails
+   with `invalid key 'to_integer' in record 'str'`; generation 2, run
+   under the binary the first build produced, succeeds. `--make ci`
+   converges and is fine, but a bare `--make build` on a COLD tree does
+   not — it fails before it can produce the binary that would fix it. Not
+   yet measured on a genuinely cold clone; the `repro` CI lane is where
+   it would show.
+2. **Coverage: the module becomes boot-loaded, and its floor appears to
+   drop.** `_make/stamp.tl`'s `stamp_test` demands `cosmic.string` join
+   `BOOT_MODULES` (its message names the fix). Once it is boot-loaded,
+   `--make coverage` reports `cosmic/string.tl: coverage declined 98.4%
+   -> 96.9% (158/163, baseline 180/183)` — the TOTAL moving 183 -> 163
+   while the file grew 25 lines, with `local M: StringModule = {` and
+   `return M` reported unhit. That is the o/-vs-/zip chunk merge race of
+   3ICDL1lV, now confirmed at runtime there. Reverting only the
+   `instrument.tl` require clears it.
+
+**The decision to make in this plan pass**, which is why this bounced
+rather than shipping: whether wave 4 is the two `testrun.tl` sites
+alone (leaving the four `instrument.tl` sites to a later wave, after
+3ICDL1lV lands), or whether it waits for 3ICDL1lV. Committing a
+`--make coverage --baseline` to absorb the decline is NOT an option
+here — it would freeze a measurement artifact as a floor. Mirrored in
+`blocked_by` either way.
