@@ -42,3 +42,29 @@ unattended session should make alone):
 Until one of those lands, every unattended run ends by asking a maintainer
 to squash-merge `main`-based PRs by hand, and accepted product work sits in
 `land` between runs.
+
+## Second occurrence, and it is not repo-specific
+
+Measured 2026-08-21, session `claude-hitmco`, on item `3I7LDODd` (PR
+whilp/cosmopolitan#267, accepted at head `ef3973ec`, base `master`):
+
+```
+$ o/bin/gitboard land 3I7LDODd
+gitboard-land: REFUSED (403: this token may not merge PR #267 into the
+base branch — a permission refusal, not the diff. The accept stands and
+PR #267 stays in land — ask a maintainer to squash-merge PR #267.
+PUT /repos/whilp/cosmopolitan/pulls/267/merge: HTTP 403: Merging into a
+protected base branch is not permitted for this session type.)
+```
+
+Same refusal, different repository and a different base branch name, so
+the fact is about protected bases generally rather than about
+`whilp/cosmic`'s `main`. The loop parked identically: `next` answered
+`finish 3I7LDODd` on the re-run, with `plan` at 13/12 and `triage` at
+31/8 behind it.
+
+The session had reviewed and accepted that PR immediately before, so the
+run's whole yield was one verdict — the review reached `land` and stopped
+there. That is the cost this capture is measuring: an unattended run
+converts at most one item per wake, and only when the item ahead of it is
+not a merge.
