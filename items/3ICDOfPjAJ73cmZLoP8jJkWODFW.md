@@ -21,3 +21,14 @@ it reports failure but keeps the local commit standing, which the
 NEXT mutation's publish silently ships — contradicting "drops its own
 commit whole"; a mid-`save` stage failure similarly leaves a dirty
 index that pollutes the next commit.
+
+(4) The revalidate does not carry the `vacated` credit `cmd_new` gained
+for net-zero decomposition (#1304): `from` is nil for an entry, so
+`flow.is_arrival` is true and the merged-state check refuses a child
+whose parent de-phased in the same commit, whenever the column is over
+limit. Same root cause as (1) and (2) — the re-check reproduces the
+limit but not the verbs' admission policy — and newly reachable: with
+`plan` at 44/12, every `new --parent` that loses a push race hits it.
+The mutation drops whole, so nothing half-lands and the session may
+retry; the cost is a refusal that the up-front gate already decided
+against.
