@@ -143,15 +143,16 @@ end
 --- @param s store.Store The store
 --- @param id string The item being handed over
 --- @param number integer The PR number
+--- @param repo string | nil The item's repo field, when it carries one
 --- @return string | nil The refusal
 local function handover_refusal(s: store.Store, id: string,
-    number: integer): string
+    number: integer, repo: string | nil): string
   -- A local-only board has no pull requests to ask about, the same
   -- reason publishing there is a no-op.
   if not store.has_origin(s) then
     return nil
   end
-  local p, perr = gh.pull(s, number)
+  local p, perr = gh.pull(s, number, repo)
   if p == nil then
     return ("cannot read PR #%d: %s; --force to hand it over anyway"):format(
       number, perr)
@@ -160,7 +161,7 @@ local function handover_refusal(s: store.Store, id: string,
   if blocked then
     return blocked
   end
-  local runs, cerr = gh.checks(s, p.head_sha)
+  local runs, cerr = gh.checks(s, p.head_sha, repo)
   if runs == nil then
     return ("cannot read CI for %s: %s; --force to hand it over anyway")
     :format(p.head_sha:sub(1, 7), cerr)
@@ -243,7 +244,7 @@ local record gitgate
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
   handover_refusal: function(s: store.Store, id: string,
-  number: integer): string
+  number: integer, repo: string | nil): string
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end

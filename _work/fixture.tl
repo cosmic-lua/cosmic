@@ -101,7 +101,7 @@ local function file_item(s: store.Store, title: string, parent: string,
   for _, i in ipairs(check.must(store.list(s))) do
     before[i.id] = true
   end
-  assert(verbs.cmd_new(s, title, parent, nil, force,
+  assert(verbs.cmd_new(s, title, parent, nil, "", force,
       force and "test fixture" or "") == 0,
     "new should be accepted: " .. title)
   for _, i in ipairs(check.must(store.list(s))) do

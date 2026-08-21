@@ -43,7 +43,7 @@ local function cmd_init(dir: string): integer
 end
 
 local function cmd_new(s: store.Store, title: string, parent: string,
-    spec: string, force: boolean, why: string): integer
+    spec: string, repo: string, force: boolean, why: string): integer
   local forced = gate.force_refusal(force, why)
   if forced then
     return gate.verdict_line("new", false, "REFUSED: " .. forced)
@@ -63,7 +63,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     phase = "plan"
   end
   local it: item.Item = {
-    id = ksuid.new(), title = title, parent = parent,
+    id = ksuid.new(), title = title, parent = parent, repo = repo or "",
     phase = phase, beats = {},
     blocked_by = {}, claim = "", pr = 0, verdict = "",
     verdict_head = "", resolution = "",
@@ -333,7 +333,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   if target == "check" and not force then
     local refusal = gate.handover_refusal(s, id,
-      (pr or 0) ~= 0 and pr or it.pr)
+      (pr or 0) ~= 0 and pr or it.pr, it.repo)
     if refusal then
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
@@ -430,7 +430,7 @@ end
 local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_new: function(s: store.Store, title: string, parent: string,
-  spec: string, force: boolean, why: string): integer
+  spec: string, repo: string, force: boolean, why: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer

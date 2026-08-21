@@ -35,3 +35,12 @@ local function test_is_merged_reads_the_status()
   assert(gh.is_merged({status = 500}) == false)
 end
 test_is_merged_reads_the_status()
+
+-- A non-empty repo short-circuits before touching git — no store root
+-- is ever read, so a bogus one proves the short-circuit rather than
+-- masking a git call that happened to succeed.
+local function test_slug_short_circuits_on_a_set_repo()
+  local slug = gh.slug({root = "/does/not/exist"}, "whilp/cosmopolitan")
+  assert(slug == "whilp/cosmopolitan", "got: " .. tostring(slug))
+end
+test_slug_short_circuits_on_a_set_repo()

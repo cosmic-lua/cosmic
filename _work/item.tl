@@ -31,6 +31,8 @@ local record Item
   title: string
   --- The id this item decomposes; "" for roots.
   parent: string
+  --- The owner/name the item's PR lands in; "" = the board's origin.
+  repo: string
   --- Board phase; workable items only, "" otherwise.
   phase: string
   --- Items this one is ranked ABOVE, each by id: the priority
@@ -132,8 +134,11 @@ local function problems(it: Item): {string}
     end
   end
   if is_root(it) and ((it.claim or "") ~= "" or (it.pr or 0) ~= 0
-    or (it.verdict or "") ~= "" or (it.enable or "") ~= "") then
-    out[#out + 1] = "claim/pr/verdict belong to worked items, not roots"
+    or (it.verdict or "") ~= "" or (it.enable or "") ~= "" or (it.repo or "") ~= "") then
+    out[#out + 1] = "claim/pr/verdict/repo belong to worked items, not roots"
+  end
+  if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
+    out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
   end
   local blocked_seen: {string: boolean} = {}
   for _, b in ipairs(it.blocked_by or {}) do
@@ -187,6 +192,7 @@ local function decode(t: {string: any}): Item | nil, string
     id = tostring(t.id or ""),
     title = tostring(t.title or ""),
     parent = tostring(t.parent or ""),
+    repo = tostring(t.repo or ""),
     phase = tostring(t.phase or ""),
     beats = beats,
     blocked_by = blocked,
@@ -215,6 +221,7 @@ local function encode(it: Item): {string: any}
     title = it.title,
   }
   if (it.parent or "") ~= "" then t.parent = it.parent end
+  if (it.repo or "") ~= "" then t.repo = it.repo end
   if (it.phase or "") ~= "" then t.phase = it.phase end
   if #(it.beats or {}) > 0 then
     t.beats = table.concat(it.beats, " ")

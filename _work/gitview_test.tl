@@ -138,6 +138,51 @@ local function test_show_names_an_items_own_graph_problem()
 end
 test_show_names_an_items_own_graph_problem()
 
+-- Cross-repo work is visible exactly where it was invisible: `show`
+-- prints a `repo:` line, and the queue/tree reports append
+-- ` [owner/name]` to the item's line. The default (empty `repo`) is
+-- silent — a same-repo item reads the same as it did before this field
+-- existed.
+local function test_repo_is_rendered_in_show_status_and_tree()
+  local all = board_items()
+  local scoped = check.must(item.decode({
+        id = fresh_id(), title = "a cosmopolitan-side slice",
+        parent = CONTAINER, phase = "do", repo = "whilp/cosmopolitan"}))
+  all[#all + 1] = scoped
+
+  local show_lines = view.show_report(scoped, all, "", {})
+  assert(has(show_lines, "^repo: whilp/cosmopolitan$"),
+    "show prints a repo line: " .. table.concat(show_lines, "\n"))
+
+  local status_lines = view.status_report(all)
+  assert(has(status_lines, "%[whilp/cosmopolitan%]"),
+    "status marks the item with its repo: " .. table.concat(status_lines, "\n"))
+  -- The mark means "cross-repo", so it must not reach a same-repo
+  -- line. Hold the LEAF's line before asserting about it: `status`
+  -- writes a PR as ` pr:42` where `show` writes `pr: #42`, and a
+  -- negative assertion over a pattern from the wrong report matches
+  -- nothing and passes however badly the mark leaks.
+  local leaf_line = ""
+  for _, line in ipairs(status_lines) do
+    if line:find("pr:42", 1, true) then
+      leaf_line = line
+    end
+  end
+  assert(leaf_line ~= "", "the LEAF's status line is there to check")
+  assert(not leaf_line:find("whilp/cosmopolitan", 1, true),
+    "the same-repo LEAF is unmarked: " .. leaf_line)
+
+  local tree_lines = view.tree_report(all)
+  assert(has(tree_lines, "%[whilp/cosmopolitan%]"),
+    "tree marks the item with its repo: " .. table.concat(tree_lines, "\n"))
+
+  local default_show = view.show_report(all[3], all, "", {})
+  assert(not has(default_show, "^repo:"),
+    "an item with no repo prints no repo line: "
+    .. table.concat(default_show, "\n"))
+end
+test_repo_is_rendered_in_show_status_and_tree()
+
 local function test_status_counts_the_triage_queue_against_its_bound()
   local lines, verdict = view.status_report(board_items())
   assert(has(lines, "^triage 0/8$"), table.concat(lines, "\n"))
