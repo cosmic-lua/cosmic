@@ -29,6 +29,8 @@ return {
   ["_perf/perf_test.tl"] = 2,
   ["_perf/run.tl"] = 3,
   ["_tool/benchmark.tl"] = 1,
+  ["_tool/coverage/baseline.tl"] = 2,
+  ["_tool/coverage/baseline_test.tl"] = 1,
   ["_tool/coverage/lines.tl"] = 11,
   ["_tool/coverage/report.tl"] = 2,
   ["_tool/doc/index_test.tl"] = 1,

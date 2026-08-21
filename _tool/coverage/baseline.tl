@@ -11,14 +11,19 @@
 --- coverage --baseline` rewrites it, lowering only the rows this run
 --- would have failed on and leaving every other row exactly as
 --- committed — a floor moves down by a deliberate rewrite and up only
---- by hand. The file is declared `merge=union` in `.gitattributes`, so
---- two branches editing the same region produce both rows instead of a
---- conflict, and `parse` resolves a repeated path to its lower
---- percentage.
+--- by hand. The file is a committed floor read and written through
+--- `_tool.floor` (the same module `_build/casts.tl` and
+--- `_build/public_surface.tl` share), one `["path"] = {["covered"] = C,
+--- ["total"] = T},` row per line (the same shape and sort the other two
+--- floors use), and `merge=union` in `.gitattributes` means two branches
+--- editing the same region produce both rows instead of a conflict;
+--- `parse` resolves a repeated path to its lower percentage via the
+--- `on_duplicate` resolver `floor.parse` forwards.
 ---
 --- A library module: `require`d for its API (`gate`, `text_for`,
 --- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
 --- here.
+local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local rep = require("_tool.coverage.report")
 
@@ -92,15 +97,13 @@ end
 --- lines in common to conflict on.
 --- @param reports {FileReport} Sorted results from report.compute
 --- @param floor {string: Entry} The baseline being replaced, if any
---- @return string
-local function render(reports: {FileReport}, floor?: {string: Entry}): string
-  local out: {string} = {
-    "# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.",
-    "# columns: path covered-lines total-lines",
-  }
+--- @return string | nil The rendered baseline
+--- @return string? Error message when a row falls outside the floor format's domain
+local function render(reports: {FileReport}, prev?: {string: Entry}): string | nil, string
+  local value: {string: Entry} = {}
   for _, r in ipairs(reports) do
     local covered, total = r.covered, r.total
-    local was = floor and floor[r.display]
+    local was = prev and prev[r.display]
     if was then
       local slack = file_tolerance_pp(total)
       local fails = pct(covered, total) < pct(was.covered, was.total) - slack
@@ -108,23 +111,17 @@ local function render(reports: {FileReport}, floor?: {string: Entry}): string
         covered, total = was.covered, was.total
       end
     end
-    out[#out + 1] = string.format("%s %d %d", r.display, covered, total)
+    value[r.display] = {covered = covered, total = total}
   end
-  return table.concat(out, "\n") .. "\n"
+  return floor.format(value)
 end
 
---- A parsed baseline: the per-file rows, a total row if the text
---- carried one, and how many repeated paths were resolved, in one
---- record so the error keeps slot 2 — a fallible return has exactly
---- two slots, the value and the error.
+--- A parsed baseline: the per-file rows, and how many repeated paths
+--- were resolved, in one record so the error keeps slot 2 — a fallible
+--- return has exactly two slots, the value and the error.
 local record Baseline
   --- Entries by path.
   rows: {string: Entry}
-  --- A "total" row, tolerated for compatibility with baselines written
-  --- before the row went away and no longer read by anything: the
-  --- whole-tree total is summed from `rows`. Nil when the text carried
-  --- no such row, which is what a freshly rendered baseline has.
-  total: Entry
   --- How many rows named a path an earlier row already claimed. Zero
   --- for a freshly rendered baseline; positive for one a `union` merge
   --- has doubled rows in.
@@ -150,46 +147,61 @@ local function safer_floor(a: Entry, b: Entry): Entry
   return a.covered <= b.covered and a or b
 end
 
---- Parse baseline text into per-file entries plus the total row.
+--- Validate and narrow one parsed row into an Entry.
+--- @param path string The row's key, for the error message
+--- @param v any The value `floor.parse` stored for that key
+--- @return Entry | nil The row, when it has the right shape
+--- @return string? Error message when it does not
+local function to_entry(path: string, v: any): Entry | nil, string
+  if type(v) ~= "table" then
+    return nil, "coverage baseline: " .. path .. ": row must be a table"
+  end
+  local t = v as {string: any} -- cast: runtime-checked table above
+  local covered, total = t.covered, t.total
+  if math.type(covered) ~= "integer" or math.type(total) ~= "integer" then
+    return nil, "coverage baseline: " .. path ..
+    ": row must be {covered = <int>, total = <int>}"
+  end
+  return {covered = covered as integer, total = total as integer} -- cast: math.type checked above
+end
+
+--- Parse baseline text into per-file entries.
 ---
 --- A path may appear more than once, and that is valid input rather
 --- than malformed: `.cosmic-coverage` merges with git's `union`
 --- strategy, so a region two branches both edited arrives carrying both
---- versions of every row in it. Repeats resolve to the lower
---- percentage, and `Baseline.duplicates` counts them so a caller can
---- say the file wants a clean rewrite.
+--- versions of every row in it. The `on_duplicate` resolver `floor.parse`
+--- forwards calls back here for each repeat, resolving to the lower
+--- percentage, and `Baseline.duplicates` counts them so a caller can say
+--- the file wants a clean rewrite.
 --- @param text string Baseline file content
---- @return Baseline | nil The rows, total and duplicate count, or nil on a malformed line
+--- @return Baseline | nil The rows and duplicate count, or nil on malformed input
 --- @return string? Error message on malformed input
 local function parse(text: string): Baseline | nil, string
-  local entries: {string: Entry} = {}
-  local total: Entry = nil
   local duplicates = 0
-  local lineno = 0
-  for line in text:gmatch("[^\n]+") do
-    lineno = lineno + 1
-    if not line:match("^#") then
-      local path, covered, all = line:match("^(%S+) (%d+) (%d+)$")
-      if not path then
-        return nil, string.format("baseline line %d unparsable: %s", lineno, line)
-      end
-      local entry: Entry = {
-        covered = math.tointeger(tonumber(covered)),
-        total = math.tointeger(tonumber(all)),
-      }
-      local held = path == "total" and total or entries[path]
-      if held then
-        duplicates = duplicates + 1
-        entry = safer_floor(held, entry)
-      end
-      if path == "total" then
-        total = entry
-      else
-        entries[path] = entry
-      end
+  local function on_duplicate(key: string, first: any, second: any): any
+    duplicates = duplicates + 1
+    local a, _aerr = to_entry(key, first)
+    local b, _berr = to_entry(key, second)
+    if a and b then
+      return safer_floor(a, b)
     end
+    return first
   end
-  return {rows = entries, total = total, duplicates = duplicates}
+  local data, err = floor.parse(text,
+    {noun = "coverage baseline", on_duplicate = on_duplicate})
+  if not data then
+    return nil, err
+  end
+  local rows: {string: Entry} = {}
+  for path, v in pairs(data) do
+    local entry, eerr = to_entry(path, v)
+    if not entry then
+      return nil, eerr
+    end
+    rows[path] = entry
+  end
+  return {rows = rows, duplicates = duplicates}
 end
 
 --- Compare current results against a parsed baseline.
@@ -341,14 +353,14 @@ local function text_for(paths: {string},
   if not reports then
     return nil, cerr or "coverage: no data"
   end
-  local floor: {string: Entry} = nil
+  local prev_rows: {string: Entry} = nil
   if previous then
     local prev = parse(previous)
     if prev then
-      floor = prev.rows
+      prev_rows = prev.rows
     end
   end
-  return render(reports, floor)
+  return render(reports, prev_rows)
 end
 
 --- Which rows a rewrite would LOWER, and by how much.
@@ -371,8 +383,6 @@ local function lowered(before: string, after: string): {string}
   end
   local olds = old_parsed.rows
   local news = new_parsed.rows
-  local old_total = old_parsed.total
-  local new_total = new_parsed.total
   local paths: {string} = {}
   for path in pairs(olds) do
     paths[#paths + 1] = path
@@ -393,16 +403,13 @@ local function lowered(before: string, after: string): {string}
       note(path, olds[path], news[path])
     end
   end
-  if old_total and new_total then
-    note("total", old_total, new_total)
-  end
   return out
 end
 
 local record BaselineModule
   type Entry = Entry
   type Baseline = Baseline
-  render: function(reports: {FileReport}, floor?: {string: Entry}): string
+  render: function(reports: {FileReport}, prev?: {string: Entry}): string | nil, string
   parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
   check: function(baseline_path: string, paths: {string}): integer
