@@ -3,6 +3,7 @@ return {
   ["claim"] = "piji6k",
   ["id"] = "3I7LNDrF8xtDAFxhpam8hpP0WuR",
   ["parent"] = "3I1IfJ228vyPoO9rhbHhc6RjxJB",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1303,
   ["title"] = "cosmos pin bump: first release carrying the ABI 5-9 bindings",
 }
