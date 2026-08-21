@@ -384,6 +384,29 @@ local function shell_quote(s: string): string
   return "'" .. (s:gsub("'", "'\\''")) .. "'"
 end
 
+--- Parse s as an integer. tonumber's grammar (optional sign,
+--- whitespace tolerated; base 2-36, default 10), judged on the VALUE
+--- rather than the spelling: "1e3" is 1000 and "0x1F" is 31, while
+--- "7.5" is a refusal rather than a truncation. The hex prefix is the
+--- default base's alone — tonumber rejects "0x1F" once a base is
+--- given.
+--- @param s string The text to parse
+--- @param base integer? The base, default 10
+--- @return integer | nil The parsed integer
+--- @return string Error message when s is not an integer in base
+local function to_integer(s: string, base?: integer): integer | nil, string
+  local n = tonumber(s, base)
+  local i = n and math.tointeger(n)
+  if i == nil then
+    -- %q, never concatenation: callers pass values the type layer
+    -- calls strings that are nil at runtime, and %q renders those
+    -- where .. would throw.
+    return nil, ("not an integer%s: %q"):format(
+      base and (" in base " .. base) or "", s)
+  end
+  return i
+end
+
 local record StringModule
   capitalize: function(s: string): string
   trim: function(s: string): string
@@ -404,6 +427,7 @@ local record StringModule
   indent: function(s: string, prefix: string): string
   truncate: function(s: string, width: integer, suffix?: string): string
   shell_quote: function(s: string): string
+  to_integer: function(s: string, base?: integer): integer | nil, string
 end
 
 local M: StringModule = {
@@ -426,6 +450,7 @@ local M: StringModule = {
   indent = indent,
   truncate = truncate,
   shell_quote = shell_quote,
+  to_integer = to_integer,
 }
 
 return M

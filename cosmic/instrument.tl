@@ -21,6 +21,7 @@
 local unix = require("cosmo.unix")
 local env = require("cosmic.env")
 local fields = require("cosmic._fields")
+local str = require("cosmic.string")
 
 --- Parsed instrumentation data from a cosmic: line.
 local record InstrumentData
@@ -159,10 +160,10 @@ local function parse_line(line: string): InstrumentData | nil
   return {
     op = fields.decode(op),
     file = fields.decode(file),
-    exit = (tonumber(exit_str) or 0) as integer, -- cast: number to integer
-    wall_ms = (tonumber(wall_str) or 0) as integer, -- cast: number to integer
-    cpu_ms = (tonumber(cpu_str) or 0) as integer, -- cast: number to integer
-    maxrss_kb = (tonumber(maxrss_str) or 0) as integer, -- cast: number to integer
+    exit = str.to_integer(exit_str) or 0,
+    wall_ms = str.to_integer(wall_str) or 0,
+    cpu_ms = str.to_integer(cpu_str) or 0,
+    maxrss_kb = str.to_integer(maxrss_str) or 0,
   }
 end
 

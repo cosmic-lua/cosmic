@@ -63,8 +63,8 @@ local BOOT_MODULES < const >: {string} = {
   "cosmic.fs.types", "cosmic.fs.walk", "cosmic.fuzzy",
   "cosmic.flags", "cosmic.flags.command", "cosmic.flags.getopt",
   "cosmic.flags.parse", "cosmic.flags.types",
-  "cosmic.instrument", "cosmic.searcher", "cosmic.stream", "cosmic.sys",
-  "cosmic.tty",
+  "cosmic.instrument", "cosmic.searcher", "cosmic.stream", "cosmic.string",
+  "cosmic.sys", "cosmic.tty",
 }
 
 --- Entry files the artifact boots through, by zip path: the searcher-

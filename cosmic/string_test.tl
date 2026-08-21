@@ -219,3 +219,52 @@ local function test_ends_with_empty()
   assert(not str.ends_with("", "hello"), "expected false for empty string")
 end
 test_ends_with_empty()
+
+-- to_integer tests
+
+local function test_to_integer_decimal()
+  assert(str.to_integer("42") == 42, "expected 42")
+  assert(str.to_integer("-17") == -17, "expected -17")
+  assert(str.to_integer("  42  ") == 42, "expected whitespace tolerated")
+end
+test_to_integer_decimal()
+
+-- The rule is the VALUE, not the spelling: an exponent or a hex prefix
+-- naming an integral number parses, and the prefix belongs to the
+-- default base alone.
+local function test_to_integer_integral_values_in_any_spelling()
+  assert(str.to_integer("1e3") == 1000, "expected 1000 from 1e3")
+  assert(str.to_integer("0x1F") == 31, "expected 31 from 0x1F")
+  assert(str.to_integer("1F", 16) == 31, "expected 31 from 1F base 16")
+  assert(str.to_integer("777", 8) == 511, "expected 511 from 777 base 8")
+end
+test_to_integer_integral_values_in_any_spelling()
+
+local function test_to_integer_refuses_non_integers()
+  local n, err = str.to_integer("7.5")
+  assert(n == nil, "7.5 is not an integer")
+  assert(err == 'not an integer: "7.5"', "got: " .. tostring(err))
+  assert(str.to_integer("nan") == nil, "nan is not a number tonumber reads")
+  assert(str.to_integer("") == nil, "the empty string is not an integer")
+end
+test_to_integer_refuses_non_integers()
+
+-- tonumber rejects the 0x prefix once a base is given, and the refusal
+-- names the base it was reading in.
+local function test_to_integer_refusal_names_the_base()
+  local n, err = str.to_integer("0x1F", 16)
+  assert(n == nil, "the prefix is the default base's alone")
+  assert(err == 'not an integer in base 16: "0x1F"', "got: " .. tostring(err))
+end
+test_to_integer_refusal_names_the_base()
+
+-- The four instrument.tl call sites pass values tl types as string
+-- that are nil at runtime, so a refusal is the contract there and a
+-- throw would take the caller down.
+local function test_to_integer_refuses_a_runtime_nil()
+  -- cast: tl types string.match as string; it is nil at runtime
+  local n, err = str.to_integer(nil as string)
+  assert(n == nil, "a nil is not an integer")
+  assert(err == "not an integer: nil", "got: " .. tostring(err))
+end
+test_to_integer_refuses_a_runtime_nil()
