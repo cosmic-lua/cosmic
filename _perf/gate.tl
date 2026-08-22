@@ -28,8 +28,23 @@ end
 
 local usage < const > = [[
 usage: gate.lua compare BASE.json CUR.json SELFB.json [--threshold PCT] <run args...>
+         BASE, CUR: read; SELFB: written by the A/A pass
+         a flagged regression re-measures into CUR's sibling CUR-retry.json
        gate.lua selfcheck A.json B.json [--threshold PCT] <run args...>
+         A, B: both written -- selfcheck's job is to measure twice
 ]]
+
+--- Where a flagged regression's re-measurement goes: beside the
+--- caller's own current file, never over it. A trailing `.json` is
+--- replaced so `o/perf/current.json` becomes
+--- `o/perf/current-retry.json`; any other spelling just gains the
+--- suffix.
+--- @param cur_path string The caller's current results path
+--- @return string The retry's own path
+local function retry_path(cur_path: string): string
+  local stem = cur_path:match("^(.*)%.json$")
+  return (stem or cur_path) .. "-retry.json"
+end
 
 --- Load, compare (optionally triaged), and print one comparison.
 --- @param base_path string Baseline results path
@@ -113,21 +128,23 @@ local function gate_inner(opts: GateOptions): integer
   if failures == 0 then
     return 0
   end
-  print("perf-compare: regression flagged; re-measuring once to filter noise")
-  local rc = opts.measure(opts.current)
+  local retry = retry_path(opts.current)
+  print("perf-compare: regression flagged; re-measuring once into " .. retry ..
+    " to filter noise")
+  local rc = opts.measure(retry)
   if rc ~= 0 then
     return rc
   end
-  -- The retry just overwrote current.json under whatever binary is
-  -- running now, which may not be the one the baseline was measured
-  -- against. Re-check identity against that freshly measured file, or a
-  -- real regression can be masked by an identity change mid-retry.
-  refusal = identity_refusal(opts.baseline, opts.current, false)
+  -- The retry measured under whatever binary is running now, which may
+  -- not be the one the baseline was measured against. Re-check identity
+  -- against that freshly measured file, or a real regression can be
+  -- masked by an identity change mid-retry.
+  refusal = identity_refusal(opts.baseline, retry, false)
   if refusal then
     io.stderr:write(refusal .. "\n")
     return 1
   end
-  failures, err = compare_once(opts.baseline, opts.current, opts.threshold)
+  failures, err = compare_once(opts.baseline, retry, opts.threshold)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
@@ -144,13 +161,13 @@ local function gate_inner(opts: GateOptions): integer
   -- The A/A control is only a noise floor if it names the SAME binary
   -- as current; check that before triage(), which otherwise trusts the
   -- pair silently.
-  refusal = identity_refusal(opts.current, opts.selfcheck_b, true)
+  refusal = identity_refusal(retry, opts.selfcheck_b, true)
   if refusal then
     io.stderr:write(refusal .. "\n")
     return 1
   end
-  failures, err = compare_once(opts.baseline, opts.current, opts.threshold,
-    opts.current, opts.selfcheck_b)
+  failures, err = compare_once(opts.baseline, retry, opts.threshold,
+    retry, opts.selfcheck_b)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1

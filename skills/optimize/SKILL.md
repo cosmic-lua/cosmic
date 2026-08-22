@@ -69,11 +69,14 @@ $BIN --make run _perf/run.tl --only json --out o/perf/current.json
 
 # compare two runs with the noise-aware bar (retries + A/A auto-triage);
 # it ends with a `perf-compare: PASS`/`FAIL` verdict line — read that,
-# never a piped exit status (`| tail` returns tail's status)
+# never a piped exit status (`| tail` returns tail's status).
+# BASE and CUR are read; SELFB is WRITTEN by the A/A pass, and a
+# flagged regression re-measures into CUR's sibling `-retry.json`
 $BIN --make run _perf/gate.tl compare o/perf/baseline.json o/perf/current.json \
   o/perf/selfb.json
 
-# A/A control: the same binary against itself is the noise floor
+# A/A control: the same binary against itself is the noise floor.
+# both paths are WRITTEN — measuring twice is the whole job
 $BIN --make run _perf/gate.tl selfcheck o/perf/a.json o/perf/b.json
 ```
 
@@ -82,7 +85,11 @@ into `o/perf/baseline.json` before changing anything.
 
 `gate.tl compare` already handles the false alarm for you: when a
 regression survives its retry, it runs one more pass of the same binary
-and auto-triages against that A/A self-check — a fixed-overhead
+and auto-triages against that A/A self-check. The retry lands in
+`CUR-retry.json` beside your current file rather than over it, so the
+run you measured stays readable and a second gate call over the same
+paths still compares what you meant; the A/A pass writes `SELFB.json`,
+which is what that argument is for. A fixed-overhead
 microbench (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) that swung
 on frequency scaling, a noisy neighbor, or code-layout shift is reported
 as `noise` and does not fail the gate, while a regression the binary

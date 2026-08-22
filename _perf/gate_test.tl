@@ -5,6 +5,8 @@
 --- so each path is exercised with fabricated results files and no real
 --- benchmarks.
 
+local check = require("cosmic.check")
+local compare = require("_perf.compare")
 local fs = require("cosmic.fs")
 local gate = require("_perf.gate")
 local json = require("cosmic.json")
@@ -68,6 +70,33 @@ local function test_flagged_regression_retries_then_passes()
   assert(calls == 1, "expected exactly one re-measurement, got " .. calls)
 end
 test_flagged_regression_retries_then_passes()
+
+-- CUR.json is an INPUT: the retry writes beside it, never over it, so
+-- a second gate call over the same paths still compares against the
+-- file the caller measured.
+local function test_retry_does_not_overwrite_current()
+  local base, cur, selfb = paths("retry-sibling")
+  write_results(base, 1000)
+  write_results(cur, 1300)
+  local handed: string = nil
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        handed = out
+        write_results(out, 1010) -- the re-measurement comes back quiet
+        return 0
+      end,
+    })
+  assert(code == 0, "noise filtered by the retry must pass, got " .. code)
+  assert(handed ~= nil and handed:match("%-retry%.json$"),
+    "the retry must be handed its own -retry.json path, got " .. tostring(handed))
+  assert(handed ~= cur, "the retry path must differ from CUR")
+  local reread = check.must(compare.load_results(cur))
+  assert(reread.results[1].wall_ns == 1300,
+    "CUR must still hold the caller's own measurement, got " ..
+    tostring(reread.results[1].wall_ns))
+end
+test_retry_does_not_overwrite_current()
 
 local function test_persistent_regression_triaged_as_noise_passes()
   -- The +30% regression and the A/A control's ~+38% swing are
