@@ -133,3 +133,25 @@ local function test_verdict_subject_names_the_reviewer()
     "an unnamed verdict names nobody: " .. later[1].subject)
 end
 test_verdict_subject_names_the_reviewer()
+
+-- The PR read is guarded by `store.has_origin`, the same guard
+-- `gate.handover_refusal` uses, so a local-only board never reaches
+-- for GitHub. That guard is what keeps every test above meaning what
+-- it meant — all of them run on local-only boards — and it is pinned
+-- here rather than left as a property nothing asserts.
+local function test_accept_without_an_origin_still_routes_to_land()
+  local s = init_state_repo("verdict-no-origin")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 21, false, "") == 0)
+  assert(not store.has_origin(s), "the fixture board has no origin")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 21, "abc1234", "",
+      "session-b") == 0, "the accept is not refused for want of a PR read")
+  local landed = check.must(store.load(s, leaf))
+  assert(landed.phase == "land",
+    "and routes to land as before: " .. tostring(landed.phase))
+  assert(landed.resolution == "", "the item is not ended here")
+end
+test_accept_without_an_origin_still_routes_to_land()

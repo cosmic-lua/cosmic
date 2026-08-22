@@ -14,9 +14,22 @@
 --- rides in the commit subject — every board commit is authored as
 --- one fixed identity, so the subject is the only place the log can
 --- record who judged.
+---
+--- An ACCEPT also reads the pull request it judges, because an accept
+--- asserts the work is fit to land and two request states make that
+--- assertion wrong in opposite directions. Already merged: the
+--- landing has happened, so the item ends here rather than passing
+--- through a `land` whose only remaining act is to notice that.
+--- Closed and unmerged: there is nothing to land and no step that
+--- could produce it, so the accept is refused rather than parked in
+--- `land` where the merge is refused forever. A read that fails is
+--- neither — the ordinary path carries on, so an outage cannot wedge
+--- reviews and `land` stays the backstop it already is.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local gh = require("_work.gh")
 local item = require("_work.item")
+local review = require("_work.review")
 local store = require("_work.store")
 
 --- The phase each verdict sends an item to: the three directions out
@@ -109,6 +122,26 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
       ("REFUSED: %s is %s's own build — no session accepts its own work")
       :format(id:sub(1, 8), session))
   end
+  -- An accept asserts the work is fit to land, so it is the one
+  -- verdict whose truth depends on the request's own state. Reading
+  -- it here collapses two cases the landing step handles badly: a
+  -- merged request needs no land at all, and a closed unmerged one
+  -- has no land that could succeed. A read that FAILS is not a
+  -- refusal — an outage must not wedge reviews — so the ordinary path
+  -- carries on and `land` stays the backstop it already is.
+  local merged_sha = ""
+  if kind == "accept" and (it.pr or 0) ~= 0 and store.has_origin(s) then
+    local p = gh.pull(s, it.pr, it.repo)
+    if p ~= nil then
+      local blocked = review.blocks_accept(p)
+      if blocked then
+        return gate.verdict_line("verdict", false, "REFUSED: " .. blocked)
+      end
+      if p.merged then
+        merged_sha = p.merge_sha
+      end
+    end
+  end
   local from = it.phase
   it.verdict = kind
   it.verdict_head = head or ""
@@ -120,8 +153,6 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
     it.pr = pr
   end
   it.phase = target
-  -- A verdict is a decision already made: an accept enters land and a
-  -- send-back is a return, so no WIP gate applies in any direction.
   -- The reviewer rides in the subject rather than the author: every
   -- board commit is the one fixed identity, so without this the log
   -- cannot show whether an accept was written by the builder, and the
@@ -130,14 +161,37 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if (session or "") ~= "" then
     by = (" by %s"):format(session)
   end
+  -- Already merged: the landing this accept authorises has happened,
+  -- so the item ends HERE rather than passing through a `land` whose
+  -- only remaining act is to notice the same thing. One mutation, and
+  -- the merge commit goes in the subject — the log says which merge
+  -- completed the item without `Item` growing a field for it.
+  local also: {item.Item} = {}
+  local landed = ""
+  if merged_sha ~= "" then
+    target = "completed"
+    it.phase = ""
+    it.resolution = "completed"
+    -- A container whose last open child just ended returns to plan.
+    -- Ending an item without this is what leaves a finished container
+    -- de-phased and off every queue.
+    also = gate.rephased_parent(it, all)
+    landed = (", merged %s"):format(merged_sha:sub(1, 7))
+  end
+  -- A verdict is a decision already made: an accept enters land and a
+  -- send-back is a return, so no WIP gate applies in any direction.
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("verdict %s %s (%s -> %s)%s"):format(id:sub(1, 8), kind, from, target,
-      by), from)
+    ("verdict %s %s (%s -> %s)%s%s"):format(id:sub(1, 8), kind, from, target,
+      by, landed), from, also)
   if not ok then
     return gate.verdict_line("verdict", false, err)
   end
+  local note = ""
+  if merged_sha ~= "" then
+    note = (" (PR #%d was already merged)"):format(it.pr)
+  end
   return gate.verdict_line("verdict", true,
-    ("%s on %s: %s -> %s"):format(kind, id:sub(1, 8), from, target))
+    ("%s on %s: %s -> %s%s"):format(kind, id:sub(1, 8), from, target, note))
 end
 
 local record gitverdict

@@ -80,3 +80,29 @@ local function test_running_and_absent_checks_do_not_block()
       }) == nil, "a cancelled run concluded nothing about the code")
 end
 test_running_and_absent_checks_do_not_block()
+
+-- An accept asserts the work is fit to land, so the one request state
+-- it cannot survive is closed with nothing merged: no diff to land,
+-- and no `land` step that could produce one. A merged request is the
+-- opposite case, not a refusal — and since GitHub reports a merged
+-- request as `closed`, the two are told apart by `merged`, never by
+-- state alone.
+local function test_blocks_accept_refuses_a_closed_unmerged_pr()
+  local open_pr: review.Pull = {number = 1, state = "open", merged = false,
+    draft = false, body = "", head_sha = "abc", merge_sha = ""}
+  assert(review.blocks_accept(open_pr) == nil, "the ordinary path")
+
+  local merged: review.Pull = {number = 2, state = "closed", merged = true,
+    draft = false, body = "", head_sha = "abc", merge_sha = "def"}
+  assert(review.blocks_accept(merged) == nil,
+    "a merged request reads as closed and must not be refused")
+
+  local abandoned: review.Pull = {number = 3, state = "closed",
+    merged = false, draft = false, body = "", head_sha = "abc",
+    merge_sha = ""}
+  local refusal = review.blocks_accept(abandoned)
+  assert(refusal ~= nil and refusal:find("nothing to land", 1, true),
+    "got: " .. tostring(refusal))
+  assert(refusal:find("#3", 1, true), "it names the PR: " .. refusal)
+end
+test_blocks_accept_refuses_a_closed_unmerged_pr()

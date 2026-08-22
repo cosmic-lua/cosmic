@@ -18,6 +18,8 @@ local record Pull
   state: string
   --- Already merged, by any route.
   merged: boolean
+  --- The merge commit, "" until the request is merged.
+  merge_sha: string
 end
 
 --- One CI check on a head commit, reduced to what a gate reads.
@@ -81,15 +83,40 @@ local function blocks_on_ci(runs: {CheckRun}): string
     .. "before asking for a verdict"):format(table.concat(failed, ", "))
 end
 
+--- The refusal an ACCEPT earns from the state of its pull request, or
+--- nil when the accept may proceed.
+---
+--- An accept asserts that the work is fit to land, so the one state it
+--- cannot survive is a request that is closed with nothing merged:
+--- there is no diff to land and no `land` step that could produce one.
+--- Routing such an item onward puts it in `land` carrying an accept,
+--- where the merge PUT is refused and `next` re-answers the same
+--- finish forever.
+---
+--- A merged request is NOT refused — it is the opposite case, where
+--- the landing has already happened; the caller reads `merged` and
+--- ends the item. Open is the ordinary path.
+--- @param p Pull The request the accept judges
+--- @return string The refusal, nil when the accept may proceed
+local function blocks_accept(p: Pull): string
+  if p.state ~= "open" and not p.merged then
+    return ("PR #%d is %s and unmerged — there is nothing to land; reopen "
+      .. "it, or reject the item"):format(p.number, p.state)
+  end
+  return nil
+end
+
 local record review
   type Pull = Pull
   type CheckRun = CheckRun
   blocks_check: function(p: Pull, id: string): string
+  blocks_accept: function(p: Pull): string
   blocks_on_ci: function(runs: {CheckRun}): string
 end
 
 local M: review = {
   blocks_check = blocks_check,
+  blocks_accept = blocks_accept,
   blocks_on_ci = blocks_on_ci,
 }
 

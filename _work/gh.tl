@@ -75,6 +75,7 @@ local function pull(s: store.Store, number: integer, repo: string | nil):
     body = tostring(v["body"] or ""),
     head_sha = sha,
     state = tostring(v["state"] or ""),
+    merge_sha = tostring(v["merge_commit_sha"] or ""),
   }
 end
 
