@@ -344,8 +344,31 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
+  -- A claim is a lease over work in progress. Taking over a live one
+  -- is a legitimate move — a session dies, another picks the item up —
+  -- but it is never SILENT: the takeover is what disqualifies the
+  -- earlier holder as reviewer, so it goes through --force --why and
+  -- into the log where a later session can read it.
+  if claim ~= nil and claim ~= "" and claim ~= it.claim
+  and (it.claim or "") ~= "" and not force then
+    return gate.verdict_line("move", false,
+      ("REFUSED: %s is claimed by %s — take over a live claim with "
+        .. "--force --why"):format(id:sub(1, 8), it.claim))
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
+    -- Appended, never replaced, and never cleared while the item is
+    -- open: the claim answers who holds it NOW, and this answers who
+    -- has built it, which is the question no-self-accept turns on. A
+    -- session that reclaims an item it already held is already in the
+    -- list, and the record carries no repeats.
+    local held = false
+    for _, name in ipairs(it.builders) do
+      held = held or name == claim
+    end
+    if not held then
+      it.builders[#it.builders + 1] = claim
+    end
   end
   if pr ~= nil and pr ~= 0 then
     it.pr = pr

@@ -201,3 +201,29 @@ local function test_an_item_cannot_wait_on_itself()
     "a self-block is invalid: " .. tostring(err))
 end
 test_an_item_cannot_wait_on_itself()
+
+-- `builders` is the durable half of authorship: a space-joined list
+-- like `beats` and `blocked_by`, omitted when empty, and refusing the
+-- repeat that would let one session appear to have built an item
+-- twice.
+local function test_builders_round_trip()
+  local t = base()
+  t.parent = PARENT
+  t.claim = "session-b"
+  t.builders = "session-a session-b"
+  local it = check.must(item.decode(t))
+  assert(#it.builders == 2 and it.builders[1] == "session-a"
+    and it.builders[2] == "session-b",
+    "the list decodes in order: " .. table.concat(it.builders, ","))
+  assert(item.encode(it).builders == "session-a session-b",
+    "and encodes back to the same string")
+
+  it.builders = {}
+  assert(item.encode(it).builders == nil, "an empty list is not written")
+
+  t.builders = "session-a session-a"
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("builders repeats", 1, true),
+    "a repeated builder is invalid: " .. tostring(err))
+end
+test_builders_round_trip()

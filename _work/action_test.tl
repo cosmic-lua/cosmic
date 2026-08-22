@@ -375,3 +375,28 @@ local function test_a_starved_ready_names_its_chain_root()
     "and the reason says why: " .. action.reason)
 end
 test_a_starved_ready_names_its_chain_root()
+
+-- The claim is a LEASE and it moves. Session A pulls and builds, the
+-- item is returned (clearing the claim), B pulls it, and A hands its
+-- own diff to check — after which `claim` reads B and A is offered a
+-- verdict on what A wrote. That is the sequence observed on 3I7LGcLa
+-- / PR #1301, and `builders` is what withholds it.
+local function test_reviewable_skips_a_past_builder()
+  local goal = make({})
+  local built = make({parent = goal.id, phase = "check", pr = 1301,
+      claim = "session-B", builders = "session-A session-B"})
+  local items: {item.Item} = {goal, built}
+
+  local for_a = act.next_action(items, "session-A")
+  assert(for_a.kind ~= "review",
+    "the session that built it is not offered the verdict: " .. for_a.kind)
+
+  local for_c = act.next_action(items, "session-C")
+  assert(for_c.kind == "review" and for_c.item.id == built.id,
+    "a session that never held it still reviews: " .. for_c.kind)
+
+  local for_b = act.next_action(items, "session-B")
+  assert(for_b.kind ~= "review",
+    "nor is the session holding the claim: " .. for_b.kind)
+end
+test_reviewable_skips_a_past_builder()
