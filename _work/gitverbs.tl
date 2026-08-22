@@ -290,32 +290,8 @@ local function cmd_move(s: store.Store, id: string, target: string,
         id:sub(1, 8), r))
   end
   local from = it.phase
-  -- A same-phase move used to refuse and SWALLOW its field flags, so
-  -- correcting a claim needed a leftward-then-rightward round trip —
-  -- two transitions a flow instrument later reads as real dwell. With
-  -- a field to set it now sets it; with none it still refuses.
   if from == target then
-    if (claim or "") == "" and (pr or 0) == 0 then
-      return gate.verdict_line("move", false,
-        ("%s is already in %s"):format(id:sub(1, 8), target))
-    end
-    if (claim or "") ~= "" then
-      it.claim = claim
-    end
-    if (pr or 0) ~= 0 then
-      it.pr = pr
-    end
-    local wrong = item.problems(it)
-    if #wrong > 0 then
-      return gate.verdict_line("move", false, table.concat(wrong, "; "))
-    end
-    local set, serr = gate.commit_and_publish(s, it, nil,
-      ("set %s in %s"):format(id:sub(1, 8), target), from)
-    if not set then
-      return gate.verdict_line("move", false, serr)
-    end
-    return gate.verdict_line("move", true,
-      ("%s stays in %s"):format(id:sub(1, 8), target))
+    return gate.set_in_place(s, it, claim, pr)
   end
   -- The bar is asked of the item AS IT WOULD BE in the target phase,
   -- so a repair move out of no-phase is judged on where it lands.
@@ -365,8 +341,19 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
+  -- A claim is a lease over work in progress. Taking over a live one
+  -- is legitimate — a session dies, another picks the item up — but it
+  -- is never SILENT: the takeover disqualifies the earlier holder as
+  -- reviewer, so it goes through --force --why and into the log.
+  if claim ~= nil and claim ~= "" and claim ~= it.claim
+  and (it.claim or "") ~= "" and not force then
+    return gate.verdict_line("move", false,
+      ("REFUSED: %s is claimed by %s — take over a live claim with "
+        .. "--force --why"):format(id:sub(1, 8), it.claim))
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
+    item.record_builder(it, claim)
   end
   if pr ~= nil and pr ~= 0 then
     it.pr = pr

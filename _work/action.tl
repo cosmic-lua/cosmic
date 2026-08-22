@@ -138,10 +138,34 @@ local function held_names(b: flow.Board, session: string,
   return table.concat(out, ", ")
 end
 
+--- Whether `session` has built this item: it holds the claim now, or
+--- it held the claim at some point.
+---
+--- The claim alone is not the answer. It is a LEASE — a return clears
+--- it and the next pull writes a new one — so an item built by A,
+--- returned, and re-pulled by B reads as B's while A's diff is what
+--- sits in `check`. `builders` is the durable half, and consulting
+--- both is what makes "no session accepts its own work" hold across a
+--- handover rather than only while nobody collides.
+--- @param i Item The item in check
+--- @param session string This session's name, never ""
+--- @return boolean True when this session built it
+local function built_by(i: Item, session: string): boolean
+  if (i.claim or "") == session then
+    return true
+  end
+  for _, name in ipairs(i.builders or {}) do
+    if name == session then
+      return true
+    end
+  end
+  return false
+end
+
 --- The first item awaiting a verdict that this session did not build,
---- and how many it stepped over as its own. The inverse of `unheld`:
---- there, another session's claim is what disqualifies an item; here
---- it is the only thing that qualifies one.
+--- and how many it stepped over as its own. Near-inverse of `unheld`:
+--- there, another session holding the LEASE is what disqualifies an
+--- item; here, this session having ever held it is.
 --- @param b flow.Board The board
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
@@ -152,7 +176,7 @@ local function reviewable(b: flow.Board, session: string,
   local first: Item = nil
   local mine = 0
   for _, i in ipairs(flow.queued(b, "check", pos)) do
-    if session ~= "" and (i.claim or "") == session then
+    if session ~= "" and built_by(i, session) then
       mine = mine + 1
     elseif first == nil then
       first = i

@@ -271,6 +271,45 @@ local function land_refusal(it: item.Item): string
   return nil
 end
 
+--- Write `claim`/`pr` onto an item without moving it, and publish.
+---
+--- A same-phase `move` used to refuse and SWALLOW its field flags: the
+--- command exited 0 and nothing said the write had not happened. So
+--- correcting a claim took a leftward-then-rightward round trip, which
+--- writes two transitions a flow instrument later reads as real dwell.
+--- With a field to set this sets it; with none it still refuses,
+--- because a move that neither moves nor writes is a typo.
+--- @param s store.Store The store
+--- @param it item.Item The item, already loaded and validated as workable
+--- @param claim string The session to record, "" to leave it
+--- @param pr integer The PR to record, 0 to leave it
+--- @return integer Exit code
+local function set_in_place(s: store.Store, it: item.Item, claim: string,
+    pr: integer): integer
+  local where = it.phase
+  if (claim or "") == "" and (pr or 0) == 0 then
+    return verdict_line("move", false,
+      ("%s is already in %s"):format(it.id:sub(1, 8), where))
+  end
+  if (claim or "") ~= "" then
+    it.claim = claim
+  end
+  if (pr or 0) ~= 0 then
+    it.pr = pr
+  end
+  local wrong = item.problems(it)
+  if #wrong > 0 then
+    return verdict_line("move", false, table.concat(wrong, "; "))
+  end
+  local ok, err = commit_and_publish(s, it, nil,
+    ("set %s in %s"):format(it.id:sub(1, 8), where), where)
+  if not ok then
+    return verdict_line("move", false, err)
+  end
+  return verdict_line("move", true,
+    ("%s stays in %s"):format(it.id:sub(1, 8), where))
+end
+
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
   wip_refusal: function(b: flow.Board, from: string, to: string,
@@ -284,6 +323,8 @@ local record gitgate
   handover_refusal: function(s: store.Store, id: string,
   number: integer, repo: string | nil): string
   land_refusal: function(it: item.Item): string
+  set_in_place: function(s: store.Store, it: item.Item, claim: string,
+  pr: integer): integer
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end
@@ -298,6 +339,7 @@ local M: gitgate = {
   rephased_parent = rephased_parent,
   handover_refusal = handover_refusal,
   land_refusal = land_refusal,
+  set_in_place = set_in_place,
   ready_problems = ready_problems,
 }
 
