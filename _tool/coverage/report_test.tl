@@ -39,9 +39,8 @@ test_format_ranges_truncates()
 
 local function test_normalize_maps_compiled_artifact_to_source()
   -- cosmic/codec.tl exists in the repo, so its compiled artifact maps
-  local display, parse = report.normalize("@o/cosmic/codec.lua", "")
+  local display = report.normalize("@o/cosmic/codec.lua", "")
   assert(display == "cosmic/codec.tl", "got: " .. tostring(display))
-  assert(parse == "o/cosmic/codec.lua", "got: " .. tostring(parse))
 end
 test_normalize_maps_compiled_artifact_to_source()
 
@@ -74,13 +73,6 @@ local function test_normalize_maps_embedded_directory_modules()
     "a leaf module maps to its own source")
   assert(report.normalize("@/zip/cosmic/fs.lua", "") == "cosmic/fs/init.tl",
     "a directory module maps to its init.tl")
-  -- The second return value (`parse`) must be the same readable .tl source
-  -- as `display`, not the raw zip chunk path -- the zip chunk is compiled
-  -- Lua bytecode (or absent), which static executable-line analysis cannot
-  -- parse, silently collapsing the reported total to hits-only.
-  local display, parse = report.normalize("@/zip/cosmic/url.lua", "")
-  assert(parse == display, "got: " .. tostring(parse))
-  assert(parse == "cosmic/url.tl", "got: " .. tostring(parse))
 end
 test_normalize_maps_embedded_directory_modules()
 
@@ -91,10 +83,9 @@ local function test_normalize_maps_lua_only_source_with_no_tl()
   local saved = check.must(fs.cwd(), "cwd failed")
   assert(fs.write(fs.join(tmpdir, "greet.lua"), "print('hi')\n"))
   assert(fs.set_cwd(tmpdir))
-  local display, parse = report.normalize("@o/greet.lua", "")
+  local display = report.normalize("@o/greet.lua", "")
   assert(fs.set_cwd(saved))
   assert(display == "greet.lua", "got: " .. tostring(display))
-  assert(parse == "o/greet.lua", "got: " .. tostring(parse))
 end
 test_normalize_maps_lua_only_source_with_no_tl()
 
@@ -104,11 +95,10 @@ local function test_normalize_accepts_existing_tl_script()
   local saved = check.must(fs.cwd(), "cwd failed")
   assert(fs.write(fs.join(tmpdir, "direct.tl"), "local x = 1\nreturn x\n"))
   assert(fs.set_cwd(tmpdir))
-  local display, parse = report.normalize("@direct.tl", "")
+  local display = report.normalize("@direct.tl", "")
   local abs_display = report.normalize("@" .. fs.join(tmpdir, "direct.tl"), tmpdir)
   assert(fs.set_cwd(saved))
   assert(display == "direct.tl", "got: " .. tostring(display))
-  assert(parse == "direct.tl", "got: " .. tostring(parse))
   assert(abs_display == "direct.tl", "got: " .. tostring(abs_display))
 end
 test_normalize_accepts_existing_tl_script()
@@ -172,3 +162,55 @@ local function test_report_renders_merged_data()
   assert(code == 0, "report failed with " .. code)
 end
 test_report_renders_merged_data()
+
+--- One display path's `total` from a covroot holding a single chunk
+--- spelling of it.
+--- @param root string The tree to run in, holding the source and covroots
+--- @param covroot string The directory of .cov files to report on
+--- @param display string The row to read
+--- @return integer The row's total
+local function total_from(root: string, covroot: string, display: string): integer
+  local saved = check.must(fs.cwd(), "cwd failed")
+  assert(fs.set_cwd(root))
+  local reports, err = report.compute({covroot})
+  assert(fs.set_cwd(saved))
+  assert(reports, tostring(err))
+  local found: integer = nil
+  for _, r in ipairs(reports) do
+    if r.display == display then
+      found = r.total
+    end
+  end
+  return check.must(found, display .. " missing from " .. covroot)
+end
+
+-- One module arrives under several chunk spellings in a single run --
+-- `/zip/mod.lua` from the artifact under test and `o/mod.lua` in
+-- process -- and both merge into one row. The denominator is a property
+-- of the file, so it must not depend on which spelling reached it: the
+-- two spellings would analyze different files (a `local record` is a
+-- type declaration in the .tl and an assignment in the compiled .lua),
+-- so picking per chunk would let `pairs` order over the .cov files
+-- decide the reported total.
+local function test_denominator_is_independent_of_chunk_spelling()
+  local root = fs.join(tmpdir, "spelling")
+  assert(fs.make_dirs(fs.join(root, "o")))
+  assert(fs.write(fs.join(root, "mod.tl"),
+      "local record R\n  x: integer\nend\nlocal t: R = {x = 1}\nreturn t\n"))
+  assert(fs.write(fs.join(root, "o", "mod.lua"),
+      "local R = {}\n\n\nlocal t = {x = 1}\nreturn t\n"))
+  local totals: {integer} = {}
+  for i, chunk in ipairs({"@/zip/mod.lua", "@o/mod.lua"}) do
+    local covroot = fs.join(root, "cov" .. i)
+    assert(fs.make_dirs(covroot))
+    assert(fs.write(fs.join(covroot, "1.cov"), cov_body(
+          '{version = 1, hits = {["' .. chunk .. '"] = {[4] = 1, [5] = 1}}}')))
+    totals[i] = total_from(root, covroot, "mod.tl")
+  end
+  assert(totals[1] == totals[2],
+    "spelling changed the denominator: " .. totals[1] .. " vs " .. totals[2])
+  -- Both analyze the compiled artifact, whose `local R = {}` is a third
+  -- executable line the .tl does not have.
+  assert(totals[1] == 3, "got: " .. totals[1])
+end
+test_denominator_is_independent_of_chunk_spelling()

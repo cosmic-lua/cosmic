@@ -2,7 +2,8 @@
 --- Sources recorded by the collector are normalized to repo-relative
 --- paths, compiled artifacts (o/X.lua) map back to their X.tl source,
 --- and the denominator comes from static executable-line analysis of
---- each file unioned with the lines actually hit.
+--- the compiled artifact behind each display path, unioned with the
+--- lines actually hit.
 local fs = require("cosmic.fs")
 local cov_lines = require("_tool.coverage.lines")
 
@@ -67,15 +68,43 @@ local function is_excluded(path: string): boolean
   return false
 end
 
---- Normalize a collector source string to report paths.
+--- The file whose text is analyzed for a display path's executable
+--- lines: the compiled artifact under `o/` when there is one, and the
+--- displayed source otherwise. Hits are recorded at the line numbers of
+--- the code that actually ran, and compiled Lua does not line up with
+--- its Teal source everywhere -- a `local record` is a type declaration
+--- in one and an assignment in the other, and a hoisted require shifts
+--- every line after it -- so the executable-line universe has to come
+--- from the same file the hits were counted in, or the union with them
+--- inflates the total and the missing-line list points at lines that
+--- are not the ones uncovered.
+---
+--- Derived from the DISPLAY path, never from the chunk spelling that
+--- reached it. One module arrives under several spellings in a single
+--- run -- `/zip/cosmic/url.lua` from the artifact under test and
+--- `o/cosmic/url.lua` in process -- and they merge into one row, so a
+--- target chosen per chunk would make the denominator depend on which
+--- .cov file the merge read first.
+--- @param display string A repo-relative display path
+--- @return string The path to analyze for executable lines
+local function parse_for(display: string): string
+  if display:match("%.tl$") then
+    local compiled = "o/" .. display:gsub("%.tl$", ".lua")
+    if fs.is_file(compiled) then
+      return compiled
+    end
+  end
+  return display
+end
+
+--- Normalize a collector source string to its report display path.
 --- Returns nil for chunks that are not repo source files: strings,
 --- stdin, absolute paths outside the working tree (like the binary's
 --- own /zip modules), and excluded files.
 --- @param src string A chunk source as recorded by the collector (e.g. "@o/lib/x.lua")
 --- @param cwd string The working directory to relativize against
 --- @return string | nil The display path, or nil to skip this chunk
---- @return string? The path to analyze for executable lines
-local function normalize(src: string, cwd: string): string | nil, string
+local function normalize(src: string, cwd: string): string | nil
   if src:sub(1, 1) ~= "@" then
     return nil
   end
@@ -104,7 +133,7 @@ local function normalize(src: string, cwd: string): string | nil, string
     -- above exists to fix, for 14 of this repo's own modules.
     for _, source in ipairs({zipped .. ".tl", zipped .. "/init.tl"}) do
       if not is_excluded(source) and fs.is_file(source) then
-        return source, source
+        return source
       end
     end
     return nil
@@ -126,13 +155,13 @@ local function normalize(src: string, cwd: string): string | nil, string
     local tl_path = rel:gsub("%.lua$", ".tl")
     for _, source in ipairs({tl_path, rel}) do
       if not is_excluded(source) and fs.is_file(source) then
-        return source, p
+        return source
       end
     end
     return nil
   end
   if (p:match("%.tl$") or p:match("%.lua$")) and fs.is_file(p) then
-    return p, p
+    return p
   end
   return nil
 end
@@ -209,13 +238,12 @@ end
 --- Merge one chunk's hit counts into the per-file entries.
 --- @param entries {string: FileEntry} Accumulated entries by display path
 --- @param display string The normalized display path
---- @param parse string The path to analyze for executable lines
 --- @param hits {integer: integer} Line hit counts to add
 local function merge_hits(entries: {string: FileEntry}, display: string,
-    parse: string, hits: {integer: integer})
+    hits: {integer: integer})
   local entry = entries[display]
   if not entry then
-    entry = {display = display, parse = parse, hits = {}}
+    entry = {display = display, parse = parse_for(display), hits = {}}
     entries[display] = entry
   end
   for line, n in pairs(hits) do
@@ -383,21 +411,16 @@ local function compute(paths: {string}): {FileReport} | nil, string
       io.stderr:write("coverage: " .. path .. ": " .. (err or "unreadable") .. "\n")
     else
       for src, lines in pairs(hits) do
-        local display, parse = normalize(src, cwd)
+        local display = normalize(src, cwd)
         if display then
-          merge_hits(entries, display, parse, lines)
+          merge_hits(entries, display, lines)
         end
       end
     end
   end
   for _, s in ipairs(src_files) do
     if not entries[s] then
-      local compiled = "o/" .. s:gsub("%.tl$", ".lua")
-      entries[s] = {
-        display = s,
-        parse = fs.is_file(compiled) and compiled or s,
-        hits = {},
-      }
+      entries[s] = {display = s, parse = parse_for(s), hits = {}}
     end
   end
 
@@ -428,7 +451,7 @@ local record ReportModule
   type FileReport = FileReport
   report: function(paths: {string}): integer
   compute: function(paths: {string}): {FileReport} | nil, string
-  normalize: function(src: string, cwd: string): string | nil, string
+  normalize: function(src: string, cwd: string): string | nil
   format_ranges: function(lines: {integer}, max_ranges: integer): string
   read_cov: function(path: string): {string: {integer: integer}} | nil, string
 end
