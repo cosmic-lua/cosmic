@@ -6,6 +6,7 @@ return {
   ["claim"] = "sched-bmbm6d",
   ["id"] = "3ICDHHW7UiksaaojXJyS6lMKdgp",
   ["parent"] = "3I1j7yQAawHLQwtQA1bp1i3tUj4",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1312,
   ["title"] = "fuzz: the failure message pairs the minimized input with the original run's detail and draw count",
 }
