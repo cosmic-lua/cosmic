@@ -59,10 +59,17 @@ branches it enables. `wc -l < _work/gitverdict.tl` is 152.
    A read that FAILS is not a refusal — fall through to today's
    behaviour, so a network outage cannot wedge reviews.
 
-2. **Closed and unmerged is refused**: `p.state ~= "open" and not
-   p.merged` returns
-   `REFUSED: PR #<n> is <state> and unmerged — there is nothing to land; reopen it, or reject the item`.
-   The item does not move.
+2. **Closed and unmerged is refused.** The decision is a PURE
+   classifier, `review.blocks_accept(p: Pull): string`, added beside
+   `blocks_check` and `blocks_on_ci` in `_work/review.tl` and shaped
+   exactly like them — the refusal an accept earns, nil when none. It
+   returns
+   `PR #<n> is <state> and unmerged — there is nothing to land; reopen it, or reject the item`
+   when `p.state ~= "open" and not p.merged`. `cmd_verdict` prefixes
+   `REFUSED: ` and the item does not move. Pure, because that is how
+   this repo tests GitHub-shaped logic: `gh_test.tl` exercises
+   `is_merged`/`refusal` over literal values and leaves the transport
+   to the real land flow.
 
 3. **Merged completes the item in one commit.** Set `verdict`,
    `verdict_head`, and `pr` exactly as the accept path does today,
@@ -85,11 +92,24 @@ branches it enables. `wc -l < _work/gitverdict.tl` is 152.
    is parsed from `head.sha`, `""` when absent. `wc -l < _work/gh.tl`
    is 204 and `wc -l < _work/review.tl` is 96.
 
-5. **Tests.** `_work/gitverdict_test.tl` (135 lines) gains
-   `test_accept_completes_an_already_merged_pr` and
-   `test_accept_refuses_a_closed_unmerged_pr`, both driving the fake
-   GitHub the existing tests use. `_work/review_test.tl` (82 lines)
-   gains a `merge_sha` case if `Pull` is constructed there.
+5. **Tests.** `_work/review_test.tl` (82 lines) gains
+   `test_blocks_accept_refuses_a_closed_unmerged_pr`, covering all
+   four combinations of `state`/`merged` over literal `Pull` values —
+   open-unmerged and merged (both nil), closed-unmerged and
+   closed-merged (refusal, and nil, since a merged PR reads as
+   closed). `_work/gitverdict_test.tl` (135 lines) gains
+   `test_accept_without_an_origin_still_routes_to_land`, which pins
+   the `store.has_origin` fallthrough that keeps every existing
+   verdict test — all of which run on local-only boards — meaning what
+   it meant before.
+
+   The transport half (`gh.pull` returning a merged PR, and the
+   one-commit completion it triggers) is NOT unit-tested, for the same
+   reason `gh.merge` is not: it needs a real repo and token. It is
+   exercised the first time a session accepts an already-merged PR,
+   and items `3IE6ttNh` and `3ICDOGbm` are both sitting in `check`
+   with merged PRs, so that happens on the next verdict either of
+   them gets.
 
 ## Non-goals
 
@@ -115,14 +135,15 @@ branches it enables. `wc -l < _work/gitverdict.tl` is 152.
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make test _work/gitverdict_test.tl _work/gh_test.tl
   _work/review_test.tl` ends `test: PASS`, including
-  `test_accept_completes_an_already_merged_pr` and
-  `test_accept_refuses_a_closed_unmerged_pr`.
+  `test_blocks_accept_refuses_a_closed_unmerged_pr` and
+  `test_accept_without_an_origin_still_routes_to_land`.
 - `grep -c 'gh\.' _work/gitverdict.tl` is at least 1 (it is 0 today).
 - `wc -l < _work/gitverdict.tl` ≤ 260, `wc -l < _work/gh.tl` ≤ 260,
   `wc -l < _work/review.tl` ≤ 140.
-- On a board whose PR is merged, `verdict ID accept --session S`
-  leaves the item ended: `gitboard show ID --fields` ends
-  `<id8> is completed` and no `phase:` line is printed.
+- On the real board, accepting one of the two items whose PR is
+  already merged leaves it ended in one command: `gitboard show
+  3IE6ttNh --fields` ends `3IE6ttNh is completed` and prints no
+  `phase:` line. (Run by the reviewing session, not the builder.)
 
 ## Enablement
 
