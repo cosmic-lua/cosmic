@@ -51,6 +51,15 @@ local record Item
   block_reason: {string: string}
   --- The session that claimed it; "" when unclaimed.
   claim: string
+  --- Every session that has held the claim, oldest first. Stored as
+  --- one "name name" string — the literal domain has no lists.
+  ---
+  --- The claim is a LEASE and moves: a return clears it and the next
+  --- pull writes a new one. So the claim alone cannot answer "did this
+  --- session build this", which is the question the no-self-accept
+  --- rule turns on. This is that answer, and it is never cleared while
+  --- the item is open — whoever built stays disqualified as reviewer.
+  builders: {string}
   --- The PR under review; 0 when none.
   pr: integer
   --- Standing review verdict: "" | "accept" | "request changes"
@@ -152,6 +161,14 @@ local function problems(it: Item): {string}
       blocked_seen[b] = true
     end
   end
+  local built_seen: {string: boolean} = {}
+  for _, name in ipairs(it.builders or {}) do
+    if built_seen[name] then
+      out[#out + 1] = ("builders repeats %s"):format(name)
+    else
+      built_seen[name] = true
+    end
+  end
   local beats_seen: {string: boolean} = {}
   for _, b in ipairs(it.beats or {}) do
     if not ksuid.is_id(b) then
@@ -188,6 +205,10 @@ local function decode(t: {string: any}): Item | nil, string
   for ref in tostring(t.beats or ""):gmatch("%S+") do
     beats[#beats + 1] = ref
   end
+  local builders: {string} = {}
+  for name in tostring(t.builders or ""):gmatch("%S+") do
+    builders[#builders + 1] = name
+  end
   local it: Item = {
     id = tostring(t.id or ""),
     title = tostring(t.title or ""),
@@ -198,6 +219,7 @@ local function decode(t: {string: any}): Item | nil, string
     blocked_by = blocked,
     block_reason = reasons,
     claim = tostring(t.claim or ""),
+    builders = builders,
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
     verdict = tostring(t.verdict or ""),
     verdict_head = tostring(t.verdict_head or ""),
@@ -245,6 +267,9 @@ local function encode(it: Item): {string: any}
     end
   end
   if (it.claim or "") ~= "" then t.claim = it.claim end
+  if #(it.builders or {}) > 0 then
+    t.builders = table.concat(it.builders, " ")
+  end
   if (it.pr or 0) ~= 0 then t.pr = it.pr end
   if (it.verdict or "") ~= "" then t.verdict = it.verdict end
   if (it.verdict_head or "") ~= "" then t.verdict_head = it.verdict_head end
@@ -253,12 +278,31 @@ local function encode(it: Item): {string: any}
   return t
 end
 
+--- Record that `session` has held this item's claim.
+---
+--- The claim answers who holds the item NOW and moves with every
+--- return; `builders` answers who has BUILT it and never moves, which
+--- is the question the no-self-accept rule turns on. A session
+--- reclaiming an item it already held is already in the list, and the
+--- record carries no repeats — `problems` refuses one.
+--- @param it Item The item being claimed
+--- @param session string The claiming session
+local function record_builder(it: Item, session: string)
+  for _, name in ipairs(it.builders) do
+    if name == session then
+      return
+    end
+  end
+  it.builders[#it.builders + 1] = session
+end
+
 local record item
   type Item = Item
   PHASES: {string}
   is_open: function(it: Item): boolean
   is_root: function(it: Item): boolean
   problems: function(it: Item): {string}
+  record_builder: function(it: Item, session: string)
   decode: function(t: {string: any}): Item | nil, string
   encode: function(it: Item): {string: any}
 end
@@ -268,6 +312,7 @@ local M: item = {
   is_open = is_open,
   is_root = is_root,
   problems = problems,
+  record_builder = record_builder,
   decode = decode,
   encode = encode,
 }

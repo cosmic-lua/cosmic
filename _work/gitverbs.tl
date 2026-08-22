@@ -354,8 +354,19 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
+  -- A claim is a lease over work in progress. Taking over a live one
+  -- is legitimate — a session dies, another picks the item up — but it
+  -- is never SILENT: the takeover disqualifies the earlier holder as
+  -- reviewer, so it goes through --force --why and into the log.
+  if claim ~= nil and claim ~= "" and claim ~= it.claim
+  and (it.claim or "") ~= "" and not force then
+    return gate.verdict_line("move", false,
+      ("REFUSED: %s is claimed by %s — take over a live claim with "
+        .. "--force --why"):format(id:sub(1, 8), it.claim))
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
+    item.record_builder(it, claim)
   end
   if pr ~= nil and pr ~= 0 then
     it.pr = pr
