@@ -96,3 +96,10 @@ suite twice each, alternating (A1 B1 A2 B2), then 6 more alternating
   and judges honestly. Blocking all releases for 17 false flags and
   one +8% scenario is the current state; neither hypothesis needed
   the runner re-run the gate's own error text suggests.
+
+## In flight
+
+The gate fix (Consequences item 1) is implemented on PR #1313 together
+with 3ICG8WcG's pull-time re-measure; this item stays open for the
+tar regression follow-through (3IHFD8b4) and the lane-observation
+enabler (3IHDCJ3o), which the PR does not carry.
