@@ -439,7 +439,14 @@ test_the_child_timeout_scales_with_the_iteration_count()
 -- can loop on one while the generated input failed ordinarily. The
 -- budget has to cover those reruns too, or minimizing a failure hangs
 -- the suite. The reported detail stays the original failure's.
+--
+-- The seed is pinned because which branch of check the FIRST input
+-- takes decides that detail: seed 1 draws a 5-byte input, which fails
+-- ordinarily, and only the shorter shrink candidates loop. Left to the
+-- ambient FUZZ_SEED the deep lane's rotating value draws a short first
+-- input and the run reports the budget instead.
 local function test_a_shrink_candidate_that_loops_is_caught()
+  assert(env.set("FUZZ_SEED", "1"))
   without_coverage(function()
       local ok, msg = driver.run_unisolated({
           name = "candidate_loops",
@@ -459,5 +466,6 @@ local function test_a_shrink_candidate_that_loops_is_caught()
       check.truthy(msg:find("too big", 1, true),
         "the original failure's detail is reported: " .. msg)
     end)
+  restore()
 end
 test_a_shrink_candidate_that_loops_is_caught()
