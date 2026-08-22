@@ -10,6 +10,12 @@
 --- Environment: FUZZ_SEED sets the seed (default 1), FUZZ_ITERS the
 --- iteration count (default 256). Options.iters overrides FUZZ_ITERS.
 ---
+--- Before it generates anything, every run replays the property's
+--- stored corpus (_fuzz.corpus), so a bug found once stays found; a
+--- minimized failure is stored back when FUZZ_SAVE=1 asks for it. A
+--- corpus failure reports `corpus=<file>` where a generated one reports
+--- `iteration=`.
+---
 --- run() always isolates: before running a property's iterations it
 --- re-invokes this same process as a child (FUZZ_ISOLATE names the
 --- property so every OTHER property in the file no-ops), so a C-layer
@@ -21,6 +27,8 @@
 
 local child = require("cosmic.child")
 local codec = require("cosmic.codec")
+local corpus = require("_fuzz.corpus")
+local detail = require("_fuzz.detail")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
 local rand = require("cosmic.rand")
@@ -37,10 +45,6 @@ local DEFAULT_ITERS = 256
 --- so this default sits more than 2000x above what the tree needs.
 local DEFAULT_BUDGET = 50000000
 
---- What the budget hook throws. Raised with level 0, so a caught value
---- equal to this string IS a budget failure, not a property throw.
-local BUDGET_MESSAGE = "_fuzz.driver: instruction budget exceeded"
-
 --- Wall-clock backstop for the isolated child, in milliseconds. Only
 --- reached when the VM instruction hook cannot arm (its slot is taken
 --- by the coverage collector) or the hang is inside a single C call,
@@ -54,7 +58,7 @@ local function arm_budget(budget: integer): boolean
   if debug.gethook() ~= nil then
     return false
   end
-  debug.sethook(function() error(BUDGET_MESSAGE, 0) end, "", budget)
+  debug.sethook(function() error(detail.BUDGET_MESSAGE, 0) end, "", budget)
   return true
 end
 
@@ -91,30 +95,13 @@ local record Options
   timeout_ms: integer
 end
 
---- Read an integer from the environment, falling back when unset or
---- unparseable.
---- @param name string The environment variable to read
---- @param fallback integer The value to use when it is absent or not a number
---- @return integer The parsed value, or `fallback`
-local function env_integer(name: string, fallback: integer): integer
-  local raw = env.get(name)
-  if not raw then
-    return fallback
-  end
-  local parsed = tonumber(raw)
-  if not parsed then
-    return fallback
-  end
-  return math.floor(parsed)
-end
-
 --- Format the one failure message shape every fuzz test reports.
 --- @param name string The property name
 --- @param seed integer The seed the run used
 --- @param iteration integer The 1-based iteration that failed
 --- @param input string The failing input
 --- @param draws integer How many values the generator drew for this input
---- @param detail string What the property reported, or the thrown error
+--- @param what string What the property reported, or the thrown error
 --- @return string The failure message
 local function failure(
     name: string,
@@ -122,11 +109,11 @@ local function failure(
     iteration: integer,
     input: string,
     draws: integer,
-    detail: string
+    what: string
   ): string
   return string.format(
     "%s: seed=%d iteration=%d input(base64)=%s draws=%d: %s",
-    name, seed, iteration, codec.encode_base64(input), draws, detail)
+    name, seed, iteration, codec.encode_base64(input), draws, what)
 end
 
 --- Run a fuzz property over generated inputs, in this process.
@@ -148,27 +135,24 @@ end
 local function run_in_process(
     opts: Options, seed: integer, iters: integer, budget: integer
   ): boolean, string
+  local held_corpus, corpus_msg = corpus.replay(
+    opts.name, opts.check, budget, arm_budget, disarm_budget)
+  if not held_corpus then
+    return false, corpus_msg
+  end
   for i = 1, iters do
     local rec = source.new(rand.insecure_source(seed + i))
     local input = opts.gen(rec)
     local armed = arm_budget(budget)
-    local ok, held, detail = pcall(opts.check, input)
+    local ok, held, why = pcall(opts.check, input)
     if armed then
       disarm_budget()
     end
     if not ok or not held then
-      local what: string
-      if not ok then
-        local thrown = tostring(held)
-        what = "threw: " .. thrown
-        if thrown == BUDGET_MESSAGE then
-          what = ("budget=%d exceeded"):format(budget)
-        end
-      else
-        what = tostring(detail or "no detail")
-      end
+      local what = detail.detail_of(ok, held, why, budget)
       local minimized_draws = shrink.shrink(opts.gen, opts.check, rec.draws)
       local minimized_input = opts.gen(source.replay(minimized_draws))
+      corpus.save(opts.name, minimized_input)
       return false, failure(opts.name, seed, i, minimized_input, #minimized_draws, what)
     end
   end
@@ -287,8 +271,8 @@ end
 --- @return boolean True when every iteration held
 --- @return string The failure message, or a summary of the passing run
 local function run_unisolated(opts: Options): boolean, string
-  local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
-  local iters = opts.iters or env_integer("FUZZ_ITERS", DEFAULT_ITERS)
+  local seed = detail.env_integer("FUZZ_SEED", DEFAULT_SEED)
+  local iters = opts.iters or detail.env_integer("FUZZ_ITERS", DEFAULT_ITERS)
   local budget = opts.budget or DEFAULT_BUDGET
   return run_in_process(opts, seed, iters, budget)
 end
@@ -313,13 +297,13 @@ local function run(opts: Options): boolean, string
     -- bisection probe narrowing toward a crash — so it outranks
     -- opts.iters here, the one place that priority differs from
     -- everywhere else opts.iters is read.
-    local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
-    local iters = env_integer("FUZZ_ITERS", opts.iters or DEFAULT_ITERS)
+    local seed = detail.env_integer("FUZZ_SEED", DEFAULT_SEED)
+    local iters = detail.env_integer("FUZZ_ITERS", opts.iters or DEFAULT_ITERS)
     local budget = opts.budget or DEFAULT_BUDGET
     return run_in_process(opts, seed, iters, budget)
   end
-  local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
-  local iters = opts.iters or env_integer("FUZZ_ITERS", DEFAULT_ITERS)
+  local seed = detail.env_integer("FUZZ_SEED", DEFAULT_SEED)
+  local iters = opts.iters or detail.env_integer("FUZZ_ITERS", DEFAULT_ITERS)
   local budget = opts.budget or DEFAULT_BUDGET
   return isolate(opts, seed, iters, budget)
 end

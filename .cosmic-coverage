@@ -45,6 +45,8 @@ return {
   ["_eval/score.tl"] = {["covered"] = 166, ["total"] = 187},
   ["_eval/stage.tl"] = {["covered"] = 165, ["total"] = 205},
   ["_eval/suite.tl"] = {["covered"] = 0, ["total"] = 1},
+  ["_fuzz/corpus.tl"] = {["covered"] = 40, ["total"] = 45},
+  ["_fuzz/detail.tl"] = {["covered"] = 20, ["total"] = 22},
   ["_fuzz/driver.tl"] = {["covered"] = 71, ["total"] = 77},
   ["_fuzz/shrink.tl"] = {["covered"] = 75, ["total"] = 104},
   ["_fuzz/source.tl"] = {["covered"] = 34, ["total"] = 45},
