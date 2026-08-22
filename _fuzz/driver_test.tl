@@ -248,8 +248,8 @@ local function test_a_looping_property_fails_within_its_budget()
           name = "looper",
           iters = 3,
           budget = 100000,
-          gen = function(_src: source.Recorder): string
-            return "input"
+          gen = function(src: source.Recorder): string
+            return driver.bytes(src, 8)
           end,
           check = function(_input: string): boolean, string
             while true do end
@@ -290,8 +290,8 @@ local function test_the_budget_hook_is_cleared_between_runs()
           name = "arms_a_tiny_budget",
           iters = 1,
           budget = 1000,
-          gen = function(_src: source.Recorder): string
-            return "input"
+          gen = function(src: source.Recorder): string
+            return driver.bytes(src, 8)
           end,
           check = function(_input: string): boolean, string
             while true do end
@@ -434,3 +434,38 @@ local function test_the_child_timeout_scales_with_the_iteration_count()
     "an explicit timeout_ms is absolute, never scaled and never a floor")
 end
 test_the_child_timeout_scales_with_the_iteration_count()
+
+-- A shrink candidate reruns check on a SMALLER input, and a property
+-- can loop on one while the generated input failed ordinarily. The
+-- budget has to cover those reruns too, or minimizing a failure hangs
+-- the suite. The reported detail stays the original failure's.
+--
+-- The seed is pinned because which branch of check the FIRST input
+-- takes decides that detail: seed 1 draws a 5-byte input, which fails
+-- ordinarily, and only the shorter shrink candidates loop. Left to the
+-- ambient FUZZ_SEED the deep lane's rotating value draws a short first
+-- input and the run reports the budget instead.
+local function test_a_shrink_candidate_that_loops_is_caught()
+  assert(env.set("FUZZ_SEED", "1"))
+  without_coverage(function()
+      local ok, msg = driver.run_unisolated({
+          name = "candidate_loops",
+          iters = 1,
+          budget = 100000,
+          gen = function(src: source.Recorder): string
+            return driver.bytes(src, 8)
+          end,
+          check = function(input: string): boolean, string
+            if #input >= 4 then
+              return false, "too big"
+            end
+            while true do end
+          end,
+        })
+      check.equal(ok, false, "the property must fail, not hang in shrink")
+      check.truthy(msg:find("too big", 1, true),
+        "the original failure's detail is reported: " .. msg)
+    end)
+  restore()
+end
+test_a_shrink_candidate_that_loops_is_caught()

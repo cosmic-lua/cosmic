@@ -88,8 +88,9 @@ local record Options
   check: function(input: string): boolean, string
   --- Iteration count. Overrides FUZZ_ITERS when set.
   iters: integer
-  --- VM instructions per check() invocation. Overrides DEFAULT_BUDGET
-  --- when set. A property that runs past it fails the run like any
+  --- VM instructions per check() invocation, shrinking's candidate
+  --- reruns included. Overrides DEFAULT_BUDGET when set. A property
+  --- that runs past it fails the run like any
   --- other failure, reporting `budget=<n> exceeded`, so a hung parser
   --- is attributed to its input instead of hanging the suite. The VM
   --- has one debug-hook slot, so the budget arms only when that slot
@@ -119,6 +120,34 @@ local function env_integer(name: string, fallback: integer): integer
     return fallback
   end
   return math.floor(parsed)
+end
+
+--- Wrap a property's check so each call runs under the budget hook.
+--- Shrinking reruns check on every candidate, and it must not do so
+--- unbudgeted: the candidate that loops is the very input the budget
+--- exists to attribute. A throw becomes a false return, which is what
+--- shrink's still_fails already makes of one, so a budget-exceeded
+--- candidate reads as still failing and is kept.
+--- @param check function The property's check
+--- @param budget integer VM instructions one call may spend
+--- @return function The same contract, budget-capped per call
+local function budgeted(
+    check: function(input: string): boolean, string, budget: integer
+  ): function(input: string): boolean, string
+  return function(input: string): boolean, string
+    local armed = arm_budget(budget)
+    local ok, held, why = pcall(check, input)
+    if armed then
+      disarm_budget()
+    end
+    if not ok then
+      return false, tostring(held)
+    end
+    if not held then
+      return false, tostring(why or "no detail")
+    end
+    return true
+  end
 end
 
 --- Format the one failure message shape every fuzz test reports.
@@ -180,7 +209,8 @@ local function run_in_process(
       else
         what = tostring(detail or "no detail")
       end
-      local minimized_draws = shrink.shrink(opts.gen, opts.check, rec.draws)
+      local minimized_draws = shrink.shrink(
+        opts.gen, budgeted(opts.check, budget), rec.draws)
       local minimized_input = opts.gen(source.replay(minimized_draws))
       return false, failure(opts.name, seed, i, minimized_input, #minimized_draws, what)
     end
