@@ -460,3 +460,102 @@ what `## Acceptance` enforces) was applied to the current Non-goals:
 its only claim about a generated file is the `.cosmic-coverage` bullet,
 which now REQUIRES the regenerated rows in the diff, matching
 Acceptance #1.
+
+## Rejection, 2026-08-22 (PR #1308, head 28a3fe3e, reviewed by sched-0g9chr)
+
+PR #1308 implemented this spec faithfully — the three-module shape, no
+redeclared bodies, all six tests, the `.cosmic-coverage` rows, and CI
+green across all six checks — and it still does not deliver the Goal.
+The fault is in THIS spec, which is why the item returns to `plan`
+rather than to `do`.
+
+**The wrong turn in one line: `## Change` § 2 pinned
+`fs.join(fs.dirname(arg[0]), "testdata", name)` and called it
+"colocating the corpus with the fuzz test file", without ever measuring
+where `arg[0]` points inside a test.**
+
+It points at the COMPILED artifact. Measured 2026-08-22 on #1308's head,
+built and run through the ordinary test path with a probe test printing
+`arg[0]`:
+
+```
+$ o/bin/cosmic --make test _fuzz/zzprobe_test.tl
+arg0=o/_fuzz/zzprobe_test.lua
+cwd=/home/user/cosmic/o/pr1308
+dir_for=o/_fuzz/testdata/zzprobe
+```
+
+`embed/cosmic.mk`'s test rule is `$(O)/%.tl.test.got: $(O)/%.lua` with
+recipe `record $(basename $@) $(testrun) $<`, so the runner receives the
+compiled file. `--make run` is the same (`arg0=o/_fuzz/zzp.lua`), and
+`isolate()` re-execs `{cosmic_bin, arg[0]}`, inheriting it. The cwd IS
+the project root, but nothing maps a compiled path back to its source,
+and no rule stages `testdata/` into the build tree.
+
+So the default corpus root is `o/_fuzz/testdata/<property>`: gitignored,
+removed by `--make clean`, empty in every CI container. End to end, with
+`_fuzz/testdata/zzprobe/deadbeef` present in the SOURCE tree and a
+property whose check fails on its bytes:
+
+```
+replayed_committed_corpus=false msg=zzprobe: 2 iterations, seed=1
+```
+
+The entry was never read. Against the Goal — "a failing input becomes a
+permanent regression the suite replays on every subsequent run" —
+nothing stored is permanent and nothing is replayed in CI. `FUZZ_SAVE=1`
+writes into a build directory a human must find and hand-copy, which is
+a shorter manual step than transcribing base64 but is still the manual
+step this item exists to delete.
+
+Every Acceptance command passed because all six tests set
+`FUZZ_CORPUS_DIR` to `TEST_TMPDIR`. **The default path — the only one
+the outcome depends on — is the one path no test exercised.** The
+re-refinement must add an acceptance test that runs with
+`FUZZ_CORPUS_DIR` UNSET and asserts a committed corpus entry is
+replayed; without it, the same class of failure passes the gate again.
+
+### What the next refinement has to settle
+
+Where a property's corpus lives, given that a test cannot see its own
+source directory. Three candidates, none obviously best, all of them
+design decisions rather than defect fixes:
+
+- a runner-set variable naming the source file (`TEST_SOURCE`, beside
+  the existing `TEST_TMPDIR`), read through a `cosmic.*` accessor —
+  cheapest, and `_tool/testrun.tl` already builds the child env;
+- a `cosmic.*` function mapping a compiled path back to its source from
+  the build root the runner already writes into `.test.modules` (its
+  `root` and `build` lines are both there);
+- staging `testdata/` into the build tree so `fs.dirname(arg[0])`
+  becomes true — touches `embed/cosmic.mk`, which is byte-identical for
+  every project.
+
+The build model already knows the answer at the make layer: the example
+rule `$(O)/%.tl.example.got` hands the runner `$*.tl` rather than `$<`,
+precisely because examples must read `-- Output:` comments from source.
+The information exists; it is simply not offered to a test.
+
+### Reusable from #1308
+
+Everything except `dir_for`. The `_fuzz/detail.tl` leaf split, the
+`replay`/`save` contracts, the six tests, and the coverage rows all
+stand; the branch `claude/zealous-hypatia-s542rw` and its diff stay
+readable. `dir_for` is also exported with no caller outside its module —
+this spec named it public API, and the next one should decide whether it
+is wanted at all or whether the corpus root is better exposed as data.
+
+### Enablement
+
+Filed as 3IGXZ7Gg: "a test cannot find its own source dir: `arg[0]` is
+the compiled `o/` path, so colocated testdata is unreachable." General
+beyond this item — any future feature wanting per-test fixture data
+found at runtime (golden files, corpora, recorded transcripts) reaches
+for the same expression and lands in the same place, and no gate says
+so.
+
+The ready-bar lesson, narrow: a spec that pins a path EXPRESSION owes a
+measurement of what that expression evaluates to in the run mode the
+acceptance uses, exactly as it owes a measurement for a line count. Both
+prior passes on this item re-measured `wc -l` faithfully and neither
+ran `arg[0]`.
