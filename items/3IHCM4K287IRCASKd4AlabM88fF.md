@@ -38,3 +38,9 @@ a test in the tool/lua suite is the core half):
 3. every caller-controlled expansion carries a bound;
 4. every new error path has a test that reaches it;
 5. a perf claim for MODE=rel artifacts is measured on a MODE=rel build.
+6. a test whose assertions are host-gated (kernel ABI, enforcement
+   capability) prints which branch it took — cosmopolitan #267 merged
+   with its enforcement branch verified only by inference because the
+   dev container lacks Landlock and the test printed nothing; #268's
+   follow-up ("make the ABI test say what it proved") is the pattern
+   to make the rule.
