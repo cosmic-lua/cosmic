@@ -48,20 +48,25 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
   for i = 1, 9 do
     last_filler = file_item(a, ("filler %d"):format(i), leaf, false)
   end
-  -- The leaf is a container now; plan holds its 9 children. The other
-  -- clone fills plan past the limit before this one files a tenth, so
-  -- the tenth loses the race at the merged state, not locally.
+  -- The parent-to-be stands in `ready`, so the slot its de-phase frees
+  -- is not the one its child fills: this decomposition really does add
+  -- to plan, and plan's limit binds it. The leaf is a container now,
+  -- and plan holds the other 8 children. The other clone fills plan
+  -- past the limit before this one files a tenth, so the tenth loses
+  -- the race at the merged state, not locally.
+  assert(verbs.cmd_move(a, last_filler, "ready", "", 0, true,
+      "test fixture") == 0)
   assert(store.sync(b))
   for i = 1, 5 do
     assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, nil, "", true,
         "test fixture") == 0)
   end
   local phased = check.must(store.load(a, last_filler))
-  assert(phased.phase == "plan", "the parent-to-be starts on the board")
+  assert(phased.phase == "ready", "the parent-to-be starts on the board")
   assert(verbs.cmd_new(a, "the refused child", phased.id, nil, "", false, "") ~= 0,
     "filing under a full plan must be refused after the rebase")
   local after = check.must(store.load(a, phased.id))
-  assert(after.phase == "plan",
+  assert(after.phase == "ready",
     "a refused filing leaves its parent on the board: " .. after.phase)
   local r = check.must(child.run({"git", "status", "--porcelain"},
       {cwd = a.root}))

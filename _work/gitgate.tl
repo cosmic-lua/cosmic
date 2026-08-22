@@ -93,10 +93,13 @@ end
 --- @param from string Phase the mutation left; equal to `it.phase` for
 ---   a write that moves nothing, nil for an entry
 --- @param also {item.Item} Further items the same mutation writes
+--- @param force boolean True when --force authorised this mutation
+--- @param vacated string Phase this mutation frees a slot in, or nil
 --- @return boolean True once committed (and pushed, given a remote)
 --- @return string Error message
 local function commit_and_publish(s: store.Store, it: item.Item, body: string,
-    message: string, from: string, also?: {item.Item}): boolean, string
+    message: string, from: string, also?: {item.Item}, force?: boolean,
+    vacated?: string): boolean, string
   local saved, serr = store.save(s, it, message, body, also)
   if not saved then
     return false, serr
@@ -106,16 +109,27 @@ local function commit_and_publish(s: store.Store, it: item.Item, body: string,
       if merged == nil then
         return "state repository unreadable after rebase"
       end
+      -- A force is an authorisation the verb already granted, and
+      -- losing the push race does not withdraw it: the up-front gate
+      -- was skipped, so the one here is skipped with it, or the repair
+      -- a force exists to make would fail on any concurrent commit.
+      if force then
+        return nil
+      end
       -- The mutated item is already IN the merged state; ask whether its
       -- phase ended up over-limit with an ARRIVAL the limit may refuse —
       -- a write that leaves the item where it stands must stay editable
       -- even on a full column, or the mutations that drain it (spec
-      -- refinement, blocker bookkeeping) could never run.
+      -- refinement, blocker bookkeeping) could never run. `vacated`
+      -- carries the net-zero credit `wip_refusal` grants up front, so a
+      -- decomposition that empties a slot in the column it enters is
+      -- admitted after the rebase exactly as it was before.
       local limit = flow.LIMITS[it.phase]
       local b = flow.board(merged)
       if limit ~= nil and #(b[it.phase] or {}) > limit
       and flow.is_arrival(from, it.phase)
-      and not flow.admits_over_limit(from, it.phase) then
+      and not flow.admits_over_limit(from, it.phase)
+      and vacated ~= it.phase then
         return ("%s is over %d and this mutation arrives into it"):format(
           it.phase, limit)
       end
@@ -317,7 +331,8 @@ local record gitgate
   force_refusal: function(force: boolean, why: string): string
   forced_suffix: function(force: boolean, why: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
-  message: string, from: string, also?: {item.Item}): boolean, string
+  message: string, from: string, also?: {item.Item}, force?: boolean,
+  vacated?: string): boolean, string
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
   handover_refusal: function(s: store.Store, id: string,

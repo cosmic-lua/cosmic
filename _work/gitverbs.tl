@@ -72,14 +72,20 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   if #bad > 0 then
     return gate.verdict_line("new", false, table.concat(bad, "; "))
   end
+  -- Read before `dephased_container` clears it below: this is the slot
+  -- the mutation frees, and both the up-front gate and the one after a
+  -- lost push race need it.
+  local vacated = ""
+  if parent_item ~= nil then
+    vacated = parent_item.phase or ""
+  end
   if phase ~= "" and not force then
     -- A phased parent is a workable leaf, and gaining a child takes it
     -- off the board in this same commit — so the slot the child fills
     -- is the one the parent leaves. Net-zero decomposition is admitted
     -- however full the column is; only a parent already off the board
     -- (a container) makes this a real arrival.
-    local refusal = gate.wip_refusal(flow.board(all), nil, phase,
-      parent_item.phase or "")
+    local refusal = gate.wip_refusal(flow.board(all), nil, phase, vacated)
     if refusal then
       return gate.verdict_line("new", false, "REFUSED: " .. refusal)
     end
@@ -90,7 +96,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
     ("new %s %s%s"):format(it.id:sub(1, 8), title,
-      gate.forced_suffix(force, why)), nil, also)
+      gate.forced_suffix(force, why)), nil, also, force, vacated)
   if not ok then
     return gate.verdict_line("new", false, err)
   end
@@ -144,7 +150,7 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
     return gate.verdict_line("attach", false, table.concat(bad, "; "))
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("attach %s under %s"):format(id:sub(1, 8), parent:sub(1, 8)), nil,
+    ("attach %s under %s"):format(id:sub(1, 8), parent:sub(1, 8)), it.phase,
     gate.dephased_container(parent_item))
   if not ok then
     return gate.verdict_line("attach", false, err)
@@ -382,7 +388,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("move %s %s -> %s%s"):format(id:sub(1, 8), from, target,
-      gate.forced_suffix(force, why)), from)
+      gate.forced_suffix(force, why)), from, nil, force)
   if not ok then
     return gate.verdict_line("move", false, err)
   end
@@ -429,7 +435,7 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   local back = gate.rephased_parent(it, all)
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("done %s %s (from %s)%s"):format(id:sub(1, 8), reason, from,
-      gate.forced_suffix(force, why)), from, back)
+      gate.forced_suffix(force, why)), from, back, force)
   if not ok then
     return gate.verdict_line("done", false, err)
   end
