@@ -85,9 +85,10 @@ not a third spelling in practice. (3) The 2026-08-21 note kept at the
 foot of this spec — total 183 → 163 on `cosmic/string.tl` — was taken
 on an unlanded branch and its mechanism does NOT reproduce at main: `covered`
 fell by 22 in that measurement, and `covered` is the count of hit lines,
-which no choice of `parse` can reduce. A separate capture carries that
+which no choice of `parse` can reduce. Capture 3IHqdG5b carries that
 hypothesis (module-level lines of a boot-loaded module executing before
-the collector installs). Do not treat this slice as a fix for it.
+the collector installs its hook). Do not treat this slice as a fix for
+it.
 
 ## Change
 
@@ -247,5 +248,5 @@ hit lines, which no choice of `parse` can reduce. The live hypothesis
 is that a boot-loaded module's top-level statements execute before the
 collector installs its hook, so those lines are never recorded; the
 `cosmic/fs/types.tl` row in today's report shows the same shape
-(`missing: 3,5`, where :3 is the module's own `require`). That is a
-separate item.
+(`missing: 3,5`, where :3 is the module's own `require`). That is
+capture 3IHqdG5b, not this slice.
