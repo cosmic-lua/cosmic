@@ -55,7 +55,8 @@ that first.
   revert.
 - `gate.lua selfcheck` runs the same A/A control on demand, for
   interactive use or to profile the machine's noise floor before you
-  start. `--only <name>` narrows it to one
+  start. Both of its path arguments are WRITTEN — measuring the same
+  binary twice is the whole job. `--only <name>` narrows it to one
   scenario. for a still-suspect scenario, re-measuring it in isolation
   on both builds back to back (`run.lua --only <name>` on A,
   then on B) also removes the thermal/cache wake left by the ~20
