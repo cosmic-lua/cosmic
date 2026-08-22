@@ -355,3 +355,66 @@ none needed — the method is wave 3's and wave 6a's, twice proven on
 this epic; the census's location is named above; the population is
 enumerated by `file:line` at a named commit; and the narrowing facts to
 test against are pinned in `cosmic/teal_narrowing_test.tl`.
+
+## Review (2026-08-22, session `sched-l2q1e4`) — accepted
+
+Re-run independently in a throwaway worktree at main `aaf4af95`
+(`--make fetch && --make build`).
+
+**Population, recomputed.** `git grep -h -o -E -- '-- cast: [^(]*' --
+'*.tl' | wc -l` → **444**; piped through `sed`/`sort -u` → **126**
+distinct reasons. Both match.
+
+**Sub-family totals, recomputed by reason string.** Families 2–6 are
+confirmed unmoved at 7 / 7 / 7 / 5 / 10, site for site. The
+`function shape` split is confirmed exactly: 15 bare
+`-- cast: function shape` (narrowing-gap) and 4 parenthetical
+`function shape (…)` (binding-boundary, the four `cosmic/net/*` sites),
+plus 1 `function shape from map view`.
+
+**The 82 as a partition.** The 40 blocked (enumerated in the limits
+table above), the 10 of wave 6b, and the 32 of wave 6c were assembled
+into one list: **82 lines, 0 duplicates, and every one lands on a real
+`-- cast:` marker in the tree.** The classification is a genuine
+partition of 82 distinct existing sites, and 42 + 40 = 82 closes.
+
+**Spot-checks (4, all confirming).**
+
+| site | claim | result |
+|---|---|---|
+| `_cli/require_hints.tl:237` | removable | cast deleted → `Type check passed` |
+| `cosmic/fetch/init.tl:419` | removable | cast deleted → `Type check passed` |
+| `cosmic/coverage/init.tl:162` | blocked | refuses, with exactly the named limit: `wrong number of arguments (given 0, expects at least 2 and at most 3 or at least 3 and at most 4)` |
+| `cosmic/_teal_ast.tl:54` | removable via `is`-guard restructure | guard replaced with `thaw is function({string: any}): (any, any)`, cast deleted → `Type check passed` |
+
+The last is the headline dividend of #1191 and it holds: `is` on a
+function type narrows `any` past an early-exit guard. Confirmed too
+that `cosmic/teal_narrowing_test.tl` does **not** pin it — its five
+cases are `test_typevar_union_is_not_truthiness_narrowed`,
+`test_boolean_union_is_not_truthiness_narrowed`,
+`test_bare_any_does_not_satisfy_a_typed_parameter`,
+`test_early_exit_is_guard_narrows` (primitives, records, arrays) and
+`test_error_terminated_guard_does_not_narrow`. Wave 6c carrying that
+test case is the right call.
+
+**Follow-ups exist and are sized as recorded**: `3IFUa4AY` (6b, 10
+sites) and `3IFUaiGA` (6c, 27 plain + 1 companion + 4 restructures =
+32). Both name `3HyRcW05` as their attach target in their own prose.
+
+**One correction, to the census-drop table only.** Its
+`record union after guard  4 → 3` row does not hold, and its stated
+cause ("one site's surrounding code changed") misattributes it. What
+happened is the same grep artifact the findings handle explicitly for
+`function shape`: `cosmic/quicksand/box/run.tl:211` gained a `(die)`
+parenthetical in #1211 (`git log -S 'record union after guard (die)'`,
+2026-08-16), so the BARE reason string counts 3 today while the site
+count is still 4. The tables above count all four — family 1 is 20
+only with `box/run.tl:211` in it — so the `86 → 82` arithmetic is off
+by one against them. Nothing actionable moves: the site is classified
+blocked either way, both follow-up waves are unaffected, and the
+partition check above shows no site is missing or double-counted. Read
+the 82 / 42 / 40 as the measured numbers and the `86 → 82`
+reconciliation as approximate to ±1.
+
+Accepted: every stated acceptance bullet passes, and every material
+claim spot-checked came back as recorded.
