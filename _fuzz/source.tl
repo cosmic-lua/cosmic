@@ -50,6 +50,10 @@ end
 --- draw past the end of the sequence, or for a draw of the wrong kind
 --- -- a replay whose generator diverged from the one that recorded it
 --- is a bug to surface loudly, by position, not to silently truncate.
+--- The returned Recorder's `draws` holds what has been CONSUMED so
+--- far, not the sequence it was given: a generator that stops short of
+--- the end leaves the tail out, so the count describes the input it
+--- actually produced.
 --- @param draws {Draw} A previously-recorded draw sequence
 --- @return Recorder A source that replays draws in order
 local function replay(draws: {Draw}): Recorder
@@ -66,13 +70,15 @@ local function replay(draws: {Draw}): Recorder
     end
     return d
   end
-  local rec: Recorder = {draws = draws}
+  local consumed: {Draw} = {}
+  local rec: Recorder = {draws = consumed}
   rec.int = function(_self: Recorder, _min: integer, _max: integer): integer
     local d = next_draw("int")
     local v = d.ivalue
     if v == nil then
       error("_fuzz.source.replay: draw " .. pos .. " has no int value", 2)
     end
+    consumed[#consumed + 1] = d
     return v
   end
   rec.float = function(_self: Recorder): number
@@ -81,6 +87,7 @@ local function replay(draws: {Draw}): Recorder
     if v == nil then
       error("_fuzz.source.replay: draw " .. pos .. " has no float value", 2)
     end
+    consumed[#consumed + 1] = d
     return v
   end
   return rec

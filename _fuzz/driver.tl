@@ -122,6 +122,36 @@ local function env_integer(name: string, fallback: integer): integer
   return math.floor(parsed)
 end
 
+--- Run check once on one input, under the budget hook, classifying
+--- the outcome into the detail a failure reports.
+--- @param check function The property's check
+--- @param input string The input to check
+--- @param budget integer VM instructions this call may spend
+--- @return boolean True when the property held
+--- @return string What failed, when it did not
+local function attempt(
+    check: function(input: string): boolean, string,
+    input: string,
+    budget: integer
+  ): boolean, string
+  local armed = arm_budget(budget)
+  local ok, held, why = pcall(check, input)
+  if armed then
+    disarm_budget()
+  end
+  if not ok then
+    local thrown = tostring(held)
+    if thrown == BUDGET_MESSAGE then
+      return false, ("budget=%d exceeded"):format(budget)
+    end
+    return false, "threw: " .. thrown
+  end
+  if not held then
+    return false, tostring(why or "no detail")
+  end
+  return true, ""
+end
+
 --- Wrap a property's check so each call runs under the budget hook.
 --- Shrinking reruns check on every candidate, and it must not do so
 --- unbudgeted: the candidate that loops is the very input the budget
@@ -135,18 +165,7 @@ local function budgeted(
     check: function(input: string): boolean, string, budget: integer
   ): function(input: string): boolean, string
   return function(input: string): boolean, string
-    local armed = arm_budget(budget)
-    local ok, held, why = pcall(check, input)
-    if armed then
-      disarm_budget()
-    end
-    if not ok then
-      return false, tostring(held)
-    end
-    if not held then
-      return false, tostring(why or "no detail")
-    end
-    return true
+    return attempt(check, input, budget)
   end
 end
 
@@ -178,6 +197,9 @@ end
 --- throw fails the run instead of escaping it, and — when the VM's
 --- hook slot is free — under an instruction-count hook, so a property
 --- that stops terminating fails within its budget instead of hanging.
+--- A failure is shrunk before it is reported, and the detail and draw
+--- count describe the MINIMIZED input rather than the original
+--- iteration, so the one artifact a reader replays agrees with itself.
 --- A crash (a C-layer fault) still takes this process down; run()
 --- calls this only inside an already-isolated child, where that is
 --- safe.
@@ -193,26 +215,18 @@ local function run_in_process(
   for i = 1, iters do
     local rec = source.new(rand.insecure_source(seed + i))
     local input = opts.gen(rec)
-    local armed = arm_budget(budget)
-    local ok, held, detail = pcall(opts.check, input)
-    if armed then
-      disarm_budget()
-    end
-    if not ok or not held then
-      local what: string
-      if not ok then
-        local thrown = tostring(held)
-        what = "threw: " .. thrown
-        if thrown == BUDGET_MESSAGE then
-          what = ("budget=%d exceeded"):format(budget)
-        end
-      else
-        what = tostring(detail or "no detail")
-      end
+    local held, what = attempt(opts.check, input, budget)
+    if not held then
       local minimized_draws = shrink.shrink(
         opts.gen, budgeted(opts.check, budget), rec.draws)
-      local minimized_input = opts.gen(source.replay(minimized_draws))
-      return false, failure(opts.name, seed, i, minimized_input, #minimized_draws, what)
+      local replayed = source.replay(minimized_draws)
+      local minimized_input = opts.gen(replayed)
+      local still_held, minimized_what = attempt(opts.check, minimized_input, budget)
+      if not still_held then
+        what = minimized_what
+      end
+      return false, failure(
+        opts.name, seed, i, minimized_input, #replayed.draws, what)
     end
   end
   return true, string.format("%s: %d iterations, seed=%d", opts.name, iters, seed)
