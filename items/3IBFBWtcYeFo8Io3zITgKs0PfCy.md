@@ -559,3 +559,34 @@ measurement of what that expression evaluates to in the run mode the
 acceptance uses, exactly as it owes a measurement for a line count. Both
 prior passes on this item re-measured `wc -l` faithfully and neither
 ran `arg[0]`.
+
+## Enablement, 2026-08-22 (refinement pass after the rejection)
+
+**Blocked on 3IGXZ7Gg.** This item cannot reach the bar before that one
+lands, and the reason is not a preference: `## Change` § 2 has to name a
+default corpus location, and there is no expression a test can evaluate
+today that names its own source directory. Every candidate the
+rejection lists is a change to the runner or the build model, which is
+3IGXZ7Gg's subject and not this slice's — folding it in here would put
+the enabler inside the PR it enables.
+
+What this item's refinement owes, once the enabler lands:
+
+- Replace `fs.join(fs.dirname(arg[0]), "testdata", name)` with whatever
+  primitive 3IGXZ7Gg establishes, cited by name and by `file:line`.
+- Add a seventh acceptance test that runs with `FUZZ_CORPUS_DIR`
+  **unset** and asserts a corpus entry committed in the SOURCE tree is
+  replayed. Every existing test sets the override, which is exactly why
+  the default path shipped broken through a green gate; the default is
+  the only path the outcome depends on and it must have its own test.
+- Decide whether `dir_for` stays exported. It has no caller outside its
+  module today.
+- Re-measure the cap arithmetic against whatever `_fuzz/driver.tl` looks
+  like once 3ICDGiWd (PR #1309, the wall-clock scaling) has landed — it
+  adds ~31 lines to `driver.tl` and ~30 to `driver_test.tl`, neither of
+  which the last arithmetic accounted for.
+
+Everything else in `## Change` — the `_fuzz/detail.tl` leaf split, the
+`replay`/`save` contracts, the six tests, the `.cosmic-coverage` rows —
+survives unchanged and is implemented on `claude/zealous-hypatia-s542rw`
+(PR #1308, closed) for reference.
