@@ -138,6 +138,43 @@ local function test_show_names_an_items_own_graph_problem()
 end
 test_show_names_an_items_own_graph_problem()
 
+-- `blocked by` means what `flow.is_blocked` means: an edge whose
+-- blocker has ended does not hold the item up, and printing it beside
+-- the ones that do reads as a chain far deeper than it is. The closed
+-- edges stay visible under their own heading — they are the record of
+-- what the item waited on — and an item every blocker of which has
+-- ended prints no `blocked by` line at all.
+local function test_show_separates_binding_blockers_from_cleared_ones()
+  local all = board_items()
+  local open_blocker = fresh_id()
+  local ended_blocker = fresh_id()
+  all[#all + 1] = check.must(item.decode({id = open_blocker,
+        title = "still open", parent = CONTAINER, phase = "plan"}))
+  all[#all + 1] = check.must(item.decode({id = ended_blocker,
+        title = "landed already", parent = CONTAINER,
+        resolution = "completed"}))
+  local waiting = check.must(item.decode({id = fresh_id(),
+        title = "waits on one of them", parent = CONTAINER, phase = "plan",
+        blocked_by = open_blocker .. " " .. ended_blocker}))
+  all[#all + 1] = waiting
+  local lines = view.show_report(waiting, all, "", {})
+  assert(has(lines, "^blocked by: " .. open_blocker .. "$"),
+    "only the open blocker binds: " .. table.concat(lines, "\n"))
+  assert(has(lines, "^blockers cleared: " .. ended_blocker .. "$"),
+    "the ended edge is still the record: " .. table.concat(lines, "\n"))
+
+  local settled = check.must(item.decode({id = fresh_id(),
+        title = "waits on nothing open", parent = CONTAINER, phase = "plan",
+        blocked_by = ended_blocker}))
+  all[#all + 1] = settled
+  local settled_lines = view.show_report(settled, all, "", {})
+  assert(not has(settled_lines, "^blocked by:"),
+    "nothing open holds it up: " .. table.concat(settled_lines, "\n"))
+  assert(has(settled_lines, "^blockers cleared: " .. ended_blocker .. "$"),
+    "and the edge is still shown: " .. table.concat(settled_lines, "\n"))
+end
+test_show_separates_binding_blockers_from_cleared_ones()
+
 -- Cross-repo work is visible exactly where it was invisible: `show`
 -- prints a `repo:` line, and the queue/tree reports append
 -- ` [owner/name]` to the item's line. The default (empty `repo`) is

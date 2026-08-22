@@ -268,14 +268,34 @@ local function show_report(it: item.Item, all: {item.Item}, spec: string,
     out[#out + 1] = ("verdict: %s (head %s)"):format(it.verdict,
       it.verdict_head)
   end
-  if #it.blocked_by > 0 then
-    out[#out + 1] = "blocked by: " .. table.concat(it.blocked_by, " ")
-    for _, b in ipairs(it.blocked_by) do
+  -- Split the recorded edges by whether they still bind. `blocked by`
+  -- is the answer `flow.is_blocked` gives -- the one the `[blocked]`
+  -- mark and `next`'s skipping read -- so an edge whose blocker has
+  -- ended belongs under a heading that says so, not beside the edges
+  -- holding the item up. Both are kept: the closed edges are the
+  -- record of what this item actually waited on.
+  local index = flow.by_id(all)
+  local binding: {string} = {}
+  local cleared: {string} = {}
+  for _, b in ipairs(it.blocked_by) do
+    local blocker = index[b]
+    if blocker ~= nil and item.is_open(blocker) then
+      binding[#binding + 1] = b
+    else
+      cleared[#cleared + 1] = b
+    end
+  end
+  if #binding > 0 then
+    out[#out + 1] = "blocked by: " .. table.concat(binding, " ")
+    for _, b in ipairs(binding) do
       local why = (it.block_reason or {})[b]
       if why ~= nil and why ~= "" then
         out[#out + 1] = ("  %s: %s"):format(b:sub(1, 8), why)
       end
     end
+  end
+  if #cleared > 0 then
+    out[#out + 1] = "blockers cleared: " .. table.concat(cleared, " ")
   end
   if it.resolution ~= "" then
     out[#out + 1] = ("resolution: %s"):format(it.resolution)
