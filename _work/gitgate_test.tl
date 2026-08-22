@@ -111,27 +111,6 @@ local function test_force_survives_a_lost_race()
 end
 test_force_survives_a_lost_race()
 
--- Re-parenting an item that already holds a phase leaves it where it
--- stands, so it is a write and not an entry: `attach` states the phase
--- as `from`, and the column stays editable however full it is.
-local function test_a_reparent_is_not_an_arrival()
-  local a, b = init_shared("gate-reparent")
-  fill_plan_over_limit(a)
-  assert(store.sync(b))
-
-  local touched = make_item("plan")
-  assert(store.save(a, touched, "a moves the remote forward"))
-  assert(store.publish(a))
-
-  local mine = make_item("plan")
-  local ok, err = gate.commit_and_publish(b, mine, nil,
-    ("attach %s under %s"):format(mine.id:sub(1, 8), PARENT:sub(1, 8)),
-    mine.phase)
-  assert(ok, "a re-parent that moves nothing must survive an over-limit "
-    .. "rebase: " .. tostring(err))
-end
-test_a_reparent_is_not_an_arrival()
-
 -- A decomposition de-phases its parent in the same commit, so the slot
 -- the child fills is the one the parent leaves. The up-front gate
 -- credits that; the rebase check has to credit it too, or a net-zero

@@ -75,6 +75,34 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
 end
 test_a_refused_decomposition_leaves_the_parent_phased()
 
+-- The other side of the same race: re-parenting an item that already
+-- holds a phase leaves it where it stands, so `attach` is a write and
+-- not an entry. It has no WIP gate up front — triage is a decision
+-- already made — and the check after a lost push race has to agree, or
+-- the board becomes unre-parentable whenever a column is full.
+local function test_a_reparent_survives_an_over_limit_rebase()
+  local a, b = init_shared("attach-race")
+  local goal, leaf = root_with_leaf(a)
+  local other = file_item(a, "another leaf", goal, false)
+  assert(store.sync(b))
+  -- The other clone pushes plan past its limit, so this clone's
+  -- re-parent rebases onto a full column it never entered: the item
+  -- was in plan before the attach and is in plan after it.
+  for i = 1, 12 do
+    assert(verbs.cmd_new(b, ("theirs %d"):format(i), goal, nil, "", true,
+        "test fixture") == 0)
+  end
+  assert(check.must(store.load(a, leaf)).phase == "plan",
+    "the item starts on the board")
+  assert(verbs.cmd_attach(a, leaf, other) == 0,
+    "a re-parent that moves nothing must survive an over-limit rebase")
+  local after = check.must(store.load(a, leaf))
+  assert(after.phase == "plan",
+    "a re-parent leaves the item where it stands: " .. after.phase)
+  assert(after.parent == other, "the re-parent landed: " .. after.parent)
+end
+test_a_reparent_survives_an_over_limit_rebase()
+
 -- The ready bar judges the item being promoted. Another item's broken
 -- chain is board health, reported by `status`, never a refusal of a
 -- promotion that has nothing to do with it.
