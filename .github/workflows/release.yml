@@ -131,21 +131,30 @@ jobs:
             o/bin/cosmic --make run _perf/run.tl --out o/perf/perf.json
             o/bin/cosmic --make run _perf/run.tl --out o/perf/selfcheck.json'
 
-      # Releases publish perf.json and a compare verdict against the
-      # previous release, so the chain of release assets IS the perf
-      # history (see _perf/baseline.tl). A `perf-compare: FAIL` verdict
-      # fails this step, which fails this job, so the `release` job
-      # (`needs: build`) never runs and a regressing release publishes
-      # no assets — the ratchet's point, since the baseline then stays
-      # the last release that passed. A `perf-baseline: FAIL` (network
-      # or API failure) fails the step too; the next cron fire retries.
-      # `perf-compare: SKIP (no baseline)` still succeeds. `perf_gate:
-      # false` on a dispatch is the one way to publish a new baseline
-      # when the scenario set legitimately changed —
-      # `_perf/compare.tl:115-121` counts a scenario present in the
-      # baseline and missing from the current run as a failure, so a
-      # rename with the gate on would block every later release too.
+      # The baseline is the previous release's BINARY, downloaded and
+      # measured here, in the same job and on the same runner as the
+      # candidate's own measurement above. It is never the previous
+      # run's stored numbers: five consecutive scheduled releases
+      # (2026-08-18..22) failed this gate against a stored perf.json
+      # while an interleaved A/B of the two binaries on one machine
+      # showed 42 of 43 scenarios identical — the same binary's numbers
+      # drift -39%..+162% per scenario between runners, and the A/A
+      # self-check below can only see same-run noise, so a cross-run
+      # baseline can stay red forever with no code change. A
+      # `perf-compare: FAIL` verdict fails this step, which fails this
+      # job, so the `release` job (`needs: build`) never runs and a
+      # regressing release publishes no assets — the ratchet's point.
+      # A `perf-baseline: FAIL` (network or API failure) fails the step
+      # too; the next cron fire retries. `perf-compare: SKIP (no
+      # baseline)` still succeeds. `perf_gate: false` on a dispatch
+      # remains the way to publish past a KNOWN, captured regression or
+      # a scenario-set change — `_perf/compare.tl:115-121` counts a
+      # scenario present in the baseline and missing from the current
+      # run as a failure, so a rename with the gate on would block
+      # every later release too (the previous binary measures its own
+      # embedded scenario set, exactly as its stored numbers did).
       - name: compare against the previous release
+        timeout-minutes: 15
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -156,10 +165,12 @@ jobs:
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" \
             bash -eo pipefail -c '
             o/bin/cosmic --make run _perf/baseline.tl --repo ${{ github.repository }} \
-              --out o/perf/prev/perf.json | tee o/perf/baseline.txt
+              --asset cosmic-lua --out o/perf/prev/cosmic-lua | tee o/perf/baseline.txt
             if grep -q "^perf-baseline: SKIP" o/perf/baseline.txt; then
               echo "perf-compare: SKIP (no baseline: first measured release)" > o/perf/compare.txt
             else
+              chmod +x o/perf/prev/cosmic-lua
+              o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json
               o/bin/cosmic --make run _perf/gate.tl compare \
                 o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
                 | tee o/perf/compare.txt
