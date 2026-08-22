@@ -1,8 +1,9 @@
 #!/usr/bin/env cosmic
 --- Fetch a previous release's named asset, as the ratchet's raw
---- material: a release measures itself (see _perf/run.tl), and this
---- script recovers the last measurement to compare the new one
---- against.
+--- material. The perf gate fetches the previous release's BINARY
+--- (`--asset cosmic-lua`) and re-measures it beside the candidate,
+--- because stored numbers do not survive a runner change; the size
+--- gate fetches stored `size.json`, because size is deterministic.
 ---
 ---   cosmic -- o/_perf/baseline.lua --repo OWNER/NAME --out PATH [--asset NAME]
 ---
