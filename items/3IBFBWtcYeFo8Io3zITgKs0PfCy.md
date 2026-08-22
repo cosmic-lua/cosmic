@@ -5,7 +5,7 @@ persistence under `testdata/`, so a failing input becomes a permanent
 regression the suite replays on every subsequent run instead of a seed
 number a human has to remember to turn into a test by hand.
 
-## Problem, re-measured 2026-08-20 against `origin/main` at 05614e52
+## Problem, re-measured 2026-08-22 against `origin/main` at 2ee12b3e
 
 `_fuzz/driver.tl` (390 lines, `wc -l < _fuzz/driver.tl`) reports a
 minimized failing input in its message (`"<name>: seed=%d iteration=%d
@@ -28,7 +28,8 @@ child 5 just built.
 ## The file cap forces a split; the split has to be clean
 
 The 500-line cap is hard, gated by `--check lint`
-(`_tool/lint.tl:24`), and `_fuzz/**` is not in `.cosmicignore` — so it
+(`_tool/lint.tl:24`, `DEFAULT_FILE_LINES = 500`), and nothing exempts
+`_fuzz/**` — there is no `.cosmicignore` in the tree at all — so it
 binds every file this item touches.
 
 - **Tests cannot fit in `driver_test.tl` (406 lines).** The four
@@ -54,6 +55,14 @@ split shape so a re-implementation cannot land the same defect.
 Three edits, one new module for shared internals, one new module for
 corpus, and one new test file. No new files in `_fuzz/testdata/` are
 committed by this item; no existing `*_fuzz_test.tl` property changes.
+
+**Start from `origin/main`, on a fresh branch and a fresh PR.** The
+item's `pr` field still names #1297, which is the bounced attempt: a
+two-module shape (`corpus.tl` + `driver.tl`) that this spec replaces
+with a three-module one, on a branch based at `0b2907b9`. It is closed
+as superseded — read its diff for reference if it helps, do not push
+to it, and hand the item over with the NEW number (`gitboard move ID
+check --pr N`).
 
 ### 1. `_fuzz/detail.tl` — the shared internals both modules import
 
@@ -154,8 +163,18 @@ visible env var they touched. Every test uses
 `driver.run_unisolated`, so none enters the crash path (see Non-goals
 bullet 5).
 
-Test list is Acceptance §§4–7 below, plus two behavior guards
-(`test_no_corpus_dir_is_silent`, `test_fuzz_save_unset_writes_nothing`).
+The file holds exactly these SIX tests, each called on the line after
+its `end` (house rule), and no others:
+
+1. `test_no_corpus_dir_is_silent` — Acceptance #4
+2. `test_corpus_entry_failure_is_reported` — Acceptance #5
+3. `test_corpus_runs_before_generated_in_sorted_order` — Acceptance #6
+4. `test_fuzz_save_writes_content_addressed` — Acceptance #7
+5. `test_fuzz_save_unset_writes_nothing` — Acceptance #7
+6. `test_fuzz_save_is_idempotent` — Acceptance #8
+
+Helpers (`restore()`, `seed_corpus_file`, env-savers) are exempt from
+the call-where-defined rule, being called from the tests.
 
 ### 5. Env grammar
 
@@ -235,9 +254,10 @@ committed tree.
 
        bin/cosmic --make test _fuzz/driver_corpus_test.tl
 
-   Verdict line ends `test: PASS`. Includes the six tests below and
-   `test_no_corpus_dir_is_silent` (a missing corpus dir skips replay
-   with no log and no fs calls beyond the probe).
+   Verdict line ends `test: PASS`. The file holds the six tests
+   enumerated in Change § 4 and no others; the first of them,
+   `test_no_corpus_dir_is_silent`, asserts that a missing corpus dir
+   skips replay with no log and no fs calls beyond the probe.
 
 5. **A corpus entry that fails is reported with `corpus=<basename>`
    and its base64 bytes; the generated-iteration tokens are absent.**
@@ -308,7 +328,7 @@ Cap arithmetic, with the split above:
 - `_fuzz/detail.tl` (new): ~55 lines with doc.
 - `_fuzz/corpus.tl` (new): ~150 lines with doc, no re-declared bodies.
 - `_fuzz/driver_test.tl` (406 unchanged).
-- `_fuzz/driver_corpus_test.tl` (new): ~220 lines with the eight
+- `_fuzz/driver_corpus_test.tl` (new): ~220 lines with the six
   tests, helpers, restore, and the added base64-decode assertion.
 
 Every touched call (`fs.is_dir`, `fs.find`, `fs.make_dirs`,
@@ -387,3 +407,56 @@ requires. The lesson worth carrying into the next refinement is narrow:
 a `## Non-goals` bullet that forbids touching a generated or ratcheted
 file has to be checked against what the `## Acceptance` gate actually
 enforces, because the gate wins.
+
+## Refinement, 2026-08-22 (promotion pass)
+
+Re-measured against `origin/main` at `2ee12b3e`. Every load-bearing
+number the 2026-08-20 pass cited still holds, so its cap arithmetic
+and its module shape stand unchanged:
+
+```
+wc -l < _fuzz/driver.tl                  -> 390
+wc -l < _fuzz/driver_test.tl             -> 406
+grep -c '^  \["_fuzz/' .cosmic-coverage  -> 3   (driver, shrink, source)
+ls _fuzz/*_fuzz_test.tl | wc -l          -> 6
+```
+
+Verified present on `main`, so no call in `## Change` is invented:
+`driver.tl`'s `BUDGET_MESSAGE` (`:42`), `arm_budget` (`:53`),
+`disarm_budget` (`:64`), `env_integer` (`:99`), `failure` (`:119`),
+`run_in_process` (`:148`, its inline `what` computation at `:160-170`
+being what moves into `detail_of`), and `run_unisolated` (`:289`,
+exported at `:385`). Public API: `fs.FindOptions` carries both
+`recursive` and `sorted` (`cosmic/fs/find.tl:37`) and `fs.find`
+returns FULL paths in `Found`'s array part (`:64`) — so the replay
+formatter's `corpus=<basename>` needs `fs.basename` on each, which the
+Enablement list already names; `hash.sha256_hex`, `codec.encode_base64`,
+`codec.decode_base64`, `env.get`/`set`/`unset` all exist as cited.
+
+The three corrections this pass makes, all of them ambiguities a
+literal-minded builder would have had to guess at:
+
+- **The test count was stated three different ways** — "the six new
+  tests" (Change § 4 heading), "the six tests below and
+  `test_no_corpus_dir_is_silent`" (Acceptance #4, so seven), and "the
+  eight tests" (Enablement cap arithmetic). Change § 4 now enumerates
+  exactly six by name against the Acceptance section each one serves,
+  and the other two places point at that list.
+- **`.cosmicignore` does not exist in the tree.** The cap section said
+  `_fuzz/**` "is not in `.cosmicignore`" and the bounce called the file
+  empty; both invited a builder to go looking for it. The conclusion is
+  unchanged — nothing exempts `_fuzz/**` — and now says so directly.
+- **PR #1297's disposition was unstated.** The item still carries
+  `pr: #1297`, which was an open draft on a superseded shape. Change's
+  preamble now pins a fresh branch off `origin/main` and a fresh PR,
+  and #1297 is closed as superseded (its branch and diff stay readable).
+
+Enablement check, run before this promotion: the wrong turns a builder
+could take are the three above plus the circular-require trap, and all
+four are now closed by the spec's own text — no core, docs or skill
+change is called for, so no enablement item is filed. The 2026-08-20
+bounce's own lesson (a `## Non-goals` bullet must be checked against
+what `## Acceptance` enforces) was applied to the current Non-goals:
+its only claim about a generated file is the `.cosmic-coverage` bullet,
+which now REQUIRES the regenerated rows in the diff, matching
+Acceptance #1.
