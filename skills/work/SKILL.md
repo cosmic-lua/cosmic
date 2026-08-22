@@ -298,11 +298,28 @@ slice and this is the loop:
 
 1. read it with `gitboard show ID` — the spec sidecar is the spec, and
    the item's `verdict`/`pr` fields carry the standing review state.
-2. implement EXACTLY what the spec says. its `Change` is the scope,
+2. re-measure before you build. a spec's figures were true when
+   written, and the queue ages faster than the tree stands still, so
+   every measured claim carries its command (the ready bar demands
+   it) — re-run those commands against the tree you just claimed,
+   optimistically:
+   - **detail drift** — numbers moved but the shape holds: the
+     Problem is still real, the `Change` still buildable as written,
+     the `Acceptance` still runnable as written. refresh the measured
+     lines in place (`gitboard spec ID FILE`, one commit, noting
+     "re-measured at pull") and proceed. no bounce, no replan — and
+     the reviewer then reads pull-time numbers, never stale ones.
+   - **value drift** — a fresh fact breaks the shape, or would change
+     a decision the spec encodes. that is the under-specified case
+     below, caught minutes into the claim instead of after the build.
+   the line between them: a claim-time refresh updates FACTS, never
+   decisions — if the new number makes you want a different shape,
+   that choice is plan's, not yours mid-slice.
+3. implement EXACTLY what the spec says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
-3. open the PR READY for review, carrying `Board: <id>` in its body
+4. open the PR READY for review, carrying `Board: <id>` in its body
    and the acceptance run in its description — that evidence is what
    you OWE the reviewer, who reads it before reading the diff and
    cannot reconstruct it from the branch. hand it over WITH its
@@ -310,7 +327,7 @@ slice and this is the loop:
    request not yet worth a reviewer's time; read the refusal and fix
    what it names, because anything it catches is something a reviewer
    would otherwise discover instead of reviewing.
-4. stop implementing and rejoin the loop. never merge a PR that has
+5. stop implementing and rejoin the loop. never merge a PR that has
    not been accepted, and never accept your own: the item now carries
    your claim, so `next --session <name>` will route it elsewhere and
    hand you something else.

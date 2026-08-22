@@ -166,9 +166,12 @@ pattern is re-measured rather than carried over.
 
 naming the command beside its output is what makes the claim
 checkable, by a reviewer or by whoever holds the spec next.
-nothing runs these on the item's behalf and nothing pretends to: a
-measurement that has gone stale is caught by whoever runs it next,
-which is the reason to write every one of them to be runnable.
+nothing runs these on the item's behalf and nothing pretends to: the
+claiming session re-runs every one of them at pull (`SKILL.md`'s
+slice loop, step 2), refreshing detail drift in place and bouncing
+only value drift — which is the reason to write every measurement to
+be literally runnable, and to date it: a claim that cannot be re-run
+in seconds turns the free correction into a judgment call.
 
 ## a worked example
 
