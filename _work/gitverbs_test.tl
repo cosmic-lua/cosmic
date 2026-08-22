@@ -406,3 +406,58 @@ local function test_adoption_is_admitted_by_a_full_plan()
     "that one really does arrive")
 end
 test_adoption_is_admitted_by_a_full_plan()
+
+-- `land` is where the merge happens, and `gitboard land` performs it
+-- from the verdict and PR it reads back. An arrival carrying neither
+-- is an item `next` answers `finish` for and `land` refuses forever,
+-- so the arrival is what gets refused instead.
+local function test_move_into_land_needs_an_accept()
+  local s = init_state_repo("land-gate")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 77, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "an item with no verdict does not enter land")
+  assert(check.must(store.load(s, leaf)).phase == "check", "and does not move")
+
+  -- A non-accept verdict is a decision too, and it is not this one.
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234",
+      "none: test") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "a request-changes verdict is not a standing accept")
+
+  -- `--force` is the repair path, here as at every other gate.
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, true,
+      "repairing a stuck item") == 0, "--force --why still passes")
+end
+test_move_into_land_needs_an_accept()
+
+-- Nothing cleared `verdict`/`verdict_head` except the next verdict, so
+-- an accepted item sent back for rework kept its accept and could
+-- re-enter land carrying it — merging a head nobody reviewed. Leftward
+-- motion out of a judged phase drops the judgment with it.
+local function test_return_out_of_land_clears_the_verdict()
+  local s = init_state_repo("land-return")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 88, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "") == 0)
+  local accepted = check.must(store.load(s, leaf))
+  assert(accepted.phase == "land" and accepted.verdict == "accept",
+    "the accept stands before the return")
+
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  local reworking = check.must(store.load(s, leaf))
+  assert(reworking.verdict == "", "the accept did not survive the return")
+  assert(reworking.verdict_head == "", "nor the head it judged")
+  assert(reworking.enable == "", "nor the countermeasure it filed")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "so reworked work cannot re-enter land on the old accept")
+end
+test_return_out_of_land_clears_the_verdict()

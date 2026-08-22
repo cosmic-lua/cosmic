@@ -243,6 +243,34 @@ local function rephased_parent(it: item.Item, all: {item.Item}): {item.Item}
   return {parent}
 end
 
+--- The refusal that keeps an item out of `land` without a standing
+--- accept, nil when it carries one.
+---
+--- `land` is the phase whose one action is a merge, and `gitboard
+--- land` reads the item's verdict and PR to perform it. Nothing
+--- checked that either was there, so an ungated `move X check land`
+--- put an item where `next` answers `finish` forever and `land`
+--- refuses forever. The two grounds are reported separately because
+--- they are different repairs: one needs a review, the other needs a
+--- PR number.
+--- @param it item.Item The item arriving in land
+--- @return string | nil The refusal
+local function land_refusal(it: item.Item): string
+  if (it.verdict or "") ~= "accept" then
+    local has = it.verdict
+    if has == "" then
+      has = "no verdict"
+    end
+    return ("a move into land carries a standing accept — %s has %s"):format(
+      it.id:sub(1, 8), has)
+  end
+  if (it.pr or 0) == 0 then
+    return ("a move into land names its PR — %s names none"):format(
+      it.id:sub(1, 8))
+  end
+  return nil
+end
+
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
   wip_refusal: function(b: flow.Board, from: string, to: string,
@@ -255,6 +283,7 @@ local record gitgate
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
   handover_refusal: function(s: store.Store, id: string,
   number: integer, repo: string | nil): string
+  land_refusal: function(it: item.Item): string
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end
@@ -268,6 +297,7 @@ local M: gitgate = {
   dephased_container = dephased_container,
   rephased_parent = rephased_parent,
   handover_refusal = handover_refusal,
+  land_refusal = land_refusal,
   ready_problems = ready_problems,
 }
 

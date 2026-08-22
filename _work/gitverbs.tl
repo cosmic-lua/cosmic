@@ -344,6 +344,16 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
+  -- `land` holds work whose review is FINISHED, and the only action
+  -- there is the merge `gitboard land` performs from the verdict and
+  -- PR it reads back. An arrival carrying neither is an item `next`
+  -- answers `finish` for and `land` refuses, forever.
+  if target == "land" and not force then
+    local refusal = gate.land_refusal(it)
+    if refusal then
+      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
+    end
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
   end
@@ -352,6 +362,15 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   if flow.is_return(from, target) then
     it.claim = ""
+    -- A verdict describes one head in one phase. Moving leftward out
+    -- of a judged phase says that head is no longer what the item is,
+    -- so the judgment goes with it — otherwise rework re-enters land
+    -- on the old accept and merges what nobody reviewed.
+    if from == "check" or from == "land" then
+      it.verdict = ""
+      it.verdict_head = ""
+      it.enable = ""
+    end
   end
   local bad = item.problems(it)
   if #bad > 0 then

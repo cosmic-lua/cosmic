@@ -86,3 +86,34 @@ local function test_an_arrival_is_still_refused_over_the_limit()
     "got: " .. err)
 end
 test_an_arrival_is_still_refused_over_the_limit()
+
+-- The two grounds `land_refusal` reports are different repairs — one
+-- needs a review, the other a PR number — so each is checked for the
+-- message it carries, not merely for refusing.
+local function test_land_refusal_names_what_is_missing()
+  local ready = make_item("check")
+  ready.verdict = "accept"
+  ready.pr = 42
+  assert(gate.land_refusal(ready) == nil,
+    "an accept naming its PR enters land")
+
+  local unjudged = make_item("check")
+  unjudged.pr = 42
+  local no_verdict = gate.land_refusal(unjudged)
+  assert(no_verdict ~= nil and no_verdict:find("has no verdict", 1, true),
+    "got: " .. tostring(no_verdict))
+
+  local bounced = make_item("check")
+  bounced.verdict = "request changes"
+  bounced.pr = 42
+  local wrong = gate.land_refusal(bounced)
+  assert(wrong ~= nil and wrong:find("has request changes", 1, true),
+    "a non-accept verdict is named as what it is: " .. tostring(wrong))
+
+  local unnumbered = make_item("check")
+  unnumbered.verdict = "accept"
+  local no_pr = gate.land_refusal(unnumbered)
+  assert(no_pr ~= nil and no_pr:find("names none", 1, true),
+    "an accept with no PR has nothing to merge: " .. tostring(no_pr))
+end
+test_land_refusal_names_what_is_missing()
