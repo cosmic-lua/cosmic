@@ -267,14 +267,18 @@ jobs:
             find dl >&2
             exit 1
           fi
-          cp "$src" cosmic
-          chmod +x cosmic
+          # The staged name must not collide with a tree path: this job
+          # checks out the repo, where `cosmic/` is the stdlib directory,
+          # so `cp "$src" cosmic` lands the binary INSIDE that directory
+          # and `./cosmic` resolves to a directory (exit 126).
+          cp "$src" dl/cosmic-lua
+          chmod +x dl/cosmic-lua
 
       - name: measure the peer table
         shell: bash
         run: |
           set -eux
-          ./cosmic _perf/peers/run.tl --bin ./cosmic --out o/perf/peers.json --md o/perf/peers.md
+          ./dl/cosmic-lua _perf/peers/run.tl --bin ./dl/cosmic-lua --out o/perf/peers.json --md o/perf/peers.md
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
