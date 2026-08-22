@@ -52,6 +52,19 @@ local record Position
   --- This item's OWN dominance count, which orders peers within one
   --- band.
   own: integer
+  --- The band this item is ORDERED at: its own, or the best held by
+  --- anything open that waits on it. A blocker is worked to release
+  --- what it blocks, so it is worth what that work is worth.
+  lift_band: integer
+  --- The dominance count paired with `lift_band`, from the same item.
+  lift_own: integer
+  --- The waiter the lift came from, "" when the item is ordered at its
+  --- own recorded position. Ties go to the lower id, so the answer is
+  --- the same on every machine.
+  lifted_from: string
+  --- How many OPEN items wait on this one, directly or through a chain
+  --- of blockers. Orders peers a band and a dominance count leave tied.
+  unblocks: integer
 end
 
 --- Items indexed by id.
@@ -141,8 +154,93 @@ local function count(set: {string: boolean}): integer
   return n
 end
 
---- Every item's position: its own dominance count, and the band it
---- inherits from the nearest self-or-ancestor an edge reaches.
+--- Every id `id` waits on, directly or through a chain of blockers.
+--- The `seen` guard bounds a blocker cycle already in the data, the
+--- same way the `beats` walk bounds a comparison cycle: reported by
+--- `_work.health`, never spun on here.
+--- @param index Index Items by id
+--- @param id string The waiting item's id
+--- @param seen {string: boolean} Ids already walked
+--- @param out {string: boolean} Ids reached, accumulated
+local function reach_blockers(index: Index, id: string,
+    seen: {string: boolean}, out: {string: boolean})
+  local i = index[id]
+  if i == nil then
+    return
+  end
+  for _, b in ipairs(i.blocked_by or {}) do
+    if not seen[b] then
+      seen[b] = true
+      out[b] = true
+      reach_blockers(index, b, seen, out)
+    end
+  end
+end
+
+--- Lift each item to the best position anything open holds against it
+--- through a blocker chain, and count those waiters.
+---
+--- Position INHERITANCE along blocker edges is the same move `band`
+--- already makes along parent edges: an item is worth what the work it
+--- gates is worth, so a low-ranked blocker of a high-ranked item is
+--- ordered where the item it blocks sits. Without it a blocker can be
+--- outranked forever by work that is waiting on it, which is a
+--- deadlock the order itself creates.
+---
+--- The COUNT is the separate half, and it is deliberately only a
+--- tiebreak below `lift_own`: how many items a blocker releases is
+--- evidence about throughput, not a judgment about worth, and it must
+--- never reorder a recorded comparison. Within a band, where nothing
+--- has been compared and age is otherwise the only word, it is the
+--- better answer.
+---
+--- Only a PLACED waiter confers either. An item nothing has been
+--- compared against is not work yet — it is what the triage queue
+--- holds, and it may still be ended as not planned — so counting it
+--- would let untriaged captures reorder refinement. The lift already
+--- ignores them by arithmetic, an unplaced band being -1; the count
+--- has to be told.
+---
+--- Both are DERIVED, like every other order this module renders: no
+--- edge is synthesized, so `compare` stays the record of what a human
+--- judged.
+--- @param items {Item} All items
+--- @param index Index Items by id
+--- @param out {string: Position} Positions to lift, modified in place
+local function lift(items: {Item}, index: Index, out: {string: Position})
+  for _, w in ipairs(items) do
+    if item.is_open(w) and (out[w.id] or {placed = false}).placed then
+      local reached: {string: boolean} = {}
+      reach_blockers(index, w.id, {[w.id] = true}, reached)
+      local waiter = out[w.id]
+      for b in pairs(reached) do
+        local p = out[b]
+        if p ~= nil and waiter ~= nil then
+          p.unblocks = p.unblocks + 1
+          -- Lexicographic max on (band, own), with the lower id
+          -- winning a tie: `pairs` order is not defined, so a rule
+          -- that reads the ids is what keeps two runs identical.
+          local better = waiter.band > p.lift_band
+          or (waiter.band == p.lift_band and waiter.own > p.lift_own)
+          local same = waiter.band == p.lift_band and waiter.own == p.lift_own
+          if better or (same and p.lifted_from ~= ""
+            and w.id < p.lifted_from) then
+            p.lift_band = waiter.band
+            p.lift_own = waiter.own
+            p.lifted_from = w.id
+          end
+        end
+      end
+    end
+  end
+end
+
+--- Every item's position: its own dominance count, the band it
+--- inherits from the nearest self-or-ancestor an edge reaches, and the
+--- lift its blocker edges give it. Every queue the board renders is
+--- ordered by what this returns, so a derivation added here reaches
+--- `status`, `tree`, `next` and the phase queues at once — there is no
+--- second ordering path to keep in step.
 --- @param items {Item} All items
 --- @return {string: Position} Position by item id
 local function positions(items: {Item}): {string: Position}
@@ -167,8 +265,15 @@ local function positions(items: {Item}): {string: Position}
       end
       cur = parent
     end
-    out[i.id] = {placed = band >= 0, band = band, own = own[i.id] or 0}
+    -- `placed` is NOT lifted. Placement is "some comparison reaches
+    -- this item or an ancestor", and `check` refuses to promote work
+    -- without it; a blocker edge is not a comparison, so inheriting
+    -- one would let an unplaced item pass that gate.
+    out[i.id] = {placed = band >= 0, band = band, own = own[i.id] or 0,
+      lift_band = band, lift_own = own[i.id] or 0, lifted_from = "",
+      unblocks = 0}
   end
+  lift(items, index, out)
   return out
 end
 
@@ -196,10 +301,28 @@ local function is_placed(pos: {string: Position}, id: string): boolean
   return p ~= nil and p.placed
 end
 
---- A new copy of `list` in priority order: band first, then own
---- standing within the band, then age. Age is the LAST word rather
---- than the only one — ids are KSUIDs, so it remains an exact and
---- total tie-break for everything no comparison separates.
+--- What an item is ORDERED at: its lifted band and dominance count,
+--- and how many open items wait on it. An id with no position sorts as
+--- unplaced rather than erroring, matching `key_of`.
+--- @param pos {string: Position} Position by item id
+--- @param id string The item's id
+--- @return integer The lifted band, -1 when unplaced
+--- @return integer The lifted dominance count
+--- @return integer Open items waiting on it
+local function order_of(pos: {string: Position}, id: string): integer,
+  integer, integer
+  local p = pos[id]
+  if p == nil then
+    return -1, 0, 0
+  end
+  return p.lift_band, p.lift_own, p.unblocks
+end
+
+--- A new copy of `list` in priority order: lifted band first, then
+--- lifted standing within the band, then how much the item unblocks,
+--- then age. Age is the LAST word rather than the only one — ids are
+--- KSUIDs, so it remains an exact and total tie-break for everything
+--- nothing else separates.
 --- @param list {Item} The items to order
 --- @param pos {string: Position} Position by item id
 --- @return {Item} A sorted copy
@@ -209,13 +332,16 @@ local function sorted(list: {Item}, pos: {string: Position}): {Item}
     out[#out + 1] = i
   end
   table.sort(out, function(x: Item, y: Item): boolean
-      local xband, xown = key_of(pos, x.id)
-      local yband, yown = key_of(pos, y.id)
+      local xband, xown, xfrees = order_of(pos, x.id)
+      local yband, yown, yfrees = order_of(pos, y.id)
       if xband ~= yband then
         return xband > yband
       end
       if xown ~= yown then
         return xown > yown
+      end
+      if xfrees ~= yfrees then
+        return xfrees > yfrees
       end
       return x.id < y.id
     end)
@@ -284,6 +410,8 @@ local record priority
   has_out_edge: function(index: Index, i: Item): boolean
   positions: function(items: {Item}): {string: Position}
   key_of: function(pos: {string: Position}, id: string): integer, integer
+  order_of: function(pos: {string: Position}, id: string): integer,
+  integer, integer
   is_placed: function(pos: {string: Position}, id: string): boolean
   sorted: function(list: {Item}, pos: {string: Position}): {Item}
   cycle_problems: function(items: {Item}): {string}
@@ -298,6 +426,7 @@ local M: priority = {
   has_out_edge = has_out_edge,
   positions = positions,
   key_of = key_of,
+  order_of = order_of,
   is_placed = is_placed,
   sorted = sorted,
   cycle_problems = cycle_problems,

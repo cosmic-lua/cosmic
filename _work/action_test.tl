@@ -268,6 +268,25 @@ local function test_refinement_skips_a_blocked_plan_item()
 end
 test_refinement_skips_a_blocked_plan_item()
 
+-- Refinement reaches a blocker before the work waiting on it, and
+-- says so. The ordering comes from `_work.priority`; what this pins is
+-- that the reason names the release, because an item handed out for
+-- what it unblocks rather than for its own standing looks like the
+-- wrong item until the line explains it.
+local function test_refinement_reaches_a_blocker_and_names_the_release()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local gate = make({parent = lesser.id, phase = "plan"})
+  local waiting = make({parent = top.id, phase = "plan",
+      blocked_by = gate.id})
+  local action = act.next_action({lesser, top, gate, waiting}, "session-A")
+  assert(action.kind == "refine" and action.item.id == gate.id,
+    "the lower-banded blocker is refined first: " .. action.kind)
+  assert(action.reason:find("it unblocks 1 open item(s)", 1, true),
+    "and the reason says why it jumped: " .. action.reason)
+end
+test_refinement_reaches_a_blocker_and_names_the_release()
+
 local function test_every_plan_item_blocked_falls_through()
   local idle = make({})
   local driven = make({beats = idle.id})

@@ -253,11 +253,26 @@ local function show_report(it: item.Item, all: {item.Item}, spec: string,
   if it.parent ~= "" then out[#out + 1] = ("parent: %s"):format(it.parent) end
   if it.repo ~= "" then out[#out + 1] = ("repo: %s"):format(it.repo) end
   if it.phase ~= "" then out[#out + 1] = ("phase: %s"):format(it.phase) end
-  local band, own = prio.key_of(prio.positions(all), it.id)
+  local at = prio.positions(all)
+  local band, own = prio.key_of(at, it.id)
   if band < 0 then
     out[#out + 1] = "priority: unplaced — nothing has been compared against it"
   else
     out[#out + 1] = ("priority: band %d, outranks %d"):format(band, own)
+  end
+  -- `priority` is what was RECORDED; this is what orders the item when
+  -- a blocker edge moved it off that. A session reading a queue has to
+  -- be able to see why something sorted where it did, or a lift reads
+  -- as a bug in the sort.
+  local lift_band, _lift_own, frees = prio.order_of(at, it.id)
+  if frees > 0 then
+    local from = ""
+    local source = (at[it.id] or {}).lifted_from or ""
+    if source ~= "" then
+      from = (", ordered at band %d for %s"):format(lift_band,
+        source:sub(1, 8))
+    end
+    out[#out + 1] = ("unblocks: %d open item(s)%s"):format(frees, from)
   end
   if #it.beats > 0 then
     out[#out + 1] = "outranks: " .. table.concat(it.beats, " ")

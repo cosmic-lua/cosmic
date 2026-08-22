@@ -309,11 +309,20 @@ local function intake_action(items: {Item}, b: flow.Board, index: flow.Index,
     if waiting > 0 then
       held_up = (", %d blocked and skipped"):format(waiting)
     end
+    -- Say when the chosen item was picked for what it RELEASES rather
+    -- than for its own standing: the lift and the leverage tiebreak
+    -- both order `plan`, and an ordering a session cannot see reads as
+    -- the wrong item being handed out.
+    local _band, _own, frees = prio.order_of(pos, refining.id)
+    local releases = ""
+    if frees > 0 then
+      releases = (" — it unblocks %d open item(s)"):format(frees)
+    end
     return {
       kind = "refine",
       item = refining,
-      reason = ("ready holds %d/%d — refine a plan item toward the bar%s")
-      :format(#(b["ready"] or {}), flow.LIMITS["ready"], held_up),
+      reason = ("ready holds %d/%d — refine a plan item toward the bar%s%s")
+      :format(#(b["ready"] or {}), flow.LIMITS["ready"], held_up, releases),
     }
   end
   if #triage > 0 then
