@@ -254,7 +254,7 @@ local function main(...: string): integer
     return verbs.cmd_spec(s, id, file)
   end
   if d.command == "check" then
-    return verbs.cmd_check(s, id)
+    return view.cmd_check(s, id)
   end
   if d.command == "move" then
     local target = d.parsed.args[2]

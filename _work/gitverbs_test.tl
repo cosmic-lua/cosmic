@@ -13,6 +13,7 @@ local fs = require("cosmic.fs")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
+local view = require("_work.gitview")
 local vrd = require("_work.gitverdict")
 
 local tmpdir = fixture.tmpdir
@@ -81,7 +82,7 @@ local function test_the_ready_bar_is_the_items_own()
   local _stray = file_item(s, "work under it", finding, false)
   local all = check.must(store.list(s))
   assert(#flow.graph_problems(all) > 0, "the board does have a problem")
-  assert(verbs.cmd_check(s, leaf) == 0,
+  assert(view.cmd_check(s, leaf) == 0,
     "a sound item meets the bar while another item is broken")
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
     "and it may be promoted")
@@ -195,26 +196,6 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
     "and a return clears the claim")
 end
 test_wip_limits_bind_arrivals_but_never_returns()
-
--- The reviewer follows the pr field to the diff, and so does the
--- landing step that reads it back, so the handover must name one.
-local function test_check_refuses_a_handover_with_no_pr()
-  local s = init_state_repo("check-pr")
-  local _, leaf = root_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
-    "a handover naming no PR is refused")
-  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false, "") == 0)
-  -- Rework returns to `do` and comes back on the SAME PR, already
-  -- recorded, so the second handover needs no --pr of its own.
-  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234", "none: test") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0,
-    "the recorded PR carries the rework back")
-end
-test_check_refuses_a_handover_with_no_pr()
 
 -- Landing order is a board fact like any other: one verb, one commit,
 -- and refusals where hand-editing the field wrote nonsense.
@@ -407,47 +388,59 @@ local function test_adoption_is_admitted_by_a_full_plan()
 end
 test_adoption_is_admitted_by_a_full_plan()
 
--- The claim is what `next` reads to withhold a verdict from the item's
--- builder, so a handover naming nobody hands the diff to everyone.
--- Rework is where this bites: a second session taking it over must say
--- so, and correcting that must not need a phase round trip.
-local function test_check_handover_names_its_builder()
-  local s = init_state_repo("handover-claim")
-  local _, leaf = root_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 33, false, "") ~= 0,
-    "an unclaimed item cannot be handed over")
-  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  assert(verbs.cmd_move(s, leaf, "check", "session-a", 33, false, "") == 0,
-    "--claim names the builder and the handover goes through")
-  assert(check.must(store.load(s, leaf)).claim == "session-a", "recorded")
-end
-test_check_handover_names_its_builder()
-
--- A same-phase move used to exit 0 having written nothing, so the only
--- way to correct a claim was a leftward-then-rightward round trip that
--- writes two transitions a flow instrument reads as real dwell.
-local function test_same_phase_move_applies_its_flags()
-  local s = init_state_repo("same-phase")
+-- `land` is where the merge happens, and `gitboard land` performs it
+-- from the verdict and PR it reads back. An arrival carrying neither
+-- is an item `next` answers `finish` for and `land` refuses forever,
+-- so the arrival is what gets refused instead.
+local function test_move_into_land_needs_an_accept()
+  local s = init_state_repo("land-gate")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 44, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 77, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "an item with no verdict does not enter land")
+  assert(check.must(store.load(s, leaf)).phase == "check", "and does not move")
 
-  local before = commits(s)
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, false, "") == 0,
-    "a same-phase move with a field to set writes it")
-  local fixed = check.must(store.load(s, leaf))
-  assert(fixed.claim == "session-b", "the claim was corrected in place")
-  assert(fixed.phase == "check", "without a phase change")
-  assert(fixed.pr == 44, "and the PR it did not name is untouched")
-  assert(commits(s) == before + 1, "one mutation, one commit")
+  -- A non-accept verdict is a decision too, and it is not this one.
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234",
+      "none: test") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "a request-changes verdict is not a standing accept")
 
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
-    "with nothing to set it still refuses")
-  assert(commits(s) == before + 1, "and writes nothing")
+  -- `--force` is the repair path, here as at every other gate.
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, true,
+      "repairing a stuck item") == 0, "--force --why still passes")
 end
-test_same_phase_move_applies_its_flags()
+test_move_into_land_needs_an_accept()
+
+-- Nothing cleared `verdict`/`verdict_head` except the next verdict, so
+-- an accepted item sent back for rework kept its accept and could
+-- re-enter land carrying it — merging a head nobody reviewed. Leftward
+-- motion out of a judged phase drops the judgment with it.
+local function test_return_out_of_land_clears_the_verdict()
+  local s = init_state_repo("land-return")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 88, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "") == 0)
+  local accepted = check.must(store.load(s, leaf))
+  assert(accepted.phase == "land" and accepted.verdict == "accept",
+    "the accept stands before the return")
+
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  local reworking = check.must(store.load(s, leaf))
+  assert(reworking.verdict == "", "the accept did not survive the return")
+  assert(reworking.verdict_head == "", "nor the head it judged")
+  assert(reworking.enable == "", "nor the countermeasure it filed")
+  -- The return cleared the claim with the verdict, so the rework
+  -- handover names its builder again.
+  assert(verbs.cmd_move(s, leaf, "check", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "so reworked work cannot re-enter land on the old accept")
+end
+test_return_out_of_land_clears_the_verdict()

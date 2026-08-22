@@ -344,6 +344,36 @@ local function cmd_find(s: store.Store, text: string): integer
   return verdict_line("find", true, verdict)
 end
 
+--- The ready bar asked of one item: is it workable, does its spec
+--- fill the required sections, is its chain traceable. A READ — it
+--- prints the same problem list `move ID ready` enforces and changes
+--- nothing — so it lives with the reads rather than with the verbs
+--- whose gate it shares.
+--- @param s store.Store The store
+--- @param id string The item id or an unambiguous prefix
+--- @return integer Exit code
+local function cmd_check(s: store.Store, id: string): integer
+  local it, lerr = store.load(s, id)
+  if it == nil then
+    return verdict_line("check", false, lerr)
+  end
+  local all, aerr = store.list(s)
+  if all == nil then
+    return verdict_line("check", false, aerr)
+  end
+  local problems = gate.ready_problems(s, it, all)
+  for _, p in ipairs(problems) do
+    print("  " .. p)
+  end
+  if #problems > 0 then
+    return verdict_line("check", false,
+      ("%s misses the ready bar (%d problem(s))"):format(id:sub(1, 8),
+        #problems))
+  end
+  return verdict_line("check", true,
+    ("%s meets the ready bar"):format(id:sub(1, 8)))
+end
+
 local record gitview
   status_report: function(all: {item.Item}, ages?: health.Ages): {string}, string
   tree_report: function(all: {item.Item}): {string}, string
@@ -355,6 +385,7 @@ local record gitview
   cmd_tree: function(s: store.Store): integer
   cmd_next: function(s: store.Store, session?: string): integer
   cmd_find: function(s: store.Store, text: string): integer
+  cmd_check: function(s: store.Store, id: string): integer
 end
 
 local M: gitview = {
@@ -366,6 +397,7 @@ local M: gitview = {
   cmd_tree = cmd_tree,
   cmd_next = cmd_next,
   cmd_find = cmd_find,
+  cmd_check = cmd_check,
 }
 
 return M

@@ -269,28 +269,6 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
-local function cmd_check(s: store.Store, id: string): integer
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return gate.verdict_line("check", false, lerr)
-  end
-  local all, aerr = store.list(s)
-  if all == nil then
-    return gate.verdict_line("check", false, aerr)
-  end
-  local problems = gate.ready_problems(s, it, all)
-  for _, p in ipairs(problems) do
-    print("  " .. p)
-  end
-  if #problems > 0 then
-    return gate.verdict_line("check", false,
-      ("%s misses the ready bar (%d problem(s))"):format(id:sub(1, 8),
-        #problems))
-  end
-  return gate.verdict_line("check", true,
-    ("%s meets the ready bar"):format(id:sub(1, 8)))
-end
-
 local function cmd_move(s: store.Store, id: string, target: string,
     claim: string, pr: integer, force: boolean, why: string): integer
   local forced = gate.force_refusal(force, why)
@@ -377,6 +355,16 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
+  -- `land` holds work whose review is FINISHED, and the only action
+  -- there is the merge `gitboard land` performs from the verdict and
+  -- PR it reads back. An arrival carrying neither is an item `next`
+  -- answers `finish` for and `land` refuses, forever.
+  if target == "land" and not force then
+    local refusal = gate.land_refusal(it)
+    if refusal then
+      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
+    end
+  end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
   end
@@ -385,6 +373,15 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   if flow.is_return(from, target) then
     it.claim = ""
+    -- A verdict describes one head in one phase. Moving leftward out
+    -- of a judged phase says that head is no longer what the item is,
+    -- so the judgment goes with it — otherwise rework re-enters land
+    -- on the old accept and merges what nobody reviewed.
+    if from == "check" or from == "land" then
+      it.verdict = ""
+      it.verdict_head = ""
+      it.enable = ""
+    end
   end
   local bad = item.problems(it)
   if #bad > 0 then
@@ -474,7 +471,6 @@ local record gitverbs
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
-  cmd_check: function(s: store.Store, id: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
   claim: string, pr: integer, force: boolean, why: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
@@ -488,7 +484,6 @@ local M: gitverbs = {
   cmd_attach = cmd_attach,
   cmd_block = cmd_block,
   cmd_spec = cmd_spec,
-  cmd_check = cmd_check,
   cmd_move = cmd_move,
   cmd_done = cmd_done,
   cmd_sync = cmd_sync,
