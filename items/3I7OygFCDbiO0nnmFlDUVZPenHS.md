@@ -141,6 +141,186 @@ pins it. A limit NOT pinned there gets a test case written into the
 follow-up item that would need it. That list is the D5 upstream-first
 backlog's input.
 
+## Findings (2026-08-22, main `aaf4af95`)
+
+**Headline: 42 of the 82 sites are removable today, 40 are still
+genuine gaps.** Half the bucket was mis-sized by the census's stale
+narrowing rules; the epic's remaining upstream-first backlog is 40
+sites, not 86.
+
+### How it was measured
+
+A throwaway worktree at main `aaf4af95` (`git worktree add … origin/main`),
+`--make fetch && --make build`, then per site: delete the `as` cast and
+its `-- cast:` marker, run `bin/cosmic --check types <file>`, restore.
+Clean ⇒ removable-now, refused ⇒ still a gap. Then every removable
+site was applied AT ONCE in one worktree and the tree checked as a
+whole:
+
+```
+bin/cosmic --make check   →  check: PASS (513 files)
+bin/cosmic --make lint    →  lint: PASS (605 files)
+bin/cosmic --make fmt     →  fmt: PASS (513 files)
+git grep -h -o -E -- '-- cast: [^(]*' -- '*.tl' | wc -l   →  444 before, 402 after
+```
+
+A second pass re-tested all refused sites WITH the 37 removals applied:
+**0 additional sites came clean**, so the classification does not
+cascade and the two follow-up waves can land in either order.
+
+### The population, restated
+
+```
+git grep -h -o -E -- '-- cast: [^(]*' -- '*.tl' | sed 's/-- cast: //' \
+  | sort | uniq -c | sort -rn
+```
+
+returns **126 distinct reasons over 444 sites** at `aaf4af95` (this
+spec previously said 127 / 439; the 444 is what the command returns
+today and is the number the tables below reconcile against).
+Intersected with the #1114 comment's 48 `narrowing-gap` reason
+strings, the bucket is **82 sites** (86 at the census, `07cf57f`).
+The four-site drop:
+
+| reason | census | today | why |
+|---|---:|---:|---|
+| `pcall result` | 3 | 0 | wave 6a (#1290) deleted them |
+| `narrowed by named` | 2 | 0 | the `_tool/doc` index-model wave (#1197 / #1206) typed the model |
+| `record union after guard` | 4 | 3 | one site's surrounding code changed |
+| `CompressFormat's word set nests inside DecompressFormat's` | 2 | 3 | `_fuzz/compress_fuzz_test.tl:75` added since |
+| `table implements the Reader interface` | 1 | 2 | `_fuzz/sse_fuzz_test.tl:118` added since |
+
+### Sub-family totals, re-measured
+
+| # | sub-family | spec said | today | removable | blocked |
+|---|---|---:|---:|---:|---:|
+| 1 | terminal-call gap (narrowing-gap rows only) | 24 | 20 | **10** | 10 |
+| 1b | …plus the 4 `function shape (…)` binding-boundary rows | — | 4 | 0 | 4 |
+| 2 | `pcall` returns | 7 | 7 | **4** | 3 |
+| 3 | `or` fallback | 7 | 7 | **1** | 6 |
+| 4 | record fields | 7 | 7 | **3** | 4 |
+| 5 | Teal generics | 5 | 5 | **0** | 5 |
+| 6 | setmetatable-built records | 10 | 10 | **7** | 3 |
+| 7 | the remaining singletons | 21 | 26 | **17** | 9 |
+| | **narrowing-gap total** | 81 | **82** | **42** | **40** |
+
+Movement against the spec's stated 24 / 7 / 7 / 7 / 5 / 10:
+
+- family 1 is **20**, not 24, once the `function shape (…)`
+  parenthetical rows are excluded — those four are the census's
+  `binding-boundary` bucket, listed separately as 1b. Counting them in
+  (as the spec's enumeration did) gives 24.
+- families 2–6 are unmoved.
+- the singleton tail is 26, not 21, for the same reason the bucket is
+  82 rather than 81: two `narrowing-gap` reasons went to zero and two
+  gained a site in `_fuzz/`.
+
+### The `function shape` split, by `file:line`
+
+The grep separates them without judgment: the parenthetical variant
+captures as `function shape ` (trailing space).
+
+**`narrowing-gap` — 15 sites, bare `-- cast: function shape`:**
+
+```
+removable (10)                       blocked (5)
+  _cli/require_hints.tl:237            cosmic/check_assertions_test.tl:382
+  cmd/cosmic/main.tl:467               cosmic/coverage/init.tl:162
+  cosmic/coverage/init_test.tl:23      cosmic/quicksand/init.tl:73
+  cosmic/fetch/init.tl:381             cosmic/quicksand/proxy.tl:144
+  cosmic/fetch/init.tl:382             cosmic/quicksand/proxy.tl:145
+  cosmic/fetch/init.tl:419
+  cosmic/fetch/init.tl:421
+  cosmic/fetch/init.tl:423
+  cosmic/fetch/init.tl:425
+  cosmic/fetch/init.tl:427
+```
+
+**`binding-boundary` — 4 sites, `-- cast: function shape (…)`:**
+
+```
+cosmic/net/connect.tl:95   (unix-path overload, errno kept)
+cosmic/net/socket.tl:333   (unix-path overload)
+cosmic/net/socket.tl:396   (unix-path overload)
+cosmic/net/socket.tl:436   (timeval overload)
+```
+
+All four were tested anyway and all four refuse deletion — the
+binding declares one shape for an overloaded call
+(`wrong number of arguments (given 2, expects 3)`,
+`argument 2: got string, expected integer`). The census's bucket call
+is confirmed by measurement.
+
+### The 42 removable, and how
+
+- **27 plain deletions** — the cast and its marker come out, nothing
+  else changes.
+- **1 with a companion deletion** — `cosmic/fs/dir_test.tl:49`: once
+  the cast goes, `local fs_types = require("cosmic.fs.types")` is
+  unused and warnings are errors, so the require goes with it.
+- **4 via an `is`-guard restructure into the shape #1191 corrected** —
+  `cosmic/_teal_ast.tl:54`, `cosmic/_teal_ast_test.tl:30`,
+  `_types/tlast_test.tl:53`, `cosmic/searcher_tree_test.tl:40` all
+  guard with `type(x) == "function"`, which does not narrow, and then
+  cast. `x is function(A): (B, C)` (and `x is <named function-type
+  alias>`) DOES narrow `any`, in both the early-exit and the
+  `assert(...)` position. This is the single largest dividend of the
+  #1191 correction in this bucket, and **nothing in
+  `cosmic/teal_narrowing_test.tl` pins it** — the test covers
+  primitives, records and arrays, not function types. Wave 6c carries
+  the test case.
+- **10 `function shape` sites** are wave 6b; the other 32 are wave 6c.
+
+`cosmic/fetch/init.tl:220` is a **half-win** recorded here rather than
+in a wave: the line carries two casts under one marker
+(`setmetatable(fields as Response, response_mt) as Response`) and
+EITHER one alone can go — deleting both fails
+(`argument 1: got {string : <any type>}, expected Response`). The site
+still needs a cast, so it counts as blocked.
+
+### Follow-up wave items
+
+| cluster | sites | item |
+|---|---:|---|
+| `function shape` (one reason string, one cause) | 10 | `3IFUa4AY` — cast wave 6b |
+| everything else verified removable | 32 | `3IFUaiGA` — cast wave 6c |
+
+Both are filed unparented (as captures) because `plan` was 44/12 at
+the time; each names `3HyRcW05` (the cast epic) as its attach target in
+its own prose. There is no third cluster: after 6b, the largest
+remaining sub-family of removables is setmetatable-built records at 7,
+below the 8-site floor, which is why 6c is one item rather than five.
+
+### The 40 that stay blocked, and the limit each names
+
+`pinned?` is whether `cosmic/teal_narrowing_test.tl` already holds the
+fact. Where it does not, the follow-up item that would need it is
+named — this is the input to the D5 upstream-first backlog.
+
+| limit | sites | pinned? |
+|---|---|---|
+| **error-terminated guard does not narrow** — `if x == nil then error(…) end` leaves `T \| nil` below. | `cosmic/check.tl:268`, `cosmic/searcher.tl:97`, `cosmic/searcher.tl:233` | **yes** — `test_error_terminated_guard_does_not_narrow` |
+| **terminal-call gap (`unix.exit`)** — same class, but the terminator is a binding call the checker cannot see is terminal. | `cosmic/fs/walk.tl:88`, `cosmic/quicksand/box/run.tl:211`, `cosmic/quicksand/proxy.tl:141,142,144,145` | no — same family as the pinned `error(…)` case; a `unix.exit` variant belongs beside it |
+| **`or` fallback keeps the nil in the union** — `(f() or {})` stays `Found \| nil`, `(f() or "")` stays `string \| nil`. | `_cli/build/init_test.tl:72,144,169`, `_cli/build/steps.tl:279`, `_make/imports.tl:181`, `_make/root.tl:67` | no |
+| **record FIELDS do not narrow** — documented in AGENTS.md, untested. | `_make/stage.tl:163`, `_perf/perf_test.tl:31` | no |
+| **untyped calls yield no declarable extra slots** — declaring a third slot off `pcall` yields "assignment in declaration did not produce an initial value"; `pcall(f)` on a `function()` yields only `boolean`; a call on a value typed `any` yields one `any`. | `cosmic/shm.tl:145,170`, `cosmic/check_assertions_test.tl:382`, `cosmic/quicksand/init.tl:73`, `_cli/main_handlers.tl:64`, `cosmic/searcher_test.tl:57` | no |
+| **Teal generics cannot index, `pairs`, or return-as `T`** — `cannot index key 'body' in variable 'opts' of type T`, `cannot apply pairs on values of type: T`. | `cosmic/fetch/extras.tl:184,199,202,239`, `cosmic/fs/walk.tl:146` | no |
+| **`setmetatable({}, mt)` cannot produce a record** — `setmetatable` is `function<T>(T, metatable<T>): T`, so the seed table must already BE the record. | `cosmic/sqlite/row_iter.tl:64`, `cosmic/fetch/init.tl:220`, `cosmic/signal.tl:291` | no |
+| **Teal has no enum subtyping** — `CompressFormat is not a DecompressFormat` though the word set nests. | `cosmic/compress_test.tl:24,37`, `_fuzz/compress_fuzz_test.tl:75` | no |
+| **an inequality guard does not narrow an enum** — `f ~= "auto"` leaves `DecompressFormat`. | `cosmic/compress_test.tl:151` | no |
+| **a union arm does not narrow from a correlated success guard** — the tuple case (`rem_ns` is `integer \| string` past `rem_s ~= nil`) and the record-union case. | `cosmic/time.tl:88`, `_perf/bench/micro_bench.tl:191`, `cosmic/re.tl:199` | no |
+| **a handler union does not narrow to the callable arm.** | `cosmic/signal.tl:250` | no |
+| **a declared arity is not an overload** — `debug.sethook` is declared with required arguments, so a zero-argument call refuses. | `cosmic/coverage/init.tl:162` | n/a — `_types/gentl.tl`'s tl-stdlib extraction, not a narrowing limit |
+| **binding overload declarations** — one declared shape for an overloaded C call. (Census bucket `binding-boundary`, outside the 82; measured here to record the `function shape` split.) | `cosmic/net/connect.tl:95`, `cosmic/net/socket.tl:333,396,436` | n/a — upstream `definitions.lua` |
+
+The rows sum to 40 (the four `net/*` sites are the separate
+`binding-boundary` bucket). The two largest still-blocked families are
+the **terminal-call gap (6, plus 3 in its pinned `error(…)` sibling)**
+and **untyped calls (6)**; between them they are 30% of what remains.
+Both are tl-side, and both are what a `3p/tl/tl_patch.tl` change would
+have to buy — sized, now, at 12 sites rather than the 31 the stale
+classification implied.
+
 ## Non-goals
 
 - no cast deletions land from this slice — verification happens in a
