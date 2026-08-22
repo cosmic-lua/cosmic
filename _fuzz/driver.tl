@@ -16,8 +16,10 @@
 --- crash inside check() is caught as a signaled child instead of
 --- taking down the whole file. On a crash, the failing iteration is
 --- found by re-spawning the child with a bisected FUZZ_ITERS. A hang
---- past Options.timeout_ms is reported the same way. FUZZ_ISOLATE is
---- internal — set by run() itself, never by a caller.
+--- past the child's wall clock — Options.timeout_ms when a caller names
+--- one, otherwise an allowance that scales with the iteration count —
+--- is reported the same way. FUZZ_ISOLATE is internal — set by run()
+--- itself, never by a caller.
 
 local child = require("cosmic.child")
 local codec = require("cosmic.codec")
@@ -41,11 +43,21 @@ local DEFAULT_BUDGET = 50000000
 --- equal to this string IS a budget failure, not a property throw.
 local BUDGET_MESSAGE = "_fuzz.driver: instruction budget exceeded"
 
---- Wall-clock backstop for the isolated child, in milliseconds. Only
---- reached when the VM instruction hook cannot arm (its slot is taken
---- by the coverage collector) or the hang is inside a single C call,
---- both outside the hook's reach. Options.timeout_ms overrides it.
+--- Floor of the isolated child's wall-clock backstop, in milliseconds.
+--- The backstop scales with the iteration count (see timeout_for), and
+--- this is what it never drops below, so a shallow run keeps the same
+--- allowance it always had. It is reached when the VM instruction hook
+--- cannot arm (its slot is taken by the coverage collector) or the hang
+--- is inside a single C call, both outside the hook's reach.
+--- Options.timeout_ms overrides the whole rule.
 local DEFAULT_TIMEOUT_MS = 30000
+
+--- Wall-clock allowance per iteration, in milliseconds. The costliest
+--- property in this tree (tar_mutation_totality) measured ~1.05
+--- ms/iteration on a developer machine in 2026-08; ten times that
+--- leaves room for a CI container several times slower before a
+--- healthy deep-lane run is reported as a hang.
+local TIMEOUT_PER_ITER_MS = 10
 
 --- Arm the budget hook when the VM's one hook slot is free.
 --- @param budget integer VM instructions until the hook throws
@@ -87,7 +99,8 @@ local record Options
   --- be caught either way — the hook fires between VM instructions.
   budget: integer
   --- Milliseconds the isolated child may run before it is treated as
-  --- hung. Overrides DEFAULT_TIMEOUT_MS when set.
+  --- hung. Absolute when set: it replaces the scaled allowance rather
+  --- than raising or lowering its floor.
   timeout_ms: integer
 end
 
@@ -228,6 +241,22 @@ local function bisect_crash(
   return lo
 end
 
+--- How long the isolated child gets, in milliseconds.
+--- An explicit Options.timeout_ms is absolute: a caller who names a
+--- wall clock means it, whatever the depth. Otherwise the allowance
+--- scales with the iteration count, floored at DEFAULT_TIMEOUT_MS —
+--- so the default depth is unchanged and a deep run gets room to
+--- finish instead of being reported as a hang.
+--- @param opts Options The property about to run
+--- @param iters integer How many iterations the child will run
+--- @return integer Milliseconds before the child counts as hung
+local function timeout_for(opts: Options, iters: integer): integer
+  if opts.timeout_ms then
+    return opts.timeout_ms
+  end
+  return math.max(DEFAULT_TIMEOUT_MS, iters * TIMEOUT_PER_ITER_MS)
+end
+
 --- Run one property isolated in a child process, classifying its
 --- Result into the same true/false, message shape run_in_process
 --- reports: a clean exit passes through, an ordinary property failure
@@ -253,7 +282,7 @@ local function isolate(
     return run_in_process(opts, seed, iters, budget)
   end
   local argv = {cosmic_bin, arg[0]}
-  local timeout_ms = opts.timeout_ms or DEFAULT_TIMEOUT_MS
+  local timeout_ms = timeout_for(opts, iters)
   local r, err = spawn_isolated(argv, opts.name, seed, iters, timeout_ms)
   if not r then
     if err == "timeout" then
@@ -376,6 +405,7 @@ local record DriverModule
   type Options = Options
   run: function(opts: Options): boolean, string
   run_unisolated: function(opts: Options): boolean, string
+  timeout_for: function(opts: Options, iters: integer): integer
   bytes: function(src: source.Recorder, max_len: integer): string
   mutate: function(src: source.Recorder, sample: string, edits: integer): string
 end
@@ -383,6 +413,7 @@ end
 local M: DriverModule = {
   run = run,
   run_unisolated = run_unisolated,
+  timeout_for = timeout_for,
   bytes = bytes,
   mutate = mutate,
 }
