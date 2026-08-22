@@ -128,3 +128,12 @@ earlier fix-shapes remain as complements (sibling-landing flags are
 the natural trigger for an early re-measure; the reviewer's re-run is
 the backstop), but the primary mechanism is the claim-time check,
 because that is the last moment the correction is still free.
+
+## Merged ahead of verdict
+
+PR #1313 was merged to main by the maintainer at 08998b0e
+(2026-08-22 15:53Z) while this item sat in check. The landing half of
+an accept is therefore already done: a reviewing session should judge
+the merged diff against this spec as usual and record the verdict,
+but `land` has nothing left to merge — `done` closes the item on an
+accept.
