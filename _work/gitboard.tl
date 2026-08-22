@@ -25,7 +25,7 @@
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl land 2akQ
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
----   cosmic --make run _work/gitboard.tl show 2akQ
+---   cosmic --make run _work/gitboard.tl show 2akQ [--spec | --section N]
 ---   cosmic --make run _work/gitboard.tl find "some text"
 ---   cosmic --make run _work/gitboard.tl sync
 ---
@@ -40,6 +40,7 @@ local stall = require("_work.gitstall")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
+local show = require("_work.gitshow")
 local view = require("_work.gitview")
 
 --- The verbs that write. Each one publishes, so each needs the
@@ -124,7 +125,10 @@ local CSPEC: flags.CommandSpec = {
           {long = "force", help = "land without an accept in land"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "show", summary = "print ID's fields, role, spec, and git history",
-      spec = {usage = "ID [options]", flags = {dir_flag()}}},
+      spec = {usage = "ID [options]", flags = {dir_flag(),
+          {long = "spec", help = "the spec sidecar alone"},
+          {long = "section", arg = "NAME", help = "one section of the spec alone"},
+          {long = "fields", help = "the record alone: no spec, no history"}}}},
     {name = "find", summary = "list items whose title or spec contains TEXT",
       spec = {usage = "TEXT [options]", flags = {dir_flag()}}},
     {name = "sync", summary = "rebase onto the remote's state",
@@ -278,7 +282,17 @@ local function main(...: string): integer
     return verbs.cmd_done(s, id, d.parsed.values["reason"] or "completed",
       d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
-  return view.cmd_show(s, id)
+  -- Every narrowing flag the session passed, joined: one of them
+  -- names a read and more than one names none, so `cmd_show` sees the
+  -- ambiguity rather than a precedence rule silently picking for it.
+  local wanted: {string} = {}
+  if d.parsed.switches["spec"] then wanted[#wanted + 1] = "spec" end
+  if (d.parsed.values["section"] or "") ~= "" then
+    wanted[#wanted + 1] = "section"
+  end
+  if d.parsed.switches["fields"] then wanted[#wanted + 1] = "fields" end
+  return show.cmd_show(s, id, table.concat(wanted, "+"),
+    d.parsed.values["section"] or "")
 end
 
 if proc.is_main() then

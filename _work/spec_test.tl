@@ -62,3 +62,22 @@ local function test_ready_gaps_empty_section_counts()
   assert(gaps[1] == "Goal", "hollow heading should count as a gap")
 end
 test_ready_gaps_empty_section_counts()
+
+-- `section_of` narrows a read to one section using the SAME heading
+-- grammar the ready bar lints with: any level, case-insensitive on the
+-- text, ended by the next heading or a thematic break.
+local function test_section_of_narrows_to_one_section()
+  local body = "## Goal\nserves G8\n\n# change\ndo the thing\n\n"
+  .. "### Acceptance\nci: PASS\n\n---\na footer\n"
+  local goal = spec.section_of(body, "Goal")
+  assert(goal == "## Goal\nserves G8\n\n", ("goal was %q"):format(goal))
+  assert(spec.section_of(body, "Change") == "# change\ndo the thing\n\n",
+    "a heading at any level, matched case-insensitively")
+  assert(spec.section_of(body, "acceptance")
+    == "### Acceptance\nci: PASS\n\n",
+    "the thematic break ends the last section")
+  assert(spec.section_of(body, "Nonesuch") == "",
+    "a section the body lacks is empty, not the whole body")
+  assert(spec.section_of("", "Goal") == "", "an empty body has no sections")
+end
+test_section_of_narrows_to_one_section()
