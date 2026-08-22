@@ -1,8 +1,10 @@
---- The gitboard read verbs: status, tree, next, show, and find —
---- every verb that renders state without mutating it, split from
---- `_work.gitverbs` (the mutations) so each file stays within the
---- repo's size rule. The verdict-line convention is shared through
---- `_work.gitgate`, so reading the board pulls in no mutation code.
+--- The gitboard read verbs: status, tree, next and find — every
+--- verb that renders state over the WHOLE board without mutating it,
+--- split from `_work.gitverbs` (the mutations) so each file stays
+--- within the repo's size rule. `show`, the one read of a single
+--- item, is `_work.gitshow` for the same reason. The verdict-line
+--- convention is shared through `_work.gitgate`, so reading the board
+--- pulls in no mutation code.
 ---
 --- Each verb is a PURE report over already-read state plus a `cmd_*`
 --- that prints it: what a session reads is the contract, and a report
@@ -12,7 +14,6 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local health = require("_work.health")
 local item = require("_work.item")
-local ksuid = require("_work.ksuid")
 local act = require("_work.action")
 local prio = require("_work.priority")
 local store = require("_work.store")
@@ -233,126 +234,6 @@ local function cmd_next(s: store.Store, session?: string): integer
   return verdict_line("next", true, next_report(all, session, claim_ages(s, all)))
 end
 
---- One item's fields, role, spec, history, and its own graph
---- problems.
---- @param it item.Item The item
---- @param all {item.Item} Every item
---- @param spec string Its spec sidecar, "" when it has none
---- @param events {store.Event} Its git history, newest first
---- @return {string} The lines to print
---- @return string The verdict detail
-local function show_report(it: item.Item, all: {item.Item}, spec: string,
-    events: {store.Event}): {string}, string
-  local out: {string} = {("%s %s"):format(it.id, it.title)}
-  out[#out + 1] = ("role: %s"):format(flow.role(it, all))
-  local seconds = ksuid.time_of(it.id)
-  if seconds then
-    out[#out + 1] = ("opened: %s"):format(
-      os.date("!%Y-%m-%dT%H:%M:%SZ", seconds))
-  end
-  if it.parent ~= "" then out[#out + 1] = ("parent: %s"):format(it.parent) end
-  if it.repo ~= "" then out[#out + 1] = ("repo: %s"):format(it.repo) end
-  if it.phase ~= "" then out[#out + 1] = ("phase: %s"):format(it.phase) end
-  local at = prio.positions(all)
-  local band, own = prio.key_of(at, it.id)
-  if band < 0 then
-    out[#out + 1] = "priority: unplaced — nothing has been compared against it"
-  else
-    out[#out + 1] = ("priority: band %d, outranks %d"):format(band, own)
-  end
-  -- `priority` is what was RECORDED; this is what orders the item when
-  -- a blocker edge moved it off that. A session reading a queue has to
-  -- be able to see why something sorted where it did, or a lift reads
-  -- as a bug in the sort.
-  local lift_band, _lift_own, frees = prio.order_of(at, it.id)
-  if frees > 0 then
-    local from = ""
-    local source = (at[it.id] or {}).lifted_from or ""
-    if source ~= "" then
-      from = (", ordered at band %d for %s"):format(lift_band,
-        source:sub(1, 8))
-    end
-    out[#out + 1] = ("unblocks: %d open item(s)%s"):format(frees, from)
-  end
-  if #it.beats > 0 then
-    out[#out + 1] = "outranks: " .. table.concat(it.beats, " ")
-  end
-  if it.claim ~= "" then out[#out + 1] = ("claim: %s"):format(it.claim) end
-  if it.pr ~= 0 then out[#out + 1] = ("pr: #%d"):format(it.pr) end
-  if it.verdict ~= "" then
-    out[#out + 1] = ("verdict: %s (head %s)"):format(it.verdict,
-      it.verdict_head)
-  end
-  -- Which edges still bind is `flow.binds`, the same predicate
-  -- `flow.is_blocked` is built from, so this heading, the `[blocked]`
-  -- mark and `next`'s skipping cannot disagree about what holds an
-  -- item up. The cleared half is printed too: it is the record of what
-  -- this item waited on.
-  local index = flow.by_id(all)
-  local binding: {string} = {}
-  local cleared: {string} = {}
-  for _, b in ipairs(it.blocked_by) do
-    if flow.binds(index, b) then
-      binding[#binding + 1] = b
-    else
-      cleared[#cleared + 1] = b
-    end
-  end
-  if #binding > 0 then
-    out[#out + 1] = "blocked by: " .. table.concat(binding, " ")
-    for _, b in ipairs(binding) do
-      local why = (it.block_reason or {})[b]
-      if why ~= nil and why ~= "" then
-        out[#out + 1] = ("  %s: %s"):format(b:sub(1, 8), why)
-      end
-    end
-  end
-  if #cleared > 0 then
-    out[#out + 1] = "blockers cleared: " .. table.concat(cleared, " ")
-  end
-  if it.resolution ~= "" then
-    out[#out + 1] = ("resolution: %s"):format(it.resolution)
-  end
-  if spec ~= "" then
-    out[#out + 1] = "--- spec ---"
-    out[#out + 1] = (spec:gsub("\n$", ""))
-  end
-  for _, e in ipairs(events) do
-    out[#out + 1] = ("  %s %s %s"):format(e.at, e.sha, e.subject)
-  end
-  for _, p in ipairs(flow.item_problems(it, all, flow.by_id(all))) do
-    out[#out + 1] = "  graph: " .. p
-  end
-  local state = it.phase
-  if state == "" then
-    state = it.resolution
-    if state == "" then
-      state = "open"
-    end
-  end
-  return out, ("%s is %s"):format(it.id:sub(1, 8), state)
-end
-
-local function cmd_show(s: store.Store, id: string): integer
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return verdict_line("show", false, lerr)
-  end
-  local all, aerr = store.list(s)
-  if all == nil then
-    return verdict_line("show", false, aerr)
-  end
-  local events, herr = store.history(s, id)
-  if events == nil then
-    return verdict_line("show", false, herr)
-  end
-  local lines, verdict = show_report(it, all, store.read_spec(s, id), events)
-  for _, line in ipairs(lines) do
-    print(line)
-  end
-  return verdict_line("show", true, verdict)
-end
-
 --- The longest excerpt text a body line contributes, leaving room
 --- for its four-space indent inside the house column width.
 local EXCERPT_MAX < const > = 86
@@ -410,9 +291,9 @@ end
 --- well as an open one does. A match found only in the body carries
 --- the line that matched, so the hit is legible without a `show`.
 ---
---- Sidecars arrive as a map rather than being read here, the way
---- `show_report` takes the one spec it prints: the report stays pure
---- over already-read state, and `cmd_find` owns the store reads.
+--- Sidecars arrive as a map rather than being read here: the report
+--- stays pure over already-read state, and `cmd_find` owns the store
+--- reads.
 --- @param all {item.Item} Every item
 --- @param specs {string: string} Spec sidecar body, by item id
 --- @param text string The term, matched case-insensitively as plain text
@@ -468,14 +349,11 @@ local record gitview
   tree_report: function(all: {item.Item}): {string}, string
   next_report: function(all: {item.Item}, session?: string,
   ages?: health.Ages): string
-  show_report: function(it: item.Item, all: {item.Item}, spec: string,
-  events: {store.Event}): {string}, string
   find_report: function(all: {item.Item}, specs: {string: string},
   text: string): {string}, string
   cmd_status: function(s: store.Store): integer
   cmd_tree: function(s: store.Store): integer
   cmd_next: function(s: store.Store, session?: string): integer
-  cmd_show: function(s: store.Store, id: string): integer
   cmd_find: function(s: store.Store, text: string): integer
 end
 
@@ -483,12 +361,10 @@ local M: gitview = {
   status_report = status_report,
   tree_report = tree_report,
   next_report = next_report,
-  show_report = show_report,
   find_report = find_report,
   cmd_status = cmd_status,
   cmd_tree = cmd_tree,
   cmd_next = cmd_next,
-  cmd_show = cmd_show,
   cmd_find = cmd_find,
 }
 
