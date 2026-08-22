@@ -99,11 +99,22 @@ local function parse_request_line(line: string): RequestLine | nil
   return {method = m, target = t, version = v}
 end
 
+--- A decimal digit run that no integer can hold: `tonumber` yields a
+--- float and `math.tointeger` yields nil. Ports out of 1..65535 are
+--- refused the same way, so callers never see a port they cannot dial.
+local function port_of(digits: string): integer | nil
+  local n = math.tointeger(tonumber(digits))
+  if not n or n < 1 or n > 65535 then return nil end
+  return n
+end
+
 --- Parse a CONNECT target "host:port". Returns (host, port) or nil.
 local function parse_connect_target(t: string): string | nil, integer
   local h, p = t:match("^([^:]+):(%d+)$")
   if not h then return nil end
-  return h, math.tointeger(tonumber(p))
+  local port = port_of(p)
+  if not port then return nil end
+  return h, port
 end
 
 --- A parsed absolute-form request target, with the scheme's default
@@ -126,7 +137,9 @@ local function parse_absolute_uri(t: string): AbsoluteUri | nil
   if not s then return nil end
   local h, p = hp:match("^([^:]+):(%d+)$")
   if h then
-    return {scheme = s, host = h, port = math.tointeger(tonumber(p)), path = path}
+    local port = port_of(p)
+    if not port then return nil end
+    return {scheme = s, host = h, port = port, path = path}
   end
   return {scheme = s, host = hp, port = s == "https" and 443 or 80, path = path}
 end
