@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3ICDH3lWRoHfUMaUFXQ5LO9OtC2",
   ["id"] = "3ICDHHW7UiksaaojXJyS6lMKdgp",
   ["parent"] = "3I1j7yQAawHLQwtQA1bp1i3tUj4",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "fuzz: the failure message pairs the minimized input with the original run's detail and draw count",
 }
