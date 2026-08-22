@@ -225,16 +225,27 @@ local function wip_violations(b: Board): {string}
   return out
 end
 
---- Whether an item waits on an open blocker. A blocker id with no
---- item behind it does not block — the board reasons about state it
---- holds.
+--- Whether one recorded blocker edge still holds its item up. A
+--- blocker id with no item behind it does not block — the board
+--- reasons about state it holds — and neither does one whose item has
+--- ended. Every reader of a `blocked_by` edge asks THIS, so a mark, a
+--- skipped pull and a rendered heading cannot disagree about what
+--- "blocked" means.
+--- @param index Index Items by id
+--- @param id string The blocker's id
+--- @return boolean True when that blocker is an open item
+local function binds(index: Index, id: string): boolean
+  local blocker = index[id]
+  return blocker ~= nil and it.is_open(blocker)
+end
+
+--- Whether an item waits on an open blocker.
 --- @param i Item The item
 --- @param index Index Items by id
---- @return boolean True when some named blocker is open
+--- @return boolean True when some named blocker still binds
 local function is_blocked(i: Item, index: Index): boolean
   for _, b in ipairs(i.blocked_by or {}) do
-    local blocker = index[b]
-    if blocker ~= nil and it.is_open(blocker) then
+    if binds(index, b) then
       return true
     end
   end
@@ -448,6 +459,7 @@ local record flow
   pos: {string: prio.Position}): {Item}
   wip_violations: function(b: Board): {string}
   is_blocked: function(i: Item, index: Index): boolean
+  binds: function(index: Index, id: string): boolean
   waits_on: function(index: Index, from: string, target: string,
   seen?: {string: boolean}): boolean
   root_of: function(i: Item, index: Index): Item | nil
@@ -473,6 +485,7 @@ local M: flow = {
   queued = queued,
   wip_violations = wip_violations,
   is_blocked = is_blocked,
+  binds = binds,
   waits_on = waits_on,
   root_of = root_of,
   item_problems = item_problems,

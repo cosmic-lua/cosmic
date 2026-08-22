@@ -268,18 +268,16 @@ local function show_report(it: item.Item, all: {item.Item}, spec: string,
     out[#out + 1] = ("verdict: %s (head %s)"):format(it.verdict,
       it.verdict_head)
   end
-  -- Split the recorded edges by whether they still bind. `blocked by`
-  -- is the answer `flow.is_blocked` gives -- the one the `[blocked]`
-  -- mark and `next`'s skipping read -- so an edge whose blocker has
-  -- ended belongs under a heading that says so, not beside the edges
-  -- holding the item up. Both are kept: the closed edges are the
-  -- record of what this item actually waited on.
+  -- Which edges still bind is `flow.binds`, the same predicate
+  -- `flow.is_blocked` is built from, so this heading, the `[blocked]`
+  -- mark and `next`'s skipping cannot disagree about what holds an
+  -- item up. The cleared half is printed too: it is the record of what
+  -- this item waited on.
   local index = flow.by_id(all)
   local binding: {string} = {}
   local cleared: {string} = {}
   for _, b in ipairs(it.blocked_by) do
-    local blocker = index[b]
-    if blocker ~= nil and item.is_open(blocker) then
+    if flow.binds(index, b) then
       binding[#binding + 1] = b
     else
       cleared[#cleared + 1] = b
