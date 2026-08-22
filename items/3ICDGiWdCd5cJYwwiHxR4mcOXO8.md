@@ -225,5 +225,5 @@ None needed, and no blocker. Every decision is settled to one point:
 
 The only sequencing note: PR #1308 is open over `_fuzz/driver.tl` for
 board item 3IBFBWtc. It changes neither the timeout constant nor
-`isolate()`, so this item is not blocked on it; whichever lands second
+`isolate()`, so this item does not wait on it; whichever lands second
 merges main and re-runs its own acceptance.
