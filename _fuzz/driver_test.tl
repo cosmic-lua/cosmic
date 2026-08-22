@@ -404,3 +404,33 @@ local function test_other_properties_in_the_file_are_skipped_when_isolating()
   check.equal(called, false, "gen/check must not run for a skipped property")
 end
 test_other_properties_in_the_file_are_skipped_when_isolating()
+
+-- timeout_for is pure: it reads no clock, spawns no child and runs no
+-- property, so the rule can be asserted at the depths that matter
+-- instead of by waiting out a real timeout.
+local function timeout_options(): driver.Options
+  return {
+    name = "driver_test_timeout_scaling",
+    gen = function(_src: source.Recorder): string
+      return "input"
+    end,
+    check = function(_input: string): boolean, string
+      return true
+    end,
+  }
+end
+
+local function test_the_child_timeout_scales_with_the_iteration_count()
+  local opts = timeout_options()
+  check.equal(driver.timeout_for(opts, 256), 30000,
+    "the floor should still bind at the default depth")
+  check.equal(driver.timeout_for(opts, 3000), 30000,
+    "the floor should bind right up to where the scaled value overtakes it")
+  check.equal(driver.timeout_for(opts, 50000), 500000,
+    "the deep lane's budget should scale with its iteration count")
+  local pinned = timeout_options()
+  pinned.timeout_ms = 200
+  check.equal(driver.timeout_for(pinned, 50000), 200,
+    "an explicit timeout_ms is absolute, never scaled and never a floor")
+end
+test_the_child_timeout_scales_with_the_iteration_count()
