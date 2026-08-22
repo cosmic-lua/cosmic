@@ -148,3 +148,145 @@ local function test_edge_refusals()
     "an edge that contradicts nothing is allowed")
 end
 test_edge_refusals()
+
+-- A blocker is worked to release what it blocks, so it is ordered
+-- where that work sits. Without this a blocker can be outranked
+-- forever by the very item waiting on it — a deadlock the order
+-- creates rather than one the graph holds.
+local function test_a_blocker_inherits_the_position_of_what_it_blocks()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local gate = make({parent = lesser.id, phase = "plan"})
+  local waiter = make({parent = top.id, phase = "plan",
+      blocked_by = gate.id})
+  local items: {item.Item} = {lesser, top, gate, waiter}
+  local at = prio.positions(items)
+  local raw = prio.key_of(at, gate.id)
+  local lifted = prio.order_of(at, gate.id)
+  local waits = prio.key_of(at, waiter.id)
+  assert(raw < waits, ("the recorded band is the lesser one: %d"):format(raw))
+  assert(lifted == waits,
+    ("the blocker is ordered where its waiter sits: %d vs %d"):format(
+      lifted, waits))
+  assert(at[gate.id].lifted_from == waiter.id, "and it says who lifted it")
+  assert(ids(prio.sorted({gate, waiter}, at))[1] == gate.id,
+    "so refinement reaches the blocker before the item it blocks")
+end
+test_a_blocker_inherits_the_position_of_what_it_blocks()
+
+-- The lift reaches through a chain, so the item at the bottom of a
+-- three-deep wait is ordered by the best thing waiting at the top.
+local function test_the_lift_reaches_through_a_blocker_chain()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local bottom = make({parent = lesser.id, phase = "plan"})
+  local middle = make({parent = lesser.id, phase = "plan",
+      blocked_by = bottom.id})
+  local head = make({parent = top.id, phase = "plan", blocked_by = middle.id})
+  local at = prio.positions({lesser, top, bottom, middle, head})
+  local deep = prio.order_of(at, bottom.id)
+  assert(deep == prio.key_of(at, head.id),
+    ("the chain's foot inherits the head's band: %d"):format(deep))
+  local _, _, frees = prio.order_of(at, bottom.id)
+  assert(frees == 2, ("two open items wait on it: %d"):format(frees))
+end
+test_the_lift_reaches_through_a_blocker_chain()
+
+-- Placement is "some comparison reaches this item or an ancestor" and
+-- `check` refuses to promote work without it. A blocker edge is not a
+-- comparison, so it must not confer one.
+local function test_the_lift_never_places_an_unplaced_item()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local nobodys = make({})
+  local stray = make({parent = nobodys.id, phase = "plan"})
+  local waiter = make({parent = top.id, phase = "plan",
+      blocked_by = stray.id})
+  local at = prio.positions({lesser, top, nobodys, stray, waiter})
+  assert(not prio.is_placed(at, stray.id),
+    "a blocker edge is not a comparison and places nothing")
+end
+test_the_lift_never_places_an_unplaced_item()
+
+-- How much an item unblocks is evidence about throughput, not a
+-- judgment about worth: it orders peers a band and a dominance count
+-- leave tied, and it never reaches across a band to reorder what
+-- somebody compared.
+local function test_unblocking_breaks_a_tie_but_never_crosses_a_band()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local low_a = make({parent = lesser.id, phase = "plan"})
+  local low_b = make({parent = lesser.id, phase = "plan"})
+  local low_c = make({parent = lesser.id, phase = "plan"})
+  local leverage = make({parent = lesser.id, phase = "plan"})
+  low_a.blocked_by = {leverage.id}
+  low_b.blocked_by = {leverage.id}
+  low_c.blocked_by = {leverage.id}
+  local high = make({parent = top.id, phase = "plan"})
+  local items: {item.Item} = {lesser, top, low_a, low_b, low_c, leverage,
+    high}
+  local at = prio.positions(items)
+  local _, _, frees = prio.order_of(at, leverage.id)
+  assert(frees == 3, ("three items wait on it: %d"):format(frees))
+  local order = ids(prio.sorted({high, leverage}, at))
+  assert(order[1] == high.id,
+    "the compared item still comes first — leverage never crosses a band")
+  local peer = make({parent = lesser.id, phase = "plan"})
+  items[#items + 1] = peer
+  local within = ids(prio.sorted({peer, leverage}, prio.positions(items)))
+  assert(within[1] == leverage.id,
+    "but inside the band it beats an older peer that unblocks nothing")
+end
+test_unblocking_breaks_a_tie_but_never_crosses_a_band()
+
+-- An ended waiter is not waiting: it neither lifts its blocker nor
+-- counts toward what that blocker would release.
+local function test_an_ended_waiter_neither_lifts_nor_counts()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local gate = make({parent = lesser.id, phase = "plan"})
+  local waiter = make({parent = top.id, blocked_by = gate.id,
+      resolution = "completed"})
+  local at = prio.positions({lesser, top, gate, waiter})
+  local lifted, _, frees = prio.order_of(at, gate.id)
+  assert(lifted == prio.key_of(at, gate.id),
+    ("nothing open waits, so nothing lifts it: %d"):format(lifted))
+  assert(frees == 0, ("and nothing counts: %d"):format(frees))
+end
+test_an_ended_waiter_neither_lifts_nor_counts()
+
+-- A blocker cycle is reported by `_work.health`, never spun on here:
+-- the walk terminates and the board still renders.
+local function test_a_blocker_cycle_terminates()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local a = make({parent = top.id, phase = "plan"})
+  local b = make({parent = top.id, phase = "plan", blocked_by = a.id})
+  a.blocked_by = {b.id}
+  local at = prio.positions({lesser, top, a, b})
+  local _, _, frees = prio.order_of(at, a.id)
+  assert(frees == 1, ("the cycle is walked once, not forever: %d"):format(
+      frees))
+end
+test_a_blocker_cycle_terminates()
+
+-- An item nothing has been compared against is not work yet: it is
+-- what the triage queue holds and it may still be ended as not
+-- planned. Its blocker edge is real, but letting it confer leverage
+-- would put untriaged captures in charge of what gets refined.
+local function test_an_unplaced_waiter_confers_no_leverage()
+  local lesser = make({})
+  local top = make({beats = lesser.id})
+  local gate = make({parent = top.id, phase = "plan"})
+  local capture = make({blocked_by = gate.id})
+  local at = prio.positions({lesser, top, gate, capture})
+  local _, _, frees = prio.order_of(at, gate.id)
+  assert(frees == 0,
+    ("an unplaced capture waits, but does not count: %d"):format(frees))
+  local placed = make({parent = top.id, phase = "plan",
+      blocked_by = gate.id})
+  local _, _, counted = prio.order_of(
+    prio.positions({lesser, top, gate, capture, placed}), gate.id)
+  assert(counted == 1, ("the placed waiter does: %d"):format(counted))
+end
+test_an_unplaced_waiter_confers_no_leverage()
