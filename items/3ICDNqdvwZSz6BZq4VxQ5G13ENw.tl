@@ -1,6 +1,7 @@
 return {
+  ["claim"] = "workflow-3q9w2x",
   ["id"] = "3ICDNqdvwZSz6BZq4VxQ5G13ENw",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["phase"] = "ready",
+  ["phase"] = "do",
   ["title"] = "gitboard: move into land is ungated and verdicts never clear on return — stale accepts merge, a verdict-less land livelocks next",
 }
