@@ -403,14 +403,19 @@ local function publish(s: Store, revalidate?: Revalidate): boolean, string
   return false, "publish did not converge after 3 attempts"
 end
 
---- One item's mutation history, newest first, from git alone.
+--- Mutation history, newest first, from git alone: one item's when
+--- `id` names one, the whole branch's flow record when it does not.
 --- @param s Store The store
---- @param id string Item id
+--- @param id string Item id, or nil for every commit on the branch
 --- @return {Event} | nil Events, possibly empty
 --- @return string Error message
-local function history(s: Store, id: string): {Event} | nil, string
-  local r, err = git_ok(s, {"log", "--format=%h\t%cI\t%s", "--",
-      fs.join("items", id .. ".tl")})
+local function history(s: Store, id?: string): {Event} | nil, string
+  local argv: {string} = {"log", "--format=%h\t%cI\t%s"}
+  if id ~= nil then
+    argv[#argv + 1] = "--"
+    argv[#argv + 1] = fs.join("items", id .. ".tl")
+  end
+  local r, err = git_ok(s, argv)
   if r == nil then
     return nil, err
   end
@@ -461,7 +466,7 @@ local record store
   has_origin: function(s: Store): boolean
   sync: function(s: Store): boolean, string
   publish: function(s: Store, revalidate?: Revalidate): boolean, string
-  history: function(s: Store, id: string): {Event} | nil, string
+  history: function(s: Store, id?: string): {Event} | nil, string
   touched_at: function(s: Store, id: string): integer | nil, string
 end
 

@@ -22,6 +22,7 @@
 ---   cosmic --make run _work/gitboard.tl check 2akQ
 ---   cosmic --make run _work/gitboard.tl move 2akQ check --pr 42
 ---   cosmic --make run _work/gitboard.tl status | tree | next [--session S]
+---   cosmic --make run _work/gitboard.tl stats
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl land 2akQ
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
@@ -37,6 +38,7 @@ local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local land = require("_work.gitland")
 local stall = require("_work.gitstall")
+local stat = require("_work.flowstat")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -96,6 +98,8 @@ local CSPEC: flags.CommandSpec = {
     {name = "status", summary = "render the kanban and its WIP verdict",
       spec = {flags = {dir_flag()}}},
     {name = "tree", summary = "render the roots, their subtrees, and the triage queue",
+      spec = {flags = {dir_flag()}}},
+    {name = "stats", summary = "phase dwell and transition counts from the log",
       spec = {flags = {dir_flag()}}},
     {name = "next", summary = "the one next action to take now",
       spec = {flags = {dir_flag(),
@@ -173,6 +177,9 @@ local function main(...: string): integer
   end
   if d.command == "tree" then
     return view.cmd_tree(s)
+  end
+  if d.command == "stats" then
+    return stat.cmd_stats(s)
   end
   if d.command == "next" then
     return view.cmd_next(s, d.parsed.values["session"] or "")
