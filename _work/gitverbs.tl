@@ -269,28 +269,6 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
-local function cmd_check(s: store.Store, id: string): integer
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return gate.verdict_line("check", false, lerr)
-  end
-  local all, aerr = store.list(s)
-  if all == nil then
-    return gate.verdict_line("check", false, aerr)
-  end
-  local problems = gate.ready_problems(s, it, all)
-  for _, p in ipairs(problems) do
-    print("  " .. p)
-  end
-  if #problems > 0 then
-    return gate.verdict_line("check", false,
-      ("%s misses the ready bar (%d problem(s))"):format(id:sub(1, 8),
-        #problems))
-  end
-  return gate.verdict_line("check", true,
-    ("%s meets the ready bar"):format(id:sub(1, 8)))
-end
-
 local function cmd_move(s: store.Store, id: string, target: string,
     claim: string, pr: integer, force: boolean, why: string): integer
   local forced = gate.force_refusal(force, why)
@@ -313,8 +291,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   local from = it.phase
   if from == target then
-    return gate.verdict_line("move", false,
-      ("%s is already in %s"):format(id:sub(1, 8), target))
+    return gate.set_in_place(s, it, claim, pr)
   end
   -- The bar is asked of the item AS IT WOULD BE in the target phase,
   -- so a repair move out of no-phase is judged on where it lands.
@@ -336,6 +313,16 @@ local function cmd_move(s: store.Store, id: string, target: string,
   if target == "check" and (pr or 0) == 0 and (it.pr or 0) == 0 and not force then
     return gate.verdict_line("move", false,
       ("REFUSED: a handover to check names its PR — pass --pr N"))
+  end
+  -- The claim is what `next` reads to withhold a verdict from the
+  -- item's builder, so a handover naming nobody hands the diff to
+  -- everyone, its builder included. Rework is where this bites: the
+  -- claim stays with the first builder by design, so a second session
+  -- taking the rework has to say so.
+  if target == "check" and (claim or "") == "" and (it.claim or "") == ""
+  and not force then
+    return gate.verdict_line("move", false,
+      "REFUSED: a handover to check names its builder — pass --claim <session>")
   end
   if target == "check" and not force then
     local refusal = gate.handover_refusal(s, id,
@@ -471,7 +458,6 @@ local record gitverbs
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
-  cmd_check: function(s: store.Store, id: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
   claim: string, pr: integer, force: boolean, why: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
@@ -485,7 +471,6 @@ local M: gitverbs = {
   cmd_attach = cmd_attach,
   cmd_block = cmd_block,
   cmd_spec = cmd_spec,
-  cmd_check = cmd_check,
   cmd_move = cmd_move,
   cmd_done = cmd_done,
   cmd_sync = cmd_sync,

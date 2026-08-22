@@ -86,3 +86,50 @@ local function test_a_verdict_refuses_a_head_it_already_judged()
     "a moved head does")
 end
 test_a_verdict_refuses_a_head_it_already_judged()
+
+-- Builder distance was advice at this end: `next --session` withheld
+-- the item and nothing stopped a session reaching for `verdict`
+-- directly. Naming yourself as the claimant is what is refused — an
+-- unnamed session still works, so every repair path survives.
+local function test_verdict_refuses_the_builder()
+  local s = init_state_repo("verdict-session")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 11, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "", "session-a") ~= 0,
+    "the session that built it cannot accept it")
+  assert(check.must(store.load(s, leaf)).phase == "check", "and it does not move")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "", "session-b") == 0,
+    "another session can")
+  assert(check.must(store.load(s, leaf)).phase == "land", "and it lands")
+end
+test_verdict_refuses_the_builder()
+
+-- Every board commit is authored as one fixed identity, so the subject
+-- is the only place the log can record who judged — without it, "no
+-- session accepts its own work" is unauditable after the fact.
+local function test_verdict_subject_names_the_reviewer()
+  local s = init_state_repo("verdict-subject")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 12, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 12, "abc1234", "", "session-b") == 0)
+  local events = check.must(store.history(s, leaf))
+  assert(events[1].subject:find(" by session-b", 1, true),
+    "the reviewer rides in the subject: " .. events[1].subject)
+
+  -- An unnamed verdict is still allowed, and says nothing rather than
+  -- claiming an empty reviewer. The return clears the claim, so the
+  -- rework handover names its builder again.
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", "session-a", 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "def5678", "") == 0)
+  local later = check.must(store.history(s, leaf))
+  assert(not later[1].subject:find(" by ", 1, true),
+    "an unnamed verdict names nobody: " .. later[1].subject)
+end
+test_verdict_subject_names_the_reviewer()

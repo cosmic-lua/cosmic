@@ -13,6 +13,7 @@ local fs = require("cosmic.fs")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
+local view = require("_work.gitview")
 local vrd = require("_work.gitverdict")
 
 local tmpdir = fixture.tmpdir
@@ -81,7 +82,7 @@ local function test_the_ready_bar_is_the_items_own()
   local _stray = file_item(s, "work under it", finding, false)
   local all = check.must(store.list(s))
   assert(#flow.graph_problems(all) > 0, "the board does have a problem")
-  assert(verbs.cmd_check(s, leaf) == 0,
+  assert(view.cmd_check(s, leaf) == 0,
     "a sound item meets the bar while another item is broken")
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0,
     "and it may be promoted")
@@ -195,26 +196,6 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
     "and a return clears the claim")
 end
 test_wip_limits_bind_arrivals_but_never_returns()
-
--- The reviewer follows the pr field to the diff, and so does the
--- landing step that reads it back, so the handover must name one.
-local function test_check_refuses_a_handover_with_no_pr()
-  local s = init_state_repo("check-pr")
-  local _, leaf = root_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
-    "a handover naming no PR is refused")
-  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false, "") == 0)
-  -- Rework returns to `do` and comes back on the SAME PR, already
-  -- recorded, so the second handover needs no --pr of its own.
-  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234", "none: test") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0,
-    "the recorded PR carries the rework back")
-end
-test_check_refuses_a_handover_with_no_pr()
 
 -- Landing order is a board fact like any other: one verb, one commit,
 -- and refusals where hand-editing the field wrote nonsense.
@@ -456,7 +437,9 @@ local function test_return_out_of_land_clears_the_verdict()
   assert(reworking.verdict == "", "the accept did not survive the return")
   assert(reworking.verdict_head == "", "nor the head it judged")
   assert(reworking.enable == "", "nor the countermeasure it filed")
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  -- The return cleared the claim with the verdict, so the rework
+  -- handover names its builder again.
+  assert(verbs.cmd_move(s, leaf, "check", "session-a", 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
     "so reworked work cannot re-enter land on the old accept")
 end

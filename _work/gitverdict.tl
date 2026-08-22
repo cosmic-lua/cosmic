@@ -8,6 +8,12 @@
 --- informative rather than ceremonial: a head already judged has
 --- nothing new to say, and a non-accept verdict files the
 --- countermeasure its bounce is evidence for.
+---
+--- `--session` is the builder-distance half. A session that names
+--- itself as the item's claimant is refused, and the name it gives
+--- rides in the commit subject — every board commit is authored as
+--- one fixed identity, so the subject is the only place the log can
+--- record who judged.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
@@ -37,7 +43,7 @@ local function is_enablement(value: string, index: {string: item.Item}): boolean
 end
 
 local function cmd_verdict(s: store.Store, id: string, kind: string,
-    pr: integer, head: string, enable: string): integer
+    pr: integer, head: string, enable: string, session?: string): integer
   local target = VERDICT_MOVES[kind]
   if target == nil then
     return gate.verdict_line("verdict", false, ("unknown verdict: %s"):format(kind))
@@ -92,6 +98,17 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
       ("REFUSED: %s already carries a %s verdict on head %s — nothing "
         .. "new to judge"):format(id:sub(1, 8), it.verdict, head:sub(1, 7)))
   end
+  -- A review is worth the distance between the builder and the
+  -- reviewer, and until now that distance was advice: `next
+  -- --session` withheld the item, and nothing stopped a session from
+  -- reaching for `verdict` directly. Naming yourself is what is
+  -- checked — an unnamed session is not refused, so a repair written
+  -- without one still works.
+  if (session or "") ~= "" and session == (it.claim or "") then
+    return gate.verdict_line("verdict", false,
+      ("REFUSED: %s is %s's own build — no session accepts its own work")
+      :format(id:sub(1, 8), session))
+  end
   local from = it.phase
   it.verdict = kind
   it.verdict_head = head or ""
@@ -105,9 +122,17 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   it.phase = target
   -- A verdict is a decision already made: an accept enters land and a
   -- send-back is a return, so no WIP gate applies in any direction.
+  -- The reviewer rides in the subject rather than the author: every
+  -- board commit is the one fixed identity, so without this the log
+  -- cannot show whether an accept was written by the builder, and the
+  -- distance is unauditable after the fact.
+  local by = ""
+  if (session or "") ~= "" then
+    by = (" by %s"):format(session)
+  end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("verdict %s %s (%s -> %s)"):format(id:sub(1, 8), kind, from, target),
-    from)
+    ("verdict %s %s (%s -> %s)%s"):format(id:sub(1, 8), kind, from, target,
+      by), from)
   if not ok then
     return gate.verdict_line("verdict", false, err)
   end
@@ -117,7 +142,7 @@ end
 
 local record gitverdict
   cmd_verdict: function(s: store.Store, id: string, kind: string,
-  pr: integer, head: string, enable: string): integer
+  pr: integer, head: string, enable: string, session?: string): integer
 end
 
 local M: gitverdict = {
