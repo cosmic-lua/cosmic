@@ -19,6 +19,22 @@ local function test_refusal_names_the_permission_wall()
 end
 test_refusal_names_the_permission_wall()
 
+-- A 409 is the `sha` guard firing on the server: the head moved
+-- between the accept and the PUT, so nothing was merged and the
+-- recovery is a re-review, not a re-run.
+local function test_refusal_names_the_moved_head()
+  local msg = gh.refusal(88, {status = 409, detail = "d"})
+  assert(msg:find("409", 1, true) ~= nil, "got: " .. msg)
+  assert(msg:find("moved between the accept and the merge", 1, true) ~= nil,
+    "got: " .. msg)
+  assert(msg:find("#88", 1, true) ~= nil, "it names the PR: " .. msg)
+  local wall = gh.refusal(88, {status = 403, detail = "d"})
+  local generic = gh.refusal(88, {status = 500, detail = "d"})
+  assert(msg ~= wall, "a moved head is not the permission wall")
+  assert(msg ~= generic, "nor the generic failure")
+end
+test_refusal_names_the_moved_head()
+
 -- Every other non-2xx is a failed merge attempt, not a permission
 -- refusal — nothing was merged, and re-running land is the recovery.
 local function test_refusal_reports_other_failures_as_error()

@@ -11,6 +11,7 @@
 --- recoverable by looking at the board; the other is not.
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
+local review = require("_work.review")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 
@@ -58,11 +59,27 @@ local function cmd_land(s: store.Store, id: string, force: boolean,
     return gate.verdict_line("land", false,
       ("cannot read PR #%d: %s"):format(it.pr, perr))
   end
+  -- The accept judged one head. A merge of any other head lands a diff
+  -- no reviewer read, so the comparison gates the PUT -- and the PUT
+  -- carries the same sha, so the server refuses the race this read
+  -- cannot see.
+  local moved = review.blocks_land(p, it.verdict_head)
   if p.merged then
     print(("gitboard-land: PR #%d was already merged"):format(it.pr))
+    -- A merge cannot be undone, so a moved head here is not a refusal:
+    -- refusing would strand the item forever. Say it loudly instead, so
+    -- the substitution is in the log rather than nowhere.
+    if moved then
+      print(("gitboard-land: WARNING PR #%d merged at %s but the accept "
+          .. "judged %s"):format(it.pr, (p.head_sha or ""):sub(1, 7),
+          (it.verdict_head or ""):sub(1, 7)))
+    end
     return verbs.cmd_done(s, id, "completed", force, why)
   end
-  local res, merr = gh.merge(s, it.pr, it.repo)
+  if moved and not force then
+    return gate.verdict_line("land", false, "REFUSED: " .. moved)
+  end
+  local res, merr = gh.merge(s, it.pr, it.repo, it.verdict_head)
   if res == nil then
     return gate.verdict_line("land", false, merr)
   end
