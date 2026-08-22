@@ -79,3 +79,52 @@ no signal either.
 
 Any of these would have turned this bounce into a refinement, which
 is the cheap end of the same correction.
+
+## Direction (chosen 2026-08-22): optimistic freshness at pull
+
+Staleness splits into two kinds, and only one of them should cost a
+replan. The check moves to the moment of claim, and it is optimistic:
+re-measure, proceed unless the item's core value is compromised.
+
+1. **Re-measure at claim.** When `next` hands an item into `do`, the
+   session's first act is to re-run the spec's measurement commands
+   (the ready bar already requires each claim to carry its command;
+   #1288 mechanized bounds make much of this a literal re-run). This
+   costs minutes; the bounce it replaces cost 3IBFBWtc a full
+   build+PR+review round trip.
+
+2. **Detail drift: refresh and proceed.** If the numbers moved but the
+   shape holds — the Problem still exists, `## Change` is still
+   buildable as written, `## Acceptance` still runs as written,
+   `## Non-goals` are untouched — the session updates the measured
+   lines in place (`gitboard spec`, one commit, stamped "re-measured
+   at pull") and proceeds. No bounce, no replan. The reviewer judges
+   against the pull-time numbers, so every figure the review reads is
+   fresh by construction.
+
+3. **Value drift: back to plan.** If a refreshed fact breaks the
+   shape — the specified Change is no longer buildable as written
+   (3IBFBWtc's file-cap arithmetic), the problem no longer exists,
+   Acceptance cannot pass as stated, or the fresh number would change
+   a DECISION the spec encodes — the item returns to plan, exactly as
+   today, but detected in minutes at claim instead of after the
+   implementation.
+
+4. **The line a session may not cross:** a claim-time refresh may
+   update FACTS, never decisions. "The spec says 215 lines and the
+   file is now 390" is a refresh if the split still fits, a bounce if
+   it does not; choosing a different split is plan's job, per the
+   skill's rule that ambiguity is never resolved from memory
+   mid-implementation.
+
+5. **The mechanical half stays cheap:** re-run the mechanized bounds;
+   inside tolerance is silent, outside tolerance asks the session for
+   exactly one judgment — "Change and Acceptance as written?" — and
+   the two answers are the two paths above.
+
+This is the same optimism the board's own push already uses: proceed,
+validate at the boundary, pay only when the conflict is real. The
+earlier fix-shapes remain as complements (sibling-landing flags are
+the natural trigger for an early re-measure; the reviewer's re-run is
+the backstop), but the primary mechanism is the claim-time check,
+because that is the last moment the correction is still free.
