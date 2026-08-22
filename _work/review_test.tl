@@ -106,3 +106,25 @@ local function test_blocks_accept_refuses_a_closed_unmerged_pr()
   assert(refusal:find("#3", 1, true), "it names the PR: " .. refusal)
 end
 test_blocks_accept_refuses_a_closed_unmerged_pr()
+
+-- An accept judges one head. Landing a different one merges a diff no
+-- reviewer read, so the two shas are compared and the refusal names
+-- both. An item accepted before the verdict recorded a head has
+-- nothing to compare and must not be stranded.
+local function test_blocks_land_compares_the_accepted_head()
+  local at: review.Pull = {number = 7, state = "open", merged = false,
+    draft = false, body = "", head_sha = "cafe1234567", merge_sha = ""}
+  assert(review.blocks_land(at, "cafe1234567") == nil,
+    "the head the accept judged is the head being merged")
+
+  local refusal = review.blocks_land(at, "beef7654321")
+  assert(refusal ~= nil and refusal:find("has moved since the accept", 1, true),
+    "got: " .. tostring(refusal))
+  assert(refusal:find("#7", 1, true), "it names the PR: " .. refusal)
+  assert(refusal:find("beef765", 1, true), "the judged head: " .. refusal)
+  assert(refusal:find("cafe123", 1, true), "the current head: " .. refusal)
+
+  assert(review.blocks_land(at, "") == nil,
+    "an item accepted before the head was recorded is not stranded")
+end
+test_blocks_land_compares_the_accepted_head()

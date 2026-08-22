@@ -106,17 +106,46 @@ local function blocks_accept(p: Pull): string
   return nil
 end
 
+--- The refusal a LANDING earns from the head it is about to merge, or
+--- nil when the merge may proceed.
+---
+--- An accept is a judgment of one head. If the request has moved since
+--- — the builder pushed again after the verdict — merging lands a diff
+--- no reviewer read, and nothing anywhere records the substitution.
+--- Comparing the two shas is the whole rule.
+---
+--- An empty `verdict_head` is not refused: an item accepted before the
+--- verdict recorded a head has nothing to compare, and refusing those
+--- would strand them with no way forward but `--force`.
+--- @param p Pull The request about to be merged
+--- @param verdict_head string The head the accept judged
+--- @return string The refusal, nil when the merge may proceed
+local function blocks_land(p: Pull, verdict_head: string): string
+  local judged = verdict_head or ""
+  if judged == "" then
+    return nil
+  end
+  if judged == p.head_sha then
+    return nil
+  end
+  return ("PR #%d has moved since the accept — judged %s, now %s; "
+    .. "re-review the current head or --force")
+  :format(p.number, judged:sub(1, 7), (p.head_sha or ""):sub(1, 7))
+end
+
 local record review
   type Pull = Pull
   type CheckRun = CheckRun
   blocks_check: function(p: Pull, id: string): string
   blocks_accept: function(p: Pull): string
+  blocks_land: function(p: Pull, verdict_head: string): string
   blocks_on_ci: function(runs: {CheckRun}): string
 end
 
 local M: review = {
   blocks_check = blocks_check,
   blocks_accept = blocks_accept,
+  blocks_land = blocks_land,
   blocks_on_ci = blocks_on_ci,
 }
 

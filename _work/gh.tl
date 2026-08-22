@@ -134,19 +134,29 @@ end
 --- when no response arrived at all (transport failure) — an HTTP
 --- error status is still a `Result`, for `is_merged`/`refusal` to
 --- classify.
+---
+--- `sha` is the head the merge is FOR: GitHub refuses with 409 when
+--- the request has moved past it, so the guard the caller already made
+--- locally is enforced again on the server, where the race actually
+--- lives. An empty `sha` sends today's unguarded body.
 --- @param s store.Store The store
 --- @param number integer The PR number
 --- @param repo string | nil The item's repo field, when it carries one
+--- @param sha string The head to merge, "" for no guard
 --- @return Result | nil The exchange's outcome
 --- @return string Error message when no response arrived
-local function merge(s: store.Store, number: integer, repo: string | nil):
-  Result | nil, string
+local function merge(s: store.Store, number: integer, repo: string | nil,
+    sha: string): Result | nil, string
   local slugged, serr = slug(s, repo)
   if slugged == nil then
     return nil, serr
   end
   local path = ("/repos/%s/pulls/%d/merge"):format(slugged, number)
-  local res, err = api.call("PUT", path, {merge_method = "squash"})
+  local body: {string: string} = {merge_method = "squash"}
+  if (sha or "") ~= "" then
+    body.sha = sha
+  end
+  local res, err = api.call("PUT", path, body)
   if res == nil then
     return nil, err
   end
@@ -164,11 +174,16 @@ local function is_merged(res: Result): boolean
 end
 
 --- Render a merge that did not land as text an operator acts on: a
---- 403 is a permission wall, distinct from every other failure.
+--- 403 is a permission wall and a 409 is a moved head, each distinct
+--- from every other failure.
 --- @param pr integer The PR number
 --- @param res Result The merge outcome
 --- @return string The message
 local function refusal(pr: integer, res: Result): string
+  if res.status == 409 then
+    return ("REFUSED (409: PR #%d moved between the accept and the merge "
+      .. "and nothing was merged; re-review the current head)"):format(pr)
+  end
   if res.status == 403 then
     return ("REFUSED (403: this token may not merge PR #%d into the base "
       .. "branch — a permission refusal, not the diff. The accept stands "
@@ -187,8 +202,8 @@ local record gh
   review.Pull | nil, string
   checks: function(s: store.Store, sha: string, repo: string | nil):
   {review.CheckRun} | nil, string
-  merge: function(s: store.Store, number: integer, repo: string | nil):
-  Result | nil, string
+  merge: function(s: store.Store, number: integer, repo: string | nil,
+  sha: string): Result | nil, string
   is_merged: function(res: Result): boolean
   refusal: function(pr: integer, res: Result): string
 end
