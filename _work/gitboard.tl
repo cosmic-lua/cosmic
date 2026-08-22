@@ -31,11 +31,13 @@
 ---   cosmic --make run _work/gitboard.tl sync
 ---
 --- This file is the argument parsing, prefix resolution, and dispatch
---- half; the verbs themselves are `_work.gitverbs`.
+--- half; the verbs themselves are `_work.gitverbs` (the phase
+--- crossings) and `_work.gitgraph` (the graph mutations).
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
+local graph = require("_work.gitgraph")
 local land = require("_work.gitland")
 local stall = require("_work.gitstall")
 local stat = require("_work.flowstat")
@@ -219,7 +221,7 @@ local function main(...: string): integer
       end
       spec = body
     end
-    return verbs.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "",
+    return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "",
       d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   local id, rerr = store.resolve(s, d.parsed.args[1] or "")
@@ -233,7 +235,7 @@ local function main(...: string): integer
       io.stderr:write(tostring(perr) .. "\n")
       return 1
     end
-    return verbs.cmd_attach(s, id, parent)
+    return graph.cmd_attach(s, id, parent)
   end
   if d.command == "compare" or d.command == "uncompare" then
     local other, oerr = store.resolve(s, d.parsed.args[2] or "")
@@ -249,7 +251,7 @@ local function main(...: string): integer
       io.stderr:write(tostring(berr) .. "\n")
       return 1
     end
-    return verbs.cmd_block(s, id, blocker, d.command == "unblock",
+    return graph.cmd_block(s, id, blocker, d.command == "unblock",
       d.parsed.values["reason"] or "")
   end
   if d.command == "spec" then
