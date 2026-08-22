@@ -45,7 +45,7 @@ board item 3ICDH3lW, see Enablement):
 
 ```
 _fuzz/driver.tl       451
-_fuzz/driver_test.tl  463
+_fuzz/driver_test.tl  471
 _fuzz/source.tl       101
 _fuzz/shrink.tl       237
 ```
@@ -231,8 +231,11 @@ comes from `source.new` and its count is already exact.
   loops, so the budget catches it and the detail now describes the input
   actually reported. Change the assertion to `msg:find("budget=100000
   exceeded", 1, true)` and its message to say the reported detail matches
-  the reported input. Leave the rest of that test, including its
-  `without_coverage` wrapper and its `ok == false` assertion, alone.
+  the reported input. Leave the rest of that test alone — its
+  `without_coverage` wrapper, its `ok == false` assertion, and above all
+  its `FUZZ_SEED` pin: seed 1 is what makes the first input 5 bytes, so
+  removing the pin puts the reported detail back at the mercy of the
+  lane's rotating seed.
 
 ## Non-goals
 
@@ -278,8 +281,8 @@ literal verdict line quoted after it.
 
        bin/cosmic --make test _fuzz/driver_test.tl
 
-   Verdict line ends `test: PASS`. The runner's `✓` line reports one
-   more test function than the base's 19. Quote it.
+   Verdict line ends `test: PASS`. The runner's `✓` line reports 20 test
+   functions, one more than the base's 19. Quote it.
 
 3. **The reported detail and draw count describe the reported input.**
    The new test is the gate, but quote the message it asserts on, from
@@ -303,7 +306,7 @@ literal verdict line quoted after it.
        wc -l _fuzz/driver.tl _fuzz/driver_test.tl _fuzz/source.tl
 
    All three under 500. Measured with the change applied: `driver.tl`
-   462, `source.tl` 104, and `driver_test.tl` 463 plus the new test.
+   462 and `source.tl` 104; `driver_test.tl` is 471 before the new test.
 
 ## Enablement
 
