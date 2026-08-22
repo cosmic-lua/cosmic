@@ -103,3 +103,18 @@ The gate fix (Consequences item 1) is implemented on PR #1313 together
 with 3ICG8WcG's pull-time re-measure; this item stays open for the
 tar regression follow-through (3IHFD8b4) and the lane-observation
 enabler (3IHDCJ3o), which the PR does not carry.
+
+## Resolved (2026-08-22 16:30Z)
+
+Release 2026-08-22-1fbf190 published — the first since 08-17 — with
+`perf-compare: PASS` in its notes. The chain: #1313 made the baseline
+the previous release's binary measured in-job (run 32583165380: 1
+flagged vs the week's 18-22); the flag (string_split_csv, +12.2% vs
+±11.2%, no implicating change) did not reproduce on re-dispatch
+(32583598152: gate PASS); that run exposed the peers job's
+first-ever execution failing on a deterministic staging collision,
+fixed in #1314; the post-merge dispatch (32584499284) went green end
+to end and published. Still open elsewhere: tar_extract's rel-mode
+lottery (3IHFD8b4), lane observation (3IHDCJ3o), artifact-role
+cleanup (3IHHKCyz). This item's own incident is over; triage can
+end it when adopted.
