@@ -185,10 +185,11 @@ local function refusal(pr: integer, res: Result): string
       .. "and nothing was merged; re-review the current head)"):format(pr)
   end
   if res.status == 403 then
-    return ("REFUSED (403: this token may not merge PR #%d into the base "
+    return ("REFUSED (403: this client may not merge PR #%d into the base "
       .. "branch — a permission refusal, not the diff. The accept stands "
-      .. "and PR #%d stays in land — ask a maintainer to squash-merge "
-      .. "PR #%d. %s)"):format(pr, pr, pr, res.detail)
+      .. "and PR #%d stays in land — squash-merge PR #%d by another route, "
+      .. "then re-run `gitboard land <id>`, which takes the already-merged "
+      .. "path and ends the item. %s)"):format(pr, pr, pr, res.detail)
   end
   return ("ERROR (the merge of PR #%d failed and nothing was merged; "
     .. "PR #%d stays in land — re-run land once the cause clears. %s)")

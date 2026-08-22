@@ -6,16 +6,28 @@
 
 local gh = require("_work.gh")
 
--- A 403 is a permission wall, not a failed diff: the message says so,
--- names the PR, and tells the operator what to do about it, ending
--- with GitHub's own detail verbatim.
+-- A 403 is a permission wall the client hit, not a failed diff, and
+-- the recovery is actionable by the session that hit it: merge the
+-- request by another route, then re-run `land`, which takes the
+-- already-merged path. The message names that verb rather than
+-- deferring to a maintainer, and still ends with GitHub's own detail
+-- verbatim.
 local function test_refusal_names_the_permission_wall()
   local msg = gh.refusal(1196, {status = 403, detail = "d"})
   assert(msg:sub(1, 9) == "REFUSED (", "got: " .. msg)
   assert(msg:find("permission refusal, not the diff", 1, true) ~= nil,
     "got: " .. msg)
-  assert(msg:find("ask a maintainer", 1, true) ~= nil, "got: " .. msg)
+  assert(msg:find("another route", 1, true) ~= nil,
+    "it names the out-of-band merge: " .. msg)
+  assert(msg:find("`gitboard land <id>`", 1, true) ~= nil,
+    "it names land as the recovery verb: " .. msg)
+  assert(msg:find("ask a maintainer", 1, true) == nil,
+    "it no longer defers to a maintainer: " .. msg)
   assert(msg:sub(-2) == "d)", "got: " .. msg)
+  local moved = gh.refusal(1196, {status = 409, detail = "d"})
+  local generic = gh.refusal(1196, {status = 500, detail = "d"})
+  assert(msg ~= moved, "the permission wall is not a moved head")
+  assert(msg ~= generic, "nor the generic failure")
 end
 test_refusal_names_the_permission_wall()
 
