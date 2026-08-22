@@ -1,62 +1,132 @@
+## Goal
+
+G8 — the flow system. Builder distance is enforced at both ends and
+auditable afterwards: `verdict` refuses the builder, and the commit
+says who judged.
+
 ## Evidence
 
 2026-08-20 machinery audit of the board branch (at 5577fd73; still
-true after #1298/#1299 — #1257's title says honour-system rules
-became refusals, but builder distance did not). `action.tl`'s
-`reviewable` skips only `claim == session`, and the rework path
-merely PRINTS "hand it back with --claim <session>":
-`cmd_move` neither requires nor verifies a claim on the do→check
-handover, and `cmd_verdict` takes no `--session` at all. Scenario: A
-builds, reviewer bounces (claim stays A by design); B takes over the
-rework and moves it back to check WITHOUT --claim B; `next --session
-B` now hands B the verdict on B's own build. Corollary: an item
-pulled without --claim is unclaimed in check and offered to everyone,
-including its builder. Fix shape: `move … check` requires the mover
-to identify itself (or inherits the last mover's session), and
-`verdict` takes --session and refuses when it matches the claim.
+true at board head `46f3f43b`). `_work/action.tl`'s `reviewable`
+skips only `claim == session`; the rework path merely PRINTS "hand it
+back with --claim <session>"; `cmd_move` neither requires nor
+verifies a claim on the `do -> check` handover; and `cmd_verdict`
+takes no `--session` at all (`grep -c session _work/gitverdict.tl` is
+0). Every board commit is authored as the fixed identity
+`cosmic-board <board@cosmic>` (`_work/store.tl` GIT_DEFAULTS), and a
+verdict commit's subject is `verdict <id8> <kind> (check -> do)` —
+so the log cannot show whether an accept was written by the builder.
 
-## Confirmed live, 2026-08-20 — the predicted scenario ran
+**The predicted scenario ran, the same day.** 3I1J9Xhg (coverage floor
+becomes a literal, PR #1295) was built by `claude-cloud-yv5jl8` and
+bounced `request changes`. Session `dji1my` took the rework, pushed
+`07ac88c4`, and moved it back with `move 3I1J9Xhg check --pr 1295` —
+without `--claim dji1my`. `next --session dji1my` then offered
+`dji1my` the verdict on the head `dji1my` had just pushed. Only an
+operator instruction stopped it.
 
-The "Scenario" above happened, exactly as written, in a scheduled
-session later the same day. It is no longer hypothetical.
+The repair sharpened the fix twice:
 
-3I1J9Xhg (coverage floor becomes a literal, PR #1295): built by
-`claude-cloud-yv5jl8`, bounced `request changes`. Session `dji1my`
-took the rework, pushed `07ac88c4`, and moved it back with
-`move 3I1J9Xhg check --pr 1295` — WITHOUT `--claim dji1my`. `next`
-had printed the advice ("rework of claude-cloud-yv5jl8's build — hand
-it back with --claim dji1my") and it was not followed. The next call:
-
-    gitboard-next: review 3I1J9Xhg … — check is the rightmost phase
-    awaiting a decision — verdicts before new work
-
-`next --session dji1my` offered dji1my the verdict on the head dji1my
-had just pushed. Only an operator instruction ("never accept work this
-session built") stopped it; the tool's own withholding did not fire,
-because `claim` still read `claude-cloud-yv5jl8` and the claim is the
-only thing `reviewable` consults.
-
-Two further observations from the repair, both sharpening the fix:
-
-1. **There is no verb to correct a claim.** `move ID <its current
-   phase> --claim X` is a no-op that drops the flag silently:
-
-       $ gitboard move 3I1J9Xhg check --claim dji1my
-       gitboard-move: 3I1J9Xhg is already in check
-       (claim still claude-cloud-yv5jl8)
-
-   The repair was a leftward-then-rightward round trip —
-   `move … do --claim dji1my` then `move … check --pr 1295 --claim
-   dji1my` — which works only because a return is never refused, and
-   which writes two spurious transitions into the item's history that
-   a flow instrument (3I4BaVrL) will later read as real dwell.
-
+1. **No verb corrects a claim.** `move ID <its current phase> --claim
+   X` answers `<id8> is already in <phase>` and drops the flag
+   silently. The repair was `move … do --claim dji1my` then `move …
+   check --pr 1295 --claim dji1my`, which writes two spurious
+   transitions a flow instrument (3I4BaVrL) will read as real dwell.
 2. **A no-op move silently discarding `--claim`/`--pr` is the wider
    bug.** The flags are accepted, the command exits 0, and nothing
-   says the write did not happen. Either a same-phase `move` should
-   apply its field flags (it already re-validates the item), or it
-   should refuse the flags rather than swallow them.
+   says the write did not happen.
 
-So the fix shape above holds, plus: whatever records a session on the
-handover must be settable WITHOUT a phase change, or the only repair
-path corrupts the transition history it is trying to keep honest.
+## Change
+
+Four changes, one guarantee: the session that built cannot be the
+session that judges, and the log proves it.
+
+1. **`verdict` takes `--session SESSION`.** `_work/gitboard.tl` adds
+   `{long = "session", arg = "SESSION", help = "the reviewing session"}`
+   to `verdict`'s flag list (the same flag `next` already declares at
+   line 101) and passes `d.parsed.values["session"] or ""` through.
+   `cmd_verdict`'s signature gains a trailing `session: string`.
+
+2. **`cmd_verdict` refuses the builder.** After the phase guard and
+   before the already-judged-head guard: when `session ~= ""` and
+   `session == (it.claim or "")`, return
+   `REFUSED: <id8> is <session>'s own build — no session accepts its own work`.
+   An empty `--session` is not refused; naming yourself is what is
+   checked, and the flag stays optional so an unattended repair is
+   still possible.
+
+3. **The verdict commit records the reviewer.** The subject becomes
+   `verdict <id8> <kind> (<from> -> <to>) by <session>` when a session
+   is named, and is unchanged when it is not. This is what makes the
+   distance a property the flow review can measure from the log it
+   already reads (item 3ICDP7Vn's whole ask).
+
+4. **`move … check` names its builder, and a same-phase move applies
+   its field flags.** In `_work/gitverbs.tl` `cmd_move`:
+   - beside the existing `target == "check"` gates: refuse when the
+     item would arrive unclaimed —
+     `(claim or "") == "" and (it.claim or "") == ""` —
+     with `REFUSED: a handover to check names its builder — pass --claim <session>`.
+     `--force` passes, as with every other gate.
+   - the `from == target` branch stops refusing outright: when
+     `--claim` or `--pr` is passed it applies them, validates, and
+     commits with the subject `set <id8> in <phase>`; with neither
+     flag it refuses exactly as today (`<id8> is already in <phase>`).
+     This is the repair path the evidence asked for — a claim settable
+     without a phase change, so correcting one stops writing spurious
+     transitions.
+
+5. **Tests.** `_work/gitverdict_test.tl` (88 lines) gains
+   `test_verdict_refuses_the_builder` and
+   `test_verdict_subject_names_the_reviewer`.
+   `_work/gitverbs_test.tl` (408 lines) gains
+   `test_check_handover_needs_a_claim` and
+   `test_same_phase_move_applies_its_flags`, the second asserting both
+   that the field lands and that the phase did not change.
+
+Measured at board head `46f3f43b`: `wc -l < _work/gitverdict.tl` is
+127, `wc -l < _work/gitboard.tl` is 296, `wc -l < _work/gitverbs.tl`
+is 464 — 36 under the 500-line cap, which the roughly 20 lines item 4
+adds fit inside.
+
+## Non-goals
+
+- `_work/action.tl` is not touched. Widening `reviewable` past the
+  single `claim` field is item 3IE6ttNh's slice; this one makes the
+  claim honest at the two points that write it, and the two slices
+  compose without either depending on the other.
+- `--session` stays OPTIONAL on `verdict`. Making it mandatory would
+  refuse every existing repair path and is a separate decision.
+- No change to the board's commit identity (`_work/store.tl`
+  GIT_DEFAULTS) — the reviewer rides in the subject, not the author.
+- No change to the `gitboard-verdict:` or `gitboard-move:` verdict
+  line formats.
+- The three verdict kinds, their target phases, and the `--enable`
+  requirement on a non-accept do not change.
+- `land` is not touched; gating the move into it is item 3ICDNqdv's.
+
+## Acceptance
+
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `bin/cosmic --make test _work/gitverdict_test.tl
+  _work/gitverbs_test.tl` ends `test: PASS`, including
+  `test_verdict_refuses_the_builder`,
+  `test_verdict_subject_names_the_reviewer`,
+  `test_check_handover_needs_a_claim` and
+  `test_same_phase_move_applies_its_flags`.
+- `o/bin/gitboard help verdict` lists `--session`.
+- `wc -l < _work/gitverdict.tl` ≤ 200, `wc -l < _work/gitboard.tl` ≤
+  320, `wc -l < _work/gitverbs.tl` ≤ 500.
+- `grep -c 'session' _work/gitverdict.tl` is at least 3 (it is 0
+  today).
+
+## Enablement
+
+none needed — `next` already declares the identical `--session` flag
+in `_work/gitboard.tl`, `cmd_verdict` already owns a stack of
+refusals in exactly this shape, and `gate.commit_and_publish` already
+takes the subject as a string. The wrong turn to predict is making
+`--session` mandatory on `verdict`, which would strand every item
+whose repair needs a verdict written without one; Non-goals states it
+and `_work/gitverdict_test.tl`'s existing cases, which pass no
+session, fail if it happens.
