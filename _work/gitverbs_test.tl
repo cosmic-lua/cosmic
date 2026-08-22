@@ -406,3 +406,48 @@ local function test_adoption_is_admitted_by_a_full_plan()
     "that one really does arrive")
 end
 test_adoption_is_admitted_by_a_full_plan()
+
+-- The claim is what `next` reads to withhold a verdict from the item's
+-- builder, so a handover naming nobody hands the diff to everyone.
+-- Rework is where this bites: a second session taking it over must say
+-- so, and correcting that must not need a phase round trip.
+local function test_check_handover_names_its_builder()
+  local s = init_state_repo("handover-claim")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 33, false, "") ~= 0,
+    "an unclaimed item cannot be handed over")
+  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
+  assert(verbs.cmd_move(s, leaf, "check", "session-a", 33, false, "") == 0,
+    "--claim names the builder and the handover goes through")
+  assert(check.must(store.load(s, leaf)).claim == "session-a", "recorded")
+end
+test_check_handover_names_its_builder()
+
+-- A same-phase move used to exit 0 having written nothing, so the only
+-- way to correct a claim was a leftward-then-rightward round trip that
+-- writes two transitions a flow instrument reads as real dwell.
+local function test_same_phase_move_applies_its_flags()
+  local s = init_state_repo("same-phase")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 44, false, "") == 0)
+
+  local before = commits(s)
+  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, false, "") == 0,
+    "a same-phase move with a field to set writes it")
+  local fixed = check.must(store.load(s, leaf))
+  assert(fixed.claim == "session-b", "the claim was corrected in place")
+  assert(fixed.phase == "check", "without a phase change")
+  assert(fixed.pr == 44, "and the PR it did not name is untouched")
+  assert(commits(s) == before + 1, "one mutation, one commit")
+
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
+    "with nothing to set it still refuses")
+  assert(commits(s) == before + 1, "and writes nothing")
+end
+test_same_phase_move_applies_its_flags()

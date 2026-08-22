@@ -312,9 +312,32 @@ local function cmd_move(s: store.Store, id: string, target: string,
         id:sub(1, 8), r))
   end
   local from = it.phase
+  -- A same-phase move used to refuse and SWALLOW its field flags, so
+  -- correcting a claim needed a leftward-then-rightward round trip —
+  -- two transitions a flow instrument later reads as real dwell. With
+  -- a field to set it now sets it; with none it still refuses.
   if from == target then
-    return gate.verdict_line("move", false,
-      ("%s is already in %s"):format(id:sub(1, 8), target))
+    if (claim or "") == "" and (pr or 0) == 0 then
+      return gate.verdict_line("move", false,
+        ("%s is already in %s"):format(id:sub(1, 8), target))
+    end
+    if (claim or "") ~= "" then
+      it.claim = claim
+    end
+    if (pr or 0) ~= 0 then
+      it.pr = pr
+    end
+    local wrong = item.problems(it)
+    if #wrong > 0 then
+      return gate.verdict_line("move", false, table.concat(wrong, "; "))
+    end
+    local set, serr = gate.commit_and_publish(s, it, nil,
+      ("set %s in %s"):format(id:sub(1, 8), target), from)
+    if not set then
+      return gate.verdict_line("move", false, serr)
+    end
+    return gate.verdict_line("move", true,
+      ("%s stays in %s"):format(id:sub(1, 8), target))
   end
   -- The bar is asked of the item AS IT WOULD BE in the target phase,
   -- so a repair move out of no-phase is judged on where it lands.
@@ -336,6 +359,16 @@ local function cmd_move(s: store.Store, id: string, target: string,
   if target == "check" and (pr or 0) == 0 and (it.pr or 0) == 0 and not force then
     return gate.verdict_line("move", false,
       ("REFUSED: a handover to check names its PR — pass --pr N"))
+  end
+  -- The claim is what `next` reads to withhold a verdict from the
+  -- item's builder, so a handover naming nobody hands the diff to
+  -- everyone, its builder included. Rework is where this bites: the
+  -- claim stays with the first builder by design, so a second session
+  -- taking the rework has to say so.
+  if target == "check" and (claim or "") == "" and (it.claim or "") == ""
+  and not force then
+    return gate.verdict_line("move", false,
+      "REFUSED: a handover to check names its builder — pass --claim <session>")
   end
   if target == "check" and not force then
     local refusal = gate.handover_refusal(s, id,

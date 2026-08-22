@@ -113,7 +113,9 @@ local CSPEC: flags.CommandSpec = {
           {long = "pr", arg = "N", help = "the PR the verdict judges"},
           {long = "head", arg = "SHA", help = "head commit it judges"},
           {long = "enable", arg = "VALUE",
-            help = "countermeasure a non-accept verdict files: ID or 'none: why'"}}}},
+            help = "countermeasure a non-accept verdict files: ID or 'none: why'"},
+          {long = "session", arg = "SESSION",
+            help = "the reviewing session; refused when it built the item"}}}},
     {name = "done", summary = "end ID, recording why",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "reason", arg = "REASON", default = "completed",
@@ -272,7 +274,7 @@ local function main(...: string): integer
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "",
-      d.parsed.values["enable"] or "")
+      d.parsed.values["enable"] or "", d.parsed.values["session"] or "")
   end
   if d.command == "land" then
     return land.cmd_land(s, id, d.parsed.switches["force"],
