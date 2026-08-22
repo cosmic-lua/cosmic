@@ -29,6 +29,22 @@ local function test_parse_connect_target()
 end
 test_parse_connect_target()
 
+-- A digit run no integer can hold reads as a float, so math.tointeger
+-- yields nil: the target must be refused rather than handed on as a
+-- nil port typed integer. Out-of-range ports go the same way.
+local function test_parse_connect_target_unrepresentable_port()
+  local huge = string.rep("9", 19)
+  assert(http.parse_connect_target("a.example.com:" .. huge) == nil,
+    "port too large for an integer rejected")
+  assert(http.parse_connect_target("a.example.com:70000") == nil,
+    "port above 65535 rejected")
+  assert(http.parse_connect_target("a.example.com:0") == nil,
+    "port 0 rejected")
+  local h, p = http.parse_connect_target("a.example.com:65535")
+  assert(h == "a.example.com" and p == 65535, "the top of the range still parses")
+end
+test_parse_connect_target_unrepresentable_port()
+
 local function test_parse_absolute_uri()
   local u = check.must(http.parse_absolute_uri("http://a.example.com/x/y"))
   assert(u.scheme == "http" and u.host == "a.example.com", "scheme + host")
@@ -44,6 +60,19 @@ local function test_parse_absolute_uri()
     "non-http scheme rejected")
 end
 test_parse_absolute_uri()
+
+local function test_parse_absolute_uri_unrepresentable_port()
+  local huge = string.rep("9", 19)
+  assert(http.parse_absolute_uri("http://a.example.com:" .. huge .. "/x") == nil,
+    "port too large for an integer rejected")
+  assert(http.parse_absolute_uri("http://a.example.com:70000/x") == nil,
+    "port above 65535 rejected")
+  assert(http.parse_absolute_uri("http://a.example.com:0/x") == nil,
+    "port 0 rejected")
+  local u = check.must(http.parse_absolute_uri("http://a.example.com:65535/x"))
+  assert(u.port == 65535, "the top of the range still parses")
+end
+test_parse_absolute_uri_unrepresentable_port()
 
 local function test_headers_and_content_length()
   local block = "GET / HTTP/1.1\r\nHost: a.example.com\r\n"
