@@ -438,13 +438,14 @@ test_the_child_timeout_scales_with_the_iteration_count()
 -- A shrink candidate reruns check on a SMALLER input, and a property
 -- can loop on one while the generated input failed ordinarily. The
 -- budget has to cover those reruns too, or minimizing a failure hangs
--- the suite. The reported detail stays the original failure's.
+-- the suite. The reported detail describes the MINIMIZED input, which
+-- here is the empty one that loops, so the budget is what is named.
 --
--- The seed is pinned because which branch of check the FIRST input
--- takes decides that detail: seed 1 draws a 5-byte input, which fails
--- ordinarily, and only the shorter shrink candidates loop. Left to the
--- ambient FUZZ_SEED the deep lane's rotating value draws a short first
--- input and the run reports the budget instead.
+-- The seed is pinned to hold the scenario itself: seed 1 draws a
+-- 5-byte first input, which fails ordinarily, and only the shorter
+-- shrink candidates loop. Left to the ambient FUZZ_SEED the deep
+-- lane's rotating value draws a short first input, which loops
+-- straight away and never exercises a looping candidate at all.
 local function test_a_shrink_candidate_that_loops_is_caught()
   assert(env.set("FUZZ_SEED", "1"))
   without_coverage(function()
@@ -463,9 +464,34 @@ local function test_a_shrink_candidate_that_loops_is_caught()
           end,
         })
       check.equal(ok, false, "the property must fail, not hang in shrink")
-      check.truthy(msg:find("too big", 1, true),
-        "the original failure's detail is reported: " .. msg)
+      check.truthy(msg:find("budget=100000 exceeded", 1, true),
+        "the reported detail describes the reported input: " .. msg)
     end)
   restore()
 end
 test_a_shrink_candidate_that_loops_is_caught()
+
+-- The reported input, detail and draw count are one artifact: a reader
+-- who replays the named input must see the named error. This property
+-- throws over 5 bytes but only returns false over 2, so the original
+-- iteration threw while the minimized input it reports does not.
+local function test_the_reported_detail_and_draws_describe_the_minimized_input()
+  local ok, msg = driver.run_unisolated({
+      name = "detail_probe",
+      iters = 1,
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, 256)
+      end,
+      check = function(input: string): boolean, string
+        if #input > 5 then
+          error("thrown_only_for_long_inputs")
+        end
+        return #input <= 2, "too long"
+      end,
+    })
+  check.equal(ok, false, "expected a failing run")
+  check.truthy(msg:find("too long", 1, true), "not the minimized detail: " .. msg)
+  check.equal(msg:find("threw:", 1, true), nil, "reported the throw: " .. msg)
+  check.truthy(msg:find("draws=4", 1, true), "not the consumed count: " .. msg)
+end
+test_the_reported_detail_and_draws_describe_the_minimized_input()
