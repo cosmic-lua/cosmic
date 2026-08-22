@@ -407,59 +407,57 @@ local function test_adoption_is_admitted_by_a_full_plan()
 end
 test_adoption_is_admitted_by_a_full_plan()
 
--- The claim moves; the record of who built does not. A return clears
--- the lease so the next session may pull, and `builders` keeps every
--- holder — which is what `next` consults to withhold a verdict from
--- whoever wrote the diff.
-local function test_claim_appends_a_builder_and_a_return_keeps_it()
-  local s = init_state_repo("builders")
+-- `land` is where the merge happens, and `gitboard land` performs it
+-- from the verdict and PR it reads back. An arrival carrying neither
+-- is an item `next` answers `finish` for and `land` refuses forever,
+-- so the arrival is what gets refused instead.
+local function test_move_into_land_needs_an_accept()
+  local s = init_state_repo("land-gate")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(check.must(store.load(s, leaf)).builders[1] == "session-a",
-    "the claiming session is recorded as a builder")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 77, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "an item with no verdict does not enter land")
+  assert(check.must(store.load(s, leaf)).phase == "check", "and does not move")
 
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  local returned = check.must(store.load(s, leaf))
-  assert(returned.claim == "", "the return drops the lease")
-  assert(#returned.builders == 1 and returned.builders[1] == "session-a",
-    "but not the record of who built")
+  -- A non-accept verdict is a decision too, and it is not this one.
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234",
+      "none: test") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "a request-changes verdict is not a standing accept")
 
-  assert(verbs.cmd_move(s, leaf, "do", "session-b", 0, false, "") == 0)
-  local both = check.must(store.load(s, leaf))
-  assert(#both.builders == 2 and both.builders[2] == "session-b",
-    "the second holder joins it: " .. table.concat(both.builders, ","))
-
-  -- A session reclaiming an item it already held is already in the
-  -- list, and the record carries no repeats.
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(#check.must(store.load(s, leaf)).builders == 2,
-    "a re-pull by an earlier holder adds no second entry")
+  -- `--force` is the repair path, here as at every other gate.
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, true,
+      "repairing a stuck item") == 0, "--force --why still passes")
 end
-test_claim_appends_a_builder_and_a_return_keeps_it()
+test_move_into_land_needs_an_accept()
 
--- A live claim is a lease held by one session. Taking it over is
--- legitimate and is never silent: without --force the overwrite is
--- refused, so authorship cannot transfer by accident.
-local function test_a_live_claim_needs_force_to_take_over()
-  local s = init_state_repo("takeover")
+-- Nothing cleared `verdict`/`verdict_head` except the next verdict, so
+-- an accepted item sent back for rework kept its accept and could
+-- re-enter land carrying it — merging a head nobody reviewed. Leftward
+-- motion out of a judged phase drops the judgment with it.
+local function test_return_out_of_land_clears_the_verdict()
+  local s = init_state_repo("land-return")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 55, false, "") ~= 0,
-    "moving a claimed item under another session's name is refused")
-  local held = check.must(store.load(s, leaf))
-  assert(held.claim == "session-a", "and the claim does not move")
-  assert(held.phase == "do", "nor does the item")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 88, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "") == 0)
+  local accepted = check.must(store.load(s, leaf))
+  assert(accepted.phase == "land" and accepted.verdict == "accept",
+    "the accept stands before the return")
 
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 55, true,
-      "session-a went quiet") == 0, "--force --why performs the takeover")
-  local taken = check.must(store.load(s, leaf))
-  assert(taken.claim == "session-b", "the lease moved")
-  assert(#taken.builders == 2, "and both holders are on the record: "
-    .. table.concat(taken.builders, ","))
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  local reworking = check.must(store.load(s, leaf))
+  assert(reworking.verdict == "", "the accept did not survive the return")
+  assert(reworking.verdict_head == "", "nor the head it judged")
+  assert(reworking.enable == "", "nor the countermeasure it filed")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "land", nil, 0, false, "") ~= 0,
+    "so reworked work cannot re-enter land on the old accept")
 end
-test_a_live_claim_needs_force_to_take_over()
+test_return_out_of_land_clears_the_verdict()

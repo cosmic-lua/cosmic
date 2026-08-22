@@ -344,11 +344,20 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
+  -- `land` holds work whose review is FINISHED, and the only action
+  -- there is the merge `gitboard land` performs from the verdict and
+  -- PR it reads back. An arrival carrying neither is an item `next`
+  -- answers `finish` for and `land` refuses, forever.
+  if target == "land" and not force then
+    local refusal = gate.land_refusal(it)
+    if refusal then
+      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
+    end
+  end
   -- A claim is a lease over work in progress. Taking over a live one
-  -- is a legitimate move — a session dies, another picks the item up —
-  -- but it is never SILENT: the takeover is what disqualifies the
-  -- earlier holder as reviewer, so it goes through --force --why and
-  -- into the log where a later session can read it.
+  -- is legitimate — a session dies, another picks the item up — but it
+  -- is never SILENT: the takeover disqualifies the earlier holder as
+  -- reviewer, so it goes through --force --why and into the log.
   if claim ~= nil and claim ~= "" and claim ~= it.claim
   and (it.claim or "") ~= "" and not force then
     return gate.verdict_line("move", false,
@@ -357,24 +366,22 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   if claim ~= nil and claim ~= "" then
     it.claim = claim
-    -- Appended, never replaced, and never cleared while the item is
-    -- open: the claim answers who holds it NOW, and this answers who
-    -- has built it, which is the question no-self-accept turns on. A
-    -- session that reclaims an item it already held is already in the
-    -- list, and the record carries no repeats.
-    local held = false
-    for _, name in ipairs(it.builders) do
-      held = held or name == claim
-    end
-    if not held then
-      it.builders[#it.builders + 1] = claim
-    end
+    item.record_builder(it, claim)
   end
   if pr ~= nil and pr ~= 0 then
     it.pr = pr
   end
   if flow.is_return(from, target) then
     it.claim = ""
+    -- A verdict describes one head in one phase. Moving leftward out
+    -- of a judged phase says that head is no longer what the item is,
+    -- so the judgment goes with it — otherwise rework re-enters land
+    -- on the old accept and merges what nobody reviewed.
+    if from == "check" or from == "land" then
+      it.verdict = ""
+      it.verdict_head = ""
+      it.enable = ""
+    end
   end
   local bad = item.problems(it)
   if #bad > 0 then

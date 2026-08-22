@@ -278,12 +278,31 @@ local function encode(it: Item): {string: any}
   return t
 end
 
+--- Record that `session` has held this item's claim.
+---
+--- The claim answers who holds the item NOW and moves with every
+--- return; `builders` answers who has BUILT it and never moves, which
+--- is the question the no-self-accept rule turns on. A session
+--- reclaiming an item it already held is already in the list, and the
+--- record carries no repeats — `problems` refuses one.
+--- @param it Item The item being claimed
+--- @param session string The claiming session
+local function record_builder(it: Item, session: string)
+  for _, name in ipairs(it.builders) do
+    if name == session then
+      return
+    end
+  end
+  it.builders[#it.builders + 1] = session
+end
+
 local record item
   type Item = Item
   PHASES: {string}
   is_open: function(it: Item): boolean
   is_root: function(it: Item): boolean
   problems: function(it: Item): {string}
+  record_builder: function(it: Item, session: string)
   decode: function(t: {string: any}): Item | nil, string
   encode: function(it: Item): {string: any}
 end
@@ -293,6 +312,7 @@ local M: item = {
   is_open = is_open,
   is_root = is_root,
   problems = problems,
+  record_builder = record_builder,
   decode = decode,
   encode = encode,
 }
