@@ -6,7 +6,9 @@ return {
   ["claim"] = "sched-bmbm6d",
   ["id"] = "3ICDHHW7UiksaaojXJyS6lMKdgp",
   ["parent"] = "3I1j7yQAawHLQwtQA1bp1i3tUj4",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1312,
   ["title"] = "fuzz: the failure message pairs the minimized input with the original run's detail and draw count",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "e47e04128d51556bb283c0522a8298cc7bf11862",
 }
