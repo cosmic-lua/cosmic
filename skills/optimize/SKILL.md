@@ -28,8 +28,8 @@ file in this directory so no chapter ever fights the repo's
   (whilp/cosmopolitan) with a local build, no release required.
 - `measurement.md` — measurement discipline and noise.
 - the hypothesis backlog — the work board (`skills/work/SKILL.md`):
-  one item per hypothesis, C-layer ones carrying
-  `--repo whilp/cosmopolitan`. see "the hypothesis backlog" below.
+  one item per hypothesis, C-layer ones naming whilp/cosmopolitan as
+  their landing repo. see "the hypothesis backlog" below.
 
 ## the harness in one minute
 
@@ -241,9 +241,11 @@ code. the workflow that has worked:
    artifact in a scratch directory and shell-time it — but label
    probe numbers as scouting in the issue; accept/reject decisions
    still require the real harness.
-6. one board capture per hypothesis (`gitboard new`, unparented, with
-   `--repo whilp/cosmopolitan` when the fix lands in the C layer),
-   each with the evidence, the expected mechanism, the correctness
+6. one board capture per hypothesis (`gitboard new`, unparented; when
+   the fix lands in the C layer, name whilp/cosmopolitan as the
+   landing repo IN THE SPEC — an unparented capture takes no `--repo`,
+   and the item's repo field is set once the item is worked), each
+   with the evidence, the expected mechanism, the correctness
    constraints, and a risk note. update related older items in the
    same pass (reference by item id rather than duplicate).
 
@@ -252,8 +254,10 @@ code. the workflow that has worked:
 the work board holds the log (`skills/work/SKILL.md` has the system;
 the board branch's own README has the tool) — one item per concrete,
 evidence-backed starting point, filed as an unparented capture:
-`gitboard new "<title>" --spec-file F`, with `--repo
-whilp/cosmopolitan` when the fix lands in the C layer. open =
+`gitboard new "<title>" --spec-file F`. a capture takes no `--repo`;
+when the fix lands in the C layer, the spec names whilp/cosmopolitan
+as the landing repo and the item's repo field is set once it is
+worked. open =
 unworked; ended completed = done; ended not planned = a rejected dead
 end (kept forever in the board's history, so the next agent doesn't
 re-test it). working one follows the work skill's loop — the board

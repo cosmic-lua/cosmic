@@ -96,8 +96,8 @@ COSMO=~/cosmopolitan   # your checkout
 
 3. **hypothesis, then the smallest C diff that tests it** — one
    hypothesis per commit, exactly like the cosmic layer. pick from the
-   board's open C-layer hypotheses (items carrying
-   `--repo whilp/cosmopolitan`) or find your own (below).
+   board's open C-layer hypotheses (items naming whilp/cosmopolitan
+   as their landing repo) or find your own (below).
 
 4. **gate 1 — correctness:**
 
