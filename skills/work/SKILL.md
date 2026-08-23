@@ -352,9 +352,9 @@ a brief that carries the spec — and those are `parallel.md`.
 
 - ALL work state lives in items on the `board` branch — never in
   GitHub labels, issue comments, notes docs, or TODO comments in the
-  product tree. (the `perf` label keeps its own hypothesis backlog
-  under the `optimize` skill; a board item may link to a perf issue,
-  never duplicate it.)
+  product tree. (perf hypotheses are board items too — the `optimize`
+  skill has their form; legacy `perf`-labeled issues are inbound
+  evidence a board item may link, never duplicate.)
 - board state moves and reads through `gitboard` only. when the tool
   LACKS a verb the session needs, work around it ONCE by editing the
   item file and committing — the file format is the contract — and

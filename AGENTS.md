@@ -426,7 +426,7 @@ scenario or its check to make numbers pass; never commit `o/perf/*.json`.
 the manual is split by chapter: `skills/optimize/finding.md` (spotting
 cosmic-layer wins), `skills/optimize/cosmopolitan.md` (the C layer against
 a local whilp/cosmopolitan build), `skills/optimize/measurement.md` (noise
-discipline). the backlog is GitHub issues labeled `perf`.
+discipline). the backlog is perf hypotheses on the work board.
 
 ## The flow of work
 
