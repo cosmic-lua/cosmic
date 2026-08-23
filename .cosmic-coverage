@@ -13,7 +13,6 @@ _work/gitgate.tl 107 124
 _work/gitgraph.tl 126 144
 _work/gitland.tl 0 24
 _work/gitshow.tl 89 123
-_work/gitstall.tl 56 63
 _work/gitverbs.tl 172 229
 _work/gitverdict.tl 74 92
 _work/gitview.tl 122 160
@@ -25,5 +24,5 @@ _work/ksuid.tl 68 75
 _work/priority.tl 119 126
 _work/review.tl 39 39
 _work/spec.tl 28 28
-_work/store.tl 171 202
+_work/store.tl 177 215
 cmd/gitboard/main.tl 0 2

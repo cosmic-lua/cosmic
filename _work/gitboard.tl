@@ -39,7 +39,6 @@ local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local graph = require("_work.gitgraph")
 local land = require("_work.gitland")
-local stall = require("_work.gitstall")
 local stat = require("_work.flowstat")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
@@ -56,7 +55,6 @@ local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["move"] = true, ["verdict"] = true, ["done"] = true,
   ["land"] = true, ["compare"] = true, ["uncompare"] = true,
-  ["stall"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -90,9 +88,6 @@ local CSPEC: flags.CommandSpec = {
             help = "what concretely cannot proceed until BLOCKER ends"}}}},
     {name = "unblock", summary = "drop BLOCKER from ID's blockers",
       spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
-    {name = "stall", summary = "record (or refresh) the standing stall "
-      .. "capture when next hands out nothing",
-      spec = {flags = {dir_flag()}}},
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag()}}},
     {name = "check", summary = "ready-bar and graph lint of ID",
@@ -190,9 +185,6 @@ local function main(...: string): integer
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
-  end
-  if d.command == "stall" then
-    return stall.cmd_stall(s)
   end
   if d.command == "find" then
     return view.cmd_find(s, d.parsed.args[1] or "")

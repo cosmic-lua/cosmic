@@ -85,8 +85,8 @@ local NOTES < const >: {string: {string}} = {
     "Nothing on the board is this session's to move, and the reason above names "
     .. "what is holding.",
     "Stopping here is the answer: work invented to fill the gap lengthens the "
-    .. "backlog without moving anything. The stall capture is what carries the "
-    .. "bottleneck to the next triage.",
+    .. "backlog without moving anything. Report the bottleneck this names and "
+    .. "stop.",
   },
 }
 

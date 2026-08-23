@@ -213,8 +213,8 @@ end
 
 --- The one next action, as the verdict detail. Acting on it moves
 --- the board, so a session taking several asks again after each one
---- rather than reading a list. A `none` carries the stall verb's
---- name: the diagnosis belongs on the board, not in this terminal.
+--- rather than reading a list. A `none` names the phase whose limit
+--- binds, which is the diagnosis a session reports.
 ---
 --- Under that line, indented, is what the kind MEANS
 --- (`_work.guidance`): the verb that performs it and the ordering
@@ -231,12 +231,8 @@ local function next_report(all: {item.Item}, session?: string,
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
   end
-  local hint = ""
-  if action.kind == "none" then
-    hint = " — record it on the board: `gitboard stall`"
-  end
   local out: {string} = {
-    ("%s%s — %s%s"):format(action.kind, target, action.reason, hint),
+    ("%s%s — %s"):format(action.kind, target, action.reason),
   }
   for _, line in ipairs(guide.lines(action.kind)) do
     out[#out + 1] = "  " .. line
