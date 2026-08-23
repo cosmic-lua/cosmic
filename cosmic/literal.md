@@ -52,15 +52,30 @@ local record Options
 end
 ```
 
+### FormatOptions
+
+ How `format` lays its output out. Both layouts admit exactly the
+ same values and refuse the same ones by the same key path; what
+ differs is the bytes and what they cost to produce.
+
+```teal
+local record FormatOptions
+  --  `"pin"`, the default, or `"compact"`.
+  layout: string
+end
+```
+
 ### LiteralModule
 
 ```teal
 local record LiteralModule
   parse: function(source: string, opts?: Options): {string: any} | nil, string
   parse_file: function(path: string, opts?: Options): {string: any} | nil, string
-  --  The format half: parse(format(v)) round-trips, a value outside the
-  --  domain is refused, output is a fmt fixpoint; see _literal_format.
-  format: function(value: any): string | nil, string
+  --  The format half: parse(format(v)) round-trips and a value outside
+  --  the domain is refused, in either layout — "pin" (the default) is a
+  --  fmt fixpoint, "compact" is the faster bulk form; see
+  --  _literal_format.
+  format: function(value: any, opts?: FormatOptions): string | nil, string
   format_file: function(path: string, value: any): boolean, string
 end
 ```
@@ -125,3 +140,32 @@ function parse_file(path: string, opts?: Options): {string: any} | nil, string
 
 - {string: - any}|nil The declared table
 - string - The error message when unreadable or not a literal
+
+### format
+
+```teal
+function format(value: any, opts?: FormatOptions): string | nil, string
+```
+
+ Serialize a value as a literal file's source.
+ The default `"pin"` layout is the one a committed file wants: one
+ entry per line, keys sorted and bracketed, and a `cosmic --check
+ fmt` fixpoint, so the file this writes is the file the formatting
+ gate accepts. `"compact"` is the bulk layout for data read back by
+ machine and never formatted: the same domain and the same
+ refusals, on one line, encoded in C — several times faster and
+ smaller, with no fixpoint promise. `"compact"` asks for smaller
+ output rather than promising it: the few values the C encoder
+ cannot spell as literals (a reserved word as a key,
+ `math.mininteger`) come back in the `"pin"` layout instead, so what
+ this returns is always something `parse` reads back.
+
+**Parameters:**
+
+- `value` (any) - The value to serialize
+- `opts` (FormatOptions?) - layout: "pin" (default) or "compact"
+
+**Returns:**
+
+- string - | nil The literal source, or nil when the value is outside the domain
+- string? - Error message on failure, naming the key path refused
