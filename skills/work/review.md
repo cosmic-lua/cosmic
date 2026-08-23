@@ -213,10 +213,9 @@ then decide by these rules, in order:
 2. **a limit earns a change only by BINDING**: sustained time at the
    limit plus refusals with real cost. a peak below the limit means
    leave the number alone and record a tripwire instead, in the
-   module doc comment at the top of `_work/flow.tl` — the comment
-   carries a single line about the limits' origin today, so a
-   tripwire is the first line it gains, not an addition to a list
-   that already exists.
+   `board` branch's `docs/flow-review.md` — a tripwire names the
+   condition that makes its phase worth measuring again, so the
+   phase stays unjudged until that condition fires.
 3. **an oversized queue is cut, not kept.** a phase that never binds
    while its pickup latency dwarfs touch time is aging inventory;
    shrink it until refinement runs closer to just-in-time.
@@ -226,11 +225,13 @@ then decide by these rules, in order:
    loss — so judge a tuning by the wasted-loop rate, not by merges
    per hour.
 
-record the outcome where the numbers live: the module doc comment at
-the top of `_work/flow.tl` does not yet carry a review's empirical
-basis or any tripwires, so a flow review's findings are the FIRST
-evidence appended there, establishing that block rather than
-extending one that already exists.
+record the outcome where the reasoning lives: the `board` branch's
+`docs/flow-review.md` carries what each limit was measured against,
+the reasoning that set it, and the tripwires that will re-open it,
+while `_work/flow.tl` keeps the numbers and a pointer at that file. a
+flow review REWRITES that document — it states the current
+measurement and the tripwires standing now, not an accumulating log
+of every review before it.
 
 ## the feedback half — never skip it
 
