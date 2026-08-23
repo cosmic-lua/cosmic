@@ -52,8 +52,9 @@ contested pair to the goal owner, ONE question at a time —
 
 — and commit the answer with `gitboard compare <winner> <loser>`.
 ask in CHAT, as prose the goal owner answers inline — never through a
-question tool or dialog widget. each pair gets lettered options
-(a. b. c. d.), and the question STANDS ALONE: say what each side is
+question tool or dialog widget. each pair gets its options as a plain
+lettered list — a. b. c. d., single letters, never composite labels
+like a1/a2 — and the question STANDS ALONE: say what each side is
 and what choosing it means, in plain words — a bare item id, a
 "the one from earlier", or any reference that needs scrollback to
 resolve is an opaque question, and an answer to an opaque question is
