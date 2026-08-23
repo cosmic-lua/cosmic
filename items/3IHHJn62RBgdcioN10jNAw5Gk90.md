@@ -100,3 +100,17 @@ if the hex lottery is still judged worth chasing, re-specify it as a
 cross-session re-measurement of codec_hex_roundtrip_64k on the current pins,
 mirroring what 3IHFD8b4 did for tar. The missing measurement rule that let both
 items be written this way is capture 3IJxKFgy.
+  2026-08-23T06:01:41+00:00 ecfe78d4 migrate: the 45 open plan items become backlog
+  2026-08-23T04:38:16+00:00 c28f31ab attach 3IHHJn62 under 3HyRcd9F
+  2026-08-22T16:01:44+00:00 99a9d943 new 3IHHJn62 cosmopolitan: land the rel-mode 32-byte branch padding — the layout lottery now costs hex (+34-38%) and tar (+8%)
+
+## Outcome (2026-08-23, prioritization review): not planned
+
+The premise is refuted in place: the padding-flag draft PR
+(cosmopolitan#263) measured the padded build ~14% SLOWER in a
+same-day re-test, and the original codec_hex regression vanished on
+byte-identical binaries hours later — host-state drift, not layout.
+Owner recommendation on cosmopolitan#262 stands: keep MODE=rel, do
+not ship the flag. Superseded by the cross-session measurement rule
+(board item 3IJxKFgy); do not re-test the flag without that rule
+landing first and a signal that reproduces under it.
