@@ -464,7 +464,7 @@ local function main(): integer, string
       msg = run.augment_module_errors(msg)
       return 1, "cosmic-lua: " .. msg
     end
-    local run_chunk = chunk as function(...: any): any ... -- cast: function shape
+    local run_chunk = chunk
     local args: {string} = {}
     for i, a in pairs(opts.script_args) do
       if i >= 1 then args[i] = a end
