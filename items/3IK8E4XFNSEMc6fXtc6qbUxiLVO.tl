@@ -1,0 +1,4 @@
+return {
+  ["id"] = "3IK8E4XFNSEMc6fXtc6qbUxiLVO",
+  ["title"] = "cosmo.DecodeLua: a C literal parser — literal.parse is 47-53x behind json.decode and pure Teal tops out at 3x",
+}
