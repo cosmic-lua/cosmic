@@ -212,8 +212,8 @@ end
 
 --- The one next action, as the verdict detail. Acting on it moves
 --- the board, so a session taking several asks again after each one
---- rather than reading a list. A `none` carries the stall verb's
---- name: the diagnosis belongs on the board, not in this terminal.
+--- rather than reading a list. A `none` names the phase whose limit
+--- binds, which is the diagnosis a session reports.
 --- @param all {item.Item} Every item
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
@@ -225,11 +225,7 @@ local function next_report(all: {item.Item}, session?: string,
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
   end
-  local hint = ""
-  if action.kind == "none" then
-    hint = " — record it on the board: `gitboard stall`"
-  end
-  return ("%s%s — %s%s"):format(action.kind, target, action.reason, hint)
+  return ("%s%s — %s"):format(action.kind, target, action.reason)
 end
 
 local function cmd_next(s: store.Store, session?: string): integer
