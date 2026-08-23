@@ -22,7 +22,7 @@
 --- through a `land` whose only remaining act is to notice that.
 --- Closed and unmerged: there is nothing to land and no step that
 --- could produce it, so the accept is refused rather than parked in
---- `land` where the merge is refused forever. A read that fails is
+--- `land`, which would refuse it forever. A read that fails is
 --- neither — the ordinary path carries on, so an outage cannot wedge
 --- reviews and `land` stays the backstop it already is.
 local flow = require("_work.flow")

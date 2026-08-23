@@ -27,7 +27,7 @@ transitions.
 | ready |          18m |   12 |                     12 | 2% |
 | do    |           6m |    3 |                      5 | 0 |
 | check |        2h38m |    6 |                     10 | 0 |
-| land  |          55s |    4 |                      3 | 11% |
+| land  |          55s |    4 |            3, now none | 11% |
 
 `plan` is the second confirmation its own tripwire asked for. It held
 49 against a limit of 12 at a 42 h median age, because no rung ever
@@ -39,8 +39,14 @@ what its name claims: a small committed queue fed by an explicit
 `promote`, with the unbounded `backlog` absorbing what triage places.
 `ready` is cut with it rather than alone, as that tripwire required.
 
-`do`, `check` and `land` are unchanged — their peaks never came near
-their numbers, so they stay unjudged rather than confirmed.
+`land` is unbounded. Its dwell median of 55 seconds is a step, not a
+state, and it is the rightmost phase: a limit there throttles arrivals
+into the last thing an item does, which is finishing. The peak of 4
+against a limit of 3 is what that cost — a number that binds and is
+then forced through.
+
+`do` and `check` are unchanged — their peaks never came near their
+numbers, so they stay unjudged rather than confirmed.
 
 ## Tripwires
 

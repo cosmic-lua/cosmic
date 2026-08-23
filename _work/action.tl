@@ -224,8 +224,8 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
     return {action = {
         kind = "finish",
         item = landing[1],
-        reason = ("land holds %d/%d — %s is accepted, awaiting merge"):format(
-          #landing, flow.LIMITS["land"], landing[1].id:sub(1, 8)),
+        reason = ("land holds %d — %s is accepted, awaiting merge"):format(
+          #landing, landing[1].id:sub(1, 8)),
       }, held = 0, mine = 0}
   end
   local judging, mine = reviewable(b, session, pos)

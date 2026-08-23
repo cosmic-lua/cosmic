@@ -13,9 +13,9 @@
 --- with age as the last word, not age alone.
 ---
 --- The board is open PHASED items; roots and containers are never on
---- it, so a limit has nothing to except and `admits_over_limit` is
---- two lines. The ready bar (`_work.spec.ready_gaps`) is applied to
---- the spec sidecar.
+--- it, so a limit has nothing to except and the one arrival it never
+--- holds back is a return. The ready bar (`_work.spec.ready_gaps`) is
+--- applied to the spec sidecar.
 ---
 --- A WIP limit is tuned by measurement over the board's own log, and
 --- retuning one is a reviewed change here. What each number was
@@ -43,6 +43,17 @@ local type Index = {string: Item}
 --- (is this real, and under what outcome) carry the expensive one's
 --- weight. Every reader treats a missing entry as "no limit" rather
 --- than defaulting a number, so unboundedness is stated once here.
+---
+--- `land` is unbounded for the opposite reason. It is the rightmost
+--- phase: an item there is accepted, its diff merged or about to be,
+--- and the only thing left is ending it. A WIP limit throttles
+--- ARRIVALS into a phase, so a number here would throttle FINISHING,
+--- which is backwards on a board whose ordering rule is that work
+--- flows right to left and finishing beats starting. Dwell there is a
+--- median of 55 seconds against `plan`'s hours — a step, not a state,
+--- and a limit on a phase nothing rests in can only refuse a
+--- legitimate accept, which is then forced through anyway.
+---
 --- Every number here is a measured one; `docs/flow-review.md` is the
 --- measurement it rests on.
 local LIMITS: {string: integer} = {
@@ -50,7 +61,6 @@ local LIMITS: {string: integer} = {
   ready = 5,
   ["do"] = 5,
   check = 10,
-  land = 3,
 }
 
 --- The depth past which draining triage outranks refining. Triage is
@@ -77,16 +87,6 @@ local function is_return(from: string, to: string): boolean
   local a = PHASE_INDEX[from]
   local b = PHASE_INDEX[to]
   return a ~= nil and b ~= nil and b < a
-end
-
---- Whether a full phase admits an arrival anyway: a return, and a
---- move into land — an accept is a decision already made. Everything
---- else queues.
---- @param from string Current phase name, or nil for an entry
---- @param to string Target phase name
---- @return boolean True when the target's WIP limit does not bind
-local function admits_over_limit(from: string, to: string): boolean
-  return to == "land" or is_return(from, to)
 end
 
 --- Whether a mutation adds an item to `to`: entries (nil `from`) and
@@ -173,8 +173,6 @@ end
 --- A phase reports at TWO thresholds, because the gate has two: an
 --- ordinary arrival is refused from `count == limit` upward, so a
 --- phase sitting exactly at its number is already turning work away.
---- `land` is excluded from the at-limit line alone — an accept is
---- admitted over the limit however full it is.
 --- @param b Board The board
 --- @return {string} Violations, left-to-right phase order
 local function wip_violations(b: Board): {string}
@@ -187,7 +185,7 @@ local function wip_violations(b: Board): {string}
     if limit ~= nil then
       if n > limit then
         out[#out + 1] = ("%s %d/%d over limit"):format(phase, n, limit)
-      elseif n == limit and not admits_over_limit("", phase) then
+      elseif n == limit then
         out[#out + 1] = ("%s %d/%d at limit — arrivals refused"):format(
           phase, n, limit)
       end
@@ -416,7 +414,6 @@ local record flow
   LIMITS: {string: integer}
   TRIAGE_LIMIT: integer
   is_return: function(from: string, to: string): boolean
-  admits_over_limit: function(from: string, to: string): boolean
   is_arrival: function(from: string, to: string): boolean
   by_id: function(items: {Item}): Index
   has_open_children: function(items: {Item}, id: string): boolean
@@ -443,7 +440,6 @@ local M: flow = {
   LIMITS = LIMITS,
   TRIAGE_LIMIT = TRIAGE_LIMIT,
   is_return = is_return,
-  admits_over_limit = admits_over_limit,
   is_arrival = is_arrival,
   by_id = by_id,
   has_open_children = has_open_children,
