@@ -54,8 +54,7 @@ local function attach(db_any: any)
     if not ok then
       return false, err or "begin failed"
     end
-    -- cast: pcall variadic returns
-    local success, verdict, why = pcall(fn, self) as (boolean, any, any)
+    local success, verdict, why = pcall(fn, self)
     if not success then
       local _ok, _err = self:exec("ROLLBACK")
       return false, (verdict as string) or "transaction failed" -- cast: from any
@@ -96,8 +95,7 @@ local function attach(db_any: any)
     if not ok then
       return false, err or "savepoint failed"
     end
-    -- cast: pcall multi-return shape
-    local success, verdict, why = pcall(fn, self) as (boolean, any, any)
+    local success, verdict, why = pcall(fn, self)
     if not success then
       local _ok, _err = self:exec("ROLLBACK TO " .. name)
       local _ok2, _err2 = self:exec("RELEASE " .. name)

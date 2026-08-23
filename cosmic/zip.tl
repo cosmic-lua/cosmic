@@ -186,7 +186,7 @@ local function make_archive(mode: Mode, raw: RawHandles): Archive
       -- a <close> scope cannot propagate a value, so the error is
       -- necessarily dropped here; callers who care call close() directly
       __close = function(self: Archive) local _ok, _err = self:close() end
-    }) as Archive -- cast: table seeded as record
+    })
 end
 
 --- The binding's options record for a public OpenOptions.

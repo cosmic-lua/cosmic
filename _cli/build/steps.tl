@@ -268,7 +268,7 @@ local function do_exec(args: {string}): integer
   -- resolves inside it, so the staging links a build makes keep
   -- working.
   local root_named = fs.absolute_path(env.get_or("COSMIC_EXEC_ROOT", "o"))
-  local root = (fs.resolve(root_named) or root_named) as string -- cast: scalar fallback
+  local root = fs.resolve(root_named) or root_named
   local named = fs.absolute_path(program)
   -- Falling back to the lexical path when realpath fails keeps the
   -- ROOT check first, so a bare `sh` still reports "never PATH" rather

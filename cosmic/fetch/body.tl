@@ -140,7 +140,7 @@ local function make_body(raw_reader: cosmo.StreamReader): Body
 
   return setmetatable(body, {
       __close = function(self: Body) local _ok, _err = self:close() end
-    }) as Body -- cast: table seeded as record
+    })
 end
 
 local record BodyModule

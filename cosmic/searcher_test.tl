@@ -81,10 +81,10 @@ test_a_compile_error_fails_the_require()
 -- install() is idempotent: the embed wrapper installs it before an app
 -- entry that may itself be the dispatcher, which installs it too.
 local function test_install_is_idempotent()
-  local before = #(package.searchers as {any}) -- cast: package.searchers is untyped
+  local before = #package.searchers
   searcher.install()
   searcher.install()
-  local after = #(package.searchers as {any}) -- cast: package.searchers is untyped
+  local after = #package.searchers
   assert(after <= before + 1,
     "install() must add at most one searcher, went " .. before .. " -> " .. after)
 end

@@ -84,7 +84,7 @@ local Addr_mt: metatable < Addr > = {
     is_loopback = addr_is_loopback,
     is_private = addr_is_private,
     is_public = addr_is_public,
-  } as Addr, -- cast: __index method table as record
+  },
   __tostring = function(self: Addr): string
     return cosmo.FormatIp(self._n)
   end,
@@ -94,7 +94,7 @@ local Addr_mt: metatable < Addr > = {
 }
 
 local function make_addr(n: integer): Addr
-  return setmetatable({_n = n} as Addr, Addr_mt) -- cast: partial table into record
+  return setmetatable({_n = n}, Addr_mt)
 end
 
 --- Wrap a raw integer as a typed Addr.
@@ -229,7 +229,7 @@ local Cidr_mt: metatable < Cidr > = {
     size = cidr_size,
     contains = cidr_contains,
     format = cidr_format,
-  } as Cidr, -- cast: __index method table as record
+  },
   __tostring = cidr_format,
   __eq = function(a: Cidr, b: Cidr): boolean
     return a._n == b._n and a._bits == b._bits
@@ -237,8 +237,7 @@ local Cidr_mt: metatable < Cidr > = {
 }
 
 local function make_cidr(n: integer, bits: integer): Cidr
-  -- cast: partial table into record
-  return setmetatable({_n = n, _bits = bits} as Cidr, Cidr_mt)
+  return setmetatable({_n = n, _bits = bits}, Cidr_mt)
 end
 
 --- Parse an IPv4 CIDR block ("addr/prefix", e.g. "192.168.0.0/16").

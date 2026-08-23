@@ -177,7 +177,7 @@ function stream.new_reader(data: string): stream.Reader
       return chunk
     end,
   }
-  return reader as stream.Reader -- cast: table implements the Reader interface
+  return reader
 end
 
 --- Collect writes in memory: the Writer half of new_reader. write()
@@ -196,7 +196,7 @@ function stream.new_buffer(): stream.Buffer
       return table.concat(parts)
     end,
   }
-  return buf as stream.Buffer -- cast: table implements the Buffer record
+  return buf
 end
 
 --- Line iteration over a DelimReader: one C-buffered read_until("\n")

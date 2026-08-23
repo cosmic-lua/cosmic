@@ -115,7 +115,7 @@ local function chunked_reader(chunks: {string}): stream.Reader
       return chunks[at]
     end,
   }
-  return reader as stream.Reader -- cast: table implements the Reader interface
+  return reader
 end
 
 --- What draining an EventStream produced.

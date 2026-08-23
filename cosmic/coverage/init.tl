@@ -37,7 +37,7 @@ local type CCov = require("cosmo.cov")
 --- binding never executes one.
 --- @return CCov | nil The C collector, or nil on a runtime without one
 local function find_ccov(): CCov
-  local preload = package.preload as {string: any} -- cast: untyped stdlib table
+  local preload = package.preload
   if preload["cosmo.cov"] == nil then
     return nil
   end

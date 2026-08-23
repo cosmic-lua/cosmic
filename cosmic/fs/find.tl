@@ -292,7 +292,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
   -- The iterator IS the resource handle: closing it — by draining, by
   -- `iter:close()`, by leaving a `<close>` scope, or by collection —
   -- runs the same close_all. __gc stays the backstop it always was.
-  local iter = setmetatable({} as FileIter, { -- cast: table seeded as record
+  local iter = setmetatable({}, {
       __call = step,
       __close = close_all,
       __gc = close_all,
