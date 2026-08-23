@@ -13,50 +13,46 @@
 --- with age as the last word, not age alone.
 ---
 --- The board is open PHASED items; roots and containers are never on
---- it, so the label board's carve-outs (the epic exemption, the
---- finding exception, the mandated flag) have nothing to except. What
---- remains of `admits_over_limit` is two lines. The ready bar
---- (`_work.spec.ready_gaps`) is applied to the spec sidecar.
---- WIP limits carry the label board's empirically tuned values;
---- retuning them is a reviewed change here too.
+--- it, so a limit has nothing to except and `admits_over_limit` is
+--- two lines. The ready bar (`_work.spec.ready_gaps`) is applied to
+--- the spec sidecar. Retuning a WIP limit is a reviewed change here.
 ---
---- Their empirical basis, measured over the board branch's full
---- history to 2026-08-20 (70.4 h, 382 commits over `items/`, 279
---- transitions, 99 items, 62 ended), by the stint walk `review.md`
---- describes:
+--- Their empirical basis, measured over the board branch's history to
+--- 2026-08-23 (162 items, 91 ended, 326 transitions) by the stint
+--- walk `review.md` describes:
 ---
----   phase  stints  dwell median  peak  limit  at-or-over
----   plan       62       275 min    21     12   66.3 h (94%)
----   ready      43       235 min    12     12    1.6 h (2%)
----   do         38         6 min     3      5    0
----   check      29       168 min     6     10    0
----   land       33        13 min     4      3    8.0 h (11%)
+---   phase  dwell median  peak  old limit  at-or-over
+---   plan        3h39m      49         12   near-continuous
+---   ready         18m      12         12   2%
+---   do             6m       3          5   0
+---   check       2h38m       6         10   0
+---   land          55s       4          3   11%
 ---
---- `do` and `check` never came near their numbers, so those two are
---- unjudged rather than confirmed; `land`'s peak is above its limit
---- only because an accept is admitted over it, which is not a signal.
---- The tripwires, each a reason to measure again rather than a rule:
+--- `plan` is the second confirmation its own tripwire asked for. It
+--- held 49 against a limit of 12 at a 42 h median age, because no
+--- rung ever consulted that number: adoption from triage entered
+--- `plan` ungated, so the limit throttled only decomposition — the
+--- deliberate intake — while the reactive channel ran unbounded.
+--- Draining triage WAS filling plan, at 13.5 attaches a day against 9
+--- refinements out. So `plan` is now what its name claims: a small
+--- committed queue fed by an explicit `promote`, with the unbounded
+--- `backlog` absorbing what triage places. `ready` is cut with it
+--- rather than alone, as that tripwire required.
 ---
----   plan   binds almost continuously and holds 992 of the 1155
----          phased item-hours. Pickup latency out of `ready` runs
----          173 min against a 6 min `do`, so most of that depth is
----          inventory aging, not work in flight. While it binds,
----          intake is closed — `action.next_action` decomposes a root
----          only with room in `plan` — so the highest-placed roots go
----          undecomposed for as long as a stalled chain holds the
----          depth, whatever they outrank. That starvation is the cost
----          of this number, not a separate fault: if a review confirms
----          it a second time, this queue is cut, not kept.
----   ready  never binds while holding the same aging; cut with plan
----          rather than alone, since refinement fills it.
----   do     revisit if peak reaches 5 with a mix of claims, which
----          would mean concurrent sessions rather than the one worker
----          measured here. Five slots all held by OTHER sessions is
----          not a limit signal — it is the stalled-claim state
----          `action.next_action` reports.
----   check  revisit if peak reaches 10 with a mix of claims. Reaching
----          10 all from ONE session is not a limit signal — it is the
----          handover stall `action.next_action` reports.
+--- `do`, `check` and `land` are unchanged — their peaks never came
+--- near their numbers, so they stay unjudged rather than confirmed.
+--- The surviving tripwires, each a reason to measure again:
+---
+---   plan   revisit if `promote` is refused twice in one session with
+---          `ready` not full: the committed queue binding against
+---          refinement capacity rather than against inventory.
+---   ready  revisit with plan; refinement fills it, so the two move
+---          together or the buffer starves the phase behind it.
+---   do     revisit if peak reaches 5 with a MIX of claims: that is
+---          concurrent sessions, where all-other-sessions is the
+---          stalled-claim state `action.next_action` reports.
+---   check  revisit if peak reaches 10 with a mix of claims; all from
+---          ONE session is the handover stall, not a limit signal.
 ---
 --- What a role should DO with all this is `_work.action`: the rules and
 --- the policy that consults them are separate modules, so growing one
@@ -73,20 +69,24 @@ local type Board = {string: {Item}}
 --- Items indexed by id.
 local type Index = {string: Item}
 
+--- The WIP limit each phase holds, by name. A phase ABSENT from this
+--- table is unbounded, which is what `backlog` is: it is the queue
+--- intake writes into, and a bound there would make the cheap decision
+--- (is this real, and under what outcome) carry the expensive one's
+--- weight. Every reader treats a missing entry as "no limit" rather
+--- than defaulting a number, so unboundedness is stated once here.
 local LIMITS: {string: integer} = {
-  plan = 12,
-  ready = 12,
+  plan = 4,
+  ready = 5,
   ["do"] = 5,
   check = 10,
   land = 3,
 }
 
---- The triage queue is not a phase and holds no WIP slot, but an
---- unbounded one starves: captured evidence is the only channel by
---- which an implementer reports friction, and a queue nobody drains
---- makes that channel write-only. This is the depth past which draining it
---- outranks refining. A first value, tuned by the flow review the
---- same way `LIMITS` is.
+--- The depth past which draining triage outranks refining. Triage is
+--- not a phase and holds no WIP slot, but an undrained one makes the
+--- only channel an implementer reports friction through write-only.
+--- Tuned by the flow review the same way `LIMITS` is.
 local TRIAGE_LIMIT < const > = 8
 
 --- The most parent hops a trace walks before calling the chain
@@ -109,10 +109,9 @@ local function is_return(from: string, to: string): boolean
   return a ~= nil and b ~= nil and b < a
 end
 
---- Whether a full phase admits an arrival anyway. With only workable
---- leaves on the board, two admissions remain: a return, and a move
---- into land — an accept is a decision already made. Everything else
---- queues.
+--- Whether a full phase admits an arrival anyway: a return, and a
+--- move into land — an accept is a decision already made. Everything
+--- else queues.
 --- @param from string Current phase name, or nil for an entry
 --- @param to string Target phase name
 --- @return boolean True when the target's WIP limit does not bind
@@ -121,8 +120,8 @@ local function admits_over_limit(from: string, to: string): boolean
 end
 
 --- Whether a mutation adds an item to `to`: entries (nil `from`) and
---- cross-phase moves arrive; a write that leaves the item where it
---- stands (`from == to`) does not.
+--- cross-phase moves arrive; a write leaving the item where it stands
+--- does not.
 --- @param from string Phase the mutation left; equal to `it.phase` for
 ---   a write that moves nothing, nil for an entry
 --- @param to string Target phase
@@ -156,8 +155,8 @@ local function has_open_children(items: {Item}, id: string): boolean
 end
 
 --- The role an item's graph position gives it. A root with children
---- and a parented one with children are the same thing — something
---- being decomposed — so nothing distinguishes them here.
+--- and a parented one with children are both something being
+--- decomposed, so nothing distinguishes them here.
 --- @param i Item The item
 --- @param items {Item} All items
 --- @return string "container" | "root" | "work"
@@ -188,7 +187,7 @@ end
 
 --- Items of one phase in queue order: priority first, age last.
 --- Positions arrive from the caller rather than being derived here,
---- so rendering five phases derives the order once. Returns a new
+--- so rendering every phase derives the order once. Returns a new
 --- sorted copy.
 --- @param b Board The board
 --- @param phase string Phase name
@@ -201,36 +200,37 @@ end
 
 --- WIP-limit violations, one line each ("do 6/5 over limit").
 ---
---- A phase reports at TWO thresholds, because the gate has two. An
---- ordinary arrival is refused from `count == limit` upward
---- (`gitgate.wip_refusal` admits below the limit, not at it), so a
---- phase sitting exactly at its number is already turning work away —
---- and reporting only `count > limit` printed `WIP ok` over a board
---- that could not accept another item. `land` is excluded from the
---- at-limit line alone: an accept is admitted over the limit however
---- full it is, so `land` at its number refuses nothing.
+--- A phase reports at TWO thresholds, because the gate has two: an
+--- ordinary arrival is refused from `count == limit` upward, so a
+--- phase sitting exactly at its number is already turning work away.
+--- `land` is excluded from the at-limit line alone — an accept is
+--- admitted over the limit however full it is.
 --- @param b Board The board
 --- @return {string} Violations, left-to-right phase order
 local function wip_violations(b: Board): {string}
   local out: {string} = {}
   for _, phase in ipairs(it.PHASES) do
     local n = #(b[phase] or {})
-    if n > LIMITS[phase] then
-      out[#out + 1] = ("%s %d/%d over limit"):format(phase, n, LIMITS[phase])
-    elseif n == LIMITS[phase] and not admits_over_limit("", phase) then
-      out[#out + 1] = ("%s %d/%d at limit — arrivals refused"):format(
-        phase, n, LIMITS[phase])
+    -- An unbounded phase (`backlog`) refuses nothing, so it has no
+    -- violation to report; `status` still renders its depth.
+    local limit = LIMITS[phase]
+    if limit ~= nil then
+      if n > limit then
+        out[#out + 1] = ("%s %d/%d over limit"):format(phase, n, limit)
+      elseif n == limit and not admits_over_limit("", phase) then
+        out[#out + 1] = ("%s %d/%d at limit — arrivals refused"):format(
+          phase, n, limit)
+      end
     end
   end
   return out
 end
 
 --- Whether one recorded blocker edge still holds its item up. A
---- blocker id with no item behind it does not block — the board
---- reasons about state it holds — and neither does one whose item has
---- ended. Every reader of a `blocked_by` edge asks THIS, so a mark, a
---- skipped pull and a rendered heading cannot disagree about what
---- "blocked" means.
+--- blocker id with no item behind it does not block, and neither does
+--- one whose item has ended. Every reader of a `blocked_by` edge asks
+--- THIS, so a mark, a skipped pull and a rendered heading cannot
+--- disagree about what "blocked" means.
 --- @param index Index Items by id
 --- @param id string The blocker's id
 --- @return boolean True when that blocker is an open item
@@ -333,7 +333,7 @@ local function item_problems(i: Item, items: {Item}, index: Index,
   if (i.phase or "") == "" then
     if not it.is_root(i) and not has_open_children(items, i.id) then
       out[#out + 1] = ("%s: a workable leaf with no phase — it is off the "
-        .. "board without being finished; move it into plan or end it")
+        .. "board without being finished; move it into backlog or end it")
       :format(i.id)
     end
     return out

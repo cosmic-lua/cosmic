@@ -56,7 +56,10 @@ end
 
 local function test_status_counts_phases_and_names_graph_problems()
   local lines, verdict = view.status_report(board_items())
-  assert(has(lines, "^do     1/5$"), table.concat(lines, "\n"))
+  assert(has(lines, "^do      1/5$"), table.concat(lines, "\n"))
+  assert(has(lines, "^backlog 0$"),
+    "an unbounded phase renders its depth alone: "
+    .. table.concat(lines, "\n"))
   assert(has(lines, "@session%-a"), "the claim shows")
   assert(has(lines, "pr:42"), "so does the PR")
   assert(has(lines, "graph: " .. LIMBO .. ":"),

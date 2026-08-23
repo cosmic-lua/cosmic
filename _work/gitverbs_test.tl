@@ -26,12 +26,15 @@ local commits = fixture.commits
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
 
--- The same decomposition, losing a race: the whole mutation is
--- refused, so the parent must still be on the board. A de-phase that
--- survived its refused child is a parent that silently left the board
--- and rides along on the next push.
-local function test_a_refused_decomposition_leaves_the_parent_phased()
-  local a, b = init_shared("refuse")
+-- Decomposition writes into the unbounded `backlog`, so no WIP limit
+-- can refuse it however deep the board is — that is what separating
+-- placement from commitment buys, and it is what keeps a stalled
+-- refinement queue from starving the highest-placed roots. Filed here
+-- against a clone that moved first, so the guarantee is checked at the
+-- MERGED state: the post-rebase revalidation has to reach the same
+-- verdict the up-front gate did.
+local function test_a_decomposition_is_never_refused_by_a_full_board()
+  local a, b = init_shared("decompose")
   local goal, leaf = root_with_leaf(a)
   local last_filler = ""
   for i = 1, 9 do
@@ -39,10 +42,7 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
   end
   -- The parent-to-be stands in `ready`, so the slot its de-phase frees
   -- is not the one its child fills: this decomposition really does add
-  -- to plan, and plan's limit binds it. The leaf is a container now,
-  -- and plan holds the other 8 children. The other clone fills plan
-  -- past the limit before this one files a tenth, so the tenth loses
-  -- the race at the merged state, not locally.
+  -- to the column it arrives in.
   assert(verbs.cmd_move(a, last_filler, "ready", "", 0, true,
       "test fixture") == 0)
   assert(store.sync(b))
@@ -52,17 +52,17 @@ local function test_a_refused_decomposition_leaves_the_parent_phased()
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "ready", "the parent-to-be starts on the board")
-  assert(graph.cmd_new(a, "the refused child", phased.id, nil, "", false, "") ~= 0,
-    "filing under a full plan must be refused after the rebase")
+  assert(graph.cmd_new(a, "the child", phased.id, nil, "", false, "") == 0,
+    "filing under a deep board is admitted after the rebase")
   local after = check.must(store.load(a, phased.id))
-  assert(after.phase == "ready",
-    "a refused filing leaves its parent on the board: " .. after.phase)
+  assert(after.phase == "",
+    "and its parent is de-phased into a container: " .. after.phase)
   local r = check.must(child.run({"git", "status", "--porcelain"},
       {cwd = a.root}))
   assert((r.stdout:gsub("%s+$", "")) == "",
-    "the refusal leaves no stray change: " .. r.stdout)
+    "the mutation leaves no stray change: " .. r.stdout)
 end
-test_a_refused_decomposition_leaves_the_parent_phased()
+test_a_decomposition_is_never_refused_by_a_full_board()
 
 -- The ready bar judges the item being promoted. Another item's broken
 -- chain is board health, reported by `status`, never a refusal of a
@@ -90,13 +90,15 @@ local function test_the_ready_bar_still_refuses_a_hollow_spec()
   local _, leaf = root_with_leaf(s)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") ~= 0,
     "no spec, no ready")
-  assert(check.must(store.load(s, leaf)).phase == "plan", "it stayed put")
+  assert(check.must(store.load(s, leaf)).phase == "backlog", "it stayed put")
 end
 test_the_ready_bar_still_refuses_a_hollow_spec()
 
--- Closing the last child hands the board back to the container: the
--- planner verifies the outcome the children were meant to deliver.
-local function test_done_returns_a_finished_container_to_plan()
+-- Closing the last child hands the board back to the container, in
+-- `backlog`: verifying the outcome the children were meant to deliver
+-- is queued and placed like any other work, and a bounded target could
+-- refuse the very commit that closes the child.
+local function test_done_returns_a_finished_container_to_backlog()
   local s = init_state_repo("return")
   local _, leaf = root_with_leaf(s)
   local kid = file_item(s, "only child", leaf, false)
@@ -104,14 +106,14 @@ local function test_done_returns_a_finished_container_to_plan()
   local before = commits(s)
   assert(verbs.cmd_done(s, kid, "completed", false, "") == 0)
   assert(commits(s) == before + 1, "the close and the return are one commit")
-  assert(check.must(store.load(s, leaf)).phase == "plan",
-    "its last child closed, so the container returns to plan")
+  assert(check.must(store.load(s, leaf)).phase == "backlog",
+    "its last child closed, so the container returns to backlog")
   local all = check.must(store.list(s))
   assert(#flow.graph_problems(all) == 0,
     "and nothing is left off the board: "
     .. table.concat(flow.graph_problems(all), "; "))
 end
-test_done_returns_a_finished_container_to_plan()
+test_done_returns_a_finished_container_to_backlog()
 
 -- A container with children left open stays off the board.
 local function test_done_leaves_a_still_decomposing_container_alone()
@@ -206,7 +208,8 @@ local function test_force_states_its_reason_and_the_log_keeps_it()
   local _, leaf = root_with_leaf(s)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true, "") ~= 0,
     "a bare --force is refused")
-  assert(check.must(store.load(s, leaf)).phase == "plan", "and changes nothing")
+  assert(check.must(store.load(s, leaf)).phase == "backlog",
+    "and changes nothing")
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true,
       "repairing a spec the importer mangled") == 0)
   local events = check.must(store.history(s, leaf))
@@ -238,30 +241,41 @@ local function occupancy(s: store.Store, phase: string): integer
   return #(flow.board(check.must(store.list(s)))[phase] or {})
 end
 
--- Fill plan to its limit under `goal`, returning the leaves filed.
-local function fill_plan(s: store.Store, goal: string): {string}
+-- Move `count` leaves under `goal` into plan, returning their ids.
+-- Filing alone no longer reaches plan — an item is placed into
+-- `backlog` and promoted from there — so filling the committed queue
+-- takes the promotion each item would get from `next`.
+local function fill_plan(s: store.Store, goal: string,
+    count: integer): {string}
   local out: {string} = {}
-  while occupancy(s, "plan") < flow.LIMITS["plan"] do
-    out[#out + 1] = file_item(s, ("filler %d"):format(#out + 1), goal, false)
+  for i = 1, count do
+    local id = file_item(s, ("filler %d"):format(i), goal, false)
+    assert(verbs.cmd_move(s, id, "plan", nil, 0, false, "") == 0,
+      "the committed queue has room for filler " .. tostring(i))
+    out[#out + 1] = id
   end
   return out
 end
 
--- A parent in a DIFFERENT phase frees a slot somewhere else, which is
--- no help to the phase being entered.
-local function test_a_parent_in_another_phase_earns_no_credit()
+-- Placement is not commitment, so a full `plan` refuses nothing at
+-- intake: the filing lands in `backlog` and waits to be promoted. The
+-- up-front gate's half of what the race test checks after a rebase.
+local function test_a_full_plan_does_not_refuse_a_filing()
   local s = init_state_repo("elsewhere")
   local goal, leaf = root_with_leaf(s)
   give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  local _filled = fill_plan(s, goal)
-  local before = occupancy(s, "plan")
+  local _filled = fill_plan(s, goal, flow.LIMITS["plan"])
+  assert(occupancy(s, "plan") == flow.LIMITS["plan"], "plan is full")
+  local before = occupancy(s, "backlog")
   assert(graph.cmd_new(s, "a child of a ready parent", leaf, nil, "",
-      false, "") ~= 0,
-    "the freed slot is ready's, and the child arrives into plan")
-  assert(occupancy(s, "plan") == before, "and nothing was written")
+      false, "") == 0,
+    "a full plan does not refuse intake: the child enters backlog")
+  assert(occupancy(s, "backlog") == before + 1, "and it was written")
+  assert(occupancy(s, "plan") == flow.LIMITS["plan"], "plan is untouched")
 end
-test_a_parent_in_another_phase_earns_no_credit()
+test_a_full_plan_does_not_refuse_a_filing()
 
 -- `land` is where the merge happens, and `gitboard land` performs it
 -- from the verdict and PR it reads back. An arrival carrying neither

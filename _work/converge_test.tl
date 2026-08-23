@@ -1,28 +1,23 @@
 #!/usr/bin/env cosmic
 -- Whether the ordering CONVERGES: not what it answers for one board,
 -- which `action_test.tl` pins case by case, but what happens when a
--- session does what it says and asks again, over and over, from boards
--- nobody wrote by hand.
+-- session does what it says and asks again, from boards nobody wrote
+-- by hand.
 --
--- Two properties, and they are different claims. SAFETY: every action
--- the ordering names is one the verbs would carry out — no move the
--- WIP gate refuses, no verdict on the asking session's own work, no
--- promotion or pull of something an open blocker holds. LIVENESS: a
--- board that holds only finishable work drains to nothing, so the
--- ordering never gives up while work it could hand out remains.
+-- Two different claims. SAFETY: every action the ordering names is
+-- one the verbs would carry out — no move the WIP gate refuses, no
+-- verdict on the asker's own work, no promotion or pull of something
+-- an open blocker holds. LIVENESS: a board holding only finishable
+-- work drains to nothing. Safety without liveness refuses everything;
+-- liveness without safety is the livelock this file keeps out, where
+-- `next` names a move, the gate rejects it, and the answer repeats.
 --
--- Safety without liveness is a tool that refuses everything; liveness
--- without safety is the livelock this file exists to keep out, where
--- `next` names a move, the gate rejects it, the board does not move,
--- and the same answer comes back forever.
---
--- The driver here applies an action the way the verbs do and through
--- the same gate they call (`gitgate.wip_refusal`, `dephased_container`,
--- `rephased_parent`), so the refusal these tests assert against is the
--- real one. What it does NOT carry is the git plumbing: a mutation is
--- a table write rather than a commit, which is what lets a walk run
--- hundreds of steps in a test. `gitverbs_test.tl` is where the
--- plumbing itself is proved.
+-- The driver applies an action the way the verbs do and through the
+-- same gate they call (`gitgate.wip_refusal`, `dephased_container`,
+-- `rephased_parent`), so the refusal asserted here is the real one.
+-- It carries no git plumbing: a mutation is a table write, not a
+-- commit, which lets a walk run hundreds of steps.
+-- `gitverbs_test.tl` proves the plumbing.
 
 local check = require("cosmic.check")
 local act = require("_work.action")
@@ -65,7 +60,7 @@ end
 
 --- The next value in 1..n.
 --- @param r Rng The generator
---- @param n integer The exclusive upper bound, at least 1
+--- @param n integer The upper bound, at least 1
 --- @return integer A value in 1..n
 local function roll(r: Rng, n: integer): integer
   r.state = (r.state * 48271) % 2147483647
@@ -73,9 +68,8 @@ local function roll(r: Rng, n: integer): integer
 end
 
 --- The board's whole observable state, so a step that changed nothing
---- is visible as a repeat rather than as a walk that runs its budget
---- out. Item order is creation order and never changes, so
---- concatenating in list order is already stable.
+--- reads as a repeat rather than a walk running out its budget. Item
+--- order is creation order, so list order is already stable.
 --- @param items {Item} All items
 --- @return string The signature
 local function signature(items: {Item}): string
@@ -88,9 +82,9 @@ local function signature(items: {Item}): string
 end
 
 --- The refusal a phase move earns from the REAL gate, or nil when the
---- verbs would carry it out. Every move the driver makes goes through
---- here, which is what makes "the ordering never names a refused move"
---- a claim about the shipped gate rather than about a copy of it.
+--- verbs would carry it out. Every driver move goes through here, so
+--- "the ordering never names a refused move" is a claim about the
+--- shipped gate rather than a copy of it.
 --- @param items {Item} All items
 --- @param from string The phase left, nil for an entry
 --- @param to string The phase entered
@@ -99,9 +93,9 @@ local function refusal(items: {Item}, from: string, to: string): string | nil
   return gate.wip_refusal(flow.board(items), from, to)
 end
 
---- Carry out one action the way the verbs do, mutating `items`.
---- Returns what went wrong, so a caller asserts on nil rather than
---- discovering a silent no-op several steps later.
+--- Carry out one action the way the verbs do, mutating `items`, and
+--- return what went wrong so a caller asserts on nil rather than
+--- finding a silent no-op several steps later.
 --- @param items {Item} All items, appended to by intake
 --- @param a act.Action The action to carry out
 --- @param session string The acting session
@@ -157,6 +151,23 @@ local function apply(items: {Item}, a: act.Action, session: string,
     it.phase = "ready"
     return nil
   end
+  if a.kind == "promote" then
+    local no = refusal(items, "backlog", "plan")
+    if no then
+      return no
+    end
+    it.phase = "plan"
+    return nil
+  end
+  if a.kind == "sweep" then
+    -- The rung offers promote-or-close; the walk closes, since
+    -- promotion is the rung above and a sweep that promoted would
+    -- never end an item nobody has chosen.
+    it.phase = ""
+    it.resolution = "not-planned"
+    gate.rephased_parent(it, items)
+    return nil
+  end
   if a.kind == "triage" then
     -- Adoption under a placed root, which is the branch of triage that
     -- keeps an item alive; `attach` is not WIP-gated, so neither is
@@ -167,25 +178,22 @@ local function apply(items: {Item}, a: act.Action, session: string,
       return nil
     end
     it.parent = placed[1].id
-    it.phase = "plan"
+    it.phase = "backlog"
     gate.dephased_container(placed[1])
     return nil
   end
   if a.kind == "intake" then
-    local no = refusal(items, nil, "plan")
-    if no then
-      return no
-    end
-    local born = make({parent = it.id, title = "slice", phase = "plan"})
+    -- Decomposition writes into the unbounded backlog, so nothing
+    -- refuses it.
+    local born = make({parent = it.id, title = "slice", phase = "backlog"})
     items[#items + 1] = born
     gate.dephased_container(it)
     return nil
   end
   if a.kind == "unblock" then
-    -- The walk resolves the starvation the way a session's `unblock`
-    -- does after judging the recorded reasons: the edges waiting on
-    -- the named chain root are dropped. The verb is not WIP-gated, so
-    -- neither is this.
+    -- The walk resolves starvation the way a session's `unblock` does
+    -- after judging the recorded reasons: edges waiting on the named
+    -- chain root are dropped. The verb is not WIP-gated, nor is this.
     for _, i in ipairs(items) do
       local kept: {string} = {}
       for _, b in ipairs(i.blocked_by or {}) do
@@ -201,14 +209,13 @@ local function apply(items: {Item}, a: act.Action, session: string,
 end
 
 --- A board nobody wrote by hand: three roots chained by comparisons so
---- every one of them is placed, leaves scattered across the phases
---- within their limits, a few blocker edges and a few foreign claims,
---- and a couple of unplaced captures for the triage queue to hold.
---- Some claims are the asking session's own, because a phase full of
---- work the asker may not judge is a STARTING state rather than one a
---- walk arrives at: the ordering finishes a `do` item into `check`
---- before pulling another, so `do` empties as `check` fills and a walk
---- never holds both at once.
+--- every one is placed, leaves scattered across the phases within
+--- their limits, a few blocker edges and foreign claims, and a couple
+--- of unplaced captures for the triage queue. Some claims are the
+--- asking session's own, because a phase full of work the asker may
+--- not judge is a STARTING state rather than one a walk arrives at:
+--- the ordering finishes a `do` item into `check` before pulling
+--- another, so a walk never holds both full at once.
 --- @param r Rng The generator
 --- @param leaves integer How many workable leaves to scatter
 --- @param session string The session the walk will ask as
@@ -227,12 +234,15 @@ local function generate(r: Rng, leaves: integer, session: string): {Item}
   for _ = 1, leaves do
     local parent = roots[roll(r, #roots)]
     local phase = item.PHASES[roll(r, #item.PHASES)]
-    -- Generate a LEGAL board: the walk has to start inside the limits
-    -- or the first assertion is about this function, not the ordering.
-    if #(flow.board(items)[phase] or {}) >= flow.LIMITS[phase] then
-      phase = "plan"
+    -- Generate a LEGAL board, or the first assertion is about this
+    -- function and not the ordering. An unbounded phase always takes
+    -- one more, so overflow spills into `backlog`.
+    local limit = flow.LIMITS[phase]
+    if limit ~= nil and #(flow.board(items)[phase] or {}) >= limit then
+      phase = "backlog"
     end
-    if #(flow.board(items)[phase] or {}) < flow.LIMITS[phase] then
+    local room = flow.LIMITS[phase]
+    if room == nil or #(flow.board(items)[phase] or {}) < room then
       local over: {string: any} = {parent = parent.id, phase = phase}
       if phase == "do" or phase == "check" then
         local who = roll(r, 4)
@@ -263,11 +273,11 @@ local function generate(r: Rng, leaves: integer, session: string): {Item}
   return items
 end
 
---- The two ordinary STARTING moves, and whether either is open to this
---- session: an unblocked, unheld `ready` item with room for it in `do`
---- and room for its handover in `check`, or an unblocked `plan` item
---- with room in `ready`. Answering `none` while one of these stands is
---- the ordering giving up on work it could have handed out.
+--- The ordinary STARTING moves open to this session: an unblocked,
+--- unheld `ready` item with room in `do` and `check`, an unblocked
+--- `plan` item with room in `ready`, or an unblocked `backlog` item
+--- with room in `plan`. Answering `none` while one stands is the
+--- ordering giving up on work it could have handed out.
 --- @param items {Item} All items
 --- @param session string The asking session
 --- @return string | nil What was open, nil when neither was
@@ -290,14 +300,20 @@ local function starting_work(items: {Item}, session: string): string | nil
       end
     end
   end
+  if #(b["plan"] or {}) < flow.LIMITS["plan"] then
+    for _, i in ipairs(b["backlog"] or {}) do
+      if not flow.is_blocked(i, index) then
+        return ("backlog item %s was promotable"):format(i.id:sub(1, 8))
+      end
+    end
+  end
   return nil
 end
 
 -- SAFETY. Over boards nobody wrote by hand, every action the ordering
 -- names is one the verbs would carry out, and carrying it out moves
--- the board. The second half is what rules out the livelock: an action
--- that leaves the board where it stands is an answer that will come
--- back identical next time it is asked.
+-- the board. That second half rules out the livelock: an action
+-- leaving the board where it stands comes back identical.
 local function test_no_walk_ever_names_a_move_the_gate_refuses()
   for seed = 1, 40 do
     local r = rng(seed)
@@ -351,10 +367,8 @@ test_no_walk_ever_names_a_move_the_gate_refuses()
 --- A claim has no expiry, so work a session PULLED and did not hand
 --- over is actionable by that name alone, and draining needs it back.
 --- Rework is not in that set — a non-accept verdict makes the item
---- anyone's, which is what `test_a_rework_is_offered_to_any_session`
---- pins — so this resumes a builder only for work still in progress.
---- The narrower this has to be, the less the walk assumes about the
---- sessions and the more of the drain the ORDERING is doing.
+--- anyone's — so this resumes a builder only for work in progress.
+--- The narrower this is, the more of the drain the ORDERING is doing.
 --- @param items {Item} All items
 --- @param wake integer The next fresh wake number
 --- @return string The session that acts
@@ -369,13 +383,12 @@ local function actor(items: {Item}, wake: integer): string
   return ("wake-%d"):format(wake)
 end
 
--- SAFETY, the solo case. One session for the whole walk is the state
--- the two halves of the claim rule meet in: it builds into `check`,
--- may not judge its own work, and so cannot drain the phase it is
--- filling. Once `check` is full every handover into it is refused, and
--- an ordering that still named one would repeat that answer forever.
--- The rotating walk above cannot reach this — its wakes review each
--- other's work and keep `check` moving.
+-- SAFETY, the solo case. One session for the whole walk is where the
+-- claim rule's two halves meet: it builds into `check`, may not judge
+-- its own work, and so cannot drain the phase it fills. Once `check`
+-- is full every handover is refused, and an ordering that still named
+-- one would repeat it forever. The rotating walk cannot reach this —
+-- its wakes review each other and keep `check` moving.
 local function test_a_solo_session_never_names_an_answer_it_cannot_act_on()
   for seed = 1, 25 do
     local r = rng(seed + 900)
@@ -404,14 +417,10 @@ test_a_solo_session_never_names_an_answer_it_cannot_act_on()
 
 -- LIVENESS. A board whose work is all finishable drains to nothing.
 -- The second root is CLOSED: it places the first through the
--- comparison without being an open root of its own, which would draw
--- an intake before the subtree under the first had finished.
---
--- A wake here ends only when it holds nothing in `do`, which is the
--- slice loop the skill describes — pull, build, hand over — rather
--- than an arbitrary cut. Rotating mid-slice would strand the claim and
--- prove nothing about the ORDERING, only that the claim gap is real,
--- which `_work.flow` already records.
+-- comparison without being an open root itself, which would draw an
+-- intake before the first's subtree had finished. A wake ends only
+-- when it holds nothing in `do` — the slice loop, pull, build, hand
+-- over — since rotating mid-slice would strand the claim.
 local function test_a_finishable_board_drains_to_nothing()
   for seed = 1, 12 do
     local r = rng(seed + 500)
@@ -463,10 +472,9 @@ test_a_finishable_board_drains_to_nothing()
 
 -- Rework is anyone's. A `request changes` verdict returns the item to
 -- `do` and leaves the claim naming who built it, so the claim alone
--- would make the rework actionable by one session and strand it — with
--- everything blocked on it — the moment that session stopped waking.
--- The claim still routes the next VERDICT away from the builder, which
--- is why the reason tells whoever takes it over to move the claim.
+-- would strand the rework — with everything blocked on it — the moment
+-- that session stopped waking. The claim still routes the next VERDICT
+-- away from the builder, which is why the reason says to move it.
 local function test_a_rework_is_offered_to_any_session()
   local root = make({})
   local reworking = make({parent = root.id, phase = "do", claim = "session-A",
