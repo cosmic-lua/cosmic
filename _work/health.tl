@@ -43,6 +43,29 @@ local function is_stale(i: Item, ages: Ages): boolean
   return (i.claim or "") ~= "" and age ~= nil and age > LEASE_S
 end
 
+--- Seconds a placed, uncommitted item sits untouched before it reads
+--- as rotten. A `backlog` entry is a record of known work, not a
+--- commitment, so depth alone is no reason to close one — but an item
+--- nothing has touched for a week is one nobody chose across every
+--- promotion in that window, and the board should ask whether it is
+--- still real rather than carry it silently forever. Long against the
+--- claim lease because the two measure opposite things: a stale claim
+--- is a lock nobody released, a rotten backlog entry is a decision
+--- nobody made.
+local ROT_S < const > = 7 * 24 * 60 * 60
+
+--- Whether an unclaimed item has sat untouched past the rot horizon.
+--- Claimed items are excluded: a claim that outlives its lease is
+--- `is_stale`'s report, and one signal per item keeps the two repairs
+--- (take it over, decide whether to keep it) from naming each other.
+--- @param i Item The item
+--- @param ages Ages Seconds since last board commit, by id
+--- @return boolean True for an unclaimed item older than the horizon
+local function is_rotten(i: Item, ages: Ages): boolean
+  local age = ages[i.id]
+  return (i.claim or "") == "" and age ~= nil and age > ROT_S
+end
+
 --- An item's age in whole hours, for rendering.
 --- @param i Item The item
 --- @param ages Ages Seconds since last board commit, by id
@@ -138,7 +161,9 @@ end
 local record health
   type Ages = Ages
   LEASE_S: integer
+  ROT_S: integer
   is_stale: function(i: Item, ages: Ages): boolean
+  is_rotten: function(i: Item, ages: Ages): boolean
   stale_hours: function(i: Item, ages: Ages): integer
   blocker_cycle_problems: function(items: {Item}): {string}
   chain_root: function(index: flow.Index, i: Item): Item
@@ -148,7 +173,9 @@ end
 
 local M: health = {
   LEASE_S = LEASE_S,
+  ROT_S = ROT_S,
   is_stale = is_stale,
+  is_rotten = is_rotten,
   stale_hours = stale_hours,
   blocker_cycle_problems = blocker_cycle_problems,
   chain_root = chain_root,

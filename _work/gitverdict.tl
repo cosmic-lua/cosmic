@@ -33,11 +33,15 @@ local review = require("_work.review")
 local store = require("_work.store")
 
 --- The phase each verdict sends an item to: the three directions out
---- of check.
+--- of check. A reject lands in `backlog` rather than `plan` — the
+--- work is still placed and still real, but the commitment that
+--- carried it into `plan` was spent on a spec the review turned down,
+--- so re-committing to it is a decision to take again against
+--- everything else in the queue.
 local VERDICT_MOVES: {string: string} = {
   ["accept"] = "land",
   ["request changes"] = "do",
-  ["reject"] = "plan",
+  ["reject"] = "backlog",
 }
 
 --- Whether an `--enable` value is one of the two shapes a filed

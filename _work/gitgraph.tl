@@ -39,7 +39,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     if parent_item == nil then
       return gate.verdict_line("new", false, ("no item %s"):format(parent))
     end
-    phase = "plan"
+    phase = "backlog"
   end
   local it: item.Item = {
     id = ksuid.new(), title = title, parent = parent, repo = repo or "",
@@ -81,7 +81,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   end
   local entered = "triage — attach it under something, or compare it"
   if phase ~= "" then
-    entered = "plan"
+    entered = "backlog"
   end
   return gate.verdict_line("new", true, ("%s enters %s"):format(it.id, entered))
 end
@@ -117,12 +117,15 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
     cur = index[cur.parent or ""]
   end
   it.parent = parent
-  -- Adoption makes a leaf workable: it enters plan, ungated — triage
-  -- is a decision already made, the same admission the label board
-  -- gave findings.
+  -- Adoption makes a leaf workable: it enters `backlog`, ungated.
+  -- Triage answers one cheap question — is this real, and under which
+  -- outcome — and placing an item is not committing to refine it.
+  -- The expensive question is the promotion into `plan`, which is
+  -- WIP-gated; fusing the two is what let a triage drain deposit a
+  -- batch of commitments nobody had sized.
   if item.is_open(it) and (it.phase or "") == ""
   and not flow.has_open_children(all, id) then
-    it.phase = "plan"
+    it.phase = "backlog"
   end
   local bad = item.problems(it)
   if #bad > 0 then
@@ -136,7 +139,7 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
   end
   return gate.verdict_line("attach", true,
     ("%s now under %s%s"):format(id:sub(1, 8), parent:sub(1, 8),
-      (it.phase ~= "" and " — workable, in plan") or ""))
+      (it.phase ~= "" and " — workable, in backlog") or ""))
 end
 
 --- block/unblock: the `blocked_by` field as a verb, so the landing

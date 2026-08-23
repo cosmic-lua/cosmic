@@ -6,12 +6,13 @@
 --- There is ONE worker and one ordering. Work flows right to left —
 --- whatever is closest to completion moves first, because finishing
 --- beats starting — so an accepted PR is merged before a verdict is
---- written, a verdict before work is finished, finishing before
---- pulling, and only then does anything new enter: drain a triage
---- queue past its bound, refine toward the bar while `ready` has
---- somewhere to put the result, triage what is left, and take in new
---- work last. An inbox nobody empties is a channel that only takes,
---- which is why the bound jumps its queue ahead of refinement.
+--- written, a verdict before work is finished, and finishing before
+--- pulling. Only then does anything new enter, and those rungs are
+--- `_work.intake`: a triage drain past its bound, refinement of what
+--- is already committed, promotion of the next thing, a sweep of what
+--- has rotted, the triage remainder, and decomposition last. An inbox
+--- nobody empties is a channel that only takes, which is why the
+--- bound jumps its queue ahead of refinement.
 ---
 --- Doing SEVERAL actions is running this again after each one. The
 --- board moved, so the answer may have moved with it: nothing here
@@ -44,23 +45,15 @@
 --- session that names nothing: it has nobody to collide with and no
 --- distance to keep, and sees every claim rendered in the reason
 --- instead.
+local decision = require("_work.decision")
 local flow = require("_work.flow")
 local health = require("_work.health")
+local intake = require("_work.intake")
 local item = require("_work.item")
 local prio = require("_work.priority")
 
 local type Item = item.Item
-
---- One decided action: what to do, to what, and under which rule.
-local record Action
-  --- "review" | "refine" | "triage" | "intake" | "finish" | "pull"
-  --- | "unblock" | "none"
-  kind: string
-  --- The item the action targets; nil for intake-with-no-root and none.
-  item: Item
-  --- The rule that chose this action, stated for the human/agent.
-  reason: string
-end
+local type Action = decision.Action
 
 --- Whether an item carries a standing verdict that sent it BACK. A
 --- `request changes` verdict returns the item to `do` and leaves the
@@ -294,99 +287,6 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
   return {held = held, mine = mine}
 end
 
---- The intake half: drain a triage queue past its bound, refine
---- toward the bar while `ready` has room, triage what remains, then
---- decompose the highest-placed root nothing drives.
---- @param items {Item} All items
---- @param b flow.Board The board
---- @param index flow.Index Items by id
---- @param pos {string: prio.Position} Position by item id
---- @return Action | nil The decision
-local function intake_action(items: {Item}, b: flow.Board, index: flow.Index,
-    pos: {string: prio.Position}): Action | nil
-  local triage = flow.untriaged(items)
-  if #triage > flow.TRIAGE_LIMIT then
-    return {
-      kind = "triage",
-      item = triage[1],
-      reason = ("%d item(s) awaiting triage, over the bound of %d — "
-        .. "draining outranks refining"):format(#triage, flow.TRIAGE_LIMIT),
-    }
-  end
-  -- Refine the highest-placed plan item NOTHING open blocks. `pull`
-  -- skips a blocked ready item, so refining one promotes work the
-  -- other end of the ordering will not take: it consumes a ready slot
-  -- and waits there for a blocker that a promotion cannot advance.
-  -- With every plan item blocked there is no refinement worth doing,
-  -- and the ordering falls through to triage and intake.
-  local refining: Item = nil
-  local waiting = 0
-  for _, i in ipairs(flow.queued(b, "plan", pos)) do
-    if flow.is_blocked(i, index) then
-      waiting = waiting + 1
-    elseif refining == nil then
-      refining = i
-    end
-  end
-  if refining ~= nil and #(b["ready"] or {}) < flow.LIMITS["ready"] then
-    local held_up = ""
-    if waiting > 0 then
-      held_up = (", %d blocked and skipped"):format(waiting)
-    end
-    -- Say when the chosen item was picked for what it RELEASES rather
-    -- than for its own standing: the lift and the leverage tiebreak
-    -- both order `plan`, and an ordering a session cannot see reads as
-    -- the wrong item being handed out.
-    local _band, _own, frees = prio.order_of(pos, refining.id)
-    local releases = ""
-    if frees > 0 then
-      releases = (" — it unblocks %d open item(s)"):format(frees)
-    end
-    return {
-      kind = "refine",
-      item = refining,
-      reason = ("ready holds %d/%d — refine a plan item toward the bar%s%s")
-      :format(#(b["ready"] or {}), flow.LIMITS["ready"], held_up, releases),
-    }
-  end
-  if #triage > 0 then
-    return {
-      kind = "triage",
-      item = triage[1],
-      reason = ("%d item(s) await triage — attach it under something "
-        .. "placed, compare it, or close it"):format(#triage),
-    }
-  end
-  -- Counted whole, blocked items included. A stalled chain filling
-  -- `plan` does close intake, and the roots it starves stay
-  -- undecomposed however highly they rank — but `new --parent` is
-  -- refused from `plan == limit` upward, so counting anything less
-  -- here would name an intake the verb rejects. The remedy for that
-  -- starvation is a smaller `plan` limit or an unblocked chain, both
-  -- decisions above this function; see the tripwires in `_work.flow`.
-  if #(b["plan"] or {}) < flow.LIMITS["plan"] then
-    local ordered, live = flow.roots(items)
-    for _, g in ipairs(ordered) do
-      if not live[g.id] then
-        return {
-          kind = "intake",
-          item = g,
-          reason = ("%s has no live work — decompose it"):format(
-            g.id:sub(1, 8)),
-        }
-      end
-    end
-    -- Only worth saying when there ARE placed roots: with none, "every
-    -- open root has live work" is vacuously true and tells a session
-    -- nothing about why it has been handed no work.
-    if #ordered > 0 then
-      return {kind = "intake", reason = "every open root has live work — "
-        .. "work backwards from the highest-placed one with slack"}
-    end
-  end
-  return nil
-end
-
 --- The one action to take now, right to left. Ages are optional the
 --- way the session is: a caller without git in reach (the pure tests)
 --- omits them, and the lease and starvation reporting stand down
@@ -416,7 +316,7 @@ local function next_action(items: {Item}, session?: string,
   if root ~= nil then
     return {kind = "unblock", item = root, reason = starving}
   end
-  local taking = intake_action(items, b, index, pos)
+  local taking = intake.intake_action(items, b, index, pos, aged)
   if taking then
     return taking
   end
@@ -454,8 +354,9 @@ local function next_action(items: {Item}, session?: string,
   end
   return {
     kind = "none",
-    reason = "plan and ready are at limit with nothing to check — "
-    .. "implementation has to catch up before planning adds more",
+    reason = "plan and ready are at limit, backlog holds nothing "
+    .. "promotable, and there is nothing to check — implementation has "
+    .. "to catch up before intake adds more",
   }
 end
 

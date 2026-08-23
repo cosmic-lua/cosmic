@@ -22,8 +22,10 @@ local function test_verdict_judges_only_what_is_in_check()
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "none: test") ~= 0,
-    "a plan item has not been reviewed")
-  assert(check.must(store.load(s, leaf)).phase == "plan", "and did not move")
+    "a backlog item has not been reviewed")
+  assert(check.must(store.load(s, leaf)).phase == "backlog",
+    "and did not move")
+  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
   assert(vrd.cmd_verdict(s, leaf, "accept", 7, "abc1234", "none: test") ~= 0,

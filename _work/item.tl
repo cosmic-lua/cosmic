@@ -75,7 +75,7 @@ local record Item
   resolution: string
 end
 
-local PHASES: {string} = {"plan", "ready", "do", "check", "land"}
+local PHASES: {string} = {"backlog", "plan", "ready", "do", "check", "land"}
 
 local PHASE_SET: {string: boolean} = {}
 for _, p in ipairs(PHASES) do

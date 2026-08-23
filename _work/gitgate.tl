@@ -234,9 +234,12 @@ end
 --- decomposition de-phases its parent, and nothing restored the phase
 --- when the decomposition finished — so the parent sat open, workable
 --- and unphased, invisible to `status` and `next` while still making
---- its goal look driven. It comes back to `plan`, which is where the
---- planner verifies the outcome the children were supposed to deliver
---- and ends it.
+--- its goal look driven. It comes back to `backlog`, where verifying
+--- the outcome the children were supposed to deliver is queued and
+--- placed like any other work. `backlog` and not `plan` because this
+--- re-phase rides on the commit that CLOSES the last child: a bounded
+--- target could refuse that mutation, and a `done` that cannot land
+--- because the parent has nowhere to go is the drain refusing itself.
 --- @param it item.Item The item being closed
 --- @param all {item.Item} Every item, as loaded before the close
 --- @return {item.Item} The re-phased parent, or empty
@@ -253,7 +256,7 @@ local function rephased_parent(it: item.Item, all: {item.Item}): {item.Item}
       return {}
     end
   end
-  parent.phase = "plan"
+  parent.phase = "backlog"
   return {parent}
 end
 

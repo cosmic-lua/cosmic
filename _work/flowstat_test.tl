@@ -197,7 +197,9 @@ local function test_report_prints_every_phase_and_one_counts_line()
   for i, phase in ipairs(item.PHASES) do
     assert(lines[i]:sub(1, #phase) == phase, lines[i])
   end
-  assert(lines[3]:find("dwell n=1 median 30m p90 30m", 1, true) ~= nil, lines[3])
+  -- `do` is the fourth phase left to right, and the only one this log
+  -- records a stint in.
+  assert(lines[4]:find("dwell n=1 median 30m p90 30m", 1, true) ~= nil, lines[4])
   assert(lines[1]:find("dwell n=0", 1, true) ~= nil,
     "a phase nothing dwelt in still prints: " .. lines[1])
   local counted = lines[#lines]

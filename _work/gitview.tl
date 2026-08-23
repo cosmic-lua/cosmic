@@ -63,8 +63,14 @@ local function status_report(all: {item.Item},
   local pos = prio.positions(all)
   local out: {string} = {}
   for _, phase in ipairs(item.PHASES) do
-    out[#out + 1] = ("%-6s %d/%d"):format(phase, #(b[phase] or {}),
-      flow.LIMITS[phase])
+    -- An unbounded phase renders its depth alone: "backlog 37" rather
+    -- than a ratio against a limit it does not have.
+    local limit = flow.LIMITS[phase]
+    if limit == nil then
+      out[#out + 1] = ("%-7s %d"):format(phase, #(b[phase] or {}))
+    else
+      out[#out + 1] = ("%-7s %d/%d"):format(phase, #(b[phase] or {}), limit)
+    end
     for _, i in ipairs(flow.queued(b, phase, pos)) do
       local marks = ""
       if i.claim ~= "" then marks = marks .. " @" .. i.claim end

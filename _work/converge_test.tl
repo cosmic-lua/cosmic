@@ -157,6 +157,24 @@ local function apply(items: {Item}, a: act.Action, session: string,
     it.phase = "ready"
     return nil
   end
+  if a.kind == "promote" then
+    local no = refusal(items, "backlog", "plan")
+    if no then
+      return no
+    end
+    it.phase = "plan"
+    return nil
+  end
+  if a.kind == "sweep" then
+    -- The rung offers promote-or-close; the walk closes, because
+    -- promotion is already the rung above and a sweep that promoted
+    -- would leave the ordering with nothing that ends an item nobody
+    -- has chosen.
+    it.phase = ""
+    it.resolution = "not-planned"
+    gate.rephased_parent(it, items)
+    return nil
+  end
   if a.kind == "triage" then
     -- Adoption under a placed root, which is the branch of triage that
     -- keeps an item alive; `attach` is not WIP-gated, so neither is
@@ -167,16 +185,14 @@ local function apply(items: {Item}, a: act.Action, session: string,
       return nil
     end
     it.parent = placed[1].id
-    it.phase = "plan"
+    it.phase = "backlog"
     gate.dephased_container(placed[1])
     return nil
   end
   if a.kind == "intake" then
-    local no = refusal(items, nil, "plan")
-    if no then
-      return no
-    end
-    local born = make({parent = it.id, title = "slice", phase = "plan"})
+    -- Decomposition writes into the unbounded backlog, so nothing
+    -- refuses it.
+    local born = make({parent = it.id, title = "slice", phase = "backlog"})
     items[#items + 1] = born
     gate.dephased_container(it)
     return nil
@@ -229,10 +245,14 @@ local function generate(r: Rng, leaves: integer, session: string): {Item}
     local phase = item.PHASES[roll(r, #item.PHASES)]
     -- Generate a LEGAL board: the walk has to start inside the limits
     -- or the first assertion is about this function, not the ordering.
-    if #(flow.board(items)[phase] or {}) >= flow.LIMITS[phase] then
-      phase = "plan"
+    -- An unbounded phase can always take one more, so overflow spills
+    -- into `backlog`.
+    local limit = flow.LIMITS[phase]
+    if limit ~= nil and #(flow.board(items)[phase] or {}) >= limit then
+      phase = "backlog"
     end
-    if #(flow.board(items)[phase] or {}) < flow.LIMITS[phase] then
+    local room = flow.LIMITS[phase]
+    if room == nil or #(flow.board(items)[phase] or {}) < room then
       local over: {string: any} = {parent = parent.id, phase = phase}
       if phase == "do" or phase == "check" then
         local who = roll(r, 4)
@@ -287,6 +307,13 @@ local function starting_work(items: {Item}, session: string): string | nil
     for _, i in ipairs(b["plan"] or {}) do
       if not flow.is_blocked(i, index) then
         return ("plan item %s was refinable"):format(i.id:sub(1, 8))
+      end
+    end
+  end
+  if #(b["plan"] or {}) < flow.LIMITS["plan"] then
+    for _, i in ipairs(b["backlog"] or {}) do
+      if not flow.is_blocked(i, index) then
+        return ("backlog item %s was promotable"):format(i.id:sub(1, 8))
       end
     end
   end
