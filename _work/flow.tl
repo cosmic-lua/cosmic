@@ -15,44 +15,12 @@
 --- The board is open PHASED items; roots and containers are never on
 --- it, so a limit has nothing to except and the one arrival it never
 --- holds back is a return. The ready bar (`_work.spec.ready_gaps`) is
---- applied to the spec sidecar. Retuning a WIP limit is reviewed here.
+--- applied to the spec sidecar.
 ---
---- Their empirical basis, measured over the board branch's history to
---- 2026-08-23 (162 items, 91 ended, 326 transitions) by the stint
---- walk `review.md` describes:
----
----   phase  dwell median  peak  old limit  at-or-over
----   plan        3h39m      49         12   near-continuous
----   ready         18m      12         12   2%
----   do             6m       3          5   0
----   check       2h38m       6         10   0
----   land          55s       4          3   11%
----
---- `plan` is the second confirmation its own tripwire asked for. It
---- held 49 against a limit of 12 at a 42 h median age, because no
---- rung ever consulted that number: adoption from triage entered
---- `plan` ungated, so the limit throttled only decomposition — the
---- deliberate intake — while the reactive channel ran unbounded.
---- Draining triage WAS filling plan, at 13.5 attaches a day against 9
---- refinements out. So `plan` is now what its name claims: a small
---- committed queue fed by an explicit `promote`, with the unbounded
---- `backlog` absorbing what triage places. `ready` is cut with it
---- rather than alone, as that tripwire required.
----
---- `do` and `check` are unchanged — their peaks never came near
---- their numbers, so they stay unjudged rather than confirmed.
---- The surviving tripwires, each a reason to measure again:
----
----   plan   revisit if `promote` is refused twice in one session with
----          `ready` not full: the committed queue binding against
----          refinement capacity rather than against inventory.
----   ready  revisit with plan; refinement fills it, so the two move
----          together or the buffer starves the phase behind it.
----   do     revisit if peak reaches 5 with a MIX of claims: that is
----          concurrent sessions, where all-other-sessions is the
----          stalled-claim state `action.next_action` reports.
----   check  revisit if peak reaches 10 with a mix of claims; all from
----          ONE session is the handover stall, not a limit signal.
+--- A WIP limit is tuned by measurement over the board's own log, and
+--- retuning one is a reviewed change here. What each number was
+--- measured against, the reasoning that set it, and the tripwire that
+--- calls for measuring it again are `docs/flow-review.md`.
 ---
 --- What a role should DO with all this is `_work.action`: the rules and
 --- the policy that consults them are separate modules, so growing one
@@ -85,6 +53,9 @@ local type Index = {string: Item}
 --- median of 55 seconds against `plan`'s hours — a step, not a state,
 --- and a limit on a phase nothing rests in can only refuse a
 --- legitimate accept, which is then forced through anyway.
+---
+--- Every number here is a measured one; `docs/flow-review.md` is the
+--- measurement it rests on.
 local LIMITS: {string: integer} = {
   plan = 4,
   ready = 5,
@@ -302,11 +273,9 @@ end
 --- order, and the reverse — an open leaf left with no phase, which is
 --- off the board without being finished.
 ---
---- Placement is what the goal trace used to be. The old rule asked
---- whether a chain reached a RANKED root, which answered "is this
---- worth doing" by genealogy; the question is now ordinal — where
---- does this sit against everything else — and an item nothing has
---- been compared against, at any height, has no answer to it.
+--- Placement is ordinal — where does this item sit against everything
+--- else — so an item nothing has been compared against, at any
+--- height, has no answer to it.
 ---
 --- Scoped to the one item on purpose: the ready bar asks it of the
 --- item being promoted, so an unrelated item's broken chain can never
@@ -373,10 +342,9 @@ end
 
 --- The open roots that have a POSITION, in priority order, each with
 --- whether live work already drives it (an open item whose parent
---- chain reaches it). These are what the board used to call goals;
---- nothing marks them as such any more — a root is one of these by
---- having been compared against something, which is the only claim
---- to importance the board recognises.
+--- chain reaches it). Nothing marks a root as important: having been
+--- compared against something is the only claim to importance the
+--- board recognises.
 --- @param items {Item} All items
 --- @return {Item} Open placed roots, priority order
 --- @return {string: boolean} root id -> has live work

@@ -20,6 +20,8 @@ _work/       the machinery: gitboard (CLI), gitverbs (mutations),
              (the ready bar's section grammar), item (the record),
              ksuid (ids)
 cmd/gitboard the binary this branch builds: `o/bin/gitboard`
+docs/        the flow review: what the WIP limits were measured
+             against, and the tripwires that re-open the question
 bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 ```
 
@@ -48,7 +50,9 @@ What the verbs ARE lives here and only here: `gitboard help` lists
 them, `gitboard help <verb>` gives one its options, and both are
 generated from the CLI, so neither can drift from the tool. The
 phases' WIP limits are `_work/flow.tl`'s `LIMITS`, printed by `status`
-as each phase against its own. The `work` skill on `main` says what
+as each phase against its own; `docs/flow-review.md` is the
+measurement each of those numbers rests on, and the tripwires that
+call for measuring them again. The `work` skill on `main` says what
 the verbs are FOR and when a session reaches for which; it deliberately
 restates none of the above, so a verb added here needs no edit there.
 
