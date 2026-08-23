@@ -1,4 +1,8 @@
 return {
+  ["block_reason"] = {
+    ["3IKg4hsFiuy1QXFYZBwPmvvNq4w"] = "the C parser copies the Teal reader's contract byte for byte, and that contract mis-decodes \\ddd as octal today; freezing it in C either bakes in the bug or makes the sibling differential harness report the Teal side's fault as a disagreement",
+  },
+  ["blocked_by"] = "3IKg4hsFiuy1QXFYZBwPmvvNq4w",
   ["id"] = "3IKSjEgWykc32GY73Zq69pJV00d",
   ["parent"] = "3IK8E4XFNSEMc6fXtc6qbUxiLVO",
   ["phase"] = "plan",
