@@ -28,7 +28,7 @@ local type ProxyRule = qtypes.NetRule
 --- One wildcard ("*.suffix") allowlist entry. `port` nil = any port.
 local record SuffixEntry
   suffix: string
-  port: integer
+  port: integer | nil
   rule: ProxyRule
 end
 
@@ -44,7 +44,7 @@ end
 --- ":*", or ":" all mean "any port". Hosts compare case-insensitively.
 --- A malformed port is *not* handled here — callers must validate keys
 --- with validate_key first, or a typo silently widens to "any port".
-local function parse_rule(key: string): string, integer
+local function parse_rule(key: string): string, integer | nil
   local h, p = key:match("^(.-):(.-)$")
   if not h then
     return key:lower(), nil
@@ -171,7 +171,7 @@ end
 --- Look up a (host, port) pair. Returns the rule value on a hit, or
 --- nil. Exact-host matches win over suffix patterns; suffix patterns
 --- return the first hit in insertion order.
-local function match(idx: Index, host: string, port: integer): ProxyRule | nil
+local function match(idx: Index, host: string, port: integer | nil): ProxyRule | nil
   host = host:lower()
   local entry = idx.exact[host]
   if entry then
@@ -209,12 +209,12 @@ end
 local record RulesModule
   type ProxyRule = ProxyRule
   type Index = Index
-  parse_rule: function(key: string): string, integer
+  parse_rule: function(key: string): string, integer | nil
   validate_key: function(key: string): string
   validate_rule: function(key: string, rule: any): string
   validate: function(allowed_hosts: {string: any}): boolean, string
   index: function(allowed_hosts: {string: ProxyRule}): Index
-  match: function(idx: Index, host: string, port: integer): ProxyRule | nil
+  match: function(idx: Index, host: string, port: integer | nil): ProxyRule | nil
   auth_header: function(rule: ProxyRule): string | nil, string
 end
 
