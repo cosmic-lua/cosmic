@@ -142,6 +142,34 @@ forces the whole `--make` surface, not just scripting.
   journals show the trap either not firing or resolving in one cycle
   with the hint quoted.
 
+## Where findings go: the board
+
+The journals live in `/tmp` and die with the container, so a round is
+not finished until what it proved is on the work board
+(`skills/work/SKILL.md`) — never a dated study log under `docs/`, and
+never a notes file in the tree. From the board worktree, file one
+unparented capture per finding: `gitboard new "<title>" --spec-file F`.
+An unparented item is triage's to place, so filing needs no ordering
+decision and is never refused.
+
+Each capture's spec file carries the COMPLETE detail — the capture is
+the durable record, and the next session has no journals to reread:
+
+- the round header: date, binary provenance (branch and head, or the
+  release tag), the brief set, and per-agent first-build / green-ci
+  attempt counts;
+- the finding, with the journal evidence QUOTED — the agent's own
+  words for what it tried, what fired, and what fixed it;
+- how many agents hit it, and whether the docs already warn about it
+  (a trap that fires despite its warning is the strong signal);
+- the fix direction, ranked error-site first as above, and the
+  re-run observation that would prove the fix.
+
+What was pleasantly easy is evidence too — one keep-it capture per
+round is enough. Cross-round comparisons must quote the prior round's
+numbers in the round header, not point at journals that no longer
+exist.
+
 ## History
 
 - June 2026: four-agent study against build `8c7e138` —
@@ -152,3 +180,8 @@ forces the whole `--make` surface, not just scripting.
   it: narrowing hints on every error path, the `.cosmicignore` hint,
   `guide.lint`, `guide.quickstart`, doc-index shard flattening,
   `flags.command`, and lint source-line snippets.
+- August 23, 2026: four new briefs (JSON CLI, log analyzer, SQLite
+  CRUD, multi-module generator) against a working-tree build; 4/4
+  green, first build in 1–2 attempts, and all four first `ci` runs
+  failing only on fmt/lint. Findings filed as board captures — the
+  first round recorded under the rule above.
