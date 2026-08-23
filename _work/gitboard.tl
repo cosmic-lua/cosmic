@@ -98,7 +98,8 @@ local CSPEC: flags.CommandSpec = {
       spec = {flags = {dir_flag()}}},
     {name = "stats", summary = "phase dwell and transition counts from the log",
       spec = {flags = {dir_flag()}}},
-    {name = "next", summary = "the one next action to take now",
+    {name = "next", summary = "the one next action to take now, and what "
+      .. "the kind of action means",
       spec = {flags = {dir_flag(),
           {long = "session", arg = "SESSION",
             help = "this session; skips work another session claimed and "

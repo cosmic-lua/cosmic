@@ -45,3 +45,27 @@ Worth weighing, not a decision:
 
 whilp/cosmic#1319, #1320, #1321, and the `Change` section of each of
 `3ICDNqdv`, `3IE6ttNh`, `3ICDOGbm`.
+
+## Triaged 2026-08-23 — the instance closed, the rule did not
+
+Re-measured at triage: `wc -l < _work/gitverbs.tl` prints **255**, and all
+three items are ended (`gitboard show` reports `3ICDNqdv`, `3IE6ttNh` and
+`3ICDOGbm` each `completed`, carrying PRs #1319, #1320 and #1321). The first
+option above — split `gitverbs.tl` so the three have somewhere to land — is
+what happened, so the concrete 539-line collision no longer exists and the
+table above is history, not a live problem.
+
+What survives is the generalisable half, unchanged and unaddressed: **the ready
+bar asks each slice to measure headroom, and a per-slice measurement cannot see
+concurrent slices.** The cap is a shared resource that every spec budgets
+privately. Nothing on the board or in `decompose.md` closes that today, and the
+next contended file will reproduce it exactly.
+
+Attached under G8 (the flow system) rather than under the fuzz container that
+holds its sibling `3IHFPLpb`: that item is parented by file locality
+(`_fuzz/driver_test.tl`), while the defect here is a property of the ready bar
+itself. The two are the same family and differ in mechanism — `3IHFPLpb` is a
+spec that failed to include its OWN addition, this is three specs each measuring
+correctly and colliding — so whichever is refined first should read the other,
+and a countermeasure that fixes only one of the two mechanisms has not fixed the
+class.

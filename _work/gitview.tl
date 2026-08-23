@@ -12,6 +12,7 @@
 --- stdout.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local guide = require("_work.guidance")
 local health = require("_work.health")
 local item = require("_work.item")
 local act = require("_work.action")
@@ -214,10 +215,15 @@ end
 --- the board, so a session taking several asks again after each one
 --- rather than reading a list. A `none` names the phase whose limit
 --- binds, which is the diagnosis a session reports.
+---
+--- Under that line, indented, is what the kind MEANS
+--- (`_work.guidance`): the verb that performs it and the ordering
+--- rule behind it, so a session acts on the answer without going to
+--- read prose elsewhere.
 --- @param all {item.Item} Every item
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
---- @return string The action, its target, and the rule behind it
+--- @return string The action, its target, the rule behind it, and its guidance
 local function next_report(all: {item.Item}, session?: string,
     ages?: health.Ages): string
   local action = act.next_action(all, session, ages)
@@ -225,7 +231,13 @@ local function next_report(all: {item.Item}, session?: string,
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
   end
-  return ("%s%s — %s"):format(action.kind, target, action.reason)
+  local out: {string} = {
+    ("%s%s — %s"):format(action.kind, target, action.reason),
+  }
+  for _, line in ipairs(guide.lines(action.kind)) do
+    out[#out + 1] = "  " .. line
+  end
+  return table.concat(out, "\n")
 end
 
 local function cmd_next(s: store.Store, session?: string): integer
