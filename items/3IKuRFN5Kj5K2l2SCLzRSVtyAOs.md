@@ -82,13 +82,20 @@ which this fork's log cannot reach:
 ```
 git clone --filter=blob:none --no-checkout \
   https://github.com/jart/cosmopolitan /tmp/upstream-cosmo
-git -C /tmp/upstream-cosmo log --oneline -S '->next' -- \
-  libc/runtime/zipos-open.c libc/zipos/
-git -C /tmp/upstream-cosmo log --oneline -S 'freelist' -- \
-  libc/runtime/ libc/zipos/
+git -C /tmp/upstream-cosmo log --oneline -- \
+  libc/zipos/ libc/runtime/zipos-open.c libc/runtime/zipos-close.c
+git -C /tmp/upstream-cosmo show <candidate sha> -- \
+  libc/zipos/zipos-open.c libc/runtime/zipos-open.c
 ```
 
-Record the commit that removed the freelist, its message, and the
+The listing is metadata only, so the blobless clone stays cheap;
+`show` then fetches just the revisions you name. Do NOT reach for
+`git log -S` here — a pickaxe over a blobless clone refetches every
+revision of those paths one at a time, and this file's history is
+short enough to read by eye. Upstream carried these sources under
+`libc/zipos/` before the path moved, which is why both prefixes are
+listed. Record the commit that removed the freelist, its message, and
+the
 removal diff. Then state in ONE sentence whether it came out for a
 CORRECTNESS reason — name it — or for another reason (a simplification,
 a rewrite that dropped it incidentally, a measurement that found it
@@ -165,16 +172,17 @@ commands run anywhere.
 
 ```
 git clone --filter=blob:none --no-checkout https://github.com/jart/cosmopolitan /tmp/upstream-cosmo
-git -C /tmp/upstream-cosmo log --oneline -S '->next' -- libc/runtime/zipos-open.c libc/zipos/
+git -C /tmp/upstream-cosmo log --oneline -- libc/zipos/ libc/runtime/zipos-open.c libc/runtime/zipos-close.c
 o/bin/gitboard show 3IKuRFN5 | grep -c '^## Findings'
 o/bin/gitboard show 3IKuRFN5 | grep -c 'jart/cosmopolitan'
 o/bin/gitboard show 3IK8GFHj
 git -C <cosmopolitan checkout> status --porcelain libc/
 ```
 
-- the two `git` commands run clean, and their output is quoted
-  verbatim in `## Findings`, so a reviewer re-running them lands on the
-  same commits (or the same empty output).
+- the two `git` commands run clean, and the listing plus whichever
+  `git show` revisions the answer rests on are quoted verbatim in
+  `## Findings`, so a reviewer re-running them lands on the same
+  commits (or the same empty output).
 - `grep -c '^## Findings'` on this item is **0 today** and must be 1
   after; the section carries three subsections, one per question, and
   question 3's is five bullets, one per decision point.
@@ -188,10 +196,17 @@ git -C <cosmopolitan checkout> status --porcelain libc/
 
 ## Enablement
 
-none needed for the research itself — the question is answerable with
-`git log -S` against a public clone, every constraint it must be
-weighed against is quoted here by `file:line`, and the deliverable is
-prose on this item.
+none needed for the research itself — the question is answerable by
+reading one file's history in a public clone, every constraint it must
+be weighed against is quoted here by `file:line`, and the deliverable
+is prose on this item.
+
+If the clone cannot be reached at all (no egress, or the proxy refuses
+it), that is a bounce, not a workaround: return the item to `plan`
+saying the upstream history was unreachable. Do NOT substitute a guess
+about why the member is vestigial, and do not answer question 1 from
+the code alone — the whole point of this slice is that the code cannot
+answer it.
 
 One piece of known friction to expect at hand-over, not to fix here:
 board item `3IFUskgH` records that a research slice cannot reach
