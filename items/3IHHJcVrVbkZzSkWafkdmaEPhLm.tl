@@ -3,6 +3,6 @@ return {
   ["builders"] = "claude-sched-2026-08-23T1638",
   ["id"] = "3IHHJcVrVbkZzSkWafkdmaEPhLm",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "cosmopolitan: header edits never rebuild — o//depend is never generated, staling every incremental C measurement",
 }
