@@ -106,31 +106,54 @@ local function blocks_accept(p: Pull): string
   return nil
 end
 
---- The refusal a LANDING earns from the head it is about to merge, or
---- nil when the merge may proceed.
+--- Whether a pull request's head is not the head an accept judged.
 ---
---- An accept is a judgment of one head. If the request has moved since
---- — the builder pushed again after the verdict — merging lands a diff
---- no reviewer read, and nothing anywhere records the substitution.
---- Comparing the two shas is the whole rule.
+--- An accept is a judgment of one head. A request that has moved
+--- since — the builder pushed again after the verdict — carries a
+--- diff no reviewer read, which is worth saying before the merge and
+--- worth recording after it.
 ---
---- An empty `verdict_head` is not refused: an item accepted before the
---- verdict recorded a head has nothing to compare, and refusing those
---- would strand them with no way forward but `--force`.
---- @param p Pull The request about to be merged
+--- An empty `verdict_head` is not a move: an item accepted before the
+--- verdict recorded a head has nothing to compare.
+--- @param p Pull The request
 --- @param verdict_head string The head the accept judged
---- @return string The refusal, nil when the merge may proceed
-local function blocks_land(p: Pull, verdict_head: string): string
+--- @return boolean True when the request's head is not the judged one
+local function head_moved(p: Pull, verdict_head: string): boolean
   local judged = verdict_head or ""
-  if judged == "" then
+  return judged ~= "" and judged ~= (p.head_sha or "")
+end
+
+--- The refusal a LANDING earns from its pull request, or nil when the
+--- item may be ended.
+---
+--- Landing is two acts by two hands: the merge, performed by whoever
+--- runs the board, and the item's end, performed by `land` once it
+--- has read the merge. So the one state a landing cannot survive is a
+--- request that is not merged — there is nothing to end the item
+--- over, and the repair is to merge it and run `land` again, which
+--- finds it merged and finishes.
+---
+--- A head that has moved past the accept is named in the same
+--- refusal, because that merge is still ahead: merging as it stands
+--- lands a diff no reviewer read.
+--- @param p Pull The request the item names
+--- @param verdict_head string The head the accept judged
+--- @param id string The item being landed
+--- @return string The refusal, nil when the request is merged
+local function blocks_land(p: Pull, verdict_head: string, id: string): string
+  if p.merged then
     return nil
   end
-  if judged == p.head_sha then
-    return nil
+  local msg = ("PR #%d is not merged — `land` ends an item whose merge is "
+    .. "done, it does not merge. Squash-merge PR #%d, then re-run "
+    .. "`gitboard land %s`, which reads the merge and ends the item.")
+  :format(p.number, p.number, id:sub(1, 8))
+  if head_moved(p, verdict_head) then
+    msg = msg .. (" The accept judged %s and the head is now %s — re-review "
+      .. "before merging."):format((verdict_head or ""):sub(1, 7),
+      (p.head_sha or ""):sub(1, 7))
   end
-  return ("PR #%d has moved since the accept — judged %s, now %s; "
-    .. "re-review the current head or --force")
-  :format(p.number, judged:sub(1, 7), (p.head_sha or ""):sub(1, 7))
+  return msg
 end
 
 local record review
@@ -138,13 +161,15 @@ local record review
   type CheckRun = CheckRun
   blocks_check: function(p: Pull, id: string): string
   blocks_accept: function(p: Pull): string
-  blocks_land: function(p: Pull, verdict_head: string): string
+  head_moved: function(p: Pull, verdict_head: string): boolean
+  blocks_land: function(p: Pull, verdict_head: string, id: string): string
   blocks_on_ci: function(runs: {CheckRun}): string
 end
 
 local M: review = {
   blocks_check = blocks_check,
   blocks_accept = blocks_accept,
+  head_moved = head_moved,
   blocks_land = blocks_land,
   blocks_on_ci = blocks_on_ci,
 }

@@ -107,24 +107,58 @@ local function test_blocks_accept_refuses_a_closed_unmerged_pr()
 end
 test_blocks_accept_refuses_a_closed_unmerged_pr()
 
--- An accept judges one head. Landing a different one merges a diff no
--- reviewer read, so the two shas are compared and the refusal names
--- both. An item accepted before the verdict recorded a head has
--- nothing to compare and must not be stranded.
-local function test_blocks_land_compares_the_accepted_head()
-  local at: review.Pull = {number = 7, state = "open", merged = false,
+-- Landing ends an item over a merge that has already happened, so an
+-- unmerged request is refused and the refusal is a work order: merge
+-- it, then run the same verb again. Nothing here attempts a merge, so
+-- the refusal has to say who does.
+local function test_blocks_land_refuses_an_unmerged_request()
+  local open_pr: review.Pull = {number = 7, state = "open", merged = false,
     draft = false, body = "", head_sha = "cafe1234567", merge_sha = ""}
-  assert(review.blocks_land(at, "cafe1234567") == nil,
-    "the head the accept judged is the head being merged")
-
-  local refusal = review.blocks_land(at, "beef7654321")
-  assert(refusal ~= nil and refusal:find("has moved since the accept", 1, true),
+  local refusal = review.blocks_land(open_pr, "cafe1234567", ID)
+  assert(refusal ~= nil and refusal:find("is not merged", 1, true),
     "got: " .. tostring(refusal))
   assert(refusal:find("#7", 1, true), "it names the PR: " .. refusal)
+  assert(refusal:find("Squash-merge", 1, true),
+    "it names the act the caller performs: " .. refusal)
+  assert(refusal:find("`gitboard land " .. ID:sub(1, 8) .. "`", 1, true),
+    "and the verb to re-run, on this item: " .. refusal)
+end
+test_blocks_land_refuses_an_unmerged_request()
+
+-- A merged request is the whole precondition: `land` reads the merge
+-- and ends the item, whatever head carries it. A head that moved past
+-- the accept is reported by `head_moved` and cannot be undone, so it
+-- is not a second refusal here.
+local function test_blocks_land_passes_a_merged_request()
+  local merged: review.Pull = {number = 7, state = "closed", merged = true,
+    draft = false, body = "", head_sha = "beef7654321",
+    merge_sha = "d00d0000"}
+  assert(review.blocks_land(merged, "cafe1234567", ID) == nil,
+    "a merged request leaves nothing to refuse")
+  assert(review.blocks_land(merged, "", ID) == nil,
+    "nor does one accepted before the verdict recorded a head")
+end
+test_blocks_land_passes_a_merged_request()
+
+-- An accept judges one head, and a merge of any other lands a diff no
+-- reviewer read. The comparison says so — before the merge, inside
+-- the refusal, and after it, in the warning the landing prints. An
+-- item accepted before the verdict recorded a head has nothing to
+-- compare and must not be stranded.
+local function test_head_moved_compares_the_accepted_head()
+  local at: review.Pull = {number = 7, state = "open", merged = false,
+    draft = false, body = "", head_sha = "cafe1234567", merge_sha = ""}
+  assert(review.head_moved(at, "cafe1234567") == false,
+    "the head the accept judged is the head in front of us")
+  assert(review.head_moved(at, "beef7654321") == true,
+    "any other head is a substitution")
+  assert(review.head_moved(at, "") == false,
+    "an item accepted before the head was recorded is not stranded")
+
+  local refusal = review.blocks_land(at, "beef7654321", ID)
   assert(refusal:find("beef765", 1, true), "the judged head: " .. refusal)
   assert(refusal:find("cafe123", 1, true), "the current head: " .. refusal)
-
-  assert(review.blocks_land(at, "") == nil,
-    "an item accepted before the head was recorded is not stranded")
+  assert(refusal:find("re-review", 1, true),
+    "and what to do before merging it: " .. refusal)
 end
-test_blocks_land_compares_the_accepted_head()
+test_head_moved_compares_the_accepted_head()
