@@ -1,4 +1,6 @@
 return {
   ["id"] = "3IK30GoHQ6RRQjnRvzf9GJYiKSJ",
+  ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
+  ["phase"] = "backlog",
   ["title"] = "first ci run predictably fails on fmt/lint; the build trailer hint arrives too late",
 }
