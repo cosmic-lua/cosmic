@@ -38,7 +38,7 @@ local function kinds_of(set: {Kind: boolean}): {Kind}
     -- 0.24.8 still hands `pairs` the key as `string`, so the one cast
     -- left is at that language boundary rather than standing in for a
     -- loose type.
-    out[#out + 1] = k as Kind -- cast: pairs() erases an enum key type
+    out[#out + 1] = k
   end
   table.sort(out)
   return out
@@ -190,11 +190,10 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   -- never got past `compile`. Best-effort: a first run has no summary
   -- to remove, and that is not this stage's failure to report.
   local summary = fs.join(project.BUILD_DIR,
-    (v.target as string) .. "-summary.txt") -- cast: a graph verb has one
+    v.target .. "-summary.txt")
   local _ok, _err = fs.remove(summary)
 
-  -- cast: a graph verb always has a target (see the registry)
-  local code, gerr = graph.run(proj, v.target as string, overrides, cosmic)
+  local code, gerr = graph.run(proj, v.target, overrides, cosmic)
   if gerr and gerr ~= "" then
     io.stderr:write(gerr .. "\n")
     return false, "make"

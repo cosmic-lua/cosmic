@@ -34,10 +34,10 @@ local type Loader = function(): any
 --- @param got any A searcher's first return
 --- @return Loader|nil The loader, or nil when it was a miss
 local function loader_of(got: any): Loader | nil
-  if type(got) ~= "function" then
+  if not (got is Loader) then
     return nil
   end
-  return got as Loader -- cast: a searcher's hit IS its loader
+  return got
 end
 
 --- A project root with a manifest, returning both paths.
@@ -64,8 +64,7 @@ local function installed_tree(): function(string): (any, any)
     local p = fs.join(tmp, "st-bootstrap.manifest")
     check.must(fs.write(p, "root " .. tmp .. "\n"))
     assert(searcher.install_manifest(p))
-    -- cast: package.searchers entries are untyped
-    tree_fn = package.searchers[2] as function(string): (any, any)
+    tree_fn = package.searchers[2]
   end
   return tree_fn
 end

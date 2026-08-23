@@ -120,6 +120,75 @@ f_array({"a"})
 end
 test_early_exit_is_guard_narrows()
 
+-- `is` narrows to a FUNCTION type as well, in all three spellings the
+-- tree relies on: the anonymous `function(A): (B, C)` form, a named
+-- function-type alias, and the `assert(x is F)` form. Sites that used
+-- to guard with `type(x) == "function"` and then cast now guard with
+-- `is` and hold no cast, so this is what keeps those deletions sound.
+local function test_is_guard_narrows_a_function_type()
+  local path = fs.join(tmpdir, "narrow_function_type.tl")
+  assert(fs.write(path, [[
+local type Thaw = function({string: any}): (any, any)
+local function take_thaw(f: Thaw): any
+  local a, _b = f({})
+  return a
+end
+local function f_anon(v: any)
+  if not (v is function({string: any}): (any, any)) then return end
+  take_thaw(v)
+end
+local function f_alias(v: any)
+  if not (v is Thaw) then return end
+  take_thaw(v)
+end
+local function f_assert(v: any)
+  assert(v is Thaw)
+  take_thaw(v)
+end
+local thaw: Thaw = function(_h: {string: any}): (any, any)
+  return 1, 2
+end
+f_anon(thaw)
+f_alias(thaw)
+f_assert(thaw)
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "an `is` guard must narrow a variable to a function type: "
+    .. table.concat(msgs, "; "))
+end
+test_is_guard_narrows_a_function_type()
+
+-- The negative twin: `type(v) ~= "function"` does NOT narrow, which is
+-- why the guards above had to be rewritten rather than left alone.
+-- Without this the positive test would still pass under a tl bump that
+-- made the `type()` spelling narrow, and would pin nothing.
+local function test_type_eq_function_does_not_narrow()
+  local path = fs.join(tmpdir, "narrow_type_eq_function.tl")
+  assert(fs.write(path, [[
+local type Thaw = function({string: any}): (any, any)
+local function take_thaw(f: Thaw): any
+  local a, _b = f({})
+  return a
+end
+local function f(v: any)
+  if type(v) ~= "function" then return end
+  take_thaw(v)
+end
+f(function(_h: {string: any}): (any, any)
+  return 1, 2
+end)
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok,
+    "a `type(v) ~= \"function\"` guard must not narrow v to a function type")
+end
+test_type_eq_function_does_not_narrow()
+
 -- The caveat that IS true: a guard whose block ends in `error(...)`
 -- rather than `return` does not narrow below itself — the checker
 -- cannot see that the block is terminal. Pinned so a future patch

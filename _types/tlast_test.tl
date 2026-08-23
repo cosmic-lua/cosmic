@@ -49,9 +49,9 @@ local function test_cache_thaws_on_fresh_tl()
   local hooks = check.must(fresh_tl["ast_hooks"], "patched tl exposes ast_hooks")
   local chunk = check.must(load(bytecode, "=.tl_ast", "b"))
   local thaw = chunk()
-  assert(type(thaw) == "function", "cache chunk should return the thaw function")
-  -- cast: the chunk's contract, guarded as a function above
-  local thaw_fn = thaw as function(any): (any, any)
+  assert(thaw is function(any): (any, any),
+    "cache chunk should return the thaw function")
+  local thaw_fn = thaw
   local prelude_ast, stdlib_ast = thaw_fn(hooks)
   assert(type(prelude_ast) == "table", "prelude program should be a table")
   assert(type(stdlib_ast) == "table", "stdlib program should be a table")

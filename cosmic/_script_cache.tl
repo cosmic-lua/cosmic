@@ -214,7 +214,7 @@ local function compile_cached(input_path: string,
     -- bare message does not teach.
     return nil, teal.format_issues(result.errors, {hints = true})
   end
-  local generated = result.code as string -- cast: set whenever ok
+  local generated = result.code
   store(input_path, source, generated, mode)
   return generated
 end

@@ -213,7 +213,7 @@ local function fail(err: any, kind: string): Response | nil, Error
   local detail = tostring(err or "unknown error")
   local k = (kind or "invalid_request") as ErrorKind -- cast: enum superset of binding string
   local e: Error = {message = detail, kind = k}
-  return nil, setmetatable(e, error_mt as metatable < Error >) -- cast: metatable shape
+  return nil, setmetatable(e, error_mt)
 end
 
 local function make_response(fields: {string: any}): Response

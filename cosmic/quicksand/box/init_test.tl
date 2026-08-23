@@ -72,8 +72,7 @@ local function test_run_on_non_linux_returns_specific_error()
   local j = check.must(Box.new())
   local code, err = j:run({"/bin/true"})
   assert(code == nil, "run should fail on non-linux")
-  -- cast: method call on string|nil
-  assert(err and (err as string):find("Linux only", 1, true),
+  assert(err and err:find("Linux only", 1, true),
     "expected 'Linux only' error, got: " .. tostring(err))
 end
 test_run_on_non_linux_returns_specific_error()
@@ -101,8 +100,7 @@ local function test_run_after_close_fails()
   assert(j:close())
   local code, err = j:run({"/bin/true"})
   assert(code == nil)
-  -- cast: method call on string|nil
-  assert(err and (err as string):find("closed", 1, true))
+  assert(err and err:find("closed", 1, true))
 end
 test_run_after_close_fails()
 

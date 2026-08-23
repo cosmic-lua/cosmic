@@ -217,8 +217,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if not ok then
       return nil, errstr(success, "compare_exchange")
     end
-    -- cast: from any (pcall widens the binding's returns)
-    return {swapped = success as boolean, value = actual as integer}
+    return {swapped = success, value = actual}
   end
 
   function mem:wait(word_index: integer, expect: integer, timeout_ms?: integer): integer | nil, string

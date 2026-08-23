@@ -48,11 +48,10 @@ local function programs(): any, any
     return nil, nil
   end
   local ok, thaw = pcall(chunk)
-  if not ok or type(thaw) ~= "function" then
+  if not ok or not (thaw is function({string: any}): (any, any)) then
     return nil, nil
   end
-  -- cast: the chunk's contract, guarded as a function just above
-  local thaw_fn = thaw as function({string: any}): (any, any)
+  local thaw_fn = thaw
   local tok, prelude_ast, stdlib_ast = pcall(thaw_fn, hooks)
   if not tok or prelude_ast == nil or stdlib_ast == nil then
     return nil, nil

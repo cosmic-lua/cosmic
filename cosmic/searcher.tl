@@ -73,7 +73,7 @@ local function acquire_teal(): TealSearch | nil
   if not ok then
     return nil
   end
-  return mod as TealSearch -- cast: from any (pcall erases the module type)
+  return mod
 end
 
 --- Resolve, compile (or hit the cache), load -- with a compiler in hand.

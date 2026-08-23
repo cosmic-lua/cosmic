@@ -104,7 +104,7 @@ end
 --- @return Uname | nil The system identification record
 --- @return string? Error message on failure
 local function uname(): Uname | nil, string
-  local uts, err = unix.uname() as (Uname, any) -- cast: pre-narrow record union tuple
+  local uts, err = unix.uname()
   if not uts then
     return nil, errstr(err, "uname")
   end

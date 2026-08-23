@@ -26,9 +26,9 @@ local function test_artifact_cache_thaws()
     "artifact should carry the tl AST cache")
   local chunk = check.must(load(bytecode, "=.tl_ast", "b"))
   local thaw = chunk()
-  assert(type(thaw) == "function", "cache chunk should return the thaw function")
-  -- cast: the chunk's contract, guarded as a function above
-  local thaw_fn = thaw as function({string: any}): (any, any)
+  assert(thaw is function({string: any}): (any, any),
+    "cache chunk should return the thaw function")
+  local thaw_fn = thaw
   local hooks = check.must(tl.ast_hooks, "tl.ast_hooks missing: tl patch not applied")
   local prelude_ast, stdlib_ast = thaw_fn(hooks)
   local prelude_node = prelude_ast as {any: any} -- cast: AST node from thaw

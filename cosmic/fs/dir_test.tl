@@ -1,7 +1,6 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local cfd = require("cosmic.fd")
 local unix = require("cosmo.unix")
 
@@ -46,7 +45,7 @@ local function test_dir_has_close_metamethod()
   -- Call __close directly to verify it works, the way <close> would: a
   -- plain function call, not a method send (the patched checker narrows
   -- `dir` here and would flag the method-as-function invocation).
-  local close = mt.__close as function(fs_types.Dir) -- cast: metamethod as plain function
+  local close = mt.__close
   close(d)
   assert(d:closed(), "dir should be closed after __close")
 
