@@ -34,8 +34,9 @@ $ cosmic -i
 what this page alone says is the doctrine — the type must admit
 failure, and library code never throws:
 
-- **fallible value**: `value | nil, string` — the primary pattern; the
-  checker forces callers to narrow before use
+- **fallible value**: `value | nil, string` — the primary pattern; callers
+  must narrow before use, which the checker makes them do at an index and
+  nowhere else
 - **fallible effect**: `boolean, string` — operations with nothing to
   return succeed `true` or fail `false, message`
 - **structured errors**: a module whose failures carry structure
