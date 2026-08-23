@@ -1,20 +1,23 @@
 ## Goal
 
 G3 — an honest type layer, via the cast epic's wave 4: the
-number-to-integer parse family gets an honest parser instead of a cast.
+number-to-integer parse family gets an honest parser instead of a cast,
+at the two call sites that can take it today.
 
 ## Change
 
-Re-measured 2026-08-21 at `aaf4af95` (the census was first taken at
-`f420391`; every count below still holds). `git grep -n "tonumber" --
-'*.tl' | grep "as integer" | grep -v _test.tl` returns 10 sites, of
-which exactly SIX are the prize — a parse with a default where the cast
-is pure ceremony:
+**Scope decided 2026-08-23 (the bounce's open question, settled by
+measurement).** Wave 4 is the TWO `_tool/testrun.tl` sites. The four
+`cosmic/instrument.tl` sites are a Non-goal here and wait on
+3IIm7ZyN — see Non-goals for the measurement that decides it.
+
+Re-measured 2026-08-23 at main `d01ea6ac`. `git grep -n "tonumber" --
+'*.tl' | grep "as integer" | grep -v _test.tl` returns 10 sites; the
+two this wave takes are:
 
 ```
 _tool/testrun.tl:232   (tonumber(string.match(got_content, "^(%d+)")) or -1) as integer
 _tool/testrun.tl:243   (tonumber(fs.read(base .. ".time") or "") or -1) as integer
-cosmic/instrument.tl:162-165   (tonumber(<x>_str) or 0) as integer   (4 sites)
 ```
 
 1. **`cosmic/string.tl`**: add the parser, fallible-value shape.
@@ -23,9 +26,10 @@ cosmic/instrument.tl:162-165   (tonumber(<x>_str) or 0) as integer   (4 sites)
    doc comment, the function, one `StringModule` field, one `M` entry),
    so the file lands near 453 and stays under the cap without a split.
    Place the function after `shell_quote`, the last one defined today
-   (it ends at line 385); the `StringModule` record and the `M` table
-   both list their members in definition order, so both new entries go
-   last.
+   (`grep -n "^local function shell_quote\|^local record StringModule"
+   cosmic/string.tl` prints 377 and 387, so `shell_quote` ends at 385);
+   the `StringModule` record and the `M` table both list their members
+   in definition order, so both new entries go last.
 
    ```teal
    --- Parse s as an integer. tonumber's grammar (optional sign,
@@ -39,38 +43,39 @@ cosmic/instrument.tl:162-165   (tonumber(<x>_str) or 0) as integer   (4 sites)
    local function to_integer(s: string, base?: integer): integer | nil, string
    ```
 
-   Implementation: `tonumber(s, base)`, then `math.tointeger` on the
-   result; either failing returns
-   `nil, ("not an integer%s: %q"):format(base and " in base "..base or "", s)`.
+   Implementation: `tonumber(s, base)` when `base` is given and
+   `tonumber(s)` when it is not — as two branches, never
+   `base and tonumber(s, base) or tonumber(s)`, which falls through to
+   the base-less call when the based parse legitimately refuses. Then
+   `math.tointeger` on the result; either failing returns
+   `nil, ("not an integer%s: %q"):format(base and " in base " .. tostring(base) or "", s)`.
    NOT `math.tointeger` bare — its tl declaration swallows nil (the
    census's fine print), which is the whole reason this function exists.
 
    **The error path must format with `%q`, never with `..`
-   concatenation.** Three of the four `instrument.tl` sites hand this
-   function a value tl types as `string` that is nil at runtime:
-   `parse_line` guards only `op`, `file` and `exit_str`
-   (`cosmic/instrument.tl:156`), so `wall_str`, `cpu_str` and
-   `maxrss_str` reach lines 163-165 as nil whenever the field is absent,
-   and the `or 0` is load-bearing. Measured 2026-08-21 against the
-   pinned runtime: `tonumber(nil)` is nil and `("%q"):format(nil)` is
-   `nil`, so the base-less call returns the refusal `not an integer:
-   nil` cleanly, while `tonumber(nil, 10)` throws `bad argument #1 to
-   'tonumber' (string expected, got nil)`. Library code never throws, so
-   the base-less path — the only one the six sites use — must stay the
-   safe one, and a `..` in the message would throw on exactly these
-   inputs.
-2. **Migrate the six sites**: `str.to_integer(x) or -1` /
-   `... or 0` — the `or` narrows the nil away, so the cast AND its
-   justification comment delete. No other call-shape changes. Both
-   files need the import added: `_tool/testrun.tl` requires six
-   `cosmic.*`/`_tool.*` modules today and not `cosmic.string`;
-   `cosmic/instrument.tl` requires `cosmo.unix`, `cosmic.env` and
-   `cosmic._fields` and not `cosmic.string`. `cosmic.string` is public
-   API (`cosmic.<name>`, no leading `_`), so `_tool/` may require it.
+   concatenation.** `testrun.tl:232` hands this function a value tl
+   types as `string` that is nil at runtime: `string.match(got_content,
+   "^(%d+)")` returns nil whenever the recorded exit line does not start
+   with digits. Measured 2026-08-23 against the pinned runtime:
+   `tonumber(nil)` is nil and `("%q"):format(nil)` is `nil`, so the
+   base-less call returns the refusal `not an integer: nil` cleanly,
+   while `tonumber(nil, 10)` throws `bad argument #1 to 'tonumber'
+   (string expected, got nil)`. Library code never throws, so the
+   base-less path — the only one either site uses — must stay the safe
+   one, and a `..` in the message would throw on exactly this input.
+2. **Migrate the two sites**: `str.to_integer(x) or -1` — the `or`
+   narrows the nil away, so the cast AND its justification comment
+   delete. No other call-shape changes. `_tool/testrun.tl` (337 lines,
+   ample headroom) requires six `cosmic.*`/`_tool.*` modules today and
+   not `cosmic.string`; its require block is sorted by module basename
+   (`child, env, fs, instrument, records, time`), so
+   `local str = require("cosmic.string")` goes between `records` and
+   `time`. `cosmic.string` is public API (`cosmic.<name>`, no leading
+   `_`), so `_tool/` may require it.
 3. **Tests** (`cosmic/string_test.tl`, 221 lines today — ample
-   headroom): the rule is the VALUE, not the spelling. Measured against
-   the pinned runtime 2026-08-21, so these are the exact expected
-   results:
+   headroom): the rule is the VALUE, not the spelling. Every row below
+   was run 2026-08-23 against a binary built from this exact
+   implementation, so these are the exact expected results:
 
    | call | result |
    |------|--------|
@@ -81,28 +86,47 @@ cosmic/instrument.tl:162-165   (tonumber(<x>_str) or 0) as integer   (4 sites)
    | `to_integer("0x1F")` | 31 (hex prefix, DEFAULT base only) |
    | `to_integer("1F", 16)` | 31 |
    | `to_integer("777", 8)` | 511 |
-   | `to_integer("0x1F", 16)` | refusal — Lua's `tonumber` rejects the `0x` prefix once a base is given |
-   | `to_integer("7.5")` | refusal |
-   | `to_integer("nan")` | refusal |
-   | `to_integer("")` | refusal |
+   | `to_integer("0x1F", 16)` | refusal, `not an integer in base 16: "0x1F"` |
+   | `to_integer("7.5")` | refusal, `not an integer: "7.5"` |
+   | `to_integer("nan")` | refusal, `not an integer: "nan"` |
+   | `to_integer("")` | refusal, `not an integer: ""` |
 
    Plus one test that a runtime nil earns a refusal rather than a throw,
-   which is what keeps the four `instrument.tl` sites honest:
-   `str.to_integer(nil as string)` returns nil and a message
+   which is what keeps `testrun.tl:232` honest: `str.to_integer(nil as
+   string)` returns nil and the message `not an integer: nil`
    (`-- cast: tl types string.match as string; it is nil at runtime`).
    Also add one `Example_*` in `cosmic/string_example.tl` — a NEW file:
-   this module has no example file today.
+   this module has no example file today. Follow the house shape
+   (`cosmic/ansi_example.tl`): a `--- Examples for the cosmic.string
+   module.` header, each `Example_*` requiring its own modules inside
+   the function body, and a trailing `-- Output:` comment block naming
+   the exact printed lines.
 4. **Baseline regen**: the cast ratchet's failure prints its regen
    command, which is `bin/cosmic --make run _build/casts.tl --baseline`
    (`_build/casts.tl:116`). Run it and commit the regenerated
    `_build/casts_baseline.tl`. Measured today, its affected rows read
-   `["_tool/testrun.tl"] = 3` and `["cosmic/instrument.tl"] = 7`; after
-   the migration they must read 1 and 3 — the −6 this wave deletes.
-   `["cosmic/string_test.tl"]` is 2 today and gains the nil-refusal
-   test's cast, so expect it to read 3.
+   `["_tool/testrun.tl"] = 3` (line 37) and `["cosmic/string_test.tl"]
+   = 2` (line 125); after this wave they must read 1 and 3 — the −2 this
+   wave deletes plus the nil-refusal test's one cast.
+   `["cosmic/instrument.tl"] = 7` (line 83) must NOT move.
 
 ## Non-goals
 
+- **the four `cosmic/instrument.tl` sites STAY, and their `as integer`
+  count stays at 7.** Measured 2026-08-23 at `d01ea6ac` on a detached
+  worktree, cold (`--make clean && --make fetch && --make build`):
+  migrating them makes `cosmic/instrument.tl` — which is in
+  `_make/stamp.tl`'s `BOOT_MODULES` (line 66) — call a function that
+  the running binary's embedded `cosmic.string` does not have, and the
+  cold build ends `build: FAIL (generate failed)` with `invalid key
+  'to_integer' in record 'str' of type record StringModule` at
+  `_types/tlast_gen.tl`. Both the tree bootstrap and the pinned-release
+  fallback fail identically, so no second generation recovers it. The
+  same clean state with only the two `testrun.tl` sites migrated ends
+  `build: PASS (511 files, 1 binary)`. That hazard is captured as
+  3IIm7ZyN; the instrument half is a later wave, after it lands. This
+  is NOT the coverage race of 3ICDL1lV, which merged as #1318 and is no
+  longer a blocker.
 - the four digit-run casts (`literal.tl:76,108`, `url.tl:54`,
   `fs/octal.tl:23`) STAY: each parses a pattern-verified digit run and
   its justification is honest; migrating them adds dead error branches
@@ -117,63 +141,41 @@ cosmic/instrument.tl:162-165   (tonumber(<x>_str) or 0) as integer   (4 sites)
 - no changes to `tonumber` semantics beyond the integral-value rule
   stated above; no `cosmic.math` module; no change to the
   `InstrumentData` record's fields or to what `parse_line` returns for
-  a line it rejects.
+  a line it rejects. Do not add `cosmic.string` to `BOOT_MODULES`.
 
 ## Acceptance
 
-- `bin/cosmic --make test cosmic/string_test.tl _tool/testrun_test.tl cosmic/instrument_test.tl`
-  ends `test: PASS (3 files)`.
+- `bin/cosmic --make test cosmic/string_test.tl _tool/testrun_test.tl _make/stamp_test.tl`
+  ends `test: PASS (3 files)`. (`_make/stamp_test.tl` is the one that
+  fails if this change reaches the boot surface.)
 - `git grep -c "as integer" -- _tool/testrun.tl cosmic/instrument.tl`
-  prints exactly `_tool/testrun.tl:1` and `cosmic/instrument.tl:3` —
-  the survivors being `testrun.tl:111` and the three `math.floor`
-  sites, both named in Non-goals. (The same command today prints
+  prints exactly `_tool/testrun.tl:1` and `cosmic/instrument.tl:7` —
+  the survivors being `testrun.tl:111` and instrument's untouched
+  seven, both named in Non-goals. (The same command today prints
   `_tool/testrun.tl:3` and `cosmic/instrument.tl:7`.)
+- `wc -l < cosmic/string.tl` prints a number ≤ 500 (431 today; ~453
+  expected).
+- On a cold tree — `bin/cosmic --make clean && bin/cosmic --make fetch
+  && bin/cosmic --make build` — the build ends `build: PASS`. This is
+  the check the instrument half fails; run it before opening the PR and
+  quote its verdict line.
 - `bin/cosmic --make ci` ends `ci: PASS`, with the regenerated
   `_build/casts_baseline.tl` committed and the new
   `cosmic/string_example.tl` running in its example stage.
 
 ## Enablement
 
-none needed — every site is enumerated from a grep re-run 2026-08-21 at
-`aaf4af95`, every parse result and the nil-throw hazard are measured
-against the pinned runtime and pinned in the tests above, and the
-ratchet's own message names the regen command.
+none needed for this scope — every site is enumerated from a grep
+re-run 2026-08-23 at `d01ea6ac`, every parse result in the table above
+was produced by running this implementation on the pinned runtime, the
+nil-throw hazard is measured and pinned in a test, the ratchet's own
+message names the regen command, and the one wrong turn a literal
+session could take (migrating the boot-surface `instrument.tl` sites
+too) is measured, walled off in Non-goals, and caught by the cold-build
+Acceptance command.
 
-## Bounced 2026-08-21: the instrument.tl half needs a decision this spec does not make
-
-Implemented at main `aaf4af95` on branch
-`claude/zealous-hypatia-2wmkrz` (commit `0fb9c6b8`, draft PR). Change
-items 1, 2 (the two `testrun.tl` sites), 3 and 4 all hold as written —
-`--make test cosmic/string_test.tl _tool/testrun_test.tl
-cosmic/instrument_test.tl` ends `test: PASS (3 files)`, the grep prints
-`_tool/testrun.tl:1` and `cosmic/instrument.tl:3`, and the regenerated
-baseline moved exactly the three predicted rows. Two consequences of
-the FOUR `instrument.tl` sites were not foreseen:
-
-1. **A bootstrap ordering the spec does not mention.** `cosmic.instrument`
-   is on the boot surface, so the pinned release loads it from the tree
-   during `--make build`'s generate step while resolving `cosmic.string`
-   from its own `/zip/.tl/cosmic/string.tl`. Generation 1 therefore fails
-   with `invalid key 'to_integer' in record 'str'`; generation 2, run
-   under the binary the first build produced, succeeds. `--make ci`
-   converges and is fine, but a bare `--make build` on a COLD tree does
-   not — it fails before it can produce the binary that would fix it. Not
-   yet measured on a genuinely cold clone; the `repro` CI lane is where
-   it would show.
-2. **Coverage: the module becomes boot-loaded, and its floor appears to
-   drop.** `_make/stamp.tl`'s `stamp_test` demands `cosmic.string` join
-   `BOOT_MODULES` (its message names the fix). Once it is boot-loaded,
-   `--make coverage` reports `cosmic/string.tl: coverage declined 98.4%
-   -> 96.9% (158/163, baseline 180/183)` — the TOTAL moving 183 -> 163
-   while the file grew 25 lines, with `local M: StringModule = {` and
-   `return M` reported unhit. That is the o/-vs-/zip chunk merge race of
-   3ICDL1lV, now confirmed at runtime there. Reverting only the
-   `instrument.tl` require clears it.
-
-**The decision to make in this plan pass**, which is why this bounced
-rather than shipping: whether wave 4 is the two `testrun.tl` sites
-alone (leaving the four `instrument.tl` sites to a later wave, after
-3ICDL1lV lands), or whether it waits for 3ICDL1lV. Committing a
-`--make coverage --baseline` to absorb the decline is NOT an option
-here — it would freeze a measurement artifact as a floor. Mirrored in
-`blocked_by` either way.
+The enablement work this item's earlier bounce generated is 3IIm7ZyN —
+a gate or convention so a session cannot discover the boot-surface
+stdlib restriction only on a cold tree. It does NOT block this scope
+(measured above: the `testrun.tl`-only scope builds cold), so it is not
+in `blocked_by`; it blocks the later instrument wave instead.
