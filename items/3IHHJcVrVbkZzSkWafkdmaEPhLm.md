@@ -174,3 +174,123 @@ Wrong turns walled, in order of how tempting they are:
   and explicitly demoted from prerequisite to diagnosis, which matters because
   jart/cosmopolitan is outside this work's repository scope and the local clone's
   history is squashed.
+
+## Bounce, 2026-08-23 (session claude-sched-2026-08-23T1638)
+
+Returned to `plan` from `do`. **The Change as written cannot reach its own
+Acceptance, and the wall that stops it is this spec's own.** The diagnosis is
+right and the fix is right — it is just half the fix, and `Non-goals` bullet 6
+forbids the other half.
+
+### What the run established
+
+The failure reproduces unchanged at the current head `bf92718a` (the spec
+measured at `07fc94a1`), on a cold tree:
+
+```
+$ make o//depend
+tclsqlite.h: path not specified by HDRS/SRCS/INCS make variables (it was included by third_party/sqlite3/sqlite3.c)
+`make MODE= -j4 o//depend` exited with 1
+make: *** No rule to make target 'o//depend'.  Stop.
+```
+
+The two-file Change was applied exactly as specified. `make o//depend` then
+failed on a SECOND unresolved include:
+
+```
+qrf.h: path not specified by HDRS/SRCS/INCS make variables (it was included by third_party/sqlite3/shell.c)
+```
+
+`Non-goals` bullet 6 says of exactly this: "record it and stop." But
+`## Acceptance` demands `make o//depend` exit 0 and write a non-empty
+`o//depend`, and it cannot while any unresolved include remains — mkdeps fails
+whole, one header at a time. Stopping and passing are the same command's two
+incompatible outcomes, so the item bounces rather than either widening the diff
+or shipping a change with nothing observable behind it: tclsqlite.h alone moves
+no measurement, because the depend graph is still never generated.
+
+### The second header, diagnosed — it is the same bug, not a new one
+
+`qrf.h` does not exist in the tree either (`find . -name 'qrf*' -not -path
+'./.cosmocc/*'` prints nothing). `third_party/sqlite3/shell.c` is an
+amalgamation that INLINES `ext/qrf/qrf.h` at `:678-881`, and that inlined copy
+ends on `#endif /* !defined(SQLITE_QRF_H) */`, defining the guard. The include
+at `:897-899` is its fallback:
+
+```
+897  #ifndef SQLITE_QRF_H
+898  #include "qrf.h"
+899  #endif
+```
+
+`SQLITE_QRF_H` is always already defined by line 898, so no compiler ever reads
+it — the same dead-include shape as `sqlite3.c:203324`'s `#ifdef SQLITE_TEST`,
+reached through a different preprocessor construct. Same package, same
+non-existent-header class, same one-line remedy.
+
+### How deep it goes — measured, so the re-spec need not guess
+
+Probed by stubbing each named header and re-running until mkdeps stopped
+complaining, then reverting every probe artifact:
+
+```
+PROBE 1: missing qrf.h (from third_party/sqlite3/shell.c)
+PROBE: mkdeps clean after 1 extra stubs
+```
+
+**The complete set is exactly two headers: `tclsqlite.h` and `qrf.h`.** There is
+no cascade for `Non-goals` bullet 6 to have been protecting against, which is
+what the bullet could not know when it was written.
+
+### What the re-spec should say
+
+1. `## Change` step 1 becomes TWO stub headers, `third_party/sqlite3/tclsqlite.h`
+   and `third_party/sqlite3/qrf.h`, each guard-and-comment only (the
+   `.ok`-per-header rule at `BUILD.mk:53` still constrains them to compile
+   standalone, which a guard-only file does).
+2. `## Change` step 2 lists both in `THIRD_PARTY_SQLITE3_A_HDRS`.
+3. `Non-goals` bullet 6 is rewritten to wall a THIRD header rather than a
+   second one — the wall is still worth having, it was just set one short.
+4. Everything else stands: the `Makefile`, `mkdeps` and vendored-amalgamation
+   walls all held and were never approached.
+
+The `tclsqlite.h` stub drafted during the run, for the next session to reuse
+verbatim:
+
+```c
+#ifndef COSMOPOLITAN_THIRD_PARTY_SQLITE3_TCLSQLITE_H_
+#define COSMOPOLITAN_THIRD_PARTY_SQLITE3_TCLSQLITE_H_
+/* Placeholder for the Tcl test harness header, which this tree does not
+   carry. third_party/sqlite3/sqlite3.c includes it under #ifdef
+   SQLITE_TEST, which is never defined here, so no compiler ever reads it.
+   build/bootstrap/mkdeps scans includes textually and does not evaluate
+   #ifdef, so the path must still resolve against HDRS/SRCS/INCS or the
+   whole o/$(MODE)/depend graph fails to build and every object loses its
+   header prerequisites. Contents are deliberately empty. */
+#endif /* COSMOPOLITAN_THIRD_PARTY_SQLITE3_TCLSQLITE_H_ */
+```
+
+### A second, smaller correction
+
+`## Change` step 2 says `tclsqlite.h` "sorts before `sqlite3.h`, after
+`extensions.h`". It does not — `t` follows `s`, so alphabetical order puts it
+last, after `sqlite3ext.h`. The governing instruction (alphabetical order) is
+unambiguous and was followed; the parenthetical is simply wrong and should be
+dropped rather than obeyed.
+
+### Repository state
+
+No file in whilp/cosmopolitan moved: both stubs and the `BUILD.mk` edit were
+reverted, the probe stub deleted, and `git status --short` prints nothing. No
+PR was opened.
+
+### Enablement
+
+Filed as `none` — this is this item's own specification failure, not a systemic
+gap. The ready bar asks for measured claims, and every claim in `## Evidence`
+was measured and held; what went unmeasured was the CONSEQUENCE of the fix — the
+spec never ran `make o//depend` with the Change applied, so it could not know
+whether one header was the whole story. `Non-goals` bullet 6 is the author
+correctly noticing that uncertainty and then walling the answer instead of
+measuring it. The probe above costs about a minute and is now recorded, so the
+re-spec has the number the original could only guess at.
