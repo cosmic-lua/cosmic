@@ -189,3 +189,33 @@ Two frictions worth their record:
 As a research slice this item has no PR, and `gitboard move ID check` requires
 `--pr N` (board friction captured as 3IFUskgH), so per `review.md` it ends from
 `do` with its acceptance recorded rather than routing through `check`.
+
+## Review, 2026-08-23 (session claude-sched-2026-08-23T1638)
+
+Accepted. A research slice's acceptance is re-verification against the tree, and
+the load-bearing claims were checked independently of the run that made them:
+
+| claim | how it was re-verified | result |
+|---|---|---|
+| the A binary IS the 2026-08-17-f421fa1 release `cosmic-lua` | the release asset's own published digest, read from the API | `sha256:d00aef83ff714163da06e1457c3274008832a9d8956e015e8c4ee69664cca46f` — identical to the recorded A hash |
+| `--only` matches as a plain substring | `_perf/run.tl:257` reads `s.name:find(a.only, 1, true)` | holds, with the comment above it saying why |
+| whilp/cosmopolitan#263 is closed, draft, unmerged | `pull_request_read whilp/cosmopolitan#263` | `state=closed, draft=true, merged=false, closed_at=2026-08-15T17:00:47Z` |
+| #263's own conclusion is "do not ship" | its PR body | "This flag delivers *deterministic* (erratum-immune) layout, not deterministically *faster* code. On this evidence it should not ship." |
+| the padding flag is unlanded in cosmopolitan | `grep -rn 'branches-within-32B' /home/user/cosmopolitan` at `bf92718a` | prints nothing |
+| no tracked file moved in either repo | `git status --short` in both checkouts | both empty |
+| the tar path was never implicated by code | `git log --since=2026-08-17T21:00:00Z -- cosmic/tar.tl cosmic/tar_example.tl cosmic/tar_test.tl` | empty |
+| the follow-up the item seeds exists and is placed | `gitboard show 3IJxKFgy` | backlog, parented under 3HyRcd9F (G6), band 1 |
+
+The decision rule resolved mechanically and the reviewer reaches the same
+branch: pair 5 has B faster than A, which is the *Not reproduced* clause on its
+own, and four of five deltas sit inside the ±24.2% band the same-session A/A
+control reported. The Non-goals held — nothing under `_perf/`,
+`skills/optimize/` or `cosmic/tar*` moved, no pin was bumped, and #263 was not
+touched.
+
+One correction to a supporting line, not to the finding: `## Evidence` states
+that `git log --since=2026-08-17 -- cosmic/tar*` "is empty". It is not — it
+prints `c5c03924`, this repository's history root, which adds every file in the
+tree and is dated 2026-08-17T20:54Z. Bounding the window past that commit
+(`--since=2026-08-17T21:00:00Z`) gives the empty output the claim intended, and
+the substantive point stands: no commit after the import touches the tar path.
