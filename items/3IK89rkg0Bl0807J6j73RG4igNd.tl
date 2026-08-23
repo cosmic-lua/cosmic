@@ -1,0 +1,4 @@
+return {
+  ["id"] = "3IK89rkg0Bl0807J6j73RG4igNd",
+  ["title"] = "literal.format at json speed: EncodeLua already in the fork, 1.2x json, round-trips literal.parse — needs a strict guard",
+}
