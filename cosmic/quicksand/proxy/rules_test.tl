@@ -131,3 +131,22 @@ local function test_auth_header()
   assert(rules.auth_header(true as rules.ProxyRule) == nil, "true injects nothing")
 end
 test_auth_header()
+
+-- A nil port means "no port constraint" in both directions: the
+-- declarations say `integer | nil` because the code already puts nil
+-- there. A nil query hits an any-port rule and does not widen past a
+-- rule that names a port; parse_rule returns nil for a bare host.
+local function test_nil_port_query()
+  local idx = rules.index({
+      ["any.example.com"] = {},
+      ["db.internal:5432"] = {},
+    })
+  assert(rules.match(idx, "any.example.com", nil) ~= nil,
+    "a nil port query hits the any-port entry")
+  assert(rules.match(idx, "db.internal", nil) == nil,
+    "a nil port query does not widen past a rule that names a port")
+  local h, p = rules.parse_rule("example.com")
+  assert(h == "example.com" and p == nil,
+    "parse_rule returns a nil port for a bare host: " .. tostring(p))
+end
+test_nil_port_query()
