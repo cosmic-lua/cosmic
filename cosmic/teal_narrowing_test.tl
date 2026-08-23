@@ -210,3 +210,59 @@ f("hi")
     "an `is` guard ending in error(...) must not narrow below itself")
 end
 test_error_terminated_guard_does_not_narrow()
+
+-- The other half of the honest-nil doctrine, and the one the prose used
+-- to get wrong: the checker DEMANDS a guard in exactly one position, an
+-- index. Assignment to a declared non-nil type, a non-nil parameter,
+-- arithmetic and concatenation all admit an unnarrowed `T | nil`, so an
+-- unguarded union becomes a runtime nil downstream. AGENTS.md,
+-- docs/stdlib.md and docs/guides/checking.md describe this boundary; if
+-- this test fails, the boundary moved and those three say the wrong
+-- thing.
+local function test_nil_union_is_admitted_outside_an_index()
+  local path = fs.join(tmpdir, "narrow_nil_admitted.tl")
+  assert(fs.write(path, [[
+local function gi(): integer | nil
+  return 1
+end
+local function gs(): string | nil
+  return "s"
+end
+local function take_int(n: integer): integer
+  return n
+end
+local n = gi()
+local m: integer = gi()
+local t: string = gs()
+print(n + 1, take_int(gi()), ("abc"):sub(1, gi()))
+print(gs() .. "x", m, t)
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "arithmetic, concatenation, a declared non-nil local and a non-nil "
+    .. "parameter must all admit an unnarrowed T | nil: "
+    .. table.concat(msgs, "; "))
+end
+test_nil_union_is_admitted_outside_an_index()
+
+-- The negative twin: an index is the position that does refuse. Without
+-- it the test above would still pass under a checker that grew strict
+-- everywhere, and would pin nothing.
+local function test_nil_union_is_refused_at_an_index()
+  local path = fs.join(tmpdir, "narrow_nil_indexed.tl")
+  assert(fs.write(path, [[
+local function gs(): string | nil
+  return "s"
+end
+local s = gs()
+print(s:upper())
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok,
+    "indexing an unnarrowed string | nil must be refused")
+end
+test_nil_union_is_refused_at_an_index()

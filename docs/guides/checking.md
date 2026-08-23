@@ -195,6 +195,49 @@ every cast carries its own `-- cast: <reason>` on the line or the line
 above (enforced by `--make lint`): a cast you cannot justify is one to
 remove.
 
+### Where Narrowing Is Required
+
+the checker demands a guard in exactly one position: an INDEX. `s:upper()`,
+`t.field` and `a[i]` all refuse an unnarrowed `T | nil`. every other position
+admits it — assignment to a declared non-nil type, a non-nil parameter,
+arithmetic, concatenation:
+
+```teal
+local function size_of(path: string): integer | nil
+  return #path
+end
+
+local function name_of(path: string): string | nil
+  return path
+end
+
+local function widen(n: integer): integer
+  return n + 1
+end
+
+local size = size_of("notes.txt")
+local declared: integer = size_of("notes.txt")
+local label: string = name_of("notes.txt")
+print(size + 1, widen(size_of("notes.txt")))
+print(name_of("notes.txt") .. "!", declared, label)
+```
+
+that snippet compiles at full strictness, which is the point: every line of it
+puts a possible nil somewhere a nil cannot go, and nothing objects. index the
+same union and the checker finally stops you:
+
+```text
+local s = name_of("notes.txt")
+print(s:upper())
+
+error: cannot index key 'upper' in variable 's' of type string | nil
+```
+
+so a `| nil` annotation is a contract with the reader that the checker only
+half enforces. guard where the union is produced — at the call that can fail —
+rather than trusting the annotation to force a guard out of every caller
+downstream.
+
 ### Record Types
 
 records define structured data with typed fields and methods:

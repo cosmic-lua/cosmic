@@ -149,7 +149,8 @@ the pattern table and worked snippets ship in the binary
 doctrine prose is [docs/stdlib.md](docs/stdlib.md). the shape rules:
 
 **honest nil — the type must admit failure:**
-- **Fallible value**: `T | nil, string` — the checker forces callers to narrow.
+- **Fallible value**: `T | nil, string` — callers must narrow, and the checker
+  only makes them at an index (`cosmic --docs guide.checking`).
 - **Fallible effect**: `boolean, string` (returns `false, msg` on failure).
 - **Infallible**: bare value.
 
@@ -177,7 +178,10 @@ patch makes `assert` narrow as an EXPRESSION, so `local db =
 assert(sqlite.open(p))` is a plain `Database` — the primitive a Lua programmer
 reaches for works, with no cosmic-specific combinator in the way. What
 still does NOT narrow: record FIELDS (copy the field to a local and guard the
-local). The other tools:
+local). And what the checker never DEMANDS: an unnarrowed `T | nil` passes into a
+non-nil parameter, a declared non-nil local, arithmetic and concatenation —
+only an index refuses it, so an unguarded union becomes a runtime nil
+downstream (pinned in `cosmic/teal_narrowing_test.tl`). The other tools:
 
 - **In tests and examples, use `check.must`** for fallible returns: `local db =
   check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua
