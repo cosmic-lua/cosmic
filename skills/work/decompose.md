@@ -51,6 +51,19 @@ contested pair to the goal owner, ONE question at a time —
 > several releases, which is the better cosmic?
 
 — and commit the answer with `gitboard compare <winner> <loser>`.
+ask in CHAT, as prose the goal owner answers inline — never through a
+question tool or dialog widget. each pair gets its options as a plain
+lettered list — a. b. c. d., single letters, never composite labels
+like a1/a2 — and the question STANDS ALONE: say what each side is
+and what choosing it means, in plain words — a bare item id, a
+"the one from earlier", or any reference that needs scrollback to
+resolve is an opaque question, and an answer to an opaque question is
+not a judgment. ONE pair per message, answered before the next is
+asked — an answer closes pairs by transitivity and can change which
+question is worth asking next, so a batch wastes the goal owner's
+judgment on pairs the earlier answers would have settled. order the
+queue by leverage: the pair whose answer cascades furthest through
+transitivity and the hierarchy goes first.
 transitivity closes the untested pairs for you (A > B and B > C
 settles A vs C, with nobody asked), so a handful of questions orders a
 half-dozen outcomes. give byes to outcomes that are nearly holding
