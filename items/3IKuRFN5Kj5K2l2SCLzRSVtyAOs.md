@@ -35,7 +35,7 @@ $ git rev-list --count HEAD
 50
 $ git log --oneline -S 'freelist' -- libc/runtime/
                                     # nothing
-$ git log --oneline -S -- '->next' libc/runtime/zipos-open.c
+$ git log --oneline -S '->next' -- libc/runtime/zipos-open.c
                                     # nothing
 $ git log --oneline -- libc/runtime/zipos.internal.h
 1c5cfce4 lua: restore the GetCryptoHash contract and SHA-256 speed on Mbed TLS 3.6 (#190)
@@ -74,7 +74,7 @@ four nested sigprocmasks; it does not touch the other four syscalls.
 
 Answer three questions and record each with the command or `file:line`
 that produced it, in a `## Findings` section appended to THIS item's
-spec (`o/bin/gitboard spec <this id> FILE`, from the board worktree).
+spec (`o/bin/gitboard spec 3IKuRFN5 FILE`, from the board worktree).
 
 **1. Why the `next` member is vestigial**, from upstream history,
 which this fork's log cannot reach:
@@ -166,9 +166,9 @@ commands run anywhere.
 ```
 git clone --filter=blob:none --no-checkout https://github.com/jart/cosmopolitan /tmp/upstream-cosmo
 git -C /tmp/upstream-cosmo log --oneline -S '->next' -- libc/runtime/zipos-open.c libc/zipos/
-o/bin/gitboard show <this id> | grep -c '^## Findings'
-o/bin/gitboard show <this id> | grep -c 'jart/cosmopolitan'
-o/bin/gitboard check <sibling id>
+o/bin/gitboard show 3IKuRFN5 | grep -c '^## Findings'
+o/bin/gitboard show 3IKuRFN5 | grep -c 'jart/cosmopolitan'
+o/bin/gitboard show 3IK8GFHj
 git -C <cosmopolitan checkout> status --porcelain libc/
 ```
 
@@ -180,8 +180,9 @@ git -C <cosmopolitan checkout> status --porcelain libc/
   question 3's is five bullets, one per decision point.
 - `grep -c 'jart/cosmopolitan'` on this item is **0 today** and must
   be at least 1 after — the answer names where it came from.
-- `o/bin/gitboard check <sibling id>` ends `meets the ready bar`, and
-  `o/bin/gitboard show 3IK8GFHj` lists that sibling as a child.
+- `o/bin/gitboard show 3IK8GFHj` lists exactly one child besides this
+  item — the implementation slice this one wrote — and
+  `o/bin/gitboard check` on that child's id ends `meets the ready bar`.
 - `git status --porcelain libc/` in the cosmopolitan checkout prints
   nothing: no C moved.
 
