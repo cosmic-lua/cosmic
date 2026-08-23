@@ -185,10 +185,17 @@ work ONE scenario (or one closely related group) at a time.
      dead end is what
      stops the next agent from re-testing it). a surviving
      regression already reproduced against the binary itself, so it is
-     real; do not re-litigate it as noise. ONE defined exception: a
-     surviving flag in a fixed-overhead microbench your diff cannot
-     reach is decided by the isolated re-measure procedure in
+     real; do not re-litigate it as noise. TWO defined exceptions.
+     first: a surviving flag in a fixed-overhead microbench your diff
+     cannot reach is decided by the isolated re-measure procedure in
      `measurement.md` ("when a flag survives triage"), not by revert.
+     second: a surviving regression on a single tight-loop or
+     fixed-overhead scenario that is about to gate a release or be
+     written into a board item as a finding is decided by the
+     cross-session rule in `measurement.md` ("the term interleaving
+     inside one session cannot remove"), not by this session's verdict
+     alone — it is real for this session's host placement, and only
+     another session says whether it is real for the pin.
    - want to see the machine's noise floor yourself → `gate.lua
      selfcheck` runs the same A/A control on demand. see
      `measurement.md`.
