@@ -54,7 +54,6 @@ local MISSING_ALLOWED: {string} = {
   "rand",
   "re",
   "sse",
-  "string",
   "sys",
   "teal",
   "time",
