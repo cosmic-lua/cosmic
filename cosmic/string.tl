@@ -384,6 +384,38 @@ local function shell_quote(s: string): string
   return "'" .. (s:gsub("'", "'\\''")) .. "'"
 end
 
+--- Parse s as an integer. tonumber's grammar (optional sign,
+--- whitespace tolerated; base 2-36, default 10), judged on the VALUE
+--- rather than the spelling: "1e3" is 1000 and "0x1F" is 31, while
+--- "7.5" is a refusal rather than a truncation. A `0x` prefix is a
+--- default-base spelling only — tonumber rejects it once a base is
+--- given.
+--- @param s string The text to parse
+--- @param base integer? The base, default 10
+--- @return integer | nil The parsed integer
+--- @return string Error message when s is not an integer in base
+local function to_integer(s: string, base?: integer): integer | nil, string
+  -- Two branches, never `base and tonumber(s, base) or tonumber(s)`:
+  -- that falls through to the base-less call when the based parse
+  -- legitimately refuses. The base-less call is also the only one
+  -- safe against a runtime nil, which callers do hand us where tl
+  -- types a `string.match` result as string.
+  local n: number
+  if base then
+    n = tonumber(s, base)
+  else
+    n = tonumber(s)
+  end
+  -- Not `math.tointeger` bare: its declaration swallows nil, which is
+  -- the gap this function exists to close.
+  local i = n and math.tointeger(n)
+  if i == nil then
+    return nil, ("not an integer%s: %q"):format(
+      base and " in base " .. tostring(base) or "", s)
+  end
+  return i
+end
+
 local record StringModule
   capitalize: function(s: string): string
   trim: function(s: string): string
@@ -404,6 +436,7 @@ local record StringModule
   indent: function(s: string, prefix: string): string
   truncate: function(s: string, width: integer, suffix?: string): string
   shell_quote: function(s: string): string
+  to_integer: function(s: string, base?: integer): integer | nil, string
 end
 
 local M: StringModule = {
@@ -426,6 +459,7 @@ local M: StringModule = {
   indent = indent,
   truncate = truncate,
   shell_quote = shell_quote,
+  to_integer = to_integer,
 }
 
 return M

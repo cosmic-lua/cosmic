@@ -219,3 +219,55 @@ local function test_ends_with_empty()
   assert(not str.ends_with("", "hello"), "expected false for empty string")
 end
 test_ends_with_empty()
+
+-- to_integer tests
+
+local function test_to_integer_decimal()
+  assert(str.to_integer("42") == 42, "expected 42")
+  assert(str.to_integer("-17") == -17, "expected -17")
+  assert(str.to_integer("  42  ") == 42, "expected whitespace tolerated")
+end
+test_to_integer_decimal()
+
+local function test_to_integer_judges_the_value_not_the_spelling()
+  assert(str.to_integer("1e3") == 1000, "expected the exponent spelling to parse")
+  assert(str.to_integer("0x1F") == 31, "expected the hex spelling to parse")
+end
+test_to_integer_judges_the_value_not_the_spelling()
+
+local function test_to_integer_base()
+  assert(str.to_integer("1F", 16) == 31, "expected 31")
+  assert(str.to_integer("777", 8) == 511, "expected 511")
+end
+test_to_integer_base()
+
+local function test_to_integer_hex_prefix_is_default_base_only()
+  local n, err = str.to_integer("0x1F", 16)
+  assert(n == nil, "expected a refusal")
+  assert(err == 'not an integer in base 16: "0x1F"', "got: " .. tostring(err))
+end
+test_to_integer_hex_prefix_is_default_base_only()
+
+local function test_to_integer_refuses_non_integers()
+  local fraction, fraction_err = str.to_integer("7.5")
+  assert(fraction == nil, "expected a refusal for a fraction")
+  assert(fraction_err == 'not an integer: "7.5"', "got: " .. tostring(fraction_err))
+  local nan, nan_err = str.to_integer("nan")
+  assert(nan == nil, "expected a refusal for nan")
+  assert(nan_err == 'not an integer: "nan"', "got: " .. tostring(nan_err))
+  local empty, empty_err = str.to_integer("")
+  assert(empty == nil, "expected a refusal for the empty string")
+  assert(empty_err == 'not an integer: ""', "got: " .. tostring(empty_err))
+end
+test_to_integer_refuses_non_integers()
+
+-- A caller hands this a value tl types as string that is nil at
+-- runtime — string.match's result, which _tool/testrun.tl parses. The
+-- refusal has to come back as a value, not as a throw.
+local function test_to_integer_runtime_nil_refuses_rather_than_throws()
+  -- cast: tl types string.match as string; it is nil at runtime
+  local n, err = str.to_integer(("abc"):match("^(%d+)") as string)
+  assert(n == nil, "expected a refusal")
+  assert(err == "not an integer: nil", "got: " .. tostring(err))
+end
+test_to_integer_runtime_nil_refuses_rather_than_throws()

@@ -5,6 +5,7 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local instrument = require("cosmic.instrument")
 local records = require("_tool.records")
+local str = require("cosmic.string")
 local time = require("cosmic.time")
 
 --- The output grammar lives in `_tool.records`, which is where every
@@ -228,8 +229,7 @@ local function report(paths: {string}): integer
           wall_ms = -1,
         })
     else
-      -- cast: number to integer
-      local exit_code = (tonumber(string.match(got_content, "^(%d+)")) or -1) as integer
+      local exit_code = str.to_integer(string.match(got_content, "^(%d+)")) or -1
 
       -- Read stdout and stderr
       local stdout_content = fs.read(base .. ".out") or ""
@@ -240,7 +240,7 @@ local function report(paths: {string}): integer
       -- graph is absent rather than instant, and the summary line has
       -- to be able to tell those apart or it reports a suite that took
       -- no time.
-      local wall_ms = (tonumber(fs.read(base .. ".time") or "") or -1) as integer -- cast: number to integer
+      local wall_ms = str.to_integer(fs.read(base .. ".time") or "") or -1
 
       -- Read recorded test_* function names, when present
       local test_count = 0
