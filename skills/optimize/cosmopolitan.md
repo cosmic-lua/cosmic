@@ -96,8 +96,8 @@ COSMO=~/cosmopolitan   # your checkout
 
 3. **hypothesis, then the smallest C diff that tests it** — one
    hypothesis per commit, exactly like the cosmic layer. pick from the
-   open `perf`-labeled issues in whilp/cosmopolitan or find your own
-   (below).
+   board's open C-layer hypotheses (items carrying
+   `--repo whilp/cosmopolitan`) or find your own (below).
 
 4. **gate 1 — correctness:**
 
@@ -127,8 +127,8 @@ COSMO=~/cosmopolitan   # your checkout
 
 6. **decide** with the same rules as the main loop: target scenario
    improved beyond its noise bar and nothing else regressed → keep;
-   otherwise revert and record the failed hypothesis on the backlog
-   issue. NOTE: a C edit relinks the whole binary, so function addresses
+   otherwise revert and record the failed hypothesis on its board
+   item. NOTE: a C edit relinks the whole binary, so function addresses
    shift and unrelated fixed-overhead microbenchmarks
    (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) routinely trip the
    regression bar on layout noise alone — this is the single most common
@@ -137,8 +137,8 @@ COSMO=~/cosmopolitan   # your checkout
    decision procedure is `measurement.md`, "when a flag survives
    triage" — isolated `--only` re-measurement on both binaries.
 
-7. **land it** (see below) and close the backlog issue (comment the
-   result) when it lands.
+7. **land it** (see below) and end the board item (append the result
+   to its spec) when it lands.
 
 ## the interleave, when the effect is smaller than the bar
 
@@ -192,8 +192,8 @@ two-repo dance — but only AFTER the local loop already proved the win:
 
 ## finding C-layer opportunities
 
-- **work the backlog first**: `gh issue list --repo whilp/cosmopolitan
-  --label perf --state open` and pick one.
+- **work the backlog first**: the board's open C-layer hypotheses
+  (see SKILL.md, "the hypothesis backlog") and pick one.
 - **thin-wrapper scenarios with cpu/wall ≈ 1.0** — the time is inside
   one C call. read that binding's source in `tool/net/`.
 - **`startup_*` scenarios** — the cosmic layer above them is already

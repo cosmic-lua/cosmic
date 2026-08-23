@@ -5,12 +5,12 @@ that first. this file covers spotting wins in the Teal wrapper layer
 (`cosmic/*.tl`); for the C layer see `cosmopolitan.md` in this
 directory.
 
-check the hypothesis backlog first (GitHub issues labeled `perf` in
-whilp/cosmic) — it holds vetted, evidence-backed starting points, and
-the closed-as-completed issues are worked examples of every shape
-below. to find new ones, read the harness output and look for these
-shapes — and when one crystallizes, write it up as an issue, never as
-a note in the tree:
+check the hypothesis backlog first (the work board — "the hypothesis
+backlog" in SKILL.md) — it holds vetted, evidence-backed starting
+points, and the ended-completed items are worked examples of every
+shape below. to find new ones, read the harness output and look for
+these shapes — and when one crystallizes, capture it as a board item,
+never as a note in the tree:
 
 - **implementation mismatches between siblings.** two scenarios doing
   comparable work on the same input should cost comparable time; a
@@ -58,6 +58,6 @@ a note in the tree:
 if you read the wrapper and it's a two-line delegation to a `cosmo.*`
 call, or it already calls `unix.*` directly for every operation, there
 is no cosmic-layer fix — the cost is inside the C binding, the Lua
-runtime, or the kernel. record that finding on the issue, and open (or
-move it to) a `perf`-labeled issue in whilp/cosmopolitan, then
+runtime, or the kernel. record that finding on the item's spec and
+re-file it for the C layer (`--repo whilp/cosmopolitan`), then
 continue with `cosmopolitan.md`.

@@ -4,8 +4,9 @@ description: >
   Measurement-driven performance optimization of cosmic: baseline the
   _perf scenario harness, change one hypothesis at a time, and gate on
   correctness (--make ci) plus the noise-aware compare. Use when working
-  a perf-labeled issue, judging whether a change regressed performance,
-  or running a research pass to re-seed the hypothesis backlog.
+  a perf hypothesis from the board, judging whether a change regressed
+  performance, or running a research pass to re-seed the hypothesis
+  backlog.
 ---
 
 # Optimizing cosmic performance
@@ -26,9 +27,9 @@ file in this directory so no chapter ever fights the repo's
 - `cosmopolitan.md` — how to optimize the C layer
   (whilp/cosmopolitan) with a local build, no release required.
 - `measurement.md` — measurement discipline and noise.
-- the hypothesis backlog — GitHub issues labeled `perf` (whilp/cosmic
-  for cosmic-layer work, whilp/cosmopolitan for the C layer). see
-  "the hypothesis backlog" below.
+- the hypothesis backlog — the work board (`skills/work/SKILL.md`):
+  one item per hypothesis, C-layer ones carrying
+  `--repo whilp/cosmopolitan`. see "the hypothesis backlog" below.
 
 ## the harness in one minute
 
@@ -136,10 +137,10 @@ an optimization can land in either:
   binary by hand — you do NOT need to cut a release to
   measure a C change. see `cosmopolitan.md`.
 
-which layer currently has headroom is state, and state lives in the
-tracker: read the open `perf`-labeled issues (`gh issue list --label
-perf --state open`, in both whilp/cosmic and whilp/cosmopolitan)
-before assuming either layer.
+which layer currently has headroom is state, and state lives on the
+board: read the open perf hypotheses there (`gitboard find` from the
+board worktree — see "the hypothesis backlog" below) before assuming
+either layer.
 
 ## the optimization loop
 
@@ -179,8 +180,9 @@ work ONE scenario (or one closely related group) at a time.
      → keep it.
    - no measurable improvement, or a surviving `regression` row → `git
      checkout` the change and record the failed hypothesis on its
-     issue: comment the numbers and close it as "not planned" (open an
-     issue first if it never had one — a recorded dead end is what
+     board item: append the numbers to its spec and end it as not
+     planned (capture an item first if it never had one — a recorded
+     dead end is what
      stops the next agent from re-testing it). a surviving
      regression already reproduced against the binary itself, so it is
      real; do not re-litigate it as noise. ONE defined exception: a
@@ -192,19 +194,21 @@ work ONE scenario (or one closely related group) at a time.
      `measurement.md`.
 7. **commit**, quoting before/after numbers for the affected scenarios in
    the commit message (copy the `perf-compare` lines), and update the
-   backlog issue in the same round — comment the result and close it
-   (completed, or "not planned" for a rejected hypothesis).
+   board item in the same round — append the result to its spec and
+   end it (completed, or not planned for a rejected hypothesis).
 
 ## hard rules (guardrails)
 
-- ALL perf state lives in GitHub issues labeled `perf` — hypotheses,
-  evidence, probe numbers, compare verdicts, failed attempts, research
-  findings. NEVER commit any of it to the repo: no backlog or findings
-  files, no notes docs, and no `o/perf/*.json` (baselines are
-  machine-specific and live only in your working `o/` directory). the
-  files in this directory carry method only; a finding worth writing
-  down is an issue body, or a comment on an existing issue — never a
-  doc edit.
+- ALL perf state lives on the work board — hypotheses, evidence,
+  probe numbers, compare verdicts, failed attempts, research
+  findings, each in its item's spec sidecar. NEVER commit any of it
+  to this repo: no backlog or findings files, no notes docs, and no
+  `o/perf/*.json` (baselines are machine-specific and live only in
+  your working `o/` directory). the files in this directory carry
+  method only; a finding worth writing down is an item's spec, or an
+  update to an existing item's — never a doc edit. GitHub issues
+  labeled `perf` are only the inbound queue: triage imports one as a
+  capture that links the issue, and no workflow state returns to it.
 - NEVER delete, rename, or weaken a scenario or its `check()` to make a
   comparison pass. `perf-compare` treats missing scenarios as failures and
   the smoke test rejects scenarios without checks — do not work around
@@ -237,26 +241,30 @@ code. the workflow that has worked:
    artifact in a scratch directory and shell-time it — but label
    probe numbers as scouting in the issue; accept/reject decisions
    still require the real harness.
-6. one issue per hypothesis (label `perf`, in the repo whose layer it
-   targets — whilp/cosmic or whilp/cosmopolitan), each with the
-   evidence, the expected mechanism, the correctness constraints, and
-   a risk note. update related older issues in the same pass
-   (cross-reference by #number rather than duplicate).
+6. one board capture per hypothesis (`gitboard new`, unparented, with
+   `--repo whilp/cosmopolitan` when the fix lands in the C layer),
+   each with the evidence, the expected mechanism, the correctness
+   constraints, and a risk note. update related older items in the
+   same pass (reference by item id rather than duplicate).
 
 ## the hypothesis backlog
 
-GitHub issues labeled `perf` hold the log — one issue per concrete,
-evidence-backed starting point. open = unworked; closed as completed =
-done; closed as "not planned" = a rejected dead end (kept forever, so
-the next agent doesn't re-test it). cosmic-layer hypotheses live in
-whilp/cosmic; cosmopolitan-layer ones in whilp/cosmopolitan. work it
-like this: pick ONE open issue (`gh issue list --label perf --state
-open`), run the loop above, then comment the result and close it in the
-same round. each issue body carries the evidence, expected mechanism,
-correctness constraints, and a risk note, and the issue accumulates
-everything later rounds learn about it: probe numbers, compare
-verdicts, the outcome. the tracker is the only durable store — nothing
-about a hypothesis, in any state, is committed to this repo.
+the work board holds the log (`skills/work/SKILL.md` has the system;
+the board branch's own README has the tool) — one item per concrete,
+evidence-backed starting point, filed as an unparented capture:
+`gitboard new "<title>" --spec-file F`, with `--repo
+whilp/cosmopolitan` when the fix lands in the C layer. open =
+unworked; ended completed = done; ended not planned = a rejected dead
+end (kept forever in the board's history, so the next agent doesn't
+re-test it). working one follows the work skill's loop — the board
+orders it against everything else, and the item's spec is the spec.
+each spec carries the evidence, expected mechanism, correctness
+constraints, and a risk note, and accumulates everything later rounds
+learn about it: probe numbers, compare verdicts, the outcome
+(`gitboard spec` replaces the sidecar). the board is the only durable
+store — nothing about a hypothesis, in any state, is committed to
+this repo. legacy `perf`-labeled issues and their closed history stay
+readable as evidence; an item may link one, never duplicate it.
 
 if a workload you want to optimize has no scenario, add one FIRST (in a
 `_perf/bench/*_bench.tl` module, with a real `check()`), baseline it,
