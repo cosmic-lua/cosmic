@@ -54,9 +54,12 @@ contested pair to the goal owner, ONE question at a time —
 ask in CHAT, as prose the goal owner answers inline — never through a
 question tool or dialog widget. each pair gets lettered options
 (a. b. c. d.) with enough context under each to answer without
-scrolling back, and when several pairs are queued, ask them from
-highest leverage to least: the pair whose answer cascades furthest
-through transitivity and the hierarchy goes first.
+scrolling back. ONE pair per message, answered before the next is
+asked — an answer closes pairs by transitivity and can change which
+question is worth asking next, so a batch wastes the goal owner's
+judgment on pairs the earlier answers would have settled. order the
+queue by leverage: the pair whose answer cascades furthest through
+transitivity and the hierarchy goes first.
 transitivity closes the untested pairs for you (A > B and B > C
 settles A vs C, with nobody asked), so a handful of questions orders a
 half-dozen outcomes. give byes to outcomes that are nearly holding
