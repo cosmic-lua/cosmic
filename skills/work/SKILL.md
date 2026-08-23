@@ -160,7 +160,7 @@ what the triage queue holds.
 
 roles change by changing the graph: `attach` is both decomposition (a
 workable item that gains a child is de-phased into a container in the
-same mutation) and triage (an adopted capture becomes a plan-phase
+same mutation) and triage (an adopted capture becomes a backlog-phase
 leaf). PLACEMENT is the checked property: every phased item must have
 a position in the priority order, itself or through an ancestor, and
 `check` says so when THAT item does not. the question is ordinal —
@@ -173,9 +173,9 @@ nobody's reason to be refused a promotion.
 
 decomposition is reversible without ceremony. an item that gains a
 child is de-phased in the same commit; when its LAST open child ends,
-the item returns to `plan` in the closing commit, which is where the
-session verifies the outcome its children were supposed to deliver and
-ends it.
+the item returns to `backlog` in the closing commit, from where the
+session promotes it to verify the outcome its children were supposed
+to deliver, and ends it.
 
 phases, left to right (only workable leaves carry one). a phase is
 named for the action performed in it; `ready` is the one noun,
@@ -183,16 +183,26 @@ because nobody acts there — it is a buffer:
 
 | phase | meaning |
 |-------|---------|
-| `plan` | placed, still ambiguous — refined until it meets the ready bar |
+| `backlog` | placed under an outcome, ordered, not committed to — the queue intake writes into |
+| `plan` | committed: being refined now, until it meets the ready bar |
 | `ready` | meets the ready bar (`decompose.md`); nobody's until a session pulls it |
 | `do` | claimed work and rework — the claimant's, until a PR opens or a bounce |
 | `check` | PR open; awaiting a verdict from a session that did not build it |
 | `land` | accepted; awaiting the merge |
 
-every phase is WIP-limited. the numbers are the tool's — `status`
-prints each phase against its own — and retuning one is a reviewed
-change to the machinery, not a reading of this table: `review.md`'s
-flow review is the method that earns one.
+**placing an item is not committing to it.** triage answers one cheap
+question — is this real, and under which outcome — and writes into
+`backlog`, which is UNBOUNDED: an inbox that can always accept is what
+keeps the cheap decision cheap. the expensive question is `promote`,
+the only way into `plan`, and `plan` is small enough that taking one
+is a choice against everything else in the queue. fusing the two made
+a triage drain deposit a batch of commitments nobody had sized.
+
+every phase but `backlog` is WIP-limited. the numbers are the tool's —
+`status` prints each phase against its own, and an unbounded one as a
+bare depth — and retuning one is a reviewed change to the machinery,
+not a reading of this table: `review.md`'s flow review is the method
+that earns one.
 
 a full phase still admits the motion that cannot sensibly wait: a
 return is never refused, because leftward motion is the system
@@ -264,8 +274,21 @@ what each kind of action is:
   (`decompose.md`): decompose a container's outcome further, or drive
   a leaf to the ready bar. before a `move ID ready`, run the
   enablement check (`enable.md`) and `check ID` — both must pass.
+  refinement outranks promotion for the reason finishing outranks
+  starting: what you already committed to is nearer `ready`.
+- **promote** — commit to the highest-placed `backlog` item nothing
+  blocks (`move ID plan`). this is the decision `plan`'s small limit
+  exists to make you take: you are choosing this over everything else
+  in the queue, so read what else is near the top before you do.
+- **sweep** — the board is saturated and something in `backlog` has
+  gone untouched for over a week. `next` hands you the lowest-placed
+  of them, and the answer is one of two: promote it, or end it with
+  `done ID --reason not-planned`. an item nobody has chosen across
+  every promotion in a week is usually the second, and closing it is
+  not a failure — a backlog carrying work nobody will do is a backlog
+  nobody can read.
 - **triage** — unplaced captures await a decision: `attach` each under
-  the outcome or container its evidence serves (it enters `plan`),
+  the outcome or container its evidence serves (it enters `backlog`),
   `compare` it against something to place it as an outcome in its own
   right, or end it — `done ID` when landed work already covers it,
   `done ID --reason not-planned` for a recorded dead end.
