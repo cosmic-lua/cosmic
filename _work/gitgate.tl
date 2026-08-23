@@ -47,7 +47,7 @@ local function wip_refusal(b: flow.Board, from: string, to: string,
     vacated?: string): string
   local limit = flow.LIMITS[to]
   if limit == nil or #(b[to] or {}) < limit
-  or flow.admits_over_limit(from, to) or vacated == to then
+  or flow.is_return(from, to) or vacated == to then
     return nil
   end
   return ("%s is at %d/%d — drain it before pulling more"):format(
@@ -128,7 +128,7 @@ local function commit_and_publish(s: store.Store, it: item.Item, body: string,
       local b = flow.board(merged)
       if limit ~= nil and #(b[it.phase] or {}) > limit
       and flow.is_arrival(from, it.phase)
-      and not flow.admits_over_limit(from, it.phase)
+      and not flow.is_return(from, it.phase)
       and vacated ~= it.phase then
         return ("%s is over %d and this mutation arrives into it"):format(
           it.phase, limit)

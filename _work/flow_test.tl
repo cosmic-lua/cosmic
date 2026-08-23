@@ -3,8 +3,8 @@
 -- the emergent-role claim itself: with no kind field anywhere, a
 -- parentless item reads as a root, one with open children as a
 -- container, and a parented leaf as the only thing the kanban moves —
--- plus the two-line admits rule, the blocker relation, and placement
--- in the priority order as a checked graph property. What a role
+-- plus the return a limit never holds back, the blocker relation, and
+-- placement in the priority order as a graph property. What a role
 -- does with all this is `_work/action_test.tl`.
 
 local check = require("cosmic.check")
@@ -59,13 +59,12 @@ local function test_board_holds_open_phased_items_only()
 end
 test_board_holds_open_phased_items_only()
 
-local function test_admissions_at_the_limit()
-  assert(flow.admits_over_limit("check", "land"), "an accept always lands")
-  assert(flow.admits_over_limit("check", "do"), "a send-back is a return")
-  assert(not flow.admits_over_limit("ready", "do"), "a pull queues")
-  assert(not flow.admits_over_limit(nil, "plan"), "an entry queues")
+local function test_a_return_is_admitted_over_a_limit()
+  assert(flow.is_return("check", "do"), "a send-back is a return")
+  assert(not flow.is_return("ready", "do"), "a pull queues")
+  assert(not flow.is_return(nil, "plan"), "an entry queues")
 end
-test_admissions_at_the_limit()
+test_a_return_is_admitted_over_a_limit()
 
 local function test_arrivals_versus_writes_that_move_nothing()
   assert(flow.is_arrival(nil, "plan"), "an entry arrives")
@@ -182,16 +181,17 @@ local function test_a_phase_at_its_limit_reports_arrivals_refused()
 end
 test_a_phase_at_its_limit_reports_arrivals_refused()
 
--- `land` is the exception: an accept is admitted over the limit
--- however full it is, so `land` at its number refuses nothing and has
--- nothing to report.
-local function test_land_at_its_limit_refuses_nothing()
+-- `land` holds no limit at all: it is the rightmost phase, where the
+-- only move left is out of the system, so however many items stand
+-- there none of them is an arrival being turned away.
+local function test_land_is_unbounded()
+  assert(flow.LIMITS["land"] == nil, "land holds no WIP limit")
   local root = make({})
   local items: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["land"] do
+  for _ = 1, 12 do
     items[#items + 1] = make({parent = root.id, phase = "land"})
   end
   assert(#flow.wip_violations(flow.board(items)) == 0,
-    "a full land column is not turning anything away")
+    "a deep land column is not turning anything away")
 end
-test_land_at_its_limit_refuses_nothing()
+test_land_is_unbounded()
