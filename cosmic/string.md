@@ -42,6 +42,7 @@ local record StringModule
   indent: function(s: string, prefix: string): string
   truncate: function(s: string, width: integer, suffix?: string): string
   shell_quote: function(s: string): string
+  to_integer: function(s: string, base?: integer): integer | nil, string
 end
 ```
 
@@ -412,3 +413,26 @@ function shell_quote(s: string): string
 **Returns:**
 
 - string - The shell-quoted string
+
+### to_integer
+
+```teal
+function to_integer(s: string, base?: integer): integer | nil, string
+```
+
+ Parse s as an integer. tonumber's grammar (optional sign,
+ whitespace tolerated; base 2-36, default 10), judged on the VALUE
+ rather than the spelling: "1e3" is 1000 and "0x1F" is 31, while
+ "7.5" is a refusal rather than a truncation. A `0x` prefix is a
+ default-base spelling only — tonumber rejects it once a base is
+ given.
+
+**Parameters:**
+
+- `s` (string) - The text to parse
+- `base` (integer?) - The base, default 10
+
+**Returns:**
+
+- integer - | nil The parsed integer
+- string - Error message when s is not an integer in base
