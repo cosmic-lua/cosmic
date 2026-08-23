@@ -382,20 +382,59 @@ local function parse_file(path: string, opts?: Options): {string: any} | nil, st
   return parse(source, {file = label, noun = noun, on_duplicate = on_duplicate})
 end
 
+--- How `format` lays its output out. Both layouts admit exactly the
+--- same values and refuse the same ones by the same key path; what
+--- differs is the bytes and what they cost to produce.
+local record FormatOptions
+  --- `"pin"`, the default, or `"compact"`.
+  layout: string
+end
+
+--- Serialize a value as a literal file's source.
+---
+--- The default `"pin"` layout is the one a committed file wants: one
+--- entry per line, keys sorted and bracketed, and a `cosmic --check
+--- fmt` fixpoint, so the file this writes is the file the formatting
+--- gate accepts. `"compact"` is the bulk layout for data read back by
+--- machine and never formatted: the same domain and the same
+--- refusals, on one line, encoded in C — several times faster and
+--- smaller, with no fixpoint promise. `"compact"` asks for smaller
+--- output rather than promising it: the few values the C encoder
+--- cannot spell as literals (a reserved word as a key,
+--- `math.mininteger`) come back in the `"pin"` layout instead, so what
+--- this returns is always something `parse` reads back.
+--- @param value any The value to serialize
+--- @param opts FormatOptions? layout: "pin" (default) or "compact"
+--- @return string | nil The literal source, or nil when the value is outside the domain
+--- @return string? Error message on failure, naming the key path refused
+local function format(value: any, opts?: FormatOptions): string | nil, string
+  local layout = (opts and opts.layout) or "pin"
+  if layout == "pin" then
+    return lformat.format(value)
+  end
+  if layout == "compact" then
+    return lformat.format_compact(value)
+  end
+  return nil, "a layout is \"pin\" or \"compact\", not \"" .. layout .. "\""
+end
+
 local record LiteralModule
   type Options = Options
+  type FormatOptions = FormatOptions
   parse: function(source: string, opts?: Options): {string: any} | nil, string
   parse_file: function(path: string, opts?: Options): {string: any} | nil, string
-  --- The format half: parse(format(v)) round-trips, a value outside the
-  --- domain is refused, output is a fmt fixpoint; see _literal_format.
-  format: function(value: any): string | nil, string
+  --- The format half: parse(format(v)) round-trips and a value outside
+  --- the domain is refused, in either layout — "pin" (the default) is a
+  --- fmt fixpoint, "compact" is the faster bulk form; see
+  --- _literal_format.
+  format: function(value: any, opts?: FormatOptions): string | nil, string
   format_file: function(path: string, value: any): boolean, string
 end
 
 local M: LiteralModule = {
   parse = parse,
   parse_file = parse_file,
-  format = lformat.format,
+  format = format,
   format_file = lformat.format_file,
 }
 

@@ -1,0 +1,209 @@
+#!/usr/bin/env cosmic
+-- Tests for the compact layout of cosmic.literal's writer.
+--
+-- The compact layout hands the value to a C encoder that never
+-- refuses, so what these tests state is the property that makes it
+-- usable at all: it admits exactly the values the default layout
+-- admits, refuses the rest by the same key path, and what it writes is
+-- what `parse` reads back. The default layout is asserted unchanged
+-- alongside, because every committed file in the tree is written by it.
+
+local literal = require("cosmic.literal")
+
+--- Format a value in one layout, failing the test with the writer's own
+--- message when it refuses.
+local function written(value: any, opts?: literal.FormatOptions): string
+  local text, err = literal.format(value, opts)
+  assert(text, "expected a literal, got: " .. tostring(err))
+  return text
+end
+
+--- Format a value expecting refusal, and return the message.
+local function refused(value: any, opts?: literal.FormatOptions): string
+  local text, err = literal.format(value, opts)
+  assert(not text, "expected a refusal, got: " .. tostring(text))
+  return err
+end
+
+--- A nested payload with one of every value kind the grammar admits.
+local function payload(): {string: any}
+  return {
+    alpha = {count = 1, flag = true, name = "a b"},
+    beta = "x\ny",
+    gamma = 42,
+    delta = -0.5,
+    empty = {},
+    deep = {inner = {leaf = "z"}},
+  }
+end
+
+--- Compare two values for structural equality, tables included.
+--- @param a any One value
+--- @param b any The other
+--- @return boolean True when they are the same value
+local function deep_equals(a: any, b: any): boolean
+  if a is {string: any} and b is {string: any} then
+    for k, v in pairs(a) do
+      if not deep_equals(v, b[k]) then
+        return false
+      end
+    end
+    for k in pairs(b) do
+      if a[k] == nil then
+        return false
+      end
+    end
+    return true
+  end
+  return a == b
+end
+
+-- The default layout writes every committed pin and every ratchet
+-- floor in this repo, so an option argument that changed its output by
+-- one byte would rewrite files nobody asked to rewrite.
+local function test_default_layout_is_the_pin_layout()
+  local implicit = written(payload())
+  local explicit = written(payload(), {layout = "pin"})
+  assert(implicit == explicit, "default layout differs from \"pin\"")
+  assert(implicit:sub(1, 9) == "return {\n", "pin layout is not multi-line")
+end
+test_default_layout_is_the_pin_layout()
+
+-- The point of the layout: what it writes, `parse` reads back as the
+-- value that went in.
+local function test_compact_round_trips()
+  local value = payload()
+  local text = written(value, {layout = "compact"})
+  local back, err = literal.parse(text)
+  assert(back, "compact output is not a literal: " .. tostring(err))
+  assert(deep_equals(value, back), "compact round trip changed the value")
+end
+test_compact_round_trips()
+
+-- One line, and smaller than the layout it is an alternative to.
+local function test_compact_is_one_line_and_smaller()
+  local value = payload()
+  local compact = written(value, {layout = "compact"})
+  local pin = written(value)
+  assert(compact:sub(1, 8) == "return {", "compact does not start the table")
+  assert(select(2, compact:gsub("\n", "")) == 1, "compact is not one line")
+  assert(#compact < #pin, "compact is not smaller: " .. #compact .. " vs " .. #pin)
+end
+test_compact_is_one_line_and_smaller()
+
+-- The values the C encoder writes without complaint, and what each
+-- would become if nothing checked it first: `0/0` and `math.huge` are
+-- arithmetic the reader refuses, an array or a non-string key is
+-- outside the grammar, and a function or a cycle becomes a hex-address
+-- STRING that parses -- the pair that would corrupt data silently.
+--- One value both layouts must refuse, and what to call it in the
+--- failure message.
+local record Case
+  name: string
+  value: any
+end
+
+local function test_compact_refuses_what_pin_refuses()
+  local cyclic: {string: any} = {}
+  cyclic.self = cyclic
+  local cases: {Case} = {
+    {name = "nan", value = {x = 0 / 0}},
+    {name = "inf", value = {x = math.huge}},
+    {name = "-inf", value = {x = -math.huge}},
+    {name = "array", value = {1, 2, 3}},
+    {name = "mixed keys", value = {[1] = "a", b = "c"}},
+    {name = "boolean key", value = {[true] = "a"}},
+    {name = "function", value = {x = print}},
+    {name = "cycle", value = cyclic},
+  }
+  for _, case in ipairs(cases) do
+    local compact = refused(case.value, {layout = "compact"})
+    local pin = refused(case.value)
+    assert(compact == pin, case.name .. ": compact says \"" .. compact ..
+      "\", pin says \"" .. pin .. "\"")
+  end
+end
+test_compact_refuses_what_pin_refuses()
+
+-- A non-table is refused before either writer sees it.
+local function test_compact_refuses_a_non_table()
+  local err = refused("just a string", {layout = "compact"})
+  assert(err == refused("just a string"), "compact differs on a non-table")
+  assert(err:find("not a literal table", 1, true), "unexpected: " .. err)
+end
+test_compact_refuses_a_non_table()
+
+-- A layout nobody implements is refused by name rather than silently
+-- treated as the default.
+local function test_unknown_layout_is_refused()
+  local err = refused(payload(), {layout = "yaml"})
+  assert(err:find("yaml", 1, true), "the message does not name the layout: " .. err)
+  assert(err:find("compact", 1, true), "the message does not name a real layout: " .. err)
+end
+test_unknown_layout_is_refused()
+
+-- What the C encoder writes is only useful if the reader reads it, and
+-- the two do not agree everywhere: bytes that need escaping, keys that
+-- are not identifiers, and the ends of the numeric range are where an
+-- encoder and a parser drift apart. Each of these is asserted to come
+-- back as itself, whichever layout was asked for.
+local function test_both_layouts_round_trip_the_awkward_values()
+  local cases: {Case} = {
+    {name = "escapes", value = {x = "a\nb\tc\rd\\e\"f'g"}},
+    {name = "nul byte", value = {x = "a\0b"}},
+    {name = "high bytes", value = {x = "\xff\xfe\x80"}},
+    {name = "utf8", value = {x = "héllo ✓ 🌍"}},
+    {name = "empty string", value = {[""] = ""}},
+    {name = "odd keys", value = {["a b"] = 1, ["1x"] = 2, ["a.b"] = 3, ["a\nb"] = 4}},
+    {name = "reserved keys", value = {["end"] = 1, ["nil"] = 2, ["function"] = 3}},
+    {name = "int edges", value = {a = math.maxinteger, b = math.mininteger, c = 0}},
+    {name = "float edges", value = {a = 0.1, b = 1e300, c = 5e-324, d = -0.0, e = 1 / 3}},
+    {name = "nested edges", value = {outer = {["while"] = {x = math.mininteger}}}},
+  }
+  for _, case in ipairs(cases) do
+    for _, layout in ipairs({"pin", "compact"}) do
+      local text = written(case.value, {layout = layout})
+      local back, err = literal.parse(text)
+      assert(back, case.name .. " (" .. layout .. ") is not a literal: " ..
+        tostring(err) .. "\n  " .. text)
+      assert(deep_equals(case.value, back),
+        case.name .. " (" .. layout .. ") changed the value:\n  " .. text)
+    end
+  end
+end
+test_both_layouts_round_trip_the_awkward_values()
+
+-- A value the C encoder cannot spell is written in the pin layout
+-- rather than refused: the compact layout asks for smaller output, it
+-- does not narrow what the writer accepts.
+local function test_compact_falls_back_to_pin_when_it_cannot_spell()
+  local cases: {Case} = {
+    {name = "reserved key", value = {["end"] = 1}},
+    {name = "mininteger", value = {x = math.mininteger}},
+    {name = "nested reserved key", value = {a = {["nil"] = true}}},
+  }
+  for _, case in ipairs(cases) do
+    local compact = written(case.value, {layout = "compact"})
+    assert(compact == written(case.value),
+      case.name .. ": expected the pin layout, got:\n  " .. compact)
+  end
+  -- and the neighbouring cases that look similar do NOT fall back:
+  -- an identifier key that merely contains a keyword, and the float of
+  -- the same magnitude as the integer that has no literal spelling.
+  local near: {string: any} = {ending = 1, x = -(2.0 ^ 63)}
+  local compact = written(near, {layout = "compact"})
+  assert(compact ~= written(near), "fell back where it did not have to")
+  assert(select(2, compact:gsub("\n", "")) == 1, "the fallback test lost its subject")
+end
+test_compact_falls_back_to_pin_when_it_cannot_spell()
+
+-- Sorted output is what makes committed data diff as the rows that
+-- moved, so the same value must serialize to the same bytes.
+local function test_compact_is_deterministic()
+  local first = written(payload(), {layout = "compact"})
+  for _ = 1, 8 do
+    assert(written(payload(), {layout = "compact"}) == first,
+      "compact output is not deterministic")
+  end
+end
+test_compact_is_deterministic()
