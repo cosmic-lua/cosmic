@@ -378,8 +378,8 @@ end
 -- response constructor and the failure builder so download's
 -- synthesized results carry the same shapes.
 local made = fetch_extras.make(
-  Fetch as (function(string, any): (any, any)), -- cast: function shape
-  stream as (function(string, any): (any, any)), -- cast: function shape
+  Fetch,
+  stream,
   function(t: any): any
     return make_response(t as {string: any}) -- cast: from any
   end,
@@ -416,16 +416,11 @@ end
 
 local M: FetchModule = {
   fetch = Fetch,
-  -- cast: function shape
-  get = made.get as (function(string, Options): (Response | nil, Error)),
-  -- cast: function shape
-  post = made.post as (function(string, Options): (Response | nil, Error)),
-  -- cast: function shape
-  put = made.put as (function(string, Options): (Response | nil, Error)),
-  -- cast: function shape
-  delete = made.delete as (function(string, Options): (Response | nil, Error)),
-  -- cast: function shape
-  download = made.download as (function(string, string, Options): (Response | nil, Error)),
+  get = made.get,
+  post = made.post,
+  put = made.put,
+  delete = made.delete,
+  download = made.download,
   stream = stream,
 }
 
