@@ -227,13 +227,13 @@ state ever returns to labels or issue comments.
 ## the session loop
 
 run `gitboard next --session <name>` and do what it says. it names the
-one next action and the rule that chose it; the ordering is the
-tool's, and what it encodes is this skill's: work flows right to left,
-so finishing beats starting. an accepted PR is the most-finished work
-there is, a verdict unblocks whoever is waiting on it, and an inbox
-nobody empties is a channel that only takes — which is why draining an
-over-bound triage queue jumps ahead of refinement, and why taking in
-new work comes last.
+one next action, the rule that chose it, and how that kind of action
+is carried out; the ordering is the tool's, and what it encodes is
+this skill's: work flows right to left, so finishing beats starting.
+an accepted PR is the most-finished work there is, a verdict unblocks
+whoever is waiting on it, and an inbox nobody empties is a channel
+that only takes — which is why draining an over-bound triage queue
+jumps ahead of refinement, and why taking in new work comes last.
 
 **always pass `--session <name>`.** it is what makes the loop safe in
 company and honest alone: it withholds work another session claimed,
@@ -248,62 +248,32 @@ says `none` — do not invent work, and do not open items to fill a
 quota. a longer backlog is not progress, and `none` names the
 bottleneck so you can say what it was.
 
-what each kind of action is:
+**the mechanics arrive with the answer.** what the named kind of
+action is, the command that performs it, and the ordering rule behind
+it are printed under the action itself, for the one action you were
+handed — so there is no catalogue of kinds to read here before acting,
+and none to fall behind the tool. what is left is the judgment the
+tool cannot make for you:
 
-- **finish (from `land`)** — the item is already judged. `gitboard
-  land ID` is the whole step: it squash-merges the PR its `pr` field
-  names and ends the item, in that order.
-- **review** — an item in `check` gets a verdict (`review.md`). read
-  the acceptance evidence in the PR description before the diff; it is
-  what the builder owed you.
-- **finish (from `do`)** — claimed work, or rework a `request changes`
-  verdict sent back. address the quoted gaps on that PR and hand it
-  over again.
-- **pull** — a fresh `ready` item. claim it first: `move ID do --claim
-  <session>` — the move is the lock, and the lock is a lease: a claim
-  whose session stops committing to the board reads as stale after a
-  few hours, and `next` offers the item to whoever asks. then the
-  slice loop below.
-- **unblock** — every `ready` item waits on an open blocker, so
-  nothing pulls however deep the queue is. `next` names the chain's
-  deepest open item; resolving it is whatever its state calls for —
-  finish it, take over its stale claim, refine it — and when the
-  reason recorded on the edge no longer binds (the spec grew its own
-  workaround), drop the edge with `gitboard unblock`.
-- **refine** — take a `plan` item one rung down the ladder
-  (`decompose.md`): decompose a container's outcome further, or drive
-  a leaf to the ready bar. before a `move ID ready`, run the
-  enablement check (`enable.md`) and `check ID` — both must pass.
-  refinement outranks promotion for the reason finishing outranks
-  starting: what you already committed to is nearer `ready`.
-- **promote** — commit to the highest-placed `backlog` item nothing
-  blocks (`move ID plan`). this is the decision `plan`'s small limit
-  exists to make you take: you are choosing this over everything else
-  in the queue, so read what else is near the top before you do.
-- **sweep** — the board is saturated and something in `backlog` has
-  gone untouched for over a week. `next` hands you the lowest-placed
-  of them, and the answer is one of two: promote it, or end it with
-  `done ID --reason not-planned`. an item nobody has chosen across
-  every promotion in a week is usually the second, and closing it is
-  not a failure — a backlog carrying work nobody will do is a backlog
-  nobody can read.
-- **triage** — unplaced captures await a decision: `attach` each under
-  the outcome or container its evidence serves (it enters `backlog`),
-  `compare` it against something to place it as an outcome in its own
-  right, or end it — `done ID` when landed work already covers it,
-  `done ID --reason not-planned` for a recorded dead end.
-- **intake** — decompose the highest-placed root that no live work
-  drives (`gitboard new "outcome" --parent <root>`). its position is
-  derived from the comparisons on the board, re-derived by asking one
-  more pair when contested (`decompose.md`); the outcome prose stays
-  in docs/goals.md, which nothing derives from — it is context to read
-  when interpreting and adjusting the tree.
-- **none** — implementation has to catch up, or everything left is
-  yours to review and somebody else must. before stopping, run
-  `gitboard stall`: it files (or refreshes) the one standing capture
-  naming the bottleneck, so the stall is a timestamped board object
-  the next triage sees rather than a vanished session log — and it
-  refuses when the board in fact has work. then stop.
+- **review** — the verdicts, what each demands of the diff, and the
+  friction the review feeds back are `review.md`.
+- **unblock** — how the chain's deepest open item gets resolved is
+  whatever its state calls for: finish it, take over its stale claim,
+  refine it. when the reason recorded on the edge no longer binds —
+  the spec grew its own workaround — drop the edge instead of working
+  the blocker.
+- **refine** — the ladder, the ready bar and a worked example are
+  `decompose.md`; the enablement check a `ready` move waits on is
+  `enable.md`.
+- **promote** — you are choosing this item over everything else in the
+  queue, so read what else is near the top before you commit to it.
+- **sweep** — the answer is one of two, promote it or end it as not
+  planned, and for an item nobody has chosen across every promotion in
+  a week it is usually the second. closing it is not a failure: a
+  backlog carrying work nobody will do is a backlog nobody can read.
+- **intake** — the outcome prose stays in `docs/goals.md`, which
+  nothing derives from; it is context to read when interpreting and
+  adjusting the tree.
 
 **placing a new outcome is not yours to decide alone.** a comparison
 answers "which of these is the better cosmic", and that judgment
