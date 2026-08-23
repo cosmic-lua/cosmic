@@ -115,10 +115,11 @@ local function cmd_move(s: store.Store, id: string, target: string,
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
   end
-  -- `land` holds work whose review is FINISHED, and the only action
-  -- there is the merge `gitboard land` performs from the verdict and
-  -- PR it reads back. An arrival carrying neither is an item `next`
-  -- answers `finish` for and `land` refuses, forever.
+  -- `land` holds work whose review is FINISHED, and what remains
+  -- there is a merge, followed by the `gitboard land` that reads it
+  -- from the verdict and PR the item carries. An arrival carrying
+  -- neither is an item `next` answers `finish` for and `land`
+  -- refuses, forever.
   if target == "land" and not force then
     local refusal = gate.land_refusal(it)
     if refusal then

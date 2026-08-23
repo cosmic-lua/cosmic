@@ -1,21 +1,28 @@
---- The landing: squash-merge an accepted item's pull request and end
---- the item, in that order. Two steps that were done by hand, with
---- nothing checking that the item being closed was the one that
---- merged.
+--- The landing: verify that an accepted item's pull request is
+--- merged, then end the item.
 ---
---- Order matters and is not symmetric. The merge happens first,
---- because ending an item whose merge then fails leaves the board
---- claiming work that is not on main; the reverse — a merge whose
---- `done` fails — leaves an accepted, merged item still sitting in
---- `land`, which the next session sees and finishes. One of those is
---- recoverable by looking at the board; the other is not.
+--- The merge itself belongs to whoever runs the board, by whatever
+--- route their credentials allow — a GitHub tool, the merge button,
+--- `gh pr merge`. `land` is the board-side half: it reads the
+--- request, refuses while nothing is merged, and ends the item once
+--- the merge is there. A checkout whose token could merge on its own
+--- pays for that separation with a second step; what it buys is a
+--- verb that behaves identically wherever the board is driven from,
+--- and a board that never claims work the base branch does not carry.
+---
+--- Ending after the merge, never before, and never without reading
+--- it: an item ended over an unmerged request says the work landed
+--- when it did not, and nothing downstream would catch it. The
+--- reverse — a merge whose `done` then fails — leaves an accepted,
+--- merged item sitting in `land`, which the next session sees and
+--- finishes.
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
 local review = require("_work.review")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 
---- land: merge the accepted PR, then end the item.
+--- land: verify the accepted PR is merged, then end the item.
 --- @param s store.Store The store
 --- @param id string The item to land
 --- @param force boolean Skip the accept and phase checks
@@ -45,48 +52,31 @@ local function cmd_land(s: store.Store, id: string, force: boolean,
   end
   if (it.pr or 0) == 0 then
     return gate.verdict_line("land", false,
-      ("REFUSED: %s names no PR to merge"):format(id:sub(1, 8)))
+      ("REFUSED: %s names no PR to land"):format(id:sub(1, 8)))
   end
-  -- Ask before merging: a PR merged by any other route (another
-  -- credential, a maintainer's button) leaves nothing to merge, and
-  -- re-attempting the PUT reports a refusal for work that is on main.
-  -- The race window -- merged between this read and the PUT -- needs no
-  -- classifier: the PUT fails generically and the re-run's read lands
-  -- here. Land already needs the API for the PUT, so a failed read is
-  -- the same wall, named.
+  -- Whether the merge happened is the one fact the board cannot hold
+  -- itself, so the request is read every time. A read that fails is a
+  -- refusal rather than an assumption: ending an item over a merge
+  -- nobody confirmed is exactly what this verb exists to prevent.
   local p, perr = gh.pull(s, it.pr, it.repo)
   if p == nil then
     return gate.verdict_line("land", false,
       ("cannot read PR #%d: %s"):format(it.pr, perr))
   end
-  -- The accept judged one head. A merge of any other head lands a diff
-  -- no reviewer read, so the comparison gates the PUT -- and the PUT
-  -- carries the same sha, so the server refuses the race this read
-  -- cannot see.
-  local moved = review.blocks_land(p, it.verdict_head)
-  if p.merged then
-    print(("gitboard-land: PR #%d was already merged"):format(it.pr))
-    -- A merge cannot be undone, so a moved head here is not a refusal:
-    -- refusing would strand the item forever. Say it loudly instead, so
-    -- the substitution is in the log rather than nowhere.
-    if moved then
-      print(("gitboard-land: WARNING PR #%d merged at %s but the accept "
-          .. "judged %s"):format(it.pr, (p.head_sha or ""):sub(1, 7),
-          (it.verdict_head or ""):sub(1, 7)))
-    end
-    return verbs.cmd_done(s, id, "completed", force, why)
+  local blocked = review.blocks_land(p, it.verdict_head, id)
+  if blocked then
+    return gate.verdict_line("land", false, "REFUSED: " .. blocked)
   end
-  if moved and not force then
-    return gate.verdict_line("land", false, "REFUSED: " .. moved)
+  print(("gitboard-land: PR #%d was already merged"):format(it.pr))
+  -- A merge cannot be undone, so a head that moved past the one the
+  -- accept judged is not a refusal here: refusing would strand the
+  -- item forever. Say it loudly instead, so the substitution is in
+  -- the log rather than nowhere.
+  if review.head_moved(p, it.verdict_head) then
+    print(("gitboard-land: WARNING PR #%d merged at %s but the accept "
+        .. "judged %s"):format(it.pr, (p.head_sha or ""):sub(1, 7),
+        (it.verdict_head or ""):sub(1, 7)))
   end
-  local res, merr = gh.merge(s, it.pr, it.repo, it.verdict_head)
-  if res == nil then
-    return gate.verdict_line("land", false, merr)
-  end
-  if not gh.is_merged(res) then
-    return gate.verdict_line("land", false, gh.refusal(it.pr, res))
-  end
-  print(("gitboard-land: merged PR #%d"):format(it.pr))
   return verbs.cmd_done(s, id, "completed", force, why)
 end
 

@@ -263,13 +263,13 @@ end
 --- The refusal that keeps an item out of `land` without a standing
 --- accept, nil when it carries one.
 ---
---- `land` is the phase whose one action is a merge, and `gitboard
---- land` reads the item's verdict and PR to perform it. Nothing
---- checked that either was there, so an ungated `move X check land`
---- put an item where `next` answers `finish` forever and `land`
---- refuses forever. The two grounds are reported separately because
---- they are different repairs: one needs a review, the other needs a
---- PR number.
+--- `land` is the phase whose one remaining act is a merge, and
+--- `gitboard land` reads the item's verdict and PR to check that the
+--- merge happened. An arrival carrying neither would sit where `next`
+--- answers `finish` forever and `land` refuses forever, so the
+--- arrival is what gets refused. The two grounds are reported
+--- separately because they are different repairs: one needs a review,
+--- the other needs a PR number.
 --- @param it item.Item The item arriving in land
 --- @return string | nil The refusal
 local function land_refusal(it: item.Item): string

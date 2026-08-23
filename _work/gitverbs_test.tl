@@ -277,10 +277,10 @@ local function test_a_full_plan_does_not_refuse_a_filing()
 end
 test_a_full_plan_does_not_refuse_a_filing()
 
--- `land` is where the merge happens, and `gitboard land` performs it
--- from the verdict and PR it reads back. An arrival carrying neither
--- is an item `next` answers `finish` for and `land` refuses forever,
--- so the arrival is what gets refused instead.
+-- `land` is where the merge happens, and `gitboard land` reads it
+-- back from the verdict and PR the item carries. An arrival carrying
+-- neither is an item `next` answers `finish` for and `land` refuses
+-- forever, so the arrival is what gets refused instead.
 local function test_move_into_land_needs_an_accept()
   local s = init_state_repo("land-gate")
   local _, leaf = root_with_leaf(s)

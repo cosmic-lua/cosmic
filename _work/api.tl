@@ -1,8 +1,10 @@
 --- The authenticated GitHub REST core the board's calls are built on:
 --- one request function, its error rendering, and the success test.
---- `_work.github` holds the board-shaped calls; this holds the
---- transport they share. Auth is a GITHUB_TOKEN (or GH_TOKEN) env var;
---- HTTPS_PROXY is honored, and behind a TLS-intercepting proxy set
+--- `_work.gh` holds the board-shaped calls; this holds the transport
+--- they share. Every call the board makes is a GET — the board reads
+--- GitHub and never writes to it — so a request carries no body at
+--- all. Auth is a GITHUB_TOKEN (or GH_TOKEN) env var; HTTPS_PROXY is
+--- honored, and behind a TLS-intercepting proxy set
 --- SSL_USE_SYSTEM_CERTS=1 SSL_CERT_FILE=<bundle> (read by the cosmos
 --- TLS root loader).
 
@@ -22,17 +24,15 @@ local API < const > = "https://api.github.com"
 --- result — callers branch on res.status.
 --- @param method string HTTP method
 --- @param path string Path under api.github.com, leading slash
---- @param payload any? JSON request body
 --- @return ApiResult | nil The exchange
 --- @return string Error message when no response arrived
-local function api(method: string, path: string, payload?: any): ApiResult, string
+local function api(method: string, path: string): ApiResult, string
   local token = env.get("GITHUB_TOKEN") or env.get("GH_TOKEN")
   if token == nil or token == "" then
     return nil, "no GitHub token: set GITHUB_TOKEN (or GH_TOKEN)"
   end
   local resp, err = fetch.fetch(API .. path, {
       method = method,
-      json = payload,
       proxy = env.get("HTTPS_PROXY") or env.get("https_proxy"),
       headers = {
         ["authorization"] = "Bearer " .. token,
@@ -75,7 +75,7 @@ end
 
 local record api_module
   type ApiResult = ApiResult
-  call: function(method: string, path: string, payload?: any): ApiResult, string
+  call: function(method: string, path: string): ApiResult, string
   error_of: function(method: string, path: string, res: ApiResult): string
   is_success: function(status: integer): boolean
 end
