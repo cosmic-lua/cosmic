@@ -49,6 +49,13 @@ local record Options
   --  Resolves a key repeated within one table instead of refusing it.
   --  Default nil: a repeated key is refused, naming both lines.
   on_duplicate: OnDuplicate
+  --  Which reader answers: `"auto"` (the default), `"teal"` or `"c"`.
+  --  Both admit the same values and refuse the same ones with the same
+  --  message, so this picks what runs, not what comes back: it holds
+  --  both readers in one process — what a differential test needs — and
+  --  pins the Teal one if the C one is ever wrong in the field. `"c"`
+  --  without a C reader in the build is refused, never quietly answered.
+  engine: string
 end
 ```
 
@@ -110,7 +117,12 @@ function parse(source: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read the literal a file returns, without running it.
- errors; on_duplicate: resolves a repeated key instead of refusing it
+ Two readers admit this grammar and answer alike: the C one when this
+ build has it and no resolver was asked for, the lexer below
+ otherwise. That lexer is the reference implementation, the resolver
+ `on_duplicate` needs, and where every refusal is written.
+ errors; on_duplicate: resolves a repeated key instead of refusing it;
+ engine: "auto" (default), "teal" or "c"
 
 **Parameters:**
 
@@ -129,7 +141,8 @@ function parse_file(path: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read a file as a literal table, without running it.
- (defaults to the path); on_duplicate: resolves a repeated key
+ (defaults to the path); on_duplicate: resolves a repeated key;
+ engine: "auto" (default), "teal" or "c"
 
 **Parameters:**
 
