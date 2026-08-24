@@ -115,7 +115,11 @@ Measured 2026-08-24 at main head `9bcb0f7d`:
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make test _make/stage_test.tl` ends `test: PASS (1
-  file)`, and its output names `test_the_gate_note_recommends_the_gate`.
+  file)` and reports 8 test functions (today 7). Re-measured at pull:
+  the runner names a test function only when it FAILS, so the new test
+  is evidenced by the count here and by
+  `grep -c "test_the_gate_note_recommends_the_gate" _make/stage_test.tl`
+  → `2` (its definition and the call after its `end`).
 - `bin/cosmic --make build` ends `build: PASS` and prints a line
   matching `next: run` before it. (Run from the repo root; it writes
   only into `o/`, which is not committed.)
@@ -125,7 +129,8 @@ Measured 2026-08-24 at main head `9bcb0f7d`:
 - `grep -c "gate_note_text" _make/stage.tl` → `4` (definition, the call
   in `gate_note`, the `StageModule` field, the `M` entry; today `0`).
 - `grep -rn "did not run here" . | grep -v '^./o/'` returns no hit in
-  `_make/converge.tl` (today its comment quotes the old text).
+  `_make/converge.tl` (today its comment quotes the old text). The new
+  line keeps the phrase, so the one remaining hit is `_make/stage.tl`.
 - `wc -l < _make/stage.tl` ≤ `500` and `wc -l < _make/stage_test.tl` ≤
   `500`.
 
