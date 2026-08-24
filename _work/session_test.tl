@@ -11,11 +11,13 @@ local check = require("cosmic.check")
 local env = require("cosmic.env")
 local session = require("_work.session")
 
--- Both known sources cleared, so a test sees only what it sets. The
--- runner's own environment may carry CLAUDE_CODE_SESSION_ID.
+-- Every variable the ladder consults, cleared, so a test sees only
+-- what it sets. The runner's own environment carries several of them.
 local function clear()
-  for _, name in ipairs(session.SOURCES) do
-    local _ok, _err = env.unset(name)
+  for _, names in ipairs(session.SOURCES) do
+    for _, name in ipairs(names) do
+      local _ok, _err = env.unset(name)
+    end
   end
 end
 
@@ -75,13 +77,44 @@ local function test_value_used_verbatim()
 end
 test_value_used_verbatim()
 
-local function test_note_speaks_only_for_derivation()
-  assert(session.note("sess-abc", "CLAUDE_CODE_SESSION_ID")
-    == "session sess-abc (from CLAUDE_CODE_SESSION_ID)",
-    "a derived identity is announced")
-  assert(session.note("typed-in", "flag") == "",
-    "an explicit name needs no note")
-  assert(session.note("", "none") == "",
-    "an anonymous session has nothing to announce")
+local function test_composite_source_joins_what_is_set()
+  clear()
+  check.must(env.set("GITHUB_RUN_ID", "4242"))
+  local only_lead, source = session.resolve(nil)
+  assert(only_lead == "4242", "the lead alone applies: " .. only_lead)
+  assert(source == "GITHUB_RUN_ID", "source names the lead: " .. source)
+  check.must(env.set("GITHUB_RUN_ATTEMPT", "2"))
+  check.must(env.set("GITHUB_JOB", "ci"))
+  local joined = session.resolve(nil)
+  assert(joined == "4242-2-ci", "companions join with '-': " .. joined)
+  clear()
 end
-test_note_speaks_only_for_derivation()
+test_composite_source_joins_what_is_set()
+
+local function test_a_companion_alone_does_not_apply()
+  clear()
+  -- HOSTNAME without USER/LOGNAME names a machine, not a session, so
+  -- the source it belongs to must not fire on it.
+  check.must(env.set("HOSTNAME", "some-box"))
+  local who, source = session.resolve(nil)
+  assert(who == "", "a companion without its lead is not an identity: " .. who)
+  assert(source == "none", "source: " .. source)
+  check.must(env.set("USER", "alice"))
+  local pair = session.resolve(nil)
+  assert(pair == "alice-some-box", "the lead brings its companion: " .. pair)
+  clear()
+end
+test_a_companion_alone_does_not_apply()
+
+local function test_note_always_says_who_and_whence()
+  assert(session.note("sess-abc", "CLAUDE_CODE_SESSION_ID")
+    == "session: sess-abc (from CLAUDE_CODE_SESSION_ID)",
+    "a derived identity names its source")
+  assert(session.note("typed-in", "flag") == "session: typed-in (passed)",
+    "an explicit name says it was passed")
+  local unnamed = session.note("", "none")
+  assert(unnamed:find("unnamed", 1, true), "the anonymous case is named")
+  assert(unnamed:find("GITBOARD_SESSION", 1, true),
+    "and carries the one instruction that fixes it: " .. unnamed)
+end
+test_note_always_says_who_and_whence()

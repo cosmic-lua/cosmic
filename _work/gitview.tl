@@ -17,6 +17,7 @@ local health = require("_work.health")
 local item = require("_work.item")
 local act = require("_work.action")
 local prio = require("_work.priority")
+local sess = require("_work.session")
 local store = require("_work.store")
 
 local verdict_line = gate.verdict_line
@@ -128,6 +129,11 @@ local function cmd_status(s: store.Store): integer
   for _, line in ipairs(lines) do
     print(line)
   end
+  -- Who the board thinks this session is, printed rather than
+  -- documented: the identity decides which work is withheld and which
+  -- verdicts are refused, so a session that cannot see it cannot tell
+  -- a healthy board from one that has stopped offering it anything.
+  print(sess.note(sess.resolve(nil)))
   return verdict_line("status", true, verdict)
 end
 

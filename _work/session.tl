@@ -21,15 +21,38 @@
 --- checkout with none of these variables set still gets.
 local os_getenv = os.getenv
 
---- The environment variables consulted, in order, for a session that
---- passed no name. `GITBOARD_SESSION` is the one this tool defines, so
---- any runner can set it; the rest are well-known ids belonging to
---- runtimes that already mint one per session. A value is used
---- verbatim — truncating an id to something prettier is how two
---- sessions start sharing a prefix.
-local SOURCES < const >: {string} = {
-  "GITBOARD_SESSION",
-  "CLAUDE_CODE_SESSION_ID",
+--- The environment a session is read from, in order. Each entry is a
+--- list of variable names: the FIRST must be set for the source to
+--- apply, and any of the rest that are set join onto it with "-", so a
+--- runner whose per-run id needs more than one variable to be unique
+--- says so by listing them rather than by growing a special case.
+---
+--- The ladder is ordered by how specific the identity is. A runner's
+--- own per-session id beats a per-job id, which beats the person at
+--- the keyboard — and `GITBOARD_SESSION` precedes all of them so any
+--- runtime this list does not know can name itself without a change
+--- here.
+---
+--- Values are used verbatim. Truncating an id to something prettier is
+--- how two sessions start sharing a prefix, which is the whole failure
+--- this module exists to prevent.
+local SOURCES < const >: {{string}} = {
+  -- Any runner, set by hand: the escape hatch that needs no new entry.
+  {"GITBOARD_SESSION"},
+  -- Claude Code, local or remote: one UUID per session, exported into
+  -- every process the session runs.
+  {"CLAUDE_CODE_SESSION_ID"},
+  -- The remote half alone, for a runner that exports only that one.
+  {"CLAUDE_CODE_REMOTE_SESSION_ID"},
+  -- GitHub Actions: the run id repeats across the jobs of one workflow
+  -- and across re-runs, so the attempt and job name are what make it
+  -- one identity per actual run.
+  {"GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB"},
+  -- A person at a terminal. Stable across days ON PURPOSE: a human
+  -- reviewing their own work is exactly what the distance forbids, and
+  -- two people on one host still differ.
+  {"USER", "HOSTNAME"},
+  {"LOGNAME", "HOSTNAME"},
 }
 
 --- `s` with surrounding whitespace removed.
@@ -37,6 +60,25 @@ local SOURCES < const >: {string} = {
 --- @return string The trimmed value
 local function trim(s: string): string
   return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+--- One source's value: its lead variable, plus whichever of its
+--- companions are set, joined with "-". "" when the lead is unset.
+--- @param names {string} The source's variable names, lead first
+--- @return string The joined value, "" when this source does not apply
+local function value_of(names: {string}): string
+  local lead = trim(os_getenv(names[1]) or "")
+  if lead == "" then
+    return ""
+  end
+  local parts = {lead}
+  for n = 2, #names do
+    local extra = trim(os_getenv(names[n]) or "")
+    if extra ~= "" then
+      parts[#parts + 1] = extra
+    end
+  end
+  return table.concat(parts, "-")
 end
 
 --- The identity to record, and where it came from.
@@ -47,38 +89,44 @@ end
 --- wrong one.
 --- @param explicit string | nil The `--session`/`--claim` value, if any
 --- @return string The identity, "" when nothing named this session
---- @return string Where it came from: "flag", an env var name, or "none"
+--- @return string Where it came from: "flag", a variable name, or "none"
 local function resolve(explicit: string | nil): string, string
   local given = trim(explicit or "")
   if given ~= "" then
     return given, "flag"
   end
-  for _, name in ipairs(SOURCES) do
-    local value = trim(os_getenv(name) or "")
+  for _, names in ipairs(SOURCES) do
+    local value = value_of(names)
     if value ~= "" then
-      return value, name
+      return value, names[1]
     end
   end
   return "", "none"
 end
 
---- One line naming the identity in play, for a verb that acts on it,
---- or "" when the identity was passed explicitly (the caller already
---- knows) or nothing named the session at all. Derivation is the case
---- worth printing: it is the only one where the name in the commit is
---- not the name the session typed.
+--- One line naming the identity in play, for `status` to print.
+---
+--- This line is the whole user manual for session identity: a session
+--- reads who the board thinks it is and where that came from, instead
+--- of a skill telling it what to type. The unnamed case is the one
+--- that needs an instruction, so it carries one.
 --- @param identity string The resolved identity
 --- @param source string The source `resolve` reported
---- @return string The note, or "" when there is nothing to say
+--- @return string The line to print
 local function note(identity: string, source: string): string
-  if identity == "" or source == "flag" or source == "none" then
-    return ""
+  if identity == "" then
+    return "session: unnamed — nothing here names this run, so its claims "
+    .. "carry no builder and it is offered a verdict on anything. Export "
+    .. "GITBOARD_SESSION=<unique per run> to fix that."
   end
-  return ("session %s (from %s)"):format(identity, source)
+  if source == "flag" then
+    return ("session: %s (passed)"):format(identity)
+  end
+  return ("session: %s (from %s)"):format(identity, source)
 end
 
 local record session
-  SOURCES: {string}
+  SOURCES: {{string}}
   resolve: function(explicit: string | nil): (string, string)
   note: function(identity: string, source: string): string
 end
