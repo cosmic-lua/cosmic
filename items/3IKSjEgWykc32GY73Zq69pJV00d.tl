@@ -5,7 +5,7 @@ return {
   ["blocked_by"] = "3IKg4hsFiuy1QXFYZBwPmvvNq4w",
   ["id"] = "3IKSjEgWykc32GY73Zq69pJV00d",
   ["parent"] = "3IK8E4XFNSEMc6fXtc6qbUxiLVO",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["repo"] = "whilp/cosmopolitan",
   ["title"] = "cosmo.DecodeLua: the C literal parser in tool/net, beside ljson.c",
 }
