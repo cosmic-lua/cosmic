@@ -89,6 +89,7 @@ return {
   ["_perf/bench/fuzzy_bench.tl"] = {["covered"] = 0, ["total"] = 19},
   ["_perf/bench/http_bench.tl"] = {["covered"] = 87, ["total"] = 138},
   ["_perf/bench/json_bench.tl"] = {["covered"] = 73, ["total"] = 88},
+  ["_perf/bench/literal_bench.tl"] = {["covered"] = 82, ["total"] = 87},
   ["_perf/bench/micro_bench.tl"] = {["covered"] = 119, ["total"] = 138},
   ["_perf/bench/re_bench.tl"] = {["covered"] = 0, ["total"] = 47},
   ["_perf/bench/sqlite_bench.tl"] = {["covered"] = 90, ["total"] = 124},
