@@ -4,6 +4,7 @@ return {
   ["claim"] = "magical-bell",
   ["id"] = "3IK30m8uief0aDHqqjZX2FUEv9P",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1356,
   ["title"] = "guide.recipes is the composition answer nothing early points at",
 }
