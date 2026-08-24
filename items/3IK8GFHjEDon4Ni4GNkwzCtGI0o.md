@@ -57,3 +57,45 @@ __zipos_load inflates deflated members fully at open() — but cosmic
 already ships all .lua members STORED, so lazy inflate is upstream
 hygiene with ~zero cosmic startup win today (deflated-vs-stored A/B:
 +450-480µs/boot is the cost cosmic already avoided).
+
+## Outcome (verified at close, 2026-08-24, session magical-bell)
+Delivered. Both children ended:
+- `3IKuRFN5` (design research) answered why upstream removed the
+  `next` freelist — a non-correctness reason (its bespoke MAP_FIXED
+  allocator was replaced by ordinary mmap) — which decided the
+  array-of-slots design used here.
+- `3ILE1xUd` (implementation) landed as whilp/cosmopolitan PR #272
+  (squash `5bfcf79d`): the stored-member handle is recycled through a
+  4-slot lock-free array, removing the mmap/munmap pair and the four
+  sigprocmasks nested in those two wrappers from every stored open
+  after the first. The recycled handle is reset to `refs = 0`,
+  closing the SIZE_MAX use-after-free the research flagged.
+
+Independently verified THIS session (separate from the building
+session `qmnmv1`), on PR head `5b062a7`:
+- `make o//test/libc/runtime/zipos_test && ./…zipos_test` → exit 0.
+  `TEST(zipos, storedRecycleConcurrent)` — 16 threads × 20
+  open/read/close on a genuinely STORED member — exercises the
+  `__zipos_free[]` pop/push lifecycle 320× with no crash or hang, so
+  the lock-free push/pop and the refs reset are correct under
+  contention. Mechanism confirmed at the level a reviewer can settle.
+- `unzip -v …/zipos_test | grep smoke` → `stored_smoke.txt` is
+  `Stored`, i.e. the new coverage actually reaches `zipos-open.c:127`.
+- `make o//tool/lua/test` → PASS (binding tests + annotation ratchet).
+- `git status --porcelain tool/net/definitions.lua` → empty (C
+  boundary unmoved).
+
+Wall-clock: the slice's `_perf` run measured `startup_run_lua`
+-15.6% (2.58→2.17 ms), exceeding this hypothesis's 6-10% target.
+Per the optimize skill's cross-session rule for fixed-overhead
+startup scenarios, that magnitude is reported as a single-session
+measurement, not declared a settled release number; the mechanism
+(syscalls removed) is the deterministic, confirmed driver.
+
+Residual, deliberately NOT pursued under this outcome (recorded here
+so they are not lost, not carried as open work): the
+`fcntl(F_DUPFD_CLOEXEC)` round-trip in `__zipos_mkfd`, and narrowing
+`__zipos_open`'s own `BLOCK_SIGNALS` (the remaining 2 of the pair's
+sigprocmasks). Both were "recorded not proposed" in the research and
+sit outside the recycle remedy; either is a separate, evidence-backed
+hypothesis if a future measurement shows it worth a slice.
