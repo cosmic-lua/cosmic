@@ -7,7 +7,7 @@ return {
   ["enable"] = "none: spec asserted TEST(zipos,test) is the concurrent pop/push stress, an unmeasured tree-fact; hyperion.txt is deflated (Defl:N), so no gate exercises the recycle array concurrently. Fix in this spec: require a stored member opened across threads, with the unzip -v measurement backing the claim.",
   ["id"] = "3ILE1xUd8R7DGmoKST8FuaWAz0K",
   ["parent"] = "3IK8GFHjEDon4Ni4GNkwzCtGI0o",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["pr"] = 271,
   ["repo"] = "whilp/cosmopolitan",
   ["title"] = "zipos: recycle the fixed-size stored-member handle through a 4-slot lock-free array",
