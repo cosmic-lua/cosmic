@@ -49,6 +49,72 @@ local function distance(a: string, b: string): integer
   return prev[lb]
 end
 
+-- Reused DP rows for distance_within, shared across a find_similar scan so
+-- a "did you mean?" lookup does not allocate two tables per candidate.
+-- Safe only under the single-threaded VM: distance_within must not yield,
+-- and it reinitializes every cell it reads (indices 0..lb) on each call,
+-- so no stale value survives between calls and cells past lb are never
+-- read.
+local dp_prev: {integer} = {}
+local dp_curr: {integer} = {}
+
+-- Bounded Levenshtein for find_similar: the two-row algorithm of distance(),
+-- but it reuses the module DP rows and aborts once an entire row exceeds
+-- max_distance, returning max_distance + 1 as a sentinel. Once every cell of
+-- a row exceeds max_distance every cell of every later row does too, so the
+-- final distance also exceeds it; the abort therefore only fires where the
+-- true distance is already past the threshold, and a distance <= max_distance
+-- is always returned exactly. find_similar's dist <= max_distance test then
+-- yields the same match set and the same stored distances as distance().
+local function distance_within(a: string, b: string, max_distance: integer): integer
+  local la = #a
+  local lb = #b
+  if la == 0 then return lb end
+  if lb == 0 then return la end
+  if a == b then return 0 end
+
+  -- swap so that b is always the shorter string (fewer columns)
+  if la < lb then
+    a, b = b, a
+    la, lb = lb, la
+  end
+
+  local prev = dp_prev
+  local curr = dp_curr
+  for j = 0, lb do
+    prev[j] = j
+  end
+
+  for i = 1, la do
+    curr[0] = i
+    local rowmin = i
+    local ai = a:byte(i)
+    for j = 1, lb do
+      local cost = ai == b:byte(j) and 0 or 1
+      local del = prev[j] + 1
+      local ins = curr[j - 1] + 1
+      local sub = prev[j - 1] + cost
+      -- inline min of three values
+      local v: integer
+      if del < ins then
+        v = del < sub and del or sub
+      else
+        v = ins < sub and ins or sub
+      end
+      curr[j] = v
+      if v < rowmin then rowmin = v end
+    end
+    -- Whole row past the threshold: the final distance cannot come back
+    -- under it, so stop and report "beyond max_distance".
+    if rowmin > max_distance then
+      return max_distance + 1
+    end
+    prev, curr = curr, prev
+  end
+
+  return prev[lb]
+end
+
 --- One similar candidate: the value and the edit distance the search
 --- already computed for it, so a caller wanting a ranked score does
 --- not need to re-run the DP itself.
@@ -92,7 +158,7 @@ local function find_similar(query: string, candidates: {string}, opts?: Options)
       -- differs from the query by more than max_distance can never qualify.
       -- Skipping it avoids the O(n*m) DP with no change to the result set.
       if math.abs(#query_lower - #candidate_lower) <= max_distance then
-        local dist = distance(query_lower, candidate_lower)
+        local dist = distance_within(query_lower, candidate_lower, max_distance)
         if dist <= max_distance then
           seen[candidate_lower] = true
           table.insert(results, {value = candidate, distance = dist})
