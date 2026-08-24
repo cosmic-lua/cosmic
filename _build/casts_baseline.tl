@@ -60,7 +60,7 @@ return {
   ["cosmic/fetch/headers.tl"] = 2,
   ["cosmic/fetch/init.tl"] = 7,
   ["cosmic/fetch/verbs_test.tl"] = 1,
-  ["cosmic/format/init.tl"] = 8,
+  ["cosmic/format/init.tl"] = 9,
   ["cosmic/fs/find.tl"] = 3,
   ["cosmic/fs/find_close_test.tl"] = 2,
   ["cosmic/fs/octal.tl"] = 1,

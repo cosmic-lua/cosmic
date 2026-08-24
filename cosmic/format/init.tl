@@ -91,6 +91,14 @@ end
 
 --- Build a flat, position-sorted list of items from the token stream.
 --- Extracts comments from tokens and interleaves them by position.
+---
+--- A token is used AS its item rather than copied into one: `tl.Token`
+--- already carries the whole `y`/`x`/`tk`/`kind` interface, and the two
+--- fields the emit pass adds (`_newlines`, `_tight_before`) are written
+--- onto the token table itself. That is safe by ORDER, not convention —
+--- `tl.parse_program` has already read the stream by the time `format`
+--- calls this, and `tokens` is a local that escapes only as these items.
+--- Comments have no table of their own to reuse, so they are still built.
 local function build_items(tokens: {tl.Token}): {Item}
   local items: {Item} = {}
 
@@ -108,12 +116,7 @@ local function build_items(tokens: {tl.Token}): {Item}
     end
 
     if token.kind ~= "$EOF$" then
-      items[#items + 1] = {
-        y = token.y,
-        x = token.x,
-        tk = token.tk,
-        kind = token.kind,
-      }
+      items[#items + 1] = token as Item -- cast: parse is done; Item only adds fields
     end
   end
 
