@@ -174,11 +174,15 @@ end
 local WRAP_SENTINEL < const > = "-- cosmic-embed searcher wrapper (#687); app entry: /zip/main.user.lua"
 
 --- The generated /zip/main.lua: put the app's zip root on the module
---- path (embedded mod.lua / mod.tl beside main.lua resolve;),
---- install the cosmic searcher, then run the byte-identical entry.
+--- path (embedded mod.lua / mod.tl beside main.lua resolve;), install
+--- the /zip and .tl searchers, then run the byte-identical entry.
 local WRAP_MAIN < const > = WRAP_SENTINEL .. "\n" .. [[
 package.path = "/zip/?.lua;/zip/?/init.lua;" .. package.path
-require("cosmic.searcher").install()
+local searcher = require("cosmic.searcher")
+-- install() is the whole contract a project providing its own cosmic/**
+-- has to meet; the /zip searcher is this base's, when it is there.
+if searcher.install_zip then searcher.install_zip() end
+searcher.install()
 local chunk = assert(loadfile("/zip/main.user.lua"))
 return chunk(...)
 ]]

@@ -135,6 +135,92 @@ local function install()
   table.insert(package.searchers, cosmic_tl_searcher)
 end
 
+--- The two `package.path` templates that name the zip root.
+local ZIP_TEMPLATES < const > = {"/zip/?.lua", "/zip/?/init.lua"}
+
+--- The `/zip` searcher: resolve a module by TRYING to load it.
+---
+--- The stock Lua file searcher probes each template with
+--- `package.searchpath` (fopen/fclose) and then reopens the winner in
+--- `luaL_loadfilex`, so every module the binary carries is opened twice
+--- from the zip filesystem. `loadfile` returns nil on a miss, so the
+--- load attempt IS the probe: a hit costs one zipos open.
+---
+--- A miss returns the EMPTY string rather than a `no file '...'` line.
+--- The templates stay on `package.path` (path introspection depends on
+--- them), so the default file searcher one seat later still reports
+--- them, and `require`'s aggregate error text is unchanged.
+---
+--- `loadfile` also returns nil for a SYNTAX error, so a corrupt module
+--- reads as a miss here — and is then found, loaded and reported
+--- properly by that same default searcher. The fallback is what keeps
+--- the error honest.
+--- @param module_name string Module name as passed to require()
+--- @return any A loader function, or "" for a miss
+--- @return any The found filename (loader data)
+local function zip_searcher(module_name: string): any, any
+  local rel = (module_name:gsub("%.", "/"))
+  for _, suffix in ipairs({".lua", "/init.lua"}) do
+    local path = "/zip/" .. rel .. suffix
+    local chunk = loadfile(path)
+    if chunk then
+      return chunk, path
+    end
+  end
+  return ""
+end
+
+--- Drop every occurrence after the first of the two zip templates.
+---
+--- Both the generated embed wrapper and the dispatcher prepend them,
+--- and a wrapped artifact runs both, so the pair arrives here twice.
+--- Only these two templates, and only exact matches: this is a
+--- de-duplication of a known pair, not a general path cleanup.
+local function dedupe_zip_templates()
+  local seen: {string: boolean} = {}
+  local kept: {string} = {}
+  for field in (package.path .. ";"):gmatch("([^;]*);") do
+    local is_zip = false
+    for _, template in ipairs(ZIP_TEMPLATES) do
+      if field == template then
+        is_zip = true
+      end
+    end
+    if not (is_zip and seen[field]) then
+      seen[field] = true
+      kept[#kept + 1] = field
+    end
+  end
+  package.path = table.concat(kept, ";")
+end
+
+local zip_installed = false
+
+--- Install the `/zip` searcher ahead of the default file searcher, and
+--- de-duplicate the zip templates on `package.path`.
+---
+--- Inserted at index 2 — after `package.preload`, ahead of the default
+--- file searcher — so a module the binary carries costs one open. The
+--- in-project searcher (`install_manifest`) inserts at 2 as well, and
+--- installing this one FIRST is what keeps the tree ahead of `/zip`:
+--- a later insert-at-2 demotes this searcher to seat 3.
+---
+--- A no-op without `package.searchers`, and idempotent in the searcher:
+--- a second call seats nothing. It still de-duplicates, because the two
+--- callers interleave — the wrapper installs, then the dispatcher entry
+--- it runs prepends the pair again before calling this a second time.
+local function install_zip()
+  if not package.searchers then
+    return
+  end
+  dedupe_zip_templates()
+  if zip_installed then
+    return
+  end
+  zip_installed = true
+  table.insert(package.searchers, 2, zip_searcher)
+end
+
 --- ## In-project resolution
 ---
 --- Everything above answers "the tree has a `.tl` and nothing else
@@ -391,12 +477,14 @@ end
 
 local record SearcherModule
   install: function()
+  install_zip: function()
   install_argv_manifest: function(argv: {string}): boolean, string
   install_manifest: function(path: string): boolean, string
 end
 
 local M: SearcherModule = {
   install = install,
+  install_zip = install_zip,
   install_argv_manifest = install_argv_manifest,
   install_manifest = install_manifest,
 }
