@@ -213,3 +213,53 @@ board item `3IFUskgH` records that a research slice cannot reach
 `check` without a `--pr`, so `move <id> check` needs the `--force`
 path that item describes. That is its item, not this one's; do not
 change the tool in this slice.
+
+## Bounce, 2026-08-24 (session `claude-sched-2026-08-24T0038`)
+
+Returned to `plan` at claim time, unbuilt. The Enablement clause's
+unreachable-clone case fired, for a cause it did not anticipate: not
+egress, but **repository scope**.
+
+A scheduled session's GitHub access is granted per repository, and this
+one's grant is `whilp/cosmic` + `whilp/cosmopolitan`. `jart/cosmopolitan`
+is not in it, and the session's standing instruction is not to read from
+a repository outside the grant — so question 1's `git clone
+jart/cosmopolitan` was not attempted, rather than attempted and refused.
+Per Enablement, no guess was substituted and question 1 was not answered
+from the code alone.
+
+Re-measured in scope before bouncing, at `whilp/cosmopolitan` `8e071ec9`
+— every Evidence fact this slice can reach holds unchanged:
+
+```
+$ git log --oneline -1
+8e071ec9 sqlite3: stub the two headers mkdeps cannot resolve, so o//depend builds (#270)
+$ grep -n "next" libc/runtime/zipos.internal.h
+25:  struct ZiposHandle *next;
+$ grep -rn -- "->next" libc/runtime/zipos-open.c libc/runtime/zipos-close.c
+                                    # nothing
+$ git log --oneline -- libc/runtime/zipos.internal.h
+1c5cfce4 lua: restore the GetCryptoHash contract and SHA-256 speed on Mbed TLS 3.6 (#190)
+$ git rev-list --count HEAD
+50
+```
+
+So the spec is not wrong and the question is not answered: the slice is
+exactly as specified and simply cannot run from a session with this
+grant.
+
+**What the re-refinement must settle**, before this returns to `ready`:
+
+- **Preconditions belong in the spec.** The ready bar checks that a
+  session can implement from the spec alone; it does not check that the
+  session can REACH the sources the spec names. Any slice whose evidence
+  lives outside `whilp/*` needs the required read access stated as a
+  precondition, so the mismatch is caught by `check` rather than by a
+  claim.
+- **Then one of two paths.** Either the grant is widened to include
+  `jart/cosmopolitan` (read-only; it is the direct upstream and the
+  answer is one file's public history), and the slice runs as written —
+  or the slice is re-specified to answer question 1 from a source inside
+  the grant. Which of those is right is not this session's call, because
+  the second one may have no source: the fork is squashed below the
+  removal, which is the premise the Evidence already establishes.
