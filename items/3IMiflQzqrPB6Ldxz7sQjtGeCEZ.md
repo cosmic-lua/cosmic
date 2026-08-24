@@ -1,4 +1,9 @@
-# Problem
+## Goal
+
+G8 — the flow system: a scheduled session drains the queue it is
+pointed at instead of stalling on a ranking nobody is awake to answer.
+
+## Problem
 
 `skills/work/SKILL.md` tells a session facing a capture that fits no
 existing outcome to "post the pair and stop rather than inventing an
@@ -71,3 +76,10 @@ names the line on `main` at 9bcb0f7d.
   under the outcome their evidence serves, five battery proposals low
   under G7, one flow defect under G8, one fuzz defect under the
   `cosmic.fuzz` container.
+
+## Enablement
+
+none needed — the change is skill prose plus one guidance data table,
+and the gate that polices the guidance budget
+(`_work/guidance_test.tl`) already exists and already discriminated
+against the first draft of this wording.
