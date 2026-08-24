@@ -2,6 +2,6 @@ return {
   ["beats"] = "3IK8EOcii30gxmLYmnEl6Z3RAdI",
   ["id"] = "3IK8FzsUrZv1O7IuaSUWI7XslLP",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "boot: 15 modules opened twice by the stock searcher probe — a /zip searcher saves ~130µs/exec",
 }
