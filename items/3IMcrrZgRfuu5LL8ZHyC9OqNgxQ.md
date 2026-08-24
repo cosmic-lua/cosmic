@@ -47,8 +47,13 @@ embedded modules are precompiled bytecode, not source, so a reader who
 expects to `SELECT` their way to Teal gets a chunk header. That is the
 first honest caveat and it belongs in the guide, not in a footnote.
 
-**Writing works.** On a COPY (`fs.copy` then `fs.set_mode`, under
-`fs.temp_dir()`):
+**Writing works.** On a COPY under `fs.temp_dir()`. `fs.copy` alone
+is the whole copy: it chmods the destination to the source's mode
+(`cosmic/fs/ops.tl:113`), measured 2026-08-24 as `src mode: 100755`,
+`copy mode: 100755` on a binary built from the tree. `fs.set_mode` is
+not needed after it, and calling it means hardcoding `755`, which
+changes the mode of a copy whose source was not 755 — so neither the
+example nor the guide's prose asks for it:
 
 ```
 CREATE VIRTUAL TABLE z USING zipfile('<copy>');
@@ -126,8 +131,9 @@ saying "asset" and avoids a first cell of "everything else"
 functions the example runner extracts, in the shape of
 `cosmic/sqlite/init_example.tl` (137 lines). It obtains its artifact
 from `proc.interpreter()`, copies it under `fs.temp_dir()` with
-`fs.copy` + `fs.set_mode(…, tonumber("755", 8))` BEFORE any statement
-that writes, and never writes to the interpreter itself. Cover, one
+`fs.copy` alone BEFORE any statement that writes (see Evidence: `fs.copy`
+carries the mode across, so no `fs.set_mode` follows it), and never
+writes to the interpreter itself. Cover, one
 function each: the grouped inspect query; extracting `cosmic.mk` as
 text; inserting a member on the copy and running the copy to read it
 back through `/zip/`; deleting a member and asserting the file did not
