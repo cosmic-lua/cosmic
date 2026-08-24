@@ -73,3 +73,41 @@ would reach only the sessions that read it.
 To be written at refinement, against `_work/spec.tl` and
 `_work/gitgate.tl`, with `3IKuRFN5`'s spec as the fixture the new check
 must refuse.
+
+## Second occurrence, 2026-08-24 — it strands the REVIEW too
+
+Observed while reviewing `3IKuRFN5` from session
+`claude-sched-2026-08-24T0238`, whose grant is the same
+`whilp/cosmic` + `whilp/cosmopolitan` that produced the bounce above.
+
+The bounce framed this as a claim-time hole: the bar checks that a
+session can IMPLEMENT from the spec alone and not that it can REACH
+the sources the spec names. The review shows the hole is one step
+wider. `3IKuRFN5`'s `## Acceptance` opens with
+
+```
+git clone --filter=blob:none --no-checkout https://github.com/jart/cosmopolitan /tmp/upstream-cosmo
+git -C /tmp/upstream-cosmo log --oneline -- libc/zipos/ libc/runtime/zipos-open.c libc/runtime/zipos-close.c
+```
+
+and `review.md` requires the reviewer to demand that evidence — for a
+research slice, to re-run the acceptance checks itself. A reviewer
+under the grant cannot, so the accept rested on the in-grant half plus
+the finding's own conservatism, and half the deliverable went onto the
+board attested by one unattended session and nobody else.
+
+So the cost is not one wasted pull. An out-of-grant source strands an
+item **twice**: once at the claim, once at the verdict, and the second
+one leaves an unverifiable claim permanently on the board rather than
+merely burning a `ready` slot.
+
+What this adds to `## Change`, and it is a scope widening, not a
+detail: whatever declares the required read access must be checked
+against the REVIEWING session too, not only the claiming one — an
+item whose Acceptance a reviewer cannot re-run is not reviewable, and
+`check`'s refusal should say so at the same moment it says the claim
+is impossible. A weaker but cheap alternative the refinement should
+weigh: require any such spec to carry the out-of-grant evidence
+verbatim in-item (the commits, messages and diffs quoted), so the
+reviewer's job degrades from re-running to reading. `3IKuRFN5` in fact
+did that, which is the only reason its accept was defensible.
