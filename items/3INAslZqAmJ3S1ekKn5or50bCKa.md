@@ -26,12 +26,15 @@ end-of-input ones:
 Measured against the tree at `585d17f9`, with a binary built from it:
 
 ```
-literal.parse("return {a")   -> ...: a literal is a table of `name = <literal>` entries; found '$EOF$'
-literal.parse("return {a =") -> ...: a literal holds literals only; found '$EOF$' (no variables, calls or concatenation)
-literal.parse("return {")    -> ...: a literal is a table of `name = <literal>` entries; found '$EOF$'
+literal.parse("return {")    -> literal:1: a literal is a table of `name = <literal>` entries; found '$EOF$'
+literal.parse("return {a")   -> literal:1: a literal is a table of `name = <literal>` entries; found 'a'
+literal.parse("return {a =") -> literal:1: a literal holds literals only; found '$EOF$' (no variables, calls or concatenation)
 ```
 
-Neither dead message appears for any truncation.
+Neither dead message appears for any truncation. (`"return {a"`
+complains about `a` rather than the sentinel because an identifier not
+followed by `=` fails the key test before the sentinel is ever read —
+the same class, one token earlier.)
 
 ## Why it might matter
 
