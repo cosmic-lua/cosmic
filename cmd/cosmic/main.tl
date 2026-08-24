@@ -3,12 +3,10 @@
 
 global warn: function(...: any)
 
--- The zip root IS the module root: the payload sits at /zip/cosmic/**
--- while cosmopolitan's default path is /zip/.lua/-rooted. Inserted ahead
--- of that default. It does NOT sit behind LUA_PATH: an artifact answers
--- for itself, and the generated embed wrapper prepends the same root one
--- frame earlier anyway. Resolving against a project tree is a separate
--- mechanism with its own channel -- see --modules below.
+-- The zip root IS the module root, ahead of cosmopolitan's /zip/.lua/
+-- default and never behind LUA_PATH: an artifact answers for itself.
+-- This is the bootstrap that makes cosmic.searcher reachable below;
+-- install_zip() then resolves /zip through a searcher instead.
 local at = package.path:find("/zip/.lua/", 1, true) or 1
 package.path = package.path:sub(1, at - 1) ..
 "/zip/?.lua;/zip/?/init.lua;" .. package.path:sub(at)
@@ -23,6 +21,10 @@ package.path = package.path:sub(1, at - 1) ..
 -- the binary's, which is why it reads the manifest with io.open. The
 -- scan rule is its own; see docs/design/make/resolution.md.
 local searcher = require("cosmic.searcher")
+-- The /zip searcher: one zipos open per module the binary carries,
+-- where the stock searcher probes and then reopens. Installed before
+-- the manifest searcher, which takes the same seat: --modules outranks /zip.
+searcher.install_zip()
 -- A named manifest that cannot be installed is worth a line on
 -- stderr; an argv with no --modules returns no message.
 local _margs_ok, margs_err = searcher.install_argv_manifest(arg)

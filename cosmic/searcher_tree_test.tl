@@ -128,6 +128,32 @@ local function test_install_lands_ahead_of_the_file_searcher()
 end
 test_install_lands_ahead_of_the_file_searcher()
 
+-- The /zip searcher takes the same seat at boot, so this insert DEMOTES
+-- it: in a project, the tree answers; outside one, the binary does. The
+-- /zip searcher is identified by the one thing only it does -- decline
+-- with the EMPTY string -- because its value is never exported.
+local function ask_seat(seat: integer, name: string): any
+  local s: function(string): (any, any) = package.searchers[seat]
+  return (s(name))
+end
+
+local function test_the_tree_searcher_outranks_the_zip_searcher()
+  assert(installed_tree() == package.searchers[2],
+    "the tree searcher must hold seat 2")
+  local missing = "cosmic_searcher_" .. "no_zip_module_here"
+  local zip_seat = 0
+  for i in ipairs(package.searchers) do
+    local ok, why = pcall(ask_seat, i, missing)
+    if ok and why is string and why == "" then
+      zip_seat = i
+      break
+    end
+  end
+  assert(zip_seat > 2,
+    "the /zip searcher must sit behind the tree, got seat " .. zip_seat)
+end
+test_the_tree_searcher_outranks_the_zip_searcher()
+
 -- Now that a manifest is installed, the layers. A closure entry is
 -- loaded from the file the graph built, verbatim.
 local function test_the_closure_layer_loads_the_built_file()

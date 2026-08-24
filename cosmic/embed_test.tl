@@ -277,6 +277,37 @@ local function test_embed_app_local_requires()
 end
 test_embed_app_local_requires()
 
+-- The wrapper prepends the zip templates and a dispatcher entry splices
+-- them again, so an artifact used to carry the pair twice: every require
+-- MISS then probed each one twice. install_zip() de-duplicates them, and
+-- they stay on the path because introspection reads them there.
+local function test_the_wrapper_leaves_one_copy_of_each_zip_template()
+  local appdir = fs.join(tmpdir, "zippath")
+  assert(fs.make_dirs(appdir))
+  assert(fs.write(fs.join(appdir, "main.lua"), [[
+for _, t in ipairs({"/zip/?.lua", "/zip/?/init.lua"}) do
+  local n = 0
+  for field in (package.path .. ";"):gmatch("([^;]*);") do
+    if field == t then n = n + 1 end
+  end
+  print(t .. "=" .. n)
+end
+]]))
+  local output = fs.join(tmpdir, "cosmic-zippath")
+  local __e = check.must(check.must(child.start({cosmic, "--embed", appdir,
+          "--output", output})):wait())
+  assert(__e.ok, "embed should succeed: " .. tostring(__e.stderr))
+
+  local __r = check.must(check.must(child.start({output})):wait())
+  local out = tostring(__r.stdout)
+  assert(__r.ok, "app should run: " .. tostring(__r.stderr))
+  assert(out:find("/zip/?.lua=1", 1, true),
+    "/zip/?.lua must appear once on package.path: " .. out)
+  assert(out:find("/zip/?/init.lua=1", 1, true),
+    "/zip/?/init.lua must appear once on package.path: " .. out)
+end
+test_the_wrapper_leaves_one_copy_of_each_zip_template()
+
 -- Test that embedded non-.lua files use deflate compression (method=8)
 local function test_embed_uses_deflate()
   -- Use compressible content (repeated pattern) to ensure deflate is applied
