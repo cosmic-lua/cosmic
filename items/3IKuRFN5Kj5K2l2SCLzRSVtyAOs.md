@@ -272,3 +272,244 @@ grant.
   the grant. Which of those is right is not this session's call, because
   the second one may have no source: the fork is squashed below the
   removal, which is the premise the Evidence already establishes.
+
+*Resolved 2026-08-24: the owner authorized reading `jart/cosmopolitan`,
+the clone succeeded, and the research below was done. The precondition
+above stands for anyone re-running it.*
+
+## Findings
+
+Recorded 2026-08-24 from a blobless clone of `jart/cosmopolitan` at
+`3293fad0` (2026-07-19), read against `whilp/cosmopolitan` `8e071ec9`.
+
+```
+$ git clone --filter=blob:none --no-checkout https://github.com/jart/cosmopolitan /tmp/upstream-cosmo
+$ git -C /tmp/upstream-cosmo log --oneline -- \
+    libc/zipos/ libc/runtime/zipos-open.c libc/runtime/zipos-close.c | wc -l
+123
+```
+
+The pickaxe was avoided as the spec directs. Instead the 123 commits
+were resolved to the 32 that carry a `zipos-open.c` blob, those blobs
+were fetched in one `git cat-file --batch`, and each was grepped for
+`->next`/`freelist`. The transition is unambiguous and sits between two
+adjacent commits:
+
+```
+5 d1d43882 2024-06-22 Delete ASAN                          <- freelist present
+0 464858db 2024-06-29 Fix bugs with new memory manager     <- freelist gone
+```
+
+### 1. Why the `next` member is vestigial
+
+**The freelist was real, it shipped for years, and it was removed by
+`464858db` — "Fix bugs with new memory manager", Justine Tunney,
+2024-06-29 — for a NON-correctness reason: it was collateral of the
+memory-manager rewrite that made zipos stop carving its handles out of
+a fixed reserved address range.**
+
+The commit message, verbatim:
+
+```text
+Fix bugs with new memory manager
+
+This fixes a regression in mmap(MAP_FIXED) on Windows caused by a recent
+revision. This change also fixes ZipOS so it no longer needs a MAP_FIXED
+mapping to open files from the PKZIP store. The memory mapping mutex was
+implemented incorrectly earlier which meant that ftrace and strace could
+cause cause crashes. This lock and other recursive mutexes are rewritten
+so that it should be provable that recursive mutexes in cosmopolitan are
+asynchronous signal safe.
+```
+
+Its diff over the two files of interest, `-101/+28`:
+
+```text
+ libc/runtime/zipos-open.c     | 128 +++++++++---------------------------------
+ libc/runtime/zipos.internal.h |   1 -
+```
+
+The single header line is the **list head**, removed from `struct
+Zipos` — not the link:
+
+```text
+-  struct ZiposHandle *freelist;
+```
+
+And the removed allocator body is the freelist itself, with its
+first-fit scan, its `StartOver` retry, and its mutex:
+
+```text
+-void __zipos_drop(struct ZiposHandle *h) {
+-  ...
+-  __zipos_lock();
+-  do
+-    h->next = h->zipos->freelist;
+-  while (!_cmpxchg(&h->zipos->freelist, h->next, h));
+-  __zipos_unlock();
+-}
+-
+-static struct ZiposHandle *__zipos_alloc(struct Zipos *zipos, size_t size) {
+-  __zipos_lock();
+-  mapsize = ROUNDUP(sizeof(struct ZiposHandle) + size, 4096);
+-StartOver:
+-  ph = &zipos->freelist;
+-  while ((h = *ph)) {
+-    if (h->mapsize >= mapsize) {
+-      if (!_cmpxchg(ph, h, h->next))
+-        goto StartOver;
+-      break;
+-    }
+-    ph = &h->next;
+-  }
+-  if (!h)
+-    h = __zipos_mmap_space(mapsize);      /* _extend() over kMemtrackZiposStart */
+-  __zipos_unlock();
+-  if (h)
+-    atomic_store_explicit(&h->refs, 0, memory_order_relaxed);
+```
+
+So the freelist was not deleted because it was wrong. It was deleted
+because the thing it recycled stopped existing: handles used to come
+from `__zipos_mmap_space`, a bespoke bump allocator that `_extend()`ed a
+MAP_FIXED reservation at `kMemtrackZiposStart`, and recycling a slab out
+of a hand-managed fixed region is worth real machinery. The same commit
+replaced that with an ordinary `__mmap(randaddr(), ...)` and made
+`__zipos_drop` an ordinary `__munmap`, at which point the freelist was
+machinery attached to an allocator that no longer existed.
+
+**`next` survived because it was simply left behind.** The commit
+removed the head from `struct Zipos` and left the link in `struct
+ZiposHandle`; nothing has touched it since. It is still declared at
+upstream HEAD `3293fad0`, and still unused there:
+
+```
+$ git -C /tmp/upstream-cosmo show HEAD:libc/runtime/zipos.internal.h | grep -n 'next'
+26:  struct ZiposHandle *next;
+$ for f in $(git -C /tmp/upstream-cosmo ls-tree -r --name-only HEAD | grep zipos); do
+    git -C /tmp/upstream-cosmo show HEAD:$f | grep -- '->next'; done
+                                    # nothing
+```
+
+That is the answer the parent needed, and it is the cheap one: **there
+is no removed-because-broken lesson to design around.** But the commit
+message names two hazards in passing that the new design must not
+walk back into, and they are question 2's subject.
+
+### 2. Whether that reason still binds here
+
+The removal reason — "the allocator it recycled is gone" — does not
+bind at all: nobody is proposing to bring back `__zipos_mmap_space`.
+A freelist over ordinary `mmap`ed handles is a different object from
+the one that was removed, and the four constraints the Evidence quotes
+are all satisfiable. Walking them:
+
+- **`__zipos_drop` is reached from an `@asyncsignalsafe` `__zipos_close`**
+  (`zipos-close.c:30-33`, drop at `:43`). This is the one place the old
+  code was genuinely unsafe: its push took `__zipos_lock()`, a
+  `pthread_mutex_t`, on that path — and `464858db`'s own message says
+  the mapping mutex "was implemented incorrectly earlier which meant
+  that ftrace and strace could cause crashes", which is the same class
+  of bug. **Binding, and it forbids a mutex on the push side.** It does
+  not forbid recycling; it forbids the old implementation of it.
+- **`__vforked`** — `zipos-close.c:40` already skips the drop, so
+  nothing is ever pushed from a vforked child. Binding on the POP side
+  only, and answered in 3.
+- **No `__fds_lock` held at alloc time** — `__fds_lock()` is not taken
+  until `zipos-open.c:152`, after the alloc at `:127`, and
+  `__zipos_load` runs under `BLOCK_SIGNALS` (`:243`). So an allocation
+  runs with signals blocked on its own thread and no lock held: there
+  is no lock to order against, and no same-thread signal reentry into
+  pop. Another thread's handler can still be in pop or push. Binding as
+  a concurrency constraint, not as an obstacle.
+- **The fixed stored-member size** — `zipos-alloc(zipos, 0)` at `:127`
+  makes `mapsize == sizeof(struct ZiposHandle)` exactly, and this fork
+  does not round it (`zipos-open.c:59`, no `ROUNDUP`). This is what
+  lets the new design drop the old first-fit scan entirely.
+
+**One hazard the history does not name, found by reading this fork.**
+`refs` is never initialized. `__zipos_alloc` (`zipos-open.c:56-69`)
+sets only `size`, `zipos` and `mapsize`; `refs` is correct solely
+because fresh `mmap` memory is zero-filled. `__zipos_drop`'s
+`atomic_fetch_sub` leaves it at `(size_t)-1` on the handle it is about
+to release. **A recycled handle therefore arrives with `refs ==
+SIZE_MAX` and must have 0 stored into it explicitly** — which is
+exactly why the removed code carried `atomic_store_explicit(&h->refs,
+0, ...)` in its allocator, a line that means nothing until you recycle.
+Omitting it is a silent use-after-free: the first `__zipos_close` would
+decrement from SIZE_MAX, never reach zero, and never release. This is
+the single highest-value thing the slice found.
+
+### 3. The design, decided
+
+An **array of fixed-size slots, not a linked list.** Because only one
+size class is recycled (below), the list has no ordering or search to
+do, and an array makes ABA structurally impossible without a
+double-word CAS. `struct ZiposHandle`'s `next` member is deleted by the
+implementing change: the new design has nothing to link.
+
+```c
+#define ZIPOS_FREE_SLOTS 4
+static _Atomic(struct ZiposHandle *) __zipos_free[ZIPOS_FREE_SLOTS];
+```
+
+- **Which allocations are recycled: only the fixed
+  `sizeof(struct ZiposHandle)` bucket that `zipos-open.c:127` produces.**
+  Pop is attempted only when `size == 0`, push only when `h->mapsize ==
+  sizeof(struct ZiposHandle)`. That single bucket is 100% of the
+  measured win — cosmic ships every `.lua` member STORED, so all ~35
+  boot-path opens land on `:127` — and confining it there deletes the
+  old design's entire complexity class: no `mapsize >=` first fit, no
+  `StartOver`, no size ordering. A size-bucketed list catching `:116`
+  (synthetic directory, `size + 1`) and `:132` (deflate, full
+  uncompressed size) would retain megabyte mappings for the life of the
+  process to speed up opens whose cost is `__inflate`, not `mmap`.
+- **Push side: one wait-free atomic exchange per slot, no lock.**
+  `__zipos_drop` scans for an empty slot and claims it with
+  `atomic_compare_exchange_strong(&__zipos_free[i], &expect_null, h)`
+  using `memory_order_release`; on success it returns without
+  `munmap`. This is what makes it legal on the `@asyncsignalsafe`
+  `__zipos_close` path where the old `__zipos_lock()` was not: no
+  mutex, no unbounded retry, at most `ZIPOS_FREE_SLOTS` single-word
+  CASes.
+- **Pop side: `atomic_exchange(&__zipos_free[i], NULL)` with
+  `memory_order_acquire`**, taking the first slot that yields non-NULL,
+  falling through to today's `mmap` when none does. A single exchange
+  takes ownership atomically, so there is no read-then-CAS window and
+  therefore no ABA — the hazard that would otherwise force a tagged
+  pointer and a 16-byte CAS on x86-64 / `casp` on aarch64. It is safe
+  against a signal handler popping on another thread for the same
+  reason: two exchanges on one slot cannot both return the same
+  pointer. Same-thread reentry cannot occur at all, since `:243`'s
+  `BLOCK_SIGNALS` covers the alloc. **The popper must then store 0 into
+  `h->refs`** before returning it, per question 2's hazard; `pos`,
+  `cfile` and `mem` are already re-set by `__zipos_load`, and `size`,
+  `zipos`, `mapsize` by `__zipos_alloc` itself.
+- **What bounds it: `ZIPOS_FREE_SLOTS` itself, enforced at push.** The
+  cap is structural — there is no list to grow. Past it, push finds no
+  empty slot and `munmap`s exactly as today, so a program that opens
+  and closes many members retains at most 4 handles, never more, with
+  no reclamation policy, timer or high-water logic. 4 is chosen because
+  the boot path's opens are sequential (open, read, close per module),
+  so live depth is ~1; the cost of the cap is one granule of retained
+  VM per slot, which is 4 pages on Linux but 4 × 64KB on Windows, where
+  the allocation granularity is the reason to keep the number small
+  rather than generous. Raise it only against a measurement showing
+  concurrent depth above it.
+- **`fork` and `vfork`.** Across `fork`: nothing to do, by
+  construction. Handles are `MAP_PRIVATE|MAP_ANONYMOUS`, so the child
+  gets its own COW copies and recycles them correctly, and every
+  mutation of the array is a **single atomic word operation**, so
+  there is no multi-step publish for a fork to catch half-done and no
+  lock for it to copy in the locked state — the hazard that makes the
+  old mutex-based design need `pthread_atfork` care. **No atfork
+  handler is required, and that is a designed property of the array,
+  not an omission.** Across `vfork`: the child shares the parent's
+  address space, so a pop there would take a handle out of the
+  parent's array and lose it at `exec`. The decision is to **skip the
+  freelist entirely when `__vforked`** — pop falls straight through to
+  `mmap` — which is one branch on a global the file already reads, and
+  is symmetric with `zipos-close.c:40`, where push is already skipped
+  for the same reason.
+
+The sibling implementation slice is `3IL8DJRj`.
