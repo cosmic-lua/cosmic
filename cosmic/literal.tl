@@ -105,7 +105,7 @@ local function escape_at(s: string, i: integer): string | nil, integer
   end
   local digits = s:match("^%d%d?%d?", i + 1)
   if digits then
-    local n = tonumber(digits) as integer -- cast: decimal digits are integral
+    local n = tonumber(digits, 10) as integer -- cast: decimal digits are integral
     if n > 255 then
       return nil, i
     end

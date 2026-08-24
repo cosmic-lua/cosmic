@@ -30,9 +30,9 @@ local MAX_EDITS = 8
 --- rather than duplicating itself.
 local LAYOUTS: {string} = {"pin", "compact"}
 
--- Five domain bounds below are deliberate, not laziness. Two of them
--- (4 and 5) are known defects this file found on its first runs and
--- must not keep re-reporting; each names the board item that owns it
+-- Four domain bounds below are deliberate, not laziness. One of them
+-- (4) is a known defect this file found on one of its first runs and
+-- must not keep re-reporting; it names the board item that owns it
 -- and comes off when that item lands.
 --
 -- 1. generated values nest at most MAX_DEPTH tables, far below the
@@ -54,15 +54,7 @@ local LAYOUTS: {string} = {"pin", "compact"}
 --    exponential work before it is refused -- a property of the
 --    refusal mechanism, not a bug in it. The chain reaches the cap in
 --    32 linear steps and gets the same refusal.
--- 4. a generated string never puts a digit directly after a byte in
---    OCTAL_TRAP. `%q` zero-pads a numeric escape to three digits when
---    a digit follows it, and the reader decodes `\ddd` with a
---    base-less `tonumber`, which this fork's Lua reads as octal -- so
---    `format` writes byte 11 and `parse` returns byte 9, silently. A
---    real round-trip break, filed as board item 3IKg4hsF, found by
---    this file's first run; when it lands, this bound comes off and
---    the whole alphabet is drawn in every position.
--- 5. byte 27 is never drawn. The compact layout's C encoder spells it
+-- 4. byte 27 is never drawn. The compact layout's C encoder spells it
 --    `\e`, a fork extension this runtime's `load` accepts and the
 --    reader does not, so `format` writes source `parse` then refuses
 --    -- a real break, filed as board item 3IKgKs34, found by this file
@@ -97,7 +89,7 @@ local FLOAT_EDGES: {number} = {
 }
 
 --- The byte the compact layout spells `\e` (board item 3IKgKs34,
---- domain bound 5 above), and the byte drawn in its place.
+--- domain bound 4 above), and the byte drawn in its place.
 local ESCAPE_TRAP = 27
 local ESCAPE_TRAP_SUBSTITUTE = 26
 
@@ -118,30 +110,13 @@ local function random_char(src: source.Recorder): string
   return STRING_ALPHABET:sub(i, i)
 end
 
---- The bytes whose zero-padded `%q` escape the reader decodes as octal
---- (board item 3IKg4hsF, domain bound 4 above). Inclusive range.
-local OCTAL_TRAP_LO = 11
-local OCTAL_TRAP_HI = 31
-
---- Draw a string of alphabet characters, never placing a digit
---- directly after a byte the reader would then mis-decode. The
---- substitute is a fixed byte rather than a redraw, so the string
---- stays a pure function of the draws recorded for it and shrinking
---- reproduces it exactly.
+--- Draw a string of alphabet characters.
 --- @param src source.Recorder The source to draw from
 --- @return string A string of 0 to MAX_STRING_LEN characters
 local function random_string(src: source.Recorder): string
   local out: {string} = {}
-  local prev = -1
   for i = 1, src:int(0, MAX_STRING_LEN) do
-    local c = random_char(src)
-    local b = c:byte()
-    if prev >= OCTAL_TRAP_LO and prev <= OCTAL_TRAP_HI and b >= 48 and b <= 57 then
-      c = "_"
-      b = 95
-    end
-    out[i] = c
-    prev = b
+    out[i] = random_char(src)
   end
   return table.concat(out)
 end

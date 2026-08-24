@@ -418,4 +418,36 @@ local function test_on_duplicate_resolves_instead_of_refusing()
 end
 test_on_duplicate_resolves_instead_of_refusing()
 
+-- `string.format("%q", ...)` zero-pads a numeric escape to three digits
+-- when a digit follows it, so byte 11 is written `\011`. Decoding those
+-- digits without a base lets this fork's Lua read the leading zero as an
+-- octal prefix, and every byte in 11..31 comes back as a different byte
+-- -- silently, from a module whose promise is fidelity. The whole byte
+-- range is swept so a future base-less `tonumber` cannot pass.
+local function test_every_byte_round_trips_before_a_digit()
+  local broken: {integer} = {}
+  for b = 0, 255 do
+    local want = string.char(b) .. "0"
+    local src, ferr = literal.format({x = want})
+    assert(src, "byte " .. b .. ": format refused: " .. tostring(ferr))
+    if read(src).x ~= want then
+      broken[#broken + 1] = b
+    end
+  end
+  assert(#broken == 0,
+    "bytes that changed across the round trip: " .. table.concat(broken, ","))
+end
+test_every_byte_round_trips_before_a_digit()
+
+-- The zero-padded form specifically, written as this file writes every
+-- other escape test: the expected value is the same escape spelled in
+-- Teal, so the assertion states the equality-with-Lua contract rather
+-- than the reader's arithmetic. `"\011"` is byte 11 by the Lua manual;
+-- reading its leading zero as an octal prefix gives byte 9.
+local function test_zero_padded_decimal_escape_is_decimal()
+  assert(read([[return { s = "\011" }]]).s == "\11", "padded decimal escape")
+  assert(read([[return { s = "\0110" }]]).s == "\11" .. "0", "padded, then a digit")
+end
+test_zero_padded_decimal_escape_is_decimal()
+
 print("all literal tests passed")
