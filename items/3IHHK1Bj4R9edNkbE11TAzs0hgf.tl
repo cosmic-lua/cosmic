@@ -4,5 +4,5 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["phase"] = "plan",
   ["repo"] = "whilp/cosmopolitan",
-  ["title"] = "cosmopolitan: EncodeJson float round-trip loss — implement #265 as specced, then retire cosmic's fuzz bound",
+  ["title"] = "cosmopolitan: EncodeJson float round-trip loss — a float always encodes carrying a . or an exponent",
 }
