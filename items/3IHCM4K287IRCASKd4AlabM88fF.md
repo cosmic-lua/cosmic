@@ -44,3 +44,14 @@ a test in the tool/lua suite is the core half):
    dev container lacks Landlock and the test printed nothing; #268's
    follow-up ("make the ABI test say what it proved") is the pattern
    to make the rule.
+7. a file authored in this fork carries the fork's own copyright line.
+   Every C file the fork added has one — `tool/net/lcov.c` and
+   `tool/net/lfetch.c` and `tool/lua/lcosmo.c` all read `Copyright
+   <year> Will Maier` — but the header is the part of a new file that
+   gets copied from the neighbour it sits beside, and the neighbour is
+   upstream's. whilp/cosmopolitan#274 shipped `tool/net/llua.c` with
+   `Copyright 2026 Justine Alexandra Roberts Tunney` on 642 lines
+   written here, having copied `ljson.c`'s header along with its shape;
+   caught at review. The docs half is one line in the Conventions
+   section; the core half, if it earns one, is a check over
+   newly-added files rather than a test in the Lua suite.
