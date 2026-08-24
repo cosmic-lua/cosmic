@@ -13,14 +13,16 @@
  Parameters travel in one table: a list binds `?` placeholders
  positionally, a keyed table binds `:name` placeholders.
 
-     local sqlite = require("cosmic.sqlite")
-     local db = sqlite.open(":memory:")
-     db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
-     db:exec("INSERT INTO users (name) VALUES (?)", {"alice"})
-     for row in db:query("SELECT * FROM users WHERE name = :n", {n = "alice"}) do
-       print(row.id, row.name)
-     end
-     db:close()
+ ```teal
+ local sqlite = require("cosmic.sqlite")
+ local db = assert(sqlite.open(":memory:"))
+ assert(db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"))
+ assert(db:exec("INSERT INTO users (name) VALUES (?)", {"alice"}))
+ for row in assert(db:query("SELECT * FROM users WHERE name = :n", {n = "alice"})) do
+   print(row.id, row.name)
+ end
+ assert(db:close())
+ ```
 
  Binary values: wrap with `sqlite.blob(s)` to store with BLOB affinity
  (a bare Lua string always binds as TEXT). Opening applies sensible
@@ -142,7 +144,10 @@ local record Database
   --  close. Returns false plus sqlite's message if the raw close ever
   --  fails — the handle is NOT marked closed then, so the database
   --  stays usable and a retry is a real retry, not a stale-flag
-  --  success.
+  --  success. Like every other fallible Database method it returns
+  --  `boolean, string`, so the result must be captured —
+  --  `assert(db:close())`, or `local _ok, _err = db:close()` for a
+  --  deliberate fire-and-forget.
   close: function(self: Database): boolean, string
 end
 ```
