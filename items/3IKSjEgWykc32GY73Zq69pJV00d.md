@@ -201,22 +201,36 @@ Six files in whilp/cosmopolitan. No cosmic-side file is touched.
 **1. `tool/net/llua.h`** (new, ~15 lines) — mirror `tool/net/ljson.h`:
 
 ```c
+#define LLUA_ERRMAX 256
 struct DecodeLua {
   int rc;
   const char *p;
 };
-struct DecodeLua DecodeLua(struct lua_State *, const char *, size_t);
+struct DecodeLua DecodeLua(struct lua_State *, const char *, size_t, char *,
+                           size_t);
 ```
 
 `rc` is 1 when one value was pushed, 0 for eof, -1 for an error. On
 success `p` is the rest of the input, exactly as `DecodeJson` returns
-it. **On -1, `p` points at the FAILING BYTE of the input, and the
-message has already been pushed onto the Lua stack** — that is the one
-deviation from `DecodeJson`, and it is what lets the duplicate-key
-refusal name its key without a static string, and lets the caller
-compute a byte offset by subtraction. Counting lines in the hot loop
-to report a line number is what this avoids; the offset is free
-because the parser already holds the cursor.
+it. **On -1, `p` points at the FAILING BYTE of the input** and the
+message is written into the caller's buffer (the last two arguments).
+
+That buffer is the one deviation from `DecodeJson`'s signature, and it
+is deliberate. `DecodeJson` returns a STATIC message in `p`, which
+cannot carry a key name; the duplicate-key refusal must. Pushing the
+message onto the Lua stack instead would be worse, not better: the
+parser may hold partial tables on the stack when it fails, so the
+caller has to `lua_settop` back to its entry depth, which would
+discard the message it was about to read. A caller-supplied buffer is
+reentrant, keeps the struct pure C, and keeps the error path away from
+the stack entirely. `LLUA_ERRMAX` is 256 and the message is truncated
+to fit — a key longer than the buffer is truncated in the message
+only, never in the refusal itself.
+
+Reporting a byte OFFSET rather than a line is what keeps line-counting
+out of the hot loop: the offset is free because the parser already
+holds the cursor, and the Lua side counts newlines up to it once, on
+failure.
 
 **2. `tool/net/llua.c`** (new, ~620 lines) — the parser, in one pass,
 recursive descent, no token stream. Shape it as the skeleton above:
@@ -240,8 +254,9 @@ constants (`DEPTH 32`, `MAXCODEPOINT 0x7fffffff`), the sorted
   enclosing table's entries from its opening `{` for the first entry
   naming that key. That re-scan is COLD — it runs only to compose the
   refusal — so no table pays a shadow map for it. The message is
-  `lua_pushfstring`ed as `repeats the key '%s' (first at offset %d)`;
-  every other message is a distinct static string, one per refusal
+  `snprintf`ed into the error buffer as
+  `repeats the key '%.*s' (first at offset %d)`; every other message is
+  a distinct static string copied into the same buffer, one per refusal
   class, and reproducing cosmic's wording is the sibling item's job.
 - **`\u{...}`** is bounded at `0x7FFFFFFF` and encoded as UTF-8 (up to
   six bytes), matching `utf8.char`; above the bound is a refusal, not
@@ -253,7 +268,8 @@ constants (`DEPTH 32`, `MAXCODEPOINT 0x7fffffff`), the sorted
 modelled on `LuaDecodeJson` (`tool/lua/lcosmo.c:44-79`), plus one
 `{"DecodeLua", LuaDecodeLua}` entry in the registration table beside
 `{"EncodeLua", …}` at `:230`. It returns the value on success, and on
-failure `nil, message, offset` where `offset` is `r.p - p` as a
+failure `nil, message, offset`, where it owns the `char
+errbuf[LLUA_ERRMAX]` it passes down and `offset` is `r.p - p` as a
 1-based byte index. Slot 2 stays the message, so cosmic's
 fallible-returns shape is unaffected: the wrapper reads three and
 returns two. `#include "tool/net/llua.h"` beside the `ljson.h`
