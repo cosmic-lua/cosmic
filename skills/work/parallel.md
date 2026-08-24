@@ -60,6 +60,14 @@ name that session to `next` too (`next --session <session>`): a claim
 is only a lock against a session that reads it, and `next` without one
 will happily hand you back work another orchestrator is running.
 
+the orchestrator is the one place `--claim`/`--session` are passed
+EXPLICITLY rather than derived: it drives several logical workers from
+one process, so it cannot let each borrow the process's single
+environment identity — it MINTS a distinct name per agent (the agent's
+own id, its worktree, its branch suffix — anything unique per agent,
+never a shared label). the lone-session loop is the opposite: it omits
+the flags and lets the tool derive its one identity (`SKILL.md`).
+
 read each move's verdict line. a lost race is not a lagged index
 anymore: a rejected publish rebases onto whoever moved first,
 re-checks the limit against the merged board, and REFUSES explicitly
