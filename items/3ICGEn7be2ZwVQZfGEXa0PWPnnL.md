@@ -58,3 +58,45 @@ the session is opening the first PR).
 Related but distinct from 3ICDOGbm (builder distance / the re-claim):
 that one is about WHO may judge the rework, this one is about WHERE
 the rework is pushed.
+
+## Second evidence: one assigned branch, two fresh pulls
+
+2026-08-24, hit live in another scheduled (unattended) session, session
+name `magical-bell`, assigned `claude/magical-bell-bk8kul`. This is the
+case the section above assumes away — "a branch assignment applies only
+when the item names none (a fresh pull, where the session is opening the
+first PR)" — because it presumes ONE fresh pull per session. The loop
+does not work that way.
+
+The session ran the loop as instructed (up to five actions): pulled
+3IK30UQA, built it, opened PR #1354 on the assigned branch, moved it to
+`check`. Two actions later `next` answered `pull 3IM89fv4` — a second
+FRESH item, naming no PR. The assigned branch was already spent: it
+carries #1354 and pushing a second, unrelated change onto it would put
+two board items in one pull request and couple their verdicts (the
+failure 3I9igGsG describes from the other direction).
+
+There is no third option. The session stopped the loop with one action
+of its five remaining budget unusable, and left 3IM89fv4 in `ready`
+rather than claiming a lease it could not discharge.
+
+So the rule the item needs is wider than the rework case: a branch
+assignment is **one branch, and therefore at most one fresh PR per
+session**, while `next` will keep handing out fresh pulls as long as
+`ready` has depth. Whatever fix shape is chosen has to say what the
+session does with the second one. The candidates:
+
+- **Derive a branch per item** — `<assigned-branch>-<item-prefix>` — so
+  one session can open several PRs without inventing names. Needs the
+  session prompt's "never push to a different branch" to admit the
+  derivation, which is a change to how the routine is configured, not
+  to this repo.
+- **Cap the loop at one fresh pull** and say so in `SKILL.md`, letting
+  the remaining actions go to review, refine and promote — cheap, but
+  it caps throughput for every session, not just branch-assigned ones.
+- **Have `next` know** a session has spent its branch, and prefer
+  non-pull actions once it has. Needs the session to tell the tool,
+  which it has no way to do today.
+
+Not chosen here; recorded so the item is refined against the whole
+problem rather than half of it.
