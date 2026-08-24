@@ -10,257 +10,354 @@ is 47-53x behind `json.decode` (391-404µs vs 7.5µs small; 238-257ms vs
 and a probed jump-scanning Teal lexer tops out at 3.0x — pure Teal
 cannot close it.
 
-**This item is in `plan`, not ready, and is now BLOCKED.** Refinement
-pass 2026-08-23 settled four of the five open questions against
-measured ground and found the reason it cannot be sliced yet: the
-contract it would freeze in C is wrong today. What remains for the
-next refinement is the cut (question 5), and it should not be made
-until the blocker lands.
-
 ## Evidence
 
-### The blocker: the contract to reproduce is not the contract as shipped
+### The blocker cleared
 
-Two round-trip defects in `cosmic.literal` were found on
-2026-08-23 by the literal fuzz properties (`3IKSi0JN`, PR #1347) and
-are filed separately:
+The contract this parser copies was wrong about `\ddd` until
+2026-08-24. `3IKg4hsF` landed as whilp/cosmic#1359 (squash
+`585d17f9`), so `cosmic/literal.tl:108` now reads a zero-padded
+decimal escape as decimal. Verified on whilp/cosmic `main` at
+`585d17f9`, with a binary built from the tree, running the sweep the
+blocker's spec names:
 
-- **`3IKg4hsF`** — `cosmic/literal.tl:108` decodes the `\ddd` string
-  escape with a base-less `tonumber`, and this fork's Lua reads a
-  leading zero as an octal prefix, so `format` writes byte 11 and
-  `parse` returns byte 9. Silent, for every byte in 11..31 followed by
-  a digit. This runtime's own `load` reads `"\011"` as byte 11, so the
-  reader is wrong against Lua, against `%q`, and against `load`.
-- **`3IKgKs34`** — `cosmo.EncodeLua` spells byte 27 as `\e`, a fork
-  extension `load` accepts and the reader does not, so `format_file`
-  in the compact layout writes a file `parse_file` cannot read.
+```
+break: 0 []
+load=11 parse=11
+```
 
-Why this blocks THIS item rather than merely neighbouring it: a C
-parser's whole job here is to reproduce the Teal reader's contract
-byte for byte, and the sibling adoption item (`3IKSjS8N`) proposes to
-prove that by differentially fuzzing the two against each other. Write
-the C parser against today's reader and one of two bad things happens
-— it reproduces the octal bug on purpose and the bug becomes a
-contract, or it reads `\011` correctly and the differential harness
-reports a disagreement that is the Teal side's fault. Neither is a
-thing to discover after a large C PR is written. `3IKg4hsF` is a
-one-argument fix; it lands first.
-
-`3IKgKs34` is recorded here but does NOT block: it is a writer-side
-gap in the compact layout, and the C parser is a reader.
+`3IKgKs34` (byte 27 spelled `\e` by the compact layout's C ENCODER)
+remains open and does NOT block: it is a writer-side gap and this item
+is a reader.
 
 ### No grammar subset is available: the full grammar has a live caller
 
-Measured on `whilp/cosmic` at `83b4fd71`. The committed literal files
-in the tree, and what each uses:
+Re-measured on whilp/cosmic at `585d17f9`.
 
 ```
 $ find . -name "*_pin.tl" -not -path "./o/*"
-./3p/cosmos/cosmos_pin.tl        flat tables, strings, integers
+./3p/cosmos/cosmos_pin.tl        flat table, strings, integers
 ./3p/tl/tl_pin.tl                same
-$ ls .cosmic-coverage            nested tables, strings, integers
+$ head -3 .cosmic-coverage       nested tables, strings, integers
 $ wc -l 3p/tl/tl_patch.tl
 395 3p/tl/tl_patch.tl
+$ grep -c '^--' 3p/tl/tl_patch.tl
+54
+$ grep -c '\[=====\[' 3p/tl/tl_patch.tl
+22
 ```
 
-`3p/tl/tl_patch.tl` is read by `_make/patch.tl:73`
-(`literal.parse_file(path, {noun = "patch"})`) on every build, and it
-uses the parts of the grammar a subset parser would drop:
+`3p/tl/tl_patch.tl` is read by `_make/patch.tl` (`literal.parse_file`)
+on every build, and it uses the parts of the grammar a subset parser
+would drop: 54 `--` comment lines, and 22 level-5 long bracket strings
+(`[=====[ … ]=====]`) whose CONTENTS contain `--[[` and `]]`, which is
+why the level is 5. So "core subset first, exotica later" is not a cut
+this item can take: the first slice would not serve the caller that
+most needs the speed.
 
-- a 40-line block of `--` line comments at the head, and more inline
-- long bracket strings at level 5 — `[=====[ … ]=====]` at lines 204,
-  212, 218, 226 — whose CONTENTS contain `--[[` and `]]`, which is
-  exactly why the level is 5
+### The grammar and the refusals to reproduce
 
-So "core subset first, exotica later" is not a cut this item can take:
-the first slice would not serve the caller that most needs the speed.
-Whatever the cut is, comments and arbitrary-level long brackets are in
-the first piece.
+Read on whilp/cosmic at `585d17f9`. `cosmic/_literal_lex.tl` is 163
+lines and `cosmic/literal.tl` is 441 (`wc -l`). Those two files are
+the specification of what the C parser must accept and refuse, and the
+implementer reads them rather than a transcription:
 
-### The grammar to reproduce, enumerated
+- **lexing** — `cosmic/_literal_lex.tl:80-150` (`lex`): a leading `#!`
+  line is skipped; whitespace; `--` line comments and `--[=*[` long
+  comments; long bracket strings at any `=` level; short strings in
+  either quote; numerals by SHAPE (`0[xX]%x*%.?%x*` with an optional
+  `[pP]` exponent, or `%d*%.?%d*` with an optional `[eE]` one);
+  identifiers, with Lua's 22 reserved words (`:26-33`) lexing as
+  `keyword` so `return { end = 1 }` is refused rather than read as a
+  key; anything else as a one-character token. Only an unterminated
+  string, long string or long comment, and a malformed number, fail
+  here.
+- **string values** — `cosmic/literal.tl:56-134` (`ESCAPES`,
+  `escape_at`, `string_value`): the eleven single-character escapes,
+  `\z`, `\xHH`, `\ddd` read as DECIMAL, and `\u{...}` bounded at
+  `0x7FFFFFFF` and encoded as UTF-8; a long bracket takes no escapes
+  and drops a newline immediately after its opening delimiter.
+- **the grammar** — `cosmic/literal.tl:190-365` (`parse_table`,
+  `parse`): `return` then one table; entries `name = <value>` or
+  `["string"] = <value>`; values a nested table, a string, a numeral,
+  `-` before a numeral, or `true`/`false`; separators `,` or `;`;
+  a 32-table depth cap.
 
-`cosmic/_literal_lex.tl` (163 lines) and `cosmic/literal.tl` (441) at
-`83b4fd71`. Tokens: identifiers, the 22 reserved words as a distinct
-`keyword` kind (so `return { end = 1 }` is refused rather than read as
-a key — `_literal_lex.tl:22-32`), short strings in either quote, long
-bracket strings at any `=` level, `--` line comments and `--[=*[` long
-comments, numerals (`0[xX]%x*%.?%x*` with an optional `[pP]` exponent,
-or `%d*%.?%d*` with an optional `[eE]` exponent), and punctuation.
-Anything unrecognized becomes a one-character token the parser refuses
-by name; only an unterminated string, long string or long comment
-fails in the lexer. A leading `#!` line is skipped.
+**The refusal CLASSES the C parser must be able to distinguish** —
+seventeen, each a distinct static message except the duplicate one.
+They are the `return nil, …` sites in those two ranges. Four are
+lexical (`unterminated string`, `unterminated long string`,
+`unterminated long comment`, `malformed number`); three are top-level
+(`must be exactly \`return { … }\``, `must return a table literal`,
+`ends after its table; found '<tk>'`); ten are inside a table
+(`nests deeper than 32 tables`; `is a table of \`name = <literal>\`
+entries; found '<tk>'`; `has a malformed string key`; `has a
+malformed string value for '<key>'`; `has a malformed number value
+for '<key>'`; `holds literals only; found '<tk>' (no variables, calls
+or concatenation)`; the same `after a value`; `repeats the key
+'<key>' (first at line <n>)`; `unexpected end of <noun>`;
+`unterminated table in <noun>`).
 
-The parser (`cosmic/literal.tl:196-311`) accepts exactly: a `return`
-of one table; entries of the form `name = <value>` or
-`["string"] = <value>`; values that are a nested table, a string, a
-numeral, an optional `-` before a numeral, or `true`/`false`;
-separators `,` or `;`; a 32-table depth cap. Its refusals, which the C
-side must be able to reproduce, are these eight, all shaped
-`<file>:<line>: a <noun> <what>`:
-
-1. `is a table of \`name = <literal>\` entries; found '<tk>'`
-2. `has a malformed string key`
-3. `has a malformed string value for '<key>'`
-4. `has a malformed number value for '<key>'` (the lexer's numeral is
-   a SHAPE — `0x.` and `1e` lex and `tonumber` then returns nil)
-5. `holds literals only; found '<tk>' (no variables, calls or concatenation)`
-6. `holds literals only; found '<tk>' after a value (…)`
-7. `repeats the key '<key>' (first at line <n>)`
-8. `unexpected end of <noun>` / `unterminated table in <noun>` /
-   `nests deeper than 32 tables`
+The C parser does NOT reproduce those strings. Cosmic's messages carry
+a `<file>:<line>: a <noun> ` prefix the C side cannot know, and
+composing the cosmic-side wording is the sibling adoption item
+(`3IKSjS8N`). What this item owes is that each class is
+DISTINGUISHABLE and positioned — see Change 1.
 
 ### Where it lands, re-measured
 
-whilp/cosmopolitan at `8e071ec9` (`master`).
+whilp/cosmopolitan at `8dd093ce` (`master`).
 
 ```
-$ wc -l tool/net/ljson.c tool/lua/lcosmo.c tool/net/definitions.lua
+$ wc -l tool/net/ljson.c tool/net/ljson.h tool/lua/lcosmo.c tool/net/definitions.lua
    649 tool/net/ljson.c
+    15 tool/net/ljson.h
    346 tool/lua/lcosmo.c
-  8246 tool/net/definitions.lua
+  8250 tool/net/definitions.lua
 $ grep -n "ljson.o" tool/net/BUILD.mk tool/lua/BUILD.mk
 tool/net/BUILD.mk:102   tool/lua/BUILD.mk:31
+$ grep -n "TOOL_LUA_TESTS" tool/lua/BUILD.mk
+217:TOOL_LUA_TESTS =
+254:		$(TOOL_LUA_TESTS)
+$ ls tool/lua/test_*.lua | wc -l
+30
+$ find . -name "llua*" -o -name "lliteral*"      # the name is free
+$ grep -n "lua_stringtonumber" third_party/lua/lua.h
+354:LUA_API size_t   (lua_stringtonumber) (lua_State *L, const char *s);
+$ grep -n "DecodeLua" tool/net/definitions.lua tool/lua/lcosmo.c   # unused name
 ```
 
 `tool/lua/BUILD.mk:253` is the `o/$(MODE)/tool/lua/test` target, which
 also runs `test_definitions_coverage.lua` and
 `test_definitions_conformance.lua` — the annotation and return-arity
-ratchets — over `definitions.lua`. There are 30 `tool/lua/test_*.lua`
-files today.
+ratchets — over `definitions.lua`. A test file is registered by a
+two-line rule (the pattern at `tool/lua/BUILD.mk:129-130`) plus one
+entry in `TOOL_LUA_TESTS`.
 
 **Prerequisite, cleared:** the parent recorded that any C A/B here was
 unmeasurable while `o//depend` was never generated. That landed as
-whilp/cosmopolitan#270 (board `3IHHJcVr`), and it is the tip of
-`master` at `8e071ec9`, so incremental C measurement is sound.
+whilp/cosmopolitan#270 (board `3IHHJcVr`) and is an ancestor of
+`8dd093ce`, so incremental C measurement is sound.
+
+### Question 5, settled: ONE landing, and the measurement that decides it
+
+The earlier refinement guessed "plausibly past 900 lines" and left the
+cut open between one landing and a scanner-then-parser pair with a
+temporary binding. Measured now, the guess was too high.
+
+A skeleton was written to count it: the license header, the includes,
+the constants, the keyword table, and every function signature this
+parser needs with its body elided. That skeleton is **139 lines**. The
+bodies were then estimated against `ljson.c`'s counted sections
+(`Parse` spans `tool/net/ljson.c:96-616`, 521 lines, of which the
+string case alone — relative 228 to 491 — is ~263):
+
+| body | est. | calibration |
+|------|-----:|-------------|
+| `IsLongBracket` | 10 | — |
+| `LongBracketEnd` | 15 | — |
+| `SkipTrivia` (space, `--`, `--[=*[`) | 35 | — |
+| `ScanShortString` (escapes) | 120 | ljson's string case is 263 WITH UTF-8 validation and UTF-16 surrogate pairing, neither of which this grammar needs |
+| `ScanLongString` | 25 | — |
+| `ScanNumber` | 45 | ljson's number cases are ~59; here the shape is scanned and handed to `lua_stringtonumber`, which is also what makes it agree with `load` |
+| `FirstKeyAt` (cold re-scan) | 35 | — |
+| `ParseTable` | 150 | ljson's `[`/`{`/`,`/`:`/literal handling is ~100 |
+| `Parse`, `DecodeLua` | 45 | — |
+| **bodies** | **480** | |
+| **+ skeleton** | **619** | |
+
+So the file lands near `ljson.c`'s own 649, not past 900. Two things
+in the skeleton can come out and were left in the count as slack: the
+46-line `kLuaChar` byte-class table is not needed (this grammar's
+classes are exactly `libc/ctype.h`'s, and the hot loop branches on
+structural bytes — `{`, `}`, `=`, `,`, `"` — not on classification),
+and the keyword table is 8 lines.
+
+**The decision: one landing.** Reasons, in order:
+
+1. The number. ~620 lines is `ljson.c`'s size, in the same directory,
+   for the same kind of artifact, which this repo reviewed as one file.
+2. The two-landing option does not divide anything. A scanner with no
+   parser parses nothing, so the first landing's only exercise is a
+   binding that exists to be tested and then removed — a contract added
+   and withdrawn inside one item, in a repo whose convention is that
+   binding contracts at the C boundary are frozen.
+3. It is also the wrong SHAPE. A standalone scanner implies a token
+   stream, and materializing tokens is precisely what makes the Teal
+   reader slow (lexing is ~80% of parse). The C parser scans and parses
+   in one pass, pushing straight onto the Lua stack, as `ljson.c` does.
+4. Every alternative cut still exceeds cosmic's ~400-line
+   sizing smell, so none of them buys the thing the smell is for.
+
+Stated plainly rather than hidden: this slice is ~2.5x that smell
+threshold. Acceptance therefore carries a hard ceiling (`wc -l
+tool/net/llua.c` ≤ 800) so a design that blows past the estimate fails
+the gate instead of arriving as a surprise at review.
 
 ## Change
 
-### Settled — do not re-open these
+Six files in whilp/cosmopolitan. No cosmic-side file is touched.
 
-**1. Return shape: the `struct DecodeJson` shape, plus a byte offset.**
-`tool/net/ljson.h` declares
+**1. `tool/net/llua.h`** (new, ~15 lines) — mirror `tool/net/ljson.h`:
 
 ```c
-struct DecodeJson { int rc; const char *p; };
+struct DecodeLua {
+  int rc;
+  const char *p;
+};
+struct DecodeLua DecodeLua(struct lua_State *, const char *, size_t);
 ```
 
-where `rc` is the number of values pushed (1), `0` for eof, or `-1`
-for an error with `p` as a static message; on success `p` is the rest
-of the input. `LuaDecodeJson` (`tool/lua/lcosmo.c:44-79`) turns that
-into `value` or `nil, msg`. The literal parser follows the same shape
-and the same two-return Lua contract, with ONE addition: on `rc == -1`
-it also reports the byte OFFSET at which the parse failed.
+`rc` is 1 when one value was pushed, 0 for eof, -1 for an error. On
+success `p` is the rest of the input, exactly as `DecodeJson` returns
+it. **On -1, `p` points at the FAILING BYTE of the input, and the
+message has already been pushed onto the Lua stack** — that is the one
+deviation from `DecodeJson`, and it is what lets the duplicate-key
+refusal name its key without a static string, and lets the caller
+compute a byte offset by subtraction. Counting lines in the hot loop
+to report a line number is what this avoids; the offset is free
+because the parser already holds the cursor.
 
-The reason, stated so it is not re-litigated: `cosmic.literal`'s
-messages carry `<file>:<line>:`, and `DecodeJson`'s carry no position
-at all. Counting lines in the C parser's hot loop costs the hot path
-for something only the error path reads. An offset is free — the
-parser already holds the cursor — and the Lua side converts offset to
-line by counting newlines up to it, once, on failure. So the binding
-returns `nil, message, offset` and cosmic's wrapper composes the
-existing string. The offset is the THIRD return and slot 2 is still
-the message, so the fallible-returns shape on the cosmic side is
-unchanged: the wrapper reads all three and returns two.
+**2. `tool/net/llua.c`** (new, ~620 lines) — the parser, in one pass,
+recursive descent, no token stream. Shape it as the skeleton above:
+constants (`DEPTH 32`, `MAXCODEPOINT 0x7fffffff`), the sorted
+22-entry keyword table, then `IsLongBracket`, `LongBracketEnd`,
+`SkipTrivia`, `ScanShortString`, `ScanLongString`, `ScanNumber`,
+`FirstKeyAt`, `ParseTable`, `Parse`, `DecodeLua`. Rules:
 
-**2. Duplicate keys: the C parser refuses, and offers no policy.**
-`on_duplicate` is a Lua callback with exactly two callers in the
-cosmic tree (`_tool/floor.tl:39` and `_tool/coverage/baseline.tl`, both
-reading committed ratchet floors). A C parser that calls back into Lua
-per duplicate key gives back the speed it exists to gain, and a policy
-flag is a second contract to freeze before anyone needs it. The C
-parser therefore behaves as the Teal reader does with no
-`on_duplicate`: it refuses, reporting the repeated key and both
-offsets. The two callback callers keep the Teal reader until a
-follow-up item earns the policy; they read floors, which are written
-once per gate run and are not on a defining path.
+- **Classify with `libc/ctype.h`** (`isalpha`, `isalnum`, `isdigit`,
+  `isspace`), not a bespoke 256-byte table.
+- **Numbers**: scan the numeral's SHAPE per `_literal_lex.tl`'s
+  `numeral_at`, then hand the text to `lua_stringtonumber`
+  (`third_party/lua/lua.h:354`). A shape `lua_stringtonumber` rejects
+  (`0x.`, `1e`) is the "malformed number value" refusal, exactly as
+  the Teal reader's `tonumber` check is.
+- **Depth**: `DEPTH 32`, matching the reader, AND the real C stack
+  guard `ljson.c` uses (`GetStackPointer() < bsp`). Neither is an
+  option and neither is caller-supplied.
+- **Duplicate keys**: refuse. Detect with `lua_rawget` before the
+  `lua_rawset`; on a hit call `FirstKeyAt`, which re-scans the
+  enclosing table's entries from its opening `{` for the first entry
+  naming that key. That re-scan is COLD — it runs only to compose the
+  refusal — so no table pays a shadow map for it. The message is
+  `lua_pushfstring`ed as `repeats the key '%s' (first at offset %d)`;
+  every other message is a distinct static string, one per refusal
+  class, and reproducing cosmic's wording is the sibling item's job.
+- **`\u{...}`** is bounded at `0x7FFFFFFF` and encoded as UTF-8 (up to
+  six bytes), matching `utf8.char`; above the bound is a refusal, not
+  a truncation.
+- Keep the fork mergeable: a new file plus the entries below, and no
+  edit to any neighbouring file's existing lines.
 
-**3. Depth cap: a compile-time constant, 32, matching the reader.**
-`ljson.c` uses `#define DEPTH 64` and also guards the real C stack
-(`GetStackPointer() < bsp`). The literal parser takes both: `32` so
-the refusal is identical to the Teal reader's, and the stack guard
-because a recursive-descent C parser on attacker-shaped input needs
-it regardless. Not an option and not caller-supplied — a cap a caller
-can raise is a cap that is not a safety property.
+**3. `tool/lua/lcosmo.c`** (~35 lines added) — `LuaDecodeLua`,
+modelled on `LuaDecodeJson` (`tool/lua/lcosmo.c:44-79`), plus one
+`{"DecodeLua", LuaDecodeLua}` entry in the registration table beside
+`{"EncodeLua", …}` at `:230`. It returns the value on success, and on
+failure `nil, message, offset` where `offset` is `r.p - p` as a
+1-based byte index. Slot 2 stays the message, so cosmic's
+fallible-returns shape is unaffected: the wrapper reads three and
+returns two. `#include "tool/net/llua.h"` beside the `ljson.h`
+include. Measured headroom: `tool/lua/lcosmo.c` is 346 lines and this
+repo imposes no per-file cap.
 
-**4. Out of grammar: the enumeration above is the list.** The C parser
-refuses, by the same classification, everything in the eight refusals
-enumerated in Evidence — array-style tables, non-string keys, reserved
-words as bare keys, an unterminated string or long comment, a numeral
-shape `tonumber` rejects, a repeated key, anything past 32 tables, and
-any token that is not part of a `name = <literal>` entry. "The same
-set as the Teal reader" is not an acceptable spec line and this list
-replaces it.
+**4. `tool/net/BUILD.mk` and `tool/lua/BUILD.mk`** — one
+`o/$(MODE)/tool/net/llua.o` line beside the `ljson.o` line in each
+(`tool/net/BUILD.mk:102`, `tool/lua/BUILD.mk:31`); a two-line
+`o/$(MODE)/tool/lua/test_llua.ok` rule in the style of
+`tool/lua/BUILD.mk:129-130`; and one `test_llua.ok` entry in
+`TOOL_LUA_TESTS` (`:217`).
 
-### Open — for the next refinement, after the blocker lands
+**5. `tool/net/definitions.lua`** (~15 lines added, same commit) —
+the `cosmo.DecodeLua(source)` annotation block beside
+`cosmo.EncodeLua` at `:2505`, with full `@param`/`@return` for all
+three returns. The coverage and conformance ratchets in
+`o//tool/lua/test` fail otherwise, and that is the gate.
 
-**5. The cut.** `ljson.c` is 649 lines for a strictly smaller grammar:
-no comments, no long brackets, one string form, one number form, no
-identifiers, no duplicate-key question. This grammar plausibly lands
-past 900 lines in one file, which is a very large single C PR to
-review even though this repo has no line cap. The cut by grammar
-subset is measured out above (tl_patch.tl needs the whole thing), so
-the candidates left are:
+**6. `tool/lua/test_llua.lua`** (new, ~250 lines) — registered as
+above. Its core assertion is the module's actual contract, and it is
+self-contained because `load` is in the same process:
 
-- scanner and parser as two landings, the scanner first with its own
-  `tool/lua/test_*.lua` reaching it through a temporary binding — the
-  cost being a binding that exists only to be tested and then removed
-- one landing, reviewed as one large C file the way `ljson.c` was
-
-The next refinement picks one, WITH a measured line estimate rather
-than the guess above: write the token table and the parser skeleton,
-count them, and decide from the number.
+- **agreement with `load`**: a table of source strings, each asserted
+  to deep-equal `load(s)()`. Cover, at minimum: a flat table of
+  strings and integers (the `*_pin.tl` shape); a nested table (the
+  `.cosmic-coverage` shape); a leading `#!` line; `--` line comments
+  and a `--[==[ … ]==]` long comment; a level-5 long bracket whose
+  BODY contains `--[[` and `]]` (the `tl_patch.tl` shape); both quote
+  forms; every escape form including `\z`, `\xHH`, `\011`, and
+  `\u{...}` at the bound; negative numbers, hex numerals, hex floats
+  with a `[pP]` exponent, decimal exponents; `["key"] =` and
+  `name =` entries; `,` and `;` separators; `true`/`false`.
+- **the byte sweep**: for `b = 0, 255`, `DecodeLua(string.format('return {x = %q}', string.char(b) .. "0"))` equals
+  `load` of the same source. This is the sweep that caught the blocker
+  on the Teal side.
+- **the refusal classes**: one case per class from Evidence, each
+  asserting `nil`, a message DISTINCT from every other class's, and
+  the expected byte offset. Include a `["a"]=1, a=1` duplicate whose
+  message names the key and the first offset, a 33-deep nesting, and
+  `return { end = 1 }`.
 
 ## Non-goals
 
 - **No cosmic-side change in this item.** The type regen, the wrapper
-  and the differential harness are the sibling adoption item
-  (`3IKSjS8N`); this one lands in whilp/cosmopolitan and nothing else.
-- **Do not fix `3IKg4hsF` here.** It lands on the cosmic side, on its
-  own, and this item waits for it.
+  that composes `<file>:<line>: a <noun> …` from the class and the
+  offset, and the differential harness are the sibling adoption item
+  (`3IKSjS8N`). This one lands in whilp/cosmopolitan and nothing else.
 - **Do not change `DecodeJson`, `EncodeJson`, `EncodeLua` or any
   existing binding's contract.** Return shapes, error values and
   constants at the C boundary are frozen; cosmic's generated types and
-  wrappers depend on them.
+  wrappers depend on them. Add lines to `lcosmo.c`, `definitions.lua`
+  and the two `BUILD.mk`s; edit no existing line in them beyond the
+  registration entries this names.
 - **Do not add an evaluator.** No `load`, no chunk compilation, no
-  environment. A parser with no evaluator is the point; the parent
-  item records `load("return "..s, "t", {})` as measured and
-  disqualified (the string metatable survives an empty env, expression
-  chunks admit function literals, bare identifiers read `nil`).
-- **Do not add an `on_duplicate` callback or policy flag** — settled
-  above as refuse-only.
-- **Keep the fork mergeable.** Surgical diff in `tool/net` plus the
-  two BUILD.mk entries and `definitions.lua`; no reformatting, no
-  restructuring of neighbouring files.
-- **`definitions.lua` moves in the same commit** as the binding, with
-  full `@param`/`@return` annotations — the coverage ratchet fails
-  otherwise, and that is the gate, not a convention.
+  environment, in the parser. (`load` appears only in the TEST, as the
+  oracle.) The parent item records `load("return "..s, "t", {})` as
+  measured and disqualified.
+- **Do not add an `on_duplicate` callback or policy flag.** Settled:
+  refuse-only. A C parser that calls back into Lua per duplicate key
+  gives back the speed it exists to gain, and a policy flag is a second
+  contract to freeze before anyone needs it. Cosmic's two callback
+  callers (`_tool/floor.tl`, `_tool/coverage/baseline.tl`) keep the
+  Teal reader; they read ratchet floors, which are not a defining path.
+- **Do not reproduce cosmic's message WORDING.** Distinct classes and
+  a correct offset are the contract here; the prose is the wrapper's.
+- **Do not fix `3IKgKs34`** (byte 27 spelled `\e` by the compact
+  layout's encoder). It is writer-side and a separate item.
+- **Do not make the depth cap or the string-buffer size caller-supplied.**
+  A cap a caller can raise is a cap that is not a safety property.
+- **Keep the fork mergeable with upstream jart/cosmopolitan**: no
+  reformatting, no restructuring of neighbouring files.
 
 ## Acceptance
 
-Not writable until question 5 is settled: the acceptance names the
-files a slice creates, and the cut decides how many there are. The
-floor every candidate slice will build on, measured today:
+Every command runs verbatim from the whilp/cosmopolitan repo root and
+writes no committed file. A first build downloads the cosmocc
+toolchain; after that it is hermetic.
 
-- `make -j$(nproc) o//tool/lua/test` exits 0, with
-  `test_definitions_coverage.lua` and
-  `test_definitions_conformance.lua` reporting no allowlist growth.
-- a new `tool/lua/test_<name>.lua` covering the grammar and each of
-  the eight refusal classes enumerated in Evidence, by class.
-- the four committed literal files in the cosmic tree parse to values
-  equal to what the Teal reader returns for them: the two `*_pin.tl`,
-  `.cosmic-coverage`, and `3p/tl/tl_patch.tl` (the one that exercises
-  comments and level-5 long brackets).
+- `make -j$(nproc) o//tool/lua/test` exits 0. This target includes
+  `test_definitions_coverage.lua` and `test_definitions_conformance.lua`,
+  so it is also the gate that `DecodeLua` is annotated and its return
+  arity declared; neither may grow an allowlist entry.
+- `make -j$(nproc) o//tool/lua/test_llua.ok` exits 0 — the new test on
+  its own, including the byte sweep and one case per refusal class.
+- `wc -l tool/net/llua.c` is ≤ 800. (The estimate is ~620; this is the
+  ceiling that turns the estimate into a contract.)
+- `grep -c 'DecodeLua' tool/net/definitions.lua` is ≥ 1 (it is 0 at
+  `8dd093ce`).
+- `grep -c 'llua.o' tool/net/BUILD.mk tool/lua/BUILD.mk` is 1 in each
+  (0 in each at `8dd093ce`).
+- The discriminating check, to run BEFORE the fix is complete: with
+  `tool/lua/test_llua.lua` present and `tool/net/llua.c` absent,
+  `make -j$(nproc) o//tool/lua/test_llua.ok` fails. A test that passes
+  without the parser is not testing the parser.
 
 ## Enablement
 
-`3IHHJcVr` (the `o//depend` fix) was the tooling blocker and landed on
-2026-08-23 as whilp/cosmopolitan#270.
+none needed. Both blockers are cleared: `3IHHJcVr` (the `o//depend`
+fix, whilp/cosmopolitan#270) landed 2026-08-23, and `3IKg4hsF` (the
+`\ddd` reader fix, whilp/cosmic#1359) landed 2026-08-24 and is
+re-verified in Evidence. `blocked_by` is empty.
 
-What blocks now is a CONTRACT, not tooling: `3IKg4hsF` must land so
-the reader this parser copies is right about `\ddd`. Mirrored in
-`blocked_by`.
-
-The remaining work before `ready` is refinement, not enablement:
-question 5 is a decision, and a session that implemented this today
-would be inventing an answer to it and writing a 900-line C file
-against a contract with a known bug in it.
+The last open decision — question 5, the cut — is settled in Evidence
+with the measurement the previous pass asked for. Nothing in `Change`
+says "investigate", "explore" or "support", and every file it names
+was read at the commit stated beside it.
