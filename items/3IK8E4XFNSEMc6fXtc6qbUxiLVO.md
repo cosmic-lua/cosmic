@@ -51,3 +51,37 @@ full fuzz corpus, incl. refusals.
 Highest effort of the pass; measurement of any C A/B depends on board
 item 3IHHJcVr (o//depend broken — header edits never rebuild) landing
 first or on clean rebuilds.
+
+## Outcome, verified 2026-08-24 at cosmic main `ea71d799`
+
+Parity reached. Measured with the built binary (`o/bin/cosmic`) on the
+same table encoded both ways — `literal.format` against `json.encode` —
+decoding each in one process, best of 5 timed runs:
+
+```
+5 rows      literal 336 bytes / json 251 bytes
+  literal.parse    3.98 µs/op      json.decode    3.39 µs/op    1.17x
+17,000 rows literal 1,217,535 bytes / json 962,525 bytes
+  literal.parse   23.55 ms/op      json.decode   21.11 ms/op    1.12x
+```
+
+Against the 47-53x this item opened on (391-404 µs vs 7.5 µs small,
+238-257 ms vs 5.2 ms on ~955 KB), `literal.parse` is now within 12-17%
+of `json.decode` on equivalent data — the parity the hypothesis
+predicted, and past the ~20x floor a rewritten Teal lexer could have
+reached.
+
+Delivered by the three children:
+
+- `3IKSjEgW` — `cosmo.DecodeLua` in whilp/cosmopolitan `354c17e0`,
+  shipped in release `2026.08.24-354c17e08`.
+- `3IKSi0JN` — the literal fuzz properties, `_fuzz/literal_fuzz_test.tl`.
+- `3IKSjS8N` — adoption behind `cosmic.literal.parse` (PR #1362,
+  merged `ea71d799`): the C reader by default, the Teal reader kept as
+  the reference implementation, the resolver `on_duplicate` needs and
+  the single source of every refusal message, with a `differential`
+  fuzz property holding the two readers to the same answers.
+
+The correctness bar the Constraints set — byte-equivalent to
+`literal.parse` on the fuzz corpus, refusals included — is held by that
+differential property rather than asserted here.
