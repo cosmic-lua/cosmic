@@ -207,3 +207,33 @@ local function test_compact_is_deterministic()
   end
 end
 test_compact_is_deterministic()
+
+-- Every byte, in both layouts, in both positions a string can hold.
+-- The writers spell strings through two different encoders -- `%q` in
+-- the pin layout, `cosmo.EncodeLua` in the compact one -- and a byte
+-- either spells the way `parse` reads or it does not, so the domain is
+-- the 256 of them and the test is the sweep. Byte 27 is why this
+-- exists: the C encoder writes it `\e`, which `parse` refuses, and the
+-- compact writer now hands such a string to the pin layout instead.
+-- The failure message names the byte, the layout and the position, so
+-- the next byte an encoder spells its own way is reported by name.
+local function test_every_byte_round_trips()
+  for b = 0, 255 do
+    local char = string.char(b)
+    for _, layout in ipairs({"pin", "compact"}) do
+      local opts: literal.FormatOptions = {layout = layout}
+      local where = "byte " .. tostring(b) .. " in the " .. layout .. " layout"
+
+      local as_value: {string: any} = {x = char}
+      local value_back, verr = literal.parse(written(as_value, opts))
+      assert(value_back, where .. " as a value: " .. tostring(verr))
+      assert(deep_equals(as_value, value_back), where .. " as a value: changed")
+
+      local as_key: {string: any} = {[char] = 1}
+      local key_back, kerr = literal.parse(written(as_key, opts))
+      assert(key_back, where .. " as a key: " .. tostring(kerr))
+      assert(deep_equals(as_key, key_back), where .. " as a key: changed")
+    end
+  end
+end
+test_every_byte_round_trips()

@@ -47,9 +47,24 @@ local function is_finite(n: number): boolean
   return n == n and n ~= math.huge and n ~= -math.huge
 end
 
+--- True when a string is one the C encoder spells the way the reader
+--- reads.
+---
+--- Byte 27 is the one byte it does not. `cosmo.EncodeLua` writes it as
+--- `\e`, a fork extension this runtime's `load` accepts and the ten
+--- escapes `literal.parse` admits do not, so a string carrying it would
+--- be written here and refused there. The pin layout spells the same
+--- byte `\27`, which reads back, so such a string takes the handoff to
+--- that layout the way a reserved key and `math.mininteger` do.
+--- @param s string The string
+--- @return boolean True when the encoder's spelling reads back
+local function is_compact_string(s: string): boolean
+  return not s:find("\27", 1, true)
+end
+
 --- True when `v` is a scalar the grammar admits AND the C encoder
---- spells the way the reader reads: a string, a boolean, or a finite
---- number other than `math.mininteger`.
+--- spells the way the reader reads: a boolean, a finite number other
+--- than `math.mininteger`, or a string without byte 27.
 ---
 --- The domain test `scalar` applies, without rendering — the walk
 --- wants the answer, not the text, and `%q` on every string it visits
@@ -65,7 +80,7 @@ end
 --- @return boolean True when the value is a scalar the encoder can spell
 local function is_compact_scalar(v: any): boolean
   if v is string then
-    return true
+    return is_compact_string(v)
   end
   if v is boolean then
     return true
@@ -305,7 +320,8 @@ local RESERVED: {string: boolean} = {
 --- no value that is neither scalar nor table, no nesting past
 --- `MAX_DEPTH`, which is also how a cycle is caught? And can
 --- `cosmo.EncodeLua` spell every part of it in a way the reader reads
---- back — no reserved-word key, no `math.mininteger`? A no to either
+--- back — no reserved-word key, no `math.mininteger`, no byte 27 in a
+--- key or a string value? A no to either
 --- sends the value to the renderer, which refuses it in the first case
 --- and writes it in the second.
 ---
@@ -329,6 +345,9 @@ local function is_compact_writable(t: {any: any}, depth: integer): boolean
       return false
     end
     if RESERVED[k] then
+      return false
+    end
+    if not is_compact_string(k) then
       return false
     end
     if v is {any: any} then
