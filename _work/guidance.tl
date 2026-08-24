@@ -69,11 +69,14 @@ local NOTES < const >: {string: {string}} = {
     .. "carrying work nobody will do is a backlog nobody can read.",
   },
   ["triage"] = {
-    "An unplaced capture awaits a decision. `attach ID PARENT` puts it under the "
-    .. "outcome or container its evidence serves, entering it in `backlog`; "
-    .. "`compare ID OTHER` places it as an outcome in its own right.",
-    "Or end it: `done ID` when landed work already covers it, `done ID --reason "
-    .. "not-planned` for a recorded dead end.",
+    "An unplaced capture awaits a decision. `attach ID PARENT` enters it in "
+    .. "`backlog` under the outcome its evidence serves; `compare ID OTHER` "
+    .. "makes it an outcome itself.",
+    "No outcome fits? Attach under the lowest-placed one regardless: it outranks "
+    .. "nothing, `attach` re-parents freely, and an unplaced item can never be "
+    .. "promoted.",
+    "Or end it: `done ID` when landed work covers it, `--reason not-planned` for "
+    .. "a dead end.",
   },
   ["intake"] = {
     "Decompose the highest-placed root that no live work drives: "
