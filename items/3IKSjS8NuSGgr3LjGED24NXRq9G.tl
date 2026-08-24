@@ -9,6 +9,7 @@ return {
   ["claim"] = "426b3897-c70a-5b25-8311-2ccd7b0f0922",
   ["id"] = "3IKSjS8NuSGgr3LjGED24NXRq9G",
   ["parent"] = "3IK8E4XFNSEMc6fXtc6qbUxiLVO",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1362,
   ["title"] = "adopt the C literal parser behind cosmic.literal.parse, differentially fuzzed against the Teal reader",
 }
