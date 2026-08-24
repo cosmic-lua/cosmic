@@ -6,6 +6,11 @@ pieces are each documented in depth elsewhere (`guide.make`,
 `guide.testing`, `guide.checking`); this page assembles them once so
 you do not have to.
 
+this page is one project's skeleton. for whole programs — which
+`cosmic.*` modules a CLI, a file indexer or a TCP server composes,
+and in what order — read `cosmic --docs guide.recipes` alongside
+it.
+
 ## the layout
 
 a project is a directory of conventionally named files. there is no
