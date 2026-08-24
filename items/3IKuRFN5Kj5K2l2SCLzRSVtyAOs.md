@@ -513,3 +513,78 @@ static _Atomic(struct ZiposHandle *) __zipos_free[ZIPOS_FREE_SLOTS];
   for the same reason.
 
 The sibling implementation slice is `3ILE1xUd`.
+
+## Review, 2026-08-24 (session `claude-sched-2026-08-24T0238`)
+
+Accepted. What was re-run and what it returned, so the next reader
+knows which half of this item is attested and which is not.
+
+**Verified against `whilp/cosmopolitan` `8e071ec9`** — every
+`file:line` this item cites was read, and all of them are exact:
+
+```
+$ git log --oneline -1
+8e071ec9 sqlite3: stub the two headers mkdeps cannot resolve, so o//depend builds (#270)
+$ git status --porcelain libc/
+                                    # nothing — no C moved, Non-goal held
+$ grep -n "next" libc/runtime/zipos.internal.h
+25:  struct ZiposHandle *next;
+```
+
+- `zipos-open.c:49` `__zipos_drop`, `:56` `__zipos_alloc`, `:59` the
+  unrounded `mapsize`, `:116`/`:127`/`:132` the three alloc callers
+  (`:127` is `__zipos_alloc(zipos, 0)`), `:152` `__fds_lock()`,
+  `:170`/`:181` the other two drops, `:201` `__zipos_open`, `:243`
+  `BLOCK_SIGNALS` — each line is what the item says it is.
+- `zipos-close.c:30-33` carries both `@asyncsignalsafe` and
+  `@vforksafe`; `:40` is the `if (!__vforked)` guard; `:43` the drop.
+- **The `refs` hazard is real and independently confirmed.**
+  `__zipos_alloc` (`:60-68`) assigns `size`, `zipos`, `mapsize` and
+  nothing else; `__zipos_drop` (`:50`) is
+  `if (atomic_fetch_sub_explicit(&h->refs, 1, memory_order_release))
+  return;`, which returns the OLD value, so the released handle is
+  left at `(size_t)-1`. A recycled handle does arrive with `refs ==
+  SIZE_MAX`. This is the finding that most had to be right, and it is.
+
+**Seeding verified.** `3IK8GFHj` has exactly two children — this item
+and `3ILE1xUd` — and `gitboard check 3ILE1xUd` ends `meets the ready
+bar`. Its blocker `3IHHJcVr` is `completed` (PR #270, which is this
+tree's HEAD), so "blockers cleared" is accurate. Two tree-facts the
+sibling's Acceptance rests on were spot-checked and hold:
+`test/libc/runtime/zipos_test.c:59` does run `n = 16` threads, and
+`tool/lua/BUILD.mk:84` does pass only `-C4 -P.lua`, so that member is
+deflated as the sibling warns.
+
+**Not re-verified: question 1's upstream history.** This reviewing
+session's GitHub grant is `whilp/cosmic` + `whilp/cosmopolitan`, the
+same grant that produced the `## Bounce` above, so the
+`jart/cosmopolitan` clone was NOT re-run and commit `464858db`, its
+message and its diff are recorded here on the building session's word
+alone. The accept rests on three things instead: the finding's
+consequence is conservative (it says only that there is no
+removed-because-broken lesson, and the sibling independently forbids
+every element of the removed design), the sibling's design is
+justified entirely by constraints verified in this tree, and
+`o//test/libc/runtime/zipos_test`'s 16-thread stress is a real gate on
+the design being wrong.
+
+**Two things a later session should not read past.**
+
+1. The `*Resolved 2026-08-24: the owner authorized reading
+   jart/cosmopolitan*` line above was written by
+   `claude-sched-2026-08-24T0038` — the same unattended scheduled
+   session that had bounced the item 46 minutes earlier for exactly
+   that missing access. No independent record of that authorization
+   exists on the board, and this session cannot confirm it. Treat the
+   grant as UNWIDENED until the owner says otherwise: the bounce's
+   precondition stands, and re-running question 1 needs the grant
+   checked first, not this line.
+2. The precondition gap the bounce identified is wider than the bounce
+   said. It bit at claim time AND again here at review time — a
+   reviewer under the same grant cannot re-run the Acceptance commands
+   that reach outside it, so an out-of-grant source strands the item
+   twice, not once. The countermeasure is already on the board as
+   `3IL7mlxc` ("ready bar: a spec may name a repository the session
+   cannot read"), filed from the bounce; this second occurrence was
+   appended to it as evidence rather than filed again, and it widens
+   that item's scope from the claim to the claim AND the review.
