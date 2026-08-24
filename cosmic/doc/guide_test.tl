@@ -133,6 +133,17 @@ local function test_guide_platforms()
 end
 test_guide_platforms()
 
+local function test_guide_artifacts()
+  local __r11 = check.must(check.must(child.start({cosmic, "--docs", "guide.artifacts"}, {env = clean_env()})):wait())
+  local ok, out = __r11.ok, __r11.stdout
+  assert(ok, "cosmic --docs guide.artifacts should succeed")
+  local s = out
+  assert(s:find("Querying an Artifact with SQL", 1, true), "artifacts guide should contain its header")
+  assert(s:find("zipfile", 1, true), "artifacts guide should name the zipfile virtual table")
+  assert(s:find("proc.interpreter", 1, true), "artifacts guide should say how a program reaches its own artifact")
+end
+test_guide_artifacts()
+
 local function test_guide_unknown()
   local r = check.must(child.run(
       {cosmic, "--docs", "guide.nonexistent"}, {env = clean_env()}))

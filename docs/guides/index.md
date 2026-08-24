@@ -62,3 +62,4 @@ run `cosmic --docs guide.<topic>` or see the files below for deeper coverage:
 - [make](make.md) — building a project with `cosmic --make`
 - [modules](modules.md) — the standard library (`cosmic.*` modules)
 - [docs](docs.md) — accessing documentation and getting help
+- [artifacts](artifacts.md) — querying and editing an executable with SQL (`zipfile`)
