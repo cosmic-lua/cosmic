@@ -83,8 +83,10 @@ zip filesystem: `io.open("/zip/hello.txt")` reads back `hi from sql`.
 
 **work on a copy.** the artifact you are running is the one you would
 be editing, and a program that rewrites its own zip while executing
-from it is asking for the failure it will get. copy first, with
-`fs.copy` and `fs.set_mode`, and edit the copy.
+from it is asking for the failure it will get. copy first with
+`fs.copy`, and edit the copy. nothing else is needed to make the copy
+runnable: `fs.copy` chmods the destination to the source's mode, so an
+artifact copied out of an artifact is still executable.
 
 ## Deleting, and what it costs
 
