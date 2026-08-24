@@ -30,8 +30,8 @@ local MAX_EDITS = 8
 --- rather than duplicating itself.
 local LAYOUTS: {string} = {"pin", "compact"}
 
--- Four domain bounds below are deliberate, not laziness. One of them
--- (4) is a known defect this file found on one of its first runs and
+-- Three domain bounds below are deliberate, not laziness. One of them
+-- (1) is a known defect this file found on one of its first runs and
 -- must not keep re-reporting; it names the board item that owns it
 -- and comes off when that item lands.
 --
@@ -54,13 +54,6 @@ local LAYOUTS: {string} = {"pin", "compact"}
 --    exponential work before it is refused -- a property of the
 --    refusal mechanism, not a bug in it. The chain reaches the cap in
 --    32 linear steps and gets the same refusal.
--- 4. byte 27 is never drawn. The compact layout's C encoder spells it
---    `\e`, a fork extension this runtime's `load` accepts and the
---    reader does not, so `format` writes source `parse` then refuses
---    -- a real break, filed as board item 3IKgKs34, found by this file
---    at FUZZ_ITERS=5000. It is the one byte of the 256 that does not
---    survive the compact layout; when the item lands, this bound comes
---    off.
 --
 -- Strings are drawn from an alphabet of the bytes that make a writer
 -- and a reader disagree -- quotes, the backslash, the newline, the
@@ -88,11 +81,6 @@ local FLOAT_EDGES: {number} = {
   9007199254740992.0, -9007199254740993.0,
 }
 
---- The byte the compact layout spells `\e` (board item 3IKgKs34,
---- domain bound 4 above), and the byte drawn in its place.
-local ESCAPE_TRAP = 27
-local ESCAPE_TRAP_SUBSTITUTE = 26
-
 --- Draw one character: usually from the alphabet, occasionally any
 --- byte at all, so the concentration on interesting bytes does not
 --- become a ceiling on which bytes are seen.
@@ -100,11 +88,7 @@ local ESCAPE_TRAP_SUBSTITUTE = 26
 --- @return string A single byte
 local function random_char(src: source.Recorder): string
   if src:int(1, 8) == 1 then
-    local b = src:int(0, 255)
-    if b == ESCAPE_TRAP then
-      b = ESCAPE_TRAP_SUBSTITUTE
-    end
-    return string.char(b)
+    return string.char(src:int(0, 255))
   end
   local i = src:int(1, #STRING_ALPHABET)
   return STRING_ALPHABET:sub(i, i)
