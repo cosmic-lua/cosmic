@@ -8,7 +8,7 @@
 -- hardcoded: a hardcoded list silently stops covering a new bench module
 -- (add one, forget to list it, no check-presence ratchet ever runs it).
 --
--- `reads: _perf/bench` above puts the 17 bench sources into this test's
+-- `reads: _perf/bench` above puts the 18 bench sources into this test's
 -- dependency closure. Without it, `_make/imports.tl`'s static scanner never
 -- sees the computed `require(name)` below (MODULES is built from a glob, not
 -- literal requires), so a bench-only diff can never invalidate this test's
