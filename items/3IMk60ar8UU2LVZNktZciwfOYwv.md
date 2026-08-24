@@ -1,8 +1,49 @@
-Found while reading board flow on 2026-08-24; debugged the same day.
+# Status: the identity half shipped; this item is now the detection half
 
-`next --session NAME` withholds a verdict on work NAME built — the review
-distance the whole board depends on. That distance holds only if distinct
-sessions pick distinct names, and nothing makes them.
+The root cause and its fix (DERIVE the identity instead of trusting a
+typed name) shipped 2026-08-24:
+
+- `gitboard` derivation — `_work/session.tl` + wiring in `next`,
+  `verdict`, and `do`/`check` `move`s — landed on the `board` branch,
+  commit `c646e43c`, board `--make ci` green.
+- the `work` skill's "always pass `--session <name>`" instruction, which
+  invited the collision, became "run `gitboard next` and let the tool
+  derive the identity" — PR #1358 (in review).
+
+An omitted `--session`/`--claim` now yields a unique per-run identity, so
+the collision below cannot recur through the ordinary path. What is NOT
+yet built is the alarm: when a collision DOES happen (a runner setting no
+usable id and a prompt still passing a shared name), nothing computes or
+reports it. That is this item's remaining work.
+
+## Remaining problem
+
+`docs/flow-review.md` names the shape under the `check` tripwire — "peak
+reaches 10 with a mix of claims; all from ONE session is the handover
+stall, not a limit signal" — but nothing computes it. On 2026-08-24 the
+stall (nine `check` items, all claimed `magical-bell`, none reviewable)
+was found only by a human reading the git log. The board should surface
+its own health finding: N items in `check` all carrying one claim is a
+handover stall, distinguishable from a healthy mix, and the tool has
+every fact to say so.
+
+## Change (remaining)
+
+`_work/health.tl` (the board's own health reader, already surfaced by
+`status`) gains a check: when `check` holds items and every claim among
+them is the same non-empty session, report it as a distinct finding —
+"N in check, all claimed by <session>: handover stall (a reused session
+identity, see 3IMk60ar)". `status` already prints health findings; this
+is one more, computed from the board it already reads. Threshold and
+exact wording are the refiner's to set against `docs/flow-review.md`'s
+tripwire language.
+
+## Original evidence (the collision this fixed)
+
+The debug that produced the identity fix, kept for the record:
+
+---
+
 
 ## What went wrong
 
@@ -87,3 +128,4 @@ Immediate unblock, independent of any of the above: a session naming itself by
 its branch SUFFIX may review all eight it did not build.
 
 Related, already on the board: 3IEv60qj (land has no lease and no exit check).
+gitboard-show: 3IMk60ar is backlog
