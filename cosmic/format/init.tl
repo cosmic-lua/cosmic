@@ -254,11 +254,20 @@ local function format(input: string, filename: string): FormatResult
   local continues_type = false
   local type_depth = 0
 
+  -- One line's fragments, buffered and concatenated once per line, so
+  -- `out` grows with lines rather than with tokens. The table is reused
+  -- across lines and only `bn` resets: the concat below is bounded by
+  -- `bn`, so entries left over from a longer previous line are never
+  -- read.
+  local buf: {string} = {}
+  local bn = 0
+
   for _, line in ipairs(lines) do
     local gap = line.y - prev_y
     if prev_y > 0 and gap > 1 then
       out[#out + 1] = "\n"
     end
+    bn = 0
 
     local pre_change, post_change =
     rules.compute_indent_change(line.items, continues_type)
@@ -268,7 +277,8 @@ local function format(input: string, filename: string): FormatResult
     indent = math.max(0, indent + pre_change)
 
     if indent > 0 then
-      out[#out + 1] = string.rep(indent_str, indent)
+      bn = bn + 1
+      buf[bn] = string.rep(indent_str, indent)
     end
 
     mark_type_params(line.items)
@@ -283,7 +293,8 @@ local function format(input: string, filename: string): FormatResult
         end
         if not item._tight_before
         and rules.needs_space(prev_prev_item, prev_item, item, next_item) then
-          out[#out + 1] = " "
+          bn = bn + 1
+          buf[bn] = " "
         end
       end
 
@@ -295,27 +306,36 @@ local function format(input: string, filename: string): FormatResult
           end
           for ci, cl in ipairs(comment_lines) do
             if ci > 1 then
-              out[#out + 1] = "\n"
+              bn = bn + 1
+              buf[bn] = "\n"
               if indent > 0 then
-                out[#out + 1] = string.rep(indent_str, indent)
+                bn = bn + 1
+                buf[bn] = string.rep(indent_str, indent)
               end
-              out[#out + 1] = cl:match("^%s*(.*)$")
+              bn = bn + 1
+              buf[bn] = cl:match("^%s*(.*)$")
             else
-              out[#out + 1] = cl
+              bn = bn + 1
+              buf[bn] = cl
             end
           end
         else
-          out[#out + 1] = item.tk:match("^(.-)%s*$")
+          bn = bn + 1
+          buf[bn] = item.tk:match("^(.-)%s*$")
         end
       else
-        out[#out + 1] = item.tk
+        bn = bn + 1
+        buf[bn] = item.tk
       end
 
       prev_prev_item = prev_item
       prev_item = item
     end
 
-    out[#out + 1] = "\n"
+    bn = bn + 1
+    buf[bn] = "\n"
+
+    out[#out + 1] = table.concat(buf, "", 1, bn)
 
     indent = math.max(0, indent + post_change)
 
