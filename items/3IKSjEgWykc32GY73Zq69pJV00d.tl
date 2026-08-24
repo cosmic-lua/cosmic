@@ -7,7 +7,8 @@ return {
   ["claim"] = "931e78b5-bbf4-5886-9bf0-76f62cce36c7",
   ["id"] = "3IKSjEgWykc32GY73Zq69pJV00d",
   ["parent"] = "3IK8E4XFNSEMc6fXtc6qbUxiLVO",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 274,
   ["repo"] = "whilp/cosmopolitan",
   ["title"] = "cosmo.DecodeLua: the C literal parser in tool/net, beside ljson.c",
 }
