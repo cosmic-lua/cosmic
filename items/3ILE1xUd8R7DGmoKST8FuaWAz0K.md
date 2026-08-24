@@ -49,34 +49,58 @@ below. Two of its results bind hardest:
   carried `atomic_store_explicit(&h->refs, 0, ...)` for exactly this
   reason.
 
+**Coverage gap uncovered during review of PR #271
+(head `d74bd7db`).** The prior spec's Acceptance asserted that
+`TEST(zipos, test)` — 16 threads × 20 open/read/close of
+`/zip/libc/testlib/hyperion.txt` — is "the concurrent pop/push
+stress this design must survive." That claim is false as measured on
+the built test binary:
+
+```
+$ unzip -v o//test/libc/runtime/zipos_test | grep hyperion
+   22851  Defl:N   10610  54% ... libc/testlib/hyperion.txt
+```
+
+`hyperion.txt` is DEFLATED (method 8), not stored, because testlib
+assets go through the default `zipobj` rule (compressed; only `-0`
+stores). A deflated member takes `__zipos_alloc(zipos, size>0)` →
+`mapsize > sizeof(struct ZiposHandle)` → the push guard
+`h->mapsize == sizeof(struct ZiposHandle)` is false, so
+`__zipos_drop` `munmap`s and the pop's `!size` guard is never
+satisfied. **The 16 threads never touch `__zipos_free[]`**; the new
+lock-free array is exercised only single-threaded, by the `--strace`
+mechanism run. On a lock-free primitive that sits under every `/zip`
+open in every cosmo binary, no automated gate covers its concurrency
+safety. The steps below deliver the missing coverage in-scope.
+
 ## Change
 
-In `whilp/cosmopolitan`, `libc/runtime/zipos-open.c` and
-`libc/runtime/zipos.internal.h`. An array of fixed-size slots, not a
-linked list — one size class means no search, and an array makes ABA
-structurally impossible without a double-word CAS.
+In `whilp/cosmopolitan`. The C change itself (steps 1–4) is unmoved
+from the prior spec. Steps 5–6 add the stored-member concurrency
+gate the recycle path needs; they are the only additions.
 
 ```c
 #define ZIPOS_FREE_SLOTS 4
 static _Atomic(struct ZiposHandle *) __zipos_free[ZIPOS_FREE_SLOTS];
 ```
 
-1. **`zipos.internal.h`** — delete `struct ZiposHandle *next;`. The
-   design has nothing to link, and leaving it would re-create the
-   vestige this work exists to resolve.
-2. **`__zipos_alloc` (`:56`) — pop.** Only when `size == 0` (the
-   stored-member bucket at `:127`, where `mapsize ==
-   sizeof(struct ZiposHandle)` exactly; this fork does not round it).
-   Skip the freelist entirely when `__vforked`. Otherwise scan the
-   slots and take the first that yields non-NULL from
-   `atomic_exchange(&__zipos_free[i], NULL)` with
+1. **`libc/runtime/zipos.internal.h`** — delete `struct ZiposHandle
+   *next;`. The design has nothing to link, and leaving it would
+   re-create the vestige this work exists to resolve.
+2. **`libc/runtime/zipos-open.c` — `__zipos_alloc` (`:56`), pop.**
+   Only when `size == 0` (the stored-member bucket at `:127`, where
+   `mapsize == sizeof(struct ZiposHandle)` exactly; this fork does
+   not round it). Skip the freelist entirely when `__vforked`.
+   Otherwise scan the slots and take the first that yields non-NULL
+   from `atomic_exchange(&__zipos_free[i], NULL)` with
    `memory_order_acquire`; fall through to today's `mmap` when none
    does. **On the recycled path, store 0 into `h->refs`** before
    returning it. `size`, `zipos` and `mapsize` are set as they are
    today; `pos`, `cfile` and `mem` are re-set by `__zipos_load`.
-3. **`__zipos_drop` (`:49`) — push.** Only when `h->mapsize ==
-   sizeof(struct ZiposHandle)`. After the existing refcount check and
-   acquire fence, scan for an empty slot and claim it with
+3. **`libc/runtime/zipos-open.c` — `__zipos_drop` (`:49`), push.**
+   Only when `h->mapsize == sizeof(struct ZiposHandle)`. After the
+   existing refcount check and acquire fence, scan for an empty slot
+   and claim it with
    `atomic_compare_exchange_strong(&__zipos_free[i], &expect_null, h)`
    using `memory_order_release`; on success return WITHOUT `munmap`.
    No mutex and no unbounded retry — at most `ZIPOS_FREE_SLOTS`
@@ -92,6 +116,28 @@ static _Atomic(struct ZiposHandle *) __zipos_free[ZIPOS_FREE_SLOTS];
    add a `pthread_atfork` handler. For `vfork`, the `__vforked` guard
    in step 2 is the whole treatment; push is already skipped by
    `zipos-close.c:40`.
+5. **In `test/libc/runtime/BUILD.mk` — ship a stored zip member into
+   `zipos_test`.** Add a small text asset (name it
+   `test/libc/runtime/prog/stored_smoke.txt`, one line of ASCII is
+   enough — the concurrency gate reads it, does not compare content)
+   and give its `.zip.o` a private `ZIPOBJ_FLAGS += -0` so the
+   packager stores it uncompressed. Model the rule on the existing
+   `ftraceasm.txt.zip.o` private-flags block (`test/libc/runtime/
+   BUILD.mk:99-102`) — the `-0` flag path is `tool/build/zipobj.c:140`
+   (`case '0': nocompress_ = true;`). Add the new `.zip.o` to
+   `zipos_test`'s link deps in the same file so it ships inside the
+   test binary. This is the only build change; no other target is
+   touched.
+6. **In `test/libc/runtime/zipos_test.c` — add
+   `TEST(zipos, storedRecycleConcurrent)`.** A new test alongside
+   `TEST(zipos, test)`, following the same 16-thread × 20-iteration
+   shape but opening the STORED member added in step 5 (path
+   `/zip/test/libc/runtime/prog/stored_smoke.txt`). The existing
+   `TEST(zipos, test)` is unchanged — its Worker still opens
+   `hyperion.txt` and gates the untouched deflate path.
+
+Nothing else moves. The `libc/runtime` change and the tests that
+gate it ship in the same PR because they cover the same primitive.
 
 ## Non-goals
 
@@ -116,12 +162,19 @@ static _Atomic(struct ZiposHandle *) __zipos_free[ZIPOS_FREE_SLOTS];
 - **Do not change the binding contract.** No `cosmo.*` return shape,
   error value or constant moves, so no `tool/net/definitions.lua`
   update and no cosmic-side type regen belongs in this PR.
+- **Do not modify existing testlib assets or existing tests.** The
+  stored asset is a new file whose only consumer is the new
+  `TEST(zipos, storedRecycleConcurrent)`; do not switch `hyperion`
+  or any other shared asset to stored, and do not extend
+  `TEST(zipos, test)`'s Worker to open the new asset — the two tests
+  cover the two paths separately so a failure names its own primitive.
 
 ## Acceptance
 
 ```
 make -j$(nproc) o//tool/lua/test
 make -j$(nproc) o//test/libc/runtime/zipos_test && o//test/libc/runtime/zipos_test
+unzip -v o//test/libc/runtime/zipos_test | grep stored_smoke
 git status --porcelain tool/net/definitions.lua
 ```
 
@@ -129,13 +182,23 @@ git status --porcelain tool/net/definitions.lua
   ratchet, the standing correctness gate for this repo.
 - **`o//test/libc/runtime/zipos_test` passes.** This is the gate that
   matters most and it is not in the lua target, so it is run
-  explicitly. `TEST(zipos, test)` opens, reads and closes a zip member
-  20 times on each of **16 concurrent threads**, which is the
-  concurrent pop/push stress this design must survive;
-  `TEST(zipos, closeAfterVfork)` covers the `__vforked` path in step 4;
-  `TEST(zipos, ultraPosixAtomicSeekRead)` covers concurrent handle
-  state. A failure here is a design failure, never a flake — do not
-  re-run past it.
+  explicitly. The three tests that gate this change:
+  - **`TEST(zipos, storedRecycleConcurrent)`** (new, step 6): 16
+    threads × 20 open/read/close on the STORED asset from step 5 —
+    the concurrent pop/push stress on `__zipos_free[]`, the safety
+    property this slice adds. A failure here is a design failure,
+    never a flake: do not re-run past it.
+  - `TEST(zipos, test)`: unchanged 16-thread × 20-iter gate over
+    `hyperion.txt` (deflated), covering the untouched deflate path
+    remains free of regressions from the shared allocator changes.
+  - `TEST(zipos, closeAfterVfork)` covers the `__vforked` guard in
+    step 2; `TEST(zipos, ultraPosixAtomicSeekRead)` covers concurrent
+    handle state on a shared fd.
+- **`unzip -v o//test/libc/runtime/zipos_test | grep stored_smoke`
+  prints a line whose Method column reads `Stored`** — proof that the
+  new asset is packaged uncompressed and therefore actually reaches
+  the recycle path. This measurement replaces the prior spec's false
+  assumption about `hyperion.txt`; do not skip it.
 - `git status --porcelain tool/net/definitions.lua` prints nothing —
   the C boundary did not move.
 - **The `_perf` compare gate from `skills/optimize`**, run from a
@@ -157,16 +220,17 @@ git status --porcelain tool/net/definitions.lua
   reach `zipos-open.c:127`.
 
   **Do NOT take it against `o//tool/lua/lua`'s own
-  `/zip/.lua/definitions.lua`.** Nothing in this tree passes `zipobj`'s
-  `-0`, and `tool/lua/BUILD.mk:84` passes only `-C4 -P.lua` (which is
-  strip-components and prefix, not compression), so that member is
-  DEFLATED and reaches `zipos-open.c:132` — the site this change
-  deliberately does not touch. Measuring there shows no difference and
-  invites exactly the wrong conclusion: that the recycle is broken, or
-  that the deflate bucket should be widened into, which
-  `## Non-goals` forbids. If a stored member inside a plain `lua`
-  build is wanted for a quicker loop, confirm one is actually stored
-  before trusting it — do not assume from the member's name.
+  `/zip/.lua/definitions.lua`.** Nothing in the tool/lua tree passes
+  `zipobj`'s `-0`, and `tool/lua/BUILD.mk:84` passes only `-C4 -P.lua`
+  (which is strip-components and prefix, not compression), so that
+  member is DEFLATED and reaches `zipos-open.c:132` — the site this
+  change deliberately does not touch. Measuring there shows no
+  difference and invites exactly the wrong conclusion: that the
+  recycle is broken, or that the deflate bucket should be widened
+  into, which `## Non-goals` forbids. If a stored member inside a
+  plain `lua` build is wanted for a quicker loop, confirm one is
+  actually stored before trusting it — do not assume from the
+  member's name.
 
 ## Enablement
 
@@ -179,7 +243,8 @@ land first.
 
 Beyond it, none needed: the design is decided down to the memory
 orders and the guard conditions in `## Change`, the one non-obvious
-hazard (`refs` arriving as SIZE_MAX) is stated with its consequence in
-`## Evidence`, every edit site is cited by `file:line`, and the
-concurrency gate that would catch a mistake is named with what it
-exercises.
+hazard (`refs` arriving as SIZE_MAX) is stated with its consequence
+in `## Evidence`, every edit site is cited by `file:line`, the newly
+required stored-member coverage is decided down to its build rule
+(step 5) and its test shape (step 6), and every acceptance measurement
+carries its command.
