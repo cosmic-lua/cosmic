@@ -122,7 +122,6 @@ static _Atomic(struct ZiposHandle *) __zipos_free[ZIPOS_FREE_SLOTS];
 ```
 make -j$(nproc) o//tool/lua/test
 make -j$(nproc) o//test/libc/runtime/zipos_test && o//test/libc/runtime/zipos_test
-o//tool/lua/lua --strace -e 'io.open("/zip/.lua/definitions.lua"):close()' 2>&1 | grep -c 'mmap\|munmap'
 git status --porcelain tool/net/definitions.lua
 ```
 
@@ -137,10 +136,6 @@ git status --porcelain tool/net/definitions.lua
   `TEST(zipos, ultraPosixAtomicSeekRead)` covers concurrent handle
   state. A failure here is a design failure, never a flake — do not
   re-run past it.
-- the `--strace` count drops relative to the same command on an
-  unchanged build: run it on both, quote both numbers. Expect the
-  second and later opens in one process to show no `mmap`/`munmap`
-  for the handle. State the measured counts, not "fewer".
 - `git status --porcelain tool/net/definitions.lua` prints nothing —
   the C boundary did not move.
 - **The `_perf` compare gate from `skills/optimize`**, run from a
@@ -152,6 +147,26 @@ git status --porcelain tool/net/definitions.lua
   separate sessions before it blocks anything, and by the same token a
   single session's improvement figure is reported as this session's
   measurement, not as the settled number.
+- **Mechanism evidence — that the recycle actually fired**, rather
+  than the win being read off noise. Under `--strace`, opening the
+  SAME stored member repeatedly in one process must show `mmap`/
+  `munmap` for the first open and neither for later ones. Take this
+  against a **cosmic** binary carrying the locally built `lua`, per
+  `cosmopolitan.md`: cosmic ships every `.lua` member STORED, which is
+  the whole premise of the parent, so its members are the ones that
+  reach `zipos-open.c:127`.
+
+  **Do NOT take it against `o//tool/lua/lua`'s own
+  `/zip/.lua/definitions.lua`.** Nothing in this tree passes `zipobj`'s
+  `-0`, and `tool/lua/BUILD.mk:84` passes only `-C4 -P.lua` (which is
+  strip-components and prefix, not compression), so that member is
+  DEFLATED and reaches `zipos-open.c:132` — the site this change
+  deliberately does not touch. Measuring there shows no difference and
+  invites exactly the wrong conclusion: that the recycle is broken, or
+  that the deflate bucket should be widened into, which
+  `## Non-goals` forbids. If a stored member inside a plain `lua`
+  build is wanted for a quicker loop, confirm one is actually stored
+  before trusting it — do not assume from the member's name.
 
 ## Enablement
 
