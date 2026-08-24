@@ -86,23 +86,43 @@ local SELECTS < const >: {string: Selection} = {
   coverage = {kinds = {"test"}, variable = "tests"},
 }
 
---- Say what a verb did NOT check, and pass its exit code through.
+--- The next command to run after a verb that is not the whole gate,
+--- or nil when there is nothing to say.
 ---
 --- `build` and `test` accept a file the formatter and the linter will
 --- reject, so without this the first complaint arrives at `ci`, after
---- the work already reads as done. The note goes on the output rather
---- than in a document because that is where someone is looking when it
---- matters. Only for a verb the user typed: inside a converging gate
---- this build is a step, not a result.
+--- the work already reads as done. The line names the NEXT COMMAND
+--- rather than reporting what did not run: it is read at the moment
+--- the work looks finished, which is the moment a next step can still
+--- change what happens. It goes on the output rather than into a
+--- document because that is where someone is looking when it matters.
+--- Only for a verb the user typed: inside a converging gate this build
+--- is a step, not a result.
+---
+--- Separate from the printing half so the decision is testable without
+--- capturing stdout.
+--- @param verb string The verb the user asked for
+--- @param code integer The exit code it produced
+--- @return string|nil The line to print, or nil to stay quiet
+local function gate_note_text(verb: string, code: integer): string | nil
+  if code == 0 and (verb == "build" or verb == "test")
+  and cenv.get_or(converge.GEN_ENV, "0") == "0"
+  and cenv.get_or(converge.STEP_ENV, "0") == "0" then
+    return "next: run `cosmic --make ci` — " ..
+    "it gates on fmt and lint, which did not run here"
+  end
+  return nil
+end
+
+--- Print that next command when there is one, and pass the exit code
+--- through unchanged.
 --- @param verb string The verb the user asked for
 --- @param code integer The exit code it produced
 --- @return integer That same exit code
 local function gate_note(verb: string, code: integer): integer
-  if code == 0 and (verb == "build" or verb == "test")
-  and cenv.get_or(converge.GEN_ENV, "0") == "0"
-  and cenv.get_or(converge.STEP_ENV, "0") == "0" then
-    io.write("note: fmt and lint did not run here — " ..
-      "`cosmic --make ci` is the whole gate\n")
+  local note = gate_note_text(verb, code)
+  if note then
+    io.write(note .. "\n")
   end
   return code
 end
@@ -246,6 +266,7 @@ local function binaries_on_path(proj: Project)
 end
 
 local record StageModule
+  gate_note_text: function(verb: string, code: integer): string | nil
   gate_note: function(verb: string, code: integer): integer
   BIN_ENV: string
   SELECTS: {string: Selection}
@@ -265,6 +286,7 @@ local function bin_dir(proj: Project): string
 end
 
 local M: StageModule = {
+  gate_note_text = gate_note_text,
   gate_note = gate_note,
   BIN_ENV = BIN_ENV,
   SELECTS = SELECTS,
