@@ -210,8 +210,8 @@ local function to_the_tree(proj: Project, argv: {string},
   local was_us = fs.is_file(built) and same_file(built, self)
   local before = stamp_of(built)
   -- The child build is a step of this gate, not a verb the user typed;
-  -- the flag keeps its gate_note quiet (it would otherwise say "fmt and
-  -- lint did not run" in the middle of the very gate running them).
+  -- the flag keeps its gate_note quiet (it would otherwise say "next:
+  -- run `cosmic --make ci`" in the middle of that very run).
   local _sok, _serr = env.set(STEP_ENV, "1")
   local r, rerr = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})

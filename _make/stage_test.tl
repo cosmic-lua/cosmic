@@ -83,6 +83,34 @@ local function test_verdict_line_and_exit_code()
 end
 test_verdict_line_and_exit_code()
 
+-- The trailer after a successful `build` or `test` names the NEXT
+-- command instead of reporting what did not run: it is read at the
+-- moment the work looks finished, which is the only moment a next step
+-- can still change what happens. Four conditions gate it and each is
+-- asserted, because widening any of them turns a useful line into
+-- noise after every verb, and dropping the converge suppression puts
+-- it in the middle of the gate it recommends.
+local function test_the_gate_note_recommends_the_gate()
+  local env = require("cosmic.env")
+  local converge = require("_make.converge")
+  for _, verb in ipairs({"build", "test"}) do
+    local note = check.must(stage.gate_note_text(verb, 0))
+    assert(note:find("next: run", 1, true), "got: " .. note)
+    assert(note:find("--make ci", 1, true), "got: " .. note)
+  end
+  assert(stage.gate_note_text("build", 1) == nil, "a failed verb says nothing")
+  assert(stage.gate_note_text("fmt", 0) == nil, "fmt is not one of the two")
+  assert(stage.gate_note_text("example", 0) == nil,
+    "example is not one of the two")
+  for _, name in ipairs({converge.STEP_ENV, converge.GEN_ENV}) do
+    assert(env.set(name, "1", true))
+    assert(stage.gate_note_text("build", 0) == nil,
+      "a converging build stays quiet under " .. name)
+    assert(env.unset(name))
+  end
+end
+test_the_gate_note_recommends_the_gate()
+
 -- Where a project's binaries land is derived from the model, which is
 -- what lets `test` answer "which binary is under test" without being
 -- told.
