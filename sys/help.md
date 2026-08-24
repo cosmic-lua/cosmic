@@ -61,6 +61,7 @@ Documentation:
   cosmic --docs [query]      look up docs from the command line
   cosmic --docs guide        list available guides
   cosmic --docs guide.quickstart  your first project, end to end
+  cosmic --docs guide.recipes  whole programs: which modules a CLI composes
   cosmic --docs guide.testing  show a specific guide
   cosmic --docs guide.gotchas  common pitfalls (integer vs number, any casts, arg)
   cosmic --docs guide.lint   every lint rule, its failure and its fix
