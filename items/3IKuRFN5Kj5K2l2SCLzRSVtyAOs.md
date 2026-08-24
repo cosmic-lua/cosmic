@@ -1,5 +1,14 @@
 Lands in: whilp/cosmopolitan (research only — no PR, no C).
 
+**Precondition — read access to `jart/cosmopolitan`.** Question 1 is
+answerable only from upstream history, so a session that cannot read
+`jart/cosmopolitan` cannot start this slice. A scheduled session's
+GitHub access is granted per repository; check the grant BEFORE
+claiming, and if the upstream is not in it, leave the item in `plan`
+rather than pulling it. That is what happened on 2026-08-24 (see
+`## Bounce` below), and it is the only thing standing between this spec
+and `ready`.
+
 ## Goal
 
 G6 — the defining paths, ratcheted. The parent (`3IK8GFHj`) proposes
