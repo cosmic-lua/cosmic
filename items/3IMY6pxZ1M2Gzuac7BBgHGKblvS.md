@@ -162,8 +162,13 @@ All commands run verbatim from the repo root and write no committed file.
 - `grep -cF 'src:int(-30, 15)' _fuzz/json_fuzz_test.tl` is 0 (1 today).
 - `grep -cF 'cosmopolitan#265' _fuzz/json_fuzz_test.tl` is 0 (1 today).
 - `grep -cF 'Two domain bounds' _fuzz/json_fuzz_test.tl` is 0 (1 today).
-- `grep -c '2\^53' _fuzz/json_fuzz_test.tl` is 1 (4 today) — only
-  `INT_LIMIT`'s own comment at `:16` may still name it.
+- `grep -c '2\^53' _fuzz/json_fuzz_test.tl` is 2 (4 today) — only
+  `INT_LIMIT`'s own comment and `random_float`'s new doc comment may
+  still name it. (Corrected at pull time: this bound was first written as
+  1, which contradicted the `Change` above — that section requires
+  `random_float`'s doc comment to say an integral float above `2^53` is
+  deliberately in the domain. Retiring the BOUND is the goal; the number
+  may still be named where it explains what is now included.)
 - `grep -cF 'math.type' _fuzz/json_fuzz_test.tl` is at least 1 (0 today).
 - `git diff --name-only main` names exactly `_fuzz/json_fuzz_test.tl`
   and, if the coverage ratchet demands it, `.cosmic-coverage`.
