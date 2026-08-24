@@ -226,20 +226,36 @@ state ever returns to labels or issue comments.
 
 ## the session loop
 
-run `gitboard next --session <name>` and do what it says. it names the
-one next action, the rule that chose it, and how that kind of action
-is carried out; the ordering is the tool's, and what it encodes is
-this skill's: work flows right to left, so finishing beats starting.
-an accepted PR is the most-finished work there is, a verdict unblocks
-whoever is waiting on it, and an inbox nobody empties is a channel
-that only takes — which is why draining an over-bound triage queue
-jumps ahead of refinement, and why taking in new work comes last.
+run `gitboard next` and do what it says. it names the one next action,
+the rule that chose it, and how that kind of action is carried out; the
+ordering is the tool's, and what it encodes is this skill's: work flows
+right to left, so finishing beats starting. an accepted PR is the
+most-finished work there is, a verdict unblocks whoever is waiting on
+it, and an inbox nobody empties is a channel that only takes — which is
+why draining an over-bound triage queue jumps ahead of refinement, and
+why taking in new work comes last.
 
-**always pass `--session <name>`.** it is what makes the loop safe in
-company and honest alone: it withholds work another session claimed,
-and withholds a verdict on what THIS session built. without it you
-will be handed your own PR to review, and reviewing your own work is
-the one thing the ordering cannot make good.
+**the session identity is what makes the loop safe in company and honest
+alone:** it withholds work another session claimed, and withholds a
+verdict on what THIS session built. without it you will be handed your
+own PR to review, and reviewing your own work is the one thing the
+ordering cannot make good.
+
+**do not invent that name — let the tool derive it, and do not pass
+`--session` at all.** the identity has to be UNIQUE per run, and a name
+a session types for itself is the one thing that is not: the readable
+half of an assigned branch (`magical-bell` out of
+`claude/magical-bell-74byv9`) is shared across every run in that slug's
+rotation, and a run that reuses it makes every item it touches
+unreviewable by the next run — the collision is silent and durable,
+because the builder is remembered. so `next`, `move` and `verdict` with
+NO `--session`/`--claim` derive the identity from the environment
+(`GITBOARD_SESSION`, else a runner's own per-session id), which is
+unique by construction. pass the flag only to override that — a human
+at a terminal naming themselves, a fixture pinning a value — never to
+restate a name the environment already carries. a runner that sets no
+usable id can export `GITBOARD_SESSION=<something unique per run>`;
+inventing a name inline is the anti-pattern, not setting that.
 
 **doing several actions is running the loop again.** acting moves the
 board, so ask again rather than planning a batch: the second answer is
@@ -336,7 +352,7 @@ slice and this is the loop:
    would otherwise discover instead of reviewing.
 5. stop implementing and rejoin the loop. never merge a PR that has
    not been accepted, and never accept your own: the item now carries
-   your claim, so `next --session <name>` will route it elsewhere and
+   your claim, so `next` will route it elsewhere and
    hand you something else.
 
 **when the spec under-specifies** — you hit a decision the sidecar
@@ -382,8 +398,10 @@ a brief that carries the spec — and those are `parallel.md`.
   scope question discovered mid-implementation goes back to the board,
   not into the diff — being the same worker who wrote the spec is not
   permission to reinterpret it mid-slice.
-- no session accepts its own work. `--session NAME` enforces it in
-  `next`; honour it if you reach for `verdict` directly.
+- no session accepts its own work. the derived session identity
+  enforces it in `next`; honour it if you reach for `verdict` directly,
+  and never override the derivation with a name that is not unique per
+  run.
 - every phased item has a position in the priority order — checked
   structurally by `gitboard check` for the item at hand and by
   `gitboard status` for the board, not by convention. an item nothing
