@@ -23,6 +23,7 @@ _work/item.tl 88 93
 _work/ksuid.tl 68 75
 _work/priority.tl 119 126
 _work/review.tl 39 39
+_work/session.tl 25 25
 _work/spec.tl 28 28
 _work/store.tl 177 215
 cmd/gitboard/main.tl 0 2

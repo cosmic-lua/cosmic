@@ -38,6 +38,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local graph = require("_work.gitgraph")
+local session = require("_work.session")
 local land = require("_work.gitland")
 local stat = require("_work.flowstat")
 local store = require("_work.store")
@@ -103,10 +104,13 @@ local CSPEC: flags.CommandSpec = {
       spec = {flags = {dir_flag(),
           {long = "session", arg = "SESSION",
             help = "this session; skips work another session claimed and "
-            .. "reviews of what this one built"}}}},
+            .. "reviews of what this one built. Omit to derive it from the "
+            .. "environment (GITBOARD_SESSION, else a runner's own id)"}}}},
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
-          {long = "claim", arg = "SESSION", help = "record who took it"},
+          {long = "claim", arg = "SESSION",
+            help = "record who took it; on a move to do or check, omit to "
+            .. "derive it from the environment"},
           {long = "pr", arg = "N", help = "the PR carrying the work"},
           {long = "force", help = "override the target WIP limit"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
@@ -117,7 +121,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "enable", arg = "VALUE",
             help = "countermeasure a non-accept verdict files: ID or 'none: why'"},
           {long = "session", arg = "SESSION",
-            help = "the reviewing session; refused when it built the item"}}}},
+            help = "the reviewing session; refused when it built the item. "
+            .. "Omit to derive it from the environment"}}}},
     {name = "done", summary = "end ID, recording why",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "reason", arg = "REASON", default = "completed",
@@ -181,7 +186,8 @@ local function main(...: string): integer
     return stat.cmd_stats(s)
   end
   if d.command == "next" then
-    return view.cmd_next(s, d.parsed.values["session"] or "")
+    local who = session.resolve(d.parsed.values["session"])
+    return view.cmd_next(s, who)
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
@@ -266,7 +272,18 @@ local function main(...: string): integer
       return 1
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
-    return verbs.cmd_move(s, id, target, d.parsed.values["claim"], pr,
+    -- A claim names the worker of `do` and the builder handed to
+    -- `check`; those two phases are the only ones where an omitted
+    -- claim should be filled from the session's own identity. Filling
+    -- it on a refinement or landing move would stamp a claim on a
+    -- `ready` item, which `next` then withholds from every other
+    -- session's pull — so those moves stay claim-free unless one is
+    -- passed explicitly.
+    local claim = d.parsed.values["claim"]
+    if (claim or "") == "" and (target == "do" or target == "check") then
+      claim = session.resolve(nil)
+    end
+    return verbs.cmd_move(s, id, target, claim, pr,
       d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   if d.command == "verdict" then
@@ -276,8 +293,9 @@ local function main(...: string): integer
       return 1
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
+    local who = session.resolve(d.parsed.values["session"])
     return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "",
-      d.parsed.values["enable"] or "", d.parsed.values["session"] or "")
+      d.parsed.values["enable"] or "", who)
   end
   if d.command == "land" then
     return land.cmd_land(s, id, d.parsed.switches["force"],
