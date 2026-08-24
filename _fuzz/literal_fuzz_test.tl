@@ -401,18 +401,66 @@ local function test_format_totality()
 end
 test_format_totality()
 
+--- Generate one edited source: a valid literal, sometimes spliced with
+--- a second one, then byte-edited. Most come out refused and some still
+--- parse, which is the mix a property about refusals wants.
+--- @param src source.Recorder The source to draw from
+--- @return string The edited source
+local function generate_mutated(src: source.Recorder): string
+  local base = generate_source(src)
+  if src:int(1, 4) == 1 then
+    base = splice(src, base, generate_source(src))
+  end
+  return driver.mutate(src, base, src:int(1, MAX_EDITS))
+end
+
 local function test_mutation_survival()
   local ok, msg = driver.run({
       name = "mutation_survival",
-      gen = function(src: source.Recorder): string
-        local base = generate_source(src)
-        if src:int(1, 4) == 1 then
-          base = splice(src, base, generate_source(src))
-        end
-        return driver.mutate(src, base, src:int(1, MAX_EDITS))
-      end,
+      gen = generate_mutated,
       check = parses_or_explains,
     })
   check.truthy(ok, msg)
 end
 test_mutation_survival()
+
+-- Two readers implement this grammar -- one in C, the lexer in Teal --
+-- and `parse` picks between them, so what a caller sees must not depend
+-- on which ran. Both are asked the same source and their answers
+-- compared: value against value, refusal against refusal.
+--
+-- What this can catch is exactly what a caller could see. The C reader
+-- accepting something the Teal reader refuses shows up here as one
+-- engine reading what the other refused. A value read differently by
+-- the two shows up as an unequal comparison. The remaining case -- the
+-- C reader refusing what the Teal reader accepts -- is invisible here
+-- BY CONSTRUCTION and harmless for the same reason: `parse` discards a
+-- C refusal and falls through to the Teal reader, so that divergence
+-- costs a second read and changes no answer.
+local function test_differential()
+  local ok, msg = driver.run({
+      name = "differential",
+      gen = generate_mutated,
+      check = function(input: string): boolean, string
+        local c_value, c_err = literal.parse(input, {engine = "c"})
+        local t_value, t_err = literal.parse(input, {engine = "teal"})
+        if (c_value == nil) ~= (t_value == nil) then
+          return false, "one engine read what the other refused: c said " ..
+          tostring(c_err) .. ", teal said " .. tostring(t_err)
+        end
+        if c_value == nil then
+          if c_err ~= t_err then
+            return false, "refusals differ: c said " .. tostring(c_err) ..
+            ", teal said " .. tostring(t_err)
+          end
+          return true
+        end
+        if not deep.equal(c_value, t_value) then
+          return false, "the engines read the same source as different values"
+        end
+        return true
+      end,
+    })
+  check.truthy(ok, msg)
+end
+test_differential()

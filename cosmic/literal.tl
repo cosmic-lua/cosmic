@@ -16,9 +16,17 @@
 ---     local literal = require("cosmic.literal")
 ---     local cfg = literal.parse_file("config.tl")
 
+local cosmo = require("cosmo")
 local fs = require("cosmic.fs")
 local lformat = require("cosmic._literal_format")
 local lit_lex = require("cosmic._literal_lex")
+
+--- The C reader, bound once at load: it reads the same grammar this
+--- module lexes, in C, and is what `parse` uses by default. It is nil
+--- under a cosmos older than the release that added it, and `parse`
+--- then reads with the Teal reader instead — the answers do not move
+--- either way.
+local decode_lua = cosmo.DecodeLua
 
 --- One lexical token: its raw text, what it is, and the line it began on.
 --- Lexing itself lives in `cosmic._literal_lex` (see that module's
@@ -326,18 +334,53 @@ local record Options
   --- Resolves a key repeated within one table instead of refusing it.
   --- Default nil: a repeated key is refused, naming both lines.
   on_duplicate: OnDuplicate
+  --- Which reader answers: `"auto"` (the default), `"teal"` or `"c"`.
+  --- Both admit the same values and refuse the same ones with the same
+  --- message, so this picks what runs, not what comes back: it holds
+  --- both readers in one process — what a differential test needs — and
+  --- pins the Teal one if the C one is ever wrong in the field. `"c"`
+  --- without a C reader in the build is refused, never quietly answered.
+  engine: string
 end
 
 --- Read the literal a file returns, without running it.
+---
+--- Two readers admit this grammar and answer alike: the C one when this
+--- build has it and no resolver was asked for, the lexer below
+--- otherwise. That lexer is the reference implementation, the resolver
+--- `on_duplicate` needs, and where every refusal is written.
 --- @param source string The file's contents
 --- @param opts Options? file: name for messages; noun: file kind in
---- errors; on_duplicate: resolves a repeated key instead of refusing it
+--- errors; on_duplicate: resolves a repeated key instead of refusing it;
+--- engine: "auto" (default), "teal" or "c"
 --- @return {string: any}|nil The declared table
 --- @return string The error message when the file is not a literal
 local function parse(source: string, opts?: Options): {string: any} | nil, string
   local where = (opts and opts.file) or "literal"
   local what = (opts and opts.noun) or "literal"
   local on_duplicate = opts and opts.on_duplicate
+  local engine = (opts and opts.engine) or "auto"
+  if engine ~= "auto" and engine ~= "teal" and engine ~= "c" then
+    return nil, where .. ": an engine is \"auto\", \"teal\" or \"c\", not \"" ..
+    engine .. "\""
+  end
+  if engine == "c" and not decode_lua then
+    return nil, where .. ": the C literal reader is not in this build"
+  end
+  -- A resolver keeps the source on the Teal reader whatever the engine
+  -- says: the C reader refuses a repeated key outright, with no hook to
+  -- resolve one. With no resolver both readers refuse a repeat alike.
+  --
+  -- A C refusal is discarded, message and byte offset both, and the read
+  -- falls through to the lexer for the answer: every refusal is written
+  -- once, in the `<file>:<line>: <detail>` shape callers read, at the
+  -- cost of reading a refused source twice — the rare path, unmeasured.
+  if decode_lua and engine ~= "teal" and (engine == "c" or not on_duplicate) then
+    local decoded = decode_lua(source)
+    if decoded then
+      return decoded
+    end
+  end
   local lexed, lex_err = lex(source, where)
   if not lexed then
     return nil, lex_err
@@ -368,7 +411,8 @@ end
 --- Read a file as a literal table, without running it.
 --- @param path string Path to the file
 --- @param opts Options? noun: file kind in errors; file: message label
---- (defaults to the path); on_duplicate: resolves a repeated key
+--- (defaults to the path); on_duplicate: resolves a repeated key;
+--- engine: "auto" (default), "teal" or "c"
 --- @return {string: any}|nil The declared table
 --- @return string The error message when unreadable or not a literal
 local function parse_file(path: string, opts?: Options): {string: any} | nil, string
@@ -379,7 +423,9 @@ local function parse_file(path: string, opts?: Options): {string: any} | nil, st
   local noun = opts and opts.noun
   local label = (opts and opts.file) or path
   local on_duplicate = opts and opts.on_duplicate
-  return parse(source, {file = label, noun = noun, on_duplicate = on_duplicate})
+  local engine = opts and opts.engine
+  return parse(source, {file = label, noun = noun, on_duplicate = on_duplicate,
+      engine = engine})
 end
 
 --- How `format` lays its output out. Both layouts admit exactly the
