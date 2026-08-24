@@ -7,6 +7,7 @@ return {
   ["claim"] = "ac8869a7-e45e-5b0e-b37c-d6c46dfce9f2",
   ["id"] = "3IMY6pxZ1M2Gzuac7BBgHGKblvS",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1364,
   ["title"] = "retire the json fuzz float bound once a cosmos pin carries the EncodeJson fix",
 }
