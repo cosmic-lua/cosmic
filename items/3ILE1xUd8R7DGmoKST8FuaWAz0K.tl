@@ -7,7 +7,8 @@ return {
   ["claim"] = "claude-sched-2026-08-24T0238",
   ["id"] = "3ILE1xUd8R7DGmoKST8FuaWAz0K",
   ["parent"] = "3IK8GFHjEDon4Ni4GNkwzCtGI0o",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 271,
   ["repo"] = "whilp/cosmopolitan",
   ["title"] = "zipos: recycle the fixed-size stored-member handle through a 4-slot lock-free array",
 }
