@@ -73,6 +73,7 @@ end
 ```teal
 local record SearcherModule
   install: function()
+  install_zip: function()
   install_argv_manifest: function(argv: {string}): boolean, string
   install_manifest: function(path: string): boolean, string
 end
@@ -89,6 +90,24 @@ function install()
  Append the searcher to package.searchers. Idempotent (the embed
  wrapper installs it before the app entry, which may itself be the
  dispatcher that installs it too); no-op without package.searchers.
+
+### install_zip
+
+```teal
+function install_zip()
+```
+
+ Install the `/zip` searcher ahead of the default file searcher, and
+ de-duplicate the zip templates on `package.path`.
+ Inserted at index 2 — after `package.preload`, ahead of the default
+ file searcher — so a module the binary carries costs one open. The
+ in-project searcher (`install_manifest`) inserts at 2 as well, and
+ installing this one FIRST is what keeps the tree ahead of `/zip`:
+ a later insert-at-2 demotes this searcher to seat 3.
+ A no-op without `package.searchers`, and idempotent in the searcher:
+ a second call seats nothing. It still de-duplicates, because the two
+ callers interleave — the wrapper installs, then the dispatcher entry
+ it runs prepends the pair again before calling this a second time.
 
 ### install_manifest
 
