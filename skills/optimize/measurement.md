@@ -18,6 +18,35 @@ that first.
   microbenchmarks (`hash_sha256_small`, `startup_run_*`, `net_ip_*`)
   without touching their code. so the compare bar, derived from
   within-run spread, will flag these as "regressions" on pure noise.
+- **the term interleaving inside one session cannot remove: host
+  placement.** the causes above are all things you can hold still by
+  running A and B back to back in one sitting, which is what the rest
+  of this chapter teaches. host placement is not: the microcode
+  register is virtualized inside a container, so mitigation state is
+  unobservable from in here, and every run of one sitting shares
+  whatever host the container landed on. so **a release-gating
+  regression on a single tight-loop or fixed-overhead scenario needs
+  reproduction across SEPARATE SESSIONS, ideally days apart, before it
+  blocks a pin or is written into a board item as a finding.** the
+  evidence, `codec_hex` at one commit — each row is one binary, the
+  same bytes in both columns, measured hours apart in the same
+  container on the same reported CPU (family 6 / model 85 / stepping
+  7):
+
+  ```text
+                         morning      afternoon
+  local default          173-182 us   123.7, 123.1 us
+  local rel (straddled)  196-198 us   122.4, 122.8 us
+  local rel (padded)         --       139.8, 141.4 us
+  release old (default)  146-166 us   132.2, 120.9 us
+  release new (rel)      197-217 us   124.9, 122.7 us
+  ```
+
+  one unchanged binary swung -38% between the two sessions, and the
+  morning's +34-38% regression had already reproduced across seven
+  interleaved isolated pairs on two independent build lineages — and
+  was still not real. a second session cost one wait; believing the
+  first one would have cost a pin.
 - **`perf-compare` triages this for you — trust its verdict, don't
   hand-roll A/B runs.** after its re-measure retry, if a regression
   still stands it runs one more pass of the SAME binary and compares it
