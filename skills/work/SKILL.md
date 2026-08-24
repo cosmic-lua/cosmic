@@ -275,14 +275,28 @@ tool cannot make for you:
   nothing derives from; it is context to read when interpreting and
   adjusting the tree.
 
-**placing a new outcome is not yours to decide alone.** a comparison
-answers "which of these is the better cosmic", and that judgment
-belongs to the goal owner (`decompose.md`). attaching a capture under
-something already placed needs no such question — it inherits a
-position. but when triage or intake would require ordering a NEW
-outcome against the existing ones, post the pair and stop rather than
-inventing an answer; an unattended session has nobody to ask, and a
-fabricated comparison is worse than an unplaced item.
+**a comparison that RAISES work is not yours to make alone.** a
+comparison answers "which of these is the better cosmic", and that
+judgment belongs to the goal owner (`decompose.md`). attaching a
+capture under something already placed needs no such question — it
+inherits a position. what needs one is a comparison that would put new
+work ABOVE existing work: a NEW outcome ordered against the ranked
+ones, or a capture compared up into a band it would displace. post
+that pair — in chat, or in the session's report when nobody is
+watching — and keep working; the answer lands as a `compare` whenever
+it arrives.
+
+**an unanswerable ranking is never a reason to stop.** when a capture
+fits no existing outcome, attach it under the lowest-placed outcome it
+plausibly serves and say so. placing low asserts nothing anyone has to
+trust: it outranks nothing, `attach` re-parents it the moment the goal
+owner answers, and in the meantime the item is at least visible to
+every verb that walks the order. leaving it unplaced is the worse
+answer, not the humbler one — `check` refuses to promote work with no
+position, so an unplaced capture is unpullable by anyone, and the
+queue it sits in is the one whose draining outranks refinement.
+progress under a provisional, reversible placement beats a stalled
+loop behind a question nobody is awake to answer.
 
 ## implementing a slice
 

@@ -64,6 +64,13 @@ question is worth asking next, so a batch wastes the goal owner's
 judgment on pairs the earlier answers would have settled. order the
 queue by leverage: the pair whose answer cascades furthest through
 transitivity and the hierarchy goes first.
+
+a session with nobody to ask has no chat to ask in, and waiting is not
+what it does with the pair: it puts the question in its report, places
+the work provisionally at the bottom of the order, and carries on
+(`SKILL.md`). the pair keeps its leverage — an unasked question costs
+one `attach` to settle later — while a stalled loop costs the whole
+session.
 transitivity closes the untested pairs for you (A > B and B > C
 settles A vs C, with nobody asked), so a handful of questions orders a
 half-dozen outcomes. give byes to outcomes that are nearly holding
