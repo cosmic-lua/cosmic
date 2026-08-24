@@ -237,25 +237,17 @@ why taking in new work comes last.
 
 **the session identity is what makes the loop safe in company and honest
 alone:** it withholds work another session claimed, and withholds a
-verdict on what THIS session built. without it you will be handed your
-own PR to review, and reviewing your own work is the one thing the
-ordering cannot make good.
+verdict on what THIS session built. the tool derives it from the
+environment, and `status` prints the identity it resolved and where it
+came from — so pass no `--session` and no `--claim`, and read that line
+if you ever wonder who the board thinks you are.
 
-**do not invent that name — let the tool derive it, and do not pass
-`--session` at all.** the identity has to be UNIQUE per run, and a name
-a session types for itself is the one thing that is not: the readable
-half of an assigned branch (`magical-bell` out of
-`claude/magical-bell-74byv9`) is shared across every run in that slug's
-rotation, and a run that reuses it makes every item it touches
-unreviewable by the next run — the collision is silent and durable,
-because the builder is remembered. so `next`, `move` and `verdict` with
-NO `--session`/`--claim` derive the identity from the environment
-(`GITBOARD_SESSION`, else a runner's own per-session id), which is
-unique by construction. pass the flag only to override that — a human
-at a terminal naming themselves, a fixture pinning a value — never to
-restate a name the environment already carries. a runner that sets no
-usable id can export `GITBOARD_SESSION=<something unique per run>`;
-inventing a name inline is the anti-pattern, not setting that.
+a name a session makes up for itself is the one thing that is NOT
+unique per run, and the collision is silent and durable, because the
+builder is remembered: reviewing your own work is the one thing the
+ordering cannot make good. so the flag is for overriding only — a
+fixture pinning a value, a human naming themselves — never for
+restating a name the environment already carries.
 
 **doing several actions is running the loop again.** acting moves the
 board, so ask again rather than planning a batch: the second answer is
