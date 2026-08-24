@@ -260,13 +260,15 @@ local function compile_for_iter(pattern: string, opts?: CompileOptions): Regex |
   return entry.rx
 end
 
---- Collect every non-overlapping match of regex in text, leftmost
---- first, as absolute spans. The engine reports offsets directly
+--- Run the single non-overlapping find loop, invoking emit(s, e, caps)
+--- per match in leftmost order. The engine reports offsets directly
 --- (Regex:find with init), so each step is one search from the
 --- previous match's end -- no subject re-slicing, no relocation pass.
---- Returns nil + error on engine failure.
-local function all_matches(regex: Regex, text: string): {Span} | nil, string
-  local spans: {Span} = {}
+--- Returns true on clean completion, or false + error on engine
+--- failure. NOT_BOL resume matches what all_matches used to do; the
+--- empty-match guard stays in compile_for_iter.
+local function scan_matches(regex: Regex, text: string,
+    emit: function(integer, integer, {string})): boolean, string
   local pos = 1
   while pos <= #text do
     local sflags: integer = 0
@@ -278,13 +280,28 @@ local function all_matches(regex: Regex, text: string): {Span} | nil, string
     local s, e, caps = regex:find(text, sflags, pos)
     if s == nil then
       if e is string then
-        return nil, e
+        return false, e
       end
       break
     end
     local ei = e as integer -- cast: tuple element (integer whenever start is non-nil)
-    spans[#spans + 1] = {s = s, e = ei, m = text:sub(s, ei), caps = caps}
+    emit(s, ei, caps)
     pos = ei + 1
+  end
+  return true
+end
+
+--- Collect every non-overlapping match of regex in text, leftmost
+--- first, as absolute spans, via scan_matches. Returns nil + error on
+--- engine failure. The Span shape is what find_all/gmatch consume.
+local function all_matches(regex: Regex, text: string): {Span} | nil, string
+  local spans: {Span} = {}
+  local ok, err = scan_matches(regex, text,
+    function(s: integer, e: integer, caps: {string})
+      spans[#spans + 1] = {s = s, e = e, m = text:sub(s, e), caps = caps}
+    end)
+  if not ok then
+    return nil, err
   end
   return spans
 end
@@ -378,15 +395,15 @@ local function split(text: string, pattern: string, opts?: CompileOptions): {str
   if not regex then
     return nil, cerr
   end
-  local spans, err = all_matches(regex, text)
-  if not spans then
-    return nil, err
-  end
   local out: {string} = {}
   local pos = 1
-  for _, sp in ipairs(spans) do
-    out[#out + 1] = text:sub(pos, sp.s - 1)
-    pos = sp.e + 1
+  local ok, err = scan_matches(regex, text,
+    function(s: integer, e: integer, _caps: {string})
+      out[#out + 1] = text:sub(pos, s - 1)
+      pos = e + 1
+    end)
+  if not ok then
+    return nil, err
   end
   out[#out + 1] = text:sub(pos)
   return out
@@ -410,25 +427,25 @@ local function gsub(text: string, pattern: string, repl: Repl, opts?: CompileOpt
   if not regex then
     return nil, cerr
   end
-  local spans, err = all_matches(regex, text)
-  if not spans then
-    return nil, err
-  end
   local out: {string} = {}
   local pos = 1
-  for _, sp in ipairs(spans) do
-    out[#out + 1] = text:sub(pos, sp.s - 1)
-    if repl is string then
-      out[#out + 1] = repl
-    else
-      local r = repl(sp.m, sp.caps)
-      if r is string then
-        out[#out + 1] = r
+  local ok, err = scan_matches(regex, text,
+    function(s: integer, e: integer, caps: {string})
+      out[#out + 1] = text:sub(pos, s - 1)
+      if repl is string then
+        out[#out + 1] = repl
       else
-        out[#out + 1] = sp.m
+        local r = repl(text:sub(s, e), caps)
+        if r is string then
+          out[#out + 1] = r
+        else
+          out[#out + 1] = text:sub(s, e)
+        end
       end
-    end
-    pos = sp.e + 1
+      pos = e + 1
+    end)
+  if not ok then
+    return nil, err
   end
   out[#out + 1] = text:sub(pos)
   return table.concat(out)
