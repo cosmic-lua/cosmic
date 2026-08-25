@@ -36,6 +36,7 @@ local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local proc = require("cosmic.proc")
+local shape = require("cosmic.shape")
 local str = require("cosmic.string")
 local eval_types = require("_eval.eval_types")
 local journal = require("_eval.journal")
@@ -161,20 +162,33 @@ local function parse_args(argv: {string}): Args
   return a
 end
 
---- meta.json fields required to be present. cosmic_version is
---- deliberately excluded -- stage.tl itself leaves it unset when the
---- staged binary's own version could not be resolved.
-local REQUIRED_META_FIELDS < const >: {string} = {
-  "timestamp", "suite_version", "bin", "bin_sha",
-  "os", "isa", "model", "agent_tool", "timeout_secs",
-}
+--- meta.json's shape: the nine fields stage.tl always writes, plus
+--- cosmic_version, which is optional because stage.tl leaves it unset
+--- when the staged binary's own version could not be resolved.
+---
+--- `into` hands back the SAME table it validated, so a meta.json that
+--- carries keys beyond these keeps them. That is inert here:
+--- probe_output and leaked are filled in by fold_probe either way, and
+--- nothing walks a ResultMeta's keys.
+local META_SPEC < const > = shape.record({
+    timestamp = shape.number,
+    suite_version = shape.integer,
+    bin = shape.string,
+    bin_sha = shape.string,
+    os = shape.string,
+    isa = shape.string,
+    model = shape.string,
+    agent_tool = shape.string,
+    timeout_secs = shape.integer,
+    cosmic_version = shape.optional(shape.string),
+  })
 
 --- Load and validate <run dir>/meta.json into the shared ten staged
 --- fields; probe_output/leaked are filled in separately by fold_probe.
 --- @param run_dir string The run directory
 --- @return ResultMeta|nil The parsed metadata (probe fields unset)
 --- @return string The error when the file is missing, malformed, or a
---- required field is absent
+--- required field is absent or the wrong type
 local function load_meta(run_dir: string): eval_types.ResultMeta | nil, string
   local path = fs.join(run_dir, "meta.json")
   local body, rerr = fs.read(path)
@@ -185,24 +199,9 @@ local function load_meta(run_dir: string): eval_types.ResultMeta | nil, string
   if not raw then
     return nil, path .. ": " .. tostring(jerr)
   end
-  for _, field in ipairs(REQUIRED_META_FIELDS) do
-    if raw[field] == nil then
-      return nil, path .. ": missing field " .. field
-    end
-  end
-  local meta: eval_types.ResultMeta = {
-    timestamp = raw.timestamp as number, -- cast: from any
-    suite_version = math.tointeger(raw.suite_version as number), -- cast: from any
-    bin = raw.bin as string, -- cast: from any
-    bin_sha = raw.bin_sha as string, -- cast: from any
-    os = raw.os as string, -- cast: from any
-    isa = raw.isa as string, -- cast: from any
-    model = raw.model as string, -- cast: from any
-    agent_tool = raw.agent_tool as string, -- cast: from any
-    timeout_secs = math.tointeger(raw.timeout_secs as number), -- cast: from any
-  }
-  if raw.cosmic_version ~= nil then
-    meta.cosmic_version = raw.cosmic_version as string -- cast: from any
+  local meta, serr: eval_types.ResultMeta | nil, string = shape.into(raw, META_SPEC)
+  if not meta then
+    return nil, path .. ": " .. serr
   end
   return meta
 end

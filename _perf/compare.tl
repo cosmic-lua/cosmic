@@ -14,6 +14,7 @@ local json = require("cosmic.json")
 local harness = require("_perf.harness")
 local pt = require("_perf.perf_types")
 local fs = require("cosmic.fs")
+local shape = require("cosmic.shape")
 
 local DEFAULT_THRESHOLD_PCT = 10.0
 
@@ -25,11 +26,33 @@ local DEFAULT_THRESHOLD_PCT = 10.0
 --- regression many times larger than anything the self-check showed.
 local TRIAGE_K = 2.0
 
+--- What a results file must carry for this module to read it: the
+--- `results` list, and a `name` on every row. Everything else this
+--- module consults it already guards for absence — `meta` and its
+--- `bin_sha` in identity_refusal, `wall_ns` as the "malformed"
+--- verdict, `spread_pct` behind `or 0`, `error` as the failed-row
+--- marker — so demanding any of them here would reject a file the
+--- code handles. The fields perf.run also writes but nothing here
+--- reads (iterations, samples_ns, cpu_ns, min_ns, max_ns, alloc_kb)
+--- are left unnamed: `into` ignores keys a Spec does not name.
+local RESULTS_SPEC < const > = shape.record({
+    meta = shape.optional(shape.record({
+          bin_sha = shape.optional(shape.string),
+        })),
+    results = shape.list(shape.record({
+          name = shape.string,
+          wall_ns = shape.optional(shape.number),
+          spread_pct = shape.optional(shape.number),
+          error = shape.optional(shape.string),
+        })),
+  })
+
 --- Load a results JSON file written by perf.run.
 --- @param path string Path to the results file
---- @return Results The decoded results, or nil on error
---- @return string Error message on failure
-local function load_results(path: string): pt.Results, string
+--- @return Results|nil The decoded results
+--- @return string Error message when the file is missing, malformed,
+--- or not the shape a results file has
+local function load_results(path: string): pt.Results | nil, string
   local data, rerr = fs.read(path)
   if data == nil then
     return nil, path .. ": " .. tostring(rerr)
@@ -38,9 +61,9 @@ local function load_results(path: string): pt.Results, string
   if decoded == nil then
     return nil, path .. ": " .. tostring(jerr)
   end
-  local results = decoded as pt.Results -- cast: from any
-  if results.results == nil then
-    return nil, path .. ": not a perf results file (missing 'results')"
+  local results, serr: pt.Results | nil, string = shape.into(decoded, RESULTS_SPEC)
+  if not results then
+    return nil, path .. ": not a perf results file (" .. serr .. ")"
   end
   return results
 end
@@ -271,7 +294,7 @@ end
 local record compare
   DEFAULT_THRESHOLD_PCT: number
   TRIAGE_K: number
-  load_results: function(path: string): pt.Results, string
+  load_results: function(path: string): pt.Results | nil, string
   identity_refusal: function(a_path: string, a_res: pt.Results, b_path: string, b_res: pt.Results, same: boolean): string | nil
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer

@@ -23,6 +23,7 @@ local flags = require("cosmic.flags")
 local json = require("cosmic.json")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
+local shape = require("cosmic.shape")
 local public_surface = require("_build.public_surface")
 local casts = require("_build.casts")
 
@@ -43,6 +44,19 @@ local record Report
   --- The stat'd binary's size in bytes; nil when no --binary was given.
   binary_bytes: integer | nil
 end
+
+--- A report as it comes back off disk. `public_modules` and
+--- `agents_md_lines` are always written; `binary_bytes` is present
+--- only when the run that wrote the file was given a `--binary`.
+local REPORT_SPEC < const > = shape.record({
+    trees = shape.map(shape.record({
+          tl_files = shape.integer,
+          lines = shape.integer,
+        })),
+    agents_md_lines = shape.integer,
+    public_modules = shape.integer,
+    binary_bytes = shape.optional(shape.integer),
+  })
 
 --- The trees this report counts: `_build.casts`'s TREES, the one home
 --- for the list of committed-Teal trees (`3p/` is vendored, not one).
@@ -166,7 +180,8 @@ end
 --- Load a report JSON file written by `--out`.
 --- @param path string Path to the report file
 --- @return Report|nil The decoded report
---- @return string Error message on failure
+--- @return string Error message on failure when the file is missing,
+--- malformed, or not the shape a report has
 local function load_report(path: string): Report | nil, string
   local data, rerr = fs.read(path)
   if data == nil then
@@ -176,7 +191,11 @@ local function load_report(path: string): Report | nil, string
   if decoded == nil then
     return nil, path .. ": " .. tostring(jerr)
   end
-  return decoded as Report -- cast: from any
+  local loaded, serr: Report | nil, string = shape.into(decoded, REPORT_SPEC)
+  if not loaded then
+    return nil, path .. ": " .. serr
+  end
+  return loaded
 end
 
 local USAGE = [[

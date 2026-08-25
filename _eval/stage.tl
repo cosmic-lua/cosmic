@@ -21,6 +21,7 @@ local hash = require("cosmic.hash")
 local json = require("cosmic.json")
 local literal = require("cosmic.literal")
 local proc = require("cosmic.proc")
+local shape = require("cosmic.shape")
 local csys = require("cosmic.sys")
 local time = require("cosmic.time")
 local eval_types = require("_eval.eval_types")
@@ -84,10 +85,15 @@ end
 --- grammar has no array syntax (cosmic/_literal_format.tl refuses
 --- array-style tables), so `surfaces`/`metrics` are comma-joined
 --- strings on disk.
---- @param s string The comma-joined field
+--- An absent field reads as no parts, which is what a manifest that
+--- omits `surfaces` or `metrics` means.
+--- @param s string|nil The comma-joined field, or nil when absent
 --- @return {string} Its parts, empty entries dropped
-local function split_csv(s: string): {string}
+local function split_csv(s: string | nil): {string}
   local out: {string} = {}
+  if s == nil then
+    return out
+  end
   for part in (s .. ","):gmatch("([^,]*),") do
     if part ~= "" then
       out[#out + 1] = part
@@ -95,6 +101,34 @@ local function split_csv(s: string): {string}
   end
   return out
 end
+
+--- One task as the manifest stores it, before split_csv unpacks the
+--- comma-joined fields into eval_types.Task's lists.
+local record RawTask
+  id: string
+  brief: string
+  surfaces: string | nil
+  metrics: string | nil
+  status: string
+end
+
+--- The manifest as it sits on disk: a version, and tasks under
+--- numeric-string keys.
+local record RawManifest
+  version: integer
+  tasks: {string: RawTask}
+end
+
+local MANIFEST_SPEC < const > = shape.record({
+    version = shape.integer,
+    tasks = shape.map(shape.record({
+          id = shape.string,
+          brief = shape.string,
+          surfaces = shape.optional(shape.string),
+          metrics = shape.optional(shape.string),
+          status = shape.string,
+        })),
+  })
 
 --- Load and validate the suite manifest.
 ---
@@ -111,35 +145,30 @@ local function load_manifest(path: string): eval_types.Manifest | nil, string
   if not raw then
     return nil, perr
   end
-  local version = math.tointeger(raw.version as number) -- cast: from any
-  if version == nil then
-    return nil, path .. ": missing or non-integer version"
-  end
-  local raw_tasks = raw.tasks as {string: any} -- cast: from any
-  if raw_tasks == nil then
-    return nil, path .. ": missing tasks"
+  local manifest, serr: RawManifest | nil, string = shape.into(raw, MANIFEST_SPEC)
+  if not manifest then
+    return nil, path .. ": " .. serr
   end
   local tasks: {eval_types.Task} = {}
   local i = 1
-  while raw_tasks[tostring(i)] ~= nil do
-    local rt = raw_tasks[tostring(i)] as {string: any} -- cast: from any
-    local id = rt.id as string -- cast: from any
-    if not id or id == "" then
+  while manifest.tasks[tostring(i)] ~= nil do
+    local rt = manifest.tasks[tostring(i)]
+    if rt.id == "" then
       return nil, path .. ": tasks[" .. i .. "] is missing id"
     end
     tasks[#tasks + 1] = {
-      id = id,
-      brief = rt.brief as string, -- cast: from any
-      surfaces = split_csv(rt.surfaces as string or ""), -- cast: from any
-      metrics = split_csv(rt.metrics as string or ""), -- cast: from any
-      status = rt.status as string, -- cast: from any
+      id = rt.id,
+      brief = rt.brief,
+      surfaces = split_csv(rt.surfaces),
+      metrics = split_csv(rt.metrics),
+      status = rt.status,
     }
     i = i + 1
   end
   if #tasks == 0 then
     return nil, path .. ": suite has no tasks"
   end
-  return {version = version, tasks = tasks}
+  return {version = manifest.version, tasks = tasks}
 end
 
 --- The YOUR PROJECT text a brief file substitutes into the frame:

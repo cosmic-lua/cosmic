@@ -232,6 +232,20 @@ local function test_missing_meta_json_fails_cleanly()
 end
 test_missing_meta_json_fails_cleanly()
 
+local function test_meta_json_missing_a_field_fails_cleanly()
+  local dir = copy_fixture("run_pass")
+  local out = out_path()
+  local path = fs.join(dir, "meta.json")
+  local raw = check.must(json.decode_object(check.must(fs.read(path))))
+  raw.bin_sha = nil
+  check.must(fs.write(path, check.must(json.encode(raw))))
+  local code = score.main("--out", out, dir)
+  assert(code ~= 0, "scoring a run dir whose meta.json lacks bin_sha must fail")
+  assert(not fs.is_file(out),
+    "no results.json should be written when meta.json fails validation")
+end
+test_meta_json_missing_a_field_fails_cleanly()
+
 local function test_missing_run_dir_fails_cleanly()
   local code = score.main(fs.join(tmpdir, "no-such-run-dir-at-all"))
   assert(code ~= 0, "scoring a nonexistent run dir must fail")
