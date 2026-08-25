@@ -183,7 +183,7 @@ end
 --- @param ... BoxOptions policy tables; nil entries are skipped
 --- @return BoxOptions merged policy
 local function merge(...: BoxOptions): BoxOptions
-  return box_merge.merge(...) as BoxOptions -- cast: untyped merge result
+  return box_merge.merge(...)
 end
 
 local record BoxModule
