@@ -431,7 +431,7 @@ local function test_query_named_params()
   for row in check.must(db:query(
       "SELECT * FROM t WHERE city = :city ORDER BY id",
       {city = "NYC"})) do
-    table.insert(names, row.name as string) -- cast: from any
+    table.insert(names, check.must(sqlite.column_text(row, "name")))
   end
   assert(#names == 2, "should get 2 rows")
   assert(names[1] == "Alice", "first should be Alice")
@@ -453,8 +453,8 @@ local function test_same_sql_nested_query_reentrant()
   local pairs_seen: {string} = {}
   for outer in check.must(db:query("SELECT * FROM t ORDER BY id")) do
     for inner in check.must(db:query("SELECT * FROM t ORDER BY id")) do
-      -- cast: from any
-      table.insert(pairs_seen, (outer.name as string) .. (inner.name as string))
+      table.insert(pairs_seen, check.must(sqlite.column_text(outer, "name")) ..
+        check.must(sqlite.column_text(inner, "name")))
     end
   end
 

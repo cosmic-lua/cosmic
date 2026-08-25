@@ -33,6 +33,7 @@ local defaults_mod = require("cosmic.sqlite.defaults")
 local stmt_cache_mod = require("cosmic.sqlite.stmt_cache")
 local row_iter = require("cosmic.sqlite.row_iter")
 local bind_mod = require("cosmic.sqlite.bind")
+local column_mod = require("cosmic.sqlite.column")
 local extras_mod = require("cosmic.sqlite.extras")
 
 -- The raw lsqlite3 surface is fully typed since the 2026.07.13 pin;
@@ -443,11 +444,23 @@ local record sqlite
 
   open: function(filename: string, opts?: Options): Database | nil, string
   blob: function(data: string): bind_mod.Blob
+
+  --- Typed column readers over a row. A row is `{string: any}`, so
+  --- reading a column whose type the caller knows costs a cast at every
+  --- read; these move that check into one place that reports a mismatch
+  --- instead of asserting one. `column_` prefixes them because `blob`
+  --- above is already the BLOB constructor.
+  column_text: function(row: {string: any}, column: string): string | nil, string
+  column_number: function(row: {string: any}, column: string): number | nil, string
+  column_integer: function(row: {string: any}, column: string): integer | nil, string
 end
 
 local M: sqlite = {
   open = open,
   blob = bind_mod.blob,
+  column_text = column_mod.column_text,
+  column_number = column_mod.column_number,
+  column_integer = column_mod.column_integer,
 }
 
 return M
