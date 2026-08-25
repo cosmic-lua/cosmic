@@ -195,7 +195,7 @@ local function supervisor(
   local net = opts and opts.net
   if net and net.allow then
     local h, perr = proxy.start({
-        bind_ip = cosmo.ParseIp("127.0.0.1") as integer, -- cast: number to integer
+        bind_ip = cosmo.ParseIp("127.0.0.1"),
         bind_port = 0,
         -- NetRule and ProxyRule are the same nominal record now;
         -- proxy.start's rules.validate still runtime-checks raw config.

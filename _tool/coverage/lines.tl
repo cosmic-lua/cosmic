@@ -110,15 +110,13 @@ local function executable_lines(source: string, name: string): {integer: boolean
   end
   if lex_errs and #lex_errs > 0 then
     local e = lex_errs[1]
-    -- cast: number to integer for %d
-    return nil, string.format("%s:%d: %s", name, (e.y or 0) as integer, e.msg or "lex error")
+    return nil, string.format("%s:%d: %s", name, (e.y or 0), e.msg or "lex error")
   end
   local parse_errs: {tl.Error} = {}
   local ast = tl.parse_program(tokens, parse_errs, name, lang)
   if #parse_errs > 0 then
     local e = parse_errs[1]
-    -- cast: number to integer for %d
-    return nil, string.format("%s:%d: %s", name, (e.y or 0) as integer, e.msg or "parse error")
+    return nil, string.format("%s:%d: %s", name, (e.y or 0), e.msg or "parse error")
   end
   local out: {integer: boolean} = {}
   walk(ast as {any: any}, {}, out) -- cast: ast node as generic map

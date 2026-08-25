@@ -117,8 +117,9 @@ local ERRNO_NAMES < const >: {string} = {
 local codes: {string: integer} = {}
 for _, name in ipairs(ERRNO_NAMES) do
   local v = (unix as {string: any})[name] -- cast: dynamic E* lookup
-  if v is number then
-    codes[name] = v as integer -- cast: number to integer
+  local n = v is number and math.tointeger(v) or nil
+  if n then
+    codes[name] = n
   end
 end
 

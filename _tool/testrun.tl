@@ -109,7 +109,7 @@ local function run(argv: {string}, output_base: string): integer, string
       exit_code = r.code
     elseif r.signal ~= nil then
       -- Signal death is reported as the conventional 128+signal exit code.
-      exit_code = (128 + r.signal) as integer -- cast: number to integer
+      exit_code = (128 + r.signal)
     end
   end
 
