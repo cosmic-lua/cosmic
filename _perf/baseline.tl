@@ -29,6 +29,7 @@ local fetch = require("cosmic.fetch")
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
+local shape = require("cosmic.shape")
 
 --- One release asset, as the REST API names the fields this script reads.
 local record Asset
@@ -46,6 +47,22 @@ local record Release
   prerelease: boolean
   assets: {Asset}
 end
+
+--- The subset of the releases listing this script consults. Extra keys
+--- the REST API sends are ignored, so a field added upstream does not
+--- start failing the fetch. `assets` is optional because find_asset
+--- already reads it as `release.assets or {}`, and `prerelease`
+--- because nothing here consults it: prereleases are eligible.
+local RELEASES_SPEC < const > = shape.list(shape.record({
+      tag_name = shape.string,
+      created_at = shape.string,
+      draft = shape.boolean,
+      prerelease = shape.optional(shape.boolean),
+      assets = shape.optional(shape.list(shape.record({
+              name = shape.string,
+              browser_download_url = shape.string,
+            }))),
+    }))
 
 local ASSET_NAME < const > = "perf.json"
 local API_URL < const > = "https://api.github.com/repos/%s/releases?per_page=30"
@@ -127,7 +144,7 @@ end
 --- @param repo string "owner/name"
 --- @return {Release} | nil The releases
 --- @return string Error message on failure
-local function list_releases(repo: string): {Release}, string
+local function list_releases(repo: string): {Release} | nil, string
   local token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")
   local headers: {string: string} = {
     ["accept"] = "application/vnd.github+json",
@@ -151,7 +168,11 @@ local function list_releases(repo: string): {Release}, string
   if decoded == nil then
     return nil, "decode releases: " .. tostring(jerr)
   end
-  return decoded as {Release}, nil -- cast: from any
+  local releases, serr: {Release} | nil, string = shape.into(decoded, RELEASES_SPEC)
+  if not releases then
+    return nil, "decode releases: " .. serr
+  end
+  return releases
 end
 
 --- Download an asset to `out`, creating parent directories first.
