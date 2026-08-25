@@ -16,3 +16,15 @@ _literal_format.tl:12-17 and :213) and means `format_file` can write
 a file `parse_file` cannot read back. Practical severity low (real
 floors nest 2 deep). Fix shape: pass depth into render_inline, or
 check depth before taking the inline path.
+
+Re-measured 2026-08-25 at main a0c4ebd: BOTH layouts break at the
+same boundary, not only the inline path. A value of 33 nested tables
+with a flat `{leaf = 1}` innermost formats under `layout = "pin"`
+AND `layout = "compact"`, and `parse` refuses both outputs ("nests
+deeper than 32 tables"); at 34 tables both layouts refuse; at 32
+both round-trip. So the fix must also cover the compact path
+(`is_compact_writable` plus `cosmo.EncodeLua`,
+cosmic/_literal_format.tl:395-407) with the same counting parse
+uses, and the acceptance check belongs at the shared boundary: for
+depths 32, 33, 34, either format refuses or parse(format(v))
+succeeds, in both layouts.
