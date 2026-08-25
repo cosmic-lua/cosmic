@@ -167,7 +167,7 @@ prints, and it is in scope here.
   site does need it, that is a new item.
 - **No other cast reason moves.** `git ls-files '*.tl' | xargs grep -h
   -- "-- cast: " | grep -vc "number to integer"` is 389 before and 389
-  after. In particular the `-- cast: dynamic E* lookup` in
+  after (the total falls 402 -> 389 because only this bucket leaves). In particular the `-- cast: dynamic E* lookup` in
   `cosmic/errno.tl` and the `from any` sites in `cosmic/instrument.tl`
   stay exactly as they are.
 - **No behaviour change outside `serve.tl`'s log line.** The five
@@ -217,7 +217,9 @@ here writes into the committed tree.
   git ls-files '*.tl' | xargs grep -h -- "-- cast: " | grep -c "from any"
   ```
 
-  still prints `189`.
+  still prints `192` — the `from any` sites are untouched. (The 189 in
+  `docs/design/casts.md` counts the sites whose reason is EXACTLY
+  `from any`; this grep also catches the three that say more.)
 
 - **The baseline records the win.**
 
