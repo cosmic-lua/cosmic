@@ -1,7 +1,7 @@
 # D23 — cosmic.check throws by design; needs/reap may exit
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08 (the closed list becomes a rule: an unreachable-nil assert)
 - **context:** the error-handling doctrine says "never throw from
   library code" with no carve-out, yet every assertion in
   `cosmic.check` throws — deliberately, at error level 2, so the
@@ -42,3 +42,27 @@
   (`records.status_of`, `EXIT_SKIP`) is what makes the exits correct;
   if that contract ever changes, this record is the dependency to
   revisit.
+- **amended 2026-08 (the closed list becomes a rule):** "no other
+  `cosmic.*` module may throw or exit" was written as a list of two
+  named exemptions, and a third shape turned up that is neither: a
+  `cosmo.*` binding whose declared `| nil` is honest for an arbitrary
+  caller-supplied argument and IMPOSSIBLE for the constants a cosmic
+  module hands it. `cosmic.time.now()` reads
+  `unix.clock_gettime(unix.CLOCK_REALTIME)`, whose `integer | nil`
+  first slot can only be nil for a clock id the kernel rejects — not
+  for either of the two constants this module passes — and declaring
+  `integer` over it is the type lie the honest-nil doctrine forbids.
+  So the exemption is a rule rather than a longer list: **a `cosmic.*`
+  module may `assert` a `cosmo.*` binding return whose declared `| nil`
+  is unreachable for the arguments that call passes, provided the
+  assert carries a trailing `-- assert: <why the nil cannot occur>`
+  comment naming the reason**, the way a cast carries its `-- cast:`.
+  Nothing else moves: a REACHABLE runtime failure stays D22's shape
+  (no caller may proceed without the value), a caller contract
+  violation stays D22's other shape, and each still needs its own
+  record. A third named module was rejected because the shape is not
+  about `cosmic.time` — `cosmo.path.join` declares `string | nil` for
+  a nil no caller can reach across 26 sites of the same census — so an
+  enumerated list would need a fresh amendment per module, and a seat
+  on it records only that somebody once said yes, where the comment
+  records the argument a reader can check.
