@@ -58,10 +58,12 @@ local function test_the_cast_counts_match_the_committed_baseline()
 end
 test_the_cast_counts_match_the_committed_baseline()
 
--- What the count actually reads. The fixture holds both justification
--- positions, a file with none, and one under `testdata/` — the tree the
+-- What the count actually reads: `as` tokens, not the reasons beside
+-- them. The fixture holds a file with two casts, a file with none, one
+-- whose only `as` is quoted inside a string and whose only `-- cast:`
+-- reason has no cast under it, and one under `testdata/` — the tree the
 -- count skips, because a fixture's casts are not the tree's.
-local function test_count_reads_justification_comments()
+local function test_count_reads_as_tokens_not_their_justifications()
   local root = fs.join(check.must(os.getenv("TEST_TMPDIR")), "casts")
   local both = table.concat({
       "local a = x as {string} -- cast: from any",
@@ -69,11 +71,18 @@ local function test_count_reads_justification_comments()
       "local b = y as Handle",
       "local c = z",
     }, "\n") .. "\n"
+  local quoted = table.concat({
+      "local s = \"local a = x as {string} -- cast: from any\"",
+      "-- cast: a reason with no cast under it",
+      "local b = 1",
+      "print(s, b)",
+    }, "\n") .. "\n"
   for _, dir in ipairs({"cosmic/testdata", "untracked"}) do
     assert(fs.make_dirs(fs.join(root, dir)))
   end
   assert(fs.write(fs.join(root, "cosmic", "both.tl"), both))
   assert(fs.write(fs.join(root, "cosmic", "none.tl"), "local a = 1\n"))
+  assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
   assert(fs.write(fs.join(root, "cosmic", "testdata", "fixture.tl"),
       both))
   assert(fs.write(fs.join(root, "untracked", "loose.tl"), both))
@@ -83,11 +92,13 @@ local function test_count_reads_justification_comments()
     "both positions count: " .. tostring(got["cosmic/both.tl"]))
   assert(got["cosmic/none.tl"] == nil,
     "a file with no casts stays out of the count")
+  assert(got["cosmic/quoted.tl"] == nil,
+    "a cast quoted in a string, and a reason with no cast, are not counted")
   assert(got["cosmic/testdata/fixture.tl"] == nil,
     "testdata is skipped")
   assert(got["untracked/loose.tl"] == nil,
     "only the counted trees are walked")
 end
-test_count_reads_justification_comments()
+test_count_reads_as_tokens_not_their_justifications()
 
 print("all cast ratchet tests passed")

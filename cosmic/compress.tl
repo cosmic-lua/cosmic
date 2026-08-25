@@ -45,7 +45,6 @@ end
 --- library code)
 local function compress(data: string, opts?: CompressOptions): string | nil, string
   local format: CompressFormat = opts and opts.format or "zlib"
-  -- cast: same word set; the binding names its enum independently
   local result, err = cosmo.Deflate(data, {format = format})
   if not result then
     return nil, "compress: " .. tostring(err)
@@ -65,7 +64,6 @@ local function decompress(data: string, opts?: DecompressOptions): string | nil,
   local format: DecompressFormat = opts and opts.format or "zlib"
   local max_output_bytes = opts and opts.max_output_bytes
   -- The binding reports truncated or corrupt input as nil, err.
-  -- cast: same word set; the binding names its enum independently
   local result, err = cosmo.Inflate(data, {format = format, maxsize = max_output_bytes})
   if not result then
     return nil, "decompress: " .. tostring(err)

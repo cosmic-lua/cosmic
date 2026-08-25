@@ -427,6 +427,7 @@ local function lint_file(path: string): {Diagnostic} | nil, string
 end
 
 local record LintModule
+  cast_lines: function(content: string, file: string): {integer}
   check_cast_justification: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_cosmo_require: function(file: string, lines: {string}): {Diagnostic}
   check_call_after_define: function(file: string, content: string, lines: {string}): {Diagnostic}
@@ -441,6 +442,7 @@ local record LintModule
 end
 
 local M: LintModule = {
+  cast_lines = cast_lines,
   check_cast_justification = check_cast_justification,
   check_cosmo_require = check_cosmo_require,
   check_call_after_define = check_call_after_define,

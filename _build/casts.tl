@@ -4,9 +4,11 @@
 --- Every cast in a committed file says why it is there: `--make lint`
 --- fails a line holding an `as` whose reason is missing, so each cast
 --- line carries a `-- cast: <reason>` comment, trailing on the line
---- itself or standalone directly above it. Counting those comments
---- therefore counts the cast lines, and does it without a second cast
---- lexer to keep in step with the linter's.
+--- itself or standalone directly above it. What this module counts is
+--- the `as` tokens themselves, through `_cli.lint`'s scanner — one
+--- lexer, shared with the gate that enforces the rule, so a cast quoted
+--- in a string or named in a doc comment is not counted, and a reason
+--- left behind by a cast that is gone counts for nothing.
 ---
 --- The count feeds `_build/casts_test.tl`, which gates it against the
 --- committed floor in `_build/casts_baseline.tl`. Rewrite that floor
@@ -22,6 +24,7 @@
 
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
+local lint = require("_cli.lint")
 local proc = require("cosmic.proc")
 
 --- The committed floor: where this module writes it and the test reads
@@ -36,33 +39,16 @@ local TREES < const >: {string} = {
   "_types", "cmd", "cosmic",
 }
 
---- Cast-justification comments in one file's text.
----
---- One line holds at most one, in either position, so the line count is
---- the cast-line count. A file that quotes the comment's own syntax --
---- the linter's message, this module's tests -- counts those lines too;
---- the floor records what is there, so a quotation costs a baseline
---- entry and nothing else.
---- @param text string The file's bytes
---- @return integer The number of lines carrying a justification
-local function in_text(text: string): integer
-  local n = 0
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    if line:match("%-%- cast: %S") then
-      n = n + 1
-    end
-  end
-  return n
-end
-
 --- Cast counts per source file, keyed by path relative to `root`.
 ---
---- Only files carrying at least one cast appear: a file at zero is
---- absent, which is what lets the gate read "absent from the baseline"
---- as "had none". A tree missing under `root`, or a file that cannot be
---- read, contributes nothing -- the count is a measurement of what is
---- there, and there is no failure it could report that the gate reading
---- it would not already see as a moved number.
+--- A file's count is its number of lines holding an `as`, one line
+--- counting at most once. Only files carrying at least one cast appear:
+--- a file at zero is absent, which is what lets the gate read "absent
+--- from the baseline" as "had none". A tree missing under `root`, a file
+--- that cannot be read, and a file the lexer cannot lex all contribute
+--- nothing -- the count is a measurement of what is there, and there is
+--- no failure it could report that the gate reading it would not already
+--- see as a moved number.
 --- @param root string The project root to count under
 --- @return {string: integer} Counts by root-relative path
 local function count(root: string): {string: integer}
@@ -78,7 +64,7 @@ local function count(root: string): {string: integer}
           local rest = path:sub(#dir + 2)
           if not ("/" .. rest):find("/testdata/", 1, true) then
             local text = fs.read(path)
-            local n = text and in_text(text) or 0
+            local n = text and #lint.cast_lines(text, path) or 0
             if n > 0 then
               out[tree .. "/" .. rest] = n
             end
