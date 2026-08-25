@@ -14,7 +14,8 @@ same parent outcome. This does the same for the nil-flow gap.
 
 ## Evidence
 
-Measured 2026-08-25 against `whilp/cosmic` `5cd43b78` (`main`).
+Measured 2026-08-25 against `whilp/cosmic` `e7ac1580` (`main`), re-run
+at refinement; the figures below are that run's, not an earlier one's.
 
 **The gap is pinned as a passing test, not a bug report.**
 `cosmic/teal_narrowing_test.tl:222`
@@ -33,7 +34,8 @@ print(gs() .. "x", m, t)
 so the admitting positions this slice must census are: **assignment to
 a declared non-nil local**, **a non-nil parameter**, **arithmetic**,
 and **concatenation**. An index is the one position that refuses (the
-negative twin follows at `:252`).
+negative twin is `test_nil_union_is_refused_at_an_index` at `:255`,
+called at `:268`).
 
 **The doctrine that exists because of the gap** is 92 lines of
 AGENTS.md (`awk '/^### Error Handling Patterns/,/^## Build System/'
@@ -54,15 +56,16 @@ five of them narrowing edits (`narrow-assert-decl`,
 census answers is not "can this be patched" but "how much does the
 patch cost to adopt", which is the flagged-site count.
 
-**The tree is 572 `.tl` files** (`git ls-files '*.tl' | wc -l`). The
+**The tree is 579 `.tl` files** (`git ls-files '*.tl' | wc -l`). The
 number of them a strict mode flags is UNKNOWN today, and establishing
 it is this slice's entire point — no figure for it appears anywhere in
 this spec, and a session must not invent one.
 
 **One inconsistency to fix in passing, in a file this slice reads:**
-`3p/tl/tl_patch.tl:19` says "Four edits teach the checker that a nil
-union narrows" and then lists five bullets. Correct the word to match
-the bullets; it is a one-word comment fix in a file the census cites,
+`3p/tl/tl_patch.tl:18` says "Four edits teach the checker that a nil
+union narrows" and then lists five `-- - narrow-*` bullets
+(`grep -n "Four edits" 3p/tl/tl_patch.tl` reports line 18). Correct the
+word to match the bullets; it is a one-word comment fix in a file the census cites,
 and it is the only source edit this slice makes.
 
 ## Change
@@ -108,7 +111,8 @@ it is never committed:
 7. State a recommendation on upstream-first: whether this is a
    proposal to teal-language/tl, a sixth carried-patch group, or both,
    with the reasoning that follows from the census — not from taste.
-8. Fix the "Four edits" word at `3p/tl/tl_patch.tl:19`.
+8. Fix the "Four edits" word at `3p/tl/tl_patch.tl:18` — the one
+   source line this slice changes.
 9. Delete the prototype before gating: `bin/cosmic --make clean`, then
    `bin/cosmic --make fetch && bin/cosmic --make build`, so the gate
    below runs against an unmodified pinned `tl`.
@@ -196,25 +200,32 @@ committed tree.
   ends `test: PASS`, and
 
   ```
-  git diff --stat main -- cosmic/teal_narrowing_test.tl
+  git fetch origin main && git diff --stat origin/main...HEAD -- cosmic/teal_narrowing_test.tl
   ```
 
-  prints nothing.
+  prints nothing. The three-dot form diffs against the merge base, so
+  it says what THIS branch changed and stays correct however far `main`
+  has moved ahead. A bare `main` does not: a checkout's local `main` is
+  whatever it last pulled. Measured at refinement:
+  `git rev-list --count main..origin/main` reported 12, and
+  `git diff --name-only main` on a clean checkout of `origin/main`
+  named 49 files — all of them other people's landings, none of them
+  this slice's work.
 
 - **Nothing else moved.**
 
   ```
-  git diff --name-only main
+  git diff --name-only origin/main...HEAD
   ```
 
   names exactly `docs/design/nil-flow.md` and `3p/tl/tl_patch.tl`, and
   no other path. And
 
   ```
-  git diff main -- 3p/tl/tl_patch.tl | grep -c '^[-+]'
+  git diff origin/main...HEAD -- 3p/tl/tl_patch.tl | grep -c '^[-+]'
   ```
 
-  is `4` — the two file headers plus the one line replaced.
+  is `4` — the two `---`/`+++` file headers plus the one line replaced.
 
 - **The follow-ups are on the board.** From the board worktree
   (`git worktree add o/board board; cd o/board; bin/cosmic --make build`):
