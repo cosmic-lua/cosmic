@@ -126,8 +126,11 @@ re-run it, never commit it.
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make test cosmic/sqlite/column_test.tl` passes.
-- `grep -n -- "-- cast: .*from any" cosmic/sqlite/advanced_test.tl cosmic/sqlite/close_test.tl cosmic/sqlite/init_test.tl`
-  prints nothing (today: 9 lines).
+- `grep -n -- "-- cast: .*from any" cosmic/sqlite/advanced_test.tl cosmic/sqlite/init_test.tl`
+  prints nothing (today: 8 lines).
+- `grep -c -- "-- cast: .*from any" cosmic/sqlite/close_test.tl` reports `2`
+  (today `3`) — the two that remain are the `__close` metamethod reads named
+  in `Non-goals`, not row column reads.
 - `grep -c -- "-- cast: " cosmic/sqlite/column.tl cosmic/sqlite/column_test.tl`
   reports `0` for both files — every cast in this tree carries a justification,
   so zero justifications is zero casts.
