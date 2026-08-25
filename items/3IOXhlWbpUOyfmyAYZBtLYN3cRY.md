@@ -68,6 +68,52 @@ union narrows" and then lists five `-- - narrow-*` bullets
 word to match the bullets; it is a one-word comment fix in a file the census cites,
 and it is the only source edit this slice makes.
 
+**What the first attempt got wrong, and why the shape below changed.**
+PR #1375 produced a 388-line census (359 sites, 125 files) that passed
+`--make ci` and all five CI lanes, and was bounced at review. The
+document's classes, mechanisms, doctrine dividend and upstream
+recommendation all held up. Its per-site claims did not, and nothing in
+the deliverable could have caught that — the prototype and the scan
+output were deleted before the gate, leaving the eight quoted examples
+as a reviewer's only instrument. Measured against that PR's head
+`faf54789`, with `o/_types/types_gen` built:
+
+- **Four of the eight fenced `-- <path>:<line>` citations did not match
+  the source at the line they named.** `cosmic/fetch/verbs_test.tl:78`
+  quoted `local res = fetch.head(base .. "/x", …)`; that line is
+  `return fetch.get(base .. "/x", …)` and `grep -n 'fetch.head'
+  cosmic/fetch/verbs_test.tl` reports nothing. The other three were
+  off by one or four lines (`cosmic/fs/tree.tl:24`, `cosmic/time.tl:32`,
+  `_build/size.tl:160`). The check in `Acceptance` below finds exactly
+  those four when run against that document.
+- **The flagship example misdescribed the binding.**
+  `o/_types/types_gen/cosmo/unix.d.tl` declares `clock_gettime:
+  function(clock?: integer): integer | nil, integer, string, Errno` —
+  slot 2 is `integer`. A probe binding both slots and leaving them
+  unused reports `secs: integer | nil` and `nanos: integer`. The
+  document said "`unix.clock_gettime` returns `integer | nil` in both
+  slots" and annotated `cosmic/time.tl`'s `now()` as "flagged twice".
+  It is flagged once.
+- **A top-file attribution was unsupportable.** The document listed
+  `cosmic/fs/tree.tl` as the #2 file (10 sites) of its largest class.
+  With the generated types, every union in that 122-line file is either
+  guarded by `if not … then return` or is not a union at all: every
+  `cosmo.unix` binding declares slot 2 `string`, so `errstr(oerr, …)`
+  passes a plain string, and `ueno` is `Errno`. Only `entry` from
+  `h:read()` (`cosmic/fs/types.tl:115`, `read: function(self): string |
+  nil, integer`) is an unguarded union, used at `:28` and `:29` — 2
+  sites, which is what the document's own non-`return`-exit table
+  already said for the file.
+- **An exemplar contradicted its own class.** `_build/size.tl`'s
+  `local cbin = cur.binary_bytes or 0` (`:155`) was offered as the
+  plain shape of the "no guard anywhere" class, while the `or`-fallback
+  class's own exemplar is the identical shape (`local text =
+  fs.read(path) or ""`, `_docs/derive.tl:87`).
+
+The lesson is not "check the line numbers harder". It is that a census
+whose evidence is deleted before review is unreviewable by
+construction, so this pass keeps the scan output.
+
 ## Change
 
 Produce `docs/design/nil-flow.md`, a new file, modelled section-for-section
@@ -126,9 +172,33 @@ it is never committed:
 7. State a recommendation on upstream-first: whether this is a
    proposal to teal-language/tl, a sixth carried-patch group, or both,
    with the reasoning that follows from the census — not from taste.
-8. Fix the "Four edits" word at `3p/tl/tl_patch.tl:18` — the one
+8. **Commit the scan output as `docs/design/nil-flow-sites.tsv`** —
+   one flagged site per line, three tab-separated fields: the path,
+   the line number, and the class name the document gives it. This is
+   the evidence a reviewer checks the document against, and it is what
+   the first attempt did not have; it replaces the reviewer's only
+   instrument being eight hand-picked quotes. Sort it by path then
+   line so a diff against a later re-derivation is readable. Write it
+   from the strict binary's output before step 10 deletes the
+   prototype — it cannot be reconstructed afterwards.
+
+   The 500-line file cap (`_tool/lint.tl:24`, `DEFAULT_FILE_LINES`)
+   applies to any file lint walks, data files included, and the first
+   attempt found 359 sites. If the re-derived count exceeds 500, split
+   by class into `docs/design/nil-flow-sites-<class>.tsv` and say so in
+   `## Method`; never reach for `.cosmicignore` to carry an oversized
+   one.
+9. **Verify every citation the document makes**, before gating: run the
+   `Acceptance` citation check below and fix what it names, and read
+   each quoted example against its own class definition — an example
+   that carries an `or`, an `and` or any guard cannot illustrate the
+   no-guard class. Where an example asserts something about a
+   `cosmo.*` binding, read the declaration in
+   `o/_types/types_gen/cosmo/*.d.tl` and quote it rather than
+   inferring the shape from the call.
+10. Fix the "Four edits" word at `3p/tl/tl_patch.tl:18` — the one
    source line this slice changes.
-9. Delete the prototype before gating: `bin/cosmic --make clean`, then
+11. Delete the prototype before gating: `bin/cosmic --make clean`, then
    `bin/cosmic --make fetch && bin/cosmic --make build`, so the gate
    below runs against an unmodified pinned `tl`.
 
@@ -144,7 +214,7 @@ part of this slice, not a note for later.
 - **Do not commit a checker change.** `3p/tl/tl_patch.tl` gains no new
   edit key, `_make/patch.tl` is not touched, and the prototype from
   step 2 lives and dies inside `o/`. The only edit to
-  `3p/tl/tl_patch.tl` is the one-word comment fix in step 8.
+  `3p/tl/tl_patch.tl` is the one-word comment fix in step 10.
 - **Do not fix a single flagged site.** Every site the census finds is
   a follow-up slice's work. A diff that guards even one of them is
   scope creep, and the census would then describe a tree that no
@@ -166,7 +236,11 @@ part of this slice, not a note for later.
   writes the recommendation down; acting on it is a follow-up slice, so
   that the upstream text is reviewed here before it is published.
 - **Do not add a cast, a `-- cast:` line, or a coverage exclusion.**
-  This diff is one markdown file and one comment word.
+  This diff is two documents, one data file and one comment word.
+- **Do not hand-write, edit or extend `nil-flow-sites.tsv`.** It is the
+  strict binary's output, sorted; a line added or corrected by hand is
+  a fabricated measurement, and the file exists precisely so a reviewer
+  need not take the document's word for anything.
 
 ## Acceptance
 
@@ -206,6 +280,66 @@ committed tree.
   depends on. A reviewer re-running that command after re-applying the
   stated edit gets the stated number.
 
+- **The evidence file agrees with the document.** The scan output is
+  committed and its length is the total the document opens with:
+
+  ```
+  wc -l docs/design/nil-flow-sites.tsv
+  ```
+
+  reports that same number, and
+
+  ```
+  cut -f3 docs/design/nil-flow-sites.tsv | sort | uniq -c | sort -rn
+  ```
+
+  reproduces the document's `## Classes` table, class for class and
+  count for count. Every per-file figure the document quotes (each
+  class's `Top:` list) is likewise `grep -c` over this file. Where the
+  document and the file disagree, the file is right and the document
+  is wrong — that is what it is for.
+
+- **Every site in the evidence file resolves.**
+
+  ```
+  while IFS=$'\t' read -r p n c; do
+    [ -f "$p" ] || echo "MISSING $p"
+    [ "$(wc -l < "$p")" -ge "$n" ] || echo "PAST-EOF $p:$n"
+  done < docs/design/nil-flow-sites.tsv
+  ```
+
+  prints nothing. A path that does not exist or a line past
+  end-of-file means the scan and the tree disagree about which tree
+  was measured.
+
+- **Every citation in the document quotes the line it names.** Each
+  fenced example opens with a `-- <path>:<line>` comment; this check
+  reads that line from the source and compares:
+
+  ```
+  awk '
+    /^-- [A-Za-z0-9_\/.]+\.tl:[0-9]+$/ {
+      split($2, a, ":"); path=a[1]; ln=a[2]
+      if ((getline quoted) <= 0) next
+      gsub(/^[ \t]+|[ \t]+$/, "", quoted)
+      sub(/ *-- (flagged|cast):.*$/, "", quoted)
+      cmd = "sed -n " ln "p " path
+      src = ""; cmd | getline src; close(cmd)
+      gsub(/^[ \t]+|[ \t]+$/, "", src)
+      if (src == "" || index(src, quoted) == 0)
+        printf "MISMATCH %s\n  doc: %s\n  src: %s\n", $2, quoted, src
+    }
+  ' docs/design/nil-flow.md
+  ```
+
+  prints nothing. Measured 2026-08-25 against PR #1375 at `faf54789`,
+  where the document carried 8 such citations, this printed 4
+  MISMATCH blocks — `cosmic/fs/tree.tl:24`, `cosmic/fetch/verbs_test.tl:78`,
+  `cosmic/time.tl:32` and `_build/size.tl:160` — so the check
+  discriminates rather than passing vacuously. It reads the FIRST
+  quoted line of each block only; a multi-line quote whose later lines
+  drift is not caught, which is why step 9 is a read as well as a run.
+
 - **The pinned boundary did not move.**
 
   ```
@@ -233,8 +367,9 @@ committed tree.
   git diff --name-only origin/main...HEAD
   ```
 
-  names exactly `docs/design/nil-flow.md` and `3p/tl/tl_patch.tl`, and
-  no other path. And
+  names exactly `docs/design/nil-flow.md`,
+  `docs/design/nil-flow-sites.tsv` and `3p/tl/tl_patch.tl`, and no
+  other path. And
 
   ```
   git diff origin/main...HEAD -- 3p/tl/tl_patch.tl | grep -c '^[-+]'
@@ -255,7 +390,7 @@ committed tree.
 
 ## Enablement
 
-none needed. The prototype rides `o/`, which every verb already
+No blocker. The prototype rides `o/`, which every verb already
 rebuilds and `--make clean` removes, so no mechanism has to be
 invented and nothing outside `o/` is at risk. The document's shape is
 `docs/design/casts.md`, read as the template; the comment-and-prose
@@ -264,3 +399,13 @@ The one judgment this slice cannot delegate — which sink shapes are
 worth a follow-up slice and which are noise — is exactly what a
 research slice is for, and step 4 says to cite and quote the sites
 that decide it.
+
+The wrong turn PR #1375 took — a document whose claims about the tree
+no gate can check — has its countermeasure filed as **3IPbDw9B** (a
+`--check lint` check that resolves every `<path>:<line>` a tracked
+markdown file cites and, for the fenced form, compares the quoted line
+to the source). It is NOT a blocker and is deliberately not in
+`blocked_by`: a lint that landed inside the PR it polices would prove
+nothing, and this slice does not need it — the `Acceptance` citation
+check above is the same test, run by hand, which is exactly the
+evidence 3IPbDw9B needs to justify generalising it.
