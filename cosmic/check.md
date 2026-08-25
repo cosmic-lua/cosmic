@@ -18,6 +18,7 @@ local record CheckModule
   not_equal: function<T>(actual: T, expected: T, label?: string)
   truthy: function(value: any, label?: string)
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
+  refuses: function(f: any, ...: any): string
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -77,6 +78,28 @@ function truthy(value: any, label?: string)
 
 - `value` (any) - The value to test for truthiness
 - `label` (string?) - Optional label prepended to the failure message
+
+### refuses
+
+```teal
+function refuses(f: any, ...: any): string
+```
+
+ Assert that a call refuses arguments its declared signature forbids.
+ The call is made through `any`, so a test can pass the malformed value
+ the declared types exist to prevent, and the refusal comes back typed:
+ one cast here instead of one at every probe and one on every value read
+ off it. Throws when the call returns a value instead of refusing, or
+ refuses with an empty message.
+
+**Parameters:**
+
+- `f` (any) - The function to call, whose declared signature forbids these arguments
+- `...` (any) - The arguments to call it with
+
+**Returns:**
+
+- string - The message the call refused with
 
 ### failed
 
