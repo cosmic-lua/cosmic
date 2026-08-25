@@ -3,7 +3,7 @@ return {
   ["enable"] = "3IPbDw9B6sUChGTBQoPuPJxEuMN",
   ["id"] = "3IOXhlWbpUOyfmyAYZBtLYN3cRY",
   ["parent"] = "3IODJgkObjfhsxqMPEgFPIM6RHR",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["pr"] = 1375,
   ["title"] = "nil-flow census: prototype a strict tl mode and classify every unguarded T|nil sink",
   ["verdict"] = "request changes",
