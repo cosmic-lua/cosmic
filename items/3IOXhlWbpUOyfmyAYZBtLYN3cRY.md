@@ -129,7 +129,49 @@ it is never committed:
    pinned `tl` under `o/3p/tl/` and a working `o/bin/cosmic`.
 2. Edit `o/3p/tl/tl.lua` in place — build output under `o/`, committed
    by nothing — so the four admitting positions above report an error
-   instead of passing. `tl.lua` is the checker that RUNS and the file
+   instead of passing. Two hinges in the pinned `tl` 0.24.8 admit the
+   union, both located and verified at refinement 2026-08-25 against
+   the checker a `--make build` produces:
+
+   - `TypeChecker.subtype_relations` (`o/3p/tl/tl.lua:9620`) declares
+     `["nil"]["*"] = compare_true` at `:9622` — nil is a subtype of
+     everything, so `integer | nil` satisfies an `integer` sink. The
+     union side is `["union"]["*"] = TypeChecker.forall_are_subtype_of`
+     at `:9681`, with `["union"]["nominal"]` beside it in the same
+     `["union"] = {` block at `:9653`; both need the rule. Reject a
+     nil-carrying UNION against a sink that does not itself admit nil,
+     while leaving bare `nil` a subtype of everything, or
+     `local x: string = nil` and every `x == nil` comparison stop
+     compiling.
+   - `unite()` (`:9144`) sets `types_seen["nil"] = true` at `:9155`
+     before it starts, so uniting a union always drops nil — which is
+     what the binary-operator path does to both operands before it
+     looks up `binop_types`. Report an operand that carries nil before
+     that unite, for the arithmetic, bitwise, concatenation and
+     relational operators.
+
+   These line numbers are the pinned `tl` and move if the pin moves;
+   `3p/tl/tl_pin.tl` stays at 0.24.8 per `Non-goals`, so they hold for
+   this slice.
+
+   Two sink shapes decide whether the total means anything, so
+   `## Method` states what the prototype did with each:
+
+   - **A parameter typed `any` admits nil and must NOT be flagged.**
+     `errno.format(err: any, prefix?: string): string`
+     (`cosmic/errno.tl:127`) is the repo's error-wrapping idiom, called
+     202 times across `cosmic/ _cli/ _make/ _tool/ _build/ _docs/`
+     (`grep -rn --include='*.tl' -E '\b(errstr|errno\.format)\(' … |
+     wc -l`, measured 2026-08-25); flagging `any` would swamp the
+     census with one idiom.
+   - **`string.format` is not settled by its signature.** tl declares
+     it `function(string, any...): string` (`o/3p/tl/tl.tl:348`) AND
+     registers it as a special function (`set_special_function(…,
+     "string.format")`), so its `%d`/`%s` argument check runs
+     independently of the vararg's `any`. Whether a `T | nil` at a `%d`
+     is flagged is therefore a prototype decision, not a consequence —
+     say which way it went and count it consistently, because
+     `_build/size.tl`'s `%d` arguments turn on it. `tl.lua` is the checker that RUNS and the file
    the binary embeds; `o/3p/tl/tl.tl` beside it is the Teal source
    carried for `_types/gentl.tl`, and editing that one alone changes no
    behaviour (measured at pull 2026-08-25: a `tl.tl`-only edit rebuilds
