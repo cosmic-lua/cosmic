@@ -109,6 +109,27 @@ local function truthy(value: any, label?: string)
   error(msg, 2)
 end
 
+--- Assert that a call refuses arguments its declared signature forbids.
+--- The call is made through `any`, so a test can pass the malformed value
+--- the declared types exist to prevent, and the refusal comes back typed:
+--- one cast here instead of one at every probe and one on every value read
+--- off it. Throws when the call returns a value instead of refusing, or
+--- refuses with an empty message.
+--- @param f any The function to call, whose declared signature forbids these arguments
+--- @param ... any The arguments to call it with
+--- @return string The message the call refused with
+local function refuses(f: any, ...: any): string
+  -- cast: the probe calls past the declared signature, which is the point
+  local call = f as function(...: any): (any, any)
+  local value, err = call(...)
+  local message = tostring(err)
+  if value ~= nil or err == nil or message == "" then
+    error(string.format("refuses: expected a refusal, got (%s, %s)",
+        render(value), render(err)), 2)
+  end
+  return message
+end
+
 --- Assert that a (value, err) pair represents failure.
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
@@ -296,6 +317,7 @@ local record CheckModule
   not_equal: function<T>(actual: T, expected: T, label?: string)
   truthy: function(value: any, label?: string)
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
+  refuses: function(f: any, ...: any): string
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -313,6 +335,7 @@ local M: CheckModule = {
   not_equal = not_equal,
   truthy = truthy,
   must = must,
+  refuses = refuses,
   failed = failed,
   enforcing = enforcing,
   enforce_skip = enforce_skip,

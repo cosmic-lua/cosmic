@@ -106,6 +106,6 @@ local function test_sync_moved_to_fs()
   assert((cfd as {string: any}).sync == nil, "fd.sync should be gone")
   local fs_sync = (fs as {string: any}).sync_all -- cast: probe module surface
   assert(type(fs_sync) == "function", "fs.sync_all should exist");
-  (fs_sync as function())() -- cast: from any
+  (fs_sync as function())() -- cast: probe past the declared surface
 end
 test_sync_moved_to_fs()
