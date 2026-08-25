@@ -176,7 +176,13 @@ which is exact, so it narrows boolean unions the other two deliberately skip —
 the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). The same
 patch makes `assert` narrow as an EXPRESSION, so `local db =
 assert(sqlite.open(p))` is a plain `Database` — the primitive a Lua programmer
-reaches for works, with no cosmic-specific combinator in the way. What
+reaches for works, with no cosmic-specific combinator in the way. An early-exit
+guard narrows below itself whenever its branch cannot fall through, which is more
+than `return`: `break`, `goto`, `error(...)` and `os.exit(...)` all end it. Every arm
+of a disjunctive guard (`if x == nil or x == "" then return end`) is false below it,
+so the nil arm narrows there. `r and r.field` carries the same fact in value
+position, not only inside an `if`. And `x or fallback` is the plain type when the
+fallback cannot be nil — two nil-carrying operands stay a union. What
 still does NOT narrow: record FIELDS (copy the field to a local and guard the
 local). And what the checker never DEMANDS: an unnarrowed `T | nil` passes into a
 non-nil parameter, a declared non-nil local, arithmetic and concatenation —

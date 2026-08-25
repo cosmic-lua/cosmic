@@ -66,7 +66,7 @@ recover it.
 a guard on a plain variable narrows its nil union: truthiness,
 `assert(x)`, `x and x.field`, and `== nil` / `~= nil` all narrow
 `T | nil` for records, maps, arrays and scalars, in the positive branch
-and below a negated early return alike (the carried tl patch,
+and below a negated early exit alike (the carried tl patch,
 `3p/tl/tl_patch.tl`):
 
 ```teal
@@ -102,9 +102,10 @@ if st and st:is_dir() then
 end
 ```
 
-that fact rides the CONDITION: in value position — `tostring(x and
-x.port)` — the left operand is not read in boolean context, so write
-`x ~= nil and x.port` there, which is exact and needs no context.
+that fact rides the whole expression, not just an `if` condition: in
+value position — `local port = x and x.port` — the left operand is read
+for its truthiness too, because when it is falsy the right operand never
+runs.
 
 `assert` also narrows as an EXPRESSION, because it declares that it
 strips the nil — so composing it with a fallible call yields the plain
@@ -136,11 +137,36 @@ if b ~= nil then
 end
 ```
 
-an early-return guard narrows below itself only when its block
-RETURNS: a block that ends in `error(...)` or `os.exit(...)` is
-terminal at runtime, but the checker cannot see that, so the union
-survives it. Write `assert(x, "why")` where the guard would have
-thrown.
+an early-exit guard narrows below itself whenever its block cannot fall
+through, which is more than `return`: `break`, `goto`, `error(...)` and
+`os.exit(...)` all end the branch, so the union does not survive any of
+them:
+
+```teal
+local function next_name(): string | nil
+  return "cosmic"
+end
+
+while true do
+  local name = next_name()
+  if not name then break end
+  print(name:upper()) -- narrowed below the break-terminated guard
+  break
+end
+```
+
+an `or` fallback disposes of the nil the same way, so the result is the
+plain type rather than the union:
+
+```teal
+local fs = require("cosmic.fs")
+
+local text = fs.read("/etc/hostname") or ""
+print(text:upper()) -- string, not string | nil
+```
+
+when BOTH operands can be nil (`first() or second()`), the result stays
+a union — neither one disposes of it.
 
 what does NOT narrow: **record FIELDS**, even scalar ones — copy the
 field to a local and guard the local:
