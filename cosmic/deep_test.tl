@@ -1,15 +1,41 @@
 --- Tests for cosmic.deep.
 local deep = require("cosmic.deep")
 
+-- Fixtures are records so a copy or merge of one is that record: the
+-- generic signatures hand back the type the caller passed in, and the
+-- reads below need no cast. `b` stays `any` because the independence
+-- test overwrites it with a value of another type on purpose.
+local record Nested
+  b: any
+end
+
+local record CopyFixture
+  a: integer
+  nested: Nested
+  self: CopyFixture
+  x: {integer}
+  y: {integer}
+  name: string
+end
+
+local record Limits
+  mem: integer
+  cpu: integer
+end
+
+local record Conf
+  limits: Limits
+end
+
 -- copy
 
 local function test_copy_is_independent()
-  local orig: {string: any} = {a = 1, nested = {b = {2, 3}}}
-  local copy = deep.copy(orig) as {string: any} -- cast: from any
+  local orig: CopyFixture = {a = 1, nested = {b = {2, 3}}}
+  local copy = deep.copy(orig)
   assert(deep.equal(orig, copy), "copy differs from original")
-  local copy_nested = copy.nested as {string: any} -- cast: from any
+  local copy_nested = copy.nested
   copy_nested.b = "mutated"
-  assert(deep.equal((orig.nested as {string: any}).b, {2, 3}), -- cast: from any
+  assert(deep.equal(orig.nested.b, {2, 3}),
     "mutating the copy leaked into the original")
 end
 test_copy_is_independent()
@@ -23,9 +49,9 @@ end
 test_copy_passes_scalars_through()
 
 local function test_copy_preserves_cycles()
-  local orig: {string: any} = {name = "root"}
+  local orig: CopyFixture = {name = "root"}
   orig.self = orig
-  local copy = deep.copy(orig) as {string: any} -- cast: from any
+  local copy = deep.copy(orig)
   assert(copy.self == copy, "cycle not preserved")
   assert(copy ~= orig, "copy is the original")
   assert(copy.name == "root")
@@ -33,9 +59,9 @@ end
 test_copy_preserves_cycles()
 
 local function test_copy_preserves_shared_references()
-  local shared: {number} = {1}
-  local orig: {string: any} = {x = shared, y = shared}
-  local copy = deep.copy(orig) as {string: any} -- cast: from any
+  local shared: {integer} = {1}
+  local orig: CopyFixture = {x = shared, y = shared}
+  local copy = deep.copy(orig)
   assert(copy.x == copy.y, "shared reference duplicated")
   assert(copy.x ~= shared, "shared table not copied")
 end
@@ -44,7 +70,7 @@ test_copy_preserves_shared_references()
 local function test_copy_copies_table_keys()
   local key: {string: string} = {id = "k"}
   local orig: {any: any} = {[key] = "v"}
-  local copy = deep.copy(orig) as {any: any} -- cast: from any
+  local copy = deep.copy(orig)
   assert(copy[key] == nil, "table key was not copied")
   local found = false
   for k, v in pairs(copy) do
@@ -112,22 +138,24 @@ end
 test_merge_recurses_and_overrides()
 
 local function test_merge_override_wins_on_type_conflict()
-  local merged = deep.merge({a = {nested = true}}, {a = "flat"})
+  local nested: {string: any} = {a = {nested = true}}
+  local flat: {string: any} = {a = "flat"}
+  local merged = deep.merge(nested, flat)
   assert(deep.equal(merged, {a = "flat"}))
-  local merged2 = deep.merge({a = "flat"}, {a = {nested = true}})
+  local merged2 = deep.merge(flat, nested)
   assert(deep.equal(merged2, {a = {nested = true}}))
 end
 test_merge_override_wins_on_type_conflict()
 
 local function test_merge_mutates_neither_input()
-  local base: {string: any} = {limits = {mem = 64}}
-  local override: {string: any} = {limits = {cpu = 2}}
+  local base: Conf = {limits = {mem = 64}}
+  local override: Conf = {limits = {cpu = 2}}
   local merged = deep.merge(base, override)
   assert(deep.equal(base, {limits = {mem = 64}}), "base mutated")
   assert(deep.equal(override, {limits = {cpu = 2}}), "override mutated")
-  local merged_limits = merged.limits as {string: any} -- cast: from any
+  local merged_limits = merged.limits
   merged_limits.mem = 999
-  assert((base.limits as {string: any}).mem == 64, -- cast: from any
+  assert(base.limits.mem == 64,
     "merge result shares tables with base")
 end
 test_merge_mutates_neither_input()
