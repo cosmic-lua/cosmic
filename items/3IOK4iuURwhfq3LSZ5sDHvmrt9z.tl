@@ -3,6 +3,7 @@ return {
   ["claim"] = "b40d5aa8-3577-5790-bd40-0638632db5a9",
   ["id"] = "3IOK4iuURwhfq3LSZ5sDHvmrt9z",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1372,
   ["title"] = "casts: render the positional-struct annotation gentype degrades to any, and drop the three sigaction casts that no longer narrow",
 }
