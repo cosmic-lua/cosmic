@@ -15,7 +15,7 @@
 --   when absent. cosmic generates the cache in _types/tlast_gen.tl and
 --   thaws it in cosmic/_teal_ast.tl.
 --
--- Four edits teach the checker that a nil union narrows through the
+-- Five edits teach the checker that a nil union narrows through the
 -- guards Lua programmers actually write:
 --
 -- - narrow-assert-decl (+ its -tl-tl twin): `assert` DECLARES that it
