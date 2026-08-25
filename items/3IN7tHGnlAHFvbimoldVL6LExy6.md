@@ -43,3 +43,19 @@ Rewrite `_work/guidance.tl`'s `land` sentence to name the two hands —
 squash-merge the PR, then `land ID` reads the merge and ends the item.
 Worth checking whether a test can hold the two texts together, since
 nothing caught the drift when #1336 landed.
+
+## Second occurrence
+
+Hit again on 2026-08-25 landing item 3IODJMFv (PR whilp/cosmic#1369),
+by a different session. `next` printed the same sentence and `land`
+refused with the same text:
+
+```
+gitboard-land: REFUSED: PR #1369 is not merged — `land` ends an item
+whose merge is done, it does not merge. Squash-merge PR #1369, then
+re-run `gitboard land 3IODJMFv`, which reads the merge and ends the
+item.
+```
+
+Two landings, two wasted loops, no session-specific cause: the cost is
+one refusal per landing for as long as the sentence stands.
