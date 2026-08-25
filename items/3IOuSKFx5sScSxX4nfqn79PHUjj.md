@@ -49,3 +49,24 @@ deliberately NOT claimed by either sibling — closing it restructures an
 The residue this item ends up owning is therefore 12 sites, not 17,
 once both siblings land. Re-measure with the same command before
 committing to the number.
+
+**Decomposed 2026-08-25**, re-measured against `47adef2c`. The residue is
+12 sites once the two `3IOuS3IE` children take theirs, and it splits by
+what a session needs in order to decide, not by what the value is:
+
+- **`3IQRDRwW`** — the six that are decidable from a read: `cosmic/_teal_engine.tl:248`
+  (`is TlResult` after a `pcall`), `cmd/cosmic/main.tl:480,482` (capture
+  `xpcall`'s two values instead of packing them into `{any}` — the file is
+  exactly at the 500-line cap, so the change must shrink it), and
+  `cosmic/_seal_coverage.tl:21,22,26` (one local `CoverageModule` record
+  and one `is` guard behind the deliberate `package.loaded` read). Written
+  to the ready bar.
+- **`3IQREPC5`** — the rest, whose closure turns on a question a read
+  cannot answer: whether Teal's `is` narrows to a function TYPE (which
+  decides `cosmic/coverage/init.tl:93,124` and `_tool/benchmark.tl:182`
+  between a guard and a truer-reason rewrite), which of
+  `cosmic/coverage/init.tl`'s six casts are the C-binding boundary class
+  that closes in whilp/cosmopolitan, whether `rand.choice` should be
+  generic, and `_perf/run.tl:132`'s `or`-chain rewrite. Refining it needs
+  a built tree; that is the whole reason it is cut away from `3IQRDRwW`,
+  which does not.
