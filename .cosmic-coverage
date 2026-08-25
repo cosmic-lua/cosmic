@@ -128,6 +128,7 @@ return {
   ["_types/gentype.tl"] = {["covered"] = 250, ["total"] = 305},
   ["_types/gentype_defs.tl"] = {["covered"] = 17, ["total"] = 23},
   ["_types/gentype_extract.tl"] = {["covered"] = 59, ["total"] = 59},
+  ["_types/gentype_inline.tl"] = {["covered"] = 23, ["total"] = 24},
   ["_types/gentype_parse.tl"] = {["covered"] = 255, ["total"] = 288},
   ["_types/gentype_render.tl"] = {["covered"] = 295, ["total"] = 311},
   ["_types/gentype_types.tl"] = {["covered"] = 2, ["total"] = 2},

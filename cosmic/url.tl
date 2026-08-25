@@ -61,7 +61,7 @@ end
 --- @param query string The query string (without leading ?)
 --- @return {string:{string}} Decoded keys, each with all its values in order
 local function parse_query(query: string): {string: {string}}
-  local pairs_list = cosmo.ParseParams(query) as {{string}} -- cast: from any
+  local pairs_list = cosmo.ParseParams(query)
   local result: {string: {string}} = {}
   for _, pair in ipairs(pairs_list) do
     local key = pair[1]
@@ -201,7 +201,7 @@ end
 local function format(u: Url): string
   local params: {{string}} = nil
   if u.query then
-    params = cosmo.ParseParams(u.query) as {{string}} -- cast: from any
+    params = cosmo.ParseParams(u.query)
   end
   local out = cosmo.EncodeUrl({
       scheme = u.scheme,

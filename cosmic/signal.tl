@@ -255,11 +255,7 @@ local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Si
     -- arrives in the second slot.
     return nil, errstr(prev_flags, "sigaction")
   end
-  -- The binding returns an untyped triple; type each slot on its way in.
-  local phandler = prev as (function | integer) -- cast: from any
-  local pflags = prev_flags as integer -- cast: from any
-  local pmask = prev_mask as Sigset -- cast: from any
-  return {handler = phandler, flags = pflags, mask = pmask}
+  return {handler = prev, flags = prev_flags, mask = prev_mask}
 end
 
 --- Modify the process signal mask.
