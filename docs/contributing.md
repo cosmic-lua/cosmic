@@ -98,7 +98,8 @@ functions named `Example_*` are discovered and run by `cosmic --check example`. 
 
 ## Error Handling Rules
 
-see `AGENTS.md` for the complete guide. key rules:
+the rules every module follows (the worked doctrine, with runnable
+examples, is [stdlib.md](stdlib.md) and `cosmic --examples errors`):
 
 - return `value, string` for fallible operations
 - never throw exceptions from library code
