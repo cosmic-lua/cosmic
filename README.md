@@ -42,6 +42,7 @@ High-level utilities and tools built on top of cosmo.
 | [re](cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [init](cosmic/sandbox/init.md) |  One-call, fail-closed in-process sandbox: the one door. |
 | [searcher](cosmic/searcher.md) |  The cosmic-owned runtime `.tl` package searcher, replacing tl.loader(). |
+| [shape](cosmic/shape.md) |  Validate a decoded value into a declared record. |
 | [shm](cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](cosmic/signal.md) |  Signal handling utilities. |
 | [init](cosmic/sqlite/init.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
