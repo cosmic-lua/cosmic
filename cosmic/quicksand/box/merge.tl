@@ -118,7 +118,6 @@ end
 --- The last argument wins scalar conflicts; list fields concat and
 --- de-duplicate; map fields merge per key. Returns a fresh table.
 ---
----
 --- The walk underneath is schema-driven and deliberately dynamic --
 --- unknown keys merge as scalars -- so it runs over `{string: any}`.
 --- Teal refuses both halves of that bridge on its own: `pairs` over a

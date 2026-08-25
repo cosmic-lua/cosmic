@@ -155,3 +155,16 @@ local function test_proc_keep_caps_merges_as_list()
     and caps[3] == "CAP_SETUID", "order+dedupe wrong for keep_caps")
 end
 test_proc_keep_caps_merges_as_list()
+
+local function test_unknown_key_merges_as_scalar()
+  -- Unknown keys merge as scalars, which is what makes a new policy
+  -- field forward-compatible. BoxOptions cannot spell one, so the
+  -- rule is reachable only the way an untyped caller reaches it.
+  local a: {string: any} = {future_knob = "a"}
+  local b: {string: any} = {future_knob = "b"}
+  -- cast: forward-compat key BoxOptions does not declare
+  local out = m.merge(a as types.BoxOptions, b as types.BoxOptions)
+  local view = out as {string: any} -- cast: record inspected as map
+  assert(view.future_knob == "b", "got: " .. tostring(view.future_knob))
+end
+test_unknown_key_merges_as_scalar()
