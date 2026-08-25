@@ -227,6 +227,7 @@ return {
   ["cosmic/sandbox/pledge.tl"] = {["covered"] = 24, ["total"] = 35},
   ["cosmic/sandbox/unveil.tl"] = {["covered"] = 22, ["total"] = 39},
   ["cosmic/searcher.tl"] = {["covered"] = 20, ["total"] = 29},
+  ["cosmic/shape.tl"] = {["covered"] = 100, ["total"] = 106},
   ["cosmic/shm.tl"] = {["covered"] = 126, ["total"] = 140},
   ["cosmic/signal.tl"] = {["covered"] = 101, ["total"] = 109},
   ["cosmic/sqlite/bind.tl"] = {["covered"] = 41, ["total"] = 44},
