@@ -5,7 +5,10 @@ five files each re-implement, and the six `from any` casts that pays for.
 
 ## Change
 Give `cosmic/init.tl` one typed lookup, export it on the `cosmic`
-record, and make the other four sites call it. Six files move.
+record, and make three of the four other sites call it; the fourth
+(`_cli/main_handlers.tl`) closes its cast with the same `is` mechanism
+against a locally declared record, because the bootstrap will not let
+it reach the new export. Seven files move.
 
 **1. `cosmic/init.tl`** — replace the body of the existing private
 `version()` helper's lookup with an exported one. `VersionInfo` is
@@ -64,22 +67,18 @@ and `version_info = version_info,` in `M`.
 **2–5. The four callers** each drop their private `pcall(require, …)`
 and read the record.
 
-- `_cli/main_handlers.tl` (`handle_version`, today `:56–70`): the body
-  becomes `local v = require("cosmic").version_info()`, the same
-  `io.write` on the `v` branch, the same `_VERSION` fallback on the
-  `else`. Its inner `local record VersionInfo … end` declaration goes
-  with the cast. **The require goes INSIDE `handle_version`, not in the
-  file's top-level require block** — this file is on the boot surface
-  (`_make/stamp.tl`'s `BOOT_MODULES`), so a top-level require makes
-  every spawned cosmic load `cosmic/init.tl` and, through it, the
-  generated `cosmic._version`, on a path nothing else at boot needs.
-  `_make/stamp_test.tl`'s `test_boot_list_covers_a_live_child` fails
-  loudly if you do (`cosmic is loaded at boot but missing from
-  BOOT_MODULES; add it in _make/stamp.tl or every stamp
-  under-approximates`) — the answer is the lazy require, not an entry
-  in `BOOT_MODULES`. Carry the reason as a comment on the line, in the
-  wording above; the file already requires `cosmic.fs` inside
-  `write_output` the same way.
+- `_cli/main_handlers.tl` (`handle_version`, today `:56–70`) is the
+  ONE site that does NOT call `cosmic.version_info()`. **`_cli/**` may
+  only use the `cosmic` surface the PINNED release already embeds** —
+  see the bootstrap paragraph below — so this file closes its cast with
+  the same mechanism, locally: hoist its `local record VersionInfo …
+  end` out of the `if` to file scope with the doc comment saying why it
+  is declared here, keep the `local mod = "cosmic._version"` /
+  `pcall(require, mod)` pair, and replace `local v = ver as VersionInfo`
+  with the guard `if ok and ver is VersionInfo then`, reading
+  `ver.cosmic`/`ver.cosmos` in the branch. Same `_VERSION` fallback on
+  the `else`. The cast closes; the record is four lines duplicated on
+  purpose.
 - `cosmic/_script_cache.tl` (`build_id`, today `:90–97`): `local ver =
   cosmic.version_info()`, then `if ver then local stamp = ver.cosmic`
   and the unchanged `stamp ~= "" and stamp ~= "unknown"` test. Here the
@@ -98,7 +97,8 @@ and read the record.
 `require("cosmic")` is the package initializer, not a shard, so
 `_cli/lint.tl`'s `visibility` rule does not fire on it (it matches
 `require("cosmic%.…")` only) — which is what makes one helper reachable
-from all five files without publishing a new `cosmic.<name>` module.
+from `_eval/` and `_perf/` without publishing a new `cosmic.<name>`
+module.
 
 **6. A test for the new export.** Add to `cosmic/cosmic_test.tl`,
 beside the existing `test_require_cosmic`:
@@ -123,6 +123,24 @@ test_cosmic_version_info()
 command the gate's failure message prints; no gate is weakened any
 other way. If the coverage ratchet also complains, run the regen
 command *that* gate prints and commit its result — nothing else.
+
+**The bootstrap constraint, which is why `_cli/` is different.** A cold
+`--make build` runs the generators under `o/bootstrap/cosmic`, derived
+from the PINNED release, and that binary loads the tree's `_cli/**`
+FROM SOURCE as its own dispatcher while resolving `cosmic` from its
+embedded `/zip/.tl` copy. So a tree `_cli/**` file that names a
+`cosmic` API the pinned release does not carry fails the build before
+anything else runs — `error loading module '_cli.main_handlers' …
+error: invalid key 'version_info' in type record cosmic`, at
+`generate _types/tlast_gen.tl`. It is the same rule
+`_cli/visibility.tl` states for `*_gen.tl` ("a generator runs under the
+CURRENT binary before the tree rebuilds, so it may only use the surface
+that binary already embeds"), and it applies to the dispatcher too. An
+incremental local build does NOT show it: the generate step is skipped
+when its outputs are current, so reproduce with `--make clean` then a
+full `fetch` + `build`, which is what CI does. `_eval/`, `_perf/` and
+`cosmic/_script_cache.tl` are not loaded on that path and are free to
+call the new export.
 
 **Build before you check.** The checker resolves `require("cosmic")`
 through `/zip/.tl` — the source embedded in the RUNNING binary — before
@@ -167,7 +185,7 @@ and only `cosmic/init.tl` grows (`wc -l`):
 | --- | --- | --- |
 | `cosmic/init.tl` | 74 | 96 |
 | `cosmic/_script_cache.tl` | 235 | 235 |
-| `_cli/main_handlers.tl` | 421 | 418 |
+| `_cli/main_handlers.tl` | 421 | 429 |
 | `_eval/stage.tl` | 408 | 403 |
 | `_perf/run.tl` | 394 | 392 |
 
@@ -220,10 +238,13 @@ reachable from all five only if it is public. The three candidates:
   `_build/public_surface.tl`.** The visibility rule is the constraint
   this slice designed around, not something to adjust.
 - **`_make/stamp.tl`'s `BOOT_MODULES` does not move.** The boot surface
-  is unchanged because the one boot-surface caller requires lazily; do
-  not add `cosmic` or `cosmic._version` to that list to make a
-  top-level require pass. `git diff origin/main -- _make/stamp.tl` must
-  be empty.
+  is unchanged because `_cli/main_handlers.tl` requires no new module;
+  do not add `cosmic` or `cosmic._version` to that list. `git diff
+  origin/main -- _make/stamp.tl` must be empty.
+- **Do not make `_cli/main_handlers.tl` call `cosmic.version_info()`.**
+  It cannot until a release carrying the export is pinned — the
+  bootstrap constraint above — and reaching for it turns a green tree
+  into a build that fails before the gates run.
 - **The other two closures under `3IOK4SZH` are not this slice.** Leave
   every other `-- cast: from any` in the tree alone — 105 lines carry
   that reason today (`git ls-files '*.tl' | xargs grep -h -- "-- cast: "
@@ -235,6 +256,12 @@ reachable from all five only if it is public. The three candidates:
 
 ## Acceptance
 - `bin/cosmic --make ci` ends `ci: PASS`.
+- **From a cold tree** — `bin/cosmic --make clean`, then `bin/cosmic
+  --make fetch`, then `bin/cosmic --make build` — the build ends
+  `build: PASS`. This is the check a warm `--make ci` cannot make: the
+  bootstrap runs the generators against the tree's `_cli/**`, and a
+  `_cli/` file reaching for a `cosmic` API the pin does not carry fails
+  here and nowhere else.
 - `grep -c -- "-- cast: .*from any" _cli/main_handlers.tl _eval/stage.tl
   cosmic/_script_cache.tl cosmic/init.tl` prints `0` for each of the
   four (they print `1`, `1`, `1`, `2` today).
@@ -265,17 +292,27 @@ reachable from all five only if it is public. The three candidates:
 ## Enablement
 none needed. The mechanism is a Teal record plus `is` dispatch over
 `any`, both stated in AGENTS.md and already carried by this tree, and
-the cast floor's regen command is printed by the gate that fails. The
-one non-obvious fact — that the checker resolves `require("cosmic")`
-from the running binary's embedded source before the working tree, so
-`--check types` must follow a build — is written into `Change` above.
-The whole shape was applied and gated during this refinement pass:
-`--check types` clean on all five files, `_make/stamp_test.tl` and
-`cosmic/cosmic_test.tl` green, and `bin/cosmic --make ci` ending
-`ci: PASS (5 stages)` — `fmt: PASS (527 files)`, `check: PASS (527
-files)`, `example: PASS (34 files)`, `lint: PASS (624 files)`,
-`coverage: PASS (239 files)` with `coverage ratchet ok` and no edit to
-`.cosmic-coverage` — with the cast floor regenerated. The two traps
-that pass found (the boot-surface require and the checker resolving
-`require("cosmic")` from the running binary) are written into `Change`
-rather than left for the implementing session to rediscover.
+the cast floor's regen command is printed by the gate that fails.
+
+Three traps were found by applying and gating this shape rather than
+reasoning about it, and all three are written into `Change` above so
+the implementing session does not rediscover them: the checker
+resolving `require("cosmic")` from the running binary's embedded source
+before the working tree; the boot-surface require that grows
+`BOOT_MODULES`; and the bootstrap constraint that keeps `_cli/**` off
+the new export until a release carrying it is pinned. The last one is
+the wrong turn this spec's first draft made — it told the builder to
+call `cosmic.version_info()` from `_cli/main_handlers.tl`, which fails
+a COLD build before any gate runs, and no incremental local build
+shows it. That is a ready-bar failure of this spec, corrected here
+rather than pushed onto enablement: the general lesson (a `--make ci`
+on a warm tree is not a cold build) belongs to whoever measures the
+gate's coverage, and `3IHCLqVw` already holds that question.
+
+Gated with the corrected shape: `--make clean` then a full `fetch` +
+`build` reaching `build: PASS (525 files, 1 binary)` — the cold path
+CI takes — and `bin/cosmic --make ci` ending `ci: PASS (5 stages)`:
+`fmt: PASS (527 files)`, `check: PASS (527 files)`, `example: PASS (34
+files)`, `lint: PASS (624 files)`, `coverage: PASS (239 files)` with
+`coverage ratchet ok` and no edit to `.cosmic-coverage`, with the cast
+floor regenerated.
