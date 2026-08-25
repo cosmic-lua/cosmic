@@ -34,6 +34,7 @@ local record cosmic
   _VERSION: string
   _DESCRIPTION: string
   main: function(fn: function(args: {string}, env: Env): number, string)
+  version_info: function(): VersionInfo | nil
 end
 ```
 
@@ -63,3 +64,22 @@ function main(fn: function(args: {string}, env: Env): number, string)
 **Parameters:**
 
 - `fn` (function) - The main function to execute
+
+### version_info
+
+```teal
+function version_info(): VersionInfo | nil
+```
+
+ The build-injected version stamps, or nil outside a packed binary.
+ `cosmic._version` is generated at build time and embedded in the
+ artifact, so it does not exist in the tree and the checker cannot
+ resolve it: the module name is a local rather than a literal
+ argument, and this function is the one place in the repo that pays
+ for that dynamism. `is` narrows the pcall result to the declared
+ record with a table test, so every caller reads typed fields
+ instead of casting a value out of `any`.
+
+**Returns:**
+
+- VersionInfo|nil - The embedded stamps, or nil when there are none
