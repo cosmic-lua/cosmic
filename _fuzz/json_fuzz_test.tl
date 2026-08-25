@@ -21,16 +21,11 @@ local MAX_TABLE_LEN = 4
 --- The longest arbitrary input the totality property decodes.
 local MAX_INPUT_LEN = 512
 
--- Two domain bounds below are deliberate, not laziness:
---
--- 1. floats are bounded below 2^53 because the C encoder serializes a
---    float in ~[1e17, 2^63) to an integer-shaped token the decoder
---    integer-parses -- a real defect, filed as whilp/cosmopolitan#265;
---    when its fix arrives via a cosmos pin bump, this bound comes off.
--- 2. strings stay ASCII because a byte above 0x7f encodes as \u00xx and
---    decodes as that codepoint's two-byte UTF-8 form -- JSON strings
---    carry text, not arbitrary bytes; callers with binary use
---    cosmic.codec first. This is the module's contract, not a defect.
+-- One domain bound below is deliberate, not laziness: strings stay ASCII
+-- because a byte above 0x7f encodes as \u00xx and decodes as that
+-- codepoint's two-byte UTF-8 form -- JSON strings carry text, not
+-- arbitrary bytes; callers with binary use cosmic.codec first. This is
+-- the module's contract, not a defect.
 local STRING_ALPHABET = "abcXYZ019 _-{}[]:,\0\"\\/\t\n\r\1\31\127"
 
 --- Draw one character from the alphabet.
@@ -52,14 +47,18 @@ local function random_string(src: source.Recorder): string
   return table.concat(out)
 end
 
---- Draw a finite float, spread across magnitudes but kept below 2^53
---- (see the domain-bounds comment above). NaN and infinity stay out of
---- the generator: encode rejects them by contract, so they belong to
---- the mutation property rather than the round trip.
+--- Draw a finite float, spread across the whole finite double range. An
+--- integral float far above 2^53 is deliberately in the domain: the
+--- encoder always writes a float with a `.` or an exponent, so the
+--- decoder takes its double path and the value AND its float-ness come
+--- back. A mantissa below 1 keeps the product finite at both ends. NaN
+--- and infinity stay out of the generator: encode rejects them by
+--- contract, so they belong to the mutation property rather than the
+--- round trip.
 --- @param src source.Recorder The source to draw from
---- @return number A finite float with |v| < 2^53
+--- @return number A finite float
 local function random_float(src: source.Recorder): number
-  return (src:float() * 2.0 - 1.0) * 10.0 ^ src:int(-30, 15)
+  return (src:float() * 2.0 - 1.0) * 10.0 ^ src:int(-300, 300)
 end
 
 --- Draw a random JSON-representable value. depth is the level being
@@ -139,6 +138,34 @@ local function test_decode_totality()
 end
 test_decode_totality()
 
+--- Compare two values for numeric TYPE, which deep.equal cannot see:
+--- 5.0 equals 5 in Lua, so a decoder that handed back an integer where a
+--- float was encoded would pass the value comparison silently. Walks the
+--- two in parallel over the expected side's keys; deep.equal has already
+--- established that the shapes agree.
+--- @param decoded any The value decode returned
+--- @param expected any The value it was encoded from
+--- @return boolean Whether every number matches in math.type
+--- @return string Which pair did not
+local function number_types_match(decoded: any, expected: any): boolean, string
+  if expected is number and decoded is number then
+    local want, got = math.type(expected), math.type(decoded)
+    if want ~= got then
+      return false, "decoded a " .. tostring(want) .. " as a " .. tostring(got)
+    end
+    return true
+  end
+  if expected is {any: any} and decoded is {any: any} then
+    for key, value in pairs(expected) do
+      local ok, why = number_types_match(decoded[key], value)
+      if not ok then
+        return false, why
+      end
+    end
+  end
+  return true
+end
+
 local function test_round_trip()
   local ok, msg = driver.run({
       name = "round_trip",
@@ -152,6 +179,10 @@ local function test_round_trip()
         if not deep.equal(decoded, expected) then
           local shown = json.encode(decoded)
           return false, "decoded value differs: " .. tostring(shown)
+        end
+        local same, why = number_types_match(decoded, expected)
+        if not same then
+          return false, "decoded number type differs: " .. why
         end
         return true
       end,
