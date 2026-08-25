@@ -30,9 +30,9 @@
 
 ```teal
 local record DeepModule
-  copy: function(value: any): any
+  copy: function<T>(value: T): T
   equal: function(a: any, b: any): boolean
-  merge: function(base: {any: any}, override: {any: any}): {any: any}
+  merge: function<T>(base: T, override: T): T
 end
 ```
 
@@ -41,21 +41,22 @@ end
 ### copy
 
 ```teal
-function copy(value: any): any
+function copy(value: T): T
 ```
 
  Deep-copy a value. Tables are copied recursively (keys included);
  shared references and cycles in the input are preserved in the
  copy. Metatables are not copied: the result is plain tables.
- Non-table values are returned as-is.
+ Non-table values are returned as-is. The copy is the type it was
+ given: the walk underneath is dynamic, but a copy of a T is a T.
 
 **Parameters:**
 
-- `value` (any) - The value to copy
+- `value` (T) - The value to copy
 
 **Returns:**
 
-- any - A copy sharing no tables with the input
+- T - A copy sharing no tables with the input
 
 ### equal
 
@@ -80,7 +81,7 @@ function equal(a: any, b: any): boolean
 ### merge
 
 ```teal
-function merge(base: {any: any}, override: {any: any}): {any: any}
+function merge(base: T, override: T): T
 ```
 
  Recursively merge two tables into a new one. Where both sides
@@ -89,12 +90,13 @@ function merge(base: {any: any}, override: {any: any}): {any: any}
  either. Array-like tables merge by index like any other key: an
  override list replaces base elements position by position but does
  not truncate a longer base list.
+ Both sides and the result are one type: merging two Ts yields a T.
 
 **Parameters:**
 
-- `base` ({any:any}) - The base table (defaults)
-- `override` ({any:any}) - The overriding table (wins on conflict)
+- `base` (T) - The base table (defaults)
+- `override` (T) - The overriding table (wins on conflict)
 
 **Returns:**
 
-- {any:any} - A new deeply-merged table
+- T - A new deeply-merged table
