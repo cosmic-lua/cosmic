@@ -116,10 +116,9 @@ local function test_merge_reexported()
   local a = {fs = {ro = {"/usr"}}}
   local b = {fs = {ro = {"/etc"}, rw = {"/tmp"}}}
   local out = Box.merge(a, b)
-  local fs = (out as {string: any}).fs as {string: any} -- cast: record inspected as map
-  local ro = fs.ro as {string} -- cast: from any
+  local ro = out.fs.ro
   assert(#ro == 2 and ro[1] == "/usr" and ro[2] == "/etc")
-  assert((fs.rw as {string})[1] == "/tmp") -- cast: from any
+  assert(out.fs.rw[1] == "/tmp")
 end
 test_merge_reexported()
 
