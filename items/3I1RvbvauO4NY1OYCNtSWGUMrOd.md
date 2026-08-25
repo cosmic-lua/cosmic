@@ -129,3 +129,16 @@ and frees the test-file headroom) — mirrored in `blocked_by`.
 none needed — the decision is recorded above with its rejected
 alternatives; the guard reuses `lowered()` rather than new counting;
 the file-headroom dependency is carried in `blocked_by`.
+
+**3. A frozen zero row in the live floor, found in the field
+(2026-08-25, main a0c4ebd).** The committed `.cosmic-coverage` carries
+`cosmic/fetch/init.tl = 0/139` while the same tests measure the file
+at 96.1% (146/152): `o/bin/cosmic --make coverage cosmic/fetch` then
+`o/bin/cosmic --coverage-report o/.coverage cosmic/fetch` prints
+`cosmic/fetch/init.tl 96.1% 146/152`. The fetch tests fully exercise
+the module against forked loopback servers, so the row was frozen at
+zero by some earlier partial run and the decline-only ratchet has
+been decorative for this file ever since — the exact
+can-never-raise-a-row-back failure this item names. A fix should
+also sweep the floor for other zero rows that measure non-zero
+today.
