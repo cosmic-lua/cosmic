@@ -424,3 +424,34 @@ local function test_enforced_never_throws()
     end)
 end
 test_enforced_never_throws()
+
+-- refuses: one untyped call, a typed message back
+
+local function test_refuses_returns_the_refusal_message()
+  local function probe(_cwd: string): string | nil, string
+    return nil, "cwd must be a string"
+  end
+  local msg = check.refuses(probe, 42)
+  assert(msg == "cwd must be a string", "got: " .. msg)
+end
+test_refuses_returns_the_refusal_message()
+
+local function test_refuses_throws_when_the_call_succeeds()
+  local function probe(_cwd: string): string | nil, string
+    return "accepted", ""
+  end
+  local threw, msg = must_fail(function(): string check.refuses(probe, 42) return "" end)
+  assert(threw, "refuses must throw when the call returns a value")
+  assert(msg:find("expected a refusal", 1, true), "got: " .. msg)
+end
+test_refuses_throws_when_the_call_succeeds()
+
+local function test_refuses_throws_on_an_empty_message()
+  local function probe(_cwd: string): string | nil, string
+    return nil, ""
+  end
+  local threw, msg = must_fail(function(): string check.refuses(probe, 42) return "" end)
+  assert(threw, "refuses must throw on an empty refusal message")
+  assert(msg:find("expected a refusal", 1, true), "got: " .. msg)
+end
+test_refuses_throws_on_an_empty_message()

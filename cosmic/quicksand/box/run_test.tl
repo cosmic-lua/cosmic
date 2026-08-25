@@ -108,11 +108,9 @@ test_run_survives_eintr_during_wait()
 -- cosmic.sandbox's validator, so it never surfaces post-fork as an
 -- opaque exit 126.
 local function test_bogus_sys_promise_rejected_at_new()
-  local new_any = quicksand.new as function(any): any, any -- cast: deliberate invalid input
-  local j, err = new_any({sys = {promises = "stdio bogus_promise"}})
-  assert(j == nil, "bogus promise must be rejected at new()")
-  assert(err and (err as string):find("bogus_promise", 1, true), -- cast: from any
-    "error should name the bad promise: " .. tostring(err))
+  local err = check.refuses(quicksand.new, {sys = {promises = "stdio bogus_promise"}})
+  assert(err:find("bogus_promise", 1, true),
+    "error should name the bad promise: " .. err)
 end
 test_bogus_sys_promise_rejected_at_new()
 

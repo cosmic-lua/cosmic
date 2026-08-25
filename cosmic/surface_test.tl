@@ -95,7 +95,7 @@ local function test_directory_module_entry_points()
   end
   -- doc is the embedded-index query surface; the extraction half
   -- lives in `_tool.doc`.
-  local doc = require("cosmic.doc") as {string: any} -- cast: from any
+  local doc = require("cosmic.doc")
   assert(type(doc["query"]) == "function", "cosmic.doc must expose query()")
   assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")
 end
@@ -129,7 +129,7 @@ local function test_index_visibility_agrees_with_the_rule()
   local idx = check.must(docs.embedded_index())
   for name, mod in pairs(idx.modules) do
     if not (name == "cosmo" or name:match("^cosmo%.")) then
-      local marked_internal = (mod as {string: any}).internal == true -- cast: from any
+      local marked_internal = mod.internal == true
       assert(marked_internal ~= visibility.is_public(name),
         "index and visibility.is_public disagree about " .. name)
     end

@@ -30,10 +30,16 @@ local function test_new_with_opts()
 end
 test_new_with_opts()
 
+-- Raw tables, so the cases can carry the deliberately malformed opts the
+-- declared BoxOptions forbids; check.refuses makes the call past that
+-- signature and hands the refusal back typed.
+local record Case
+  opts: {string: any}
+  want: string
+end
+
 local function test_new_rejects_bad_types()
-  -- Escape to raw tables so we can construct deliberately malformed opts.
-  local new_any = Box.new as function(any): any, any -- cast: deliberate invalid input
-  local cases: {{string: any}} = {
+  local cases: {Case} = {
     {opts = {cwd = 5}, want = "cwd"},
     {opts = {hostname = {}}, want = "hostname"},
     {opts = {proc = {uid = "x"}}, want = "proc.uid"},
@@ -43,26 +49,21 @@ local function test_new_rejects_bad_types()
     {opts = {fs = {ro = "x"}}, want = "fs.ro"},
   }
   for _, c in ipairs(cases) do
-    local j, err = new_any(c.opts)
-    assert(j == nil, "expected rejection for " .. (c.want as string)) -- cast: from any
-    assert(err and (err as string):find(c.want as string, 1, true), -- cast: from any
-      -- cast: from any
-      "expected error to mention '" .. (c.want as string) .. "', got: " .. tostring(err))
+    local err = check.refuses(Box.new, c.opts)
+    assert(err:find(c.want, 1, true),
+      "expected error to mention '" .. c.want .. "', got: " .. err)
   end
 end
 test_new_rejects_bad_types()
 
 local function test_run_requires_argv()
   local j = check.must(Box.new())
-  local run_any = j.run as function(any, any): any, any -- cast: deliberate invalid input
-  local code, err = run_any(j, nil)
-  assert(code == nil)
-  -- cast: from any
-  assert(err and (err as string):find("argv", 1, true), "got: " .. tostring(err))
+  local err = check.refuses(j.run, j, nil)
+  assert(err:find("argv", 1, true), "got: " .. err)
 
-  code, err = j:run({})
+  local code, err2 = j:run({})
   assert(code == nil)
-  assert(err and (err as string):find("argv", 1, true)) -- cast: from any
+  assert(err2 and err2:find("argv", 1, true), "got: " .. tostring(err2))
 end
 test_run_requires_argv()
 
@@ -126,14 +127,12 @@ test_merge_reexported()
 -- deny list never did anything. Passing one must fail loudly at new()
 -- (not be silently ignored) so old policies get a migration message.
 local function test_fs_deny_rejected_at_new()
-  local new_any = Box.new as function(any): any, any -- cast: deliberate invalid input
-  local j, err = new_any({fs = {deny = {"/proc"}}})
-  assert(j == nil, "fs.deny must be rejected at new()")
-  assert(err and (err as string):find("deny", 1, true), -- cast: from any
-    "error should name the removed deny knob: " .. tostring(err))
+  local err = check.refuses(Box.new, {fs = {deny = {"/proc"}}})
+  assert(err:find("deny", 1, true),
+    "error should name the removed deny knob: " .. err)
   -- ...even next to a valid allowlist.
-  local j2, err2 = new_any({fs = {ro = {"/usr"}, deny = {"/proc"}}})
-  assert(j2 == nil and err2 and (err2 as string):find("deny", 1, true), -- cast: from any
-    "deny next to an allowlist is still rejected: " .. tostring(err2))
+  local err2 = check.refuses(Box.new, {fs = {ro = {"/usr"}, deny = {"/proc"}}})
+  assert(err2:find("deny", 1, true),
+    "deny next to an allowlist is still rejected: " .. err2)
 end
 test_fs_deny_rejected_at_new()

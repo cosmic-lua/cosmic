@@ -59,7 +59,8 @@ local function test_query_to_be_closed_scope()
   local first = rows()
   assert(first and first.name == "a", "should get first row")
   local mt = getmetatable(rows) as {string: any} -- cast: raw metatable access
-  local close_mm = mt["__close"] as function(any, any) -- cast: from any
+  -- cast: probe past the declared surface
+  local close_mm = mt["__close"] as function(any, any)
   assert(close_mm, "Rows must have a __close metamethod")
   close_mm(rows, nil)
   assert(rows() == nil, "__close must release the iterator")
@@ -176,7 +177,8 @@ local function test_statement_rows_to_be_closed_scope()
   -- Exercise the __close metamethod directly (see the db:query tests
   -- above for why this repo's tests don't use `local x <close> = ...`).
   local mt = getmetatable(rows) as {string: any} -- cast: raw metatable access
-  local close_mm = mt["__close"] as function(any, any) -- cast: from any
+  -- cast: probe past the declared surface
+  local close_mm = mt["__close"] as function(any, any)
   assert(close_mm, "Statement:rows() must have a __close metamethod")
   close_mm(rows, nil)
   assert(rows() == nil, "__close must release the iterator")
