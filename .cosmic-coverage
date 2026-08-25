@@ -231,6 +231,7 @@ return {
   ["cosmic/shm.tl"] = {["covered"] = 126, ["total"] = 140},
   ["cosmic/signal.tl"] = {["covered"] = 101, ["total"] = 109},
   ["cosmic/sqlite/bind.tl"] = {["covered"] = 41, ["total"] = 44},
+  ["cosmic/sqlite/column.tl"] = {["covered"] = 31, ["total"] = 33},
   ["cosmic/sqlite/defaults.tl"] = {["covered"] = 15, ["total"] = 17},
   ["cosmic/sqlite/extras.tl"] = {["covered"] = 79, ["total"] = 89},
   ["cosmic/sqlite/init.tl"] = {["covered"] = 144, ["total"] = 163},

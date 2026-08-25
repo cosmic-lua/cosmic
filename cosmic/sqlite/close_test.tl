@@ -126,7 +126,7 @@ local function test_statement_rows_basic_iteration()
   local rows = stmt:rows()
   local names: {string} = {}
   for row in rows do
-    table.insert(names, row.name as string) -- cast: from any
+    table.insert(names, check.must(sqlite.column_text(row, "name")))
   end
   assert(#names == 3, "should get 3 rows")
   assert(names[1] == "Alice" and names[2] == "Bob" and names[3] == "Carol",
