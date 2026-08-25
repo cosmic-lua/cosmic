@@ -108,21 +108,20 @@ local function finish_span(span: Span, exit_code: integer): InstrumentData
     local r = ru
     ut_s, ut_ns = r:utime()
     st_s, st_ns = r:stime()
-    maxrss = math.floor(r:maxrss()) as integer -- cast: number to integer
+    maxrss = math.floor(r:maxrss())
   end
 
   -- wall time delta in ms
   local wall_delta = (wall_s - span.start_wall) * 1000
   + (wall_ns - span.start_wall_ns) / 1000000
-  local wall_ms = math.floor(wall_delta) as integer -- cast: number to integer
+  local wall_ms = math.floor(wall_delta)
 
   -- cpu time delta in ms (utime + stime)
   local utime_delta = (ut_s - span.start_utime_s) * 1000
   + (ut_ns - span.start_utime_ns) / 1000000
   local stime_delta = (st_s - span.start_stime_s) * 1000
   + (st_ns - span.start_stime_ns) / 1000000
-  -- cast: number to integer
-  local cpu_ms = math.floor(utime_delta + stime_delta) as integer
+  local cpu_ms = math.floor(utime_delta + stime_delta)
 
   local data: InstrumentData = {
     op = span.op,
@@ -159,10 +158,10 @@ local function parse_line(line: string): InstrumentData | nil
   return {
     op = fields.decode(op),
     file = fields.decode(file),
-    exit = (tonumber(exit_str) or 0) as integer, -- cast: number to integer
-    wall_ms = (tonumber(wall_str) or 0) as integer, -- cast: number to integer
-    cpu_ms = (tonumber(cpu_str) or 0) as integer, -- cast: number to integer
-    maxrss_kb = (tonumber(maxrss_str) or 0) as integer, -- cast: number to integer
+    exit = (math.tointeger(tonumber(exit_str) or 0) or 0),
+    wall_ms = (math.tointeger(tonumber(wall_str) or 0) or 0),
+    cpu_ms = (math.tointeger(tonumber(cpu_str) or 0) or 0),
+    maxrss_kb = (math.tointeger(tonumber(maxrss_str) or 0) or 0),
   }
 end
 

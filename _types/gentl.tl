@@ -196,8 +196,8 @@ local PRELUDE < const > = [[-- GENERATED into o/_types/types_gen/ by _types/type
 local record tl
   record Error
     filename: string
-    y: number
-    x: number
+    y: integer
+    x: integer
     msg: string
     tag: string -- warning kind: "unknown"|"unused"|"unread"|"redeclaration"|"branch"|"hint"
   end

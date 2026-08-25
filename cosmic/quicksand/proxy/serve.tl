@@ -108,9 +108,9 @@ local function make_logger(opts: ServeModule.ProxyOptions): Logger, string
       table.insert(parts, string.format('{"ts":"%s"', ts()))
       table.insert(parts, string.format(',"event":%q', ev))
       for k, v in pairs(fields) do
-        if v is number then
-          -- cast: number to integer for %d format
-          table.insert(parts, string.format(',%q:%d', k, v as integer))
+        local iv = v is number and math.tointeger(v) or nil
+        if iv then
+          table.insert(parts, string.format(',%q:%d', k, iv))
         else
           table.insert(parts, string.format(',%q:%q', k, tostring(v)))
         end

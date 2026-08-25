@@ -19,6 +19,7 @@ local net = require("cosmic.net")
 local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
 local fd = require("cosmic.fd")
+local fs = require("cosmic.fs")
 
 --- Start a proxy on an ephemeral loopback port with a tiny body cap
 --- and one allowed pass-through host.
@@ -204,3 +205,29 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
     "a blocked upstream should surface as 502, got: " .. resp:sub(1, 40))
 end
 test_allowlist_does_not_bypass_the_ssrf_guard()
+
+-- The JSON log writes a number field with %d, so the value handed to
+-- string.format has to be an integer: a float would raise "number has
+-- no integer representation" mid-request. This pins the integer path
+-- -- an unquoted port in the listen line -- so a later change to the
+-- field formatting cannot quietly turn every number into a string.
+local function test_json_log_writes_an_unquoted_integer_port()
+  local dir = check.must(os.getenv("TEST_TMPDIR"))
+  local path = dir .. "/proxy-json.log"
+  local srv = check.must(serve.new({
+        bind_port = 0,
+        allowed_hosts = {["a.example.com"] = {}},
+        log_level = "info",
+        log_format = "json",
+        log_file = path,
+      }), "serve.new failed")
+  assert(srv.listen(), "listen failed")
+  local line = check.must(fs.read(path))
+  assert(line:find('"event":"listen"', 1, true),
+    "expected a listen event, got: " .. line)
+  assert(line:find('"port":%d'),
+    "port must render as an unquoted integer, got: " .. line)
+  assert(not line:find('"port":"', 1, true),
+    "port must not render as a string, got: " .. line)
+end
+test_json_log_writes_an_unquoted_integer_port()
