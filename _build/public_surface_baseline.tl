@@ -32,6 +32,7 @@ return {
   ["cosmic.re"] = true,
   ["cosmic.sandbox"] = true,
   ["cosmic.searcher"] = true,
+  ["cosmic.shape"] = true,
   ["cosmic.shm"] = true,
   ["cosmic.signal"] = true,
   ["cosmic.sqlite"] = true,

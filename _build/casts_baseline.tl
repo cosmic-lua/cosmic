@@ -99,6 +99,7 @@ return {
   ["cosmic/sandbox/init_test.tl"] = 6,
   ["cosmic/searcher.tl"] = 2,
   ["cosmic/searcher_test.tl"] = 2,
+  ["cosmic/shape.tl"] = 1,
   ["cosmic/shm.tl"] = 2,
   ["cosmic/signal.tl"] = 5,
   ["cosmic/sqlite/advanced_test.tl"] = 2,
