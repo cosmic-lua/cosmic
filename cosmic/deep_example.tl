@@ -6,17 +6,28 @@
 -- nested tables merge recursively, scalars are replaced.
 local function Example_merge()
   local deep = require("cosmic.deep")
-  local defaults: {string: any} = {
+  -- A record fixture is what makes the merge result typed: the generic
+  -- signature hands back the type it was given, so the reads below need
+  -- no cast.
+  local record Limits
+    mem: integer
+    cpu: integer
+  end
+  local record Config
+    host: string
+    limits: Limits
+    debug: boolean
+  end
+  local defaults: Config = {
     host = "localhost",
     limits = {mem = 64, cpu = 1},
   }
-  local overrides: {string: any} = {
+  local overrides: Config = {
     limits = {mem = 128},
     debug = true,
   }
   local config = deep.merge(defaults, overrides)
-  print((config.limits as {string: any}).mem, -- cast: from any
-    (config.limits as {string: any}).cpu, config.debug) -- cast: from any
+  print(config.limits.mem, config.limits.cpu, config.debug)
   -- Output:
   -- 128	1	true
 end
@@ -25,11 +36,17 @@ end
 -- mutating the copy leaves the original untouched.
 local function Example_copy()
   local deep = require("cosmic.deep")
-  local original: {string: any} = {settings = {theme = "dark"}}
-  local copy = deep.copy(original) as {string: any} -- cast: from any
-  local copy_settings = copy.settings as {string: any} -- cast: from any
+  local record Settings
+    theme: string
+  end
+  local record Prefs
+    settings: Settings
+  end
+  local original: Prefs = {settings = {theme = "dark"}}
+  local copy = deep.copy(original)
+  local copy_settings = copy.settings
   copy_settings.theme = "light"
-  print((original.settings as {string: any}).theme) -- cast: from any
+  print(original.settings.theme)
   -- Output:
   -- dark
 end

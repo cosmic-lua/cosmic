@@ -43,11 +43,13 @@ end
 --- Deep-copy a value. Tables are copied recursively (keys included);
 --- shared references and cycles in the input are preserved in the
 --- copy. Metatables are not copied: the result is plain tables.
---- Non-table values are returned as-is.
---- @param value any The value to copy
---- @return any A copy sharing no tables with the input
-local function copy(value: any): any
-  return copy_impl(value, {})
+--- Non-table values are returned as-is. The copy is the type it was
+--- given: the walk underneath is dynamic, but a copy of a T is a T.
+--- @param value T The value to copy
+--- @return T A copy sharing no tables with the input
+local function copy<T>(value: T): T
+  -- cast: copy_impl is the dynamic walk under the generic
+  return copy_impl(value, {}) as T
 end
 
 --- Structural equality. seen maps visited a-tables to the b-table
@@ -110,17 +112,19 @@ end
 --- either. Array-like tables merge by index like any other key: an
 --- override list replaces base elements position by position but does
 --- not truncate a longer base list.
---- @param base {any:any} The base table (defaults)
---- @param override {any:any} The overriding table (wins on conflict)
---- @return {any:any} A new deeply-merged table
-local function merge(base: {any: any}, override: {any: any}): {any: any}
-  return merge_impl(base, override)
+--- Both sides and the result are one type: merging two Ts yields a T.
+--- @param base T The base table (defaults)
+--- @param override T The overriding table (wins on conflict)
+--- @return T A new deeply-merged table
+local function merge<T>(base: T, override: T): T
+  -- cast: records are inspected as maps by the dynamic walk
+  return merge_impl(base as {any: any}, override as {any: any}) as T
 end
 
 local record DeepModule
-  copy: function(value: any): any
+  copy: function<T>(value: T): T
   equal: function(a: any, b: any): boolean
-  merge: function(base: {any: any}, override: {any: any}): {any: any}
+  merge: function<T>(base: T, override: T): T
 end
 
 local M: DeepModule = {
