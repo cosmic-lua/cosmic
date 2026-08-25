@@ -30,3 +30,22 @@ which of the 17 are genuinely irreducible (and so keep a cast with a
 better-than-`from any` reason) and which have a guard available — and to
 check whether `cosmic/rand.tl`'s `choice` should return the element type
 instead, which would take its site out of this class entirely.
+
+**Five of the 17 are now claimed by open siblings** (recorded 2026-08-25,
+when `3IOuS3IE` decomposed). Refinement must re-measure and drop them
+rather than plan them twice:
+
+- `cosmic/sqlite/extras.tl:32,60,102` belong to `3IQQf63I`, which owns the
+  whole file: `:44` is a declaration fix and these three are guard-shaped,
+  and one file is one PR.
+- `_perf/harness_test.tl:16,43` belong to `3IQQeXC3`, together with `:40`;
+  the file's three `from any` casts close as one uniform `is` sweep.
+
+`_perf/run.tl:130` (`rawget(arg, -1) as string`, now `:132`) is
+deliberately NOT claimed by either sibling — closing it restructures an
+`or` chain rather than adding a guard — so it stays this item's, and
+`3IQQeXC3`'s `Non-goals` says so.
+
+The residue this item ends up owning is therefore 12 sites, not 17,
+once both siblings land. Re-measure with the same command before
+committing to the number.
