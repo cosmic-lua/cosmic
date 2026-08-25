@@ -81,13 +81,28 @@ it is never committed:
 
 1. `bin/cosmic --make fetch && bin/cosmic --make build` to land the
    pinned `tl` under `o/3p/tl/` and a working `o/bin/cosmic`.
-2. Edit `o/3p/tl/tl.tl` in place — build output under `o/`, committed
+2. Edit `o/3p/tl/tl.lua` in place — build output under `o/`, committed
    by nothing — so the four admitting positions above report an error
-   instead of passing. Rebuild with `bin/cosmic --make build`. Confirm
-   the prototype works by re-running
-   `o/bin/cosmic --make test cosmic/teal_narrowing_test.tl`, which must
-   now FAIL on `test_nil_union_is_admitted_outside_an_index` and only
-   on it: that failure is the prototype's proof of life.
+   instead of passing. `tl.lua` is the checker that RUNS and the file
+   the binary embeds; `o/3p/tl/tl.tl` beside it is the Teal source
+   carried for `_types/gentl.tl`, and editing that one alone changes no
+   behaviour (measured at pull 2026-08-25: a `tl.tl`-only edit rebuilds
+   and the probe still passes). Rebuild with `bin/cosmic --make build`.
+
+   The rebuild has a bootstrap order the spec cannot leave implicit: a
+   strict `o/bin/cosmic` CANNOT compile this tree, so the strict binary
+   must be built by a lax one. Build once with the pin (`rm -f
+   o/bin/cosmic` forces `bin/cosmic` to reach for it), keep that lax
+   binary aside, and restore it before each strict rebuild.
+
+   Confirm the prototype works by running
+   `TEST_TMPDIR=$T o/bin/cosmic cosmic/teal_narrowing_test.tl`
+   directly — `--make test` re-execs into the strict binary and fails
+   at the build instead — which must now FAIL on
+   `test_nil_union_is_admitted_outside_an_index` and only on it. The
+   file calls each test where it defines it, so proving "only on it"
+   means neutralising that one call in a scratch COPY and seeing the
+   rest pass; never edit the tracked file.
 3. Run the strict binary over every tracked source —
    `git ls-files '*.tl' | xargs o/bin/cosmic --check types` — and
    capture the flagged sites to a scratch file outside the tree.
