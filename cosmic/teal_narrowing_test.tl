@@ -189,27 +189,174 @@ end)
 end
 test_type_eq_function_does_not_narrow()
 
--- The caveat that IS true: a guard whose block ends in `error(...)`
--- rather than `return` does not narrow below itself — the checker
--- cannot see that the block is terminal. Pinned so a future patch
--- cannot quietly flip this back.
-local function test_error_terminated_guard_does_not_narrow()
+-- A guard whose block ends in `error(...)` is terminal, so it narrows
+-- below itself exactly as a `return`-terminated one does.
+local function test_error_terminated_guard_narrows()
   local path = fs.join(tmpdir, "narrow_error_terminated.tl")
   assert(fs.write(path, [[
-local function take_string(s: string): string
-  return s
+local function gs(): string | nil
+  return "s"
 end
-local function f(v: any)
-  if not (v is string) then error("no") end
-  take_string(v)
+local function f(): string
+  local v = gs()
+  if not v then error("no") end
+  return v:upper()
 end
-f("hi")
+print(f())
 ]]))
   local result = teal.check_file(path)
-  assert(not result.ok,
-    "an `is` guard ending in error(...) must not narrow below itself")
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "a guard ending in error(...) must narrow below itself: "
+    .. table.concat(msgs, "; "))
 end
-test_error_terminated_guard_does_not_narrow()
+test_error_terminated_guard_narrows()
+
+-- The other terminators that are not `return`: `break` leaves the loop,
+-- `goto` jumps away, and `os.exit` ends the process. A branch ending in
+-- any of them cannot fall through, so the negated guard narrows after it
+-- — which is how every directory walk in this tree is written.
+local function test_non_return_exits_narrow()
+  local path = fs.join(tmpdir, "narrow_non_return_exits.tl")
+  assert(fs.write(path, [[
+local function gs(): string | nil
+  return "s"
+end
+local function by_break(): integer
+  local n = 0
+  while true do
+    local v = gs()
+    if not v then break end
+    n = n + #v:upper()
+    break
+  end
+  return n
+end
+local function by_goto(): string
+  local out = ""
+  local v = gs()
+  if not v then goto done end
+  out = v:upper()
+  ::done::
+  return out
+end
+local function by_exit(): string
+  local v = gs()
+  if not v then os.exit(1) end
+  return v:upper()
+end
+print(by_break(), by_goto(), by_exit())
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "break, goto and os.exit must terminate a guard's branch: "
+    .. table.concat(msgs, "; "))
+end
+test_non_return_exits_narrow()
+
+-- `x or fallback` cannot be nil when the fallback cannot be, so the
+-- expression drops the nil member rather than taking the left union
+-- whole. Two unions stay a union: neither operand disposes of the nil.
+local function test_or_fallback_drops_nil()
+  local path = fs.join(tmpdir, "narrow_or_fallback.tl")
+  assert(fs.write(path, [[
+local function gs(): string | nil
+  return "s"
+end
+local text = gs() or ""
+print(text:upper())
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "`x or fallback` with a non-nil fallback must not be nil: "
+    .. table.concat(msgs, "; "))
+
+  local both = fs.join(tmpdir, "narrow_or_both_unions.tl")
+  assert(fs.write(both, [[
+local function gs(): string | nil
+  return "s"
+end
+local a = gs() or gs()
+print(a:upper())
+]]))
+  assert(not teal.check_file(both).ok,
+    "`x or y` with both operands nil-carrying must stay a union")
+end
+test_or_fallback_drops_nil()
+
+-- A disjunctive guard distributes: every arm of an `or` is false in the
+-- fall-through branch, so a `== nil` arm narrows there even when the
+-- other arms say nothing about the variable's type.
+local function test_disjunctive_guard_narrows()
+  local path = fs.join(tmpdir, "narrow_disjunctive_guard.tl")
+  assert(fs.write(path, [[
+local function gs(): string | nil
+  return "s"
+end
+local function by_eq(): string
+  local v = gs()
+  if v == nil or v == "" then return "" end
+  return v:upper()
+end
+local function by_truthy(): string
+  local v = gs()
+  if not v or v == "" then return "" end
+  return v:upper()
+end
+print(by_eq(), by_truthy())
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "each arm of an `or` guard is false below it, so the nil arm narrows: "
+    .. table.concat(msgs, "; "))
+end
+test_disjunctive_guard_narrows()
+
+-- The left operand of `and` is read for its truthiness wherever the
+-- expression sits, not only inside an `if`: when it is falsy the right
+-- operand never runs, so the variable is non-nil throughout it.
+local function test_and_operand_narrows_in_value_position()
+  local path = fs.join(tmpdir, "narrow_and_value_position.tl")
+  assert(fs.write(path, [[
+local function gs(): string | nil
+  return "s"
+end
+local function assigned(): string | nil
+  local v = gs()
+  local up = v and v:upper()
+  return up
+end
+local function returned(): string | nil
+  local v = gs()
+  return v and v:upper()
+end
+print(assigned(), returned())
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "`x and x:m()` must narrow x outside a boolean context too: "
+    .. table.concat(msgs, "; "))
+end
+test_and_operand_narrows_in_value_position()
 
 -- The other half of the honest-nil doctrine, and the one the prose used
 -- to get wrong: the checker DEMANDS a guard in exactly one position, an
