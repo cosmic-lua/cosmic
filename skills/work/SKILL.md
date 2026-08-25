@@ -338,11 +338,28 @@ slice and this is the loop:
    the line between them: a claim-time refresh updates FACTS, never
    decisions — if the new number makes you want a different shape,
    that choice is plan's, not yours mid-slice.
-3. implement EXACTLY what the spec says. its `Change` is the scope,
+3. cut the branch this slice lives on: a fresh one off the latest
+   `origin/main`, named after the item's id prefix — the same
+   convention `parallel.md` fixes for a wave. one branch is one PR is
+   one slice. never stack a second slice on a branch that already
+   carries one, and never reuse a branch whose PR is open: both
+   rewrite a diff somebody is reviewing, and neither can be reviewed,
+   reverted or merged as the slice it claims to be.
+
+   **a branch a runner assigns this session names where to START, not
+   a ceiling.** N items pulled in one session is N branches off
+   `main` and N PRs, and the second one needs no permission you have
+   to go and ask for — where a runner's own instructions pin one
+   branch per repo and require explicit permission before another,
+   this paragraph is that permission, standing, for every item the
+   loop hands you. a session that treats the assigned branch as its
+   only branch finishes one slice and then stalls with `next` still
+   offering work.
+4. implement EXACTLY what the spec says. its `Change` is the scope,
    its `Non-goals` are walls, its `Acceptance` commands are the
    definition of done — run them and quote their verdict lines in the
    PR description.
-4. open the PR READY for review, carrying `Board: <id>` in its body
+5. open the PR READY for review, carrying `Board: <id>` in its body
    and the acceptance run in its description — that evidence is what
    you OWE the reviewer, who reads it before reading the diff and
    cannot reconstruct it from the branch. hand it over WITH its
@@ -350,7 +367,7 @@ slice and this is the loop:
    request not yet worth a reviewer's time; read the refusal and fix
    what it names, because anything it catches is something a reviewer
    would otherwise discover instead of reviewing.
-5. stop implementing and rejoin the loop. never merge a PR that has
+6. stop implementing and rejoin the loop. never merge a PR that has
    not been accepted, and never accept your own: the item now carries
    your claim, so `next` will route it elsewhere and
    hand you something else.
@@ -374,9 +391,15 @@ an unparented item holds no phase, so no limit has anything to say.
 then return to the slice: do not refine it, do not fix it in passing,
 do not widen the diff to cover it.
 
-one slice at a time. running SEVERAL sessions at once is a different
-move with its own mechanics — a disjoint set, a checkout per session,
-a brief that carries the spec — and those are `parallel.md`.
+one slice at a time — which bounds what a session has IN FLIGHT, not
+what it may finish. handing a slice to review ends that slice, not
+the session: rejoin the loop, and if `next` hands you another pull,
+take it on its own branch off `main`. the loop stops when `next` says
+`none`, never because a session has already opened a PR today.
+
+running SEVERAL sessions AT ONCE is a different move with its own
+mechanics — a disjoint set, a checkout per session, a brief that
+carries the spec — and those are `parallel.md`.
 
 ## hard rules (guardrails)
 
