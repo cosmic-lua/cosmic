@@ -14,6 +14,7 @@
 ---
 --- Exit codes: 0 all scenarios ok / no regressions; 1 failure.
 
+local cosmic = require("cosmic")
 local flags = require("cosmic.flags")
 local json = require("cosmic.json")
 local csys = require("cosmic.sys")
@@ -144,11 +145,8 @@ local function collect_meta(samples: integer, min_secs: number): pt.Meta
     io.stderr:write("perf: cannot read " .. meta.bin ..
       " to hash it; this results file cannot name the binary it measured\n")
   end
-  -- Resolved dynamically: cosmic._version only exists inside a built binary.
-  local version_module = "cosmic._version"
-  local vok, version = pcall(require, version_module)
-  if vok then
-    local v = version as {string: string} -- cast: from any
+  local v = cosmic.version_info()
+  if v then
     meta.cosmic_version = v.cosmic
     meta.cosmos_version = v.cosmos
   end

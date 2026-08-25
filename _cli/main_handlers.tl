@@ -54,14 +54,11 @@ end
 
 --- Handle --version flag.
 local function handle_version(): integer
-  local mod = "cosmic._version"
-  local ok, ver = pcall(require, mod)
-  if ok then
-    local record VersionInfo
-      cosmic: string
-      cosmos: string
-    end
-    local v = ver as VersionInfo -- cast: from any (pcall result)
+  -- Required here, not at the top: this file is on the boot surface
+  -- (_make/stamp.tl's BOOT_MODULES), and `cosmic` loads the generated
+  -- version module, which nothing else at boot needs.
+  local v = require("cosmic").version_info()
+  if v then
     io.write("cosmic-lua " .. v.cosmic .. " (cosmos " .. v.cosmos .. ", " .. _VERSION .. ")\n")
   else
     io.write(_VERSION .. "\n")

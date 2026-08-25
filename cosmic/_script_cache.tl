@@ -28,6 +28,7 @@
 --- goes through here for every `.tl` module every embedded artifact
 --- requires at boot. So: a per-user directory, created 0700, and a
 --- refusal to use one that is not ours or is group/world-writable.
+local cosmic = require("cosmic")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local user = require("cosmic.user")
@@ -87,10 +88,9 @@ end
 --- exactly when the compiler might have.
 --- @return string
 local function build_id(): string
-  local mod = "cosmic._version"
-  local ok, ver = pcall(require, mod)
-  if ok then
-    local stamp = (ver as {string: string}).cosmic -- cast: from any
+  local ver = cosmic.version_info()
+  if ver then
+    local stamp = ver.cosmic
     if stamp and stamp ~= "" and stamp ~= "unknown" then
       return stamp
     end
