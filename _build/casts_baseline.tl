@@ -23,7 +23,7 @@ return {
   ["_tool/benchmark.tl"] = 1,
   ["_tool/coverage/baseline.tl"] = 2,
   ["_tool/coverage/baseline_test.tl"] = 1,
-  ["_tool/coverage/lines.tl"] = 9,
+  ["_tool/coverage/lines.tl"] = 3,
   ["_tool/coverage/report.tl"] = 2,
   ["_tool/doc/index_test.tl"] = 1,
   ["_types/gentype.tl"] = 3,
