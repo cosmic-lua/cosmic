@@ -1,6 +1,7 @@
 --- Rendering functions for gentype.
 --- Generates Teal .d.tl content from parsed module declarations.
 local gt = require("_types.gentype_types")
+local gentype_inline = require("_types.gentype_inline")
 local Param = gt.Param
 local Return = gt.Return
 local FuncDecl = gt.FuncDecl
@@ -63,8 +64,10 @@ local function convert_type(t: string): string
   if map_v then return "{string: " .. convert_type(map_v) .. "}" end
   local arr_v = t:match("^{%s*%[integer%]%s*:%s*(.+)%s*}$")
   if arr_v then return "{" .. convert_type(arr_v) .. "}" end
-  -- Other inline struct-table types (`{ name: string }`, `{ [1]: string }`)
-  -- have no Teal inline equivalent.
+  -- A positional struct, and a list of them, are Teal arrays; this must come
+  -- before the guard below, which says `any` for every other inline struct.
+  local inline = gentype_inline.inline_array(t, convert_type)
+  if inline then return inline end
   if t:match("^{.*:") then return "any" end
   if t:match("`") then return "any" end
   if TYPE_ALIASES[t] then return TYPE_ALIASES[t] end

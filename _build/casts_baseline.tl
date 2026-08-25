@@ -101,7 +101,7 @@ return {
   ["cosmic/searcher_test.tl"] = 2,
   ["cosmic/shape.tl"] = 1,
   ["cosmic/shm.tl"] = 2,
-  ["cosmic/signal.tl"] = 5,
+  ["cosmic/signal.tl"] = 2,
   ["cosmic/sqlite/bind.tl"] = 6,
   ["cosmic/sqlite/close_test.tl"] = 4,
   ["cosmic/sqlite/extras.tl"] = 4,
@@ -117,6 +117,6 @@ return {
   ["cosmic/teal.tl"] = 1,
   ["cosmic/teal_config_test.tl"] = 2,
   ["cosmic/time.tl"] = 7,
-  ["cosmic/url.tl"] = 3,
+  ["cosmic/url.tl"] = 1,
   ["cosmic/zip.tl"] = 1,
 }
