@@ -30,6 +30,16 @@ local function test_require_cosmic()
 end
 test_require_cosmic()
 
+local function test_cosmic_version_info()
+  local cosmic = require("cosmic")
+  local v = cosmic.version_info()
+  assert(v ~= nil, "a packed binary embeds cosmic._version")
+  assert(type(v.cosmic) == "string" and v.cosmic ~= "", "cosmic stamp")
+  assert(type(v.cosmos) == "string" and v.cosmos ~= "", "cosmos stamp")
+  assert(v.cosmic == cosmic._VERSION, "_VERSION is version_info().cosmic")
+end
+test_cosmic_version_info()
+
 local function test_require_cosmic_child()
   local child_mod = require("cosmic.child")
   assert(child_mod ~= nil, "child_mod should not be nil")

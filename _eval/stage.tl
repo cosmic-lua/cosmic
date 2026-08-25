@@ -15,6 +15,7 @@
 ---
 --- Exit codes: 0 staged; 1 on any failure (printed to stderr).
 
+local cosmic = require("cosmic")
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
@@ -258,14 +259,8 @@ local function collect_meta(bin: string, manifest: eval_types.Manifest):
     agent_tool = LAUNCH_AGENT_TOOL,
     timeout_secs = LAUNCH_TIMEOUT_SECS,
   }
-  -- Resolved dynamically: cosmic._version only exists inside a built
-  -- binary (see _perf/run.tl's collect_meta for the same shape). The
-  -- module name is a local rather than a literal argument so the
-  -- checker does not try to resolve it statically.
-  local version_module = "cosmic._version"
-  local vok, version = pcall(require, version_module)
-  if vok then
-    local v = version as {string: string} -- cast: from any
+  local v = cosmic.version_info()
+  if v then
     meta.cosmic_version = v.cosmic
   end
   return meta
