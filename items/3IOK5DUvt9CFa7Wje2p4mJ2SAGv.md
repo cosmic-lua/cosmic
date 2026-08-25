@@ -166,11 +166,19 @@ that too.
 - `bin/cosmic --make test _build/casts_test.tl` ends `test: PASS (1 file)`
   and reports 3 test functions (today 2).
 - `bin/cosmic --make run _build/casts.tl --baseline` prints
-  `casts: wrote _build/casts_baseline.tl — 356 casts in 116 files`
-  (today `363 casts in 119 files`).
+  `casts: wrote _build/casts_baseline.tl — N casts in M files`, where N is
+  **7 lower** and M **3 lower** than the same command prints before the
+  change. Those two deltas are the contract; the absolute pair depends on
+  what else has landed. Measured 2026-08-25 with `3IOK542Q`'s diff in the
+  tree, they are `356 casts in 116 files` against `363 casts in 119 files`;
+  without it, `369 casts in 117 files` against `376 casts in 120 files`.
+  Re-run the command before the change to get the pair for the tree you
+  actually claimed, and quote both runs in the PR.
 - `grep -n '"_build/casts.tl"\|"_build/casts_test.tl"\|"_cli/lint.tl"\|"cosmic/compress.tl"' _build/casts_baseline.tl`
   shows `["_build/casts.tl"] = 1` and NO row for the other three
-  (today all four are rows of `2`).
+  (today all four are rows of `2`). These four rows are the whole diff the
+  regen may produce; none of the four files is touched by any other item in
+  flight, so this check holds whatever else has landed.
 - `grep -c "cast_lines" _cli/lint.tl` reports `4` (today `2`).
 - `grep -c "in_text" _build/casts.tl` reports `0` (today `3`).
 - `grep -c -- "-- cast: " cosmic/compress.tl` reports `0` (today `2`).
@@ -182,15 +190,19 @@ that too.
 
 ## Enablement
 
-Blocked on `3IOK542Q` (PR #1373), mirrored in `blocked_by`. Both slices
-regenerate `_build/casts_baseline.tl`, so landing them in parallel
-guarantees a conflict in that generated file; landing this one second
-makes its regen a clean rewrite. The four rows this slice moves are in
-files `3IOK542Q` does not touch, so the per-row figures in `Acceptance`
-hold either way — only the totals depend on `3IOK542Q` having landed.
+none needed.
 
-Otherwise none needed. Every fact above was measured 2026-08-25 against
-`1dc5aa14` plus `3IOK542Q`'s diff, with:
+Not blocked, deliberately. `3IOK542Q` (PR #1373) also regenerates
+`_build/casts_baseline.tl`, so whichever lands second takes a conflict in
+that file — but the resolution is the regen command `Change` 5 already
+prescribes, and the four rows this slice moves are in files `3IOK542Q`
+does not touch. Only the two absolute totals differ by landing order, and
+`Acceptance` states them as deltas for that reason. Serializing the two
+slices behind an edge would buy nothing the regen command does not
+already handle, so there is no `blocked_by`.
+
+Every fact above was measured 2026-08-25 against `1dc5aa14` plus
+`3IOK542Q`'s diff, with:
 
 - the phantom-count census: a walk of `casts.TREES` counting
   `tl.lex` `as` tokens per file beside `casts.count(".")`, which
