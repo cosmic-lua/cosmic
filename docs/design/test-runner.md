@@ -72,7 +72,7 @@ Five pieces, smallest author surface first:
 
 1. **The author writes only the function.**
 
-   ```teal
+   ```text
    local str = require("cosmic.string")
 
    local function test_trim()
@@ -95,11 +95,11 @@ Five pieces, smallest author surface first:
    For a runner-mode test file, the compile step compiles the source
    plus one appended statement:
 
-   ```lua
+   ```text
    return require("cosmic.test").main({
-     {name = "test_trim", fn = test_trim},
-     ...
-   })
+       {name = "test_trim", fn = test_trim},
+       ...
+     })
    ```
 
    In-chunk is the only place file-local functions are reachable, and
