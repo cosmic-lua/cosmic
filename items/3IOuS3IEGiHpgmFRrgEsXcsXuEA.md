@@ -19,12 +19,12 @@ surface, and no signature change.
 That reframes the cut. The real split is not literal-vs-dynamic module
 names; it is **where the `any` comes from**:
 
-- **`3IR…` (guard half)** — the value arrives as `any` from a boundary the
+- **`3IQQeXC3` (guard half)** — the value arrives as `any` from a boundary the
   code does not own: a `require` the checker cannot resolve, a `pcall`ed
   chunk, a callback context an API types `any` on purpose. Twelve casts in
   nine files, all closed by `is` at the point of use. Nothing is
   redeclared, so the slice is mechanical and uniform.
-- **`3IR…` (declaration half)** — the `any` is in one of OUR OWN
+- **`3IQQf63I` (declaration half)** — the `any` is in one of OUR OWN
   signatures, inside `cosmic.sqlite` and `cosmic.fetch`. Eight casts in
   three files. Closing these means changing a public module's contract,
   which is four open decisions (a union parameter's reach through its
