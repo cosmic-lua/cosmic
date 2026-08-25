@@ -89,7 +89,7 @@ _build/casts.tl --baseline` — and commit the result. Expected rows:
   no-ops when `cosmic.coverage` was never loaded, and still respects
   `is_kept_on_restrict()`.
 - **`cosmic/coverage/init.tl` is not this slice's.** Its six `from any`
-  casts are the sibling's (`3IQR…`, the stdlib-patch and thread-boundary
+  casts are the sibling's (`3IQREPC5`, the stdlib-patch and thread-boundary
   half); do not touch the file.
 - **Do not make `_seal_coverage.tl` require `cosmic.coverage`.** The
   `package.loaded` read is the point of the module.
@@ -98,7 +98,7 @@ _build/casts.tl --baseline` — and commit the result. Expected rows:
 - **Do not touch the other `from any` casts** — 99 lines carry that reason
   today across 41 files (`git ls-files '*.tl' | xargs grep -h -- "-- cast: "
   | grep -c "from any"`), and four open siblings claim named subsets of
-  them (`3IQQeXC3`, `3IQQf63I`, and this item's sibling). Only the six
+  them (`3IQQeXC3`, `3IQQf63I`, and `3IQREPC5`). Only the six
   above close here.
 
 ## Acceptance
