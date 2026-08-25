@@ -7,6 +7,7 @@ return {
   ["claim"] = "f3fbcf94-e4f2-5cbb-8d9d-373d8007b973",
   ["id"] = "3IOeg86uKBiiEFA1aViXrC1FyxL",
   ["parent"] = "3IOK2K7zvR9jUzs9pP9UtfDpdCt",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1378,
   ["title"] = "casts: close the 23 decoded-data shaping sites in non-test code with the validating decode",
 }
