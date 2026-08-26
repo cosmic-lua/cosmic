@@ -8,6 +8,12 @@ request; the deliverable is the recorded numbers and the follow-up
 items they select (`skills/work/decompose.md`, "if a slice cannot be
 sized without research, the research IS the slice").
 
+**The measurement is DONE and recorded below.** What is left is the
+handover: the board grew the phase this shape needs — `gitboard move
+ID check --evidence`, landed 2026-08-26 as PR #1417 on the `board`
+branch — so the deliverable can now reach a reviewer. `## Change` is
+therefore the verification-and-handover, not a re-run.
+
 ## Evidence
 
 The gate's report from the 2026-08-25 release run (32818853162),
@@ -50,42 +56,37 @@ whilp/cosmopolitan across that exact range:
 So the leading hypothesis is **binary layout** — a new translation unit
 shifted code, with no algorithmic change anywhere.
 
-## Result (2026-08-26, this slice)
+## Result
 
-**Handover refused; item returned to `plan`.** `gitboard move 3ISWHyP7
-check` → `REFUSED: a handover to check names its PR — pass --pr N`. This
-spec asserted (in `## Goal` and `## Non-goals`) that a research slice
-opens no pull request, on `decompose.md`'s "the research IS the slice".
-The tool does not admit that shape: `check` is where a PR is reviewed,
-and there is no phase for a slice whose deliverable is evidence. So the
-spec is wrong, not the work — the measurement is complete and both
-follow-ups are filed and published. What the next refinement has to
-settle, before this is pullable again, is exactly one question: **what
-PR does an evidence-only slice carry?** Three candidates, none of them
-obviously right:
+**The handover question is settled: option 1.** An earlier pass of
+this slice was returned to `plan` because `gitboard move 3ISWHyP7
+check` answered `REFUSED: a handover to check names its PR — pass --pr
+N`, and this spec opens no pull request. Three candidates were put on
+the board; the one taken was **the board grows the handover** — filed
+as `3ISltQMh` under G8, built as PR #1417, merged into `board` as
+`c2b5edde` on 2026-08-26. `gitboard help move` now lists `--evidence`
+("hand over recorded findings instead of a PR; the spec's ## Result
+section is what the reviewer reads"), and an `accept` on a PR-less
+item ends it rather than parking it in `land`. So this item hands over
+with `--evidence`, and nothing about the measurement below changed.
 
-1. **It carries none, and the board grows the phase.** A `checked`
-   handover with `--pr` omitted, reviewed against the item's `## Result`
-   rather than a diff. Filed as `3ISltQMh`, under G8 — the flow system.
-2. **It always carries a doc PR** — the finding written into the repo
-   (a decision record, or the relevant `skills/` chapter), so there is
-   always something to review. Costs: every research slice now argues
-   about where its prose belongs.
-3. **Research is not a slice at all** — it is refinement, done in
-   `plan` by the session that then writes an implementable spec. That
-   is close to what actually happened here: this pass produced two
-   specs (`3ISlWFiS`, `3ISlY5Xl`) and no code.
+Two consequences that bind this sidecar's SHAPE, both checked by the
+tool rather than by prose:
 
-Until that is settled, do NOT re-run the A/B — it is done, and its
-numbers are above.
+- the heading must be exactly `## Result` — `_work/spec.tl`'s
+  `section_of` matches the heading text case-insensitively and
+  exactly, so `## Result (2026-08-26, this slice)` reads as no Result
+  section at all and the handover is refused;
+- no `###` sub-heading may appear inside it — `section_of` breaks at
+  the NEXT heading of any depth, so a sub-heading truncates the
+  section to its first line. The bold paragraph leads below are what
+  structures it instead.
 
-
-
-**The A/B ran as `## Change` specifies.** Worktree at `ea71d799^`
-(`5ef13f40`), only `3p/cosmos/cosmos_pin.tl` varied, six rounds
-alternating `0821, 0824, 0821, 0824, 0821, 0824`, each round rebuilt
-(`build: PASS (515 files, 1 binary)` every time) and measured with two
-isolated single-scenario runs.
+**The A/B ran as the earlier `## Change` specified.** Worktree at
+`ea71d799^` (`5ef13f40`), only `3p/cosmos/cosmos_pin.tl` varied, six
+rounds alternating `0821, 0824, 0821, 0824, 0821, 0824`, each round
+rebuilt (`build: PASS (515 files, 1 binary)` every time) and measured
+with two isolated single-scenario runs.
 
 `json_decode_large` (`--only json_decode_large`):
 
@@ -142,10 +143,10 @@ Since the base64 codec is byte-identical across the bump
   `json_decode_large` in a way that would also excuse base64's real
   +7.8%.
 
-**Two deliberate deviations from `## Change`, both recorded rather than
-silent:**
+**Two deliberate deviations from the earlier `## Change` that ran the
+A/B, both recorded rather than silent:**
 
-1. **Step 5's `perf_gate: false` dispatch was NOT run.** It publishes a
+1. **That Change's step 5 `perf_gate: false` dispatch was NOT run.** It publishes a
    release outward, and this slice ran unattended; the spec's own
    authority for it is `release.yml:148-155`, not a standing decision
    by anyone. It is left for a human, and it should be gated on
@@ -162,7 +163,9 @@ silent:**
 `ci: PASS (5 stages)`. `git worktree list` no longer names `o/ab`;
 `git status --porcelain` at the root is empty.
 
-## Result (from the first attempt, 2026-08-26)
+
+**The first attempt, 2026-08-26 — the noise characterisation the A/B
+rests on.**
 
 Measured on a 4-core session container (`nproc` → 4) at `main`
 `ec794d44`, pin `2026.08.26-fe7c36c4c`, `build: PASS (536 files, 1
@@ -212,102 +215,91 @@ against `2026.08.21-07fc94a1c` → `build: FAIL (536 files)`,
   by the cosmos base and nothing else**, which is exactly the isolation
   this question needs.
 
+
 ## Change
 
-Run the A/B in the `ea71d799^` worktree, isolated and alternated, then
-record and hand over. Nothing in the checked-out tree at `main` is
-modified.
+The measurement is complete and recorded in `## Result`. Nothing is
+re-run and nothing is built. What this slice does now is verify that
+the recorded evidence still describes the tree, then hand the findings
+over as evidence. No file in the product tree is edited; the only
+writes are to this item's own sidecar on the `board` branch.
 
-1. **Set up the worktree** (skip the add if `o/ab` already exists):
-
-   ```
-   git worktree add -f o/ab ea71d799^
-   cd o/ab && bin/cosmic --make fetch && bin/cosmic --make build
-   ```
-
-   Expect `build: PASS (515 files, 1 binary)`. Everything below runs
-   from `o/ab`.
-
-2. **Six rounds, alternating sides**, starting with the pin the
-   worktree already carries. One round is: set
-   `3p/cosmos/cosmos_pin.tl` to that round's `version`/`sha` (values in
-   `## Evidence`), then
+1. **Re-read the two follow-ups the evidence selected** and confirm
+   both are on the board and still open:
 
    ```
-   bin/cosmic --make fetch
-   bin/cosmic --make build
-   o/bin/cosmic --make run _perf/run.tl --out o/perf/r<N>-<pin>.json --only json_decode_large
-   o/bin/cosmic --make run _perf/run.tl --out o/perf/r<N>-<pin>-b64.json --only codec_base64_roundtrip_64k
+   cd o/board && o/bin/gitboard show 3ISlWFiS
+   cd o/board && o/bin/gitboard show 3ISlY5Xl
    ```
 
-   Alternate `0821, 0824, 0821, 0824, 0821, 0824` so thermal drift
-   lands on both sides equally — three measurements per scenario per
-   side. Isolated `--only` runs are mandatory, not a shortcut: the
-   `## Result` above shows this scenario pair reading +12.6% against
-   ITSELF in suite context and ±3% in isolation.
+   `3ISlWFiS` carries the base64 regression against
+   whilp/cosmopolitan (the bisect range `07fc94a1c..354c17e08` and the
+   six readings); `3ISlY5Xl` carries the release gate's one-A/A-pass
+   hole. If either has been ended or re-scoped since, say so in a
+   sentence appended to `## Result` under a bold lead — do not re-file
+   it and do not re-measure.
 
-3. **Read the six numbers per scenario directly** — median µs/op and ±
-   from each run's report line. Do NOT run `_perf/gate.tl compare` over
-   these files: `_perf/compare.tl:140` marks every scenario in the
-   baseline and absent from the current run `missing`, and `:76` counts
-   missing as a failure, so a single-scenario file compared against
-   another single-scenario file is only meaningful when both carry the
-   same one scenario — and the three-per-side shape is what the
-   judgment needs, not one pairwise verdict.
+2. **Confirm the tree still matches the two claims `## Evidence`
+   rests on**, both of which are history and cannot drift, so this is
+   a read, not a re-measurement:
 
-4. **Restore and clean up**: `git checkout -- 3p/cosmos/cosmos_pin.tl`
-   in `o/ab`, then from the repo root
-   `git worktree remove --force o/ab`. Confirm `git status --porcelain`
-   at the root is empty.
+   ```
+   git log --oneline 07fc94a1c..354c17e08 -- tool/net/ljson.c \
+     third_party/lua/luadecodejsondata.c net/http/encodebase64.c \
+     net/http/decodebase64.c net/http/isbase64.c
+   git log --oneline 07fc94a1c..354c17e08
+   ```
 
-5. **Record** all six readings per scenario, plus the `perf-selfcheck:`
-   verdict lines, into this item's `## Result` (`gitboard spec <id>
-   FILE`). Then take the branch the numbers select, per scenario
-   independently — the two scenarios have different evidence and may
-   land on different branches:
+   Run these from a whilp/cosmopolitan checkout (this repo's sibling;
+   the session's own path for it is not fixed, so `cd` there first).
+   The first must print nothing; the second must print five commits.
+   If no whilp/cosmopolitan checkout is available in the session,
+   record that it could not be re-read rather than asserting it — the
+   claims are history and cannot have changed, so this is corroboration,
+   not a gate.
 
-   - **The 0824 side is slower than the 0821 side by more than both
-     sides' spread, in all three pairings** → the cosmos bump regressed
-     that scenario. File `gitboard new "<scenario>: +N% between cosmos
-     07fc94a1c and 354c17e08" --repo whilp/cosmopolitan --spec-file F`,
-     where F carries the six readings, the bisect range
-     `07fc94a1c..354c17e08`, and the observation that neither hot path
-     changed source in it (so `354c17e0`'s new translation unit is the
-     first thing to test). Then `gitboard block <this id> <new id>`.
-   - **The two sides overlap within their spreads** → the pin is
-     exonerated for that scenario and the release lane's flag is
-     machine variance. File `gitboard new "release perf gate: a layout
-     shift reads as a regression for <scenario>" --spec-file F` naming
-     the durable fix as a decision record under `skills/decide` — never
-     a quietly widened threshold.
-   - Once BOTH scenarios have landed on a branch and every follow-up is
-     filed, dispatch `release.yml` ONCE with `perf_gate: false` to
-     publish past the now-captured regression, which is what
-     `release.yml:148-155` reserves that input for, and say in this
-     item that it was dispatched and why. Do not dispatch while either
-     scenario is still unexplained.
+3. **Append a dated verification note to `## Result`** — one bold-led
+   paragraph naming what step 1 and step 2 returned, and the date —
+   then replace the sidecar with `gitboard spec 3ISWHyP7 FILE`. Keep
+   the heading exactly `## Result` and introduce no `###` heading
+   inside it: `_work/spec.tl`'s `section_of` matches the heading text
+   exactly and breaks at the next heading of any depth, so either
+   would make the handover in step 4 refuse.
+
+4. **Hand over as evidence**:
+
+   ```
+   cd o/board && o/bin/gitboard move 3ISWHyP7 check --evidence
+   ```
+
+   No PR is opened, on either repo. The reviewer reads `## Result`.
 
 ## Non-goals
 
+- **Do NOT re-run the A/B.** It is done and its twelve readings are in
+  `## Result`. Re-running it costs two rebuilds and six measured runs
+  and answers a question already answered.
+- **Do NOT open a pull request**, on whilp/cosmic or on
+  whilp/cosmopolitan. This slice's deliverable is evidence; PR #1417
+  is what made that handover possible and is already merged.
+- **Do NOT dispatch `release.yml` with `perf_gate: false`.** It
+  publishes a release outward and this slice runs unattended. It is a
+  human's call, and it should wait on `3ISlWFiS` — do not re-baseline
+  the gate over a regression now confirmed real.
 - **No scenario or `check()` is weakened, renamed, or removed** — not
   `json_decode_large`, not `codec_base64_roundtrip_64k`, not their
   input sizes. The `optimize` skill's standing rule.
 - **The gate's threshold is not changed** here or anywhere without a
-  decision record. Widening `--threshold`, or adding either scenario to
-  the gate's noise-excused set, is the "weaken it until it passes" move
-  this item exists to avoid.
-- **No product code and no pull request.** Nothing under `cosmic/`,
-  `_cli/`, `_make/`, `_tool/` or `_perf/` is edited, at `main` or in the
-  worktree. The only file edited anywhere is the worktree's
-  `3p/cosmos/cosmos_pin.tl`, which step 4 restores before the worktree
-  is removed.
+  decision record. Widening `--threshold`, or adding either scenario
+  to the gate's noise-excused set, is the "weaken it until it passes"
+  move this item exists to avoid.
 - **The cosmos pin at `main` is not touched, and is not a fix.** `main`
   cannot build against the pre-bump cosmos (`## Result`), and later
   pins carry `cosmo.DecodeLua`, which `cosmic.literal` now requires. A
   real regression is fixed in whilp/cosmopolitan.
-- **No `o/perf/*.json` is committed.** The numbers go into this
-  sidecar as prose.
-- **Do not chase the other five scenarios** the full-suite A/A flagged
+- **No `o/perf/*.json` is committed** and no `o/ab` worktree is
+  re-created.
+- **Do not chase the other six scenarios** the full-suite A/A flagged
   (`tar_extract_tree`, `fs_walk_tree`, `teal_check_module`,
   `literal_format_pin`, `literal_parse_pin`, `format_module_source`).
   They are this container's next question, not this slice's; if they
@@ -317,37 +309,46 @@ modified.
 
 Run from the cosmic repo root unless stated.
 
-- In `o/ab`, on each pin: `bin/cosmic --make build` →
-  `build: PASS (515 files, 1 binary)`.
-- Six `o/bin/cosmic --make run _perf/run.tl --only <scenario> --out …`
-  invocations per scenario complete, and their per-scenario report
-  lines (`<name>  N x  <µs>/op  ± <pct>`) are quoted verbatim into this
-  item's `## Result` — three readings per side per scenario, twelve in
-  all.
-- `git worktree list` no longer names `o/ab`, and
-  `git status --porcelain` at the root → empty.
-- `bin/cosmic --make ci` at the root → `ci: PASS (5 stages)`. Nothing
-  at `main` changed, so this is the proof of it.
-- `o/bin/gitboard show <this id>` prints a `## Result` carrying the
-  twelve readings, and every follow-up item this slice filed appears in
-  `o/bin/gitboard status`.
+- `cd o/board && o/bin/gitboard show 3ISlWFiS` ends
+  `gitboard-show: 3ISlWFiS is backlog` and `... show 3ISlY5Xl` ends
+  `gitboard-show: 3ISlY5Xl is backlog` (both measured 2026-08-26; any
+  phase but an ended one satisfies this — what it proves is that the
+  follow-ups the evidence selected are still on the board).
+- `git status --porcelain` at the cosmic root → empty. This slice
+  edits no product file, so this is the proof of it.
+- `git worktree list` does not name `o/ab`.
+- `cd o/board && o/bin/gitboard show 3ISWHyP7` prints a `## Result`
+  carrying the twelve readings (six per scenario) and the dated
+  verification note step 3 appends.
+- The sidecar's Result heading is exactly `## Result` and carries no
+  sub-heading:
+  `grep -c '^## Result$' o/board/items/3ISWHyP7awA0sy9WbVOyu0R5Qbq.md` → `1`, and
+  `awk '/^## Result$/{f=1;next} /^#/{f=0} f' o/board/items/3ISWHyP7awA0sy9WbVOyu0R5Qbq.md
+  | grep -c '^#'` → `0`.
+- `cd o/board && o/bin/gitboard move 3ISWHyP7 check --evidence` ends
+  `gitboard-move: 3ISWHyP7 do -> check` — the verb REFUSES the handover
+  when `## Result` is missing or empty, which is what makes the two
+  commands above the contract and not a style note.
 
 ## Enablement
 
-`none needed` for the measurement: `skills/optimize/SKILL.md` carries
-the loop and `skills/optimize/measurement.md` the noise discipline,
-whose isolated-re-measurement tie-breaker is what this slice's step 2
-applies and is not optional for `json_decode_large`.
+`none needed`. The one blocker is landed: `3ISltQMh` (PR #1417,
+`board` `c2b5edde`) added `move … --evidence` and made an `accept` on
+a PR-less item end it, which is the whole mechanism this handover
+needs; `o/bin/gitboard help move` lists the flag.
 
-The blocker `3ISWHWQT` landed as PR #1415 (main `90f0a744`), so
-`_perf/run.tl` type-checks under an older embedded env — which is what
-lets the `ea71d799^` worktree's binaries run the harness at all.
+`skills/optimize/SKILL.md` carries the loop and
+`skills/optimize/measurement.md` the noise discipline, both already
+applied in `## Result`; nothing here re-measures, so neither is on the
+critical path any more.
 
 Two frictions found while refining this, worth captures if they recur:
 
 - `--make run _perf/gate.tl selfcheck --only NAME A B` fails with
   `require A: module 'A' not found`; the flag must follow the two path
   arguments, while `measurement.md:85-92` shows it in the other order.
-- A research slice reaches `check` with `--pr` omitted, so its reviewer
-  has only the item to read. This is the first on the board; say in the
-  handover whether reviewing an evidence-only item worked.
+- `_work/spec.tl`'s `section_of` is exact-match and depth-blind, so a
+  `## Result (dated)` heading or a `###` inside the section silently
+  reads as "no findings" at the `--evidence` gate. This item's first
+  sidecar had both. Say in the handover whether the refusal message
+  made that diagnosable.
