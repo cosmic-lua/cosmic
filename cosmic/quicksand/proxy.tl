@@ -142,7 +142,8 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
     -- cast: function shape from map view
     local listen_fn = server.listen as function(): (integer | nil, string)
     local port_fn = server.port as function(): integer -- cast: function shape
-    local serve_fn = server.serve_forever as function() -- cast: function shape
+    -- cast: function shape
+    local serve_fn = server.serve_forever as function(): (boolean, string)
     local fd, lerr = listen_fn()
     if not fd then
       unix.write(wfd, string.pack("<i4", -1))
@@ -152,7 +153,11 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
     end
     unix.write(wfd, string.pack("<i4", port_fn()))
     unix.close(wfd)
-    serve_fn()
+    local sok, serr = serve_fn()
+    if not sok then
+      io.stderr:write("proxy.serve: " .. tostring(serr) .. "\n")
+      unix.exit(1)
+    end
     unix.exit(0)
   end
   -- Parent: read the bound port, then return the handle.
