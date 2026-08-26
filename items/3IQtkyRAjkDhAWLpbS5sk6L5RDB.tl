@@ -8,6 +8,7 @@ return {
   ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3IQtkyRAjkDhAWLpbS5sk6L5RDB",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1395,
   ["title"] = "cosmic: consume the exact contracts — pin bump, retire the join and clock asserts",
 }
