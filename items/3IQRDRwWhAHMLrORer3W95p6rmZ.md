@@ -59,11 +59,14 @@ Three files. Apply exactly these shapes (all validated):
 reason. The line becomes a cast under an above-line comment:
 
 ```teal
-  -- cast: pcall slot 2 is tl's nominal Result; TlResult is this file's
-  -- structural mirror of it (the lazy in-function require keeps tl's
-  -- own record un-nameable at file scope)
+  -- The lazy in-function require keeps tl's own Result record
+  -- un-nameable at file scope; TlResult is its structural mirror.
+  -- cast: pcall slot 2 is tl's nominal Result, not any
   local result = result_or_err as TlResult
 ```
+
+(The `-- cast:` marker must sit on the line DIRECTLY above the cast —
+the cast-justify lint reads only that line and the cast's own.)
 
 Nothing else in the file moves. Its `from any` count falls to 0; its
 total cast count stays 4, so its baseline row stays `= 4`.
