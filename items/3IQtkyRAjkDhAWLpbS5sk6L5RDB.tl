@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3IQtfuCxCSIf6gYSrAjOcxC07Df 3IQtg7Sm2UyFfiqgJ55GGh4yWOs",
   ["id"] = "3IQtkyRAjkDhAWLpbS5sk6L5RDB",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
-  ["phase"] = "backlog",
+  ["phase"] = "plan",
   ["title"] = "cosmic: consume the exact contracts — pin bump, retire the join and clock asserts",
 }
