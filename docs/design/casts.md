@@ -57,8 +57,7 @@ string` and `cosmic/json.tl:155` declares `decode_array(str): {any} |
 nil, string`, so a `json.decode(s) as {string: any}` site is a call
 change and nothing more. That closes the top level only. The field reads
 underneath it need a decode that validates into a declared record and
-returns it typed — one API, applicable at every site in this class, and
-the largest single win available anywhere in this document.
+returns it typed — one API, applicable at every site in this class.
 
 ### Any-map field walk
 
@@ -112,8 +111,8 @@ only with an `is` guard at the point of use.
 
 A `cosmo.*` or Lua-stdlib call whose generated declaration types the
 return `any`, or returns an untyped tuple the caller has to type slot by
-slot. This is the largest live class. An `E*` constant looked up by name
-off the `unix` table, and a signal number looked up the same way:
+slot. An `E*` constant looked up by name off the `unix` table, and a
+signal number looked up the same way:
 
 ```text
 -- cosmic/errno.tl:52
