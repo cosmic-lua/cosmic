@@ -2,9 +2,48 @@ local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local hash = require("cosmic.hash")
 local check = require("cosmic.check")
+local shape = require("cosmic.shape")
 local stage = require("_eval.stage")
+local eval_types = require("_eval.eval_types")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+
+--- meta.json's shape: eval_types.Meta field for field. cosmic_version
+--- is the one optional -- stage.tl leaves it unset when the staged
+--- binary's own version could not be resolved.
+local META < const > = shape.record({
+    timestamp = shape.number,
+    suite_version = shape.integer,
+    bin = shape.string,
+    bin_sha = shape.string,
+    cosmic_version = shape.optional(shape.string),
+    os = shape.string,
+    isa = shape.string,
+    model = shape.string,
+    agent_tool = shape.string,
+    timeout_secs = shape.integer,
+  })
+
+--- @param path string A meta.json path, as written by staging
+--- @return Meta|nil The validated meta.json at that path
+--- @return string The mismatch when the file is not the shape stage.tl
+--- writes
+local function read_meta(path: string): eval_types.Meta | nil, string
+  local body = check.must(fs.read(path))
+  return shape.into(check.must(json.decode(body)), META)
+end
+
+--- The same file read as a plain table, for the test whose subject is
+--- which field NAMES meta.json carries: a {string: any} keeps
+--- `meta[field]` legal where `field` is a loop variable, which
+--- validating into Meta would not.
+--- @param path string A meta.json path, as written by staging
+--- @return {string: any}|nil The decoded meta.json at that path
+--- @return string The mismatch when the file is not a string-keyed object
+local function read_meta_object(path: string): {string: any} | nil, string
+  local body = check.must(fs.read(path))
+  return shape.into(check.must(json.decode(body)), shape.map(shape.any))
+end
 
 local EXPECTED_IDS < const >: {string} = {
   "json-cli",
@@ -73,8 +112,7 @@ end
 test_frame_embedded_placeholder_gone()
 
 local function test_meta_json_has_all_ten_fields()
-  local body = check.must(fs.read(fs.join(run_dir, "meta.json")))
-  local meta = check.must(json.decode(body)) as {string: any} -- cast: from any
+  local meta = check.must(read_meta_object(fs.join(run_dir, "meta.json")))
   local want < const >: {string} = {
     "timestamp", "suite_version", "bin", "bin_sha", "cosmic_version",
     "os", "isa", "model", "agent_tool", "timeout_secs",
@@ -91,9 +129,8 @@ test_meta_json_has_all_ten_fields()
 
 local function test_bin_sha_matches_independent_digest()
   local bin = fixture_bin()
-  local body = check.must(fs.read(fs.join(run_dir, "meta.json")))
-  local meta = check.must(json.decode(body)) as {string: any} -- cast: from any
-  local sha = meta.bin_sha as string -- cast: from any
+  local meta = check.must(read_meta(fs.join(run_dir, "meta.json")))
+  local sha = meta.bin_sha
   assert(sha ~= nil and #sha == 64 and sha:match("^%x+$"),
     "bin_sha must be 64 hex characters, got: " .. tostring(sha))
   local want = hash.sha256_hex(check.must(fs.read(bin)))
