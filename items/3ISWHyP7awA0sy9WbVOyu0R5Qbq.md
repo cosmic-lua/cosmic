@@ -428,3 +428,72 @@ Two frictions found while refining this, worth captures if they recur:
   reads as "no findings" at the `--evidence` gate. This item's first
   sidecar had both. Say in the handover whether the refusal message
   made that diagnosable.
+
+## Review
+
+**Request changes, 2026-08-26.** Reviewed by re-running `## Acceptance`
+and spot-verifying the cited claims, not by reading the sidecar's word
+for them. Everything below verified clean:
+
+- `git status --porcelain` at the cosmic root → empty; `git worktree
+  list` names no `o/ab`.
+- `grep -c '^## Result$'` on this sidecar → `1`, and the sub-heading
+  probe → `0`.
+- `gitboard show 3ISlWFiS` → backlog; `gitboard show 3ISlY5Xl` → open
+  (it moved `check -> do` on a review verdict this same session, which
+  the acceptance's "any phase but an ended one" admits).
+- From `/home/user/cosmopolitan`, freshly fetched: the five-path
+  filtered `git log --oneline 07fc94a1c..354c17e08` printed NOTHING,
+  and the unfiltered one printed exactly the five commits named. `git
+  show --stat 354c17e08` → 7 files, +991, all additions, `tool/net/llua.c`
+  650 lines.
+- The cosmic-side citations read as described: `json_decode_large`'s
+  `fn` is `json.decode(large_json)` (`_perf/bench/json_bench.tl:56-58`),
+  `codec_base64_roundtrip_64k`'s is `codec.encode_base64` /
+  `decode_base64` (`_perf/bench/micro_bench.tl:116-120`), and
+  `cosmic/codec.tl:36-38,83` forwards both to `cosmo.EncodeBase64` /
+  `cosmo.DecodeBase64`.
+
+The twelve readings, their medians, and both verdicts — the pin
+exonerated for `json_decode_large`, `+7.8%` real and non-overlapping
+for `codec_base64_roundtrip_64k` — stand as recorded, caveats included.
+
+**The one claim that does NOT verify, and it is load-bearing.**
+`## Evidence` says the range holds "five commits, of which **only**
+`354c17e0` … changes what the binary contains". Three of the five do:
+
+- `354c17e08` — adds `tool/net/llua.c` (650 lines), a new translation
+  unit, plus `tool/lua/lcosmo.c` (+23) and two `BUILD.mk` entries.
+- `8dd093cea` — `third_party/lua/luaencodejsondata.c` (+11/-1), the
+  JSON **encoder**, compiled into the binary. The filtered log misses
+  it because it probes `tool/net/ljson.c` and
+  `third_party/lua/luadecodejsondata.c`, not the encoder's file.
+- `5bfcf79d0` — `libc/runtime/zipos-open.c` (+62/-9) and
+  `zipos.internal.h`, a behavioural change to the zip filesystem read
+  path (lock-free slot array + concurrency gate), compiled into the
+  binary and exercised by every scenario that loads a module from
+  `/zip`.
+
+(`8e071ec98` touches only `third_party/sqlite3` BUILD.mk and two
+header stubs; `bf92718a1` is AGENTS.md alone. Those two are correctly
+inert.)
+
+What that costs: `## Result`'s closing inference — "the cause is what
+`354c17e0` did to the binary — a new 650-line translation unit — not
+to the codec" — is not established. Byte-identical codec sources rule
+out an algorithmic change *to the codec*; they do not leave binary
+layout as the only survivor while two other commits change compiled
+code. Binary layout is the leading hypothesis, not the conclusion.
+
+**The fix, and it is small.** Correct the sentence in `## Evidence` to
+name all three binary-changing commits with their stats and the
+commands that show them, correct the closing inference in `## Result`
+to state binary layout as the leading hypothesis among three
+candidates, and carry the same correction into `3ISlWFiS`'s spec so
+its bisect does not inherit a premature exoneration. Re-measure
+nothing: the A/B is sound and is not what is wrong here.
+
+**The wrong turn, in one line:** the spec asserted a tree-fact — "only
+one of five commits changes the binary" — from a filtered path probe
+that could not support it, instead of from the unfiltered per-commit
+stats the fact actually requires.
