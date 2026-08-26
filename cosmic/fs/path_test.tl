@@ -61,6 +61,22 @@ local function test_join_empty_components_skipped()
 end
 test_join_empty_components_skipped()
 
+-- join declares a plain string, and the assert behind it is what makes
+-- that true: the C binding returns nil only when every argument is nil,
+-- which this signature cannot express and no caller can reach.
+local function test_join_returns_a_plain_string()
+  local joined = fs.join("a", "b")
+  assert(type(joined) == "string", "join returns a string, not a union")
+  assert(joined == "a/b", "expected 'a/b', got '" .. joined .. "'")
+end
+test_join_returns_a_plain_string()
+
+local function test_join_with_no_arguments_throws()
+  local ok = pcall(function() fs.join() end)
+  assert(not ok, "join with no arguments must throw")
+end
+test_join_with_no_arguments_throws()
+
 local function test_join_no_doubled_separator()
   assert(fs.join("a/", "b") == "a/b",
     "a trailing slash on the left must not double the separator")
