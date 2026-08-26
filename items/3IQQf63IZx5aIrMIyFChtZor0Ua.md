@@ -5,12 +5,13 @@ inside `cosmic.sqlite` and `cosmic.fetch`, closed.
 **The item's original premise is retired by this refinement.** It was
 filed as "the declaration half": the sites whose casts exist because one
 of OUR OWN signatures says `any`, closing by making that declaration
-honest. Refinement asked each of its four open questions against the tree
-and every answer came back the same — **no signature can move, and every
-one of the eight closes with an `is` guard at the point of use.** The
-evidence is below, question by question. What is left is a second
-guard-half slice, disjoint by file from the first (`3IQQeXC3`), and the
-`Change` states each site's decided shape rather than deferring it.
+honest. Refinement asked each of its four open questions against the
+tree, and a fifth arose at implementation. **No signature can move.**
+Six of the eight sites close with an `is` guard at the point of use;
+the other two keep a cast with a truthful reason, because the value
+there is not `any` at all. The evidence is below, question by question.
+What is left is a second guard-half slice, disjoint by file from the
+first (`3IQQeXC3`), with every site's shape decided and type-checked.
 
 ## Evidence
 
@@ -69,7 +70,7 @@ checker at `c2ae0466`.** Four probe functions, each type-checked with
    `if not (x is M) then error(...) end` guard does — both forms pass,
    so a test may use whichever reads better.
 
-**Q5 — OPEN. `cosmic/sqlite/extras.tl:60` and `:102` are not `any` at
+**Q5 — SETTLED. `cosmic/sqlite/extras.tl:60` and `:102` are not `any` at
 all, and `is string` is refused there.** Found at implementation
 2026-08-26 (the bounce below): six of the eight sites closed as this
 spec's `Change` describes and type-checked, but `o/bin/cosmic --check
@@ -92,26 +93,35 @@ assumed for them does not apply.
 `:32` is unaffected and closed cleanly: `rollback_reason(why: any)`
 really is `any`, so `if why is string then return why end` type-checks.
 
-The refinement that takes this item back to `ready` must choose between:
+**The decision: keep both casts, with a truthful reason.** The
+alternative considered and rejected was `local raised: any = verdict`
+before the guard — it removes the casts but launders a `boolean`
+through `any` purely to make an `is` compile, which is the move G3
+exists to discourage. Keeping the cast and telling the truth about the
+value is the same resolution the sibling slice `3IQCnWo0` reached for
+its `metatable<any>` refusal, and this is the same kind of limitation:
+Teal's `pcall` declaration collapses "the callback's returns" and "the
+raised error" into the callback's declared return type.
 
-1. **Keep both casts with a truthful reason** (e.g. `-- cast: pcall slot
-   2 is the raised error, typed boolean from TxFn`). Closes the
-   `from any` count to 0 without pretending the value is `any`; the
-   `extras.tl` ratchet row then stays at `= 2`, not absent.
-2. **Name the raised value for what it is** — `local raised: any =
-   verdict` before the guard, with a comment. Removes both casts but
-   launders a `boolean` through `any`, which is the kind of move G3
-   exists to discourage; only take it if the comment carries its weight.
+Verified 2026-08-26 against `c2ae0466` by applying it to both lines:
+`o/bin/cosmic --check types cosmic/sqlite/extras.tl` → `Type check
+passed`, `o/bin/cosmic --check lint cosmic/sqlite/extras.tl` → `Style
+check passed`. The reason string does not fit in the 90-column trailing
+position, so it takes the above-the-line form the cast rule allows;
+lint accepts it there.
 
-Whichever is chosen, the `Change` for `:60`/`:102`, the `extras.tl` row
-in the ratchet table, and the `grep -c -- "-- cast:"` acceptance lines
-all move with it. The other six sites' shapes are validated and should
-be carried forward unchanged.
+The consequence for the numbers, carried into the tables below:
+`cosmic/sqlite/extras.tl` ends at `from any` = 0 and **2 casts, so its
+ratchet row reads `= 2` rather than disappearing.** The other six sites'
+shapes are validated by that same implementation pass and are carried
+forward unchanged.
 
 ## Change
 
-Three files, eight casts. Six shapes below are validated by a
-type-checked implementation; `:60` and `:102` are blocked on Q5.
+Three files, eight casts, every shape below validated by a type-checked
+implementation pass against `c2ae0466`. Six close outright; `bind.tl`'s
+fallthrough and `extras.tl`'s two pcall sites keep a cast with a truer
+reason, each named at its bullet.
 
 **`cosmic/sqlite/bind.tl` (2 casts).**
 - `:50` — `if v is Blob and getmetatable(v) == blob_mt as any then
@@ -133,7 +143,7 @@ type-checked implementation; `:60` and `:102` are blocked on Q5.
   as it does today`. `bind.tl` therefore ends at `from any` = 0 and 5
   casts, not 4.
 
-**`cosmic/sqlite/extras.tl` (4 casts).**
+**`cosmic/sqlite/extras.tl` (4 casts; 2 close, 2 keep a truer reason).**
 - `:44` — `if not (db_any is Db) then return end` at the top of
   `attach`, then use `db_any` directly in place of `db`. One
   `type(x) == "table"` test; the `Database` under construction always
@@ -142,13 +152,12 @@ type-checked implementation; `:60` and `:102` are blocked on Q5.
 - `:32` — in `rollback_reason`, replace `return (why as string) or (what
   .. " rolled back")` with `if why is string then return why end` above
   the existing `return what .. " rolled back"`.
-- `:60`, `:102` — **BLOCKED on Q5.** The `is string` guard this spec
-  described is refused by the checker: `verdict` is typed `boolean`, not
-  `any`. Settle Q5's two options before this slice is pullable again.
-  The behaviour question stands under either: today a pcall error value
-  that is not a string is returned in slot 2 under a declared `string`,
-  and `cosmic/sqlite/extras_test.tl` must pass unmodified (Non-goals),
-  which is what pins the string cases.
+- `:60`, `:102` — **the two casts stay** (Q5). Replace only the reason:
+  drop the trailing `-- cast: from any` and put
+  `-- cast: pcall slot 2 is the raised error, typed boolean from TxFn`
+  on the line ABOVE each `return false, (verdict as string) or
+  "transaction failed"` / `"savepoint failed"`. The expression is
+  untouched, so behaviour is byte-identical and no test moves.
 
 **`cosmic/fetch/extras.tl` (2 casts).**
 - `:273` — in `verb`, replace `if opts_any then` + `pairs(opts_any as
@@ -171,11 +180,12 @@ the result. Expected row moves:
 | file | row today | row after |
 | --- | --- | --- |
 | `cosmic/sqlite/bind.tl` | `= 6` | `= 5` |
-| `cosmic/sqlite/extras.tl` | `= 4` | row absent |
+| `cosmic/sqlite/extras.tl` | `= 4` | `= 2` |
 | `cosmic/fetch/extras.tl` | `= 6` | `= 4` |
 
-A row at zero is absent from the floor by construction — `_build/casts.tl`
-emits only files with at least one cast.
+No row disappears here: all three files still carry casts after the
+change (`bind.tl`'s out-of-contract fallthrough, `extras.tl`'s two pcall
+sites, and `fetch/extras.tl`'s four unrelated ones).
 
 ## Non-goals
 - **No signature moves.** Q1–Q3 settled that none is available:
@@ -211,10 +221,12 @@ Run from the repo root:
   (today `2`, `4`, `2`).
 - `grep -c -- "-- cast:" cosmic/sqlite/bind.tl` prints `5` (today `6`) —
   the `:52` fallthrough cast survives with its out-of-contract reason.
-- `grep -n '"cosmic/sqlite/extras.tl"' _build/casts_baseline.tl` prints
-  nothing (today one row, `= 4`).
-- `grep -n '"cosmic/sqlite/bind.tl"\|"cosmic/fetch/extras.tl"'
-  _build/casts_baseline.tl` shows `= 5` and `= 4` (today `= 6`, `= 6`).
+- `grep -c -- "-- cast:" cosmic/sqlite/extras.tl` prints `2` (today `4`)
+  — the two pcall sites survive with their `typed boolean from TxFn`
+  reason.
+- `grep -n '"cosmic/sqlite/bind.tl"\|"cosmic/sqlite/extras.tl"\|"cosmic/fetch/extras.tl"'
+  _build/casts_baseline.tl` shows `= 5`, `= 2` and `= 4` (today `= 6`,
+  `= 4`, `= 6`).
 - `bin/cosmic --make test cosmic/sqlite/extras_test.tl
   cosmic/sqlite/data_test.tl cosmic/sqlite/advanced_test.tl
   cosmic/sqlite/init_test.tl cosmic/fetch/verbs_test.tl
