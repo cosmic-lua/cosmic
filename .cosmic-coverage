@@ -8,6 +8,7 @@ return {
   ["_build/ratchet.tl"] = {["covered"] = 36, ["total"] = 36},
   ["_build/size.tl"] = {["covered"] = 100, ["total"] = 147},
   ["_cli/args.tl"] = {["covered"] = 0, ["total"] = 37},
+  ["_cli/assert_lint.tl"] = {["covered"] = 95, ["total"] = 102},
   ["_cli/build/batch.tl"] = {["covered"] = 102, ["total"] = 118},
   ["_cli/build/init.tl"] = {["covered"] = 43, ["total"] = 47},
   ["_cli/build/modules.tl"] = {["covered"] = 46, ["total"] = 49},

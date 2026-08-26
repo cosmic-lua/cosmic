@@ -14,6 +14,7 @@
 --- too, which produced 170 false positives on a tree that follows the
 --- convention exactly.
 
+local assert_lint = require("_cli.assert_lint")
 local citations = require("_cli.citations")
 local fs = require("cosmic.fs")
 local pattern_args = require("_cli.pattern_args")
@@ -417,6 +418,9 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(returns.check_fallible_returns(path, content)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(assert_lint.check_return_assert(path, content)) do
+      diagnostics[#diagnostics + 1] = d
+    end
     for _, d in ipairs(reads_lint.check_reads_declaration(path, content, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
@@ -447,6 +451,7 @@ local record LintModule
   lines: {string}): {Diagnostic}
   check_reads_declaration: function(file: string, content: string,
   lines: {string}): {Diagnostic}
+  check_return_assert: function(file: string, content: string): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -460,6 +465,7 @@ local M: LintModule = {
   check_nil_declaration = check_nil_declaration,
   check_fallible_returns = returns.check_fallible_returns,
   check_reads_declaration = reads_lint.check_reads_declaration,
+  check_return_assert = assert_lint.check_return_assert,
   lint_file = lint_file,
 }
 
