@@ -21,12 +21,14 @@ local function normalize(raw: {string: any}): {string: string}, {string: {string
         list = {}
         raw_headers[key] = list
       end
-      if value is table then
-        for _, v in ipairs(value as {string}) do -- cast: from any
+      if value is {string} then
+        for _, v in ipairs(value) do
           table.insert(list, v)
         end
+      elseif value is string then
+        table.insert(list, value)
       else
-        table.insert(list, value as string) -- cast: from any
+        table.insert(list, tostring(value))
       end
     end
     for key, list in pairs(raw_headers) do
