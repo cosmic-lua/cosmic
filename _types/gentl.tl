@@ -11,9 +11,13 @@
 ---
 --- `_types/types_gen.tl` runs this on every build, into `o/_types/types_gen/`.
 
---- Erasure rules: primitives pass through; upstream enums/aliases of
---- string become string; the records this file re-declares keep their
---- names; everything else (internal records, interfaces) becomes any.
+--- Erasure rules: primitives pass through, and so does `FILE` — Teal
+--- predeclares it globally (the io handle class), so keeping it costs
+--- no declaration and erasing it to any would lose the one honest
+--- handle type in the surface (`search_module`'s open-file return);
+--- upstream enums/aliases of string become string; the records this
+--- file re-declares keep their names; everything else (internal
+--- records, interfaces) becomes any.
 local KEEP: {string: boolean} = {
   string = true, boolean = true, integer = true, number = true,
   any = true, ["nil"] = true, FILE = true,
