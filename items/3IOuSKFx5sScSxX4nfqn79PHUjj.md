@@ -70,3 +70,33 @@ what a session needs in order to decide, not by what the value is:
   generic, and `_perf/run.tl:132`'s `or`-chain rewrite. Refining it needs
   a built tree; that is the whole reason it is cut away from `3IQRDRwW`,
   which does not.
+
+**Outcome verified 2026-08-26** against whilp/cosmic main `50780911`
+(both children merged: #1396 for `3IQRDRwW`, #1397 for `3IQREPC5`).
+Every site this container enumerated now carries no `from any` cast:
+
+```
+git grep -n -- "-- cast: .*from any" origin/main -- \
+  cosmic/sqlite/extras.tl cosmic/_teal_engine.tl cmd/cosmic/main.tl \
+  cosmic/_seal_coverage.tl cosmic/coverage/init.tl \
+  _perf/harness_test.tl _tool/benchmark.tl _perf/run.tl \
+  cosmic/rand_test.tl
+```
+
+prints nothing (17 lines at `dbca9e77`, 12 of them this container's).
+Three sites kept a cast with a truthful, better-than-`from any` reason
+rather than closing — `cosmic/_teal_engine.tl:248` (pcall slot 2 is
+tl's nominal `Result`), `cosmic/coverage/init.tl`'s `table.pack` `n`
+(mixed-return packing erases the element type) and its two
+patch-stdlib table views — which is the decision this container asked
+refinement to make. Nothing moved to whilp/cosmopolitan: the three
+`thread as thread` casts once classed as C-binding-boundary work
+closed here once `is` was shown to narrow a function SIGNATURE.
+
+The repo-wide `from any` residue is **11 lines**
+(`git ls-files '*.tl' | xargs grep -h -- "-- cast: " | grep -c "from any"`),
+none of them this container's: two are literal strings inside
+`_build/casts_test.tl`'s own fixtures, three are `cosmic/fetch/init.tl`
+(board item `3IQCrJpB`), and the remaining six are one-off binding and
+dynamic-lookup boundaries in `errno`, `fd`, `quicksand/proc`,
+`surface_test`, `teal` and `zip`.
