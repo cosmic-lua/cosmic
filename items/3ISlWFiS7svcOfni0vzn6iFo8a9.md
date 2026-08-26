@@ -124,6 +124,7 @@ is fixed and no source is edited in either repo.
 
    ```
    COSMO=/home/user/cosmopolitan
+   COSMO_START_BRANCH=$(git -C $COSMO rev-parse --abbrev-ref HEAD)
    cd /home/user/cosmic && git worktree add -f o/ab ea71d799^
    cd o/ab && bin/cosmic --make fetch && bin/cosmic --make build
    ```
@@ -195,9 +196,15 @@ is fixed and no source is edited in either repo.
 
 7. **Tear down and hand over as evidence.**
 
+   Record `$COSMO`'s starting branch BEFORE step 3 checks any commit
+   out (`git -C $COSMO rev-parse --abbrev-ref HEAD`) and return it
+   there — do NOT assume `master`, because a runner-provisioned
+   checkout may sit on an assigned branch instead (it did during
+   refinement: `claude/brave-fermat-iyvf23`).
+
    ```
    cd /home/user/cosmic && git worktree remove -f o/ab
-   git -C $COSMO checkout master
+   git -C $COSMO checkout "$COSMO_START_BRANCH"
    cd o/board && o/bin/gitboard move 3ISlWFiS check --evidence
    ```
 
@@ -253,8 +260,9 @@ Run from the cosmic repo root unless stated.
 - `git status --porcelain` at the cosmic root → empty.
 - `git worktree list` does not name `o/ab`.
 - `git -C /home/user/cosmopolitan status --porcelain` → empty, and
-  `git -C /home/user/cosmopolitan rev-parse --abbrev-ref HEAD` →
-  `master`.
+  `git -C /home/user/cosmopolitan rev-parse --abbrev-ref HEAD` prints
+  the branch name recorded at step 1 — a branch name, never a detached
+  `HEAD`. State in the findings which branch that was.
 - `git diff --name-only` in whilp/cosmopolitan against `master` → empty
   (nothing was edited to get the numbers).
 - The findings name every commit in the range and say which were
