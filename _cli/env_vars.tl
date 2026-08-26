@@ -48,6 +48,8 @@ local VARS < const >: {Var} = {
     desc = "1 runs the gated two-build fixpoint test"},
   {name = "COSMIC_BENCHMARK_MIN_MS", public = true,
     desc = "--benchmark's per-run timing floor, in milliseconds"},
+  {name = "COSMIC_TEST_FILTER", public = true,
+    desc = "cosmic.test's name filter: a plain substring, not a pattern"},
   {name = "COSMIC_TL_CACHE_DIR", public = true,
     desc = "where compiled-script caches live"},
   {name = "COSMIC_EMBED", public = true,

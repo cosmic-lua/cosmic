@@ -132,6 +132,41 @@ local function test_exit_skip_agrees_with_check()
 end
 test_exit_skip_agrees_with_check()
 
+-- `cosmic.test` may not require this internal tree either, so the
+-- in-process runner reproduces the two spellings it prints -- the
+-- failure row and the counts line. Asserted against what the runner
+-- actually writes, not against a second copy of the format string,
+-- because a copy is the drift this file exists to catch.
+local function test_the_public_runner_prints_this_grammar()
+  local test = require("cosmic.test")
+  local chunks: {string} = {}
+  local old_write = io.write
+  local function capture_write(...: any): FILE, string, integer
+    for _, v in ipairs({...}) do
+      chunks[#chunks + 1] = tostring(v)
+    end
+    return io.stdout
+  end
+  io.write = capture_write
+  local ok, err = pcall(test.main, {
+      {name = "test_passing", fn = function() end},
+      {name = "test_failing", fn = function() error("no") end},
+    })
+  io.write = old_write
+  assert(ok, "the runner threw: " .. tostring(err))
+
+  local lines: {string} = {}
+  for line in table.concat(chunks):gmatch("([^\n]+)") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[1] == records.row("fail", "test_failing", 0, ""),
+    "the runner's failure row drifted from records.row: " .. tostring(lines[1]))
+  assert(lines[#lines] == records.counts(1, 1, 0),
+    "the runner's counts line drifted from records.counts: "
+    .. tostring(lines[#lines]))
+end
+test_the_public_runner_prints_this_grammar()
+
 -- Exit codes are the same three everywhere, and a skip is not a pass.
 local function test_status_is_one_contract()
   assert(records.status_of(records.EXIT_OK) == "pass", "0 passes")

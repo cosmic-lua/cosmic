@@ -247,6 +247,7 @@ return {
   ["cosmic/sys.tl"] = {["covered"] = 14, ["total"] = 22},
   ["cosmic/tar.tl"] = {["covered"] = 116, ["total"] = 126},
   ["cosmic/teal.tl"] = {["covered"] = 92, ["total"] = 100},
+  ["cosmic/test.tl"] = {["covered"] = 57, ["total"] = 61},
   ["cosmic/time.tl"] = {["covered"] = 131, ["total"] = 143},
   ["cosmic/tty.tl"] = {["covered"] = 119, ["total"] = 126},
   ["cosmic/url.tl"] = {["covered"] = 126, ["total"] = 141},
