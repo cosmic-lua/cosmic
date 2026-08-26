@@ -401,7 +401,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
         if pid == 0 then
           unix.close(listen_fd)
           handle(cli)
-          unix.exit(0)
+          unix.exit(0) -- exits: forked per-connection child; work is done
         else
           unix.close(cli)
           reap()

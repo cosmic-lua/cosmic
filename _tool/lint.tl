@@ -62,9 +62,26 @@ local function is_justified(lines: {string}, y: integer,
   return above ~= nil and above:match("^%s*" .. pattern) ~= nil
 end
 
+--- Whether `file` is a `cosmic.*` library module — the only source the
+--- library-doctrine rules (D23's assert licence, D30's throw/exit
+--- boundary) govern. The paths the gate walks are repo-relative;
+--- `/cosmic/` is deliberately NOT matched as well, because the
+--- repository root directory is itself named `cosmic` and that pattern
+--- would sweep the whole tree whenever a caller passes an absolute
+--- path.
+--- @param file string The path being linted
+--- @return boolean True for library source, false for tests and examples
+local function is_library_source(file: string): boolean
+  if not file:match("^cosmic/") then
+    return false
+  end
+  return not (file:match("_test%.tl$") or file:match("_example%.tl$"))
+end
+
 return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
   check_file_length = check_file_length,
   is_justified = is_justified,
+  is_library_source = is_library_source,
 }

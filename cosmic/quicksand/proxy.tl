@@ -132,7 +132,7 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
       unix.write(wfd, string.pack("<i4", -1))
       unix.close(wfd)
       io.stderr:write("proxy.start: " .. tostring(nerr) .. "\n")
-      unix.exit(1)
+      unix.exit(1) -- exits: forked child; setup failure is on the pipe
     end
     -- A guard narrows a nil union only when its block RETURNS; this one
     -- ends in unix.exit, which the checker cannot see is terminal, so
@@ -149,16 +149,16 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
       unix.write(wfd, string.pack("<i4", -1))
       unix.close(wfd)
       io.stderr:write("proxy.start: listen: " .. tostring(lerr) .. "\n")
-      unix.exit(1)
+      unix.exit(1) -- exits: forked child; the listen error is on the pipe
     end
     unix.write(wfd, string.pack("<i4", port_fn()))
     unix.close(wfd)
     local sok, serr = serve_fn()
     if not sok then
       io.stderr:write("proxy.serve: " .. tostring(serr) .. "\n")
-      unix.exit(1)
+      unix.exit(1) -- exits: forked child; the serve error went to stderr
     end
-    unix.exit(0)
+    unix.exit(0) -- exits: forked child ends with the server's success
   end
   -- Parent: read the bound port, then return the handle.
   unix.close(wfd)

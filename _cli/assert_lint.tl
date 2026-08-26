@@ -199,21 +199,6 @@ local function check_return_assert(file: string, content: string): {Diagnostic}
   return diagnostics
 end
 
---- Whether `file` is a `cosmic.*` library module — the only source D23
---- governs. The paths the gate walks are repo-relative, which is how
---- `_cli/visibility.tl` scopes the same tree; `/cosmic/` is deliberately
---- NOT matched as well, because the repository root directory is itself
---- named `cosmic` and that pattern would sweep the whole tree whenever
---- a caller passes an absolute path.
---- @param file string The path being linted
---- @return boolean True for library source, false for tests and examples
-local function is_library_source(file: string): boolean
-  if not file:match("^cosmic/") then
-    return false
-  end
-  return not (file:match("_test%.tl$") or file:match("_example%.tl$"))
-end
-
 --- Every library `assert` that does not say why its nil cannot occur.
 --- One diagnostic per LINE: a line with two asserts takes one comment,
 --- the way one `-- cast:` covers however many casts share a line.
@@ -223,7 +208,7 @@ end
 --- @return {Diagnostic} One per unjustified assert line
 local function check_assert_justification(file: string, content: string,
     lines: {string}): {Diagnostic}
-  if not is_library_source(file) then
+  if not style.is_library_source(file) then
     return {}
   end
   local tokens = tl.lex(content, file)

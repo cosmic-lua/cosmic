@@ -21,6 +21,7 @@ local pattern_args = require("_cli.pattern_args")
 local reads_lint = require("_cli.reads_lint")
 local returns = require("_cli.returns")
 local style = require("_tool.lint")
+local throw_lint = require("_cli.throw_lint")
 local tl = require("tl")
 local visibility = require("_cli.visibility")
 
@@ -412,6 +413,10 @@ local function lint_file(path: string): {Diagnostic} | nil, string
         lines)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(throw_lint.check_throw_justification(path, content,
+        lines)) do
+      diagnostics[#diagnostics + 1] = d
+    end
     for _, d in ipairs(reads_lint.check_reads_declaration(path, content, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
@@ -445,6 +450,8 @@ local record LintModule
   check_return_assert: function(file: string, content: string): {Diagnostic}
   check_assert_justification: function(file: string, content: string,
   lines: {string}): {Diagnostic}
+  check_throw_justification: function(file: string, content: string,
+  lines: {string}): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -460,6 +467,7 @@ local M: LintModule = {
   check_reads_declaration = reads_lint.check_reads_declaration,
   check_return_assert = assert_lint.check_return_assert,
   check_assert_justification = assert_lint.check_assert_justification,
+  check_throw_justification = throw_lint.check_throw_justification,
   lint_file = lint_file,
 }
 
