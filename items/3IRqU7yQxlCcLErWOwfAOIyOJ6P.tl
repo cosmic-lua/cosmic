@@ -7,6 +7,7 @@ return {
   ["claim"] = "6cc6e54c-fe11-50d2-a398-c1a870c6bc57",
   ["id"] = "3IRqU7yQxlCcLErWOwfAOIyOJ6P",
   ["parent"] = "3IOFN9bnvMQn8DrCiGQdrmOzNNR",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1403,
   ["title"] = "literal compact encode: consume the C-side domain refusal and delete the Teal pre-walk",
 }
