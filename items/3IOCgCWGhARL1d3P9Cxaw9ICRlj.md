@@ -96,7 +96,7 @@ run a lane that is in no workflow to do its job.
 
 ## The children
 
-1. **The inventory** (`3IS8...`, filed with this decomposition) — one
+1. **The inventory** (`3ISCk9jy`, filed with this decomposition) — one
    row per `test/tool/net/*.lua`: what binding surface it exercises,
    which `tool/lua/test_*.lua` already covers that ground or `none`, and
    whether it is a redbean-contract file the parent already retires.
