@@ -54,3 +54,16 @@ the strategy does not provide, so at minimum that comment is wrong.
 Evidence: PRs #1389, #1390, #1391, landed 2026-08-26; the duplicate
 was observed merging `origin/main` at `1b5163ea` into #1391's head
 `72994221`, the revived row merging `b9e53b45` into the same branch.
+
+## Triaged: duplicate
+
+`3IRFM0t3` (filed eleven minutes earlier, placed under G4) is the same
+two defects from the same merge, and states them more completely: it
+covers `_build/public_surface_baseline.tl` as well, names the trigger
+(alphabetical adjacency putting a deletion and a value change in one
+overlapping hunk), gives the negative control (#1390, disjoint rows,
+merged clean), and gives a recovery that needs no hand edit — `git
+checkout origin/main -- <floor>` then the regen. The one thing this
+item said that it did not — that the duplicate-key refusal is a compile
+error, so the regen command the gate prints cannot run — has been folded
+into its spec. Nothing here is lost; work the finding under `3IRFM0t3`.
