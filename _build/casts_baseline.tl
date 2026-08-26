@@ -42,7 +42,7 @@ return {
   ["cosmic/fetch/extras.tl"] = 6,
   ["cosmic/fetch/headers.tl"] = 2,
   ["cosmic/fetch/init.tl"] = 7,
-  ["cosmic/format/init.tl"] = 9,
+  ["cosmic/format/init.tl"] = 5,
   ["cosmic/fs/find.tl"] = 3,
   ["cosmic/fs/find_close_test.tl"] = 2,
   ["cosmic/fs/octal.tl"] = 1,
