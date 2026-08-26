@@ -471,16 +471,15 @@ local function main(): integer, string
     for i, a in pairs(opts.script_args) do
       if i >= 1 then args[i] = a end
     end
-    local results: {any} = table.pack(xpcall(function()
-          run_chunk(table.unpack(args))
-        end, run.trim_traceback))
+    -- run_chunk's wrapper returns a string so xpcall types (boolean, string)
+    local ok, script_err = xpcall(function(): string
+        run_chunk(table.unpack(args))
+        return ""
+      end, run.trim_traceback)
     if cov_dump then
       cov_dump()
     end
-    local ok = results[1] as boolean -- cast: from any
-    if not ok then
-      return 1, results[2] as string -- cast: from any
-    end
+    if not ok then return 1, script_err end
     return 0
   end
 

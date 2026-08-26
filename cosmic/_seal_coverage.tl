@@ -13,18 +13,24 @@
 --- its policy grants the coverage directory calls
 --- coverage.keep_on_restrict() before applying, and this consults that
 --- mark — security policy records carry no coverage flag of their own.
+--- The two entry points seal_coverage() needs from cosmic.coverage,
+--- declared here because the module is reached through package.loaded:
+--- requiring it would force-load instrumentation a caller is not using.
+local record CoverageModule
+  is_kept_on_restrict: function(): boolean
+  seal: function()
+end
+
 local function seal_coverage()
   local cov = package.loaded["cosmic.coverage"]
-  if cov == nil then
+  if cov == nil or not (cov is CoverageModule) then
     return
   end
-  local c = cov as {string: any} -- cast: from any
-  local kept = c["is_kept_on_restrict"] as function(): boolean -- cast: from any
+  local kept = cov.is_kept_on_restrict
   if kept ~= nil and kept() then
     return
   end
-  local seal = c["seal"] as function() -- cast: from any
-  seal()
+  cov.seal()
 end
 
 return {
