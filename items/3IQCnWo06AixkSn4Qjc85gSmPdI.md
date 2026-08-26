@@ -114,8 +114,10 @@ Run from the repo root:
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `grep -rn -- '-- cast: .*from any' cosmic/check.tl cosmic/fetch/headers.tl cosmic/fs/types.tl cosmic/quicksand/proxy/rules.tl cosmic/sandbox/init_test.tl | wc -l`
   reports 0 (today 9).
-- `grep -c -- '-- cast:' cosmic/fs/types.tl` reports 1 (today 2) —
-  the one surviving cast, with the metatable reason.
+- `grep -c -- '-- cast:' cosmic/fs/types.tl` reports 13 (today 14 —
+  the file carries twelve other casts with other reasons, outside this
+  slice) — the `:255` cast is gone and `:251` survives with the
+  metatable reason.
 - `bin/cosmic --make test cosmic/check_test.tl cosmic/fetch/headers_test.tl cosmic/sandbox/init_test.tl cosmic/quicksand/proxy/rules_test.tl`
   ends `test: PASS` (all four exist; `cosmic/fs/types.tl` has no
   sibling test file and is covered by the ci line above).
