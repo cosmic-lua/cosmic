@@ -508,8 +508,10 @@ medians rise monotonically across the three candidates, with
 +25.70% above the base, far past this run's floor.
 
 **What this does not support.** It does not name the commit. Under the
-verdict rule this slice was given, every pair reads NOT REPRODUCED,
-because the base arm's own four readings spanned 139.06 to 174.27 µs —
+verdict rule this slice was given, all three pairs fail — the verdict
+lines above are the only three in this section, one per measured arm
+after the base, which is what `Acceptance` counts — because the base
+arm's own four readings spanned 139.06 to 174.27 µs —
 a 25% internal swing, one reading (run 13) far off the other three —
 and that single range overlaps every other arm. Two of three
 conditions hold for `354c17e08` and the direction agrees with
