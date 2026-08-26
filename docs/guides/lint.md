@@ -118,11 +118,20 @@ test_decode()
 ```
 
 the rule keys on the `test_` name prefix: any top-level function named
-`test_*` in a `*_test.tl` is treated as a test that must call itself.
-name your helpers something else (`make_fixture`, `db_path_for`, ...) —
-an uncalled helper that happens to start with `test_` is flagged.
-`Example_*` functions are exempt (the example runner calls them), and
-the rule does not apply outside `*_test.tl` files.
+`test_*` in a `*_test.tl` is a test. name your helpers something else
+(`make_fixture`, `db_path_for`, ...). `Example_*` functions are exempt
+(the example runner calls them), and the rule does not apply outside
+`*_test.tl` files.
+
+a file picks ONE mode (D29): **legacy** — every test called on the line
+after its `end`, as above — or **runner** — no test self-calls and no
+test name is referenced anywhere else in the file; the toolchain runs
+what discovery finds. both lint clean. a MIX is the one shape the rule
+refuses, naming the uncalled tests: under legacy semantics the uncalled
+half would silently never run. a late call block at the bottom of the
+file is not runner mode either — it keeps the old diagnostic, because
+the runner tail would run those tests a second time. the shared walk
+lives in `_tool/discover.tl`.
 
 ## cosmo-require
 
