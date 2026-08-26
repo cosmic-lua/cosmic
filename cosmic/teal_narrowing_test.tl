@@ -413,3 +413,26 @@ print(s:upper())
     "indexing an unnarrowed string | nil must be refused")
 end
 test_nil_union_is_refused_at_an_index()
+
+-- The pack-n patch: MIXED arguments fall to table.pack's any... overload,
+-- which the carried patch types PackTable<any> instead of {any:any}, so
+-- `.n` stays integer for every call shape. Without the patch both lines
+-- fail with "got <any type>" (probed 2026-08-26); with it the file checks.
+local function test_mixed_pack_keeps_n_integer()
+  local path = fs.join(tmpdir, "narrow_pack_n.tl")
+  assert(fs.write(path, [[
+local t = coroutine.create(function(): boolean, string return true, "x" end)
+local results = table.pack(coroutine.resume(t))
+local n: integer = results.n
+print(n)
+print(table.unpack(results, 2, results.n))
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "mixed table.pack must keep .n integer: " .. table.concat(msgs, "; "))
+end
+test_mixed_pack_keeps_n_integer()
