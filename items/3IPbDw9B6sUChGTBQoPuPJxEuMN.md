@@ -194,7 +194,9 @@ would have no caller. `wc -l _cli/lint.tl` reports **457** at
 
 **3. `_cli/citations_test.tl`** — fixtures built under `TEST_TMPDIR`,
 with the test chdir'ing in and restoring the old cwd afterwards
-(`fs.cwd` / `fs.chdir`; `cosmic/fs/init_test.tl:211`'s
+(`fs.cwd` / `fs.set_cwd` — corrected at implementation time, this line
+first named a `fs.chdir` that does not exist;
+`cosmic/fs/init_test.tl:211`'s
 `test_getcwd_and_chdir` is the worked example), because cited paths
 resolve relative to cwd. Each `test_*` is called on the line after its
 `end`, per AGENTS.md. Cover, one test each:
@@ -263,7 +265,13 @@ Run from the repo root:
   `wc -l _cli/citations.tl` at most `500`, and
   `wc -l _cli/citations_test.tl` at most `500`.
 - `git diff --name-only origin/main` lists exactly `_cli/citations.tl`,
-  `_cli/citations_test.tl` and `_cli/lint.tl`, and nothing else.
+  `_cli/citations_test.tl`, `_cli/lint.tl` and `.cosmic-coverage`, and
+  nothing else. (Corrected at implementation time: this line first named
+  three files. `_cli/citations.tl` is a new file with no coverage floor,
+  so the ratchet failed with "not in baseline (new file? run 'cosmic
+  --make coverage --baseline' and commit)". Running exactly the regen
+  command the gate prints, and committing the result, is in scope for a
+  slice that adds gated material; it lowered 0 rows.)
 
 The census's own Method (`docs/design/nil-flow.md`, `## Method`) is NOT
 an acceptance command: it needs a throwaway strict checker that is not
