@@ -50,6 +50,89 @@ whilp/cosmopolitan across that exact range:
 So the leading hypothesis is **binary layout** — a new translation unit
 shifted code, with no algorithmic change anywhere.
 
+## Result (2026-08-26, this slice)
+
+**The A/B ran as `## Change` specifies.** Worktree at `ea71d799^`
+(`5ef13f40`), only `3p/cosmos/cosmos_pin.tl` varied, six rounds
+alternating `0821, 0824, 0821, 0824, 0821, 0824`, each round rebuilt
+(`build: PASS (515 files, 1 binary)` every time) and measured with two
+isolated single-scenario runs.
+
+`json_decode_large` (`--only json_decode_large`):
+
+| round | pin | ms/op | ± |
+|---|---|---|---|
+| 1 | 07fc94a1c | 1.26 | 16.0% |
+| 2 | 354c17e08 | 1.11 | 8.0% |
+| 3 | 07fc94a1c | 1.67 | 15.4% |
+| 4 | 354c17e08 | 1.24 | 7.5% |
+| 5 | 07fc94a1c | 1.19 | 15.9% |
+| 6 | 354c17e08 | 1.24 | 7.2% |
+
+Medians 1.26 → 1.24 ms. The newer cosmos is if anything FASTER, and
+markedly more stable (±7–8% against ±15–16%). The sides overlap
+completely. **Verdict: the pin is exonerated** — this is the "two sides
+overlap" branch, consistent with the earlier finding that this scenario
+reads +12.6% against itself in suite context and drifts ~11% between
+isolated runs.
+
+`codec_base64_roundtrip_64k` (`--only codec_base64_roundtrip_64k`):
+
+| round | pin | µs/op | ± |
+|---|---|---|---|
+| 1 | 07fc94a1c | 191.73 | 14.2% |
+| 2 | 354c17e08 | 227.05 | 9.8% |
+| 3 | 07fc94a1c | 196.18 | 13.1% |
+| 4 | 354c17e08 | 206.34 | 7.0% |
+| 5 | 07fc94a1c | 193.46 | 4.8% |
+| 6 | 354c17e08 | 208.58 | 3.3% |
+
+Medians 193.46 → 208.58 µs, **+7.8%**, slower on `354c17e08` in all
+three pairings, and the two sets do not overlap — the fastest
+`354c17e08` reading (206.34) is slower than the slowest `07fc94a1c`
+reading (196.18). **Verdict: reproduces** — this is the "0824 side is
+slower" branch. Stated honestly with its caveat: the per-run ± exceeds
+the effect on the noisy rounds, so the separation rests on the
+three-per-side ranges rather than any single pair, and the effect here
+(+7.8%) is well under the release lane's +21.0%. Confirming on quieter
+hardware is the first step of the follow-up.
+
+Since the base64 codec is byte-identical across the bump
+(`## Evidence`), the cause is what `354c17e0` did to the binary — a new
+650-line translation unit — not to the codec.
+
+**Follow-ups filed:**
+
+- `3ISlWFiS` (`--repo whilp/cosmopolitan`) — the base64 regression,
+  carrying all six readings, the bisect range `07fc94a1c..354c17e08`,
+  and a cheapest-first plan (confirm on quiet hardware → bisect the
+  five commits → check symbol alignment before touching source).
+- `3ISlY5Xl` — the release gate's hole: it enforces a fixed 10% bar
+  plus ONE A/A triage pass, so a scenario quiet in that pass and noisy
+  later reads as a regression. The record must not excuse
+  `json_decode_large` in a way that would also excuse base64's real
+  +7.8%.
+
+**Two deliberate deviations from `## Change`, both recorded rather than
+silent:**
+
+1. **Step 5's `perf_gate: false` dispatch was NOT run.** It publishes a
+   release outward, and this slice ran unattended; the spec's own
+   authority for it is `release.yml:148-155`, not a standing decision
+   by anyone. It is left for a human, and it should be gated on
+   `3ISlWFiS` — do not re-baseline the gate over a regression that is
+   now confirmed real until that item has an answer or an accepted
+   explanation.
+2. **`gitboard block <this id> 3ISlWFiS` was NOT created.** That edge
+   was written for the earlier design in which this item also did the
+   re-baseline. This item's own work — the evidence — is complete, so
+   blocking it would strand a finished slice; the block belongs on
+   whatever item takes the re-baseline.
+
+**Gate state**: `bin/cosmic --make ci` at `main` `ec794d44` →
+`ci: PASS (5 stages)`. `git worktree list` no longer names `o/ab`;
+`git status --porcelain` at the root is empty.
+
 ## Result (from the first attempt, 2026-08-26)
 
 Measured on a 4-core session container (`nproc` → 4) at `main`
