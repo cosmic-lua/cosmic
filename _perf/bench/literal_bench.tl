@@ -6,6 +6,13 @@
 --- per op, so a small scenario after them meets the same heap in every pass,
 --- which keeps an A/A self-check quiet. Each check pins a probe value AND the
 --- key count, so a reader or writer that dropped entries fails, not wins.
+---
+--- The floor is written BOTH ways. `format` is the default pin layout, a
+--- `--check fmt` fixpoint assembled in Lua; `format` with `layout = "compact"`
+--- is the bulk writer that hands the value to the C encoder once a Teal walk
+--- has agreed the whole thing is inside the domain. The two run side by side
+--- because the compact writer's cost is that guard as much as the encoding,
+--- and a cost with no scenario has nothing to gate a change against.
 
 local check = require("cosmic.check")
 local literal = require("cosmic.literal")
@@ -125,6 +132,16 @@ local function scenarios(): {pt.Scenario}, string
       check = function(_: any, res: any): boolean, string
         return verify("literal_format_floor", res, FLOOR_ROWS, FLOOR_KEY, "covered",
           FLOOR_COVERED)
+      end,
+    },
+    {
+      name = "literal_format_floor_compact",
+      fn = function(_: any): any
+        return (literal.format(FLOOR, {layout = "compact"}))
+      end,
+      check = function(_: any, res: any): boolean, string
+        return verify("literal_format_floor_compact", res, FLOOR_ROWS, FLOOR_KEY,
+          "covered", FLOOR_COVERED)
       end,
     },
     {
