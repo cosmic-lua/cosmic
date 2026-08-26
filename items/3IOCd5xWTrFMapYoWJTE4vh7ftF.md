@@ -54,8 +54,8 @@ Measured 2026-08-26 at main `1afdfb01`, from the repo root.
   line and a much shorter body. `_tool/discovery.tl` and
   `_tool/discovery_test.tl` are new, so each has the whole 500.
 - **Coverage carries `_tool/**`.** `grep -n '_tool/lint.tl'
-  .cosmic-coverage` → `["_tool/lint.tl"] = {["covered"] = 21,
-  ["total"] = 21}`, and `_tool/coverage/baseline.tl:8-11` fails the
+  .cosmic-coverage` → `["_tool/lint.tl"] = {["covered"] = 16,
+  ["total"] = 17}` (line 126), and `_tool/coverage/baseline.tl:8-11` fails the
   gate when the file set drifts, so the new module needs
   `bin/cosmic --make coverage --baseline`.
 - **The item's Context names a doc that is not in the tree.**
