@@ -92,6 +92,12 @@ During refinement the full diff also passed
 `o/bin/cosmic --make test cosmic/check_test.tl cosmic/fetch/headers_test.tl`
 (`test: PASS (2 files)`).
 
+**The casts ratchet fires on this diff** (five files land under their
+committed baseline). Run exactly the regen its failure message prints —
+`bin/cosmic --make run _build/casts.tl --baseline` — and commit the
+regenerated `_build/casts_baseline.tl` with the change; in scope, and
+the only gate-touching edit allowed.
+
 ## Non-goals
 
 - No new type declarations anywhere — this group exists because every
