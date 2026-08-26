@@ -121,3 +121,56 @@ the strict-nil census), the follow-up parent exists (3ISJI4Lg), the
 no-PR handover's `--force` is the documented 3IFUskgH workaround, and
 every site this research reads is cited above at a line number
 verified today.
+
+## Findings
+
+Recorded 2026-08-26 at main `8f34339e`; every probe under
+`o/bin/cosmic --check types`, scratch tl edits reverted (a clean
+re-fetch of `o/3p/tl` plus a bootstrap rebuild; `git status` clean).
+
+1. **or-fallback: the reason is stale.** Both probe spellings of the
+   three sites pass today — `local lua = (fs.read("x") or "")` then
+   `lua:match(...)` → `Type check passed`; `local lua: string =
+   fs.read("x") or ""` → `Type check passed` — and deleting all three
+   casts and comments from `_cli/build/init_test.tl` itself passes
+   `--check types` on the edited file (reverted after).
+   decision: truer reason — the casts are removable; capture
+   3ISSFN5u.
+2. **closure carry-through: the premise splits in two.**
+   - `is`-fact narrowing IS dropped at closures: `raw is
+     function(any)` guarded, `raw(1)` inside a `local function` →
+     `error: not a function: <any type>`. The reset is the node-less
+     `widen_all_unions()` at the function-definition sites (~13073,
+     ~13586, ~13619, ~13648); `widen_all_unions(node)` already spares
+     names not `assigned_anywhere(name, node)`. Prototyped the crude
+     variant (pass the closure's own node at ~13073 and
+     local_function): the sound probe passes AND the reassign-after-
+     closure probe passes — unsound, since only assignments inside
+     the closure are seen. The sound scope is the nearest enclosing
+     function body; scopes store no nodes (`begin_scope` → `{vars =
+     {}}`), so the real patch needs a current-body stack.
+     decision: patch capture 3ISSGDIN.
+   - The carried NIL-guard narrowing already crosses closures — and
+     survives reassignment: `if v == nil then return end`, closure
+     returning `v: string`, then `v = pick()` → `Type check passed`
+     on the PRISTINE checker (truthiness spelling too). That is an
+     unsound acceptance, not a missing feature: the patch's narrows
+     never register in `scope.narrows`, so the widen pass cannot see
+     them. decision: patch capture 3ISSGm9B (flagged as the
+     highest-value of the four — G3 forbids exactly this hole).
+3. **metatable<any>: feasible, sketch validated.** Scratch allowance
+   at the two "can never be" fact-eval sites (branch warning ~11510,
+   error ~11607) accepting metatable-over-table-kinded targets:
+   `getmetatable(x) is {string: any}` probe → passed;
+   `cosmic/fs/types.tl` rewritten cast-free at :251 → `Type check
+   passed` (reverted); negative probe `mt is integer` → still
+   refused "can never be". decision: patch capture 3ISSFrCO, with
+   the fs/types cast retire deferred per the cold-build rule.
+
+Method note for the reviewer: the scratch loop was edit
+`o/3p/tl/tl.lua` → `bin/cosmic --make build` → probe; restoring
+required `rm -rf o/3p/tl && --make fetch` AND `rm o/bin/cosmic` (the
+stale binary otherwise recompiles the tree with the scratch checker
+and the build goes red on `cosmic/json.tl`/`cosmic/searcher.tl` —
+observed, and itself a live demonstration of the crude variant's
+unsoundness leaking into real inference).
