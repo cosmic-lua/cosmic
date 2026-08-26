@@ -45,9 +45,14 @@ end
 --- @param opts Options|nil What the caller passed
 --- @return string|nil The substring to match, nil for no filter
 local function filter_of(opts: Options | nil): string | nil
-  local from_opts = opts and opts.filter
-  if from_opts ~= nil and from_opts ~= "" then
-    return from_opts
+  -- `opts` is narrowed by its own guard before the field is read: a
+  -- record field does not narrow, and the checker a released cosmic
+  -- carries refuses `opts and opts.filter` outright.
+  if opts ~= nil then
+    local from_opts = opts.filter
+    if from_opts ~= nil and from_opts ~= "" then
+      return from_opts
+    end
   end
   local from_env = env.get(FILTER_VAR)
   if from_env ~= nil and from_env ~= "" then
