@@ -7,6 +7,7 @@
 --- itself as noise. Measurement is injected so the orchestration is
 --- testable without running real benchmarks; main wires perf.run.
 local compare = require("_perf.compare")
+local pt = require("_perf.perf_types")
 local proc = require("cosmic.proc")
 
 local type Measure = function(out: string): integer
@@ -50,12 +51,11 @@ end
 --- @param base_path string Baseline results path
 --- @param cur_path string Current results path
 --- @param threshold number? Noise bar in percent
---- @param na_path string? A/A control A (triage mode when both set)
---- @param nb_path string? A/A control B
+--- @param control_paths {string}? Same-binary control runs; triage mode when two or more
 --- @return integer Failure count, or -1 on a load error
 --- @return string? Error message when loading failed
 local function compare_once(base_path: string, cur_path: string,
-    threshold: number, na_path?: string, nb_path?: string): integer, string
+    threshold: number, control_paths?: {string}): integer, string
   local base, berr = compare.load_results(base_path)
   if base == nil then
     return -1, berr
@@ -65,16 +65,16 @@ local function compare_once(base_path: string, cur_path: string,
     return -1, cerr
   end
   local deltas, failures = compare.diff(base, cur, threshold)
-  if na_path and nb_path then
-    local na, naerr = compare.load_results(na_path)
-    if na == nil then
-      return -1, naerr
+  if control_paths and #control_paths >= 2 then
+    local controls: {pt.Results} = {}
+    for _, path in ipairs(control_paths) do
+      local c, cerr2 = compare.load_results(path)
+      if c == nil then
+        return -1, cerr2
+      end
+      controls[#controls + 1] = c
     end
-    local nb, nberr = compare.load_results(nb_path)
-    if nb == nil then
-      return -1, nberr
-    end
-    deltas, failures = compare.triage(base, cur, na, nb, threshold)
+    deltas, failures = compare.triage_many(base, cur, controls, threshold)
   end
   print(compare.format(deltas))
   return failures
@@ -166,8 +166,23 @@ local function gate_inner(opts: GateOptions): integer
     io.stderr:write(refusal .. "\n")
     return 1
   end
-  failures, err = compare_once(opts.baseline, retry, opts.threshold,
-    retry, opts.selfcheck_b)
+  -- Three runs of the current binary exist by now — the caller's
+  -- `current`, the retry, and the self-check — so there are three
+  -- control PAIRS to read noise from, not one. A scenario can be quiet
+  -- in one pair and swing in the next (that is the variance being
+  -- measured), so triaging against every pair catches an unstable
+  -- scenario the single retry/self-check pair happens to miss. The
+  -- extra pairs cost nothing: the runs are already measured.
+  --
+  -- `current` joins the controls only when it names the SAME binary as
+  -- the retry. When it does not, it is a control lost, not a refusal —
+  -- the pair that must hold is checked above, and dropping `current`
+  -- leaves exactly the one pair the gate read before.
+  local controls = {retry, opts.selfcheck_b}
+  if identity_refusal(retry, opts.current, true) == nil then
+    table.insert(controls, 1, opts.current)
+  end
+  failures, err = compare_once(opts.baseline, retry, opts.threshold, controls)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
