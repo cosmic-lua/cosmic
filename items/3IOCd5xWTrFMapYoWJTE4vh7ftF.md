@@ -249,3 +249,37 @@ the coverage regen command from the gate's own failure message. The
 item's Context points at `docs/design/test-runner.md`, which is not in
 the tree — it is optional background on a side branch, and nothing
 above depends on it.
+
+## Review corrections (2026-08-26, at the accept)
+
+Judged on PR #1413 head `7300c6fd` and recorded so 3IOCdHTM/3IOCdZCA
+read the tree, not this spec's letter:
+
+- The module landed as `_tool/discover.tl` (with `discover_test.tl`),
+  not `discovery.tl`; the empty mode is spelled `"empty"`, not
+  `"none"`; the case field is `called`, not `called_at`.
+- Runner mode additionally requires that no case name is REFERENCED
+  anywhere else in the file (a late call block or `pcall(test_x)`
+  keeps the file out of runner mode) — a soundness improvement over
+  the spec: the future generated tail would otherwise run such tests
+  twice.
+- The interim-safety argument is stronger than the spec's: a
+  runner-mode file today is refused by `--check types` itself
+  (uncalled local function = unused-local warning, warnings are
+  errors), not merely visible as a `0 test functions` report.
+- `docs/guides/lint.md` gained the two-mode paragraph — in the diff,
+  disclosed, and right: the guide documents the rule the diff
+  rewrote.
+- The `end_line_of` type-position `function` miscount (3IP9ijhv) was
+  kept byte-verbatim with a comment naming the item, as the spec's
+  Non-goals demanded.
+- Re-verified at review in a fresh worktree: `ci: PASS (5 stages)`;
+  `--make test _tool/discover_test.tl _cli/lint_test.tl` →
+  `test: PASS (2 files)`; zero lines removed from `_cli/lint_test.tl`;
+  `check_call_after_define` keeps its name and `(file, content,
+  lines)` signature on the exported record; `wc -l < _cli/lint.tl` →
+  411.
+- The PR's reviewer note re-confirms the stale lint-cache class
+  (3ISM1AS8, second sighting): a linter behavior change can serve
+  stale per-file verdicts locally. That capture is already filed and
+  placed; its priority case just got stronger.
