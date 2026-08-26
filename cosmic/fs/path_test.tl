@@ -61,9 +61,9 @@ local function test_join_empty_components_skipped()
 end
 test_join_empty_components_skipped()
 
--- join declares a plain string, and the assert behind it is what makes
--- that true: the C binding returns nil only when every argument is nil,
--- which this signature cannot express and no caller can reach.
+-- join declares a plain string because the C binding does: calling
+-- with no arguments, or with every argument nil, is a caller error
+-- the binding answers by raising, never by returning nil.
 local function test_join_returns_a_plain_string()
   local joined = fs.join("a", "b")
   assert(type(joined) == "string", "join returns a string, not a union")

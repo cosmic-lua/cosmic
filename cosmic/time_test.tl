@@ -23,11 +23,11 @@ local function test_monotonic()
 end
 test_monotonic()
 
--- Every clock reader asserts its clock_gettime read (D23's
--- unreachable-nil rule), so the values that reach a caller are the
--- plain integers the signatures declare. The assert's own failure path
--- is unreachable through the public API — cosmopolitan guarantees
--- neither clock raises EINVAL — so this pins what callers receive.
+-- The clock binding returns plain integers for these clocks:
+-- cosmopolitan guarantees neither CLOCK_REALTIME nor CLOCK_MONOTONIC
+-- can fail, and clock_gettime raises on a clock id it cannot serve
+-- instead of returning nil. This pins that every public reader hands
+-- callers the integers its signature declares.
 local function test_clock_readers_return_integers()
   local secs, nanos = time.now()
   assert(math.type(secs) == "integer", "now() seconds should be an integer")
