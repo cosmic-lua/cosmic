@@ -1,7 +1,9 @@
---- The assert rules: shapes where `assert` is licensed but written in
---- a position that misreports its arity.
+--- The assert rules: `assert` is licensed in library code only in a
+--- narrow shape, and both rules here guard one half of that licence —
+--- `return-assert` the position it may be written in, `assert-justify`
+--- the reason it must carry.
 ---
---- `return-assert` is the one rule here. The carried `narrow-assert-decl`
+--- `return-assert` is the arity half. The carried `narrow-assert-decl`
 --- patch declares Lua's `assert` as ONE return, which is what makes
 --- `local db = assert(open(p))` yield a plain `Database` instead of a
 --- union. In RETURN position that declaration is a lie: Lua's `assert`
@@ -16,8 +18,20 @@
 --- a position. That call becomes the three-argument `table.insert` and
 --- fails at runtime with an error naming neither function.
 ---
+--- `assert-justify` is the licence half. D23 lets a `cosmic.*` module
+--- `assert` a `cosmo.*` return whose declared `| nil` is unreachable
+--- for the arguments that call passes, PROVIDED the assert carries a
+--- trailing `-- assert: <why the nil cannot occur>` — the way a cast
+--- carries its `-- cast:`. Without the comment the assert is an
+--- ordinary library throw, which the error doctrine forbids, and
+--- nothing but a reader can tell the two apart.
+---
 --- Token-exact via the lexer, so an `assert` quoted inside a string or
---- a comment never counts.
+--- a comment never counts. That is what makes `assert-justify` usable
+--- at all: `cosmic/**` holds 23 `assert(` occurrences and every one is
+--- inside a doc comment or a string constant — including
+--- `cosmic/embed/init.tl`'s, which is a line of the entry wrapper this
+--- tree WRITES rather than runs.
 
 local returns = require("_cli.returns")
 local style = require("_tool.lint")
@@ -185,12 +199,75 @@ local function check_return_assert(file: string, content: string): {Diagnostic}
   return diagnostics
 end
 
+--- Whether `file` is a `cosmic.*` library module — the only source D23
+--- governs. The paths the gate walks are repo-relative, which is how
+--- `_cli/visibility.tl` scopes the same tree; `/cosmic/` is deliberately
+--- NOT matched as well, because the repository root directory is itself
+--- named `cosmic` and that pattern would sweep the whole tree whenever
+--- a caller passes an absolute path.
+--- @param file string The path being linted
+--- @return boolean True for library source, false for tests and examples
+local function is_library_source(file: string): boolean
+  if not file:match("^cosmic/") then
+    return false
+  end
+  return not (file:match("_test%.tl$") or file:match("_example%.tl$"))
+end
+
+--- Every library `assert` that does not say why its nil cannot occur.
+--- One diagnostic per LINE: a line with two asserts takes one comment,
+--- the way one `-- cast:` covers however many casts share a line.
+--- @param file string Path, for the diagnostic
+--- @param content string The file's bytes
+--- @param lines {string} The file's lines
+--- @return {Diagnostic} One per unjustified assert line
+local function check_assert_justification(file: string, content: string,
+    lines: {string}): {Diagnostic}
+  if not is_library_source(file) then
+    return {}
+  end
+  local tokens = tl.lex(content, file)
+  if not tokens then
+    return {}
+  end
+  local diagnostics: {Diagnostic} = {}
+  local seen: {integer: boolean} = {}
+  for i, t in ipairs(tokens) do
+    local before = i > 1 and tokens[i - 1].tk or ""
+    if t.tk == "assert" and t.kind == "identifier" and not seen[t.y]
+    and before ~= "." and before ~= ":"
+    and tokens[i + 1] and tokens[i + 1].tk == "(" then
+      seen[t.y] = true
+      if not style.is_justified(lines, t.y, "assert") then
+        diagnostics[#diagnostics + 1] = {
+          file = file,
+          line = t.y,
+          col = t.x,
+          rule = "assert-justify",
+          message = string.format(
+            "%s:%d: a library `assert` throws, and throwing from"
+            .. " `cosmic/**` needs D23's licence: the `| nil` must be"
+            .. " unreachable for the arguments THIS call passes. Say"
+            .. " which, in a trailing `-- assert: <why the nil cannot"
+            .. " occur>` (or on the line above); if the nil IS"
+            .. " reachable, return it as `nil, err` instead (see"
+            .. " `cosmic --docs guide.lint`)", file, t.y),
+        }
+      end
+    end
+  end
+  return diagnostics
+end
+
 local record AssertLintModule
   check_return_assert: function(file: string, content: string): {Diagnostic}
+  check_assert_justification: function(file: string, content: string,
+  lines: {string}): {Diagnostic}
 end
 
 local M: AssertLintModule = {
   check_return_assert = check_return_assert,
+  check_assert_justification = check_assert_justification,
 }
 
 return M
