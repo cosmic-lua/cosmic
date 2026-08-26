@@ -149,7 +149,7 @@ local function exec_workload(err_fd: integer, argv: {string}, env_list: {string}
   local _, err = unix.execvpe(argv[1], argv, env_list)
   unix.write(err_fd, "execvpe " .. tostring(argv[1])
     .. ": " .. tostring(err))
-  os.exit(127)
+  os.exit(127) -- exits: forked child after a failed exec; the error is on the pipe
 end
 
 -- Supervisor child entry point. Never returns: always exits the process.
@@ -162,7 +162,7 @@ local function supervisor(
     argv: {string})
   local function die(msg: string)
     unix.write(err_fd, msg)
-    os.exit(126)
+    os.exit(126) -- exits: supervisor child; setup failure is on the parent's pipe
   end
   local flags = clone_flags(opts)
   local ok, err = unix.unshare(flags)
@@ -232,14 +232,14 @@ local function supervisor(
     local serr = workload_setup(opts)
     if serr then
       unix.write(err_fd, serr)
-      os.exit(126)
+      os.exit(126) -- exits: workload child; setup failure is on the parent's pipe
     end
     exec_workload(err_fd, argv, env_list)
     return -- unreachable
   end
 
   local code = qproc.become_init(pid, {sidecars = sidecars})
-  os.exit(code)
+  os.exit(code) -- exits: supervisor child ends with the workload's code
 end
 
 --- Fork+orchestrate a Box policy around argv. Returns an integer exit
@@ -284,7 +284,7 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
   if pid == 0 then
     unix.close(erfd)
     supervisor(parent_fd, ewfd, opts, argv)
-    os.exit(127) -- unreachable
+    os.exit(127) -- exits: unreachable belt; supervisor() never returns
   end
 
   unix.close(ewfd)

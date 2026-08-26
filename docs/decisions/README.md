@@ -64,3 +64,4 @@ build when the committed copy drifts.
 | D27 | every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default | active | [→](d27-one-committed-floor.md) |
 | D28 | a validating decode is combinators the checker checks, not a table of type-name strings | active | [→](d28-shape-combinators.md) |
 | D29 | a test runs because it is defined, not because its file called it | active | [→](d29-tests-run-because-defined.md) |
+| D30 | a cosmic module throws or exits only where no caller could receive the value | active | [→](d30-throw-exit-boundaries.md) |

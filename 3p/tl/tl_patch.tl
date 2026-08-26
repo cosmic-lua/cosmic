@@ -1,29 +1,23 @@
--- The carried patch riding 3p/tl/tl_pin.tl (see _make/patch.tl for the
--- mechanism). Two groups of edits; each entry's `note` says what that
--- one does, and the replacement text carries the reasoning at the line
--- it changes.
+-- The carried patch riding 3p/tl/tl_pin.tl; _make/patch.tl is the
+-- mechanism. Each entry's `note` says what it does; a multi-line
+-- replacement also carries its reasoning at the lines it changes.
 --
 -- The ast-cache-* group (whilp/cosmic#967) lets an embedder skip tl's
 -- parse of its embedded prelude/stdlib d.tl sources — ~11 of the ~16 ms
--- every fresh process pays in its first tl.new_env(). `ast-cache-hooks-*`
--- exposes the node/type metatables and the typeid allocator a serialized
--- AST needs to be rebuilt as real parser output; `ast-cache-new-env`
--- (plus the -tl-tl twin for the Teal source, which is the ground truth
--- _types/gentl.tl verifies records against) accepts pre-parsed programs
--- in EnvOptions, with behavior byte-identical when absent. cosmic
--- generates the cache in _types/tlast_gen.tl and thaws it in
--- cosmic/_teal_ast.tl.
+-- a fresh process pays in its first tl.new_env(). `ast-cache-hooks-*`
+-- exposes the node/type metatables and the typeid allocator a thawed AST
+-- needs; `ast-cache-new-env` (plus the -tl-tl twin for gentl's ground
+-- truth) accepts pre-parsed programs in EnvOptions, byte-identical when
+-- absent — generated in _types/tlast_gen.tl, thawed in cosmic/_teal_ast.tl.
 --
 -- The narrow-* group teaches the checker that a nil union narrows
--- through the guards Lua programmers actually write — a truthiness test,
--- `assert`, `x and x.field`, `== nil`, a branch that exits by `break`,
--- `goto`, `error` or `os.exit`, and a disjunctive guard — and that
--- `x or fallback` cannot be nil when the fallback cannot be. Each is a
--- strictly-better inference: more correct programs check, and no program
--- that checked before stops. `narrow-nil-union` installs the two helpers
--- the rest share. The census that sized them is docs/design/nil-flow.md.
+-- through the guards Lua programmers actually write — truthiness,
+-- `assert`, `x and x.field`, `== nil`, exiting branches, disjunctive
+-- guards, `x or fallback` with a non-nil fallback — each strictly
+-- better: more correct programs check, none stop. `narrow-nil-union`
+-- installs the shared helpers; the census is docs/design/nil-flow.md.
 --
--- Carried, not forked: each anchor must match the pinned tl.lua exactly
+-- Carried, not forked: each anchor must match the pinned source exactly
 -- once, so a tl pin bump that moves this code fails the fetch loudly
 -- until the patch is re-audited (or dropped, once upstream lands it).
 return {
@@ -379,6 +373,12 @@ tl.ast_hooks = { type_mt = type_mt, new_typeid = new_typeid }
       end,
 
       ["rawget"] = function(self, node, _a, b, _argdelta)]=====],
+  },
+  ["narrow-pack-n"] = {
+    file = "tl.lua",
+    note = "mixed-arity table.pack fallback returns PackTable<any>: .n stays integer",
+    find = [=====[      pack: function(any...): {any:any} --[[needs_compat]]]=====],
+    replace = [=====[      pack: function(any...): PackTable<any> --[[needs_compat]]]=====],
   },
   ["narrow-nil-union"] = {
     file = "tl.lua",

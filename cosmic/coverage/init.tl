@@ -126,7 +126,7 @@ local function install_wrappers(do_dump: function())
     return function(...: any): any ...
       local results = table.pack(coroutine.resume(cothread, ...))
       if not results[1] then
-        error(results[2], 0)
+        error(results[2], 0) -- throws: coroutine.wrap contract; stock wrap re-raises
       end
       -- Packing resume's mixed returns erases the element type to any.
       -- cast: table.pack's n field is an integer by contract

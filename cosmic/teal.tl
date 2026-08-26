@@ -18,6 +18,7 @@
 -- repeat cost one lookup.
 if not package.loaded["tl"] and not package.preload["tl"]
 and not package.searchpath("tl", package.path) then
+  -- throws: require-time probe; a failed require IS the reporting channel
   error("module 'tl' not found: cosmic.teal needs the Teal compiler", 0)
 end
 

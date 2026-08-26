@@ -238,7 +238,11 @@ rules:
   ([D23](docs/decisions/d23-check-throws.md)): `cosmic.check`'s assertions and
   its `needs`/`reap` exits, the CSPRNG's throw-on-failure, and an `assert` on a
   `cosmo.*` return whose declared `| nil` cannot occur for the arguments that
-  call passes — which carries a trailing `-- assert: <why>` naming the reason
+  call passes — which carries a trailing `-- assert: <why>` naming the reason —
+  plus [D30](docs/decisions/d30-throw-exit-boundaries.md)'s three: a Lua
+  protocol whose error channel is the throw, a process boundary with no caller,
+  and an infallible-by-type contract violation — each site carrying a trailing
+  `-- throws: <why>` / `-- exits: <why>` naming the reason
 - never silently discard errors
 - be consistent within a module — pick one pattern and use it throughout
 - infallible functions (encoding, compression, escaping) return just a value
