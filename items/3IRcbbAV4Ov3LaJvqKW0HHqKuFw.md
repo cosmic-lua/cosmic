@@ -39,9 +39,9 @@ Measured 2026-08-26 against main `3053b87d`:
 **`_perf/bench/literal_bench.tl`** — add one scenario, and nothing
 else:
 
-- A `local FLOOR_COMPACT_SOURCE = check.must(literal.format(FLOOR,
-  {layout = "compact"}))` is NOT needed; the scenario formats, it does
-  not parse a prebuilt source.
+- No new module-level fixture: the scenario formats `FLOOR`, it does
+  not read back a prebuilt source, so nothing is added beside
+  `PIN_SOURCE`/`FLOOR_SOURCE`.
 - Add a fifth entry to the `scenarios()` table, placed immediately
   after `literal_format_floor` (`:121-129`) so it meets the same heap
   as the floor scenario it is compared against:
