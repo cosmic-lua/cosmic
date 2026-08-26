@@ -65,8 +65,8 @@ local function clone_flags(opts: BoxOptions): integer
   if opts == nil or opts.pid_ns ~= false then
     -- Lazy require: the umbrella re-exports Box, so a top-level
     -- require here would be a cycle.
-    local qs = require("cosmic.quicksand") as CapsModule -- cast: from any
-    if qs.capabilities().pid_ns then
+    local qs = require("cosmic.quicksand")
+    if qs is CapsModule and qs.capabilities().pid_ns then
       flags = flags | NEWPID
     end
   end
