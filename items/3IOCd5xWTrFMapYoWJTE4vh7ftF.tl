@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3IOCcUaGrgTMqxJRi4hPIoVcWGK",
   ["id"] = "3IOCd5xWTrFMapYoWJTE4vh7ftF",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "backlog",
+  ["phase"] = "plan",
   ["title"] = "test discovery: one lexer walk classifies a test file and yields its ordered cases",
 }
