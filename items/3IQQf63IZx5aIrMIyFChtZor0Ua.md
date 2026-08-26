@@ -69,10 +69,49 @@ checker at `c2ae0466`.** Four probe functions, each type-checked with
    `if not (x is M) then error(...) end` guard does — both forms pass,
    so a test may use whichever reads better.
 
+**Q5 — OPEN. `cosmic/sqlite/extras.tl:60` and `:102` are not `any` at
+all, and `is string` is refused there.** Found at implementation
+2026-08-26 (the bounce below): six of the eight sites closed as this
+spec's `Change` describes and type-checked, but `o/bin/cosmic --check
+types cosmic/sqlite/extras.tl` rejects the two `verdict` guards with
+
+```
+cosmic/sqlite/extras.tl:62:18: warning: verdict (of type boolean) can never be a string
+cosmic/sqlite/extras.tl:62:7:  error:   cannot resolve a type for verdict here
+```
+
+(and the same pair at `:105`). The cause: `local success, verdict, why =
+pcall(fn, self)` types slot 2 from `TxFn`'s declared return
+(`local type TxFn = function(any): boolean, string`, `:13`), so
+`verdict` is `boolean` to the checker even though in the `not success`
+branch it holds the RAISED error at runtime. **The original
+`-- cast: from any` reason on those two lines was itself wrong** — the
+value is not `any` — which is why the guard-shaped treatment this spec
+assumed for them does not apply.
+
+`:32` is unaffected and closed cleanly: `rollback_reason(why: any)`
+really is `any`, so `if why is string then return why end` type-checks.
+
+The refinement that takes this item back to `ready` must choose between:
+
+1. **Keep both casts with a truthful reason** (e.g. `-- cast: pcall slot
+   2 is the raised error, typed boolean from TxFn`). Closes the
+   `from any` count to 0 without pretending the value is `any`; the
+   `extras.tl` ratchet row then stays at `= 2`, not absent.
+2. **Name the raised value for what it is** — `local raised: any =
+   verdict` before the guard, with a comment. Removes both casts but
+   launders a `boolean` through `any`, which is the kind of move G3
+   exists to discourage; only take it if the comment carries its weight.
+
+Whichever is chosen, the `Change` for `:60`/`:102`, the `extras.tl` row
+in the ratchet table, and the `grep -c -- "-- cast:"` acceptance lines
+all move with it. The other six sites' shapes are validated and should
+be carried forward unchanged.
+
 ## Change
 
-Three files, eight casts, each shape decided. Seven close outright; one
-survives with a truer reason, named below.
+Three files, eight casts. Six shapes below are validated by a
+type-checked implementation; `:60` and `:102` are blocked on Q5.
 
 **`cosmic/sqlite/bind.tl` (2 casts).**
 - `:50` — `if v is Blob and getmetatable(v) == blob_mt as any then
@@ -103,16 +142,13 @@ survives with a truer reason, named below.
 - `:32` — in `rollback_reason`, replace `return (why as string) or (what
   .. " rolled back")` with `if why is string then return why end` above
   the existing `return what .. " rolled back"`.
-- `:60`, `:102` — in `transaction` and `savepoint`, replace `return
-  false, (verdict as string) or "transaction failed"` (and its
-  `"savepoint failed"` twin) with `if verdict is string then return
-  false, verdict end` above a `return false, "transaction failed"`.
-  **Stated behaviour change:** today a pcall error value that is not a
-  string (an error table) is returned in slot 2 under a declared
-  `string`; after the guard it becomes the fixed fallback message. That
-  makes the declared type true, and it is the one place this slice
-  changes what a caller can observe. `cosmic/sqlite/extras_test.tl` must
-  pass unmodified (Non-goals), which is what pins the string cases.
+- `:60`, `:102` — **BLOCKED on Q5.** The `is string` guard this spec
+  described is refused by the checker: `verdict` is typed `boolean`, not
+  `any`. Settle Q5's two options before this slice is pullable again.
+  The behaviour question stands under either: today a pcall error value
+  that is not a string is returned in slot 2 under a declared `string`,
+  and `cosmic/sqlite/extras_test.tl` must pass unmodified (Non-goals),
+  which is what pins the string cases.
 
 **`cosmic/fetch/extras.tl` (2 casts).**
 - `:273` — in `verb`, replace `if opts_any then` + `pairs(opts_any as
