@@ -17,10 +17,12 @@ test — the same mechanism PR #1382 used for `_cli/main_handlers.tl` and
 `cosmic/init.tl`, and the one AGENTS.md names ("Use `is` for dispatch past
 nil … also dispatch over `any`"). No cast replaces any of the twelve.
 
-Sites, measured 2026-08-25 against `47adef2c` with
+Sites, re-measured 2026-08-26 against `c2ae0466` with
 `git ls-files '*.tl' | xargs grep -n -- "-- cast: .*from any"`. Every
-record named below is already declared at the site; nothing new is
-declared except where stated.
+record named below is already declared at the site, at the line range
+cited; nothing new is declared except where stated. All twelve sites and
+their per-file counts are unchanged since the first measurement; two line
+numbers moved and are corrected below.
 
 **Library (4 casts, 3 files).**
 - `cosmic/quicksand/box/init.tl:43` — `require("cosmic.quicksand") as
@@ -61,7 +63,7 @@ it created or a module it required; the guard replaces the cast and the
   returns `pt.BenchModule, string`: the negative branch is the `nil, name
   .. ": not a bench module (missing scenarios())"` the next `if` already
   produces.
-- `cosmic/fs/path_test.tl:180` — `c as WalkContext` inside the
+- `cosmic/fs/path_test.tl:196` — `c as WalkContext` inside the
   `fs.visit` visitor. `fs.visit`'s context parameter is `any` by contract
   and does not move (see Non-goals).
 - `_perf/harness_test.tl:16`, `:40`, `:43` — `res as string`, `(ctx as
@@ -99,7 +101,7 @@ than reading `= 0`.
   exactly as declared. This slice guards at the point of use; making a
   declaration honest is its sibling `3IOuS3IE` child and, for `fs.visit`,
   `3ILxnhaK`.
-- **`_perf/run.tl:132` stays.** `rawget(arg, -1) as string` sits inside an
+- **`_perf/run.tl:131` stays.** `rawget(arg, -1) as string` sits inside an
   `or` chain, so closing it restructures an expression rather than adding a
   guard; it is not this slice's uniform shape. `_perf/run.tl` therefore
   ends with one `from any` cast, not zero.
@@ -109,11 +111,14 @@ than reading `= 0`.
   that say why.
 - **No new public module and no new export.** `_build/public_surface_baseline.tl`
   must not move.
-- **Do not touch the other 87 `from any` casts.** 99 lines carry that
-  reason today across 41 files (`git ls-files '*.tl' | xargs grep -h --
-  "-- cast: " | grep -c "from any"`; two of the 99 are string literals in
-  `_build/casts_test.tl` that the lexer-based counter does not count).
-  Only the twelve named above close here.
+- **Do not touch the other 34 `from any` casts.** 46 lines carry that
+  reason today across 26 files (`git ls-files '*.tl' | xargs grep -h --
+  "-- cast: " | grep -c "from any"`, and `... | xargs grep -l -- "-- cast:
+  .*from any" | wc -l`, both at `c2ae0466`; two of the 46 are string
+  literals in `_build/casts_test.tl` that the lexer-based counter does not
+  count). The totals fell from 99/41 files as sibling slices landed; the
+  twelve named above are untouched by any of them, and only they close
+  here.
 - **Do not touch `cosmic/sqlite/**` or `cosmic/fetch/**`.** They are the
   sibling child's files, and both slices rewrite `_build/casts_baseline.tl`
   — keeping the source files disjoint keeps the conflict to that one
@@ -130,7 +135,9 @@ than reading `= 0`.
   `1`, `1`, `1`, `1`, `1`, `3`).
 - `grep -c -- "-- cast: .*from any" _perf/run.tl` prints `1` (today `2`).
 - `grep -c -- " as " cosmic/quicksand/box/init.tl` does not exceed today's
-  value (`3`) — no cast is traded for another.
+  value (`4` — the two casts closing here, one `probe for removed field`
+  cast at `:81`, and the prose "post-fork as an opaque exit" at `:93`) —
+  no cast is traded for another.
 - `grep -n '"cosmic/doc/query.tl"\|"_docs/publish_test.tl"\|"cosmic/fs/path_test.tl"\|"_perf/harness_test.tl"' _build/casts_baseline.tl`
   prints nothing (today it prints four rows).
 - `grep -n '"cosmic/quicksand/box/init.tl"\|"cosmic/quicksand/box/run.tl"\|"cosmic/searcher_test.tl"\|"_perf/perf_test.tl"\|"_perf/run.tl"' _build/casts_baseline.tl`
