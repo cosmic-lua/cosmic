@@ -148,7 +148,14 @@ local function cmd_move(s: store.Store, id: string, target: string,
     return gate.verdict_line("move", false,
       "REFUSED: a handover to check names its builder — pass --claim <session>")
   end
-  if target == "check" and not force then
+  -- What GitHub is asked about is a PR, so this gate runs only when a
+  -- number is in hand. An evidence handover names none: there is
+  -- nothing to read and nothing to say, which is not the "cannot see"
+  -- case `gitgate.handover_refusal` deliberately refuses. Skipping it
+  -- HERE rather than inside that function is what keeps the refuse-
+  -- when-blind property true for every handover that does name a PR.
+  if target == "check" and not force
+  and ((pr or 0) ~= 0 or (it.pr or 0) ~= 0) then
     local refusal = gate.handover_refusal(s, id,
       (pr or 0) ~= 0 and pr or it.pr, it.repo)
     if refusal then

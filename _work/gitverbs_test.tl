@@ -378,3 +378,28 @@ local function test_an_evidence_handover_carries_a_result_section()
     "nor does a heading with nothing under it")
 end
 test_an_evidence_handover_carries_a_result_section()
+
+-- The gate that asks GitHub whether a request is worth a reviewer's
+-- time has a PR to ask about only when one is named. An evidence
+-- handover names none, so asking is a question about PR #0 and its
+-- 404 refuses the handover the flag exists to allow. Written against
+-- a SHARED fixture on purpose: a local-only store has no origin, so
+-- `handover_refusal` returns at its first line and this whole class of
+-- gate is inert. The shared fixture's origin is a local path, which
+-- `gh.tl` rejects before any HTTP — so this reaches the gate without
+-- reaching the network.
+local function test_an_evidence_handover_asks_github_nothing()
+  local a = init_shared("evidence-origin")
+  local _, leaf = root_with_leaf(a)
+  local path = fs.join(tmpdir, "evidence-origin-spec.md")
+  assert(fs.write(path, READY_SPEC .. "## Result\nMeasured, twice.\n"))
+  assert(verbs.cmd_spec(a, leaf, path) == 0)
+  assert(verbs.cmd_move(a, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(a, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(a, leaf, "check", nil, 0, false, "", true) == 0,
+    "an evidence handover reaches the reviewer over a board with an origin")
+  local handed = check.must(store.load(a, leaf))
+  assert(handed.phase == "check", "it moved: " .. tostring(handed.phase))
+  assert(handed.pr == 0, "carrying no PR")
+end
+test_an_evidence_handover_asks_github_nothing()
