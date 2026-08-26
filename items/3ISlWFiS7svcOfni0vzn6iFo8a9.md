@@ -402,3 +402,18 @@ that is where the bisect starts, and it is filed as `3ITHROpY`.
 organic release needs both" — still binds: the scenario still fails
 the gate, correctly, and no release will publish until the regression
 is fixed or a human overrides the gate.
+
+**One acceptance command reads differently than written, and why.**
+`git diff --name-only origin/main` names the six files of PR #1419
+rather than nothing. That is not a change this slice made: the
+session checkout sits at `ec794d44` and `origin/main` moved to
+`ef963bab` when #1419 landed earlier in this same session, so the
+command reports the landed diff in reverse.
+`git diff --name-only ec794d44 origin/main` names exactly those six.
+The check's intent holds and is shown by the two commands beside it:
+`git status --short` prints nothing and `git diff --name-only HEAD`
+prints nothing — the tree is byte-identical to its commit, `o/` is
+gitignored, and every pin edit lived in a detached scratch worktree
+at `5ef13f40` that was never committed and never pushed. A reviewer
+re-running this on a checkout level with `origin/main` gets the empty
+output the spec asked for.
