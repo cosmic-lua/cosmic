@@ -91,9 +91,9 @@ local function float(): number
 end
 
 --- Pick one element of a list uniformly at random (crypto-grade).
---- @param list {any} The list to pick from
---- @return any The chosen element; nil only when the list is empty
-local function choice(list: {any}): any
+--- @param list {T} The list to pick from
+--- @return T | nil The chosen element; nil only when the list is empty
+local function choice<T>(list: {T}): T | nil
   if #list == 0 then
     return nil
   end
@@ -208,7 +208,7 @@ local record RandModule
   bytes: function(n: integer): string
   int: function(min: integer, max: integer): integer
   float: function(): number
-  choice: function(list: {any}): any
+  choice: function<T>(list: {T}): T | nil
   shuffle: function(list: {any}): {any}
   token: function(len?: integer): string
   insecure64: function(): integer

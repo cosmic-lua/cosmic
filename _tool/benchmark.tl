@@ -153,10 +153,11 @@ end
     return result
   end
 
-  if type(bench_fn) ~= "function" then
+  if not (bench_fn is function()) then
     result.error = "benchmark did not return a function"
     return result
   end
+  local run_fn: function() = bench_fn
 
   -- Redirect stdout/stderr to /dev/null during benchmark
   -- Note: print() uses C-level stdout directly, so we also override it
@@ -179,8 +180,7 @@ end
     -- Warm up / calibrate
     local start = monotonic_ns()
     for _ = 1, n do
-      -- cast: from any
-      local run_ok, run_err: boolean, any = pcall(bench_fn as function())
+      local run_ok, run_err: boolean, any = pcall(run_fn)
       if not run_ok then
         -- Restore stdout/stderr before returning
         if devnull then
