@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3ISWHWQTq31NBoVzqQ3tH8G6aqQ 3ISWHyP7awA0sy9WbVOyu0R5Qbq",
   ["id"] = "3ISVlHT6tRFIVNxydHy9qDtSqFR",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "pin bump: bin/cosmic.pin to the first release carrying narrow-pack-n (post-2026-08-26)",
 }
