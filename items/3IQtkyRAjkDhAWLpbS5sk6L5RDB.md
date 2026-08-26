@@ -6,20 +6,23 @@ the generated types say what the C does — nothing left to dispose of.
 
 ## Evidence
 
-Measured 2026-08-26 against whilp/cosmic main `d5a6d78`:
+Re-measured at refinement, 2026-08-26, against whilp/cosmic main
+`b5739e40`:
 
-- The pin: `3p/cosmos/cosmos_pin.tl` at `2026.08.24-354c17e08`. Every
-  push to whilp/cosmopolitan master publishes a release tagged
-  `YYYY.MM.DD-<short-sha>` (its AGENTS.md), so a release carrying the
-  two upstream slices exists the day they merge.
-- The interim asserts this slice deletes: PR #1385 added five in
-  `cosmic/time.tl` (the clock readers), PR #1386 adds one in
-  `cosmic/fs/path.tl` (the join wrapper). At spec time #1385 is merged
-  and #1386 accepted-in-land, so at pull
+- The pin: `3p/cosmos/cosmos_pin.tl` at `2026.08.24-354c17e08`.
+- **The target release exists and is verified**: whilp/cosmopolitan
+  release `2026.08.26-1e1658153`, whose tag commit `1e165815` IS the
+  merge of #277 (clock_gettime raises) with #276 (path.join raises) as
+  the commit directly beneath it (`git log origin/master` shows
+  `1e165815`, `5fb988db`, in that order). Its `cosmos.zip` sha256,
+  computed from the downloaded asset at refinement:
+  `ea7e05a6a13bb9e1f6b3d99829f0fd9639f069e7aa527976b59914748ec18001`.
+  A newer release also containing both is equally valid; re-verify
+  ancestry and recompute the sha if choosing one.
+- The interim asserts this slice deletes: both PRs are merged, and
   `grep -rn -- '-- assert:' cosmic/time.tl cosmic/fs/path.tl | wc -l`
-  should report 6 (on `d5a6d78` it reports 0 because #1386 has not
-  merged; if it still reports 0 at pull, check that #1386 landed
-  before proceeding).
+  reports **6** on `b5739e40` (five in `cosmic/time.tl`, one in
+  `cosmic/fs/path.tl`).
 - The generated declarations today (any built tree):
   `o/_types/types_gen/cosmo/path.d.tl` `join` line declares
   `string | nil`; `o/_types/types_gen/cosmo/unix.d.tl`
@@ -28,12 +31,13 @@ Measured 2026-08-26 against whilp/cosmic main `d5a6d78`:
 
 ## Change
 
-1. **`3p/cosmos/cosmos_pin.tl`**: bump `version` to the first
-   cosmopolitan release whose commit history contains both upstream
-   contract slices, and `sha` to the sha256 of that release's
-   `cosmos.zip`. Then `bin/cosmic --make fetch && bin/cosmic --make
-   build` — the types regenerate from the new pin's embedded
-   `definitions.lua`; nothing is committed under `o/`.
+1. **`3p/cosmos/cosmos_pin.tl`**: set `version` to
+   `2026.08.26-1e1658153` and the `sha` to
+   `ea7e05a6a13bb9e1f6b3d99829f0fd9639f069e7aa527976b59914748ec18001`
+   (or a newer verified release per Evidence). Then `bin/cosmic
+   --make fetch && bin/cosmic --make build` — the types regenerate
+   from the new pin's embedded `definitions.lua`; nothing is committed
+   under `o/`.
 2. **`cosmic/time.tl`**: at the five clock sites, revert each
    three-line assert dance to the direct two-slot read
    (`local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)` and
@@ -87,8 +91,8 @@ Run from the cosmic repo root:
 
 ## Enablement
 
-blocked_by 3IQtfuCx (path.join raises) and 3IQtg7Sm (clock_gettime
-raises), mirrored as block edges — plus a published cosmopolitan
-release containing both, which follows their merge automatically.
-Not ready until both end and the release tag exists; the pin version
-cannot be written into this spec ahead of that tag.
+none needed any more: both blockers (3IQtfuCx, 3IQtg7Sm) are ended —
+their block edges are recorded as cleared on this item — and the
+release carrying them is published and verified in Evidence, with its
+sha computed. Everything the implementer needs is literal in this
+spec.
