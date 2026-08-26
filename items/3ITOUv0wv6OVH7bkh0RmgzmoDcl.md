@@ -450,6 +450,8 @@ This host is materially quieter than `3ITHROpY`'s, whose floor was
 `5bfcf79d0`, `8dd093cea`, `354c17e08`, each its own process, default
 `--samples`/`--min-secs`:
 
+| run | arm | µs/op | ± |
+|---|---|---|---|
 | 01 | 2026.08.21-07fc94a1c | 142.57 | 2.5% |
 | 02 | 2026.08.24-5bfcf79d0 | 144.41 | 2.2% |
 | 03 | 2026.08.24-8dd093cea | 144.13 | 4.4% |
