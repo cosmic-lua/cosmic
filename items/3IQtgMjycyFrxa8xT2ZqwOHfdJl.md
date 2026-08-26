@@ -74,5 +74,5 @@ state, no product PR.
 
 ## Enablement
 
-none needed. Blocked by nothing; parallel-safe with the two sibling
-contract slices (this slice writes no repo files).
+none needed. Parallel-safe with the two sibling contract slices —
+this slice writes no repo files, so no ordering constraint exists.
