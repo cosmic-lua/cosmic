@@ -4,7 +4,7 @@ return {
   },
   ["blocked_by"] = "3IOCcUaGrgTMqxJRi4hPIoVcWGK",
   ["builders"] = "f00d09f2-2783-565b-91ef-908df33cb9d4 7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
-  ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
+  ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["enable"] = "3IIm7ZyNiGaoHsru09SkxFtbsTF",
   ["id"] = "3IOCco6esNVPnHMB26PAAKAVAst",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
