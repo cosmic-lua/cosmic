@@ -1,7 +1,7 @@
 # D23 — cosmic.check throws by design; needs/reap may exit
 
 - **date:** 2026-08
-- **status:** amended 2026-08 (the closed list becomes a rule: an unreachable-nil assert)
+- **status:** amended 2026-08, twice (the unreachable-nil assert rule; the throw/exit census)
 - **context:** the error-handling doctrine says "never throw from
   library code" with no carve-out, yet every assertion in
   `cosmic.check` throws — deliberately, at error level 2, so the
@@ -66,3 +66,30 @@
   enumerated list would need a fresh amendment per module, and a seat
   on it records only that somebody once said yes, where the comment
   records the argument a reader can check.
+- **amended 2026-08 (the throw/exit census):** the first amendment
+  closed the assert shape; a census over `error(` and `os.exit(` in
+  library code then found four more shapes the closed list never
+  named, all already in the tree and all correct where they sit.
+  Licensed as rules, the way the assert shape was:
+  - a post-`fork` child path may `os.exit` — a child that failed its
+    `chdir` or `exec` cannot return into two copies of the caller's
+    stack, and 126/127 are the exec-failure grammar every shell reads
+    (`cosmic/child/init.tl`, `cosmic/quicksand/box/run.tl`);
+  - an entry helper whose caller is the OS may `os.exit` with the
+    code it computed — `cosmic.main()` and the generated embed
+    wrapper exist to turn a return value into a process status;
+  - a wrapper whose job is transparency may re-raise the wrapped
+    code's own error unchanged (`error(e, 0)`): swallowing or
+    re-typing it would change observable behavior
+    (`cosmic.coverage`'s coroutine shim);
+  - a caller-contract throw guarding an enum-typed argument is
+    licensed when the argument's type already makes the throw
+    unreachable for typed callers and the doc comment names the
+    contract (`cosmic.hash`'s unknown-algorithm throw) — the record
+    the first amendment said such a throw still needed is this
+    bullet.
+  A reachable runtime failure still returns; nothing here licenses
+  one. No gate checks these shapes yet — the assert-justify lint
+  checks its comment convention and nothing reads `error(` or
+  `os.exit(` — so the census that made this amendment true is
+  follow-up lint work on the board.

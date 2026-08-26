@@ -99,11 +99,10 @@ local function digest(algo: Algo, data: string): string
   if not valid_algos[algo] then
     error("hash.digest: unknown algorithm: " .. tostring(algo), 2)
   end
-  local d, err = cosmo.GetCryptoHash(
-    string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening
-  if not d then
-    error("hash.digest: " .. tostring(err), 2)
-  end
+  -- The name was just validated against the total Algo map.
+  -- assert: GetCryptoHash fails only on an unknown name
+  local d = assert(cosmo.GetCryptoHash(
+      string.upper(algo) as cosmo.CryptoHashName, data)) -- cast: enum widening
   return d
 end
 

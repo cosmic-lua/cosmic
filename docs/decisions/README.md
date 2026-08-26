@@ -57,7 +57,7 @@ build when the committed copy drifts.
 | D20 | the naming charter, and the renames that applied it | amended 2026-08 (the kept-POSIX set; rule 11) | [→](d20-naming-charter.md) |
 | D21 | carried patches: the middle path between pin and fork | active | [→](d21-carried-tl-patch.md) |
 | D22 | the CSPRNG surface is infallible; a broken one crashes | amended 2026-08 (adds a seedable, non-crypto source beside the CSPRNG) | [→](d22-infallible-csprng.md) |
-| D23 | cosmic.check throws by design; needs/reap may exit | amended 2026-08 (the closed list becomes a rule: an unreachable-nil assert) | [→](d23-check-throws.md) |
+| D23 | cosmic.check throws by design; needs/reap may exit | amended 2026-08, twice (the unreachable-nil assert rule; the throw/exit census) | [→](d23-check-throws.md) |
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | active | [→](d24-structured-failures.md) |
 | D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | active | [→](d25-outcomes-and-instruments.md) |
 | D26 | a decision record: four sections, a status header, amended in place | active | [→](d26-decision-records.md) |

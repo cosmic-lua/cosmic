@@ -234,11 +234,12 @@ pattern) — the `find-needle` lint asks which you meant, and
 including the `match`/`gmatch`/`gsub` corollary.
 
 rules:
-- never throw from library code — three shapes are exempt
-  ([D23](docs/decisions/d23-check-throws.md)): `cosmic.check`'s assertions and
-  its `needs`/`reap` exits, the CSPRNG's throw-on-failure, and an `assert` on a
-  `cosmo.*` return whose declared `| nil` cannot occur for the arguments that
-  call passes — which carries a trailing `-- assert: <why>` naming the reason
+- never throw from library code — the exempt shapes are
+  [D23](docs/decisions/d23-check-throws.md)'s, as amended there (check's
+  assertions and exits, the CSPRNG throw, the `-- assert:`-licensed
+  unreachable nil, post-fork child exits, OS-facing entry helpers,
+  transparent re-raises, enum-guarded contract throws) — the record is
+  the list; this bullet stopped re-counting it
 - never silently discard errors
 - be consistent within a module — pick one pattern and use it throughout
 - infallible functions (encoding, compression, escaping) return just a value
