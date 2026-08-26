@@ -9,6 +9,6 @@ return {
   ["claim"] = "c16dd460-326a-50f1-b68a-6203f2b87f11",
   ["id"] = "3ISWHyP7awA0sy9WbVOyu0R5Qbq",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["title"] = "release gate red: json_decode_large +12% and codec_base64_roundtrip_64k +21% vs 2026-08-23-d71d7f1 — root-cause or re-baseline",
 }
