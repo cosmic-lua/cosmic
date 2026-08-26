@@ -23,6 +23,28 @@ local function test_monotonic()
 end
 test_monotonic()
 
+-- Every clock reader asserts its clock_gettime read (D23's
+-- unreachable-nil rule), so the values that reach a caller are the
+-- plain integers the signatures declare. The assert's own failure path
+-- is unreachable through the public API — cosmopolitan guarantees
+-- neither clock raises EINVAL — so this pins what callers receive.
+local function test_clock_readers_return_integers()
+  local secs, nanos = time.now()
+  assert(math.type(secs) == "integer", "now() seconds should be an integer")
+  assert(math.type(nanos) == "integer", "now() nanoseconds should be an integer")
+  local msecs, mnanos = time.monotonic()
+  assert(math.type(msecs) == "integer", "monotonic() seconds should be an integer")
+  assert(math.type(mnanos) == "integer", "monotonic() nanoseconds should be an integer")
+  assert(math.type(time.now_ms()) == "integer", "now_ms() should be an integer")
+  local before = time.monotonic_ms()
+  assert(math.type(before) == "integer", "monotonic_ms() should be an integer")
+  assert(time.monotonic_ms() >= before, "monotonic_ms should not go backwards")
+  local ns_before = time.monotonic_ns()
+  assert(math.type(ns_before) == "integer", "monotonic_ns() should be an integer")
+  assert(time.monotonic_ns() >= ns_before, "monotonic_ns should not go backwards")
+end
+test_clock_readers_return_integers()
+
 -- sleep tests
 
 -- sleep_ms is THE sleep: integer milliseconds in, a single
