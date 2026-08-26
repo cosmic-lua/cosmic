@@ -7,6 +7,7 @@ return {
   ["claim"] = "f00d09f2-2783-565b-91ef-908df33cb9d4",
   ["id"] = "3IOCco6esNVPnHMB26PAAKAVAst",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1405,
   ["title"] = "cosmic.test: the in-process runner — ordered cases, continue past failure, the 0/2/fail grammar",
 }
