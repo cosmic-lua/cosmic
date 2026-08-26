@@ -34,6 +34,8 @@ local NOTES < const >: {string: {string}} = {
     .. "PR description before the diff; it is what the builder owed you.",
     "Record it with `verdict ID accept|request-changes --pr N --session <you>`; "
     .. "the move it implies follows from the verdict.",
+    "An item with no `pr` is an evidence handover: read its `## Result` "
+    .. "section, not a diff, and an accept ENDS it — no merge, no `land`.",
   },
   ["pull"] = {
     "A fresh `ready` item, highest-placed of those nothing blocks. Claim it "

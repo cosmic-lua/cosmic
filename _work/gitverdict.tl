@@ -25,6 +25,11 @@
 --- `land`, which would refuse it forever. A read that fails is
 --- neither — the ordinary path carries on, so an outage cannot wedge
 --- reviews and `land` stays the backstop it already is.
+---
+--- An item carrying no PR at all is the third of those: an evidence
+--- handover, whose deliverable is the findings recorded in its spec
+--- and the follow-up items they seeded. There is no merge for `land`
+--- to wait on, so an accept ends it here too.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
@@ -188,6 +193,18 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- completed the item without `Item` growing a field for it.
   local also: {item.Item} = {}
   local landed = ""
+  -- An evidence handover has no PR, so an accept on one authorises no
+  -- merge at all: `land` would hold it in a phase whose one remaining
+  -- act cannot happen, and `gitboard land` refuses an item naming no
+  -- PR — forever. The accept is the whole of its finish, so it ends
+  -- the item here, by the same route the already-merged case takes.
+  if kind == "accept" and (it.pr or 0) == 0 then
+    target = "completed"
+    it.phase = ""
+    it.resolution = "completed"
+    also = gate.rephased_parent(it, all)
+    landed = ", evidence"
+  end
   if merged_sha ~= "" then
     target = "completed"
     it.phase = ""
@@ -209,6 +226,8 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   local note = ""
   if merged_sha ~= "" then
     note = (" (PR #%d was already merged)"):format(it.pr)
+  elseif landed ~= "" then
+    note = " (evidence handover — nothing to merge)"
   end
   return gate.verdict_line("verdict", true,
     ("%s on %s: %s -> %s%s"):format(kind, id:sub(1, 8), from, target, note))

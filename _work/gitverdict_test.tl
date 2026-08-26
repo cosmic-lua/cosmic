@@ -5,6 +5,7 @@
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
+local fs = require("cosmic.fs")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -180,3 +181,25 @@ local function test_kind_aliases_and_the_teaching_refusal()
     "recorded under the canonical spelling: " .. tostring(it.verdict))
 end
 test_kind_aliases_and_the_teaching_refusal()
+
+-- An accept on an evidence handover authorises no merge, so `land` —
+-- whose one remaining act is one — would hold it in a phase `gitboard
+-- land` refuses forever. The accept is the whole of its finish.
+local function test_accept_on_an_evidence_handover_ends_the_item()
+  local s = init_state_repo("verdict-evidence")
+  local _, leaf = root_with_leaf(s)
+  local path = fs.join(fixture.tmpdir, "verdict-evidence.md")
+  assert(fs.write(path, fixture.READY_SPEC .. "## Result\nMeasured, twice.\n"))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "", true) == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234", "", "session-b") == 0)
+  local it = check.must(store.load(s, leaf))
+  assert(it.phase == "", "the accept ended it: " .. tostring(it.phase))
+  assert(it.resolution == "completed",
+    "and recorded why: " .. tostring(it.resolution))
+  assert(it.verdict == "accept", "carrying the verdict that ended it")
+end
+test_accept_on_an_evidence_handover_ends_the_item()

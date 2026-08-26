@@ -333,3 +333,48 @@ local function test_return_out_of_land_clears_the_verdict()
     "so reworked work cannot re-enter land on the old accept")
 end
 test_return_out_of_land_clears_the_verdict()
+
+-- A research slice's deliverable is recorded findings, not a diff, so
+-- `--evidence` is the handover that carries it. The flag is required
+-- rather than inferred from a missing --pr: a code slice whose builder
+-- forgot the number must still be refused, or a reviewer gets an item
+-- that says "judge something" and names nothing.
+local function test_check_takes_an_evidence_handover_only_when_asked()
+  local s = init_state_repo("evidence")
+  local _, leaf = root_with_leaf(s)
+  local path = fs.join(tmpdir, "evidence-spec.md")
+  assert(fs.write(path, READY_SPEC .. "## Result\nSix runs, both ways.\n"))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
+    "no PR and no flag is still refused")
+  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "", true) == 0,
+    "--evidence hands the findings over")
+  local handed = check.must(store.load(s, leaf))
+  assert(handed.phase == "check", "it reaches the reviewer")
+  assert(handed.pr == 0, "carrying no PR")
+  assert(handed.claim == "session-a", "and still naming its builder")
+end
+test_check_takes_an_evidence_handover_only_when_asked()
+
+-- What `--evidence` points the reviewer at is the spec's `## Result`
+-- section, so a handover with nothing written there hands over nothing
+-- and is refused on that ground instead of the PR one.
+local function test_an_evidence_handover_carries_a_result_section()
+  local s = init_state_repo("evidence-empty")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "", true) ~= 0,
+    "a spec with no ## Result section has no findings to judge")
+  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
+  local path = fs.join(tmpdir, "hollow-result.md")
+  assert(fs.write(path, READY_SPEC .. "## Result\n\n## Notes\nlater\n"))
+  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "", true) ~= 0,
+    "nor does a heading with nothing under it")
+end
+test_an_evidence_handover_carries_a_result_section()

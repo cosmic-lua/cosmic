@@ -14,6 +14,7 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 local function cmd_init(dir: string): integer
@@ -53,8 +54,28 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
+--- Whether an item's spec sidecar carries a `## Result` section with
+--- content under it. `spec.section_of` returns the heading line with
+--- the section, so the heading alone is what an empty section looks
+--- like here: the test is for a non-blank line below it.
+--- @param s store.Store The store
+--- @param id string The item's full id
+--- @return boolean True when the section exists and says something
+local function has_result(s: store.Store, id: string): boolean
+  local section = spec.section_of(store.read_spec(s, id), "Result")
+  local first = true
+  for line in (section .. "\n"):gmatch("([^\n]*)\n") do
+    if not first and line:match("%S") then
+      return true
+    end
+    first = false
+  end
+  return false
+end
+
 local function cmd_move(s: store.Store, id: string, target: string,
-    claim: string, pr: integer, force: boolean, why: string): integer
+    claim: string, pr: integer, force: boolean, why: string,
+    evidence?: boolean): integer
   local forced = gate.force_refusal(force, why)
   if forced then
     return gate.verdict_line("move", false, "REFUSED: " .. forced)
@@ -94,9 +115,28 @@ local function cmd_move(s: store.Store, id: string, target: string,
   -- follows the pr field to the diff — as does the landing step that
   -- reads it back. Without one the item says "judge something" and
   -- names nothing.
+  --
+  -- Except when what it hands over is evidence. A research slice's
+  -- deliverable is recorded findings and the follow-up items they
+  -- seed, and there is something to judge in that — are the numbers
+  -- sound, does the verdict follow, are the follow-ups the right ones
+  -- — which a session that did not do the measuring can judge. So
+  -- `--evidence` names that handover, and what it points the reviewer
+  -- at is the sidecar's `## Result` section. The flag is required
+  -- rather than inferred from a missing `--pr`: a code slice whose
+  -- builder forgot the number would otherwise reach a reviewer with
+  -- nothing to read.
   if target == "check" and (pr or 0) == 0 and (it.pr or 0) == 0 and not force then
-    return gate.verdict_line("move", false,
-      ("REFUSED: a handover to check names its PR — pass --pr N"))
+    if not evidence then
+      return gate.verdict_line("move", false,
+        ("REFUSED: a handover to check names its PR — pass --pr N,"
+          .. " or --evidence to hand over recorded findings"))
+    end
+    if not has_result(s, id) then
+      return gate.verdict_line("move", false,
+        ("REFUSED: an evidence handover carries its findings — %s's spec"
+          .. " has no ## Result section"):format(id:sub(1, 8)))
+    end
   end
   -- The claim is what `next` reads to withhold a verdict from the
   -- item's builder, so a handover naming nobody hands the diff to
@@ -239,7 +279,8 @@ local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
-  claim: string, pr: integer, force: boolean, why: string): integer
+  claim: string, pr: integer, force: boolean, why: string,
+  evidence?: boolean): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
   force: boolean, why: string): integer
   cmd_sync: function(s: store.Store): integer

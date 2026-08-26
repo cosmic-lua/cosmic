@@ -112,6 +112,9 @@ local CSPEC: flags.CommandSpec = {
             help = "record who took it; on a move to do or check, omit to "
             .. "derive it from the environment"},
           {long = "pr", arg = "N", help = "the PR carrying the work"},
+          {long = "evidence",
+            help = "hand over recorded findings instead of a PR; the spec's "
+            .. "## Result section is what the reviewer reads"},
           {long = "force", help = "override the target WIP limit"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "verdict", summary = "record a review verdict; the move it implies follows",
@@ -284,7 +287,8 @@ local function main(...: string): integer
       claim = session.resolve(nil)
     end
     return verbs.cmd_move(s, id, target, claim, pr,
-      d.parsed.switches["force"], d.parsed.values["why"] or "")
+      d.parsed.switches["force"], d.parsed.values["why"] or "",
+      d.parsed.switches["evidence"])
   end
   if d.command == "verdict" then
     local kind = d.parsed.args[2]
