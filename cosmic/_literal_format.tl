@@ -47,50 +47,6 @@ local function is_finite(n: number): boolean
   return n == n and n ~= math.huge and n ~= -math.huge
 end
 
---- True when a string is one the C encoder spells the way the reader
---- reads.
----
---- Byte 27 is the one byte it does not. `cosmo.EncodeLua` writes it as
---- `\e`, a fork extension this runtime's `load` accepts and the ten
---- escapes `literal.parse` admits do not, so a string carrying it would
---- be written here and refused there. The pin layout spells the same
---- byte `\27`, which reads back, so such a string takes the handoff to
---- that layout the way a reserved key and `math.mininteger` do.
---- @param s string The string
---- @return boolean True when the encoder's spelling reads back
-local function is_compact_string(s: string): boolean
-  return not s:find("\27", 1, true)
-end
-
---- True when `v` is a scalar the grammar admits AND the C encoder
---- spells the way the reader reads: a boolean, a finite number other
---- than `math.mininteger`, or a string without byte 27.
----
---- The domain test `scalar` applies, without rendering — the walk
---- wants the answer, not the text, and `%q` on every string it visits
---- is most of what makes rendering cost what it does.
----
---- `math.mininteger` is the one number this turns down that `scalar`
---- renders: it has no positive counterpart, so `cosmo.EncodeLua`
---- writes it as `-9223372036854775807 - 1`, and arithmetic is not
---- something a literal may contain. The float of the same magnitude is
---- written `-9223372036854776000.` and is fine, so the test is on the
---- integer subtype rather than on the value.
---- @param v any The value
---- @return boolean True when the value is a scalar the encoder can spell
-local function is_compact_scalar(v: any): boolean
-  if v is string then
-    return is_compact_string(v)
-  end
-  if v is boolean then
-    return true
-  end
-  if v is number then
-    return is_finite(v) and not (math.type(v) == "integer" and v == math.mininteger)
-  end
-  return false
-end
-
 --- Render one scalar the literal grammar admits.
 ---
 --- Integers keep their exact spelling through `%d`; every other finite
@@ -298,69 +254,6 @@ local function format(value: any): string | nil, string
   return nil, "a " .. type(value) .. " is not a literal table"
 end
 
---- Lua's reserved words, as a set.
----
---- `cosmo.EncodeLua` writes a key that looks like an identifier bare,
---- without asking whether Lua would read it as a keyword, so a table
---- with an `end` key encodes to `{end=1}` — source no reader accepts.
---- The renderer brackets and quotes every key, so it has no such case.
-local RESERVED: {string: boolean} = {
-  ["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true,
-  ["elseif"] = true, ["end"] = true, ["false"] = true, ["for"] = true,
-  ["function"] = true, ["goto"] = true, ["if"] = true, ["in"] = true,
-  ["local"] = true, ["nil"] = true, ["not"] = true, ["or"] = true,
-  ["repeat"] = true, ["return"] = true, ["then"] = true, ["true"] = true,
-  ["until"] = true, ["while"] = true,
-}
-
---- Can the compact writer write this subtree, as itself?
----
---- Two questions at once, because the answer to both is the same
---- action. Is the value inside the grammar at all — no non-string key,
---- no value that is neither scalar nor table, no nesting past
---- `MAX_DEPTH`, which is also how a cycle is caught? And can
---- `cosmo.EncodeLua` spell every part of it in a way the reader reads
---- back — no reserved-word key, no `math.mininteger`, no byte 27 in a
---- key or a string value? A no to either
---- sends the value to the renderer, which refuses it in the first case
---- and writes it in the second.
----
---- Being a walk rather than a render is the point: no sorted key
---- array, no `%q`, no key path built for a message usually not needed.
---- It answers whether, never which; the renderer answers which.
----
---- The parameter is `{any: any}` rather than the `{string: any}` the
---- rest of the module passes around because a runtime key really can
---- be anything — that a declared type says otherwise is the very claim
---- being checked.
---- @param t {any: any} The table to walk
---- @param depth integer How many tables enclose this one, this one counted
---- @return boolean True when the compact writer can write the whole subtree
-local function is_compact_writable(t: {any: any}, depth: integer): boolean
-  if depth > MAX_DEPTH then
-    return false
-  end
-  for k, v in pairs(t) do
-    if not (k is string) then
-      return false
-    end
-    if RESERVED[k] then
-      return false
-    end
-    if not is_compact_string(k) then
-      return false
-    end
-    if v is {any: any} then
-      if not is_compact_writable(v, depth + 1) then
-        return false
-      end
-    elseif not is_compact_scalar(v) then
-      return false
-    end
-  end
-  return true
-end
-
 --- Serialize a value the compact way: the same domain and the same
 --- refusals as `format`, on one line, through the C encoder.
 ---
@@ -368,16 +261,25 @@ end
 --- a committed file wants and what costs the time: every key and every
 --- string goes through `%q` and the lines are assembled in Lua. This
 --- writer is for the bulk case that is read back by machine and never
---- formatted — it checks the value here and encodes it in C, which is
---- several times faster and smaller on the wire, at the price of the
+--- formatted — it hands the value to the C encoder in one pass, which
+--- is several times faster and smaller on the wire, at the price of the
 --- fixpoint promise and the one-entry-per-line layout.
 ---
---- The check is not optional. `cosmo.EncodeLua` never refuses: a
---- function becomes the string `"func@0x…"` and a cycle the string
---- `"cyclic@0x…"`, and the reader then accepts both as plain strings,
---- so the value that comes back is quietly not the value that went in.
+--- `literal` is what makes that safe. Without it the encoder describes
+--- rather than serializes: a function becomes the string `"func@0x…"`
+--- and a cycle the string `"cyclic@0x…"`, which the reader then accepts
+--- as plain strings, so the value that comes back is quietly not the
+--- value that went in. With it the encoder answers the domain question
+--- on the pass it was already making, and refuses instead of describing.
 ---
---- Whatever the walk turns down goes to the renderer, and that one
+--- `maxdepth` is pinned to `MAX_DEPTH` because the binding's default is
+--- deeper than the reader accepts: left alone it would spell a value
+--- nested past the reader's limit, which then cannot be read back. The
+--- two sides count depth from different ends, so a table nested exactly
+--- `MAX_DEPTH` deep with contents is refused here and rendered by the
+--- pin layout instead — the same value, the other layout.
+---
+--- Whatever the encoder turns down goes to the renderer, and that one
 --- handoff covers both reasons it can turn something down. A value
 --- outside the grammar gets the renderer's refusal, which is the
 --- message BOTH layouts give for that input, so naming the offending
@@ -385,7 +287,9 @@ end
 --- the encoder cannot spell gets the pin layout, which can spell
 --- anything the grammar admits: the compact layout is a request for
 --- smaller output, never a narrower domain, so no caller has to know
---- that `{["end"] = 1}` is a special case.
+--- that `{["end"] = 1}` is a special case. The encoder's own reason is
+--- discarded for that reason — the renderer's message is the one both
+--- layouts give.
 ---
 --- `sorted` is not optional either: it is what makes the output
 --- deterministic, so the same value serializes to the same bytes.
@@ -394,12 +298,10 @@ end
 --- @return string? Error message on failure, naming the key path refused
 local function format_compact(value: any): string | nil, string
   if value is {any: any} then
-    if not is_compact_writable(value, 1) then
-      return format(value)
-    end
-    local encoded, eerr = cosmo.EncodeLua(value, {sorted = true})
+    local encoded = cosmo.EncodeLua(value,
+      {sorted = true, literal = true, maxdepth = MAX_DEPTH})
     if not encoded then
-      return nil, eerr
+      return format(value)
     end
     return "return " .. encoded .. "\n"
   end
