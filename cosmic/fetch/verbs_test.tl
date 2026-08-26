@@ -210,8 +210,8 @@ local function test_result_json()
   local r = check.must(fetch.get("http://127.0.0.1:" .. port, {allow_private = true}))
   assert(proc.wait(math.tointeger(pid)))
   local v = r:json()
-  local body: JsonBody | nil = shape.into(v, BODY)
-  assert(body and body.answer == 42, "expected decoded json body")
+  local body: JsonBody = check.must(shape.into(v, BODY))
+  assert(body.answer == 42, "expected decoded json body")
 end
 test_result_json()
 
