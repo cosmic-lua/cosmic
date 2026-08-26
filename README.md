@@ -52,6 +52,7 @@ High-level utilities and tools built on top of cosmo.
 | [sys](cosmic/sys.md) |  System information utilities. |
 | [tar](cosmic/tar.md) |  In-process tarball extraction, without a host `tar`. |
 | [teal](cosmic/teal.md) |  Teal compilation and type-checking. |
+| [test](cosmic/test.md) |  The in-process test runner: a test runs because it was defined. |
 | [time](cosmic/time.md) |  Time and clock utilities. |
 | [tty](cosmic/tty.md) |  Terminal (TTY) utilities. |
 | [url](cosmic/url.md) |  URL encoding, decoding, parsing, formatting, and escaping utilities. |
