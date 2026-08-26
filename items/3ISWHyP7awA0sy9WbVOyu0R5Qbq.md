@@ -238,6 +238,25 @@ the only one of the five that adds a translation unit.
 At the cosmic root, `git status --porcelain` is empty and `git worktree
 list` names no `o/ab` — this slice edited no product file.
 
+**Handover blocked again, 2026-08-26 — by the tool, not the evidence.**
+`## Change` step 4 ran and was refused:
+
+```
+$ o/bin/gitboard move 3ISWHyP7 check --evidence
+gitboard-move: REFUSED: cannot read PR #0: GET /repos/whilp/cosmic/pulls/0:
+  HTTP 404: Not Found; --force to hand it over anyway
+```
+
+PR #1417 added the `--evidence` branch above `_work/gitverbs.tl`'s
+unconditional `gate.handover_refusal(...)` call and left that call in
+place, so an evidence handover still asks GitHub about PR #0. Filed as
+`3IStqRsf`, which this item now waits on; `gitboard block 3ISWHyP7
+3IStqRsf` records it. Nothing about the measurement changed and step 4
+needs no rewrite — it becomes runnable the moment `3IStqRsf` lands.
+`--force` is deliberately NOT used: it would skip the `## Result` check
+that `--evidence` exists to impose, and the `work` skill reserves
+forcing for repair.
+
 ## Change
 
 The measurement is complete and recorded in `## Result`. Nothing is
