@@ -26,13 +26,7 @@ end
 --- @param ... string Path components to join
 --- @return string The joined path
 local function join(...: string): string
-  local joined = cosmo_path.join(...)
-  -- assert: cosmo.path.join returns nil only when every argument is
-  -- nil, and this signature declares them all non-nil string
-  assert(joined, "path.join: every argument was nil")
-  -- Returning `joined` rather than the assert keeps this a ONE-value
-  -- return: Lua's assert passes its message through as a second value.
-  return joined
+  return cosmo_path.join(...)
 end
 
 --- Check if a path is present.

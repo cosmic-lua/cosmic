@@ -31,10 +31,7 @@ end
 --- @return integer Seconds since epoch
 --- @return integer Nanoseconds
 local function now(): integer, integer
-  local secs_or_nil, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
-  -- assert: clock_gettime fails only on an invalid clock id, and
-  -- cosmopolitan guarantees CLOCK_REALTIME never raises EINVAL
-  local secs = assert(secs_or_nil, "clock_gettime(CLOCK_REALTIME) failed")
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
   return secs, nanos
 end
 
@@ -43,10 +40,7 @@ end
 --- @return integer Seconds
 --- @return integer Nanoseconds
 local function monotonic(): integer, integer
-  local secs_or_nil, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  -- assert: cosmopolitan guarantees CLOCK_MONOTONIC never raises EINVAL;
-  -- clock_gettime fails only on an invalid clock id
-  local secs = assert(secs_or_nil, "clock_gettime(CLOCK_MONOTONIC) failed")
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   return secs, nanos
 end
 
@@ -55,10 +49,7 @@ end
 --- (secs, nanos) arithmetic is needed for timeouts or timestamps.
 --- @return integer Milliseconds since epoch
 local function now_ms(): integer
-  local secs_or_nil, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
-  -- assert: cosmopolitan guarantees CLOCK_REALTIME never raises EINVAL;
-  -- clock_gettime fails only on an invalid clock id
-  local secs = assert(secs_or_nil, "clock_gettime(CLOCK_REALTIME) failed")
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
   return secs * 1000 + math.floor(nanos / 1000000)
 end
 
@@ -66,10 +57,7 @@ end
 --- Use differences between two calls to measure elapsed time.
 --- @return integer Milliseconds
 local function monotonic_ms(): integer
-  local secs_or_nil, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  -- assert: cosmopolitan guarantees CLOCK_MONOTONIC never raises EINVAL;
-  -- clock_gettime fails only on an invalid clock id
-  local secs = assert(secs_or_nil, "clock_gettime(CLOCK_MONOTONIC) failed")
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   return secs * 1000 + math.floor(nanos / 1000000)
 end
 
@@ -79,10 +67,7 @@ end
 --- is what benchmark timing wants.
 --- @return integer Nanoseconds
 local function monotonic_ns(): integer
-  local secs_or_nil, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  -- assert: cosmopolitan guarantees CLOCK_MONOTONIC never raises EINVAL;
-  -- clock_gettime fails only on an invalid clock id
-  local secs = assert(secs_or_nil, "clock_gettime(CLOCK_MONOTONIC) failed")
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   return secs * 1000000000 + nanos
 end
 
