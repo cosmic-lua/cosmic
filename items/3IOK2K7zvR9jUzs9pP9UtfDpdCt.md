@@ -19,3 +19,31 @@ not exist yet and is the part to design. Refinement should decide
 whether those are one slice or two. The closure diff must lower the
 affected rows in `_build/casts_baseline.tl` — run exactly the regen
 command the gate prints and commit the result.
+
+## Outcome, verified
+
+All 61 sites are closed. Verified against `main` at `b5739e40`:
+
+```
+grep -c -- "-- cast: .*from any" _build/size.tl _eval/score.tl \
+  _eval/score_test.tl _eval/stage.tl _eval/stage_test.tl _make/pin_test.tl \
+  _perf/baseline.tl _perf/compare.tl _tool/coverage/report.tl \
+  _tool/doc/index_test.tl cosmic/fetch/verbs_test.tl cosmic/json_test.tl \
+  cosmic/literal_test.tl cosmic/teal_config_test.tl
+```
+
+reports `0` for all fourteen, and the same command without `.*from any`
+also reports `0` — every site closed outright rather than being
+re-justified with a truer reason, so all fourteen rows dropped out of
+`_build/casts_baseline.tl`. Tree-wide the `from any` count now stands
+at 55 of 259 total casts, down from 192 at intake.
+
+The mechanism the class was missing was built first as the blocker
+`3IOefXSz`: `cosmic/shape.tl` validates a decoded value against a Spec
+and hands it back typed, with the target type coming from the caller's
+annotation. It closed the non-test half (`3IOeg86u`) and the 21 test
+sites whose test merely consumes decoded data (`3IPqUmoU`). The
+remaining 17, whose subject IS the dynamic decode, took
+`assert(v is T, msg)` instead (`3IPqVcwW`): a one-line guard that
+checks at runtime what the cast only asserted, without a Spec naming
+the shape the test is trying to discover.
