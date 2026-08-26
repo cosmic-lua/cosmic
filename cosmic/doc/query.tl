@@ -36,7 +36,11 @@ local function embedded_index(): DocIndex | nil, string
     return nil, "failed to load index: " .. tostring(result)
   end
 
-  cached_index = result as DocIndex -- cast: from any
+  if not (result is DocIndex) then
+    return nil, "index is not a doc index"
+  end
+
+  cached_index = result
   return cached_index, nil
 end
 

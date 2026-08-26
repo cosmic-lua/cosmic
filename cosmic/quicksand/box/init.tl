@@ -40,7 +40,12 @@ local record CapsModule
 end
 
 local function caps(): types.Capabilities
-  local qs = require("cosmic.quicksand") as CapsModule -- cast: from any
+  local qs = require("cosmic.quicksand")
+  if not (qs is CapsModule) then
+    -- Fail closed: an all-absent Capabilities reads as "Linux only" at
+    -- preflight, the only caller.
+    return {}
+  end
   return qs.capabilities()
 end
 
@@ -147,7 +152,10 @@ local function run(self: Box, argv: {string}): integer | nil, string
   end
   local ok, err = preflight(self.opts)
   if not ok then return nil, err end
-  local rm = require("cosmic.quicksand.box.run") as RunModule -- cast: from any
+  local rm = require("cosmic.quicksand.box.run")
+  if not (rm is RunModule) then
+    return nil, "quicksand: box run module unavailable"
+  end
   return rm.run(self.opts, argv)
 end
 

@@ -55,7 +55,8 @@ test_readme_has_doc_table()
 -- prune_internal removes internal module pages, keeps public module
 -- pages (including directory-module init pages) and cosmo.* docs.
 local function test_prune_internal_keeps_public_surface_only()
-  local publish = require("_docs.publish") as PublishModule -- cast: from any
+  local publish = require("_docs.publish")
+  assert(publish is PublishModule, "_docs.publish did not yield its module table")
   local docs_dir = make_mock_docs("docs-prune")
 
   publish.prune_internal(docs_dir)
