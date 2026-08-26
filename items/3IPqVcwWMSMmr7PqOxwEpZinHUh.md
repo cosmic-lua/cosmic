@@ -11,10 +11,14 @@ necessarily falls to zero.
 
 ## Evidence
 
-Measured 2026-08-25 against `whilp/cosmic` `cd87a765` (`main`). Two
+Re-measured 2026-08-26 against `whilp/cosmic` `fb2587ad` (`main`);
+first measured 2026-08-25 at `cd87a765`, and nothing in this section
+moved between the two except the two baseline rows' line numbers. Two
 files, 17 sites, every one a `from any` cast and no other cast in
 either file (`grep -c -- "-- cast:" <file>` reports 10 and 7, matching
-their `_build/casts_baseline.tl` rows at lines 73 and 76).
+their `_build/casts_baseline.tl` rows, which sit on lines 58 and 61 at
+`fb2587ad` — the file is alphabetical and every landing shifts them, so
+find each row by name, never by line).
 
 **`cosmic/json_test.tl` — 10 sites, 324 lines** (176 of headroom under
 the 500-line cap). `grep -n -- "-- cast: .*from any"`:
@@ -57,67 +61,178 @@ accepted; `:251` proves a tab in a bracket key survives. Validating
 those into a declared record would assert the shape the test is trying
 to DISCOVER.
 
-**What `cosmic.shape` can and cannot do here.** `cosmic/shape.tl` (290
+**What `cosmic.shape` can and cannot do here.** `cosmic/shape.tl` (318
 lines) validates into a declared record; its contract says extra keys
 are ignored, missing and `null` are the same thing, and nothing is
 coerced. So a Spec can express "a table whose `a` is a table whose `b`
 is a table" — `shape.record({a = shape.record({b = ...})})` — which
 would close `cosmic/literal_test.tl:143`–`:145` at the cost of naming
-the very nesting under test. Whether that is honest is the judgment.
+the very nesting under test. That is the cost this slice declines to
+pay, for the reason below.
 
-**Two type facts, probe-verified at refinement** against a `--make
-build` of `cd87a765` (scratch file outside the tree, `--check types`,
-deleted):
+**`assert(v is T, msg)` NARROWS, which decides all seventeen.** The
+`Change` below reaches for `is` at every site, and the reason is a
+single fact nobody had established: a bare `assert` carrying an `is`
+test narrows its subject for the rest of the scope, so a cast can be
+replaced by a one-line guard rather than by an `if`-block that would
+re-indent the test around it. `is` compiles to a plain runtime type
+test, so the guard is not decoration: it CHECKS what the cast merely
+asserted, and it names no field the test has not already indexed.
+
+**Four type facts, probe-verified at refinement** against a `--make
+build` of `fb2587ad` (scratch file outside the tree, `--check types`,
+deleted; the first two were first established at `cd87a765` and
+re-verified here):
 
 - `==` accepts `any` on one side, so `decoded.a == 1` needs no cast.
 - `>=` does not: `cannot use operator '>=' for types <any type> and
   integer`. Any ordering comparison on a decoded field needs a real
-  type behind it.
+  type behind it. No site in these two files makes one.
+- `assert(x is T, msg)` narrows `x` below itself, for `T` =
+  `{string: any}`, `{number}`, `{any}`, `{string: boolean}` and
+  `string`. So does `if x is T then`. Both compile.
+- Indexing an unnarrowed `any` is the error that makes each of these
+  sites need SOMETHING: `cannot index key 'a' in variable 'result' of
+  type <any type>`, with the checker's own hint being the cast the
+  slice is removing.
 
-**`is` is the third option.** AGENTS.md's narrowing section names
-`if v is {string: any} then` as dispatch over `any`, which narrows
-without a cast. Whether a `is`-guarded branch in a test reads as
-clearer than a justified cast is per site.
+Two composite forms were probed too, because they are what four of the
+sites actually look like: a field pulled off a narrowed table into a
+local and narrowed again (`local nested = decoded.nested; assert(nested
+is {string: boolean}, ...)`), and a sparse `{any}` array indexed past a
+hole and compared to `nil` and to `json.null`. Both compile.
 
-**The ratchet does not have to reach zero.** `_build/casts.tl` gates
-each file's `as` count against `_build/casts_baseline.tl`; a count that
-falls is regenerated with the command the failure prints
-(`bin/cosmic --make run _build/casts.tl --baseline`) and a count that
-holds needs no change. A site that keeps its cast keeps a row.
+**The ratchet does not have to reach zero — but here it does.**
+`_build/casts.tl` gates each file's `as` count against
+`_build/casts_baseline.tl`; a count that falls is regenerated with the
+command the failure prints (`bin/cosmic --make run _build/casts.tl
+--baseline`) and a count that holds needs no change. Because every one
+of the 17 takes the guard, both files end with no casts at all and both
+rows drop OUT of the baseline rather than going to zero — the same
+behaviour `_build/casts_test.tl` reports as `"%s: no casts left
+(baseline %d)"`.
 
 ## Change
 
-Refinement — not implementation — must settle, per site, which of four
-outcomes applies, and write the answer into this spec before it is
-`ready`:
+Four outcomes were on the table at intake: a **call change** (`decode`
+becomes `decode_object`/`decode_array`), an **`is` narrowing**, a
+**`shape.into`**, or **a truer cast reason**. Refinement settled every
+one of the 17 sites, and the answer is uniform: **`is` narrowing, at
+all seventeen**. The other three are rejected below, once, rather than
+per site.
 
-1. **call change** — `decode` becomes `decode_object`/`decode_array`,
-   only where the test is not about `decode` itself;
-2. **`is` narrowing** — a guarded branch replaces the cast;
-3. **`shape.into`** — only where naming the shape does not pre-empt what
-   the test asserts;
-4. **a truer reason** — the cast stays and its `-- cast:` comment is
-   rewritten to say why the value is genuinely untyped here (the test's
-   subject is the dynamic decode), replacing the generic `from any`.
+**Why not a call change.** `cosmic/json_test.tl` is the json module's
+own test file, and `decode_object` and `decode_array` already have four
+dedicated tests of their own — `test_decode_object_typed` (`:22`),
+`test_decode_object_wrong_shape` (`:31`), `test_decode_array_typed`
+(`:46`) and `test_decode_array_wrong_shape` (`:57`). So swapping the
+entry point at `:6` or `:14` would not add coverage; it would DELETE
+the only coverage of what bare `decode` returns for an object and for
+an array. The same argument holds at `:103`, whose subject is
+encode→decode round-tripping over the encoder's own output. The five
+null-policy sites pin `decode`'s `null` handling and cannot swap at
+all, and `:273` decodes a scalar, which neither narrower entry point
+accepts.
 
-Outcome 4 is a legitimate answer for a majority of these 17, and the
-slice is not failing if the counts barely move. What the slice may not
-do is leave a site with the generic `from any` reason when a truer one
-exists.
+**Why not `shape.into`.** Every remaining site is a test whose subject
+IS the dynamic value: nesting depth, a tab in a bracket key, an inline
+row's layout, a hole in an array. A Spec names the shape, so validating
+here would assert the very thing under discovery, and a passing test
+would then be proving the Spec rather than the parser.
 
-The refined `Change` names every one of the 17 lines with its chosen
-outcome, so implementation makes no judgment of its own. Then it states
-the expected `_build/casts_baseline.tl` rows for the two files after
-the change, so `Acceptance` can check them.
+**Why not a truer reason.** A rewritten `-- cast:` comment is the right
+answer only where nothing checks the value. `assert(v is T, msg)`
+checks it, in one line, with no `if` block and no re-indentation — so
+at every one of these sites a truer reason is available that is not a
+comment at all.
+
+**The shape of each edit.** Split the cast line into the bare read plus
+a guard on the next line:
+
+```teal
+local decoded = json.decode(encoded)
+assert(decoded is {string: any}, "expected table")
+```
+
+The guard's message is the site's own, listed per site below. Nothing
+else in any test body moves.
+
+### `cosmic/json_test.tl` — 10 sites
+
+| line | after | guard message |
+| --- | --- | --- |
+| 6 | `assert(result is {string: any}, "expected table")` | replaces the existing assert; see below |
+| 14 | `assert(result is {number}, "expected table")` | replaces the existing assert; see below |
+| 103 | `local decoded = json.decode(encoded)` + guard | `"a decoded object is a table"` |
+| 105 | `local nested = decoded.nested` + guard on `{string: boolean}` | `"the nested value decodes to a table"` |
+| 174 | guard on `{string: any}` | `"a decoded object is a table"` |
+| 186 | guard on `{any}` | `"a decoded array is a table"` |
+| 198 | guard on `{any}` | `"a decoded array is a table"` |
+| 205 | guard on `{any}` (`arr`) | `"a decoded array is a table"` |
+| 208 | guard on `{string: any}` (`obj`) | `"a decoded object is a table"` |
+| 273 | guard on `string` | `"a decoded json string is a string"` |
+
+**`:6` and `:14` are the one place an existing assert changes, and the
+change is runtime-identical.** Both tests open with a `type()` check
+whose only purpose is what the guard now does:
+
+```text
+-  local result = json.decode('{"a":1,"b":"hello"}') as {string: any} -- cast: from any
+-  assert(type(result) == "table", "expected table")
++  local result = json.decode('{"a":1,"b":"hello"}')
++  assert(result is {string: any}, "expected table")
+```
+
+`result is {string: any}` compiles to `type(result) == "table"`, so the
+runtime test and the message are both unchanged — the line gains the
+narrowing and loses the cast, and nothing is weakened or deleted. Quote
+both sides of both pairs in the PR description. At the other eight
+sites the guard is a NEW line and no existing assert is touched.
+
+### `cosmic/literal_test.tl` — 7 sites
+
+Every one is `{string: any}` off a value `read` (`:14`) already hands
+back as `{string: any}`, so each is one read plus one guard:
+
+| line | subject | guard message |
+| --- | --- | --- |
+| 143 | `shallow.a` | `"level 2 is a table"` |
+| 144 | `a.b` | `"level 3 is a table"` |
+| 145 | `b.c` | `"level 4 is a table"` |
+| 212 | `got.nested` | `"the nested table survives the round trip"` |
+| 251 | `got["a\tkey"]` | `"the tab-keyed entry is a table"` |
+| 270 | `got["a.tl"]` | `"the inline row is a table"` |
+| 280 | `got["a.tl"]` | `"the empty inline row is a table"` |
+
+### The ratchet
+
+Then run `bin/cosmic --make run _build/casts.tl --baseline` — the exact
+command the gate's failure prints — and commit the rewritten
+`_build/casts_baseline.tl`. Both rows disappear: `"cosmic/json_test.tl"`
+and `"cosmic/literal_test.tl"` are absent from the regenerated file, and
+no other row changes.
+
+### Expected lengths
+
+`cosmic/json_test.tl` grows by 8 lines (`:6` and `:14` are net zero,
+the other eight gain one line each): 324 → 332, against the 500-line
+cap. `cosmic/literal_test.tl` grows by 7: 453 → 460. Both stay under
+the cap, and `literal_test` is the tight one at 40 lines of headroom.
 
 ## Non-goals
 
-- **Do not change what any test asserts.** The null-policy tests
+- **Do not change what any test asserts, with the one exception
+  `Change` names and quotes.** The null-policy tests
   (`cosmic/json_test.tl:174`–`:208`) and the nesting and bracket-key
   tests (`cosmic/literal_test.tl:143`–`:145`, `:251`) exist to pin
   behaviour that is deliberately dynamic. No assertion is weakened,
   reworded to a shape it did not have, or deleted because a validator
-  made it redundant.
+  made it redundant. The exception is `cosmic/json_test.tl:7` and `:15`,
+  where `assert(type(result) == "table", "expected table")` becomes
+  `assert(result is {string: any} / {number}, "expected table")` —
+  runtime-identical (`is` compiles to that same `type()` test) and
+  message-identical. Every other guard is an added line beside an
+  untouched assert.
 - **Do not touch the sibling slice's six files** (`_eval/score_test.tl`,
   `_eval/stage_test.tl`, `_make/pin_test.tl`,
   `cosmic/teal_config_test.tl`, `_tool/doc/index_test.tl`,
@@ -126,8 +241,12 @@ the change, so `Acceptance` can check them.
   `cosmic/shape.tl`.** The `json.decode` contract — what it returns and
   how `null_value` behaves — is frozen for this slice; a test that
   reveals a contract problem files an item, it does not fix it here.
-- **Do not add a combinator to `cosmic.shape`.** A shape it cannot
-  express is outcome 4.
+- **Do not add a combinator to `cosmic.shape`.** No site in this slice
+  reaches for a Spec at all.
+- **Do not swap `decode` for `decode_object`/`decode_array` anywhere in
+  `cosmic/json_test.tl`**, for the reason `Change` states: the narrower
+  entry points have their own four tests, and a swap would delete this
+  file's only coverage of bare `decode`.
 - **Do not edit `_build/casts_baseline.tl` by hand**; run the regen
   command the gate prints.
 - **Do not weaken a gate**: no `.cosmicignore` entry, no coverage
@@ -136,35 +255,105 @@ the change, so `Acceptance` can check them.
 
 ## Acceptance
 
-To be completed by refinement, once `Change` names each site's
-outcome. The floor and the two checks that are already fixed:
+All commands run verbatim from the `whilp/cosmic` repo root and write
+into no committed file.
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
+
 - `bin/cosmic --make test cosmic/json_test.tl cosmic/literal_test.tl`
   ends `test: PASS (2 files)`.
-- `git diff --name-only origin/main...HEAD` names only
-  `cosmic/json_test.tl`, `cosmic/literal_test.tl` and (if any count
-  fell) `_build/casts_baseline.tl`.
-- **No site keeps the generic reason.**
-  `grep -c -- "-- cast: .*from any" cosmic/json_test.tl
-  cosmic/literal_test.tl` reports `0` for both. Today it reports 10 and
-  7. A cast that survives carries a reason naming why the value is
-  genuinely untyped at that site.
-- `wc -l cosmic/json_test.tl cosmic/literal_test.tl` reports at most
-  500 for each (453 today for the second, the tight one).
 
-Refinement adds the exact post-change `_build/casts_baseline.tl` rows
-as a `grep` with its expected number, per the ready bar's rule that a
-numeric bound the spec imposes is an Acceptance command.
+- **Every cast is gone, and none was replaced by another.**
+
+  ```
+  grep -c -- "-- cast:" cosmic/json_test.tl cosmic/literal_test.tl
+  ```
+
+  reports `0` for both. Re-measured 2026-08-26 at `fb2587ad`, the same
+  command reports 10 and 7, so it discriminates. The narrower
+  `grep -c -- "-- cast: .*from any"` reports `0` for both as well —
+  every site closed rather than being re-justified.
+
+- **Both rows left the ratchet floor.**
+
+  ```
+  grep -c -E '"cosmic/(json|literal)_test\.tl"' _build/casts_baseline.tl
+  ```
+
+  reports `0`; today it reports `2`. A file with no casts left drops out
+  of the baseline entirely rather than going to zero
+  (`_build/casts_test.tl:48`). The floor is the regen command's output,
+  never a hand edit.
+
+- **The tree-wide `from any` count fell by exactly 17.**
+
+  ```
+  git ls-files '*.tl' | xargs grep -h -- "-- cast: .*from any" | wc -l
+  ```
+
+  `main` moves fast under this epic, so the check that survives is the
+  DELTA: run the command at the branch's merge base and at its head, and
+  the difference is 17. At `fb2587ad` the base number is 76.
+
+- **The guards are real narrowings, not decoration.**
+
+  ```
+  grep -c -E 'assert\([a-z_]+ is ' cosmic/json_test.tl cosmic/literal_test.tl
+  ```
+
+  reports `10` and `7` — one guard per closed site. Today it reports `0`
+  for both. (The pattern anchors on the guard's subject being a plain
+  local; a looser `assert(.* is ` also matches five prose messages
+  containing the word "is", which is why it is not the check.)
+
+- **No assertion was dropped.**
+
+  ```
+  git diff origin/main...HEAD -- cosmic/json_test.tl cosmic/literal_test.tl \
+    | grep -c '^-.*assert('
+  ```
+
+  is `2`, and both are the `:7`/`:15` `type()` pair `Change` sanctions.
+  Quote both sides of both in the PR description, so the reviewer judges
+  the rewrite rather than the count. Any third removed `assert(` line is
+  a failure.
+
+- **The sibling slice's files and the frozen modules are untouched.**
+
+  ```
+  git diff --name-only origin/main...HEAD
+  ```
+
+  names exactly `_build/casts_baseline.tl`, `cosmic/json_test.tl` and
+  `cosmic/literal_test.tl` — in particular not `cosmic/json.tl`,
+  `cosmic/literal.tl`, `cosmic/shape.tl`, nor any of the six files the
+  sibling slice owns.
+
+- **Both files stay under the cap.**
+
+  ```
+  wc -l cosmic/json_test.tl cosmic/literal_test.tl
+  ```
+
+  reports at most `500` for each, and the expected values are `332` and
+  `460` (324 and 453 today). `cosmic/literal_test.tl` is the tight one.
 
 ## Enablement
 
-No blocker. `cosmic.shape` landed (`3IOefXSz`, PR #1370);
-`json.decode_object`/`decode_array` have existed since
-`cosmic/json.tl:135`/`:155`; `is` narrowing is AGENTS.md's. The reason
-this item is not `ready` is not a missing mechanism — it is that
-seventeen per-site judgments have not been made, and making them is
-refinement's job, not the implementing session's. The cast-reason
-standard is AGENTS.md ("Write the actual reason … a cast you cannot
-justify is one to remove"); the comment-and-prose standard is
-`skills/docs-style/SKILL.md`.
+No blocker, and nothing left for the implementing session to judge.
+What held this item out of `ready` was not a missing mechanism but
+seventeen unmade per-site decisions; `Change` now names each site, its
+narrowed type and its guard message, so the diff is mechanical.
+
+The one fact a session would otherwise have to discover by trial —
+that `assert(v is T, msg)` narrows below itself, so a cast becomes a
+one-line guard rather than an `if`-block — is probe-verified in
+`Evidence` with the forms each site needs, including the two composite
+ones. `is` narrowing itself is AGENTS.md's; the comment-and-prose
+standard is `skills/docs-style/SKILL.md`.
+
+The sibling slice (`3IPqUmoU`, the other 21 sites under this parent) is
+in `check` as PR #1389. It is deliberately NOT a blocker: the two
+slices are file-disjoint except for `_build/casts_baseline.tl`, whose
+conflict is the mechanical regen the landing rule already covers — run
+the regen command again after merging `main` and commit the result.
