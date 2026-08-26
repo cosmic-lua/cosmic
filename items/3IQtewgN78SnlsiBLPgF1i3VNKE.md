@@ -46,12 +46,26 @@ claims move upstream into C behavior pinned by conformance probes.
 
 ## Children
 
-- path.join raises on all-nil (whilp/cosmopolitan)
+- path.join raises on all-nil (whilp/cosmopolitan) — DONE, PR #276
 - clock_gettime raises on an unsupported clock (whilp/cosmopolitan)
+  — DONE, PR #277
 - census of degenerate-input unions and tuple-shape deviations
-  (whilp/cosmopolitan, research — seeds further contract slices)
+  (whilp/cosmopolitan, research — decomposed into per-namespace
+  children; each seeds contract-fix captures)
 - cosmic consumes the exact contracts: pin bump + assert retirement
-  (whilp/cosmic, blocked on the two contract slices)
+  (whilp/cosmic, unblocked once the two contract slices merged)
+- the binding contract doctrine, written where binding authors read
+  (whilp/cosmopolitan — makes the rule outlive this container)
+
+## Batching the census's fixes
+
+Census-driven contract fixes BATCH: raise-candidates confirmed by one
+namespace walk land as one or a few upstream PRs per wave, and cosmic
+consumes a wave with ONE pin-bump slice modeled on the existing
+consumption child — never one pin bump per binding. A wave's consume
+slice re-runs the same acceptance shape: regen'd `.d.tl` spot-checks,
+`-- assert:`/guard retirements in the wrappers the wave frees, ci, and
+the perf compare gate against the previous pin.
 
 ## Mechanics that bind every child
 
