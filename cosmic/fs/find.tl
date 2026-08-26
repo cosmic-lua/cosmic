@@ -11,6 +11,7 @@ local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs.types")
 local fs_walk = require("cosmic.fs.walk")
+local fs_path = require("cosmic.fs.path")
 local errstr = require("cosmic.errno").format
 local FileInfo = types.FileInfo
 local type Entry = types.Entry
@@ -249,7 +250,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
         current_handle:close()
         table.remove(stack)
       elseif entry ~= "." and entry ~= ".." then
-        local full_path = cosmo_path.join(current_dir, entry)
+        local full_path = fs_path.join(current_dir, entry)
         if kind == unix.DT_DIR then
           -- d_type never follows symlinks, so this is a real directory
           -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
@@ -314,7 +315,7 @@ local function glob_level(dir: string, lua_pattern: string, out: {string}): stri
     local entry = h:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." and string.match(entry, lua_pattern) then
-      table.insert(out, cosmo_path.join(dir, entry))
+      table.insert(out, fs_path.join(dir, entry))
     end
   end
   h:close()

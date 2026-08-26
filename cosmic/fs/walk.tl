@@ -2,7 +2,7 @@
 --- visitor. File collection (find/find_iter/find_info/glob) lives in
 --- cosmic.fs.find, built on this walker.
 local unix = require("cosmo.unix")
-local cosmo_path = require("cosmo.path")
+local fs_path = require("cosmic.fs.path")
 local types = require("cosmic.fs.types")
 local errstr = require("cosmic.errno").format
 local type WalkStat = types.WalkStat
@@ -69,7 +69,7 @@ local function walk_entries<T>(dir: string, h: WalkDirHandle,
     local entry = h:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
-      local full_path = cosmo_path.join(dir, entry)
+      local full_path = fs_path.join(dir, entry)
       -- Use AT_SYMLINK_NOFOLLOW so symlinked dirs are seen as S_ISLNK, not S_ISDIR.
       -- This prevents infinite recursion through symlink cycles.
       local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)

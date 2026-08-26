@@ -1,7 +1,7 @@
 --- Recursive directory-tree operations.
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
-local cosmo_path = require("cosmo.path")
+local fs_path = require("cosmic.fs.path")
 local errno = require("cosmic.errno")
 local errstr = errno.format
 local fs_ops = require("cosmic.fs.ops")
@@ -25,8 +25,8 @@ local function copy_entries(src: string, dst: string): boolean, string
     local entry = h:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
-      local s = cosmo_path.join(src, entry)
-      local d = cosmo_path.join(dst, entry)
+      local s = fs_path.join(src, entry)
+      local d = fs_path.join(dst, entry)
       local st, serr = unix.stat(s, unix.AT_SYMLINK_NOFOLLOW)
       if not st then
         h:close()

@@ -21,11 +21,18 @@ end
 
 --- Concatenate path components.
 --- Absolute paths in later arguments reset the result.
---- Nil arguments are skipped; exclusively nil returns nil.
+--- Nil arguments are skipped. Calling with no arguments, or with every
+--- argument nil, is a caller error and throws.
 --- @param ... string Path components to join
 --- @return string The joined path
 local function join(...: string): string
-  return cosmo_path.join(...)
+  local joined = cosmo_path.join(...)
+  -- assert: cosmo.path.join returns nil only when every argument is
+  -- nil, and this signature declares them all non-nil string
+  assert(joined, "path.join: every argument was nil")
+  -- Returning `joined` rather than the assert keeps this a ONE-value
+  -- return: Lua's assert passes its message through as a second value.
+  return joined
 end
 
 --- Check if a path is present.
@@ -412,7 +419,7 @@ local function expand_user(p: string): string
   if p == "~" then
     return dir
   end
-  return cosmo_path.join(dir, p:sub(3))
+  return join(dir, p:sub(3))
 end
 
 --- Reject archive entry names that would escape an extraction root.
