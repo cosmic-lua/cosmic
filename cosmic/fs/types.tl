@@ -248,13 +248,13 @@ local function extend_metatable(raw: any, extra: {string: any}): boolean
   if type(mt) ~= "table" then
     return false
   end
-  local idx = (mt as {string: any}).__index -- cast: from any
-  if type(idx) ~= "table" then
+  -- cast: metatable<any> is a nominal the checker refuses is-dispatch on
+  local idx = (mt as {string: any}).__index
+  if not (idx is {string: any}) then
     return false
   end
-  local methods = idx as {string: any} -- cast: from any
   for name, fn in pairs(extra) do
-    methods[name] = fn
+    idx[name] = fn
   end
   return true
 end

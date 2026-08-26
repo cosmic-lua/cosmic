@@ -157,10 +157,9 @@ test_fail_closed_when_unavailable()
 
 -- The fs -> landlock mapping, pure and inspectable (ported from the
 -- deleted box/fs vocabulary this facade replaces).
-local function find_rule(rules: {any}, path: string): {string: any}
+local function find_rule(rules: {landlock.Rule}, path: string): landlock.Rule
   for _, r in ipairs(rules) do
-    local rr = r as {string: any} -- cast: from any
-    if rr.path == path then return rr end
+    if r.path == path then return r end
   end
   return nil
 end
@@ -174,7 +173,7 @@ local function test_plan_landlock_mapping()
   local r = find_rule(opts.rules, "/srv/uploads")
   assert(r, "expected /srv/uploads rule")
   check.equal(r.access, landlock.READ, "ro -> READ only")
-  assert((r.access as integer & landlock.EXEC) == 0, -- cast: from any
+  assert((r.access & landlock.EXEC) == 0,
     "ro must not grant EXEC")
 
   -- exec is the group that runs things: READ|EXEC.

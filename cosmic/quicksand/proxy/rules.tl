@@ -88,11 +88,11 @@ end
 --- ignored (forward compatibility).
 local function validate_rule(key: string, rule: any): string
   if rule == nil or rule == true then return nil end
-  if not (rule is table) then
+  if not (rule is {string: any}) then
     return string.format("allowed_hosts[%q]: rule must be a table, true, "
       .. "or nil (got %s)", key, type(rule))
   end
-  local r = rule as {string: any} -- cast: from any
+  local r = rule
   local t = r["type"]
   if t == nil then return nil end
   if t == "bearer" then

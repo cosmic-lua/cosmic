@@ -37,18 +37,16 @@ local function deep_equal(a: any, b: any): boolean
   if a == b then
     return true
   end
-  if type(a) ~= "table" or type(b) ~= "table" then
+  if not (a is {any: any}) or not (b is {any: any}) then
     return false
   end
-  local ta = a as {any: any} -- cast: from any
-  local tb = b as {any: any} -- cast: from any
-  for k, v in pairs(ta) do
-    if not deep_equal(v, tb[k]) then
+  for k, v in pairs(a) do
+    if not deep_equal(v, b[k]) then
       return false
     end
   end
-  for k, v in pairs(tb) do
-    if not deep_equal(ta[k], v) then
+  for k, v in pairs(b) do
+    if not deep_equal(a[k], v) then
       return false
     end
   end
