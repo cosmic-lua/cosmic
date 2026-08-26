@@ -15,3 +15,32 @@ resolve of the std metatable nominal, not the show_type string match
 the scratch used), a narrowing test pinning positive and negative,
 and — per the cold-build rule 3ISKgfS6 recorded — the fs/types.tl
 cast retire in a SEPARATE follow-up once the pin carries the patch.
+
+## Blocked: the entry pair has nowhere to go
+
+Re-measured 2026-08-26 at main `ec794d44` during refinement, and this
+is why the item did not reach the ready bar:
+
+- `wc -l 3p/tl/tl_patch.tl` → **499**, against the 500-line cap.
+  `o/bin/cosmic --check lint 3p/tl/tl_patch.tl` passes today; one
+  more line does not.
+- `_make/patch.tl:56-61` derives the patch path from the pin's by
+  string surgery (`<stem>_pin.tl` → `<stem>_patch.tl`), so there is
+  exactly one patch file per pin and no second place to write.
+- The two anchors are confirmed present in the fetched checker:
+  `grep -n "can never be" o/3p/tl/tl.lua` → `11510` (the branch
+  warning) and `11607` (the error), matching the research's line
+  estimates.
+- An anchored entry in this file runs 13–30 lines today
+  (`narrow-or-fallback` 13, `narrow-or-guard` 19,
+  `narrow-exit-break` 25, `narrow-truthiness` 30, by the offsets of
+  consecutive keys). This gap needs a PAIR, so ~26–60 lines against
+  1 line of headroom. The slack `3ISKgfS6` used — compressing the
+  header from 28 lines to 22 — is already spent.
+
+Filed as `3ISnTFGe` and mirrored in `blocked_by`. That item settles
+WHERE a carried entry goes (a `<stem>_patch/` directory the resolver
+scans, a per-group split, or an argued cap exemption for carried-patch
+data). This slice's `Change` section cannot name the file it writes
+into until it lands, which is why refining further now would only
+produce prose to redo.
