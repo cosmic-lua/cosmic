@@ -59,3 +59,13 @@ duplicate refusal should name the regen command in its message the way
 the stale-baseline check does; and, at minimum, whether the
 `.gitattributes` comment should stop claiming a correctness it does not
 have.
+
+One consequence sharpens why the recovery has to start with `git
+checkout origin/main -- <floor>`: the duplicate-key refusal is a
+COMPILE error on a file in the build graph, so the tree will not build
+far enough to reach the regen command the gate itself prints
+(`bin/cosmic --make run _build/casts.tl --baseline`). Reaching for that
+command first leaves the session hand-editing the duplicate row away,
+which every spec under the casts epic lists as a Non-goal. Whatever the
+fix is, the refusal's message should not point at a command its own
+failure prevents from running.
