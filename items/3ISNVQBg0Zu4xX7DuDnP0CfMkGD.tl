@@ -4,9 +4,8 @@ return {
   },
   ["blocked_by"] = "3IRasZJA6521NcegdHoKNDAvZo8",
   ["builders"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
-  ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3ISNVQBg0Zu4xX7DuDnP0CfMkGD",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "do",
+  ["phase"] = "ready",
   ["title"] = "lint: the -- throws:/-- exits: justification grammar D30 defines has no enforcement",
 }
