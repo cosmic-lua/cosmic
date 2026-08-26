@@ -32,8 +32,12 @@
   2. **The shape description is combinators, not data.** A `Spec` is
      built from `shape.string`, `shape.number`, `shape.integer`,
      `shape.boolean`, `shape.any`, `shape.list`, `shape.map`,
-     `shape.record` and `shape.optional` — each a typed value or a
-     function returning one. A misspelled combinator and a field bound to
+     `shape.integer_map`, `shape.record` and `shape.optional` — each a
+     typed value or a function returning one. `integer_map` is the
+     table whose keys are integers and need not be dense, which is what
+     separates it from `list`; JSON cannot carry one, so it describes
+     only what a Lua-valued source hands back — a loaded chunk, or
+     `literal` once it reads integer bracket keys. A misspelled combinator and a field bound to
      something that is not a `Spec` are compile errors, checked by the
      same pass that checks the rest of the file.
   3. **Extra keys are ignored, nothing is coerced, and errors are
@@ -64,6 +68,15 @@
     API a user calls on their own decoded data would still need this one,
     and cosmic would carry two. Revisit if the hand-written specs drift
     from their records often enough to be measured.
+  - **a key Spec on `map`** — `shape.map(of, key)` defaulting to
+    `shape.string`, instead of a second combinator. More general: it
+    would also admit a future number- or boolean-keyed table. It loses
+    against the one shape the tree actually holds. It changes the
+    signature of a shipped public function, needs a new `Spec` field,
+    and turns `map`'s "expected map, got a non-string key" message into
+    either something generic or something that has to describe the key
+    spec. Revisit if a second non-string key type appears; until then
+    `map` stays one thing rather than one thing plus a mode.
   - **a structured `Failure` record in slot 2** ([D24](d24-structured-failures.md))
     — D24 asks for one when failures carry real structure callers branch
     on. A validation failure carries a path and a reason, callers do not
