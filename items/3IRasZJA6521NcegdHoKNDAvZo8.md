@@ -211,9 +211,9 @@ Run from the repo root.
 none needed to pull this: the record's form is the `decide` skill, the
 regen command comes from the gate's own failure message, and every
 site and its shape is enumerated above with the census command that
-found it. The enforcement lint — refuse an `error(`/`os.exit(` call
-line in `cosmic/**` (outside `cosmic/check.tl` and `cosmic/rand.tl`,
-and outside tests/examples) with no `-- throws:`/`-- exits:`
-justification, by the same token-walk `check_assert_justification`
-uses — is filed as its own item, blocked on this one, so the grammar
-exists before anything enforces it.
+found it. Nothing must land first. The enforcement lint — refuse an
+`error(`/`os.exit(` call line in `cosmic/**` (outside
+`cosmic/check.tl` and `cosmic/rand.tl`, and outside tests/examples)
+with no `-- throws:`/`-- exits:` justification, by the same token-walk
+`check_assert_justification` uses — is filed as 3ISNVQBg, which waits
+on this item so the grammar exists before anything enforces it.
