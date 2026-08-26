@@ -8,6 +8,14 @@ local fs = require("cosmic.fs")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
 local check = require("cosmic.check")
+local shape = require("cosmic.shape")
+
+--- The one-field body the json echo server answers with.
+local record JsonBody
+  answer: integer
+end
+
+local BODY < const > = shape.record({answer = shape.integer})
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -202,8 +210,8 @@ local function test_result_json()
   local r = check.must(fetch.get("http://127.0.0.1:" .. port, {allow_private = true}))
   assert(proc.wait(math.tointeger(pid)))
   local v = r:json()
-  -- cast: from any
-  assert((v as {string: any}).answer == 42, "expected decoded json body")
+  local body: JsonBody = check.must(shape.into(v, BODY))
+  assert(body.answer == 42, "expected decoded json body")
 end
 test_result_json()
 

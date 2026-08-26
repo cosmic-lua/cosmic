@@ -20,6 +20,7 @@ local net = require("cosmic.net")
 local pin = require("_make.pin")
 local proc = require("cosmic.proc")
 local project = require("_make.project")
+local shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 local signal = require("cosmic.signal")
 local cenv = require("cosmic.env")
@@ -30,6 +31,21 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local function ext(source: string): {string: any} | nil, string
   return pin.extract(source, "p_pin.tl")
 end
+
+--- The nested half of an extracted pin, which is what the literal
+--- grammar test reads past the top level: a per-platform digest table
+--- under `platforms`, keyed by the platform string a pin writes.
+local record Platform
+  sha: string
+end
+
+local record ExtractedPin
+  platforms: {string: Platform}
+end
+
+local PIN < const > = shape.record({
+    platforms = shape.map(shape.record({sha = shape.string})),
+  })
 
 -- The shape a pin is allowed to have: one `return` of a table of
 -- literals, nesting included.
@@ -48,9 +64,8 @@ return {
   assert(got.version == "1.2.3", "string")
   assert(got.strip_components == 1, "number")
   assert(got.verified == true, "boolean")
-  local plat = got.platforms as {string: any} -- cast: from any
-  local star = plat["*"] as {string: any} -- cast: from any
-  assert(star.sha == "deadbeef", "nested table and bracket key")
+  local nested: ExtractedPin = check.must(shape.into(got, PIN))
+  assert(nested.platforms["*"].sha == "deadbeef", "nested table and bracket key")
 end
 test_extracts_a_literal()
 

@@ -5,6 +5,7 @@ local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local index = require("_tool.doc.index")
 local check = require("cosmic.check")
+local shape = require("cosmic.shape")
 local doc_types = require("cosmic.doc")
 local type ModuleDoc = doc_types.ModuleDoc
 
@@ -29,13 +30,67 @@ local record DecodedIndex
   modules: {string: ModuleDoc}
 end
 
+--- doc_types.ModuleDoc and its member records, as Specs. Every
+--- description is optional: the extractor leaves one nil rather than
+--- writing an empty string, and cosmo.EncodeLua omits a nil, so an
+--- undocumented symbol reaches the index with no description key at
+--- all. `module_doc`, `expected_output` and `internal` are nil the same
+--- way -- `internal` is only ever set true. Everything else is written
+--- for every symbol, so a missing one means index.tl stopped writing it.
+local PARAM < const > = shape.record({
+    name = shape.string,
+    param_type = shape.string,
+    description = shape.optional(shape.string),
+  })
+
+local RETURN < const > = shape.record({
+    return_type = shape.string,
+    description = shape.optional(shape.string),
+  })
+
+local FUNCTION_DOC < const > = shape.record({
+    name = shape.string,
+    description = shape.optional(shape.string),
+    params = shape.list(PARAM),
+    returns = shape.list(RETURN),
+    signature = shape.string,
+    line = shape.integer,
+    is_local = shape.boolean,
+  })
+
+local RECORD_DOC < const > = shape.record({
+    name = shape.string,
+    description = shape.optional(shape.string),
+    fields = shape.list(shape.list(shape.string)),
+    line = shape.integer,
+  })
+
+local EXAMPLE_DOC < const > = shape.record({
+    name = shape.string,
+    description = shape.optional(shape.string),
+    body = shape.string,
+    expected_output = shape.optional(shape.string),
+    line = shape.integer,
+  })
+
+local INDEX < const > = shape.record({
+    modules = shape.map(shape.record({
+          file = shape.string,
+          module_doc = shape.optional(shape.string),
+          functions = shape.list(FUNCTION_DOC),
+          records = shape.list(RECORD_DOC),
+          examples = shape.list(EXAMPLE_DOC),
+          internal = shape.optional(shape.boolean),
+        })),
+  })
+
 --- The decoded index's modules table, typed. `decode_index` hands back
---- exactly what `load` + `pcall` produced — genuinely untyped — so
---- pulling the modules table out needs exactly one cast from `any`,
---- kept here so every test below reads a `{string: ModuleDoc}` without
---- repeating it.
+--- exactly what `load` + `pcall` produced — genuinely untyped — so it
+--- is validated against the index's own shape here, once, and every
+--- test below reads a `{string: ModuleDoc}` without repeating it.
 local function decoded_modules(data: any): {string: ModuleDoc}
-  return (data as DecodedIndex).modules -- cast: from any
+  local decoded: DecodedIndex = check.must(shape.into(data, INDEX))
+  return decoded.modules
 end
 
 local tmpdir = env.get("TEST_TMPDIR")
