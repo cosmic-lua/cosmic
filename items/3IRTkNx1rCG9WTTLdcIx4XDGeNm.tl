@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3IQnhx2SBAJaUMjJEs4FPaGGyLN",
   ["id"] = "3IRTkNx1rCG9WTTLdcIx4XDGeNm",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "lint: the -- assert: justification convention D23 introduced has no enforcement",
 }
