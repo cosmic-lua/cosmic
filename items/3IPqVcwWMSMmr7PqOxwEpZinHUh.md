@@ -293,7 +293,9 @@ into no committed file.
 
   `main` moves fast under this epic, so the check that survives is the
   DELTA: run the command at the branch's merge base and at its head, and
-  the difference is 17. At `fb2587ad` the base number is 76.
+  the difference is 17. Off `fb2587ad` that is 97 at the base and 80 at
+  the head. Do not expect 80 from a later base — the sibling slice
+  (`3IPqUmoU`) takes 21 more out of the same count.
 
 - **The guards are real narrowings, not decoration.**
 
