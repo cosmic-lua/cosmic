@@ -16,7 +16,7 @@
 --- names; everything else (internal records, interfaces) becomes any.
 local KEEP: {string: boolean} = {
   string = true, boolean = true, integer = true, number = true,
-  any = true, ["nil"] = true,
+  any = true, ["nil"] = true, FILE = true,
 }
 local TO_STRING: {string: boolean} = {
   GenTarget = true, GenCompat = true, CompatMode = true,
