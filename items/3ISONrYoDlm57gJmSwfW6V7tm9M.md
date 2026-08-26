@@ -32,8 +32,12 @@ All in `_work/` on the `board` branch, read 2026-08-26 at `74523b4`+:
   4-hour-latency argument, and today's incident is its cost: a
   builder mid build-test-push loop looks board-idle exactly when most
   active.
-- No test pins the carve-out: `grep -n "rework" _work/action_test.tl`
-  finds none.
+- One test pins the carve-out — in `_work/converge_test.tl`
+  (`test_a_rework_is_offered_to_any_session`, line ~478), not
+  action_test — and flips to the new contract in this slice: live
+  rework held, stale rework offered as a `--force` takeover. Its
+  redundant no-verdict sub-check moves out (action_test already pins
+  it) to stay under the 500-line cap (the file sits at 496 after).
 
 ## Change
 
@@ -90,8 +94,8 @@ Run from the board-branch worktree:
   (today 0) — the takeover guidance now names what the guard demands.
 - `bin/cosmic --make test _work/action_test.tl` ends
   `test: PASS (1 file)` including the two new tests.
-- `git diff --name-only board` lists exactly `_work/action.tl` and
-  `_work/action_test.tl`.
+- `git diff --name-only board` lists exactly `_work/action.tl`,
+  `_work/action_test.tl`, and `_work/converge_test.tl`.
 
 ## Enablement
 
