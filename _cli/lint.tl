@@ -16,6 +16,7 @@
 
 local assert_lint = require("_cli.assert_lint")
 local citations = require("_cli.citations")
+local discover = require("_tool.discover")
 local fs = require("cosmic.fs")
 local pattern_args = require("_cli.pattern_args")
 local reads_lint = require("_cli.reads_lint")
@@ -139,54 +140,12 @@ local function check_cosmo_require(file: string, lines: {string}): {Diagnostic}
   return diagnostics
 end
 
---- Where a top-level `local function NAME(...)` ends, by TOKEN depth.
----
---- The heuristic this replaces counted `function`/`if`/`for`/`do`/`end`
---- by matching source text, so every one inside a string literal or a
---- comment moved the depth. A test whose body quotes `end` in a fixture
---- — which is most of the ones that build fixtures — got a wrong end
---- line and a false positive.
---- @param tokens {tl.Token} The file's tokens
---- @param from integer Index of the `function` keyword
---- @return integer|nil Line of the matching `end`
-local function end_line_of(tokens: {tl.Token}, from: integer): integer | nil
-  local depth = 0
-  -- `for`/`while` open a block AND write a `do` to end their header, so
-  -- that `do` must not count a second time. A flag, not a look-behind at
-  -- the previous token: `for _ in pairs(t) do` and a bare `do` block
-  -- inside a function both follow a `)`, and the look-behind version
-  -- read the second as a header and lost a level.
-  local pending_do = false
-  for i = from, #tokens do
-    local tk = tokens[i].tk
-    if tk == "for" or tk == "while" then
-      depth = depth + 1
-      pending_do = true
-    elseif tk == "do" then
-      if pending_do then
-        pending_do = false
-      else
-        depth = depth + 1
-      end
-    elseif tk == "function" or tk == "if" then
-      depth = depth + 1
-    elseif tk == "repeat" then
-      depth = depth + 1
-    elseif tk == "until" then
-      depth = depth - 1
-    elseif tk == "end" then
-      depth = depth - 1
-      if depth == 0 then
-        return tokens[i].y
-      end
-    end
-  end
-  return nil
-end
-
---- A test file calls each `test_*` function immediately after defining
---- it, so a failing run names the function that failed rather than the
---- file.
+--- A test file is all-or-nothing about self-calls (D29): every
+--- `test_*` called on the line after its `end` is legacy mode, none
+--- called is runner mode (the toolchain runs what discovery finds),
+--- and a MIX is the one shape that must never pass — its uncalled
+--- half would silently not run under legacy semantics. The walk
+--- itself lives in `_tool.discover`, shared with the runner seam.
 ---
 --- `test_*` only, and in `_test.tl` only. A test file's HELPERS are
 --- defined once and called from several tests, and an `Example_*`
@@ -196,45 +155,31 @@ end
 --- @param file string Path, for the diagnostic
 --- @param content string The file's bytes
 --- @param lines {string} The file's lines
---- @return {Diagnostic} One per definition not immediately called
+--- @return {Diagnostic} One per uncalled definition in a mixed file
 local function check_call_after_define(file: string, content: string,
     lines: {string}): {Diagnostic}
   if not file:match("_test%.tl$") then
     return {}
   end
-  local tokens = tl.lex(content, file)
-  if not tokens then
+  local found = discover.discover(file, content, lines)
+  if found.mode ~= "mixed" then
     return {}
   end
   local diagnostics: {Diagnostic} = {}
-  for i = 1, #tokens - 2 do
-    local t = tokens[i]
-    if t.tk == "local" and t.x == 1 and tokens[i + 1].tk == "function" then
-      local name = tokens[i + 2].tk
-      if name:match("^test_") then
-        local ends = end_line_of(tokens, i + 1)
-        if ends then
-          local next_line: string = nil
-          for y = ends + 1, #lines do
-            if lines[y]:match("%S") then
-              next_line = lines[y]
-              break
-            end
-          end
-          if not next_line or not next_line:match("^" .. name .. "%s*%(") then
-            diagnostics[#diagnostics + 1] = {
-              file = file,
-              line = t.y,
-              col = 1,
-              rule = "call-after-define",
-              message = string.format(
-                "%s:%d: '%s' must be called immediately after its "
-                .. "definition, so a failing run names the function",
-                file, t.y, name),
-            }
-          end
-        end
-      end
+  for _, case in ipairs(found.cases) do
+    if not case.called then
+      diagnostics[#diagnostics + 1] = {
+        file = file,
+        line = case.line,
+        col = 1,
+        rule = "call-after-define",
+        message = string.format(
+          "%s:%d: '%s' is not called immediately after its"
+          .. " definition, and the file is not runner mode either."
+          .. " A file picks ONE mode (D29): call every test on the"
+          .. " line after its `end`, or call none of them anywhere",
+          file, case.line, case.name),
+      }
     end
   end
   return diagnostics

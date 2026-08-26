@@ -115,6 +115,7 @@ return {
   ["_tool/coverage/baseline.tl"] = {["covered"] = 151, ["total"] = 165},
   ["_tool/coverage/lines.tl"] = {["covered"] = 65, ["total"] = 71},
   ["_tool/coverage/report.tl"] = {["covered"] = 203, ["total"] = 224},
+  ["_tool/discover.tl"] = {["covered"] = 68, ["total"] = 73},
   ["_tool/doc/comments.tl"] = {["covered"] = 53, ["total"] = 53},
   ["_tool/doc/dtl.tl"] = {["covered"] = 8, ["total"] = 84},
   ["_tool/doc/exports.tl"] = {["covered"] = 60, ["total"] = 62},

@@ -214,6 +214,30 @@ local function test_call_after_define_names_the_runnable_ones()
 end
 test_call_after_define_names_the_runnable_ones()
 
+-- D29 makes the rule two-moded: a file whose tests never self-call is
+-- runner mode (the toolchain runs what discovery finds) and lints
+-- clean; a MIX is the shape that must never pass, and the diagnostic
+-- names exactly the uncalled half.
+local function test_a_runner_mode_file_lints_clean()
+  local src = "local function test_a()\n  return 1\nend\n\n" ..
+  "local function test_b()\n  return 2\nend\n"
+  local diags = lint.check_call_after_define("x_test.tl", src, lines_of(src))
+  assert(#diags == 0, "no self-calls at all is runner mode, got " .. #diags
+    .. (diags[1] and (": " .. diags[1].message) or ""))
+end
+test_a_runner_mode_file_lints_clean()
+
+local function test_a_mixed_file_names_the_uncalled_test()
+  local src = "local function test_a()\n  return 1\nend\ntest_a()\n\n" ..
+  "local function test_b()\n  return 2\nend\n"
+  local diags = lint.check_call_after_define("x_test.tl", src, lines_of(src))
+  assert(#diags == 1, "only the uncalled half is flagged, got " .. #diags)
+  assert(diags[1].rule == "call-after-define", "got: " .. diags[1].rule)
+  assert(diags[1].message:find("test_b", 1, true),
+    "the diagnostic names the test that would silently not run")
+end
+test_a_mixed_file_names_the_uncalled_test()
+
 -- And it is a TOKEN scan, not a line scan: counting `function`/`end`
 -- in source TEXT would let a fixture string holding either move the
 -- depth, reporting a function whose call is on the very next line as
