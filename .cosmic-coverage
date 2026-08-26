@@ -28,6 +28,7 @@ return {
   ["_cli/require_hints.tl"] = {["covered"] = 104, ["total"] = 124},
   ["_cli/returns.tl"] = {["covered"] = 100, ["total"] = 132},
   ["_cli/run.tl"] = {["covered"] = 28, ["total"] = 33},
+  ["_cli/throw_lint.tl"] = {["covered"] = 55, ["total"] = 56},
   ["_cli/visibility.tl"] = {["covered"] = 24, ["total"] = 25},
   ["_cli/welcome.tl"] = {["covered"] = 0, ["total"] = 25},
   ["_docs/derive.tl"] = {["covered"] = 69, ["total"] = 108},

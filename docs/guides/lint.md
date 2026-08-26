@@ -102,6 +102,39 @@ comment or a string constant — including the `assert(loadfile(...))` in
 `cosmic/embed/init.tl`, which is a line of the entry wrapper that module
 WRITES rather than runs. a grep-based rule would flag all 23.
 
+## throw-justify and exit-justify
+
+the same convention, for the throw and exit boundary D30 draws: a
+`cosmic/**` module may `error(` or exit (`os.exit(`/`unix.exit(`) only
+where **no caller could receive the value** — a Lua protocol whose error
+channel is the throw (a package searcher, a `coroutine.wrap` shim, a
+require-time probe), a process boundary (a post-`fork` child, an entry
+helper answering to the OS), or an infallible-by-type contract violated
+past the checker. only a reader can check that argument, so the site
+states it:
+
+```text
+error("error loading module '" .. name .. "': " .. tostring(lerr), 0)
+-- the line above carries: -- throws: package-searcher protocol; ...
+os.exit(127) -- exits: forked child; the error is on the parent's pipe
+```
+
+`-- throws: <why>` licenses an `error(` line, `-- exits: <why>` an exit
+line — trailing, or on the line directly above when 90 columns won't
+fit. the marker word states what the site does, so an `-- exits:` on an
+`error(` line does not license it. write the argument, not a
+restatement; if a caller COULD receive the value, the site is the wrong
+shape — return `nil, err` instead.
+
+the scope is assert-justify's: `cosmic/**` library source, tests and
+examples free, toolchain trees out. two modules are exempt at the file
+level, exactly as D30 records — `cosmic/check.tl` (its assertions and
+exits are its contract, D23) and `cosmic/rand.tl` (the CSPRNG's
+throw-on-failure, D22). the walk is token-exact, so a quoted `error(`
+or the entry wrapper's long-bracket source never counts, and the exit
+rule reads the receiver: `os.exit(` and `unix.exit(` are process exits,
+a `proc.exit(` on some record is not.
+
 ## call-after-define
 
 in a `*_test.tl` file, a top-level `local function test_*()` must be

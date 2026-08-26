@@ -124,7 +124,7 @@ local function probe_ns(): boolean
       ok = qproc.setup_userns_maps(nil, nil)
     end
     unix.write(wfd, ok and "1" or "0")
-    unix.exit(0)
+    unix.exit(0) -- exits: forked probe child; the answer is on the pipe
   end
   unix.close(wfd)
   local b = unix.read(rfd, 1)
