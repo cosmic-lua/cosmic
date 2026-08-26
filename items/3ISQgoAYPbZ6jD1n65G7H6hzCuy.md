@@ -48,9 +48,10 @@ code change; `KEEP`'s entries are untouched.
 Run from the repo root:
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
-- `grep -c "FILE" _types/gentl.tl` counts one more than today's 3 —
-  the rules comment now mentions it (today: the KEEP entry, the
-  quoted upstream doc line, and nothing in the rules prose).
+- `grep -c "FILE" _types/gentl.tl` counts at least one more than
+  today's 2 — the rules comment now mentions it (today: the KEEP
+  entry and the quoted upstream doc line; nothing in the rules
+  prose).
 - `grep -n "predeclares" _types/gentl.tl` prints one line (today:
   none).
 - `git diff --name-only origin/main` lists exactly `_types/gentl.tl`,
