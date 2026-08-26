@@ -1,6 +1,5 @@
 return {
   ["_build/casts.tl"] = 1,
-  ["_cli/build/init_test.tl"] = 3,
   ["_cli/build/steps.tl"] = 1,
   ["_fuzz/compress_fuzz_test.tl"] = 1,
   ["_make/generate.tl"] = 1,
