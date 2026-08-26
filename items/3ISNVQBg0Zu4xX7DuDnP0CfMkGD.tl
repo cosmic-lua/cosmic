@@ -3,8 +3,10 @@ return {
     ["3IRasZJA6521NcegdHoKNDAvZo8"] = "the lint demands the -- throws:/-- exits: comment at every census site, and until D30 lands zero sites carry one — the rule would fail 19 times on arrival",
   },
   ["blocked_by"] = "3IRasZJA6521NcegdHoKNDAvZo8",
+  ["builders"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
+  ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3ISNVQBg0Zu4xX7DuDnP0CfMkGD",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "ready",
+  ["phase"] = "do",
   ["title"] = "lint: the -- throws:/-- exits: justification grammar D30 defines has no enforcement",
 }
