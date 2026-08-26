@@ -48,3 +48,35 @@ of a null-policy or nesting-limit assertion to make a cast disappear.
 
 The diff must lower the affected rows in `_build/casts_baseline.tl` —
 run exactly the regen command the gate prints and commit the result.
+
+## Outcome, verified
+
+Both slices landed — `3IPqUmoU` (21 sites, PR #1389) and `3IPqVcwW`
+(17 sites, PR #1390). Verified against `main` at `b5739e40`:
+
+```
+grep -c -- "-- cast: .*from any" _eval/score_test.tl cosmic/json_test.tl \
+  cosmic/literal_test.tl _eval/stage_test.tl _make/pin_test.tl \
+  cosmic/teal_config_test.tl _tool/doc/index_test.tl cosmic/fetch/verbs_test.tl
+```
+
+reports `0` for all eight, and the same command without `.*from any`
+also reports `0` — no site was re-justified with a truer reason; every
+one closed. And
+
+```
+grep -c -E '"(_eval/score_test|cosmic/json_test|cosmic/literal_test|_eval/stage_test|_make/pin_test|cosmic/teal_config_test|_tool/doc/index_test|cosmic/fetch/verbs_test)\.tl"' _build/casts_baseline.tl
+```
+
+reports `0`: all eight rows dropped out of the ratchet floor rather
+than going to zero, which is what the floor does for a file with no
+casts left.
+
+The three mechanisms split as refinement predicted, but along a
+different line than the intake sketch: the validating decode
+(`cosmic.shape`) took the 21 sites whose test merely consumes decoded
+data, and `assert(v is T, msg)` took all 17 whose subject IS the
+dynamic decode. The mechanical call-change group did not survive
+refinement as its own answer — swapping `decode` for `decode_object`
+in the json module's own test file would have deleted the only
+coverage of what bare `decode` returns.
