@@ -69,6 +69,20 @@ Measured 2026-08-26 at main `b4ad036b`, from the repo root.
   (`cosmic/env.tl:179-182`), so the test can drive `COSMIC_TEST_FILTER`
   without a `cosmo.*` call.
 
+- **Three further gates bind a new public module, found at pull
+  (2026-08-26, running `--make coverage --baseline` against the built
+  tree) and not by this spec's first pass.** They are facts about the
+  gate set, not decisions, so they are recorded here rather than
+  bounced:
+  - `cosmic/example_coverage_test.tl:103` — every public module needs a
+    `*_example.tl` and the waiver allowlist is closed to new entries, so
+    `cosmic/test_example.tl` is required, not optional.
+  - `_build/env_vars_test.tl:78` — every `COSMIC_*` name a non-test
+    source reads must be declared in `_cli/env_vars.tl`, so reading
+    `COSMIC_TEST_FILTER` obliges a row there.
+  - `_build/casts_test.tl:54` — the per-file cast baseline starts at 0
+    for a new file, so the new files carry no `as` at all.
+
 ## Change
 
 Two new files, one added test in an existing one, and the two committed
@@ -157,7 +171,9 @@ captured text. The tests:
   output line `2 checks: 2 passed`.
 - `test_failure_output_names_the_function_and_carries_a_traceback` — one
   throwing case: the output contains `✗ <name>` and, indented below it,
-  a traceback line naming `cosmic/test_test.tl`.
+  the thrown message and a `stack traceback:` whose frames name this
+  file. (They name the COMPILED chunk, `o/cosmic/test_test.lua`, since a
+  test runs as the chunk the build produced — measured at pull.)
 - `test_source_order_is_run_order` — each case appends its name to a
   list; the list equals the input order.
 - `test_empty_case_list_is_a_skip` — `main({})` returns `2` and writes
@@ -181,6 +197,22 @@ assert the summary line is byte-identical to `records.counts(1, 1, 0)`
 and the failure line to `records.row("fail", <name>, 0, "")`. This is the
 drift guard the reproduced grammar needs, in the file that already guards
 `check.EXIT_SKIP` against `records.EXIT_SKIP` at `:130`.
+
+### `cosmic/test_example.tl` — new
+
+The `*_example.tl` a public module owes (`cosmic/example_coverage_test.tl`,
+whose waiver list is closed). Two `Example_*` functions, each with a
+`-- Output:` block so the example runner compares real output:
+`Example_main` runs two passing cases and prints the exit code;
+`Example_filter` shows the substring narrowing and the
+nothing-matched skip. Bodies are extracted and recompiled, so each
+`require` lives inside its function.
+
+### `_cli/env_vars.tl` — one added row
+
+`COSMIC_TEST_FILTER`, `public = true`, described as the runner's name
+filter. `_build/env_vars_test.tl` fails a `COSMIC_*` name that code reads
+and the registry does not declare, and `--help` renders the public rows.
 
 ### The two committed floors
 
@@ -244,13 +276,17 @@ Run from the repo root.
    `grep -cE '^ *error\(' cosmic/test.tl` prints `0`.
 9. `wc -l cosmic/test.tl` and `wc -l cosmic/test_test.tl` are each
    `≤ 500` — the cap `--check lint` enforces.
-10. `git diff --name-only origin/main` prints exactly, in any order:
+10. `o/bin/cosmic --make example cosmic/test_example.tl` passes — the
+    example a public module owes.
+11. `git diff --name-only origin/main` prints exactly, in any order:
 
     ```text
     .cosmic-coverage
     _build/public_surface_baseline.tl
+    _cli/env_vars.tl
     _tool/records_test.tl
     cosmic/test.tl
+    cosmic/test_example.tl
     cosmic/test_test.tl
     ```
 
