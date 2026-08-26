@@ -38,7 +38,8 @@ local function test_resolves_and_loads_a_tl_module()
   -- Through require() — the searcher VALUE is installed, never handed
   -- out — the binary installed it at boot, so the require IS
   -- the resolve-compile-load path.
-  local mod = require(name) as {string: integer} -- cast: from any
+  local mod = require(name)
+  assert(mod is {string: integer}, "the module must come back as its own table")
   assert(mod.answer == 42, "the module's own value must come back")
 end
 test_resolves_and_loads_a_tl_module()

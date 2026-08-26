@@ -162,11 +162,10 @@ local function load_module(name: string): pt.BenchModule, string
   if not ok then
     return nil, "require " .. name .. ": " .. tostring(mod)
   end
-  local bm = mod as pt.BenchModule -- cast: from any
-  if bm == nil or bm.scenarios == nil then
+  if not (mod is pt.BenchModule) or mod.scenarios == nil then
     return nil, name .. ": not a bench module (missing scenarios())"
   end
-  return bm
+  return mod
 end
 
 local BENCH_DIR < const > = "_perf/bench"

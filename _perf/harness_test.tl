@@ -13,10 +13,10 @@ local function test_run_scenario_measures_and_checks()
         return "value"
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "value" then -- cast: from any
-          return false, "unexpected result"
+        if res is string and res == "value" then
+          return true
         end
-        return true
+        return false, "unexpected result"
       end,
     }, FAST)
   assert(m.error == nil, "unexpected error: " .. tostring(m.error))
@@ -37,11 +37,11 @@ local function test_setup_result_reaches_fn_and_teardown()
         return {token = "abc"}
       end,
       fn = function(ctx: any): any
-        return (ctx as {string: string}).token -- cast: from any
+        assert(ctx is {string: string}, "setup context did not reach fn")
+        return ctx.token
       end,
       check = function(_: any, res: any): boolean, string
-        -- cast: from any
-        return res as string == "abc", "token did not flow through"
+        return res is string and res == "abc", "token did not flow through"
       end,
       teardown = function(ctx: any)
         torn_down = ctx
