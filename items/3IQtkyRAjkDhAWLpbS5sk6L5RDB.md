@@ -1,0 +1,94 @@
+## Goal
+
+G3, via the cosmo-contracts container: the payoff inside cosmic. The
+pin carries exact contracts, so the interim assert dance retires and
+the generated types say what the C does — nothing left to dispose of.
+
+## Evidence
+
+Measured 2026-08-26 against whilp/cosmic main `d5a6d78`:
+
+- The pin: `3p/cosmos/cosmos_pin.tl` at `2026.08.24-354c17e08`. Every
+  push to whilp/cosmopolitan master publishes a release tagged
+  `YYYY.MM.DD-<short-sha>` (its AGENTS.md), so a release carrying the
+  two upstream slices exists the day they merge.
+- The interim asserts this slice deletes: PR #1385 added five in
+  `cosmic/time.tl` (the clock readers), PR #1386 adds one in
+  `cosmic/fs/path.tl` (the join wrapper). At spec time #1385 is merged
+  and #1386 accepted-in-land, so at pull
+  `grep -rn -- '-- assert:' cosmic/time.tl cosmic/fs/path.tl | wc -l`
+  should report 6 (on `d5a6d78` it reports 0 because #1386 has not
+  merged; if it still reports 0 at pull, check that #1386 landed
+  before proceeding).
+- The generated declarations today (any built tree):
+  `o/_types/types_gen/cosmo/path.d.tl` `join` line declares
+  `string | nil`; `o/_types/types_gen/cosmo/unix.d.tl`
+  `clock_gettime` declares `integer | nil` in slot 1 plus trailing
+  `string, Errno` slots.
+
+## Change
+
+1. **`3p/cosmos/cosmos_pin.tl`**: bump `version` to the first
+   cosmopolitan release whose commit history contains both upstream
+   contract slices, and `sha` to the sha256 of that release's
+   `cosmos.zip`. Then `bin/cosmic --make fetch && bin/cosmic --make
+   build` — the types regenerate from the new pin's embedded
+   `definitions.lua`; nothing is committed under `o/`.
+2. **`cosmic/time.tl`**: at the five clock sites, revert each
+   three-line assert dance to the direct two-slot read
+   (`local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)` and
+   the MONOTONIC equivalents), deleting the `-- assert:` comments and
+   the `secs_or_nil` renames. Signatures and doc comments stay: they
+   already declare plain integers, which is now the binding's own type.
+3. **`cosmic/fs/path.tl`**: the `join` wrapper body returns to
+   `return cosmo_path.join(...)`; delete the assert and its comments;
+   the doc comment keeps the sentence "Calling with no arguments, or
+   with every argument nil, is a caller error and throws" — true as
+   ever, the throw now comes from the binding. The routing of
+   `walk.tl`/`find.tl`/`tree.tl` through this wrapper STAYS — one
+   boundary for the binding is right regardless of its type.
+4. **Tests stay.** `cosmic/time_test.tl`'s
+   `test_clock_readers_return_integers` and `cosmic/fs/path_test.tl`'s
+   `test_join_returns_a_plain_string` / `test_join_with_no_arguments_throws`
+   pass unchanged (the no-args throw now originates in C; the test
+   asserts `pcall` failure without matching the message). Update only
+   their comments where they attribute the behavior to the D23 assert.
+5. **Compare gate**: per the pin-bump procedure (cosmopolitan
+   AGENTS.md), run the `_perf` compare against the previous pin —
+   baseline on the old pin, current on the new, per the optimize
+   skill's commands — and quote the gate verdict in the PR.
+
+## Non-goals
+
+- No consumption of census follow-ups — each later contract fix gets
+  its own pin-bump slice or rides a scheduled one.
+- No D23 edit: the rule ("assert an unreachable binding nil, with the
+  comment") stays licensed; its instance count falling to zero here is
+  the outcome, not a doctrine change. `docs/decisions/**` untouched.
+- No `3p/tl` changes, no `tl_patch.tl` changes.
+- No other `cosmo.*` call-site changes beyond the six assert sites —
+  the latent-nil sweeps own their sites.
+
+## Acceptance
+
+Run from the cosmic repo root:
+
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `grep -rn -- '-- assert:' cosmic/time.tl cosmic/fs/path.tl | wc -l`
+  reports 0 (at pull: 6).
+- `grep -n 'join: function' o/_types/types_gen/cosmo/path.d.tl` shows
+  a return of `string` with no `| nil` (today: `string | nil`).
+- `grep -n 'clock_gettime' o/_types/types_gen/cosmo/unix.d.tl` shows
+  no `| nil` (today: `integer | nil` slot 1).
+- `bin/cosmic --make test cosmic/time_test.tl cosmic/fs/path_test.tl`
+  ends `test: PASS`.
+- The perf compare gate verdict (old pin vs new) quoted in the PR
+  reports no regression.
+
+## Enablement
+
+blocked_by 3IQtfuCx (path.join raises) and 3IQtg7Sm (clock_gettime
+raises), mirrored as block edges — plus a published cosmopolitan
+release containing both, which follows their merge automatically.
+Not ready until both end and the release tag exists; the pin version
+cannot be written into this spec ahead of that tag.
