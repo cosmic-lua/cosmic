@@ -1,12 +1,13 @@
 #!/usr/bin/env cosmic
 -- Tests for the compact layout of cosmic.literal's writer.
 --
--- The compact layout hands the value to a C encoder that never
--- refuses, so what these tests state is the property that makes it
--- usable at all: it admits exactly the values the default layout
--- admits, refuses the rest by the same key path, and what it writes is
--- what `parse` reads back. The default layout is asserted unchanged
--- alongside, because every committed file in the tree is written by it.
+-- The compact layout hands the value to a C encoder asked to refuse the
+-- reader's domain itself, so what these tests state is the property that
+-- makes it usable at all: it admits the values the default layout
+-- admits, hands the rest to that layout or refuses them by the same key
+-- path, and what it writes is what `parse` reads back. The default
+-- layout is asserted unchanged alongside, because every committed file
+-- in the tree is written by it.
 
 local literal = require("cosmic.literal")
 
@@ -196,6 +197,49 @@ local function test_compact_falls_back_to_pin_when_it_cannot_spell()
   assert(select(2, compact:gsub("\n", "")) == 1, "the fallback test lost its subject")
 end
 test_compact_falls_back_to_pin_when_it_cannot_spell()
+
+--- A value nested `depth` tables deep, with a scalar in the innermost
+--- table when `leaf` is true.
+local function nested(depth: integer, leaf: boolean): {string: any}
+  local top: {string: any} = {}
+  local cur = top
+  for _ = 2, depth do
+    local next_level: {string: any} = {}
+    cur.a = next_level
+    cur = next_level
+  end
+  if leaf then
+    cur.x = 1
+  end
+  return top
+end
+
+-- Where the two layouts stop accepting nesting, which is the one place
+-- their domains differ. The C encoder counts a table's contents one
+-- level below the table, so it stops one level shallower than the pin
+-- renderer: at the limit the value is written in the pin layout, and
+-- past it both refuse with the same message.
+local function test_compact_hands_the_deepest_nesting_to_pin()
+  local limit = nested(32, true)
+  local compact = written(limit, {layout = "compact"})
+  assert(compact == written(limit), "the deepest value did not take the pin layout")
+  local back, err = literal.parse(compact)
+  assert(back, "the deepest value is not a literal: " .. tostring(err))
+  assert(deep_equals(limit, back), "the deepest value did not round trip")
+
+  -- one level shallower still encodes, so the test has a real subject
+  local under = nested(31, true)
+  local shallower = written(under, {layout = "compact"})
+  assert(shallower ~= written(under), "fell back one level too early")
+  assert(select(2, shallower:gsub("\n", "")) == 1, "the nesting test lost its subject")
+
+  -- and once the pin renderer stops too, both layouts refuse by the
+  -- same message: the handoff never turns a refusal into output
+  local over = nested(34, true)
+  assert(refused(over, {layout = "compact"}) == refused(over),
+    "the layouts disagree past the nesting limit")
+end
+test_compact_hands_the_deepest_nesting_to_pin()
 
 -- Sorted output is what makes committed data diff as the rows that
 -- moved, so the same value must serialize to the same bytes.
