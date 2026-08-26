@@ -133,7 +133,7 @@ and a `tl.search_module` file handle:
 ```
 
 ```text
--- cosmic/teal.tl:166
+-- cosmic/teal.tl:167
     local f = fd as FILE -- cast: from any
 ```
 

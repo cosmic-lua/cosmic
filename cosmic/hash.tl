@@ -97,12 +97,13 @@ end
 --- @return string The digest as raw bytes
 local function digest(algo: Algo, data: string): string
   if not valid_algos[algo] then
+    -- throws: Algo contract violated through a cast; the checker bars every bad value
     error("hash.digest: unknown algorithm: " .. tostring(algo), 2)
   end
   local d, err = cosmo.GetCryptoHash(
     string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening
   if not d then
-    error("hash.digest: " .. tostring(err), 2)
+    error("hash.digest: " .. tostring(err), 2) -- throws: unreachable for a valid Algo
   end
   return d
 end
@@ -130,6 +131,7 @@ end
 --- @return string? Error message when the key is empty
 local function hmac(algo: Algo, key: string, data: string): string | nil, string
   if not valid_algos[algo] then
+    -- throws: Algo contract violated through a cast; the checker bars every bad value
     error("hash.hmac: unknown algorithm: " .. tostring(algo), 2)
   end
   if #key == 0 then

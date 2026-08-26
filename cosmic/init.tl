@@ -38,6 +38,7 @@ local function main(fn: function(args: {string}, env: Env): number, string)
   -- Any numeric return exits honestly: a fractional code (a stray
   -- average, a division) exits 1 instead of throwing at the very end,
   -- and an error return with no code exits 1, never a clean 0.
+  -- exits: entry helper; the caller is the OS
   os.exit(math.tointeger(code or (err and 1 or 0)) or 1)
 end
 
