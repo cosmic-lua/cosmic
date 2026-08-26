@@ -1,134 +1,288 @@
 ## Goal
 
-G3 — an honest type layer whose boundary is checkable: D30 licenses a
-library throw or exit only where no caller could receive the value,
-and demands a `-- throws:`/`-- exits:` justification at every site —
-"the enforcement lint is filed to follow, the way `-- assert:`'s did"
-(D30, consequences). This slice is that lint: `throw-justify` and
-`exit-justify`, mirrors of `assert-justify`, plus the six markers the
-D30 census missed because it grepped `os.exit(` and the quicksand
-post-fork children exit through `unix.exit(`.
+G3 — an honest type layer, no escape hatches. D30 defines a
+`-- throws:` / `-- exits:` justification grammar for the three shapes a
+`cosmic.*` module may throw or exit in, and nothing enforces it. This
+slice adds the lint, the way `3IRTkNx1` (PR #1401) added
+`assert-justify` after D23's amendment defined `-- assert:`. A
+convention a gate does not enforce reads as enforced, which is worse
+than no convention.
 
 ## Evidence
 
-Re-measured 2026-08-26 against main `8f34339e`; every cited line read:
+Measured 2026-08-26 at main `1afdfb01` (D30 landed as PR #1408), from
+the repo root.
 
-- **The grammar**: D30 (`docs/decisions/d30-throw-exit-boundaries.md`)
-  — trailing `-- throws: <why>` on an `error(` line, `-- exits: <why>`
-  on an exit line, or either on the line directly above; "the same
-  grammar contract as `-- cast:` and `-- assert:`". Module-level
-  exemptions, stated in the record: `cosmic/check.tl` (D23) and
-  `cosmic/rand.tl` (D22) "carry no per-site comments".
-- **The pattern to mirror**: `_cli/assert_lint.tl` (273 lines) —
-  token-exact via `tl.lex`, `is_library_source` scopes to `cosmic/**`
-  minus `_test`/`_example`, one diagnostic per line via a seen-set,
-  and the shared marker reader `_tool/lint.tl:54` (`is_justified`,
-  pattern `%-%- <marker>: %S`, trailing or line directly above).
-  Marker words `throws`/`exits` contain no pattern-magic characters.
-- **Wiring**: `_cli/lint.tl` composes the rules at `:408–414` and
-  re-exports each; the file is 466 lines — +10 for two loops, two
-  record fields, two table entries stays under the 500 cap.
-- **All 19 D30 sites are justified today** (verified by grep for the
-  markers: searcher ×6, teal ×1, coverage ×1, hash ×3, child ×2,
-  box/run ×5, init ×1 — trailing or line-above).
-- **The census hole**: six `unix.exit(` sites carry no marker —
-  `cosmic/quicksand/proxy.tl:135,152,159,161` (the forked proxy child:
-  setup-failure exits and the success exit), `proxy/serve.tl:404` (the
-  forked per-connection handler child), `quicksand/init.tl:127` (the
-  forked userns probe child). Each read at the line: all are
-  post-fork children — D30's process-boundary shape, licensed, just
-  unmarked. D30's shape rules are the decision; its site lists are
-  census context, so marking six more conforming sites needs no
-  amendment.
-- **No other exit spelling exists**: `grep -rn "\.exit(" cosmic/`
-  (tests/examples excluded) finds only `os.exit(` and `unix.exit(`
-  receivers; coverage's `os_mod["exit"]` wrapper is a string index the
-  lexer never reads as a call.
-- **The guide**: `docs/guides/lint.md` (311 lines) documents each rule;
-  `## assert-justify` at `:65` is the section shape to follow.
+- **The tree already satisfies the rule, so this slice edits no
+  `cosmic/**` source.** The census
+  `git ls-files 'cosmic/*.tl' 'cosmic/**/*.tl' | grep -v '_test\.tl$\|_example\.tl$\|_benchmark\.tl$' | xargs grep -nE '(^|[^_[:alnum:]])error\(|os\.exit\('`
+  (doc-comment and comment lines dropped) finds **19 sites in 7 files**
+  outside `cosmic/check.tl` (14 sites, D23's module) and
+  `cosmic/rand.tl` (6, D22's): `cosmic/searcher.tl` 6,
+  `cosmic/quicksand/box/run.tl` 5, `cosmic/hash.tl` 3,
+  `cosmic/child/init.tl` 2, and one each in `cosmic/coverage/init.tl`,
+  `cosmic/teal.tl`, `cosmic/init.tl`. Every one carries the marker its
+  site kind demands — `-- throws:` on all 11 `error(` lines,
+  `-- exits:` on all 8 `os.exit(` lines, trailing or on the line
+  directly above — verified site by site against the merged tree. So a
+  correct lint is green on `main` the moment it lands, and any
+  `cosmic/**` path appearing in this slice's diff means the rule is
+  wrong, not the tree.
+- **`git ls-files 'cosmic/*_benchmark.tl' 'cosmic/**/*_benchmark.tl'`
+  is empty**, so the scope predicate's treatment of benchmarks is
+  untestable against the tree and must be settled by the fixture tests
+  instead.
+- **`assert-justify` is the working template, one rule file over.**
+  `_cli/assert_lint.tl:217-260` is `check_assert_justification`: it
+  bails unless `is_library_source(file)`, lexes with `tl.lex`, walks
+  the tokens, skips a name preceded by `.` or `:`, requires the next
+  token to be `(`, dedupes per line with a `seen` table, and asks
+  `style.is_justified(lines, t.y, "assert")` for the comment. The
+  lexer walk is what makes the rule usable: a naive grep also matches
+  `cosmic/_teal_engine.tl`'s `process_error(` calls, which return a
+  value and throw nothing, and every `error(` inside a string or doc
+  comment.
+- **The marker reader already takes the marker as an argument.**
+  `_tool/lint.tl:46-63` — `is_justified(lines, y, marker)` builds
+  `"%-%- " .. marker .. ": %S"` and accepts it trailing on the line or
+  alone on the line above. `"throws"` and `"exits"` need nothing added
+  to it. `wc -l _tool/lint.tl` → **70**.
+- **The scope predicate is the one thing that would be copied.**
+  `_cli/assert_lint.tl:202-215` defines `is_library_source` as a local
+  and does not export it; `grep -c 'is_library_source'
+  _cli/assert_lint.tl` → **2** (the definition and its one call). Its
+  doc comment records why `/cosmic/` is deliberately not matched as
+  well: the repository root directory is itself named `cosmic`, so
+  that pattern would sweep the whole tree for an absolute path.
+  `_tool/lint.tl`'s own header already states the rule for where such
+  a helper belongs — "The lexer walks that FIND the sites stay in
+  `_cli`, one per rule; they share this reader rather than each
+  carrying a copy of it."
+- **Wiring costs about seven lines in a file with 34 to spare.**
+  `wc -l _cli/lint.tl` → **466**, cap 500. Each rule is wired as a
+  `require` at the top (`:17-25`, alphabetical), a three-line
+  `for _, d in ipairs(...) do` block inside the `path:match("%.tl$")`
+  arm (`:386-417`), one field on the `LintModule` record (`:434-450`)
+  and one entry in `M` (`:452-464`).
+- **Every rule has a section in the shipped guide.**
+  `grep -n '^## ' docs/guides/lint.md` lists `file-length`,
+  `cast-justify`, `assert-justify`, then the rest alphabetically
+  through `return-assert` and `visibility`. `wc -l
+  docs/guides/lint.md` → **311**, 189 lines of headroom. Nothing
+  ratchets rule names against that file — `_build/guides_test.tl:27`
+  gates only `docs/guides/make.md` — so the section is convention, not
+  a gate, and is written because the diagnostic message points readers
+  at `guide.lint`.
+- **Coverage carries `_cli/**`, so a new file there moves a committed
+  floor.** `grep -n '_cli/assert_lint' .cosmic-coverage` →
+  `["_cli/assert_lint.tl"] = {["covered"] = 95, ["total"] = 102}`.
+  `_tool/coverage/baseline.tl:8-11` fails the gate when the file set
+  drifts, and `bin/cosmic --make coverage --baseline` rewrites it.
+- **`grep -rn 'throw-justify' _cli/ docs/` returns nothing today**, so
+  every count in Acceptance starts at 0.
 
 ## Change
 
-1. **`_cli/throw_lint.tl`** (new) — one rule pair, the shape of
-   `assert_lint.check_assert_justification`:
-   - `throw-justify`: an `error` identifier token (not preceded by `.`
-     or `:`) followed by `(`, in library source, must satisfy
-     `is_justified(lines, y, "throws")`.
-   - `exit-justify`: an `exit` identifier token preceded by `.` whose
-     receiver token is the identifier `os` or `unix`, followed by `(`,
-     must satisfy `is_justified(lines, y, "exits")`.
-   - Scope: copy `is_library_source` (cosmic/** minus tests/examples);
-     skip `cosmic/check.tl` and `cosmic/rand.tl` entirely — the
-     module-level licences D30 records (cite D23/D22 in the comment).
-   - One diagnostic per line per rule (seen-set). Teaching messages in
-     assert-justify's voice: name D30's licence ("only where no caller
-     could receive the value"), the marker to write, and the honest
-     alternative (`nil, err`), pointing at `cosmic --docs guide.lint`.
-2. **`_cli/lint.tl`** — wire both checks into `lint_file` beside the
-   assert rules; re-export them in the record and table as the others
-   are.
-3. **`_cli/throw_lint_test.tl`** (new) — fixture-source tests in
-   `assert_lint_test.tl`'s style: an unjustified `error(` is flagged;
-   a trailing `-- throws:` passes; a line-above marker passes; a bare
-   `-- throws:` with no reason fails; `os.exit(` and `unix.exit(`
-   flagged without `-- exits:` and pass with it; a mismatched marker
-   (`-- exits:` on an `error(` line) is flagged; `e.error(` and a
-   string containing `error(` are not; a `fixture_test.tl` path is out
-   of scope; the check.tl/rand.tl exemption (pass paths
-   `cosmic/check.tl`, `cosmic/rand.tl` with a bare throw).
-4. **The six markers** — `-- exits: forked child; …` in D30's grammar,
-   trailing (or line above where 90 columns demand):
-   `cosmic/quicksand/proxy.tl` ×4, `cosmic/quicksand/proxy/serve.tl`
-   ×1, `cosmic/quicksand/init.tl` ×1. Comments only; no behavior
-   change.
-5. **`docs/guides/lint.md`** — a `## throw-justify / exit-justify`
-   section after assert-justify: the D30 rule in one paragraph, the
-   two marker words, the exemption pair, and "write the argument, not
-   a restatement" carried over.
+Five hand-edited files plus one regenerated floor. **No `cosmic/**`
+source is touched** — see Evidence.
+
+### `_tool/lint.tl` — the scope predicate joins the marker reader
+
+Move `is_library_source` here from `_cli/assert_lint.tl`, body
+unchanged (`file:match("^cosmic/")` and not `_test%.tl$` /
+`_example%.tl$`), keeping its doc comment including the paragraph on
+why `/cosmic/` is not matched. Export it beside `is_justified`, and
+extend the module header's paragraph about the shared marker reader to
+say the library-source predicate is shared for the same reason: two
+rules ask the same question about a path and a second copy is drift
+waiting to happen. Nothing else in this file moves — not
+`check_file_length`, not `DEFAULT_FILE_LINES`, not `is_justified`.
+
+### `_cli/assert_lint.tl` — use the shared predicate
+
+Delete the local `is_library_source` definition and call
+`style.is_library_source(file)` at its one call site in
+`check_assert_justification`. `style` is already required at the top.
+No other change: `check_return_assert`, the module header, the
+`AssertLintModule` record and `M` all stay exactly as they are.
+
+### `_cli/throw_lint.tl` — new, the rule
+
+A module header stating what D30 licenses and why a lexer walk rather
+than a grep (name `process_error(` as the concrete false positive).
+One exported function:
+
+```teal
+check_throw_justification: function(file: string, content: string,
+  lines: {string}): {Diagnostic}
+```
+
+Rule name in every diagnostic: `throw-justify`. Behaviour, in order:
+
+1. Return `{}` unless `style.is_library_source(file)`.
+2. Return `{}` for exactly `cosmic/check.tl` and `cosmic/rand.tl` —
+   module-level exemptions recorded in D23 and D22, which is why those
+   two carry no per-site comments. Match the path exactly; no prefix
+   or pattern match.
+3. `tl.lex(content, file)`; return `{}` when it yields nothing, the
+   way `check_assert_justification` does.
+4. Walk the tokens. A site is either:
+   - a **throw**: an identifier token `error`, not preceded by `.` or
+     `:`, followed by `(`. Its marker is `throws`.
+   - an **exit**: an identifier token `exit` preceded by `.`, which is
+     preceded by an identifier token `os`, and followed by `(`. Its
+     marker is `exits`.
+5. Dedupe per (line, marker), not per line — one comment covers
+   however many sites of the same kind share a line, the way one
+   `-- cast:` covers a line's casts.
+6. For each surviving site, `style.is_justified(lines, y, marker)`.
+   When it is false, emit a `Diagnostic` with `rule = "throw-justify"`,
+   the site's line and column, and a message that names **the marker
+   that site needs** (`-- throws:` for a throw, `-- exits:` for an
+   exit), says a `cosmic.*` module may throw or exit only where no
+   caller could receive the value, and ends by pointing at
+   `cosmic --docs guide.lint` — the same three parts
+   `assert-justify`'s message has.
+
+The marker is chosen by site kind and the other marker does not
+satisfy it: `-- exits:` on an `error(` line is a miss, and so is the
+reverse. That is D30's grammar, and stating it loosely would let the
+two drift into interchangeable noise.
+
+### `_cli/throw_lint_test.tl` — new
+
+Legacy mode (every `test_*` called on the line after its `end`), using
+`cosmic.check`, following `_cli/assert_lint_test.tl:107-114`'s helper shape: a
+local helper that splits a source string into lines and calls
+`check_throw_justification` at a chosen path. Fixture paths are
+strings, so no file is written. The tests:
+
+- an unjustified `error(` in a library path is flagged once, with
+  `rule == "throw-justify"`, the right line, and a message containing
+  `-- throws:` and `guide.lint`;
+- an unjustified `os.exit(` likewise, with `-- exits:` in the message;
+- a trailing `-- throws: <reason>` justifies, and so does one on the
+  line above;
+- a bare `-- throws:` with no reason after it does NOT justify (the
+  `%S` in `is_justified`);
+- the WRONG marker does not justify — `-- exits:` on an `error(` line
+  is still flagged, and `-- throws:` on an `os.exit(` line is still
+  flagged;
+- `error` reached through a field or method (`x.error(...)`,
+  `t:error(...)`) is not a site, and neither is `process_error(...)`;
+- `error` and `os.exit` inside a string constant or a comment are not
+  sites;
+- a test path (`cosmic/foo_test.tl`), an example path
+  (`cosmic/foo_example.tl`) and a path outside `cosmic/`
+  (`_cli/foo.tl`) all yield no diagnostics;
+- `cosmic/check.tl` and `cosmic/rand.tl` yield no diagnostics for an
+  unjustified site;
+- two unjustified `error(` calls on one line yield ONE diagnostic, and
+  an `error(` and an `os.exit(` on one line yield TWO.
+
+### `_cli/lint.tl` — wire it in
+
+`local throw_lint = require("_cli.throw_lint")` in the alphabetical
+require block; a `for _, d in ipairs(throw_lint.check_throw_justification(path, content, lines)) do`
+block beside the `assert_lint.check_assert_justification` one inside
+the `path:match("%.tl$")` arm; the matching field on the `LintModule`
+record and entry in `M`, both named `check_throw_justification`.
+Nothing else in this file moves.
+
+### `docs/guides/lint.md` — one section
+
+`## throw-justify`, placed alphabetically between `## return-assert`
+and `## visibility`. State the rule (a `cosmic.*` module may throw or
+exit only where no caller could receive the value), the three shapes
+D30 licenses in one line each, the two markers and which site kind
+takes which, the trailing-or-line-above acceptance, and the two
+module-level exemptions. Link D30 the way the neighbouring sections
+link their records.
+
+### The committed floor
+
+`bin/cosmic --make coverage --baseline`, then commit
+`.cosmic-coverage` — it gains a row for `_cli/throw_lint.tl`. Never
+hand-edit it. If any other ratchet complains, run exactly the regen
+command its failure message prints and commit the result; that is in
+scope and is the only sanctioned way to move a floor.
 
 ## Non-goals
 
-- **No D30 amendment** — the record licenses shapes; the six new
-  markers instantiate a shape it already names. (If review disagrees,
-  the amendment is its own decide-skill slice.)
-- **No new exemption**: check.tl and rand.tl only, exactly as D30
-  states. `_cli/`, `_make/`, `_tool/`, `_build/`, `cmd/` stay out of
-  scope, as with assert-justify.
-- **No marker-orphan detection** (a `-- throws:` with no throw under
-  it) — that is 3IPFx8zM's class, filed.
-- **No behavior change at any exit site** — markers are comments.
-- **No alias chasing**: `local e = os.exit` or a renamed receiver is
-  invisible to this rule, as `assert = check.must` would be to
-  assert-justify; the lint is a convention gate, not a sandbox.
+- **No `cosmic/**` source changes.** The tree already satisfies the
+  rule (Evidence), so a diff that edits a library site means the rule
+  is wrong. Acceptance step 7 checks this directly. In particular
+  `cosmic/check.tl` and `cosmic/rand.tl` are not annotated — their
+  exemptions are module-level and already recorded.
+- **No decision-record change.** D30, D23 and D22 are the contract;
+  this enforces D30 and amends nothing. `docs/decisions/**` is not
+  touched, and neither is `AGENTS.md`, whose bullet D30 already
+  extended.
+- **`assert-justify` and `cast-justify` do not change behaviour.** The
+  only edit to `_cli/assert_lint.tl` is calling the moved predicate;
+  its diagnostics, message text and rule name are frozen, which
+  Acceptance step 3 checks by running that rule's own tests.
+- **`is_justified` is not touched**, and no second justification
+  marker is invented: `throws` and `exits` are D30's two, and the
+  reader already takes the marker as an argument.
+- **No new lint flag, no `--check lint` CLI change, no new rule
+  beyond `throw-justify`**, and no widening of the rule to
+  `error(`/`os.exit(` outside `cosmic/**` — the internal tree is not
+  under D23 or D30 and this rule says nothing about it.
+- **No other helper moves into `_tool/lint.tl`.** One predicate, for
+  the one reason stated.
+- **Frozen:** the `Diagnostic` record's fields; the
+  `-- cast:` / `-- assert:` grammars and their lints; `tl.lex` usage;
+  `_build/guides_test.tl`'s scope.
 
 ## Acceptance
 
-Run from the repo root:
+Run from the repo root.
 
-- `bin/cosmic --make ci` ends `ci: PASS`.
-- `grep -c "throw-justify\|exit-justify" _cli/throw_lint.tl` ≥ 2
-  (today the file does not exist).
-- `grep -c "throw_lint" _cli/lint.tl` ≥ 2 (today 0).
-- `grep -c -- "-- exits:" cosmic/quicksand/proxy.tl` prints 4,
-  `cosmic/quicksand/proxy/serve.tl` 1, `cosmic/quicksand/init.tl` 1
-  (today 0, 0, 0).
-- `bin/cosmic --make test _cli/throw_lint_test.tl` ends
-  `test: PASS (1 file)`.
-- Negative proof, from the built binary: a scratch file
-  `cosmic/tmp_probe.tl`-shaped source with a bare `error("x")` fed
-  through `o/bin/cosmic --check lint` fails naming `throw-justify`
-  (delete the probe after; the test file pins the same fact
-  hermetically).
-- `wc -l _cli/lint.tl` ≤ 500.
-- `git diff --name-only origin/main` lists exactly:
-  `_cli/lint.tl`, `_cli/throw_lint.tl`, `_cli/throw_lint_test.tl`,
-  `cosmic/quicksand/init.tl`, `cosmic/quicksand/proxy.tl`,
-  `cosmic/quicksand/proxy/serve.tl`, `docs/guides/lint.md`.
+1. `bin/cosmic --make ci` ends `ci: PASS`.
+2. `bin/cosmic --make test _cli/throw_lint_test.tl` passes, including
+   the wrong-marker, exempt-module and one-line-two-kinds cases named
+   in Change.
+3. `bin/cosmic --make test _cli/assert_lint_test.tl _tool/lint_test.tl`
+   passes — the predicate move left `assert-justify` and the pure
+   checks alone.
+4. `grep -c 'throw-justify' _cli/throw_lint.tl` prints at least `1`
+   and `grep -c 'throw-justify' docs/guides/lint.md` prints at least
+   `1` (both print `0` today).
+5. `grep -c 'local function is_library_source' _cli/assert_lint.tl`
+   prints `0` (it prints `1` today) and
+   `grep -c 'is_library_source' _tool/lint.tl` prints at least `2`
+   (it prints `0` today).
+6. `wc -l < _cli/lint.tl`, `wc -l < _cli/throw_lint.tl`,
+   `wc -l < _cli/throw_lint_test.tl` and `wc -l < _tool/lint.tl` each
+   print at most `500` (`_cli/lint.tl` is `466` today and gains about
+   seven lines; `_tool/lint.tl` is `70`).
+7. `git diff --name-only origin/main | grep -c '^cosmic/'` prints `0`
+   — the rule is green on the tree as it stands, with no library site
+   edited to make it pass.
+8. `git diff --name-only origin/main` prints exactly, in any order:
+
+   ```text
+   .cosmic-coverage
+   _cli/assert_lint.tl
+   _cli/lint.tl
+   _cli/throw_lint.tl
+   _cli/throw_lint_test.tl
+   _tool/lint.tl
+   docs/guides/lint.md
+   ```
 
 ## Enablement
 
-none needed. The rule is a token-walk copy of
-`_cli/assert_lint.tl`'s justification half over two new call shapes;
-the marker reader (`_tool/lint.tl` `is_justified`) is shared, not
-copied; no checker-facing shape is new (the walk mirrors code already
-in tree, so 3IRRqpQi's probe rule is satisfied by construction).
+none needed, and its blocker has landed: D30 is on `main` as
+`1afdfb01`'s ancestor (PR #1408), so the grammar exists in the tree
+before this demands it. Everything the implementer needs is read above
+at real line numbers — the template rule at
+`_cli/assert_lint.tl:217-260`, the marker reader at
+`_tool/lint.tl:46-63`, the predicate to move at
+`_cli/assert_lint.tl:202-215`, the four wiring points in
+`_cli/lint.tl`, the guide's section ordering, and the coverage regen
+command from the gate's own failure message. The census command and
+its 19-site result are above so a claiming session can re-run it in
+seconds and see whether the tree still satisfies the rule before
+building.
