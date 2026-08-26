@@ -24,3 +24,27 @@ left — `load` of an arbitrary chunk, a resumed coroutine's values —
 closes only with an `is` guard at the point of use. The closure diffs
 must lower the affected rows in `_build/casts_baseline.tl` — run
 exactly the regen command the gate prints and commit the result.
+
+## Outcome verified 2026-08-26
+
+All three closures landed (`3IOuRHzP` the typed `cosmic._version`
+lookup, `3IOuS3IE` the honest parameters, `3IOuSKFx` the residue). The
+container's own observable test — not its children's — re-run against
+main `3053b87d`:
+
+```text
+git ls-files '*.tl' | xargs grep -n -- "-- cast: .*from any"
+```
+
+11 sites remain tree-wide, and **none of them is in any of the 22 files
+this item enumerated**: `_build/casts_test.tl:69,75` (fixture strings
+inside the lint's own test, not casts), `cosmic/errno.tl:52`,
+`cosmic/fd.tl:187`, `cosmic/fetch/init.tl:238,366,384`,
+`cosmic/quicksand/proc.tl:262`, `cosmic/surface_test.tl:92`,
+`cosmic/teal.tl:166`, `cosmic/zip.tl:222`. Those belong to other
+classes in `docs/design/casts.md` — the fetch trio is board item
+`3IQCrJpB` — so the dynamic-value boundary is closed: 38 → 0.
+
+The whole-tree cast count is 220 (`git ls-files '*.tl' | xargs grep -c
+-- "-- cast: " | awk -F: '$2>0'` summed), against the 402 the design
+doc measured at `d3e59de7`.
