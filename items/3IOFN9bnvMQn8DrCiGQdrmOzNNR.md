@@ -110,3 +110,45 @@ children: re-run the harness above and confirm `format_compact` is
 within noise of `cosmo.EncodeLua` on the same value (target: at or
 below 1.2x C encode, against 2.58x today), and that
 `_literal_format_test.tl` still pins the same refusal set.
+
+## Outcome, measured
+
+Both children landed — `3IRqQvST` as whilp/cosmopolitan #278 (released
+`2026.08.26-fe7c36c4c`) and `3IRqU7yQ` as whilp/cosmic #1403. The
+harness above was re-run 2026-08-26 at cosmic main `b4ad036b`, with
+`o/bin/cosmic` built from that tree, on the same recipe (N string-keyed
+entries of mixed scalars plus one nested table each, best of five runs
+of 20 iterations, `os.clock`):
+
+| entries | size   | `C(sorted)` | `C(literal)` | `format_compact` | vs `C(sorted)` | vs `C(literal)` |
+|---------|--------|-------------|--------------|------------------|----------------|-----------------|
+| 400     | 37 KB  | 0.73 ms     | 1.11 ms      | 1.06 ms          | 1.45x          | 0.95x           |
+| 2500    | 245 KB | 5.03 ms     | 7.08 ms      | 7.31 ms          | 1.45x          | 1.03x           |
+
+`C(sorted)` is `cosmo.EncodeLua(t, {sorted = true})` — the baseline the
+2.58x figure was taken against. `C(literal)` is the call
+`format_compact` actually makes today,
+`cosmo.EncodeLua(t, {sorted = true, literal = true, maxdepth = 32})`.
+The fixture is a little smaller than the original pass (37/245 KB
+against 51/332 KB), and the ratio is identical at both sizes, which is
+the same stability the original measurement reported across a 6x range.
+
+**The container's problem is solved.** It was that the value is
+traversed TWICE on the success path, once by Lua to decide the domain
+and once by C to write it. The wrapper is now **0.95x–1.03x of the
+encode call it makes** — within noise, which is the outcome test's
+primary clause. The 61% guard is gone: 2.58x → 1.45x against the
+original baseline, and `_perf`'s `literal_format_floor_compact` scenario
+moved −42.7%/−53.9%/−46.5% across three passes on #1403.
+`cosmic --make test cosmic/_literal_format_test.tl` → `test: PASS
+(1 file)`, so the refusal set is still pinned.
+
+**The 1.2x parenthetical does not hold, and is not this container's to
+chase.** `format_compact` is 1.45x `C(sorted)`, not ≤1.2x. The residual
+is not a guard and not in Lua: asking the encoder to refuse the reader's
+domain costs **~45% more inside C** than not asking
+(`C(literal)`/`C(sorted)` = 1.52x at 400 entries, 1.41x at 2500). That
+is a different cost with a different cause — the per-value domain check
+in `luaencodeluadata.c`, not a duplicated walk — and the 1.2x target was
+projected before anyone had measured what the option would cost. Filed
+as `3ISDGNep`, under G6 beside this container, rather than reopened here.
