@@ -145,6 +145,87 @@ Run from the repo root:
   `_cli/citations_test.tl`, `_cli/lint.tl` and
   `docs/design/nil-flow.md`, and nothing else.
 
+## Bounced 2026-08-26 — a dated document's citations are not claims
+## about HEAD
+
+Pulled and bounced without a PR at `e0d217dd`, minutes after two sibling
+slices under this same parent landed (3IPXQcgW / PR #1385, 3IPktATw /
+PR #1386). What they did to this document is the gap.
+
+**Measured at `e0d217dd`.** Re-running the Evidence measurement — 12
+fenced blocks in `docs/design/nil-flow.md`, each header's `<path>:<line>`
+read against the tree and its quote compared:
+
+```text
+MISS cosmic/fs/tree.tl:28
+  doc: local s = cosmo_path.join(src, entry)
+  src: local s = fs_path.join(src, entry)
+MISS cosmic/time.tl:53
+  doc: return secs * 1000 + math.floor(nanos / 1000000)
+  src: --- Get current wall clock time in whole milliseconds since the epoch.
+MISS cosmic/time.tl:35
+  doc: return secs, nanos
+  src: -- assert: clock_gettime fails only on an invalid clock id, and
+MISS _build/size.tl:162
+  doc: cbin, cbin - pbin,
+  src: --- @param prev Report The prior report
+```
+
+Four mismatches, not the one the `Change` budgets for. Three of them
+were created by PRs #1385 and #1386 in the hour between this spec being
+written and being pulled. The 37 inline citations still resolve.
+
+**The gap.** `docs/design/nil-flow.md:17` states its own terms: *"Measured
+against `e7ac1580` on 2026-08-25, over the 527 tracked `.tl` files"*. Its
+citations are positions in a NAMED PAST COMMIT, not claims about HEAD, and
+its prose reads them as evidence of a defect: the block at `:159` says of
+`cosmic/fs/tree.tl:28` that "`s` and `d` are themselves `string | nil`,
+because `cosmo.path.join` is declared to return one", and the block at
+`:210` calls `cosmic/time.tl:35` "the worst of the whole census … in the
+published API". Both statements were true at `e7ac1580` and are false at
+`e0d217dd`, because the census's own remediation slices landed.
+
+So the check as specified does not merely find stale line numbers here —
+it forces every future nil-flow slice to also rewrite the census
+document that motivated it. Three such slices are still queued under
+this parent (3IPXQ1Zw, 3IPXQuYu, 3IPXRRd2), and each will invalidate
+more of the same 12 blocks. That standing cost is a design decision this
+spec does not make, and it cannot be improvised inside the slice:
+`cosmic/fs/tree.tl:28`'s quoted text no longer exists anywhere in the
+tree, so there is no line to re-point to and no one-line repair. The
+`Change`'s "fix the one live mismatch in the same diff" exception, and
+the Non-goal that bounds it to one line, are both sized for a tree that
+is not moving underneath the document.
+
+**What the refinement has to settle**, before this is pullable again:
+
+1. **What a citation into a dated document means.** Three shapes, none
+   of them free: freeze the citation form so it names the commit it was
+   measured against (`cosmic/time.tl@e7ac1580:35`) and have the check
+   resolve it there; exempt a document that declares a measurement
+   commit, and say how it declares one; or accept that HEAD is the only
+   referent and that a remediation slice repoints its own census rows,
+   making that an explicit, budgeted step of every such slice.
+2. **Who repairs the four mismatches above**, and with what prose. It is
+   plausibly not this item at all: re-pointing a census whose subject
+   was fixed is a documentation change with its own judgment in it, and
+   it now blocks this one whichever way (1) is decided.
+3. **How the check decides a path is real, without `git`.** The `Change`
+   says "a tracked file (`git ls-files`)". `--check lint` runs per file
+   inside the fence and over user projects that need not be git
+   checkouts at all, so a subprocess per run is not available to it; no
+   `_cli/**` check shells out today (`_make/vcs.tl` is the tree's only
+   `git` caller, and it is not on this path). `fs.is_file` relative to
+   the project root gives the same answer for every citation in the
+   tree and keeps the "any other unresolvable path is a diagnostic"
+   property the `Change` asks for — but it is a different rule from the
+   one written, so it needs deciding rather than substituting.
+
+Nothing about the check's core — the two shapes, the `o/` skip, the
+first-non-empty-line quote match, the ranges-resolve-only decision — was
+found wanting. The measurement that sized it was sound; what moved is
+the tree it measures.
+
 ## Enablement
 
 none needed. `_cli/returns.tl` and `_cli/pattern_args.tl` are the two
