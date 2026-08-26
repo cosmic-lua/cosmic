@@ -1,119 +1,122 @@
+## What this container is
+
+`test/tool/net/**` in whilp/cosmopolitan holds 40 checks that run in no
+workflow. The parent container (`3INxo51I`) settled that the
+redbean-contract half is retired and the rest is salvaged into
+`tool/lua/`, where the gate actually runs. This container is the salvage
+half, and it carries the children that do it.
+
+It stopped being a slice because its own `Change` had two independent
+steps with the word "and" between them: an inventory nobody has, and a
+port whose file list IS that inventory's output. `decompose.md` names
+that shape — *"if a slice cannot be sized without research, the research
+IS the slice: an enablement item whose deliverable is recorded evidence
+and the follow-up slices, not code"* — and the parent already anticipated
+it (*"The inventory is research the salvage cannot be sized without, so
+it is that child's first deliverable"*). So the inventory is now a child
+in its own right, and the port slices it names are filed as its
+siblings, each sized from a list that exists.
+
 ## Goal
 
-G5 — adversarial verification. `test/tool/net/**` holds 28 checks that
-pass but never run: the lane is in no workflow, and until `3c36bc35`
-(#275) it did not compile. Some of that coverage exists nowhere else in
-the fork — the JSON conformance corpus above all. This slice moves what
-is genuinely uncovered into `tool/lua/`, where the gate actually runs,
-so the parent's retirement child can delete the directory without
-losing anything.
+G5 — adversarial verification. Coverage that exists only in a lane
+nothing runs is not coverage. When this container ends, everything
+`test/tool/net/**` covers that `tool/lua/test_*.lua` does not is running
+inside `o//tool/lua/test`, which both `pr.yml` and `release.yml` already
+invoke — and the retirement sibling (`3IOCgtWA`, blocked on this) can
+delete the directory without losing a check.
 
 ## Evidence
 
-Measured 2026-08-25 against whilp/cosmopolitan `3c36bc35`.
+Measured 2026-08-26 against whilp/cosmopolitan `fe7c36c4` (master; the
+release cosmic pins as `2026.08.26-fe7c36c4c`), from the repo root.
 
-**The lane runs nowhere.** `grep -rn 'test/tool/net|tool/lua/test'
-.github/workflows/` names only `o/x86_64/tool/lua/test`, in `pr.yml:26`
-and `release.yml:38`. AGENTS.md names the same target as the
-pre-PR correctness gate.
+**The two sets, and the gate's shape.**
 
-**28 of 40 checks pass** (`ls o//test/tool/net/*.runs | wc -l` was 28
-with the clock.h include applied; that include has since landed).
-
-**The json corpus is vendored inline and has no counterpart.**
-
+```text
+ls test/tool/net/*.lua | wc -l                                  # 38
+ls tool/lua/test_*.lua | wc -l                                  # 31
+grep -c '^\to/$(MODE)/tool/lua/test_.*\.ok' tool/lua/BUILD.mk    # 29
 ```
-$ wc -l test/tool/net/jsontestsuite_pass_test.lua \
-        test/tool/net/jsontestsuite_fail1_test.lua \
-        test/tool/net/ljson_test.lua
-340  437  228
-$ wc -l tool/lua/test_data_formats.lua
-288
+
+`tool/lua/BUILD.mk:222-251` is `TOOL_LUA_TESTS`, a hand-written list of
+29 `o/$(MODE)/tool/lua/test_<name>.ok` stamps, and `:259-260` is the
+`.PHONY o/$(MODE)/tool/lua/test` target that depends on it. Each stamp
+has its own three-line rule (`o/$(MODE)/tool/lua/test_cosmo.ok:
+o/$(MODE)/tool/lua/lua.dbg tool/lua/test_cosmo.lua`, run, `touch`).
+Wiring a ported file is: one such rule plus one line in
+`TOOL_LUA_TESTS`. That is the mechanism to follow; there is no second
+one.
+
+**The port is not a copy — 34 of the 38 files call redbean globals.**
+
+```text
+for f in test/tool/net/*.lua; do grep -q require "$f" || echo "$f"; done | wc -l   # 34
+```
+
+redbean exposes `DecodeJson`, `EncodeJson`, `Slurp`, `UnescapeParam` and
+friends as bare globals; this fork namespaces every one of them under
+`cosmo.*` and registers the module from `tool/lua/lcosmo.c`, which
+redbean does not link. So each ported file needs a prelude that binds
+the names it uses — the corpus BODY still moves verbatim, which is the
+point of aliasing rather than rewriting call sites.
+
+The json corpus makes the size of that prelude concrete:
+
+```text
+grep -ohE '\b(DecodeJson|EncodeJson|EncodeLua|unix\.[a-zA-Z_]+)\b' \
+  test/tool/net/json*.lua test/tool/net/ljson_test.lua | sort | uniq -c | sort -rn
+#  439 DecodeJson
+#   31 EncodeJson
+#   15 EncodeLua
+#    9 unix.pledge
+```
+
+Four names across 9 files and 7,542 lines. A six-line prelude per file
+covers all of it and leaves 485 corpus call sites untouched.
+
+**The json corpus is the clear `none` row and has no counterpart.**
+
+```text
+wc -l test/tool/net/json*.lua test/tool/net/ljson_test.lua   # 7542 total, 9 files
+wc -l tool/lua/test_data_formats.lua                          # 288
 ```
 
 `test_data_formats.lua` is a CONTRACT test — array metatables,
-`NaN`/`Infinity` rejection, empty-collection round-tripping
-(`grep -n 'json' tool/lua/test_data_formats.lua`) — not a corpus one.
-The nine `json*`/`ljson*` files in `test/tool/net/` are the
-JSONTestSuite and json.org bodies.
+`NaN`/`Infinity` rejection, empty-collection round-tripping — not a
+corpus one. It adversarially exercises nothing.
 
-**The other 27 passing files are unaudited.** `ls test/tool/net/*.lua`
-lists 38 Lua files; the 12 failing ones are named in the parent. What
-the remaining passers cover, and how much of it `tool/lua/test_*.lua`
-already covers, has NOT been measured — that inventory is this slice's
-first deliverable, and the port list follows from it.
+**The redbean-contract failures are identifiable by grep, not by
+running the lane.** The parent recorded why each of the twelve fails;
+the tells are in the source. `grep -ln 'errno()' test/tool/net/*.lua`
+names six files, four of which (`futex`, `mapshared`, `spinlock`,
+`sysconf`) the parent identified as failing on exactly that call. This
+matters because it means the inventory child does not have to build and
+run a lane that is in no workflow to do its job.
 
-## Change
+## The children
 
-Two steps, in order, both in whilp/cosmopolitan.
+1. **The inventory** (`3IS8...`, filed with this decomposition) — one
+   row per `test/tool/net/*.lua`: what binding surface it exercises,
+   which `tool/lua/test_*.lua` already covers that ground or `none`, and
+   whether it is a redbean-contract file the parent already retires.
+   Its second deliverable is the port slices themselves, filed as
+   children of this container, one per coherent group of `none` rows,
+   each sized from the row list.
+2. **The port slices** — filed by (1), each blocked on it. Not written
+   ahead of the inventory, because their `Change` sections are exactly
+   its output.
 
-**1. Inventory (the research half).** For each of the 28 passing
-checks in `test/tool/net/`, record one line: what binding surface it
-exercises, and which `tool/lua/test_*.lua` covers the same ground
-(or `none`). The 31 files in `tool/lua/` (`ls tool/lua/test_*.lua`)
-are the comparison set. Write the table into this item's spec
-(`gitboard spec <this-id> FILE`) before writing any code — the port
-list in step 2 is exactly its `none` rows.
+## Outcome test for this container
 
-**2. Port the `none` rows into `tool/lua/`.** One new
-`tool/lua/test_<name>.lua` per ported check, following the shape of
-the existing suite: plain Lua, `assert` with a message, a final
-`print("test_<name>: PASS")` line, `cosmo.*` for bindings rather than
-redbean globals. Vendored corpus bodies move verbatim — do not
-re-derive, re-minify, or trim a corpus. Wire each new file into the
-`tool/lua/test` target the same way the existing `test_*.lua` files
-are wired (read `tool/lua/BUILD.mk` for the rule; follow it, do not
-invent a second mechanism).
-
-The json corpus is a `none` row by the measurement above, so it ports
-whatever else the inventory finds.
-
-## Non-goals
-
-- **Do not delete anything under `test/tool/net/`, and do not touch
-  `test/tool/BUILD.mk`.** Retirement is the parent's second child and
-  is blocked on this one landing. This slice only adds to `tool/lua/`.
-- **Do not repair the 12 failing checks.** The parent records why they
-  are retired rather than fixed: they assert redbean's `:errno()`
-  object, redbean's globals, and a `cosmo` module redbean does not
-  link. Porting one of them means rewriting it into a test
-  `tool/lua/` already has.
-- **Do not change any binding.** The `cosmo.*` C boundary,
-  `tool/net/definitions.lua`, and every return shape and error string
-  are frozen here. A test that will not port because a binding differs
-  from redbean is evidence for the inventory, not a reason to move the
-  binding.
-- **Do not touch anything in whilp/cosmic.** No pin bump, no type
-  regen, no wrapper change.
-- **Do not add a CI lane or edit `.github/workflows/**`.** The ported
-  tests join `o//tool/lua/test`, which both workflows already run;
-  that is the whole point of porting them there.
-- **Keep the fork mergeable with upstream**: surgical diffs, no
-  drive-by reformatting of the files you touch (AGENTS.md).
-
-## Acceptance
-
-Run from the whilp/cosmopolitan repo root.
+From the whilp/cosmopolitan repo root, after every child has ended:
 
 - `make -j$(nproc) o//tool/lua/test` passes.
-- The check count strictly rises: record
-  `ls o//tool/lua/*.ok 2>/dev/null | wc -l` (or whatever the target's
-  per-test stamp is — read `tool/lua/BUILD.mk` and use its actual
-  stamp) before and after, and quote both in the PR. The delta equals
-  the number of ported files.
-- `ls tool/lua/test_*.lua | wc -l` is 31 + the number ported.
-- Each new file, run directly, prints its `test_<name>: PASS` line.
-- The inventory table is in this item's spec before the code diff
-  exists — quote its `none` rows in the PR description, and confirm
-  the ported files are exactly those rows.
-- `git diff --name-only master` names only files under `tool/lua/`.
-- `git diff --stat master -- test/tool/net .github` is empty.
-
-## Enablement
-
-none needed. The parent carries the decision and its evidence; the
-comparison set is `ls tool/lua/test_*.lua` and the shape to copy is any
-file in it (`tool/lua/test_unix_errno.lua` is a short one).
-Conventions are whilp/cosmopolitan's AGENTS.md. The one thing this
-slice must discover rather than read is the inventory, which is why it
-is step 1 and why its output is written back to this spec.
+- `ls tool/lua/test_*.lua | wc -l` is strictly greater than `31`, by the
+  number of rows the inventory marked `none` and the port slices moved.
+- `grep -c '^\to/$(MODE)/tool/lua/test_.*\.ok' tool/lua/BUILD.mk` rose by
+  the same number, and every new stamp appears in `TOOL_LUA_TESTS`.
+- Every `none` row in the inventory names the `tool/lua/test_*.lua` that
+  now carries it.
+- `git diff --stat master -- test/tool/net .github` is empty across all
+  of them — deletion is `3IOCgtWA`'s, not this container's.
