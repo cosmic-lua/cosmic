@@ -46,15 +46,43 @@ whilp/cosmopolitan across that exact range:
   third_party/lua/luadecodejsondata.c net/http/encodebase64.c
   net/http/decodebase64.c net/http/isbase64.c` → **no commits**. Both
   hot paths are byte-identical across the bump.
-- `git log --oneline 07fc94a1c..354c17e08` → five commits, of which only
-  `354c17e0` ("DecodeLua: a Lua-literal data parser in C, beside the
-  JSON one", PR #274) changes what the binary contains:
-  `git show --stat 354c17e0` → +991 lines, all additions, adding
-  `tool/net/llua.c` (650 lines) as a new translation unit plus its
-  `BUILD.mk` entry.
+- `git log --oneline 07fc94a1c..354c17e08` → five commits. **THREE of
+  them change compiled code**, read per commit with `git show --stat
+  <sha>` (an unfiltered per-commit stat, which is what this claim
+  requires — a path-filtered log cannot support it):
+
+  - `354c17e08` ("DecodeLua: a Lua-literal data parser in C, beside the
+    JSON one", PR #274) → 7 files, +991, all additions: `tool/net/llua.c`
+    (650 lines) as a NEW translation unit, `tool/lua/lcosmo.c` (+23),
+    and two `BUILD.mk` entries.
+  - `8dd093cea` ("EncodeJson: a float always encodes carrying a `.` or
+    an exponent", PR #273) → `third_party/lua/luaencodejsondata.c`
+    (+11/-1), the JSON **encoder**, compiled into the binary. The
+    path-filtered probe above misses it because it names
+    `tool/net/ljson.c` and `third_party/lua/luadecodejsondata.c` — the
+    decoder's files, not the encoder's.
+  - `5bfcf79d0` ("zipos: recycle the stored-member handle through a
+    lock-free slot array + concurrency gate", PR #272) →
+    `libc/runtime/zipos-open.c` (+62/-9) and `zipos.internal.h` (-1): a
+    behavioural change to the zip filesystem READ path, compiled in and
+    exercised by every scenario that loads a module from `/zip`.
+
+  The remaining two are inert for compiled output, checked rather than
+  assumed: `8e071ec98` (PR #270) adds only `third_party/sqlite3/qrf.h`
+  and `tclsqlite.h` plus a `BUILD.mk` line, and both `#include`s that
+  name them sit in preprocessor branches no compiler here takes
+  (`sqlite3.c:203324` under `SQLITE_TEST`, never defined in this tree;
+  `shell.c:898` under `#ifndef SQLITE_QRF_H`, whose guard the copy
+  inlined at `shell.c:678-881` already defines) — the stubs exist so
+  the textual `build/bootstrap/mkdeps` scanner resolves, not so
+  anything compiles differently. `bf92718a1` (PR #269) touches
+  `AGENTS.md` alone.
 
 So the leading hypothesis is **binary layout** — a new translation unit
-shifted code, with no algorithmic change anywhere.
+shifted code, with no algorithmic change to either hot path. It is the
+LEADING hypothesis and not the conclusion: two other commits change
+compiled code in this range, and ruling them out is the follow-up's
+first job, not something this evidence has done.
 
 ## Result
 
@@ -128,8 +156,14 @@ three-per-side ranges rather than any single pair, and the effect here
 hardware is the first step of the follow-up.
 
 Since the base64 codec is byte-identical across the bump
-(`## Evidence`), the cause is what `354c17e0` did to the binary — a new
-650-line translation unit — not to the codec.
+(`## Evidence`), the cause is not an algorithmic change to the codec.
+What it IS remains open: three of the range's five commits change
+compiled code — `354c17e08`'s new 650-line translation unit,
+`8dd093cea`'s JSON-encoder edit, and `5bfcf79d0`'s zipos read-path
+rework — so binary layout from the new translation unit is the leading
+candidate among three, not the only survivor. Byte-identical codec
+sources rule out a change to the codec; they do not leave layout as the
+sole explanation.
 
 **Follow-ups filed:**
 
@@ -497,3 +531,53 @@ nothing: the A/B is sound and is not what is wrong here.
 one of five commits changes the binary" — from a filtered path probe
 that could not support it, instead of from the unfiltered per-commit
 stats the fact actually requires.
+
+## Rework
+
+**Addressed the request-changes verdict, 2026-08-26.** The finding was
+correct and is fixed above; it was verified here rather than taken on
+the review's word. `git show --stat` run on each of the five commits in
+`07fc94a1c..354c17e08` gives: `354c17e08` 7 files/+991 (new
+`tool/net/llua.c`, 650 lines, plus `tool/lua/lcosmo.c` +23 and two
+`BUILD.mk` entries); `8dd093cea` `third_party/lua/luaencodejsondata.c`
++11/-1; `5bfcf79d0` `libc/runtime/zipos-open.c` +62/-9 and
+`zipos.internal.h` -1; `8e071ec98` three files, all sqlite3 BUILD.mk
+and header stubs; `bf92718a1` `AGENTS.md` alone. Three change compiled
+code, not one.
+
+`8e071ec98`'s inertness was checked rather than assumed, since a new
+header can change what compiles: `grep -rln "qrf.h\|tclsqlite.h"
+third_party/sqlite3/*.c` names `shell.c` and `sqlite3.c`, and both
+includes sit in branches no compiler here takes — `sqlite3.c:203324`
+under `SQLITE_TEST` (never defined in this tree) and `shell.c:898`
+under `#ifndef SQLITE_QRF_H`, whose guard the copy inlined at
+`shell.c:678-881` already defines. The stubs exist so
+`build/bootstrap/mkdeps`, which scans `#include` lines textually
+without evaluating the preprocessor, can resolve them.
+
+Two edits, both to claims, none to numbers: `## Evidence`'s
+"only `354c17e0` … changes what the binary contains" now names all
+three with their stats and the command that produced them, and
+`## Result`'s closing inference now states binary layout as the leading
+candidate among three rather than the only survivor. **Nothing was
+re-measured** — the A/B is sound and was not what was wrong. The
+correction is carried into `3ISlWFiS`'s spec so its bisect does not
+inherit a premature exoneration.
+
+**The wrong turn, kept for the next session:** the spec asserted a
+tree-fact — "only one of five commits changes the binary" — from a
+path-filtered `git log` that cannot support it. A filtered log answers
+"did these paths change"; "does this commit change the binary" needs
+the unfiltered per-commit stat. The claim-time re-verification pass
+re-ran the two commands the spec named and confirmed both, which is
+exactly why it missed this: re-running a command that was the wrong
+command for the claim reproduces the wrong answer faithfully. What the
+ready bar wants beside a measured claim is the command that ESTABLISHES
+it, not merely one consistent with it.
+
+**Not fixed here, and deliberately.** This item's `## Goal` cites
+"G9 — every release publishes, measured", which matches no outcome in
+`docs/goals.md`, and the item hangs off G3 rather than the G6 its work
+serves. That is capture `3IT8rb3B`, and its second half — re-parenting
+three items from G3's band to G6's — is a placement change against
+existing work and belongs to the goal owner, not to this rework.
