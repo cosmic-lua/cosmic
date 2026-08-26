@@ -124,17 +124,11 @@ signal number looked up the same way:
     local n = by_name[s] as integer -- cast: from any
 ```
 
-An `fcntl` return that is an integer for every command cosmic passes,
-and a `tl.search_module` file handle:
+An `fcntl` return that is an integer for every command cosmic passes:
 
 ```text
 -- cosmic/fd.tl:187
     return result as integer -- cast: from any
-```
-
-```text
--- cosmic/teal.tl:166
-    local f = fd as FILE -- cast: from any
 ```
 
 A zip reader handle, and `cosmo.Fetch`'s dual-shape second return, which
@@ -171,20 +165,12 @@ signature forbids, or reaches a surface the type deliberately does not
 describe. The invalid-input form re-types a constructor as
 `function(any): any, any` so it can pass a bad argument, and everything
 read off that call is then `any`. The surface form walks the published
-modules by name, which no type describes:
-
-```text
--- cosmic/surface_test.tl:92
-    local mod = require("cosmic." .. name) as {string: any} -- cast: from any
-```
+modules by name, which no type describes; it narrows with an `is`
+guard at the point of use rather than a cast.
 
 **What closes it.** For the invalid-input probes, one test helper that
 performs the untyped call and hands back a typed `(nil, string)` — the
 tests all want the same thing, which is to assert on an error message.
-For the surface probes, nothing should: a test that asserts a type
-deliberately hides something is doing its job, and its cast is honest.
-That half is a candidate for a reason of its own rather than for
-closure.
 
 ### Fixture text, not a cast
 
