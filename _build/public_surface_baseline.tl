@@ -42,6 +42,7 @@ return {
   ["cosmic.sys"] = true,
   ["cosmic.tar"] = true,
   ["cosmic.teal"] = true,
+  ["cosmic.test"] = true,
   ["cosmic.time"] = true,
   ["cosmic.tty"] = true,
   ["cosmic.url"] = true,
