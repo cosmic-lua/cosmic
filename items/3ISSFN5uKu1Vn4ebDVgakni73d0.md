@@ -34,7 +34,7 @@ must type-check under BOTH the pinned checker and the patched one".
 The failing file here is `_cli/build/init_test.tl` — not under
 `cosmic/**`. Generation 1 compiles the WHOLE tree under the pin, so
 the rule is tree-wide: ANY source that needs the new checker fails a
-cold build until the pin carries it. Filed as `3ISnaLdV`.
+cold build until the pin carries it. Filed as `3ISnyPb7`.
 
 ## What this item now waits on
 
@@ -133,7 +133,7 @@ a cold build's generation 1 refuses the cast-free spelling and no
 amount of care in this diff changes that.
 
 Beyond the blocker, the countermeasure this bounce is evidence for is
-`3ISnaLdV`: the cold-build rule needs to be enforced rather than
+`3ISnyPb7`: the cold-build rule needs to be enforced rather than
 remembered — the `build` lane catches it only after a PR is open, and
 `--make ci`'s convergence actively hides it. Two specs in a row have
 now asserted the rule did not apply to them.
