@@ -6,8 +6,10 @@ return {
     ["3ITHROpYatfTyy9DH2AHFHO8G7X"] = "No eligible release can exist while the release lane is red. Latest release is 2026-08-23-d71d7f1; every scheduled run since (32699814015, 32818853162, 32940138465) failed at the 'compare against the previous release' step, and 3ISlWFiS confirmed that failure is the real codec_base64_roundtrip_64k +8.35% regression, correctly gating. This slice's Change (1) says a red lane is its own item to block on, and that item is 3ITHROpY. Unblocks when the regression is bisected and fixed so a release publishes carrying 1ca3f7ff.",
   },
   ["blocked_by"] = "3ISWHWQTq31NBoVzqQ3tH8G6aqQ 3ISlY5Xlyt9hRhDUY0wlOyVgYNo 3ISlWFiS7svcOfni0vzn6iFo8a9 3ITHROpYatfTyy9DH2AHFHO8G7X",
+  ["builders"] = "d0c48f36-d8a8-5b7a-866d-d5c87d1c0467",
+  ["claim"] = "d0c48f36-d8a8-5b7a-866d-d5c87d1c0467",
   ["id"] = "3ISVlHT6tRFIVNxydHy9qDtSqFR",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "ready",
+  ["phase"] = "do",
   ["title"] = "pin bump: bin/cosmic.pin to the first release carrying narrow-pack-n (post-2026-08-26)",
 }
