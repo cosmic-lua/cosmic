@@ -35,24 +35,45 @@ What did NOT change across `07fc94a1c..354c17e08`:
 
 What did:
 
-- Five commits. The only one that changes what the binary CONTAINS is
-  `354c17e0` ("DecodeLua: a Lua-literal data parser in C, beside the
-  JSON one", #274): `git show --stat 354c17e0` → +991 lines, all
-  additions, adding `tool/net/llua.c` (650 lines) as a new translation
-  unit plus its `BUILD.mk` entry. `8dd093ce` touches only
-  `third_party/lua/luaencodejsondata.c` (the JSON ENCODE path);
-  `5bfcf79d` touches `libc/runtime/zipos-open.c`. Neither is on the
-  base64 path.
+- Five commits, of which **three change compiled code** — read per
+  commit with `git show --stat <sha>`, which is what this claim needs;
+  a path-filtered `git log` cannot establish it:
 
-So the leading hypothesis is code layout: adding a translation unit
-moved the base64 encode/decode loops across an alignment or cache
-boundary. First things to try, cheapest first:
+  - `354c17e08` ("DecodeLua: a Lua-literal data parser in C, beside the
+    JSON one", #274) → 7 files, +991, all additions: `tool/net/llua.c`
+    (650 lines) as a NEW translation unit, `tool/lua/lcosmo.c` (+23),
+    two `BUILD.mk` entries.
+  - `8dd093cea` ("EncodeJson: a float always encodes carrying a `.` or
+    an exponent", #273) → `third_party/lua/luaencodejsondata.c`
+    (+11/-1), the JSON encode path.
+  - `5bfcf79d0` ("zipos: recycle the stored-member handle", #272) →
+    `libc/runtime/zipos-open.c` (+62/-9), `zipos.internal.h` (-1).
+
+  The other two are inert for compiled output: `8e071ec98` adds only
+  sqlite3 header stubs whose two `#include`s sit in branches no
+  compiler here takes (`sqlite3.c:203324` under `SQLITE_TEST`;
+  `shell.c:898` under a guard the copy inlined at `shell.c:678-881`
+  already defines), and `bf92718a1` touches `AGENTS.md`.
+
+  **"Not on the base64 path" does not dismiss the other two here.** The
+  hypothesis under test is LAYOUT, and any commit that changes compiled
+  code shifts layout — that is the mechanism, not a side effect. So the
+  encoder edit and the zipos rework are live candidates for this
+  regression precisely because layout is what is suspected, even though
+  neither touches base64 source.
+
+So the leading hypothesis is code layout: added or changed compiled
+code moved the base64 encode/decode loops across an alignment or cache
+boundary. Which of the three did it is open. First things to try,
+cheapest first:
 
 1. Reproduce on a quiet machine, `MODE=rel` both sides, to confirm the
    effect size outside a shared container.
 2. Bisect the five commits by building lua at each and running the same
-   isolated scenario — if `354c17e0` alone carries it with the codec
-   untouched, layout is confirmed.
+   isolated scenario. Bisect all five rather than assuming
+   `354c17e0`: three of them change the binary, so a result that lands
+   on `8dd093ce` or `5bfcf79d` is a real outcome and not a
+   measurement error.
 3. If layout: check the alignment of `EncodeBase64`/`DecodeBase64` in
    both binaries (`nm`/`objdump` on `o//tool/lua/lua.dbg`) before
    reaching for any source change.
