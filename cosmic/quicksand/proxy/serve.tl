@@ -4,9 +4,10 @@
 --- new() builds a Server from ProxyOptions; listen() binds it;
 --- serve_forever() runs the accept loop, forking one worker per
 --- connection so each worker can setns() into the upstream namespace
---- without affecting the others. Most callers should use
---- cosmic.quicksand.proxy.start() instead, which forks the whole
---- server into a sidecar child and returns a handle.
+--- without affecting the others; it returns false plus a message when
+--- its lazy listen fails, and true when the accept loop ends. Most
+--- callers should use cosmic.quicksand.proxy.start() instead, which
+--- forks the whole server into a sidecar child and returns a handle.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local rules = require("cosmic.quicksand.proxy.rules")
@@ -32,7 +33,7 @@ local record Server
   listen: function(): integer | nil, string
   accept: function(): integer | nil, string
   handle: function(client_fd: integer)
-  serve_forever: function()
+  serve_forever: function(): boolean, string
 end
 
 local record ServeModule
@@ -368,10 +369,14 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
   end
 
   -- Run the accept loop forever, forking per connection and reaping
-  -- zombies non-blockingly between accepts. Returns on EBADF/EINVAL
+  -- zombies non-blockingly between accepts. Returns true on EBADF/EINVAL
   -- (listener closed externally); the supervisor decides what next.
-  local function serve_forever()
-    if not listen_fd then assert(listen()) end
+  -- Returns false plus a message when the lazy listen fails.
+  local function serve_forever(): boolean, string
+    if not listen_fd then
+      local lok, listen_err = listen()
+      if not lok then return false, listen_err end
+    end
     local function reap()
       while true do
         local pid = unix.wait(-1, unix.WNOHANG)
@@ -387,7 +392,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
           reap()
         elseif errno.is_code(aeno, "EBADF") or errno.is_code(aeno, "EINVAL") then
           logger.warn("accept_fatal", {err = tostring(aerr)})
-          return
+          return true
         else
           logger.warn("accept_fail", {err = tostring(aerr)})
         end
