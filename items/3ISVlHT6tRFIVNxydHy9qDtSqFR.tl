@@ -8,9 +8,8 @@ return {
   },
   ["blocked_by"] = "3ISWHWQTq31NBoVzqQ3tH8G6aqQ 3ISlY5Xlyt9hRhDUY0wlOyVgYNo 3ISlWFiS7svcOfni0vzn6iFo8a9 3ITHROpYatfTyy9DH2AHFHO8G7X 3ITOUv0wv6OVH7bkh0RmgzmoDcl",
   ["builders"] = "d0c48f36-d8a8-5b7a-866d-d5c87d1c0467",
-  ["claim"] = "d0c48f36-d8a8-5b7a-866d-d5c87d1c0467",
   ["id"] = "3ISVlHT6tRFIVNxydHy9qDtSqFR",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "do",
+  ["phase"] = "ready",
   ["title"] = "pin bump: bin/cosmic.pin to the first release carrying narrow-pack-n (post-2026-08-26)",
 }
