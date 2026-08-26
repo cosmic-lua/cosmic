@@ -46,10 +46,14 @@ end
 --- @param v any The value (or blob() wrapper) to bind
 --- @return number The sqlite result code from the bind call
 local function bind_at(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
-  if getmetatable(v) == blob_mt as any then -- cast: metatable identity compare
-    return raw_stmt:bind_blob(i, (v as Blob).data) -- cast: from any
+  if v is Blob and getmetatable(v) == blob_mt as any then -- cast: metatable identity compare
+    return raw_stmt:bind_blob(i, v.data)
   end
-  return raw_stmt:bind(i, v as string | number | boolean) -- cast: from any
+  if v == nil or v is string or v is number or v is boolean then
+    return raw_stmt:bind(i, v)
+  end
+  -- cast: out-of-contract value, passed through so the binding raises
+  return raw_stmt:bind(i, v as string)
 end
 
 --- Bind a positional list. The count comes from the SQL, so nil holes

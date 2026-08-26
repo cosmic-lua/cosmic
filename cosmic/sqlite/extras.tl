@@ -29,7 +29,8 @@ local function rollback_reason(verdict: any, why: any, what: string): string | n
     return nil
   end
   if verdict == false then
-    return (why as string) or (what .. " rolled back") -- cast: from any
+    if why is string then return why end
+    return what .. " rolled back"
   end
   return what .. " callback must return an explicit verdict:"
   .. " true to commit, or false plus a reason to roll back"
@@ -41,7 +42,8 @@ end
 --- Database record doesn't need to be duplicated here.
 --- @param db_any any The Database being built by make_database
 local function attach(db_any: any)
-  local db = db_any as Db -- cast: from any
+  if not (db_any is Db) then return end
+  local db = db_any
 
   --- Execute fn within a transaction, with an explicit verdict. BEGIN
   --- before fn; COMMIT only when fn returns `true`; ROLLBACK when it
@@ -57,7 +59,8 @@ local function attach(db_any: any)
     local success, verdict, why = pcall(fn, self)
     if not success then
       local _ok, _err = self:exec("ROLLBACK")
-      return false, (verdict as string) or "transaction failed" -- cast: from any
+      -- cast: pcall slot 2 is the raised error, typed boolean from TxFn
+      return false, (verdict as string) or "transaction failed"
     end
     local reason = rollback_reason(verdict, why, "transaction")
     if reason then
@@ -99,7 +102,8 @@ local function attach(db_any: any)
     if not success then
       local _ok, _err = self:exec("ROLLBACK TO " .. name)
       local _ok2, _err2 = self:exec("RELEASE " .. name)
-      return false, (verdict as string) or "savepoint failed" -- cast: from any
+      -- cast: pcall slot 2 is the raised error, typed boolean from TxFn
+      return false, (verdict as string) or "savepoint failed"
     end
     local reason = rollback_reason(verdict, why, "savepoint")
     if reason then
