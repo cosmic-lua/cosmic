@@ -116,9 +116,21 @@ local function join(...: string): string
   local joined = cosmo_path.join(...)
   -- assert: cosmo.path.join returns nil only when every argument is
   -- nil, and this signature declares them all non-nil string
-  return assert(joined, "path.join: every argument was nil")
+  assert(joined, "path.join: every argument was nil")
+  -- Returning `joined` rather than the assert keeps this a ONE-value
+  -- return: Lua's assert passes its message through as a second value.
+  return joined
 end
 ```
+
+**`return assert(x, msg)` would be a bug here**, and this shape avoids
+it: Teal's carried patch declares `assert` as ONE return, but at RUNTIME
+Lua's `assert` returns all of its arguments, so `return assert(joined,
+msg)` makes `join` a two-value function. The type checker cannot see it;
+`table.insert(out, join(dir, entry))` at `cosmic/fs/find.tl:318` then
+expands to the three-argument `table.insert` and fails at runtime with
+"bad argument #2 to 'insert' (number expected, got string)". Assert as a
+STATEMENT and return the local.
 
 The signature does NOT change: it already declares `string`, which is
 what the 26 downstream sites read.
@@ -137,8 +149,9 @@ is not optional. `find.tl` KEEPS its import: `cosmo_path.isdir` at
 `cosmic/fs/find.tl:356` still uses it, and that call is out of scope.
 
 Measured headroom 2026-08-26 (`wc -l`): `cosmic/fs/path.tl` **486**
-(14 lines under the 500-line cap — the change above adds 3 net lines,
-so it fits, and nothing else may be added to this file in this diff),
+(14 lines under the 500-line cap — the change above adds 7 net lines,
+so it fits at 493, and nothing else may be added to this file in this
+diff),
 `cosmic/fs/find.tl` 399, `cosmic/fs/walk.tl` 168,
 `cosmic/fs/tree.tl` 122.
 
