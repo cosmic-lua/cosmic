@@ -308,3 +308,97 @@ changing the tree, the scenario, or the sample counts to make an arm
 build or an effect show — is walled in `Non-goals`, and `Change` (1)
 states the exact fallback for the one build failure that is actually
 expected.
+
+## Result
+
+Measured 2026-08-26, in a session and container independent of
+`3ISWHyP7`'s. All three arms built, so nothing was dropped: the
+`build: PASS (515 files, 1 binary)` verdict came back for each, and
+the arm-C build failure `Change` (1) allowed for did not happen.
+
+The arms, by binary rather than by `--version`:
+
+- sha256 A d8492168eace15f18e5d56b8949144d947e58b9dad1c4ada6401eea98e035b44
+- sha256 B 940f21bb25c2537f890bd49230c6b5eccf4231a277ade43f2b6d523e9f9eee7c
+- sha256 C 5551f41e5b729e698703eaac161a39aecb040570451925d704c191dc082cfa6e
+
+Three distinct digests: A is cosmos `2026.08.21-07fc94a1c`, B is
+`2026.08.24-354c17e08`, C is `2026.08.26-fe7c36c4c`, all on cosmic
+tree `5ef13f40` with only the two pin lines differing.
+
+**The noise floor.** Two `gate.tl selfcheck --only
+codec_base64_roundtrip_64k` passes per arm, each a same-binary A/A:
+
+| arm | pass 1 | pass 2 |
+|---|---|---|
+| A | -0.4% | -4.5% |
+| B | +0.2% | -4.2% |
+| C | +1.0% | -2.0% |
+
+All six passes printed `perf-selfcheck: nothing exceeded the bar —
+the machine is quiet at this threshold`. The largest same-binary
+swing is **floor = 4.5%** (arm A, pass 2). This machine was
+materially quieter than the one `3ISWHyP7` measured on, where
+within-run spread alone reached ±14.2%.
+
+**The readings.** Four per arm, round-robin, each its own process,
+default `--samples`/`--min-secs`:
+
+| run | arm | µs/op | ± |
+|---|---|---|---|
+| 01 | A | 194.94 | 7.5% |
+| 02 | B | 214.50 | 4.0% |
+| 03 | C | 204.57 | 3.9% |
+| 04 | A | 187.67 | 1.4% |
+| 05 | B | 210.67 | 1.8% |
+| 06 | C | 208.11 | 2.9% |
+| 07 | A | 185.81 | 1.7% |
+| 08 | B | 208.04 | 1.8% |
+| 09 | C | 209.38 | 5.8% |
+| 10 | A | 195.26 | 9.7% |
+| 11 | B | 206.45 | 0.9% |
+| 12 | C | 206.44 | 2.6% |
+
+Medians and ranges: A 191.31 µs [185.81, 195.26]; B 209.35 µs
+[206.45, 214.50]; C 207.28 µs [204.57, 209.38].
+
+**The verdicts**, by rule (5) and nothing else:
+
+- A→B: REPRODUCED — med 191.31 → 209.35 µs (+9.44%), ranges disjoint
+  (A max 195.26 < B min 206.45), floor 4.5%.
+- A→C: REPRODUCED — med 191.31 → 207.28 µs (+8.35%), ranges disjoint
+  (A max 195.26 < C min 204.57), floor 4.5%. This is the pair the
+  release lane compares: its baseline arm is the published
+  `2026-08-23-d71d7f1` release's pin `07fc94a1c`, its current arm is
+  main's `fe7c36c4c`.
+- B→C: NOT REPRODUCED — med 209.35 → 207.28 µs (-0.99%), the later
+  arm is FASTER so the first condition fails outright, and the ranges
+  overlap.
+
+**What this supports.** The regression is real and it is live. It
+reproduced across sessions, in a container quiet enough that the
+same-binary floor is 4.5% against an effect of 8.35%, at very nearly
+the size `3ISWHyP7` measured (+7.8%) on much noisier hardware — which
+is the cross-session reproduction `skills/optimize/measurement.md`
+demands before a finding blocks a pin. `codec_base64_roundtrip_64k`
+is correctly failing the release gate, and D31's noise triage
+correctly refuses to excuse it.
+
+**What this adds.** B and C are indistinguishable, so the whole step
+arrived at or before `354c17e08` and neither of the two cosmos
+releases since (`1e1658153`, `fe7c36c4c` — four commits,
+`git log --oneline 354c17e08..fe7c36c4c`) moved it in either
+direction. The bisect range is therefore the ORIGINAL five commits,
+`07fc94a1c..354c17e08`, not the nine of
+`07fc94a1c..fe7c36c4c` — the four later commits are ruled out by
+measurement rather than by inspection.
+
+**What this does not support.** Nothing here says WHICH commit, and
+nothing here tests the layout hypothesis. Three of the five commits
+in range change compiled code and none touches the base64 sources;
+that is where the bisect starts, and it is filed as `3ITHROpY`.
+
+**The block edge stands.** `3ISVlHT6`'s recorded reason — "a green
+organic release needs both" — still binds: the scenario still fails
+the gate, correctly, and no release will publish until the regression
+is fixed or a human overrides the gate.
