@@ -146,27 +146,12 @@ local function diff(base: pt.Results, cur: pt.Results, threshold_pct?: number): 
   return deltas, failures
 end
 
---- Reclassify baseline-vs-current regressions using an A/A self-check.
---- A regression whose scenario ALSO moves past its noise bar when the
---- current binary is compared against itself (two same-binary runs) is a
---- CANDIDATE for run-to-run variance, but instability alone does not
---- excuse any magnitude: a scenario whose self-check swings 5% does not
---- get to wave through a +300% regression. The candidate reclassifies to
---- the non-failing verdict "noise" only when its own delta is comparable
---- to the self-check's -- |regression delta| <= max(bar, TRIAGE_K *
---- |self-check delta|), TRIAGE_K = 2 -- so the self-check bounds how much
---- variance a scenario gets credit for instead of writing it a blank
---- check. A scenario that stays within the bar under the self-check, or
---- whose regression dwarfs what the self-check showed, keeps its
---- "regression" verdict — so a real regression in a stable, low-variance
---- scenario (json, sqlite, ...) still fails the gate, and so does a huge
---- regression in an unstable one. This makes the noise/real call
---- deterministic instead of a manual judgement (see
---- skills/optimize/measurement.md).
---- A scenario's noise credit is the LARGEST swing it showed across every
---- pair of same-binary control runs, because a scenario can be quiet in
---- one pair and loud in the next. Sampling every available pair is free:
---- the controls are already measured, and one pair is one `diff` call.
+--- The loudest delta each scenario showed across the same-binary control
+--- pairs, keyed by scenario name — the noise credit `triage_many` reads.
+--- A scenario can be quiet in one pair and loud in the next, so the
+--- credit comes from the largest swing and not from one designated pair.
+--- Sampling every available pair is free: the controls are already
+--- measured, and one pair is one `diff` call.
 --- Only a pair where the scenario cleared the bar counts — the same
 --- binary against itself should read "ok", so anything else is the
 --- scenario being too unstable to judge on that pair.
