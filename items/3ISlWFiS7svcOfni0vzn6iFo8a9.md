@@ -1,30 +1,51 @@
 ## Goal
 
-The outcome this serves is the release perf gate's measured half — the
-`perf-compare` ratchet named in `docs/goals.md`'s **G6 — the defining
-paths, ratcheted**. (This item is currently parented under G3 and its
-sibling specs cite a "G9 — every release publishes, measured" that is
-not in `docs/goals.md`; that mis-parenting is capture `3IT8rb3B` and is
-NOT this slice's to fix.)
+G6 — the defining paths, ratcheted (`docs/goals.md:123-140`), whose
+measured half its own prose names as "the existing `perf-compare`
+gate". `codec_base64_roundtrip_64k` is the one scenario still holding
+that gate red, and until its status is settled honestly the release
+lane cannot publish and `3ISVlHT6`'s pin bump has no release to point
+at. This slice is RESEARCH: it produces recorded evidence and the
+follow-up it implies, not a code change and not a PR.
 
-`codec_base64_roundtrip_64k` is one of the two scenarios that has kept
-`release.yml`'s perf gate red since 2026-08-24 — the other,
-`json_decode_large`, was exonerated as machine variance under
-`3ISWHyP7` and the gate hole that let it hold a release was closed by
-`3ISlY5Xl` (PR #1419, merged). This one is REAL and reproducible, and
-until it has an answer no release publishes. EVIDENCE ONLY: this slice
-lands no code and opens no pull request, in either repo. The
-deliverable is the recorded numbers and the follow-up items they
-select.
+(This item is parented under G3 — an honest type layer. That
+mis-parenting is real, is captured as `3IT8rb3B`, and is not this
+slice's to fix.)
 
 ## Evidence
 
-**The regression, measured 2026-08-26 under `3ISWHyP7`** on a 4-core
-container. The A/B held the cosmic tree fixed at `ea71d799^`
-(`5ef13f40`) in a worktree and varied ONLY `3p/cosmos/cosmos_pin.tl`,
-so the two binaries differ by the cosmos base and nothing else. Six
-rounds, alternating sides, each an isolated single-scenario run
-(`o/bin/cosmic --make run _perf/run.tl --only codec_base64_roundtrip_64k`):
+All facts below measured 2026-08-26 with the commands beside them.
+
+**The accused pin is no longer the shipping pin, and that is new.**
+The prior A/B (`3ISWHyP7`, spec below under "what was measured
+before") compared `2026.08.21-07fc94a1c` against
+`2026.08.24-354c17e08`. The cosmos pin has moved TWICE since
+(`git log --format='%h %ci %s' -- 3p/cosmos/cosmos_pin.tl`, then
+`git show <sha>:3p/cosmos/cosmos_pin.tl | grep version`):
+
+| cosmic commit | date | cosmos pin it set |
+|---|---|---|
+| `5ef13f40` | 2026-08-24 14:41 -0700 | `2026.08.21-07fc94a1c` |
+| `ea71d799` | 2026-08-24 15:43 -0700 | `2026.08.24-354c17e08` |
+| `bfe422e9` | 2026-08-25 23:42 -0700 | `2026.08.26-1e1658153` |
+| `c3e57730` | 2026-08-26 05:46 -0700 | `2026.08.26-fe7c36c4c` |
+
+`origin/main` today is `ef963bab` and pins `2026.08.26-fe7c36c4c`
+(`grep version 3p/cosmos/cosmos_pin.tl`).
+
+**What the release gate actually compares.** The newest published
+release is `2026-08-23-d71d7f1`, and `git show
+d71d7f15:3p/cosmos/cosmos_pin.tl | grep version` →
+`2026.08.21-07fc94a1c`. So the lane's baseline arm runs on
+`07fc94a1c` and its current arm runs on `fe7c36c4c` — a pin pair
+NOBODY has A/B'd. `354c17e08` is an intermediate that never shipped
+and is no longer on main.
+
+**What was measured before** (`3ISWHyP7`, 2026-08-26, this container
+class, four cores). Cosmic tree held at `5ef13f40`, only
+`3p/cosmos/cosmos_pin.tl` varied, six alternating isolated rounds of
+`o/bin/cosmic --make run _perf/run.tl --only
+codec_base64_roundtrip_64k`:
 
 | round | pin | µs/op | ± |
 |---|---|---|---|
@@ -35,282 +56,255 @@ rounds, alternating sides, each an isolated single-scenario run
 | 5 | 07fc94a1c | 193.46 | 4.8% |
 | 6 | 354c17e08 | 208.58 | 3.3% |
 
-Medians 193.46 → 208.58 µs, **+7.8%**, slower on `354c17e08` in all
-three pairings, and the two sets do not overlap — the fastest
-`354c17e08` reading (206.34) is slower than the slowest `07fc94a1c`
-reading (196.18). The release lane read +21.0% on the same scenario.
-Caveat kept: the per-run ± exceeds the effect on the noisy rounds, so
-the separation rests on the three-per-side ranges rather than any
-single pair.
+Medians 193.46 → 208.58 µs, **+7.8%**, ranges non-overlapping.
 
-**The codec source is byte-identical across the bump.** From a
-whilp/cosmopolitan checkout, `git log --oneline
-07fc94a1c..354c17e08 -- net/http/encodebase64.c net/http/decodebase64.c
-net/http/isbase64.c` prints NOTHING (re-read 2026-08-26). So this is
-not an algorithmic change to the codec.
+**Why that is not yet enough to block a pin.**
+`skills/optimize/measurement.md` states the rule this finding has not
+met: "a release-gating regression on a single tight-loop or
+fixed-overhead scenario needs reproduction across SEPARATE SESSIONS,
+ideally days apart, before it blocks a pin or is written into a board
+item as a finding," and gives the worked case where one unchanged
+binary swung -38% between two sessions in the same container on the
+same reported CPU after a regression had already reproduced across
+seven interleaved isolated pairs. All six rounds above are ONE
+session. Host placement is the term interleaving inside a session
+cannot remove.
 
-**What DID change: three of the range's five commits change compiled
-code.** Read per commit with `git show --stat <sha>` — the unfiltered
-per-commit stat, which is what this claim requires; a path-filtered
-`git log` cannot support it:
+**The codec source is unchanged across the old range**
+(`git log --oneline 07fc94a1c..354c17e08 -- net/http/encodebase64.c
+net/http/decodebase64.c net/http/isbase64.c | wc -l` → `0`, in a
+whilp/cosmopolitan checkout), and so is the binding
+(`... -- tool/net/lfuncs.c tool/lua/lcosmo.c | wc -l` → `1`, which is
+`354c17e08`'s `lcosmo.c` registration table entry for the new
+`DecodeLua`, not the base64 path). The scenario's whole path is C:
+`cosmic/codec.tl:36,77-87` calls `cosmo.EncodeBase64`,
+`cosmo.IsBase64`, `cosmo.DecodeBase64`, each a thin wrapper
+(`tool/net/lfuncs.c:913,946,950`). So layout, not codec source,
+remains the leading hypothesis — but which range it must be hunted in
+is now `07fc94a1c..fe7c36c4c`, not the old one.
 
-- `354c17e08` (DecodeLua, #274) → 7 files, +991, all additions:
-  `tool/net/llua.c` (650 lines) as a NEW translation unit,
-  `tool/lua/lcosmo.c` (+23), two `BUILD.mk` entries.
-- `8dd093cea` (EncodeJson float formatting, #273) →
-  `third_party/lua/luaencodejsondata.c` (+11/-1), compiled in.
-- `5bfcf79d0` (zipos stored-member handle recycling, #272) →
-  `libc/runtime/zipos-open.c` (+62/-9), `zipos.internal.h` (-1) — a
-  behavioural change to the zip filesystem READ path.
-
-The other two are inert for compiled output, checked rather than
-assumed: `8e071ec98` (#270) adds only `third_party/sqlite3/qrf.h` and
-`tclsqlite.h` plus a `BUILD.mk` line, and both `#include`s naming them
-sit in preprocessor branches no compiler here takes
-(`sqlite3.c:203324` under `SQLITE_TEST`, never defined in this tree;
-`shell.c:898` under `#ifndef SQLITE_QRF_H`, whose guard the copy
-inlined at `shell.c:678-881` already defines). `bf92718a1` (#269)
-touches `AGENTS.md` alone.
-
-Oldest-first, the range is: `bf92718a1`, `8e071ec98`, `5bfcf79d0`,
-`8dd093cea`, `354c17e08`.
-
-**"Not on the base64 path" does not dismiss the other two.** The
-hypothesis under test is code LAYOUT, and any commit that changes
-compiled code shifts layout — that is the mechanism, not a side
-effect. `skills/optimize/cosmopolitan.md:132-141` records this as the
-layer's single most common false alarm: "a C edit relinks the whole
-binary, so function addresses shift and unrelated fixed-overhead
-microbenchmarks routinely trip the regression bar on layout noise
-alone." So all three binary-changing commits are live candidates and
-the question this slice answers is WHICH.
-
-**The measurement mechanism exists and needs no release.**
-`skills/optimize/cosmopolitan.md:47-68`: a cosmic binary is its
-payload embedded onto whatever runtime sits at `o/3p/cosmos/lua`, so
-`cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua && bin/cosmic --make build`
-stands a locally built lua in. That is what makes intermediate commits
-measurable at all — only `07fc94a1c` and `354c17e08` were ever
-published as cosmos releases, so pin-swapping cannot reach the three
-points between them.
-
-**The cosmic side must be the OLD tree, and that is proven.** cosmic
-`main` requires `cosmo.DecodeLua`, which `354c17e08` itself adds, so
-`main` cannot build against any runtime from earlier in the range
-(`3ISWHyP7` recorded `build: FAIL (536 files)`,
-`cosmic/literal.tl:29:26: error: invalid key 'DecodeLua' in record
-'cosmo'`). The worktree at `ea71d799^` (`5ef13f40`) predates that
-dependency and `3ISWHyP7` built it successfully against BOTH endpoints
-(`build: PASS (515 files, 1 binary)` each). The three intermediate
-points differ from those endpoints only by non-surface changes: of the
-three binary-changing commits only `354c17e08` touches
-`tool/net/definitions.lua` with new surface (+26), while `8dd093cea`'s
-`definitions.lua` diff (+4) is doc-comment text inside the existing
-`cosmo.EncodeJson` block and adds no binding — so the type generator's
-MODULES ratchet
-(`skills/optimize/cosmopolitan.md:87-95`) has nothing to catch at any
-intermediate point.
-
-**Host capacity, measured 2026-08-26**: `df -h /home/user` → 28G
-available; `.cosmocc` toolchain is 1.3G once downloaded.
+**The harness supports every arm of this.** `_perf/run.tl` takes
+`--only SUB` (substring, `_perf/run.tl:59,268`) and `--out FILE`, and
+exits non-zero naming the miss when `--only` matches nothing
+(`_perf/run.tl:282-286`). `_perf/gate.tl selfcheck A.json B.json
+[--threshold PCT] <run args...>` measures the SAME binary twice and
+passes run args through (`_perf/gate.tl:29-34`), which is the
+same-binary noise floor this slice needs. The scenario is
+`_perf/bench/micro_bench.tl:115-129` and its `check()` verifies the
+round trip returns `BLOB`.
 
 ## Change
 
-Locate the regression to ONE of the three binary-changing commits by
-measuring four build points in a single interleaved rotation. Nothing
-is fixed and no source is edited in either repo.
+No source file changes. The deliverable is recorded evidence.
 
-1. **Set up the two checkouts.**
+1. **Three arms, one fixed tree.** Work in three scratch worktrees of
+   the cosmic checkout, all at cosmic commit **`5ef13f40`** — the same
+   tree `3ISWHyP7` used, so the only differences from that run are the
+   session, the container and the pin set:
 
-   ```
-   COSMO=/home/user/cosmopolitan
-   COSMO_START_BRANCH=$(git -C $COSMO rev-parse --abbrev-ref HEAD)
-   cd /home/user/cosmic && git worktree add -f o/ab ea71d799^
-   cd o/ab && bin/cosmic --make fetch && bin/cosmic --make build
-   ```
-
-   The last command must end `build: PASS (515 files, 1 binary)`. Keep
-   the pinned runtime aside first —
-   `cp o/3p/cosmos/lua o/3p/cosmos/lua.pinned` — per
-   `skills/optimize/cosmopolitan.md:60-68`.
-
-2. **The four build points**, oldest first. `bf92718a1` and
-   `8e071ec98` are deliberately NOT measured because `## Evidence`
-   establishes they change no compiled output; state that skip in the
-   findings rather than leaving it silent.
-
-   | point | commit | what it adds relative to the previous point |
+   | arm | `3p/cosmos/cosmos_pin.tl` version | what it is |
    |---|---|---|
-   | P0 | `07fc94a1c` | range base |
-   | P1 | `5bfcf79d0` | zipos read-path rework |
-   | P2 | `8dd093cea` | JSON encoder float formatting |
-   | P3 | `354c17e08` | DecodeLua, a new 650-line translation unit |
+   | A | `2026.08.21-07fc94a1c` | the published release's pin, the gate's baseline arm |
+   | B | `2026.08.24-354c17e08` | the pin `3ISWHyP7` accused |
+   | C | `2026.08.26-fe7c36c4c` | main's pin today, the gate's current arm |
 
-3. **Measure them in one interleaved rotation, four rounds.** Rotate
-   P0, P1, P2, P3 in order and repeat four times, so slow host drift
-   hits all four points equally — this is
-   `skills/optimize/cosmopolitan.md:144-172`'s interleave, widened
-   from a pair to four points because the effect (+7.8%) lives under
-   the 10% bar and no single compare can resolve it. Each cycle is:
+   In each worktree edit only the `version` and `platforms["*"].sha`
+   lines of `3p/cosmos/cosmos_pin.tl` (the sha is the `cosmos.zip`
+   asset's, taken from that release — never copied from a third
+   party), then `bin/cosmic --make fetch && bin/cosmic --make build`.
+   Read the `build: PASS` verdict line directly, never through a pipe.
+
+   **If arm C refuses to build** — `5ef13f40` predates
+   `bfe422e9` ("cosmos: consume the exact contracts"), so a newer
+   runtime's `definitions.lua` may not agree with that tree's
+   `_types/gentype.tl` MODULES list — then record the exact failure
+   verbatim as a result, drop arm C, and run the slice as the two-arm
+   A/B. Do NOT edit the tree to make arm C build: changing the tree
+   breaks the "only the pin varies" property the whole measurement
+   rests on. Do NOT substitute a different tree commit either; a
+   changed tree makes this a different experiment, not this one.
+
+2. **Record which binary each arm is.** `sha256sum o/bin/cosmic` in
+   each worktree; the three (or two) hashes must differ. Quote them
+   in the result. Never use `--version` to tell the arms apart — it
+   stamps the pin at embed time, not the runtime
+   (`skills/optimize/cosmopolitan.md` step 2).
+
+3. **The noise floor, per arm, first.** In each worktree:
 
    ```
-   git -C $COSMO checkout <commit>
-   make -C $COSMO -j$(nproc) o//tool/lua/lua
-   cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
-   bin/cosmic --make build            # must end `build: PASS`
+   o/bin/cosmic --make run _perf/gate.tl selfcheck \
+     o/perf/aa-1.json o/perf/aa-2.json --only codec_base64_roundtrip_64k
+   ```
+
+   Run it twice per arm. Record the reported per-scenario delta of
+   each pass — that is this container's same-binary swing for this
+   scenario in THIS session, and it is what the decision rule in (5)
+   measures the effect against.
+
+4. **The readings.** Four isolated readings per arm, ALTERNATING
+   between arms round-robin (A B C A B C A B C A B C — never all of
+   one arm then all of the next), each its own process:
+
+   ```
    o/bin/cosmic --make run _perf/run.tl --only codec_base64_roundtrip_64k \
-     --out o/perf/<point>-r<round>.json _perf.bench.micro_bench
+     --out o/perf/<arm>-<n>.json
    ```
 
-   Read `build: PASS` or the exit status directly, never through a
-   pipe: a failed build leaves the PREVIOUS `o/bin/cosmic` in place and
-   it measures happily
-   (`skills/optimize/cosmopolitan.md:70-77`). Confirm each cycle
-   actually swapped the runtime with `sha256sum o/bin/cosmic` — the
-   embedded `--version` stamp is read from the pin and cannot identify
-   a stood-in runtime (`skills/optimize/cosmopolitan.md:78-86`).
+   Use the default `--samples`/`--min-secs`. Nothing else heavy may
+   run on the machine during the readings. Record every reading's
+   µs/op and its reported `±`, in run order, in a table like the one
+   under `## Evidence`.
 
-4. **Read the result as four readings per point.** Take each point's
-   median. P0's own four readings are the noise floor: the spread among
-   them is what any step-to-step difference must beat to mean anything.
-   The regression is located at the FIRST step (P0→P1, P1→P2, P2→P3)
-   whose median jump both exceeds that floor and holds its direction in
-   at least three of the four rounds.
+5. **The verdict, by this rule and no other.** Let `med(X)` be an
+   arm's median of its four readings and `floor` be the LARGEST
+   same-binary delta any arm's selfcheck passes showed in (3). For
+   each ordered arm pair (A→B, A→C, B→C) the regression is
+   **REPRODUCED** iff all three hold:
 
-5. **Record the findings** in the sidecar under a `## Result` heading —
-   exactly `## Result`, with no `###` inside it, because
-   `_work/spec.tl`'s `section_of` matches the heading text exactly and
-   breaks at the next heading of any depth, which would make the
-   handover in step 7 refuse. Include all sixteen readings, the four
-   medians, the located step, and the honest verdict — including "no
-   step separates" if that is what the numbers say, which is itself a
-   finding: it would mean the effect is distributed layout sensitivity
-   rather than one commit's doing.
+   - `med(later) > med(earlier)`;
+   - the two arms' four-reading ranges do not overlap;
+   - `(med(later) - med(earlier)) / med(earlier) * 100 > floor`.
 
-6. **File the follow-ups the findings select** as new items
-   (`gitboard new "title" --spec-file F`), and say in the findings
-   which were filed. At minimum: whichever commit is located gets an
-   item carrying the readings and the bisect range; if no step
-   separates, the item is against the SCENARIO's resolvability instead,
-   and cosmic — not cosmopolitan — is where it lands.
+   Otherwise that pair is **NOT REPRODUCED**. State each pair's
+   verdict with the three numbers that decided it. A→C is the pair
+   that matters to the release lane; say so explicitly.
 
-7. **Tear down and hand over as evidence.**
+6. **Write the result onto this item.** Replace this spec sidecar
+   (`gitboard spec 3ISlWFiS FILE`, run from the `board` worktree)
+   with the same five sections unchanged plus a sixth, `## Result`,
+   appended last. Do not delete `## Evidence` — a result that erases
+   what it was measured against cannot be re-read. `## Result`
+   carries, in this order and in these shapes, because `Acceptance`
+   counts them:
 
-   Record `$COSMO`'s starting branch BEFORE step 3 checks any commit
-   out (`git -C $COSMO rev-parse --abbrev-ref HEAD`) and return it
-   there — do NOT assume `master`, because a runner-provisioned
-   checkout may sit on an assigned branch instead (it did during
-   refinement: `claude/brave-fermat-iyvf23`).
+   - one line per arm, starting at column 1, spelled exactly
+     `- sha256 <arm> <64 hex digits>` — e.g.
+     `- sha256 A 1b54fceb...`;
+   - the selfcheck floor: each arm's two passes' reported
+     per-scenario deltas, and the LARGEST of them named as `floor`;
+   - the readings as one markdown table whose header and rows start
+     at column 1 (`| run | arm | µs/op | ± |`), one row per reading,
+     in run order;
+   - one line per ordered arm pair reading
+     `A→C: REPRODUCED — med 193.46 → 208.58 µs (+7.8%), ranges
+     disjoint, floor 4.8%` or `A→C: NOT REPRODUCED — ...`, with the
+     three numbers rule (5) decided on;
+   - one closing paragraph saying what the evidence now supports and
+     what it does not.
 
-   ```
-   cd /home/user/cosmic && git worktree remove -f o/ab
-   git -C $COSMO checkout "$COSMO_START_BRANCH"
-   cd o/board && o/bin/gitboard move 3ISlWFiS check --evidence
-   ```
+7. **File exactly the follow-up the result implies**, with
+   `gitboard new "<title>" --parent 3HyRcW05 --spec-file F`, where F
+   is one paragraph of evidence quoting the numbers:
+
+   - **A→C reproduced** → file the bisect: which commit in
+     `07fc94a1c..fe7c36c4c` moved it, by building
+     `o//tool/lua/lua` in a whilp/cosmopolitan checkout at each
+     candidate and standing it in at `o/3p/cosmos/lua`
+     (`skills/optimize/cosmopolitan.md` step 2). Name the range and
+     the commit count in the spec-file paragraph.
+   - **A→C not reproduced** → file nothing new; say in `## Result`
+     that the block reason recorded on `3ISVlHT6` no longer binds and
+     leave the edge for the reviewer.
 
 ## Non-goals
 
-- **Do NOT fix anything.** No C change in whilp/cosmopolitan, no
-  wrapper change in cosmic. This slice locates the cause; fixing it is
-  the follow-up item step 6 files.
-- **Do NOT open a pull request**, on either repo.
-- **Do NOT weaken, rename, resize, or remove
-  `codec_base64_roundtrip_64k` or its `check()`**, and do not change
-  its input size. The `optimize` skill's standing rule.
-- **Do NOT change the gate's threshold**, `TRIAGE_K`, or add any
-  scenario to a noise-excused set. `3ISlY5Xl`/D31 settled how the gate
-  reads noise and this slice does not reopen it.
-- **Do NOT dispatch `release.yml` with `perf_gate: false`.** It
-  publishes a release outward and this slice runs unattended; it is a
-  human's call.
-- **Do NOT bump `3p/cosmos/cosmos_pin.tl` or `bin/cosmic.pin`.**
-- **Do NOT edit cosmic's tracked tree at all.** The only writes are the
-  throwaway `o/ab` worktree, `o/` build output, and this item's own
-  sidecar on the `board` branch. `git status --porcelain` at the cosmic
-  root must be empty at the end.
-- **Do NOT leave `$COSMO` on a detached commit** or with a modified
-  working tree; step 7 returns it to `master`.
-- **Do NOT commit any `o/perf/*.json`.**
-- **Do NOT re-run the six-round pin A/B** in `## Evidence`. It is done
-  and its numbers stand; this slice measures the four intermediate
-  points, which that A/B could not reach.
-- **Do NOT fix the G3/G9 mis-parenting** described in `## Goal`. It is
-  capture `3IT8rb3B` and its re-parenting half is the goal owner's
-  call.
+- **No code change anywhere, and no PR.** This is a research slice:
+  its deliverable is the `## Result` section and the follow-up item.
+  Nothing lands on `main`, nothing lands in whilp/cosmopolitan.
+- **Do not weaken, rename, resize or remove any scenario or its
+  `check()`**, `codec_base64_roundtrip_64k` first among them, and do
+  not add a `--samples`/`--min-secs` override to make readings
+  cheaper. The `optimize` skill's standing rule.
+- **Do not commit a pin change.** The three pin edits live in scratch
+  worktrees and are never pushed. `bin/cosmic.pin` is untouched —
+  that is `3ISVlHT6`.
+- **Do not commit any `o/perf/*.json`**, and do not commit the
+  worktrees.
+- **Do not `gitboard unblock` anything.** Whether the reason recorded
+  on `3ISVlHT6`'s edge still binds is a judgement the reviewer makes
+  from the recorded result.
+- **Do not dispatch `release.yml`**, with or without `perf_gate:
+  false`. It publishes outward; it is a human's call.
+- **Do not touch `_perf/gate.tl`, `_perf/compare.tl` or their
+  tests.** D31 just landed there (`ef963bab`); a measurement pass is
+  not the place to revisit it.
+- **Do not change the cosmic tree in any arm.** Only the two pin
+  lines differ between worktrees.
 
 ## Acceptance
 
-Run from the cosmic repo root unless stated.
+A research slice has no PR, so acceptance is the recorded evidence
+plus commands a reviewer re-runs. The sidecar this slice rewrites is
+`o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md`, inside the `board`
+worktree `skills/work/SKILL.md` bootstraps. Every check below reads
+only the `## Result` section that slice appends, so it counts what
+was measured and never what the spec itself says. `SEC` abbreviates
+the extractor:
 
-- `cd o/board && o/bin/gitboard show 3ISlWFiS` prints a `## Result`
-  section carrying **sixteen** readings — four per build point — the
-  four medians, and a stated verdict naming either the located step or
-  "no step separates".
-- The Result heading is exactly `## Result` and carries no
-  sub-heading:
-  `grep -c '^## Result$' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md` → `1`, and
-  `awk '/^## Result$/{f=1;next} /^#/{f=0} f' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md | grep -c '^#'`
-  → `0`.
-- The findings quote, for each of the sixteen cycles, the
-  `sha256sum o/bin/cosmic` that produced it, and the sixteen hashes
-  show four distinct values — one per build point. This is the proof
-  that each cycle measured the runtime it claims and not a stale
-  binary; identical hashes across two different points means a build
-  silently failed and the numbers are void.
-- `git status --porcelain` at the cosmic root → empty.
-- `git worktree list` does not name `o/ab`.
-- `git -C /home/user/cosmopolitan status --porcelain` → empty, and
-  `git -C /home/user/cosmopolitan rev-parse --abbrev-ref HEAD` prints
-  the branch name recorded at step 1 — a branch name, never a detached
-  `HEAD`. State in the findings which branch that was.
-- `git diff --name-only` in whilp/cosmopolitan against `master` → empty
-  (nothing was edited to get the numbers).
-- The findings name every commit in the range and say which were
-  measured and which were skipped with why — no silent cap.
-- `cd o/board && o/bin/gitboard move 3ISlWFiS check --evidence` ends
-  `gitboard-move: 3ISlWFiS do -> check`. The verb REFUSES the handover
-  when `## Result` is missing or empty, which is what makes the two
-  heading checks above a contract and not a style note.
+```
+SEC="sed -n '/^## Result$/,$p' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md"
+```
+
+Each command is written out in full below; run them from the cosmic
+repo root.
+
+- The section exists:
+  `grep -c '^## Result$' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md`
+  → `1`. Today: `0`.
+- One unindented table row per reading, plus its header:
+  `sed -n '/^## Result$/,$p' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md | grep -c '^| '`
+  → at least `9` (four readings per arm × two arms, plus a header
+  row), and at least `13` when arm C built. Today the command prints
+  `0` because the section does not exist.
+- One verdict word per ordered arm pair:
+  `sed -n '/^## Result$/,$p' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md | grep -c 'REPRODUCED'`
+  → `3` when all three arms built (A→B, A→C, B→C), `1` when arm C was
+  dropped. Today: `0`.
+- The arms are distinguishable binaries:
+  `sed -n '/^## Result$/,$p' o/board/items/3ISlWFiS7svcOfni0vzn6iFo8a9.md | grep -c '^- sha256 '`
+  → `3`, or `2` when arm C was dropped, and the three hex digests on
+  those lines must differ from one another. A repeated digest means
+  two arms measured the same binary and the result is void. Today:
+  `0`.
+- The pin facts the result rests on re-run true:
+  `git show d71d7f15:3p/cosmos/cosmos_pin.tl | grep version` prints
+  `version = "2026.08.21-07fc94a1c"`, and
+  `git show origin/main:3p/cosmos/cosmos_pin.tl | grep version`
+  prints the version `## Result` names as arm C.
+- Nothing was changed in the tree to get the numbers:
+  `git status --short` prints nothing and
+  `git diff --name-only origin/main` names nothing — no source
+  change, no pin change, no `o/perf/*.json`, no committed worktree.
+- The follow-up exists when the result calls for one: if A→C reads
+  `REPRODUCED`, `## Result` names the new item's id, and
+  `o/board/o/bin/gitboard show <that id>` prints a spec whose
+  `## Evidence` quotes the A→C medians.
 
 ## Enablement
 
-`none needed`. Every mechanism is documented and was verified present
-on this host during refinement, 2026-08-26:
+`none needed` — every instrument this slice uses exists and was
+exercised today.
 
-- **The cosmopolitan toolchain downloads and builds here — run, not
-  assumed.** `/home/user/cosmopolitan` had no `.cosmocc` and no `o/`.
-  `make -j$(nproc) o//tool/lua/lua` at `886741e06` fetched the
-  toolchain (`.cosmocc`, 1.3G) through this environment's proxy and
-  completed with **exit code 0** in about two minutes wall, producing
-  `o/tool/lua/lua` (3,234,519 bytes), which runs:
-  `o/tool/lua/lua -e 'print(_VERSION)'` → `Lua 5.4`. So the one
-  prerequisite that could have made this slice unrunnable is
-  discharged, and the toolchain is now warm on this host.
-- **The runtime stand-in** (`cp … o/3p/cosmos/lua`, rebuild) is
-  `skills/optimize/cosmopolitan.md:47-68`, and `o/3p/cosmos/lua`
-  exists in a fetched cosmic checkout.
-- **The interleave** is `skills/optimize/cosmopolitan.md:144-172`.
-- **The old-tree requirement** and the three sharp edges (failed build
-  leaves a stale binary, `--version` cannot identify the runtime, tree
-  and runtime must agree on the `cosmo.*` surface) are
-  `skills/optimize/cosmopolitan.md:70-95`, and `## Evidence` records
-  why none of them binds at the intermediate points.
-- **The `--evidence` handover** landed as `3ISltQMh` (PR #1417) and its
-  PR-#0 defect was fixed by `3IStqRsf` (PR #1418, merged); it has since
-  been used successfully on `3ISWHyP7`.
+- The pin-swap A/B procedure is `skills/optimize/cosmopolitan.md`
+  step 2 (the runtime stand-in and its three sharp edges: read the
+  build verdict, never trust `--version`, hash the binary), and
+  `3ISWHyP7` ran the same procedure on the same tree commit
+  successfully.
+- The noise-floor and reading commands are `_perf/gate.tl`'s
+  `selfcheck` mode and `_perf/run.tl`'s `--only`/`--out`, both cited
+  by line under `## Evidence`.
+- The decision rule in (5) is arithmetic over numbers those two
+  commands print; nothing has to be judged.
+- For the bisect follow-up, should it be filed: a whilp/cosmopolitan
+  checkout builds in this container class —
+  `make -j$(nproc) o//tool/lua/lua` fetched the cosmocc toolchain
+  into `.cosmocc/` over the network and ran to completion on
+  2026-08-26. That is context for the follow-up's own refinement, not
+  work this slice does.
 
-The one judgment a literal-minded session could get wrong — reading a
-number off a build that silently failed, so two "different" points are
-the same binary — is walled in `Change` step 3 and checked by the
-four-distinct-hashes requirement in `Acceptance`.
-
-Cost, from the measurements above rather than a guess: sixteen cycles,
-each a cosmopolitan build at a checked-out commit (~2 min cold on this
-host, and switching commits invalidates enough of `o/` that most
-cycles will be nearer cold than warm) plus a cosmic rebuild
-(`3ISWHyP7` measured ~15s incremental) and one isolated scenario run.
-Call it roughly an hour of building plus the measurement runs — a
-long slice, not an open-ended one. If it proves too large in practice,
-the reduction to take is FEWER ROUNDS (three, not four) — never fewer
-build points, since dropping a point is dropping a candidate, and say
-in the findings that three rounds were run.
+The one judgement a literal-minded session could get wrong — quietly
+changing the tree, the scenario, or the sample counts to make an arm
+build or an effect show — is walled in `Non-goals`, and `Change` (1)
+states the exact fallback for the one build failure that is actually
+expected.
