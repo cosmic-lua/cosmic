@@ -12,6 +12,7 @@ return {
   ["_make/stage.tl"] = 1,
   ["_perf/bench/micro_bench.tl"] = 1,
   ["_perf/perf_test.tl"] = 1,
+  ["_perf/run.tl"] = 2,
   ["_tool/coverage/baseline.tl"] = 2,
   ["_tool/coverage/baseline_test.tl"] = 1,
   ["_tool/coverage/lines.tl"] = 3,

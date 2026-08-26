@@ -145,10 +145,24 @@ local function collect_meta(samples: integer, min_secs: number): pt.Meta
     io.stderr:write("perf: cannot read " .. meta.bin ..
       " to hash it; this results file cannot name the binary it measured\n")
   end
-  local v = cosmic.version_info()
-  if v then
-    meta.cosmic_version = v.cosmic
-    meta.cosmos_version = v.cosmos
+  -- The stamps are read through a map view, never the typed field:
+  -- release.yml's compare step runs this script bare under the PREVIOUS
+  -- release binary, whose embedded cosmic record may predate
+  -- version_info, and the typed access is a load-time type error there
+  -- (it killed the release lane on 2026-08-26). Under such a binary the
+  -- lookup is nil and the stamps are simply absent, the shape these
+  -- results always had before the API existed.
+  -- cast: an older embedded cosmic record may predate version_info
+  local version_fn = (cosmic as {string: any}).version_info
+  if type(version_fn) == "function" then
+    -- cast: dynamic lookup, guarded by the type() check above
+    local v = (version_fn as function(): any)()
+    if v is {string: any} then
+      local cv = v.cosmic
+      local sv = v.cosmos
+      if cv is string then meta.cosmic_version = cv end
+      if sv is string then meta.cosmos_version = sv end
+    end
   end
   return meta
 end
