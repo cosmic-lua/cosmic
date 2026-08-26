@@ -96,6 +96,8 @@ library code — three shapes are exempt").
   file)`.
 - `git diff --name-only origin/main` lists exactly:
   `AGENTS.md`, `cosmic/hash.tl`,
+  `docs/decisions/README.md` (the derived index follows the status
+  line — its drift gate prints the expected row),
   `docs/decisions/d23-check-throws.md`.
 
 ## Enablement
