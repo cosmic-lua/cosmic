@@ -62,6 +62,46 @@ the same gate early. it applies to every file the walk gates, test
 files included: a cast added to satisfy the checker in a `*_test.tl`
 needs its `-- cast:` reason like any other.
 
+## assert-justify
+
+the same convention, for the other escape hatch. library code must never
+throw, and `assert` throws — so a bare `assert` in a `cosmic/**` module is
+a doctrine violation unless D23's licence applies: the `| nil` being
+asserted away must be unreachable *for the arguments that call passes*.
+`cosmic.time.now()` reads `unix.clock_gettime(unix.CLOCK_REALTIME)`,
+whose first slot can only be nil for a clock id the kernel rejects — not
+for either constant that module passes.
+
+only a reader can check that argument, so the assert has to state it, as
+a trailing `-- assert: <why the nil cannot occur>` or one on the line
+directly above:
+
+```text
+local secs = assert(unix.clock_gettime(unix.CLOCK_REALTIME))
+```
+
+```text
+-- assert: CLOCK_REALTIME is always a valid clock id
+local secs = assert(unix.clock_gettime(unix.CLOCK_REALTIME))
+```
+
+write the argument, not a restatement of the rule — "cannot be nil" says
+nothing a reader can check. if the nil IS reachable, the assert is the
+wrong shape entirely: return it as `nil, err` and let the caller decide.
+
+the rule governs `cosmic/**` library source only. `*_test.tl` and
+`*_example.tl` assert freely — the tree's test pattern is built on
+`assert`, and `check.must` is the assertion tests reach for — and the
+toolchain trees (`_cli/`, `_make/`, `_tool/`, `_build/`, `cmd/`) are not
+library code. one comment covers the whole line, however many asserts the
+line holds, exactly as with `-- cast:`.
+
+the walk is token-exact, which is what makes the rule usable: `cosmic/**`
+holds 23 occurrences of `assert(` today and every one is inside a doc
+comment or a string constant — including the `assert(loadfile(...))` in
+`cosmic/embed/init.tl`, which is a line of the entry wrapper that module
+WRITES rather than runs. a grep-based rule would flag all 23.
+
 ## call-after-define
 
 in a `*_test.tl` file, a top-level `local function test_*()` must be

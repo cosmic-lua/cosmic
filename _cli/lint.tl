@@ -50,19 +50,6 @@ local function cast_lines(content: string, file: string): {integer}
   return lines
 end
 
---- Whether a cast on line `y` carries its reason.
---- @param lines {string} The file's lines
---- @param y integer The line the cast is on
---- @return boolean True when justified here or on the line above
-local function is_justified(lines: {string}, y: integer): boolean
-  local here = lines[y]
-  if here and here:match("%-%- cast: %S") then
-    return true
-  end
-  local above = lines[y - 1]
-  return above ~= nil and above:match("^%s*%-%- cast: %S") ~= nil
-end
-
 --- Every `as` cast is an unchecked hole in the type system, so each one
 --- must be deliberate and say why: a trailing `-- cast: <reason>`, or
 --- one on the line directly above when 90 columns will not fit it.
@@ -74,7 +61,7 @@ local function check_cast_justification(file: string, content: string,
     lines: {string}): {Diagnostic}
   local diagnostics: {Diagnostic} = {}
   for _, y in ipairs(cast_lines(content, file)) do
-    if not is_justified(lines, y) then
+    if not style.is_justified(lines, y, "cast") then
       diagnostics[#diagnostics + 1] = {
         file = file,
         line = y,
@@ -421,6 +408,10 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(assert_lint.check_return_assert(path, content)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(assert_lint.check_assert_justification(path, content,
+        lines)) do
+      diagnostics[#diagnostics + 1] = d
+    end
     for _, d in ipairs(reads_lint.check_reads_declaration(path, content, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
@@ -452,6 +443,8 @@ local record LintModule
   check_reads_declaration: function(file: string, content: string,
   lines: {string}): {Diagnostic}
   check_return_assert: function(file: string, content: string): {Diagnostic}
+  check_assert_justification: function(file: string, content: string,
+  lines: {string}): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -466,6 +459,7 @@ local M: LintModule = {
   check_fallible_returns = returns.check_fallible_returns,
   check_reads_declaration = reads_lint.check_reads_declaration,
   check_return_assert = assert_lint.check_return_assert,
+  check_assert_justification = assert_lint.check_assert_justification,
   lint_file = lint_file,
 }
 

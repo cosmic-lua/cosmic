@@ -4,6 +4,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
+local style = require("_tool.lint")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -49,5 +50,42 @@ local function test_style_long_line_is_not_enforced()
   assert(ok, "a long line must not fail the style gate")
 end
 test_style_long_line_is_not_enforced()
+
+-- The justification-marker reader, shared by the two conventions that
+-- demand a written reason beside a site: `-- cast:` and `-- assert:`.
+
+local function test_is_justified_reads_the_line_and_the_one_above()
+  local lines: {string} = {
+    "local d = x as Rec -- cast: record union after guard",
+    "-- cast: from any",
+    "local o = decode(s) as {string: any}",
+    "local n = y as Rec",
+  }
+  check.truthy(style.is_justified(lines, 1, "cast"), "trailing reason counts")
+  check.truthy(style.is_justified(lines, 3, "cast"), "the line above counts")
+  check.truthy(not style.is_justified(lines, 4, "cast"),
+    "line 3 carries no marker, so line 4 is unjustified")
+end
+test_is_justified_reads_the_line_and_the_one_above()
+
+local function test_is_justified_discriminates_by_marker()
+  local lines: {string} = {
+    "local t = assert(now()) -- assert: CLOCK_REALTIME always resolves",
+    "local d = x as Rec -- cast: record union after guard",
+  }
+  check.truthy(style.is_justified(lines, 1, "assert"), "its own marker counts")
+  check.truthy(not style.is_justified(lines, 1, "cast"),
+    "an assert reason does not license a cast")
+  check.truthy(not style.is_justified(lines, 2, "assert"),
+    "and a cast reason does not license an assert")
+end
+test_is_justified_discriminates_by_marker()
+
+local function test_is_justified_demands_a_reason()
+  local lines: {string} = {"local d = x as Rec -- cast:"}
+  check.truthy(not style.is_justified(lines, 1, "cast"),
+    "a bare marker with nothing after it justifies nothing")
+end
+test_is_justified_demands_a_reason()
 
 print("All style tests passed!")
