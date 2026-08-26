@@ -7,7 +7,9 @@ return {
   ["claim"] = "1a4ec1ad-3414-5339-98d2-1d5b2e3879e9",
   ["id"] = "3IPXQcgWeJigmcsZqzdiCsAiDHF",
   ["parent"] = "3IODJgkObjfhsxqMPEgFPIM6RHR",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1385,
   ["title"] = "cosmic.time.now() declares integer over a clock binding that returns integer | nil",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d37e0557cdb8b1f40492c9ac28278ea5f3ccee49",
 }
