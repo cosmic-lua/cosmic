@@ -140,9 +140,12 @@ local function test_deep_nesting_is_refused_not_thrown()
 
   -- The limit is far past any real config, so ordinary nesting passes.
   local shallow = read("return { a = { b = { c = { d = 1 } } } }")
-  local a = shallow.a as {string: any} -- cast: from any
-  local b = a.b as {string: any} -- cast: from any
-  local c = b.c as {string: any} -- cast: from any
+  local a = shallow.a
+  assert(a is {string: any}, "level 2 is a table")
+  local b = a.b
+  assert(b is {string: any}, "level 3 is a table")
+  local c = b.c
+  assert(c is {string: any}, "level 4 is a table")
   assert(c.d == 1, "4 levels still read")
 end
 test_deep_nesting_is_refused_not_thrown()
@@ -209,7 +212,8 @@ local function test_format_round_trips_the_literal_domain()
   local got = read(src)
   assert(got.name == "test" and got.count == 42 and got.flag == true,
     "scalars survive the round trip")
-  local nested = got.nested as {string: any} -- cast: from any
+  local nested = got.nested
+  assert(nested is {string: any}, "the nested table survives the round trip")
   assert(nested.x == 1.5 and nested.y == "two", "nesting survives the round trip")
 end
 test_format_round_trips_the_literal_domain()
@@ -248,7 +252,8 @@ local function test_format_round_trips_a_nested_fixture()
   local got = read(assert(literal.format(v)))
   assert(got.alpha == "a\tb" and got.count == 7 and got.ratio == 1.5
     and got.zed == true, "scalars survive")
-  local inner = got["a\tkey"] as {string: any} -- cast: from any
+  local inner = got["a\tkey"]
+  assert(inner is {string: any}, "the tab-keyed entry is a table")
   assert(inner.inner == "x", "the nested table survives")
 end
 test_format_round_trips_a_nested_fixture()
@@ -267,7 +272,8 @@ local function test_a_flat_nested_table_renders_inline()
   assert(src:find('["a.tl"] = {["covered"] = 1, ["total"] = 2},', 1, true),
     "expected an inline row:\n" .. src)
   local got = read(src)
-  local row = got["a.tl"] as {string: any} -- cast: from any
+  local row = got["a.tl"]
+  assert(row is {string: any}, "the inline row is a table")
   assert(row.covered == 1 and row.total == 2, "the inline row survives parsing")
 end
 test_a_flat_nested_table_renders_inline()
@@ -277,7 +283,8 @@ local function test_an_empty_nested_table_renders_inline_and_round_trips()
   local src = assert(literal.format({["a.tl"] = {}}))
   assert(src:find('["a.tl"] = {},', 1, true), "expected an inline empty row:\n" .. src)
   local got = read(src)
-  local row = got["a.tl"] as {string: any} -- cast: from any
+  local row = got["a.tl"]
+  assert(row is {string: any}, "the empty inline row is a table")
   assert(next(row) == nil, "the empty row survives parsing")
 end
 test_an_empty_nested_table_renders_inline_and_round_trips()
