@@ -391,3 +391,142 @@ walled: measuring a locally-built `lua` instead of the released one
 editing the tree or swapping tree commits to make an arm build
 (`Change` (5) states the exact fallback), and fixing the commit once
 it is named (`Non-goals`, first bullet).
+
+## Result
+
+Measured 2026-08-26, in a session and container independent of both
+`3ISWHyP7`'s and `3ISlWFiS`'s. All six release arms fetched and all
+four chosen arms built — `build: PASS (515 files, 1 binary)` for each,
+exit status read directly, never through a pipe. The bisect narrowed
+the range from five commits to three with certainty, and then could
+NOT name one, because this host was too noisy for the verdict rule's
+disjoint-ranges condition. Both halves are recorded below.
+
+**Every arm's runtime, hashed after `--make fetch`** (`sha256sum
+o/3p/cosmos/lua`), in commit order:
+
+- runtime 2026.08.21-07fc94a1c b5323f3068efd6cb664a0d56d521bd1109429f9f7f4e866c6cb830634a092c1b
+- runtime 2026.08.23-bf92718a1 b5323f3068efd6cb664a0d56d521bd1109429f9f7f4e866c6cb830634a092c1b
+- runtime 2026.08.23-8e071ec98 b5323f3068efd6cb664a0d56d521bd1109429f9f7f4e866c6cb830634a092c1b
+- runtime 2026.08.24-5bfcf79d0 fdea2794cd65987987ec387b7b0db87bfbfc56eb93ae30ad03a551266858b385
+- runtime 2026.08.24-8dd093cea dbe0fb8f4695c91c2510f9e817faa1d27c863af3592f37d413c3681a78973ddd
+- runtime 2026.08.24-354c17e08 6dcc7958bd8f27dd0ce5cab0ee130d41e07d3afec30e07912261ee43757a5c95
+
+Each `cosmos.zip` was downloaded, `sha256sum`'d, and its digest matched
+against the same release's first-party `SHA256SUMS` asset before the
+pin was written; all six agreed, and the base tag's digest
+`03e5286bce...` is byte-identical to the one our own `5ef13f40` pin
+already carried.
+
+**The collapse: two of the five commits are inert, provably.** The
+first three arms ship a byte-identical `lua`, so `bf92718a1`
+(AGENTS.md only) and `8e071ec98` (sqlite3 header stubs behind untaken
+guards) changed no compiled byte and cannot have moved anything; they
+collapse into the `07fc94a1c` arm and were not measured. The remaining
+three arms each ship a distinct runtime, so `5bfcf79d0`, `8dd093cea`
+and `354c17e08` are the candidates. This also shows the release builds
+are byte-reproducible for identical compiled input, which is what makes
+the collapse a proof rather than an inference.
+
+**The four measured arms** (`sha256sum o/bin/cosmic`), all distinct:
+
+- cosmic 2026.08.21-07fc94a1c d8492168eace15f18e5d56b8949144d947e58b9dad1c4ada6401eea98e035b44
+- cosmic 2026.08.24-5bfcf79d0 5794751f0b29fed9c6867bc0d6cf64f02101012f216e78d0af11519ac4ee894a
+- cosmic 2026.08.24-8dd093cea 4cba7dfedf45a3774b907048c35ff47630a510460405d72b099dd3f6ecbd05ad
+- cosmic 2026.08.24-354c17e08 940f21bb25c2537f890bd49230c6b5eccf4231a277ade43f2b6d523e9f9eee7c
+
+Two of those digests are byte-identical to `3ISlWFiS`'s arms A and B
+(`d8492168...` and `940f21bb...`), rebuilt here from the same tree
+commit and the same pins in a different session and container. The
+instrument is therefore reproducible across sessions, and any
+difference in the numbers below is the host, not the binaries.
+
+**The noise floor.** Two `gate.tl selfcheck --only
+codec_base64_roundtrip_64k` passes per arm, each a same-binary A/A;
+all eight printed `perf-selfcheck: nothing exceeded the bar — the
+machine is quiet at this threshold`:
+
+- selfcheck 2026.08.21-07fc94a1c -1.4% -0.1%
+- selfcheck 2026.08.24-5bfcf79d0 +4.5% -5.1%
+- selfcheck 2026.08.24-8dd093cea -0.1% +0.8%
+- selfcheck 2026.08.24-354c17e08 +2.9% +6.5%
+- floor 6.5%
+
+That floor is materially worse than the 4.5% `3ISlWFiS` measured, and
+one selfcheck sample reported a within-run spread of ±37.8%. This host
+is fast but not quiet.
+
+**The readings.** Four per arm, round-robin in the order
+`07fc94a1c`, `5bfcf79d0`, `8dd093cea`, `354c17e08`, each its own
+process, default `--samples`/`--min-secs`:
+
+| run | arm | µs/op | ± |
+|---|---|---|---|
+| 01 | 2026.08.21-07fc94a1c | 139.06 | 9.8% |
+| 02 | 2026.08.24-5bfcf79d0 | 149.94 | 10.2% |
+| 03 | 2026.08.24-8dd093cea | 163.72 | 15.6% |
+| 04 | 2026.08.24-354c17e08 | 185.09 | 10.3% |
+| 05 | 2026.08.21-07fc94a1c | 145.24 | 10.7% |
+| 06 | 2026.08.24-5bfcf79d0 | 141.92 | 3.8% |
+| 07 | 2026.08.24-8dd093cea | 141.29 | 6.2% |
+| 08 | 2026.08.24-354c17e08 | 167.03 | 7.8% |
+| 09 | 2026.08.21-07fc94a1c | 141.61 | 14.5% |
+| 10 | 2026.08.24-5bfcf79d0 | 137.29 | 3.8% |
+| 11 | 2026.08.24-8dd093cea | 179.72 | 10.6% |
+| 12 | 2026.08.24-354c17e08 | 189.64 | 22.5% |
+| 13 | 2026.08.21-07fc94a1c | 174.27 | 12.5% |
+| 14 | 2026.08.24-5bfcf79d0 | 151.11 | 6.3% |
+| 15 | 2026.08.24-8dd093cea | 153.78 | 10.4% |
+| 16 | 2026.08.24-354c17e08 | 175.48 | 12.4% |
+
+Medians and ranges: `07fc94a1c` 143.43 µs [139.06, 174.27];
+`5bfcf79d0` 145.93 µs [137.29, 151.11]; `8dd093cea` 158.75 µs
+[141.29, 179.72]; `354c17e08` 180.28 µs [167.03, 189.64].
+
+**The verdicts**, by the rule in `Change` (7) and nothing else:
+
+- 2026.08.24-5bfcf79d0: NOT REPRODUCED — med 143.43 → 145.93 µs
+  (+1.75%), ranges overlap, floor 6.5%; the delta is under the floor
+  as well, so this pair fails two of three conditions.
+- 2026.08.24-8dd093cea: NOT REPRODUCED — med 143.43 → 158.75 µs
+  (+10.69%), ranges overlap, floor 6.5%; only the disjointness
+  condition fails.
+- 2026.08.24-354c17e08: NOT REPRODUCED — med 143.43 → 180.28 µs
+  (+25.70%), ranges overlap, floor 6.5%; only the disjointness
+  condition fails.
+
+moved-by: 8e071ec98..354c17e08
+follow-up: 3ITOUv0wv6OVH7bkh0RmgzmoDcl
+
+**What this supports.** Two of the five commits are eliminated for
+good, by byte-identity rather than by measurement, so the range is now
+the three commits `git log --oneline 8e071ec98..354c17e08` prints:
+`5bfcf79d0`, `8dd093cea`, `354c17e08`. The pin-swap instrument is
+confirmed reproducible across sessions at the binary level. And the
+medians rise monotonically across the three candidates, with
+`354c17e08` — the 650-line `tool/net/llua.c` addition — sitting
++25.70% above the base, far past this run's floor.
+
+**What this does not support.** It does not name the commit. Under the
+verdict rule this slice was given, every pair reads NOT REPRODUCED,
+because the base arm's own four readings spanned 139.06 to 174.27 µs —
+a 25% internal swing, one reading (run 13) far off the other three —
+and that single range overlaps every other arm. Two of three
+conditions hold for `354c17e08` and the direction agrees with
+`3ISlWFiS`'s confirmed +8.35%, but agreement is not the rule, and the
+rule is what this slice was to apply. Nothing here weakens
+`3ISlWFiS`'s finding: that was a separate, quieter measurement whose
+own ranges were disjoint, and its conclusion stands untouched.
+
+**Why no rule was changed to rescue it.** Discarding run 13, widening
+the reading count, or restating the disjointness condition would each
+have produced a clean answer, and each is a decision the spec encodes
+rather than a fact it records — `plan`'s to make, not a measuring
+session's. So the numbers are reported as the rule reads them, and
+`3ITOUv0w` carries the noise-robust instrument the next pass needs,
+starting from three candidates instead of five.
+
+**The block edge stands.** `3ISVlHT6`'s wait on this item was recorded
+because no release can publish while `codec_base64_roundtrip_64k`
+holds the gate red. That is still true: the scenario still fails, the
+commit is still unnamed, and the fix is still ahead of the pin bump.
