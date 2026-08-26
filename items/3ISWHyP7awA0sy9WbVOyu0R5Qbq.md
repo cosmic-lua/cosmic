@@ -52,6 +52,35 @@ shifted code, with no algorithmic change anywhere.
 
 ## Result (2026-08-26, this slice)
 
+**Handover refused; item returned to `plan`.** `gitboard move 3ISWHyP7
+check` → `REFUSED: a handover to check names its PR — pass --pr N`. This
+spec asserted (in `## Goal` and `## Non-goals`) that a research slice
+opens no pull request, on `decompose.md`'s "the research IS the slice".
+The tool does not admit that shape: `check` is where a PR is reviewed,
+and there is no phase for a slice whose deliverable is evidence. So the
+spec is wrong, not the work — the measurement is complete and both
+follow-ups are filed and published. What the next refinement has to
+settle, before this is pullable again, is exactly one question: **what
+PR does an evidence-only slice carry?** Three candidates, none of them
+obviously right:
+
+1. **It carries none, and the board grows the phase.** A `checked`
+   handover with `--pr` omitted, reviewed against the item's `## Result`
+   rather than a diff. Filed as `3ISltQMh`, under G8 — the flow system.
+2. **It always carries a doc PR** — the finding written into the repo
+   (a decision record, or the relevant `skills/` chapter), so there is
+   always something to review. Costs: every research slice now argues
+   about where its prose belongs.
+3. **Research is not a slice at all** — it is refinement, done in
+   `plan` by the session that then writes an implementable spec. That
+   is close to what actually happened here: this pass produced two
+   specs (`3ISlWFiS`, `3ISlY5Xl`) and no code.
+
+Until that is settled, do NOT re-run the A/B — it is done, and its
+numbers are above.
+
+
+
 **The A/B ran as `## Change` specifies.** Worktree at `ea71d799^`
 (`5ef13f40`), only `3p/cosmos/cosmos_pin.tl` varied, six rounds
 alternating `0821, 0824, 0821, 0824, 0821, 0824`, each round rebuilt
