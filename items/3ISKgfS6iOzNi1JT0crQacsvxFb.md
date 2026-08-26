@@ -1,10 +1,29 @@
 ## Goal
 
 G3, under the tl-patch gaps container: the smallest of the four
-narrowing gaps, closed with a one-line patch entry proven end to end
-at refinement (2026-08-26, main `b4ad036b`): the edited checker
-type-checks the probe AND the whole tree — `bin/cosmic --make ci` →
-`ci: PASS (5 stages)` with the edit in place.
+narrowing gaps — mixed-arity `table.pack` erasing `.n` to `any` —
+closed with a one-line patch entry and pinned by a narrowing test.
+(The title's "one cast retired" half moved to 3ISPGV8z: a first
+implementation attempt proved the cast cannot come out until the
+PINNED checker carries the patch — see Evidence — and the board has
+no rename verb.)
+
+## Wrong turn, recorded
+
+The 2026-08-26 bounce from `do`: the spec prescribed removing
+`cosmic/coverage/init.tl:133`'s cast in the same slice as the patch,
+and its "proven end to end" evidence was measured on a WARM tree whose
+binary already embedded the patched tl. Cold, it fails:
+`bin/cosmic --make build` generation 1 compiles the tree with the
+running binary's embedded (unpatched) tl —
+`cosmic/coverage/init.tl:131:46: error: argument 3: got <any type>,
+expected number` — and CI's `build`/`repro` lanes start from the
+pinned release the same way. Same failure family as PR #1405's
+`filter_of` and board item 3IIm7ZyN (the standing countermeasure
+capture): `--make ci`'s convergence hides what the fixpoint build
+refuses. The rule this spec now encodes: every `cosmic/**` source in
+a tl-patch slice must type-check under BOTH the pinned checker and
+the patched one.
 
 ## Evidence
 
@@ -19,18 +38,17 @@ Measured 2026-08-26 at main `b4ad036b`, from the repo root.
   ```
 
   `PackTable<A> is {A}` carries `n: integer` (lines 371–376). Uniform
-  arguments resolve the generic overload, so `table.pack(1, 2, 3).n`
-  is `integer`; MIXED returns (`table.pack(coroutine.resume(t))`)
-  fall to the second overload's bare `{any:any}`, and `.n` erases to
-  `any` — probed both ways. That erasure is why
-  `cosmic/coverage/init.tl:133` carries the tree's one pack-n cast
-  (`return table.unpack(results, 2, results.n as integer)`, reason
-  "table.pack's n field is an integer by contract").
+  arguments resolve the generic overload; MIXED returns
+  (`table.pack(coroutine.resume(t))`) fall to the second overload's
+  bare `{any:any}` and `.n` erases to `any`. Probed: a file with
+  `local n: integer = results.n` over a mixed pack fails
+  `--check types` today with `got <any type>, expected integer`, and
+  passes with the patch applied — both directions observed.
 
-- **The fix is proven.** Applied to both `o/` copies and validated:
-  the fallback returning `PackTable<any>` makes `.n` `integer` for
-  every call shape, elements stay `any`, and nothing in the 529-file
-  tree objects — a converged rebuild passed the full ci gate.
+- **The patch is proven through the real mechanism.** With the entry
+  below in `3p/tl/tl_patch.tl`, `bin/cosmic --make fetch` re-applies
+  the patch set and `grep -n 'PackTable<any>' o/3p/tl/tl.lua` shows
+  line 385 patched. The probe file then type-checks.
 
 - **The anchor is unique and its indentation is six spaces.**
   `grep -nF '      pack: function(any...): {any:any} --[[needs_compat]]' o/3p/tl/tl.lua`
@@ -39,13 +57,12 @@ Measured 2026-08-26 at main `b4ad036b`, from the repo root.
 
 - **`tl.lua` alone is the right target — settled.** `_make/patch.tl`
   applies each entry to the file its `file` field names, and entries
-  for both exist (`ast-cache-envoptions-tl-tl` carries
+  for both files exist (`ast-cache-envoptions-tl-tl` carries
   `file = "tl.tl"`). That twin exists because `_types/gentl.tl`
   verifies the `EnvOptions` record against the Teal source
   (`_types/gentl.tl:189`); gentl reads nothing of the Lua-stdlib text
   where `pack` is declared, and the checker the tree runs loads the
-  patched `tl.lua`. So this slice patches `tl.lua` only, and `tl.tl`'s
-  copy staying upstream is correct, not an oversight.
+  patched `tl.lua`. `tl.tl`'s copy staying upstream is correct.
 
 - **The 500-line cap binds — the file must shed lines first.**
   `wc -l 3p/tl/tl_patch.tl` → **499**, the cap is enforced by
@@ -54,14 +71,16 @@ Measured 2026-08-26 at main `b4ad036b`, from the repo root.
   comment is lines 1–28; the compressed 22-line version below
   preserves every claim and frees 6 lines, landing the file at 499.
 
-- `cosmic/teal_narrowing_test.tl` is 415 lines (85 of headroom);
-  `cosmic/coverage/init.tl` is 369 lines, its casts-baseline row
-  `= 6` (`_build/casts_baseline.tl:30`). PR #1408 (in `check`) adds a
-  trailing comment on `cosmic/coverage/init.tl:129`, three lines
-  above this slice's edit — re-measure line numbers at pull if it has
-  landed; the edit's shape is unchanged either way.
+- `cosmic/teal_narrowing_test.tl` is 415 lines (85 of headroom). Its
+  probes are runtime strings checked through `teal.check_file`, so the
+  test file itself compiles identically under both checkers — the
+  property the Wrong turn above demands.
 
 ## Change
+
+Two files. `cosmic/coverage/init.tl`, its cast, and the casts
+baseline are NOT touched — that is 3ISPGV8z, blocked on this landing
+and reaching the pin.
 
 1. **`3p/tl/tl_patch.tl`, header**: replace the header comment
    (lines 1–28) with exactly these 22 lines — same content, 6 lines
@@ -93,9 +112,9 @@ Measured 2026-08-26 at main `b4ad036b`, from the repo root.
    ```
 
 2. **`3p/tl/tl_patch.tl`, entry**: add one 6-line entry to the
-   `narrow-*` group (beside `narrow-nil-union` at what is today line
-   383), the reasoning carried by `note` since the replacement is a
-   one-line type-declaration swap:
+   `narrow-*` group (directly above `narrow-nil-union`, today line
+   377 after the header change), the reasoning carried by `note`
+   since the replacement is a one-line type-declaration swap:
 
    ```
      ["narrow-pack-n"] = {
@@ -109,30 +128,32 @@ Measured 2026-08-26 at main `b4ad036b`, from the repo root.
    Copy the six-space indentation inside the brackets byte-exactly —
    the find must match once.
 
-3. **`cosmic/coverage/init.tl:131–133`**: the pack-n cast and its
-   two-line comment come out — the line returns to
-   `return table.unpack(results, 2, results.n)`. (Keep the other
-   comment line, "Packing resume's mixed returns erases the element
-   type to any", only if it still reads true; with `.n` typed it does
-   not, so both comment lines go.)
+3. **`cosmic/teal_narrowing_test.tl`**: one appended test,
+   `test_mixed_pack_keeps_n_integer`, called after its `end`: write a
+   probe file whose mixed `table.pack(coroutine.resume(t))` result
+   assigns `.n` into a declared `integer` AND passes it as
+   `table.unpack`'s third argument, and assert `teal.check_file`
+   reports ok, quoting the errors in the failure message. Follow the
+   file's existing probe pattern (`fs.write` into `TEST_TMPDIR`,
+   `teal.check_file`, message with `table.concat(msgs, "; ")`).
 
-4. **`cosmic/teal_narrowing_test.tl`**: pin the moved boundary with
-   one test — a mixed `table.pack(coroutine.resume(t))` whose `.n`
-   assigns into a declared `integer` — called after its `end`.
-
-5. **Ratchet**: `bin/cosmic --make run _build/casts.tl --baseline`,
-   commit; `cosmic/coverage/init.tl` row `= 6` → `= 5`. If any other
-   ratchet complains, run exactly the regen command its failure
-   message prints and commit the result.
+4. **Ratchet**: none expected — no cast moves, no file joins or
+   leaves coverage. If one complains anyway, run exactly the regen
+   command its failure message prints and commit the result.
 
 ## Non-goals
 
+- **`cosmic/coverage/init.tl` and `_build/casts_baseline.tl` are
+  untouched.** The cast retire is 3ISPGV8z, blocked on the pin
+  catching up; removing it here fails the cold build (Wrong turn
+  above).
 - The other three gaps (or-fallback shapes, closure carry-through,
   metatable<any>) are the research sibling's (3ISKgwfn).
 - No other tl_patch entry moves; no pin bump; no `tl.tl` entry (the
   Evidence settles why).
 - No behaviour change: the patch edits a TYPE declaration only; the
-  compat-generated Lua for pack is untouched (`needs_compat` stays).
+  compat-generated Lua for pack is untouched (`needs_compat` stays),
+  so the fixpoint's byte-compare is unaffected.
 - No header content is dropped — the compression rewords, it does not
   delete claims; the entry-form contract (`find` matches exactly
   once) and `_make/patch.tl` are untouched.
@@ -145,20 +166,24 @@ Run from the repo root.
 - `grep -c "narrow-pack-n" 3p/tl/tl_patch.tl` reports 1 (today 0).
 - `wc -l < 3p/tl/tl_patch.tl` prints at most `500` (today 499; 22-line
   header plus 6-line entry lands it at 499).
-- `grep -c -- "-- cast:" cosmic/coverage/init.tl` reports 5 (today 6).
-- `grep -n '"cosmic/coverage/init.tl"' _build/casts_baseline.tl` shows
-  `= 5` (today `= 6`).
-- `bin/cosmic --make test cosmic/teal_narrowing_test.tl cosmic/coverage/init_test.tl`
-  ends `test: PASS (2 files)`.
-- `o/bin/cosmic --make coverage` ends `coverage: PASS` — the resume
-  wrapper still instruments.
+- `grep -c "narrow_pack_n" cosmic/teal_narrowing_test.tl` reports at
+  least 1 (today 0).
+- `bin/cosmic --make test cosmic/teal_narrowing_test.tl` ends
+  `test: PASS (1 file)` — this is the patched-checker proof, since the
+  probe fails without the patch.
+- `git diff --name-only origin/main` prints exactly, in any order:
+
+  ```text
+  3p/tl/tl_patch.tl
+  cosmic/teal_narrowing_test.tl
+  ```
 
 ## Enablement
 
-none needed. The edit was applied to the `o/` copies and the full ci
-gate passed during refinement; the two mechanics that were open —
-whether the patch also targets `tl.tl` (no: gentl verifies none of the
-stdlib text, and the checker loads `tl.lua`) and whether the 500-line
-cap admits the entry (no: the file is 499, so the header compression
-above is part of the slice, with its replacement text given verbatim)
-— are both settled in Evidence with the commands that settled them.
+none needed. The bounce's countermeasure is encoded in this spec's own
+shape (no `cosmic/**` source changes that need the new checker), the
+standing capture for the underlying convergence blind spot is
+3IIm7ZyN, and the deferred half is filed and blocked: 3ISPGV8z. The
+mechanics — anchor, indentation, header text, entry text, test
+pattern — are all given verbatim above with the commands that
+verified them.
