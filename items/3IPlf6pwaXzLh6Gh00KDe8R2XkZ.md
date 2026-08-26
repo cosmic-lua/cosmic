@@ -222,9 +222,18 @@ Run from the repo root:
   and 467 today).
 - `git diff --name-only origin/main` lists exactly `cosmic/shape.tl`,
   `cosmic/shape_test.tl`, `_tool/coverage/report.tl`,
-  `docs/decisions/d28-shape-combinators.md` — plus `.cosmic-coverage`
-  if and only if the coverage ratchet prints the regen command, in
-  which case run exactly that command and commit its result.
+  `docs/decisions/d28-shape-combinators.md` and
+  `_build/casts_baseline.tl`.
+
+  (Corrected at implementation time: this line first named four files
+  plus `.cosmic-coverage` if the coverage ratchet asked for a regen.
+  The fifth file is a DIFFERENT ratchet. `_tool/coverage/report.tl` had
+  exactly two casts and the slice removes both, which puts it under its
+  committed cast floor, so `_build/casts_test.tl` fails with "stale
+  baseline — run: bin/cosmic --make run \_build/casts.tl --baseline and
+  commit the result". Running exactly that command drops the file's row
+  and touches nothing else. `.cosmic-coverage` needed no rewrite — the
+  slice adds no new file.)
 
 ## Enablement
 
