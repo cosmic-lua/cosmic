@@ -65,3 +65,4 @@ build when the committed copy drifts.
 | D28 | a validating decode is combinators the checker checks, not a table of type-name strings | active | [→](d28-shape-combinators.md) |
 | D29 | a test runs because it is defined, not because its file called it | active | [→](d29-tests-run-because-defined.md) |
 | D30 | a cosmic module throws or exits only where no caller could receive the value | active | [→](d30-throw-exit-boundaries.md) |
+| D31 | the perf gate reads noise from every same-binary pair it already measured | active | [→](d31-gate-noise-from-every-control-pair.md) |

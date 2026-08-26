@@ -163,24 +163,66 @@ end
 --- regression in an unstable one. This makes the noise/real call
 --- deterministic instead of a manual judgement (see
 --- skills/optimize/measurement.md).
+--- A scenario's noise credit is the LARGEST swing it showed across every
+--- pair of same-binary control runs, because a scenario can be quiet in
+--- one pair and loud in the next. Sampling every available pair is free:
+--- the controls are already measured, and one pair is one `diff` call.
+--- Only a pair where the scenario cleared the bar counts — the same
+--- binary against itself should read "ok", so anything else is the
+--- scenario being too unstable to judge on that pair.
+--- @param controls {Results} Same-binary control runs, two or more to have a pair
+--- @param threshold_pct number? Noise bar in percent (default 10)
+--- @return {string: Delta} Per scenario, the loudest control delta seen
+local function loudest_control(controls: {pt.Results}, threshold_pct?: number): {string: pt.Delta}
+  local loudest: {string: pt.Delta} = {}
+  for i = 1, #controls do
+    for j = i + 1, #controls do
+      -- `diff` returns a second value, so its call is parenthesized to
+      -- hand `ipairs` the delta list alone.
+      for _, sd in ipairs((diff(controls[i], controls[j], threshold_pct))) do
+        if (sd.verdict == "regression" or sd.verdict == "faster")
+        and sd.delta_pct ~= nil then
+          local best = loudest[sd.name]
+          if best == nil or best.delta_pct == nil
+          or math.abs(sd.delta_pct) > math.abs(best.delta_pct) then
+            loudest[sd.name] = sd
+          end
+        end
+      end
+    end
+  end
+  return loudest
+end
+
+--- Reclassify baseline-vs-current regressions using same-binary controls.
+--- A regression whose scenario ALSO moves past its noise bar when the
+--- current binary is compared against itself is a CANDIDATE for
+--- run-to-run variance, but instability alone does not excuse any
+--- magnitude: a scenario whose controls swing 5% does not get to wave
+--- through a +300% regression. The candidate reclassifies to the
+--- non-failing verdict "noise" only when its own delta is comparable to
+--- what the controls showed -- |regression delta| <= max(bar, TRIAGE_K *
+--- |control delta|), TRIAGE_K = 2 -- so the controls bound how much
+--- variance a scenario gets credit for instead of writing it a blank
+--- check. A scenario that stays within the bar under every control pair,
+--- or whose regression dwarfs what the controls showed, keeps its
+--- "regression" verdict — so a real regression in a stable, low-variance
+--- scenario (json, sqlite, ...) still fails the gate, and so does a huge
+--- regression in an unstable one. This makes the noise/real call
+--- deterministic instead of a manual judgement (see
+--- skills/optimize/measurement.md).
+---
+--- Fewer than two controls means no pairs and no reclassification, which
+--- is what a run with no self-check gets.
 --- @param base Results Baseline results
 --- @param cur Results Current results
---- @param noise_a Results First self-check pass (current binary)
---- @param noise_b Results Second self-check pass (current binary)
+--- @param controls {Results} Same-binary control runs
 --- @param threshold_pct number? Noise bar in percent (default 10)
 --- @return {Delta} Deltas, with confirmed-noise regressions reclassified
 --- @return integer Number of real failures (regressions + errors + missing)
-local function triage(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
+local function triage_many(base: pt.Results, cur: pt.Results, controls: {pt.Results}, threshold_pct?: number): {pt.Delta}, integer
   local deltas, failures = diff(base, cur, threshold_pct)
-  local self_deltas = diff(noise_a, noise_b, threshold_pct)
-  local self_by_name: {string: pt.Delta} = {}
-  for _, sd in ipairs(self_deltas) do
-    -- The same binary vs itself should read "ok"; a scenario that instead
-    -- clears the bar in either direction is too noisy to judge here.
-    if sd.verdict == "regression" or sd.verdict == "faster" then
-      self_by_name[sd.name] = sd
-    end
-  end
+  local self_by_name = loudest_control(controls, threshold_pct)
   for _, d in ipairs(deltas) do
     local sd = self_by_name[d.name]
     if d.verdict == "regression" and sd ~= nil and sd.delta_pct ~= nil
@@ -190,6 +232,18 @@ local function triage(base: pt.Results, cur: pt.Results, noise_a: pt.Results, no
     end
   end
   return deltas, failures
+end
+
+--- `triage_many` over exactly one control pair.
+--- @param base Results Baseline results
+--- @param cur Results Current results
+--- @param noise_a Results First self-check pass (current binary)
+--- @param noise_b Results Second self-check pass (current binary)
+--- @param threshold_pct number? Noise bar in percent (default 10)
+--- @return {Delta} Deltas, with confirmed-noise regressions reclassified
+--- @return integer Number of real failures (regressions + errors + missing)
+local function triage(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
+  return triage_many(base, cur, {noise_a, noise_b}, threshold_pct)
 end
 
 --- Format one delta as a report line.
@@ -298,6 +352,7 @@ local record compare
   identity_refusal: function(a_path: string, a_res: pt.Results, b_path: string, b_res: pt.Results, same: boolean): string | nil
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
+  triage_many: function(base: pt.Results, cur: pt.Results, controls: {pt.Results}, threshold_pct?: number): {pt.Delta}, integer
   format_delta: function(d: pt.Delta): string
   format: function(deltas: {pt.Delta}): string
 end
@@ -309,6 +364,7 @@ local M: compare = {
   identity_refusal = identity_refusal,
   diff = diff,
   triage = triage,
+  triage_many = triage_many,
   format_delta = format_delta,
   format = format,
 }

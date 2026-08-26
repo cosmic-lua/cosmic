@@ -261,4 +261,51 @@ local function test_triage_format_counts_noise()
 end
 test_triage_format_counts_noise()
 
+-- The release lane's json_decode_large flag, in numbers: 798.63µs ->
+-- 891.35µs is +11.6%, and the same binary drifts ~12.6% between two of
+-- its three runs while reading ~+0.4% between the other two. Triaging
+-- against only the quiet pair keeps the regression and holds the
+-- release; reading the LOUDEST pair reclassifies it, because 11.6 is
+-- within TRIAGE_K=2 * 12.6.
+local function test_the_loudest_control_pair_sets_the_noise_credit()
+  local base = results({m("json_decode_large", 798630, 2)})
+  local cur = results({m("json_decode_large", 891350, 2)})
+  local c1 = results({m("json_decode_large", 1210000, 2)})
+  local c2 = results({m("json_decode_large", 1215000, 2)})
+  local c3 = results({m("json_decode_large", 1362460, 2)})
+
+  local quiet_only, quiet_failures = compare.triage_many(base, cur, {c1, c2}, 10)
+  assert(quiet_failures == 1,
+    "the quiet pair alone must keep the regression, got " .. quiet_failures)
+  assert(find_delta(quiet_only, "json_decode_large").verdict == "regression",
+    "quiet pair: stays regression")
+
+  local deltas, failures = compare.triage_many(base, cur, {c1, c2, c3}, 10)
+  assert(failures == 0,
+    "the loud pair must reclassify it, got " .. failures)
+  assert(find_delta(deltas, "json_decode_large").verdict == "noise",
+    "loudest pair: reclassifies to noise")
+end
+test_the_loudest_control_pair_sets_the_noise_credit()
+
+-- The other half of the same release flag, and the property that makes
+-- the change a fix rather than a hole: codec_base64_roundtrip_64k went
+-- 132.05µs -> 159.82µs (+21.0%) while the same binary held within 4.8%
+-- of itself. 21.0 > max(10, 2 * 4.8), so no control pair excuses it and
+-- the gate still refuses the release.
+local function test_a_real_regression_survives_every_control_pair()
+  local base = results({m("codec_base64_roundtrip_64k", 132050, 2)})
+  local cur = results({m("codec_base64_roundtrip_64k", 159820, 2)})
+  local c1 = results({m("codec_base64_roundtrip_64k", 193460, 2)})
+  local c2 = results({m("codec_base64_roundtrip_64k", 196180, 2)})
+  local c3 = results({m("codec_base64_roundtrip_64k", 202750, 2)})
+
+  local deltas, failures = compare.triage_many(base, cur, {c1, c2, c3}, 10)
+  assert(failures == 1,
+    "a real regression must still fail, got " .. failures)
+  assert(find_delta(deltas, "codec_base64_roundtrip_64k").verdict == "regression",
+    "stays regression across every pair")
+end
+test_a_real_regression_survives_every_control_pair()
+
 print("OK compare_test")

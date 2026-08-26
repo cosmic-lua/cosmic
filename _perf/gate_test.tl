@@ -364,3 +364,33 @@ local function test_a_file_without_a_sha_is_not_refused()
   assert(code == 0, "an unidentified pair still compares, got " .. code)
 end
 test_a_file_without_a_sha_is_not_refused()
+
+-- Three runs of the current binary exist when the gate triages, so the
+-- noise it reads comes from every pair among them and not just the
+-- retry/self-check one. Here that last pair is deliberately QUIET
+-- (1250 vs 1150 is -8%, inside the bar) while `current` against the
+-- self-check swings -17.9%: reading only the quiet pair leaves the
+-- +25% regression standing and holds the release, reading the loudest
+-- clears it (25 <= 2 * 17.9).
+local function test_the_gate_triages_against_every_measured_control()
+  local base, cur, selfb = paths("every-control")
+  write_results(base, 1000)
+  write_results(cur, 1400)
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        if calls == 1 then
+          write_results(out, 1250) -- the regression persists on re-measurement
+        else
+          write_results(out, 1150) -- quiet against the retry, loud against current
+        end
+        return 0
+      end,
+    })
+  assert(code == 0,
+    "the loudest control pair must reclassify the regression, got " .. code)
+  assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
+end
+test_the_gate_triages_against_every_measured_control()
