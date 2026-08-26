@@ -142,7 +142,7 @@ test_choice_picks_member()
 local function test_choice_covers_all()
   local seen: {string: boolean} = {}
   for _ = 1, 200 do
-    seen[assert(rand.choice({"x", "y", "z"})) as string] = true -- cast: from any
+    seen[assert(rand.choice({"x", "y", "z"}))] = true
   end
   assert(seen.x and seen.y and seen.z, "choice never produced some member in 200 draws")
 end

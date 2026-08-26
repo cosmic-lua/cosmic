@@ -90,41 +90,53 @@ local function install_wrappers(do_dump: function())
   wrappers_installed = true
 
   local co = coroutine as {string: any} -- cast: patch stdlib table
-  local raw_create = co["create"] as function(any): any -- cast: from any
-  local function arm(thread: any)
+  local os_mod = os as {string: any} -- cast: patch stdlib table
+  local raw_create = co["create"]
+  local raw_exit = os_mod["exit"]
+  -- The signature guards type raw_create's return as a real thread, so
+  -- every downstream arm/resume site is plainly typed. A stdlib whose
+  -- create or exit is not a function cannot occur; the guard leaves it
+  -- unpatched rather than crashing mid-install.
+  if not (raw_create is function(any): thread)
+  or not (raw_exit is function(any, any)) then
+    return
+  end
+  -- Narrowing does not cross into a closure; these typed locals carry it.
+  local create_fn: function(any): thread = raw_create
+  local exit_fn: function(any, any) = raw_exit
+  local function arm(cothread: thread)
     if ccov then
-      ccov.arm(thread as thread) -- cast: from any
+      ccov.arm(cothread)
     else
-      debug.sethook(thread as thread, on_line, "l") -- cast: from any
+      debug.sethook(cothread, on_line, "l")
     end
   end
   co["create"] = function(f: any): any
-    local thread = raw_create(f)
+    local cothread = create_fn(f)
     if depth > 0 then
-      arm(thread)
+      arm(cothread)
     end
-    return thread
+    return cothread
   end
   co["wrap"] = function(f: any): any
-    local thread = raw_create(f)
+    local cothread = create_fn(f)
     if depth > 0 then
-      arm(thread)
+      arm(cothread)
     end
     return function(...: any): any ...
-      -- cast: from any
-      local results = table.pack(coroutine.resume(thread as thread, ...))
+      local results = table.pack(coroutine.resume(cothread, ...))
       if not results[1] then
         error(results[2], 0)
       end
-      return table.unpack(results, 2, results.n as integer) -- cast: from any
+      -- Packing resume's mixed returns erases the element type to any.
+      -- cast: table.pack's n field is an integer by contract
+      return table.unpack(results, 2, results.n as integer)
     end
   end
 
-  local os_mod = os as {string: any} -- cast: patch stdlib table
-  local raw_exit = os_mod["exit"] as function(any, any) -- cast: from any
   os_mod["exit"] = function(code: any, close: any)
     do_dump()
-    raw_exit(code, close)
+    exit_fn(code, close)
   end
 end
 
