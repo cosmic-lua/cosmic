@@ -10,7 +10,7 @@ return {
   ["enable"] = "none: this item's own spec was the fault — it asserted \"only 354c17e0 changes what the binary contains\" from a filtered five-path git log that cannot support it, where the unfiltered per-commit stats (8dd093cea touches luaencodejsondata.c, 5bfcf79d0 touches zipos-open.c) contradict it. The countermeasure is the freshly measured claim with its command in the re-refined spec, per review.md.",
   ["id"] = "3ISWHyP7awA0sy9WbVOyu0R5Qbq",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["title"] = "release gate red: json_decode_large +12% and codec_base64_roundtrip_64k +21% vs 2026-08-23-d71d7f1 — root-cause or re-baseline",
   ["verdict"] = "request changes",
 }
