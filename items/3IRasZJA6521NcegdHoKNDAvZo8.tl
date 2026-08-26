@@ -3,7 +3,9 @@ return {
   ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3IRasZJA6521NcegdHoKNDAvZo8",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1408,
   ["title"] = "D23's throw/exit rule has no census beyond assert(: five cosmic modules error() or os.exit() unrecorded",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "08a808fe97df6be59a5dddec2cff95bf0ef5f1b6",
 }
