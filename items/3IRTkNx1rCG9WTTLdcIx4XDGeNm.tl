@@ -7,7 +7,9 @@ return {
   ["claim"] = "7614b81b-c1ce-5559-a344-440ce38a0565",
   ["id"] = "3IRTkNx1rCG9WTTLdcIx4XDGeNm",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1401,
   ["title"] = "lint: the -- assert: justification convention D23 introduced has no enforcement",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "0139c59e3f1b81f62d11e84eb806d4d16f8bd4ef",
 }
