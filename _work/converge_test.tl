@@ -470,12 +470,11 @@ local function test_a_finishable_board_drains_to_nothing()
 end
 test_a_finishable_board_drains_to_nothing()
 
--- Rework is anyone's. A `request changes` verdict returns the item to
--- `do` and leaves the claim naming who built it, so the claim alone
--- would strand the rework — with everything blocked on it — the moment
--- that session stopped waking. The claim still routes the next VERDICT
--- away from the builder, which is why the reason says to move it.
-local function test_a_rework_is_offered_to_any_session()
+-- Rework is its builder's while the claim is live: the board cannot
+-- see a builder's build-test-push loop, so liveness is the lease's to
+-- judge, the same as any other claim. A rework whose claimant stopped
+-- waking surfaces when the lease expires, as a --force takeover.
+local function test_a_rework_is_its_builders_until_the_lease_expires()
   local root = make({})
   local reworking = make({parent = root.id, phase = "do", claim = "session-A",
       pr = 7, verdict = "request changes", verdict_head = "abc123",
@@ -483,18 +482,17 @@ local function test_a_rework_is_offered_to_any_session()
   local items: {Item} = {root, reworking}
   local builder = act.next_action(items, "session-A")
   assert(builder.kind == "finish" and builder.item.id == reworking.id,
-    "the builder may still pick its own rework up: " .. builder.kind)
+    "the builder picks its own rework up: " .. builder.kind)
   local other = act.next_action(items, "session-B")
-  assert(other.kind == "finish" and other.item.id == reworking.id,
-    "and so may anybody else: " .. other.kind)
-  assert(other.reason:find("--claim session-B", 1, true),
-    "who is told to take the claim with it: " .. other.reason)
-  -- A claim with no verdict standing on it is work in progress, and
-  -- that is still one session's.
-  local fresh = make({parent = root.id, phase = "do", claim = "session-A"})
-  local building: {Item} = {root, fresh}
-  local nope = act.next_action(building, "session-B")
-  assert(nope.kind ~= "finish",
-    "work in progress stays its claimant's: " .. nope.kind)
+  assert(other.kind ~= "finish",
+    "a live rework claim holds like any other: " .. other.kind)
+  local stale: {string: integer} = {[reworking.id] = 5 * 60 * 60}
+  local takeover = act.next_action(items, "session-B", stale)
+  assert(takeover.kind == "finish" and takeover.item.id == reworking.id,
+    "a stale rework claim is anyone's: " .. takeover.kind)
+  assert(takeover.reason:find("--claim session-B --force --why", 1, true),
+    "who is told everything the move guard demands: " .. takeover.reason)
+  -- The no-verdict half of this boundary (work in progress stays its
+  -- claimant's) is action_test's test_another_sessions_claim_is_not_handed_over.
 end
-test_a_rework_is_offered_to_any_session()
+test_a_rework_is_its_builders_until_the_lease_expires()
