@@ -74,6 +74,7 @@ local env = tl.new_env({
 local tokens, lex_errs = tl.lex("local x = 1", "probe")
 local _tokens: {tl.Token} = tokens
 local _lex_errs: {tl.Error} = lex_errs
+local _comments: {tl.Comment} = tokens[1].comments
 
 -- parse_program
 local ast, req_mods = tl.parse_program(tokens, {}, "probe")

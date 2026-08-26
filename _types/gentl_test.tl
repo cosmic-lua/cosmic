@@ -32,6 +32,7 @@ local function test_erasure_rules()
     ["tl.Node"] = "any",
     ["Env"] = "any",
     ["{Token}"] = "{Token}",
+    ["{Comment}"] = "{Comment}",
     ["{Error}"] = "{Error}",
     ["{WarningKind:boolean}"] = "{string: boolean}",
     ["GenerateOptions"] = "any",

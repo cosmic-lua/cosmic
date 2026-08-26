@@ -25,7 +25,7 @@ local TO_STRING: {string: boolean} = {
 }
 local NAMED: {string: boolean} = {
   Token = true, Error = true, Result = true,
-  EnvOptions = true, CheckOptions = true,
+  EnvOptions = true, CheckOptions = true, Comment = true,
 }
 
 local function erase(t: string): string
@@ -180,6 +180,7 @@ local FUNCTIONS: {Entry} = {
 local RECORD_FIELDS: {string: {string}} = {
   Error = {"filename", "y", "x", "msg", "tag"},
   Result = {"ast", "syntax_errors", "type_errors", "warnings"},
+  Comment = {"x", "y", "text"},
   Token = {"x", "y", "tk", "kind", "comments"},
   CheckOptions = {
     "feat_lax", "feat_arity", "gen_compat", "gen_target",
@@ -209,12 +210,20 @@ local record tl
     warnings: {Error}
   end
 
+  -- one lexed comment, as tl's own Comment record: the three fields
+  -- Token.comments elements actually carry
+  record Comment
+    x: integer
+    y: integer
+    text: string
+  end
+
   record Token
     x: integer
     y: integer
     tk: string
     kind: string
-    comments: {any}
+    comments: {Comment}
   end
 
   -- per-env feature/codegen defaults (tl.CheckOptions upstream)

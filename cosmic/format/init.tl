@@ -104,12 +104,11 @@ local function build_items(tokens: {tl.Token}): {Item}
 
   for _, token in ipairs(tokens) do
     if token.comments then
-      for _, raw_c in ipairs(token.comments) do
-        local c = raw_c as {string: any} -- cast: from any
+      for _, c in ipairs(token.comments) do
         items[#items + 1] = {
-          y = c["y"] as integer, -- cast: from any
-          x = c["x"] as integer, -- cast: from any
-          tk = c["text"] as string, -- cast: from any
+          y = c.y,
+          x = c.x,
+          tk = c.text,
           kind = "comment",
         }
       end
