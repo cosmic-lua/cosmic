@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3IQZalzfU1ZHQ2p7IpPe8A0IzDw",
   ["id"] = "3IPXQcgWeJigmcsZqzdiCsAiDHF",
   ["parent"] = "3IODJgkObjfhsxqMPEgFPIM6RHR",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "cosmic.time.now() declares integer over a clock binding that returns integer | nil",
 }
