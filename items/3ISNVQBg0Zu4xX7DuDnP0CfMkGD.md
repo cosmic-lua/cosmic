@@ -286,3 +286,41 @@ command from the gate's own failure message. The census command and
 its 19-site result are above so a claiming session can re-run it in
 seconds and see whether the tree still satisfies the rule before
 building.
+
+## Review corrections (2026-08-26, at the accept)
+
+The diff was judged against reality rather than the letter of the
+sections above, and three of their claims are corrected here rather
+than the diff bounced — the mis-specification was this spec's, per
+review.md's rule 5:
+
+1. **The census had a hole, so "no cosmic/** source is touched" was
+   wrong.** D30's census (and this spec's, which inherited it)
+   grepped `os.exit(`; six post-fork process-boundary exits spell it
+   `unix.exit(` — `cosmic/quicksand/proxy.tl:135,152,159,161`,
+   `cosmic/quicksand/proxy/serve.tl:404`,
+   `cosmic/quicksand/init.tl:127` (verified at PR #1412's head). A
+   rule reading only `os.exit` would leave them unenforced, so the
+   exit rule reads the receiver and covers both spellings, and the
+   six sites gained their `-- exits:` markers — comments only,
+   verified against the diff. Acceptance step 7 (zero `cosmic/`
+   paths) and step 8's seven-file list are superseded by the ten-file
+   list the PR carries.
+2. **Two rule names, not one.** The lint lands as `throw-justify` AND
+   `exit-justify`, one per marker, mirroring how each marker is its
+   own grammar; the single-name prescription above was arbitrary.
+3. **Re-verified at review** in a fresh worktree of head `a9845d47`:
+   `ci: PASS (5 stages)`;
+   `--make test _cli/throw_lint_test.tl _cli/assert_lint_test.tl
+   _tool/lint_test.tl` → `test: PASS (3 files)`;
+   `wc -l < _cli/lint.tl` → 474; predicate greps hold (0 local
+   definitions left in assert_lint, 2 references in _tool/lint.tl);
+   a scratch `cosmic/zz_probe.tl` with a bare `error("x")` fails
+   `--check lint` naming `throw-justify`.
+
+The ready-bar gap this records: a spec that declares "the tree
+already satisfies the rule" must re-run the rule's OWN census, not
+inherit a narrower one — the standing capture for the class is
+3II0VYuY. The one-line D30 correction (its grammar sentence says "an
+`os.exit(` line" where the licence plainly covers any exit call) is
+filed as its own capture.
