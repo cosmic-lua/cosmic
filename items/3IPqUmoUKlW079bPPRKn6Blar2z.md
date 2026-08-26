@@ -11,18 +11,21 @@ rather than a validator.
 
 ## Evidence
 
-Measured 2026-08-25 against `whilp/cosmic` `cd87a765` (`main`).
+Re-measured 2026-08-26 against `whilp/cosmic` `fb2587ad` (`main`);
+first measured 2026-08-25 at `cd87a765`, and every figure below is the
+`fb2587ad` one.
 
-The tree carries 165 `from any` casts of 364 total
+The tree carries 97 `from any` casts of 301 total
 (`git ls-files '*.tl' | xargs grep -h -- "-- cast: .*from any" | wc -l`
-and the same with `-- cast:`). The six files this slice closes, with
-their site counts (`grep -c -- "-- cast:" <file>`, which equals the
-`from any` count in each — these files carry no other cast) and their
-lengths (`wc -l`, against the 500-line cap):
+and the same with `-- cast:`) — down from 165 of 364 at `cd87a765`, as
+the sibling slices under this epic have landed. The six files this
+slice closes, with their site counts (`grep -c -- "-- cast:" <file>`,
+which equals the `from any` count in each — these files carry no other
+cast) and their lengths (`wc -l`, against the 500-line cap):
 
 | file | sites | lines | headroom |
 | --- | --- | --- | --- |
-| `_eval/score_test.tl` | 12 | 279 | 221 |
+| `_eval/score_test.tl` | 12 | 293 | 207 |
 | `_eval/stage_test.tl` | 3 | 147 | 353 |
 | `_make/pin_test.tl` | 2 | 458 | **42** |
 | `cosmic/teal_config_test.tl` | 2 | 102 | 398 |
@@ -30,11 +33,14 @@ lengths (`wc -l`, against the 500-line cap):
 | `cosmic/fetch/verbs_test.tl` | 1 | 251 | 249 |
 | **total** | **21** | | |
 
+None of the six site counts moved between `cd87a765` and `fb2587ad`;
+only `_eval/score_test.tl`'s length did (279 → 293).
+
 `_make/pin_test.tl` has the least room and needs the least: one
 four-line Spec. Nothing here adds a Spec longer than the twelve-field
-one in `_eval/score_test.tl`, whose file has 221 lines spare.
+one in `_eval/score_test.tl`, whose file has 207 lines spare.
 
-**The mechanism exists.** `cosmic/shape.tl` (290 lines, landed as
+**The mechanism exists.** `cosmic/shape.tl` (318 lines, landed as
 blocker `3IOefXSz`, PR #1370) validates a decoded value against a Spec
 and hands it back typed. Its contract, from its module doc comment:
 extra keys the Spec does not name are IGNORED; a missing key and a JSON
@@ -44,10 +50,12 @@ is coerced; the target type comes from the CALLER's annotation, and
 fails to infer — a helper declared `T | nil, string` returning
 `shape.into(...)` directly is the shape that works.
 
-**Probe-verified at refinement, against a `--make build` of
-`cd87a765`.** A scratch file (written outside the committed tree, type-checked
-with `o/bin/cosmic --check types`, then deleted) established the three
-facts this slice turns on:
+**Probe-verified at refinement, and re-verified 2026-08-26 against a
+`--make build` of `fb2587ad`.** A scratch file (written outside the
+committed tree, type-checked with `o/bin/cosmic --check types`, then
+deleted) established the three facts this slice turns on. `shape.tl`
+gained `shape.integer_map` between the two runs (PR #1388); `into`'s
+signature did not move, so all three facts stand unchanged:
 
 - A helper declared `function(body: string): eval_types.EvalResults |
   nil, string` whose body ends `return shape.into(raw, RESULTS)`
@@ -105,7 +113,9 @@ that Spec and passed.
 through `_cli.lint`'s scanner and gates it against
 `_build/casts_baseline.tl`. Today's rows for the six files are exactly
 the site counts above (`grep -n '"_eval/score_test.tl"'
-_build/casts_baseline.tl` and siblings: lines 9, 11, 16, 114, 32, 58).
+_build/casts_baseline.tl` and siblings: at `fb2587ad` they sit on
+lines 6, 7, 12, 25, 49 and 103 — the file is alphabetical and every
+landing shifts them, so find each row by name, never by line).
 A file with no casts left drops OUT of the baseline rather than going
 to zero — `_build/casts_test.tl:48` reports `"%s: no casts left
 (baseline %d)"` and the regen command is the one the failure prints:
@@ -207,8 +217,9 @@ command the gate's failure prints — and commit the rewritten
   Those 17 sites are the sibling slice's work.
 - **Do not touch any non-test file.** In particular `_eval/score.tl`,
   `_eval/stage.tl`, `_eval/eval_types.tl` and `cosmic/shape.tl` are
-  unmoved: `3IOeg86u` is in flight over the first two, and this slice
-  must stay file-disjoint from it.
+  unmoved. `3IOeg86u` has since landed over the first two (PR #1378),
+  so this is no longer a race — it is the slice boundary: the non-test
+  half of the epic is done and this half touches only `*_test.tl`.
 - **Do not change `cosmic.shape`'s contract or add a combinator.** If a
   site needs a shape `cosmic.shape` cannot express, leave that site's
   cast in place, say so in the PR, and file it — do not widen the
@@ -237,7 +248,7 @@ into no committed file.
   ```
 
   reports `0` for every one of the six. Today the same command reports
-  12, 3, 2, 2, 1, 1 (measured 2026-08-25 at `cd87a765`), so it
+  12, 3, 2, 2, 1, 1 (re-measured 2026-08-26 at `fb2587ad`), so it
   discriminates.
 
 - **The tree-wide `from any` count fell by exactly 21.**
@@ -246,9 +257,11 @@ into no committed file.
   git ls-files '*.tl' | xargs grep -h -- "-- cast: .*from any" | wc -l
   ```
 
-  reports **144**. It reports 165 at `cd87a765`. If `main` has moved and
-  the base number is no longer 165, the check is that the number fell by
-  21 against this branch's merge base, not that it equals 144.
+  reports **76**. It reports 97 at `fb2587ad`. `main` moves fast under
+  this epic — the number was 165 on 2026-08-25 — so the check that
+  survives is the DELTA: run the command at the branch's merge base and
+  at its head, and the difference is 21. Do not treat 76 as the target
+  if the merge base is not `fb2587ad`.
 
 - **The ratchet floor was regenerated, not edited.**
 
@@ -316,8 +329,9 @@ exact error text. The records to validate into already exist in
 Conventions are AGENTS.md; the comment-and-prose standard is
 `skills/docs-style/SKILL.md`.
 
-`3IOeg86u` (the non-test half) is in flight over `_eval/score.tl` and
-`_eval/stage.tl`. It is deliberately NOT a blocker: this slice touches
-only `*_test.tl` and the shared `_build/casts_baseline.tl`, whose
-conflict is the mechanical regen the landing rule already covers — run
-the regen command again after merging `main` and commit the result.
+`3IOeg86u` (the non-test half) has landed over `_eval/score.tl` and
+`_eval/stage.tl` (PR #1378), so nothing is in flight against these
+files. What remains shared with every other slice under this epic is
+`_build/casts_baseline.tl`, and a conflict there is the mechanical
+regen the landing rule already covers — run the regen command again
+after merging `main` and commit the result.
