@@ -1,4 +1,8 @@
 return {
+  ["block_reason"] = {
+    ["3ISWHWQTq31NBoVzqQ3tH8G6aqQ"] = "the compare step dies on the type skew before measuring, so the regression cannot even be re-measured in the lane until the skew fix lands",
+  },
+  ["blocked_by"] = "3ISWHWQTq31NBoVzqQ3tH8G6aqQ",
   ["id"] = "3ISWHyP7awA0sy9WbVOyu0R5Qbq",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "backlog",
