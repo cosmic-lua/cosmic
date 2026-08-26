@@ -91,10 +91,16 @@ emitting text. Four files, plus tests:
    "``EncodeLua`` only: ..." like the two `EncodeJson` ones, and add the
    option to the `EncodeLua` prose list at `:2469-2530`. Same commit,
    per this repo's AGENTS.md.
-5. **`tool/lua/test_data_formats.lua`** — the encoder's existing test
-   home. One case per row of the table: with `literal = true` the value
-   returns `nil` and a non-empty string; with the option absent the SAME
-   value encodes to the SAME bytes it does today.
+5. **`tool/lua/test_data_formats.lua`** — the encoder-contract test
+   file, and already registered in `tool/lua/BUILD.mk:130-131,228`, so
+   cases added here need no build edit. `wc -l` is `288`; it holds 46
+   `EncodeJson` references and **zero** `EncodeLua` ones, so this slice
+   writes that binding's first behavioural cases there. Its
+   `EncodeJson` NaN/Infinity section is the model: the same value, once
+   refused under an option and once encoded without it. One case per
+   row of the table above — with `literal = true` the value returns
+   `nil` and a non-empty string; with the option absent the SAME value
+   encodes to the SAME bytes it does today.
 
 **Additive only.** With `literal` absent or false, `EncodeLua` must
 produce byte-identical output to today and refuse exactly what it
@@ -130,11 +136,18 @@ Run from the whilp/cosmopolitan repo root:
 - `make -j$(nproc) o//tool/lua/test` passes — the binding tests and the
   `definitions.lua` annotation-coverage ratchet.
 - `make -j$(nproc) o//tool/lua/lua` builds.
-- `grep -c 'literal' third_party/lua/cosmo.h` prints `1` or more
+- `grep -c 'bool literal' third_party/lua/cosmo.h` prints `1`
   (today `0`).
-- `grep -c 'literal' tool/lua/lcosmo.c` prints `1` or more (today `0`).
-- `grep -c 'literal' tool/net/definitions.lua` prints `2` or more
-  (today `0`) — the `@field` and the prose entry.
+- `grep -c 'conf\.literal' tool/lua/lcosmo.c` prints `1` or more
+  (today `0`), and the same over
+  `third_party/lua/luaencodeluadata.c` prints `1` or more (today `0`).
+  A bare `grep -c literal` is not the probe: `tool/lua/lcosmo.c` already
+  says it twice (`:83` a comment, `:132` a `lua_pushliteral`) and
+  `tool/net/definitions.lua` ten times.
+- `grep -c '@field literal' tool/net/definitions.lua` prints `1`
+  (today `0`).
+- `grep -c 'EncodeLua' tool/lua/test_data_formats.lua` prints `8` or
+  more (today `0`) — at least one per row of the domain table.
 - `wc -l third_party/lua/luaencodeluadata.c` prints a number ≤ `560`
   (today `444`).
 - With the built `o//tool/lua/lua`, each of these prints `nil` plus a
@@ -161,7 +174,8 @@ none needed. Every mechanism is in the tree: the option table is read
 at `tool/lua/lcosmo.c:104-156`, the config struct is
 `third_party/lua/cosmo.h:9-16`, the `reason`/`-1` refusal path is
 already what `LuaEncodeLuaData:435-439` surfaces, and
-`tool/lua/test_data_formats.lua` is the encoder's test home. The
+`tool/lua/test_data_formats.lua` is the encoder-contract test file and
+is already wired into `tool/lua/BUILD.mk`. The
 conventions that bind are this repo's AGENTS.md — surgical diffs, the
 `definitions.lua` update in the same commit, `o//tool/lua/test` before
 any PR.
