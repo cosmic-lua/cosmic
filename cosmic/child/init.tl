@@ -383,7 +383,7 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
     if opts.cwd then
       if not unix.chdir(opts.cwd) then
         local _ = unix.write(exec_w, "chdir failed: " .. tostring(opts.cwd))
-        os.exit(127)
+        os.exit(127) -- exits: forked child; the error is on the parent's pipe
       end
     end
 
@@ -399,7 +399,7 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
     -- Only reached when exec failed. Report the errno through the pipe so the
     -- parent's spawn() can return it, then exit distinctly.
     local _ = unix.write(exec_w, tostring(eerr))
-    os.exit(127)
+    os.exit(127) -- exits: forked child after a failed exec; returning would run two parents
   end
 
   if exec_fd then

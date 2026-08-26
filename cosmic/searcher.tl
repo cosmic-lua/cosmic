@@ -88,6 +88,7 @@ local function search_with(teal: TealSearch, module_name: string): any, any
   end
   local code, cerr = teal.compile_cached(found)
   if not code then
+    -- throws: package-searcher protocol; require reports found-but-broken by raising
     error("error loading module '" .. module_name .. "' from '"
       .. found .. "':\n" .. cerr, 0)
   end
@@ -100,6 +101,7 @@ local function search_with(teal: TealSearch, module_name: string): any, any
   end
   local chunk, lerr = load(lua_code, "@" .. found)
   if not chunk then
+    -- throws: package-searcher protocol; require reports found-but-broken by raising
     error("error loading module '" .. module_name .. "': " .. tostring(lerr), 0)
   end
   return chunk, found
@@ -277,6 +279,7 @@ local compiling = false
 local function load_built(path: string, name: string): any, any
   local chunk, lerr = loadfile(path)
   if not chunk then
+    -- throws: package-searcher protocol; require reports found-but-broken by raising
     error("error loading module '" .. name .. "' from '" .. path
       .. "': " .. tostring(lerr), 0)
   end
@@ -309,10 +312,12 @@ local function compile_tree(path: string, name: string): any, any
   local ok, code, cerr = pcall(teal.compile_cached, path, {strict = true})
   compiling = false
   if not ok then
+    -- throws: package-searcher protocol; require reports found-but-broken by raising
     error("error loading module '" .. name .. "' from '" .. path
       .. "': " .. tostring(code), 0)
   end
   if not code then
+    -- throws: package-searcher protocol; require reports found-but-broken by raising
     error("error loading module '" .. name .. "' from '" .. path
       .. "':\n" .. tostring(cerr), 0)
   end
@@ -322,6 +327,7 @@ local function compile_tree(path: string, name: string): any, any
   end
   local chunk, lerr = load(lua_code, "@" .. path)
   if not chunk then
+    -- throws: package-searcher protocol; require reports found-but-broken by raising
     error("error loading module '" .. name .. "': " .. tostring(lerr), 0)
   end
   return chunk, path
