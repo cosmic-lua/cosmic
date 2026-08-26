@@ -11,8 +11,8 @@ sized without research, the research IS the slice").
 **The measurement is DONE and recorded below.** What is left is the
 handover: the board grew the phase this shape needs — `gitboard move
 ID check --evidence`, landed 2026-08-26 as PR #1417 on the `board`
-branch — so the deliverable can now reach a reviewer. `## Change` is
-therefore the verification-and-handover, not a re-run.
+branch — so the deliverable can now reach a reviewer. The `Change`
+section below is therefore the verification-and-handover, not a re-run.
 
 ## Evidence
 
@@ -215,6 +215,28 @@ against `2026.08.21-07fc94a1c` → `build: FAIL (536 files)`,
   by the cosmos base and nothing else**, which is exactly the isolation
   this question needs.
 
+
+**Verified at pull, 2026-08-26.** The two follow-ups the evidence
+selected are both still on the board and open: `gitboard show
+3ISlWFiS` → `gitboard-show: 3ISlWFiS is backlog`, `gitboard show
+3ISlY5Xl` → `gitboard-show: 3ISlY5Xl is backlog`. Neither has been
+ended or re-scoped, so nothing above needed correcting.
+
+Both claims `## Evidence` rests on re-read clean from a
+whilp/cosmopolitan checkout at `/home/user/cosmopolitan`:
+`git log --oneline 07fc94a1c..354c17e08 -- tool/net/ljson.c
+third_party/lua/luadecodejsondata.c net/http/encodebase64.c
+net/http/decodebase64.c net/http/isbase64.c` printed NOTHING — both hot
+paths are byte-identical across the pin bump — and
+`git log --oneline 07fc94a1c..354c17e08` printed exactly five commits:
+`354c17e0` (DecodeLua, PR #274), `8dd093ce` (EncodeJson float
+formatting, PR #273), `5bfcf79d` (zipos handle recycling, PR #272),
+`8e071ec9` (sqlite3 header stubs, PR #270) and `bf92718a` (AGENTS.md,
+PR #269). The binary-layout hypothesis stands unchanged: `354c17e0` is
+the only one of the five that adds a translation unit.
+
+At the cosmic root, `git status --porcelain` is empty and `git worktree
+list` names no `o/ab` — this slice edited no product file.
 
 ## Change
 
