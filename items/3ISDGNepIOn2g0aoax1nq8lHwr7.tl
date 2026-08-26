@@ -3,5 +3,5 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "ready",
   ["repo"] = "whilp/cosmopolitan",
-  ["title"] = "cosmo.EncodeLua's literal option costs ~45% inside C: profile the per-value domain check before optimizing it",
+  ["title"] = "cosmo.EncodeLua literal mode: the 22-way reserved-word scan is 68% of the tax — bucket it by length",
 }
