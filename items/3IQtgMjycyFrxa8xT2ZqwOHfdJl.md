@@ -1,172 +1,147 @@
 ## Goal
 
 G3, via the cosmo-contracts container: the inventory that turns "two
-bindings fixed" into "the boundary is exact". A research slice: its
-deliverable is recorded evidence and the follow-up slices, not code.
+bindings fixed" into "the boundary is exact". Every `cosmo.*` binding
+whose first `@return` admits nil is classified — degenerate-input-only
+(a raise candidate), environmental (the union stays, but its tuple must
+be exact), or already exact — with evidence, and each of the first two
+kinds seeds a capture.
+
+This item is now a **container**: the walk is decomposed into twelve
+scoped research slices, one per row of the table below. Its own
+`Acceptance` is the union of theirs, and it ends when the last child
+does, after a refine that checks the union holds.
 
 ## Evidence
 
-Measured 2026-08-26 against whilp/cosmopolitan master `3c36bc35`:
-`tool/net/definitions.lua` is 8276 lines declaring 439 functions
-(`grep -c "^function" tool/net/definitions.lua`), of which 510
-`@return` lines carry `|nil` or `?`
-(`grep -c -E '^---@return [^ ]*(\|nil|\?)' tool/net/definitions.lua`).
-Two of those unions are already known degenerate-input-only
-(`path.join`, `clock_gettime` — the sibling slices); one tuple-shape
-deviation is already known (`nanosleep`'s slot 2 declared
-`integer|string remnanos`, sharing the success remainder with the
-error string, lines 5866–5869). Nobody has walked the rest.
+Measured 2026-08-26 against whilp/cosmopolitan master `1e165815` — the
+commit carrying both settled sibling contracts, `path.join` (#276,
+3IQtfuCx) and `unix.clock_gettime` (#277, 3IQtg7Sm).
 
-## Change
+The universe is one walk of `tool/net/definitions.lua`: for each
+`^function` declaration, classify the FIRST `@return` line of the
+contiguous `---` doc run directly above it — **NIL** when that line
+contains `|nil` or its type token ends in `?`, **EXACT** otherwise,
+**NONE** when the run declares no `@return`. As `census.awk`, run from
+the cosmopolitan repo root:
 
-Classify every binding whose FIRST `@return` admits nil, scoped to the
-modules cosmic wraps — the MODULES list of
-`tool/lua/test_definitions_coverage.lua`: cosmo, unix, path, re,
-argon2, lsqlite3, getopt, zip, cov, repl.
+```awk
+/^---/ { run[n++] = $0; next }
+/^function / {
+  name = $2; sub(/\(.*/, "", name)
+  cls = "NONE"
+  for (i = 0; i < n; i++) {
+    if (run[i] ~ /^---@return /) {
+      split(run[i], f, " ")
+      cls = (index(run[i], "|nil") > 0 || f[2] ~ /\?$/) ? "NIL" : "EXACT"
+      break
+    }
+  }
+  print cls "\t" name
+  n = 0; next
+}
+{ n = 0 }
+```
 
-For each, assign one class with evidence:
+```text
+$ awk -f census.awk tool/net/definitions.lua | cut -f1 | sort | uniq -c
+    209 EXACT
+    192 NIL
+     38 NONE
+$ grep -c '^function ' tool/net/definitions.lua
+439
+```
 
-1. **degenerate-input-only** — nil reachable only for an argument
-   shape no correct caller passes (the `path.join(nil)` class). Each
-   is a raise-candidate: file one capture per binding, attached under
-   this item's parent container, `--repo whilp/cosmopolitan`.
-2. **environmental or data-dependent** — a correct caller can meet the
-   failure (ENOENT, EINTR, bad input data). The union stays; verify
-   the tuple is exactly `T|nil, err string, errno?` with nothing else
-   sharing a slot. Each deviation (nanosleep's is the archetype) gets
-   its own capture.
-3. **exact already** — no action; one summary row.
+209 + 192 + 38 = 439, so the walk classifies every declaration and
+drops nothing. **192 nil-admitting bindings is the workload**, not the
+439 functions or the 510 `@return` lines the first spec quoted —
+neither of those bounds what the `Change` asked for.
 
-The evidence standard per capture, and per summary row: the C source
-cite (`file:line`), the definitions cite (`line`), one probe transcript
-against the built binary (`o//tool/lua/lua -e '...'`) demonstrating the
-reachability class, and the cosmic-side spend
-(`grep -rn '<binding>' cosmic/` in a cosmic checkout, listing the
-wrapper sites that guard or assert it today).
+**This supersedes the per-module figures in the bounce note below.**
+That walk reported `unix` 128 (it predates #277), `lsqlite3` 30, and
+"`cov` and `repl` declare 2 bindings between them". Re-derived here:
+`unix` 127, `lsqlite3` 22 NIL of 108 declarations, and `cov`/`repl`
+declare 7 between them, all EXACT. Re-run the command above rather than
+either note's numbers.
 
-Record the summary table (binding, class, probe command, capture id or
-"exact") back onto THIS item with `gitboard spec`, then finish per
-review.md's research-slice clause — the deliverable is the board
-state, no product PR.
+## The decomposition
+
+`unix`'s 127 are cut by family. The eight families partition that 127
+exactly — no binding in two, none left out — checked with `comm` over
+the sorted walk output and the sorted family lists. Each child carries
+its own scope list verbatim, plus the classes, the evidence standard
+and the capture rule, so none of them needs to read this item.
+
+| child | scope | rows |
+|---|---|---|
+| 3IR2Pzsv | unix filesystem namespace operations | 22 |
+| 3IR2RMdN | unix stat, directory streams and temp fds | 11 |
+| 3IR2RYCJ | unix descriptor and terminal I/O | 17 |
+| 3IR2RpK9 | unix sockets and network | 21 |
+| 3IR2SFOq | unix ids, credentials and sessions | 15 |
+| 3IR2SQaC | unix process, exec and scheduling | 12 |
+| 3IR2SiiK | unix sandboxing, namespaces and limits | 16 |
+| 3IR2SvRb | unix signals, time and environment | 13 |
+| 3IR2TE1O | lsqlite3 | 22 |
+| 3IR2TQdU | the top-level `cosmo` surface | 22 |
+| 3IR2TpB3 | zip | 14 |
+| 3IR2U42t | re, getopt and argon2 | 7 |
+
+127 + 22 + 22 + 14 + 7 = 192, the walk's NIL total.
+
+Sizing: the bounce priced the evidence standard at four artifacts per
+row and a session at roughly a dozen rows, so no child exceeds 22 and
+the median is 15. `path` (7 bindings, all exact since #276) and
+`cov`/`repl` (7 bindings, all exact) contribute no rows and get no
+child.
+
+## Two findings already in hand
+
+Summary rows the children inherit rather than re-derive:
+
+- **`path` is exact, entirely.** All 7 of `join`, `basename`,
+  `dirname`, `exists`, `isfile`, `isdir`, `islink` have a non-nil first
+  `@return`. `join` was the last, closed by 3IQtfuCx (#276).
+- **`cov` and `repl` are exact**, in all 7 of their declarations.
+
+The two known-degenerate bindings the original Evidence named are both
+settled: `path.join` by #276 and `unix.clock_gettime` by #277, which is
+why neither appears in the 192.
 
 ## Non-goals
 
-- No code change in either repo — captures and evidence only.
-- No re-litigating the two settled siblings; their rows cite the
-  sibling ids.
-- No captures for class-3 rows, and no scope creep past the coverage
-  test's MODULES list (fetch/lfetch surfaces belong to their own
-  board thread).
-- No promotion of the filed captures — ordering them is the goal
-  owner's compare, after this slice reports.
+- No code change in either repo — this container and its children
+  produce captures and evidence only.
+- No scope past the modules the coverage test's `MODULES` list names
+  (`tool/lua/test_definitions_coverage.lua`). The `fetch`/`lfetch`
+  surfaces belong to their own board thread.
+- No promotion of the filed captures, and none of the children — the
+  order is the goal owner's `compare`.
 
 ## Acceptance
 
-- This item's spec carries the summary table, and its row set is
-  complete over the scope: every scoped `function` block whose first
-  `@return` matches `-E '^---@return [^ ]*(\|nil|\?)'` appears exactly
-  once (the two greps above bound the universe; state the scoped count
-  the walk found beside the command that found it).
-- Every class-1 and class-2-deviation row names a filed capture id;
-  `gitboard tree` under the parent container lists them.
-- Every row's probe command is literally runnable from the
-  cosmopolitan repo root against `o//tool/lua/lua`.
-
-## Bounced 2026-08-26 — the slice is ~15x a session, on a number the
-## spec never measured
-
-Pulled and bounced without a PR at whilp/cosmopolitan `5fb988db`
-(master carrying the merged sibling #276). Nothing about the METHOD was
-found wanting — the three classes, the evidence standard and the
-capture rule are all right. What breaks is the size, and the missing
-measurement is the one that decides it.
-
-**The universe the Evidence never counted.** The spec sizes itself on
-"439 functions … 507 `@return` lines carry `|nil` or `?`", but the
-`Change` scopes the walk to bindings whose **FIRST** `@return` admits
-nil. That count is not in the spec, and it is the whole workload.
-Measured at `5fb988db` by walking each `function` block's first
-`@return` (an awk pass over `git show
-origin/master:tool/net/definitions.lua`; a `@return` line matches when
-it contains `|nil` or its type ends in `?`):
-
-```text
-201 bindings whose first @return admits nil
-200 whose first @return is exact
- 38 with no @return at all
-```
-
-Per module, over that 201 (`grep '^NIL' | awk '{print $2}' |
-sed 's/[:.].*//' | sort | uniq -c | sort -rn`):
-
-| module | nil-admitting | note |
-|---|---|---|
-| `unix` | 128 | 46 of the 201 overall are `:` methods |
-| `lsqlite3` | 30 | |
-| `cosmo` | 22 | |
-| `zip` | 14 | |
-| `re` | 5 | |
-| `getopt` | 1 | |
-| `argon2` | 1 | |
-| `path` | 0 | closed by #276 — see below |
-| `cov`, `repl` | 0 | 2 bindings total, both exact |
-
-**Why that breaks the shape.** The evidence standard is four artifacts
-per row — a C `file:line`, a definitions line, a probe transcript run
-against `o//tool/lua/lua`, and a `grep -rn` of the cosmic-side spend.
-201 rows is roughly 800 artifacts, and `Acceptance` additionally
-requires a filed capture for **every** class-1 and class-2-deviation
-row. Even at a conservative one-in-four, that is dozens of new items
-against a triage queue whose limit is 8 — so the slice as written
-would either flood the board or be quietly truncated, and a census
-that silently stops is worse than none. `decompose.md`'s smell
-threshold is a diff a session can hold in its head; this is ~15x a
-session's worth of walking.
-
-**Proposed decomposition** (the goal owner's to order, not this
-session's to place): one slice per module, each self-contained because
-the classes, the evidence standard and the capture rule are already
-written above and can be copied verbatim into each child.
-
-- `unix` (128) needs cutting further on its own — one slice per family
-  (fd/file, process, socket, time, signal, ids) rather than one slice
-  of 128. Sizing that cut is the first refinement job.
-- `lsqlite3` (30), `cosmo` (22), `zip` (14) are each plausibly one
-  session.
-- `re` (5), `getopt` (1), `argon2` (1), `cov`/`repl` (0) collapse into
-  a single tail slice of 7 rows.
-
-Each child keeps this item's `## Change`, `## Non-goals` and evidence
-standard unchanged, with the scope line naming its module and the
-count above as its measured universe. This item then becomes the
-container they hang under, and its own `Acceptance` becomes the union
-of theirs.
-
-**Two findings already in hand, free of the walk.** Both are summary
-rows the decomposition should carry rather than re-derive:
-
-- **`path` is now exact, entirely.** All 7 of its bindings — `join`,
-  `basename`, `dirname`, `exists`, `isfile`, `isdir`, `islink` — have
-  a non-nil first `@return` at `5fb988db`. `join` was the last one,
-  and the sibling slice 3IQtfuCx (#276, merged) closed it. The module
-  needs no census slice at all.
-- **`cov` and `repl` declare 2 bindings between them, both exact.**
-  They are inside the `Change`'s scope list but contribute no rows.
-
-The two known-degenerate bindings the Evidence names are also both
-settled now: `path.join` by #276, and `clock_gettime` by 3IQtg7Sm
-(#277, green and in review at the time of this bounce), which is why
-neither appears in the 201 above when measured against a master
-carrying them.
+- Every child above has ended, each having recorded its own summary
+  table and filed its class-1 and class-2-deviation captures.
+- The union check: the children's row counts sum to 192, and
+  re-running `census.awk` at that time yields no nil-admitting binding
+  that appears in no child's table.
+- `gitboard tree` under this item lists the twelve children and the
+  captures they seeded.
 
 ## Enablement
 
-none needed. Parallel-safe with the two sibling contract slices —
-this slice writes no repo files, so no ordering constraint exists.
+none needed. Each child is workable from its own spec. The children
+write no repo files, so they are parallel-safe with each other and with
+any contract slice they seed.
 
-The bounce above is this item's own specification failure: the
-`Evidence` asserted two counts (`439 functions`, `507 @return lines`)
-that do not bound the work the `Change` asks for, and never measured
-the one that does. The countermeasure is the measured table above,
-with the command that produced it, carried into whatever children this
-becomes — not a new enablement item.
+## Bounce record, 2026-08-26
+
+Pulled and bounced without a PR at `5fb988db`. Nothing about the METHOD
+was found wanting — the three classes, the evidence standard and the
+capture rule are all carried into the children unchanged. What broke
+was the size: the spec sized itself on counts (439 functions, 510
+`@return` lines) that do not bound the walk its `Change` asked for, and
+never measured the one that does. The countermeasure is the measured
+table above with the command that produced it, and the decomposition it
+justifies — this item's own specification failure, not a new enablement
+item.
