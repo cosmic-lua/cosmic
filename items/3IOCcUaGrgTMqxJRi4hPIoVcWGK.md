@@ -3,7 +3,7 @@
 G5 — adversarial verification. The parent container's phase 1: the
 contract every other slice under it lands against. A test runs because
 it is DEFINED, and this record settles what that costs before any of
-the runner, the toolchain seam, or the 2,871-line migration is written.
+the runner, the toolchain seam, or the 2,870-line migration is written.
 
 ## Evidence
 
@@ -37,11 +37,11 @@ Measured 2026-08-26 at main `7e8e1170`, from the repo root.
 
   ```text
   git ls-files '*_test.tl' | wc -l                                      # 266
-  git ls-files '*_test.tl' | xargs grep -hcE '^local function test_' | paste -sd+ | bc   # 2871
-  git ls-files '*_test.tl' | xargs grep -hcE '^test_[A-Za-z0-9_]*\(\)$' | paste -sd+ | bc # 2871
+  git ls-files '*_test.tl' | xargs grep -hcE '^local function test_' | paste -sd+ | bc   # 2870
+  git ls-files '*_test.tl' | xargs grep -hcE '^test_[A-Za-z0-9_]*\(\)$' | paste -sd+ | bc # 2870
   ```
 
-  The doc says "2,786 call lines across 260 files"; it is **2,871 across
+  The doc says "2,786 call lines across 260 files"; it is **2,870 across
   266** today, and definitions and call lines are equal — the tree is
   entirely legacy-mode, which is what makes the all-or-nothing rule land
   green with zero test edits. Use today's numbers in the record.
@@ -82,7 +82,7 @@ One new file plus the derived index. No code.
    real numbers.
 
    - **context** — the three mechanisms above, with the measured counts
-     (266 files, 2,871 definitions, 2,871 call lines, equal today), and
+     (266 files, 2,870 definitions, 2,870 call lines, equal today), and
      the three costs the convention carries: the first failure kills the
      file, so one run reports one defect; a test has no per-test
      identity, so narrowing is by file path only and there is no
@@ -207,7 +207,7 @@ Run from the repo root.
   ```
 
 - `git ls-files '*_test.tl' | xargs grep -hcE '^test_[A-Za-z0-9_]*\(\)$' | paste -sd+ | bc`
-  still prints `2871` — unchanged, because this slice migrates nothing.
+  still prints `2870` — unchanged, because this slice migrates nothing.
 
 ## Enablement
 
