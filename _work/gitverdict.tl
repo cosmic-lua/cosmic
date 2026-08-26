@@ -44,6 +44,17 @@ local VERDICT_MOVES: {string: string} = {
   ["reject"] = "backlog",
 }
 
+--- The spellings people actually type for the middle verdict: the
+--- GitHub hyphenation and review.md's noun. Both mean "request
+--- changes" — without them a guessed spelling falls through to the
+--- unknown-kind error, and the next guess a reviewer reaches for is
+--- reject, whose move is much harsher (backlog spends the commitment;
+--- do keeps the builder's claim).
+local KIND_ALIASES: {string: string} = {
+  ["request-changes"] = "request changes",
+  ["rework"] = "request changes",
+}
+
 --- Whether an `--enable` value is one of the two shapes a filed
 --- countermeasure takes: the id of an item that exists, or `none`
 --- carrying a reason. Anything else — a bare `none`, an id of nothing
@@ -61,9 +72,14 @@ end
 
 local function cmd_verdict(s: store.Store, id: string, kind: string,
     pr: integer, head: string, enable: string, session?: string): integer
+  kind = KIND_ALIASES[kind] or kind
   local target = VERDICT_MOVES[kind]
   if target == nil then
-    return gate.verdict_line("verdict", false, ("unknown verdict: %s"):format(kind))
+    return gate.verdict_line("verdict", false,
+      ("unknown verdict: %s — the kinds are accept, 'request changes' "
+        .. "(to do, claim kept; request-changes and rework are "
+        .. "aliases) and reject (to backlog, commitment spent)")
+      :format(kind))
   end
   local it, lerr = store.load(s, id)
   if it == nil then
