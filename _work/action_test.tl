@@ -400,3 +400,34 @@ local function test_reviewable_skips_a_past_builder()
     "nor is the session holding the claim: " .. for_b.kind)
 end
 test_reviewable_skips_a_past_builder()
+
+local function test_anothers_live_rework_is_held()
+  local goal = make({})
+  local theirs = make({parent = goal.id, phase = "do", claim = "session-A",
+      verdict = "request changes"})
+  local ready = make({parent = goal.id, phase = "ready"})
+  local items: {item.Item} = {goal, theirs, ready}
+  local mine = act.next_action(items, "session-B")
+  assert(mine.kind == "pull" and mine.item.id == ready.id,
+    "a live claim holds rework like any other work: " .. mine.kind)
+  local theirs_again = act.next_action(items, "session-A")
+  assert(theirs_again.kind == "finish" and theirs_again.item.id == theirs.id,
+    "the builder still finishes their own rework: " .. theirs_again.kind)
+end
+test_anothers_live_rework_is_held()
+
+local function test_stale_rework_is_offered_as_a_forced_takeover()
+  local goal = make({})
+  local theirs = make({parent = goal.id, phase = "do", claim = "session-A",
+      verdict = "request changes"})
+  local items: {item.Item} = {goal, theirs}
+  local ages: {string: integer} = {[theirs.id] = 5 * 60 * 60}
+  local action = act.next_action(items, "session-B", ages)
+  assert(action.kind == "finish" and action.item.id == theirs.id,
+    "a stale rework claim is anyone's to take over: " .. action.kind)
+  assert(action.reason:find("rework of session-A's build", 1, true),
+    "the guidance names whose build it was: " .. action.reason)
+  assert(action.reason:find("--force --why", 1, true),
+    "the guidance carries what the move guard demands: " .. action.reason)
+end
+test_stale_rework_is_offered_as_a_forced_takeover()

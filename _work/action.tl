@@ -56,12 +56,14 @@ local type Item = item.Item
 local type Action = decision.Action
 
 --- Whether an item carries a standing verdict that sent it BACK. A
---- `request changes` verdict returns the item to `do` and leaves the
---- claim naming who built it, so without this a rework would be
---- actionable by exactly one session — and stranded, along with
---- everything blocked on it, the moment that session stopped waking.
---- Only an accept moves an item forward, so anything else standing on
---- an item still in flight is work sent back for someone to do.
+--- `request changes` verdict returns the item to `do` with the claim
+--- naming who built it. A LIVE claim over rework is the builder mid
+--- build-test-push loop — the board sees none of that activity, so
+--- liveness is the lease's to judge, the same as every other claim;
+--- a rework whose claimant stopped waking surfaces when the lease
+--- expires and is taken over through the same --force takeover any
+--- stale claim gets. This predicate only decorates the takeover
+--- guidance with whose build it was.
 --- @param i Item The item
 --- @return boolean True when a non-accept verdict stands on it
 local function is_rework(i: Item): boolean
@@ -102,7 +104,7 @@ local function unheld(b: flow.Board, phase: string, session: string,
   local held = 0
   for _, i in ipairs(flow.queued(b, phase, pos)) do
     if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    and not is_rework(i) and not health.is_stale(i, ages) then
+    and not health.is_stale(i, ages) then
       held = held + 1
     elseif first == nil then
       first = i
@@ -124,7 +126,7 @@ local function held_names(b: flow.Board, session: string,
   local out: {string} = {}
   for _, i in ipairs(flow.queued(b, "do", pos)) do
     if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    and not is_rework(i) and not health.is_stale(i, ages) then
+    and not health.is_stale(i, ages) then
       out[#out + 1] = ("%s @%s"):format(i.id:sub(1, 8), i.claim)
     end
   end
@@ -254,17 +256,16 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
   local doing, held = unheld(b, "do", session, pos, ages)
   if doing and handover_open then
     local whose = ""
-    if is_rework(doing) and session ~= "" and doing.claim ~= session then
-      -- Taking over somebody's rework means the claim has to move, or
-      -- the item goes back to `check` still naming them and the next
-      -- verdict keeps its distance from the wrong session.
-      whose = (" (rework of %s's build — hand it back with --claim %s)")
-      :format(doing.claim ~= "" and doing.claim or "an earlier session",
-        session)
-    elseif session ~= "" and doing.claim ~= session
-    and health.is_stale(doing, ages) then
-      whose = (" (%s's claim is stale %dh — take it over: move it with "
-        .. "--claim %s)"):format(doing.claim,
+    if session ~= "" and (doing.claim or "") ~= ""
+    and doing.claim ~= session then
+      -- An offered item holding another session's claim is stale by
+      -- construction (a live foreign claim is held). The takeover
+      -- moves the claim, so the guidance carries everything the move
+      -- guard demands — --force --why, on the record.
+      local kind = is_rework(doing) and
+      ("rework of %s's build; "):format(doing.claim) or ""
+      whose = (" (%sclaim stale %dh — take it over: move it with "
+        .. "--claim %s --force --why <reason>)"):format(kind,
         health.stale_hours(doing, ages), session)
     elseif (doing.claim or "") ~= "" then
       whose = (" (claimed by %s)"):format(doing.claim)
