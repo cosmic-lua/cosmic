@@ -4,9 +4,8 @@ return {
   },
   ["blocked_by"] = "3IOCcUaGrgTMqxJRi4hPIoVcWGK",
   ["builders"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
-  ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3IOCd5xWTrFMapYoWJTE4vh7ftF",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "do",
+  ["phase"] = "ready",
   ["title"] = "test discovery: one lexer walk classifies a test file and yields its ordered cases",
 }
