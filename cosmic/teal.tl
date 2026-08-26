@@ -164,8 +164,7 @@ local function search_module(module_name: string, include_dirs?: {string}): stri
   local found, fd = tl.search_module(module_name, false)
   tl.path = saved_tl_path
   if fd ~= nil then
-    local f = fd as FILE -- cast: from any
-    f:close()
+    fd:close()
   end
   return found
 end

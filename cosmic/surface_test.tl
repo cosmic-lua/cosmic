@@ -89,7 +89,8 @@ local function test_directory_module_entry_points()
     fs = "read",
   }
   for name, fn in pairs(surface) do
-    local mod = require("cosmic." .. name) as {string: any} -- cast: from any
+    local mod = require("cosmic." .. name)
+    assert(mod is {string: any}, name .. ": module did not yield a table")
     assert(type(mod[fn]) == "function",
       "cosmic." .. name .. " must expose " .. fn .. "()")
   end
