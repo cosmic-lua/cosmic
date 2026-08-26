@@ -157,3 +157,26 @@ local function test_accept_without_an_origin_still_routes_to_land()
   assert(landed.resolution == "", "the item is not ended here")
 end
 test_accept_without_an_origin_still_routes_to_land()
+
+-- The middle verdict's canonical spelling has a space; the hyphenated
+-- and noun spellings must mean the same thing, and a genuinely unknown
+-- kind must teach the vocabulary instead of inviting a harsher guess.
+local function test_kind_aliases_and_the_teaching_refusal()
+  local s = init_state_repo("verdict-alias")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 7, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "definitely-not-a-kind", 7, "abc1234",
+      "none: test") ~= 0, "an unknown kind is refused")
+  assert(vrd.cmd_verdict(s, leaf, "request-changes", 7, "abc1234",
+      "none: test") == 0, "the hyphenated spelling is the middle verdict")
+  local it = check.must(store.load(s, leaf))
+  assert(it.phase == "do", "and it moves to do, not backlog: " .. it.phase)
+  assert(it.claim == "session-a", "with the builder's claim kept")
+  assert(it.verdict == "request changes",
+    "recorded under the canonical spelling: " .. tostring(it.verdict))
+end
+test_kind_aliases_and_the_teaching_refusal()
