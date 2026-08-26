@@ -50,9 +50,9 @@
 local record Spec
   --  Which validator this node is: one of the primitive names
   --  ("string", "number", "integer", "boolean", "any") or a container
-  --  name ("list", "map", "record").
+  --  name ("list", "map", "integer_map", "record").
   kind: string
-  --  The element Spec, for "list" and "map".
+  --  The element Spec, for "list", "map" and "integer_map".
   of: Spec
   --  The declared fields, for "record".
   fields: {string: Spec}
@@ -88,6 +88,27 @@ function map(of: Spec): Spec
 ```
 
  A table with string keys whose every value has shape `of`.
+
+**Parameters:**
+
+- `of` (Spec) - The value shape
+
+**Returns:**
+
+- Spec - The node
+
+### integer_map
+
+```teal
+function integer_map(of: Spec): Spec
+```
+
+ A table with integer keys whose every value has shape `of`.
+ The keys need not be dense, which is the whole difference from
+ `list`: `{[3] = 7, [9] = 1}` is an integer_map and not a list.
+ JSON has no integer keys, so a value of this shape reaches `into`
+ only from a Lua-valued source — a loaded chunk, or `literal` once it
+ reads integer bracket keys.
 
 **Parameters:**
 
