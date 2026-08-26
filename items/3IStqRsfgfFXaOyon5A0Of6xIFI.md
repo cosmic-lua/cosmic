@@ -3,7 +3,7 @@
 `move ID check --evidence` — landed 2026-08-26 as PR #1417 (`board`
 `c2b5edde`), the whole point of which is a handover that carries no PR
 — is unreachable on the real board. The FIRST attempt to use it, on
-item `3ISWHyP7` at `board` `bc2cae4c`, was refused:
+item `3ISWHyP7` at `board` `a1be06e5` (the machinery is unchanged since `c2b5edde`, and `git log --oneline c2b5edde..a1be06e5 -- _work/` prints nothing), was refused:
 
 ```
 $ o/bin/gitboard move 3ISWHyP7 check --evidence
@@ -11,7 +11,7 @@ gitboard-move: REFUSED: cannot read PR #0: GET /repos/whilp/cosmic/pulls/0:
   HTTP 404: Not Found; --force to hand it over anyway
 ```
 
-The cause, read at `board` `bc2cae4c`:
+The cause, read at `board` `a1be06e5` (the machinery is unchanged since `c2b5edde`, and `git log --oneline c2b5edde..a1be06e5 -- _work/` prints nothing):
 
 - `_work/gitverbs.tl:151-157` — every move to `check` that is not
   forced calls `gate.handover_refusal(s, id, (pr or 0) ~= 0 and pr or
@@ -46,4 +46,4 @@ documents stays true for every PR-carrying handover.
 blocked on it in `do`, its measurement complete and its spec written
 to hand over. Nothing else uses `--evidence` yet.
 
-Measured 2026-08-26 from `o/board` at `board` `bc2cae4c`.
+Measured 2026-08-26 from `o/board` at `board` `a1be06e5` (the machinery is unchanged since `c2b5edde`, and `git log --oneline c2b5edde..a1be06e5 -- _work/` prints nothing).
