@@ -274,10 +274,13 @@ end
 
 local record ReturnsModule
   check_fallible_returns: function(file: string, content: string): {Diagnostic}
+  skip_balanced: function(tokens: {Token}, i: integer,
+  open: string, close: string): integer
 end
 
 local M: ReturnsModule = {
   check_fallible_returns = check_fallible_returns,
+  skip_balanced = skip_balanced,
 }
 
 return M

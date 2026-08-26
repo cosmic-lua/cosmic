@@ -220,6 +220,36 @@ print(earliest)
 an all-nil multi declaration (`local a, b = nil, nil`) is flagged too;
 a mixed right-hand side is left to the checker's error-site hint.
 
+## return-assert
+
+`assert` is declared with ONE return, which is what lets
+`local db = assert(open(path))` yield a plain `Database` instead of a
+union. Lua's `assert` actually returns ALL of its arguments, so in
+return position that declaration is a lie:
+
+```text
+local function join(a: string, b: string): string
+  return assert(joined, "join: every argument was nil")  -- two values
+end
+```
+
+the checker reads one value; at runtime the function returns two, and
+the second one appears wherever the call sits in a multiple-value
+position — `table.insert(out, join(dir, entry))` becomes the
+three-argument `table.insert` and fails with an error naming neither
+function. assert as a statement keeps the arity honest:
+
+```text
+assert(joined, "join: every argument was nil")
+return joined
+```
+
+only the trapping shape fires: two or more arguments, and the call is
+the last expression of the return list. `return assert(v)` returns one
+value, `return assert(v, m), other` truncates the call to one, and
+`return (assert(v, m))` truncates it too — none of those is flagged.
+`check.must` is a real one-value function and is never flagged.
+
 ## visibility
 
 a module under `cosmic/` may only be required from outside `cosmic/`
