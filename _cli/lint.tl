@@ -14,6 +14,7 @@
 --- too, which produced 170 false positives on a tree that follows the
 --- convention exactly.
 
+local citations = require("_cli.citations")
 local fs = require("cosmic.fs")
 local pattern_args = require("_cli.pattern_args")
 local reads_lint = require("_cli.reads_lint")
@@ -420,6 +421,14 @@ local function lint_file(path: string): {Diagnostic} | nil, string
       diagnostics[#diagnostics + 1] = d
     end
     for _, d in ipairs(visibility.check_shard_require(path, lines)) do
+      diagnostics[#diagnostics + 1] = d
+    end
+  end
+  -- Prose is gated too: a document citing the tree by `file:line` is
+  -- evidence a reader cannot re-derive, so the citation is checked the
+  -- way a cast's justification is.
+  if path:match("%.md$") then
+    for _, d in ipairs(citations.check_citations(path, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
   end

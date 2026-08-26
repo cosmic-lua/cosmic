@@ -14,6 +14,7 @@ return {
   ["_cli/build/steps.tl"] = {["covered"] = 166, ["total"] = 219},
   ["_cli/build/work.tl"] = {["covered"] = 161, ["total"] = 199},
   ["_cli/check.tl"] = {["covered"] = 24, ["total"] = 31},
+  ["_cli/citations.tl"] = {["covered"] = 127, ["total"] = 129},
   ["_cli/driver.tl"] = {["covered"] = 21, ["total"] = 34},
   ["_cli/env_vars.tl"] = {["covered"] = 72, ["total"] = 72},
   ["_cli/grants.tl"] = {["covered"] = 158, ["total"] = 168},
