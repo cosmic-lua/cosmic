@@ -56,7 +56,7 @@ local record RandModule
   bytes: function(n: integer): string
   int: function(min: integer, max: integer): integer
   float: function(): number
-  choice: function(list: {any}): any
+  choice: function<T>(list: {T}): T | nil
   shuffle: function(list: {any}): {any}
   token: function(len?: integer): string
   insecure64: function(): integer
@@ -131,18 +131,18 @@ function float(): number
 ### choice
 
 ```teal
-function choice(list: {any}): any
+function choice(list: {T}): T | nil
 ```
 
  Pick one element of a list uniformly at random (crypto-grade).
 
 **Parameters:**
 
-- `list` ({any}) - The list to pick from
+- `list` ({T}) - The list to pick from
 
 **Returns:**
 
-- any - The chosen element; nil only when the list is empty
+- T - | nil The chosen element; nil only when the list is empty
 
 ### shuffle
 
