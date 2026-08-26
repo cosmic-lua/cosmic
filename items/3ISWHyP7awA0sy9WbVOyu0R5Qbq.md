@@ -257,6 +257,41 @@ needs no rewrite — it becomes runnable the moment `3IStqRsf` lands.
 that `--evidence` exists to impose, and the `work` skill reserves
 forcing for repair.
 
+**Verified again at pull, 2026-08-26 — the blocker landed and the
+handover ran.** `3IStqRsf` (PR #1418, squash-merged into `board` as
+`7a2f3e4e`) fixed the check gate: `cmd_move` now runs
+`gate.handover_refusal` only when a PR number is in hand, so an
+evidence handover no longer asks GitHub about PR #0. Step 4 below
+needed no rewrite. On the diagnosability question this item's
+`## Enablement` asked to be answered in the handover: the refusal that
+blocked the earlier attempt was `cannot read PR #0: GET
+/repos/whilp/cosmic/pulls/0: HTTP 404: Not Found`, which names the
+GitHub read and not the sidecar — it is diagnosable as a tool defect,
+but it says nothing about the `## Result` grammar, so the separate
+friction about `section_of` being exact-match and depth-blind is
+untouched by this fix and remains worth a capture if it recurs.
+
+Step 1 re-read both follow-ups and both are still on the board and
+open: `gitboard show 3ISlWFiS` → `gitboard-show: 3ISlWFiS is backlog`,
+`gitboard show 3ISlY5Xl` → `gitboard-show: 3ISlY5Xl is backlog`.
+Neither has been ended or re-scoped, so nothing above needed
+correcting.
+
+Step 2 re-read both `## Evidence` claims from the whilp/cosmopolitan
+checkout at `/home/user/cosmopolitan`, freshly fetched:
+`git log --oneline 07fc94a1c..354c17e08 -- tool/net/ljson.c
+third_party/lua/luadecodejsondata.c net/http/encodebase64.c
+net/http/decodebase64.c net/http/isbase64.c` printed NOTHING, and
+`git log --oneline 07fc94a1c..354c17e08` printed exactly the same five
+commits as before: `354c17e08` (DecodeLua, #274), `8dd093cea`
+(EncodeJson float formatting, #273), `5bfcf79d0` (zipos handle
+recycling, #272), `8e071ec98` (sqlite3 header stubs, #270) and
+`bf92718a1` (AGENTS.md, #269). Both hot paths remain byte-identical
+across the pin bump and the binary-layout hypothesis stands unchanged.
+
+At the cosmic root `git status --porcelain` is empty and `git worktree
+list` names no `o/ab`; this slice edited no product file.
+
 ## Change
 
 The measurement is complete and recorded in `## Result`. Nothing is
