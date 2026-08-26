@@ -7,10 +7,9 @@ return {
   ["blocked_by"] = "3ISWHWQTq31NBoVzqQ3tH8G6aqQ 3ISltQMhob9AijyuE6tg70vN1k7 3IStqRsfgfFXaOyon5A0Of6xIFI",
   ["builders"] = "2193cf4f-c63b-584f-80fe-7f97567843c5 77b4f3ab-41c0-54aa-8f07-edca34169b73 c16dd460-326a-50f1-b68a-6203f2b87f11",
   ["claim"] = "c16dd460-326a-50f1-b68a-6203f2b87f11",
-  ["enable"] = "none: this item's own spec was the fault — it asserted \"only 354c17e0 changes what the binary contains\" from a filtered five-path git log that cannot support it, where the unfiltered per-commit stats (8dd093cea touches luaencodejsondata.c, 5bfcf79d0 touches zipos-open.c) contradict it. The countermeasure is the freshly measured claim with its command in the re-refined spec, per review.md.",
   ["id"] = "3ISWHyP7awA0sy9WbVOyu0R5Qbq",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "check",
+  ["resolution"] = "completed",
   ["title"] = "release gate red: json_decode_large +12% and codec_base64_roundtrip_64k +21% vs 2026-08-23-d71d7f1 — root-cause or re-baseline",
-  ["verdict"] = "request changes",
+  ["verdict"] = "accept",
 }
