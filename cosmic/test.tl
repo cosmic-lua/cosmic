@@ -1,6 +1,6 @@
 --- The in-process test runner: a test runs because it was defined.
 --- `main` takes the ordered cases a test file's toolchain-generated tail
---- hands it, runs each under `pcall` so one failure never hides the
+--- hands it, runs each under `xpcall` so one failure never hides the
 --- rest, prints the failures and a counts line, and RETURNS the exit
 --- code its caller turns into the process's status. It never exits and
 --- never throws: only `cosmic.check` may do either.
