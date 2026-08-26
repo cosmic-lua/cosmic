@@ -1,10 +1,73 @@
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local check = require("cosmic.check")
+local shape = require("cosmic.shape")
 local str = require("cosmic.string")
 local score = require("_eval.score")
+local eval_types = require("_eval.eval_types")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+
+--- results.json's meta object: eval_types.ResultMeta field for field.
+--- cosmic_version is the one optional -- stage.tl leaves it unset when
+--- the staged binary's version could not be resolved.
+local META < const > = shape.record({
+    timestamp = shape.number,
+    suite_version = shape.integer,
+    bin = shape.string,
+    bin_sha = shape.string,
+    cosmic_version = shape.optional(shape.string),
+    os = shape.string,
+    isa = shape.string,
+    model = shape.string,
+    agent_tool = shape.string,
+    timeout_secs = shape.integer,
+    probe_output = shape.string,
+    leaked = shape.boolean,
+  })
+
+--- One scored row: eval_types.Row field for field. score_row always
+--- writes task, status, silent_bugs, journal_path and friction; the
+--- eight journal-derived fields are nullable in v1 and are left nil
+--- rather than guessed, so each is optional here.
+local ROW < const > = shape.record({
+    task = shape.string,
+    status = shape.string,
+    silent_bugs = shape.integer,
+    checker_errors = shape.optional(shape.integer),
+    cycles = shape.optional(shape.integer),
+    attempts_first_build = shape.optional(shape.integer),
+    attempts_green_ci = shape.optional(shape.integer),
+    gate_adopted = shape.optional(shape.boolean),
+    denials = shape.optional(shape.integer),
+    denial_recovery_steps = shape.optional(shape.integer),
+    self_report_clean = shape.optional(shape.boolean),
+    journal_path = shape.string,
+    friction = shape.list(shape.string),
+  })
+
+--- The whole results.json, validated into eval_types.EvalResults.
+local RESULTS < const > = shape.record({
+    meta = META,
+    rows = shape.list(ROW),
+    verdict = shape.string,
+  })
+
+--- The same file read as plain tables, for the two tests whose subject
+--- is which field NAMES results.json carries. A record field typed
+--- {string: any} keeps `meta[field]` legal where `field` is a loop
+--- variable, which validating into ResultMeta/Row would not.
+local record RawResults
+  meta: {string: any}
+  rows: {{string: any}}
+  verdict: string
+end
+
+local RAW_RESULTS < const > = shape.record({
+    meta = shape.map(shape.any),
+    rows = shape.list(shape.map(shape.any)),
+    verdict = shape.string,
+  })
 
 --- Copy a committed _eval/testdata fixture run dir into a scratch
 --- directory. score.main never writes into the run dir it is given --
@@ -33,10 +96,24 @@ local function out_path(): string
 end
 
 --- @param path string A results.json path, as written by a scoring call
---- @return {string: any} The decoded results.json at that path
-local function read_results(path: string): {string: any}
+--- @return EvalResults|nil The validated results.json at that path
+--- @return string The mismatch when the file is not the shape score.tl
+--- writes
+local function read_results(path: string): eval_types.EvalResults | nil, string
   local body = check.must(fs.read(path))
-  return check.must(json.decode_object(body)) as {string: any} -- cast: from any
+  local raw = check.must(json.decode_object(body))
+  return shape.into(raw, RESULTS)
+end
+
+--- The same file as plain tables, for the presence-walk tests.
+--- @param path string A results.json path, as written by a scoring call
+--- @return RawResults|nil The decoded results.json at that path
+--- @return string The mismatch when the file is not an object of the
+--- three top-level keys
+local function read_results_object(path: string): RawResults | nil, string
+  local body = check.must(fs.read(path))
+  local raw = check.must(json.decode_object(body))
+  return shape.into(raw, RAW_RESULTS)
 end
 
 --- Run score.main(...) and capture exactly what it prints via print()
@@ -73,7 +150,7 @@ local function test_run_pass_ends_pass_exit_zero()
   assert(code == 0, "run_pass should exit 0, got " .. code)
   assert(printed == "eval: PASS",
     "expected the exact verdict line 'eval: PASS', got " .. string.format("%q", printed))
-  local results = read_results(out)
+  local results = check.must(read_results(out))
   assert(results.verdict == "PASS", "expected verdict PASS, got " .. tostring(results.verdict))
 end
 test_run_pass_ends_pass_exit_zero()
@@ -86,17 +163,17 @@ local function test_run_fail_ends_fail_nonzero_with_silent_bug()
   assert(printed == "eval: FAIL (json-cli)",
     "expected the exact verdict line naming the failing task id, got " ..
     string.format("%q", printed))
-  local results = read_results(out)
+  local results = check.must(read_results(out))
   assert(results.verdict == "FAIL", "expected verdict FAIL, got " .. tostring(results.verdict))
-  local rows = results.rows as {{string: any}} -- cast: from any
-  local found: {string: any} = nil
+  local rows = results.rows
+  local found: eval_types.Row = nil
   for _, row in ipairs(rows) do
     if row.task == "json-cli" then
       found = row
     end
   end
   assert(found ~= nil, "expected a json-cli row")
-  local bugs = found.silent_bugs as number -- cast: from any
+  local bugs = found.silent_bugs
   assert(bugs >= 1, "json-cli's row should carry >= 1 silent_bugs from the check, got " ..
     tostring(bugs))
   assert(found.status == "completed",
@@ -108,7 +185,7 @@ local function test_run_fail_ends_fail_nonzero_with_silent_bug()
   -- never gates the verdict.
   for _, row in ipairs(rows) do
     if row.task ~= "json-cli" then
-      local row_bugs = row.silent_bugs as number -- cast: from any
+      local row_bugs = row.silent_bugs
       assert(row_bugs == 0, tostring(row.task) ..
         ": run_fail should only seed a defect in json-cli, got silent_bugs = " ..
         tostring(row_bugs))
@@ -130,13 +207,13 @@ local function test_run_partial_writes_complete_results_and_fails()
     "expected the exact verdict line naming the failing task id, got " ..
     string.format("%q", printed))
   assert(fs.is_file(out), "results.json must still be written")
-  local results = read_results(out)
+  local results = check.must(read_results(out))
   assert(results.verdict == "FAIL", "expected verdict FAIL, got " .. tostring(results.verdict))
-  local rows = results.rows as {{string: any}} -- cast: from any
+  local rows = results.rows
   assert(#rows == 7, "expected all 7 manifest tasks represented, got " .. #rows)
-  local by_task: {string: {string: any}} = {}
+  local by_task: {string: eval_types.Row} = {}
   for _, row in ipairs(rows) do
-    by_task[row.task as string] = row -- cast: from any
+    by_task[row.task] = row
   end
   assert(by_task["multi-module-build"].status == "error",
     "a missing workspace should score status = error, got " ..
@@ -144,7 +221,7 @@ local function test_run_partial_writes_complete_results_and_fails()
   assert(by_task["sqlite-indexer"].status == "incomplete",
     "a proven task missing its built artifact should score status = incomplete, got " ..
     tostring(by_task["sqlite-indexer"].status))
-  assert((by_task["sqlite-indexer"].silent_bugs as number) == 0, -- cast: from any
+  assert(by_task["sqlite-indexer"].silent_bugs == 0,
     "an incomplete row must not carry silent bugs")
   assert(by_task["text-report"].attempts_first_build == nil,
     "an unparseable final.txt should leave attempts_first_build nil, got " ..
@@ -157,8 +234,8 @@ local function test_every_meta_field_is_present()
   local out = out_path()
   local scored = score.main("--out", out, dir)
   assert(scored == 0, "scoring run_pass should succeed, got exit " .. scored)
-  local results = read_results(out)
-  local meta = results.meta as {string: any} -- cast: from any
+  local results = check.must(read_results_object(out))
+  local meta = results.meta
   local want < const >: {string} = {
     "timestamp", "suite_version", "bin", "bin_sha", "cosmic_version",
     "os", "isa", "model", "agent_tool", "timeout_secs",
@@ -176,8 +253,8 @@ local function test_every_row_field_is_present()
   local out = out_path()
   local scored = score.main("--out", out, dir)
   assert(scored == 0, "scoring run_pass should succeed, got exit " .. scored)
-  local results = read_results(out)
-  local rows = results.rows as {{string: any}} -- cast: from any
+  local results = check.must(read_results_object(out))
+  local rows = results.rows
   assert(#rows == 7, "expected 7 rows, got " .. #rows)
   local want < const >: {string} = {
     "task", "status", "silent_bugs", "journal_path", "friction",
@@ -190,7 +267,7 @@ local function test_every_row_field_is_present()
     assert(row.status == "completed",
       tostring(row.task) .. ": run_pass should score every row completed, got " ..
       tostring(row.status))
-    assert((row.silent_bugs as number) == 0, -- cast: from any
+    assert(row.silent_bugs == 0,
       tostring(row.task) .. ": run_pass should score 0 silent_bugs, got " ..
       tostring(row.silent_bugs))
   end
@@ -202,8 +279,8 @@ local function test_leaked_probe_is_recorded()
   local out = out_path()
   check.must(fs.write(fs.join(dir, "probe.txt"), "READY\n\"cosmic is a Lua distribution\"\n"))
   local code = score.main("--out", out, dir)
-  local results = read_results(out)
-  local meta = results.meta as {string: any} -- cast: from any
+  local results = check.must(read_results(out))
+  local meta = results.meta
   assert(meta.leaked == true, "a probe reply beyond READY/NONE must read as leaked")
   local _ = code
 end
@@ -214,8 +291,8 @@ local function test_missing_probe_reads_as_leaked()
   local out = out_path()
   check.must(fs.remove(fs.join(dir, "probe.txt")))
   score.main("--out", out, dir)
-  local results = read_results(out)
-  local meta = results.meta as {string: any} -- cast: from any
+  local results = check.must(read_results(out))
+  local meta = results.meta
   assert(meta.leaked == true, "a missing probe.txt must never read as clean")
   assert(meta.probe_output == "", "a missing probe.txt should read as empty, not guessed")
 end
@@ -280,7 +357,7 @@ local function test_relative_rundir_scores_without_touching_committed_tree()
     "scoring must never write results.json into the committed run dir")
   assert(not fs.is_dir(fs.join(rel, "contained-task", "testdata")),
     "scoring must never materialize a check's fixture inputs into the committed run dir")
-  local results = read_results(out)
+  local results = check.must(read_results(out))
   assert(results.verdict == "PASS", "expected verdict PASS, got " .. tostring(results.verdict))
 end
 test_relative_rundir_scores_without_touching_committed_tree()

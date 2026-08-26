@@ -7,12 +7,31 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
+local shape = require("cosmic.shape")
 local teal = require("cosmic.teal")
+
+--- The three tlconfig.lua keys this test compares against cosmic.teal.
+--- Keys beyond these are the editor's own and are ignored.
+local record TlConfig
+  gen_target: string
+  gen_compat: string
+  include_dir: {string}
+end
+
+local CONFIG < const > = shape.record({
+    gen_target = shape.string,
+    gen_compat = shape.string,
+    include_dir = shape.list(shape.string),
+  })
 
 local function test_tlconfig_matches_teal_defaults()
   local chunk, err = loadfile("tlconfig.lua")
   assert(chunk, "tlconfig.lua should load: " .. tostring(err))
-  local cfg = chunk() as {string: any} -- cast: from any
+  -- chunk is loadfile's `function(...: any): any...`, so bind its first
+  -- return before validating: passing the call itself would hand `into`
+  -- the whole return tuple.
+  local raw = chunk()
+  local cfg: TlConfig | nil = shape.into(raw, CONFIG)
   assert(cfg, "tlconfig.lua should return a table")
 
   assert(cfg.gen_target == teal.DEFAULT_GEN_TARGET,
@@ -27,7 +46,7 @@ local function test_tlconfig_matches_teal_defaults()
   -- Every editor include dir must be one the compiled-in checker also
   -- searches (defaults or the build's extra dirs), so the LSP and
   -- cosmic --check types resolve the same types.
-  local cfg_dirs = cfg.include_dir as {string} -- cast: from any
+  local cfg_dirs = cfg.include_dir
   local blessed: {string: boolean} = {}
   for _, d in ipairs(teal.default_include_dirs()) do
     blessed[d] = true
