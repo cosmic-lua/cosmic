@@ -269,8 +269,8 @@ end
 local function verb(fetch_fn: function(string, any): (any, any), method: string): function(string, any): (any, any)
   return function(url: string, opts_any: any): (any, any)
     local o: {string: any} = {}
-    if opts_any then
-      for k, v in pairs(opts_any as {string: any}) do -- cast: from any
+    if opts_any is {string: any} then
+      for k, v in pairs(opts_any) do
         o[k] = v
       end
     end
@@ -295,7 +295,10 @@ local function make(fetch_fn: function(string, any): (any, any),
     if res_any == nil then
       return nil, serr
     end
-    local res = res_any as StreamRes -- cast: from any
+    if not (res_any is StreamRes) then
+      return fail_make("download: stream returned no response")
+    end
+    local res = res_any
     local out: {string: any} = {
       status = res.status, headers = res.headers,
       raw_headers = res.raw_headers, url = res.url, body = "",
