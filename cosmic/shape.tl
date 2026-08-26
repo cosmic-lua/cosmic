@@ -42,9 +42,9 @@
 local record Spec
   --- Which validator this node is: one of the primitive names
   --- ("string", "number", "integer", "boolean", "any") or a container
-  --- name ("list", "map", "record").
+  --- name ("list", "map", "integer_map", "record").
   kind: string
-  --- The element Spec, for "list" and "map".
+  --- The element Spec, for "list", "map" and "integer_map".
   of: Spec
   --- The declared fields, for "record".
   fields: {string: Spec}
@@ -184,6 +184,20 @@ local function walk(parent: {any: any}, key: any, spec: Spec, path: string): str
       end
     end
     return nil
+  elseif kind == "integer_map" then
+    if not (v is {any: any}) then
+      return mismatch(path, "integer_map", v)
+    end
+    for k in pairs(v) do
+      if not (k is integer) then
+        return named(path) .. ": expected integer_map, got a non-integer key"
+      end
+      local err = walk(v, k, spec.of, index_path(path, k))
+      if err then
+        return err
+      end
+    end
+    return nil
   elseif kind == "record" then
     if not (v is {any: any}) then
       return mismatch(path, "object", v)
@@ -218,6 +232,18 @@ end
 --- @return Spec The node
 local function map(of: Spec): Spec
   return {kind = "map", of = of}
+end
+
+--- A table with integer keys whose every value has shape `of`.
+--- The keys need not be dense, which is the whole difference from
+--- `list`: `{[3] = 7, [9] = 1}` is an integer_map and not a list.
+--- JSON has no integer keys, so a value of this shape reaches `into`
+--- only from a Lua-valued source — a loaded chunk, or `literal` once it
+--- reads integer bracket keys.
+--- @param of Spec The value shape
+--- @return Spec The node
+local function integer_map(of: Spec): Spec
+  return {kind = "integer_map", of = of}
 end
 
 --- An object with the declared fields. Keys the fields table does not
@@ -269,6 +295,7 @@ local record ShapeModule
 
   list: function(of: Spec): Spec
   map: function(of: Spec): Spec
+  integer_map: function(of: Spec): Spec
   record: function(fields: {string: Spec}): Spec
   optional: function(of: Spec): Spec
   into: function<T>(value: any, spec: Spec): (T | nil, string)
@@ -282,6 +309,7 @@ local M: ShapeModule = {
   boolean = primitive("boolean"),
   list = list,
   map = map,
+  integer_map = integer_map,
   record = record,
   optional = optional,
   into = into,

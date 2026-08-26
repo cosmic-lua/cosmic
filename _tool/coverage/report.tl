@@ -5,7 +5,24 @@
 --- the compiled artifact behind each display path, unioned with the
 --- lines actually hit.
 local fs = require("cosmic.fs")
+local shape = require("cosmic.shape")
 local cov_lines = require("_tool.coverage.lines")
+
+--- A .cov file as the collector writes it: hit counts per chunk
+--- source, keyed by line. The line keys are sparse — only executed
+--- lines appear — so the value shape is an integer_map, not a list.
+local record CovFile
+  version: integer
+  hits: {string: {integer: integer}}
+end
+
+--- The shape `read_cov` validates a loaded .cov body against. Both
+--- fields are optional here because an absent one is this module's own
+--- diagnostic to report, not a shape error.
+local COV_FILE < const > = shape.record({
+    version = shape.optional(shape.integer),
+    hits = shape.optional(shape.map(shape.integer_map(shape.integer))),
+  })
 
 --- One source file's merged coverage state.
 local record FileEntry
@@ -224,15 +241,22 @@ local function read_cov(path: string): {string: {integer: integer}} | nil, strin
   if data == nil then
     return nil, "empty coverage data"
   end
-  local t = data as {string: any} -- cast: from any
-  if t["version"] ~= 1 then
+  -- Both fields are optional in the Spec so that an absent one reaches
+  -- the tests below and gets this module's own diagnostic; what the
+  -- Spec is here for is the SHAPE of what is present, which is what
+  -- used to be two unchecked casts.
+  local cov, verr: CovFile | nil, string = shape.into(data, COV_FILE)
+  if not cov then
+    return nil, "cannot load coverage data: " .. verr
+  end
+  if cov.version ~= 1 then
     return nil, "unsupported coverage data version"
   end
-  local hits = t["hits"]
+  local hits = cov.hits
   if hits == nil then
     return nil, "missing hits table"
   end
-  return hits as {string: {integer: integer}} -- cast: from any
+  return hits
 end
 
 --- Merge one chunk's hit counts into the per-file entries.

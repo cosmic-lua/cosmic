@@ -161,3 +161,93 @@ local function test_into_returns_the_same_table()
   assert(m.name == "b", "into returns the same table, got: " .. tostring(m.name))
 end
 test_into_returns_the_same_table()
+
+-- integer_map: a table keyed by integers that need not be dense. JSON
+-- cannot carry one, so these build the value directly, the way a
+-- loaded chunk hands one back.
+local record Hits
+  lines: {integer: integer}
+end
+
+local HITS < const > = shape.record({
+    lines = shape.integer_map(shape.integer),
+  })
+
+local function test_integer_map_admits_sparse_keys()
+  local raw: {string: any} = {lines = {[3] = 7, [9] = 1}}
+  local h: Hits = check.must(shape.into(raw, HITS))
+  assert(h.lines[3] == 7, "3: " .. tostring(h.lines[3]))
+  assert(h.lines[9] == 1, "9: " .. tostring(h.lines[9]))
+end
+test_integer_map_admits_sparse_keys()
+
+local function test_integer_map_admits_dense_keys_too()
+  local raw: {string: any} = {lines = {[1] = 4, [2] = 5}}
+  local h: Hits = check.must(shape.into(raw, HITS))
+  assert(h.lines[2] == 5, "2: " .. tostring(h.lines[2]))
+end
+test_integer_map_admits_dense_keys_too()
+
+local function test_integer_map_refuses_a_string_key()
+  local raw: {string: any} = {lines = {three = 7}}
+  local h, err: Hits | nil, string = shape.into(raw, HITS)
+  assert(h == nil, "a string key must fail the value")
+  assert(err == "lines: expected integer_map, got a non-integer key",
+    "got: " .. tostring(err))
+end
+test_integer_map_refuses_a_string_key()
+
+local function test_integer_map_refuses_a_fractional_key()
+  local raw: {string: any} = {lines = {[1.5] = 7}}
+  local h, err: Hits | nil, string = shape.into(raw, HITS)
+  assert(h == nil, "a fractional key must fail the value")
+  assert(err == "lines: expected integer_map, got a non-integer key",
+    "got: " .. tostring(err))
+end
+test_integer_map_refuses_a_fractional_key()
+
+local function test_integer_map_element_mismatch_names_its_index()
+  local raw: {string: any} = {lines = {[9] = "x"}}
+  local h, err: Hits | nil, string = shape.into(raw, HITS)
+  assert(h == nil, "a bad element must fail the value")
+  assert(err == "lines[9]: expected integer, got string", "got: " .. tostring(err))
+end
+test_integer_map_element_mismatch_names_its_index()
+
+local function test_integer_map_refuses_a_non_table()
+  local raw: {string: any} = {lines = 3}
+  local h, err: Hits | nil, string = shape.into(raw, HITS)
+  assert(h == nil, "a non-table must fail the value")
+  assert(err == "lines: expected integer_map, got number", "got: " .. tostring(err))
+end
+test_integer_map_refuses_a_non_table()
+
+-- The shape the coverage reader needs: a string-keyed map whose values
+-- are sparse integer-keyed tables.
+local record Cov
+  hits: {string: {integer: integer}}
+end
+
+local COV < const > = shape.record({
+    hits = shape.map(shape.integer_map(shape.integer)),
+  })
+
+local function test_integer_map_nests_under_map()
+  local raw: {string: any} = {hits = {["@x.lua"] = {[3] = 7}}}
+  local c: Cov = check.must(shape.into(raw, COV))
+  assert(c.hits["@x.lua"][3] == 7, "nested read: " .. tostring(c.hits["@x.lua"][3]))
+  local bad: {string: any} = {hits = {["@x.lua"] = {[3] = "seven"}}}
+  local n, err: Cov | nil, string = shape.into(bad, COV)
+  assert(n == nil, "a bad nested element must fail the value")
+  assert(err == 'hits.@x.lua[3]: expected integer, got string',
+    "got: " .. tostring(err))
+end
+test_integer_map_nests_under_map()
+
+local function test_optional_integer_map_admits_nil()
+  local raw: {string: any} = {}
+  local OPT < const > = shape.record({lines = shape.optional(shape.integer_map(shape.integer))})
+  local h: Hits = check.must(shape.into(raw, OPT))
+  assert(h.lines == nil, "an absent optional integer_map stays nil")
+end
+test_optional_integer_map_admits_nil()
