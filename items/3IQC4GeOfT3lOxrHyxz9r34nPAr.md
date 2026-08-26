@@ -103,13 +103,36 @@ and cites only what a gate verifies. One file; no `.tl` changes.
    included, and every count in the prose — the opening
    "192 of the 402", the "189 of the 192", the "63 files", and each
    class's stated size. The document makes no numeric claim afterwards.
+   **A COMPARATIVE claim is a count.** "the largest live class", "the
+   largest single win available anywhere in this document", "worth
+   roughly a third of this document" — each ranks classes by how many
+   sites they hold today, so each drifts exactly the way a number does
+   and no gate can see it. They go with the counts, wherever they
+   appear, whether they were already in the document or would be new
+   prose. `main` carries three — `:5` ("largest single bucket", inside
+   the opening sentence this rule already deletes), `:60` (on
+   **Decoded-data shaping**, a class with zero live sites, so that
+   claim is not merely undurable but false) and `:264` ("worth roughly
+   a third of this document", in `## What no mechanism closes`). PR
+   #1402's head `8c0b67a6` cut `:5` and `:264` and kept `:60`, then
+   added a new one ("This is the largest live class", on **Binding
+   boundary**); both of those go. What survives is
+   qualitative: what a class IS, and the mechanism that would retire
+   it. Where ordering genuinely matters, say it as a property of the
+   MECHANISM ("this class closes in the other repository, so it moves
+   as a pin bump"), never as a size.
 3. **Keep all seven `###` class headings and their "What closes it"
    prose**, and the `## What no mechanism closes` and
    `## What this is not` sections. That is the durable half: the shape
    of each site and the mechanism that would retire it.
    `docs/decisions/d28-shape-combinators.md:7` cites this document for
    the decoded-data-shaping class, so that heading and its closure
-   prose stay even though the class has no live site left.
+   prose stay even though the class has no live site left. "Keep the
+   prose" is subject to rule 2: a kept paragraph still has its
+   comparative claims cut, which is what `docs/design/casts.md:60`
+   needs. Keeping a class whose live count is zero is right — the
+   taxonomy is what a future site is read against — but the document
+   must not then rank it above classes that do have sites.
 4. **Rewrite `## Method`** to hold the census as the one thing a reader
    runs, and to say that the four fixture-text hits are text, not
    casts:
@@ -188,6 +211,13 @@ Run from the repo root:
   `docs/design/casts.md`.
 - `git ls-files '*.tl' | xargs grep -h -- "-- cast: " | grep -c "from any"`
   still prints `13` — unchanged, because this slice closes nothing.
+- `grep -ciE 'largest|smallest|roughly a (third|half|quarter)|most of the|the bulk of' docs/design/casts.md`
+  prints `0`. On `main` it is `3` (`:5` "largest single bucket", `:60`,
+  `:264`); on PR #1402's head `8c0b67a6` it is `2` (`:61` and `:115`,
+  the latter newly written) — no class is ranked by
+  how many sites it holds. The pattern is a tripwire for the shape,
+  not an exhaustive grammar: the reader still checks by eye that no
+  kept or newly written sentence ranks the classes by size.
 
 ## Enablement
 
