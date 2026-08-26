@@ -245,7 +245,10 @@ local function process_source(input: string, name: string, include_dirs: {string
     env_cache[cache_key] = nil
     return process_error(name, tostring(result_or_err))
   end
-  local result = result_or_err as TlResult -- cast: from any
+  -- The lazy in-function require keeps tl's own Result record
+  -- un-nameable at file scope; TlResult is its structural mirror.
+  -- cast: pcall slot 2 is tl's nominal Result, not any
+  local result = result_or_err as TlResult
 
   if not result then
     return process_error(name, "processing failed")
