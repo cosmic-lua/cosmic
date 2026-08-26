@@ -152,8 +152,12 @@ Run from the repo root:
   `grep -rn --include='*.tl' -- '-- assert:' . | grep -v '^\./o/' | wc -l`
   reports `0`).
 - `grep -c 'assert(' cosmic/time.tl` reports `5` (today `0`).
-- `grep -c 'clock_gettime' cosmic/time.tl` still reports `5` — no call
-  site was added or dropped.
+- `grep -c 'unix\.clock_gettime(' cosmic/time.tl` still reports `5` — no
+  call site was added or dropped. (Corrected at implementation time: the
+  looser `grep -c 'clock_gettime'` this line first carried counts the
+  assert messages and `-- assert:` comments the change itself adds, so it
+  reports `15` after the change and measures nothing. The call-site
+  pattern is the invariant that was meant.)
 - `grep -c 'unix.nanosleep\|unix.gmtime\|unix.localtime' cosmic/time.tl`
   still reports `3` — the fallible sites are untouched.
 - `git diff --name-only origin/main` lists exactly `cosmic/time.tl` and
