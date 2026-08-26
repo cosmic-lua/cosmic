@@ -112,7 +112,7 @@ holding a markdown table of **exactly 38 rows**, one per Lua file, in
   names. Judge by the contract asserted, not by the spelling of the
   call.
 
-Write it back with `gitboard spec <this item's id> FILE` from the board
+Write it back with `gitboard spec 3ISCk9jy FILE` from the board
 worktree. That commit is the first deliverable and must land before the
 second.
 
@@ -121,7 +121,7 @@ children of `3IOCgCWG`, each blocked on this item:
 
 ```text
 gitboard new "<title>" --parent 3IOCgCWG --repo whilp/cosmopolitan --spec-file F
-gitboard block <new id> <this item's id>
+gitboard block <new id> 3ISCk9jy
 ```
 
 Group by binding surface, not by file count — the 9 json files are one
@@ -171,7 +171,7 @@ after setting two variables once — `ID` is this item's full ksuid and
 `BOARD` is the board worktree of the cosmic checkout:
 
 ```text
-ID=<this item's full ksuid>
+ID=3ISCk9jyvgHUio3gPwQuZkSURUB
 BOARD=<cosmic checkout>/o/board
 SPEC="$BOARD/items/$ID.md"
 ```
