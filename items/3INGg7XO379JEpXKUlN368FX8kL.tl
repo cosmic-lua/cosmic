@@ -10,5 +10,6 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["phase"] = "check",
   ["pr"] = 1447,
+  ["reviewer"] = "3f616956-66af-5d35-82b3-9ab54b187eb2",
   ["title"] = "literal: a long bracket keeps CR bytes Lua normalizes, in both the Teal and the C reader",
 }
