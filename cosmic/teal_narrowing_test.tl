@@ -331,9 +331,9 @@ print(g({}))
 end
 test_metatable_is_scalar_is_refused()
 
--- ...and a NAMED target never reaches the rescue: the is-fact carries
--- the unresolved type, so a record nominal arrives as "nominal", not
--- "record", and the can-never-be refusal stands.
+-- ...and a record target is refused even though the rescue now resolves
+-- a nominal one: a record's resolved typename is not in the rescue's
+-- table_kinded set, so the can-never-be refusal stands.
 local function test_metatable_is_record_is_refused()
   local path = fs.join(tmpdir, "narrow_metatable_record.tl")
   assert(fs.write(path, [[
@@ -399,3 +399,54 @@ print(a({}))
     table.concat(msgs, "; "))
 end
 test_metatable_is_array_narrows()
+
+-- A named alias of a map narrows exactly as the inline literal does:
+-- the rescue resolves a nominal target and judges its structural kind.
+local function test_metatable_is_map_alias_narrows()
+  local path = fs.join(tmpdir, "narrow_metatable_map_alias.tl")
+  assert(fs.write(path, [[
+local type Meta = {string: any}
+local function m(x: any): boolean
+  local mt = getmetatable(x)
+  if not (mt is Meta) then
+    return false
+  end
+  return mt.__index ~= nil
+end
+print(m({}))
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "a metatable narrowed by `is Meta` (an alias of a map) must check: " ..
+    table.concat(msgs, "; "))
+end
+test_metatable_is_map_alias_narrows()
+
+-- ...and the array half of the same rule.
+local function test_metatable_is_array_alias_narrows()
+  local path = fs.join(tmpdir, "narrow_metatable_array_alias.tl")
+  assert(fs.write(path, [[
+local type Names = {string}
+local function n(x: any): integer
+  local mt = getmetatable(x)
+  if not (mt is Names) then
+    return 0
+  end
+  return #mt
+end
+print(n({}))
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "a metatable narrowed by `is Names` (an alias of an array) must check: " ..
+    table.concat(msgs, "; "))
+end
+test_metatable_is_array_alias_narrows()
