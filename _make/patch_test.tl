@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 -- Unit tests for _make.patch: the carried-patch reader and applier.
 -- The end-to-end path (fetch applies, repair re-applies) is exercised
--- by the tree itself — the 3p/tl/tl_patch/ set rides every build — so
--- what lives here is the contract: sorted order, exact-once anchors,
+-- by the tree itself — 3p/tl/tl_patch.tl rides every build — so what
+-- lives here is the contract: sorted order, exact-once anchors,
 -- idempotent application, one entry namespace per pin, loud refusals.
 
 local check = require("cosmic.check")

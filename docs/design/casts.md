@@ -199,7 +199,7 @@ target record and validates into it.
 **Binding boundary** returns. The declarations are generated, so no edit
 in this repository can improve them; the fix is an annotation in
 `whilp/cosmopolitan`'s `tool/net/definitions.lua`, which then flows here
-as a pin bump. Nothing in the carried tl patch (`3p/tl/tl_patch/`) or
+as a pin bump. Nothing in the carried tl patch (`3p/tl/tl_patch.tl`) or
 upstream tl is implicated — these are honest `any` declarations, not
 narrowing gaps.
 

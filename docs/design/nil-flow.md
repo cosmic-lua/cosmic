@@ -23,7 +23,7 @@ disagree, the file is right.
 
 The census comes from a throwaway strict checker, built inside `o/` and
 deleted before this change was gated. It is not committed and no edit
-to `3p/tl/tl_patch/narrow.tl` rides with it.
+to `3p/tl/tl_patch.tl` rides with it.
 
 **The two hinges.** In pinned `tl` 0.24.8 (`3p/tl/tl_pin.tl`), two
 places let a nil-carrying union reach a sink that cannot hold nil.
@@ -381,7 +381,7 @@ shape they share is the one every Lua programmer writes:
 
 where `local cbin = cur.binary_bytes or 0` eight lines up has already
 disposed of the nil. This is a sixth narrowing edit for
-`3p/tl/tl_patch/narrow.tl`, in the same family as the five it carries, and it
+`3p/tl/tl_patch.tl`, in the same family as the five it carries, and it
 should land *before* any site-fixing slice: 69 of the sites are not
 work, they are a missing rule.
 
@@ -436,7 +436,7 @@ Strict nil flow itself is not. It is a breaking change to every
 existing Teal program — 358 errors in one repository that type-checks
 clean today — so upstream would have to gate it behind an option, which
 is a much larger conversation than a narrowing fix. Carrying it as a
-sixth edit group in `3p/tl/tl_patch/narrow.tl` is the shape that fits: the
+sixth edit group in `3p/tl/tl_patch.tl` is the shape that fits: the
 mechanism (`_make/patch.tl`, 190 lines) already anchors 11 edits against
 the pinned `tl`, five of them narrowing rules, and the two hinges above
 are two more anchors in files the patch already touches.
@@ -451,7 +451,7 @@ This document changes no checker, fixes no site, and edits no doctrine.
 The prototype it describes was built inside `o/`, used, and deleted; the
 gate that admitted this change ran against an unmodified pinned `tl`.
 The one source line it touches is a comment word in
-`3p/tl/tl_patch/narrow.tl` that said "Four edits" over five bullets.
+`3p/tl/tl_patch.tl` that said "Four edits" over five bullets.
 
 The counts are a snapshot of `e7ac1580`. They will drift, and
 `nil-flow-sites.tsv` is what a later pass re-derives and diffs against.

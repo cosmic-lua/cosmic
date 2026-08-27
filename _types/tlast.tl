@@ -7,7 +7,7 @@
 --- requirable, testable module). The artifact ships the output at
 --- `/zip/.tl_ast.luac`; `cosmic._teal_ast` thaws it at run time and
 --- hands the programs to `tl.new_env` (carried patch,
---- `3p/tl/tl_patch/ast_cache.tl`), which skips the parse that
+--- `3p/tl/tl_patch.tl` ast-cache-*), which skips the parse that
 --- dominates a fresh process's first env: ~11 of ~16 ms per compile
 --- child.
 ---

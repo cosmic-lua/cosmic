@@ -63,7 +63,7 @@ print(g(f()))
 end
 test_hint_nil_union_not_narrowed()
 
--- The carried tl patch's canary (3p/tl/tl_patch/narrow.tl): a plain variable's
+-- The carried tl patch's canary (3p/tl/tl_patch.tl): a plain variable's
 -- nil union narrows through truthiness (positive branch and negated
 -- early-return alike), through `assert(x)`, through the left operand
 -- of `and` (`if x and x.field`), and through `== nil` / `~= nil` —

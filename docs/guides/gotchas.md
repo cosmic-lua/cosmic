@@ -115,7 +115,7 @@ end
 a guard on a plain variable narrows it: truthiness (`if r then`, `if
 not r then return end`), `assert(r, "msg")`, `r and r.field`, and
 `== nil` / `~= nil` comparisons all narrow `T | nil` for every `T` (the
-carried tl patch, `3p/tl/tl_patch/narrow.tl`) — and `assert` narrows in
+carried tl patch, `3p/tl/tl_patch.tl`) — and `assert` narrows in
 expression position too, so `local db = assert(sqlite.open(p))` is
 `Database`, not `Database | nil`:
 

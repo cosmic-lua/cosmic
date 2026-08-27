@@ -67,7 +67,7 @@ a guard on a plain variable narrows its nil union: truthiness,
 `assert(x)`, `x and x.field`, and `== nil` / `~= nil` all narrow
 `T | nil` for records, maps, arrays and scalars, in the positive branch
 and below a negated early exit alike (the carried tl patch,
-`3p/tl/tl_patch/narrow.tl`):
+`3p/tl/tl_patch.tl`):
 
 ```teal
 local net = require("cosmic.net")
