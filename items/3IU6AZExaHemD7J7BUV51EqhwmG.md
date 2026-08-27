@@ -5,40 +5,95 @@ the internal trees except _cli and _make lose their test self-call lines, so tho
 the toolchain found their cases (D29). The container's spec carries the
 facts every batch shares; this one names the scope.
 
-## Evidence (measured 2026-08-27 against origin/main at cb39b65d)
+## Evidence (re-measured 2026-08-27 against origin/main at 555873eb)
 
-- **Scope**: `_build/`, `_docs/`, `_types/`, `3p/`, `_fuzz/`, `_eval/`, `_perf/`, `_tool/`.
-- **481 self-call lines across 73 files**, counted with the
-  same pattern the edit deletes:
+- **Scope**: `_build/`, `_docs/`, `_types/`, `3p/`, `_fuzz/`, `_eval/`,
+  `_perf/`, `_tool/` — `*_test.tl` files, **`*/testdata/*` excluded**.
+  Testdata fixtures are other tests' inputs, live under their own
+  roots, and are never run by this repo's `--make test`; the raw grep
+  currently also matches 9 `_eval/testdata/**` files, and touching
+  them is out of scope.
+- **65 files carrying 479 column-1 self-call lines**, counted with:
 
   ```
-  grep -rln '^test_[A-Za-z0-9_]*()$' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | xargs grep -hc '^test_[A-Za-z0-9_]*()$' | paste -sd+ | bc
+  grep -rln '^test_[A-Za-z0-9_]*()$' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | grep -v /testdata/ | xargs grep -hc '^test_[A-Za-z0-9_]*()$' | paste -sd+ | bc
   ```
 
-  Re-run it at pull; the tree grows, so treat a moved number as
-  detail drift and refresh the line rather than bouncing.
-- **Every file in scope reaches runner mode after the deletion** — 0
-  of 275 tree-wide do not, measured with `_tool/discover` in the
-  container's probe. So this batch needs no exception list and leaves
-  nothing legacy behind.
+  Re-run at pull; the tree grows, so treat a moved number as detail
+  drift and refresh the line rather than bouncing.
+- **One of those 479 lines is string content, not code**:
+  `_tool/seam_test.tl` embeds legacy-shaped source in long-bracket
+  fixtures (`LEGACY_SRC`'s `test_addition()` sits at column 1 inside
+  `[[...]]`). A blind `sed` would delete it and flip that fixture out
+  of legacy mode, failing `test_other_shapes_pass_through_byte_identical`.
+  So the mechanical edit skips `_tool/seam_test.tl`, and that file's
+  four REAL self-calls (`test_other_shapes_pass_through_byte_identical`,
+  `test_runner_mode_gains_the_tail_below_the_source`,
+  `test_the_augmented_source_checks_strictly`,
+  `test_the_tail_delivers_the_exit_grammar`) are deleted by hand.
+  478 real self-calls total.
+- **Discover finds every real definition in scope** — the equality the
+  first implementation bounced on, now measured directly: for each of
+  the 65 files, `_tool/discover`'s case count equals the file's count
+  of column-1 `local function test_*(` lines, with exactly one
+  reported mismatch — `_tool/seam_test.tl`, 8 grep hits vs 4 cases —
+  and inspection shows all 4 extra grep hits are the same long-bracket
+  fixtures (naive grep cannot see strings; discover, a real lexer,
+  can). Probe, run from the repo root with the script kept OUT of the
+  tree:
+
+  ```lua
+  -- o/bin/cosmic /tmp/probe.lua
+  local discover = require("_tool.discover")
+  local fs = require("cosmic.fs")
+  local trees = {"_build", "_docs", "_types", "3p", "_fuzz", "_eval", "_perf", "_tool"}
+  local bad = 0
+  for _, tree in ipairs(trees) do
+    for _, path in ipairs(assert(fs.find(tree, {glob = "*_test.tl"}))) do
+      if not path:find("/testdata/", 1, true) then
+        local content = assert(fs.read(path))
+        local lines, defs = {}, 0
+        for line in (content .. "\n"):gmatch("(.-)\n") do
+          lines[#lines + 1] = line
+          if line:match("^local function test_[A-Za-z0-9_]*%(") then defs = defs + 1 end
+        end
+        local d = discover.discover(path, content, lines)
+        if #d.cases ~= defs then
+          bad = bad + 1
+          print(("MISMATCH %s: %d definitions, discover found %d"):format(path, defs, #d.cases))
+        end
+      end
+    end
+  end
+  print(bad .. " mismatches")
+  ```
+
+  Measured: `MISMATCH _tool/seam_test.tl: 8 definitions, discover
+  found 4` (the string phantoms above), `1 mismatches`, nothing else.
+  The blocker that made this false is fixed: 3IP9ijhv landed as #1455
+  (`2724a719`, "read a definition's extent from the parser, not a
+  depth count"), and the pinned checker `2026-08-27-cb39b65` carries
+  the D29 seam.
 - **The deletion is fmt-, check- and lint-clean**: trialled on
-  `_build/**` (12 files, 43 lines) — `fmt: PASS (547 files)`,
-  `check: PASS`, `lint: PASS`. Deleting the call line leaves the blank
-  line that followed it, so no reflow rides along.
+  `_build/**` (12 files, 43 lines) — `fmt: PASS`, `check: PASS`,
+  `lint: PASS`. Deleting the call line leaves the blank line that
+  followed it, so no reflow rides along.
 
 ## Change
 
-In every `*_test.tl` under this batch's scope, delete each line
-matching exactly `^test_[A-Za-z0-9_]*()$` — a bare call at column 1,
-no arguments. Nothing else changes in those files, and no file outside
-the scope is touched.
+In every `*_test.tl` under this batch's scope — testdata excluded,
+`_tool/seam_test.tl` excluded — delete each line matching exactly
+`^test_[A-Za-z0-9_]*()$`: a bare call at column 1, no arguments.
+Then hand-edit `_tool/seam_test.tl`: delete its four real self-call
+lines (named in Evidence), leaving the `test_addition()` line inside
+`LEGACY_SRC`'s long bracket untouched. Nothing else changes in those
+files, and no file outside the scope is touched.
 
-The edit is mechanical; do it with a throwaway script run from the
-repo root, kept OUT of the tree (a `*.tl` inside it joins the build
-graph):
+The mechanical half, run from the repo root and kept OUT of the tree
+(a `*.tl` inside it joins the build graph):
 
 ```
-grep -rln '^test_[A-Za-z0-9_]*()$' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | xargs sed -i -E '/^test_[A-Za-z0-9_]*\(\)$/d'
+grep -rln '^test_[A-Za-z0-9_]*()$' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | grep -v /testdata/ | grep -v '^_tool/seam_test.tl$' | xargs sed -i -E '/^test_[A-Za-z0-9_]*\(\)$/d'
 ```
 
 If a ratchet gate complains, run exactly the regen command its failure
@@ -48,21 +103,31 @@ way.
 ## Non-goals
 
 No semantic edits ride along: no renames, no assertion changes, no
-test added or removed, no reflow, no comment rewrites. No file outside
-this batch's scope — the other six batches are file-disjoint on
-purpose and two of them must never touch one file. No change to
-`cosmic/test.tl`, `_tool/seam.tl`, `_tool/discover.tl`, or the
-`call-after-define` lint (retiring it is 3IOCdvXF; it already passes
-on a runner-mode file). No testrun or report change (3IOCdZCA). No pin
-bump — that is 3IU62YqO, this item's blocker.
+test added or removed, no reflow, no comment rewrites. No
+`*/testdata/*` file — fixtures belong to the tests that read them. No
+file outside this batch's scope — the other six batches are
+file-disjoint on purpose. No change to `cosmic/test.tl`,
+`_tool/seam.tl`, `_tool/discover.tl`, or the `call-after-define` lint
+(retiring it is 3IOCdvXF; it already passes on a runner-mode file).
+No testrun or report change (3IOCdZCA, landed). No pin bump —
+3IU62YqO landed as #1450.
 
 ## Acceptance
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
-- No self-call survives in scope:
-  `grep -rln '^test_[A-Za-z0-9_]*()$' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | xargs grep -c '^test_[A-Za-z0-9_]*()$' | grep -v ':0$'`
-  prints nothing (and the `ls`/`grep` selection still names the files,
-  so an empty selection is a bug, not a pass).
+- **No test lost**: for every file in scope, discover on the migrated
+  file reports `mode = "runner"` and the SAME case list, name for
+  name, as discover on the file at `origin/main` — a probe script
+  (out of tree) diffing `discover(git show origin/main:<path>)`
+  against `discover(<worktree path>)` prints zero differences over
+  the 65 files. This is the equality whose absence bounced the first
+  implementation: a definition discover cannot see becomes dead code,
+  and warnings-are-errors only catches the unreferenced ones.
+- The one surviving column-1 self-call in scope is string content:
+  `grep -rn '^test_[A-Za-z0-9_]*()$' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | grep -v /testdata/`
+  prints exactly one line — `_tool/seam_test.tl`'s in-fixture
+  `test_addition()` — and the file selection is checked non-empty
+  before the grep, so an empty selection is a bug, not a pass.
 - The diff is deletions only:
   `git diff origin/main --numstat -- '*_test.tl' | awk '{a+=$1} END {print a+0}'`
   → `0` insertions.
@@ -71,20 +136,16 @@ bump — that is 3IU62YqO, this item's blocker.
 
 ## Enablement
 
-none needed — the one blocker cleared. 3IU62YqO landed as #1450, so
-`bin/cosmic.pin` now names `2026-08-27-cb39b65`, whose checker carries
-the D29 seam (#1446's merge `7b9f0749` is an ancestor of that tag).
-That is what `_build/coldbuild_test.tl` type-checks against, and it is
-the gate this batch has to clear.
-
-Re-measured at refine against `origin/main` at `cb39b65d` and later:
-the selection command still names 73 files carrying 481 self-call
-lines, unchanged from the Evidence above, so nothing there needs
-refreshing.
+none needed — both blockers cleared. 3IU62YqO landed as #1450
+(`bin/cosmic.pin` names `2026-08-27-cb39b65`, whose checker carries
+the D29 seam). 3IP9ijhv landed as #1455 (`2724a719`): discover reads
+a definition's extent from the parser, so the under-count that
+bounced the first implementation is gone — re-measured above with
+zero unexplained mismatches in scope.
 
 ## Bounced at implementation, 2026-08-27T05:3xZ — discover under-counts
 
-The deletion was applied exactly as `## Change` specifies (73 files,
+The deletion was applied exactly as `## Change` specified (73 files,
 481 lines, 0 insertions, 0 surviving self-calls) and `--make ci`
 failed the build:
 
@@ -98,58 +159,21 @@ ci: FAIL (build failed)
 **The wrong turn was in this spec's evidence, not in the edit.** The
 container's probe asserted "every file in scope reaches runner mode"
 and checked `discover`'s MODE. It never checked that discover found
-every `test_*` DEFINITION in the file. It does not:
-`_types/tlast_test.tl` has two, and discover reports one — on
-UNMODIFIED main as much as after the deletion (`mode=legacy cases=1`
-before, `mode=runner cases=1` after).
+every `test_*` DEFINITION in the file. At the time it did not:
+`_tool/discover.tl`'s `end_line_of` returned nil when the depth walk
+lost the closer — a `function` token in TYPE position opens no block
+and has no `end` — and such a definition was SKIPPED rather than
+judged. 10 files tree-wide under-counted, 17 definitions invisible to
+the seam.
 
-`_tool/discover.tl:113-118` says why, in its own comment: `end_line_of`
-returns nil when the depth walk loses the closer — a `function` token
-in TYPE position opens no block and has no `end` — and such a
-definition is SKIPPED rather than judged, "verbatim until 3IP9ijhv
-fixes the counter". `test_cache_thaws_on_fresh_tl` contains
-`assert(thaw is function(any): (any, any), …)`, which is exactly that
-shape.
-
-**Why this is a stop, not a workaround.** A definition discover cannot
-see gets no entry in the generated tail, so migrating its file turns
-that test into dead code that never runs. Here warnings-are-errors
-caught it, because the tail's absence left the local unreferenced —
-but that safety net only holds while the name is referenced nowhere
-else. Where it is, the test disappears silently and every gate stays
-green. That is the exact failure D29's all-or-nothing rule exists to
-prevent.
-
-**Blast radius, measured tree-wide** (`discover` vs a count of
-`local function test_*` per file, over all 275 test files):
-
-```
-./_make/resolution_test.tl:        11 definitions, discover found 10
-./_tool/seam_test.tl:               8 definitions, discover found  4
-./_types/tlast_test.tl:             2 definitions, discover found  1
-./cosmic/_teal_ast_test.tl:         3 definitions, discover found  2
-./cosmic/fd_read_test.tl:           6 definitions, discover found  5
-./cosmic/fs/find_close_test.tl:     3 definitions, discover found  2
-./cosmic/sandbox/init_test.tl:     12 definitions, discover found 10
-./cosmic/searcher_test.tl:          8 definitions, discover found  6
-./cosmic/sqlite/advanced_test.tl:  23 definitions, discover found 21
-./cosmic/sqlite/close_test.tl:      9 definitions, discover found  7
-10 files under-counted, 17 definitions invisible to the seam
-```
-
-Two of those files (`_types/tlast_test.tl`, `_tool/seam_test.tl`) are
-in THIS batch's scope; the rest fall in batches 3, 4, 5 and 6, so
-every batch inherits the block.
-
-**What re-refinement must add**, here and in all seven batches:
-
-1. A blocker edge on 3IP9ijhv — the counter fix — which is now a
-   migration blocker rather than a lint nicety, and is currently
-   placed at band 3, well below this work.
-2. An Evidence claim that discover's case count EQUALS the file's
-   `local function test_*` count for every file in scope, with the
-   command that proves it — not merely that the mode is `runner`. The
-   container's probe is to be corrected the same way; as written it
-   passes a file whose tests would stop running.
-3. An Acceptance line asserting the same equality across the batch, so
-   a regression in the counter cannot land a silent test loss.
+**Resolved by re-refinement, 2026-08-27T06:4xZ**: 3IP9ijhv (the
+counter fix) was raised to a blocker edge on this item and has landed
+as #1455; the Evidence above now carries the definition-equality
+probe and its measured answer, and the Acceptance carries the
+name-for-name case-list equality across the batch, so a counter
+regression cannot land a silent test loss. Re-measurement also caught
+two scope traps the original Change would have hit: the raw grep now
+selects 9 `_eval/testdata/**` fixtures (excluded — fixtures are other
+tests' inputs), and `_tool/seam_test.tl` keeps one column-1 self-call
+inside a long-bracket fixture that a blind sed would have deleted
+(that file is hand-edited instead).
