@@ -216,12 +216,30 @@ local function to_the_tree(proj: Project, argv: {string},
   local r, rerr = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})
   local _uok, _uerr = env.unset(STEP_ENV)
+  -- A converging build that fails UNDER THE TREE'S OWN ARTIFACT may be
+  -- the wedge, not the tree: a red generation-2 leaves generation-1's
+  -- product as o/bin/cosmic, and a branch switch leaves a binary built
+  -- from another tree — either way every later run re-enters it, fails
+  -- generation-1 under its embedded toolchain, and never reaches the
+  -- stage that would replace it. The pin path needs no hint: a pinned
+  -- build cannot be stale, so its failure is the tree's own. Named
+  -- here because the alternative was measured at an hour of
+  -- misdiagnosis per face: the failure prints only the compile error,
+  -- which reads as a source bug in a file that is green under both
+  -- the pinned and the intended toolchain.
+  local wedge_hint = ""
+  if was_us then
+    wedge_hint = "; this build ran under the tree's own " .. built ..
+    ", which may not match this tree — `rm o/bin/cosmic` and re-run " ..
+    "to rebuild from the pin"
+  end
   if r == nil then
-    return false, "make: " .. tostring(rerr or "the converging build failed"),
-    "build failed"
+    return false, "make: " .. tostring(rerr or "the converging build failed")
+    .. wedge_hint, "build failed"
   end
   if not r.ok then
-    return false, "make: the converging build failed", "build failed"
+    return false, "make: the converging build failed" .. wedge_hint,
+    "build failed"
   end
   if not fs.is_file(built) then
     return false, "make: " .. built .. ": the build produced no artifact",

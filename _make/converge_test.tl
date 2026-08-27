@@ -215,6 +215,39 @@ local function test_a_build_that_never_settles_refuses()
 end
 test_a_build_that_never_settles_refuses()
 
+-- The wedge names its escape. A converging build that fails while the
+-- RUNNING binary is the tree's own o/bin/cosmic may be a stale
+-- toolchain rather than a tree error — a red generation-2 leaves
+-- generation-1's product there, and a branch switch leaves a binary
+-- built from another tree; both faces re-enter it forever — so the
+-- refusal says how to get out.
+local function test_a_failing_build_under_the_artifact_names_the_escape()
+  local dir = scratch("wedge-hint")
+  local self = script(fs.join(dir, "o/bin/cosmic"), "exit 1\n")
+
+  local ok, err, why = converge_in(dir, toolchain("wedge-hint-proj"), self)
+  assert(not ok, "a failing build must refuse")
+  assert(why == "build failed", "as itself, got: " .. tostring(why))
+  assert(err:find("rm o/bin/cosmic", 1, true),
+    "and name the escape when it ran under the artifact, got: " .. err)
+end
+test_a_failing_build_under_the_artifact_names_the_escape()
+
+-- The pin path keeps the plain refusal: a pinned build cannot be
+-- stale, so its failure is the tree's own and the escape hint would
+-- only mislead.
+local function test_a_failing_build_under_the_pin_stays_plain()
+  local dir = scratch("wedge-pin")
+  local self = script(fs.join(dir, "quiet"), "exit 1\n")
+
+  local ok, err, why = converge_in(dir, toolchain("wedge-pin-proj"), self)
+  assert(not ok, "a failing build must refuse")
+  assert(why == "build failed", "as itself, got: " .. tostring(why))
+  assert(err:find("rm o/bin/cosmic", 1, true) == nil,
+    "with no escape hint on the pin path, got: " .. err)
+end
+test_a_failing_build_under_the_pin_stays_plain()
+
 -- And the branch that is NOT a refusal. A project that declares a
 -- toolchain by two ordinary names -- a `cosmic/` package and a `cosmic`
 -- binary -- but whose binary is not an engine carries on under the
