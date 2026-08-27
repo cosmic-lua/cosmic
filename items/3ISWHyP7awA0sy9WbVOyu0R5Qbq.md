@@ -1,6 +1,6 @@
 ## Goal
 
-G9 — every release publishes, measured. `release.yml`'s perf gate has
+G6 — the defining paths, ratcheted (docs/goals.md; its measured half is the `perf-compare` gate). [Goal line corrected 2026-08-27 by 3IT8rb3B: the cited "G9 — every release publishes, measured" never existed in docs/goals.md.] `release.yml`'s perf gate has
 refused to publish since 2026-08-24 on two flagged scenarios. This
 slice decides, by measurement, whether the cosmos pin bump `ea71d799`
 caused them. EVIDENCE ONLY: it lands no product code and opens no pull
