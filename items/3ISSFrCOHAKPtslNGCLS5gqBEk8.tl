@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3ISnTFGe6kVmi3Piua0O555asQv 3ITo9InvDKnofScNuZYfUluM4o8",
   ["id"] = "3ISSFrCOHAKPtslNGCLS5gqBEk8",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "tl patch: is-dispatch over metatable<T> against table-kinded targets — sketch validated",
 }
