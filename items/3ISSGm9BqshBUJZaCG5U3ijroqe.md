@@ -20,3 +20,22 @@ short of that, registering the patch's narrows in scope.narrows
 restores stock soundness at the cost of re-losing the narrow at
 closures. Either way a narrowing test must pin the reassignment case
 as refused.
+
+## Result (2026-08-27, closing diagnosis)
+
+The stated root cause is wrong, measured against the patched checker
+at main (instrumented `widen_all_unions` + probes): the early-exit
+narrow IS registered in `scope.narrows` and IS widened at the
+`local function` boundary — a probe indexing the closure's `v`
+reports `got string | nil`, i.e. the widening worked. The probe's
+acceptance is the checker's DOCUMENTED permissive nil-flow (an
+unnarrowed `T | nil` passes a non-nil return/declared local; only an
+index refuses — AGENTS.md, pinned in teal_narrowing_test.tl). So
+"registering the patch's narrows" is a no-op that fixes nothing, and
+the reassignment case will refuse exactly when strict nil-flow mode
+(3IPXRRd2) lands — that item owns this hole. The closure carry-through
+design this capture pointed at is 3ISSGDIN, refined and in flight
+with a chunk-root scope (the enclosing-body scope proposed here is
+unsound for escaped upvalue closures — counterexample recorded on
+3ISSGDIN). Ended not-planned: nothing remains that another item does
+not own.
