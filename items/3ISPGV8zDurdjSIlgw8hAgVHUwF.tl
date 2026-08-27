@@ -8,6 +8,7 @@ return {
   ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3ISPGV8zDurdjSIlgw8hAgVHUwF",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1423,
   ["title"] = "coverage: retire the pack-n cast once the pinned checker carries narrow-pack-n",
 }
