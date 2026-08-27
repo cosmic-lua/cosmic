@@ -6,6 +6,7 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["phase"] = "check",
   ["pr"] = 1465,
+  ["reviewer"] = "e532d9f6-4b7d-5145-9534-7c6759ebc0d8",
   ["title"] = "refine has no claim: next hands concurrent sessions the same plan item, and spec --base refuses only after the duplicate work is spent",
   ["verdict"] = "request changes",
   ["verdict_head"] = "6b0ab7e09a42113638fcd8a365f2b30dff4b3a57",
