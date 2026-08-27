@@ -8,6 +8,7 @@ return {
   ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3IOCdHTMLfZoga1s1BqhqJI2D3v",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1446,
   ["title"] = "compile seam: runner-mode test files get the generated tail, in the checker and the chunk",
 }
