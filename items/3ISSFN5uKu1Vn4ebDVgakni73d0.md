@@ -137,3 +137,20 @@ Beyond the blocker, the countermeasure this bounce is evidence for is
 remembered — the `build` lane catches it only after a PR is open, and
 `--make ci`'s convergence actively hides it. Two specs in a row have
 now asserted the rule did not apply to them.
+
+## Re-measured at refinement, 2026-08-27
+
+The wait is over: `3ISVlHT6` landed as `d8584916` and
+`bin/cosmic.pin` now names `2026-08-27-afad5b5`, whose release binary
+carries the full tl patch set. Verified directly against the pinned
+artifact, not inferred: the `cosmic-lua` asset downloaded from that
+release (sha256 `9f81e916…`, matching the pin) accepts the exact
+cast-free spelling this slice lands —
+`local lua = (fs.read("x") or "")` then `lua:match(...)` →
+`Type check passed`. So generation 1 of a cold build now compiles the
+cast-free file, and the `build` lane failure that bounced PR #1416
+cannot recur for this reason. The Change, Non-goals and Acceptance
+below stand as written; re-run the Change section's three measured
+greps at pull as usual (main has moved to `d8584916` since they were
+taken, but the three sites and the baseline row are untouched by
+everything landed since).
