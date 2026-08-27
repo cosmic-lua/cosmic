@@ -128,6 +128,7 @@ return {
   ["_tool/floor.tl"] = {["covered"] = 11, ["total"] = 11},
   ["_tool/lint.tl"] = {["covered"] = 16, ["total"] = 17},
   ["_tool/records.tl"] = {["covered"] = 88, ["total"] = 92},
+  ["_tool/seam.tl"] = {["covered"] = 29, ["total"] = 31},
   ["_tool/testrun.tl"] = {["covered"] = 145, ["total"] = 180},
   ["_types/gentl.tl"] = {["covered"] = 131, ["total"] = 155},
   ["_types/gentype.tl"] = {["covered"] = 250, ["total"] = 305},
