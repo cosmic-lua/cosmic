@@ -39,3 +39,44 @@ resetting the trap.
 Whoever takes this should also check whether other `_work/**` files are
 near the cap, since the same two-PRs-one-file arithmetic applies
 wherever review rounds overlap.
+
+## Update, 2026-08-27 — a second file reached the cap, the same way
+
+`_work/flow.tl` is now also exactly 500. Measured after PR #1475 merged:
+
+    wc -l _work/flow.tl _work/store.tl _work/converge_test.tl _work/action.tl
+    500 _work/flow.tl
+    500 _work/store.tl
+    498 _work/converge_test.tl
+    495 _work/action.tl
+
+Two files with zero headroom, two more within five lines. The next line
+added to any of the four needs a split first.
+
+`flow.tl` arrived there by the same route this item already describes,
+which is what makes the pattern worth naming rather than fixing one file
+at a time. Its spec measured 490 and predicted the addition would fit;
+it did not, and the shortfall was covered by condensing two doc comments
+that sat OUTSIDE the change's own scope. The PR body called that "no
+substance dropped". That is close but not exact: the sentence explaining
+why there is no goal tier, and a worked A-built/B-repulled example that
+had landed one PR earlier, are both gone. The argument in each comment
+survives; the illustration does not.
+
+That is the real cost of treating the cap as a budget to be met rather
+than a signal to split. Each change pays for itself by deleting prose
+some earlier change added deliberately, the file stays at the limit, and
+the next change inherits a smaller reserve and a thinner file.
+
+## What this changes about the fix
+
+The single-file framing above is too narrow. Trimming `store.tl` alone
+leaves `flow.tl` at 500 and the same arithmetic in place, so the useful
+scope is a decision about the four files together: which of them carry
+more than one concern and should be split, and what the convention is
+when a change's own budget does not fit.
+
+Worth pairing with `3IVGWI8c`'s outcome, which split
+`_work/gitverbs_test.tl` and took it from 7 lines of headroom to 207.
+That is the shape that worked; it also shows the cost, since the split
+added 24 lines in total for the second file's header and imports.
