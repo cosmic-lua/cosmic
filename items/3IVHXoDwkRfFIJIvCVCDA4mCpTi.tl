@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IODJgkObjfhsxqMPEgFPIM6RHR",
   ["phase"] = "check",
   ["pr"] = 1471,
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "the checker accepts return nil from a bare non-nil declared return, so an annotation can lie and no nil tool fires",
 }
