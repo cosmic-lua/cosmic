@@ -4,7 +4,7 @@ return {
   ["enable"] = "3IVgswRIqOOPpX0vXNlU4Qz7EZe",
   ["id"] = "3IVHXoDwkRfFIJIvCVCDA4mCpTi",
   ["parent"] = "3IODJgkObjfhsxqMPEgFPIM6RHR",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1471,
   ["title"] = "the checker accepts return nil from a bare non-nil declared return, so an annotation can lie and no nil tool fires",
   ["verdict"] = "request changes",
