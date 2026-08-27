@@ -1,67 +1,138 @@
-## Evidence
+## Goal
 
-The Teal checker accepts `return nil` from a function whose declared
-return type is a bare non-nil type, and then lets callers index the
-result. Measured against the tree's own binary (built from `main` at
-`54aa87df`):
+G3 — honest nil. The checker accepts `return nil` from a function whose
+declared return is a bare non-nil type, so an annotation can lie and none of
+the project's nil tooling fires. This gate stops the class growing and turns
+its size into a committed measurement.
 
-```teal
-local function f(x: string): string
-  if x == "" then
-    return nil
-  end
-  return x
-end
-local out = f("a")
-print(#out)
+## Change
+
+**What the count settled.** The item's first job was the tree-wide number, and
+it is 116 `return nil` sites across 48 files whose declared slot 1 does not
+admit nil — out of 785 `return nil` sites in 602 committed `.tl` files
+(`git ls-files '*.tl'`, `.d.tl` excluded). Measured at refinement by an
+independent indentation-based scan: the tree is `--check fmt`-gated to 2-space
+indent, so the nearest less-indented `function` header above a `return nil` is
+its enclosing function, and that header's first declared slot is parsed for
+`nil`, `?` or `any`. It reaches public library source, not just tooling —
+`cosmic/stream.tl` 7, `cosmic/flags/parse.tl` 7, `cosmic/child/init.tl` 4 —
+and the three kinds are all present: a `boolean, string` effect returning
+`nil, err` where the house rule says `false, msg` (`_docs/publish.tl:190`); a
+function whose doc comment already says `@return boolean|nil` while its
+signature says `boolean` (`_eval/journal.tl:168`); and a function returning an
+error string whose `nil` means success (`_perf/bench/embed_bench.tl:72`).
+
+**So this lands as a ratcheted count, not a checker change.** 116 sites break
+at once under a checker that refuses them, which is not a slice; a patch to
+`3p/tl/tl_patch/` is the honest end state and belongs behind the sweep, filed
+separately. Build it as the tree's existing cast ratchet, which is the same
+shape: a counter in `_cli/`, a per-file floor in `_build/`, a test that holds
+the count in both directions.
+
+**1. `_cli/returns.tl` — the detector.** This module already parses declared
+return lists token-exactly (`parse_list` returns one `admits_nil` boolean per
+slot, `params_open` finds a signature's `(`), and it is 286 lines, 214 under
+the cap. Add, and export, `nil_return_lines(content: string, file: string):
+{integer}` — the lines holding a `return nil` whose innermost enclosing
+function DEFINITION declares a slot 1 that does not admit nil. It mirrors
+`_cli.lint`'s `cast_lines`, which is what `_build/casts.tl` counts. What it
+needs beyond what is here:
+
+- **Function nesting.** Walk tokens keeping a stack of open function
+  definitions. Count block openers `function`, `do`, `if`, `record`, `enum`
+  and `interface` as opening a block and `end` as closing one — `while`/`for`
+  are covered by their own `do`, and `repeat` closes on `until`, not `end`.
+  A `return nil` is attributed to the INNERMOST open definition, so an inner
+  closure's nil is never charged to its outer function.
+- **Definitions, not types.** A function TYPE (`f: function(x: string): T`)
+  opens no block and has no `end`; only a definition is pushed. Discriminate
+  on the token before `function`: a definition follows `local`, `=`, `,`,
+  `(`, `return`, `then`, `do`, `else` or a statement boundary, never `:` or
+  `|`, which put it in type position.
+- **`return nil` in slot 1.** The token after `return` is `nil`; what follows
+  it does not matter, so `return nil, err` counts exactly as `return nil`
+  does when slot 1 is declared non-nil.
+- A function with NO declared return type is not in the class and is skipped.
+
+**2. `_build/nil_returns.tl`** — modeled on `_build/casts.tl` (143 lines),
+line for line: the same `TREES` list, the same `count(root): {string: integer}`
+walk skipping `testdata/` and `.d.tl`, the same `baseline()` read through
+`_tool.floor`, and the same `main(...)` behind `proc.is_main()` accepting only
+`--baseline` and printing what it wrote. `BASELINE` is
+`"_build/nil_returns_baseline.tl"`.
+
+**3. `_build/nil_returns_baseline.tl`** — generated, never hand-edited:
+
+```
+bin/cosmic --make run _build/nil_returns.tl --baseline
 ```
 
-```
-$ o/bin/cosmic --check types /tmp/nilret.tl
-Type check passed: /tmp/nilret.tl
-```
+**4. `_build/nil_returns_test.tl`** — modeled on `_build/casts_test.tl` (102
+lines), with its `--- reads:` header lines for the same trees. Two tests:
 
-Both halves pass: the `return nil` against `: string`, and the `#out`
-on a value the checker believes is a `string`. So a function can
-declare an infallible contract, return nil anyway, and hand every
-downstream caller a value the checker will never ask them to narrow.
+- the ratchet, in both directions, exactly as the cast one reads it: a file
+  over its floor fails, and a file UNDER it fails too, naming the regen
+  command, so the floor always states what the tree carries. Unlike the cast
+  ratchet, print the offending LINE NUMBERS for a file that grew —
+  `nil_return_lines` returns them, and a ratchet that says only "3 (baseline
+  2)" makes the author find the site themselves.
+- a fixture test over a constructed tree, pinning the detector's rules: a
+  `: string` returning nil counts; a `: string | nil` returning nil does not;
+  a `: boolean, string` returning `nil, err` counts; an inner closure's
+  `return nil` is charged to the closure and not to an outer function whose
+  own return admits nil; a `return nil` quoted inside a string counts for
+  nothing; and `testdata/` is skipped.
 
-**This is the inverse of the gap G3 is already chasing.** The known
-hole is that an unnarrowed `T | nil` is DEMANDED only at an index
-(`docs/guides/checking.md`, pinned in `cosmic/teal_narrowing_test.tl`).
-This one is upstream of that: the union never forms in the first
-place, because the declaration says it cannot. Every tool the project
-built for honest nil — the narrowing patch, `check.must`, the
-`fallible-returns` lint — operates on a type that admits nil, and none
-of them fires when the annotation simply lies.
+## Non-goals
 
-**It is reachable in practice, not a curiosity.** Found while reviewing
-whilp/cosmic#1461, where `_work/gitverbs.tl`'s `base_refusal` declares
-`: string`, returns `nil` on its happy path, and carries a doc comment
-that correctly says `@return string | nil`. The author wrote the right
-type in prose and the wrong one in the signature, `--make ci` passed,
-and the only thing standing between that signature and a latent nil
-was the single call site happening to narrow with `if stale then`.
-That PR is fixing its own instance; the hole stands.
+- **Fix none of the 116 sites.** Not one, in any tree. The sweep is its own
+  work and its own items; a PR that both adds the gate and moves the number
+  cannot be reviewed as either.
+- No patch to `3p/tl/tl_patch/**` and no tl pin change. Whether the checker
+  itself can be made to refuse this is a separate item, filed as a capture
+  from this one, and it is gated behind the sweep by arithmetic.
+- No new `--check lint` rule and no change to `_cli/lint.tl`'s `lint_file`
+  composition: a rule that fires would fail on 116 sites the day it lands.
+  The ratchet is the whole gate here.
+- No change to `_cli/returns.tl`'s existing `check_fallible_returns`, its
+  diagnostic text, or the `fallible-returns` rule name — a different
+  invariant that happens to share the parser.
+- No change to `.cosmic-coverage`, `_build/casts_baseline.tl`,
+  `_build/public_surface_baseline.tl`, or any other committed floor.
+- No `docs/decisions/` record and no `docs/guides/lint.md` entry: this gate
+  counts a class, it does not add a rule a contributor must learn to write
+  code against.
+- Do not widen `TREES` or start counting `3p/` — vendored source is not
+  written here.
 
-## What this item must settle
+## Acceptance
 
-1. **Whether the checker can be made to refuse it**, and at what cost:
-   whether this is a tl upstream behaviour, something the carried patch
-   set (`3p/tl/tl_patch/`, mechanism in `_make/patch.tl`) can close as
-   a sixth group, or something only a lint can see. The patch route is
-   the one that would make the guarantee real rather than advisory.
-2. **The tree-wide count**, before choosing: how many existing
-   `return nil` sites sit under a bare non-nil declared return. That
-   number decides whether this lands as a checker change with a sweep
-   behind it or as a ratcheted lint. Nothing measured yet — the count
-   is the first job.
-3. **How it composes with 3IPXRRd2** (strict nil-flow mode, in `plan`,
-   blocked). Strict mode makes the checker DEMAND narrowing at every
-   non-nil sink; it does nothing about a declaration that never admits
-   nil, so the two are complementary rather than alternatives, and
-   whichever lands first should say so.
+- `bin/cosmic --make ci` from the repo root ends `ci: PASS`.
+- `bin/cosmic --make run _build/nil_returns.tl --baseline` prints a
+  `nil-returns: wrote _build/nil_returns_baseline.tl — N sites in M files`
+  line, and running it a second time leaves the file byte-identical
+  (`git status --porcelain _build/nil_returns_baseline.tl` empty after the
+  second run).
+- In that line, N is between 100 and 130 and M is between 40 and 55. The
+  independent indentation scan at refinement found 116 in 48; a token-exact
+  count inside that band is the same finding, and one outside it means the
+  detector is wrong rather than the tree. The PR states N and M and explains
+  any divergence from 116/48 it can identify.
+- `bin/cosmic --make test _build/nil_returns_test.tl _cli/returns_test.tl`
+  ends `test: PASS (2 files)`, including the fixture test that pins each
+  detector rule named in `Change`.
+- `git diff --stat origin/main -- cosmic/ _perf/ _eval/ _docs/ _make/
+  _types/ cmd/` is empty: no counted site was fixed.
+- `wc -l _cli/returns.tl _build/nil_returns.tl _build/nil_returns_test.tl` —
+  each at most 500 (`_cli/returns.tl` is 286 today).
 
-A ratcheted lint over `return nil` under a non-nil signature is the
-cheap shape and is probably where this starts; the patch is the honest
-one. The choice is this item's to make from the count.
+## Enablement
+
+none needed. The template is `_build/casts.tl`, `_build/casts_baseline.tl` and
+`_build/casts_test.tl`, already in the tree and already gated the same way;
+the type parser this needs is already in `_cli/returns.tl`; and
+`bin/cosmic --make ci` gates the result. No blocker items — 3IPXRRd2 (strict
+nil-flow mode) is complementary, not a dependency: it makes the checker DEMAND
+narrowing at non-nil sinks, which does nothing about a declaration that never
+admits nil in the first place, and whichever lands first leaves the other's
+work untouched.
