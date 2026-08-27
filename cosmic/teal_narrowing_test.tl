@@ -330,3 +330,72 @@ print(g({}))
   assert(not result.ok, "`mt is integer` must keep failing to check")
 end
 test_metatable_is_scalar_is_refused()
+
+-- ...and a NAMED target never reaches the rescue: the is-fact carries
+-- the unresolved type, so a record nominal arrives as "nominal", not
+-- "record", and the can-never-be refusal stands.
+local function test_metatable_is_record_is_refused()
+  local path = fs.join(tmpdir, "narrow_metatable_record.tl")
+  assert(fs.write(path, [[
+local record Handler
+  name: string
+end
+local function h(x: any): string
+  local mt = getmetatable(x)
+  if mt is Handler then
+    return mt.name
+  end
+  return ""
+end
+print(h({}))
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok, "`mt is Handler` (a record nominal) must keep failing to check")
+end
+test_metatable_is_record_is_refused()
+
+-- An interface nominal is refused for the same reason.
+local function test_metatable_is_interface_is_refused()
+  local path = fs.join(tmpdir, "narrow_metatable_interface.tl")
+  assert(fs.write(path, [[
+local interface Shape
+  kind: string
+end
+local function s(x: any): string
+  local mt = getmetatable(x)
+  if mt is Shape then
+    return mt.kind
+  end
+  return ""
+end
+print(s({}))
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok, "`mt is Shape` (an interface nominal) must keep failing to check")
+end
+test_metatable_is_interface_is_refused()
+
+-- The array half of the live rescue: an inline `{T}` target narrows a
+-- metatable exactly as an inline map target does.
+local function test_metatable_is_array_narrows()
+  local path = fs.join(tmpdir, "narrow_metatable_array.tl")
+  assert(fs.write(path, [[
+local function a(x: any): integer
+  local mt = getmetatable(x)
+  if not (mt is {string}) then
+    return 0
+  end
+  return #mt
+end
+print(a({}))
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "a metatable narrowed by `is {string}` must check: " ..
+    table.concat(msgs, "; "))
+end
+test_metatable_is_array_narrows()
