@@ -157,3 +157,109 @@ above, with the one computed column marked as computed; no measurement
 run is required to write it. Read 3IU0GxoA's "What this does NOT
 license" paragraph before writing, so the bullet's last clause does not
 drift into licensing a wider bar.
+
+## Review — 2026-08-27 15:0x UTC, ACCEPT (session 0b13d2b4)
+
+PR #1460 at head `5ee67919`, one commit, one file, +32/-0.
+
+**The acceptance was re-run, not read.** In a scratch worktree
+detached at `5ee67919`: `bin/cosmic --make fetch` → `fetch: PASS (2
+pins)`, `--make build` → `build: PASS (547 files, 1 binary)`, `--make
+ci` → `fmt: PASS (549 files)`, `check: PASS (549 files)`, `example:
+PASS (35 files)`, `lint: PASS (649 files)`, `coverage: PASS (251
+files)`, **`ci: PASS (5 stages)`** (251 checks: 250 passed, 1 skipped;
+929 tests: 929 passed). The narrow checks reproduce the builder's
+numbers exactly: `magnitude` at line 51, `first one would have cost a
+pin` at 49, the triage bullet at 82 (49 < 51 < 82); `grep -c` for the
+figures → 6 ≥ 4; `wc -l` → 166 < 500; `git diff origin/main
+--name-only` → `skills/optimize/measurement.md` alone; `git diff
+origin/main -- _perf` → 0 bytes. CI on that head is green on all five
+lanes (run 33084481616: ci, build, repro, smoke macOS, smoke Windows).
+
+**The arithmetic was recomputed from the sources, not taken from the
+spec.** 3ISlWFiS's `## Result` states `med 191.31 → 209.35 µs
+(+9.44%)` and 3ITOUv0w's states `med 144.29 → 173.38 µs (+20.16%)`;
+the medians are the ones 3IU0GxoA's per-arm table records for the
+byte-identical arms `d8492168…` and `940f21bb…`. 209.35 − 191.31 =
+18.04 and 173.38 − 144.29 = 29.09, so 20.16 / 9.44 = 2.136 → 2.14 and
+29.09 / 18.04 = 1.613 → 1.61. Every figure in the bullet is correct to
+the digits it prints. (Recomputing the first percentage from the
+printed medians gives 9.43%, not 9.44% — the source item's own figure
+comes off unrounded medians; carrying 9.43 leaves the factor at 2.14
+either way.)
+
+**The statistics the prose asserts are true.** An additive model
+predicts an equal µs delta and a larger percentage at the faster
+level; a multiplicative model predicts an equal percentage. The rows
+violate both, and in the direction the bullet names: the absolute cost
+is LARGER at the FASTER level (29.09 µs at ~144 against 18.04 µs at
+~191), which is the opposite of what motivates a level-normalised bar.
+"Narrows the gap without closing it" is right: 1.61 < 2.14. The
+closing "there is no level-normalised bar to reach for" is one shade
+stronger than the spec's "no single-parameter normalisation … can be
+fitted", since two points admit a two-parameter fit — but that fit
+would be unfalsifiable, the two named models are the ones a reader
+would reach for, and the operative instruction (quote the level, carry
+the medians) is exactly right. Not a finding.
+
+**Diff is the Change, walls held.** All five components the `##
+Change` enumerates are present and nothing else is: the magnitude
+claim, the two-row table in both units with the arms named
+byte-identical, the two factors with the direction, the working rule,
+and the one evidence pointer. `git diff … -- _perf` is 0 bytes,
+`docs/decisions/` is untouched, and the host-placement bullet above is
+byte-identical — the insert begins after its last line. No threshold,
+no floor, no history store, no `check()`.
+
+**Finding 1 — the Acceptance command is the two-dot form, and this is
+a recurrence. Confirmed; not blocking.** The spec's `git diff
+origin/main --name-only` and `git diff origin/main -- _perf` diff
+against main's TIP, not the merge base. Demonstrated on a worktree
+holding this PR's commit two behind `origin/main`: two-dot named 114
+files and 32,740 bytes under `_perf`; `git diff origin/main...HEAD`
+named exactly `skills/optimize/measurement.md` and 0 bytes. The
+`_perf` bullet is the worse of the two — the check whose whole job is
+to prove the "no threshold moved" wall held would read another
+branch's landed test migration as a violation. It does not block
+because the builder ran it on a current checkout, where the two forms
+agree, and this review reproduced that result independently; the
+defect is in the spec's wording, not the implementation. 3IU0GxoA's
+`## Review 3` recorded exactly this as a ready-bar note one refinement
+pass earlier, and 3IOXhlWb's spec had already written the rule out in
+full before that, so prose has now failed to carry it twice. Filed as
+**3IVHIoAx** — a pure check in `_work/spec.tl` that refuses the
+two-dot form inside an `Acceptance` section (75 such invocations across
+57 item specs today, against 23 correct three-dot ones).
+
+**Finding 2 — no decision record was owed. The builder's call is
+correct.** `skills/decide/SKILL.md`'s three tests: the second fails
+outright — there is no losing option a competent contributor would
+have chosen, because the µs-denominated bar was not traded away, it
+was REFUTED by measurement, and "no loser, no record — that is a
+design note, not a decision". The skill's exclusion list names this
+case twice over: "do not open a record for … a performance hypothesis
+(a `perf` issue — `skills/optimize`)" and "a rule a comment can carry
+in place". D31 needs no amendment either: its live parts — `TRIAGE_K =
+2`, the 10% bar, `triage_many` over every same-binary control pair —
+are untouched, and its mechanism is a same-JOB A/A control, which is
+level-invariant by construction, so this item's finding explains why
+D31's shape is the right one rather than moving a fact under it. The
+one place the two could meet later is D31's parked "committed
+per-scenario noise profile"; if that is ever proposed, this bullet is
+the evidence to read first, and it lives where that reader will be.
+
+**A correction to this item's own Non-goals, for the record.** "The
+`_perf` machinery persists no A/A history" is half wrong.
+`release.yml:126-132` runs the full suite twice against the same
+binary in the same job (`perf.json`, then `selfcheck.json`), which is
+a genuine full-suite A/A control pair; only `perf.json` survives as a
+release asset. The Non-goal itself held — the diff adds no history
+store — and no false statement reached the tree, since the shipped
+bullet makes no claim about persisted history. Captured as 3IVGNOMt.
+
+**Serves the Goal, and is the least thing.** G6's win condition is
+served by the refutation being readable where a swinging codec row is
+worked; 32 lines is what the five required components cost, with no
+helper, no restructure and no second claim.
+
+**Verdict: ACCEPT.**
