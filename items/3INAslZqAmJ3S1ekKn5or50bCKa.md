@@ -25,8 +25,12 @@ In `parse_table` (cosmic/literal.tl):
   being reported as `found '$EOF$' after a value`; the `not sep` arm
   and the `"<eof>"` fallback go (the sentinel means sep is never
   nil);
-- the loop's dead fall-through `unterminated table` return goes with
-  the restructure, so coverage stops carrying unreachable lines.
+- the loop's fall-through `unterminated table` return STAYS, as a
+  stated-invariant safety net with a comment saying so. [Corrected at
+  review 2026-08-27: the original bullet said it goes; deleting it
+  would make a broken sentinel invariant degrade to a silent
+  `nil, nil`, which the checker cannot flag and the never-discard-
+  errors rule forbids. The reachable-refusal goal is untouched.]
 
 Tests asserting the old `$EOF$` spellings update to the new
 messages; `literal_engine_test.tl`'s byte-for-byte engine agreement
@@ -44,8 +48,9 @@ class count (3IKSjEgW) is that item's record, not this one's.
 `return {a =`, `return {a = 1` reports the end-of-input messages with
 no `$EOF$` anywhere; `grep -c '\$EOF\$' o/cosmic/literal.lua` shows
 the spelling only where the sentinel is consumed, never concatenated
-into a message. Coverage carries no unreachable refusal line in
-parse_table.
+into a message. The only unreachable refusal line left in parse_table
+is the stated-invariant fall-through above, carrying its comment.
+[Amended with the Change bullet's review correction.]
 
 ## Enablement
 
