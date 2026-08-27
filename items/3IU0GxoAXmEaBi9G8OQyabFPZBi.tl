@@ -3,6 +3,6 @@ return {
   ["claim"] = "3f616956-66af-5d35-82b3-9ab54b187eb2",
   ["id"] = "3IU0GxoAXmEaBi9G8OQyabFPZBi",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["title"] = "codec_base64 swings 25-30% across minutes machine-wide on both runtimes: no single-window claim about base64 perf is sound",
 }
