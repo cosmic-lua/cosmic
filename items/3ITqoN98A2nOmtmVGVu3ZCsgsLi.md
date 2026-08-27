@@ -79,3 +79,15 @@ JSON shape (the A/B stage reads standard `run.tl` outputs).
 none needed — `run.tl --only` exists, `cosmic.child` exists, the
 skew guard for bare-load of `_perf/**` under an old binary landed as
 3ITdgu6f, and the test seam (injected measure) is established.
+
+## Result
+
+Closed 2026-08-27 against landed work, per the block recorded by
+3ITt7slj: PR #1432 ships `--baseline-bin` — on a flagged retry the
+gate re-measures the BASELINE binary in the current machine window
+(identity-guarded), wired into release.yml — plus the strike-twice
+intersection. The stale-window baseline class this item captured can
+no longer produce a FAIL that no triage clears; the heavier
+per-row interleaved-pairs instrument this spec drafted was
+implemented on a branch, superseded mid-flight, and not opened as a
+PR.
