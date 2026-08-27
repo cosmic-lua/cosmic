@@ -34,8 +34,9 @@ test_decomposition_is_one_commit()
 -- The other side of the same race: re-parenting an item that already
 -- holds a phase leaves it where it stands, so `attach` is a write and
 -- not an entry. It has no WIP gate up front — triage is a decision
--- already made — and the check after a lost push race has to agree, or
--- the board becomes unre-parentable whenever a column is full.
+-- already made — so after a lost push race the RE-RUN, meeting no
+-- gate, lands on a full column exactly as the first run would have,
+-- or the board becomes unre-parentable whenever a column is full.
 local function test_a_reparent_survives_an_over_limit_rebase()
   local a, b = init_shared("attach-race")
   local goal, leaf = root_with_leaf(a)
@@ -50,8 +51,10 @@ local function test_a_reparent_survives_an_over_limit_rebase()
   end
   assert(check.must(store.load(a, leaf)).phase == "backlog",
     "the item starts on the board")
+  assert(graph.cmd_attach(a, leaf, other) ~= 0,
+    "the stale run is refused, not replayed")
   assert(graph.cmd_attach(a, leaf, other) == 0,
-    "a re-parent that moves nothing must survive an over-limit rebase")
+    "a re-parent that moves nothing lands on the re-run, full column or not")
   local after = check.must(store.load(a, leaf))
   assert(after.phase == "backlog",
     "a re-parent leaves the item where it stands: " .. after.phase)

@@ -5,8 +5,8 @@
 --- resolves prefixes — and every verb prints a `gitboard-<verb>:`
 --- verdict line and returns its exit code. Mutations commit locally
 --- and publish through `store.publish`, whose rejected-push path
---- rebases onto concurrent state and re-checks the WIP invariant
---- before pushing again.
+--- drops the mutation whole, re-syncs, and refuses — re-running the
+--- verb re-applies every gate against the merged board.
 ---
 --- Decomposition and triage are both `attach`: giving an item a
 --- parent is the whole operation, because roles derive from the graph
@@ -52,8 +52,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     return gate.verdict_line("new", false, table.concat(bad, "; "))
   end
   -- Read before `dephased_container` clears it below: this is the slot
-  -- the mutation frees, and both the up-front gate and the one after a
-  -- lost push race need it.
+  -- the mutation frees, and the up-front gate needs it.
   local vacated = ""
   if parent_item ~= nil then
     vacated = parent_item.phase or ""
@@ -75,7 +74,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
     ("new %s %s%s"):format(it.id:sub(1, 8), title,
-      gate.forced_suffix(force, why)), nil, also, force, vacated)
+      gate.forced_suffix(force, why)), also)
   if not ok then
     return gate.verdict_line("new", false, err)
   end
@@ -132,7 +131,7 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
     return gate.verdict_line("attach", false, table.concat(bad, "; "))
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("attach %s under %s"):format(id:sub(1, 8), parent:sub(1, 8)), it.phase,
+    ("attach %s under %s"):format(id:sub(1, 8), parent:sub(1, 8)),
     gate.dephased_container(parent_item))
   if not ok then
     return gate.verdict_line("attach", false, err)
@@ -227,7 +226,7 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
   end
   it.block_reason = reasons
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)), it.phase)
+    ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)))
   if not ok then
     return gate.verdict_line(verb, false, err)
   end

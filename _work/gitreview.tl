@@ -89,8 +89,7 @@ local function cmd_review(s: store.Store, id: string, session: string,
   end
   it.reviewer = session
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("review %s claimed by %s"):format(id:sub(1, 8), session),
-    "check", nil, force)
+    ("review %s claimed by %s"):format(id:sub(1, 8), session))
   if not ok then
     return gate.verdict_line("review", false, err)
   end

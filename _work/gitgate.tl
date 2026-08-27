@@ -82,59 +82,28 @@ local function forced_suffix(force: boolean, why: string): string
   return (" (forced: %s)"):format(why)
 end
 
---- Save an item and publish the commit, re-checking the WIP gate
---- against the merged state when the push loses a race. Everything
---- one mutation touches goes in through `also`, so a refusal after a
---- lost race drops the whole mutation rather than half of it.
+--- Save an item and publish the commit. Everything one mutation
+--- touches goes in through `also`, so a lost race drops the whole
+--- mutation rather than half of it. There is no post-race re-check
+--- here any more: a lost push comes back as `store.LOST_RACE` with
+--- the mutation dropped and the checkout synced, and the verb is run
+--- again — which re-applies EVERY gate it decided with (the WIP
+--- refusal, `force`, the `vacated` credit, and all the rest) against
+--- the merged board, where the old closure re-asked only the limit.
 --- @param s store.Store The store
 --- @param it item.Item The mutated item
 --- @param body string Replacement spec markdown, or nil to leave the sidecar alone
 --- @param message string Commit subject
---- @param from string Phase the mutation left; equal to `it.phase` for
----   a write that moves nothing, nil for an entry
 --- @param also {item.Item} Further items the same mutation writes
---- @param force boolean True when --force authorised this mutation
---- @param vacated string Phase this mutation frees a slot in, or nil
 --- @return boolean True once committed (and pushed, given a remote)
---- @return string Error message
+--- @return string Error message; `store.LOST_RACE` for a lost race
 local function commit_and_publish(s: store.Store, it: item.Item, body: string,
-    message: string, from: string, also?: {item.Item}, force?: boolean,
-    vacated?: string): boolean, string
+    message: string, also?: {item.Item}): boolean, string
   local saved, serr = store.save(s, it, message, body, also)
   if not saved then
     return false, serr
   end
-  return store.publish(s, function(): string
-      local merged = store.list(s)
-      if merged == nil then
-        return "state repository unreadable after rebase"
-      end
-      -- A force is an authorisation the verb already granted, and
-      -- losing the push race does not withdraw it: the up-front gate
-      -- was skipped, so the one here is skipped with it, or the repair
-      -- a force exists to make would fail on any concurrent commit.
-      if force then
-        return nil
-      end
-      -- The mutated item is already IN the merged state; ask whether its
-      -- phase ended up over-limit with an ARRIVAL the limit may refuse —
-      -- a write that leaves the item where it stands must stay editable
-      -- even on a full column, or the mutations that drain it (spec
-      -- refinement, blocker bookkeeping) could never run. `vacated`
-      -- carries the net-zero credit `wip_refusal` grants up front, so a
-      -- decomposition that empties a slot in the column it enters is
-      -- admitted after the rebase exactly as it was before.
-      local limit = flow.LIMITS[it.phase]
-      local b = flow.board(merged)
-      if limit ~= nil and #(b[it.phase] or {}) > limit
-      and flow.is_arrival(from, it.phase)
-      and not flow.is_return(from, it.phase)
-      and vacated ~= it.phase then
-        return ("%s is over %d and this mutation arrives into it"):format(
-          it.phase, limit)
-      end
-      return nil
-    end)
+  return store.publish(s)
 end
 
 --- The items a decomposition writes besides the child: the parent
@@ -333,7 +302,7 @@ local function set_in_place(s: store.Store, it: item.Item, claim: string,
   end
   local ok, err = commit_and_publish(s, it, nil,
     ("set %s in %s%s"):format(it.id:sub(1, 8), where,
-      forced_suffix(force, why)), where)
+      forced_suffix(force, why)))
   if not ok then
     return verdict_line("move", false, err)
   end
@@ -348,8 +317,7 @@ local record gitgate
   force_refusal: function(force: boolean, why: string): string
   forced_suffix: function(force: boolean, why: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
-  message: string, from: string, also?: {item.Item}, force?: boolean,
-  vacated?: string): boolean, string
+  message: string, also?: {item.Item}): boolean, string
   dephased_container: function(parent: item.Item): {item.Item}
   rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
   handover_refusal: function(s: store.Store, id: string,

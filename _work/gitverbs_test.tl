@@ -30,9 +30,10 @@ local root_with_leaf = fixture.root_with_leaf
 -- can refuse it however deep the board is — that is what separating
 -- placement from commitment buys, and it is what keeps a stalled
 -- refinement queue from starving the highest-placed roots. Filed here
--- against a clone that moved first, so the guarantee is checked at the
--- MERGED state: the post-rebase revalidation has to reach the same
--- verdict the up-front gate did.
+-- against a clone that moved first: the stale run is refused with
+-- LOST_RACE, and the RE-RUN — the up-front gate deciding against the
+-- MERGED state, vacated credit and all — reaches the same verdict the
+-- deleted post-race revalidation had to reproduce.
 local function test_a_decomposition_is_never_refused_by_a_full_board()
   local a, b = init_shared("decompose")
   local goal, leaf = root_with_leaf(a)
@@ -52,8 +53,10 @@ local function test_a_decomposition_is_never_refused_by_a_full_board()
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "ready", "the parent-to-be starts on the board")
+  assert(graph.cmd_new(a, "the child", phased.id, nil, "", false, "") ~= 0,
+    "the stale run is refused, not replayed")
   assert(graph.cmd_new(a, "the child", phased.id, nil, "", false, "") == 0,
-    "filing under a deep board is admitted after the rebase")
+    "filing under a deep board is admitted on the re-run")
   local after = check.must(store.load(a, phased.id))
   assert(after.phase == "",
     "and its parent is de-phased into a container: " .. after.phase)

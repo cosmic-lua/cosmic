@@ -7,8 +7,9 @@
 --- receive FULL ids — the dispatcher resolves prefixes — and every
 --- verb prints a `gitboard-<verb>:` verdict line and returns its exit
 --- code. Mutations commit locally and publish through
---- `store.publish`, whose rejected-push path rebases onto concurrent
---- state and re-checks the WIP invariant before pushing again.
+--- `store.publish`, whose rejected-push path drops the mutation
+--- whole, re-syncs, and refuses — re-running the verb re-applies
+--- every gate against the merged board.
 local child = require("cosmic.child")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
@@ -91,7 +92,7 @@ local function cmd_spec(s: store.Store, id: string, file: string,
     return gate.verdict_line("spec", false, stale)
   end
   local ok, err = gate.commit_and_publish(s, it, body,
-    ("spec %s"):format(id:sub(1, 8)), it.phase)
+    ("spec %s"):format(id:sub(1, 8)))
   if not ok then
     return gate.verdict_line("spec", false, err)
   end
@@ -290,7 +291,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("move %s %s -> %s%s"):format(id:sub(1, 8), from, target,
-      gate.forced_suffix(force, why)), from, nil, force)
+      gate.forced_suffix(force, why)))
   if not ok then
     return gate.verdict_line("move", false, err)
   end
@@ -337,7 +338,7 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   local back = gate.rephased_parent(it, all)
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("done %s %s (from %s)%s"):format(id:sub(1, 8), reason, from,
-      gate.forced_suffix(force, why)), from, back, force)
+      gate.forced_suffix(force, why)), back)
   if not ok then
     return gate.verdict_line("done", false, err)
   end
