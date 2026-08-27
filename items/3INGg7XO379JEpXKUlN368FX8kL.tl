@@ -5,8 +5,9 @@ return {
   },
   ["blocked_by"] = "3INAsVJZ1Yw7LVkO4aN2LdCWOTi 3ITyKzffEt7ZODKmRcDtDsDTele",
   ["builders"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81 0177c77f-81b5-5fbc-9731-86abcfb395ca",
+  ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3INGg7XO379JEpXKUlN368FX8kL",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
-  ["phase"] = "ready",
+  ["phase"] = "do",
   ["title"] = "literal: a long bracket keeps CR bytes Lua normalizes, in both the Teal and the C reader",
 }
