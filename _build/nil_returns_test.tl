@@ -29,42 +29,11 @@ local REBASELINE < const > =
 "stale baseline — run: bin/cosmic --make run _build/nil_returns.tl" ..
 " --baseline and commit the result"
 
-local function test_the_site_counts_match_the_committed_baseline()
-  local fresh = nilret.count(".")
-  local base = check.must(nilret.baseline())
-  local over: {string} = {}
-  local under: {string} = {}
-  for path, n in pairs(fresh) do
-    local was = base[path] or 0
-    if n > was then
-      local at: {string} = {}
-      for _, y in ipairs(nilret.lines_in(path)) do
-        at[#at + 1] = tostring(y)
-      end
-      over[#over + 1] = string.format(
-        "%s: %d sites (baseline %d) at line(s) %s — declare the return" ..
-        " `T | nil` (or return a real value), do not widen the floor",
-        path, n, was, table.concat(at, ", "))
-    elseif n < was then
-      under[#under + 1] = string.format(
-        "%s: %d sites (baseline %d)", path, n, was)
-    end
-  end
-  for path, was in pairs(base) do
-    if not fresh[path] then
-      under[#under + 1] = string.format(
-        "%s: no sites left (baseline %d)", path, was)
-    end
-  end
-  table.sort(over)
-  table.sort(under)
-  assert(#over == 0,
-    "file(s) over their nil-return baseline:\n  " .. table.concat(over, "\n  "))
-  assert(#under == 0,
-    "file(s) under their nil-return baseline — " .. REBASELINE .. ":\n  " ..
-    table.concat(under, "\n  "))
-end
-test_the_site_counts_match_the_committed_baseline()
+-- The fixture runs FIRST and the tree-wide ratchet after it. A test
+-- file stops at its first failing assertion, so the other order lets
+-- a moved tree hide a broken rule behind a ratchet message about
+-- counts -- and it was the ratchet, not the fixture, that caught
+-- most of the mutations this fixture is written to catch.
 
 -- What the count actually reads. The fixture pins each rule the
 -- detector rests on: the declared slot 1 decides, the INNERMOST
@@ -111,26 +80,67 @@ local function test_count_reads_the_innermost_declared_return()
       "end",
       "print(outer())",
     }, "\n") .. "\n"
-  -- A function TYPE opens no block and closes on no `end`, so treating
-  -- one as a definition would swallow the next `end` and charge every
-  -- later return to the wrong function. Here the only `return nil` sits
-  -- under a signature that admits nil, so any miscount shows up as a
-  -- site this file must not have.
-  local types = table.concat({
-      "local type Handler = function(x: integer): string",
-      "local record Sink",
-      "  write: function(s: string): boolean",
+  -- Whether a `function` opens a body cannot be read off the token
+  -- before it. Each of these declares its returns honestly and must
+  -- count ZERO; each carries a function TYPE behind a `{`, a `<`, a `,`
+  -- or a cast — exactly the tokens that also precede a real definition.
+  -- A detector that decides backwards charges the honest `return nil`
+  -- to a frame no `end` ever pops.
+  local behind_brace = table.concat({
+      "local function f(): string | nil, string",
+      "  local hs: {function(): string} = {}",
+      "  print(hs)",
+      "  return nil, \"e\"",
       "end",
-      "local function run(h: Handler, s: Sink): string | nil, string",
-      "  if not s.write(h(1)) then",
-      "    return nil, \"write failed\"",
+      "print(f())",
+    }, "\n") .. "\n"
+  local behind_angle = table.concat({
+      "local function g(): string | nil, string",
+      "  local b: Box<function(): string> = nil",
+      "  print(b)",
+      "  return nil, \"e\"",
+      "end",
+      "print(g())",
+    }, "\n") .. "\n"
+  local behind_comma = table.concat({
+      "local function cfg(): boolean | nil, function(): integer",
+      "  return nil, function(): integer return 1 end",
+      "end",
+      "print(cfg())",
+    }, "\n") .. "\n"
+  local behind_cast = table.concat({
+      "local function pick(v: any): string | nil, string",
+      "  local h = v as function(): string",
+      "  if v is function(): integer then",
+      "    print(h)",
       "  end",
-      "  return h(2)",
+      "  return nil, \"e\"",
       "end",
-      "local function after(): string",
-      "  return \"unaffected\"",
+      "print(pick(1))",
+    }, "\n") .. "\n"
+  -- The control the four above must not be bought with: after a `,` in
+  -- a CALL, `function` really does open a definition, and its own
+  -- `: integer` is the signature that nil lies about. Blacklisting `,`
+  -- silences the case above and this one with it.
+  local real_after_comma = table.concat({
+      "local function use(n: integer, cb: function(): integer): integer",
+      "  return n + cb()",
       "end",
-      "print(run, after())",
+      "print(use(1, function(): integer return nil end))",
+    }, "\n") .. "\n"
+  -- `record`, `interface` and `enum` are IDENTIFIERS to the lexer, not
+  -- keywords. A body that opens no frame still closes on its `end`,
+  -- which pops the enclosing function instead — and the real site below
+  -- it goes unseen.
+  local inner_record = table.concat({
+      "local function build(): string",
+      "  local record Shape",
+      "    n: integer",
+      "  end",
+      "  print(Shape)",
+      "  return nil",
+      "end",
+      "print(build())",
     }, "\n") .. "\n"
   local quoted = table.concat({
       "local function fine(): string",
@@ -145,7 +155,12 @@ local function test_count_reads_the_innermost_declared_return()
   assert(fs.write(fs.join(root, "cosmic", "lies.tl"), lies))
   assert(fs.write(fs.join(root, "cosmic", "honest.tl"), honest))
   assert(fs.write(fs.join(root, "cosmic", "nested.tl"), nested))
-  assert(fs.write(fs.join(root, "cosmic", "types.tl"), types))
+  assert(fs.write(fs.join(root, "cosmic", "brace.tl"), behind_brace))
+  assert(fs.write(fs.join(root, "cosmic", "angle.tl"), behind_angle))
+  assert(fs.write(fs.join(root, "cosmic", "comma.tl"), behind_comma))
+  assert(fs.write(fs.join(root, "cosmic", "cast.tl"), behind_cast))
+  assert(fs.write(fs.join(root, "cosmic", "call.tl"), real_after_comma))
+  assert(fs.write(fs.join(root, "cosmic", "inner.tl"), inner_record))
   assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
   assert(fs.write(fs.join(root, "cosmic", "testdata", "fixture.tl"), lies))
   assert(fs.write(fs.join(root, "untracked", "loose.tl"), lies))
@@ -159,9 +174,19 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/nested.tl"] == 1,
     "the innermost function owns the return: "
     .. tostring(got["cosmic/nested.tl"]))
-  assert(got["cosmic/types.tl"] == nil,
-    "a function TYPE opens no block, so nothing after it is miscounted: "
-    .. tostring(got["cosmic/types.tl"]))
+  for _, name in ipairs({"brace", "angle", "comma", "cast"}) do
+    local key = "cosmic/" .. name .. ".tl"
+    assert(got[key] == nil,
+      ("a function type behind %s is not a definition, so the honest "
+        .. "return above it is not charged to it: %s"):format(name,
+        tostring(got[key])))
+  end
+  assert(got["cosmic/call.tl"] == 1,
+    "after a comma in a CALL, function really does open a definition: "
+    .. tostring(got["cosmic/call.tl"]))
+  assert(got["cosmic/inner.tl"] == 1,
+    "a record body opens a frame, so its end does not pop the function: "
+    .. tostring(got["cosmic/inner.tl"]))
   assert(got["cosmic/quoted.tl"] == nil,
     "a return quoted inside a string is not a return")
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")
@@ -169,5 +194,42 @@ local function test_count_reads_the_innermost_declared_return()
     "only the counted trees are walked")
 end
 test_count_reads_the_innermost_declared_return()
+
+local function test_the_site_counts_match_the_committed_baseline()
+  local fresh = nilret.count(".")
+  local base = check.must(nilret.baseline())
+  local over: {string} = {}
+  local under: {string} = {}
+  for path, n in pairs(fresh) do
+    local was = base[path] or 0
+    if n > was then
+      local at: {string} = {}
+      for _, y in ipairs(nilret.lines_in(path)) do
+        at[#at + 1] = tostring(y)
+      end
+      over[#over + 1] = string.format(
+        "%s: %d sites (baseline %d) at line(s) %s — declare the return" ..
+        " `T | nil` (or return a real value), do not widen the floor",
+        path, n, was, table.concat(at, ", "))
+    elseif n < was then
+      under[#under + 1] = string.format(
+        "%s: %d sites (baseline %d)", path, n, was)
+    end
+  end
+  for path, was in pairs(base) do
+    if not fresh[path] then
+      under[#under + 1] = string.format(
+        "%s: no sites left (baseline %d)", path, was)
+    end
+  end
+  table.sort(over)
+  table.sort(under)
+  assert(#over == 0,
+    "file(s) over their nil-return baseline:\n  " .. table.concat(over, "\n  "))
+  assert(#under == 0,
+    "file(s) under their nil-return baseline — " .. REBASELINE .. ":\n  " ..
+    table.concat(under, "\n  "))
+end
+test_the_site_counts_match_the_committed_baseline()
 
 print("all nil-return ratchet tests passed")

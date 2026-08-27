@@ -272,45 +272,94 @@ local function check_fallible_returns(file: string, content: string): {Diagnosti
   return diagnostics
 end
 
---- Whether the `function` token at `i` opens a DEFINITION rather than
---- naming a function TYPE. A type opens no block and closes on no
---- `end`, so pushing one would swallow the next `end` and mis-attribute
---- every `return` after it.
----
---- Type position is what the token before decides: a `:` (an
---- annotation, a record field, a return list, a map's value type), a
---- `|` (a union member), an `as` (a cast's target), or the `=` of a
---- `type NAME =` alias. Everything else — `local`, `=`, `,`, `(`,
---- `return`, `then`, a statement boundary — is a definition.
---- @param tokens {tl.Token} The file's tokens
---- @param i integer Index of the `function` keyword
---- @return boolean True when a body follows
-local function is_definition(tokens: {Token}, i: integer): boolean
-  local prev = tokens[i - 1]
-  if prev == nil then
-    return true
-  end
-  if prev.tk == ":" or prev.tk == "|" or prev.tk == "as" then
-    return false
-  end
-  -- `local type Revalidate = function(): string` — an alias binds a
-  -- type to a name, so the `=` is not an assignment of a value.
-  if prev.tk == "=" and tokens[i - 2] ~= nil
-  and tokens[i - 2].kind == "identifier" and tokens[i - 3] ~= nil
-  and tokens[i - 3].tk == "type" then
-    return false
-  end
-  return true
+--- One open block: what closes on the matching `end`.
+local record Frame
+  --- "fn" for a function definition, "fields" for a record, interface
+  --- or enum body, "block" for anything else.
+  kind: string
+  --- For a "fn" frame: its declared slot 1 cannot be nil.
+  lies: boolean
 end
 
---- The token texts that open a block closed by `end`. `while` and
---- `for` are absent on purpose: each carries its own `do`, which is
---- what closes them, so counting the keyword too would double-count.
---- `repeat` is absent because it closes on `until`.
-local OPENS_BLOCK < const >: {string: boolean} = {
-  ["do"] = true, ["if"] = true, ["record"] = true,
-  ["enum"] = true, ["interface"] = true,
-}
+--- Index just past a `local`/`global` declaration head, its type
+--- annotation consumed with it.
+---
+--- Consuming the annotation is what keeps `local hs: {function(): T}`
+--- from presenting its inner `function` as a definition. The walk stops
+--- at `record`, `interface`, `enum`, `type` and `function` — each opens
+--- a declaration of its own, and each is an IDENTIFIER to the lexer, so
+--- a head that swallowed them as names would run on into the body.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the `local` or `global`
+--- @return integer Index of the first token past the head
+local function skip_declaration_head(tokens: {Token}, i: integer): integer
+  local j = i + 1
+  while tokens[j] ~= nil do
+    local t = tokens[j]
+    if t.tk == "record" or t.tk == "interface" or t.tk == "enum"
+    or t.tk == "type" or t.tk == "function" then
+      return j
+    elseif t.kind == "identifier" or t.tk == "," then
+      j = j + 1
+    elseif t.tk == "<" then
+      local k = skip_balanced(tokens, j, "<", ">")
+      if k == 0 then
+        return j
+      end
+      j = k
+    else
+      break
+    end
+  end
+  if tokens[j] ~= nil and tokens[j].tk == ":" then
+    local _, stop = parse_list(tokens, j + 1)
+    if stop > j then
+      return stop
+    end
+  end
+  return j
+end
+
+--- Index just past a `type NAME = <type>` alias.
+---
+--- Returns the index of what follows `=` when the right-hand side is
+--- not a type expression — `record`/`enum` open a body instead, and the
+--- walk handles those where it finds them.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the `type`
+--- @return integer Index of the first token past the alias
+local function skip_type_alias(tokens: {Token}, i: integer): integer
+  local name = tokens[i + 1]
+  local eq = tokens[i + 2]
+  if name == nil or name.kind ~= "identifier" or eq == nil or eq.tk ~= "=" then
+    return i + 1
+  end
+  local after = parse_type(tokens, i + 3)
+  if after == 0 then
+    return i + 3
+  end
+  return after
+end
+
+--- Whether `record`/`interface`/`enum` at `i` opens a body rather than
+--- naming a value. Each is an identifier to the lexer, so only what
+--- follows separates `local record R` and the nested `record Inner`
+--- from a field or variable that happens to be called `record` — which
+--- is followed by `:`, `=`, `.` or a closer, never by a name.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the candidate
+--- @return boolean True when a body follows
+local function opens_body(tokens: {Token}, i: integer): boolean
+  local t = tokens[i]
+  if t.kind ~= "identifier" then
+    return false
+  end
+  if t.tk ~= "record" and t.tk ~= "interface" and t.tk ~= "enum" then
+    return false
+  end
+  local nxt = tokens[i + 1]
+  return nxt ~= nil and (nxt.kind == "identifier" or nxt.tk == "<")
+end
 
 --- Lines holding a `return nil` whose innermost enclosing function
 --- DECLARES a slot 1 that cannot be nil.
@@ -322,10 +371,23 @@ local OPENS_BLOCK < const >: {string: boolean} = {
 --- `fallible-returns` rule — can see, because they all act on a type
 --- that admits nil and this one does not.
 ---
---- Innermost is what makes it sound: a stack of open definitions means
---- an inner closure's `nil` is charged to the closure, never to the
---- function around it. A function with no declared return type is not
---- in the class at all and is skipped.
+--- The walk CONSUMES rather than scans, and that is what makes it
+--- sound. Whether a `function` opens a body cannot be read off the
+--- token before it: `{`, `<` and `,` each precede a definition in one
+--- context and a type in another (`local t = {function() end}` against
+--- `local t: {function(): T}`; `f(a, function() end)` against a return
+--- list `(): T | nil, function(): U`). So every construct that opens a
+--- type position — an annotation, a return list, `as`, `is`, an alias,
+--- a record field — is consumed whole by the parser above, and a
+--- `function` the walk still LANDS on is a definition by construction.
+--- Reading it backwards instead charges an enclosing function's honest
+--- `return nil` to a frame no `end` ever pops.
+---
+--- Innermost is the other half: a stack of open definitions means an
+--- inner closure's nil is charged to the closure, never to the function
+--- around it. A function with no declared return type is not in the
+--- class at all, and neither is a bare `return` — the class is
+--- `return nil`, written out.
 ---
 --- Token-exact, so a `return nil` quoted in a string or shown in a doc
 --- comment counts for nothing.
@@ -337,41 +399,62 @@ local function nil_return_lines(content: string, file: string): {integer}
   if not tokens then
     return {}
   end
-  -- One entry per open block. `lies` is nil for a plain block and a
-  -- boolean for a function definition, so the innermost function is
-  -- the last entry that carries one.
-  local stack: {boolean | nil} = {}
-  local depth = 0
+  local stack: {Frame} = {}
   local lines: {integer} = {}
-  for i, t in ipairs(tokens) do
-    if t.tk == "function" and t.kind == "keyword" and is_definition(tokens, i) then
+  local i = 1
+  while i <= #tokens do
+    local t = tokens[i]
+    local tk = t.tk
+    local word = t.kind == "keyword"
+    if word and tk == "function" then
       local open = params_open(tokens, i)
       local after = open > 0 and skip_balanced(tokens, open, "(", ")") or 0
       local lies = false
+      local j = after > 0 and after or i + 1
       if after > 0 and tokens[after] ~= nil and tokens[after].tk == ":" then
-        local slots = parse_list(tokens, after + 1)
+        local slots, stop = parse_list(tokens, after + 1)
         lies = #slots > 0 and not slots[1]
+        j = stop
       end
-      depth = depth + 1
-      stack[depth] = lies
-    elseif t.kind == "keyword" and OPENS_BLOCK[t.tk] then
-      depth = depth + 1
-      stack[depth] = nil
-    elseif t.tk == "end" and t.kind == "keyword" then
-      if depth > 0 then
-        stack[depth] = nil
-        depth = depth - 1
+      stack[#stack + 1] = {kind = "fn", lies = lies}
+      i = j
+    elseif opens_body(tokens, i) then
+      stack[#stack + 1] = {kind = "fields", lies = false}
+      i = i + 1
+    elseif word and (tk == "do" or tk == "if") then
+      stack[#stack + 1] = {kind = "block", lies = false}
+      i = i + 1
+    elseif word and tk == "end" then
+      if #stack > 0 then
+        stack[#stack] = nil
       end
-    elseif t.tk == "return" and t.kind == "keyword"
-    and tokens[i + 1] ~= nil and tokens[i + 1].tk == "nil" then
-      for d = depth, 1, -1 do
-        if stack[d] ~= nil then
-          if stack[d] then
+      i = i + 1
+    elseif word and tk == "local" then
+      i = skip_declaration_head(tokens, i)
+    elseif t.kind == "identifier" and tk == "global"
+    and tokens[i + 1] ~= nil and tokens[i + 1].kind == "identifier" then
+      i = skip_declaration_head(tokens, i)
+    elseif t.kind == "identifier" and tk == "type" then
+      i = skip_type_alias(tokens, i)
+    elseif t.kind == "identifier" and (tk == "as" or tk == "is") then
+      local after = parse_type(tokens, i + 1)
+      i = after > i and after or i + 1
+    elseif tk == ":" and #stack > 0 and stack[#stack].kind == "fields" then
+      local _, stop = parse_list(tokens, i + 1)
+      i = stop > i and stop or i + 1
+    elseif word and tk == "return" and tokens[i + 1] ~= nil
+    and tokens[i + 1].tk == "nil" then
+      for d = #stack, 1, -1 do
+        if stack[d].kind == "fn" then
+          if stack[d].lies then
             lines[#lines + 1] = t.y
           end
           break
         end
       end
+      i = i + 1
+    else
+      i = i + 1
     end
   end
   return lines
