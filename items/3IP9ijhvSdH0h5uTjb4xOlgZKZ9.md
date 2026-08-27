@@ -62,3 +62,57 @@ hoisted version, which must keep passing. Worth checking whether any other
 consumer of `end_line_of` exists before changing it, and whether Teal's
 lexer gives these tokens a distinguishable kind rather than matching on
 the word.
+
+## Escalation, 2026-08-27T05:3xZ — this now blocks the runner-mode migration
+
+Found while implementing 3IU6AZEx (batch 1/7 of the all-runner
+migration) and bounced there. The same counter now sits under D29's
+compile seam, and its failure mode there is worse than a false lint
+failure: a definition `end_line_of` cannot close is SKIPPED by
+`_tool/discover.tl` (its own comment at :113-118 says so, "verbatim
+until 3IP9ijhv fixes the counter"), so the generated tail omits that
+case and **the test silently stops running** once its file is
+migrated.
+
+The type-position `function` token is a second shape of the same bug,
+alongside the nested `record`/`enum` this item was filed for: it opens
+no block and has no `end`, so the walk never closes. Measured on
+`_types/tlast_test.tl`, whose second test contains
+`assert(thaw is function(any): (any, any), …)` — discover reports one
+case where the file has two, on unmodified main as much as after
+migration.
+
+**Tree-wide today** — `discover`'s case count against a count of
+`local function test_*`, over all 275 test files:
+
+```
+./_make/resolution_test.tl:        11 definitions, discover found 10
+./_tool/seam_test.tl:               8 definitions, discover found  4
+./_types/tlast_test.tl:             2 definitions, discover found  1
+./cosmic/_teal_ast_test.tl:         3 definitions, discover found  2
+./cosmic/fd_read_test.tl:           6 definitions, discover found  5
+./cosmic/fs/find_close_test.tl:     3 definitions, discover found  2
+./cosmic/sandbox/init_test.tl:     12 definitions, discover found 10
+./cosmic/searcher_test.tl:          8 definitions, discover found  6
+./cosmic/sqlite/advanced_test.tl:  23 definitions, discover found 21
+./cosmic/sqlite/close_test.tl:      9 definitions, discover found  7
+10 files under-counted, 17 definitions invisible to the seam
+```
+
+All seven migration batches (3IU6AZEx, 3IU6AgNN, 3IU6AsZC, 3IU6B7LD,
+3IU6BPFg, 3IU6BiCH, 3IU6BjUI) now carry a blocker edge on this item.
+
+**A note on placement**: this sits at band 3 as a lint-ergonomics
+defect. That was right when it only produced a false failure on a
+correct file. It now gates a migration in band 6 and can silently drop
+tests, so the pair "this counter fix" versus "the runner-mode
+migration" is worth re-asking — a blocker cannot usefully be ranked
+below what it blocks.
+
+**Whatever fixes it should be proved against both shapes**: a nested
+`local record`/`local enum` (this item's original evidence) and a
+`function` token in type position (`x is function(any): (any, any)`,
+a `local f: function(string): integer` annotation). The check that
+catches a regression is the equality above — discover's case count
+must equal the file's `local function test_*` count — asserted over
+the whole tree, not a fixture.
