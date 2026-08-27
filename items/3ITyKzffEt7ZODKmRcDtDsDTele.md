@@ -1,58 +1,74 @@
 ## Goal
 
-The cosmos pin (`3p/cosmos/cosmos_pin.tl`) names a release whose base
-carries whilp/cosmopolitan#284's merge (ScanLongString CR
+The cosmos pin (`3p/cosmos/cosmos_pin.tl`) names the first release
+whose base carries whilp/cosmopolitan#284's merge (ScanLongString CR
 normalization — 3INGg7XO's stage 1), unblocking 3INGg7XO stage 2 (the
-Teal reader's matching change). Status 2026-08-27T04:12Z: #284 MERGED
-to master as `13977f2e` (owner approved in chat); the push-to-master
-Release run 33038563430 is in flight (started 04:09:57Z; the prior
-release took ~10 min).
+Teal reader's matching change). Twin of landed 3ITnbooy, one release
+later.
+
+## Evidence
+
+Measured 2026-08-27:
+
+- #284 merged to cosmopolitan master at 04:09:54Z as `13977f2e`
+  (base was `3977e62f2`, the current pin's tag). The Release workflow
+  fired on that push at 04:09:57Z and is the release this bump
+  consumes: expected tag `2026.08.27-13977f2e` (tag = date + short
+  sha of the push; the tag commit IS the merge, so
+  `git merge-base --is-ancestor 13977f2e <tag sha>` holds trivially).
+- Current pin: `2026.08.27-3977e62f2`, cosmos.zip sha `b8c2b5db…`
+  (landed as 3ITnbooy, PR #1426, main `2a652545`).
+- PULL-TIME GATE: the release must be PUBLISHED with its SHA256SUMS
+  before this is workable — read cosmos.zip's sha from the release's
+  own SHA256SUMS asset, never computed from a partial download. If
+  the Release run failed, bounce and file the repair as its own item.
+- The window 3977e62f2..13977f2e carries exactly #284 — no binding
+  contract shape change, no definitions.lua surface change, so no
+  type breakage expected (types regenerate in the build; a surface
+  change fails generation loudly).
+- One behavioral widening rides it, and it is the POINT: DecodeLua
+  now accepts CR line-endings in long brackets (normalized like
+  load). The cosmic side already agrees via the C-refusal
+  fall-through for refused inputs, and `literal_engine_test.tl`'s
+  corpus holds byte-agreement either way (long-bracket CR is not in
+  the corpus until stage 2 adds it).
 
 ## Change
 
-The same two-line bump 3ITnbooy just exercised (PR #1426, merged
-2026-08-27 04:12Z), against the next release:
-
-1. Wait for Release run 33038563430 to publish; its tag will be
-   `2026.08.27-13977f2e` (the tag names the master short sha, so
-   `git merge-base --is-ancestor 13977f2e <tag sha>` holds trivially).
-2. `3p/cosmos/cosmos_pin.tl`: version line to the new tag, sha line
-   to the `cosmos.zip` digest from the release's own SHA256SUMS.
-3. Verification per the pin-bump procedure (AGENTS.md + the optimize
-   skill's landing step, exactly as PR #1426 ran it): baseline
-   `_perf/run.tl` on the OLD pin first, then bump + `--make fetch` +
-   `--make ci`, then measure and `gate.tl compare` with
-   `--baseline-bin` pointing at a cosmic built on the old runtime —
-   quote the `perf-compare:` verdict line in the PR.
-4. PR with the pin diff only, `Board: 3ITyKzff`.
-
-The window 3977e62f2..13977f2e carries ONLY #284 (llua.c ScanLongString
-+ test_llua.lua; measured: `git log 3977e62f..13977f2e --oneline` on
-whilp/cosmopolitan is that one squash commit). No `definitions.lua`
-change, so no type-surface movement; DecodeLua's signature and error
-channel stand.
+1. `3p/cosmos/cosmos_pin.tl`: version and sha lines only, per
+   3ITnbooy's landed procedure verbatim.
+2. Baseline first on the OLD pin: `bin/cosmic --make run
+   _perf/run.tl --out o/perf/oldpin.json`; then bump, `--make fetch`,
+   `--make ci`; then `--make run _perf/run.tl --out
+   o/perf/newpin.json` and `_perf/gate.tl compare o/perf/oldpin.json
+   o/perf/newpin.json o/perf/selfb.json` — read the verdict line and
+   quote it in the commit. (No `--baseline-bin` here: both files are
+   measured back-to-ack in one window by the same tree build; the
+   flag exists for the release lane's cross-binary case.)
+3. PR with the pin diff only.
 
 ## Non-goals
 
 No scenario edits, no threshold overrides; a `regression` row that
-survives the fixed gate's triage (strike-twice + baseline retry,
-#1432) is a finding to raise, not absorb. No `bin/cosmic.pin` change
-(the cosmic-release pin is a different pin). No Teal-reader change
-here — that is 3INGg7XO stage 2, which this unblocks.
+survives the gate's triage is a finding to raise, not absorb; no
+`bin/cosmic.pin` change; stage 2 of 3INGg7XO stays its own item —
+this bump only opens its gate.
 
 ## Acceptance
 
 - `bin/cosmic --make ci` ends `ci: PASS` on the new pin.
 - `sha256sum o/3p/cosmos/lua` differs from the old pin's (runtime
   actually moved) — record both.
-- `gate.tl compare` (with `--baseline-bin`) ends `perf-compare: PASS`.
-- The pinned runtime resolves the CR case: `o/3p/cosmos/lua -e
-  "local t = cosmo.DecodeLua('return {x = [[a\r\nb]]}'); print(t.x == 'a\nb')"`
-  prints `true` (the #284 behavior, false on the old pin).
+- `_perf/gate.tl compare` ends `perf-compare: PASS`.
+- The gate that this item exists for:
+  `o/3p/cosmos/lua -e 'print((cosmo.DecodeLua("return {a = [[x\r\ny]]}")).a == "x\ny")'`
+  prints `true` (the C reader normalizes — #284 is really in the
+  runtime).
 - Diff touches exactly `3p/cosmos/cosmos_pin.tl`.
+- End this item on landing (its Result condition is this bump); drop
+  the 3INGg7XO blocker edge in the same breath.
 
 ## Enablement
 
-none needed — the procedure was exercised minutes ago by PR #1426
-under the fixed gate; the release is the only wait, and it is in
-flight (run 33038563430).
+Waits only on the in-flight Release run (fired 04:09:57Z) publishing.
+Procedure, gate and verbs are all exercised by 3ITnbooy.
