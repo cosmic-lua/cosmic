@@ -79,6 +79,60 @@ facts every batch shares; this one names the scope.
   `lint: PASS`. Deleting the call line leaves the blank line that
   followed it, so no reflow rides along.
 
+- **478 cases, and every one of them self-called exactly once.**
+  `_tool/discover` over the 65 in-scope files totals `478` cases, all
+  65 classifying `legacy` today; the deletion removes `478` real
+  self-call lines (`479` grep matches minus the one in-fixture line
+  above). The two numbers being equal is the proof that no match is
+  anything but a case's own call, and no case is called twice. Probe
+  (out of tree, run as `o/bin/cosmic /path/cases.tl` from the repo
+  root): sum `#discover.discover(p, src, lines_of(src)).cases` over
+  `fs.find(dir, {glob = "*_test.tl"})` for the eight scope
+  directories, skipping any path containing `/testdata/`.
+- **3IU4umVT (`--make check` misses the compile seam) does NOT block
+  this batch** — measured, not assumed, because the container's
+  standing claim ("a downstream bug, not a blocker for these
+  batches") is the kind of claim that decays.
+  - The gap is real and still open on `555873eb`:
+    `_make/check.tl:149` calls `teal.check_file(f.path, {include_dirs
+    = include_dirs})` bare, and the seam's only three call sites are
+    `_cli/build/work.tl:211`, `_cli/main_handlers.tl:117` and
+    `_cli/main_handlers.tl:237`
+    (`grep -rn 'require("_tool.seam")' --include='*.tl' .`).
+    Reproduced verbatim: copy `_make/testdata/hello` to a scratch
+    directory, add a runner-mode `probe_test.tl`, and
+    `o/bin/cosmic --make check` with no `o/` ends
+    `check: FAIL (1 of 2 files)` on the uncalled-local warning.
+  - **It cannot reach this batch, for three measured reasons.**
+    (a) `check` is a gate verb (`_make/converge.tl`'s `GATES`), and
+    this project builds its own toolchain, so `--make check` here
+    always builds first and `proved_by_graph` then skips every
+    kind-`test` file — the bare `check_file` call is never reached
+    for a test file in this repo, cold clone included.
+    (b) The other cold path, `_build/coldbuild_test.tl`, runs
+    `--check types`, which IS a seam site: the pinned bootstrap
+    accepts a runner-mode file
+    (`o/bootstrap/cosmic --check types <runner-mode file>` →
+    `Type check passed`).
+    (c) `testdata/` is out of every gate's reach —
+    `_make/types.tl`'s `fmt_kinds` and `lint_kinds` both omit
+    `testdata`, and `_make/stage.tl`'s `SELECTS.test` is
+    `{kinds = {"test"}}` while `_make/project.tl:234` gives any path
+    with a `testdata` segment the kind `testdata` — so the nine
+    `_eval/testdata/**` fixtures this batch excludes are the only
+    downstream-shaped projects in scope, and excluding them removes
+    the exposure outright.
+- **The fifth compile-seam entry — a test file run as a bare script —
+  is not in this batch's reach either, but it IS in three siblings'.**
+  Measured: `o/bin/cosmic <runner-mode failing test>.tl` exits `0`
+  having run nothing, where the legacy counterpart exits `1`. The
+  only place the repo runs a test file that way is `pr.yml`'s `smoke`
+  job (`./cosmic.exe "$t"` over `cosmic/string_test.tl`,
+  `cosmic/json_test.tl`, `cosmic/fs/path_test.tl`,
+  `cosmic/fs/path_normalize_test.tl`,
+  `cosmic/fs/path_windows_test.tl`) — batches 3, 6 and 7, never this
+  one. `grep -rnE '(cosmic|cosmic\.exe|bin/cosmic|o/bin/cosmic)[^|]*\b(_build|_docs|_types|3p|_fuzz|_eval|_perf|_tool)/[A-Za-z0-9_/]*_test\.tl' --include='*.md' --include='*.yml' --include='*.mk' --include='*.tl' --include='*.sh' .`
+  finds no such invocation of any file in scope.
 ## Change
 
 In every `*_test.tl` under this batch's scope — testdata excluded,
@@ -131,12 +185,66 @@ No testrun or report change (3IOCdZCA, landed). No pin bump —
 - The diff is deletions only:
   `git diff origin/main --numstat -- '*_test.tl' | awk '{a+=$1} END {print a+0}'`
   → `0` insertions.
-- `bin/cosmic --make test` passes, and its summary still reports the
-  same number of test files as before the edit.
+- **The run counts the same tests it counted before**, which is the
+  cheapest no-test-lost check and needs no probe script:
+  `bin/cosmic --make test _build _docs _types 3p _fuzz _eval _perf _tool`
+  ends `test: PASS (65 files)` and, because every file in scope is now
+  runner mode, prints a per-test totals line reading
+  `478 tests: 478 passed`. `478` is the case total measured in
+  Evidence; a smaller number means a case stopped running. (The line
+  is `_tool/records.tl`'s `test_counts`, landed with #1456 and, per
+  that PR, printed for the first time by this batch — no test file was
+  in runner mode before it. `_tool/coverage/baseline_test.tl`'s
+  `check.needs("a built cosmic at …")` would drop its 27 cases from
+  the total if it fired, which it cannot under a converged
+  `--make test`.)
+- **The definition count is untouched** — a literally-runnable
+  invariant over the same selection, `482` before the edit and `482`
+  after, since the diff deletes calls and never definitions:
+  `grep -rln '' --include='*_test.tl' _build _docs _types 3p _fuzz _eval _perf _tool | grep -v /testdata/ | xargs grep -h '^local function test_[A-Za-z0-9_]*(' | wc -l`
+  → `482` (`478` real cases plus the four `local function test_*`
+  lines inside `_tool/seam_test.tl`'s long-bracket fixtures).
 
 ## Enablement
 
-none needed — both blockers cleared. 3IU62YqO landed as #1450
+**Blocked on 3IUJSV7e** — a pin bump to a release carrying #1455.
+This is the cold-build rule, not a spec gap: build generation 1 type-
+checks the whole tree with the PINNED release's checker, and
+`bin/cosmic.pin` names `2026-08-27-cb39b65`, cut before `2724a719`
+merged (`git merge-base --is-ancestor 2724a719 cb39b65` exits 1; no
+published tag carries it yet). Measured with `_build/coldbuild_test.tl`'s
+own argv over this batch's 65 migrated files:
+
+```
+COSMIC_COVERAGE=0 o/bootstrap/cosmic --check types \
+  --include-dir . --include-dir o/_types/types_gen <the 65 migrated files>
+```
+
+→ exit 1, `64` passed, `_types/tlast_test.tl:39:1: warning: unused
+function test_cache_thaws_on_fresh_tl`. The same argv under
+`o/bin/cosmic` (the tree's own checker, which carries #1455) is exit
+0 with `65` passed. Run tree-wide over every migrated `*_test.tl`
+outside `testdata/`, the pinned checker passes `243` of `251` and
+loses twelve definitions in eight files — `_types/tlast_test.tl`
+(batch 1), `cosmic/fs/find_close_test.tl` and
+`cosmic/sandbox/init_test.tl` (batch 3),
+`cosmic/sqlite/{advanced,close}_test.tl` (batch 4),
+`cosmic/{_teal_ast,fd_read}_test.tl` (batch 5) and
+`cosmic/searcher_test.tl` (batch 6) — so 3IUJSV7e gates five of the
+seven batches, and batches 2 and 7 are clean under the current pin.
+
+The shortest probe for whether a candidate release qualifies, verified
+against both binaries:
+
+```
+printf 'local function test_a()\n  local f: function(any): (any, any)\n  assert(f == nil)\nend\n' > /tmp/probe_test.tl
+<release-binary> --check types /tmp/probe_test.tl
+```
+
+must print `Type check passed`; the current pin's binary emits
+`unused function test_a`.
+
+Nothing else is needed. 3IU62YqO landed as #1450
 (`bin/cosmic.pin` names `2026-08-27-cb39b65`, whose checker carries
 the D29 seam). 3IP9ijhv landed as #1455 (`2724a719`): discover reads
 a definition's extent from the parser, so the under-count that
