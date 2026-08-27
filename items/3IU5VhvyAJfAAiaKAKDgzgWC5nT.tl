@@ -9,5 +9,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "check",
   ["pr"] = 1452,
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "retire the guard-and-cast workarounds the landed narrow rules obsoleted",
 }
