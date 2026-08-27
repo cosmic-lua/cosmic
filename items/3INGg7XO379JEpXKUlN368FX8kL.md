@@ -47,3 +47,20 @@ Stage 1 waits on whilp/cosmopolitan#283 (branch contention only).
 Stage 2 waits on the first cosmos pin bump carrying stage 1 — the
 same wall as 3INAsVJZ's C half, currently behind the perf-gate fix
 (3ITt7slj).
+
+## Result (stage 1, 2026-08-27)
+
+Stage 1 is DONE as whilp/cosmopolitan#284 (branch contention with
+#283 resolved by using a different designated branch): ScanLongString
+normalizes the four line-ending forms while copying and drops one
+full sequence after the opener; test_llua.lua retires the byte-13
+exclusion (the named acceptance signal) and adds five load-equality
+cases. `make o//tool/lua/test` PASS on the PR head.
+
+Stage 2 (cosmic/literal.tl string_value + engine corpus CR case)
+remains, behind this PULL-TIME GATE: the cosmos pin
+(3p/cosmos/cosmos_pin.tl) must name a release whose base carries
+whilp/cosmopolitan#284's merge — before that, engine="auto" (C
+reader) and engine="teal" would disagree on the new corpus case.
+If the gate fails at pull, bounce back rather than building; do not
+merge #284 yourself — upstream merges are the owner's.
