@@ -173,6 +173,26 @@ local function counts(passed: integer, failed: integer,
   return out
 end
 
+--- The per-test counts line: `N tests: P passed[, F failed]`.
+---
+--- A second line beside `counts`, never a replacement for it. The
+--- `N checks:` line counts FILES and every stage verdict is derived
+--- from it, so a summary that carries per-test totals carries them as
+--- an additional line and leaves the first one alone.
+---
+--- No `skipped` clause, because there is no per-test skip: `check.needs`
+--- and `check.reap` invalidate the whole file by exiting the process.
+--- @param passed integer How many cases passed
+--- @param failed integer How many cases failed
+--- @return string The line, without its newline
+local function test_counts(passed: integer, failed: integer): string
+  local out = (passed + failed) .. " tests: " .. passed .. " passed"
+  if failed > 0 then
+    out = out .. ", " .. failed .. " failed"
+  end
+  return out
+end
+
 --- The three counts a stage summary carries. One record, because a
 --- fallible return has exactly two slots — nil in slot 1 leaves no
 --- room for a second and third value — so the shape has to read
@@ -207,6 +227,91 @@ local function parse_counts(text: string): Counts | nil
     failed = math.tointeger(failed),
     skipped = math.tointeger(skipped),
   }
+end
+
+--- The prefix a runner-mode child writes before a failing case's name.
+local FAIL_ROW < const > = ICONS.fail .. " "
+
+--- Attribute one status per test case, from a runner-mode child's
+--- stdout.
+---
+--- The child's per-case output is part of the same grammar the rest of
+--- this module writes, so it is read back here rather than in the
+--- runner: `counts` is what the child ends on, and `parse_counts` is
+--- already its inverse.
+---
+--- Pure — no fs, no cwd — and conservative: it refuses rather than
+--- guesses. Attributing a status to the wrong test is worse than
+--- attributing none, because the sidecar is what a report names a
+--- failing test from.
+---
+--- The rules:
+---
+--- 1. The LAST non-empty line must be a counts line. This is the
+---    legacy/runner discriminator: `cosmic.test`'s `main` writes its
+---    counts line last and the seam's tail is `os.exit(...)`, so a
+---    runner-mode child always ends on one and a plain script never
+---    does.
+--- 2. That line must carry no skipped count. `cosmic.test`'s own
+---    counts line has no skipped clause, so a nonzero one means the
+---    line came from somewhere else.
+--- 3. A name failed when some line is EXACTLY `✗ <name>`. The match is
+---    gated on membership in `names` because `report` prints rows with
+---    the same icon — but those rows name FILE paths, never `test_*`
+---    names — and because a traceback's lines are all indented.
+--- 4. The counts must account for exactly these cases: as many results
+---    as names, and as many failures as rows matched. That is what
+---    makes a filtered run, a mid-run `os.exit` and a crash fall back
+---    to names-only instead of inventing statuses.
+--- @param names {string} The cases the file defines, in source order
+--- @param out string The child's captured stdout
+--- @return {Status}|nil One status per name, in the order given; nil
+--- when the output does not account for exactly these cases
+--- @return string Why the output was refused
+local function parse_cases(names: {string}, out: string): {Status} | nil, string
+  local last = ""
+  for line in out:gmatch("[^\n]+") do
+    if line:match("%S") then
+      last = line
+    end
+  end
+  if not last:match("^%d+ checks: ") then
+    return nil, "no trailing counts line"
+  end
+  local c = parse_counts(last)
+  if c == nil or c.skipped ~= 0 then
+    return nil, "no trailing counts line"
+  end
+
+  local wanted: {string: boolean} = {}
+  for _, name in ipairs(names) do
+    wanted[name] = true
+  end
+  local failing: {string: boolean} = {}
+  local matched = 0
+  for line in out:gmatch("[^\n]+") do
+    if line:sub(1, #FAIL_ROW) == FAIL_ROW then
+      local name = line:sub(#FAIL_ROW + 1)
+      if wanted[name] and not failing[name] then
+        failing[name] = true
+        matched = matched + 1
+      end
+    end
+  end
+
+  if c.passed + c.failed ~= #names or c.failed ~= matched then
+    return nil, "counts do not account for the cases"
+  end
+
+  local statuses: {Status} = {}
+  for i, name in ipairs(names) do
+    if failing[name] then
+      statuses[i] = "fail"
+    else
+      statuses[i] = "pass"
+    end
+  end
+  return statuses
 end
 
 --- A verb's verdict detail: what it did, or what went wrong with it.
@@ -281,8 +386,10 @@ local record RecordsModule
   stage_of: function(base: string): string
   row: function(status: Status, name: string, count: integer, unit: string, wall_ms?: integer): string
   counts: function(passed: integer, failed: integer, skipped: integer): string
+  test_counts: function(passed: integer, failed: integer): string
   type Counts = Counts
   parse_counts: function(text: string): Counts | nil
+  parse_cases: function(names: {string}, out: string): {Status} | nil, string
   detail: function(failed: integer, total: integer, unit: string): string
   stage_detail: function(summary: string | nil, total: integer, unit: string): string
   format_verdict: function(verb: string, ok: boolean, what: string): string
@@ -299,7 +406,9 @@ local M: RecordsModule = {
   stage_of = stage_of,
   row = row,
   counts = counts,
+  test_counts = test_counts,
   parse_counts = parse_counts,
+  parse_cases = parse_cases,
   detail = detail,
   stage_detail = stage_detail,
   format_verdict = format_verdict,
