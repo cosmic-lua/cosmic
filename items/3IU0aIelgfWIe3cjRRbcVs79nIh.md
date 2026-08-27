@@ -1,36 +1,74 @@
-## Capture
+## Goal
 
-With N concurrent workers, the board's claiming covers only the do
-phase (`move ID do` stamps the session), so the unclaimed phases
-duplicate work. Observed 2026-08-27, ~4 sessions active:
+G8 — the flow system: a review is claimed the way a pull is, so two
+sessions never verify the same diff. Measured 2026-08-27 (~4 sessions
+active): 3ISSFrCO/#1439 got two full independent verifications —
+checkout, fetch, ci, acceptance greps, minutes of builds each — and
+the second session learned of the first only when its `verdict` was
+refused, AFTER the work. `do` already has the answer (`move --claim`
+is the lock, a lease with staleness and --force takeover); `check`
+has nothing: the `claim` field there names the BUILDER, and
+`reviewable()` hands the same item to every non-builder that asks.
 
-- Reviews are unclaimed: 3ISSFrCO/#1439 got two full independent
-  verifications (checkout, fetch, ci, acceptance greps — minutes of
-  builds each); the second session's `verdict` was refused only
-  AFTER its work was done ("in no phase", 0e714d6a's accept landed
-  30s earlier). The @session on a check item is the BUILDER, not a
-  reviewer claim.
-- Pre-do refinement races: 3ITpcO21 was respecced by one session
-  while another moved it ("is already in ready" mid-flight), and a
-  scheduled wake would have re-executed it had its prompt not said
-  verify-first; the item was finished by a third path (#1434).
-- The shared root: expensive work happens BEFORE the board write
-  that would have signaled it. Git already provides optimistic
-  concurrency — a claim is a commit, first push wins, the loser's
-  push rejects — but only if the claim is pushed before the work.
+## Change
 
-Candidate changes, for refinement to settle:
-1. A reviewer claim in check — stamped and pushed before
-   verification starts; checkers sync first and skip items under
-   review by a live session.
-2. Claim-aware `next` — skip claimed items, jitter ties, so N
-   workers fan out instead of converging on the top item and racing.
-3. The discipline written into skills/work: push the claim, then
-   work; a rejected push means someone else has it. Claims carry a
-   timestamp and go poachable past a horizon, or a crashed worker
-   holds a lock forever.
+The board's own claim doctrine, extended to reviews — the claim is
+pushed BEFORE the work, and the board commit is the lock.
 
-Non-candidate: pessimistic locking. Push-rejection already
-arbitrates; today's loss was one duplicated review plus spec churn,
-and WIP limits cap the blast radius. The mechanism lives in gitboard
-on the board branch; the discipline lives in skills/work.
+1. `_work/item.tl`: `reviewer: string` field ("" when unclaimed);
+   the root-shape validation refuses it on roots alongside claim/pr.
+2. `_work/gitreview.tl` (new; gitverdict's sibling — `_work/review.tl`
+   already holds the PR preconditions): `review ID [--session]
+   [--force --why]` claims the review. Refusals: an unnamed session
+   (a claim by nobody excludes nobody — name it via GITBOARD_SESSION
+   or --session); an item not in `check`; a session that built the
+   item (same `built_by` rule as verdict, claim + durable builders);
+   a LIVE foreign reviewer without --force --why. A stale one is
+   anyone's, like every other lease.
+3. `_work/health.tl`: `REVIEW_LEASE_S` (1 hour — review dwell is
+   minutes, against the 4-hour build lease) and `is_review_stale`.
+4. `_work/flow.tl`: `built_by` moves here from `action.tl` (both
+   action and gitreview consult it; one definition).
+5. `_work/gitverdict.tl`: every verdict clears `reviewer` — the claim
+   is consumed by the judgment. A verdict from a session other than
+   the claimant is NOT refused: the claim is mutual exclusion, not
+   authority, and refusing would wedge a takeover.
+6. `_work/gitverbs.tl` move: leaving `check` clears `reviewer`.
+7. `_work/action.tl` `reviewable()`: skips items whose reviewer is
+   live and foreign (counted and named in the reason like held `do`
+   items), so `next` fans concurrent reviewers out instead of
+   converging them on the top diff.
+8. `_work/guidance.tl` ["review"]: claim-first — the first line
+   becomes `review ID` as the lock, before reading anything.
+9. `_work/gitboard.tl`: the `review` verb's CLI entry (usage, flags,
+   dispatch, mutation set) — help stays generated from the CLI.
+10. skills/work on main: review.md's procedure gains the claim step
+    (its own PR to main; the skill says what verbs are FOR, and
+    claim-before-read is procedure, not verb reference).
+
+## Non-goals
+
+No plan/ready refinement claims: moves are already serialized by
+push-as-CAS, WIP limits cap the racers, and the measured waste there
+was spec churn, not builds — revisit if measured. No jitter in
+`next`: reviewer claims make the fan-out (the second reviewer sees
+the claim and takes the next item), so determinism stays. No change
+to do-claim semantics or the 4-hour lease. No reviewer authority:
+verdict stays valid from any non-builder.
+
+## Acceptance
+
+On the board branch, from its worktree: `bin/cosmic --make ci` ends
+`ci: PASS`. New tests pin: claim then foreign claim refused; stale
+foreign claim taken with --force --why (and offered without force
+once stale); builder refused; unnamed session refused; verdict
+clears the claim; move out of check clears it; `reviewable()` skips
+a live foreign reviewer and the reason names it; `is_review_stale`
+horizons. `gitboard help review` prints the verb. Two-session
+walkthrough by hand: A `review ID` then B `review ID` → B refused
+and B's `next` names a different item (or none).
+
+## Enablement
+
+None: the lease, session identity, force/why grammar, and the gate's
+commit-and-publish all exist; this composes them.
