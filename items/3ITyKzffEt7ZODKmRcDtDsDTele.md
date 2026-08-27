@@ -2,12 +2,12 @@
 
 The cosmos pin (`3p/cosmos/cosmos_pin.tl`) names a release whose base
 carries whilp/cosmopolitan#284's merge (ScanLongString CR
-normalization — 3INGg7XO's stage 1). Status re-measured
-2026-08-27T04:05Z: #284 is OPEN and NO LONGER A DRAFT (marked ready
-for review 04:00Z), `mergeable_state: clean`, base `3977e62f`, and
-its body quotes `make o//tool/lua/test`: PASS — merging it remains
-the owner's call; then the next push-to-master release carries it,
-then a cosmic cosmos pin bump lands it here.
+normalization — 3INGg7XO's stage 1). Status 2026-08-27T04:10Z: #284
+MERGED to master as `13977f2e` (owner approved in chat; squash by
+session 3f616956). The push-to-master release build is in flight;
+when it publishes, a cosmic cosmos pin bump naming it closes this
+(3ITnbooy's pin bump, waiting on a release carrying `3977e62f`, is
+satisfied by the same release — master now carries both).
 
 ## Result
 
