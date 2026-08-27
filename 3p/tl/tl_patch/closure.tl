@@ -122,6 +122,34 @@ return {
             self:widen_all_unions(self.chunk_body)
             self:begin_scope(node)]=====],
   },
+  ["closure-global-widen"] = {
+    file = "tl.lua",
+    note = "a global's assignment universe is every file, not this one",
+    find = [=====[            for name, _ in pairs(scope.narrows) do
+               if not node or assigned_anywhere(name, node) then]=====],
+    replace = [=====[            for name, _ in pairs(scope.narrows) do
+               -- cosmic carried patch: scope 1's vars table IS
+               -- env.globals, shared by every file checked in one
+               -- environment, so a global's assignment universe is not
+               -- this file. assigned_anywhere only ever sees this
+               -- chunk's AST, so another module's assignment is
+               -- invisible to it and the narrow is kept -- an escaped
+               -- closure then runs on a stale narrow. A narrow is a
+               -- specialized shadow in a scope >= 2, so walk down for
+               -- the scope the name is DECLARED in and treat scope 1
+               -- as always-assigned. The walk, not st[1].vars[name],
+               -- because env.globals also holds the stdlib: a local
+               -- shadowing `tostring` would widen spuriously.
+               local decl = 0
+               for j = i, 1, -1 do
+                  local sv = self.st[j].vars[name]
+                  if sv and ((not sv.is_specialized) or sv.specialized_from) then
+                     decl = j
+                     break
+                  end
+               end
+               if decl == 1 or not node or assigned_anywhere(name, node) then]=====],
+  },
   ["closure-local-function"] = {
     file = "tl.lua",
     note = "local function definitions widen against the file, keeping safe narrows",
