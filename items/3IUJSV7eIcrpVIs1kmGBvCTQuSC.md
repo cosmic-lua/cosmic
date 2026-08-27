@@ -50,7 +50,7 @@ the release notes demand one.
 
 ## Enablement
 
-Blocked on nothing on the board — the wait is for the next release
-run, an external event. Whoever pulls this checks the releases page
-first; if no qualifying release exists yet, the item is not workable
-and stays put.
+none — no board item gates this. The wait is external: a qualifying
+release must exist first. Whoever pulls this checks the releases page
+for a tag whose commit contains `2724a719`; if none exists yet, the
+item is not workable and stays put (never dispatch a release for it).
