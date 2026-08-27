@@ -170,3 +170,24 @@ their commands; the split is a move, not a rewrite; and the four
 items this unblocks each get one line of their `Change` corrected
 (`3p/tl/tl_patch.tl` → `3p/tl/tl_patch/narrow.tl`) at their own
 refinement, not here.
+
+## Wrong turn, recorded (2026-08-27, mid-check)
+
+The first push split the file in the same PR as the mechanism, and the
+`build` lane refused it (run 33033225229): generation 1 fetches with
+the PINNED binary, whose mechanism knows only the single-file layout —
+it applied no patches and `tlast_gen` failed on the unpatched tl
+("no ast_hooks; is the tl patch applied?"). The cold-build rule
+generalizes a second time: beyond sources needing the new checker
+(3ISKgfS6) and beyond `cosmic/**` specifically (3ISnyPb7's tree-wide
+correction), tree LAYOUT that only new build-mechanism code can read
+must wait for the pin to carry that code. The slice is therefore
+staged: PR #1424 now lands the mechanism only, with
+`3p/tl/tl_patch.tl` untouched; the split is 3ITo9Inv, blocked on this
+landing and on the next release/pin bump, with the first push's
+validated diff (9ff72e9b — byte-identity oracle included) as its
+evidence. Acceptance items 3–6 above (the split's) transfer to
+3ITo9Inv; this item's remaining acceptance is `ci: PASS`, the
+patch_test suite, the three-file diff, and the pinned binary's own
+cold fetch still applying the single-file set (verified:
+`fetch: PASS`, `PackTable<any>` present).
