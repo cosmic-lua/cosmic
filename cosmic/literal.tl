@@ -55,122 +55,6 @@ local scalar: {string: boolean} = {
 --- refusal every other malformed pin gets.
 local MAX_DEPTH < const > = 32
 
---- The largest code point `\u{...}` may name, which is what `utf8.char`
---- accepts and what the Lua manual specifies for the escape: 2^31 - 1.
-local MAX_CODEPOINT < const > = 0x7FFFFFFF
-
---- Lua's single-character escapes, by the character that follows `\`.
-local ESCAPES: {string: string} = {
-  a = "\a", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t",
-  v = "\v", ["\\"] = "\\", ['"'] = '"', ["'"] = "'", ["\n"] = "\n",
-}
-
---- Decode one `\` escape starting at `i` (the backslash).
---- @param s string The string token's body
---- @param i integer Index of the backslash
---- @return string|nil The decoded text, or nil when the escape is bad
---- @return integer The index just past the escape
-local function escape_at(s: string, i: integer): string | nil, integer
-  local c = s:sub(i + 1, i + 1)
-  local simple = ESCAPES[c]
-  if simple then
-    return simple, i + 2
-  end
-  if c == "x" then
-    local hex = s:match("^%x%x", i + 2)
-    if not hex then
-      return nil, i
-    end
-    return string.char(tonumber(hex, 16) as integer), i + 4 -- cast: two hex digits are integral
-  end
-  if c == "z" then
-    -- `\z` skips the whitespace that follows it, newlines included.
-    local rest = s:find("[^%s]", i + 2) or #s + 1
-    return "", rest
-  end
-  if c == "u" then
-    -- A position capture is ABSOLUTE: `after` already indexes just past
-    -- the closing `}`, whatever `init` was. Adding to it resumed the
-    -- decode two characters late, so every `\u{…}` silently swallowed
-    -- the two characters behind it -- invisible only when the escape
-    -- ended the string, which was the one shape the test covered.
-    local hex, after = s:match("^{(%x+)}()", i + 2)
-    if not hex then
-      return nil, i
-    end
-    -- BOUNDED, because `%x+` has no length limit and this file is
-    -- attacker-shaped: it is what reads a pin. `\u{FFFFFFFFFF}` parses
-    -- fine, exceeds what `utf8.char` accepts, and threw out of a module
-    -- whose whole contract is that it returns errors -- so a malformed
-    -- pin crashed `--make fetch` with a traceback instead of naming the
-    -- file. Above 2^31 `tonumber` also stops being integral, which the
-    -- cast below would have quietly asserted otherwise.
-    local cp = tonumber(hex, 16)
-    if cp == nil or cp ~= math.floor(cp) or cp < 0 or cp > MAX_CODEPOINT then
-      return nil, i
-    end
-    return utf8.char(cp as integer), after as integer -- cast: bounded above
-  end
-  local digits = s:match("^%d%d?%d?", i + 1)
-  if digits then
-    local n = tonumber(digits, 10) as integer -- cast: decimal digits are integral
-    if n > 255 then
-      return nil, i
-    end
-    return string.char(n), i + 1 + #digits
-  end
-  return nil, i
-end
-
---- The value a string token denotes.
----
---- Delimiters vary and escapes must be decoded: a short string may
---- carry `\n`, `\x41` or `\u{...}`, while a long bracket carries none
---- and its delimiter is as many `=` as were written. Both matter
---- because the module's contract is "equal to what executing the file
---- would return", and a reader that quietly returns different data is
---- the failure this exists to make impossible.
---- @param tk string The raw string token, delimiters included
---- @return string|nil The value, or nil when the token is malformed
-local function string_value(tk: string): string | nil
-  local level = tk:match("^%[(=*)%[")
-  if level then
-    -- A long bracket takes no escapes, and Lua drops a newline
-    -- immediately after the opening delimiter.
-    local open = #level + 2
-    local body = tk:sub(open + 1, -(open + 1))
-    if body:sub(1, 1) == "\n" then
-      body = body:sub(2)
-    end
-    return body
-  end
-  local quote = tk:sub(1, 1)
-  if quote ~= '"' and quote ~= "'" then
-    return nil
-  end
-  local body = tk:sub(2, -2)
-  if not body:find("\\", 1, true) then
-    return body
-  end
-  local parts: {string} = {}
-  local i = 1
-  while i <= #body do
-    local slash = body:find("\\", i, true)
-    if not slash then
-      parts[#parts + 1] = body:sub(i)
-      break
-    end
-    parts[#parts + 1] = body:sub(i, slash - 1)
-    local decoded, nexti = escape_at(body, slash)
-    if not decoded then
-      return nil
-    end
-    parts[#parts + 1] = decoded
-    i = nexti
-  end
-  return table.concat(parts)
-end
-
 --- One parsed table literal: the value, and the index just past its
 --- closing `}` — one record keeps the error in slot 2.
 local record Parsed
@@ -230,7 +114,7 @@ local function parse_table(toks: {Token}, i: integer, where: string,
     elseif t.tk == "[" and toks[i + 1] and toks[i + 1].kind == "string"
     and toks[i + 2] and toks[i + 2].tk == "]"
     and toks[i + 3] and toks[i + 3].tk == "=" then
-      key = string_value(toks[i + 1].tk)
+      key = lit_lex.string_value(toks[i + 1].tk)
       if not key then
         return nil, where .. ":" .. tostring(toks[i + 1].y) ..
         ": a " .. noun .. " has a malformed string key"
@@ -259,7 +143,7 @@ local function parse_table(toks: {Token}, i: integer, where: string,
       value = sub.value
       i = sub.next
     elseif v.kind == "string" then
-      local decoded = string_value(v.tk)
+      local decoded = lit_lex.string_value(v.tk)
       if not decoded then
         return nil, where .. ":" .. tostring(v.y) ..
         ": a " .. noun .. " has a malformed string value for '" .. key .. "'"

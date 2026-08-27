@@ -120,3 +120,27 @@ local function test_parse_file_carries_the_engine()
     "parse_file's refusal is not the reader's: " .. err)
 end
 test_parse_file_carries_the_engine()
+
+-- Lua's lexer folds each line break inside a long bracket -- \n, \r,
+-- \r\n or \n\r -- to one \n and drops one break right after the
+-- opener, so a CRLF checkout reads the same bytes it would execute.
+-- Both engines must agree on every form, byte for byte, and none of
+-- them may leak a CR through.
+local function test_engines_agree_on_long_bracket_line_endings()
+  local cases: {string: string} = {
+    ["return {x = [[a\r\nb]]}"] = "a\nb",
+    ["return {x = [[a\rb]]}"] = "a\nb",
+    ["return {x = [[a\n\rb]]}"] = "a\nb",
+    ["return {x = [[\r\nleading is dropped]]}"] = "leading is dropped",
+    ["return {x = [[\rz\r\r\nq\n\r]]}"] = "z\n\nq\n",
+  }
+  for src, want in pairs(cases) do
+    local shown = src:gsub("\r", "\\r"):gsub("\n", "\\n")
+    for _, engine in ipairs({"c", "teal"}) do
+      local got = read(src, engine).x
+      assert(got == want, engine .. " read <" .. shown .. "> as <" ..
+        tostring(got):gsub("\r", "\\r"):gsub("\n", "\\n") .. ">")
+    end
+  end
+end
+test_engines_agree_on_long_bracket_line_endings()
