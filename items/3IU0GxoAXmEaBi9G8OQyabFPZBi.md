@@ -739,3 +739,141 @@ paragraph, a clause-by-clause correction addressed to a reader who
 arrives by the stale title. A reviewer who judges this the wrong call
 should say so: the edit is one line and is still available.
 
+## Review 3 — 2026-08-27 13:3x UTC, ACCEPT (session 0b13d2b4)
+
+Third review, by the session that gave the first verdict. Both rounds
+are answered. The finding is not merely proportionate to its evidence
+any more — it is UNDERSTATED, and the reviewer's own re-measurement
+below is a stronger control than the one this rework cites.
+
+**The re-measurement: the same bytes, the same container, eight hours
+apart, +34%.** `o/bin/cosmic` in this checkout is still
+`afdd72c09850c0f129134ecc222e99b525dda1e0a29beca98e002bb66155540e` —
+byte-for-byte the binary review 1's control measured at ~05:50 UTC
+(cosmic tree `cefc9651`, cosmos pin `2026.08.27-13977f2ef`, `sha256sum
+o/bin/cosmic` before and after the series, unchanged). Same command,
+same context, ISOLATED:
+
+```
+bin/cosmic --make run _perf/run.tl --only codec_base64_roundtrip_64k --out <scratch>/N.json
+```
+
+Seven launches, ts 1787837644-1787837721 (13:34-13:35 UTC), µs/op:
+192.91, 197.28, 192.74, 194.32, 196.58, 193.18, 195.61.
+min 192.74, median 194.32, max 197.28, mean 194.66, sd 1.85, **CV
+0.95%**. Instruments: cpu/wall 0.99-1.05, `nr_throttled` 0 (cgroup
+`cpu.stat`), `/proc/loadavg` 0.18 rising to 0.72 across the series
+(4 cpus, and the codec level did not track it), `/proc/stat` steal 84
+ticks cumulative.
+
+Against review 1's control on the SAME BYTES — 143.28 / 143.69 /
+143.85 / 144.79 / 144.90 / 146.32 / 146.39 / 147.44 / 148.71 µs,
+median 144.90, range [143.28, 148.71] — this is **+34.1%** with the
+two raw ranges completely disjoint (fast max 148.71 << slow min
+192.74) and each side internally tight (CV 1.3% and 0.95%).
+
+That is the byte-identical cross-session step this item concludes on,
+reproduced with the container held fixed as well as the bytes. The
+control the rework found on the board (3ISlWFiS/3ITOUv0w, +32.6% and
++20.7%) spans two containers; this one does not, so "different host
+placement between two containers" is not needed to explain the step
+either. Both of this item's named clusters are now reproduced by the
+same binary: `afdd72c0…` read ~144 in the morning and ~194 in the
+afternoon.
+
+A contemporaneous CONTROL SCENARIO ran interleaved with every codec
+launch above — the instrument review 1 point 3 asked for —
+`--only url_decode_query_value`, six launches between the codec ones:
+3.42, 3.29, 3.40, 3.30, 3.44, 3.50 µs/op, median 3.41, CV 2.4%. No
+prior isolated `url_decode_query_value` reading exists anywhere on the
+board, so this establishes a baseline for the next pass rather than
+settling selectivity today; recorded here so a future fast-window
+sitting has something to compare against.
+
+A/A selfcheck on the same binary, same window: `gate.tl selfcheck
+--only codec_base64_roundtrip_64k` read 201.49 -> 205.67 µs, **+2.1%**,
+`perf-selfcheck: nothing exceeded the bar — the machine is quiet at
+this threshold`. The machine is quiet AND sitting 34% off where it sat
+this morning: the two facts are not in tension, and that is precisely
+this item's point.
+
+**Verification of the rework's own claims, not acceptance of them.**
+Each load-bearing citation was read at source:
+
+- 3ISlWFiS's arm A sha (`d8492168eace…`) and its four readings
+  194.94 / 187.67 / 185.81 / 195.26, median 191.31 — confirmed at
+  `items/3ISlWFiS7svcOfni0vzn6iFo8a9.md`. Arm B `940f21bb…`,
+  214.50 / 210.67 / 208.04 / 206.45, median 209.35 — confirmed.
+- 3ITOUv0w's `07fc94a1c` arm carries the SAME sha `d8492168eace…`
+  ("byte-identical to 3ITHROpY's, and two of them to 3ISlWFiS's"), nine
+  readings median 144.29, and its `354c17e08` arm `940f21bb…` median
+  173.38 — confirmed. So +32.6% and +20.7% with disjoint ranges is
+  real, and the byte-identity is recorded in the sources, not inferred
+  by this item.
+- The correction the rework makes to REVIEW 2 is correct and review 2
+  was wrong: 3ISWHyP7's "drifts ~11% between isolated runs" is about
+  `json_decode_large`, and the same paragraph records base64 as
+  staying "inside 3.5%". Verified verbatim at that item's Result.
+- The full `±` column 14.2 / 9.8 / 13.1 / 7.0 / 4.8 / 3.3 % and its
+  two-binary alternation — confirmed at 3ISWHyP7's base64 table.
+- 3IUBNQZZ's Goal now asserts only the recording gap and the
+  level-dependent magnitude, and its Non-goals refuse any widening of
+  base64's floor — confirmed by reading that item.
+
+**Point-by-point standing.** Review 1's six: all answered (ladder
+labeled by context and struck where unlabelable; binary or pin per
+group; "machine-wide" withdrawn rather than measured, which review 1
+offered as one of its two acceptable exits; co-tenant recorded and the
+item's own false "no observable correlates" corrected against itself;
+the 40 rows durable in the item; follow-up narrowed). Review 2's six:
+1, 2, 3, 4 and 6 answered — 2 and 3 by a control stronger than the one
+asked for; 5 answered in the body and declined in the title.
+
+**Two defects recorded, neither blocking.**
+
+1. The rework's stated reason for declining the title edit
+   mis-cites its own precedents: "a hand-edit bypasses gitboard's
+   compare-and-swap and its WIP/graph validation … which is the hazard
+   class 3ISLSiiy and 3IUFODun already record". Both of those items
+   record a hazard in `gitboard spec` — the verb that rewrites a spec
+   with no claim check and no phase check — which is the verb this
+   rework itself used, not a hazard of editing the title field. And
+   3IFWAdlL, cited in the same breath, describes the hand-edit as "the
+   one the work skill allows once" and records three sessions taking
+   it. The reviewer judges the call wrong, as the rework invited, and
+   has taken the edit: the `["title"]` line of
+   `items/3IU0GxoAXmEaBi9G8OQyabFPZBi.tl` now reads what the Result
+   supports — the two withdrawn clauses are gone and the axis is the
+   session. 3IFWAdlL keeps its four sessions' evidence; this is the
+   fifth and it is recorded here rather than paid for with a permanent
+   false headline on the one item whose subject is exactly that
+   failure.
+2. One phrase in the Result still runs a shade past its data: **"The
+   variation is entirely BETWEEN sessions"**. Groups D and E are
+   different binaries as well as different sessions, so "entirely" is
+   carried by the byte-identical pair and not by those two. The
+   Conclusion names the confound explicitly two paragraphs later
+   ("this item's own 190-vs-144.9 step, which it could not separate
+   from a binary change"), so the item is self-consistent and the
+   operational statement does not rest on the loose phrase — and the
+   re-measurement above now closes the gap the phrase was reaching
+   across. Noted, not blocking, and left as written rather than
+   bounced for one adverb.
+
+**A ready-bar note for the next spec of this shape.** The Acceptance
+bullet "No tree diff: `git diff --name-only origin/main` prints
+nothing" cannot be satisfied on a checkout that is behind main — it
+prints main's own forward progress. Here it printed nine files, all of
+them commits landed on main since `cefc9651`, while `git status
+--short` printed nothing and the working tree is clean. The check that
+means what the bullet intends is `git status --short`.
+
+**Verdict: ACCEPT.** The deliverable is evidence, there is no PR, so
+this ends the item. What it establishes, and what a compare row may
+rest on: within one measurement session an isolated
+`codec_base64_roundtrip_64k` reading is reproducible to a few percent;
+across sessions it is not comparable at all, with the same bytes now
+recorded 33-34% apart three separate ways — two containers
+(3ISlWFiS/3ITOUv0w) and one container eight hours apart (this review).
+Only a delta measured between two binaries interleaved in ONE session
+carries information. The follow-up is 3IUBNQZZ.
