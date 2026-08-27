@@ -7,6 +7,7 @@
 -- when the item reaches `ready` — where it belongs to nobody until a
 -- session pulls it.
 
+local act = require("_work.action")
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
@@ -17,6 +18,7 @@ local store = require("_work.store")
 local take = require("_work.gittake")
 local verbs = require("_work.gitverbs")
 
+local init_shared = fixture.init_shared
 local init_state_repo = fixture.init_state_repo
 local root_with_leaf = fixture.root_with_leaf
 local give_spec = fixture.give_spec
@@ -26,6 +28,28 @@ local function board_of(s: store.Store): flow.Board, flow.Index,
   {string: prio.Position}, {flow.Item}
   local all = check.must(store.list(s))
   return flow.board(all), flow.by_id(all), prio.positions(all), all
+end
+
+--- Run `fn` with the global print captured, so a test can assert what
+--- a verb actually said and not only how it exited. The swap goes
+--- through _G because `print` itself is const to the checker.
+--- @param fn function The call to capture
+--- @return integer The call's exit code
+--- @return {string} Every printed line, in order
+local function with_output(fn: function(): integer): integer, {string}
+  local lines: {string} = {}
+  local g = _G as {string: any} -- cast: swapping the global print for capture
+  local real = g["print"]
+  g["print"] = function(...: any)
+    local parts: {string} = {}
+    for k = 1, select("#", ...) do
+      parts[#parts + 1] = tostring((select(k, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local code = fn()
+  g["print"] = real
+  return code, lines
 end
 
 -- A live foreign refine claim is skipped and counted; the same claim
@@ -73,7 +97,10 @@ test_intake_refines_past_a_held_item()
 
 -- Take claims the refine it offers, in one call, without recording a
 -- builder — a refiner stays eligible to review the eventual build —
--- and a second take by the claimant writes nothing new.
+-- and a second take by the claimant is still a `took`, writing
+-- nothing new: without the own-claim branch, `set_in_place` reports
+-- "nothing to record", the no-op reads as a lost claim, and the
+-- session is told everything was claimed by somebody else.
 local function test_take_claims_a_refine()
   local s = init_state_repo("refine-take")
   local _, leaf = root_with_leaf(s)
@@ -85,11 +112,42 @@ local function test_take_claims_a_refine()
   assert(#(held.builders or {}) == 0,
     "a refine claim records no builder")
   local before = fixture.commits(s)
-  assert(take.cmd_take(s, "session-z") == 0)
+  local code, lines = with_output(function(): integer
+      return take.cmd_take(s, "session-z")
+    end)
+  assert(code == 0)
+  local heard = table.concat(lines, "\n")
+  assert(heard:find("took (session-z) refine", 1, true),
+    "re-taking one's own refine is heard as a take, not a lost list: "
+    .. heard)
   assert(fixture.commits(s) == before,
-    "re-taking one's own refine writes nothing")
+    "and it writes nothing")
 end
 test_take_claims_a_refine()
+
+-- The wire from the verbs to the skip: the full ordering
+-- (`act.next_action`, the same call `next` and take-mode make), not
+-- the intake rung called directly, withholds a taken refine from a
+-- second session — while still handing the claimant their own.
+local function test_next_withholds_a_taken_refine_from_a_second_session()
+  local a, b = init_shared("refine-wire")
+  local _, leaf = root_with_leaf(a)
+  assert(verbs.cmd_move(a, leaf, "plan", nil, 0, false, "") == 0)
+  assert(take.cmd_take(a, "session-a") == 0)
+  assert(check.must(store.load(a, leaf)).claim == "session-a",
+    "session-a holds the refine")
+  assert(store.sync(b))
+  local all = check.must(store.list(b))
+  local ages: health.Ages = {[leaf] = 60}
+  local mine = act.next_action(all, "session-a", ages)
+  assert(mine.kind == "refine" and mine.item.id == leaf,
+    "the claimant is still handed their own refine")
+  local theirs = act.next_action(all, "session-b", ages)
+  assert(not (theirs.kind == "refine" and theirs.item ~= nil
+      and theirs.item.id == leaf),
+    "the second session's next routes around the held item")
+end
+test_next_withholds_a_taken_refine_from_a_second_session()
 
 -- An arrival into ready sheds the refine claim: ready is nobody's
 -- until a session pulls it, and `pullables` has no lease check to
