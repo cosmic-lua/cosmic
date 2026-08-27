@@ -41,7 +41,7 @@ inherit G6's placement through the parent edge only.
 none needed — attach and spec are existing verbs; the history read is
 plain git.
 
-## Result (2026-08-27, this slice)
+## Result
 
 Question 1 answered from the board branch's own history
 (`git log --all -S "every release publishes, measured" -- items/`):
