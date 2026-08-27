@@ -9,7 +9,10 @@ description: >
   orphan `board` branch as committed files, operated by gitboard. Use
   when planning what to build next, refining or decomposing work,
   pulling the next item to implement, reviewing a PR against its
-  spec, or landing an accepted one.
+  spec, or landing an accepted one. Invoked with a number (`/work 5`,
+  typically under `/loop`), run one pass of the standing loop
+  (loop.md): reconcile the last wave, then fan out up to that many
+  items.
 ---
 
 # The system of work for cosmic
@@ -52,6 +55,8 @@ the chapters:
   the flow review that tunes WIP limits.
 - `parallel.md` — running several sessions at once: picking a
   disjoint set, isolation, and the brief an agent needs.
+- `loop.md` — the standing loop (`/work N`): one orchestrator pass
+  per invocation, terse reporting, and never blocking.
 
 ## the board in one minute
 
@@ -93,13 +98,16 @@ seconds and arbitrary within one — the board's queues are stable, not
 the mint order of items filed in the same breath.
 
 reads need no network and no token; a mutation is ONE commit on
-`board` and publishes (push). a rejected push is the compare half of a
-compare-and-swap: the tool rebases onto whoever moved first, re-checks
-the WIP invariant against the merged board, and refuses if the limit
-now binds, dropping its own commit whole — there is no lagged index,
-no retry ritual, and no half-landed mutation. two sessions editing the
-SAME item cannot rebase past each other; that refusal names the items
-and hands back a clean checkout, so re-read and re-apply.
+`board` and publishes (push). a rejected push is diagnosed before
+anything is destroyed. a lost race — the remote holds commits the
+checkout lacks — drops the mutation whole, re-syncs onto the winner's
+state, and refuses with a line naming the recovery: run the same verb
+again, and it decides afresh with EVERY gate applied to the merged
+board, never a replayed commit whose preconditions the winner may
+have falsified. a rejection with the remote unmoved is the remote's
+policy, not a race: the commit stays local and the refusal carries
+the remote's own words. there is no lagged index, no replay, and no
+half-landed mutation.
 
 **a mutation publishes itself, and board state never goes through a
 pull request.** the verb commits and pushes in one step, so there is
@@ -400,7 +408,9 @@ take it on its own branch off `main`. the loop stops when `next` says
 
 running SEVERAL sessions AT ONCE is a different move with its own
 mechanics — a disjoint set, a checkout per session, a brief that
-carries the spec — and those are `parallel.md`.
+carries the spec — and those are `parallel.md`. running that fan-out
+on a cadence — `/work N`, one bounded pass per invocation — is
+`loop.md`.
 
 ## hard rules (guardrails)
 
