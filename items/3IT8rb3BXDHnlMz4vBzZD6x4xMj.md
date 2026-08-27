@@ -46,3 +46,29 @@ Two questions to settle, and the second is the goal owner's:
    band 7. That is a placement change against existing work, so it is
    not a reviewer's call to make alone — it is reported here for the
    goal owner rather than performed.
+
+## Result (2026-08-27, this slice)
+
+Question 1 answered from the board branch's own history
+(`git log --all -S "every release publishes, measured" -- items/`):
+the phrase was INVENTED in 3ISWHyP7's spec (commit 4e788163,
+2026-08-26T17:19:36Z) and propagated by copy to 3ISlY5Xl (cd99c9fc,
+19:50). It never appeared in docs/goals.md — the real G9 is "the
+least tree that keeps its promises". The third item, 3ISlWFiS, had
+already been corrected to cite G6 (commit 31390593, 21:49), which cut
+the propagation vector; no OPEN item carries the phrase
+(`grep -rln "every release publishes" items/` → only the two ended
+sidecars and this capture).
+
+Question 2 performed rather than escalated: all three items are now
+ENDED (accepted with verdicts), so re-parenting them moves no live
+band and displaces nothing — it is a record correction, the direction
+(band 8 → band 7) is downward, and the skill reserves the goal
+owner's judgment for comparisons that RAISE work. Done:
+`attach 3ISlY5Xl|3ISWHyP7|3ISlWFiS 3HyRcd9F` (G6). The two stale
+`## Goal` lines were corrected in place, each carrying a note naming
+this item so the correction is visible in the record.
+
+Follow-up seeded: none needed — review step 5's guard (walk the
+parent chain) now reads the right outcome for all three, and the
+copy-source is corrected.
