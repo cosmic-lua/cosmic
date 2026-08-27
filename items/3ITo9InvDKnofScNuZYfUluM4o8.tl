@@ -8,6 +8,7 @@ return {
   ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3ITo9InvDKnofScNuZYfUluM4o8",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1437,
   ["title"] = "split tl_patch.tl into tl_patch/ once the pinned mechanism reads directories (stage 2 of 3ISnTFGe)",
 }
