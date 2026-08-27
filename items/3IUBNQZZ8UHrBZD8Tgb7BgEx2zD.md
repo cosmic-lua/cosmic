@@ -235,3 +235,69 @@ evidence base is 3IU0GxoA's Result — read its byte-identical
 cross-session control table and its "What this does NOT license"
 paragraph before implementing; 3ISlWFiS and 3ITOUv0w carry the per-arm
 readings and hashes that control rests on.
+
+## Bounce — 2026-08-27, returned to plan (session e532d9f6)
+
+Built and returned unopened. The five numbered edits of `## Change`
+are implemented, correct and behaviourally verified on branch
+`claude/3IUBNQZZ-binary-identity` (commit `2ad10a26`, pushed, no PR).
+Every acceptance criterion passes EXCEPT `ci: PASS`, and it fails for
+a structural reason this spec does not settle and its own four-file
+diff wall forbids fixing.
+
+**`## Enablement` above says "None needed". That is false**, and this
+is the correction: `_perf/skew_test.tl` type-checks every non-test
+`_perf/**` file under the PINNED bootstrap, and the binary's embedded
+`.tl/_perf/*.tl` shadows the tree — so the guard checks the tree's
+`gate.tl` and `run.tl` against the pinned release's `compare.tl`.
+Widening `compare.format` therefore fails on the very PR that
+introduces it:
+
+```
+_perf/gate.tl:128:23: error: wrong number of arguments (given 3, expects 1)
+_perf/run.tl:358:23: error: wrong number of arguments (given 3, expects 1)
+```
+
+`bin/cosmic --make ci` ends `ci: FAIL (coverage)` with
+`_perf/skew_test.tl` the SOLE failure out of 933 tests; fmt, check,
+example and lint are clean. Causation proven both ways: `git stash`
+then `bin/cosmic --make test _perf/skew_test.tl` ends `test: PASS`,
+unstashed it fails. `_perf/compare.tl` has not been touched since the
+guard landed (`ccd246ab`, #1427), so this is the FIRST `_perf`
+exported-signature change after the guard and no precedent exists.
+
+The defect is general — any `_perf` signature change a sibling `_perf`
+module calls is unlandable in one PR — and is captured as
+**3IVF3HbV**, with the decision it needs.
+
+**Everything else measured clean**, so the next pull starts from here:
+
+- `bin/cosmic --make test _perf/compare_test.tl` → `test: PASS (1 file)`,
+  25 tests (the 21 that existed plus the 4 this Change specifies).
+- `o/bin/cosmic --make run _perf/gate.tl selfcheck …` prints
+  `binaries: base 561f2b76e463  current 561f2b76e463  (same)` — the
+  Acceptance regex, matched — with the six-field row unchanged below it.
+- `git diff origin/main -- _perf/compare.tl | grep DEFAULT_THRESHOLD_PCT`
+  empty; `git grep -rn 'noise_floor\|threshold_pct *=' -- _perf/bench`
+  empty; `git diff origin/main --name-only` names exactly the four
+  files and nothing else.
+- **No Evidence drift.** Both Evidence commands reproduce exactly at
+  `54aa87df`; the five print sites are at the precise lines named
+  (`gate.tl:143,199,250,290`, `run.tl:358`).
+
+**What the next refine must settle: one line of Enablement**, naming
+which route this slice takes — and nothing else in this spec changes.
+
+1. **Stage behind a release and a pin bump**, CLAUDE.md's cold-build
+   rule in another guise: land `compare.tl` alone, cut a release
+   carrying it, bump `bin/cosmic.pin`, then land the callers. Two PRs
+   and a release; this spec authorizes neither.
+2. **Fix the skew guard first** (3IVF3HbV) so sibling `_perf` modules
+   resolve from the tree ahead of the embed, then land this unchanged
+   as one PR. This is the route that removes the cost for every future
+   `_perf` change, not just this one, and it makes 3IVF3HbV a blocker
+   of this item rather than a sibling of it.
+
+Route 2 is the one to weigh first: route 1 pays the two-PR cost once
+per `_perf` signature change forever, and the guard not matching its
+own docstring is a defect either way.
