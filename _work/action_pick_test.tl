@@ -179,4 +179,25 @@ local function test_the_seed_fans_tied_items_out_deterministically()
 end
 test_the_seed_fans_tied_items_out_deterministically()
 
+-- A `do` column where every item waits used to fall through to a
+-- terminal whose every clause was about other phases — a silent stall
+-- with a wrong reason. It now names the blocked chain's root, the
+-- same promise the starved ready keeps.
+local function test_a_do_full_of_blocked_items_names_its_chain()
+  local root = make({})
+  local blocker = make({parent = root.id})
+  local items: {item.Item} = {root, blocker}
+  for _ = 1, flow.LIMITS["do"] do
+    items[#items + 1] = make({parent = root.id, phase = "do",
+        claim = "session-A", blocked_by = blocker.id})
+  end
+  local action = act.next_action(items, "session-A")
+  assert(action.kind == "unblock" and action.item.id == blocker.id,
+    "the blocked do column names its chain root: " .. action.kind
+    .. " — " .. action.reason)
+  assert(action.reason:find("do item(s) wait on open blockers", 1, true),
+    "and the reason says which stall this is: " .. action.reason)
+end
+test_a_do_full_of_blocked_items_names_its_chain()
+
 print("all candidate-pick tests passed")

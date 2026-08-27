@@ -98,6 +98,47 @@ local function test_take_walks_past_a_remotely_claimed_candidate()
 end
 test_take_walks_past_a_remotely_claimed_candidate()
 
+-- The walk itself, distinguished from the re-sync-and-recompute
+-- backstop: after A's stale read, B claims A's primary AND an accept
+-- moves a third item into land — so a post-sync recompute's primary
+-- is an unclaimable `finish` and only the stale-read walk can claim
+-- the remaining review. Deleting the walk turns the final assertion
+-- red; the race test above alone could not (either mechanism
+-- delivered it).
+local function test_only_the_walk_can_claim_past_the_lost_primary()
+  local a, b = init_shared("take-walk")
+  local leaves = rooted_leaves(a, 3)
+  for k, id in ipairs(leaves) do
+    into_check(a, id, "builder-a", 30 + k)
+  end
+  assert(store.sync(b))
+  local all = check.must(store.list(a))
+  local first = act.next_action(all, "session-a", {}, "session-a")
+  assert(first.kind == "review", "three check items offer a review")
+  assert(rev.cmd_review(b, first.item.id, "session-b", false, "") == 0)
+  local landed = ""
+  for _, id in ipairs(leaves) do
+    if id ~= first.item.id and landed == "" then
+      landed = id
+    end
+  end
+  local vrd = require("_work.gitverdict")
+  assert(vrd.cmd_verdict(b, landed, "accept", 0, "abc1234", "",
+      "session-c") == 0, "an accept parks a finish ahead of every review")
+  -- A's read is stale: its walk starts from the pre-claim, pre-land
+  -- snapshot. The remaining review is reachable only by walking.
+  assert(take.cmd_take(a, "session-a") == 0)
+  local third = ""
+  for _, id in ipairs(leaves) do
+    if id ~= first.item.id and id ~= landed then
+      third = id
+    end
+  end
+  assert(check.must(store.load(a, third)).reviewer == "session-a",
+    "the walk claimed the remaining review from the stale read")
+end
+test_only_the_walk_can_claim_past_the_lost_primary()
+
 -- A kind with no lock reports as bare next does, mutating nothing.
 local function test_take_reports_unclaimable_kinds_untouched()
   local s = init_state_repo("take-advice")

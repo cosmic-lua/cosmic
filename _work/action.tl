@@ -71,10 +71,26 @@ local function is_rework(i: Item): boolean
   return verdict ~= "" and verdict ~= "accept"
 end
 
---- The first item of a phase this session may take, and how many it
---- stepped over because another session holds them. An unclaimed item
---- is anyone's; a session's own claim is its own; with no session
---- named nothing is held.
+--- What one phase's draw offered and what it stepped over.
+local record Draw
+  --- The item to act on; absent when nothing here is this session's.
+  item: Item
+  --- Items another session holds.
+  held: integer
+  --- Items an open blocker parks: they cannot be finished, so they
+  --- are stepped over — while still occupying their phase's slot, so
+  --- the WIP limit reads them exactly as before.
+  blocked: integer
+  --- The highest-placed parked item, for naming the chain that holds
+  --- it when nothing else on the board fires; absent when none is.
+  stuck: Item
+end
+
+--- The first item of a phase this session may take, and what it
+--- stepped over on the way — another session's holds, and blocked
+--- items no session could finish. An unclaimed item is anyone's; a
+--- session's own claim is its own; with no session named nothing is
+--- held.
 ---
 --- Rework is anyone's too. A claim is a lock on work in progress, and
 --- a send-back ends the progress it was locking: the item is back in
@@ -96,19 +112,6 @@ end
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
 --- @param ages health.Ages Seconds since last board commit, by id
---- @return Item | nil The item to act on
---- @return integer How many held items were skipped
-local record Draw
-  --- The item to act on; absent when nothing here is this session's.
-  item: Item
-  --- Items another session holds.
-  held: integer
-  --- Items an open blocker parks: they cannot be finished, so they
-  --- are stepped over — while still occupying their phase's slot, so
-  --- the WIP limit reads them exactly as before.
-  blocked: integer
-end
-
 --- @param index flow.Index Items by id
 --- @param seed string Per-session tie-break seed, "" for age order
 --- @return Draw What the phase offered and what was stepped over
@@ -122,6 +125,9 @@ local function unheld(b: flow.Board, phase: string, session: string,
       out.held = out.held + 1
     elseif flow.is_blocked(i, index) then
       out.blocked = out.blocked + 1
+      if out.stuck == nil then
+        out.stuck = i
+      end
     elseif out.item == nil then
       out.item = i
     end
@@ -199,13 +205,17 @@ local function reviewable(b: flow.Board, session: string,
   return pick
 end
 
---- The first ready item this session may pull: no open blocker, and
---- not held by another session.
+--- The ready items this session may pull, best first: no open
+--- blocker, not held by another session, and no more than `cap` —
+--- the caller passes `do`'s free slots, so the list never offers a
+--- pull the WIP gate would refuse.
 --- @param b flow.Board The board
 --- @param index flow.Index Items by id
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
---- @return Item | nil The pullable item
+--- @param cap integer The most items to return
+--- @param seed string Per-session tie-break seed, "" for age order
+--- @return {Item} The pullable items, possibly empty
 local function pullables(b: flow.Board, index: flow.Index,
     session: string, pos: {string: prio.Position}, cap: integer,
     seed: string): {Item}
@@ -217,12 +227,6 @@ local function pullables(b: flow.Board, index: flow.Index,
     end
   end
   return out
-end
-
---- The first of `pullables`, for callers that want one.
-local function first_pullable(b: flow.Board, index: flow.Index,
-    session: string, pos: {string: prio.Position}): Item | nil
-  return pullables(b, index, session, pos, 1, "")[1]
 end
 
 --- What the phased half of the ordering decided, and what it stepped
@@ -239,6 +243,11 @@ local record Phased
   mine: integer
   --- Items in `check` under another session's live review claim.
   reviewing: integer
+  --- Blocked `do` items stepped over, and the highest-placed of
+  --- them: a `do` column nothing can finish must surface its chain
+  --- like a starved `ready` does, not vanish into a generic stall.
+  parked: integer
+  stuck: Item
 end
 
 --- How many candidates one ask hands out, the primary included.
@@ -355,9 +364,10 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
       primary.alternates = alts
     end
     return {action = primary, held = held, mine = mine,
-      reviewing = reviewing}
+      reviewing = reviewing, parked = drawn.blocked, stuck = drawn.stuck}
   end
-  return {held = held, mine = mine, reviewing = reviewing}
+  return {held = held, mine = mine, reviewing = reviewing,
+    parked = drawn.blocked, stuck = drawn.stuck}
 end
 
 --- The one action to take now, right to left. Ages are optional the
@@ -401,6 +411,21 @@ local function next_action(items: {Item}, session?: string,
   if root ~= nil then
     return {kind = "unblock", item = root,
       reason = starving .. " — and intake holds nothing to work past them"}
+  end
+  -- The `do` half of the same promise: a column where every item
+  -- waits on an open blocker used to fall through to a terminal
+  -- whose every clause was about OTHER phases — a silent stall with
+  -- a wrong reason. Name the chain the way a starved ready does.
+  if ph.stuck ~= nil then
+    local bottom = health.chain_root(index, ph.stuck)
+    local where = bottom.phase
+    if where == "" then
+      where = "unphased"
+    end
+    return {kind = "unblock", item = bottom,
+      reason = ("%d do item(s) wait on open blockers and nothing else "
+        .. "fires; the chain bottoms at %s %s (%s)"):format(
+        ph.parked, bottom.id:sub(1, 8), bottom.title, where)}
   end
   if ph.mine > 0 or ph.reviewing > 0 then
     -- Full with nothing this session may judge is not "somebody will
@@ -456,8 +481,6 @@ local record action
   pos: {string: prio.Position}, ages: health.Ages, seed: string): ReviewPick
   pullables: function(b: flow.Board, index: flow.Index, session: string,
   pos: {string: prio.Position}, cap: integer, seed: string): {Item}
-  first_pullable: function(b: flow.Board, index: flow.Index, session: string,
-  pos: {string: prio.Position}): Item | nil
   next_action: function(items: {Item}, session?: string,
   ages?: health.Ages, seed?: string): Action
 end
@@ -466,7 +489,6 @@ local M: action = {
   unheld = unheld,
   reviewable = reviewable,
   pullables = pullables,
-  first_pullable = first_pullable,
   next_action = next_action,
 }
 
