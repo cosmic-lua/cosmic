@@ -1,51 +1,45 @@
-## Evidence
+## Goal
 
-Found while reviewing `3ISlY5Xl` (PR #1419) and `3ISWHyP7` on
-2026-08-26. Three items about the release perf gate cite a goal that
-does not exist and hang off an outcome they do not serve.
+G6 — the defining paths, ratcheted: the release perf-gate cluster's
+board record cites the outcome it actually serves, so review step 5's
+parent-chain walk and the derived order stop asserting something
+nobody compared.
 
-All three specs open `## Goal` with **"G9 — every release publishes,
-measured."** No such outcome is in `docs/goals.md`: `sed -n '94,270p'
-docs/goals.md` lists G3, G6, G5, G9, G2, G4, G1, G8, G7, and **G9
-there is "the least tree that keeps its promises"** — the
-least-thing promise, measured by the public module surface ratchet.
-`gitboard tree | grep -E '^\['` agrees: `[>5] 3HyRcrR3 G9 — the least
-tree that keeps its promises`.
+## Change
 
-The outcome these items actually serve is **G6 — the defining paths,
-ratcheted** (`docs/goals.md:127-140`), whose measured half is named in
-its own prose as "the existing `perf-compare` gate". Yet all three are
-parented under **G3 — an honest type layer, no escape hatches**
-(`gitboard show 3ISlY5Xl` / `3ISWHyP7` / `3ISlWFiS` → `parent:
-3HyRcW05wBip6Wqcz145bUQBTyj`), which is about `as` casts and Teal
-narrowing and has nothing to do with benchmark noise.
+Evidence-only slice, no PR (deliverable: the corrections below plus
+the recorded answer to where the phantom goal came from).
 
-The three:
+1. Answer question 1 from the board branch's history: first commit
+   introducing "G9 — every release publishes, measured", and its
+   propagation path.
+2. Correct the `## Goal` line of the two ended sidecars still
+   carrying the phantom goal (3ISWHyP7, 3ISlY5Xl), each correction
+   naming this item.
+3. Re-parent 3ISlY5Xl, 3ISWHyP7, 3ISlWFiS from G3 (3HyRcW05) to G6
+   (3HyRcd9F). All three are ended, so the move changes no live band
+   and displaces nothing — downward placement is not the protected
+   direction (`skills/work/SKILL.md`, "a comparison that RAISES work").
 
-- `3ISlY5Xl` — release perf gate reads noise from one control pair
-- `3ISWHyP7` — release gate red: the A/B that root-caused the two flags
-- `3ISlWFiS` — codec_base64_roundtrip_64k +7.8% [whilp/cosmopolitan]
+## Non-goals
 
-Why it matters rather than being a cosmetic label: review step 5
-(`skills/work/review.md`) walks the parent chain to its root and judges
-the diff against that outcome. A reviewer doing that on `3ISlY5Xl`
-reads G3 — an honest type layer — and finds a change about benchmark
-variance that moves none of G3's win condition (zero casts, the
-scaffolding deleted). The judgement only works once the parent is the
-outcome the work serves. The same mis-parenting also means these items
-carry G3's band-8 placement rather than G6's band-7, so the order the
-board derives is asserting something nobody compared.
+No change to docs/goals.md (G9 there — "the least tree that keeps
+its promises" — is correct as written). No edits to 3ISlWFiS's spec
+(already corrected, commit 31390593). No new comparisons: the three
+inherit G6's placement through the parent edge only.
 
-Two questions to settle, and the second is the goal owner's:
+## Acceptance
 
-1. Where did "G9 — every release publishes, measured" come from — a
-   renumbering `docs/goals.md` absorbed, or an invented goal that
-   propagated by copy from one spec to the next? Whichever it is, the
-   fix includes correcting the `## Goal` line in all three sidecars.
-2. Re-parenting these three from G3 to G6 moves them from band 8 to
-   band 7. That is a placement change against existing work, so it is
-   not a reviewer's call to make alone — it is reported here for the
-   goal owner rather than performed.
+- `grep -rln "every release publishes" items/` names no OPEN item's
+  sidecar (only ended 3ISWHyP7/3ISlY5Xl with the correction note, and
+  this capture quoting it as evidence).
+- `gitboard show 3ISlY5Xl | grep parent:` → 3HyRcd9F (same for
+  3ISWHyP7, 3ISlWFiS).
+
+## Enablement
+
+none needed — attach and spec are existing verbs; the history read is
+plain git.
 
 ## Result (2026-08-27, this slice)
 
@@ -53,22 +47,14 @@ Question 1 answered from the board branch's own history
 (`git log --all -S "every release publishes, measured" -- items/`):
 the phrase was INVENTED in 3ISWHyP7's spec (commit 4e788163,
 2026-08-26T17:19:36Z) and propagated by copy to 3ISlY5Xl (cd99c9fc,
-19:50). It never appeared in docs/goals.md — the real G9 is "the
-least tree that keeps its promises". The third item, 3ISlWFiS, had
-already been corrected to cite G6 (commit 31390593, 21:49), which cut
-the propagation vector; no OPEN item carries the phrase
-(`grep -rln "every release publishes" items/` → only the two ended
-sidecars and this capture).
+19:50). It never appeared in docs/goals.md. The third item, 3ISlWFiS,
+had already been corrected to cite G6 (commit 31390593, 21:49), which
+cut the propagation vector; no OPEN item carries the phrase.
 
-Question 2 performed rather than escalated: all three items are now
-ENDED (accepted with verdicts), so re-parenting them moves no live
-band and displaces nothing — it is a record correction, the direction
-(band 8 → band 7) is downward, and the skill reserves the goal
-owner's judgment for comparisons that RAISE work. Done:
-`attach 3ISlY5Xl|3ISWHyP7|3ISlWFiS 3HyRcd9F` (G6). The two stale
-`## Goal` lines were corrected in place, each carrying a note naming
-this item so the correction is visible in the record.
+Question 2 performed rather than escalated, per the Change's clause 3
+reasoning: `attach 3ISlY5Xl|3ISWHyP7|3ISlWFiS 3HyRcd9F` done, and
+both stale `## Goal` lines corrected in place with a note naming this
+item.
 
-Follow-up seeded: none needed — review step 5's guard (walk the
-parent chain) now reads the right outcome for all three, and the
-copy-source is corrected.
+Follow-up seeded: none needed — review step 5's guard now reads the
+right outcome for all three, and the copy-source is corrected.
