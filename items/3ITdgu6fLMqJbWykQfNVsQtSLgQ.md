@@ -1,29 +1,44 @@
-## Capture
+## Build: the bare-load skew guard (option 1 from the capture)
 
-Third data point in 24h that the release compare step's design leaks:
-it runs the tree's _perf harness and bench modules bare under the
-PREVIOUS release binary, so any _perf/** use of a cosmic API newer
-than that release crashes the lane at load-time type check. Instances:
-run.tl's cosmic.version_info (killed 08-26's run; fixed #1415),
-literal_bench's two-arg literal.format (would have killed 08-27's
-run; fixed #1420), and gate.tl's compare.triage_many (inert only
-because gate.tl never runs bare). Each fix is a tolerant map view +
-capability probe — a pattern that will keep recurring as the stdlib
-grows.
+Deliverable: `_perf/skew_test.tl` — one test that type-checks every
+non-test `_perf/**/*.tl` under the pinned bootstrap binary
+(`o/bootstrap/cosmic`), in ONE `--check types` invocation (the check
+verb fans out over every file named and exits with the worst result).
 
-Class guard candidates, one to pick and build:
-1. A CI check that type-checks every non-test _perf/** file under
-   the pinned bootstrap binary (o/bootstrap/cosmic — always at least
-   as old as the previous release), failing the PR that introduces a
-   skew instead of the release three days later. Cheap: the sweep is
-   ~30 files, seconds.
-2. Change the compare step to measure the previous release with its
-   OWN embedded scenarios (self-consistent by construction) — but
-   then scenario definitions can drift between sides and the compare
-   loses like-for-like.
-3. A lint rule taxing new cosmic API uses in _perf/** — noisy,
-   version-blind.
+Why the bootstrap is the right bar: `bin/cosmic.pin` only ever trails
+published releases, so the bootstrap is at least as old as the
+previous release the compare step downloads — bootstrap-clean implies
+prev-release-clean. Verified mechanics (2026-08-27, by hand):
+- `prev-cosmic-lua --check types <file>` resolves `cosmic.*` from the
+  binary's EMBEDDED declarations even when run from the repo root
+  (a typed two-arg `literal.format` probe fails under the 08-23
+  release, passes under the tree binary), and resolves `_perf.*`
+  from the tree at cwd — exactly the compare step's bare-load
+  resolution.
+- The pre-#1420 literal_bench (14ff1d1d) FAILS the sweep at its
+  line 140; the landed capability-probe version PASSES. Both
+  directions reproduce in-tree.
 
-Option 1 is the evidence-backed pick: it reproduces exactly the
-failure mode (my debug sweep was precisely this check, run by hand,
-and it found #1420's site before the lane did).
+Shape:
+- collect via `fs.find("_perf", {glob = "*.tl"})`, drop `*_test.tl`,
+  sort; assert non-empty (a sweep that found nothing is a gate that
+  lies).
+- assert `o/bootstrap/cosmic` exists with a message naming the
+  remedy (run bin/cosmic once); never silent-skip.
+- `child.run` with `env.list({set = {COSMIC_COVERAGE = "0"}})` so the
+  bootstrap child never dumps .cov files for its embedded sources
+  into the per-test coverage directory.
+- failure message names the class and the remedy: reach a new cosmic
+  API from `_perf/**` through a tolerant map view + capability probe
+  (pattern: _perf/bench/literal_bench.tl), quoting the child's
+  stderr.
+
+Check bar: `--make ci` PASS; the test passes on today's tree under
+bootstrap afad5b5; a deliberate two-arg literal.format planted in a
+scratch copy of a bench file fails it (run once by hand, not
+committed). Cost bar: the sweep (~30 files, one process) adds seconds
+to `--make test`.
+
+Out of scope: option 2 (self-consistent scenarios — loses
+like-for-like), option 3 (version-blind lint). The gate.tl
+triage_many instance needs no code change: the sweep covers it.
