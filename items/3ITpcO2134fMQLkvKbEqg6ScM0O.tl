@@ -7,7 +7,9 @@ return {
   ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3ITpcO2134fMQLkvKbEqg6ScM0O",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1434,
   ["title"] = "pin bump: bin/cosmic.pin to the first release carrying the patch-directory mechanism",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "967ab329f6b8a7a98c94736b17720fa357595e96",
 }
