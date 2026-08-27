@@ -29,3 +29,17 @@ green stamp, say "remove o/bin/cosmic to rebuild from the pin"
 instead of printing the compile error alone. Related: 3IIm7ZyN (the
 convergence hiding cold-build failures), 3ISnyPb7 (the cold-build
 rule's enforcement).
+
+## Second face, same session (2026-08-27, ~05:1x)
+
+The wedge is not only red-gen-2: SWITCHING BRANCHES reproduces it in
+mirror. o/bin/cosmic built on branch A (carrying a checker patch and
+A's tree fixes for it) stays the toolchain after `git checkout B`;
+gen-1 on B then compiles B's tree under A's embedded checker and
+fails on exactly the files A's diff had to fix (cosmic/json.tl's
+metatable `==` under the closure-carry checker). Same escape, by
+hand: `rm o/bin/cosmic o/3p/tl` and cold-start from the pin. Whatever
+countermeasure the refinement picks should treat "the toolchain
+binary does not match the tree that would rebuild it" as the general
+condition, with red-gen-2 and branch-switch as its two observed
+faces.
