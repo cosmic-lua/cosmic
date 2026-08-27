@@ -33,3 +33,23 @@ or, docs-only, make "baseline in the same window, immediately before
 the comparison" an explicit precondition in `skills/optimize/` and in
 the gate's own doc comment, so a stale baseline is a builder error
 with a name rather than a surprise.
+
+## Second instance, same day
+
+Reworking #1426 per its review: the old pin was re-measured in the
+same session window (oldpin2, ~10 minutes before newpin2, both
+back-to-back on one machine) and the gate STILL ended
+`perf-compare: FAIL` — this time on `literal_parse_pin +21.6%`
+(2.45 -> 2.99 µs), a different row from the first roll's
+`fs_walk_tree`. The interleaved `--only` A/B over the two runtimes
+(3 pairs, rebuild per swap, the doctrine's instrument) refutes it:
+OLD 2.00/2.47/2.29 µs vs NEW 2.38/2.42/2.45 µs — deltas +19%/-2%/+7%
+bounce sign, and the ranges overlap entirely. Even a ten-minute-old
+baseline drifts past what the escalation's current-side-only controls
+can clear on a 2.5 µs interpreter-bound row.
+
+Consequence for refinement: baseline age alone is not the fix (ten
+minutes was enough to lie); the honest escalation for a surviving row
+needs both BINARIES, interleaved — which release.yml's compare step
+has on disk, and a local pin bump can reconstruct. The stamp/warn
+option catches only the grossest case.
