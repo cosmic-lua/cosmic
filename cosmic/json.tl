@@ -105,7 +105,9 @@ end
 -- The shared marker metatable decode() applies to every array it
 -- decodes (and array() applies on demand); objects carry no metatable,
 -- so the marker is what tells the two apart after a decode.
--- typed any: metatable<T>s for different T are not comparable
+-- compared with rawequal: metatable<T>s for different T are not
+-- comparable with `==`, and the checker may carry the constructor's
+-- own T here however the local is typed
 local array_marker: any = getmetatable(cosmo.jsonarray({}))
 
 --- Describe a decoded value's JSON kind, for wrong-shape error messages.
@@ -117,7 +119,7 @@ local function decoded_kind(v: any): string
   if t ~= "table" then
     return t
   end
-  if getmetatable(v) == array_marker then
+  if rawequal(getmetatable(v), array_marker) then
     return "array"
   end
   return "object"
@@ -138,7 +140,7 @@ local function decode_object(str: string): {string: any} | nil, string
     return nil, err
   end
   if result is {string: any} then
-    if getmetatable(result) ~= array_marker then
+    if not rawequal(getmetatable(result), array_marker) then
       return result
     end
   end
