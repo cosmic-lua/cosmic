@@ -4,7 +4,7 @@ return {
   ["enable"] = "none: this item's own spec — its Evidence cited \"the capture\" with no item id, command, or suite-vs-isolated context label, and its Change ordered the probe beside other container work without requiring the co-tenant to be recorded; the re-refined spec carries the fix",
   ["id"] = "3IU0GxoAXmEaBi9G8OQyabFPZBi",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["title"] = "codec_base64 swings 25-30% across minutes machine-wide on both runtimes: no single-window claim about base64 perf is sound",
   ["verdict"] = "request changes",
 }
