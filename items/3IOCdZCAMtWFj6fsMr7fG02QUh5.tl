@@ -9,5 +9,6 @@ return {
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["phase"] = "check",
   ["pr"] = 1456,
+  ["reviewer"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["title"] = "testrun and report: per-test statuses in .tests, totals by test, --filter passthrough",
 }
