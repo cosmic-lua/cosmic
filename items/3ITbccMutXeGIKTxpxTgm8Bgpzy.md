@@ -217,7 +217,7 @@ item and one follow-up item.
    refinement, and this slice does not make it.
 
 8. **Write the result onto this item** with
-   `gitboard spec @@ID@@ FILE`, run from the `board` worktree. Replace
+   `gitboard spec 3ITbccMutXeGIKTxpxTgm8Bgpzy FILE`, run from the `board` worktree. Replace
    the sidecar with the five sections above unchanged plus a sixth,
    `## Result`, appended last — do not delete `## Evidence`. `## Result`
    carries, in this order and in these shapes, because `Acceptance`
@@ -308,48 +308,48 @@ item and one follow-up item.
 
 A research slice has no PR, so acceptance is the recorded evidence plus
 commands a reviewer re-runs. The sidecar this slice rewrites is
-`o/board/items/@@ID@@.md`, inside the `board` worktree
+`o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md`, inside the `board` worktree
 `skills/work/SKILL.md` bootstraps. Every check reads only the
 `## Result` section, so it counts what was measured and never what the
 spec says. Run all of them from the cosmic repo root.
 
 - The section exists:
-  `grep -c '^## Result$' o/board/items/@@ID@@.md`
+  `grep -c '^## Result$' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md`
   → `1`. Today: `0`.
 - Every arm was built and hashed, and the runtimes differ:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^- runtime '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^- runtime '`
   → at least `2` and at most `3`, and
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep '^- runtime ' | awk '{print $4}' | sort -u | wc -l`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep '^- runtime ' | awk '{print $4}' | sort -u | wc -l`
   prints the same number. Today: `0`.
 - The measured arms are distinguishable cosmic binaries:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^- cosmic '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^- cosmic '`
   → the same number as the `- runtime ` count, and
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep '^- cosmic ' | awk '{print $4}' | sort -u | wc -l`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep '^- cosmic ' | awk '{print $4}' | sort -u | wc -l`
   prints that number too — a repeated digest means two arms measured
   the same binary and the result is void. Today: `0`.
 - The layout evidence is recorded per arm:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^- layout .* IsBase64 .* EncodeBase64 .* DecodeBase64 .* text .* ape '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^- layout .* IsBase64 .* EncodeBase64 .* DecodeBase64 .* text .* ape '`
   → the same number as the `- cosmic ` count. Today: `0`.
 - The noise floor is recorded per arm and named once:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^- selfcheck '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^- selfcheck '`
   → the same number as the `- cosmic ` count, and
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^- floor '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^- floor '`
   → `1`. Today: `0` and `0`.
 - Nine readings per measured arm, plus the header — counted by first
   cell, so a separator row written either way cannot skew it:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^| run \|^| [0-9][0-9] '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^| run \|^| [0-9][0-9] '`
   → nine times the `- cosmic ` count, plus `1` for the header — so `28`
   for three measured arms and `19` for two. Today: `0`.
 - The four order statistics the rule reads are recorded per arm:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^- stats .* min .* lo .* med .* hi '`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^- stats .* min .* lo .* med .* hi '`
   → the same number as the `- cosmic ` count. Today: `0`.
 - One verdict per non-base arm:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c 'SLOWER THAN A\|NOT SEPARATED FROM A'`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c 'SLOWER THAN A\|NOT SEPARATED FROM A'`
   → one less than the `- cosmic ` count. Today: `0`.
 - The slice states its mechanism and its follow-up, one line each:
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^mechanism: \(layout\|not-link-position\|not-reproduced-locally\)$'`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^mechanism: \(layout\|not-link-position\|not-reproduced-locally\)$'`
   → `1`, and
-  `sed -n '/^## Result$/,$p' o/board/items/@@ID@@.md | grep -c '^follow-up: 3'`
+  `sed -n '/^## Result$/,$p' o/board/items/3ITbccMutXeGIKTxpxTgm8Bgpzy.md | grep -c '^follow-up: 3'`
   → `1`. Today: `0` and `0`.
 - The follow-up exists, is parented here, and quotes the numbers:
   `o/board/o/bin/gitboard show <the id on the follow-up line>` prints a
