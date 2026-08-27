@@ -69,8 +69,7 @@ local function test_compile_writes_output()
   local src, out = compile_fixture("c-ok", "local x: number = 1\nprint(x)\n")
   local code, _out, err = run_driver("compile", test_bin, src, out)
   assert(code == 0, "compile failed (" .. tostring(code) .. "): " .. err)
-  -- cast: or fallback does not narrow
-  local lua = (fs.read(out) or "") as string
+  local lua = (fs.read(out) or "")
   assert(lua:match("print"), "expected compiled lua, got: " .. lua)
 end
 test_compile_writes_output()
@@ -141,8 +140,7 @@ local function test_tee_prints_and_writes()
   local code, stdout, err = run_driver("tee", out, test_bin, script)
   assert(code == 0, "tee failed (" .. tostring(code) .. "): " .. err)
   assert(stdout:match("report line"), "tee must print to stdout")
-  -- cast: or fallback does not narrow
-  local written = (fs.read(out) or "") as string
+  local written = (fs.read(out) or "")
   assert(written:match("report line"), "tee must write the file")
 end
 test_tee_prints_and_writes()
@@ -166,8 +164,7 @@ local function test_tee_propagates_failure_after_writing()
   assert(fs.write(script, 'print("partial")\nos.exit(3)\n'))
   local code = run_driver("tee", out, test_bin, script)
   assert(code == 3, "tee must propagate the child's exit code, got: " .. tostring(code))
-  -- cast: or fallback does not narrow
-  local written = (fs.read(out) or "") as string
+  local written = (fs.read(out) or "")
   assert(written:match("partial"), "tee must write the file before failing")
 end
 test_tee_propagates_failure_after_writing()
