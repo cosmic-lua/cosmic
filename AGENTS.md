@@ -173,7 +173,7 @@ type at the boundary.
 `T`: truthiness (`if not r then return end`), `assert(r)`, `r and r.field`, and
 `== nil`/`~= nil` —
 which is exact, so it narrows boolean unions the other two deliberately skip — via
-the carried tl patch (`3p/tl/tl_patch.tl`; mechanism in `_make/patch.tl`). The same
+the carried tl patch (`3p/tl/tl_patch/`; mechanism in `_make/patch.tl`). The same
 patch makes `assert` narrow as an EXPRESSION, so `local db =
 assert(sqlite.open(p))` is a plain `Database` — the primitive a Lua programmer
 reaches for works, with no cosmic-specific combinator in the way. An early-exit

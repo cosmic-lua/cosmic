@@ -12,7 +12,7 @@
 ---   2. X | nil used un-narrowed: passed where X is expected, indexed,
 ---      or looped over — truthiness, `assert(x)` and `== nil` all
 ---      narrow a plain variable, and `assert` narrows composed with a
----      fallible call too (the carried tl patch, 3p/tl/tl_patch.tl),
+---      fallible call too (the carried tl patch, 3p/tl/tl_patch/narrow.tl),
 ---      but record FIELDS never narrow, and nothing else tells the
 ---      author
 ---   3. excess return values (multiple returns captured incorrectly)
@@ -62,7 +62,7 @@ local function hint_for_message(msg: string): string | nil
   end
   -- Pattern 2b: indexing through an un-narrowed nil union. A guard on
   -- a plain variable — truthiness, `assert(x)`, `== nil` — narrows it
-  -- since the carried tl patch (3p/tl/tl_patch.tl), and so does
+  -- since the carried tl patch (3p/tl/tl_patch/narrow.tl), and so does
   -- `assert(f())` in expression position, so what lands here is a
   -- record FIELD (guarding `o.sub` never narrows `o.sub`) or a value
   -- that was never guarded at all.

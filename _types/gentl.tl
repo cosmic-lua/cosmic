@@ -242,7 +242,7 @@ local record tl
   record EnvOptions
     defaults: CheckOptions
     predefined_modules: {string}
-    -- pre-parsed prelude/stdlib ASTs (carried patch, tl_patch.tl
+    -- pre-parsed prelude/stdlib ASTs (carried patch, tl_patch/ast_cache.tl
     -- ast-cache-*): cosmic._teal_ast thaws the artifact's cache into
     -- these so new_env skips tl's parse of its embedded d.tl sources
     parsed_prelude: any
@@ -251,7 +251,7 @@ local record tl
 
   path: string
   warning_kinds: {string: boolean}
-  -- carried-patch surface (tl_patch.tl ast-cache-hooks-*): the node and
+  -- carried-patch surface (tl_patch/ast_cache.tl ast-cache-hooks-*): the node and
   -- type metatables plus the typeid allocator an AST cache thaw needs
   ast_hooks: {string: any}
 ]]
