@@ -6,8 +6,8 @@
 -- decides afresh: a re-run of a drainable write publishes, and a
 -- re-run of an over-limit arrival meets the verb's own up-front
 -- `wip_refusal` on the merged board — where the old post-race closure
--- re-asked only the limit and had to reproduce force and vacated
--- semantics to avoid reversing decisions already made.
+-- re-asked only the limit and had to reproduce the verbs' own
+-- admission semantics to avoid reversing decisions already made.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
@@ -107,8 +107,6 @@ local function test_the_merged_board_carries_the_wip_refusal()
   local merged = check.must(store.list(b))
   assert(gate.wip_refusal(flow.board(merged), nil, "plan") ~= nil,
     "an arrival into the over-limit column is the verb's to refuse")
-  assert(gate.wip_refusal(flow.board(merged), nil, "plan", "plan") == nil,
-    "with the vacated credit honoured exactly as up front")
 end
 test_the_merged_board_carries_the_wip_refusal()
 

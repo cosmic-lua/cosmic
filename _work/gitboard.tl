@@ -77,9 +77,7 @@ local CSPEC: flags.CommandSpec = {
           {long = "parent", arg = "ID", help = "the item this decomposes"},
           {long = "spec-file", arg = "FILE", help = "spec markdown sidecar"},
           {long = "repo", arg = "OWNER/NAME",
-            help = "the repo its PR lands in; default is the board's origin"},
-          {long = "force", help = "override the plan WIP limit"},
-          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
+            help = "the repo its PR lands in; default is the board's origin"}}}},
     {name = "attach", summary = "put ID under PARENT (adopt, re-parent)",
       spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
     {name = "compare", summary = "record that ID outranks OTHER",
@@ -253,8 +251,7 @@ local function main(...: string): integer
       end
       spec = body
     end
-    return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "",
-      d.parsed.switches["force"], d.parsed.values["why"] or "")
+    return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "")
   end
   local id, rerr = store.resolve(s, d.parsed.args[1] or "")
   if id == nil then

@@ -96,14 +96,13 @@ end
 --- its one-second timestamp, so items minted inside the same second
 --- sort by their random half — "the newest item" is not something a
 --- test can read off the sorted list. The set difference is.
-local function file_item(s: store.Store, title: string, parent: string,
-    force: boolean): string
+local function file_item(s: store.Store, title: string,
+    parent: string): string
   local before: {string: boolean} = {}
   for _, i in ipairs(check.must(store.list(s))) do
     before[i.id] = true
   end
-  assert(graph.cmd_new(s, title, parent, nil, "", force,
-      force and "test fixture" or "") == 0,
+  assert(graph.cmd_new(s, title, parent, nil, "") == 0,
     "new should be accepted: " .. title)
   for _, i in ipairs(check.must(store.list(s))) do
     if not before[i.id] then
@@ -134,11 +133,11 @@ end
 --- an unplaced root would leave its leaf unpromotable, which is the
 --- rule under test elsewhere, not a property of this fixture.
 local function root_with_leaf(s: store.Store): string, string
-  local root = file_item(s, "an outcome", "", false)
-  local peer = file_item(s, "a lesser outcome", "", false)
+  local root = file_item(s, "an outcome", "")
+  local peer = file_item(s, "a lesser outcome", "")
   assert(cmp.cmd_compare(s, root, peer, false) == 0,
     "compare should be accepted")
-  return root, file_item(s, "a workable slice", root, false)
+  return root, file_item(s, "a workable slice", root)
 end
 
 -- A decomposition writes the child AND the parent it de-phases, and
@@ -151,8 +150,8 @@ local record fixture
   git: function(cwd: string, argv: {string})
   init_state_repo: function(name: string): store.Store
   init_shared: function(name: string): store.Store, store.Store
-  file_item: function(s: store.Store, title: string, parent: string,
-  force: boolean): string
+  file_item: function(s: store.Store, title: string,
+  parent: string): string
   commits: function(s: store.Store): integer
   give_spec: function(s: store.Store, id: string)
   root_with_leaf: function(s: store.Store): string, string

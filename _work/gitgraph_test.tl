@@ -23,7 +23,7 @@ local function test_decomposition_is_one_commit()
   local s = init_state_repo("decompose")
   local _, leaf = root_with_leaf(s)
   local before = commits(s)
-  local _kid = file_item(s, "a sub-slice", leaf, false)
+  local _kid = file_item(s, "a sub-slice", leaf)
   assert(commits(s) == before + 1,
     ("one mutation, one commit: %d -> %d"):format(before, commits(s)))
   assert(check.must(store.load(s, leaf)).phase == "",
@@ -40,14 +40,13 @@ test_decomposition_is_one_commit()
 local function test_a_reparent_survives_an_over_limit_rebase()
   local a, b = init_shared("attach-race")
   local goal, leaf = root_with_leaf(a)
-  local other = file_item(a, "another leaf", goal, false)
+  local other = file_item(a, "another leaf", goal)
   assert(store.sync(b))
   -- The other clone fills the board, so this clone's re-parent rebases
   -- onto a column it never entered: the item was in backlog before the
   -- attach and is in backlog after it.
   for i = 1, 12 do
-    assert(graph.cmd_new(b, ("theirs %d"):format(i), goal, nil, "", true,
-        "test fixture") == 0)
+    assert(graph.cmd_new(b, ("theirs %d"):format(i), goal, nil, "") == 0)
   end
   assert(check.must(store.load(a, leaf)).phase == "backlog",
     "the item starts on the board")
@@ -66,7 +65,7 @@ test_a_reparent_survives_an_over_limit_rebase()
 local function test_attach_refuses_a_cycle()
   local s = init_state_repo("cycle")
   local _, leaf = root_with_leaf(s)
-  local kid = file_item(s, "a child", leaf, false)
+  local kid = file_item(s, "a child", leaf)
   assert(graph.cmd_attach(s, leaf, kid) ~= 0, "a cycle must be refused")
   assert(check.must(store.load(s, leaf)).parent ~= kid, "and not written")
 end
@@ -77,7 +76,7 @@ test_attach_refuses_a_cycle()
 local function test_block_records_landing_order_and_refuses_nonsense()
   local s = init_state_repo("block")
   local goal, first = root_with_leaf(s)
-  local second = file_item(s, "the slice that waits", goal, false)
+  local second = file_item(s, "the slice that waits", goal)
   assert(graph.cmd_block(s, second, first, false, "") ~= 0,
     "a block with no reason is refused")
   assert(graph.cmd_block(s, second, first, false, "first lands the API") == 0)
@@ -107,13 +106,13 @@ test_block_records_landing_order_and_refuses_nonsense()
 -- goal) visible instead of a URL buried in prose.
 local function test_new_repo_lands_the_field()
   local s = init_state_repo("cross-repo")
-  local goal = file_item(s, "an outcome", "", false)
+  local goal = file_item(s, "an outcome", "")
   local before: {string: boolean} = {}
   for _, i in ipairs(check.must(store.list(s))) do
     before[i.id] = true
   end
   assert(graph.cmd_new(s, "a cosmopolitan-side slice", goal, nil,
-      "whilp/cosmopolitan", false, "") == 0)
+      "whilp/cosmopolitan") == 0)
   local found: string = nil
   for _, i in ipairs(check.must(store.list(s))) do
     if not before[i.id] then
@@ -140,7 +139,7 @@ local function fill_plan(s: store.Store, goal: string,
     count: integer): {string}
   local out: {string} = {}
   for i = 1, count do
-    local id = file_item(s, ("filler %d"):format(i), goal, false)
+    local id = file_item(s, ("filler %d"):format(i), goal)
     assert(verbs.cmd_move(s, id, "plan", nil, 0, false, "") == 0,
       "the committed queue has room for filler " .. tostring(i))
     out[#out + 1] = id
@@ -160,7 +159,7 @@ local function test_a_decomposition_is_one_commit_with_plan_full()
   local _filled = fill_plan(s, goal, flow.LIMITS["plan"] - 1)
   assert(occupancy(s, "plan") == flow.LIMITS["plan"], "plan starts full")
   local before = commits(s)
-  local kid = file_item(s, "a sub-slice", leaf, false)
+  local kid = file_item(s, "a sub-slice", leaf)
   assert(commits(s) == before + 1, "the child and the de-phase are one commit")
   assert(check.must(store.load(s, leaf)).phase == "",
     "the parent left the board")
@@ -179,9 +178,9 @@ local function test_a_full_plan_admits_a_containers_next_child()
   local goal, leaf = root_with_leaf(s)
   assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
   local _filled = fill_plan(s, goal, flow.LIMITS["plan"] - 1)
-  local _first = file_item(s, "the first child", leaf, false)
+  local _first = file_item(s, "the first child", leaf)
   local before = occupancy(s, "plan")
-  local second = file_item(s, "the second child", leaf, false)
+  local second = file_item(s, "the second child", leaf)
   assert(check.must(store.load(s, second)).phase == "backlog",
     "the second child is admitted into backlog")
   assert(occupancy(s, "plan") == before, "and plan is untouched")
@@ -198,7 +197,7 @@ local function test_adoption_lands_in_backlog_at_any_occupancy()
   assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
   local _filled = fill_plan(s, goal, flow.LIMITS["plan"] - 1)
   local before = occupancy(s, "plan")
-  local under_leaf = file_item(s, "a capture", "", false)
+  local under_leaf = file_item(s, "a capture", "")
   assert(graph.cmd_attach(s, under_leaf, leaf) == 0,
     "adopting under a workable leaf is admitted")
   assert(check.must(store.load(s, under_leaf)).phase == "backlog",
@@ -209,7 +208,7 @@ local function test_adoption_lands_in_backlog_at_any_occupancy()
   assert(occupancy(s, "plan") == before - 1,
     "the adopting leaf de-phased and nothing arrived in its place")
   local after_first = occupancy(s, "plan")
-  local under_container = file_item(s, "another capture", "", false)
+  local under_container = file_item(s, "another capture", "")
   assert(graph.cmd_attach(s, under_container, leaf) == 0,
     "and so is adopting under the container it became")
   assert(check.must(store.load(s, under_container)).phase == "backlog",
