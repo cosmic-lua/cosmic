@@ -16,6 +16,20 @@
 -- closure that ESCAPES, goes stale when the outer scope reassigns
 -- after the parent returns.
 --
+-- The boundary answers two questions, and they want different scopes.
+-- What the closure BODY may rely on is the chunk-root question above:
+-- the body runs at an unknown later time, so any assignment in the
+-- file can invalidate a narrow it captured. What the enclosing
+-- CONTINUATION after the definition may rely on is narrower — that is
+-- straight-line code, so only an assignment inside the closure's OWN
+-- body can reach it. The two anonymous sites therefore snapshot the
+-- enclosing scope's narrows, widen against the chunk root for the
+-- body's sake, and restore the snapshot once the closure's subtree is
+-- checked, keeping the narrows the body could not invalidate. The five
+-- named-function sites do not restore: stock widened every narrow in
+-- their continuation, so the chunk-root scan is already strictly more
+-- permissive there and there is nothing to give back.
+--
 -- The `["label"]` site keeps stock widen-all: a narrow at a label must
 -- hold for every goto path, including one from before the guard with
 -- no assignment anywhere. The four loop sites — `while`, `repeat`,
@@ -79,10 +93,13 @@ return {
             if expected and expected.typename == "function" then]=====],
     replace = [=====[      ["function"] = {
          before = function(self, node)
-            -- cosmic carried patch: widening against the closure's OWN
-            -- node kept a narrow that a reassignment after the
-            -- definition invalidates once the closure escapes.
-            self:widen_all_unions(self.chunk_body)
+            -- cosmic carried patch: the body widens against the chunk
+            -- root -- widening against the closure's OWN node kept a
+            -- narrow that a reassignment after the definition
+            -- invalidates once the closure escapes -- while the
+            -- enclosing continuation keeps the narrows this body
+            -- cannot invalidate, which is what stock gave it here.
+            node.carried_narrows = self:widen_for_closure(node)
             self:begin_scope(node)
 
             local expected = node.expected
@@ -98,9 +115,83 @@ return {
          end,]=====],
     replace = [=====[      ["macroexp"] = {
          before = function(self, node)
-            self:widen_all_unions(self.chunk_body)
+            -- cosmic carried patch: the body widens against the chunk
+            -- root; the enclosing continuation keeps the narrows this
+            -- body cannot invalidate, as stock gave it here.
+            node.carried_narrows = self:widen_for_closure(node)
             self:begin_scope(node)
          end,]=====],
+  },
+  ["closure-continuation-carry"] = {
+    file = "tl.lua",
+    note = "the two anonymous boundaries widen the body's scope, not the continuation's",
+    find = [=====[   function TypeChecker:add_global(node, varname, valtype, is_assigning)]=====],
+    replace = [=====[   -- cosmic carried patch: the closure boundary asks two questions
+   -- with one scan. The BODY may rely only on what nothing in the
+   -- file can invalidate, so it widens against the chunk root; the
+   -- enclosing CONTINUATION after the definition is straight-line
+   -- code, so only an assignment inside the closure's OWN body can
+   -- invalidate a narrow there. Snapshot the narrows an own-body scan
+   -- would have kept, widen against the chunk root, and restore the
+   -- snapshot once the closure's subtree is checked. Every
+   -- widen_in_scope exit mutates ONE scope table -- in place at the
+   -- top, and through add_var, which writes the top scope, below it --
+   -- so one snapshot per name covers all three, and it holds the
+   -- scope TABLE rather than its index because the stack has moved by
+   -- restore time.
+   function TypeChecker:widen_for_closure(node)
+      local scope = self.st[#self.st]
+      local carried = nil
+      for i = #self.st, 1, -1 do
+         local s = self.st[i]
+         if s.narrows then
+            for name, _ in pairs(s.narrows) do
+               if (not carried) or carried[name] == nil then
+                  if not assigned_anywhere(name, node) then
+                     local v = scope.vars[name]
+                     carried = carried or {}
+                     carried[name] = {
+                        scope = scope,
+                        var = v,
+                        t = v and v.t,
+                        specialized_from = v and v.specialized_from,
+                        is_specialized = v and v.is_specialized,
+                        narrow = scope.narrows and scope.narrows[name] or nil,
+                        widen = scope.widens and scope.widens[name] or nil,
+                     }
+                  end
+               end
+            end
+         end
+      end
+      self:widen_all_unions(self.chunk_body)
+      return carried
+   end
+
+   function TypeChecker:restore_carried_narrows(carried)
+      if not carried then
+         return
+      end
+      for name, c in pairs(carried) do
+         local scope = c.scope
+         if c.var then
+            c.var.t = c.t
+            c.var.specialized_from = c.specialized_from
+            c.var.is_specialized = c.is_specialized
+            scope.vars[name] = c.var
+         else
+            scope.vars[name] = nil
+         end
+         if scope.narrows then
+            scope.narrows[name] = c.narrow
+         end
+         if scope.widens then
+            scope.widens[name] = c.widen
+         end
+      end
+   end
+
+   function TypeChecker:add_global(node, varname, valtype, is_assigning)]=====],
   },
   ["closure-fn-rvalue"] = {
     file = "tl.lua",
@@ -197,6 +288,50 @@ return {
             self:widen_all_unions(self.chunk_body)
             self:begin_scope(node)
          end,]=====],
+  },
+  ["closure-restore-function"] = {
+    file = "tl.lua",
+    note = "give the continuation back the narrows the anonymous body could not invalidate",
+    find = [=====[            self:end_function_scope(node)
+
+            return wrap_generic_if_typeargs(node.typeargs, a_function(node, {
+               min_arity = self.feat_arity and node.min_arity or 0,
+               args = args,
+               rets = self.get_rets(rets),
+            }))]=====],
+    replace = [=====[            self:end_function_scope(node)
+            -- cosmic carried patch: the boundary widened the enclosing
+            -- continuation against the chunk root for the body's sake;
+            -- the continuation gets back the narrows only this body
+            -- could have invalidated.
+            self:restore_carried_narrows(node.carried_narrows)
+            node.carried_narrows = nil
+
+            return wrap_generic_if_typeargs(node.typeargs, a_function(node, {
+               min_arity = self.feat_arity and node.min_arity or 0,
+               args = args,
+               rets = self.get_rets(rets),
+            }))]=====],
+  },
+  ["closure-restore-macroexp"] = {
+    file = "tl.lua",
+    note = "the macroexp expression form restores its continuation too",
+    find = [=====[            self:end_function_scope(node)
+            return wrap_generic_if_typeargs(node.typeargs, a_function(node, {
+               min_arity = self.feat_arity and node.min_arity or 0,
+               args = args,
+               rets = rets,
+            }))]=====],
+    replace = [=====[            self:end_function_scope(node)
+            -- cosmic carried patch: the continuation gets back the
+            -- narrows only this macroexp body could have invalidated.
+            self:restore_carried_narrows(node.carried_narrows)
+            node.carried_narrows = nil
+            return wrap_generic_if_typeargs(node.typeargs, a_function(node, {
+               min_arity = self.feat_arity and node.min_arity or 0,
+               args = args,
+               rets = rets,
+            }))]=====],
   },
   ["closure-root"] = {
     file = "tl.lua",
