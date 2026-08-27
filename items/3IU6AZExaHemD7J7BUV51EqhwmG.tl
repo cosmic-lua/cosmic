@@ -5,9 +5,10 @@ return {
     ["3IUJSV7eIcrpVIs1kmGBvCTQuSC"] = "the pinned cb39b65 checker's old discover misses _types/tlast_test.tl's second definition, so the migrated file fails _build/coldbuild_test.tl (unused function under generation 1) until the pin names a release carrying #1455",
   },
   ["blocked_by"] = "3IU62YqO7uyYrJt53x6fmaE6dlJ 3IP9ijhvSdH0h5uTjb4xOlgZKZ9 3IUJSV7eIcrpVIs1kmGBvCTQuSC",
-  ["builders"] = "e831e06e-2f80-53d1-84e9-8198069f90ed --session",
+  ["builders"] = "e831e06e-2f80-53d1-84e9-8198069f90ed --session 0b13d2b4-bb26-5bc1-8635-407acd85452c",
+  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IU6AZExaHemD7J7BUV51EqhwmG",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
-  ["phase"] = "ready",
+  ["phase"] = "do",
   ["title"] = "migrate to runner mode, batch 1/7: _build, _docs, _types, 3p, _fuzz, _eval, _perf, _tool",
 }
