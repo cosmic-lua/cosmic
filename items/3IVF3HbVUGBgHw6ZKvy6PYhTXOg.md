@@ -408,3 +408,98 @@ candidate-side `--make run` that precedes it in the same job. The
 `_perf/skew_test.tl` shadowing that bounced 3IUBNQZZ does not reach
 this slice — the only `_perf` file it touches is that test's own prose,
 and no `_perf` signature moves.
+
+## Bounce — the committed route is contested, 2026-08-27 (session 05f7c552)
+
+Pulled to `do`, re-measured, and returned to `plan` WITHOUT a diff. The
+facts above all re-verify; what does not resolve is **which route this
+item is committed to**. Two mutually exclusive answers are live on the
+board at once, and choosing between them is plan's call, not a
+mid-slice one.
+
+**Re-measured at pull** (all against `o/bootstrap/cosmic`, whose stamp
+`o/bootstrap/cosmic.pin` = `145057b9…` matches `bin/cosmic.pin`, while
+its own sha is `90ff7f24…` — the `--assimilate` mutation the Result
+already notes):
+
+```
+$ unzip -l o/bootstrap/cosmic | awk '{print $4}' | grep -c '^_perf/'      # 30
+$ unzip -l o/bootstrap/cosmic | awk '{print $4}' | grep -c '^\.tl/_perf/' # 30
+```
+
+The failure shape reproduces exactly, in a scratch tree holding only a
+copy of `_perf` with `compare.format` widened to three parameters and
+its five call sites passing three arguments:
+
+```
+$ COSMIC_COVERAGE=0 o/bootstrap/cosmic --check types $(find _perf -name '*.tl' ! -name '*_test.tl')
+_perf/gate.tl:143:23: error: wrong number of arguments (given 3, expects 1)
+_perf/gate.tl:199:23: error: wrong number of arguments (given 3, expects 1)
+_perf/gate.tl:250:23: error: wrong number of arguments (given 3, expects 1)
+_perf/gate.tl:290:23: error: wrong number of arguments (given 3, expects 1)
+_perf/run.tl:358:23: error: wrong number of arguments (given 3, expects 1)
+```
+
+Four in `gate.tl`, one in `run.tl` — the split the route-3 reasoning
+turns on. And `release.yml`'s bare baseline line
+(`o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json`)
+still stands verbatim, so route 2's target is real too. **No value
+drift. The blocker is the choice, not a number.**
+
+### The conflict
+
+The sidecar's history carries two clobbers, not one. The first was
+repaired; the second was not noticed.
+
+| board commit | what its `## Change` committed to |
+|---|---|
+| `a4839510` | no pick — stops at the evidence and the three routes |
+| `8621e558` | route 3: `_perf/skew_test.tl` only (a clobber; dropped the Evidence/Correction/Result halves) |
+| `cc377d8d` | the repair: restores the full text AND appends `## Refinement — the pick` — **"The pick is route 3 of the three above: split"**, with its reasoning |
+| `2b1acdcc` | **deletes `## Refinement — the pick` and substitutes a route-2 `## Change`** (two files, `release.yml` + `skew_test.tl` prose) — silently, with no note and no answer to the reasoning it removed |
+| `fed418b1` | adds a `## Goal` consistent with route 2 |
+
+`2b1acdcc` removed the very section that existed to survive this — "
+`gitboard spec` keeps no trail, so the pointer is written here instead"
+— which is why it reads as a third clobber rather than a deliberate
+supersession.
+
+**Three other board artifacts still assert route 3**, all written after
+the route-2 text landed or independent of it:
+
+- `3IUBNQZZ`'s blocker-edge reason: "route 2 of the bounce fixes the
+  guard first and lands this unchanged as one PR". Under the current
+  `## Change` the guard's BEHAVIOUR is untouched (Non-goals: "the one
+  `_perf` file this touches is `skew_test.tl`, and only its prose"), so
+  all five errors above still fire and `3IUBNQZZ` does NOT land
+  unchanged. The edge's stated reason would be falsified by the work.
+- `3IVJLeCY`, filed 49 s after `fed418b1`, describes "`3IVF3HbV`'s
+  landed approach narrows its type-check sweep to `_perf/run.tl` plus
+  sources the pin does not carry" — route 3 — and **claims
+  `release.yml:173` as its own open scope** (its gap 2). Implementing
+  the current `## Change` would duplicate an open sibling item.
+- The pull brief handed to this session states the change as one file,
+  `_perf/skew_test.tl`, clearing the four `gate.tl` failures and
+  leaving `run.tl:358`. That is route 3 and is impossible under route 2.
+
+The document also still carries `## What is left to decide, narrowed`
+listing three OPEN routes, immediately above a `## Change` that
+implements one without naming it or saying why — the two halves
+conflict in the form the ready bar is meant to exclude.
+
+### What plan must settle
+
+1. **Route 2 or route 3.** One sentence in `## Change` naming the route
+   and answering `cc377d8d`'s reasoning for the other ("of the five
+   errors, four are checks of a configuration that never runs").
+2. **Then delete the stale half** — `## What is left to decide,
+   narrowed` cannot survive the pick, and whichever `## Goal` does not
+   match must go with it.
+3. **Deconflict with `3IVJLeCY`.** If route 2 stands, `3IVJLeCY`'s gap
+   2 is this item's work and must be struck from it; if route 3 stands,
+   this item's `## Change` and `## Acceptance` must stop naming
+   `release.yml`.
+4. **Restate what it unblocks.** Route 3 clears four of `3IUBNQZZ`'s
+   five errors and leaves `run.tl:358` a genuine release-lane break;
+   route 2 clears none of them. The blocker edge on `3IUBNQZZ` should
+   be reworded to match whichever lands.
