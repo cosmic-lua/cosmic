@@ -60,6 +60,24 @@ local function test_escapes_resume_at_the_right_index()
 end
 test_escapes_resume_at_the_right_index()
 
+-- `\z` skips the whitespace that follows it, NEWLINES included — that
+-- is what the escape is for, and `load` accepts it — while a raw
+-- newline not behind `\z` still refuses. Line numbers keep counting
+-- through the skipped span, so a refusal after a spanning string names
+-- the right line.
+local function test_z_escape_crosses_newlines()
+  assert(read("return { s = \"a\\z\n     b\" }").s == "ab",
+    "\\z skips a newline and the indent after it")
+  assert(read("return { s = \"a\\z\n\n\n  b\" }").s == "ab",
+    "\\z skips several blank lines")
+  assert(refused("return { s = \"a\nb\" }"):find("unterminated string", 1, true),
+    "a raw newline without \\z still refuses")
+  local err = refused("return { s = \"a\\z\n  b\",\n  t = oops }")
+  assert(err:find(":3:", 1, true),
+    "the line count crosses the spanned string, got: " .. err)
+end
+test_z_escape_crosses_newlines()
+
 -- The lexer is this module's own rather than tl's, so a config reader
 -- does not depend on the Teal compiler (see the module header). These
 -- are the shapes a hand-written lexer gets wrong.
