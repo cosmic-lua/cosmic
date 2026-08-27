@@ -1,3 +1,11 @@
+## Ended as a duplicate
+
+Closed not-planned 2026-08-27: 3IVDirCO holds this same split, filed
+four minutes later by a concurrent session out of the same refine of
+3IUBNQZZ, attached under the same parent, and carrying the same
+no-A/A-history-store finding. 3IUBNQZZ's spec points at 3IVDirCO.
+Everything below is retained as the record.
+
 ## Problem
 
 A real code delta on `codec_base64_roundtrip_64k` measures roughly
