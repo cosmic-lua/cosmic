@@ -219,6 +219,55 @@ return {
 
       ["rawget"] = function(self, node, _a, b, _argdelta)]=====],
   },
+  ["narrow-metatable-helper"] = {
+    file = "tl.lua",
+    note = "recognize the std metatable<T> nominal against a table-kinded is-target",
+    find = [=====[      local function invalid_from(f)
+         return IsFact({ fact = "is", var = f.var, typ = a_type(f.w, "invalid", {}), w = f.w })
+      end]=====],
+    replace = [=====[      local function invalid_from(f)
+         return IsFact({ fact = "is", var = f.var, typ = a_type(f.w, "invalid", {}), w = f.w })
+      end
+
+      -- cosmic carried patch: `is` against a table-kinded target used to
+      -- refuse a metatable<T>-typed value outright, though a runtime
+      -- `type(x) == "table"` test is exactly what a getmetatable() result
+      -- supports. Recognized by IDENTITY against the std metatable
+      -- nominal (cache_std_metatable_type), never by name, and only for
+      -- targets a metatable can actually be at runtime. The two call
+      -- sites below share this closure, so `self` is passed explicitly.
+      local table_kinded = { map = true, record = true, array = true, interface = true }
+
+      local function is_table_metatable(self, typ, target)
+         return table_kinded[target.typename] == true and
+         self.cache_std_metatable_type ~= nil and
+         typ.typename == "nominal" and typ.found ~= nil and
+         typ.found.def == self.cache_std_metatable_type
+      end]=====],
+  },
+  ["narrow-metatable-is"] = {
+    file = "tl.lua",
+    note = "the positive `mt is {string: any}` branch narrows to the target, not invalid",
+    find = [=====[               elseif not self:is_a(f.typ, typ) then
+                  self.errs:add(f.w, f.var .. " (of type %s) can never be a %s", typ, f.typ)
+                  return { [f.var] = invalid_from(f) }]=====],
+    replace = [=====[               elseif not self:is_a(f.typ, typ) then
+                  if is_table_metatable(self, typ, f.typ) then
+                     return { [f.var] = f }
+                  end
+                  self.errs:add(f.w, f.var .. " (of type %s) can never be a %s", typ, f.typ)
+                  return { [f.var] = invalid_from(f) }]=====],
+  },
+  ["narrow-metatable-not"] = {
+    file = "tl.lua",
+    note = "the negated branch keeps the metatable type instead of warning and poisoning",
+    find = [=====[            elseif not self:is_a(f.typ, typ) then
+               assert(f.fact == "is")
+               self.errs:add_warning("branch", f.w, f.var .. " (of type %s) can never be a %s", show_type(typ), show_type(f.typ))]=====],
+    replace = [=====[            elseif not self:is_a(f.typ, typ) and not is_table_metatable(self, typ, f.typ) then
+               assert(f.fact == "is")
+               self.errs:add_warning("branch", f.w, f.var .. " (of type %s) can never be a %s", show_type(typ), show_type(f.typ))]=====],
+  },
   ["narrow-pack-n"] = {
     file = "tl.lua",
     note = "mixed-arity table.pack fallback returns PackTable<any>: .n stays integer",
