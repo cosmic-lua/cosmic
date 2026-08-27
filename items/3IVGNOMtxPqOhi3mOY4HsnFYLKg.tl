@@ -6,6 +6,7 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1464,
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "release.yml measures a free full-suite A/A control pair every release and discards it; 3IHHKCyz would delete the run that makes it",
   ["verdict"] = "request changes",
   ["verdict_head"] = "9fed7ebd7185ff6c7203f92ab3978a2c9cb893df",
