@@ -5,5 +5,6 @@ return {
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
   ["phase"] = "check",
   ["pr"] = 1448,
+  ["reviewer"] = "3f616956-66af-5d35-82b3-9ab54b187eb2",
   ["title"] = "cosmic/teal_narrowing_test.tl is 15 lines under the cap with the narrow-* patch queue still behind it",
 }
