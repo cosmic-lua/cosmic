@@ -81,3 +81,75 @@ Re-measured at refine against `origin/main` at `cb39b65d` and later:
 the selection command still names 73 files carrying 481 self-call
 lines, unchanged from the Evidence above, so nothing there needs
 refreshing.
+
+## Bounced at implementation, 2026-08-27T05:3xZ — discover under-counts
+
+The deletion was applied exactly as `## Change` specifies (73 files,
+481 lines, 0 insertions, 0 surviving self-calls) and `--make ci`
+failed the build:
+
+```
+_types/tlast_test.tl:39:1: warning: unused function
+  test_cache_thaws_on_fresh_tl: function()
+build: FAIL (545 files)
+ci: FAIL (build failed)
+```
+
+**The wrong turn was in this spec's evidence, not in the edit.** The
+container's probe asserted "every file in scope reaches runner mode"
+and checked `discover`'s MODE. It never checked that discover found
+every `test_*` DEFINITION in the file. It does not:
+`_types/tlast_test.tl` has two, and discover reports one — on
+UNMODIFIED main as much as after the deletion (`mode=legacy cases=1`
+before, `mode=runner cases=1` after).
+
+`_tool/discover.tl:113-118` says why, in its own comment: `end_line_of`
+returns nil when the depth walk loses the closer — a `function` token
+in TYPE position opens no block and has no `end` — and such a
+definition is SKIPPED rather than judged, "verbatim until 3IP9ijhv
+fixes the counter". `test_cache_thaws_on_fresh_tl` contains
+`assert(thaw is function(any): (any, any), …)`, which is exactly that
+shape.
+
+**Why this is a stop, not a workaround.** A definition discover cannot
+see gets no entry in the generated tail, so migrating its file turns
+that test into dead code that never runs. Here warnings-are-errors
+caught it, because the tail's absence left the local unreferenced —
+but that safety net only holds while the name is referenced nowhere
+else. Where it is, the test disappears silently and every gate stays
+green. That is the exact failure D29's all-or-nothing rule exists to
+prevent.
+
+**Blast radius, measured tree-wide** (`discover` vs a count of
+`local function test_*` per file, over all 275 test files):
+
+```
+./_make/resolution_test.tl:        11 definitions, discover found 10
+./_tool/seam_test.tl:               8 definitions, discover found  4
+./_types/tlast_test.tl:             2 definitions, discover found  1
+./cosmic/_teal_ast_test.tl:         3 definitions, discover found  2
+./cosmic/fd_read_test.tl:           6 definitions, discover found  5
+./cosmic/fs/find_close_test.tl:     3 definitions, discover found  2
+./cosmic/sandbox/init_test.tl:     12 definitions, discover found 10
+./cosmic/searcher_test.tl:          8 definitions, discover found  6
+./cosmic/sqlite/advanced_test.tl:  23 definitions, discover found 21
+./cosmic/sqlite/close_test.tl:      9 definitions, discover found  7
+10 files under-counted, 17 definitions invisible to the seam
+```
+
+Two of those files (`_types/tlast_test.tl`, `_tool/seam_test.tl`) are
+in THIS batch's scope; the rest fall in batches 3, 4, 5 and 6, so
+every batch inherits the block.
+
+**What re-refinement must add**, here and in all seven batches:
+
+1. A blocker edge on 3IP9ijhv — the counter fix — which is now a
+   migration blocker rather than a lint nicety, and is currently
+   placed at band 3, well below this work.
+2. An Evidence claim that discover's case count EQUALS the file's
+   `local function test_*` count for every file in scope, with the
+   command that proves it — not merely that the mode is `runner`. The
+   container's probe is to be corrected the same way; as written it
+   passes a file whose tests would stop running.
+3. An Acceptance line asserting the same equality across the batch, so
+   a regression in the counter cannot land a silent test loss.
