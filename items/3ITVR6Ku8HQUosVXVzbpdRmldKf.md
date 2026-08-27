@@ -217,3 +217,23 @@ and let release.yml — the only instrument on the affected host class —
 measure it against the previous release, or (b) re-baseline via a
 `perf_gate: false` dispatch, accepting the +21% as the new floor for
 this scenario on that host. follow-up: 3ITbywUBOB6CfnjtGOBlGRqgll1 carries that decision.
+
+## Result
+
+Closed 2026-08-27 at pull-time re-measure: the fix this slice was to
+find already landed and shipped while the item sat in the queue.
+whilp/cosmopolitan#281 (IsBase64) and #282 (DecodeBase64) pin both
+hot loops to 64-byte instruction-fetch-block boundaries — the same
+layout class this spec's step 3 would have attacked with alignment
+attributes, landed at the loop-head instead — and master is at
+3977e62f with both merged. Release 2026.08.27-3977e62f2 carries them,
+and cosmic's pin bump consuming it (PR #1426, item 3ITnbooy) MERGED
+at 04:12Z with the row this item exists for measured on the new pin:
+
+  codec_base64_roundtrip_64k  127.25 µs -> 95.80 µs  -24.7%  faster
+
+(and the one unrelated flagged row triaged as cross-window baseline
+drift by the D31 interleaved instrument — the class 3ITt7slj's gate
+fix now handles). Nothing in this spec's Change remains: the
+diagnosis, the fix, the correctness gate, and the consumption all
+happened in the #281/#282 → release → #1426 chain.
