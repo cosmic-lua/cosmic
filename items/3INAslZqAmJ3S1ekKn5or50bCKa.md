@@ -1,53 +1,52 @@
-Two of `parse_table`'s refusal messages in `cosmic/literal.tl` are
-unreachable: the lexer's `$EOF$` sentinel gets there first, so no input
-can produce them.
+## Goal
 
-## Evidence
+Every end-of-input refusal in `cosmic.literal`'s reader is reachable,
+and the internal `$EOF$` spelling never leaks into a message. Today
+two refusal messages are dead (the lexer's sentinel gets there first)
+and truncated input reports `found '$EOF$'` instead.
 
-Found 2026-08-24 while enumerating the reader's refusal classes for the
-C parser (board item 3IKSjEgW). `cosmic/_literal_lex.tl:150` appends a
-sentinel token to every stream:
+## Change
 
-```teal
-  toks[#toks + 1] = {tk = "$EOF$", kind = "eof", y = y}
-```
+Decision (from the capture's two options): make the messages
+reachable at the sentinel — the better-reading choice — rather than
+deleting them. Cosmic-only: the C path discards its own refusal,
+message and offset both, and re-reads with the Teal lexer
+(cosmic/literal.tl parse()), so refusal messages are Teal-only
+surface and the refusal INPUT set does not move.
 
-so `parse_table`'s `while i <= n` always has a token to look at, and
-running out of input lands on the token-shaped refusals rather than the
-end-of-input ones:
+In `parse_table` (cosmic/literal.tl):
+- loop head: a sentinel token refuses `unterminated table in <noun>`
+  with its line — reachable by `return {` and, via the separator
+  change below, `return {a = 1`;
+- value position: the dead `if not v` guard becomes a sentinel check
+  refusing `unexpected end of <noun>` with its line — reachable by
+  `return {a =`;
+- separator position: a sentinel is left for the loop head instead of
+  being reported as `found '$EOF$' after a value`; the `not sep` arm
+  and the `"<eof>"` fallback go (the sentinel means sep is never
+  nil);
+- the loop's dead fall-through `unterminated table` return goes with
+  the restructure, so coverage stops carrying unreachable lines.
 
-- `cosmic/literal.tl:311` — `unterminated table in <noun>`, the loop's
-  fall-through. Unreachable: the sentinel is at index `n`, so the loop
-  body always runs and either returns or refuses.
-- `cosmic/literal.tl:233` — `unexpected end of <noun>`, guarded by
-  `if not v`. Unreachable for the same reason: `toks[i]` after a key is
-  at worst the sentinel, which is not nil.
+Tests asserting the old `$EOF$` spellings update to the new
+messages; `literal_engine_test.tl`'s byte-for-byte engine agreement
+holds by construction (both engines report the Teal message).
 
-Measured against the tree at `585d17f9`, with a binary built from it:
+## Non-goals
 
-```
-literal.parse("return {")    -> literal:1: a literal is a table of `name = <literal>` entries; found '$EOF$'
-literal.parse("return {a")   -> literal:1: a literal is a table of `name = <literal>` entries; found 'a'
-literal.parse("return {a =") -> literal:1: a literal holds literals only; found '$EOF$' (no variables, calls or concatenation)
-```
+No refusal-set change (both readers refuse the same inputs before and
+after); no C-side change; no new refusal classes. The C parser spec's
+class count (3IKSjEgW) is that item's record, not this one's.
 
-Neither dead message appears for any truncation. (`"return {a"`
-complains about `a` rather than the sentinel because an identifier not
-followed by `=` fails the key test before the sentinel is ever read —
-the same class, one token earlier.)
+## Acceptance
 
-## Why it might matter
+`--make ci` ends `ci: PASS`. `literal.parse` on `return {`,
+`return {a =`, `return {a = 1` reports the end-of-input messages with
+no `$EOF$` anywhere; `grep -c '\$EOF\$' o/cosmic/literal.lua` shows
+the spelling only where the sentinel is consumed, never concatenated
+into a message. Coverage carries no unreachable refusal line in
+parse_table.
 
-Small, but it is two of the reader's refusal classes — a third of the
-end-of-input surface — that no test can cover and no fuzz run can
-reach, sitting in a module whose refusals are its contract. It also
-misleads: a reader enumerating the classes (as the C parser's spec did)
-counts seventeen where fifteen exist.
+## Enablement
 
-## Direction, not a decision
-
-Delete both branches, or make the messages reachable by refusing at the
-sentinel with them instead of with the `found '$EOF$'` wording — the
-second reads better to a user, since `$EOF$` is an internal spelling
-leaking into a message. Whichever way, `--make coverage` should stop
-carrying two unreachable lines.
+None.
