@@ -5,5 +5,6 @@ return {
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
   ["phase"] = "check",
   ["pr"] = 1449,
+  ["reviewer"] = "e831e06e-2f80-53d1-84e9-8198069f90ed",
   ["title"] = "a red gen-2 leaves a poisoned o/bin/cosmic: every later run fails gen-1 until a human removes it",
 }
