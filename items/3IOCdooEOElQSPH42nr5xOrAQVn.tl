@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3IOCdHTMLfZoga1s1BqhqJI2D3v",
   ["id"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "backlog",
+  ["phase"] = "plan",
   ["title"] = "migrate the tree: delete the test self-call lines, directory by directory",
 }
