@@ -47,6 +47,38 @@ that first.
   interleaved isolated pairs on two independent build lineages — and
   was still not real. a second session cost one wait; believing the
   first one would have cost a pin.
+- **a regression that reproduces inside one session is real; its SIZE
+  is not.** interleaving settles the verdict, not the magnitude: the
+  delta you read off is a property of the session's absolute level as
+  much as of the code. the same code delta on one codec scenario, both
+  arms verified byte-identical across the two sessions, measured
+  interleaved inside each:
+
+  ```text
+  level   fast arm    slow arm    delta       percent
+  ~191    191.31 us   209.35 us   +18.04 us   +9.44%
+  ~144    144.29 us   173.38 us   +29.09 us   +20.16%
+  ```
+
+  both verdicts reproduced; neither number transferred. **and no change
+  of units repairs that.** between the two sessions the percentage moves
+  by a factor of 2.14, and the absolute µs delta still moves by a factor
+  of 1.61 — so denominating the bar in µs, or normalising the delta by
+  the session's own level, narrows the gap without closing it. the
+  residual also runs the wrong way for either model that would motivate
+  such a bar: an additive effect holds the µs delta constant across
+  levels and shows a larger percentage where the baseline is faster, a
+  multiplicative one holds the percentage constant, and what the rows
+  show is a LARGER absolute cost at the FASTER level — 29.09 µs at ~144
+  against 18.04 µs at ~191. neither shape fits two points that move
+  apart in both units at once, so there is no level-normalised bar to
+  reach for.
+
+  the working rule: **quote a codec delta together with the absolute
+  level it was measured at**, and never weigh a percentage from one
+  session against a percentage from another. what carries forward is the
+  pair of medians, not the percent. board items 3ISlWFiS, 3ITOUv0w and
+  3IU0GxoA hold the readings and the binary hashes.
 - **`perf-compare` triages this for you — trust its verdict, don't
   hand-roll A/B runs.** after its re-measure retry, if a regression
   still stands it runs one more pass of the SAME binary and compares it
