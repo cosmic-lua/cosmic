@@ -85,3 +85,41 @@ None. The instruments are plain file reads; `--only` and `--out` are
 exercised (first pass); the E1/E2 interleave methodology
 (skills/optimize/measurement.md) stands as the cross-check if the
 modes flip mid-pass.
+
+## Result (2026-08-27, second bracket, 04:59-05:38 UTC)
+
+**The fast mode did not appear in 39 more minutes, and the hunt ends
+on the standing deduction, per this spec's step 3.** 40 launches of
+`o/bin/cosmic --make run _perf/run.tl --only codec_base64_roundtrip_64k
+--out o/perf/probe-N.json`, one per ~60 s (ts 1787806772-1787809131,
+2359 s): wall 183.6-201.8 µs, median 190.2, ZERO runs under the
+105 µs fast bar. Instruments beside every run:
+
+- cpu/wall 0.99-1.03 on all 40 (not descheduling);
+- `/sys/fs/cgroup/cpu/cpu.stat` nr_throttled 0 throughout (no quota);
+- /proc/stat steal advanced 62 ticks over the whole window (~0.007%
+  of 4-cpu time — negligible);
+- /proc/pressure/* is not exposed in this container (read as absent
+  on every run).
+
+**A sharpening fact**: this window's band (184-202 µs) is SLOWER than
+the first probe's (138-156 µs, 04:49-04:54), which was slower than
+the gate window's slow mode (116-133 µs), which sat above the fast
+mode (96-98 µs) — at least four distinct machine-wide levels in one
+day on byte-identical binaries, all with cpu==wall. The state is not
+a binary mode but a drifting host condition (frequency/thermal or
+host-level cache/SMT contention), invisible to every in-container
+instrument this item enumerated.
+
+**Conclusion (the one named answer)**: host-side machine state,
+unobservable in-container; no in-container observable correlates
+because none of them moves at all while the level shifts 2x.
+
+**Follow-up seeded**: 3IUBNQZZ — "codec compare rows are state-split:
+derive per-scenario noise floors from cross-window A/A history" —
+filed under G6 (3HyRcd9F). The countermeasure the deduction dictates:
+the compare gate's per-scenario noise floor for codec rows must come
+from cross-window A/A spread (which captures the level drift), not
+from single-window spread_pct, so a codec delta measured across
+windows never stands alone. Probe CSV summarized above; raw rows
+reproducible from the commands in ## Change.
