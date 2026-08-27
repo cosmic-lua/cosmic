@@ -177,3 +177,33 @@ selects 9 `_eval/testdata/**` fixtures (excluded — fixtures are other
 tests' inputs), and `_tool/seam_test.tl` keeps one column-1 self-call
 inside a long-bracket fixture that a blind sed would have deleted
 (that file is hand-edited instead).
+
+## Bounced at implementation, 2026-08-27T06:5xZ — the PINNED discover is the wall now
+
+The re-refined Change was applied exactly as specified (65 files, 478
+deletions, 0 insertions, the one in-fixture survivor intact) and every
+acceptance probe passed except one: the no-test-lost probe reported
+`65 files, 0 differences`, `--make test` passed, but `--make ci`
+failed `_build/coldbuild_test.tl`:
+
+```
+_types/tlast_test.tl:39:1: warning: unused function test_cache_thaws_on_fresh_tl
+coverage: FAIL (1 of 251 files)
+```
+
+The Evidence's equality probe ran the TREE's discover (with #1455).
+The coldbuild gate runs the PINNED release's — `2026-08-27-cb39b65`,
+cut before #1455 merged — whose old extent walk still loses
+`test_cache_thaws_on_fresh_tl` (a `function` token in type position),
+omits it from the generated tail, and refuses the file as an unused
+function. One file in scope hits this; the other 64 sweep clean under
+both checkers. This is the cold-build staging rule doing its job:
+land the checker, bump the pin, then land the code that needs it.
+
+Blocked on 3IUJSV7e (pin bump to a release carrying `2724a719`).
+No release yet exists cut from a main containing it (latest:
+cb39b65, 05:05Z); releases here are dispatched, never by this item.
+The edit is fully mechanical and takes seconds to reproduce from
+`## Change`, so no work-in-progress branch is kept. When re-pulled:
+apply the Change verbatim, and expect all Acceptance lines to pass
+as measured — only the coldbuild gate was red.
