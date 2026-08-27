@@ -71,3 +71,18 @@ work, and none of it belongs in this diff. No other pin
 none needed — #1446 has merged, the release cadence is daily and
 documented in AGENTS.md, and the failure this fixes was measured in
 this pass.
+
+## One bump settles two chains (noted 2026-08-27T05:05Z)
+
+3IU667WI, under a different root, tracks the same pin for a different
+reason: it needs a release carrying `c78504bd` (#1439's metatable
+is-dispatch entries, with #1442's closure-carry preceding it) before
+3IU5Vhvy can retire its guard-and-cast workarounds. Measured: neither
+`c78504bd` nor the seam's `3a045017` is an ancestor of the current
+pin's tag commit (`2026-08-27-6b88a0d` → `c9ecd10b`), and both are
+ancestors of main's tip `cb39b65d`.
+
+So do it ONCE. The `release.yml` run in flight at `cb39b65d` (started
+04:57Z) produces a release satisfying both; check both ancestries
+against its tag, bump once, and say so in the PR body so 3IU667WI can
+be ended from the same merge rather than a second bump being filed.
