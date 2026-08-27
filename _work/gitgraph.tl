@@ -22,11 +22,7 @@ local ksuid = require("_work.ksuid")
 local store = require("_work.store")
 
 local function cmd_new(s: store.Store, title: string, parent: string,
-    spec: string, repo: string, force: boolean, why: string): integer
-  local forced = gate.force_refusal(force, why)
-  if forced then
-    return gate.verdict_line("new", false, "REFUSED: " .. forced)
-  end
+    spec: string, repo: string): integer
   local all, aerr = store.list(s)
   if all == nil then
     return gate.verdict_line("new", false, aerr)
@@ -51,30 +47,15 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   if #bad > 0 then
     return gate.verdict_line("new", false, table.concat(bad, "; "))
   end
-  -- Read before `dephased_container` clears it below: this is the slot
-  -- the mutation frees, and the up-front gate needs it.
-  local vacated = ""
-  if parent_item ~= nil then
-    vacated = parent_item.phase or ""
-  end
-  if phase ~= "" and not force then
-    -- A phased parent is a workable leaf, and gaining a child takes it
-    -- off the board in this same commit — so the slot the child fills
-    -- is the one the parent leaves. Net-zero decomposition is admitted
-    -- however full the column is; only a parent already off the board
-    -- (a container) makes this a real arrival.
-    local refusal = gate.wip_refusal(flow.board(all), nil, phase, vacated)
-    if refusal then
-      return gate.verdict_line("new", false, "REFUSED: " .. refusal)
-    end
-  end
+  -- No gate: a filed child always enters `backlog`, which is
+  -- unbounded by design — the queue intake writes into can always
+  -- accept, which is what keeps the cheap decision cheap.
   local also: {item.Item} = {}
   if parent_item ~= nil then
     also = gate.dephased_container(parent_item)
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
-    ("new %s %s%s"):format(it.id:sub(1, 8), title,
-      gate.forced_suffix(force, why)), also)
+    ("new %s %s"):format(it.id:sub(1, 8), title), also)
   if not ok then
     return gate.verdict_line("new", false, err)
   end
@@ -241,7 +222,7 @@ end
 
 local record gitgraph
   cmd_new: function(s: store.Store, title: string, parent: string,
-  spec: string, repo: string, force: boolean, why: string): integer
+  spec: string, repo: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer

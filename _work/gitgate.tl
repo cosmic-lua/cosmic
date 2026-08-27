@@ -30,24 +30,16 @@ local function verdict_line(verb: string, ok: boolean, detail: string): integer
 end
 
 --- The WIP refusal an arrival in a phase earns, or nil when it may
---- enter. The one gate `new` and `move` share.
----
---- `vacated` names a phase the SAME mutation empties a slot in. When
---- it is the phase being entered, occupancy is unchanged once the
---- mutation lands, and a limit that counted only the arrival would
---- refuse the very drain it exists to force: decomposing a workable
---- leaf de-phases the parent in the same commit, so a full column
---- still admits the child that empties it.
+--- enter: `move`'s gate. `new` carries none — a filed child always
+--- enters unbounded `backlog`, so there is nothing here for it to ask.
 --- @param b flow.Board The board
 --- @param from string Current phase, or nil for an entry
 --- @param to string Target phase
---- @param vacated string Phase this mutation frees a slot in, or nil
 --- @return string | nil The refusal
-local function wip_refusal(b: flow.Board, from: string, to: string,
-    vacated?: string): string
+local function wip_refusal(b: flow.Board, from: string, to: string): string
   local limit = flow.LIMITS[to]
   if limit == nil or #(b[to] or {}) < limit
-  or flow.is_return(from, to) or vacated == to then
+  or flow.is_return(from, to) then
     return nil
   end
   return ("%s is at %d/%d — drain it before pulling more"):format(
@@ -88,7 +80,7 @@ end
 --- here any more: a lost push comes back as `store.LOST_RACE` with
 --- the mutation dropped and the checkout synced, and the verb is run
 --- again — which re-applies EVERY gate it decided with (the WIP
---- refusal, `force`, the `vacated` credit, and all the rest) against
+--- refusal, `force`, and all the rest) against
 --- the merged board, where the old closure re-asked only the limit.
 --- @param s store.Store The store
 --- @param it item.Item The mutated item
@@ -312,8 +304,7 @@ end
 
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
-  wip_refusal: function(b: flow.Board, from: string, to: string,
-  vacated?: string): string
+  wip_refusal: function(b: flow.Board, from: string, to: string): string
   force_refusal: function(force: boolean, why: string): string
   forced_suffix: function(force: boolean, why: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
