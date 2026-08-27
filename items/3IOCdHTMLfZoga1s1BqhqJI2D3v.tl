@@ -10,5 +10,6 @@ return {
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["phase"] = "check",
   ["pr"] = 1446,
+  ["reviewer"] = "e831e06e-2f80-53d1-84e9-8198069f90ed",
   ["title"] = "compile seam: runner-mode test files get the generated tail, in the checker and the chunk",
 }
