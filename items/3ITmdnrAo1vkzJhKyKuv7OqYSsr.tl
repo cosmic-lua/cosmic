@@ -3,8 +3,9 @@ return {
   ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3ITmdnrAo1vkzJhKyKuv7OqYSsr",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1453,
-  ["reviewer"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["title"] = "the narrow-pack-n pin probe does not discriminate: both pins refuse it, only the message differs",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "cefc9651acd54e63c8dac65ce7849482dfd4894d",
 }
