@@ -18,9 +18,21 @@ refusal.
   tail omits the case and the local goes unreferenced. The tree's own
   checker (with #1455) sweeps the same edit clean, and the migration
   probe shows 65 files, 0 differences, name for name.
-- The latest release is `2026-08-27-cb39b65` (published 05:05Z), cut
-  from `cb39b65d` — an ancestor of #1455's merge, so no published
-  release carries the fix yet.
+- Re-measured at pull (2026-08-27T13:5xZ): a qualifying release now
+  exists. `2026-08-27-555873e` (published 13:13:47Z, prerelease as
+  every daily cut is) resolves to `555873eb`, and `git merge-base
+  --is-ancestor 2724a719 $(git rev-list -n1 2026-08-27-555873e)` exits
+  0 — so the fix is in. It is also the newest release; `cb39b65`
+  (05:05Z) is no longer the latest.
+- Re-measured at pull, behaviourally, against the downloaded artifact
+  rather than the tag: a two-definition `_test.tl` with no self-calls,
+  whose first definition carries a `function` token in type position
+  (`assert(v is function(any): (any, any), "shape")`), type-checks
+  clean under `2026-08-27-555873e`'s `cosmic-lua` and fails under the
+  currently-pinned `2026-08-27-cb39b65`'s with `probe2_test.tl:1:1:
+  warning: unused function test_probe_typed`. Ancestry alone checks
+  the release TAG's sha, not the sha its binary was built from; this
+  checks the binary the pin will execute.
 - Gate at pull: `git merge-base --is-ancestor 2724a719 <release tag
   sha>` must succeed for the release the bump names.
 
