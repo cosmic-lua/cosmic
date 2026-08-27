@@ -96,14 +96,15 @@ local function install_wrappers(do_dump: function())
   -- The signature guards type raw_create's return as a real thread, so
   -- every downstream arm/resume site is plainly typed. A stdlib whose
   -- create or exit is not a function cannot occur; the guard leaves it
-  -- unpatched rather than crashing mid-install.
+  -- unpatched rather than crashing mid-install. The narrowing reaches
+  -- the wrapper closures below because neither name is ever reassigned
+  -- in this file: a narrow survives into a closure exactly when the
+  -- chunk never writes the variable again, so the closures call the
+  -- guarded names directly.
   if not (raw_create is function(any): thread)
   or not (raw_exit is function(any, any)) then
     return
   end
-  -- Narrowing does not cross into a closure; these typed locals carry it.
-  local create_fn: function(any): thread = raw_create
-  local exit_fn: function(any, any) = raw_exit
   local function arm(cothread: thread)
     if ccov then
       ccov.arm(cothread)
@@ -112,14 +113,14 @@ local function install_wrappers(do_dump: function())
     end
   end
   co["create"] = function(f: any): any
-    local cothread = create_fn(f)
+    local cothread = raw_create(f)
     if depth > 0 then
       arm(cothread)
     end
     return cothread
   end
   co["wrap"] = function(f: any): any
-    local cothread = create_fn(f)
+    local cothread = raw_create(f)
     if depth > 0 then
       arm(cothread)
     end
@@ -134,7 +135,7 @@ local function install_wrappers(do_dump: function())
 
   os_mod["exit"] = function(code: any, close: any)
     do_dump()
-    exit_fn(code, close)
+    raw_exit(code, close)
   end
 end
 
