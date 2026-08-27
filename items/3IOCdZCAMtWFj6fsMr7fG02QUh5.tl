@@ -7,8 +7,9 @@ return {
   ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IOCdZCAMtWFj6fsMr7fG02QUh5",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1456,
-  ["reviewer"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["title"] = "testrun and report: per-test statuses in .tests, totals by test, --filter passthrough",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "334b20a1",
 }
