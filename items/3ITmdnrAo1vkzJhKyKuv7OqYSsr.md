@@ -34,8 +34,22 @@ e770ce10251944d9ff08c77c34788db11349e0d322dcde19e530c17b196ca2c0  new-cosmic
 ```
 
 `old` is the pin PR #1421 replaced, `afad` the pin it installed, `new`
-the pin `bin/cosmic.pin` carries today (`2026-08-27-6b88a0d`, verified
-by `sha256 = e770ce10…` in the file).
+the pin `bin/cosmic.pin` carried when this was written
+(`2026-08-27-6b88a0d`).
+
+**Re-measured at pull (2026-08-27, this slice's claim).** `origin/main`
+has since moved the pin twice; it now carries
+`2026-08-27-cb39b65`, `sha256 = c81de75b787a31cd60765a461497df76fa123dfa888f066cdba6b873e7ea1aad`.
+Every finding below re-measures unchanged in shape against it: the
+Finding 3 probe still type-checks clean (`exit 0`) under
+`o/bootstrap/cosmic` at that pin, the Finding 1 mirror
+(`local _s: string = t.n`) still exits 1 under both `old` and the
+current binary with only the message differing, and the Finding 2
+unused-variable trap still exits 1 under the current pin. The tree
+facts also hold: `grep -c "pin-probe" docs/build.md` is 0,
+`_build/pin_probe.tl` and `_build/testdata/` do not exist,
+`3p/tl/tl_patch/**` still declares 32 entries, and `docs/build.md` is
+148 lines with `## Bootstrap` at line 132.
 
 **Finding 1 — the stated probe is vacuous.** On the two-line file
 `local t = table.pack(1, "a")` / `local s: string = t.n`, with
@@ -220,7 +234,8 @@ Run from the repo root.
   the four `verdict` cases and both end-to-end VACUOUS cases.
 - `bin/cosmic --check types _build/testdata/packn_probe.tl` prints
   `Type check passed: _build/testdata/packn_probe.tl` and exits 0
-  (measured today against release `2026-08-27-6b88a0d`: exit 0).
+  (measured at pull against release `2026-08-27-cb39b65`, the pin
+  `origin/main` carries: exit 0).
 - The tool names a vacuous probe as vacuous, with no network and one
   binary:
   `o/bin/cosmic _build/pin_probe.tl _build/testdata/packn_probe.tl o/bin/cosmic o/bin/cosmic`
