@@ -7,6 +7,7 @@ return {
   ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3ISSGDIN1kiO1cNYyInfRvwmoyN",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1442,
   ["title"] = "tl patch: carry is-fact narrowing into closures via an enclosing-body assigned_anywhere scan",
 }
