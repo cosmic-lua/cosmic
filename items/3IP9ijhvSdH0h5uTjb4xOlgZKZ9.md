@@ -31,8 +31,15 @@ nested `local enum`, a nested `local interface`; a type-position
 `local f: function(string): integer` annotation; and a tree-wide
 equality test in the `_build/casts.tl` TREES idiom (`fs.find` per tree,
 `--- reads:` grants, skip `testdata/`): for every committed `*_test.tl`,
-`#discover(path, src, lines).cases` equals the file's count of lines
-matching `^local function test_[%w_]*%(`.
+`#discover(path, src, lines).cases` equals a TOKEN-EXACT count of the
+file's top-level definitions (the triple `local` at column 1,
+`function`, `test_*` name, via `tl.lex`). Not a line grep: measured at
+implementation, a `^local function test_` grep overcounts by 5 — the
+tree quotes that shape inside long-bracket fixtures (4 in
+`_tool/seam_test.tl`, 1 in `_make/resolution_test.tl`), which the
+lexer and the parser both rightly ignore — so the escalation table's
+"17 definitions invisible" was 12 real losses across 8 files plus
+those 5 grep artifacts.
 
 Measured now (2026-08-27, main head `4b55a888`, binary built from it):
 
@@ -65,8 +72,9 @@ and inherit the fix. No test file migrates to runner mode here (that is
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make test _tool/discover_test.tl` passes, including the
   new nested-record/enum/interface cases, the two type-position
-  `function` cases, and the tree-wide equality test (which fails on
-  today's tree with 10 under-counted files, 17 definitions invisible).
+  `function` cases, and the tree-wide equality test (which fails
+  against the old counter with 8 under-counted files, 12 definitions
+  invisible).
 - `grep -c "end_line_of" _tool/discover.tl` = 0.
 
 ## Enablement
