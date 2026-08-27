@@ -1,3 +1,16 @@
+## Goal
+
+G6 — the defining paths, ratcheted. Every release already measures a
+full-suite same-binary A/A control pair, on one runner, in one job,
+with `meta.bin_sha` recorded on both halves — and throws half of it
+away when the job ends. This publishes that half as a release asset, so
+the project accumulates the one longitudinal record of its own
+measurement noise that costs nothing to produce.
+
+The value is EVIDENCE RETENTION and nothing else: no gate reads the new
+asset, no floor is derived from it, and nothing is committed to the
+repo.
+
 ## Evidence
 
 Found while refining 3IVDirCO, which was split out of 3IUBNQZZ over
@@ -70,3 +83,132 @@ from it, nothing is committed to the repo.
 
 Measured 2026-08-27, tree at `267c2a4d`, binary
 `145057b9fe905bb866fa3c03818265e4284a3bcd8367b76d9d5254f3c32a0900`.
+
+## Evidence, completed 2026-08-27 against `origin/main`
+
+The capture above establishes the waste and the retrieval half. Three
+facts complete the picture for an implementer.
+
+**1. `selfcheck.json` IS passed to the gate, and is still unread on a
+clean run.** `release.yml:174-176` hands it to `gate.tl compare` as the
+third positional, which `_perf/gate.tl` binds as `selfcheck_b`. But
+`gate_inner` returns 0 right after pass 1 when nothing flags, and
+`opts.measure(opts.selfcheck_b)` sits below that on the escalation
+path. So on the common path the file is written by the measure step,
+named on a command line, and never opened.
+
+**2. What gets published therefore has two possible provenances**, and
+both are valid A/A halves of the same binary:
+
+- clean run: the second full-suite reading from the measure step;
+- escalated run: that file OVERWRITTEN by `opts.measure`, which
+  re-measures the same binary later in the same job.
+
+Either way it is a same-binary, same-runner, same-job reading with its
+own `meta.bin_sha` and `meta.timestamp`. The asset needs no flag
+distinguishing them, but the header comment should say it, because a
+reader comparing gaps between the two halves will otherwise wonder why
+some are minutes apart and some are not.
+
+**3. `size.json` is the worked precedent for every edit below.** It is
+a small JSON asset produced in the same job, uploaded in the same
+artifact, and published by the same `gh release create`, and
+`release.yml:205-207` records the reasoning: "baseline.tl's own
+--asset flag picks it, so that finds perf.json finds size.json." The
+four sites are `release.yml:233` (artifact path list), `:319`
+(`size_src=$(find ...)`), `:334` (`cp`), and `:347` (the create
+argument list) — plus the `:323` guard that refuses an empty `_src`.
+
+## Change
+
+One file, `.github/workflows/release.yml`, four edits plus a guard,
+each mirroring `size.json`'s existing treatment exactly. Re-locate each
+site by its `size.json` neighbour rather than by the line numbers
+above, which move.
+
+1. **Artifact path list** (`:231-234`): add `o/perf/selfcheck.json`
+   beside `o/perf/perf.json`.
+2. **Source discovery** (beside `size_src=`): add
+   `selfcheck_src=$(find artifacts -type f -name selfcheck.json | head -1)`.
+3. **The guard** (the `if [ -z "$cosmic_src" ] || …` chain): add
+   `[ -z "$selfcheck_src" ]` as another disjunct, so a missing file
+   fails the release rather than publishing a partial asset set — which
+   is the property that chain exists for.
+4. **Stage it** (beside `cp "$size_src" release/size.json`): add
+   `cp "$selfcheck_src" release/selfcheck.json`.
+5. **Publish it** (the `gh release create` argument list): add
+   `release/selfcheck.json` beside `release/perf.json`.
+
+Then one comment, above the "measure the release" step, saying what the
+second run is FOR now that its output survives: it is the release's own
+same-binary A/A control, published so the noise floor of a release
+runner can be read after the fact; on an escalated run the gate
+re-measures into the same file, so a published pair may be minutes or
+tens of minutes apart. Write it to the house standard
+(`skills/docs-style/SKILL.md`) — no item ids, no PR numbers, no dates.
+
+## Non-goals
+
+- **No gate reads the new asset**, now or as part of this change. No
+  `_perf/**` file is touched at all: not `gate.tl`, not `compare.tl`,
+  not `run.tl`, not `baseline.tl`. `baseline.tl` already accepts
+  `--asset NAME` and needs no edit to be able to fetch it later.
+- **No derived noise floor, and no bar of any kind moves.**
+  `DEFAULT_THRESHOLD_PCT` stays `10.0`, `TRIAGE_K` stays `2.0`, and
+  `codec_base64_roundtrip_64k` keeps its floor. Deriving a per-scenario
+  floor from cross-RELEASE A/A spreads would measure runner-to-runner
+  variance — the 20-33% class 3IU0GxoA recorded — and both that item's
+  "What this does NOT license" paragraph and D31's rejection of a
+  committed per-scenario noise profile as premature under D27 forbid
+  it. This item retains evidence; it does not consume it.
+- **Nothing is committed to the repo.** `o/perf/*.json` stays build
+  output and stays uncommitted (AGENTS.md).
+- **No second measure run, and no change to the existing two.** The
+  A/A pair this publishes is the one the workflow already takes.
+- **No change to `3IHHKCyz`'s diff or scope**, and no execution of it.
+  That item's Direction is to drop the second measure run as redundant;
+  it is recorded as blocked on this one so the deletion cannot land
+  first and remove the data. Settling the tension is board work, not
+  this diff's.
+- No change to the `peers` job, the compare step, or the size lane.
+
+## Acceptance
+
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `bin/cosmic --make test _build/workflows_test.tl` ends `test: PASS` —
+  the ratchet over the workflow files themselves.
+- **The five sites are each present and each mirrors `size.json`.**
+  For each of `selfcheck.json` / `selfcheck_src` / `release/selfcheck.json`,
+  `grep -n` the workflow and quote the hit beside its `size` counterpart,
+  showing they sit in the same construct.
+  `grep -c 'selfcheck_src' .github/workflows/release.yml` → `3` (the
+  assignment, the guard disjunct, the `cp`).
+- **The shell still parses.** Extract each edited `run:` block's script
+  body and run `bash -n` on it; report PARSE OK. The blocks are
+  single-quoted `bash -c` strings, so a stray quote is the failure mode
+  this catches and nothing else will.
+- **The guard actually refuses.** Reconstruct the guard chain with
+  `selfcheck_src` empty and the others set, run it under `bash`, and
+  show it exits non-zero. A guard that cannot fail is not a guard, and
+  this is the one edit whose mistake would publish a partial asset set
+  silently.
+- **`_perf` is untouched.**
+  `git diff origin/main...HEAD --name-only` → exactly
+  `.github/workflows/release.yml` and nothing else. Use the THREE-dot
+  form: the two-dot form prints main's forward progress on a stale
+  checkout and has produced false clean readings in this repo before.
+- **No bar moved**, checked rather than assumed:
+  `git diff origin/main...HEAD -- _perf` is empty.
+
+## Enablement
+
+None needed. Every edit has a worked precedent in the same file
+(`size.json`, Evidence 3), the second measure run already exists and
+already writes the file, and the retrieval half (`baseline.tl
+--asset NAME`) is already built and already used twice in this
+workflow. Nothing has to land first.
+
+The one judgment the implementer should not have to make is recorded
+above: the published file's provenance differs between a clean and an
+escalated run, and that is expected rather than a bug to normalise
+away.
