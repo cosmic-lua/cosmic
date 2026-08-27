@@ -233,7 +233,10 @@ end
 --- @return string The action, its target, the rule behind it, and its guidance
 local function next_report(all: {item.Item}, session?: string,
     ages?: health.Ages): string
-  local action = act.next_action(all, session, ages)
+  -- The session seeds the tie-break, so concurrent sessions asking
+  -- the same board fan out across items no judgment separates
+  -- instead of converging on one.
+  local action = act.next_action(all, session, ages, session)
   local target = ""
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
@@ -243,6 +246,12 @@ local function next_report(all: {item.Item}, session?: string,
   }
   for _, line in ipairs(guide.lines(action.kind)) do
     out[#out + 1] = "  " .. line
+  end
+  for _, alt in ipairs(action.alternates or {}) do
+    if alt.item then
+      out[#out + 1] = ("  or: %s %s %s"):format(alt.kind,
+        alt.item.id:sub(1, 8), alt.item.title)
+    end
   end
   return table.concat(out, "\n")
 end

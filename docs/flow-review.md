@@ -62,3 +62,33 @@ Each names the condition that makes its phase worth measuring again.
   `action.next_action` reports.
 - **check** — peak reaches 10 with a mix of claims; all from ONE
   session is the handover stall, not a limit signal.
+
+## The blocked-inventory rule (2026-08-27)
+
+Not a limit change — an ordering one, recorded here because it
+changes what a limit MEANS when a phase fills with blocked items.
+
+The starvation rule ("every ready item is blocked → name the chain
+root before anything upstream") used to outrank the whole intake
+half. Measured against the 2026-08-27 sessions, that fired twice on
+wall-clock blockers (a release cron, an upstream merge) with `ready`
+at 2/5: the loop stalled on an unresolvable `unblock` while three
+free slots and refinable `plan` items stood idle. The rule
+over-approximated "the column is clogged" from "every current member
+is blocked".
+
+Now the blocked members only OCCUPY their slots: intake keeps
+refining and promoting past them while the limit has room, and the
+starvation answer fires in exactly two places — when it binds
+(`ready` at its limit with every member blocked, so no refinement
+can feed a pullable item) and as the fallback when intake has
+nothing left. Both name the chain root; neither leaves a silent
+stall. The same principle skips a blocked `do` item in the finish
+rung: it cannot be finished, holds its slot for the limit, and the
+pull proceeds while room remains.
+
+Tripwire: `ready` sitting AT its limit with every member blocked for
+longer than a session — that is the moment blocked inventory is
+consuming the whole buffer, and the flow review should ask whether
+those items belong in `ready` at all or back in `plan` behind their
+blockers.

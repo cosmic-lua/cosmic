@@ -96,7 +96,7 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   local from = it.phase
   if from == target then
-    return gate.set_in_place(s, it, claim, pr)
+    return gate.set_in_place(s, it, claim, pr, force, why)
   end
   -- The bar is asked of the item AS IT WOULD BE in the target phase,
   -- so a repair move out of no-phase is judged on where it lands.

@@ -29,6 +29,10 @@ local record Action
   item: Item
   --- The rule that chose this action, stated for the human/agent.
   reason: string
+  --- Further candidates a session may act on when this one is taken
+  --- by somebody else first, best first. Only the phased kinds carry
+  --- them; absent everywhere else.
+  alternates: {Action}
 end
 
 local record decision

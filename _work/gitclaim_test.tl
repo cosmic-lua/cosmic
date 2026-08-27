@@ -127,16 +127,31 @@ local function test_same_phase_move_applies_its_flags()
   assert(verbs.cmd_move(s, leaf, "check", nil, 44, false, "") == 0)
 
   local before = commits(s)
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, false, "") == 0,
-    "a same-phase move with a field to set writes it")
+  -- The in-place write obeys the same takeover rule as the crossing
+  -- move: overwriting a live foreign claim silently was the hole a
+  -- session lost its item through nine seconds after pulling it.
+  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, false, "") ~= 0,
+    "a same-phase claim overwrite of a live foreign claim is refused")
+  assert(check.must(store.load(s, leaf)).claim == "session-a",
+    "and the claim does not move")
+  assert(commits(s) == before, "nor does anything commit")
+
+  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, true,
+      "session-a went quiet") == 0,
+    "--force --why performs the in-place takeover")
   local fixed = check.must(store.load(s, leaf))
   assert(fixed.claim == "session-b", "the claim was corrected in place")
   assert(fixed.phase == "check", "without a phase change")
   assert(fixed.pr == 44, "and the PR it did not name is untouched")
   assert(commits(s) == before + 1, "one mutation, one commit")
 
+  -- A field the guard has nothing to say about still writes freely:
+  -- setting the PR moves no lock.
+  assert(verbs.cmd_move(s, leaf, "check", nil, 55, false, "") == 0,
+    "an in-place pr write needs no force")
+  assert(check.must(store.load(s, leaf)).pr == 55, "and lands")
+
   assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
     "with nothing to set it still refuses")
-  assert(commits(s) == before + 1, "and writes nothing")
 end
 test_same_phase_move_applies_its_flags()

@@ -358,10 +358,12 @@ local function test_a_stale_claim_is_offered_for_takeover()
 end
 test_a_stale_claim_is_offered_for_takeover()
 
--- A ready column where everything waits admits no pull however deep
--- it is; the answer names the chain's deepest open blocker instead of
--- silently refining around the stall.
-local function test_a_starved_ready_names_its_chain_root()
+-- A ready column where everything waits still refuses the pull — but
+-- while it has room, the blocked items only occupy slots, so intake
+-- keeps working around them: here the chain's own root is the
+-- highest-value refine. The starving answer is the limit's and the
+-- fallback's (action_pick_test.tl), never the first resort.
+local function test_a_starved_ready_under_limit_refines_past_the_blocked()
   local root = make({})
   local bottom = make({parent = root.id, phase = "plan"})
   local middle = make({parent = root.id, phase = "plan",
@@ -370,12 +372,10 @@ local function test_a_starved_ready_names_its_chain_root()
       blocked_by = middle.id})
   local items: {item.Item} = {root, bottom, middle, waiting}
   local action = act.next_action(items, "session-A")
-  assert(action.kind == "unblock" and action.item.id == bottom.id,
-    "the chain root is the target: " .. action.kind)
-  assert(action.reason:find("every ready item is blocked", 1, true),
-    "and the reason says why: " .. action.reason)
+  assert(action.kind == "refine" and action.item.id == bottom.id,
+    "the unblocked chain root is refined toward ready: " .. action.kind)
 end
-test_a_starved_ready_names_its_chain_root()
+test_a_starved_ready_under_limit_refines_past_the_blocked()
 
 -- The claim is a LEASE and it moves. Session A pulls and builds, the
 -- item is returned (clearing the claim), B pulls it, and A hands its
