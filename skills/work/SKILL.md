@@ -329,9 +329,10 @@ slice and this is the loop:
    - **detail drift** — numbers moved but the shape holds: the
      Problem is still real, the `Change` still buildable as written,
      the `Acceptance` still runnable as written. refresh the measured
-     lines in place (`gitboard spec ID FILE`, one commit, noting
-     "re-measured at pull") and proceed. no bounce, no replan — and
-     the reviewer then reads pull-time numbers, never stale ones.
+     lines in place (`gitboard spec`, written back against the text
+     you read, as one commit noting "re-measured at pull") and
+     proceed. no bounce, no replan — and the reviewer then reads
+     pull-time numbers, never stale ones.
    - **value drift** — a fresh fact breaks the shape, or would change
      a decision the spec encodes. that is the under-specified case
      below, caught minutes into the claim instead of after the build.
