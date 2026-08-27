@@ -38,3 +38,48 @@ first step; they need different fixes.
 Worth deciding alongside: whether `built_by` should be a separate,
 append-only fact from the mutable `claim` at all. A claim is a lease and
 is meant to move; authorship is not, and today one field carries both.
+
+## Correction, 2026-08-27 — the stated consequence was wrong
+
+The claim above that "`next` will offer PR #1458 to `0b13d2b4` — the
+session that actually wrote it — as a review it is eligible to accept"
+is **false**, and the sentence calling the rule "defeated without any
+verb refusing anything" overstates what happened.
+
+A durable `builders` record exists and carries every session that held
+the item, not just the current claimant. `_work/flow.tl:416-428`'s
+`built_by` answers "claim now, or in `builders` ever", and `next`'s
+`reviewable` walk consults it. `3IU6AZEx`'s own item file carries
+`0b13d2b4` in `builders`, so `next` would have withheld PR #1458 from
+this session correctly. The masking by a third session's review claim
+was coincidental, but it was not what was protecting the rule.
+
+What the overwrite actually costs is narrower than filed: the `claim`
+field — which `show`, `status` and a human reading the board see —
+names a session that did not build the diff, so authorship DISPLAY is
+wrong while the enforcement is not. That is worth fixing, but it is a
+legibility defect, not a soundness one.
+
+The real soundness gap in this area is a different item: `3IVJUjX4`
+records that `_work/gitverdict.tl:145` refuses a self-accept on
+`session == (it.claim or "")` — the claim alone — rather than on
+`flow.built_by`. So a first builder reaching for `verdict` DIRECTLY,
+after a rework takeover moved the claim, is not refused on its own diff.
+That is the hole; this item is not.
+
+## A separate defect found while checking the above
+
+`3IU6AZEx`'s stored `builders` value is malformed — a command-line flag
+leaked into it verbatim:
+
+    ["builders"] = "e831e06e-... --session 0b13d2b4-... 05f7c552-..."
+
+`--session` is a literal token in a space-separated identity list. So
+whatever wrote it took the flag as part of a value instead of parsing
+it, and `built_by` now iterates a list with a junk entry in the middle.
+It happens to be harmless — the real identities survive on either side,
+so the match still works — but a list that can absorb a flag can absorb
+a malformed identity too, and nothing validates the entries.
+
+Worth checking during the fix: whether other items carry the same
+mangling, and where the flag is consumed such that it reached the value.
