@@ -72,5 +72,5 @@ and inherit the fix. No test file migrates to runner mode here (that is
 ## Enablement
 
 none needed — the change is self-contained in `_tool/discover.tl` plus
-its test file; the blocker edges point the other way (the seven 3IU6*
-batches are blocked on THIS item and unblock when it lands).
+its test file; nothing has to land first. The seven 3IU6* migration
+batches wait on THIS item and resume when it lands.
