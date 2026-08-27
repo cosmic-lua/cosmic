@@ -1,13 +1,16 @@
 ## Goal
 
-G6 — the defining paths, ratcheted: a compare row can be traced to the
-binary that produced it, and a codec claim never rests on readings
-taken in two different measurement sessions.
+G6 — the defining paths, ratcheted: every table the perf gate prints
+names the binary and the measurement time behind each of its two
+sides, so no reader can chain a row from one session onto a row from
+another.
 
-Goal rewritten 2026-08-27 (second rework of 3IU0GxoA, this item's
-evidence base). Read the title as this item's opening hypothesis, not
-as a finding: "state-split" as the title states it is NOT established,
-and no verb renames an item (3IFWAdlL, band 1, backlog).
+Read the TITLE as this item's opening hypothesis, not as a finding.
+"State-split" is not established, deriving per-scenario noise floors
+from cross-window A/A history is not what this slice builds, and no
+verb renames an item (3IFWAdlL, band 1, backlog). Refined
+2026-08-27 14:4x UTC against the bounce recorded at the foot of this
+sidecar, which named three gaps; this refinement settles all three.
 
 What 3IU0GxoA's Result establishes, and all this item may assume:
 
@@ -16,8 +19,7 @@ What 3IU0GxoA's Result establishes, and all this item may assume:
   (`bin_sha c81de75b787a…`, cosmos `2026.08.27-13977f2ef`) held median
   190.0 µs at **CV 2.1%**, unimodal, with no trend between the first
   and second halves. Every other labeled group on record is internally
-  tight at CV 1.2-5.3%. The earlier premise of a minutes-scale bimodal
-  machine mode is WITHDRAWN — this item's own data refutes it.
+  tight at CV 1.2-5.3%.
 - **Between sessions the absolute level moves 20-33% with the binary
   BYTE-IDENTICAL.** 3ISlWFiS and 3ITOUv0w each measured cosmic
   `d8492168eace…` (`sha256sum`-verified in both, and a third time by
@@ -29,90 +31,276 @@ What 3IU0GxoA's Result establishes, and all this item may assume:
 - **A real regression's measured magnitude depends on which level the
   session landed on.** The same code delta read +9.44% interleaved at
   the ~191 level (3ISlWFiS) and +20.16% interleaved at the ~144 level
-  (3ITOUv0w) — both verdicts REPRODUCED, both correctly interleaved
-  within one session. So a fixed-percentage bar has a different
-  sensitivity from session to session even on a correctly interleaved
-  pair.
+  (3ITOUv0w) — both REPRODUCED, both correctly interleaved within one
+  session. That consequence is NOT this slice's to act on; it is
+  3IVDEyar, filed under G6 and left in the backlog deliberately.
 - **The gate records nothing about which binary produced a row.** The
-  harness writes `meta.bin_sha` per results file and never stamps it
-  into a printed compare row, so two rows from different binaries — or
-  from different sessions — can chain silently.
+  harness writes `meta.bin_sha` and `meta.timestamp` per results file
+  and stamps neither into any printed table, so two tables from
+  different binaries — or from different sessions — chain silently.
 
-The founded, actionable premise is therefore a RECORDING gap plus a
-level-dependent sensitivity, not a wider bar.
+The founded, actionable premise is a RECORDING gap. That is all this
+slice builds.
 
 ## Change
 
-Two parts, and only the first is founded today.
+Label every comparison table the perf harness prints with the identity
+and the measurement time of BOTH sides. Files, with headroom measured
+2026-08-27 at `origin/main` `267c2a4d` by
+`git show origin/main:<path> | wc -l`:
 
-1. **Traceability, founded.** Stamp the producing binary into every
-   compare row the harness prints, so a reader can see at a glance
-   whether two rows came from the same binary and the same run.
-   `_perf/run.tl` already writes `meta.bin_sha` into each results
-   file; the shape and the files to touch are to be settled at plan.
+- `_perf/compare.tl` — 357 lines, 143 of headroom under the 500-line
+  cap.
+- `_perf/gate.tl` — 406 lines, 94 of headroom.
+- `_perf/run.tl` — 405 lines, 95 of headroom.
+- `_perf/compare_test.tl` — 311 lines, 189 of headroom.
+- `skills/optimize/measurement.md` — 134 lines, 366 of headroom.
+- `_perf/gate_test.tl` — **500 lines, ZERO headroom.** Do not add a
+  line to it. The change is designed so it needs none: it calls
+  `compare.load_results` and never `compare.format`
+  (`git show origin/main:_perf/gate_test.tl | grep -c 'compare\.format('`
+  is 0).
 
-2. **Level-aware sensitivity, a hypothesis to test at plan.** Whether
-   a per-scenario floor derived from accumulated same-binary A/A
-   selfcheck spreads (the selfcheck pair is same-binary AND
-   same-session by construction) improves on today's single-window
-   `spread_pct` is an open question, and the first job at plan is to
-   answer it from the selfcheck files the gate already writes — not to
-   implement a derivation on the assumption. Note what the evidence
-   already says: same-session spread is TIGHT at both levels, so a
-   history-derived floor would likely come out small, and the real
-   sensitivity problem is that the same delta measures ~2x larger at
-   the fast level. A floor expressed relative to the session's own
-   measured level, or a normalisation of the delta by it, is the
-   shape worth weighing first.
+**In `_perf/compare.tl`, three edits.**
 
-Alternatives to weigh at refinement: a D31 amendment requiring an
-interleaved same-session A/B before any codec delta is read as a code
-effect (which is what 3ISlWFiS and 3ITOUv0w already did by hand), or
-per-scenario `noise_floor_pct` in the scenario module derived from the
-same history.
+1. Widen `RESULTS_SPEC`'s `meta` record to name `bin` and `timestamp`
+   beside the `bin_sha` it already names, each
+   `shape.optional(...)` — `bin = shape.optional(shape.string)`,
+   `timestamp = shape.optional(shape.number)`. `shape.into` DROPS keys
+   a Spec does not name, so without this edit both fields read back nil
+   from every file on disk and the new line silently prints
+   `unrecorded` forever. Extend the record's existing doc comment,
+   which today explains why the other fields are left unnamed.
+
+2. Add `format_gap(gap_secs: number): string`, exported. Signed,
+   integer, three scales: `< 60` → `+42s`; `< 3600` → `+39m`; else
+   `+8h24m`. Take the sign with an explicit `if g < 0` branch and the
+   magnitude by negation rather than `math.abs`, so nothing needs an
+   `as` cast to stay an `integer`; `math.floor` yields an integer and
+   `//` between integers stays one.
+
+3. Add `provenance(a_path: string, a_res: pt.Results, b_path: string,
+   b_res: pt.Results): string`, exported, returning exactly two
+   `\n`-joined lines:
+
+   ```
+   perf: base o/perf/prev/perf.json  bin o/perf/prev/cosmic-lua  sha d8492168eace  measured 2026-08-26T21:14:07Z
+   perf: cur  o/perf/perf.json  bin o/bin/cosmic  sha c81de75b787a  measured 2026-08-27T05:38:51Z  gap +8h24m
+   ```
+
+   `sha` is `string.sub(bin_sha, 1, 12)`, the same 12 characters
+   `identity_refusal` already quotes. `measured` is
+   `time.format_iso8601(math.floor(meta.timestamp))` — a fallible call,
+   so take `or "unrecorded"` and never `assert` it; the field is typed
+   `number` in `pt.Meta` and `format_iso8601` takes an `integer`, hence
+   the `math.floor`. Any of `bin`, `bin_sha`, `timestamp` absent prints
+   `unrecorded` in its own field, matching `run.tl`'s deliberate refusal
+   to write a placeholder into the data itself. `gap` is
+   `format_gap(b_ts - a_ts)`, or `unrecorded` when either timestamp is
+   missing.
+
+4. Change `format`'s signature to `format(deltas: {pt.Delta}, prov:
+   string): string` — the second parameter REQUIRED, not optional — and
+   have it emit `prov`, a newline, then the table and summary line it
+   emits today. Required is the point: the checker then refuses any
+   call site that would print an unlabeled table, which is the wrong
+   turn this whole slice exists to prevent. `format_delta` is
+   UNCHANGED — the identity is one label per table, not a column
+   repeated on ~36 identical rows, because the chaining hazard the Goal
+   names is between the up-to-three tables one `gate_inner` run prints,
+   not between rows of one table.
+
+**In `_perf/gate.tl`.** `compare_once` already loads both results
+files; give it a fourth return value, the `provenance(...)` line built
+from the two it loaded, and pass it into every print. Measured today,
+`git show origin/main:_perf/gate.tl | grep -c 'print(compare\.format(deltas))'`
+is 4 — three in `gate_inner` (pass 1, the retry pass, the final
+triaged pass) and one in `selfcheck`. All four become
+`print(compare.format(deltas, prov))`, naming the local `prov`.
+
+**In `_perf/run.tl`.** `run_compare` loads `base` and `cur` before it
+formats; its single `print(compare.format(deltas))`
+(`git show origin/main:_perf/run.tl | grep -c 'print(compare\.format(deltas))'`
+is 1) becomes `print(compare.format(deltas, prov))` over a `prov` built
+the same way. No compatibility dance is needed for the release lane's
+bare `o/perf/prev/cosmic-lua _perf/run.tl --out …` step: that step
+never enters `run_compare`, and a bare script resolves `_perf.compare`
+from the older binary's embedded copy in any case, where an extra
+argument to a one-parameter Lua function is discarded.
+
+**In `_perf/compare_test.tl`.** Update the two existing
+`compare.format(` calls
+(`git show origin/main:_perf/compare_test.tl | grep -c 'compare\.format('`
+is 2) to pass a fabricated provenance string, and add four tests:
+`test_provenance_names_both_sides`,
+`test_provenance_says_unrecorded_when_meta_is_absent`,
+`test_format_gap_scales_and_signs`, and
+`test_format_prepends_the_provenance`. Write them in whichever mode the
+file is in AT PULL: `grep -c '^test_[A-Za-z0-9_]*()$'
+_perf/compare_test.tl` is 21 today, so today each new test needs its
+self-call line on the line after its `end`; if the runner-mode
+migration (3IU6AZEx, `_perf` is in its batch 1) has landed by then the
+count is 0 and no self-call line may be added. Match the file.
+
+**In `skills/optimize/measurement.md`.** Add one bullet to the
+existing list, no new heading and no `file:line` citation (the
+citations lint pins those). It says two things: every table
+`gate.tl compare` and `gate.tl selfcheck` print is now preceded by
+`perf: base` / `perf: cur` lines carrying each side's binary sha,
+measurement time and the gap between them, so a table measured across
+two sessions is visible as one; and the founded rule behind it — cosmic
+`d8492168…`, the same bytes, read median 191.31 µs in one session and
+144.29 µs in another with disjoint ranges (+32.6%), so an absolute
+reading of `codec_base64_roundtrip_64k` is reproducible within its own
+session and is not comparable across sessions, and only a delta
+measured between two binaries interleaved in ONE session is a claim.
+Close the bullet with the wall in its own words: this is a reason to
+READ the labels, never a reason to widen any bar.
+
+**If the coverage ratchet complains**, run exactly the regen command
+its failure message prints and commit the result — in scope, and never
+a gate weakened any other way. Committed floors touched here, measured
+today in `.cosmic-coverage`: `_perf/compare.tl` 105/107,
+`_perf/gate.tl` 95/115, `_perf/run.tl` 97/191. Raising a covered count
+is expected; a row for a file this diff does not touch must not move.
 
 ## Non-goals
 
-- **No widening of `codec_base64_roundtrip_64k`'s noise floor**, and
-  no change to any bar, on 3IU0GxoA's evidence. That evidence makes
-  this scenario look MORE stable within a session, not less: its
-  40-run bracket is tighter than the ±4.8% figure 3ISlY5Xl's
-  arithmetic used. 3ISlY5Xl held a release at +21.0% via
-  `21.0 > max(10.0, 2 x 4.8)`, and the release lane measures baseline
-  and candidate in the SAME job on the SAME runner — the interleaved
-  shape the cross-session effect cannot reach. The 20-33% cross-session
-  spread is not a noise budget for that gate; treating it as one would
-  retire the arithmetic that kept it honest over a regression two
-  independent interleaved experiments have since confirmed.
-- No weakening or removal of codec rows from any compare.
-- No scenario or `check()` changes.
+- **No widening of `codec_base64_roundtrip_64k`'s noise floor**, and no
+  change to any bar. 3IU0GxoA's evidence makes this scenario look MORE
+  stable within a session, not less: its 40-run bracket is tighter than
+  the ±4.8% figure 3ISlY5Xl's arithmetic used. 3ISlY5Xl held a release
+  at +21.0% via `21.0 > max(10.0, 2 x 4.8)`, and the release lane
+  measures baseline and candidate in the SAME job on the SAME runner —
+  the interleaved shape the cross-session effect cannot reach. The
+  20-33% cross-session spread is NOT a noise budget for that gate;
+  treating it as one would retire the arithmetic that kept it honest
+  over a regression two independent interleaved experiments have since
+  confirmed.
+- **No committed threshold may end larger than it starts.**
+  `DEFAULT_THRESHOLD_PCT` stays `10.0` and `TRIAGE_K` stays `2.0`
+  (measured 2026-08-27 at `origin/main` `267c2a4d`,
+  `git show origin/main:_perf/compare.tl | grep -n 'DEFAULT_THRESHOLD_PCT = \|^local TRIAGE_K'`
+  → lines 19 and 27). No per-scenario floor is introduced:
+  `grep -rn 'noise_floor' _perf` returns nothing today and must still.
+- **The provenance line is informational and changes no decision.** It
+  may not alter any verdict, `noise_pct`, failure count, or exit code,
+  and it may not become a refusal or a warning when the gap is large —
+  that would newly fail every legitimate compare against a baseline
+  measured yesterday. `diff`, `triage`, `triage_many`,
+  `identity_refusal` and `format_delta` keep their current behaviour,
+  and `identity_refusal`'s existing missing-`bin_sha` stderr note stays
+  where it is.
+- **No per-scenario or history-derived noise floor, and no A/A history
+  store.** That is 3IVDEyar, deliberately left in the backlog: the
+  bounce below established that the gate persists no cross-window A/A
+  history to derive one from, so the derivation the title names has no
+  data source and building one is a decision nobody has taken.
+- No D31 amendment and no new decision record: this slice settles no
+  tradeoff about the bar.
+- No scenario, `check()`, `--threshold` default, or `_perf/bench/**`
+  change. No new CLI flag. No change to the `perf-compare: PASS/FAIL`
+  or `perf-selfcheck:` verdict lines — `release.yml` greps them.
+- `_perf/gate_test.tl` is not touched (it is at the 500-line cap).
 - The interleaved A/B within one session
-  (skills/optimize/measurement.md) stays the instrument of record for
+  (`skills/optimize/measurement.md`) stays the instrument of record for
   codec claims; nothing here replaces it.
 
 ## Acceptance
 
-To be written at refinement, with the derivation command and its
-measured output quoted. Two bounds it must carry: the traceability
-change is proved by a compare row printing a binary identity for both
-sides, and no committed threshold for `codec_base64_roundtrip_64k`
-may end larger than it starts.
+Run from the repo root. Nothing below writes into the committed tree;
+the one measuring command writes only under `o/perf/`.
+
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `bin/cosmic --make test _perf/compare_test.tl` passes, including
+  `test_provenance_names_both_sides`,
+  `test_provenance_says_unrecorded_when_meta_is_absent`,
+  `test_format_gap_scales_and_signs` and
+  `test_format_prepends_the_provenance`.
+- `grep -c 'compare\.format(deltas, prov)' _perf/gate.tl` prints `4`
+  (it prints `0` before the change).
+- `grep -c 'compare\.format(deltas, prov)' _perf/run.tl` prints `1`
+  (it prints `0` before the change).
+- `grep -c 'compare\.format(deltas))' _perf/gate.tl _perf/run.tl`
+  prints `_perf/gate.tl:0` and `_perf/run.tl:0` — no unlabeled table
+  survives anywhere.
+- `grep -n 'DEFAULT_THRESHOLD_PCT = \|^local TRIAGE_K' _perf/compare.tl`
+  prints exactly `local DEFAULT_THRESHOLD_PCT = 10.0` and
+  `local TRIAGE_K = 2.0`, unchanged.
+- `grep -rn 'noise_floor' _perf | wc -l` prints `0`.
+- `git diff origin/main -- _perf/compare.tl _perf/gate.tl _perf/run.tl | grep -c '^[-+].*\(TRIAGE_K\|DEFAULT_THRESHOLD_PCT\|noise_pct\)'`
+  prints `0` — the diff touches no line of the noise arithmetic.
+- `git diff --name-only origin/main | grep -c '_perf/gate_test.tl'`
+  prints `0`.
+- `wc -l _perf/compare.tl _perf/gate.tl _perf/run.tl _perf/compare_test.tl skills/optimize/measurement.md`
+  shows every file at or under 500.
+- End to end, one scenario, both label lines on a real table:
+
+  ```
+  bin/cosmic --make run _perf/gate.tl selfcheck o/perf/aa-a.json o/perf/aa-b.json \
+    --only codec_base64_roundtrip_64k | tee o/perf/aa.txt
+  grep -c '^perf: base \|^perf: cur ' o/perf/aa.txt
+  ```
+
+  The `grep` prints `2`, the label lines carry a 12-character `sha`
+  (identical on both sides, since selfcheck measures one binary twice)
+  and an ISO `measured` stamp on each, and `o/perf/aa.txt` ends
+  `perf-selfcheck: nothing exceeded the bar — the machine is quiet at
+  this threshold` or its noisy counterpart — either is a pass here.
+  **The timings this run prints are not evidence of anything and may
+  not be quoted as a measurement**: a single-window reading of this
+  scenario is exactly what 3IU0GxoA established is not comparable to
+  any other. Only the two label lines are under test.
+- `o/perf/*.json` and `o/perf/*.txt` are not committed
+  (`git status --short o/` prints nothing — `o/` is ignored).
 
 ## Enablement
 
-3IU0GxoA's Result is the evidence base — read its byte-identical
+None needed; no blocker item, and nothing is deferred to another
+slice. The enablement check ran over this `Change`, and every
+predicted wrong turn is answered inside it, core first:
+
+- *Printing the label on only the first of the gate's three tables* —
+  answered in CORE: `format`'s second parameter is REQUIRED, so the
+  type checker refuses an unlabeled call, and the Acceptance greps
+  count all five call sites.
+- *Reading `meta.timestamp` back as nil forever because `shape.into`
+  drops keys `RESULTS_SPEC` does not name* — answered by naming the
+  `RESULTS_SPEC` edit as edit 1 and by
+  `test_provenance_names_both_sides`, which asserts a real ISO stamp
+  rather than `unrecorded`.
+- *Growing the change into a stale-baseline refusal or a wider bar* —
+  answered by the Non-goals and by three Acceptance commands that
+  bound the noise arithmetic mechanically.
+- *Adding a test to `_perf/gate_test.tl`, which is at the 500-line
+  cap* — answered by measuring its zero headroom in `Change` and by
+  designing the change so that file needs no edit.
+- *`assert`ing the fallible `time.format_iso8601`, or reaching for an
+  `as` cast to keep integers integers* — answered by naming `or
+  "unrecorded"` and the explicit sign branch in edit 2 and 3.
+
+Context to read before building: 3IU0GxoA's Result (the byte-identical
 cross-session control table and its "What this does NOT license"
-paragraph before refining. 3ISlWFiS and 3ITOUv0w carry the per-arm
-readings and hashes that control rests on. The gate and selfcheck
-machinery already exist (#1432).
+paragraph), 3ISlWFiS and 3ITOUv0w for the per-arm readings and hashes
+that control rests on, and 3IVDEyar for the half deliberately not
+built here. The gate and selfcheck machinery already exist (#1432).
+
+One landing-order note, not a blocker: 3IU6AZEx (runner-mode batch 1)
+has `_perf` in its scope and deletes the self-call lines from
+`_perf/compare_test.tl`. It is in `check` with PR #1458 open. If it
+lands first this slice rebases and adds no self-call lines; if it does
+not, this slice adds them. The `Change` section says how to tell which,
+with the command.
 
 ## Bounce — 2026-08-27 14:2x UTC, returned to plan (session 0b13d2b4)
 
-Pulled, re-measured, and returned unbuilt: the Change defers its own
-shape to plan twice and the Acceptance is unwritten, so there is
-nothing here that can be implemented from the spec alone. The
-re-measurement below is recorded so the next refine starts from
-pull-time numbers.
+Pulled, re-measured, and returned unbuilt: the Change deferred its own
+shape to plan twice and the Acceptance was unwritten, so there was
+nothing that could be implemented from the spec alone. Retained as the
+trail; the refinement above answers all three gaps — (1) Acceptance is
+written, (2) part 1's printed shape and files are settled, (3) part 2
+is cut out to 3IVDEyar on this bounce's own finding that no A/A
+history store exists.
 
 **Re-measured at pull.** Binary `145057b9fe90…` (`sha256sum
 o/bin/cosmic`), cosmic main `267c2a4d`, built in this container.
@@ -146,23 +334,22 @@ Name, base, current, delta, noise, verdict — and no binary identity on
 either side, which is the Goal's fourth bullet unchanged. Part 1 of
 the Change is still real and still worth building.
 
-**Why it bounced, three gaps, none of them mine to settle mid-slice.**
+**Why it bounced, three gaps.**
 
-1. **`## Acceptance` is unwritten** — it reads "To be written at
+1. **`## Acceptance` was unwritten** — it read "To be written at
    refinement, with the derivation command and its measured output
    quoted." The acceptance commands are the definition of done; with
-   none, the slice has no closing condition and the reviewer has no
+   none, the slice had no closing condition and the reviewer no
    evidence to demand.
-2. **Change part 1 defers its own shape**: "the shape and the files to
-   touch are to be settled at plan", and plan did not settle them.
+2. **Change part 1 deferred its own shape**: "the shape and the files
+   to touch are to be settled at plan", and plan did not settle them.
    Today `_perf/compare.tl`'s `format_delta`/`format` print exactly the
    six fields above, and `meta.bin_sha` is read only by
    `identity_refusal`. Whether the identity lands as a report header,
    a per-row column, one side or both, short or full hex — and whether
    `format_delta`'s signature has to grow to carry it — is a design
-   decision the spec reserves to plan, not a detail an implementer
-   fills in.
-3. **Change part 2's data source does not exist.** It asks for a floor
+   decision the spec reserved to plan.
+3. **Change part 2's data source does not exist.** It asked for a floor
    derived "from the selfcheck files the gate already writes". The
    gate writes the two results files the CALLER names and persists no
    history: `_perf/gate.tl`'s `selfcheck` takes `A.json B.json`,
@@ -171,21 +358,7 @@ the Change is still real and still worth building.
    accumulated cross-window A/A history anywhere in the tree to derive
    a per-scenario floor from, so answering "does a history-derived
    floor improve on `spread_pct`" first requires DECIDING to build a
-   history store and where it lives. That is the shape question the
-   spec says plan must answer, and it is unanswered.
-
-**What the next refine has to settle**, in this order:
-
-- whether part 2 survives at all, given no A/A history store exists
-  and the spec's own Non-goals forbid the widening it was reaching
-  for; if it survives, name where the history lives, who writes it,
-  and what the derivation reads.
-- part 1's printed shape and the exact files, concretely enough that
-  the diff is obvious from the sidecar.
-- an Acceptance of runnable commands, carrying the two bounds the
-  current spec already fixes: a compare row printing a binary identity
-  for both sides, and no committed threshold for
-  `codec_base64_roundtrip_64k` ending larger than it starts.
+   history store and where it lives.
 
 No tree diff and no PR: the branch cut for this slice
 (`claude/3IUBNQZZ-noise-floors`, off `267c2a4d`) carries no commits.
