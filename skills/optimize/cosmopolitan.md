@@ -41,6 +41,12 @@ COSMO=~/cosmopolitan   # your checkout
    make -C $COSMO -j$(nproc) o//tool/lua/lua
    ```
 
+   default mode keeps `--strace`/`--ftrace` and fast incremental
+   rebuilds, and is the right instrument for most hypotheses. for a
+   LAYOUT-sensitive one (alignment, I-cache, fetch-block placement),
+   build `m=rel o/rel/tool/lua/lua` on both sides instead — see the
+   guardrails below.
+
 2. **wrap it in the cosmic payload and baseline it.** never judge a C
    change against the pinned release binary — pin vs local differs by
    toolchain and commit drift. A/B two local builds that differ only by
@@ -248,7 +254,16 @@ two-repo dance — but only AFTER the local loop already proved the win:
   `.tl` files between baseline and compare, you are no longer measuring
   your C change alone. Only the runtime under `o/3p/cosmos/lua` should
   differ between the two.
-- default build mode (`MODE=` empty) is what releases ship (-O2 with
-  ftrace hooks and SYSDEBUG, same as the pin), so relative comparisons
-  between two default-mode local builds are representative. don't
+- the released `lua` is `m=rel`, not default mode: release.yml links
+  the fat binary from `o/rel/...` and `o/aarch64-rel/...` objects, and
+  only `lua-debug` ships default mode. default mode adds
+  `-fpatchable-function-entry=18,16` (sixteen NOP bytes before every
+  function entry) and `-fno-inline-functions-called-once` for the
+  ftrace hooks (`build/config.mk`), so every function's address,
+  alignment and inlining differ from what ships. a relative comparison
+  between two default-mode builds still answers the ordinary "is this
+  binding cheaper" question, but a LAYOUT-sensitive hypothesis —
+  function alignment, I-cache, fetch-block placement — must A/B
+  `make -j$(nproc) m=rel o/rel/tool/lua/lua` on both sides: rel-vs-rel
+  is the instrument that matches the shipped binary. either way, don't
   baseline in one MODE and compare in another.
