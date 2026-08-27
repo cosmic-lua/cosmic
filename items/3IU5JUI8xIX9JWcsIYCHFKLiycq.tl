@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3IU62YqO7uyYrJt53x6fmaE6dlJ",
   ["id"] = "3IU5JUI8xIX9JWcsIYCHFKLiycq",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
-  ["phase"] = "backlog",
+  ["resolution"] = "not-planned",
   ["title"] = "all-runner batch 2: the build-machinery trees drop their test self-call lines",
 }
