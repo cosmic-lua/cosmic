@@ -13,21 +13,22 @@ local json = require("cosmic.json")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
-local function write_results(path: string, wall_ns: number, bin_sha?: string)
-  local payload = {
-    meta = {bin_sha = bin_sha},
-    results = {
-      {
-        name = "scenario",
-        wall_ns = wall_ns,
-        spread_pct = 2,
-        samples_ns = {},
-        iterations = 1,
-      },
-    },
-  }
+--- Fabricate a results file, one scenario per (name -> wall_ns) entry.
+local function write_multi(path: string, rows: {string: number}, bin_sha?: string)
+  local results: {{string: any}} = {}
+  for name, wall_ns in pairs(rows) do
+    results[#results + 1] = {
+      name = name, wall_ns = wall_ns, spread_pct = 2,
+      samples_ns = {}, iterations = 1,
+    }
+  end
+  local payload: {string: any} = {meta = {bin_sha = bin_sha}, results = results}
   local encoded = json.encode(payload)
   assert(fs.write(path, encoded))
+end
+
+local function write_results(path: string, wall_ns: number, bin_sha?: string)
+  write_multi(path, {scenario = wall_ns}, bin_sha)
 end
 
 local function paths(prefix: string): string, string, string
@@ -394,3 +395,106 @@ local function test_the_gate_triages_against_every_measured_control()
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
 test_the_gate_triages_against_every_measured_control()
+
+-- The strike-twice rule. Pass 1 flags only `a`; the retry reads `a`
+-- quiet but flags `b` for the first time, and the controls agree with
+-- the retry (cur's sha differs so it drops; the remaining pair is
+-- quiet — no triage credit). Before the rule, `b` failed the gate on
+-- that single appearance: run 33034667243 attempt 2, disjoint flag sets.
+local function test_strike_once_regression_reclassifies_and_passes()
+  local base, cur, selfb = paths("strike-once")
+  write_multi(base, {a = 1000, b = 1000}, "aaaa1111")
+  write_multi(cur, {a = 1300, b = 1000}, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        write_multi(out, {a = 1000, b = 1300}, "cccc3333")
+        return 0
+      end,
+    })
+  assert(code == 0,
+    "a regression flagging only in the retry did not reproduce, got " .. code)
+  assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
+end
+test_strike_once_regression_reclassifies_and_passes()
+
+-- ...and only the strike-once flag reclassifies: `a`, striking in both
+-- passes, still fails the same run that waves `b` through as noise.
+local function test_strike_twice_regression_still_fails()
+  local base, cur, selfb = paths("strike-twice")
+  write_multi(base, {a = 1000, b = 1000}, "aaaa1111")
+  write_multi(cur, {a = 1300, b = 1000}, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        write_multi(out, {a = 1300, b = 1300}, "cccc3333")
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "a regression striking in both passes must still fail, got " .. code)
+  assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
+end
+test_strike_twice_regression_still_fails()
+
+-- The other failure mode from that run: the baseline is measured once,
+-- so a one-off low reading there anchors every pass (attempt 1 flagged
+-- http_stream_read_1mb off a baseline reading the same binary disowned
+-- next attempt). With measure_baseline set, the retry re-measures BOTH
+-- sides and pass 2 reads the washed-out baseline.
+local function test_baseline_retry_rescues_a_one_off_baseline_reading()
+  local base, cur, selfb = paths("base-retry")
+  write_results(base, 1000, "aaaa1111") -- the one-off: reads 1300 on retry
+  write_results(cur, 1300, "bbbb2222")
+  local bcalls = 0
+  local bpath: string = nil
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        write_results(out, 1300, "bbbb2222") -- the current side holds steady
+        return 0
+      end,
+      measure_baseline = function(out: string): integer
+        bcalls = bcalls + 1
+        bpath = out
+        write_results(out, 1300, "aaaa1111")
+        return 0
+      end,
+    })
+  assert(code == 0,
+    "a baseline retry must wash out a one-off baseline reading, got " .. code)
+  assert(bcalls == 1, "expected exactly one baseline re-measure, got " .. bcalls)
+  assert(bpath ~= nil and bpath:match("%-base%-retry%.json$"),
+    "the baseline retry gets BASE's own -retry.json sibling, got " .. tostring(bpath))
+end
+test_baseline_retry_rescues_a_one_off_baseline_reading()
+
+-- A baseline retry that names a different binary than the baseline file
+-- re-measured the wrong thing; trusting it would compare the candidate
+-- against a stranger.
+local function test_baseline_retry_naming_a_different_binary_is_refused()
+  local base, cur, selfb = paths("base-retry-identity")
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1300, "bbbb2222")
+  local bcalls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        write_results(out, 1300, "bbbb2222")
+        return 0
+      end,
+      measure_baseline = function(out: string): integer
+        bcalls = bcalls + 1
+        write_results(out, 1300, "dddd4444") -- not the baseline's binary
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "a baseline retry naming a different binary must refuse, got " .. code)
+  assert(bcalls == 1, "must refuse right after the baseline retry, got " .. bcalls)
+end
+test_baseline_retry_naming_a_different_binary_is_refused()
