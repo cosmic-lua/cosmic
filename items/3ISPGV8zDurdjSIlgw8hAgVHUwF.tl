@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3ISKgfS6iOzNi1JT0crQacsvxFb 3ISVlHT6tRFIVNxydHy9qDtSqFR",
   ["id"] = "3ISPGV8zDurdjSIlgw8hAgVHUwF",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "backlog",
+  ["phase"] = "plan",
   ["title"] = "coverage: retire the pack-n cast once the pinned checker carries narrow-pack-n",
 }
