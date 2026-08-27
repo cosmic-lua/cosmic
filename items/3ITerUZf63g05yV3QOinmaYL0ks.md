@@ -426,3 +426,53 @@ needs a cosmos release carrying #281 and then a pin bump, which is
 `3ISVlHT6`'s. Nothing here reconciles the +16.13% measured on this host
 with the ~+3.6% steady-state `3ITbywUB` reports on its own; that
 disagreement is still open and is not this slice's.
+
+### Correction, added after handover: the base moved
+
+Recorded 2026-08-27 after `move 3ITerUZf check --pr 281`, on the PR's
+own CI wake. The arms above are all built at `354c17e08`, which is
+where `3ITOUv0w`'s bisect landed and what `## Change` (1) fixed — but
+whilp/cosmopolitan's master had already advanced to `886741e0` (five
+commits, #275-#279, none of them touching `net/http/`). Rebased onto it
+and re-measured, nine round-robin readings per arm, same script and
+same rule:
+
+| column | `886741e0` | `886741e0` + this diff | |
+|---|---|---|---|
+| `IsBase64` | 26.979 µs | 27.375 µs | +1.47%, ranges overlap |
+| `EncodeBase64` | 48.293 µs | 49.155 µs | +1.78% |
+| `DecodeBase64` | 67.416 µs | 67.101 µs | -0.47% |
+| round trip | 143.345 µs | 144.305 µs | +0.67%, ranges overlap |
+
+On unmodified `886741e0`, `IsBase64`'s entry sits at `0x43aa0d0`
+(`& 0x3F` = 16) and its loop at `0x43aa100`-`0x43aa117` (`& 0x3F` = 0),
+inside one fetch block already: the five commits added compiled code
+and the shift happened to land the loop favourably. So the regression
+this slice fixed is, at the merge base, **already gone by luck**, and
+the diff is a no-op within noise there — 26.979 µs unaided against
+27.137 µs on the pre-regression `8dd093cea`.
+
+Nothing in `## Result` above is withdrawn. The mechanism is what it
+says: one 24-byte loop straddling a 64-byte fetch block, identical
+instruction bytes on both sides, `forcealign(64)` on the entry forcing
+exactly the slow offset-48 placement, and neither `-falign-loops=64`
+nor `-falign-functions=64` moving the loop at all. What changes is what
+PR #281 is FOR — a durability change that removes a demonstrated 93%
+lottery from a hot path, rather than a fix for a live regression. The
+argument against it is real and was put to the PR's author rather than
+decided here: it is still a lottery ticket, and the same shift that
+helped `IsBase64` made `DecodeBase64` about 14% slower on master
+(59.2 → 67.4 µs versus `8dd093cea`), which this diff does not touch, so
+pinning one loop and not the other is arbitrary. `o//tool/lua/test`
+passes on the rebased head, and the head is now `d8185fc9`.
+
+One consequence for the release lane, and for `3ITbywUB`'s human
+decision. On this host `886741e0` reads +4.8% on the round trip against
+the pre-regression build (143.345 vs 136.680 µs), not the +21% the
+compare step recorded for `354c17e08`. That is under the gate's bar
+here, so a release built from current master may pass the perf compare
+with nothing merged at all — which would make both of `3ITbywUB`'s
+options unnecessary. Single host, single-arch `m=rel`, and the released
+binary is a fat two-arch apelink whose layout differs again, so this is
+a reason to let the lane run and read the result, not a prediction that
+it goes green.
