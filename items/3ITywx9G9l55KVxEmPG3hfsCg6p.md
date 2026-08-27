@@ -1,31 +1,53 @@
-## Evidence
+## Goal
 
-`cosmic/teal_narrowing_test.tl` is at 485 of the 500-line hard cap
-(`_tool/lint.tl`), measured on PR #1439's head `d743c9bb`
-(`wc -l cosmic/teal_narrowing_test.tl` → 485). It was 438 before that
-PR; 3ISSFrCO's two tests took 47 of the 62 lines of headroom, leaving
-15.
+`cosmic/teal_narrowing_test.tl` stops being 15 lines from the 500
+cap with the narrow-* patch queue still behind it: the next
+narrowing item adds its tests as a spec decision, not a
+mid-implementation lint failure.
 
-That file is where every carried `narrow-*` tl-patch entry pins its
-behaviour, and the patch group still has queued items behind it —
-3IPXRRd2 (strict nil-flow mode as a sixth patch group) among them.
-The shortest existing test in the file is 18 lines
-(`test_mixed_pack_keeps_n_integer`, lines 421-438) and the two just
-added are 23 and 24. So the next narrowing item cannot add its test
-and will discover that as a lint failure mid-implementation rather
-than as a spec decision — the same shape 3IHFPLpb records for
-`_fuzz/driver_test.tl`, on a different file and with a live queue
-behind it.
+## Change
 
-Not settled here: where the split seam is. The file's tests group
-readably by what they pin — the assert/decl rules, the exit-branch
-rules (`break`/`goto`/`error`/`os.exit`), the or/and value-position
-rules, and now the metatable is-dispatch — and any one of those is a
-plausible `teal_narrowing_*_test.tl` sibling. Picking the seam, and
-whether the split happens before or as part of the next narrowing
-item, is the work.
+Split at the nil-flow seam, into the sibling shape
+`teal_closure_test.tl` already established:
 
-Note this is NOT the ready-bar arithmetic failure 3IHFPLpb's second
-half describes: 3ISSFrCO's spec did state the headroom (62) and that
-its own two tests had to fit inside it, and they did. The file is
-simply full.
+New `cosmic/teal_nilflow_test.tl` takes the tests that pin how nil
+FLOWS (value position and admission), measured at main after #1439:
+- test_or_fallback_drops_nil (267-296)
+- test_disjunctive_guard_narrows (301-328)
+- test_and_operand_narrows_in_value_position (333-359)
+- test_nil_union_is_admitted_outside_an_index (369-397)
+- test_nil_union_is_refused_at_an_index (402-415)
+about 150 lines plus its own header — the header states the file's
+scope (nil in value position, and what the checker admits versus
+refuses at an index) and points back to teal_narrowing_test.tl for
+the guard rules. Tests move byte-identical, calls staying on the
+line after each end.
+
+`teal_narrowing_test.tl` keeps the guard and dispatch rules
+(truthiness/typevar/boolean/any basics, the is-guard family,
+error-terminated and non-return exits, pack-n, metatable
+is-dispatch), landing near 335 lines.
+
+The seam is chosen FOR the queue: 3IPXRRd2 (strict nil-flow mode,
+the sixth patch group) is the next narrowing item behind the cap,
+and its tests are nil-flow tests — the new file is their home, with
+~350 lines of headroom, while guard-rule growth keeps ~165 in the
+original.
+
+## Non-goals
+
+No test bodies change (byte-identical moves; a diff shows only
+relocation). No patch entries move. No new narrowing behavior. The
+generic file-near-cap class (3IHFPLpb) stays its own item.
+
+## Acceptance
+
+`--make ci` ends `ci: PASS`. `wc -l` on both files prints under 400
+each. Every moved test still runs (the two files' test counts sum to
+the original's 16). `git diff` shows deletions in one file and
+additions in the other with no body edits.
+
+## Enablement
+
+None: sibling test files are convention (position is the manifest),
+and teal_closure_test.tl is the standing precedent.
