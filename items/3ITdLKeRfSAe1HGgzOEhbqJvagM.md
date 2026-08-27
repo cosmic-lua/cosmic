@@ -394,3 +394,108 @@ arm C or a released binary (`Non-goals`), tuning `N`, `SAMPLES` or the
 estimator when a column comes out noisy (`Change` (2) and (4) fix
 them), and choosing a fix once a mechanism is named (`Change` (5)'s
 closing sentence).
+
+## Result
+
+Measured 2026-08-27 on one host (`uname -m` → `x86_64`,
+`Intel(R) Xeon(R) Processor @ 2.80GHz`, `nproc` → `4`), following
+`## Change` (1)-(6) with no departure. The two arms are the ones
+`3ITbccMu` built; their digests reproduce.
+
+- runtime A a108f199fc2e37f315e988776c948ffd4e597a689075786abc8ed4a9b6e01296
+- runtime B 44fd5c18efbf8e9d4eac5ea9fa23b88cea196ef64995317dc87cfeb62e9115bf
+
+All eighteen readings are `/tmp/lua-<X> /tmp/b64split.lua <X>`, one
+process each, cycling A → B. Columns are µs/op, each the minimum of
+seven 500-iteration samples.
+
+| run | arm | encode | is | decode | roundtrip |
+|---|---|---|---|---|---|
+| 01 | A | 46.255 | 27.169 | 59.448 | 140.856 |
+| 02 | B | 44.266 | 52.265 | 58.221 | 158.725 |
+| 03 | A | 46.473 | 26.997 | 58.709 | 134.991 |
+| 04 | B | 46.321 | 52.077 | 58.982 | 157.626 |
+| 05 | A | 46.126 | 27.075 | 59.249 | 136.680 |
+| 06 | B | 45.904 | 52.891 | 59.199 | 157.246 |
+| 07 | A | 45.973 | 27.126 | 58.257 | 134.777 |
+| 08 | B | 45.749 | 52.631 | 59.210 | 173.238 |
+| 09 | A | 45.723 | 27.140 | 60.815 | 139.133 |
+| 10 | B | 46.831 | 52.238 | 58.496 | 158.695 |
+| 11 | A | 46.028 | 27.405 | 59.518 | 140.644 |
+| 12 | B | 46.811 | 52.741 | 59.461 | 159.431 |
+| 13 | A | 46.060 | 27.251 | 59.862 | 134.697 |
+| 14 | B | 47.159 | 52.269 | 59.006 | 159.581 |
+| 15 | A | 45.817 | 27.051 | 58.706 | 134.540 |
+| 16 | B | 46.155 | 52.688 | 58.990 | 156.404 |
+| 17 | A | 46.163 | 27.137 | 58.829 | 138.317 |
+| 18 | B | 46.828 | 52.445 | 58.243 | 160.195 |
+
+- stats A encode min 45.723 lo 45.817 med 46.060 hi 46.255
+- stats A is min 26.997 lo 27.051 med 27.137 hi 27.251
+- stats A decode min 58.257 lo 58.706 med 59.249 hi 59.862
+- stats A roundtrip min 134.540 lo 134.697 med 136.680 hi 140.644
+- stats B encode min 44.266 lo 45.749 med 46.321 hi 46.831
+- stats B is min 52.077 lo 52.238 med 52.445 hi 52.741
+- stats B decode min 58.221 lo 58.243 med 58.990 hi 59.210
+- stats B roundtrip min 156.404 lo 157.246 med 158.725 hi 160.195
+
+encode: NOT MOVED — med 46.060 → 46.321 µs (+0.57%), trimmed ranges overlap (hi A 46.255 vs lo B 45.749), floor 3.7%
+
+is: MOVED — med 27.137 → 52.445 µs (+93.26%), trimmed ranges disjoint (hi A 27.251 < lo B 52.238), floor 3.7%
+
+decode: NOT MOVED — med 59.249 → 58.990 µs (-0.44%), trimmed ranges overlap (hi A 59.862 vs lo B 58.243), floor 3.7%
+
+roundtrip: MOVED — med 136.680 → 158.725 µs (+16.13%), trimmed ranges disjoint (hi A 140.644 < lo B 157.246), floor 3.7%
+
+- disasm A IsBase64 start 0x43a6a60 len 167 start%64 32 loop%64 16
+- disasm B IsBase64 start 0x43a9d40 len 167 start%64 0 loop%64 48
+
+The loop those last two lines measure is the alphabet scan: the
+`add $0x1,%rbx` at `+0x30`, through the `jne` back to it at `+0x46`,
+24 bytes. In arm A it runs `0x43a6a90`-`0x43a6aa7`, entirely inside the
+64-byte fetch block `0x43a6a80`-`0x43a6abf`. In arm B it runs
+`0x43a9d70`-`0x43a9d87` and straddles the boundary at `0x43a9d80`.
+`objdump -d` gives the two functions IDENTICAL instruction bytes —
+same 167-byte body, same instructions in the same order — differing
+only in the two absolute operands (the `kBase64Alpha` displacement,
+`0x444dda0` versus `0x44510c0`, and the `strlen` call target) and in
+where the function sits.
+
+mechanism: scan-loop-layout
+
+follow-up: 3ITerUZf63g05yV3QOinmaYL0ks
+
+What this supports. The regression is one function: `IsBase64` nearly
+doubles, and the 25.31 µs it gains is the whole 22.05 µs the roundtrip
+loses — the parts account for the whole on both arms, with `sum`
+tracking the measured `roundtrip` within 3.2% on A (132.4 versus
+136.7) and 0.8% on B (157.6 versus 158.7), the residual being the extra
+Lua call frames the roundtrip closure carries. `IsBase64` allocates
+nothing, so the heap and the allocator are excluded, and the identical
+instruction bytes exclude codegen: what is left is where the code sits.
+The specific placement is legible rather than inferred — a 24-byte hot
+loop inside one fetch block in the fast arm and across two in the slow
+one, which is the effect `skills/optimize/measurement.md` already
+recorded on `codec_hex` as `local rel (straddled)` versus
+`local rel (padded)`. And the slow arm is the one whose function ENTRY
+is already 64-byte aligned, which is the direct refutation of
+whilp/cosmopolitan PR #280: `forcealign(64)` on the entry forces the
+loop head to `+0x30` = offset 48, from where 24 bytes cannot fit in one
+block, so that draft makes arm A look like arm B rather than the
+reverse. That is consistent with the interleave `3ITbywUB` records for
+it — "recovers nothing on the measuring host" — and now has a mechanism
+rather than a shrug.
+
+What this does NOT support. One host, one microarchitecture, one
+single-arch `m=rel` build: the released binary is a fat two-arch
+apelink and nothing here says its `IsBase64` sits at these offsets.
+This is a mechanism, not a fix — no alignment intervention was built or
+measured, and whether pinning the loop recovers the timing is the
+follow-up's question, as is what to do about PR #280. Nothing here
+speaks to the OTHER numbers on `3ITbywUB`, which reports the effect at
+about +3.6% steady-state on its measuring host against the +16.13%
+measured here; the two disagree, both cannot be describing the same
+quantity, and reconciling them is not this slice's to do. The three
+`assert`s in the script passed on every reading, so both arms compute
+correct base64 throughout — this is a throughput difference and nothing
+else.
