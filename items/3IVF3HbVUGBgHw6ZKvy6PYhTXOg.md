@@ -131,3 +131,107 @@ the question this item now turns on, and it is NOT yet established.
 Route 3a leaves 3IUBNQZZ needing a two-PR-plus-a-release dance;
 route 3b unblocks it in one PR. They are not the same item, so this
 one stops at the evidence and the choice.
+
+## Result — the resolution picture, measured 2026-08-27
+
+Established against `o/bootstrap/cosmic` (the previous release,
+content-wise) from a worktree whose `_perf/compare.tl` widens
+`compare.format` from 1 parameter to 3 — a probe that tells the tree's
+copy from an embedded one at a glance.
+
+**Precedence has three seats, all in `cosmic/searcher.tl`.** The `/zip`
+searcher inserts at `package.searchers` index 2; the TREE searcher
+(`install_manifest`) inserts at 2 as well and thereby demotes `/zip` to
+seat 3 — but only when the build engine hands it a manifest on argv
+(`--modules MANIFEST`). The channel is deliberately argv and never an
+environment variable, because an inherited path would answer a nested
+project's imports out of the wrong tree; `docs/design/make/resolution.md`
+records the removal of the old `TREE_LUA_PATH` escape hatch for that
+reason. So the tree wins under `--make run` and loses everywhere else,
+and `--include-dir` is not a lever: it feeds the type-check search path
+only, never `package.searchers`.
+
+| context | which `_perf` wins | proof |
+|---|---|---|
+| bare under the previous release (`release.yml:173`) | **binary embed** | `_perf.compare source=@/zip/_perf/compare.lua nparams=1` while the tree's is 3 |
+| bare under the tree's own binary | binary embed — equal to the tree by construction, since that binary was just built from it | `nparams=3` |
+| `--make run` (the documented local command) | **tree**, via the manifest | an OLD binary running `--make run _perf/gate.tl compare` prints the 3-param header; the same gate.tl bare under the same binary dies `wrong number of arguments (given 3, expects at most 1)` |
+| `--make test _perf/skew_test.tl` | tree — which then SPAWNS a bare `--check types`, i.e. the first row's resolution | fails on the modified tree naming `_perf/gate.tl:128` and `_perf/run.tl:358` |
+
+**The guard's docstring is false, and so is the correction above it.**
+"`_perf.*` resolves from the tree at cwd" holds in NO context. The
+guard nevertheless catches real failures, for a narrower reason than
+it states: the entry script is tree-compiled because it is passed BY
+PATH, and a module ABSENT from the binary's embed is tree-compiled
+because nothing else answers the require. Both incidents the docstring
+cites fit that narrower rule — `run.tl`'s `version_info` read was in
+the path-given entry, and `literal_bench` was a new file.
+
+**The larger finding: `release.yml:173` measures a MIX, and one class
+of tree change is silently unmeasured on the baseline side.**
+`_perf/run.tl` discovers benches by a filesystem scan of the tree
+(`fs.find(BENCH_DIR, {glob = "*_bench.tl"})`) and then loads each by
+`require`. So the NAMES come from the tree and the BYTES come from
+whatever answers the require. Measured on a fake root carrying one
+bench absent from every embed and one copy of an embedded bench with a
+scenario renamed:
+
+```
+_perf.bench.probe_bench   from=@./_perf/bench/probe_bench.tl  scenarios=[probe_added_scenario]
+_perf.bench.time_bench    from=@/zip/_perf/bench/time_bench.lua  scenarios=[time_format_date,time_format_iso8601]
+```
+
+- an **added** bench module is seen and runs the tree's copy — compiled
+  by the OLD binary's Teal against the OLD embedded `cosmic.*`
+  declarations, which is exactly the skew class the guard exists for.
+  On the baseline side it reads as `new` in the compare, not as a
+  baseline datum.
+- a **changed** bench module runs the RELEASE's copy. The tree edit is
+  invisible: `TREE_COPY_MARKER` never appears. **The guard cannot see
+  this class at all**, because nothing fails to type-check — the old
+  code simply runs instead of the new.
+
+**Two corrections to this item's earlier framing**, both mine:
+
+- The claim "the guard is faithful, so the guard is not the defect" is
+  too generous. It is faithful to the baseline side's resolution for
+  the two classes it can see, and blind to a third.
+- A tree-vs-embed conclusion drawn in a worktree whose `o/bin/cosmic`
+  is byte-identical to the pin proves nothing, because the two agree
+  by construction. Every discriminating measurement here was run
+  against a tree that actually differs from its binary.
+
+Also worth knowing when reproducing: `o/bootstrap/cosmic`'s sha does
+NOT match `bin/cosmic.pin`'s and that is not corruption — `bin/cosmic`
+verifies the download against the pin and then `--assimilate`s it into
+a native ELF, mutating the bytes. The pin sha is recorded beside it in
+`o/bootstrap/cosmic.pin`.
+
+**Not established**: whether a real release run has ever silently
+diverged this way. The mechanism is proven; its historical incidence
+needs release-run logs nobody has fetched.
+
+## What is left to decide, narrowed
+
+The evidence closes questions 1 and 2 of the list above. What remains
+is the choice, and it is now a choice between three, not two:
+
+1. **Document the cost.** The resolution stands; the guard's docstring
+   and failure message are rewritten to say what actually happens, and
+   the two-PR-plus-a-release dance for a `_perf` signature change is
+   written down where a session planning one will read it. Cheapest,
+   and leaves 3IUBNQZZ needing the dance.
+2. **Give the baseline run the tree's `_perf`.** Hand `release.yml:173`
+   a manifest so the tree searcher wins there too. This makes the
+   baseline measure the tree's scenarios — which is what a compare
+   wants — and unblocks 3IUBNQZZ in one PR. It also changes what the
+   baseline number MEANS, so it needs its own argument: measuring an
+   old binary with new harness code is a different experiment from
+   what the lane runs today, and which one the gate should want is not
+   obvious.
+3. **Split the two.** Keep the baseline resolution as it is and fix
+   only the guard's honesty, while filing the changed-bench blind spot
+   as its own defect.
+
+The changed-bench blind spot is real under 1 and 3 and should be its
+own item either way.
