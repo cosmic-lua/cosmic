@@ -7,7 +7,8 @@ IS, so `mt is Meta` narrows wherever the byte-identical
 `mt is {string: any}` already does, while a record or interface nominal
 keeps failing.
 
-Measured 2026-08-27 against main `ae5d1581` with `cosmic.teal.check_file`,
+Measured 2026-08-27 against main `ae5d1581` and re-measured at pull
+against main `73a16882` (#1468 merged) with `cosmic.teal.check_file`,
 byte-identically under `o/bin/cosmic` (tree checker) and
 `o/bootstrap/cosmic` (pinned release) — today's asymmetry:
 
@@ -21,13 +22,13 @@ byte-identically under `o/bin/cosmic` (tree checker) and
 
 The refused cases all report `cannot resolve a type for mt here` (x2)
 plus `mt (of type metatable<<any type>>) can never be a <Name>`. The
-cause is at `o/3p/tl/tl.lua:14136`,
+cause is at `o/3p/tl/tl.lua:14140`,
 `node.known = IsFact({ var = node.e1.tk, typ = ub, w = node })` — the
 is-fact carries `ub`, the UNRESOLVED target — so a named type reaches
-`is_table_metatable` (`3p/tl/tl_patch/narrow.tl:241`, derived at
-`o/3p/tl/tl.lua:11530`) with `typename == "nominal"` and never matches
-`table_kinded` (`3p/tl/tl_patch/narrow.tl:239`, derived at
-`o/3p/tl/tl.lua:11528`).
+`is_table_metatable` (`3p/tl/tl_patch/narrow.tl:245`, derived at
+`o/3p/tl/tl.lua:11534`) with `typename == "nominal"` and never matches
+`table_kinded` (`3p/tl/tl_patch/narrow.tl:243`, derived at
+`o/3p/tl/tl.lua:11532`).
 
 This is a NEW decision, not a bug fix, and the record is part of the
 slice (see `Change` step 3).
@@ -61,7 +62,7 @@ Inside that entry's `replace` string:
 ```
 
   This is the shape this same file's `without_nil` already uses
-  (`3p/tl/tl_patch/narrow.tl:287-290` on main `ae5d1581`;
+  (`3p/tl/tl_patch/narrow.tl:290-294` on main `73a16882`;
   `grep -c 'resolve_nominal' 3p/tl/tl_patch/narrow.tl` → `3`), so
   `self:resolve_nominal` is established practice inside carried patch
   code and needs no new plumbing. Nothing else in the helper moves.
@@ -163,7 +164,7 @@ test_metatable_is_array_alias_narrows()
 **3. `docs/decisions/d32-<slug>.md` — write the record**, then run
 `bin/cosmic _docs/derive.tl` to rewrite the derived index table in
 `docs/decisions/README.md` (never hand-edit those rows). `32` is the
-next free number: `ls docs/decisions/` on main `ae5d1581` tops out at
+next free number: `ls docs/decisions/` on main `73a16882` tops out at
 `d31-gate-noise-from-every-control-pair.md`, and no local branch claims
 a `d32` file (checked with `git ls-tree -r --name-only <branch>
 docs/decisions/` over every branch `git branch --format='%(refname:short)'`
@@ -324,16 +325,18 @@ for TL in o/3p/tl/tl.lua $TMP/tl_noresolve.lua; do TLP=$TL o/bin/cosmic -e 'pack
 
 ## Enablement
 
-**Blocked on 3IVL4phw (PR #1468)** — mirrored in `blocked_by`. Not a
-preference: measured 2026-08-27 against a scratch checker built three
-ways from main `ae5d1581`'s derived `o/3p/tl/tl.lua`, driven through
-`cosmic.teal.check_file` with the `package.loaded["tl"]` preload:
+**Blocked on 3IVL4phw (PR #1468)** — cleared; #1468 merged as
+`73a16882`. Not a preference: measured 2026-08-27 against a scratch
+checker built four ways from the derived `o/3p/tl/tl.lua`, driven
+through `cosmic.teal.check_file` with the `package.loaded["tl"]`
+preload, and re-measured at pull against main `73a16882` with the same
+four verdicts:
 
 | checker | inline map | alias of map | alias of array | record nominal |
 |---|---|---|---|---|
-| main today | ok=true | ok=false | ok=false | ok=false |
+| pre-#1468 main (untrimmed, no resolve) | ok=true | ok=false | ok=false | ok=false |
 | main + resolve, UNTRIMMED set | ok=true | ok=true | ok=true | **ok=true** |
-| #1468's entry, no resolve | ok=true | ok=false | ok=false | ok=false |
+| #1468's entry, no resolve (main today) | ok=true | ok=false | ok=false | ok=false |
 | #1468's entry + resolve | ok=true | ok=true | ok=true | ok=false |
 
 Applied before #1468, this slice admits records — reversing what
