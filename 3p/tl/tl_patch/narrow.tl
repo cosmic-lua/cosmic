@@ -221,7 +221,7 @@ return {
   },
   ["narrow-metatable-helper"] = {
     file = "tl.lua",
-    note = "recognize the std metatable<T> nominal against an inline table-kinded is-target",
+    note = "recognize the std metatable<T> nominal against a map- or array-shaped is-target, inline or named",
     find = [=====[      local function invalid_from(f)
          return IsFact({ fact = "is", var = f.var, typ = a_type(f.w, "invalid", {}), w = f.w })
       end]=====],
@@ -229,20 +229,26 @@ return {
          return IsFact({ fact = "is", var = f.var, typ = a_type(f.w, "invalid", {}), w = f.w })
       end
 
-      -- cosmic carried patch: `is` against an inline table-kinded target
+      -- cosmic carried patch: `is` against a table-kinded target
       -- used to refuse a metatable<T>-typed value outright, though a
       -- runtime `type(x) == "table"` test is exactly what a
       -- getmetatable() result supports. Recognized by IDENTITY against
       -- the std metatable nominal (cache_std_metatable_type), never by
       -- name. The is-fact carries the UNRESOLVED target type (ub), so a
-      -- named type -- a record, an interface, or a `type X = {string:
-      -- any}` alias -- arrives with typename == "nominal" and never
-      -- reaches this set; only an inline `{K: V}` map or `{T}` array
-      -- literal does. The two call sites below share this closure, so
-      -- `self` is passed explicitly.
+      -- named type arrives with typename == "nominal": resolve it first
+      -- and judge the STRUCTURAL kind, so an inline `{K: V}` map or
+      -- `{T}` array and a `type X = {K: V}` alias of one are the same
+      -- case. A record or an interface nominal resolves to record or
+      -- interface, neither of which is in this set, so it keeps
+      -- failing: a metatable carries metamethod keys, not a record's
+      -- declared fields. The two call sites below share this closure,
+      -- so `self` is passed explicitly.
       local table_kinded = { map = true, array = true }
 
       local function is_table_metatable(self, typ, target)
+         if target.typename == "nominal" then
+            target = self:resolve_nominal(target)
+         end
          return table_kinded[target.typename] == true and
          self.cache_std_metatable_type ~= nil and
          typ.typename == "nominal" and typ.found ~= nil and
