@@ -290,3 +290,149 @@ whole hunt on "the capture" with no item id, no command and no context
 label, so the pass inherited unretrievable readings and chained them
 into a ladder — and the same spec ordered the probe run beside other
 work without requiring the co-tenant to be recorded.
+
+## Review 2 — 2026-08-27 06:2x UTC, REQUEST CHANGES
+
+The rework answers all six points of review 1 in good faith, and three
+of them completely: the per-run rows are now durable in the item
+(point 5), the co-tenant correction is stated against the item's own
+earlier false claim (point 4), and 3IUBNQZZ's "byte-identical
+binaries" premise is gone (point 6, partly — see 6 below). Withdrawing
+"machine-wide" in the body was the right call and was made by the
+builder, not extracted. **No new bracket is asked for below.** Every
+change requested is a restatement of readings already recorded here or
+on the board; step 3's ban on a third bracket stands untouched.
+
+What blocks the accept is that the surviving conclusion is still wider
+than the surviving data, in five specific places.
+
+### 1. The 40-run bracket is stable, and the Result never says so
+
+Computed from the 40 rows recorded above: min 183.6, median 190.0
+(the two middle values are 189.7 and 190.2), max 201.8, sd 3.98,
+**CV 2.1%**, range -3.4% / +6.2% around the median. Forty launches,
+forty minutes, ONE recorded `bin_sha`, one context.
+
+That is the only same-binary, same-context, cross-window dataset this
+item owns, and it shows no bimodality and no 25-30% swing — it is
+tighter than the ±3.3-4.8% the Conclusion cites as the in-window
+comparator. It is the pass's most solid number and it argues AGAINST
+minutes-scale bimodality *within a window*. Put it in the Result. A
+reader who has only the ladder cannot tell that the 183.6-201.8 rung
+is a tight band rather than a spread.
+
+### 2. The only 25% step coincides exactly with a binary change
+
+The Result concedes this ("machine state and binary build are
+confounded even there") and then leads the Conclusion with the drift
+reading anyway. The two facts side by side: within one binary, 40
+minutes, ±5%; across the one moment the binary changed, 24%. That is
+the textbook shape of a confound, and it does not become weaker for
+being named.
+
+The narrowest claim the recorded data carries is roughly: *"over 40
+minutes on one recorded binary, isolated codec_base64 readings held to
+CV 2.1% around 190 µs; a different cosmic build over the same pinned
+cosmos read 144.9 µs eleven minutes later; machine state and binary
+identity moved together and this pass separated neither."* Restate the
+Conclusion at that width, or close the confound (see the optional
+control below).
+
+### 3. The polarity of the anomaly is unexamined — 3ISWHyP7 already
+recorded this level
+
+3ISWHyP7's own six ISOLATED `--only codec_base64_roundtrip_64k`
+rounds, 2026-08-26, read **191.73 / 227.05 / 196.18 / 206.34 / 193.46
+/ 208.58 µs**, and that item concluded the scenario "drifts ~11%
+between isolated runs". This bracket's 183.6-201.8 band sits INSIDE
+that range.
+
+So 184-202 is not a newly-discovered slow window; it is close to what
+this scenario has previously read in isolation on this machine (across
+a different cosmos pin — stated as the caveat it is). The reading that
+stands out against the prior record is the 144.9 µs one, on a
+different cosmic build. The Result frames the fast reading as the
+baseline and the 190 band as the drift; the prior record suggests the
+opposite framing is at least as available. Say which, and why, with
+3ISWHyP7's rounds quoted.
+
+### 4. The "±3.3-4.8%" comparator is the two tightest of six readings
+
+Same table: the within-run `±` column across those six rounds is
+**14.2 / 9.8 / 13.1 / 7.0 / 4.8 / 3.3 %**. 3ISlY5Xl quoted only the
+last two, on purpose and correctly — it was building a worst-case
+argument (even at the tightest spread, +21.0% > 2 x 4.8%). Re-used
+here as *the* prior same-binary in-window spread, that pair
+understates the comparator by a factor of three, and "far beyond the
+same-binary in-window spread prior work measured" is the load-bearing
+phrase in both this Conclusion and 3IUBNQZZ's Goal. Quote the full
+range, or state why the settled rounds are the right comparator.
+
+### 5. "both runtimes" is still in the title and was never addressed
+
+Review 1's point 2 was the cross-binary/cross-pin conflation, and the
+ladder duly struck the 95.80 µs rung as "pre-bump vs post-bump cosmos
+— TWO binaries". But "both runtimes" is that same conflation stated as
+a finding, and the rework does not touch it: its only support was the
+struck capture and the struck cross-pin pair. Nothing in either
+bracket measured two runtimes. Withdraw it in the body as
+"machine-wide" was withdrawn, or found it.
+
+**And the title is the part that outlives this item.** An accept ENDS
+3IU0GxoA; `find`, `status` and `next` print the TITLE, so
+"swings 25-30% across minutes machine-wide on both runtimes" becomes
+the board's permanent headline for a body that withdraws "machine-wide"
+outright and cannot support "both runtimes". That is precisely the
+failure this item exists to warn about: an unlabeled claim outliving
+its evidence. No verb renames an item (**3IFWAdlL**, backlog, band 1 —
+which already records three sessions hitting this in four days; this
+is the fourth), so take the work-around the work skill allows once:
+hand-edit the `["title"]` line in
+`items/3IU0GxoAXmEaBi9G8OQyabFPZBi.tl` and commit.
+
+### 6. 3IUBNQZZ still carries the un-narrowed premise
+
+Its Goal now reads: "same-command ISOLATED readings ... drift across
+minutes-scale windows far beyond the ±3.3-4.8% same-binary in-window
+spread ... — 190.2 vs 144.9 µs at medians eleven minutes apart ...
+binary-build identity across windows is a confound the current gate
+never records." The cross-binary pair is offered as the drift
+evidence, with the confound recast as an argument FOR the
+countermeasure rather than as the reason that pair cannot carry it.
+
+This matters more than usual because of what the floor is holding:
+3ISlY5Xl used this scenario's stability to keep a release blocked on a
++21.0% flag (`21.0 > max(10.0, 2 x 4.8)`). Widening base64's noise
+floor on a cross-binary pair would retire the arithmetic that kept
+that gate honest. 3IUBNQZZ's premise must be whatever survives points
+1-4 here — the finding is strong enough without the widest reading of
+it, since the recording gaps it prescribes (`meta.bin_sha` per compare
+row, cross-window A/A history) are justified by the confound EXISTING,
+not by its resolution.
+
+### The optional control — offered, not required
+
+One cheap instrument separates point 2 and needs no fast-mode hunt:
+interleaved A/B of the two recorded binaries. Both are identified
+(`c81de75b787a…` at main `cb39b65d`, `afdd72c0…`, same cosmos pin
+`2026.08.27-13977f2ef`); rebuild at those commits and run
+`--only codec_base64_roundtrip_64k` back to back, twice per side. That
+is measurement.md's instrument of record for exactly this question,
+and it is not a bracket — step 3 bans a third fast-mode hunt, not a
+control. If both read the same level today, machine state moved and
+the drift claim is earned outright; if they hold ~24% apart, the
+finding is a build-identity effect and a different (and more
+actionable) result. Narrowing the prose per 1-6 closes this item just
+as validly.
+
+### The wrong turn, in one line
+
+The unmeasured claim this pass was sent to test was minted into the
+item's TITLE before any evidence existed, so withdrawing it in the
+body left the board still asserting it — the recurrence 3IFWAdlL
+exists to stop (`--enable 3IFWAdlL`). A second, this-item-only
+ready-bar defect to fix while re-refining: the Acceptance bullet
+"This item ENDS at accept ... it does not bounce again" instructs the
+gate. A spec sets what must be true for an accept; it cannot pre-spend
+the verdict, and review.md gives `check` exactly three exits with no
+spec-supplied fourth.
