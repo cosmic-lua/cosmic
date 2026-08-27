@@ -133,51 +133,47 @@ local function held_names(b: flow.Board, session: string,
   return table.concat(out, ", ")
 end
 
---- Whether `session` has built this item: it holds the claim now, or
---- it held the claim at some point.
----
---- The claim alone is not the answer. It is a LEASE — a return clears
---- it and the next pull writes a new one — so an item built by A,
---- returned, and re-pulled by B reads as B's while A's diff is what
---- sits in `check`. `builders` is the durable half, and consulting
---- both is what makes "no session accepts its own work" hold across a
---- handover rather than only while nobody collides.
---- @param i Item The item in check
---- @param session string This session's name, never ""
---- @return boolean True when this session built it
-local function built_by(i: Item, session: string): boolean
-  if (i.claim or "") == session then
-    return true
-  end
-  for _, name in ipairs(i.builders or {}) do
-    if name == session then
-      return true
-    end
-  end
-  return false
-end
-
---- The first item awaiting a verdict that this session did not build,
---- and how many it stepped over as its own. Near-inverse of `unheld`:
---- there, another session holding the LEASE is what disqualifies an
---- item; here, this session having ever held it is.
+--- The first item awaiting a verdict that this session did not build
+--- and nobody else is reviewing, with what it stepped over on the
+--- way: its own builds, and items under another session's LIVE
+--- review claim. The claim skip is what fans concurrent reviewers
+--- out — without it every non-builder was handed the same top item
+--- and the collision surfaced at the verdict, after the work. A
+--- stale review claim (`_work.health`'s review lease) is anyone's,
+--- like every other expired lease; a session that names nothing is
+--- skipped past nothing, and sees the claims rendered instead.
 --- @param b flow.Board The board
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
---- @return Item | nil The item to review
---- @return integer How many of this session's own were skipped
+--- What the check queue offered and what it stepped over, as one
+--- record: the fallible-returns rule allows a nil-admitting slot one
+--- exactly one companion, and this walk has two counts to report.
+local record ReviewPick
+  --- The item to review; absent when nothing here is this session's
+  --- to judge.
+  item: Item
+  --- Items this session built.
+  mine: integer
+  --- Items under another session's live review claim.
+  reviewing: integer
+end
+
+--- @param ages health.Ages Seconds since last board commit, by id
+--- @return ReviewPick The pick and what was stepped over
 local function reviewable(b: flow.Board, session: string,
-    pos: {string: prio.Position}): Item | nil, integer
-  local first: Item = nil
-  local mine = 0
+    pos: {string: prio.Position}, ages: health.Ages): ReviewPick
+  local pick: ReviewPick = {mine = 0, reviewing = 0}
   for _, i in ipairs(flow.queued(b, "check", pos)) do
-    if session ~= "" and built_by(i, session) then
-      mine = mine + 1
-    elseif first == nil then
-      first = i
+    if session ~= "" and flow.built_by(i, session) then
+      pick.mine = pick.mine + 1
+    elseif (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
+    and not health.is_review_stale(i, ages) then
+      pick.reviewing = pick.reviewing + 1
+    elseif pick.item == nil then
+      pick.item = i
     end
   end
-  return first, mine
+  return pick
 end
 
 --- The first ready item this session may pull: no open blocker, and
@@ -210,6 +206,8 @@ local record Phased
   held: integer
   --- Items in `check` this session built.
   mine: integer
+  --- Items in `check` under another session's live review claim.
+  reviewing: integer
 end
 
 --- The phased half of the ordering: land, review, finish, pull.
@@ -228,22 +226,25 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
         item = landing[1],
         reason = ("land holds %d — %s is accepted, awaiting merge"):format(
           #landing, landing[1].id:sub(1, 8)),
-      }, held = 0, mine = 0}
+      }, held = 0, mine = 0, reviewing = 0}
   end
-  local judging, mine = reviewable(b, session, pos)
-  if judging then
+  local picked = reviewable(b, session, pos, ages)
+  local mine = picked.mine
+  local reviewing = picked.reviewing
+  if picked.item then
     return {action = {
         kind = "review",
-        item = judging,
+        item = picked.item,
         reason = "check is the rightmost phase awaiting a decision — "
         .. "verdicts before new work",
-      }, held = 0, mine = mine}
+      }, held = 0, mine = mine, reviewing = reviewing}
   end
   -- A handover into `check` is a move the WIP gate refuses once check
   -- is full, and pulling adds work whose only exit is that same move.
   -- Reaching here with check full means every item in it is this
-  -- session's (`reviewable` would have returned any other), so no
-  -- verdict this session may write can drain it. Handing out either
+  -- session's or under another session's live review (`reviewable`
+  -- would have returned any other), so no verdict this session may
+  -- write can drain it. Handing out either
   -- action would name a move the gate rejects, and `next` would repeat
   -- it forever; fall through to the intake half instead, which is
   -- still real work, and let `next_action` say what is holding.
@@ -275,7 +276,7 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
         item = doing,
         reason = ("do holds %d/%d — finish before pulling%s"):format(
           #(b["do"] or {}), flow.LIMITS["do"], whose),
-      }, held = held, mine = mine}
+      }, held = held, mine = mine, reviewing = reviewing}
   end
   local pullable = first_pullable(b, index, session, pos)
   if pullable and handover_open and pull_open then
@@ -283,9 +284,9 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
         kind = "pull",
         item = pullable,
         reason = "highest-priority ready item with no open blocker",
-      }, held = held, mine = mine}
+      }, held = held, mine = mine, reviewing = reviewing}
   end
-  return {held = held, mine = mine}
+  return {held = held, mine = mine, reviewing = reviewing}
 end
 
 --- The one action to take now, right to left. Ages are optional the
@@ -321,24 +322,26 @@ local function next_action(items: {Item}, session?: string,
   if taking then
     return taking
   end
-  if ph.mine > 0 then
-    -- Full and all this session's is not "somebody will get to it": no
-    -- verdict this session may write drains check, and the gate refuses
-    -- every handover until one does. Say that a second session is
-    -- required, not merely preferable.
+  if ph.mine > 0 or ph.reviewing > 0 then
+    -- Full with nothing this session may judge is not "somebody will
+    -- get to it": no verdict this session may write drains check, and
+    -- the gate refuses every handover until one does. Say what holds
+    -- each item — this session built it, or another session's live
+    -- review claim covers it.
+    local shape = ("%d built by this session, %d under another "
+      .. "session's review"):format(ph.mine, ph.reviewing)
     if #(b["check"] or {}) >= flow.LIMITS["check"] then
       return {
         kind = "none",
-        reason = ("check is at %d/%d and every item in it was built by "
-          .. "this session — nothing can be handed over until another "
-          .. "session writes a verdict"):format(
-          #(b["check"] or {}), flow.LIMITS["check"]),
+        reason = ("check is at %d/%d with nothing this session may "
+          .. "judge (%s) — nothing can be handed over until a verdict "
+          .. "lands"):format(#(b["check"] or {}), flow.LIMITS["check"], shape),
       }
     end
     return {
       kind = "none",
-      reason = ("%d item(s) in check were built by this session — another "
-        .. "session reviews them"):format(ph.mine),
+      reason = ("nothing in check is this session's to judge (%s) — "
+        .. "their verdicts land elsewhere"):format(shape),
     }
   end
   if ph.held > 0 then
@@ -366,8 +369,9 @@ local record action
   type Phased = Phased
   unheld: function(b: flow.Board, phase: string, session: string,
   pos: {string: prio.Position}, ages: health.Ages): Item | nil, integer
+  type ReviewPick = ReviewPick
   reviewable: function(b: flow.Board, session: string,
-  pos: {string: prio.Position}): Item | nil, integer
+  pos: {string: prio.Position}, ages: health.Ages): ReviewPick
   first_pullable: function(b: flow.Board, index: flow.Index, session: string,
   pos: {string: prio.Position}): Item | nil
   next_action: function(items: {Item}, session?: string,

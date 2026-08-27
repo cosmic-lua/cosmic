@@ -208,6 +208,13 @@ local function cmd_move(s: store.Store, id: string, target: string,
   if pr ~= nil and pr ~= 0 then
     it.pr = pr
   end
+  -- A review claim locks a reading of the item AS IT SITS in check;
+  -- any move out of that phase ends the reading, forward or back, so
+  -- the claim goes with it rather than following the item somewhere
+  -- no verdict can consume it.
+  if from == "check" and target ~= "check" then
+    it.reviewer = ""
+  end
   if flow.is_return(from, target) then
     it.claim = ""
     -- A verdict describes one head in one phase. Moving leftward out

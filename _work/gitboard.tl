@@ -43,6 +43,7 @@ local land = require("_work.gitland")
 local stat = require("_work.flowstat")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
+local rev = require("_work.gitreview")
 local vrd = require("_work.gitverdict")
 local show = require("_work.gitshow")
 local view = require("_work.gitview")
@@ -55,6 +56,7 @@ local view = require("_work.gitview")
 local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["move"] = true, ["verdict"] = true, ["done"] = true,
+  ["review"] = true,
   ["land"] = true, ["compare"] = true, ["uncompare"] = true,
 }
 
@@ -116,6 +118,14 @@ local CSPEC: flags.CommandSpec = {
             help = "hand over recorded findings instead of a PR; the spec's "
             .. "## Result section is what the reviewer reads"},
           {long = "force", help = "override the target WIP limit"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
+    {name = "review", summary = "claim ID's review before reading it",
+      spec = {usage = "ID [options]", flags = {dir_flag(),
+          {long = "session", arg = "SESSION",
+            help = "the reviewing session. Omit to derive it from the "
+            .. "environment"},
+          {long = "force", help = "take over another session's LIVE review "
+            .. "claim (a stale one needs no force)"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "verdict", summary = "record a review verdict; the move it implies follows",
       spec = {usage = "ID KIND [options]", flags = {dir_flag(),
@@ -293,6 +303,11 @@ local function main(...: string): integer
     return verbs.cmd_move(s, id, target, claim, pr,
       d.parsed.switches["force"], d.parsed.values["why"] or "",
       d.parsed.switches["evidence"], mover)
+  end
+  if d.command == "review" then
+    local who = session.resolve(d.parsed.values["session"])
+    return rev.cmd_review(s, id, who,
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   if d.command == "verdict" then
     local kind = d.parsed.args[2]

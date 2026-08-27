@@ -60,6 +60,11 @@ local record Item
   --- rule turns on. This is that answer, and it is never cleared while
   --- the item is open — whoever built stays disqualified as reviewer.
   builders: {string}
+  --- The session reviewing it in `check`; "" when nobody claimed the
+  --- review. A lease like `claim`, on a shorter horizon
+  --- (`_work.health`): the claim is pushed BEFORE the reading starts,
+  --- the verdict consumes it, and leaving `check` clears it.
+  reviewer: string
   --- The PR under review; 0 when none.
   pr: integer
   --- Standing review verdict: "" | "accept" | "request changes"
@@ -142,9 +147,10 @@ local function problems(it: Item): {string}
       out[#out + 1] = "a done item carries no phase"
     end
   end
-  if is_root(it) and ((it.claim or "") ~= "" or (it.pr or 0) ~= 0
+  if is_root(it) and ((it.claim or "") ~= "" or (it.reviewer or "") ~= ""
+    or (it.pr or 0) ~= 0
     or (it.verdict or "") ~= "" or (it.enable or "") ~= "" or (it.repo or "") ~= "") then
-    out[#out + 1] = "claim/pr/verdict/repo belong to worked items, not roots"
+    out[#out + 1] = "claim/reviewer/pr/verdict/repo belong to worked items, not roots"
   end
   if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
     out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
@@ -220,6 +226,7 @@ local function decode(t: {string: any}): Item | nil, string
     block_reason = reasons,
     claim = tostring(t.claim or ""),
     builders = builders,
+    reviewer = tostring(t.reviewer or ""),
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
     verdict = tostring(t.verdict or ""),
     verdict_head = tostring(t.verdict_head or ""),
@@ -270,6 +277,7 @@ local function encode(it: Item): {string: any}
   if #(it.builders or {}) > 0 then
     t.builders = table.concat(it.builders, " ")
   end
+  if (it.reviewer or "") ~= "" then t.reviewer = it.reviewer end
   if (it.pr or 0) ~= 0 then t.pr = it.pr end
   if (it.verdict or "") ~= "" then t.verdict = it.verdict end
   if (it.verdict_head or "") ~= "" then t.verdict_head = it.verdict_head end

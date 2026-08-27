@@ -43,6 +43,24 @@ local function is_stale(i: Item, ages: Ages): boolean
   return (i.claim or "") ~= "" and age ~= nil and age > LEASE_S
 end
 
+--- Seconds a review claim holds without a board commit before it
+--- reads as stale. Short against the build lease, because the two
+--- claims lock different amounts of work: a build is pull-to-handover
+--- against a dwell measured in tens of minutes, a review is
+--- read-verify-verdict against a dwell of minutes — a reviewer that
+--- has not moved the board inside an hour is gone, and the diff
+--- should be offered again.
+local REVIEW_LEASE_S < const > = 60 * 60
+
+--- Whether an item's review claim has outlived its lease.
+--- @param i Item The item
+--- @param ages Ages Seconds since last board commit, by id
+--- @return boolean True for a reviewed item older than the review lease
+local function is_review_stale(i: Item, ages: Ages): boolean
+  local age = ages[i.id]
+  return (i.reviewer or "") ~= "" and age ~= nil and age > REVIEW_LEASE_S
+end
+
 --- Seconds a placed, uncommitted item sits untouched before it reads
 --- as rotten. A `backlog` entry is a record of known work, not a
 --- commitment, so depth alone is no reason to close one — but an item
@@ -163,6 +181,8 @@ local record health
   LEASE_S: integer
   ROT_S: integer
   is_stale: function(i: Item, ages: Ages): boolean
+  REVIEW_LEASE_S: integer
+  is_review_stale: function(i: Item, ages: Ages): boolean
   is_rotten: function(i: Item, ages: Ages): boolean
   stale_hours: function(i: Item, ages: Ages): integer
   blocker_cycle_problems: function(items: {Item}): {string}
@@ -175,6 +195,8 @@ local M: health = {
   LEASE_S = LEASE_S,
   ROT_S = ROT_S,
   is_stale = is_stale,
+  REVIEW_LEASE_S = REVIEW_LEASE_S,
+  is_review_stale = is_review_stale,
   is_rotten = is_rotten,
   stale_hours = stale_hours,
   blocker_cycle_problems = blocker_cycle_problems,

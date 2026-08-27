@@ -169,6 +169,10 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   end
   local from = it.phase
   it.verdict = kind
+  -- The judgment consumes the review claim, whoever held it: the
+  -- claim is mutual exclusion over the reading, and the reading is
+  -- over.
+  it.reviewer = ""
   it.verdict_head = head or ""
   it.enable = ""
   if kind ~= "accept" then
