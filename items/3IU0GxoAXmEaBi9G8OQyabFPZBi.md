@@ -123,3 +123,84 @@ from cross-window A/A spread (which captures the level drift), not
 from single-window spread_pct, so a codec delta measured across
 windows never stands alone. Probe CSV summarized above; raw rows
 reproducible from the commands in ## Change.
+
+## Review — 2026-08-27 05:5x UTC, REQUEST CHANGES (session 0b13d2b4)
+
+The core empirical claim REPRODUCES and is not in dispute: eleven
+minutes after this bracket's last probe (ts 1787809131), nine isolated
+launches by the reviewer (ts 1787809786+, same command, same pinned
+cosmos `2026.08.27-13977f2ef`, `bin_sha
+afdd72c09850c0f129134ecc222e99b525dda1e0a29beca98e002bb66155540e`)
+read **143.28 / 143.69 / 143.85 / 144.79 / 144.90 / 146.32 / 146.39 /
+147.44 / 148.71 µs**, median 144.9, within-run spread ±2.4-8.2%,
+cpu/wall 0.99-1.03, `/proc/stat` steal +1 tick over the whole set,
+`nr_throttled` 0. That is a ~25% step off the 184-202 µs band in
+eleven minutes, on the same machine — so the level does drift, fast,
+with none of this item's four instruments moving. The deduction's
+DIRECTION is sound.
+
+What is not carried by the recorded evidence, and must be fixed before
+this ends (none of it needs another fast-mode hunt — step 3's ban on a
+third bracket stands):
+
+1. **The four-level ladder mixes measurement contexts.** 96-98 and
+   116-133 are suite/gate readings (the 95.80 µs rung is the #1426
+   compare row, a full-suite compare); 138-156 and 184-202 are
+   `--only` isolated readings. `skills/optimize/measurement.md` states
+   in terms that in-suite readings of exactly these scenarios "can
+   differ 40% from isolated readings of the SAME binary". A ladder
+   built by chaining the two contexts is the comparison that chapter
+   forbids, and it is this pass's headline new fact. Record each
+   rung's command and context, and drop or explicitly label the rungs
+   that are not like-for-like.
+2. **"byte-identical binaries" is asserted, not checked.** The harness
+   writes `meta.bin_sha` on every run (mine above). No rung of the
+   ladder quotes one. The bottom rung is the riskiest: its published
+   partner reading, 127.25 µs, is a DIFFERENT binary (the pre-bump
+   cosmos), so "95.8 vs ~127 = two machine modes" and "the pin bump
+   made base64 24.7% faster" are the same two numbers read two ways.
+   Quote the `bin_sha` (or the cosmos pin) per rung.
+3. **"machine-wide" is not measured in this window.** This bracket ran
+   `--only codec_base64_roundtrip_64k`; no control scenario ran beside
+   it, so nothing in the 184-202 window shows the level was
+   machine-wide rather than specific to a 64 KB codec path. The
+   item's own Evidence cuts the other way — `url_decode_query_value`
+   and `time_format_*` HELD STEADY while codec swung — which
+   contradicts a uniform frequency/thermal level and points at
+   something selective (memory/LLC-bound work). Either add one control
+   scenario to the loop (seconds per iteration) or restate the finding
+   as measured for base64 alone.
+4. **The co-tenant this spec's own method introduced is unrecorded.**
+   `## Change` says steps 1-2 run "as a BACKGROUND loop beside
+   ordinary board work", and the slowest band ever recorded came out
+   of that window. The Result says nothing about what else ran in the
+   container, and `/proc/loadavg` — readable here — is absent from the
+   instrument list, so "no in-container observable correlates" is
+   false as written: system utilization was never among the
+   observables read. Reviewer's partial defence, offered as evidence:
+   three CPU spinners on 3 of 4 cpus during three of the launches
+   above moved nothing (143.69 / 146.32 / 144.79 µs, cpu/wall
+   1.00-1.03), so a pure CPU hog is not the mechanism — but a parallel
+   `--make` compile, which is what "ordinary board work" actually is,
+   is cache- and memory-heavy and remains untested. Record what ran,
+   and add utilization to the read set.
+5. **Nothing durable survives the accept.** `o/perf` is empty and no
+   CSV is on disk; both brackets' per-run rows exist only in session
+   records. An accept ENDS this item, so the item becomes the only
+   record — put the per-run rows (ts, wall_ns, cpu_ns, bin_sha) in the
+   Result or beside it on the board branch.
+6. **The follow-up inherits the unfixed claim.** 3IUBNQZZ's Goal
+   states the four-level ladder "measured 2026-08-27 on byte-identical
+   binaries" as settled fact, and it is the premise for changing the
+   compare gate's noise floor. Prior work (3ISlY5X, 3ISWHyP7) put this
+   scenario's same-binary spread at ±3.3-4.8% and used its STABILITY
+   to justify keeping a release blocked on a +21% base64 flag —
+   widening its floor on a ladder with two unverified rungs would
+   retire the one scenario holding that gate honest. Correct
+   3IUBNQZZ's Goal to whatever survives points 1-3.
+
+The wrong turn, in one line: this spec's `## Evidence` founded the
+whole hunt on "the capture" with no item id, no command and no context
+label, so the pass inherited unretrievable readings and chained them
+into a ladder — and the same spec ordered the probe run beside other
+work without requiring the co-tenant to be recorded.
