@@ -203,3 +203,33 @@ local function test_accept_on_an_evidence_handover_ends_the_item()
   assert(it.verdict == "accept", "carrying the verdict that ended it")
 end
 test_accept_on_an_evidence_handover_ends_the_item()
+
+-- The distance the verb enforces is the durable record's, not the
+-- claim's: a rework takeover moves the claim to a second builder while
+-- the diff stays the first's, and BOTH are refused a verdict on it.
+local function test_verdict_refuses_a_past_builder()
+  local s = init_state_repo("verdict-builders")
+  local goal, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "builder-one", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 9, false, "") == 0)
+  local counter = file_item(s, "the countermeasure", goal, false)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 9, "aaa1111",
+      counter, "reviewer-r") == 0, "the first round bounces the item")
+  -- The rework is taken over: the claim moves on, the builders stay.
+  assert(verbs.cmd_move(s, leaf, "check", "builder-two", 9, true,
+      "takeover: first builder went quiet") == 0)
+  assert(check.must(store.load(s, leaf)).claim == "builder-two",
+    "the claim names the second builder")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 9, "bbb2222", "",
+      "builder-one") ~= 0,
+    "the first builder is refused on the diff they built")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 9, "bbb2222", "",
+      "builder-two") ~= 0, "so is the claim holder")
+  assert(check.must(store.load(s, leaf)).verdict == "request changes",
+    "and the standing rework verdict is untouched by the refusals")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 9, "bbb2222", "",
+      "reviewer-two") == 0, "a session that built nothing judges it")
+end
+test_verdict_refuses_a_past_builder()
