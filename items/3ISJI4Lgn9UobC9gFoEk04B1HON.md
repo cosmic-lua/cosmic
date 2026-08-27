@@ -18,3 +18,25 @@ reassignment-analysis guard to stay sound, (2) needs the failing
 shapes enumerated first. A slice should take them one at a time with a
 probe file per gap, extending cosmic/teal_narrowing_test.tl as each
 boundary moves.
+
+## Result (container verification, 2026-08-27)
+
+All four gaps closed in the checker, each by a landed child, each
+pinned by a test on main c78504bd:
+
+1. pack-n — 3ISKgfS6 (#1409 entry, #1423 cast retire);
+   `test_mixed_pack_keeps_n_integer`. The coverage resume wrapper
+   carries no cast.
+2. or-fallback — the value-position rule landed with the narrow set;
+   `test_or_fallback_drops_nil` (now in teal_nilflow_test.tl). No
+   "or fallback does not narrow" cast remains in the tree (grep
+   clean).
+3. closure carry — 3ISSGDIN (#1442, nine closure-* entries);
+   teal_closure_test.tl's four tests. 3ISSGm9B closed with its
+   diagnosis corrected on the record.
+4. metatable is-dispatch — 3ISSFrCO (#1439, three entries);
+   `test_metatable_is_table_narrows` / `..._scalar_is_refused`.
+
+Residue: the SOURCE-side workaround retires (fs/types.tl cast,
+coverage/benchmark closure idiom) wait on a pin carrying the rules —
+filed as 3IU5Vhvy under G3, with the pull-time gate stated.
