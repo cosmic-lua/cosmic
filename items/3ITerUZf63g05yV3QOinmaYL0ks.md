@@ -335,3 +335,94 @@ retrying `forcealign(64)` or `-falign-loops` (`## Evidence` and
 `Non-goals`), widening to the other two base64 files or to an
 algorithmic rewrite (`Non-goals`), and opening a PR on a negative
 result (`Change` (6) and (7), and the `pr: none` acceptance check).
+
+## Result
+
+Measured 2026-08-27 on one host (`uname -m` → `x86_64`,
+`Intel(R) Xeon(R) Processor @ 2.80GHz`, `nproc` → `4`), following
+`## Change` (1)-(8) with no departure.
+
+- runtime B 44fd5c18efbf8e9d4eac5ea9fa23b88cea196ef64995317dc87cfeb62e9115bf
+- runtime D ea805ab32795f75259d79e64d66d78cc4a0b8ca4683b604ac710ba87d10eb07d
+- disasm B IsBase64 start 0x43a9d40 loop 0x43a9d70 loop%64 48 looplen 24
+- disasm D IsBase64 start 0x43a9d40 loop 0x43a9d90 loop%64 16 looplen 24
+- loop moved
+- tests o//tool/lua/test PASS
+- smoke D ok
+
+`.balign 64` emitted its padding at `0x43a9d66`-`0x43a9d7f`, which put
+the scan loop's pre-header on the block boundary at `0x43a9d80` and the
+loop head itself at `0x43a9d90`. 16 + 24 = 40 ≤ 64, so the loop lies
+inside the single fetch block `0x43a9d80`-`0x43a9dbf` — the same
+offset-16 placement the fast `8dd093cea` build gets by luck. The
+function entry is unmoved at `0x43a9d40` in both arms, which is the
+point: the entry was never the lever.
+
+| run | arm | encode | is | decode | roundtrip |
+|---|---|---|---|---|---|
+| 01 | B | 46.049 | 52.238 | 57.849 | 159.994 |
+| 02 | D | 46.359 | 27.126 | 58.674 | 133.758 |
+| 03 | B | 46.095 | 52.441 | 58.980 | 160.740 |
+| 04 | D | 46.328 | 27.028 | 58.348 | 132.734 |
+| 05 | B | 45.114 | 51.992 | 58.709 | 162.867 |
+| 06 | D | 46.106 | 27.206 | 58.293 | 135.790 |
+| 07 | B | 46.347 | 53.105 | 58.333 | 157.671 |
+| 08 | D | 46.037 | 27.135 | 58.594 | 132.631 |
+| 09 | B | 47.875 | 52.980 | 65.330 | 177.988 |
+| 10 | D | 46.796 | 27.252 | 60.007 | 132.730 |
+| 11 | B | 46.626 | 53.151 | 60.016 | 160.196 |
+| 12 | D | 46.371 | 27.130 | 59.089 | 133.412 |
+| 13 | B | 45.964 | 52.691 | 58.877 | 156.175 |
+| 14 | D | 45.821 | 27.683 | 59.665 | 139.448 |
+| 15 | B | 46.454 | 52.767 | 58.935 | 160.754 |
+| 16 | D | 46.769 | 27.082 | 58.987 | 136.846 |
+| 17 | B | 47.414 | 53.436 | 60.145 | 160.569 |
+| 18 | D | 46.195 | 27.258 | 61.763 | 135.344 |
+
+- stats B is min 51.992 lo 52.238 med 52.767 hi 53.151
+- stats B roundtrip min 156.175 lo 157.671 med 160.569 hi 162.867
+- stats D is min 27.028 lo 27.082 med 27.135 hi 27.258
+- stats D roundtrip min 132.631 lo 132.730 med 133.758 hi 136.846
+
+is: RECOVERED — med 52.767 → 27.135 µs (-48.58%), trimmed ranges disjoint (hi D 27.258 < lo B 52.238), floor 3.7%
+
+roundtrip: RECOVERED — med 160.569 → 133.758 µs (-16.70%), trimmed ranges disjoint (hi D 136.846 < lo B 157.671), floor 3.7%
+
+mechanism: confirmed
+
+pr: 281
+
+follow-up: none
+
+Arm D reaches the fast arm's timing rather than falling short of it:
+`3ITdLKeR` measured `8dd093cea` at 27.137 µs for `is` and 136.680 µs
+for the round trip, and arm D reads 27.135 µs and 133.758 µs — the
+`is` column is the same number to three decimals, and the round trip
+lands slightly under, which is within what the round trip's own spread
+allows and is not claimed as an improvement.
+
+What this supports. Fetch-block straddling is the cause and pinning the
+loop fixes it, on this host. The chain is closed end to end: one
+function carries the whole delta (`3ITdLKeR`), its instruction bytes
+are identical across the two commits so nothing but placement changed
+(`3ITdLKeR`), the intervention is verified in the disassembly BEFORE
+any timing was taken (`- disasm D` above), and the timing follows the
+placement exactly. It also settles what to do about whilp/cosmopolitan
+PR #280: pinning the ENTRY to 64 forces the loop head to `+0x30`, which
+is precisely the slow layout, so that draft cannot recover the timing —
+which is what the interleave on `3ITbywUB` observed without a mechanism
+for it. PR #281 carries this diff and says so; closing #280 is left to
+its author.
+
+What this does NOT support. One host, one microarchitecture, one
+single-arch `m=rel` build. The released `lua` is a fat two-arch
+apelink and its `IsBase64` will not sit at these offsets; what carries
+over is that the directive pins the loop RELATIVE to its own function
+in any layout, not that these particular addresses recur. Nothing here
+measures the cosmic end-to-end scenario — no cosmic build was made, by
+`Non-goals` — so the release compare step against the previous release
+remains the confirmation that the gate actually re-greens, and that
+needs a cosmos release carrying #281 and then a pin bump, which is
+`3ISVlHT6`'s. Nothing here reconciles the +16.13% measured on this host
+with the ~+3.6% steady-state `3ITbywUB` reports on its own; that
+disagreement is still open and is not this slice's.
