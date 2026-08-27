@@ -9,10 +9,12 @@ intent outright: "a nominal that merely resolves to some record must keep
 failing". Delete the two dead keys, say what the helper really rescues,
 and pin both halves in tests.
 
-Deadness measured 2026-08-27 at main `267c2a4d`, three ways:
+Deadness measured 2026-08-27 at main `267c2a4d` and re-measured at pull
+against main `ae5d1581`, three ways (shape unchanged; only the tl.lua
+line number moved):
 
 - `is X` builds its fact from `ub`, the UNRESOLVED type
-  (`o/3p/tl/tl.lua:14118`,
+  (`o/3p/tl/tl.lua:14116`,
   `node.known = IsFact({ var = node.e1.tk, typ = ub, w = node })`), so a
   named type arrives as `typename == "nominal"` and never matches
   `table_kinded`.
@@ -55,7 +57,8 @@ anchors on `invalid_from`, which does not move), the `is_table_metatable`
 body, and the `table_kinded` table itself — only its contents shrink, so
 the two call sites keep compiling unchanged.
 
-Measured 2026-08-27 at main `267c2a4d`:
+Measured 2026-08-27 at main `267c2a4d`, re-measured at pull against
+`ae5d1581` — all unchanged:
 `wc -l 3p/tl/tl_patch/narrow.tl` → `393` (107 under the 500-line cap);
 `grep -c 'record = true' 3p/tl/tl_patch/narrow.tl` → `1`;
 `grep -c 'interface = true' 3p/tl/tl_patch/narrow.tl` → `1`;
@@ -86,7 +89,8 @@ The first two pin the refusal the trimmed set now honestly describes;
 the third pins the array half of the live rescue, which the file does
 not cover today, so trimming the set cannot silently drop it.
 
-Measured 2026-08-27: `wc -l cosmic/teal_narrowing_test.tl` → `332` (168
+Measured 2026-08-27 and re-measured at pull: `wc -l
+cosmic/teal_narrowing_test.tl` → `332` (168
 under the cap); `grep -c '^local function test_' cosmic/teal_narrowing_test.tl`
 → `11`; `grep -c '^local function test_metatable' cosmic/teal_narrowing_test.tl`
 → `2`. All three test bodies above were run verbatim on 2026-08-27 and
