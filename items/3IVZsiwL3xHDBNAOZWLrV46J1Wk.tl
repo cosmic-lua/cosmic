@@ -10,5 +10,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "check",
   ["pr"] = 1478,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "tl patch: the closure boundary widens the enclosing continuation too, so a guard then a lambda then a use fails where stock passed",
 }
