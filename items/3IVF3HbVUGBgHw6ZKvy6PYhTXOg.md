@@ -1,3 +1,20 @@
+## Goal
+
+G6 — the defining paths, ratcheted. The release perf gate compares two
+binaries, and a comparison is only a comparison if the measuring
+instrument is held fixed. Today it is not: the candidate side runs the
+tree's harness and the tree's scenarios, and the baseline side runs the
+PREVIOUS RELEASE's copies of both, because a bare run resolves
+`_perf.*` from the binary's own `/zip` rather than from the tree
+(measured below). So a harness change contaminates the delta, and a
+scenario changed in the tree is measured on one side only — the old
+body runs on the baseline side and nothing says so.
+
+This item makes the baseline side measure the tree's `_perf` on the old
+binary, which is the experiment the gate has always claimed to run, and
+corrects the one guard whose docstring asserts the resolution already
+works that way.
+
 ## Evidence
 
 `_perf/skew_test.tl` type-checks every non-test `_perf/**` file under
