@@ -69,6 +69,87 @@ print(use())
 end
 test_an_assignment_anywhere_widens_at_the_boundary()
 
+-- An else block carries no condition, so the if-node's children table
+-- starts at a nil hole with the branch body behind it. An `ipairs`
+-- aggregate over those children stops at that hole, leaving the
+-- subtree that carries this assignment invisible to the scan and the
+-- narrow wrongly alive inside the closure — which is why the scan
+-- reads them with `pairs`.
+local function test_an_assignment_in_an_else_block_widens_at_the_boundary()
+  local ok, msgs = checks("closure_widen_else.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+if not (v is string) then return end
+local function use(): string
+  return v
+end
+if os.time() > 0 then
+  print(1)
+else
+  v = pick()
+end
+print(use())
+]])
+  assert(not ok, "an assignment in an else block must widen at the boundary")
+  assert(msgs:find("in return value: got string | integer, expected string", 1, true), msgs)
+end
+test_an_assignment_in_an_else_block_widens_at_the_boundary()
+
+-- A stepless `for i = a, b do` leaves the same kind of hole: the
+-- missing step expression sits ahead of the body in the children
+-- table, so an `ipairs` aggregate stops before the body and never
+-- reaches the assignment inside it.
+local function test_an_assignment_in_a_stepless_fornum_body_widens_at_the_boundary()
+  local ok, msgs = checks("closure_widen_fornum.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+if not (v is string) then return end
+local function use(): string
+  return v
+end
+for _i = 1, 3 do
+  v = pick()
+end
+print(use())
+]])
+  assert(not ok, "an assignment in a stepless fornum body must widen at the boundary")
+  assert(msgs:find("in return value: got string | integer, expected string", 1, true), msgs)
+end
+test_an_assignment_in_a_stepless_fornum_body_widens_at_the_boundary()
+
+-- The third hole is in an ASSIGNMENT STATEMENT's rvalue: `assignment`,
+-- `local_declaration` and `global_declaration` all walk through
+-- `walk_vars_exps` (o/3p/tl/tl.lua:5143-5152), which writes xs[1] from
+-- `vars`, leaves xs[2] unset when there is no `decltuple` — and an
+-- assignment statement never has one — then writes the rvalue
+-- expressions into xs[3], behind that hole. A declaration always has a
+-- decltuple, so only the assignment form exposes it.
+local function test_an_assignment_in_an_assignment_rvalue_widens_at_the_boundary()
+  local ok, msgs = checks("closure_widen_rvalue.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+if not (v is string) then return end
+local function use(): string
+  return v
+end
+local z: integer = 0
+z = (function(): integer
+  v = pick()
+  return 1
+end)()
+print(use(), z)
+]])
+  assert(not ok, "an assignment in an assignment rvalue must widen at the boundary")
+  assert(msgs:find("in return value: got string | integer, expected string", 1, true), msgs)
+end
+test_an_assignment_in_an_assignment_rvalue_widens_at_the_boundary()
+
 -- The stock hole this closes: an ANONYMOUS closure used to widen only
 -- names assigned inside its own body, so `v = 2` after the definition
 -- never widened and the escaped closure ran on a stale narrow.
