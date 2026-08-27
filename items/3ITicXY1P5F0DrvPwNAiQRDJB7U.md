@@ -46,3 +46,14 @@ fork should carry, and merging to `whilp/cosmopolitan` master triggers
 the release workflow, which publishes outward. This item ends when the
 owner says land, close, or extend, at which point `3ITerUZf` unblocks
 and its `land` either merges #281 or the item is re-verdicted.
+
+## Decision (2026-08-27)
+
+The owner directed the session to resolve this blocker and proceed
+("that blocker should be resolved", in-session instruction): **land
+PR #281**. The durability argument carries — nine lines remove a
+demonstrated 93% placement lottery from a hot path, measure as
+harmless at the merge base, and move no contract. The DecodeBase64
+extension stays open as its own question: the observed ~14% shift on
+master versus `8dd093cea` is real evidence for a follow-up
+measurement, not something this decision forecloses.
