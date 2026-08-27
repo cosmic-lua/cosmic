@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3IVL5DSrJBTQigWm90vJmNSvwZc 3IVQJa0bAOwB8ywV1P1rystknKJ",
   ["id"] = "3IVZsiwL3xHDBNAOZWLrV46J1Wk",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "tl patch: the closure boundary widens the enclosing continuation too, so a guard then a lambda then a use fails where stock passed",
 }
