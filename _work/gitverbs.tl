@@ -51,10 +51,10 @@ end
 --- the FIRST write of a spec needs no flag, and every later one does.
 --- @param current string The sidecar as it stands
 --- @param base string The base file's path, "" when none was given
---- @param id8 string The item's short id, for the message
+--- @param id string The item's full id, for the message and the path
 --- @return string | nil The refusal
 local function base_refusal(current: string, base: string,
-    id8: string): string
+    id: string): string | nil
   local claimed = ""
   if base ~= "" then
     local read, rerr = fs.read(base)
@@ -66,13 +66,14 @@ local function base_refusal(current: string, base: string,
   if claimed == current then
     return nil
   end
+  local id8 = id:sub(1, 8)
   if base == "" then
     return ("REFUSED: %s already has a spec — pass --base FILE holding the "
       .. "text you read; a write with no base is last-write-wins"):format(id8)
   end
-  return ("REFUSED: %s's spec changed since you read it — re-read its "
-    .. "sidecar, re-apply your edit, and pass the re-read text as --base "
-    .. "(the trail is `gitboard show %s`)"):format(id8, id8)
+  return ("REFUSED: %s's spec changed since you read it — re-read "
+    .. "items/%s.md, re-apply your edit, and pass the re-read text as "
+    .. "--base (the trail is `gitboard show %s`)"):format(id8, id, id8)
 end
 
 local function cmd_spec(s: store.Store, id: string, file: string,
@@ -85,7 +86,7 @@ local function cmd_spec(s: store.Store, id: string, file: string,
   if body == nil then
     return gate.verdict_line("spec", false, rerr)
   end
-  local stale = base_refusal(store.read_spec(s, id), base or "", id:sub(1, 8))
+  local stale = base_refusal(store.read_spec(s, id), base or "", id)
   if stale then
     return gate.verdict_line("spec", false, stale)
   end
