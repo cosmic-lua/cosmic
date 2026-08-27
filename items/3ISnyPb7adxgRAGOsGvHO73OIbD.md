@@ -1,73 +1,62 @@
-The cold-build rule is remembered, not enforced, and `--make ci`
-actively hides the failure it names. Two specs in a row have now
-asserted the rule did not apply to them and been wrong.
+## Goal
 
-The rule, as `3ISKgfS6` recorded it after its own bounce: a source
-that needs the PATCHED checker fails build generation 1, which
-compiles with the pinned release's embedded (unpatched) tl. `--make
-ci` converges — it builds first and re-execs into what it built — so
-it judges the change with the tree's own checker and passes. Only a
-cold `--make build`, or CI's `build`/`repro` lanes, see it.
+The cold-build rule — every tree source must type-check under the
+PINNED checker, because build generation 1 compiles the whole tree
+with it — is enforced at PR time and written into the tree, instead
+of living in a board item and surfacing as a CI build-lane failure
+after `--make ci` said green. Two slices in a row asserted the rule
+did not apply to them and were wrong (PR #1416 / run 32995853861 the
+observed case).
 
-Observed 2026-08-26 on PR #1416 (item `3ISSFN5u`), run 32995853861,
-job 98264755312:
+## Change
 
-```
-cosmic: tree build failed; running pinned release
-  .../releases/download/2026-08-15-c497c04/cosmic-lua
-_cli/build/init_test.tl:73:14: error: cannot index key 'match' in
-  variable 'lua' of type string | nil
-build: FAIL (536 files)
-```
+Resolved open question (probed 2026-08-27): `--check types
+--include-dir .` under an old release binary resolves modules from
+the TREE ahead of its embedded copies — a scratch root shadowing
+`cosmic.literal` with a new API type-checks, and a scratch
+`cosmic.zzprobe` absent from the zip resolves. So
+`o/bootstrap/cosmic --check types --include-dir . --include-dir
+o/_types/types_gen <files>` is exactly generation 1's semantics:
+pinned tl + pinned patch set, tree module resolution. Validated both
+directions on today's tree (539 files, ~15s wall, one process):
+- bootstrap afad5b5: exit 0.
+- the 08-23 release binary: refuses `_cli/build/init_test.tl:73:14
+  "cannot index key 'match' ... string | nil"` — byte-identical to
+  PR #1416's cold-build failure — and `cosmic/coverage/init.tl:131`
+  (pack-n, the #1423 change that waited for the narrow-pack-n pin).
 
-`ci` was green on the same commit.
+1. `_build/coldbuild_test.tl` — one test, skew_test's shape: collect
+   every `*.tl` under the twelve source trees (3p _build _cli _docs
+   _eval _fuzz _make _perf _tool _types cmd cosmic), skip
+   `testdata/`, one `--check types` child under `o/bootstrap/cosmic`
+   with both include dirs and `COSMIC_COVERAGE=0`; assert bootstrap
+   and `o/_types/types_gen` exist (loud, never skip). Failure message
+   names the rule and the remedy (stage the change behind a release
+   + pin bump, or drop the new-checker dependence). `--- reads:`
+   those trees + `o/bootstrap/cosmic` + `o/_types/types_gen`, so a
+   source-only diff and a pin bump both invalidate the cached PASS.
+2. AGENTS.md, Build System section: a short paragraph stating the
+   rule tree-wide (generation 1 compiles the WHOLE tree under the
+   pin; a change needing the tree's own checker or patches stages
+   behind a release and pin bump) and naming the guard test.
 
-**Two things to fix, and they are separable.**
+## Non-goals
 
-1. **The rule's scope is stated too narrowly.** `3ISKgfS6` writes it
-   as "every `cosmic/**` source in a tl-patch slice must type-check
-   under BOTH the pinned checker and the patched one". The file that
-   failed here is `_cli/build/init_test.tl`, which is not under
-   `cosmic/**`. Generation 1 compiles the WHOLE tree under the pin, so
-   the rule is tree-wide. Wherever it is written down, it should say
-   so.
+No change to `--make ci`'s convergence (converging is its point); no
+new verb (the test is the citable check); no restating scope in board
+item 3ISKgfS6 (superseded by the tree text this adds). The related
+capture 3IIm7ZyN stays open for its own family.
 
-2. **Nothing checks it before a PR is open.** The countermeasure
-   worth weighing, strongest first: a local verb or flag that
-   type-checks the tree under the PINNED checker specifically (the
-   thing `--make ci` cannot do by construction, because converging is
-   its whole point), so a slice can cite it in Acceptance; failing
-   that, a documented Acceptance line — `--make clean && --make build`
-   — that every patch-consuming slice carries, which is prose and
-   will be forgotten again.
+## Acceptance
 
-Related standing capture: `3IIm7ZyN`, filed for the same family after
-PR #1405.
+`--make ci` ends `ci: PASS` with the new test in the suite. The
+sweep passes under today's bootstrap. Exercised negative (not
+committed): with the 08-23 release binary stood in as bootstrap, the
+test fails naming `_cli/build/init_test.tl:73`. A planted new `.tl`
+in a swept tree re-runs the test (cache invalidation observed).
+AGENTS.md carries the rule, tree-wide, near the convergence prose.
 
-## Refinement findings (2026-08-27, claim-time measurement)
+## Enablement
 
-- The skew-guard shape (`_perf/skew_test.tl`, landed as 3ITdgu6f /
-  PR #1427) does NOT generalize tree-wide as-is. Measured: a
-  whole-tree sweep `COSMIC_COVERAGE=0 o/bootstrap/cosmic --check
-  types $(git ls-files '*.tl' | grep -v testdata)` passes on today's
-  tree in ~15s wall. But the bootstrap resolves `cosmic.*` from its
-  EMBEDDED declarations (verified in 3ITdgu6f's spec: the two-arg
-  literal.format probe fails under the 08-23 release binary from the
-  repo root), while build generation 1 resolves tree modules against
-  the TREE — so the sweep over-enforces: any PR adding a new public
-  `cosmic.*` API plus a caller would false-fail the sweep while a
-  cold build is green. Today the sweep passes only because the pin
-  (2026-08-27-afad5b5) is hours behind HEAD.
-- The sound mechanism therefore needs the pinned CHECKER (old tl +
-  old patch set) with TREE module resolution — exactly generation 1's
-  semantics. Open question for the next refine: whether `--check
-  types` under the bootstrap can be pointed at the tree ahead of its
-  embedded declarations (searcher/include-path behavior in the check
-  verb), or whether the verb has to be a `--make` half-build that
-  stops after generation 1's compile.
-- Fix 1 (restate the scope tree-wide) has no in-tree home today:
-  `grep -rn "pinned checker" docs skills AGENTS.md` finds only an
-  unrelated paragraph in docs/design/make/resolution.md. The rule
-  currently lives only in board item 3ISKgfS6's spec. Writing it into
-  the tree (where patch-consuming sessions read) is part of any cut
-  of this item.
+None: bootstrap and o/_types/types_gen exist for any tree that has
+built once, which `--make ci` guarantees before tests run.
