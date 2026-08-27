@@ -13,9 +13,9 @@ Add three entries to the carried tl patch's `narrow-*` group, in
 `3p/tl/tl_patch.tl` at its group seam; that split must land first — see
 Enablement). All three carry `file = "tl.lua"`; none needs a `-tl-tl`
 twin, because this is checker logic, not a stdlib type declaration —
-the only three `file = "tl.tl"` entries today
-(`grep -n 'file = "tl.tl"' 3p/tl/tl_patch.tl` → lines 25, 131, 262) all
-edit declared types.
+the only three `file = "tl.tl"` entries today (re-measured after the
+split: `grep -c 'file = "tl.tl"' 3p/tl/tl_patch/ast_cache.tl
+3p/tl/tl_patch/narrow.tl`) all edit declared types.
 
 Anchors verified 2026-08-27 against the fetched checker at main
 `6b88a0db` (`bin/cosmic --make fetch`, then
@@ -82,13 +82,13 @@ branch warning), the positive form `if mt is {string: any} then ... end`
 checked as well, and `mt is integer` still reported
 `can never be a integer`.
 
-Capacity, measured 2026-08-27 at main `6b88a0db`:
+Capacity, re-measured 2026-08-27 at pull (post-split main, PR #1437
+merged):
 
-- `wc -l 3p/tl/tl_patch.tl` → 499, and
-  `grep -n '^  \["' 3p/tl/tl_patch.tl` → 20 entries with the `narrow-*`
-  group starting at line 173, so 3ITo9Inv's `narrow.tl` is ~345 lines
-  and leaves ~155 under the 500-line cap. These three entries are ~60
-  lines against that.
+- `wc -l 3p/tl/tl_patch/narrow.tl` → 344 with 15 entries
+  (`grep -c '^  \["' 3p/tl/tl_patch/narrow.tl`), so 156 lines of
+  headroom under the 500 cap; these three entries are ~60 lines
+  against that.
 - `wc -l cosmic/teal_narrowing_test.tl` → 438, 62 lines under the cap.
   The two tests must fit inside it; the shortest existing test in that
   file is 18 lines (`test_mixed_pack_keeps_n_integer`, lines 421-438).
@@ -133,19 +133,12 @@ Run from the repo root.
 
 ## Enablement
 
-Blocked on 3ITo9Inv, mirrored in `blocked_by`: `3p/tl/tl_patch.tl` is
-499 lines against the 500-line cap (`wc -l 3p/tl/tl_patch.tl` → 499,
-measured 2026-08-27 at `6b88a0db`), and `_make/patch.tl`'s
-`paths_of_pin` refuses a tree carrying both `<stem>_patch.tl` and
-`<stem>_patch/` ("keep exactly one",
-`_make/patch.tl:74-77`), so these entries have nowhere to go until
-3ITo9Inv performs the split. 3ITo9Inv is itself waiting on a
-`bin/cosmic.pin` bump to a release whose commit has PR #1424 as an
-ancestor: the pin is `2026-08-27-afad5b5`
-(`afad5b5e`, `bin/cosmic.pin`), and
-`git merge-base --is-ancestor 6b88a0db afad5b5e` fails, so the pinned
-binary still knows only the single-file layout.
-
-Nothing else is needed: the anchors, the resolve of the std metatable
-nominal, and both test shapes were validated against the fetched
-checker in this refinement pass.
+none needed — re-verified at pull, 2026-08-27: 3ITo9Inv's split is
+landed (PR #1437), `bin/cosmic.pin` is `2026-08-27-6b88a0d` whose tag
+commit carries the directory mechanism, and a fresh
+`rm -rf o/3p/tl && bin/cosmic --make fetch` reproduces
+`sha256sum o/3p/tl/tl.lua` →
+`77a25cb9597956bbe76c68239b8d55c9436dfc2618b55adf5932c0a55fe2e628`,
+with all three anchor sites present as described (invalid_from at
+o/3p/tl/tl.lua:11490-11492, the not_facts guard at 11508, eval_fact's
+can-never-be arm at 11606-11608).
