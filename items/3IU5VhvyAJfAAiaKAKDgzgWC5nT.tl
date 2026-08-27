@@ -7,8 +7,9 @@ return {
   ["claim"] = "e831e06e-2f80-53d1-84e9-8198069f90ed",
   ["id"] = "3IU5VhvyAJfAAiaKAKDgzgWC5nT",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1452,
-  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "retire the guard-and-cast workarounds the landed narrow rules obsoleted",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "c80cad7b5991787a5e01723fa08559d13e5ba01b",
 }
