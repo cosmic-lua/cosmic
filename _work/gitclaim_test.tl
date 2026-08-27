@@ -30,7 +30,8 @@ local function test_claim_appends_a_builder_and_a_return_keeps_it()
   assert(check.must(store.load(s, leaf)).builders[1] == "session-a",
     "the claiming session is recorded as a builder")
 
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", false,
+      "session-a") == 0)
   local returned = check.must(store.load(s, leaf))
   assert(returned.claim == "", "the return drops the lease")
   assert(#returned.builders == 1 and returned.builders[1] == "session-a",
@@ -43,7 +44,8 @@ local function test_claim_appends_a_builder_and_a_return_keeps_it()
 
   -- A session reclaiming an item it already held is already in the
   -- list, and the record carries no repeats.
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", false,
+      "session-b") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
   assert(#check.must(store.load(s, leaf)).builders == 2,
     "a re-pull by an earlier holder adds no second entry")

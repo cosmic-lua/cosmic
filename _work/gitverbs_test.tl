@@ -176,8 +176,9 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
   assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false, "") ~= 0,
     "do is full: the arrival queues")
   assert(check.must(store.load(s, extra)).phase == "ready", "it stayed put")
-  assert(verbs.cmd_move(s, pulled[1], "plan", nil, 0, false, "") == 0,
-    "a return is never refused")
+  assert(verbs.cmd_move(s, pulled[1], "plan", nil, 0, false, "", false,
+      "session-a") == 0,
+    "a return is never refused for the builder")
   assert(check.must(store.load(s, pulled[1])).claim == "",
     "and a return clears the claim")
 end
@@ -403,3 +404,38 @@ local function test_an_evidence_handover_asks_github_nothing()
   assert(handed.pr == 0, "carrying no PR")
 end
 test_an_evidence_handover_asks_github_nothing()
+
+-- Leaving `do` abandons work in progress, so a live foreign claim
+-- holds against a bare backward move; the builder's own return stays
+-- free and still clears the claim.
+local function test_a_foreign_backward_move_needs_force()
+  local s = init_state_repo("abandon")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", false,
+      "session-b") ~= 0,
+    "another session cannot silently abandon a live claim")
+  local held = check.must(store.load(s, leaf))
+  assert(held.phase == "do" and held.claim == "session-a",
+    "the item and its claim stayed put")
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, true,
+      "the builder's session died mid-slice", false, "session-b") == 0,
+    "a forced takeover with --why goes through")
+end
+test_a_foreign_backward_move_needs_force()
+
+local function test_the_builders_own_return_stays_free()
+  local s = init_state_repo("ownreturn")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "", false,
+      "session-a") == 0,
+    "the builder bounces their own work without force")
+  assert(check.must(store.load(s, leaf)).claim == "",
+    "and the return clears the claim as before")
+end
+test_the_builders_own_return_stays_free()
