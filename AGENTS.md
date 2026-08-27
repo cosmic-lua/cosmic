@@ -271,6 +271,17 @@ a loud `not a fixpoint` if a third would be needed
 (`_make/converge.tl`). `bin/cosmic` prefers `o/bin/cosmic` when one
 exists and reaches for the pin only on a cold start.
 
+**The cold-build rule** is convergence's flip side: build generation 1
+compiles the WHOLE tree — not just `cosmic/**` — with the pinned
+release's checker and patch set, so a source that needs the tree's own
+checker (a new narrowing rule, a new patch entry) passes the converged
+`--make ci` and fails only a cold build. Such a change stages behind a
+release and pin bump: land the checker first, bump `bin/cosmic.pin` to
+a release carrying it, then land the code that needs it.
+`_build/coldbuild_test.tl` enforces this — generation 1's exact type
+check, pinned checker with tree module resolution — so the failure
+lands on the PR instead of in CI's `build` lane.
+
 key concepts:
 - **conventions, not declarations**: `*_test.tl` is a test, `*_example.tl`
   an example, `*_benchmark.tl` a benchmark, `*_pin.tl` a pin, `*_gen.tl`
