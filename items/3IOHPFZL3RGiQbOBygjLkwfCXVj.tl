@@ -6,6 +6,7 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["phase"] = "check",
   ["pr"] = 1438,
+  ["reviewer"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["title"] = "sqlite exec misdiagnoses CREATE TRIGGER as multi-statement sql",
   ["verdict"] = "request changes",
   ["verdict_head"] = "1a14aa70",
