@@ -139,13 +139,62 @@ above, which move.
 5. **Publish it** (the `gh release create` argument list): add
    `release/selfcheck.json` beside `release/perf.json`.
 
-Then one comment, above the "measure the release" step, saying what the
-second run is FOR now that its output survives: it is the release's own
-same-binary A/A control, published so the noise floor of a release
-runner can be read after the fact; on an escalated run the gate
-re-measures into the same file, so a published pair may be minutes or
-tens of minutes apart. Write it to the house standard
-(`skills/docs-style/SKILL.md`) — no item ids, no PR numbers, no dates.
+6. **Rewrite the comment block above the "measure the release" step** —
+   REWRITE, not append. The block's existing sentence, "run twice — once
+   for the record, once so the compare step below has an A/A self-check
+   to separate a real regression from noise", is the stale claim
+   `3IHHKCyz` filed against: the gate never reads that file's
+   pre-measured content, it overwrites it. Leaving it in place and
+   adding prose beside it produces a block that contradicts itself, and
+   the block is this change's whole non-mechanical payload.
+
+   The rewritten block must state, in one voice and without
+   contradiction:
+
+   - both readings are published, so each release retains its own
+     same-binary A/A control — two full-suite measurements of one binary
+     on one runner in one job — and a release runner's noise floor can
+     be read after the fact;
+   - on a CLEAN run the published pair is the measure step's two
+     readings;
+   - on an ESCALATED run the gate OVERWRITES `selfcheck.json` with its
+     own control measurement of the same binary and reads THAT as a
+     triage control (`_perf/gate.tl`'s `controls`, D31), so a published
+     pair's halves may be minutes or tens of minutes apart;
+   - publishing adds no gate input: nothing reads the RELEASED asset.
+
+   Do not write a flat "nothing gates on the second half". It is false
+   on an escalated run under one reading and makes "both readings are
+   published" false under the other — the escalated case has to be
+   named, not generalised away. Write it to the house standard
+   (`skills/docs-style/SKILL.md`) — no item ids, no PR numbers, no
+   dates.
+
+## Review, 2026-08-27 (request changes on PR #1464 at `9fed7ebd`)
+
+The five mechanical edits were correct and verified independently: the
+guard refuses with `selfcheck_src` empty and passes with it set, the
+`gh release create` argv carries nine assets in order with
+`release/selfcheck.json` between `perf.json` and `compare.txt`, the file
+round-trips a YAML parse, both edited `run:` bodies pass `bash -n`, the
+three-dot diff is one file, `git diff -- _perf` is empty, and
+`bin/cosmic --make ci` ends `ci: PASS (5 stages)` at that head with CI
+green on all five lanes.
+
+The gap was the comment, and it was this spec's fault: Change #6 above
+originally asked only that a comment be APPENDED, while this item's own
+Evidence quoted `3IHHKCyz` identifying the sentence already there as
+stale. A spec that knows a neighbouring sentence is wrong must ask for
+it to be reconciled. Change #6 is rewritten above to do that.
+
+One tree fact this spec inherited from `3IHHKCyz` and should not carry
+forward: `3IHHKCyz`'s Direction says "`_build/workflows_test.tl` already
+greps this step's shape". It does not. That test covers container
+digest pinning, `--privileged`, and the non-root builder identity, per
+job; it names no release asset and no measure step. So
+`--make test _build/workflows_test.tl` passing is not evidence about
+any edit in this change, and the Acceptance section's real proofs are
+the `bash -n`, guard-reconstruction and argv checks.
 
 ## Non-goals
 
