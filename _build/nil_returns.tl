@@ -10,7 +10,7 @@
 --- ADMITS nil and this one does not. The union never forms, so nothing
 --- downstream is ever asked to narrow it.
 ---
---- What is counted is `_cli.returns`' `nil_return_lines` — one lexer,
+--- What is counted is `_cli.nilreturn`' `nil_return_lines` — one lexer,
 --- shared with the parser that reads declared return lists, so a
 --- `return nil` quoted in a string or shown in a doc comment counts for
 --- nothing, and an inner closure's nil is charged to the closure rather
@@ -30,7 +30,7 @@
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
-local returns = require("_cli.returns")
+local nilreturn = require("_cli.nilreturn")
 
 --- The committed floor: where this module writes it and the test reads
 --- it, relative to the project root.
@@ -70,7 +70,7 @@ local function count(root: string): {string: integer}
           if not ("/" .. rest):find("/testdata/", 1, true)
           and not rest:find("%.d%.tl$") then
             local text = fs.read(path)
-            local n = text and #returns.nil_return_lines(text, path) or 0
+            local n = text and #nilreturn.nil_return_lines(text, path) or 0
             if n > 0 then
               out[tree .. "/" .. rest] = n
             end
@@ -92,7 +92,7 @@ local function lines_in(path: string): {integer}
   if text == nil then
     return {}
   end
-  return returns.nil_return_lines(text, path)
+  return nilreturn.nil_return_lines(text, path)
 end
 
 --- The committed floor, read as data.

@@ -118,6 +118,47 @@ local function test_count_reads_the_innermost_declared_return()
       "end",
       "print(pick(1))",
     }, "\n") .. "\n"
+  -- Lua 5.4 lexes `>>` as one token, so a nested generic's closing
+  -- angles arrive together. A skip that counts that once leaves the
+  -- outer `<` open to end of file — and the honest return below reads
+  -- as a site. Spacing the angles apart makes it pass either way, which
+  -- is why the case is written closed up.
+  local nested_generic = table.concat({
+      "local function f(): string | nil, string",
+      "  local b: Box<Box<function(): string>> = nil",
+      "  print(b)",
+      "  return nil, \"e\"",
+      "end",
+      "print(f())",
+    }, "\n") .. "\n"
+  -- The other legal spelling of a record. `record` is an identifier
+  -- atom to the type grammar, so an alias hands it to the type parser
+  -- and the body is consumed rather than opened — leaving its `end` to
+  -- pop the enclosing function, and the real site below it unseen.
+  local alias_body = table.concat({
+      "local function build(): string",
+      "  local type Shape = record",
+      "    n: integer",
+      "  end",
+      "  print(Shape)",
+      "  return nil",
+      "end",
+      "print(build())",
+    }, "\n") .. "\n"
+  -- An enum alias is the same shape with a different tell: its body
+  -- opens onto STRINGS, not a field name, so what says a body follows
+  -- is the `=` before it rather than what comes after.
+  local alias_enum = table.concat({
+      "local function pick(): string",
+      "  local type Kind = enum",
+      "    \"a\"",
+      "    \"b\"",
+      "  end",
+      "  print(Kind)",
+      "  return nil",
+      "end",
+      "print(pick())",
+    }, "\n") .. "\n"
   -- The control the four above must not be bought with: after a `,` in
   -- a CALL, `function` really does open a definition, and its own
   -- `: integer` is the signature that nil lies about. Blacklisting `,`
@@ -159,6 +200,9 @@ local function test_count_reads_the_innermost_declared_return()
   assert(fs.write(fs.join(root, "cosmic", "angle.tl"), behind_angle))
   assert(fs.write(fs.join(root, "cosmic", "comma.tl"), behind_comma))
   assert(fs.write(fs.join(root, "cosmic", "cast.tl"), behind_cast))
+  assert(fs.write(fs.join(root, "cosmic", "generic.tl"), nested_generic))
+  assert(fs.write(fs.join(root, "cosmic", "alias.tl"), alias_body))
+  assert(fs.write(fs.join(root, "cosmic", "aenum.tl"), alias_enum))
   assert(fs.write(fs.join(root, "cosmic", "call.tl"), real_after_comma))
   assert(fs.write(fs.join(root, "cosmic", "inner.tl"), inner_record))
   assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
@@ -174,7 +218,7 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/nested.tl"] == 1,
     "the innermost function owns the return: "
     .. tostring(got["cosmic/nested.tl"]))
-  for _, name in ipairs({"brace", "angle", "comma", "cast"}) do
+  for _, name in ipairs({"brace", "angle", "comma", "cast", "generic"}) do
     local key = "cosmic/" .. name .. ".tl"
     assert(got[key] == nil,
       ("a function type behind %s is not a definition, so the honest "
@@ -187,6 +231,12 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/inner.tl"] == 1,
     "a record body opens a frame, so its end does not pop the function: "
     .. tostring(got["cosmic/inner.tl"]))
+  assert(got["cosmic/alias.tl"] == 1,
+    "and so does one an alias names, which the type parser would eat: "
+    .. tostring(got["cosmic/alias.tl"]))
+  assert(got["cosmic/aenum.tl"] == 1,
+    "including an enum alias, whose body opens onto strings: "
+    .. tostring(got["cosmic/aenum.tl"]))
   assert(got["cosmic/quoted.tl"] == nil,
     "a return quoted inside a string is not a return")
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")

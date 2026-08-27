@@ -1,6 +1,11 @@
 --- The returns invariant: a fallible function returns at most two
 --- values, and slot 2 is its error.
 ---
+--- The type grammar underneath it — `skip_balanced`, `parse_type`,
+--- `parse_list`, `params_open` — is exported, because reading a
+--- declared return list is not this rule\'s alone: `_cli.nilreturn`
+--- asks the same parser whether slot 1 admits nil.
+---
 --- The error must be reachable from `local v, err = ...` and from
 --- `check.must`, so a tuple never carries it in slot 3 or beyond. This
 --- is that rule made mechanical, so the class is closed by
@@ -45,6 +50,34 @@ local tl = require("tl")
 local type Diagnostic = style.Diagnostic
 local type Token = tl.Token
 
+--- How many levels of a `<`...`>` group one token closes.
+---
+--- Lua 5.4 lexes `>>` as ONE token, the right shift, so a nested
+--- generic's closing angles arrive together: `Box<Box<T>>` ends on a
+--- single `>>`. Counting that once leaves the outer `<` open to the end
+--- of the file, and everything after it is read in the wrong context.
+--- A shift cannot appear in a type position, so `>>` there is always
+--- two closers; `>=` is a `>` run together with the `=` of the
+--- declaration it ends.
+--- @param tk string The token's text
+--- @param close string The closing token's text
+--- @return integer 0 when this token closes nothing
+local function closes(tk: string, close: string): integer
+  if tk == close then
+    return 1
+  end
+  if close ~= ">" then
+    return 0
+  end
+  if tk == ">>" then
+    return 2
+  end
+  if tk == ">=" then
+    return 1
+  end
+  return 0
+end
+
 --- Index just past the token that closes a balanced group.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the opening token
@@ -56,11 +89,12 @@ local function skip_balanced(tokens: {Token}, i: integer,
   local depth = 0
   for j = i, #tokens do
     local tk = tokens[j].tk
+    local shut = closes(tk, close)
     if tk == open then
       depth = depth + 1
-    elseif tk == close then
-      depth = depth - 1
-      if depth == 0 then
+    elseif shut > 0 then
+      depth = depth - shut
+      if depth <= 0 then
         return j + 1
       end
     end
@@ -272,205 +306,21 @@ local function check_fallible_returns(file: string, content: string): {Diagnosti
   return diagnostics
 end
 
---- One open block: what closes on the matching `end`.
-local record Frame
-  --- "fn" for a function definition, "fields" for a record, interface
-  --- or enum body, "block" for anything else.
-  kind: string
-  --- For a "fn" frame: its declared slot 1 cannot be nil.
-  lies: boolean
-end
-
---- Index just past a `local`/`global` declaration head, its type
---- annotation consumed with it.
----
---- Consuming the annotation is what keeps `local hs: {function(): T}`
---- from presenting its inner `function` as a definition. The walk stops
---- at `record`, `interface`, `enum`, `type` and `function` — each opens
---- a declaration of its own, and each is an IDENTIFIER to the lexer, so
---- a head that swallowed them as names would run on into the body.
---- @param tokens {tl.Token} The file's tokens
---- @param i integer Index of the `local` or `global`
---- @return integer Index of the first token past the head
-local function skip_declaration_head(tokens: {Token}, i: integer): integer
-  local j = i + 1
-  while tokens[j] ~= nil do
-    local t = tokens[j]
-    if t.tk == "record" or t.tk == "interface" or t.tk == "enum"
-    or t.tk == "type" or t.tk == "function" then
-      return j
-    elseif t.kind == "identifier" or t.tk == "," then
-      j = j + 1
-    elseif t.tk == "<" then
-      local k = skip_balanced(tokens, j, "<", ">")
-      if k == 0 then
-        return j
-      end
-      j = k
-    else
-      break
-    end
-  end
-  if tokens[j] ~= nil and tokens[j].tk == ":" then
-    local _, stop = parse_list(tokens, j + 1)
-    if stop > j then
-      return stop
-    end
-  end
-  return j
-end
-
---- Index just past a `type NAME = <type>` alias.
----
---- Returns the index of what follows `=` when the right-hand side is
---- not a type expression — `record`/`enum` open a body instead, and the
---- walk handles those where it finds them.
---- @param tokens {tl.Token} The file's tokens
---- @param i integer Index of the `type`
---- @return integer Index of the first token past the alias
-local function skip_type_alias(tokens: {Token}, i: integer): integer
-  local name = tokens[i + 1]
-  local eq = tokens[i + 2]
-  if name == nil or name.kind ~= "identifier" or eq == nil or eq.tk ~= "=" then
-    return i + 1
-  end
-  local after = parse_type(tokens, i + 3)
-  if after == 0 then
-    return i + 3
-  end
-  return after
-end
-
---- Whether `record`/`interface`/`enum` at `i` opens a body rather than
---- naming a value. Each is an identifier to the lexer, so only what
---- follows separates `local record R` and the nested `record Inner`
---- from a field or variable that happens to be called `record` — which
---- is followed by `:`, `=`, `.` or a closer, never by a name.
---- @param tokens {tl.Token} The file's tokens
---- @param i integer Index of the candidate
---- @return boolean True when a body follows
-local function opens_body(tokens: {Token}, i: integer): boolean
-  local t = tokens[i]
-  if t.kind ~= "identifier" then
-    return false
-  end
-  if t.tk ~= "record" and t.tk ~= "interface" and t.tk ~= "enum" then
-    return false
-  end
-  local nxt = tokens[i + 1]
-  return nxt ~= nil and (nxt.kind == "identifier" or nxt.tk == "<")
-end
-
---- Lines holding a `return nil` whose innermost enclosing function
---- DECLARES a slot 1 that cannot be nil.
----
---- The checker does not refuse these: a bare non-nil return type
---- accepts `return nil` and then lets callers index the result, so the
---- annotation is a promise to the reader that nothing enforces and
---- none of the nil tooling — the narrowing patch, `check.must`, the
---- `fallible-returns` rule — can see, because they all act on a type
---- that admits nil and this one does not.
----
---- The walk CONSUMES rather than scans, and that is what makes it
---- sound. Whether a `function` opens a body cannot be read off the
---- token before it: `{`, `<` and `,` each precede a definition in one
---- context and a type in another (`local t = {function() end}` against
---- `local t: {function(): T}`; `f(a, function() end)` against a return
---- list `(): T | nil, function(): U`). So every construct that opens a
---- type position — an annotation, a return list, `as`, `is`, an alias,
---- a record field — is consumed whole by the parser above, and a
---- `function` the walk still LANDS on is a definition by construction.
---- Reading it backwards instead charges an enclosing function's honest
---- `return nil` to a frame no `end` ever pops.
----
---- Innermost is the other half: a stack of open definitions means an
---- inner closure's nil is charged to the closure, never to the function
---- around it. A function with no declared return type is not in the
---- class at all, and neither is a bare `return` — the class is
---- `return nil`, written out.
----
---- Token-exact, so a `return nil` quoted in a string or shown in a doc
---- comment counts for nothing.
---- @param content string The file's bytes
---- @param file string Path, for the lexer's error reporting
---- @return {integer} The lines, ascending
-local function nil_return_lines(content: string, file: string): {integer}
-  local tokens = tl.lex(content, file)
-  if not tokens then
-    return {}
-  end
-  local stack: {Frame} = {}
-  local lines: {integer} = {}
-  local i = 1
-  while i <= #tokens do
-    local t = tokens[i]
-    local tk = t.tk
-    local word = t.kind == "keyword"
-    if word and tk == "function" then
-      local open = params_open(tokens, i)
-      local after = open > 0 and skip_balanced(tokens, open, "(", ")") or 0
-      local lies = false
-      local j = after > 0 and after or i + 1
-      if after > 0 and tokens[after] ~= nil and tokens[after].tk == ":" then
-        local slots, stop = parse_list(tokens, after + 1)
-        lies = #slots > 0 and not slots[1]
-        j = stop
-      end
-      stack[#stack + 1] = {kind = "fn", lies = lies}
-      i = j
-    elseif opens_body(tokens, i) then
-      stack[#stack + 1] = {kind = "fields", lies = false}
-      i = i + 1
-    elseif word and (tk == "do" or tk == "if") then
-      stack[#stack + 1] = {kind = "block", lies = false}
-      i = i + 1
-    elseif word and tk == "end" then
-      if #stack > 0 then
-        stack[#stack] = nil
-      end
-      i = i + 1
-    elseif word and tk == "local" then
-      i = skip_declaration_head(tokens, i)
-    elseif t.kind == "identifier" and tk == "global"
-    and tokens[i + 1] ~= nil and tokens[i + 1].kind == "identifier" then
-      i = skip_declaration_head(tokens, i)
-    elseif t.kind == "identifier" and tk == "type" then
-      i = skip_type_alias(tokens, i)
-    elseif t.kind == "identifier" and (tk == "as" or tk == "is") then
-      local after = parse_type(tokens, i + 1)
-      i = after > i and after or i + 1
-    elseif tk == ":" and #stack > 0 and stack[#stack].kind == "fields" then
-      local _, stop = parse_list(tokens, i + 1)
-      i = stop > i and stop or i + 1
-    elseif word and tk == "return" and tokens[i + 1] ~= nil
-    and tokens[i + 1].tk == "nil" then
-      for d = #stack, 1, -1 do
-        if stack[d].kind == "fn" then
-          if stack[d].lies then
-            lines[#lines + 1] = t.y
-          end
-          break
-        end
-      end
-      i = i + 1
-    else
-      i = i + 1
-    end
-  end
-  return lines
-end
-
 local record ReturnsModule
   check_fallible_returns: function(file: string, content: string): {Diagnostic}
-  nil_return_lines: function(content: string, file: string): {integer}
   skip_balanced: function(tokens: {Token}, i: integer,
   open: string, close: string): integer
+  parse_type: function(tokens: {Token}, i: integer): integer, boolean
+  parse_list: function(tokens: {Token}, i: integer): {boolean}, integer
+  params_open: function(tokens: {Token}, i: integer): integer
 end
 
 local M: ReturnsModule = {
   check_fallible_returns = check_fallible_returns,
-  nil_return_lines = nil_return_lines,
   skip_balanced = skip_balanced,
+  parse_type = parse_type,
+  parse_list = parse_list,
+  params_open = params_open,
 }
 
 return M
