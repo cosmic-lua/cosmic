@@ -460,3 +460,21 @@ local function test_stale_rework_is_offered_as_a_forced_takeover()
     "the guidance carries what the move guard demands: " .. action.reason)
 end
 test_stale_rework_is_offered_as_a_forced_takeover()
+
+-- The wave provenance reaches the ordering: a check item built under
+-- an orchestrator's minted identity is never offered back to the
+-- orchestrator as a review, and is offered to anyone else.
+local function test_review_skips_the_minting_orchestrator()
+  local goal = make({})
+  local judged = make({parent = goal.id, phase = "check", pr = 4,
+      claim = "orch/3IVKVslE", builders = "orch/3IVKVslE"})
+  local _ = judged
+  local items: {item.Item} = {goal, judged}
+  local mine = act.next_action(items, "orch")
+  assert(not (mine.kind == "review"),
+    "the orchestrator is not handed its wave's diff: " .. mine.kind)
+  local theirs = act.next_action(items, "other")
+  assert(theirs.kind == "review" and theirs.item.id == judged.id,
+    "a session outside the wave judges it")
+end
+test_review_skips_the_minting_orchestrator()

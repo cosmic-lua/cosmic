@@ -7,10 +7,9 @@
 ---   root      a parentless item, organizing or awaiting a decision
 ---   work      a parented leaf — the only role that holds a phase
 ---
---- There is no goal tier: every item is the same record, and what
---- makes one outrank another is a committed comparison, derived into
---- an order by `_work.priority`. A queue is therefore priority order
---- with age as the last word, not age alone.
+--- There is no goal tier: what makes one item outrank another is a
+--- committed comparison (`_work.priority`), so a queue is priority
+--- order with age as the last word.
 ---
 --- The board is open PHASED items; roots and containers are never on
 --- it, so a limit has nothing to except and the one arrival it never
@@ -44,15 +43,12 @@ local type Index = {string: Item}
 --- weight. Every reader treats a missing entry as "no limit" rather
 --- than defaulting a number, so unboundedness is stated once here.
 ---
---- `land` is unbounded for the opposite reason. It is the rightmost
---- phase: an item there is accepted, its diff merged or about to be,
---- and the only thing left is ending it. A WIP limit throttles
---- ARRIVALS into a phase, so a number here would throttle FINISHING,
---- which is backwards on a board whose ordering rule is that work
---- flows right to left and finishing beats starting. Dwell there is a
---- median of 55 seconds against `plan`'s hours — a step, not a state,
---- and a limit on a phase nothing rests in can only refuse a
---- legitimate accept, which is then forced through anyway.
+--- `land` is unbounded for the opposite reason: a WIP limit throttles
+--- ARRIVALS, so a number on the rightmost phase would throttle
+--- FINISHING — backwards on a board where finishing beats starting.
+--- Dwell there is a median of 55 seconds against `plan`'s hours — a
+--- step, not a state, and a limit on a phase nothing rests in can
+--- only refuse a legitimate accept, which is then forced through.
 ---
 --- Every number here is a measured one; `docs/flow-review.md` is the
 --- measurement it rests on.
@@ -407,26 +403,40 @@ local function triage_violation(items: {Item}): string | nil
   return nil
 end
 
+--- The name up to its first `/` — the wave separator. An orchestrator
+--- mints per-agent claims as `<its own id>/<suffix>`, so everything
+--- under one root is ONE session for review distance; a name with no
+--- `/` roots to itself, so plain identities compare exactly as before.
+--- Claim LOCKS elsewhere stay exact-string and are untouched by this.
+--- @param name string A session or recorded builder name
+--- @return string The root
+local function root(name: string): string
+  local slash = name:find("/", 1, true)
+  if slash then
+    return name:sub(1, slash - 1)
+  end
+  return name
+end
+
 --- Whether `session` has built this item: it holds the claim now, or
---- it held the claim at some point.
----
---- The claim alone is not the answer. It is a LEASE — a return clears
---- it and the next pull writes a new one — so an item built by A,
---- returned, and re-pulled by B reads as B's while A's diff is what
---- sits in `check`. `builders` is the durable half, and consulting
---- both is what makes "no session accepts its own work" hold across a
---- handover rather than only while nobody collides. Both the review
---- ordering (`_work.action`) and the review claim (`_work.gitreview`)
---- turn on this answer, so it lives here once.
+--- it held the claim at some point. The claim alone is a LEASE — a
+--- return clears it, the next pull rewrites it — so `builders` is the
+--- durable half, and consulting both is what makes "no session accepts
+--- its own work" hold across a handover. Names compare by `root`, so
+--- work an orchestrator's minted agents built is the orchestrator's
+--- own. The review ordering (`_work.action`), the review claim
+--- (`_work.gitreview`) and the verdict verb all turn on this answer,
+--- so it lives here once.
 --- @param i Item The item in check
 --- @param session string This session's name, never ""
 --- @return boolean True when this session built it
 local function built_by(i: Item, session: string): boolean
-  if (i.claim or "") == session then
+  local who = root(session)
+  if root(i.claim or "") == who then
     return true
   end
   for _, name in ipairs(i.builders or {}) do
-    if name == session then
+    if root(name) == who then
       return true
     end
   end

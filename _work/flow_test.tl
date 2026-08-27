@@ -195,3 +195,26 @@ local function test_land_is_unbounded()
     "a deep land column is not turning anything away")
 end
 test_land_is_unbounded()
+
+-- Names compare by their root — the name up to the first `/`, the
+-- wave separator — so work an orchestrator's minted agents built
+-- (`<orch>/<suffix>`) is the orchestrator's own, while plain names
+-- keep exact comparison and a `/`-free near-miss is nobody's match.
+local function test_built_by_roots_names()
+  local goal = make({})
+  local it = make({parent = goal.id, phase = "check",
+      claim = "orch/3IVKVslE"})
+  assert(flow.built_by(it, "orch"), "the orchestrator owns its wave")
+  assert(flow.built_by(it, "orch/anything"),
+    "and so does any name under the same root")
+  assert(not flow.built_by(it, "orchid"),
+    "the boundary is the slash, not a string prefix")
+  assert(not flow.built_by(it, "other"), "a stranger is a stranger")
+  local moved = make({parent = goal.id, phase = "check",
+      claim = "second", builders = "orch/a second"})
+  assert(flow.built_by(moved, "orch"),
+    "the durable half roots the same way after the claim moves on")
+  assert(flow.built_by(moved, "second"), "plain names still match")
+  assert(not flow.built_by(moved, "third"), "and only themselves")
+end
+test_built_by_roots_names()
