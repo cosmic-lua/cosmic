@@ -17,22 +17,37 @@ depending on which level the session landed on, even when it is
 applied to a correctly interleaved pair. A regression that clears the
 bar at the fast level can sit under it at the slow one.
 
-Open question, not a finding: whether anything should change. Three
-shapes worth weighing, none of them chosen:
+Open question, not a finding: whether anything should change.
+
+## The data source this needs does not exist yet
+
+Recorded by 3IUBNQZZ's bounce (2026-08-27, session 0b13d2b4) and load
+bearing for any slice cut from here: **the gate persists no A/A
+history.** `_perf/gate.tl`'s `selfcheck` takes `A.json B.json`,
+measures into both paths the caller named, compares, and returns —
+nothing accumulates — and `o/perf/*.json` is never committed
+(AGENTS.md). There is no accumulated cross-window A/A history anywhere
+in the tree from which a per-scenario floor could be derived. So the
+phrase "derive it from the selfcheck files the gate already writes" is
+false as stated, and the first decision here is whether a history
+store should exist at all, where it lives, who writes it, and what
+reads it. That is a decision nobody has taken, which is why this item
+is in the backlog rather than in plan.
+
+## Shapes worth weighing, none of them chosen
 
 - a bar expressed relative to the session's own measured level, or a
-  normalisation of the delta by it;
+  normalisation of the delta by it — needs no history store, which is
+  the cheapest reason to weigh it first;
 - a per-scenario floor derived from accumulated same-binary A/A
-  selfcheck spreads (the selfcheck pair is same-binary AND
-  same-session by construction) — note the evidence says same-session
-  spread is TIGHT (CV 1.2-5.3% across every labeled group on record),
-  so a history-derived floor would likely come out SMALL;
+  spreads (a selfcheck pair is same-binary AND same-session by
+  construction) — needs the store above, and note the evidence says
+  same-session spread is TIGHT (CV 1.2-5.3% across every labeled group
+  on record), so a history-derived floor would likely come out SMALL,
+  not large;
 - nothing: record the effect in `skills/optimize/measurement.md` and
-  leave the arithmetic alone.
-
-The first job of any slice cut from this is to answer the question
-from data the gate already writes, not to implement a derivation on
-the assumption that one is needed.
+  leave the arithmetic alone. This is a real option and may well be
+  the right one.
 
 ## The wall this inherits
 
@@ -49,13 +64,13 @@ independent interleaved experiments have since confirmed. Whatever
 this item concludes, no committed threshold for
 `codec_base64_roundtrip_64k` may end larger than it starts
 (`DEFAULT_THRESHOLD_PCT = 10.0`, `TRIAGE_K = 2.0`, measured
-2026-08-27 at origin/main `267c2a4d`).
+2026-08-27 at `origin/main` `267c2a4d`).
 
 ## Relation to 3IUBNQZZ
 
 3IUBNQZZ carries the founded, implementable half of the same evidence
-base — stamping each side's binary identity and measurement time into
-every table the perf gate prints — and names this item in its
+base — labelling every table the perf gate prints with each side's
+binary sha and measurement time — and names this item in its
 Non-goals. This item is the unfounded half, deliberately left in the
-backlog until someone is ready to answer its question from recorded
-selfcheck data rather than from the hypothesis in its title.
+backlog until someone is ready to answer its question, starting from
+the fact that its data source has to be built before it can be read.
