@@ -16,6 +16,7 @@ return {
   ["_tool/coverage/baseline.tl"] = 2,
   ["_tool/coverage/baseline_test.tl"] = 1,
   ["_tool/coverage/lines.tl"] = 3,
+  ["_tool/discover.tl"] = 3,
   ["_types/gentype.tl"] = 3,
   ["_types/tlast.tl"] = 6,
   ["_types/tlast_test.tl"] = 2,
