@@ -5,10 +5,9 @@
 --- mutation whole, re-syncs onto the winner's state, and refuses
 --- with `LOST_RACE` — the verb is re-run against the merged board,
 --- re-applying EVERY gate, never replaying a commit whose
---- preconditions the winner may have falsified. That is the compare-and-swap
---- GitHub's eventually-consistent label index cannot offer, and
---- `history` reads the same commits back as the flow record `stats`
---- would otherwise reconstruct from the GitHub timeline API.
+--- preconditions the winner may have falsified: the compare-and-swap
+--- GitHub's eventually-consistent label index cannot offer.
+--- `history` reads the same commits back as the flow record.
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
@@ -30,7 +29,6 @@ end
 
 --- The refusal a lost push race earns, exported so a verb can tell
 --- it from a terminal failure; compared by identity, never matched.
---- The re-run it names is the whole compare-and-swap.
 local LOST_RACE < const > = "lost the push race — the mutation was dropped "
 .. "whole and the checkout re-synced; re-run the verb against the "
 .. "current board"
@@ -352,14 +350,13 @@ end
 --- Publish the last commit: one push, and a rejected push is
 --- diagnosed before anything is destroyed. It is a lost race only
 --- when the remote holds commits this checkout lacks: then no commit
---- is replayed — the mutation's guards were decided against state
---- the winner just changed — so the mutation is dropped whole, the
---- checkout re-synced, and the refusal is `LOST_RACE`, whose
---- recovery is re-running the verb against the merged board. A
---- rejection with the remote unmoved — a pre-receive hook, a
---- read-only token — is the remote's policy, not a race: the commit
---- stays local and the refusal carries the remote's own words
---- instead of asserting a race that never happened.
+--- is replayed — its guards were decided against state the winner
+--- just changed — so the mutation is dropped whole, the checkout
+--- re-synced, and the refusal is `LOST_RACE`, whose recovery is
+--- re-running the verb against the merged board. A rejection with
+--- the remote unmoved — a pre-receive hook, a read-only token — is
+--- policy, not a race: the commit stays local and the refusal
+--- carries the remote's own words instead of asserting a race.
 ---
 --- Dropping the mutation is `reset --hard HEAD~1`, exact because
 --- `save` writes one mutation as ONE commit. The reset drops only
@@ -414,10 +411,8 @@ end
 
 --- Mutation history, newest first, from git alone: one item's when
 --- `id` names one, the whole branch's flow record when it does not.
----
---- An item is TWO files, and one item's log is both: a `spec` commit
---- touches only the sidecar, so the record alone would be a trail with
---- every refinement missing from it.
+--- An item is TWO files and its log is both — a `spec` commit touches
+--- only the sidecar, and a record-only trail would miss every one.
 --- @param s Store The store
 --- @param id string Item id, or nil for every commit on the branch
 --- @return {Event} | nil Events, possibly empty
