@@ -71,32 +71,39 @@ local function skip_declaration_head(tokens: {Token}, i: integer): integer
   return j
 end
 
---- Index just past a `type NAME = <type>` alias.
+--- Index just past a `type NAME = <type>` alias, and whether that
+--- alias opens a BODY.
 ---
---- Returns the index of what follows `=` when the right-hand side opens
---- a BODY rather than naming a type. `record`, `interface` and `enum`
---- are identifier atoms to the type grammar, so handing one to
---- `parse_type` consumes it — the walk never lands on it, no frame
---- opens, and the body's `end` pops the enclosing function instead.
+--- `record`, `interface` and `enum` are identifier atoms to the type
+--- grammar, so handing one to `parse_type` consumes it — the walk never
+--- lands on it, no frame opens, and the body's `end` pops the enclosing
+--- function instead. So the alias reports the body itself: it is the
+--- one path that knows a `record` here is a KEYWORD rather than a name,
+--- and it lands exactly on that token. Reading it backwards instead —
+--- any `record` whose previous token is `=` — cannot tell the alias
+--- from an ordinary binding of a value that happens to be called
+--- `record` (`record = record` in an export table), and the frame that
+--- pushes is one no `end` ever pops.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the `type`
---- @return integer Index of the first token past the alias
-local function skip_type_alias(tokens: {Token}, i: integer): integer
+--- @return integer Index of the alias body's opener, or of the first token past the alias
+--- @return boolean True when that index is a body opener
+local function skip_type_alias(tokens: {Token}, i: integer): integer, boolean
   local name = tokens[i + 1]
   local eq = tokens[i + 2]
   if name == nil or name.kind ~= "identifier" or eq == nil or eq.tk ~= "=" then
-    return i + 1
+    return i + 1, false
   end
   local rhs = tokens[i + 3]
   if rhs ~= nil and rhs.kind == "identifier"
   and (rhs.tk == "record" or rhs.tk == "interface" or rhs.tk == "enum") then
-    return i + 3
+    return i + 3, true
   end
   local after = parse_type(tokens, i + 3)
   if after == 0 then
-    return i + 3
+    return i + 3, false
   end
-  return after
+  return after, false
 end
 
 --- Whether `record`/`interface`/`enum` at `i` opens a body rather than
@@ -116,13 +123,9 @@ local function opens_body(tokens: {Token}, i: integer): boolean
     return false
   end
   -- `local record R` and the nested `record Inner` are followed by a
-  -- name; `local type R = record` is followed by the first FIELD, or by
-  -- a string when it is an enum, so the `=` before it is what says a
-  -- body opens.
-  local prev = tokens[i - 1]
-  if prev ~= nil and prev.tk == "=" then
-    return true
-  end
+  -- name. `local type R = record` is followed by the first FIELD, or by
+  -- a string when it is an enum, and nothing after it says a body
+  -- opens — `skip_type_alias` reports that one from the alias itself.
   local nxt = tokens[i + 1]
   return nxt ~= nil and (nxt.kind == "identifier" or nxt.tk == "<")
 end
@@ -201,7 +204,13 @@ local function nil_return_lines(content: string, file: string): {integer}
     and tokens[i + 1] ~= nil and tokens[i + 1].kind == "identifier" then
       i = skip_declaration_head(tokens, i)
     elseif t.kind == "identifier" and tk == "type" then
-      i = skip_type_alias(tokens, i)
+      local after, body = skip_type_alias(tokens, i)
+      if body then
+        stack[#stack + 1] = {kind = "fields", lies = false}
+        i = after + 1
+      else
+        i = after
+      end
     elseif t.kind == "identifier" and (tk == "as" or tk == "is") then
       local after = parse_type(tokens, i + 1)
       i = after > i and after or i + 1

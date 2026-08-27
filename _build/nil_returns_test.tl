@@ -146,8 +146,8 @@ local function test_count_reads_the_innermost_declared_return()
       "print(build())",
     }, "\n") .. "\n"
   -- An enum alias is the same shape with a different tell: its body
-  -- opens onto STRINGS, not a field name, so what says a body follows
-  -- is the `=` before it rather than what comes after.
+  -- opens onto STRINGS, not a field name, so nothing AFTER it says a
+  -- body follows and only the alias itself can report one.
   local alias_enum = table.concat({
       "local function pick(): string",
       "  local type Kind = enum",
@@ -158,6 +158,25 @@ local function test_count_reads_the_innermost_declared_return()
       "  return nil",
       "end",
       "print(pick())",
+    }, "\n") .. "\n"
+  -- The control the two aliases must not be bought with: `record` is an
+  -- IDENTIFIER, so binding the value under its own name (`record =
+  -- record`, as `cosmic/shape.tl` does in its export table) puts it
+  -- right after an `=` too. Reading that `=` backwards opens a frame no
+  -- `end` ever pops, the function's own `end` pops the frame instead,
+  -- and the honest module-scope return below is charged to a function
+  -- that closed three lines earlier.
+  local value_named_record = table.concat({
+      "local function record(): string",
+      "  return \"r\"",
+      "end",
+      "local function lying(): string",
+      "  local t = {record = record}",
+      "  return t.record()",
+      "end",
+      "if lying() == \"\" then",
+      "  return nil",
+      "end",
     }, "\n") .. "\n"
   -- The control the four above must not be bought with: after a `,` in
   -- a CALL, `function` really does open a definition, and its own
@@ -203,6 +222,7 @@ local function test_count_reads_the_innermost_declared_return()
   assert(fs.write(fs.join(root, "cosmic", "generic.tl"), nested_generic))
   assert(fs.write(fs.join(root, "cosmic", "alias.tl"), alias_body))
   assert(fs.write(fs.join(root, "cosmic", "aenum.tl"), alias_enum))
+  assert(fs.write(fs.join(root, "cosmic", "value.tl"), value_named_record))
   assert(fs.write(fs.join(root, "cosmic", "call.tl"), real_after_comma))
   assert(fs.write(fs.join(root, "cosmic", "inner.tl"), inner_record))
   assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
@@ -237,6 +257,10 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/aenum.tl"] == 1,
     "including an enum alias, whose body opens onto strings: "
     .. tostring(got["cosmic/aenum.tl"]))
+  assert(got["cosmic/value.tl"] == nil,
+    "a value bound under the name `record` opens no body, so the return"
+    .. " below its function is nobody's: "
+    .. tostring(got["cosmic/value.tl"]))
   assert(got["cosmic/quoted.tl"] == nil,
     "a return quoted inside a string is not a return")
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")
