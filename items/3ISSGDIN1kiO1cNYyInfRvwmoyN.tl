@@ -1,4 +1,8 @@
 return {
+  ["block_reason"] = {
+    ["3ITo9InvDKnofScNuZYfUluM4o8"] = "its patch entry needs room in the tl patch set: the single file has 1 line of headroom, so the entry can only land in 3p/tl/tl_patch/narrow.tl once the split exists",
+  },
+  ["blocked_by"] = "3ITo9InvDKnofScNuZYfUluM4o8",
   ["id"] = "3ISSGDIN1kiO1cNYyInfRvwmoyN",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
   ["phase"] = "backlog",
