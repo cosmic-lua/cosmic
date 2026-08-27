@@ -1,51 +1,49 @@
-`cosmic.literal` promises a value "equal to what executing the file
-would return". Inside a long bracket string it is not: Lua's lexer
-normalizes line endings, and neither reader does.
+## Goal
 
-Found while reviewing whilp/cosmopolitan#274 (board `3IKSjEgW`, the C
-parser). The C parser matches the Teal reader on every case below, so
-this is not that item's bug — it is a divergence both readers share
-against real Lua, and it is why #274's byte sweep over long brackets
-skips byte 13 (`tool/lua/test_llua.lua`, `test_every_byte_in_a_long_bracket`)
-with the inline comment "a lone \r is line-ending translation, not
-data". It IS data to both readers, which is the divergence.
+A long bracket read by either literal reader equals what `load`
+returns: `\r\n`, `\n\r` and `\r` normalize to `\n` while copying the
+body, and one such sequence right after the opening delimiter is
+dropped (Lua's read_long_string/inclinenumber rule). Today both
+readers keep the CR bytes — the measured table in the capture shows
+five DIFFER rows — so a CRLF checkout feeds a build patch text Lua
+would not produce, silently.
 
-Measured against a `lua.dbg` built from whilp/cosmopolitan
-`2435c594` (the PR head), each source decoded by `cosmo.DecodeLua`
-and by `load`:
+## Change
 
-```
-CR in long bracket       load=x\10y      decode=x\13y      DIFFER
-CRLF in long bracket     load=x\10y      decode=x\13\10y   DIFFER
-LFCR in long bracket     load=x\10y      decode=x\10\13y   DIFFER
-CR right after opener    load=x          decode=\13x       DIFFER
-CRLF right after opener  load=x          decode=\13\10x    DIFFER
-CR in long comment       load=1          decode=1          agree
-```
+One change in two places, C FIRST — this is an ACCEPTANCE divergence,
+so cosmic's C-refusal fall-through does not cover it: landing the
+Teal half first would make engine="auto" (the C reader, old pin)
+return different bytes than engine="teal" on the same source.
 
-Lua's rule (`third_party/lua/llex.c`, `read_long_string` /
-`inclinenumber`): any of `\n`, `\r`, `\n\r`, `\r\n` inside a long
-string becomes a single `\n`, and one such sequence immediately after
-the opening delimiter is dropped. The Teal reader
-(`cosmic/literal.tl`, `string_value`'s long-bracket branch) takes the
-raw body and drops a leading `"\n"` only; the C parser
-(`tool/net/llua.c`, `ScanLongString`) does the same, deliberately, to
-stay differentially equal to it.
+1. whilp/cosmopolitan (`tool/net/llua.c`, ScanLongString): normalize
+   the four line-ending forms to `\n` while copying; drop ONE
+   normalized sequence after the opener instead of a bare `\n`.
+   `test_llua.lua`: the byte sweep over long brackets stops excluding
+   byte 13 (the acceptance signal named in the capture) and the CR
+   table's five cases assert equality with `load`. Rides the
+   designated branch AFTER whilp/cosmopolitan#283 merges (the branch
+   holds one PR at a time).
+2. whilp/cosmic (`cosmic/literal.tl`, string_value's long-bracket
+   branch): same normalization; engine corpus gains a CR case. Lands
+   only once the cosmos pin carries (1) — before that the two engines
+   would disagree on the new corpus case.
 
-Why it matters beyond tidiness: `3p/tl/tl_patch.tl` carries 22 level-5
-long brackets and is read by `_make/patch.tl` on every build. A
-checkout with CRLF endings (a `core.autocrlf` clone, an editor that
-converts) would feed both readers `\r\n` where Lua sees `\n`, so the
-patch text a build applies would differ from the patch text Lua would
-produce — silently, since neither reader refuses it.
+## Non-goals
 
-The fix is one change in two places, and it must land in both readers
-at once or the differential harness (`3IKSjS8N`) will report the
-disagreement it just created: normalize `\r\n`, `\n\r`, `\r` and `\n`
-to `\n` while copying a long bracket's body, and drop one such
-sequence after the opener rather than a bare `"\n"`. Then #274's byte
-sweep stops needing its byte-13 exclusion, which is the acceptance
-signal.
+Short strings (raw CR inside one is Lua-refused territory, unchanged
+here); long comments (already agree — CR there is skipped either
+way); no refusal changes.
 
-Sibling of `3INAsVJZ` (`\z` across a newline), the other place both
-readers agree with each other and not with Lua.
+## Acceptance
+
+Upstream: `make o//tool/lua/test` PASS with the byte-13 exclusion
+gone and the five load-equality cases. Cosmic (stage 2): `--make ci`
+PASS; the engine corpus CR case agrees byte for byte; the five
+capture rows read `agree`.
+
+## Enablement
+
+Stage 1 waits on whilp/cosmopolitan#283 (branch contention only).
+Stage 2 waits on the first cosmos pin bump carrying stage 1 — the
+same wall as 3INAsVJZ's C half, currently behind the perf-gate fix
+(3ITt7slj).
