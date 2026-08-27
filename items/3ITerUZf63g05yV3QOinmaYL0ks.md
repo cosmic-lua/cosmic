@@ -97,7 +97,7 @@ arm B runtime
 
 2. **Arm D, the intervention.** Still at `354c17e08`, edit ONLY
    `net/http/isbase64.c`: immediately before the alphabet-scan `while`
-   loop (`net/http/isbase64.c:76`, `while (p < pe && ...)`), insert
+   loop (`net/http/isbase64.c:71`, `while (p < pe && (kBase64Alpha[*p & 255] & mask))`), insert
 
    ```c
    asm volatile(".balign 64");
