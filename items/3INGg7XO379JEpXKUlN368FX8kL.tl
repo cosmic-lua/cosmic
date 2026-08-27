@@ -1,8 +1,9 @@
 return {
   ["block_reason"] = {
     ["3INAsVJZ1Yw7LVkO4aN2LdCWOTi"] = "stage 1 shares the cosmopolitan designated branch with 3INAsVJZ's open #283; stage 2 needs the cosmos pin that carries stage 1",
+    ["3ITyKzffEt7ZODKmRcDtDsDTele"] = "stage 2 pull-time gate: engine=auto and engine=teal would disagree on the new corpus case until the cosmos pin carries #284, which is still an unmerged draft upstream",
   },
-  ["blocked_by"] = "3INAsVJZ1Yw7LVkO4aN2LdCWOTi",
+  ["blocked_by"] = "3INAsVJZ1Yw7LVkO4aN2LdCWOTi 3ITyKzffEt7ZODKmRcDtDsDTele",
   ["builders"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81 0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3INGg7XO379JEpXKUlN368FX8kL",
