@@ -71,9 +71,13 @@ bump — that is 3IU62YqO, this item's blocker.
 
 ## Enablement
 
-Blocked on 3IU62YqO (bump `bin/cosmic.pin` to a release carrying the
-D29 compile seam). Measured: with the current pin,
-`_build/coldbuild_test.tl` fails on any runner-mode file — the pinned
-release's checker predates the seam, so build generation 1 sees an
-uncalled local. Nothing else is needed; the seam itself landed as
-#1446.
+none needed — the one blocker cleared. 3IU62YqO landed as #1450, so
+`bin/cosmic.pin` now names `2026-08-27-cb39b65`, whose checker carries
+the D29 seam (#1446's merge `7b9f0749` is an ancestor of that tag).
+That is what `_build/coldbuild_test.tl` type-checks against, and it is
+the gate this batch has to clear.
+
+Re-measured at refine against `origin/main` at `cb39b65d` and later:
+the selection command still names 73 files carrying 481 self-call
+lines, unchanged from the Evidence above, so nothing there needs
+refreshing.
