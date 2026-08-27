@@ -67,7 +67,10 @@ more than 2.
 - `grep -rn "gitboard spec ID FILE" skills/ docs/ AGENTS.md CLAUDE.md`
   returns nothing (returns 1 line today).
 - `grep -rn "gitboard spec" skills/ docs/ AGENTS.md CLAUDE.md` still returns
-  exactly 2 lines, and `grep -rn -- "--base" skills/` returns nothing.
+  exactly 2 lines, and `grep -rn "gitboard spec.*--base" skills/` returns
+  nothing. Re-measured at pull: a bare `grep -rn -- "--base" skills/` was the
+  wrong command for this — it matches `skills/work/review.md:130`'s
+  `--baseline`, the coverage flag, both before and after this change.
 - `wc -l skills/work/SKILL.md skills/optimize/SKILL.md` — each at most 500
   (439 and 282 today).
 
