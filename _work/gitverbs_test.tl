@@ -24,19 +24,18 @@ local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
 
 -- Decomposition writes into the unbounded `backlog`, so no WIP limit
--- can refuse it however deep the board is — that is what separating
--- placement from commitment buys, and it is what keeps a stalled
--- refinement queue from starving the highest-placed roots. Filed here
--- against a clone that moved first: the stale run is refused with
--- LOST_RACE, and the RE-RUN — the up-front gate deciding against the
--- MERGED state, vacated credit and all — reaches the same verdict the
--- deleted post-race revalidation had to reproduce.
+-- can refuse it however deep the board is — `new` carries no gate at
+-- all, which is what separating placement from commitment buys, and
+-- what keeps a stalled refinement queue from starving the
+-- highest-placed roots. Filed here against a clone that moved first:
+-- the stale run is refused with LOST_RACE, and the re-run lands
+-- against the merged state.
 local function test_a_decomposition_is_never_refused_by_a_full_board()
   local a, b = init_shared("decompose")
   local goal, leaf = root_with_leaf(a)
   local last_filler = ""
   for i = 1, 9 do
-    last_filler = file_item(a, ("filler %d"):format(i), leaf, false)
+    last_filler = file_item(a, ("filler %d"):format(i), leaf)
   end
   -- The parent-to-be stands in `ready`, so the slot its de-phase frees
   -- is not the one its child fills: this decomposition really does add
@@ -45,14 +44,13 @@ local function test_a_decomposition_is_never_refused_by_a_full_board()
       "test fixture") == 0)
   assert(store.sync(b))
   for i = 1, 5 do
-    assert(graph.cmd_new(b, ("theirs %d"):format(i), goal, nil, "", true,
-        "test fixture") == 0)
+    assert(graph.cmd_new(b, ("theirs %d"):format(i), goal, nil, "") == 0)
   end
   local phased = check.must(store.load(a, last_filler))
   assert(phased.phase == "ready", "the parent-to-be starts on the board")
-  assert(graph.cmd_new(a, "the child", phased.id, nil, "", false, "") ~= 0,
+  assert(graph.cmd_new(a, "the child", phased.id, nil, "") ~= 0,
     "the stale run is refused, not replayed")
-  assert(graph.cmd_new(a, "the child", phased.id, nil, "", false, "") == 0,
+  assert(graph.cmd_new(a, "the child", phased.id, nil, "") == 0,
     "filing under a deep board is admitted on the re-run")
   local after = check.must(store.load(a, phased.id))
   assert(after.phase == "",
@@ -71,7 +69,7 @@ test_a_decomposition_is_never_refused_by_a_full_board()
 local function test_done_returns_a_finished_container_to_backlog()
   local s = init_state_repo("return")
   local _, leaf = root_with_leaf(s)
-  local kid = file_item(s, "only child", leaf, false)
+  local kid = file_item(s, "only child", leaf)
   assert(check.must(store.load(s, leaf)).phase == "", "the parent stepped off")
   local before = commits(s)
   assert(verbs.cmd_done(s, kid, "completed", false, "") == 0)
@@ -89,8 +87,8 @@ test_done_returns_a_finished_container_to_backlog()
 local function test_done_leaves_a_still_decomposing_container_alone()
   local s = init_state_repo("stillbusy")
   local _, leaf = root_with_leaf(s)
-  local first = file_item(s, "first child", leaf, false)
-  local _second = file_item(s, "second child", leaf, false)
+  local first = file_item(s, "first child", leaf)
+  local _second = file_item(s, "second child", leaf)
   assert(verbs.cmd_done(s, first, "completed", false, "") == 0)
   assert(check.must(store.load(s, leaf)).phase == "",
     "one child still open: the container keeps decomposing")
@@ -122,13 +120,13 @@ local function test_wip_limits_bind_arrivals_but_never_returns()
   assert(verbs.cmd_move(s, first, "do", "session-a", 0, false, "") == 0)
   local pulled: {string} = {first}
   for i = 2, flow.LIMITS["do"] do
-    local id = file_item(s, ("slice %d"):format(i), goal, false)
+    local id = file_item(s, ("slice %d"):format(i), goal)
     give_spec(s, id)
     assert(verbs.cmd_move(s, id, "ready", nil, 0, false, "") == 0)
     assert(verbs.cmd_move(s, id, "do", "session-a", 0, false, "") == 0)
     pulled[#pulled + 1] = id
   end
-  local extra = file_item(s, "one too many", goal, false)
+  local extra = file_item(s, "one too many", goal)
   give_spec(s, extra)
   assert(verbs.cmd_move(s, extra, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, extra, "do", "session-b", 0, false, "") ~= 0,
@@ -172,7 +170,7 @@ local function fill_plan(s: store.Store, goal: string,
     count: integer): {string}
   local out: {string} = {}
   for i = 1, count do
-    local id = file_item(s, ("filler %d"):format(i), goal, false)
+    local id = file_item(s, ("filler %d"):format(i), goal)
     assert(verbs.cmd_move(s, id, "plan", nil, 0, false, "") == 0,
       "the committed queue has room for filler " .. tostring(i))
     out[#out + 1] = id
@@ -192,8 +190,7 @@ local function test_a_full_plan_does_not_refuse_a_filing()
   local _filled = fill_plan(s, goal, flow.LIMITS["plan"])
   assert(occupancy(s, "plan") == flow.LIMITS["plan"], "plan is full")
   local before = occupancy(s, "backlog")
-  assert(graph.cmd_new(s, "a child of a ready parent", leaf, nil, "",
-      false, "") == 0,
+  assert(graph.cmd_new(s, "a child of a ready parent", leaf, nil, "") == 0,
     "a full plan does not refuse intake: the child enters backlog")
   assert(occupancy(s, "backlog") == before + 1, "and it was written")
   assert(occupancy(s, "plan") == flow.LIMITS["plan"], "plan is untouched")

@@ -25,8 +25,8 @@ local file_item = fixture.file_item
 -- — refuses as the deadlock it is. No cycle at any point.
 local function test_a_lost_block_race_cannot_land_a_cycle()
   local a, b = init_shared("race-block")
-  local x = file_item(a, "x, the one that waits", "", false)
-  local y = file_item(a, "y, the one it waits on", "", false)
+  local x = file_item(a, "x, the one that waits", "")
+  local y = file_item(a, "y, the one it waits on", "")
   assert(store.sync(b))
 
   assert(graph.cmd_block(a, x, y, false, "x needs y's contract") == 0)
@@ -55,10 +55,10 @@ test_a_lost_block_race_cannot_land_a_cycle()
 -- same commit.
 local function test_a_lost_done_race_rephases_the_parent()
   local a, b = init_shared("race-done")
-  local root = file_item(a, "an outcome", "", false)
-  local parent = file_item(a, "a slice being decomposed", root, false)
-  local c1 = file_item(a, "the first child", parent, false)
-  local c2 = file_item(a, "the second child", parent, false)
+  local root = file_item(a, "an outcome", "")
+  local parent = file_item(a, "a slice being decomposed", root)
+  local c1 = file_item(a, "the first child", parent)
+  local c2 = file_item(a, "the second child", parent)
   assert(store.sync(b))
 
   assert(verbs.cmd_done(a, c1, "completed", false, "") == 0)

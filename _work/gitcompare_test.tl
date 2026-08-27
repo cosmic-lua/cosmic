@@ -16,8 +16,8 @@ local file_item = fixture.file_item
 
 local function test_compare_writes_the_edge_on_the_winner()
   local s = init_state_repo("compare-writes")
-  local low = file_item(s, "the lesser outcome", "", false)
-  local high = file_item(s, "the greater outcome", "", false)
+  local low = file_item(s, "the lesser outcome", "")
+  local high = file_item(s, "the greater outcome", "")
   assert(cmp.cmd_compare(s, high, low, false) == 0, "the comparison lands")
   local winner = check.must(store.load(s, high))
   assert(#winner.beats == 1 and winner.beats[1] == low,
@@ -36,8 +36,8 @@ test_compare_writes_the_edge_on_the_winner()
 
 local function test_compare_refuses_a_contradiction()
   local s = init_state_repo("compare-refuses")
-  local low = file_item(s, "the lesser outcome", "", false)
-  local high = file_item(s, "the greater outcome", "", false)
+  local low = file_item(s, "the lesser outcome", "")
+  local high = file_item(s, "the greater outcome", "")
   assert(cmp.cmd_compare(s, high, low, false) == 0)
   assert(cmp.cmd_compare(s, high, low, false) ~= 0,
     "the same edge twice is refused rather than duplicated")
@@ -54,8 +54,8 @@ test_compare_refuses_a_contradiction()
 -- the earlier comparison is data, not a draft to be edited.
 local function test_uncompare_frees_the_reverse()
   local s = init_state_repo("compare-uncompare")
-  local low = file_item(s, "the lesser outcome", "", false)
-  local high = file_item(s, "the greater outcome", "", false)
+  local low = file_item(s, "the lesser outcome", "")
+  local high = file_item(s, "the greater outcome", "")
   assert(cmp.cmd_compare(s, high, low, false) == 0)
   assert(cmp.cmd_compare(s, high, low, true) == 0, "the edge drops")
   assert(#check.must(store.load(s, high)).beats == 0, "and is gone")
@@ -68,8 +68,8 @@ test_uncompare_frees_the_reverse()
 
 local function test_every_comparison_is_one_commit()
   local s = init_state_repo("compare-commits")
-  local low = file_item(s, "the lesser outcome", "", false)
-  local high = file_item(s, "the greater outcome", "", false)
+  local low = file_item(s, "the lesser outcome", "")
+  local high = file_item(s, "the greater outcome", "")
   local before = fixture.commits(s)
   assert(cmp.cmd_compare(s, high, low, false) == 0)
   assert(fixture.commits(s) == before + 1,

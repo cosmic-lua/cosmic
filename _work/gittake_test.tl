@@ -22,12 +22,12 @@ local give_spec = fixture.give_spec
 --- A root with a compared peer (so its leaves are placed) plus N
 --- workable leaves under it, ids returned in creation order.
 local function rooted_leaves(s: store.Store, n: integer): {string}
-  local root = file_item(s, "an outcome", "", false)
-  local peer = file_item(s, "a lesser outcome", "", false)
+  local root = file_item(s, "an outcome", "")
+  local peer = file_item(s, "a lesser outcome", "")
   assert(cmp.cmd_compare(s, root, peer, false) == 0)
   local out: {string} = {}
   for k = 1, n do
-    out[#out + 1] = file_item(s, ("slice %d"):format(k), root, false)
+    out[#out + 1] = file_item(s, ("slice %d"):format(k), root)
   end
   return out
 end
@@ -142,10 +142,10 @@ test_only_the_walk_can_claim_past_the_lost_primary()
 -- A kind with no lock reports as bare next does, mutating nothing.
 local function test_take_reports_unclaimable_kinds_untouched()
   local s = init_state_repo("take-advice")
-  local root = file_item(s, "an outcome", "", false)
-  local peer = file_item(s, "a lesser outcome", "", false)
+  local root = file_item(s, "an outcome", "")
+  local peer = file_item(s, "a lesser outcome", "")
   assert(cmp.cmd_compare(s, root, peer, false) == 0)
-  local leaf = file_item(s, "a backlog item", root, false)
+  local leaf = file_item(s, "a backlog item", root)
   local before = fixture.commits(s)
   assert(take.cmd_take(s, "session-z") == 0)
   assert(fixture.commits(s) == before,

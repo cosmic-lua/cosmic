@@ -55,7 +55,7 @@ local function test_a_non_accept_verdict_files_its_countermeasure()
   assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa",
       "3HyArM3A3zHuRxn3VYCvKmUZ7KW") ~= 0,
     "nor is the id of an item that does not exist")
-  local counter = file_item(s, "the countermeasure", goal, false)
+  local counter = file_item(s, "the countermeasure", goal)
   assert(vrd.cmd_verdict(s, leaf, "request changes", 5, "aaa",
       counter:sub(1, 10)) == 0,
     "an unambiguous prefix names the countermeasure, as ids do everywhere")
