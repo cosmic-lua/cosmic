@@ -1,6 +1,6 @@
 ## Goal
 
-G9 — every release publishes, measured. `release.yml`'s perf gate has
+G6 — the defining paths, ratcheted (docs/goals.md; its measured half is the `perf-compare` gate). [Goal line corrected 2026-08-27 by 3IT8rb3B: the cited "G9 — every release publishes, measured" never existed in docs/goals.md.] `release.yml`'s perf gate has
 held every daily release since 2026-08-23 (runs `32699814015`,
 `32818853162`, `32940138465` all `failure`; `gh` release list's newest
 tag is still `2026-08-23-d71d7f1`). Board item `3ISWHyP7`'s A/B proved
