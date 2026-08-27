@@ -7,6 +7,6 @@ return {
   ["builders"] = "e831e06e-2f80-53d1-84e9-8198069f90ed",
   ["id"] = "3IU6AZExaHemD7J7BUV51EqhwmG",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "migrate to runner mode, batch 1/7: _build, _docs, _types, 3p, _fuzz, _eval, _perf, _tool",
 }
