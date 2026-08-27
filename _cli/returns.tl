@@ -272,14 +272,121 @@ local function check_fallible_returns(file: string, content: string): {Diagnosti
   return diagnostics
 end
 
+--- Whether the `function` token at `i` opens a DEFINITION rather than
+--- naming a function TYPE. A type opens no block and closes on no
+--- `end`, so pushing one would swallow the next `end` and mis-attribute
+--- every `return` after it.
+---
+--- Type position is what the token before decides: a `:` (an
+--- annotation, a record field, a return list, a map's value type), a
+--- `|` (a union member), an `as` (a cast's target), or the `=` of a
+--- `type NAME =` alias. Everything else — `local`, `=`, `,`, `(`,
+--- `return`, `then`, a statement boundary — is a definition.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the `function` keyword
+--- @return boolean True when a body follows
+local function is_definition(tokens: {Token}, i: integer): boolean
+  local prev = tokens[i - 1]
+  if prev == nil then
+    return true
+  end
+  if prev.tk == ":" or prev.tk == "|" or prev.tk == "as" then
+    return false
+  end
+  -- `local type Revalidate = function(): string` — an alias binds a
+  -- type to a name, so the `=` is not an assignment of a value.
+  if prev.tk == "=" and tokens[i - 2] ~= nil
+  and tokens[i - 2].kind == "identifier" and tokens[i - 3] ~= nil
+  and tokens[i - 3].tk == "type" then
+    return false
+  end
+  return true
+end
+
+--- The token texts that open a block closed by `end`. `while` and
+--- `for` are absent on purpose: each carries its own `do`, which is
+--- what closes them, so counting the keyword too would double-count.
+--- `repeat` is absent because it closes on `until`.
+local OPENS_BLOCK < const >: {string: boolean} = {
+  ["do"] = true, ["if"] = true, ["record"] = true,
+  ["enum"] = true, ["interface"] = true,
+}
+
+--- Lines holding a `return nil` whose innermost enclosing function
+--- DECLARES a slot 1 that cannot be nil.
+---
+--- The checker does not refuse these: a bare non-nil return type
+--- accepts `return nil` and then lets callers index the result, so the
+--- annotation is a promise to the reader that nothing enforces and
+--- none of the nil tooling — the narrowing patch, `check.must`, the
+--- `fallible-returns` rule — can see, because they all act on a type
+--- that admits nil and this one does not.
+---
+--- Innermost is what makes it sound: a stack of open definitions means
+--- an inner closure's `nil` is charged to the closure, never to the
+--- function around it. A function with no declared return type is not
+--- in the class at all and is skipped.
+---
+--- Token-exact, so a `return nil` quoted in a string or shown in a doc
+--- comment counts for nothing.
+--- @param content string The file's bytes
+--- @param file string Path, for the lexer's error reporting
+--- @return {integer} The lines, ascending
+local function nil_return_lines(content: string, file: string): {integer}
+  local tokens = tl.lex(content, file)
+  if not tokens then
+    return {}
+  end
+  -- One entry per open block. `lies` is nil for a plain block and a
+  -- boolean for a function definition, so the innermost function is
+  -- the last entry that carries one.
+  local stack: {boolean | nil} = {}
+  local depth = 0
+  local lines: {integer} = {}
+  for i, t in ipairs(tokens) do
+    if t.tk == "function" and t.kind == "keyword" and is_definition(tokens, i) then
+      local open = params_open(tokens, i)
+      local after = open > 0 and skip_balanced(tokens, open, "(", ")") or 0
+      local lies = false
+      if after > 0 and tokens[after] ~= nil and tokens[after].tk == ":" then
+        local slots = parse_list(tokens, after + 1)
+        lies = #slots > 0 and not slots[1]
+      end
+      depth = depth + 1
+      stack[depth] = lies
+    elseif t.kind == "keyword" and OPENS_BLOCK[t.tk] then
+      depth = depth + 1
+      stack[depth] = nil
+    elseif t.tk == "end" and t.kind == "keyword" then
+      if depth > 0 then
+        stack[depth] = nil
+        depth = depth - 1
+      end
+    elseif t.tk == "return" and t.kind == "keyword"
+    and tokens[i + 1] ~= nil and tokens[i + 1].tk == "nil" then
+      for d = depth, 1, -1 do
+        if stack[d] ~= nil then
+          if stack[d] then
+            lines[#lines + 1] = t.y
+          end
+          break
+        end
+      end
+    end
+  end
+  return lines
+end
+
 local record ReturnsModule
   check_fallible_returns: function(file: string, content: string): {Diagnostic}
+  nil_return_lines: function(content: string, file: string): {integer}
   skip_balanced: function(tokens: {Token}, i: integer,
   open: string, close: string): integer
 end
 
 local M: ReturnsModule = {
   check_fallible_returns = check_fallible_returns,
+  nil_return_lines = nil_return_lines,
   skip_balanced = skip_balanced,
 }
 

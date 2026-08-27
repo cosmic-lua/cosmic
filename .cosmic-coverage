@@ -5,6 +5,8 @@ return {
   ["_build/casts.tl"] = {["covered"] = 47, ["total"] = 65},
   ["_build/casts_baseline.tl"] = {["covered"] = 0, ["total"] = 1},
   ["_build/dupes.tl"] = {["covered"] = 94, ["total"] = 96},
+  ["_build/nil_returns.tl"] = {["covered"] = 48, ["total"] = 71},
+  ["_build/nil_returns_baseline.tl"] = {["covered"] = 0, ["total"] = 1},
   ["_build/pin_probe.tl"] = {["covered"] = 57, ["total"] = 72},
   ["_build/public_surface.tl"] = {["covered"] = 44, ["total"] = 61},
   ["_build/public_surface_baseline.tl"] = {["covered"] = 0, ["total"] = 1},
