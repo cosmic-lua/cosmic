@@ -6,5 +6,6 @@ return {
   ["phase"] = "check",
   ["pr"] = 283,
   ["repo"] = "whilp/cosmopolitan",
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "cosmo.DecodeLua: a \\z escape may cross a newline, as load accepts — 3INAsVJZ's C half",
 }
