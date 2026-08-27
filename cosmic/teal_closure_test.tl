@@ -115,4 +115,61 @@ print(c())
 end
 test_an_escaped_child_does_not_keep_an_upvalue_narrow()
 
+-- A global is not governed by this file: scope 1's vars table IS
+-- env.globals, shared by every file checked in one environment, so
+-- another module can assign `gv` and the scan of THIS chunk never
+-- sees it. Treating scope 1 as always-assigned drops the narrow.
+local function test_a_global_narrow_does_not_carry_into_a_closure()
+  local ok = checks("closure_global.tl", [[
+global gv: string | integer = "x"
+local use: function(): string
+if gv is string then
+  use = function(): string return gv end
+end
+print(use())
+]])
+  assert(not ok, "a global narrow must not carry into a closure")
+end
+test_a_global_narrow_does_not_carry_into_a_closure()
+
+-- The same at a NAMED function boundary, where stock tl widened
+-- everything and the closure-* patch introduced the carry: a global
+-- must not gain a narrow there either.
+local function test_a_global_narrow_does_not_carry_into_a_named_function()
+  local ok = checks("closure_global_named.tl", [[
+global gv: string | integer = "x"
+if not (gv is string) then return end
+local function use(): string
+  return gv
+end
+print(use())
+]])
+  assert(not ok, "a global narrow must not carry into a named function")
+end
+test_a_global_narrow_does_not_carry_into_a_named_function()
+
+-- The over-approximation guard. env.globals also holds the stdlib, so
+-- `self.st[1].vars[name] ~= nil` is TRUE for a local merely sharing a
+-- name with a builtin, and would widen this sound narrow. The
+-- declaring-scope walk finds `tostring` at the chunk's own scope, not
+-- scope 1, so the narrow carries. tl warns on the shadow itself and
+-- warnings are errors here, so the check is on the ERRORS: with the
+-- naive test this source also reports
+-- `in return value: got string | integer, expected string`.
+local function test_a_local_shadowing_a_stdlib_global_still_carries()
+  local _ok, msgs = checks("closure_shadow.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local tostring = pick()
+if not (tostring is string) then return end
+local function use(): string
+  return tostring
+end
+print(use())
+]])
+  assert(msgs == "", "a local shadowing a stdlib global must keep its narrow: " .. msgs)
+end
+test_a_local_shadowing_a_stdlib_global_still_carries()
+
 print("all closure carry tests passed")
