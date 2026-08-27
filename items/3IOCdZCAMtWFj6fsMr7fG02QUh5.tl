@@ -7,6 +7,7 @@ return {
   ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IOCdZCAMtWFj6fsMr7fG02QUh5",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1456,
   ["title"] = "testrun and report: per-test statuses in .tests, totals by test, --filter passthrough",
 }
