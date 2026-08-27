@@ -133,6 +133,23 @@ local function test_save_load_spec_and_history()
 end
 test_save_load_spec_and_history()
 
+-- An item is two files, and a `spec` mutation touches only the second
+-- one. A trail narrowed to the record would leave every refinement out
+-- of it, which is how a spec that replaced another spec went unseen.
+local function test_history_covers_the_spec_sidecar()
+  local root = init_state_repo("sidecar-history")
+  local s = check.must(store.open(root))
+  local it = make_item("plan")
+  local short = it.id:sub(1, 8)
+  assert(store.save(s, it, "new " .. short, "## Goal\nG1\n"))
+  assert(store.save(s, it, "spec " .. short, "## Goal\nG8\n"))
+  local events = check.must(store.history(s, it.id))
+  assert(#events == 2, "want 2 events, got " .. #events)
+  assert(events[1].subject == "spec " .. short,
+    "the sidecar-only commit is in the trail: " .. events[1].subject)
+end
+test_history_covers_the_spec_sidecar()
+
 local function test_resolve_prefixes()
   local root = init_state_repo("resolve")
   local s = check.must(store.open(root))
