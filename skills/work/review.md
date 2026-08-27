@@ -19,6 +19,17 @@ directly, and if you are the only session running, leave the item in
 from anywhere else: an accept reaches `land` past every gate between
 them, so it may only be given where review happens.
 
+**claim before you read.** `gitboard review ID` is the first act of
+every review — the claim is the lock, its push is the
+compare-and-swap, and losing the race there costs seconds where
+losing it at the verdict costs the whole verification (two sessions
+once verified one diff in full, their verdicts thirty seconds
+apart). A live claim is another session mid-review: take the next
+item. A claim idle past its hour lease is anyone's again, and taking
+over a live one is `--force --why`, on the record. The claim is
+mutual exclusion, not authority — any non-builder's verdict stands
+and consumes it.
+
 ## the review itself
 
 read the item first (`gitboard show ID` — the spec sidecar), then the
