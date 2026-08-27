@@ -52,3 +52,40 @@ A/A pair should be retained, and `3IHHKCyz` proposes deleting the second
 run that produces it. Those are about the A/A control; this is about
 which `_perf` the baseline arm executes. They touch the same workflow
 file and should be read together, but they are not the same question.
+
+## Ended as not planned — 2026-08-27, both gaps subsumed by 3IVF3HbV
+
+Subsumed by **3IVF3HbV**, carried by **whilp/cosmic#1463** (all five
+lanes green, in `check`). Both gaps this item records are closed there,
+and the fix it proposes is the fix that landed — found independently,
+down to the mechanism.
+
+**Gap 2** is 3IVF3HbV's whole subject: the baseline step becomes
+`--modules` + the prebuilt entry, so the previous release binary
+measures the tree's `_perf`. This item's own measurement anticipated it
+exactly, including the two facts that make it work — the flag must
+precede the script path, and the tree searcher's fall-through covers
+`_perf`'s computed bench requires by name.
+
+One correction worth recording, since it is the only thing here that
+turned out otherwise: this item measures
+`--modules o/_perf/run.tl.run.modules`, the manifest `--make run`
+writes. The landed change uses a hand-written two-line manifest
+(`root <cwd>` / `build o`) instead, because `mod` lines are optional
+and the generated manifest's static closure carries no `_perf.bench.*`
+entries at all — the benches are reached by computed require and land
+through the searcher's fall-through either way. The two-line form
+avoids depending on a manifest whose contents are a build artifact.
+
+**Gap 1**, the changed-bench blind spot, is closed by the same change
+rather than merely documented: with the tree's `_perf` on the baseline
+side, an edit to an existing `_perf/bench/*_bench.tl` is what runs on
+both sides. It never needed a type check to see it — it needed the
+right bytes to load.
+
+Its framing of 3IVF3HbV as a narrowed type-check sweep described an
+earlier shape of that item, before its spec was rewritten around the
+measured resolution picture. The current 3IVF3HbV changes two files:
+`release.yml`'s baseline step and `_perf/skew_test.tl`'s prose.
+
+Ended rather than kept because both gaps are fixed, not merely known.
