@@ -28,3 +28,17 @@ fixed-overhead microbench class) before any release can pass a ±10%
 bar it cannot itself hold.
 
 Blocked work behind this: 3ISVlHT6 (pin bump) → 3ISPGV8z.
+
+## Result
+
+Resolved 2026-08-27 01:43Z with no decision needed: the dispatched
+re-run (33030635580) passed the perf gate — perf-compare: PASS — and
+published `2026-08-27-afad5b5`, the first release since 2026-08-23.
+Both marginal flags (json_decode_large +11.9%, hash_sha256_small
++10.3%) failed to reproduce, confirming them as the scenarios'
+documented instability rather than regressions. Neither option was
+exercised: no perf_gate:false, and cosmopolitan #280 stays a draft
+robustness candidate. The lane self-healed once #1415/#1420 let it
+measure. Scenario-stability work (json_decode_large's suite-context
+self-drift; the fixed-overhead microbench class) remains open value,
+already tracked by the flow's existing captures.
