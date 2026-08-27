@@ -11,7 +11,9 @@ return {
   ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3ISVlHT6tRFIVNxydHy9qDtSqFR",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1421,
   ["title"] = "pin bump: bin/cosmic.pin to the first release carrying narrow-pack-n (post-2026-08-26)",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "2c28bec50f5b950c5ea267e707dac8a46365ccf5",
 }
