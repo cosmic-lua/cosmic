@@ -55,7 +55,9 @@ local NOTES < const >: {string: {string}} = {
   ["refine"] = {
     "Take a `plan` item one rung down the ladder: decompose a container's "
     .. "outcome further, or drive a workable leaf to the ready bar.",
-    "`check ID` has to pass before `move ID ready`.",
+    "Claim it first — `next --take` does; a claim idle past the hour lease is "
+    .. "anyone's, and it sheds at `ready`. `check ID` has to pass before "
+    .. "`move ID ready`.",
     "Refinement outranks promotion for the reason finishing outranks starting: "
     .. "what is already committed to is nearer `ready`.",
   },

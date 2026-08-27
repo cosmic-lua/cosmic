@@ -259,6 +259,13 @@ local function cmd_move(s: store.Store, id: string, target: string,
   if from == "check" and target ~= "check" then
     it.reviewer = ""
   end
+  -- `ready` is nobody's until a session pulls it, so an arrival there
+  -- sheds the refine claim that drove it to the bar: `pullables` has
+  -- no lease check, and a claim surviving into ready would reserve
+  -- the item for its refiner against every other session forever.
+  if target == "ready" and not flow.is_return(from, target) then
+    it.claim = ""
+  end
   if flow.is_return(from, target) then
     it.claim = ""
     -- A verdict describes one head in one phase. Moving leftward out

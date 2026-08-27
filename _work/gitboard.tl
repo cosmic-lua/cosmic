@@ -113,8 +113,9 @@ local CSPEC: flags.CommandSpec = {
             .. "environment (GITBOARD_SESSION, else a runner's own id)"},
           {long = "take",
             help = "claim the offered work in the same call: a review is "
-            .. "claimed, a pull is moved to do, and a candidate somebody "
-            .. "else claimed first falls to the next one"}}}},
+            .. "claimed, a pull is moved to do, a refine is claimed in "
+            .. "place, and a candidate somebody else claimed first falls "
+            .. "to the next one"}}}},
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION",

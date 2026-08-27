@@ -61,6 +61,23 @@ local function is_review_stale(i: Item, ages: Ages): boolean
   return (i.reviewer or "") ~= "" and age ~= nil and age > REVIEW_LEASE_S
 end
 
+--- Seconds a refine claim holds without a board commit before it
+--- reads as stale. The review lease's scale, not the build's:
+--- refinement dwell is minutes to an hour, and spec commits are its
+--- liveness signal exactly as verdicts are a review's. The claim
+--- field is the same one a build holds; the item's phase says which
+--- lease applies, and this one is read for items in `plan`.
+local REFINE_LEASE_S < const > = 60 * 60
+
+--- Whether an item's refine claim has outlived its lease.
+--- @param i Item The item
+--- @param ages Ages Seconds since last board commit, by id
+--- @return boolean True for a claimed item older than the refine lease
+local function is_refine_stale(i: Item, ages: Ages): boolean
+  local age = ages[i.id]
+  return (i.claim or "") ~= "" and age ~= nil and age > REFINE_LEASE_S
+end
+
 --- Seconds a placed, uncommitted item sits untouched before it reads
 --- as rotten. A `backlog` entry is a record of known work, not a
 --- commitment, so depth alone is no reason to close one — but an item
@@ -183,6 +200,8 @@ local record health
   is_stale: function(i: Item, ages: Ages): boolean
   REVIEW_LEASE_S: integer
   is_review_stale: function(i: Item, ages: Ages): boolean
+  REFINE_LEASE_S: integer
+  is_refine_stale: function(i: Item, ages: Ages): boolean
   is_rotten: function(i: Item, ages: Ages): boolean
   stale_hours: function(i: Item, ages: Ages): integer
   blocker_cycle_problems: function(items: {Item}): {string}
@@ -197,6 +216,8 @@ local M: health = {
   is_stale = is_stale,
   REVIEW_LEASE_S = REVIEW_LEASE_S,
   is_review_stale = is_review_stale,
+  REFINE_LEASE_S = REFINE_LEASE_S,
+  is_refine_stale = is_refine_stale,
   is_rotten = is_rotten,
   stale_hours = stale_hours,
   blocker_cycle_problems = blocker_cycle_problems,
