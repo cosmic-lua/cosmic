@@ -19,10 +19,14 @@
 ---   (the archive's bytes are still pristine; unpack restores them
 ---   before edits re-apply).
 ---
---- The patch file sits beside its pin — `3p/tl/tl_pin.tl` carries
---- `3p/tl/tl_patch.tl` — and edits name files relative to the pin's
---- unpack directory under `o/`. The literal grammar has no array part,
---- so edits are named entries, applied in sorted-name order:
+--- The patch sits beside its pin — `3p/tl/tl_pin.tl` carries
+--- `3p/tl/tl_patch.tl`, or, when the entry set outgrows the 500-line
+--- file cap, a `3p/tl/tl_patch/` directory whose `*.tl` files each
+--- hold entries in the same format (capacity comes from splitting,
+--- never from a cap exemption). Edits name files relative to the
+--- pin's unpack directory under `o/`. The literal grammar has no
+--- array part, so edits are named entries — one namespace across the
+--- whole set, applied in sorted-name order:
 ---
 ---     return {
 ---       ["narrow-truthiness"] = {
@@ -51,18 +55,46 @@ local record Edit
   note: string
 end
 
---- The patch file beside a pin, or nil when the pin carries none.
+--- The patch beside a pin: the single `<stem>_patch.tl`, or the
+--- sorted `*.tl` files of a `<stem>_patch/` directory. Nil (with no
+--- error) when the pin carries neither; nil plus the reason when the
+--- layout is ambiguous (both forms) or the directory is empty.
 --- @param pin_source string The pin's path (`.../<stem>_pin.tl`)
---- @return string|nil The `<stem>_patch.tl` path when it exists
-local function of_pin(pin_source: string): string | nil
+--- @return {string}|nil The patch file paths, sorted
+--- @return string The error when the layout cannot be used
+local function paths_of_pin(pin_source: string): {string} | nil, string
   if not str.ends_with(pin_source, "_pin.tl") then
     return nil
   end
-  local p = string.sub(pin_source, 1, #pin_source - #"_pin.tl") .. "_patch.tl"
-  if fs.is_file(p) then
-    return p
+  local stem = string.sub(pin_source, 1, #pin_source - #"_pin.tl")
+  local file = stem .. "_patch.tl"
+  local dir = stem .. "_patch"
+  local has_file = fs.is_file(file)
+  local has_dir = fs.is_dir(dir)
+  if has_file and has_dir then
+    return nil, "make: " .. file .. " and " .. dir ..
+    "/ both exist; keep exactly one"
   end
-  return nil
+  if has_file then
+    return {file}
+  end
+  if not has_dir then
+    return nil
+  end
+  local found, gerr = fs.glob(dir, "*.tl")
+  if not found then
+    return nil, "make: " .. dir .. ": " .. (gerr or "cannot list")
+  end
+  local paths: {string} = {}
+  for _, p in ipairs(found) do
+    paths[#paths + 1] = p
+  end
+  table.sort(paths)
+  if #paths == 0 then
+    return nil, "make: " .. dir ..
+    ": a patch directory with no *.tl entries is one to delete"
+  end
+  return paths
 end
 
 --- Read a patch file into its edits, in sorted-name order.
@@ -107,6 +139,37 @@ local function read(path: string): {Edit} | nil, string
     return nil, path .. ": a patch with no edits is a patch to delete"
   end
   return edits
+end
+
+--- Read a whole patch set: every file's edits merged into one
+--- sorted-name list. One entry namespace whatever the layout, so a
+--- name declared in two files is a conflict to refuse, never a
+--- shadow — apply order stays the same as a single file's.
+--- @param paths {string} The patch file paths
+--- @return {Edit}|nil The merged edits
+--- @return string The error naming the file (both, on a duplicate)
+local function read_all(paths: {string}): {Edit} | nil, string
+  local by_name: {string: string} = {}
+  local all: {Edit} = {}
+  for _, p in ipairs(paths) do
+    local edits, err = read(p)
+    if not edits then
+      return nil, err
+    end
+    for _, e in ipairs(edits) do
+      local prev = by_name[e.name]
+      if prev then
+        return nil, "make: patch edit '" .. e.name .. "' declared in both "
+        .. prev .. " and " .. p .. "; entry names share one namespace"
+      end
+      by_name[e.name] = p
+      all[#all + 1] = e
+    end
+  end
+  table.sort(all, function(a: Edit, b: Edit): boolean
+      return a.name < b.name
+    end)
+  return all
 end
 
 --- Occurrences of an exact substring.
@@ -174,15 +237,17 @@ end
 
 local record PatchModule
   type Edit = Edit
-  of_pin: function(pin_source: string): string | nil
+  paths_of_pin: function(pin_source: string): {string} | nil, string
   read: function(path: string): {Edit} | nil, string
+  read_all: function(paths: {string}): {Edit} | nil, string
   applied: function(dir: string, edits: {Edit}): boolean
   apply: function(dir: string, edits: {Edit}): boolean, string
 end
 
 local M: PatchModule = {
-  of_pin = of_pin,
+  paths_of_pin = paths_of_pin,
   read = read,
+  read_all = read_all,
   applied = applied,
   apply = apply,
 }

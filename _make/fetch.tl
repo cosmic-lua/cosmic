@@ -104,15 +104,18 @@ end
 --- @return {Edit}|nil The edits, when the pin carries a readable patch
 --- @return string The error when the patch is unreadable or misplaced
 local function patch_of(p: Pin): {Edit} | nil, string
-  local pp = patch.of_pin(p.source)
-  if not pp then
+  local pps, perr = patch.paths_of_pin(p.source)
+  if not pps then
+    if perr then
+      return nil, perr
+    end
     return nil
   end
   if not p.format then
-    return nil, "make: " .. pp .. ": a patch rides an archive pin only — " ..
+    return nil, "make: " .. pps[1] .. ": a patch rides an archive pin only — " ..
     "editing a bare pinned file would fail its own digest check forever"
   end
-  return patch.read(pp)
+  return patch.read_all(pps)
 end
 
 --- Unpack a pin that declares a format, beside the archive.
@@ -262,7 +265,11 @@ end
 --- @return boolean, string Success, or false plus the reason
 local function repair(proj: Project): boolean, string
   for _, f in ipairs(project.of_kind(proj, {"pin"})) do
-    if patch.of_pin(f.path) then
+    local pps, perr = patch.paths_of_pin(f.path)
+    if not pps and perr then
+      return false, perr
+    end
+    if pps then
       local p, err = pin.read(f.path)
       if not p then
         return false, err or ("make: " .. f.path .. ": not a pin")

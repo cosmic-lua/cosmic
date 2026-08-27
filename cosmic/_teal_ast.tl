@@ -4,7 +4,7 @@
 --- `_types/tlast_gen.tl` serializes the pinned tl's parsed prelude and
 --- stdlib d.tl programs into `/zip/.tl_ast.luac`; this module loads
 --- that chunk once per process and hands the rebuilt programs to
---- `tl.new_env` (carried patch, `3p/tl/tl_patch.tl` ast-cache-*),
+--- `tl.new_env` (carried patch, `3p/tl/tl_patch/ast_cache.tl`),
 --- skipping the parse that dominates a fresh process's first env —
 --- ~11 of ~16 ms per compile child.
 ---
