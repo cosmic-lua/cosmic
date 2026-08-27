@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3IU62YqO7uyYrJt53x6fmaE6dlJ 3IP9ijhvSdH0h5uTjb4xOlgZKZ9",
   ["id"] = "3IU6AgNNxVcDWuDwet2j1TW1wCb",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "migrate to runner mode, batch 2/7: _cli, _make",
 }
