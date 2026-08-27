@@ -1,5 +1,7 @@
 --- The lexer half of cosmic.literal: splits literal source into a token
---- stream. A flat `_literal_lex` sibling for the same reason
+--- stream, and decodes a string token to the value it denotes
+--- (`string_value` — the token grammar and its meaning live together).
+--- A flat `_literal_lex` sibling for the same reason
 --- `_literal_format` is one — `literal.tl` sits at the file-length cap.
 --- The public surface is cosmic.literal's; this module has no callers
 --- outside it.
@@ -167,13 +169,158 @@ local function lex(src: string, where: string): {Token} | nil, string
   return toks
 end
 
+--- The largest code point `\u{...}` may name, which is what `utf8.char`
+--- accepts and what the Lua manual specifies for the escape: 2^31 - 1.
+local MAX_CODEPOINT < const > = 0x7FFFFFFF
+
+--- Lua's single-character escapes, by the character that follows `\`.
+local ESCAPES: {string: string} = {
+  a = "\a", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t",
+  v = "\v", ["\\"] = "\\", ['"'] = '"', ["'"] = "'", ["\n"] = "\n",
+}
+
+--- Decode one `\` escape starting at `i` (the backslash).
+--- @param s string The string token's body
+--- @param i integer Index of the backslash
+--- @return string|nil The decoded text, or nil when the escape is bad
+--- @return integer The index just past the escape
+local function escape_at(s: string, i: integer): string | nil, integer
+  local c = s:sub(i + 1, i + 1)
+  local simple = ESCAPES[c]
+  if simple then
+    return simple, i + 2
+  end
+  if c == "x" then
+    local hex = s:match("^%x%x", i + 2)
+    if not hex then
+      return nil, i
+    end
+    return string.char(tonumber(hex, 16) as integer), i + 4 -- cast: two hex digits are integral
+  end
+  if c == "z" then
+    -- `\z` skips the whitespace that follows it, newlines included.
+    local rest = s:find("[^%s]", i + 2) or #s + 1
+    return "", rest
+  end
+  if c == "u" then
+    -- A position capture is ABSOLUTE: `after` already indexes just past
+    -- the closing `}`, whatever `init` was. Adding to it resumed the
+    -- decode two characters late, so every `\u{…}` silently swallowed
+    -- the two characters behind it -- invisible only when the escape
+    -- ended the string, which was the one shape the test covered.
+    local hex, after = s:match("^{(%x+)}()", i + 2)
+    if not hex then
+      return nil, i
+    end
+    -- BOUNDED, because `%x+` has no length limit and this file is
+    -- attacker-shaped: it is what reads a pin. `\u{FFFFFFFFFF}` parses
+    -- fine, exceeds what `utf8.char` accepts, and threw out of a module
+    -- whose whole contract is that it returns errors -- so a malformed
+    -- pin crashed `--make fetch` with a traceback instead of naming the
+    -- file. Above 2^31 `tonumber` also stops being integral, which the
+    -- cast below would have quietly asserted otherwise.
+    local cp = tonumber(hex, 16)
+    if cp == nil or cp ~= math.floor(cp) or cp < 0 or cp > MAX_CODEPOINT then
+      return nil, i
+    end
+    return utf8.char(cp as integer), after as integer -- cast: bounded above
+  end
+  local digits = s:match("^%d%d?%d?", i + 1)
+  if digits then
+    local n = tonumber(digits, 10) as integer -- cast: decimal digits are integral
+    if n > 255 then
+      return nil, i
+    end
+    return string.char(n), i + 1 + #digits
+  end
+  return nil, i
+end
+
+--- The value a string token denotes.
+---
+--- Delimiters vary and escapes must be decoded: a short string may
+--- carry `\n`, `\x41` or `\u{...}`, while a long bracket carries none
+--- and its delimiter is as many `=` as were written. Both matter
+--- because the module's contract is "equal to what executing the file
+--- would return", and a reader that quietly returns different data is
+--- the failure this exists to make impossible.
+--- @param tk string The raw string token, delimiters included
+--- @return string|nil The value, or nil when the token is malformed
+local function string_value(tk: string): string | nil
+  local level = tk:match("^%[(=*)%[")
+  if level then
+    -- A long bracket takes no escapes. Lua's lexer folds each line
+    -- break -- \n, \r, \r\n or \n\r -- to one \n while reading the
+    -- body (a same-char pair is two breaks, a mixed pair is one) and
+    -- drops one such break right after the opening delimiter, so this
+    -- copy does the same or a CRLF checkout reads differently than it
+    -- executes.
+    local open = #level + 2
+    local body = tk:sub(open + 1, -(open + 1))
+    if body:find("\r", 1, true) then
+      -- The scan is sequential, like Lua's inclinenumber: a break is
+      -- one \r or \n plus the OPPOSITE character when it follows, so
+      -- "\r\r\n" is two breaks (\r, then \r\n), never three.
+      local parts: {string} = {}
+      local i = 1
+      while i <= #body do
+        local brk = body:find("[\r\n]", i)
+        if not brk then
+          parts[#parts + 1] = body:sub(i)
+          break
+        end
+        parts[#parts + 1] = body:sub(i, brk - 1)
+        parts[#parts + 1] = "\n"
+        local c = body:sub(brk, brk)
+        local nxt = body:sub(brk + 1, brk + 1)
+        if (nxt == "\r" or nxt == "\n") and nxt ~= c then
+          brk = brk + 1
+        end
+        i = brk + 1
+      end
+      body = table.concat(parts)
+    end
+    if body:sub(1, 1) == "\n" then
+      body = body:sub(2)
+    end
+    return body
+  end
+  local quote = tk:sub(1, 1)
+  if quote ~= '"' and quote ~= "'" then
+    return nil
+  end
+  local body = tk:sub(2, -2)
+  if not body:find("\\", 1, true) then
+    return body
+  end
+  local parts: {string} = {}
+  local i = 1
+  while i <= #body do
+    local slash = body:find("\\", i, true)
+    if not slash then
+      parts[#parts + 1] = body:sub(i)
+      break
+    end
+    parts[#parts + 1] = body:sub(i, slash - 1)
+    local decoded, nexti = escape_at(body, slash)
+    if not decoded then
+      return nil
+    end
+    parts[#parts + 1] = decoded
+    i = nexti
+  end
+  return table.concat(parts)
+end
+
 local record LiteralLexModule
   type Token = Token
   lex: function(src: string, where: string): {Token} | nil, string
+  string_value: function(tk: string): string | nil
 end
 
 local M: LiteralLexModule = {
   lex = lex,
+  string_value = string_value,
 }
 
 return M
