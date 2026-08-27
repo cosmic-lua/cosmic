@@ -8,14 +8,31 @@ its size into a committed measurement.
 ## Change
 
 **What the count settled.** The item's first job was the tree-wide number, and
-it is 116 `return nil` sites across 48 files whose declared slot 1 does not
-admit nil — out of 785 `return nil` sites in 602 committed `.tl` files
-(`git ls-files '*.tl'`, `.d.tl` excluded). Measured at refinement by an
-independent indentation-based scan: the tree is `--check fmt`-gated to 2-space
-indent, so the nearest less-indented `function` header above a `return nil` is
-its enclosing function, and that header's first declared slot is parsed for
-`nil`, `?` or `any`. It reaches public library source, not just tooling —
-`cosmic/stream.tl` 7, `cosmic/flags/parse.tl` 7, `cosmic/child/init.tl` 4 —
+it is **136 `return nil` sites across 58 files** whose declared slot 1 does
+not admit nil — out of 785 line-anchored `return nil` sites in 602 committed
+`.tl` files (`git ls-files '*.tl'`, `.d.tl` excluded).
+
+Re-measured at pull, by the token-exact detector this slice builds. An
+indentation-based approximation at refinement said 116 in 48, and it was
+wrong in BOTH directions, each for a reason a line-anchored regex cannot
+avoid:
+
+- it MISSED single-line `if not ok then return nil, err end`, because the
+  line does not begin with `return` — 8 such sites in `_docs/publish.tl`
+  alone;
+- it over-counted anonymous `function` expressions bound to a field or a
+  local (`setup = function(): any, string`), whose header no `^function`
+  pattern matches, so their `nil` was charged to an enclosing named function
+  — `_perf/bench/embed_bench.tl:164,168` sit under `: any, string`, which
+  admits nil, and `cosmic/child/init.tl:411` sits under
+  `start(...): Handle | nil, string`, likewise.
+
+Both readings were hand-checked against the source before the number moved.
+136 is the truer count, and the committed baseline is its record.
+
+The class reaches public library source, not just tooling —
+`cosmic/flags/parse.tl` 7, `cosmic/fs/find.tl` and `cosmic/zip.tl` among
+them —
 and the three kinds are all present: a `boolean, string` effect returning
 `nil, err` where the house rule says `false, msg` (`_docs/publish.tl:190`); a
 function whose doc comment already says `@return boolean|nil` while its
@@ -113,11 +130,11 @@ lines), with its `--- reads:` header lines for the same trees. Two tests:
   line, and running it a second time leaves the file byte-identical
   (`git status --porcelain _build/nil_returns_baseline.tl` empty after the
   second run).
-- In that line, N is between 100 and 130 and M is between 40 and 55. The
-  independent indentation scan at refinement found 116 in 48; a token-exact
-  count inside that band is the same finding, and one outside it means the
-  detector is wrong rather than the tree. The PR states N and M and explains
-  any divergence from 116/48 it can identify.
+- In that line, N is between 120 and 160 and M is between 50 and 70 — a
+  sanity band around the 136 in 58 the detector reports at pull, wide enough
+  that the tree may move and narrow enough that a broken detector fails
+  rather than silently rebaselines. The committed baseline is the exact
+  record; the PR states N and M.
 - `bin/cosmic --make test _build/nil_returns_test.tl _cli/returns_test.tl`
   ends `test: PASS (2 files)`, including the fixture test that pins each
   detector rule named in `Change`.
