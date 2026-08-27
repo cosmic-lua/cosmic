@@ -1,6 +1,6 @@
---- Test discovery: one token-exact lexer walk classifies a test file
---- and yields its ordered cases. D29 settled that a test runs because
---- the toolchain found it — a top-level `local function test_*` IS the
+--- Test discovery: one lex-and-parse pass classifies a test file and
+--- yields its ordered cases. D29 settled that a test runs because the
+--- toolchain found it — a top-level `local function test_*` IS the
 --- enrolment — and this module is the finding half, extracted from the
 --- `call-after-define` lint so the lint, and later the compile seam,
 --- read the same walk instead of each carrying one.
@@ -20,9 +20,14 @@
 --- its own calls AND once by the seam's tail, so it classifies mixed
 --- and the lint refuses it, exactly as the old rule did.
 ---
---- Token-exact via the lexer, so a `local function test_x` quoted in a
---- string or a long-bracket fixture never counts, and source order is
---- the run order.
+--- Definitions and their extents come from the PARSER, not a token
+--- depth count: `tl.parse_program` sets each function node's `yend`
+--- from its own closing `end`, so a nested `record`/`enum`/`interface`
+--- body cannot pull the extent early and a `function` token in type
+--- position cannot lose it (the 3IP9ijhv pair). A `local function
+--- test_x` quoted in a string or a long-bracket fixture still never
+--- counts — the parser reads code, not strings. Source order is the
+--- run order.
 
 local tl = require("tl")
 
@@ -53,43 +58,46 @@ local record Discovery
   cases: {Case}
 end
 
---- Line of the `end` that closes the function starting at `from`.
+--- One parsed `test_*` definition, before the call check.
+local record Definition
+  name: string
+  line: integer
+  ends: integer
+end
+
+--- The top-level `local function test_*` definitions, in source order.
+---
+--- Read from the parsed program, whose array part is the top-level
+--- statement list: a `local_function` node's `y` is its `local`
+--- token's line and its `yend` is set from the closing `end` token by
+--- the parser itself. The parse is error-tolerant, so a file with a
+--- syntax error yields whatever definitions did parse — such a file
+--- fails the type gate on its own, and there is nothing sounder this
+--- walk could report about it.
 --- @param tokens {tl.Token} The file's tokens
---- @param from integer Index of the `function` keyword
---- @return integer|nil Line of the matching `end`
-local function end_line_of(tokens: {Token}, from: integer): integer | nil
-  local depth = 0
-  -- `for`/`while` open a block AND write a `do` to end their header, so
-  -- that `do` must not count a second time. A flag, not a look-behind at
-  -- the previous token: `for _ in pairs(t) do` and a bare `do` block
-  -- inside a function both follow a `)`, and the look-behind version
-  -- read the second as a header and lost a level.
-  local pending_do = false
-  for i = from, #tokens do
-    local tk = tokens[i].tk
-    if tk == "for" or tk == "while" then
-      depth = depth + 1
-      pending_do = true
-    elseif tk == "do" then
-      if pending_do then
-        pending_do = false
-      else
-        depth = depth + 1
-      end
-    elseif tk == "function" or tk == "if" then
-      depth = depth + 1
-    elseif tk == "repeat" then
-      depth = depth + 1
-    elseif tk == "until" then
-      depth = depth - 1
-    elseif tk == "end" then
-      depth = depth - 1
-      if depth == 0 then
-        return tokens[i].y
+--- @param file string Path, handed to the parser for its messages
+--- @return {Definition} The definitions, with their `end` lines
+local function definitions_of(tokens: {Token}, file: string): {Definition}
+  local defs: {Definition} = {}
+  local errs: {tl.Error} = {}
+  local program = tl.parse_program(tokens, errs, file)
+  -- the program node's array part is its top-level statement list;
+  -- cast: the narrowed tl API types the parsed program as `any`
+  for _, stmt in ipairs(program as {any}) do
+    local node = stmt as {string: any} -- cast: tl AST node fields
+    if node["kind"] == "local_function" then
+      -- cast: tl AST identifier node, whose `tk` is the name
+      local name_node = node["name"] as {string: any}
+      local name = name_node["tk"]
+      local y = node["y"]
+      local ends = node["yend"]
+      if name is string and name:match("^test_")
+      and y is integer and ends is integer then
+        defs[#defs + 1] = {name = name, line = y, ends = ends}
       end
     end
   end
-  return nil
+  return defs
 end
 
 --- Walk one file's source and classify it.
@@ -105,32 +113,18 @@ local function discover(file: string, content: string,
     return {mode = "empty", cases = cases}
   end
   local call_line: {string: integer} = {}
-  for i = 1, #tokens - 2 do
-    local t = tokens[i]
-    if t.tk == "local" and t.x == 1 and tokens[i + 1].tk == "function" then
-      local name = tokens[i + 2].tk
-      if name:match("^test_") then
-        -- A nil end line means the depth walk lost the closer (a
-        -- `function` token in TYPE position has no `end` — the
-        -- 3IP9ijhv class); the old lint skipped such definitions
-        -- rather than judging them, and this walk keeps that
-        -- behavior verbatim until that item fixes the counter.
-        local ends = end_line_of(tokens, i + 1)
-        if ends then
-          local called = false
-          for y = ends + 1, #lines do
-            if lines[y]:match("%S") then
-              if lines[y]:match("^" .. name .. "%s*%(") then
-                called = true
-                call_line[name] = y
-              end
-              break
-            end
-          end
-          cases[#cases + 1] = {name = name, line = t.y, called = called}
+  for _, def in ipairs(definitions_of(tokens, file)) do
+    local called = false
+    for y = def.ends + 1, #lines do
+      if lines[y]:match("%S") then
+        if lines[y]:match("^" .. def.name .. "%s*%(") then
+          called = true
+          call_line[def.name] = y
         end
+        break
       end
     end
+    cases[#cases + 1] = {name = def.name, line = def.line, called = called}
   end
   if #cases == 0 then
     return {mode = "empty", cases = cases}
