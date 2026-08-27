@@ -3,7 +3,7 @@
 -- The end-to-end path (fetch applies, repair re-applies) is exercised
 -- by the tree itself — 3p/tl/tl_patch.tl rides every build — so what
 -- lives here is the contract: sorted order, exact-once anchors,
--- idempotent application, loud refusals.
+-- idempotent application, one entry namespace per pin, loud refusals.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -16,18 +16,84 @@ local function write(path: string, text: string)
   assert(fs.write(path, text))
 end
 
-local function test_of_pin_names_the_sibling()
+local function test_paths_of_pin_names_the_sibling_file()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "ofpin-XXXXXX")))
   local pin_path = fs.join(dir, "x_pin.tl")
   write(pin_path, "return {}\n")
-  assert(patch.of_pin(pin_path) == nil, "no patch file means nil")
-  assert(patch.of_pin(fs.join(dir, "notapin.tl")) == nil,
+  assert(patch.paths_of_pin(pin_path) == nil, "no patch means nil")
+  assert(patch.paths_of_pin(fs.join(dir, "notapin.tl")) == nil,
     "a non-pin path carries no patch")
   local patch_path = fs.join(dir, "x_patch.tl")
   write(patch_path, "return {}\n")
-  assert(patch.of_pin(pin_path) == patch_path, "the sibling patch is found")
+  local paths = check.must(patch.paths_of_pin(pin_path))
+  assert(#paths == 1 and paths[1] == patch_path,
+    "the single-file layout resolves exactly as before")
 end
-test_of_pin_names_the_sibling()
+test_paths_of_pin_names_the_sibling_file()
+
+local function test_paths_of_pin_resolves_a_directory()
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "ofdir-XXXXXX")))
+  local pin_path = fs.join(dir, "x_pin.tl")
+  write(pin_path, "return {}\n")
+  write(fs.join(dir, "x_patch", "b.tl"), "return {}\n")
+  write(fs.join(dir, "x_patch", "a.tl"), "return {}\n")
+  local paths = check.must(patch.paths_of_pin(pin_path))
+  assert(#paths == 2, "both entry files are found")
+  assert(paths[1]:find("a.tl", 1, true) and paths[2]:find("b.tl", 1, true),
+    "files come back sorted by name")
+end
+test_paths_of_pin_resolves_a_directory()
+
+local function test_paths_of_pin_refuses_ambiguity_and_emptiness()
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "ofboth-XXXXXX")))
+  local pin_path = fs.join(dir, "x_pin.tl")
+  write(pin_path, "return {}\n")
+  write(fs.join(dir, "x_patch.tl"), "return {}\n")
+  write(fs.join(dir, "x_patch", "a.tl"), "return {}\n")
+  local both, berr = patch.paths_of_pin(pin_path)
+  assert(both == nil and berr:find("keep exactly one", 1, true),
+    "file and directory together are refused: " .. tostring(berr))
+
+  local dir2 = check.must(fs.temp_dir(fs.join(tmpdir, "ofempty-XXXXXX")))
+  local pin2 = fs.join(dir2, "y_pin.tl")
+  write(pin2, "return {}\n")
+  assert(fs.make_dirs(fs.join(dir2, "y_patch")))
+  local none, nerr = patch.paths_of_pin(pin2)
+  assert(none == nil and nerr:find("one to delete", 1, true),
+    "an empty patch directory is refused: " .. tostring(nerr))
+end
+test_paths_of_pin_refuses_ambiguity_and_emptiness()
+
+local function test_read_all_merges_one_namespace()
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "readall-XXXXXX")))
+  local a = fs.join(dir, "a.tl")
+  local b = fs.join(dir, "b.tl")
+  write(a, [[
+return {
+  ["z-late"] = {file = "f", find = "x", replace = "y", note = "n"},
+}
+]])
+  write(b, [[
+return {
+  ["a-early"] = {file = "f", find = "p", replace = "q", note = "n"},
+}
+]])
+  local edits = check.must(patch.read_all({a, b}))
+  assert(#edits == 2, "entries from both files are merged")
+  assert(edits[1].name == "a-early" and edits[2].name == "z-late",
+    "the merged set is in sorted-name order across files")
+
+  write(b, [[
+return {
+  ["z-late"] = {file = "f", find = "p", replace = "q", note = "n"},
+}
+]])
+  local dup, derr = patch.read_all({a, b})
+  assert(dup == nil and derr:find("one namespace", 1, true)
+    and derr:find("a.tl", 1, true) and derr:find("b.tl", 1, true),
+    "a duplicate entry name names both files: " .. tostring(derr))
+end
+test_read_all_merges_one_namespace()
 
 local function test_read_sorts_and_validates()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "read-XXXXXX")))
