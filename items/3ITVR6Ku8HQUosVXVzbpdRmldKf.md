@@ -1,68 +1,141 @@
+## Goal
+
+G6 — re-green the release lane. The accepted bisect (3ITOUv0w) names
+cosmos `354c17e08` ("DecodeLua: a Lua-literal data parser in C",
+tool/net/llua.c +650) as the single commit holding
+`codec_base64_roundtrip_64k` +20% and every release since
+`2026-08-23-d71d7f1` unpublished. The base64 sources are untouched
+across the range, so the leading hypothesis is code layout: the new
+compiled C moved the base64 loops across an alignment or cache
+boundary. This slice tests that hypothesis with a local rel-mode A/B
+in whilp/cosmopolitan, lands the fix there, and unblocks the pin-bump
+chain (3ISVlHT6 → 3ISPGV8z).
+
 ## Evidence
 
-`3ITOUv0w` finished the bisect: the `codec_base64_roundtrip_64k`
-regression that has held `release.yml`'s `compare against the previous
-release` step red since `2026-08-23-d71d7f1` was moved by cosmos commit
-**`354c17e08`** — "DecodeLua: a Lua-literal data parser in C, beside
-the JSON one (#274)", `tool/net/llua.c` +650 new lines plus
-`tool/lua/lcosmo.c` +23 and a `definitions.lua` entry.
+Measured/read 2026-08-27; checkout `/home/user/cosmopolitan` at
+`3c36bc352` (one commit past the culprit).
 
-The numbers, measured 2026-08-26 on cosmic tree `5ef13f40` with only
-the two lines of `3p/cosmos/cosmos_pin.tl` varied, nine isolated
-round-robin readings per arm at the default `--samples`/`--min-secs`.
-Per arm, `min` / trimmed-low `r2` / median `r5` / trimmed-high `r8`, in
-µs: base `2026.08.21-07fc94a1c` 141.61 / 142.57 / **144.29** / 146.52;
-`5bfcf79d0` 141.69 / 143.06 / **145.01** / 149.49; `8dd093cea` 140.06 /
-143.42 / **144.13** / 146.11; `354c17e08` 170.41 / **171.54** /
-**173.38** / 176.14. The same-binary noise floor from eight
-`gate.tl selfcheck` passes was **3.2%**. Under the verdict rule
-`3ITOUv0w` was given, only `354c17e08` clears all three conditions:
-median **+20.16%** over the base, trimmed ranges disjoint (base high
-146.52 µs < `354c17e08` low 171.54 µs), delta far past the 3.2% floor.
-The other two candidates read +0.50% and -0.11% with overlapping
-ranges. The separation is wide enough that the raw nine-reading ranges
-are disjoint too (base [141.61, 149.19] vs [170.41, 178.32]).
+- **The attribution**: 3ITOUv0w's Result — med 144.29 → 173.38 µs
+  (+20.16%), trimmed ranges disjoint (146.52 < 171.54), floor 3.2%;
+  the two commits before it flat (+0.50%, −0.11%). Four sessions
+  agree on direction; magnitude ranges +7.8%…+25.7% by host.
+- **The codec is untouched**: `git log --oneline
+  07fc94a1c..354c17e08 -- net/http/encodebase64.c
+  net/http/decodebase64.c net/http/isbase64.c | wc -l` → 0. The
+  scenario's path is `LuaCoder` → `EncodeBase64`/`DecodeBase64`
+  (`tool/net/lfuncs.c:946-951`), 253 lines of C across three files.
+- **Mode matters**: the measured regression is in RELEASE binaries,
+  and the released `lua` ships `MODE=rel` (cosmopolitan AGENTS.md).
+  A layout hypothesis is mode-specific — default-mode builds lay out
+  differently — so both the reproduction and the fix A/B must be
+  rel-vs-rel local builds. `skills/optimize/measurement.md` records
+  the same effect class measured on codec_hex with local rel builds.
+- **The instrument** is `skills/optimize/cosmopolitan.md`: stand a
+  local `lua` at `o/3p/cosmos/lua` in the cosmic tree, `--make
+  build`, measure with `--make run _perf/run.tl --only
+  codec_base64_roundtrip_64k`; interleave WHOLE build+measure cycles
+  (4 pairs) and judge by direction-consistency; hash `o/bin/cosmic`
+  each side (`--version` lies; the compare gate refuses same-hash
+  sides). Never local-vs-released.
+- **Container facts**: no `.cosmocc` yet (first build downloads the
+  toolchain once — network available via proxy); no Linux `perf`
+  binary — cycle profiling is out, but `nm -n` over two rel ELFs
+  shows exactly where the base64 symbols land, which is the cheap,
+  decisive layout diagnosis.
+- **Fork rules**: surgical diffs; binding contracts frozen
+  (`definitions.lua` untouched — an alignment fix moves no
+  contract); gate with `make -j o//tool/lua/test` (default mode).
+  Work lands on branch `claude/cosmic-types-asset-dance-8kdy49`.
 
-That +20.16% matches the **+21.0%** the release gate itself recorded
-for this scenario on 2026-08-24, quoted in
-[D31](../../docs/decisions/d31-gate-noise-from-every-control-pair.md),
-which already concluded this one "is real and is worked where it
-lives, in whilp/cosmopolitan". Four independent sessions now agree on
-the direction and rough size (`3ISWHyP7` +7.8%, `3ISlWFiS` +8.35%,
-`3ITHROpY` +25.70% median with no separation, `3ITOUv0w` +20.16%
-separated), and `3ITOUv0w` rebuilt all four arms' `o/bin/cosmic`
-byte-for-byte identical to `3ITHROpY`'s, so the instrument is
-reproducible across sessions and containers.
+## Change
 
-**The leading hypothesis is code layout, not the codec.** The base64
-sources did not change anywhere in the range —
-`git log --oneline 07fc94a1c..354c17e08 -- net/http/encodebase64.c net/http/decodebase64.c net/http/isbase64.c | wc -l`
-→ `0` — and the scenario's whole path is C
-(`_perf/bench/micro_bench.tl:116-129` → `cosmic/codec.tl:37,82,83` →
-`cosmo.EncodeBase64` / `cosmo.IsBase64` / `cosmo.DecodeBase64`). So the
-650 lines of new compiled code most likely moved the base64 loops
-across an alignment or cache boundary. `skills/optimize/measurement.md`
-records the same class of effect measured directly on `codec_hex`
-(local rel straddled vs padded, 122 µs vs 140 µs on the same source).
+All in `/home/user/cosmopolitan` (tree held at master `3c36bc352`
+except where a step names a commit), measurement in `/home/user/cosmic`
+on current main, only `o/3p/cosmos/lua` differing between sides.
 
-**What this item is.** Read `354c17e08`'s diff in whilp/cosmopolitan,
-test the layout hypothesis against it (alignment of the base64 symbols
-before and after, and whether padding or ordering restores the base
-timing), and land a fix there. The A/B instrument is
-`3ITOUv0w`'s: a worktree at cosmic `5ef13f40` with the pin swapped,
-`--make fetch && --make build`, then
-`_perf/run.tl --only codec_base64_roundtrip_64k` readings against the
-`07fc94a1c` baseline of 144.29 µs — except that a candidate fix needs a
-LOCAL whilp/cosmopolitan build, so `skills/optimize/cosmopolitan.md`'s
-rule binds: baseline an unmodified local build and A/B two local builds
-differing only by the change, never a local build against a released
-one. Any fix must not move a binding contract — return shapes, error
-values and constants at the C boundary are frozen for cosmic's
-generated types, and `tool/net/definitions.lua` is the source of truth
-cosmic generates from.
+1. **Diagnose the layout delta.** Build `MODE=rel o//tool/lua/lua` at
+   `8dd093cea` (last flat arm) and at `354c17e08`; `nm -n` both,
+   record the addresses and 64-byte alignment of `EncodeBase64`,
+   `DecodeBase64`, `IsBase64`, and the base64 lookup tables. A shift
+   in address/alignment of the hot symbols corroborates layout; no
+   shift redirects the hypothesis (then diagnose data side: table
+   cache-set placement) — record either way.
+2. **Reproduce locally, rel-vs-rel.** Interleaved A/B, 4 pairs:
+   A = `8dd093cea` rel `lua`, B = `354c17e08` rel `lua`, each cycle
+   `cp <lua> o/3p/cosmos/lua && bin/cosmic --make build` (read the
+   verdict directly) then one
+   `--make run _perf/run.tl --only codec_base64_roundtrip_64k --out …`
+   reading. B slower than adjacent A in ≥3 of 4 pairs = reproduced;
+   otherwise record NOT REPRODUCED LOCALLY — the effect then lives in
+   the release CI's toolchain and the follow-up is a gate/re-baseline
+   decision for a human, not code; stop and write the result.
+3. **The fix, smallest first**: at master, align the hot codec
+   functions — `__attribute__((__aligned__(64)))` on `EncodeBase64`,
+   `DecodeBase64`, `IsBase64` definitions (or the repo's existing
+   alignment idiom if one exists — grep first and match it). Rebuild
+   rel; `nm -n` must show the three at 64-byte boundaries.
+4. **Judge the fix**: interleaved A/B, 4 pairs, A = unmodified master
+   rel `lua`, B = master+fix rel `lua`. Keep iff B faster in ≥3 of 4
+   pairs AND B's readings sit at or near step 2's fast side. If
+   alignment does not restore, one fallback attempt is allowed with
+   the same instrument (e.g. also aligning the lookup tables or the
+   `LuaCoder` shim); a second failure ends the slice with the
+   recorded numbers and a follow-up naming what was excluded — do not
+   iterate blindly.
+5. **Gates before PR**: `make -j4 o//tool/lua/test` (default mode)
+   PASS; then the full-suite compare on the cosmic side — baseline =
+   unmodified master rel local, current = fixed rel local,
+   `gate.tl compare` — no non-noise regression elsewhere.
+6. **PR to whilp/cosmopolitan** on branch
+   `claude/cosmic-types-asset-dance-8kdy49`: the alignment diff only,
+   body quoting the nm addresses, the step-2 reproduction pairs and
+   the step-4 fix pairs. No `definitions.lua` change. Hand the item
+   to check with the PR number.
+7. **Record on the item** (spec append): the nm evidence, both
+   interleaves' per-pair numbers, and the verdict.
 
-Landing this re-greens the release lane, which is what `3ISVlHT6`'s pin
-bump has been waiting on: no cosmic release has published since
-2026-08-23, and scheduled runs `32699814015`, `32818853162` and
-`32940138465` all died at the perf-compare step with the `release` job
-skipped.
+## Non-goals
+
+- **No contract change**: return shapes, error values, constants and
+  `definitions.lua` untouched; an alignment attribute changes no
+  observable behavior.
+- **No scenario edits**, no `--samples`/`--min-secs` overrides, no
+  gate weakening; never local-vs-released comparisons.
+- **No revert of `354c17e08`** — DecodeLua is shipped API cosmic
+  already consumes (`cosmic.literal` compact path); the fix
+  neutralizes the side effect, not the feature.
+- **No release.yml dispatch and no pin bump** — 3ISVlHT6 owns the
+  bump once a release publishes green.
+- **No default-mode accept/reject decisions** — rel-vs-rel only for
+  the layout question; default mode is for the correctness gate.
+- **A cosmic-side tree change is out of scope**; only
+  `o/3p/cosmos/lua` varies between measured sides.
+
+## Acceptance
+
+- The item's spec carries the step-1 nm table, and both interleaves'
+  per-pair µs numbers with an explicit ≥3-of-4 verdict line each.
+- `make -j4 o//tool/lua/test` ends PASS on the fix commit.
+- The full-suite `gate.tl compare` (unmodified-local baseline vs
+  fixed-local current) ends `perf-compare: PASS`.
+- A PR exists in whilp/cosmopolitan on
+  `claude/cosmic-types-asset-dance-8kdy49` containing only the
+  alignment diff, body quoting the numbers; the item is in check with
+  its `pr` field set (cross-repo: the item's repo names
+  whilp/cosmopolitan).
+- `git -C /home/user/cosmopolitan status --short` clean but for the
+  committed fix; no cosmic-tree file changed
+  (`git -C /home/user/cosmic status --short` clean).
+- Escape hatches, each a recorded result instead of a PR: step 2 NOT
+  REPRODUCED LOCALLY → result + human-decision follow-up; step 4
+  double failure → result + follow-up naming the excluded fixes.
+
+## Enablement
+
+The cosmocc toolchain is not yet downloaded (first `make` fetches it;
+proxy network verified for github hosts). No Linux `perf` here — the
+nm diagnosis and the interleave carry the whole decision, and the
+spec is written so neither needs a profiler. Everything else
+(pin-swap embed, interleave, gate) is the `optimize` skill's standing
+instrument, exercised by four prior sessions on this exact scenario.
