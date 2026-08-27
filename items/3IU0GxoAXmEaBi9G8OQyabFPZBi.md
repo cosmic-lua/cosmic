@@ -86,9 +86,9 @@ exercised (first pass); the E1/E2 interleave methodology
 (skills/optimize/measurement.md) stands as the cross-check if the
 modes flip mid-pass.
 
-## Result (2026-08-27, second bracket, 04:59-05:38 UTC)
+## Result
 
-**The fast mode did not appear in 39 more minutes, and the hunt ends
+Second bracket, 2026-08-27 04:59-05:38 UTC. **The fast mode did not appear in 39 more minutes, and the hunt ends
 on the standing deduction, per this spec's step 3.** 40 launches of
 `o/bin/cosmic --make run _perf/run.tl --only codec_base64_roundtrip_64k
 --out o/perf/probe-N.json`, one per ~60 s (ts 1787806772-1787809131,
