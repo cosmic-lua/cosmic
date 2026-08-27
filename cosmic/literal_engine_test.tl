@@ -62,6 +62,8 @@ local REFUSALS: {string} = {
   "{a = 1}",
   "return 1",
   "return {a = 1",
+  "return {",
+  "return {a =",
   "return {a = 0x}",
   "return {a = [==[unterminated}",
   "return {a = 1} --[[unterminated",

@@ -207,8 +207,16 @@ local function parse_table(toks: {Token}, i: integer, where: string,
   local seen: {string: integer} = {}
   local n = #toks
   i = i + 1 -- step over `{`
+  -- The lexer's sentinel bounds the walk: every position holds a token,
+  -- so end-of-input is a KIND the positions below check for, never a
+  -- nil to guard against. The separator step leaves a sentinel in
+  -- place, so a table cut off after a value lands here too.
   while i <= n do
     local t = toks[i]
+    if t.kind == "eof" then
+      return nil, where .. ":" .. tostring(t.y) ..
+      ": unterminated table in " .. noun
+    end
     if t.tk == "}" then
       return {value = out, next = i + 1}
     end
@@ -238,8 +246,9 @@ local function parse_table(toks: {Token}, i: integer, where: string,
     -- into a local so every branch reaches the SAME assignment site
     -- below, the one place the duplicate-key check can live.
     local v = toks[i]
-    if not v then
-      return nil, where .. ": unexpected end of " .. noun
+    if v.kind == "eof" then
+      return nil, where .. ":" .. tostring(v.y) ..
+      ": unexpected end of " .. noun
     end
     local value: any
     if v.tk == "{" then
@@ -305,19 +314,23 @@ local function parse_table(toks: {Token}, i: integer, where: string,
       seen[key] = key_line
       out[key] = value
     end
-    -- A value is followed by a separator or the closing brace, and
-    -- nothing else. Without this an operator after a literal (`"a" ..
-    -- "b"`) would be read as the next key, and the complaint would be
-    -- about a missing name rather than about the concatenation.
+    -- A value is followed by a separator, the closing brace, or the
+    -- end of input — left in place for the loop head's unterminated
+    -- refusal — and nothing else. Without this an operator after a
+    -- literal (`"a" .. "b"`) would be read as the next key, and the
+    -- complaint would be about a missing name rather than about the
+    -- concatenation.
     local sep = toks[i]
-    if sep and (sep.tk == "," or sep.tk == ";") then
+    if sep.tk == "," or sep.tk == ";" then
       i = i + 1
-    elseif not sep or sep.tk ~= "}" then
+    elseif sep.tk ~= "}" and sep.kind ~= "eof" then
       return nil, where .. ":" .. tostring(v.y) ..
-      ": a " .. noun .. " holds literals only; found '" .. (sep and sep.tk or "<eof>") ..
+      ": a " .. noun .. " holds literals only; found '" .. sep.tk ..
       "' after a value (no variables, calls or concatenation)"
     end
   end
+  -- Unreachable by the sentinel invariant (the loop head returns at
+  -- eof), stated for the checker, which cannot see it.
   return nil, where .. ": unterminated table in " .. noun
 end
 
