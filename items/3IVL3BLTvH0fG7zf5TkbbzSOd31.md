@@ -44,11 +44,17 @@ main.tl:9: attempt to index a number value (local 's')
 exit=1
 ```
 
-**Control, confirming the mechanism rather than an unrelated path**: add
-`gv2 = 2` at the bottom of the SAME file and the carry correctly drops —
-`modb.tl:6:12: error: in return value: got string | integer, expected string`.
-So the carry is governed exactly by `assigned_anywhere` over the chunk
-root, and a cross-module assignment is invisible to it.
+**Control, confirming the mechanism rather than an unrelated path**:
+assign the SAME name in the SAME file — `gv = 2` at the bottom of
+`moda.tl` — and the carry correctly drops with
+`in return value: got string | integer, expected string`. So the carry
+is governed exactly by `assigned_anywhere` over the chunk root, and a
+cross-module assignment is invisible to it.
+
+(Corrected 2026-08-27: this paragraph first named `gv2 = 2`, which is a
+DIFFERENT name and could not have widened `gv` — a transcription slip,
+not a flaw in the control. The conclusion is unchanged and was
+re-measured independently at implementation.)
 
 **The site.** `widen_all_unions` is untouched by the patch today
 (`o/3p/tl/tl.lua:10910-10921`, identical in pristine and unpacked):

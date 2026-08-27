@@ -137,10 +137,59 @@ local function test_a_no_op_mutation_is_named()
   local path = fs.join(tmpdir, "ready-spec.md")
   assert(fs.write(path, READY_SPEC))
   assert(verbs.cmd_spec(s, leaf, path) == 0)
-  assert(verbs.cmd_spec(s, leaf, path) ~= 0,
+  assert(verbs.cmd_spec(s, leaf, path, path) ~= 0,
     "the same spec twice records nothing the second time")
 end
 test_a_no_op_mutation_is_named()
+
+-- One markdown file under tmpdir, for the spec tests below.
+local function spec_file(name: string, body: string): string
+  local path = fs.join(tmpdir, name .. ".md")
+  assert(fs.write(path, body))
+  return path
+end
+
+-- `spec` replaces the WHOLE sidecar, so a write naming no base is one
+-- that cannot say what it read. Refused, with nothing recorded.
+local function test_spec_refuses_a_write_with_no_base()
+  local s = init_state_repo("nobase")
+  local _, leaf = root_with_leaf(s)
+  assert(verbs.cmd_spec(s, leaf, spec_file("nobase-first", READY_SPEC)) == 0,
+    "the first spec has nothing to overwrite, so it needs no base")
+  local second = spec_file("nobase-second",
+    (READY_SPEC:gsub("Nothing needed.", "Rewritten.")))
+  local before = commits(s)
+  assert(verbs.cmd_spec(s, leaf, second) ~= 0,
+    "a second write with no base is last-write-wins")
+  assert(store.read_spec(s, leaf) == READY_SPEC, "so the first text stands")
+  assert(commits(s) == before, "and nothing was committed")
+end
+test_spec_refuses_a_write_with_no_base()
+
+-- The base is the text the caller READ. One a later writer already
+-- replaced is the concurrent refinement this catches; re-reading the
+-- sidecar makes the very same write land.
+local function test_spec_refuses_a_stale_base()
+  local s = init_state_repo("stalebase")
+  local _, leaf = root_with_leaf(s)
+  local first = spec_file("stale-first", READY_SPEC)
+  assert(verbs.cmd_spec(s, leaf, first) == 0)
+  local second = spec_file("stale-second",
+    (READY_SPEC:gsub("Nothing needed.", "First edit.")))
+  assert(verbs.cmd_spec(s, leaf, second, first) == 0, "the base it read")
+  local third = spec_file("stale-third",
+    (READY_SPEC:gsub("Nothing needed.", "Second edit.")))
+  assert(verbs.cmd_spec(s, leaf, third, first) ~= 0,
+    "a base the second write already replaced is stale")
+  assert(verbs.cmd_spec(s, leaf, third, fs.join(tmpdir, "gone.md")) ~= 0,
+    "and an unreadable base is refused, not taken as empty")
+  local current = spec_file("stale-current", store.read_spec(s, leaf))
+  assert(verbs.cmd_spec(s, leaf, third, current) == 0,
+    "re-reading the sidecar makes the same write land")
+  assert(store.read_spec(s, leaf):find("Second edit.", 1, true) ~= nil,
+    "carrying the text it meant to write")
+end
+test_spec_refuses_a_stale_base()
 
 -- The implementer records the PR with the move that hands it over.
 local function test_move_records_the_pr()
@@ -375,9 +424,9 @@ local function test_an_evidence_handover_carries_a_result_section()
   assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "", true) ~= 0,
     "a spec with no ## Result section has no findings to judge")
   assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  local path = fs.join(tmpdir, "hollow-result.md")
-  assert(fs.write(path, READY_SPEC .. "## Result\n\n## Notes\nlater\n"))
-  assert(verbs.cmd_spec(s, leaf, path) == 0)
+  local path = spec_file("hollow-result",
+    READY_SPEC .. "## Result\n\n## Notes\nlater\n")
+  assert(verbs.cmd_spec(s, leaf, path, spec_file("hollow-base", READY_SPEC)) == 0)
   assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "", true) ~= 0,
     "nor does a heading with nothing under it")
 end

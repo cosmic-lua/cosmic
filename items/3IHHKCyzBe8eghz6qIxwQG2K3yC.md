@@ -34,3 +34,43 @@ comment to state perf.json's record-only role; flip baseline.tl's
 default asset or make --asset required so the default cannot silently
 drift from any real caller. _build/workflows_test.tl already greps
 this step's shape — extend it to pin whichever role wording lands.
+
+## Correction — 2026-08-27: the first Direction item is now false
+
+`3IVGNOMt` landed as whilp/cosmic#1464 and **publishes
+`o/perf/selfcheck.json` as a release asset.** So the claim above —
+"that second run is ~2 min of every release spent producing an input
+nothing consumes" — no longer holds, and dropping the run would now
+delete data rather than reclaim waste.
+
+What the second run produces is the project's only free full-suite
+**same-binary A/A control pair**: two readings of one binary, on one
+runner, in one job, each carrying its own `meta.bin_sha` and
+`meta.timestamp`. That is exactly the longitudinal record the
+cross-session level work kept having to reconstruct by hand
+(3IU0GxoA spent two probe brackets and three review rounds on it).
+
+The observation the bullet rests on stays TRUE and is worth keeping:
+on the escalation path `gate_inner` does re-measure into
+`selfcheck_b`, so the pre-measured file is overwritten there. What
+changed is the conclusion. Both provenances are now stated in
+`release.yml`'s own comment, and both are valid A/A halves:
+
+- clean run — the published file is the measure step's second reading;
+- escalated run — it is the gate's own control measurement, which
+  `controls` then feeds to `triage_many`, so on that path it does
+  decide the exit code.
+
+**The remaining two Direction items are untouched and still real:**
+
+- `baseline.tl`'s default `--asset perf.json` matches no real caller
+  (the perf gate passes `--asset cosmic-lua`, the size gate
+  `--asset size.json`) — flip the default or make `--asset` required
+  so it cannot silently drift.
+- nothing says `perf.json`'s role. Note the wording now has to cover
+  `selfcheck.json` too, and the two files' roles differ: one is the
+  record, the other the control.
+
+So this item is smaller than it was, and its first bullet is now a
+non-goal rather than a task. Re-scope it to the `--asset` default and
+the role wording before pulling it; do not carry the deletion forward.

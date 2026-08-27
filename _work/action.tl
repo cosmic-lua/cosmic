@@ -404,7 +404,7 @@ local function next_action(items: {Item}, session?: string,
     return {kind = "unblock", item = root,
       reason = starving .. " (ready is at its limit)"}
   end
-  local taking = intake.intake_action(items, b, index, pos, aged)
+  local taking = intake.intake_action(items, b, index, pos, aged, who)
   if taking then
     return taking
   end

@@ -38,7 +38,47 @@ local function cmd_init(dir: string): integer
     ("state repository ready at %s"):format(dir))
 end
 
-local function cmd_spec(s: store.Store, id: string, file: string): integer
+--- The refusal a stale base earns, or nil when the write may proceed.
+---
+--- `spec` replaces the WHOLE sidecar, so the write has to say which
+--- text it is replacing. The push half is a compare-and-swap already,
+--- but it compares COMMITS: a session that synced between reading a
+--- spec and writing its refinement back rebases cleanly over the write
+--- it is erasing. The base is the missing half — the text the caller
+--- read, compared against the text that is there.
+---
+--- One rule covers both calls, because an item with no sidecar reads
+--- back "" and that is what a call with no `--base` compares against:
+--- the FIRST write of a spec needs no flag, and every later one does.
+--- @param current string The sidecar as it stands
+--- @param base string The base file's path, "" when none was given
+--- @param id string The item's full id, for the message and the path
+--- @return string | nil The refusal
+local function base_refusal(current: string, base: string,
+    id: string): string | nil
+  local claimed = ""
+  if base ~= "" then
+    local read, rerr = fs.read(base)
+    if read == nil then
+      return ("REFUSED: --base %s is unreadable: %s"):format(base, rerr)
+    end
+    claimed = read
+  end
+  if claimed == current then
+    return nil
+  end
+  local id8 = id:sub(1, 8)
+  if base == "" then
+    return ("REFUSED: %s already has a spec — pass --base FILE holding the "
+      .. "text you read; a write with no base is last-write-wins"):format(id8)
+  end
+  return ("REFUSED: %s's spec changed since you read it — re-read "
+    .. "items/%s.md, re-apply your edit, and pass the re-read text as "
+    .. "--base (the trail is `gitboard show %s`)"):format(id8, id, id8)
+end
+
+local function cmd_spec(s: store.Store, id: string, file: string,
+    base?: string): integer
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("spec", false, lerr)
@@ -46,6 +86,10 @@ local function cmd_spec(s: store.Store, id: string, file: string): integer
   local body, rerr = fs.read(file)
   if body == nil then
     return gate.verdict_line("spec", false, rerr)
+  end
+  local stale = base_refusal(store.read_spec(s, id), base or "", id)
+  if stale then
+    return gate.verdict_line("spec", false, stale)
   end
   local ok, err = gate.commit_and_publish(s, it, body,
     ("spec %s"):format(id:sub(1, 8)))
@@ -216,6 +260,13 @@ local function cmd_move(s: store.Store, id: string, target: string,
   if from == "check" and target ~= "check" then
     it.reviewer = ""
   end
+  -- `ready` is nobody's until a session pulls it, so an arrival there
+  -- sheds the refine claim that drove it to the bar: `pullables` has
+  -- no lease check, and a claim surviving into ready would reserve
+  -- the item for its refiner against every other session forever.
+  if target == "ready" and not flow.is_return(from, target) then
+    it.claim = ""
+  end
   if flow.is_return(from, target) then
     it.claim = ""
     -- A verdict describes one head in one phase. Moving leftward out
@@ -310,7 +361,8 @@ end
 
 local record gitverbs
   cmd_init: function(dir: string): integer
-  cmd_spec: function(s: store.Store, id: string, file: string): integer
+  cmd_spec: function(s: store.Store, id: string, file: string,
+  base?: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
   claim: string, pr: integer, force: boolean, why: string,
   evidence?: boolean, mover?: string): integer

@@ -414,6 +414,10 @@ end
 
 --- Mutation history, newest first, from git alone: one item's when
 --- `id` names one, the whole branch's flow record when it does not.
+---
+--- An item is TWO files, and one item's log is both: a `spec` commit
+--- touches only the sidecar, so the record alone would be a trail with
+--- every refinement missing from it.
 --- @param s Store The store
 --- @param id string Item id, or nil for every commit on the branch
 --- @return {Event} | nil Events, possibly empty
@@ -423,6 +427,7 @@ local function history(s: Store, id?: string): {Event} | nil, string
   if id ~= nil then
     argv[#argv + 1] = "--"
     argv[#argv + 1] = fs.join("items", id .. ".tl")
+    argv[#argv + 1] = fs.join("items", id .. ".md")
   end
   local r, err = git_ok(s, argv)
   if r == nil then

@@ -93,7 +93,9 @@ local CSPEC: flags.CommandSpec = {
     {name = "unblock", summary = "drop BLOCKER from ID's blockers",
       spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
-      spec = {usage = "ID FILE [options]", flags = {dir_flag()}}},
+      spec = {usage = "ID FILE [options]", flags = {dir_flag(),
+          {long = "base", arg = "FILE",
+            help = "the spec text you read, as the compare-and-swap base"}}}},
     {name = "check", summary = "ready-bar and graph lint of ID",
       spec = {usage = "ID [options]", flags = {dir_flag()}}},
     {name = "status", summary = "render the kanban and its WIP verdict",
@@ -111,8 +113,9 @@ local CSPEC: flags.CommandSpec = {
             .. "environment (GITBOARD_SESSION, else a runner's own id)"},
           {long = "take",
             help = "claim the offered work in the same call: a review is "
-            .. "claimed, a pull is moved to do, and a candidate somebody "
-            .. "else claimed first falls to the next one"}}}},
+            .. "claimed, a pull is moved to do, a refine is claimed in "
+            .. "place, and a candidate somebody else claimed first falls "
+            .. "to the next one"}}}},
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION",
@@ -289,7 +292,7 @@ local function main(...: string): integer
       io.stderr:write("spec needs a markdown file\n")
       return 1
     end
-    return verbs.cmd_spec(s, id, file)
+    return verbs.cmd_spec(s, id, file, d.parsed.values["base"] or "")
   end
   if d.command == "check" then
     return view.cmd_check(s, id)
