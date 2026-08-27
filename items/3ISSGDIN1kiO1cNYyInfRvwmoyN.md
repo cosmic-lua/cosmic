@@ -105,3 +105,29 @@ byte-identical; `_make/patch.tl` untouched.
 none needed — the split (3ITo9Inv) landed, the pin carries the
 directory mechanism, and every anchor was verified against the
 fetched checker in this pass.
+
+## Implementation notes (2026-08-27, recorded at build)
+
+Two discoveries during the build, both in the landed diff:
+
+- **A ninth entry, `closure-assigned-scan`, is REQUIRED for
+  soundness**: stock `assigned_anywhere` aggregates children with
+  `ipairs`, and an else-block's children table starts at a nil hole
+  (no condition at xs[1]), so every assignment inside an else branch
+  — and inside a declaration's rvalue (same hole at the missing
+  decltuple) — was invisible to the scan. `_tool/coverage/report.tl`'s
+  format_ranges (assignments in an else) is the tree's own witness:
+  without the fix the chunk-scan keeps its `first` narrow and the
+  file refuses. Fixed with `pairs` (order is irrelevant to a
+  boolean-or).
+- **One tree fix**: `cosmic/json.tl` compared metatables with `==`
+  behind a `typed any` marker local; the carried declaration narrow
+  now keeps the constructor's specific `metatable<{any}>` and the
+  comparison refuses as incomparable. Identity comparison via
+  `rawequal` says what the code meant and checks under both the
+  pinned and the patched checker (cold-build rule respected).
+  `_tool/coverage/report.tl` needed nothing once the scan was fixed.
+
+Also filed from this build: 3IU1dR9x (a red gen-2 leaves a poisoned
+o/bin/cosmic and wedges every later run's gen-1 — escaped here with
+`rm o/bin/cosmic`).
