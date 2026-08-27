@@ -94,6 +94,23 @@ local function test_unfinishable_input_is_refused()
 end
 test_unfinishable_input_is_refused()
 
+-- Input that ends mid-table reports where the input ran out, in the
+-- end-of-input wording — the lexer's sentinel spelling is internal and
+-- must never reach a message.
+local function test_truncated_tables_report_the_end_of_input()
+  assert(refused("return {"):find("unterminated table", 1, true),
+    "open brace then nothing")
+  assert(refused("return {a = 1"):find("unterminated table", 1, true),
+    "value then nothing")
+  assert(refused("return {a ="):find("unexpected end", 1, true),
+    "key then nothing")
+  for _, src in ipairs({"return {", "return {a = 1", "return {a ="}) do
+    assert(not refused(src):find("$EOF$", 1, true),
+      "the sentinel spelling leaked for: " .. src)
+  end
+end
+test_truncated_tables_report_the_end_of_input()
+
 -- Long brackets take no escapes and drop one leading newline, and the
 -- delimiter is as many `=` as were written -- so stripping a fixed one
 -- character per side reads `[==[x]==]` as `==[x]==`.
