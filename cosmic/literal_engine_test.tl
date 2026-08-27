@@ -39,6 +39,8 @@ return {
   escapes = "\65\x41\u{263A}\t\\\"",
   long = [[a long bracket
 carrying no escapes]],
+  spanned = "a\z
+     b",
   n = 1, neg = -2, hex = 0x10, hexf = 0x1p4, f = 1.5, exp = 1e3,
   t = true, no = false,
   inner = {deep = {leaf = 'single quoted'}},

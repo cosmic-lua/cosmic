@@ -120,12 +120,28 @@ local function lex(src: string, where: string): {Token} | nil, string
         if d == "\n" then
           return nil, where .. ":" .. tostring(y) .. ": unterminated string"
         end
-        j = j + (d == "\\" and 2 or 1)
+        if d == "\\" and src:sub(j + 1, j + 1) == "z" then
+          -- `\z` skips the whitespace that follows it, newlines
+          -- included — that is what the escape is FOR, and `load`
+          -- accepts it — so the scan walks past them here; a raw
+          -- newline anywhere else still ends the string above.
+          j = j + 2
+          while j <= n and src:sub(j, j):match("^%s") do
+            j = j + 1
+          end
+        else
+          j = j + (d == "\\" and 2 or 1)
+        end
       end
       if j > n then
         return nil, where .. ":" .. tostring(y) .. ": unterminated string"
       end
       toks[#toks + 1] = {tk = src:sub(i, j), kind = "string", y = y}
+      -- A short string spans lines through `\z` (and `\<newline>`), and
+      -- later refusals report line numbers: count what the token
+      -- crossed, like the long-bracket branches above.
+      local _, breaks = src:sub(i, j):gsub("\n", "")
+      y = y + breaks
       i = j + 1
     elseif c:match("%d") or (c == "." and src:sub(i + 1, i + 1):match("%d")) then
       local num = numeral_at(src, i)
