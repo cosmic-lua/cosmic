@@ -272,10 +272,11 @@ orders it against everything else, and the item's spec is the spec.
 each spec carries the evidence, expected mechanism, correctness
 constraints, and a risk note, and accumulates everything later rounds
 learn about it: probe numbers, compare verdicts, the outcome
-(`gitboard spec` replaces the sidecar). the board is the only durable
-store — nothing about a hypothesis, in any state, is committed to
-this repo. legacy `perf`-labeled issues and their closed history stay
-readable as evidence; an item may link one, never duplicate it.
+(`gitboard spec` replaces the sidecar, against the text it read). the
+board is the only durable store — nothing about a hypothesis, in any
+state, is committed to this repo. legacy `perf`-labeled issues and
+their closed history stay readable as evidence; an item may link one,
+never duplicate it.
 
 if a workload you want to optimize has no scenario, add one FIRST (in a
 `_perf/bench/*_bench.tl` module, with a real `check()`), baseline it,
