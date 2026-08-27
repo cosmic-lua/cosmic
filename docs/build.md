@@ -146,3 +146,27 @@ whatever the pin happens to be.
 
 The trust root's shape, and the settled decision that make stays the
 graph executor, are recorded in [decisions/](decisions/) (D13, D14).
+
+### Proving a candidate carries a checker change
+
+The carried tl patch (`3p/tl/tl_patch/`) reaches builders only through
+the pin, so a bump made in order to obtain a patch entry has to prove
+the candidate binary actually carries it. The proof is one probe source
+the two binaries answer with **opposite exit statuses** — the old one
+refuses it, the candidate accepts it. A differing error *message* is not
+proof: a probe both binaries refuse says nothing about the rule, however
+far apart the two messages read.
+
+    o/bin/cosmic _build/pin_probe.tl <probe.tl> o/bootstrap/cosmic <candidate>
+
+`o/bootstrap/cosmic` is the current pin's binary, already on disk after
+any `bin/cosmic` run, and is the baseline the candidate has to differ
+from. `_build/pin_probe.tl` prints both transcripts and then one verdict
+line — `pin-probe: DISCRIMINATES …` (exit 0) or `pin-probe: VACUOUS …`
+(exit 1) — so the judgement is a status rather than a reading.
+
+`_build/testdata/packn_probe.tl` is a worked example, for the entry that
+narrows `table.pack(...).n` from `any` to `integer`. Note the `_` prefix
+on its local: warnings are errors here, so an unused variable makes the
+probe exit 1 under *every* checker, which is a second and quieter way to
+write a probe that cannot fail.
