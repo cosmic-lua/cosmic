@@ -33,7 +33,8 @@ local function claim_ages(s: store.Store, all: {item.Item}): health.Ages
   local ages: health.Ages = {}
   local now = os.time()
   for _, i in ipairs(all) do
-    if item.is_open(i) and (i.phase or "") ~= "" and (i.claim or "") ~= "" then
+    if item.is_open(i) and (i.phase or "") ~= ""
+    and ((i.claim or "") ~= "" or (i.reviewer or "") ~= "") then
       local t = store.touched_at(s, i.id)
       if t ~= nil and t <= now then
         ages[i.id] = now - t

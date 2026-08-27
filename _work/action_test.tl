@@ -7,6 +7,7 @@
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
+local health = require("_work.health")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local act = require("_work.action")
@@ -223,7 +224,7 @@ local function test_a_full_check_of_its_own_is_not_a_finish_action()
   local action = act.next_action(items, "session-A")
   assert(action.kind == "none",
     "the handover would be refused, so it is not offered: " .. action.kind)
-  assert(action.reason:find("another session writes a verdict", 1, true),
+  assert(action.reason:find("until a verdict lands", 1, true),
     "and the reason says what would unstick it: " .. action.reason)
 end
 test_a_full_check_of_its_own_is_not_a_finish_action()
@@ -400,6 +401,34 @@ local function test_reviewable_skips_a_past_builder()
     "nor is the session holding the claim: " .. for_b.kind)
 end
 test_reviewable_skips_a_past_builder()
+
+-- A live review claim fans reviewers out: the claimed diff is
+-- another session's, the next unclaimed one is offered instead, and
+-- an expired claim puts the diff back on offer.
+local function test_reviewable_skips_a_live_foreign_reviewer()
+  local goal = make({})
+  local claimed = make({parent = goal.id, phase = "check", pr = 1,
+      claim = "builder-A", reviewer = "reviewer-B"})
+  local open_one = make({parent = goal.id, phase = "check", pr = 2,
+      claim = "builder-A"})
+  local items: {item.Item} = {goal, claimed, open_one}
+
+  local for_c = act.next_action(items, "session-C")
+  assert(for_c.kind == "review" and for_c.item.id == open_one.id,
+    "a live foreign review claim sends the next session elsewhere: "
+    .. for_c.kind)
+
+  local for_b = act.next_action(items, "session-B")
+  assert(for_b.kind == "review",
+    "the claimant is still offered a review: " .. for_b.kind)
+
+  local stale: {string: integer} = {}
+  stale[claimed.id] = health.REVIEW_LEASE_S + 1
+  local again = act.next_action(items, "session-C", stale)
+  assert(again.kind == "review",
+    "an expired review claim puts the diff back on offer: " .. again.kind)
+end
+test_reviewable_skips_a_live_foreign_reviewer()
 
 local function test_anothers_live_rework_is_held()
   local goal = make({})

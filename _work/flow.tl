@@ -407,7 +407,34 @@ local function triage_violation(items: {Item}): string | nil
   return nil
 end
 
+--- Whether `session` has built this item: it holds the claim now, or
+--- it held the claim at some point.
+---
+--- The claim alone is not the answer. It is a LEASE — a return clears
+--- it and the next pull writes a new one — so an item built by A,
+--- returned, and re-pulled by B reads as B's while A's diff is what
+--- sits in `check`. `builders` is the durable half, and consulting
+--- both is what makes "no session accepts its own work" hold across a
+--- handover rather than only while nobody collides. Both the review
+--- ordering (`_work.action`) and the review claim (`_work.gitreview`)
+--- turn on this answer, so it lives here once.
+--- @param i Item The item in check
+--- @param session string This session's name, never ""
+--- @return boolean True when this session built it
+local function built_by(i: Item, session: string): boolean
+  if (i.claim or "") == session then
+    return true
+  end
+  for _, name in ipairs(i.builders or {}) do
+    if name == session then
+      return true
+    end
+  end
+  return false
+end
+
 local record flow
+  built_by: function(i: Item, session: string): boolean
   type Item = Item
   type Board = Board
   type Index = Index
@@ -437,6 +464,7 @@ local record flow
 end
 
 local M: flow = {
+  built_by = built_by,
   LIMITS = LIMITS,
   TRIAGE_LIMIT = TRIAGE_LIMIT,
   is_return = is_return,
