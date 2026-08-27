@@ -8,9 +8,13 @@ pinned, and it is 10 lines from the hard cap, so the next verb change fails
 
 Split `_work/gitverbs_test.tl` in two along the seam the file's own ordering
 already shows, moving test bodies VERBATIM. No test is renamed, added,
-removed, or edited; no source file changes. Measured now on `board` at
-`7f3659f4`: `wc -l < _work/gitverbs_test.tl` is 490 (10 under the 500-line
+removed, or edited; no source file changes. Re-measured at pull, on `board`
+at `90613d17`: `wc -l < _work/gitverbs_test.tl` is 493 (7 under the 500-line
 cap) and `grep -c "^local function test_" _work/gitverbs_test.tl` is 21.
+It was 490 when this spec was written; whilp/cosmic#1466 added an assertion
+and reworded a comment inside
+`test_a_decomposition_is_never_refused_by_a_full_board`, which is in the
+verbs half. Same 21 tests, same names, same seam.
 
 **1. New `_work/gitspec_test.tl`** — everything that judges the SPEC SIDECAR.
 Move these 10 tests and the one helper they share, in their current order,
@@ -51,8 +55,9 @@ file holds — the sidecar half judges spec CONTENT, the verbs half judges
 phase MOTION.
 
 Measured expectation from the block sizes (each test's leading comment
-through its call line, summed): about 225 lines for `gitspec_test.tl` and
-about 294 for `gitverbs_test.tl`, so roughly 200 lines of headroom each.
+through its call line, summed at pull): about 225 lines for
+`gitspec_test.tl` and about 297 for `gitverbs_test.tl`, so roughly 200 lines
+of headroom each.
 The `Acceptance` caps below are the contract; these two figures are only the
 reason to believe them.
 
