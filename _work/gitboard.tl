@@ -286,9 +286,13 @@ local function main(...: string): integer
     if (claim or "") == "" and (target == "do" or target == "check") then
       claim = session.resolve(nil)
     end
+    -- The mover's own identity, distinct from --claim: the abandon
+    -- guard reads it to tell a builder returning their own work from
+    -- another session dropping a live claim.
+    local mover = session.resolve(nil)
     return verbs.cmd_move(s, id, target, claim, pr,
       d.parsed.switches["force"], d.parsed.values["why"] or "",
-      d.parsed.switches["evidence"])
+      d.parsed.switches["evidence"], mover)
   end
   if d.command == "verdict" then
     local kind = d.parsed.args[2]

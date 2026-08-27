@@ -75,7 +75,7 @@ end
 
 local function cmd_move(s: store.Store, id: string, target: string,
     claim: string, pr: integer, force: boolean, why: string,
-    evidence?: boolean): integer
+    evidence?: boolean, mover?: string): integer
   local forced = gate.force_refusal(force, why)
   if forced then
     return gate.verdict_line("move", false, "REFUSED: " .. forced)
@@ -172,6 +172,24 @@ local function cmd_move(s: store.Store, id: string, target: string,
     if refusal then
       return gate.verdict_line("move", false, "REFUSED: " .. refusal)
     end
+  end
+  -- Leaving `do` is the one leftward move that abandons work in
+  -- progress: the claim there means a builder mid build-test-push
+  -- loop on a machine the board cannot see, and the return path
+  -- below clears it. The builder returns their own work freely (a
+  -- bounce is the system correcting itself); anyone else abandoning
+  -- a live claim says so with --force --why, exactly like the
+  -- replacement takeover. Claims on `check`/`land` mark the builder
+  -- for review distance, and reviewer-driven leftward motion out of
+  -- those phases flows through cmd_verdict, so `do` is the bound.
+  if flow.is_return(from, target) and from == "do"
+  and (it.claim or "") ~= "" and it.claim ~= (mover or "")
+  and (claim or "") == "" and not force then
+    return gate.verdict_line("move", false,
+      ("REFUSED: moving %s out of do abandons %s's live claim — the "
+        .. "builder returns their own work; take over a dead "
+        .. "session's with --force --why"):format(
+        id:sub(1, 8), it.claim))
   end
   -- A claim is a lease over work in progress. Taking over a live one
   -- is legitimate — a session dies, another picks the item up — but it
@@ -287,7 +305,7 @@ local record gitverbs
   cmd_spec: function(s: store.Store, id: string, file: string): integer
   cmd_move: function(s: store.Store, id: string, target: string,
   claim: string, pr: integer, force: boolean, why: string,
-  evidence?: boolean): integer
+  evidence?: boolean, mover?: string): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
   force: boolean, why: string): integer
   cmd_sync: function(s: store.Store): integer
