@@ -12,8 +12,10 @@ wrong turn twice is the trigger for a countermeasure.
 
 ## Change
 
-Two confirmed defects, both in the SHARED grammar, both reproduced against
-`5978f451`:
+Three confirmed defects in the SHARED grammar. Defects 1 and 2 were
+reproduced against `5978f451` and are fixed on whilp/cosmic#1471's head
+`844da8a9`; defect 3 was introduced by that fix and is open. Whatever
+#1471 lands, the remaining work here is the machine gate below.
 
 1. **`>>` is one token.** `skip_balanced(tokens, i, "<", ">")` never closes a
    nested generic, so `Box<Wrap<integer>>` is not a type to this parser.
@@ -30,7 +32,23 @@ Two confirmed defects, both in the SHARED grammar, both reproduced against
    later site in it goes unseen — the same class as the `local record` miss
    5978f451 fixed for the other spelling.
 
-Fix both, and then close the class by machine rather than by imagination:
+3. **`opens_body`'s `=` tell fires on a VALUE named `record`.** Found at round
+   three, and INTRODUCED by the fix for defect 2: `_cli/nilreturn.tl`'s
+   `opens_body` treats any `record`/`enum`/`interface` identifier whose
+   previous token is `=` as opening a body, so an export table's
+   `record = record` pushes a "fields" frame no `end` ever pops. Measured:
+   `cosmic/shape.tl:313` (`record = record,` in the module's export table)
+   leaves the walk with a residual frame today — harmless only because no
+   `return nil` follows it in that file. Reproduced as a live false positive
+   on type-checking source: a local function named `record`, an export table
+   binding `record = record` inside a lying function, and a module-scope
+   `return nil` below it is counted as a site (`844da8a9` reports 1; the same
+   file with the identifier renamed reports 0; `5978f451` reports 0 for both).
+   The `=` tell is reading backwards for a fact `skip_type_alias` already
+   knows structurally — it lands exactly on the alias's `record` token — so
+   the fix is to signal the alias body from that path instead.
+
+Fix all three, and then close the class by machine rather than by imagination:
 a differential test that generates (or enumerates) Teal type-position shapes
 and cross-checks this grammar against tl's own parser — a shape where the two
 disagree is a bug in the hand grammar. `_fuzz/` is the tree's existing home for
@@ -38,6 +56,18 @@ generated-input gates. Alternative if a differential harness is too big:
 `cosmic/format/types.tl` already solves the same type-position problem for the
 formatter, and a test asserting the two agree over every committed `.tl` file
 plus a fixture corpus is a cheaper version of the same idea.
+
+**The cheap gate, measured.** A frame-stack RESIDUAL assertion — the walk's
+stack must be empty at end of file, and no `end` may arrive on an empty stack
+— runs over every committed `.tl` in one pass and finds this class without any
+imagination. Verified against all 602 committed `.tl` files: at `844da8a9`
+exactly one file is unbalanced (`cosmic/shape.tl`, residual 1 — defect 3
+above); at `5978f451` the `>>` reproduction leaves residual 1 (defect 1 would
+have been caught); the alias miss (defect 2) is an under-pop, which the
+matching half — counting `end`s that arrive with an empty stack — catches.
+Both halves are a few lines beside the existing ratchet test and would have
+caught round one, round two and round three before a reviewer did. Build this
+before, or instead of, the fuller differential against tl's own parser.
 
 ## Non-goals
 
@@ -48,5 +78,6 @@ plus a fixture corpus is a cheaper version of the same idea.
 
 ## Acceptance
 
-- The two reproductions above return the correct counts.
-- A gate exists that would have failed on either defect before review did.
+- The three reproductions above return the correct counts.
+- A gate exists that would have failed on any of the three defects before
+  review did; the residual assertion above is the measured minimum.
