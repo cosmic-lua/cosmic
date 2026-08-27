@@ -20,22 +20,52 @@ workarounds, whose sources will then REQUIRE the patched checker at
 cold build) carries a real blocker edge instead of being re-offered
 by `next` while the pinned checker cannot compile them.
 
-## Status at 2026-08-27T05:05Z
+## Status at 2026-08-27T05:02Z
 
-Still blocked, and the reason is external: the newest release is
-`2026-08-27-6b88a0d` (published 03:28Z), whose tag commit is
-`c9ecd10b`, and `git merge-base --is-ancestor c78504bd
-c9ecd10b` fails — re-measured, the Goal's claim stands.
+Still blocked, and the reason is still external: no release published
+since the last measurement. Newest release is `2026-08-27-6b88a0d`
+(published 2026-08-27T03:28:45Z), tag commit `c9ecd10b`. Re-measured
+against a fresh `git fetch origin --tags && git fetch origin main`:
 
-A release run IS in flight and will satisfy this: `release.yml` run at
-head `cb39b65d` (main's tip), started 04:57Z, `workflow_dispatch`,
-`in_progress`. Recent release runs take roughly 35 minutes end to end
-(02:53Z → published 03:28Z), so expect its tag around 05:30Z. Verify
-against the actual tag when it appears rather than assuming:
+```
+$ git rev-parse 2026-08-27-6b88a0d^{commit}
+c9ecd10b67bfe8519e3c93f39c82f51a80f23621
+$ git merge-base --is-ancestor c78504bd 2026-08-27-6b88a0d^{commit}; echo $?
+1                                    # FAIL — not an ancestor
+$ git merge-base --is-ancestor 7b9f0749 2026-08-27-6b88a0d^{commit}; echo $?
+1                                    # FAIL — not an ancestor
+```
+
+Both targets ARE on main, so the in-flight release will carry them:
+
+```
+$ git merge-base --is-ancestor c78504bd origin/main; echo $?
+0
+$ git merge-base --is-ancestor 7b9f0749 origin/main; echo $?
+0
+$ git rev-parse origin/main
+cb39b65d9cc828b1e8873d1660da4a3408d92906
+```
+
+**Correction to a stale sha.** The D29 compile seam (#1446) is
+`7b9f0749` on main, not `3a045017` — `git cat-file -t 3a045017`
+returns `fatal: Not a valid object name`, so that sha was a
+pre-squash branch commit and never landed. Check `7b9f0749`, not
+`3a045017`, when judging the seam's chain.
+
+Release run still in flight, unchanged since it started:
+`release.yml` run 33040973681, `workflow_dispatch`, head
+`cb39b65d9cc828b1e8873d1660da4a3408d92906` (main's tip), started
+2026-08-27T04:57:16Z, status `in_progress` as of 05:01Z,
+https://github.com/whilp/cosmic/actions/runs/33040973681 . The
+previous successful release run took 02:53Z → published 03:28Z
+(~35 min), so expect its tag around 05:30Z. Verify against the
+actual tag when it appears rather than assuming:
 
 ```
 git fetch origin --tags
 git merge-base --is-ancestor c78504bd <new-tag>^{commit}
+git merge-base --is-ancestor 7b9f0749 <new-tag>^{commit}
 ```
 
 **One pin bump settles two chains.** 3IU62YqO — under the runner-mode
@@ -43,6 +73,7 @@ migration container (3IOCdooE) — needs the pin to name a release
 carrying the D29 compile seam (#1446, merged 04:40Z), and the same
 `cb39b65d` release carries both that and `c78504bd`. Whoever bumps
 should do it once, in one PR, and satisfy both items: check both
-ancestries against the chosen tag, and say so in the PR body.
-`c78504bd` is also not an ancestor of the current pin, and neither is
-the seam's `3a045017`, so no eligible release exists yet for either.
+ancestries against the chosen tag, and say so in the PR body. As of
+this measurement neither `c78504bd` nor the seam's `7b9f0749` is an
+ancestor of the current pin's tag, so no eligible release exists yet
+for either.
