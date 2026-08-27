@@ -6,6 +6,6 @@ return {
   ["blocked_by"] = "3IOCco6esNVPnHMB26PAAKAVAst 3IOCd5xWTrFMapYoWJTE4vh7ftF",
   ["id"] = "3IOCdHTMLfZoga1s1BqhqJI2D3v",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "backlog",
+  ["phase"] = "plan",
   ["title"] = "compile seam: runner-mode test files get the generated tail, in the checker and the chunk",
 }
