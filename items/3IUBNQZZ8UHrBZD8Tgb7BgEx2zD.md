@@ -105,3 +105,87 @@ cross-session control table and its "What this does NOT license"
 paragraph before refining. 3ISlWFiS and 3ITOUv0w carry the per-arm
 readings and hashes that control rests on. The gate and selfcheck
 machinery already exist (#1432).
+
+## Bounce — 2026-08-27 14:2x UTC, returned to plan (session 0b13d2b4)
+
+Pulled, re-measured, and returned unbuilt: the Change defers its own
+shape to plan twice and the Acceptance is unwritten, so there is
+nothing here that can be implemented from the spec alone. The
+re-measurement below is recorded so the next refine starts from
+pull-time numbers.
+
+**Re-measured at pull.** Binary `145057b9fe90…` (`sha256sum
+o/bin/cosmic`), cosmic main `267c2a4d`, built in this container.
+Context ISOLATED, five launches 14:23-14:24 UTC:
+
+```
+o/bin/cosmic --make run _perf/run.tl --only codec_base64_roundtrip_64k --out <scratch>/probe-N.json
+```
+
+187.50, 189.49, 193.96, 211.57, 221.10 µs/op — min 187.50, median
+193.96, max 221.10, mean 200.72, sd 14.9, CV 7.4%. This session sits
+on the **~190 level**, within 0.2% of 3IU0GxoA Review 3's afternoon
+median of 194.32 µs on a different binary and within 2% of that
+item's 40-run bracket median of 190.0 µs. So the Goal's shape holds
+at pull: a session lands on one of the recorded levels and this one
+landed on the slow one. Its dispersion is looser than the 40-run
+bracket's CV 2.1% (the last two launches ran hot, `±13.0%` and
+`±19.3%` within-run), which is a detail, not a shape change.
+
+**The recording gap reproduces verbatim.** A/A selfcheck, same binary,
+same window, `o/bin/cosmic --make run _perf/gate.tl selfcheck
+<scratch>/aa-a.json <scratch>/aa-b.json --only
+codec_base64_roundtrip_64k` printed:
+
+```
+codec_base64_roundtrip_64k      201.49 µs ->    214.04 µs     +6.2%  (noise  ±52.4%)  ok
+perf-selfcheck: nothing exceeded the bar — the machine is quiet at this threshold
+```
+
+Name, base, current, delta, noise, verdict — and no binary identity on
+either side, which is the Goal's fourth bullet unchanged. Part 1 of
+the Change is still real and still worth building.
+
+**Why it bounced, three gaps, none of them mine to settle mid-slice.**
+
+1. **`## Acceptance` is unwritten** — it reads "To be written at
+   refinement, with the derivation command and its measured output
+   quoted." The acceptance commands are the definition of done; with
+   none, the slice has no closing condition and the reviewer has no
+   evidence to demand.
+2. **Change part 1 defers its own shape**: "the shape and the files to
+   touch are to be settled at plan", and plan did not settle them.
+   Today `_perf/compare.tl`'s `format_delta`/`format` print exactly the
+   six fields above, and `meta.bin_sha` is read only by
+   `identity_refusal`. Whether the identity lands as a report header,
+   a per-row column, one side or both, short or full hex — and whether
+   `format_delta`'s signature has to grow to carry it — is a design
+   decision the spec reserves to plan, not a detail an implementer
+   fills in.
+3. **Change part 2's data source does not exist.** It asks for a floor
+   derived "from the selfcheck files the gate already writes". The
+   gate writes the two results files the CALLER names and persists no
+   history: `_perf/gate.tl`'s `selfcheck` takes `A.json B.json`,
+   measures into both, compares, and returns — nothing accumulates,
+   and `o/perf/*.json` is never committed (AGENTS.md). There is no
+   accumulated cross-window A/A history anywhere in the tree to derive
+   a per-scenario floor from, so answering "does a history-derived
+   floor improve on `spread_pct`" first requires DECIDING to build a
+   history store and where it lives. That is the shape question the
+   spec says plan must answer, and it is unanswered.
+
+**What the next refine has to settle**, in this order:
+
+- whether part 2 survives at all, given no A/A history store exists
+  and the spec's own Non-goals forbid the widening it was reaching
+  for; if it survives, name where the history lives, who writes it,
+  and what the derivation reads.
+- part 1's printed shape and the exact files, concretely enough that
+  the diff is obvious from the sidecar.
+- an Acceptance of runnable commands, carrying the two bounds the
+  current spec already fixes: a compare row printing a binary identity
+  for both sides, and no committed threshold for
+  `codec_base64_roundtrip_64k` ending larger than it starts.
+
+No tree diff and no PR: the branch cut for this slice
+(`claude/3IUBNQZZ-noise-floors`, off `267c2a4d`) carries no commits.
