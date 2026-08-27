@@ -122,6 +122,14 @@ jobs:
       # is the same _perf harness that measures a local dev tree, run
       # twice — once for the record, once so the compare step below has
       # an A/A self-check to separate a real regression from noise.
+      #
+      # Both readings are published. Together they are the release's own
+      # same-binary A/A control: two full-suite measurements of one binary
+      # on one runner in one job, so the noise floor of a release runner
+      # can be read after the fact. Nothing gates on the second half. On a
+      # run where the gate escalates, it re-measures into `selfcheck.json`
+      # itself, so the two halves of a published pair may be taken minutes
+      # or tens of minutes apart.
       - name: measure the release
         timeout-minutes: 15
         shell: bash
@@ -229,6 +237,7 @@ jobs:
             o/bin/cosmic
             o/bin/cosmic-debug
             o/perf/perf.json
+            o/perf/selfcheck.json
             o/perf/compare.txt
             o/perf/size.json
             o/perf/size_compare.txt
@@ -315,13 +324,14 @@ jobs:
           cosmic_src=$(find artifacts -type f -name cosmic | head -1)
           debug_src=$(find artifacts -type f -name cosmic-debug | head -1)
           perf_src=$(find artifacts -type f -name perf.json | head -1)
+          selfcheck_src=$(find artifacts -type f -name selfcheck.json | head -1)
           compare_src=$(find artifacts -type f -name compare.txt | head -1)
           size_src=$(find artifacts -type f -name size.json | head -1)
           size_compare_src=$(find artifacts -type f -name size_compare.txt | head -1)
           peers_json_src=$(find artifacts -type f -name peers.json | head -1)
           peers_md_src=$(find artifacts -type f -name peers.md | head -1)
           if [ -z "$cosmic_src" ] || [ -z "$debug_src" ] || [ -z "$perf_src" ] || [ -z "$compare_src" ] \
-              || [ -z "$size_src" ] || [ -z "$size_compare_src" ] \
+              || [ -z "$selfcheck_src" ] || [ -z "$size_src" ] || [ -z "$size_compare_src" ] \
               || [ -z "$peers_json_src" ] || [ -z "$peers_md_src" ]; then
             echo "release assets not found in downloaded artifacts:" >&2
             find artifacts >&2
@@ -330,6 +340,7 @@ jobs:
           cp "$cosmic_src" release/cosmic-lua
           cp "$debug_src" release/cosmic-lua-debug
           cp "$perf_src" release/perf.json
+          cp "$selfcheck_src" release/selfcheck.json
           cp "$compare_src" release/compare.txt
           cp "$size_src" release/size.json
           cp "$size_compare_src" release/size-compare.txt
@@ -344,5 +355,6 @@ jobs:
             --title "$tag" \
             --notes "$notes" \
             release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS \
-            release/perf.json release/compare.txt release/size.json release/size-compare.txt \
+            release/perf.json release/selfcheck.json release/compare.txt \
+            release/size.json release/size-compare.txt \
             release/peers.json release/peers.md
