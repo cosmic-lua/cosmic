@@ -155,6 +155,28 @@ local function test_multi_statement_scan_false_positives()
 end
 test_multi_statement_scan_false_positives()
 
+-- A CREATE TRIGGER body embeds semicolons of its own and is still ONE
+-- prepared statement, so exec runs it — refusing it as multi-statement
+-- was a false positive with a wrong diagnosis (the scan's trigger
+-- cases live in sqltext_test.tl; this is the end-to-end proof).
+local function test_exec_runs_a_create_trigger()
+  local db = open_db()
+  assert(db:exec("CREATE TABLE audit (id INTEGER)"))
+  assert(db:exec([[
+    CREATE TRIGGER trg AFTER INSERT ON t
+    BEGIN
+      INSERT INTO audit VALUES (new.id);
+      UPDATE audit SET id = id WHERE id = new.id;
+    END
+  ]]), "a single-statement trigger runs through exec")
+  assert(db:exec("INSERT INTO t (name) VALUES (?)", {"fires"}))
+  check.equal(check.must(
+      db:query_one("SELECT COUNT(*) AS n FROM audit")).n, 1,
+    "the trigger fired")
+  assert(db:close())
+end
+test_exec_runs_a_create_trigger()
+
 -- The transaction/savepoint callback type declares the rollback
 -- protocol, so a typed boolean return needs no cast.
 local function test_transaction_callback_typed_rollback()
