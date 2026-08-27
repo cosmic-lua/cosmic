@@ -6,6 +6,7 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["phase"] = "check",
   ["pr"] = 1466,
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "publish re-asks only the WIP guard after a lost race: cross-item preconditions survive clean rebases — re-run the verb, not the limit",
   ["verdict"] = "request changes",
   ["verdict_head"] = "5b0d83a40178cb3f99664773d302d67e5fefac4b",
