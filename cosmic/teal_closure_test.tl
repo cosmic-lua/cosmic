@@ -285,4 +285,111 @@ print(gv:upper())
 end
 test_a_global_narrow_does_not_carry_into_a_loop_body()
 
+-- The chunk-root scan governs what the closure BODY may rely on. The
+-- enclosing CONTINUATION after the definition is straight-line code,
+-- so only an assignment inside the lambda's own body reaches it --
+-- which is what stock kept here. The assignment below precedes the
+-- guard, so the narrow at the use is sound and the lambda neither
+-- reads nor assigns `v`.
+local function test_a_lambda_does_not_widen_the_enclosing_continuation()
+  local ok, msgs = checks("closure_continuation.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+v = pick()
+if not (v is string) then return end
+local cb = function(): integer return 1 end
+print(cb())
+print(v:upper())
+]])
+  assert(ok, "a lambda must not widen the enclosing continuation: " .. msgs)
+end
+test_a_lambda_does_not_widen_the_enclosing_continuation()
+
+-- The macroexp expression form is the other anonymous boundary, and
+-- restores its continuation the same way.
+local function test_a_record_macroexp_does_not_widen_the_continuation()
+  local ok, msgs = checks("closure_continuation_macroexp.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+v = pick()
+if not (v is string) then return end
+local record R
+  f: function(): integer = macroexp(): integer return 1 end
+end
+print(R.f())
+print(v:upper())
+]])
+  assert(ok, "a record macroexp must not widen the continuation: " .. msgs)
+end
+test_a_record_macroexp_does_not_widen_the_continuation()
+
+-- What the continuation gives up: an assignment inside the lambda's
+-- OWN body can run at any later point, so the narrow below the
+-- definition still widens.
+local function test_a_lambda_that_assigns_still_widens_the_continuation()
+  local ok = checks("closure_continuation_assigns.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+v = pick()
+if not (v is string) then return end
+local cb = function() v = pick() end
+cb()
+print(v:upper())
+]])
+  assert(not ok, "a lambda that assigns must still widen the continuation")
+end
+test_a_lambda_that_assigns_still_widens_the_continuation()
+
+-- The restore reaches the continuation only, never the body: the
+-- anonymous twin of test_an_escaped_child_does_not_keep_an_upvalue_narrow,
+-- which is the shape that runs through the changed boundary.
+local function test_an_escaped_lambda_child_does_not_keep_an_upvalue_narrow()
+  local ok = checks("closure_escape_anon.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+local parent = function(): function(): string
+  if not (v is string) then
+    error("no")
+  end
+  local child = function(): string
+    return v
+  end
+  return child
+end
+local c = parent()
+v = 2
+print(c())
+]])
+  assert(not ok, "an escaped lambda child must not keep a narrow the file reassigns")
+end
+test_an_escaped_lambda_child_does_not_keep_an_upvalue_narrow()
+
+-- Only the two anonymous sites restore. Stock widened every narrow in
+-- the continuation at the five named-function boundaries, so the
+-- chunk-root scan is already strictly more permissive there and they
+-- are left alone.
+local function test_a_named_function_still_widens_the_continuation()
+  local ok = checks("closure_continuation_named.tl", [[
+local function pick(): string | integer
+  return "x"
+end
+local v = pick()
+v = pick()
+if not (v is string) then return end
+local function lf(): integer return 1 end
+print(lf())
+print(v:upper())
+]])
+  assert(not ok, "a named function must still widen the continuation")
+end
+test_a_named_function_still_widens_the_continuation()
+
 print("all closure carry tests passed")
