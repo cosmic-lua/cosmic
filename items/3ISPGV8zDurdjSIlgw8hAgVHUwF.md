@@ -1,18 +1,43 @@
-Once the narrow-pack-n tl patch (item 3ISKgfS6) lands AND a cosmic
-release carrying it becomes the pin (bin/cosmic.pin), the one pack-n
-cast can come out: cosmic/coverage/init.tl:133
-`return table.unpack(results, 2, results.n as integer)` returns to
-`return table.unpack(results, 2, results.n)`, its two comment lines
-(131-132) go, and the casts baseline row for the file drops 6 -> 5
-via `bin/cosmic --make run _build/casts.tl --baseline`. It cannot
-happen in 3ISKgfS6's own slice — measured 2026-08-26 at `b4ad036b`:
-with the patch applied to o/3p and the cast removed,
-`bin/cosmic --make build` fails generation 1 with
-`cosmic/coverage/init.tl:131:46: error: argument 3: got <any type>,
-expected number`, because the first generation compiles the tree with
-the RUNNING binary's embedded (unpatched) tl, and CI's build/repro
-lanes start from the pinned release the same way. The pull-time gate
-for this item: `o/bootstrap/cosmic --check types` (or the pinned
-release run any equivalent way) accepts a mixed table.pack `.n` used
-as an integer — i.e. the pin has caught up. Same failure family as
-board item 3IIm7ZyN.
+## Goal
+G3 — the last cast of the original assert-dance arc: retire
+`cosmic/coverage/init.tl`'s pack-n cast, licensed to come out the
+moment the pinned checker types `table.pack(...)` over mixed arguments
+as `PackTable<any>` with `n: integer`. That moment arrived: #1421
+moved `bin/cosmic.pin` to `2026-08-27-afad5b5`, and the pin-bump's
+recorded probe shows the pinned checker REFUSING
+`local s: string = table.pack(1, "a").n` with "got integer, expected
+string".
+
+## Evidence
+Measured 2026-08-27 against main after #1421/#1422:
+- The site: `cosmic/coverage/init.tl:133`
+  `return table.unpack(results, 2, results.n as integer)` with the
+  two-line comment/marker above it (`:131-132`).
+- The baseline row: `_build/casts_baseline.tl:31`
+  `["cosmic/coverage/init.tl"] = 6` → 5 after.
+- The cold-build rule (3ISKgfS6): generation 1 compiles the tree with
+  the PINNED checker, so the direct proof is the pinned bootstrap
+  binary accepting the edited file.
+
+## Change
+Delete the cast and its two comment lines; the line becomes
+`return table.unpack(results, 2, results.n)`. Regenerate
+`_build/casts_baseline.tl` with the ratchet's printed command.
+
+## Non-goals
+No behavior change; no other cast; no coverage-instrumentation edit.
+
+## Acceptance
+- `o/bootstrap/cosmic --check types cosmic/coverage/init.tl` passes
+  (the pinned gen-1 checker accepts the cast-free file).
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `grep -c -- "-- cast:" cosmic/coverage/init.tl` prints 5 (today 6).
+- `grep "cosmic/coverage/init.tl" _build/casts_baseline.tl` shows
+  `= 5` (today `= 6`).
+- `bin/cosmic --make test cosmic/coverage/init_test.tl` passes and
+  `o/bin/cosmic --make coverage` ends `coverage: PASS`.
+- Diff touches exactly `cosmic/coverage/init.tl` and
+  `_build/casts_baseline.tl`.
+
+## Enablement
+none needed — the discriminating probe already ran in #1421's body.
