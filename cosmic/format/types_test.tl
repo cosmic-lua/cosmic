@@ -332,4 +332,55 @@ local function test_a_function_type_alias_still_opens_no_block()
 end
 test_a_function_type_alias_still_opens_no_block()
 
+-- A function type in an if-condition: the return list used to run to
+-- the end of the line, claiming the `then`, so the line never counted
+-- its own block opener and the guard body DEDENTED -- to its own
+-- fixpoint, so `--make fmt` blessed the damage. _perf/run.tl shipped
+-- exactly this shape.
+local function test_a_function_type_guard_keeps_its_then()
+  local src = "local function probe(version_fn: any): string\n" ..
+  "  if version_fn is function(): any then\n" ..
+  "    local v = version_fn()\n" ..
+  "    return tostring(v)\n" ..
+  "  end\n" ..
+  "  return \"none\"\n" ..
+  "end\n" ..
+  "return probe\n"
+  assert_format(src, src, "`is function(): any then` indents its guard body",
+    "test.tl")
+end
+test_a_function_type_guard_keeps_its_then()
+
+-- The `do` spelling of the same stop: a while-condition's function
+-- type ends at the `do`, which must still open the loop body.
+local function test_a_function_type_guard_keeps_its_do()
+  local src = "local function drain(step: any): integer\n" ..
+  "  local n = 0\n" ..
+  "  while step is function(): any do\n" ..
+  "    n = n + 1\n" ..
+  "    step = (step as function(): any)()\n" ..
+  "  end\n" ..
+  "  return n\n" ..
+  "end\n" ..
+  "return drain\n"
+  assert_format(src, src, "`is function(): any do` indents its loop body",
+    "test.tl")
+end
+test_a_function_type_guard_keeps_its_do()
+
+-- `nil` is a KEYWORD the return list legitimately contains: the stop
+-- that saves `then` must not cut a union short at `| nil`.
+local function test_a_nil_union_return_list_still_marks_whole()
+  local src = "local function pick(f: any): string\n" ..
+  "  if f is function(): string | nil then\n" ..
+  "    return f() or \"none\"\n" ..
+  "  end\n" ..
+  "  return \"none\"\n" ..
+  "end\n" ..
+  "return pick\n"
+  assert_format(src, src, "`function(): string | nil then` keeps its union",
+    "test.tl")
+end
+test_a_nil_union_return_list_still_marks_whole()
+
 print("all format type-position tests passed")

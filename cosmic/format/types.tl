@@ -115,12 +115,20 @@ end
 local function mark_return_list(line_items: {Item}, at: integer,
     type_ctx: {integer: boolean})
   -- The return list runs to the end of the line, stopping at `=` (a
-  -- value follows, and it may legitimately open a block) or at a
-  -- closer belonging to an enclosing bracket, as in `{function(): T}`.
+  -- value follows, and it may legitimately open a block), at a closer
+  -- belonging to an enclosing bracket, as in `{function(): T}`, or at
+  -- a code keyword. The keyword stop is what keeps the type from
+  -- claiming the line's own block opener: in
+  -- `if x is function(): any then`, marking to the end of the line
+  -- claims the `then`, the line never indents, and the guard body
+  -- dedents -- idempotently, so the fmt gate blesses it. Only `nil`
+  -- and `function` are keywords a return list can contain
+  -- (`function(): any | nil`, `function(): function(): any`).
   type_ctx[at] = true
   local depth = 0
   for k = at + 1, #line_items do
-    local tk = line_items[k].tk
+    local item = line_items[k]
+    local tk = item.tk
     if tk == "(" or tk == "[" or tk == "{" then
       depth = depth + 1
     elseif tk == ")" or tk == "]" or tk == "}" then
@@ -129,6 +137,9 @@ local function mark_return_list(line_items: {Item}, at: integer,
       end
       depth = depth - 1
     elseif depth == 0 and (tk == "=" or tk == ";") then
+      return
+    elseif depth == 0 and item.kind == "keyword"
+    and tk ~= "nil" and tk ~= "function" then
       return
     end
     type_ctx[k] = true
