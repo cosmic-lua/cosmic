@@ -66,6 +66,31 @@ needs beyond what is here:
   on the token before `function`: a definition follows `local`, `=`, `,`,
   `(`, `return`, `then`, `do`, `else` or a statement boundary, never `:` or
   `|`, which put it in type position.
+
+  **Corrected at review (this rule as written is wrong).** The token before
+  `function` cannot decide this, because `{`, `<` and `,` each precede a
+  definition in one context and a TYPE in another: `local t = {function()
+  return 1 end}` against `local t: {function(): string}`, and `f(a,
+  function() end)` against a return list `(): boolean | nil, function():
+  integer`. Treating them all as definitions pushes a frame that no `end`
+  ever pops, and the honest `return nil` inside the enclosing function is
+  then charged to that frame — a FALSE POSITIVE on correct code, told to
+  fix a signature that already says `| nil`. Reviewer reproduced three:
+  `{function(): T}` and `Box<function(): T>` inside an honest body, and a
+  function type after `,` in a return list.
+
+  The discriminator must be STRUCTURAL — track whether the enclosing
+  bracket was itself opened in type position — and the tree already solves
+  exactly this: `cosmic/format/types.tl`'s `mark_function_type` /
+  `mark_return_list` (~lines 100-150), whose comment names the same failure
+  and cites a real file with the shape (`_types/cosmo/lsqlite3.d.tl`'s
+  `config`, returning `function | nil`). Reuse that reasoning rather than
+  re-deriving a token blacklist.
+
+  The fixture must PIN this: the current `types` case passes under a
+  detector with the type-position guard removed, so it guarantees nothing.
+  Every new fixture case must be one that FAILS when the rule it names is
+  broken.
 - **`return nil` in slot 1.** The token after `return` is `nil`; what follows
   it does not matter, so `return nil, err` counts exactly as `return nil`
   does when slot 1 is declared non-nil.
