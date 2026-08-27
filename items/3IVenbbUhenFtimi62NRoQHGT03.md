@@ -152,8 +152,10 @@ Measured 2026-08-27: `wc -l _make/patch_test.tl` is 155;
 `bin/cosmic --make test _make/patch_test.tl` ends `6 tests: 6 passed`
 and `test: PASS (1 file)`.
 
-Each new `test_*` function is called on the line after its `end`, as
-the six existing ones are.
+Re-measured at pull: the test runner discovers `test_*` functions by
+name. `bin/cosmic --make test _make/patch_test.tl` reports `6 test
+functions` and the file carries no call lines, so new tests add none
+either.
 
 - `test_package_path_does_not_override_an_embedded_module` — pins the
   trap. With `NAME = "cosmic.string"`: write
