@@ -1,13 +1,13 @@
 #!/usr/bin/env cosmic
--- The over-limit rebase check in `commit_and_publish`: it must refuse
--- only a mutation that ARRIVES into a full column. A write that leaves
--- the item where it stands — a spec touch, blocker bookkeeping — is
--- exactly what drains an over-limit column, so it must stay editable
--- even when it loses the push race, while an arriving move into the
--- same column is still refused. What it must NOT do is reverse a
--- decision the verb already made up front: a forced repair, or an
--- arrival credited with the slot the same mutation vacates, is
--- admitted after the rebase exactly as it was before it.
+-- `commit_and_publish` under a lost push race: the mutation is
+-- dropped whole, the checkout re-synced, and the refusal is
+-- `store.LOST_RACE` — never a replay of a commit whose preconditions
+-- the winner may have falsified. The re-run is the verb's, and it
+-- decides afresh: a re-run of a drainable write publishes, and a
+-- re-run of an over-limit arrival meets the verb's own up-front
+-- `wip_refusal` on the merged board — where the old post-race closure
+-- re-asked only the limit and had to reproduce force and vacated
+-- semantics to avoid reversing decisions already made.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
@@ -48,90 +48,69 @@ local function fill_plan_over_limit(s: store.Store)
   assert(store.publish(s))
 end
 
--- A same-phase write on an over-limit column publishes after losing
--- the race: the column stays editable by the mutations that drain it.
-local function test_a_non_arriving_write_survives_an_over_limit_rebase()
-  local a, b = init_shared("gate-write")
+-- A lost race is a refusal, not a replay: the commit is dropped, the
+-- checkout holds the winner's state, and the refusal is LOST_RACE by
+-- identity.
+local function test_a_lost_race_drops_the_mutation_and_refuses()
+  local a, b = init_shared("gate-lost")
   fill_plan_over_limit(a)
   assert(store.sync(b))
 
-  -- `a` moves the remote forward once more, so `b`'s push below loses
-  -- the race and rebases onto a column that is still over its limit.
+  -- `a` moves the remote forward once more, so `b`'s push below is
+  -- rejected against a remote it has not seen.
   local touched = make_item("plan")
   assert(store.save(a, touched, "a moves the remote forward"))
   assert(store.publish(a))
 
   local mine = make_item("plan")
   local ok, err = gate.commit_and_publish(b, mine, "a spec touch",
-    ("spec %s"):format(mine.id:sub(1, 8)), "plan")
-  assert(ok, "a same-phase write must survive an over-limit rebase: "
-    .. tostring(err))
+    ("spec %s"):format(mine.id:sub(1, 8)))
+  assert(not ok and err == store.LOST_RACE, "got: " .. tostring(err))
+  local merged = check.must(store.list(b))
+  assert(flow.by_id(merged)[touched.id] ~= nil,
+    "the checkout was re-synced onto the winner's state")
+  assert(flow.by_id(merged)[mine.id] == nil,
+    "and the dropped mutation is gone whole")
 end
-test_a_non_arriving_write_survives_an_over_limit_rebase()
+test_a_lost_race_drops_the_mutation_and_refuses()
 
--- An arriving move into the same over-limit column is still refused,
--- carrying the reworded message: an arrival, not "a concurrent move"
--- whether or not one happened.
-local function test_an_arrival_is_still_refused_over_the_limit()
-  local a, b = init_shared("gate-arrival")
+-- The re-run is the compare-and-swap completing: the same mutation,
+-- decided and committed again against the merged state, publishes.
+local function test_the_rerun_publishes_against_the_merged_state()
+  local a, b = init_shared("gate-rerun")
   fill_plan_over_limit(a)
   assert(store.sync(b))
-
   local touched = make_item("plan")
   assert(store.save(a, touched, "a moves the remote forward"))
   assert(store.publish(a))
 
   local mine = make_item("plan")
-  local ok, err = gate.commit_and_publish(b, mine, nil,
-    ("new %s"):format(mine.id:sub(1, 8)), nil)
-  assert(not ok, "an arrival into an over-limit column must be refused")
-  assert(err:find("plan is over %d+ and this mutation arrives into it"),
-    "got: " .. err)
+  local ok, err = gate.commit_and_publish(b, mine, "a spec touch",
+    ("spec %s"):format(mine.id:sub(1, 8)))
+  assert(not ok and err == store.LOST_RACE, "got: " .. tostring(err))
+  local again, aerr = gate.commit_and_publish(b, mine, "a spec touch",
+    ("spec %s"):format(mine.id:sub(1, 8)))
+  assert(again, "the re-run publishes: " .. tostring(aerr))
+  assert(store.sync(a))
+  assert(check.must(store.load(a, mine.id)).id == mine.id,
+    "and the mutation reaches the remote")
 end
-test_an_arrival_is_still_refused_over_the_limit()
+test_the_rerun_publishes_against_the_merged_state()
 
--- `--force` is an authorisation the verb granted before the push, so a
--- forced arrival into a full column publishes even though the rebase
--- lands it over the limit — otherwise the repair a force exists to make
--- fails on any concurrent commit.
-local function test_force_survives_a_lost_race()
-  local a, b = init_shared("gate-force")
+-- What the re-run's gate would see: the verb's own up-front WIP
+-- refusal, applied to the merged board, refuses an over-limit
+-- arrival — the check the deleted post-race closure approximated.
+local function test_the_merged_board_carries_the_wip_refusal()
+  local a, b = init_shared("gate-wip")
   fill_plan_over_limit(a)
   assert(store.sync(b))
-
-  local touched = make_item("plan")
-  assert(store.save(a, touched, "a moves the remote forward"))
-  assert(store.publish(a))
-
-  local mine = make_item("plan")
-  local ok, err = gate.commit_and_publish(b, mine, nil,
-    ("new %s (forced: repair)"):format(mine.id:sub(1, 8)), nil, nil, true)
-  assert(ok, "a forced arrival must survive an over-limit rebase: "
-    .. tostring(err))
+  local merged = check.must(store.list(b))
+  assert(gate.wip_refusal(flow.board(merged), nil, "plan") ~= nil,
+    "an arrival into the over-limit column is the verb's to refuse")
+  assert(gate.wip_refusal(flow.board(merged), nil, "plan", "plan") == nil,
+    "with the vacated credit honoured exactly as up front")
 end
-test_force_survives_a_lost_race()
-
--- A decomposition de-phases its parent in the same commit, so the slot
--- the child fills is the one the parent leaves. The up-front gate
--- credits that; the rebase check has to credit it too, or a net-zero
--- decomposition that loses the race is refused for occupancy it did
--- not add.
-local function test_vacated_credit_survives_a_lost_race()
-  local a, b = init_shared("gate-vacated")
-  fill_plan_over_limit(a)
-  assert(store.sync(b))
-
-  local touched = make_item("plan")
-  assert(store.save(a, touched, "a moves the remote forward"))
-  assert(store.publish(a))
-
-  local mine = make_item("plan")
-  local ok, err = gate.commit_and_publish(b, mine, nil,
-    ("new %s"):format(mine.id:sub(1, 8)), nil, nil, false, "plan")
-  assert(ok, "a net-zero decomposition must survive an over-limit "
-    .. "rebase: " .. tostring(err))
-end
-test_vacated_credit_survives_a_lost_race()
+test_the_merged_board_carries_the_wip_refusal()
 
 -- The two grounds `land_refusal` reports are different repairs — one
 -- needs a review, the other a PR number — so each is checked for the

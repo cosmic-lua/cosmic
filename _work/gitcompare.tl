@@ -66,8 +66,7 @@ local function cmd_compare(s: store.Store, winner: string, loser: string,
   end
   it.beats = kept
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("%s %s over %s"):format(verb, winner:sub(1, 8), loser:sub(1, 8)),
-    it.phase)
+    ("%s %s over %s"):format(verb, winner:sub(1, 8), loser:sub(1, 8)))
   if not ok then
     return gate.verdict_line(verb, false, err)
   end

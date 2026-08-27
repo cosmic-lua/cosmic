@@ -82,13 +82,14 @@ The pin therefore decides which fence the tests execute inside, which
 is why `bin/cosmic.pin` matters here beyond reproducibility.
 
 Every mutation is ONE commit here, and publishing it is a push. A
-rejected push is the compare half of a compare-and-swap: the tool
-rebases onto whoever moved first, re-checks the WIP invariant against
-the merged board, and refuses if the limit now binds — dropping its
-own commit whole, so a mutation never half-lands. Two sessions editing
-the SAME item cannot rebase past each other; that refusal names the
-items and leaves the checkout clean rather than mid-rebase. Reads need
-no network and no token.
+rejected push is the compare half of a compare-and-swap FAILING: the
+mutation's gates were decided against a board somebody else just
+moved, so the tool drops its own commit whole, re-syncs onto the
+winner's state, and refuses, naming the recovery — run the same verb
+again, and it decides afresh with EVERY gate applied to the merged
+board, not a replayed commit whose preconditions may no longer hold.
+A mutation never half-lands, and the checkout is always left clean
+and current. Reads need no network and no token.
 
 Run `bin/cosmic --make ci` before pushing machinery changes; the
 `board` workflow runs the same gate on every push to this branch.

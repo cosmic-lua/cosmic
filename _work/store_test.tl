@@ -199,10 +199,12 @@ end
 test_publish_fast_forward()
 
 -- Two sessions race the do limit (5): both see 4/5 and move a ready
--- item in. The first push wins; the loser's publish rebases onto the
--- merged state, finds do at 6/5, drops its own commit, and refuses —
--- the compare-and-swap the label board's lagged index cannot give.
-local function test_publish_cas_refuses_over_limit()
+-- item in. The first push wins; the loser's publish drops its commit
+-- whole, re-syncs, and refuses with LOST_RACE — the verb re-runs
+-- against the merged board, whose up-front WIP gate refuses the
+-- arrival, which is the compare-and-swap the label board's lagged
+-- index cannot give.
+local function test_publish_drops_a_lost_race()
   local _, clones = init_shared("cas", 2)
   local a = check.must(store.open(clones[1]))
   for i = 1, 4 do
@@ -224,31 +226,26 @@ local function test_publish_cas_refuses_over_limit()
   local ib = check.must(store.load(b, yours.id))
   ib.phase = "do"
   assert(store.save(b, ib, "move yours ready -> do"))
-  local ok, err = store.publish(b, function(): string
-      local merged = check.must(store.list(b))
-      local board = flow.board(merged)
-      if #(board["do"] or {}) > flow.LIMITS["do"] then
-        return "do is over its limit"
-      end
-      return nil
-    end)
+  local ok, err = store.publish(b)
   assert(not ok, "the losing move must be refused")
-  assert(err:find("refused after concurrent update", 1, true), "got: " .. err)
+  assert(err == store.LOST_RACE, "got: " .. err)
   local back = check.must(store.load(b, yours.id))
-  assert(back.phase == "ready", "the refused item is back in ready")
+  assert(back.phase == "ready", "the dropped mutation is undone whole")
   local winner = check.must(store.load(b, mine.id))
-  assert(winner.phase == "do", "the winning move is visible after the rebase")
+  assert(winner.phase == "do", "the winning move is visible after the sync")
   local merged = flow.board(check.must(store.list(b)))
-  assert(#(merged["do"] or {}) == 5, "do holds exactly its limit")
+  assert(#(merged["do"] or {}) == 5, "do holds exactly its limit — the "
+    .. "re-run verb's own gate now refuses this arrival")
 end
-test_publish_cas_refuses_over_limit()
+test_publish_drops_a_lost_race()
 
--- Two sessions editing the SAME item cannot rebase past each other.
--- git stops mid-rebase with conflict markers in the item file, which
--- is a state no later verb survives — a conflicted item is not
--- parseable literal data, so even `status` would die. The loser must
--- come back to a clean checkout holding the winner's state.
-local function test_publish_unwinds_a_conflicting_rebase()
+-- Two sessions edit the SAME item. The loser's commit is dropped
+-- before any rebase could conflict, so there is no mid-rebase state
+-- for a later verb to die on: the refusal is the same LOST_RACE every
+-- lost race gets, and the re-run verb — loading the winner's state —
+-- is what discovers the semantic collision (a claim guard, a phase
+-- gate) and names it.
+local function test_publish_drops_a_lost_edit_of_the_same_item()
   local _, clones = init_shared("conflict", 2)
   local a = check.must(store.open(clones[1]))
   local contested = make_item("ready")
@@ -269,9 +266,7 @@ local function test_publish_unwinds_a_conflicting_rebase()
   assert(store.save(b, ib, "move contested ready -> check"))
   local ok, err = store.publish(b)
   assert(not ok, "the losing edit of the same item must be refused")
-  assert(err:find("concurrent edit", 1, true), "got: " .. err)
-  assert(err:find(contested.id:sub(1, 8), 1, true),
-    "the refusal names the contested item: " .. err)
+  assert(err == store.LOST_RACE, "got: " .. err)
 
   assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
     "no rebase may be left in progress")
@@ -280,4 +275,40 @@ local function test_publish_unwinds_a_conflicting_rebase()
     "the loser's checkout holds the winner's state: " .. after.phase)
   assert(store.list(b), "the board stays readable after the refusal")
 end
-test_publish_unwinds_a_conflicting_rebase()
+test_publish_drops_a_lost_edit_of_the_same_item()
+
+-- The conflict-unwind now lives on the sync path alone: a checkout
+-- carrying an UNPUBLISHED local commit (the hand-edit workaround the
+-- skill allows when a verb is missing) that syncs onto a remote which
+-- changed the same item stops mid-rebase — and a conflicted item file
+-- is unparseable, so the rebase must be unwound to a clean checkout
+-- and the refusal must name the collided item.
+local function test_sync_unwinds_a_conflicting_rebase()
+  local _, clones = init_shared("sync-conflict", 2)
+  local a = check.must(store.open(clones[1]))
+  local contested = make_item("ready")
+  assert(store.save(a, contested, "new contested"))
+  assert(store.publish(a))
+  local b = check.must(store.open(clones[2]))
+  assert(store.sync(b))
+
+  local ia = check.must(store.load(a, contested.id))
+  ia.phase = "do"
+  ia.claim = "session-a"
+  assert(store.save(a, ia, "move contested ready -> do"))
+  assert(store.publish(a))
+
+  local ib = check.must(store.load(b, contested.id))
+  ib.phase = "check"
+  ib.pr = 7
+  assert(store.save(b, ib, "hand-edit contested ready -> check"))
+  local ok, err = store.sync(b)
+  assert(not ok, "a conflicting sync must be refused")
+  assert(err:find("concurrent edit", 1, true), "got: " .. err)
+  assert(err:find(contested.id:sub(1, 8), 1, true),
+    "the refusal names the collided item: " .. err)
+  assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
+    "no rebase may be left in progress")
+  assert(store.list(b), "the board stays readable after the refusal")
+end
+test_sync_unwinds_a_conflicting_rebase()

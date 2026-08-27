@@ -2,12 +2,14 @@
 --- `items/<id>.tl` is one work item, its prose spec (when it has one)
 --- is the sidecar `items/<id>.md`, and git is both the log and the
 --- lock. A mutation is commit-then-push; a rejected push means someone
---- else moved first, so publish rebases onto their state, re-asks the
---- caller's invariant against the MERGED items, and drops the commit
---- if the invariant no longer holds. That retry loop is the
---- compare-and-swap GitHub's eventually-consistent label index cannot
---- offer, and `history` reads the same commits back as the flow record
---- `stats` would otherwise reconstruct from the GitHub timeline API.
+--- else moved first, so publish drops the mutation whole, re-syncs
+--- onto the winner's state, and refuses with `LOST_RACE` — the verb
+--- is re-run against the merged board, re-applying EVERY gate it
+--- decided with, never just replaying a commit whose preconditions
+--- the winner may have falsified. That is the compare-and-swap
+--- GitHub's eventually-consistent label index cannot offer, and
+--- `history` reads the same commits back as the flow record `stats`
+--- would otherwise reconstruct from the GitHub timeline API.
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
@@ -27,10 +29,14 @@ local record Event
   subject: string
 end
 
---- The invariant a publish re-asks after rebasing onto concurrent
---- state: nil when the mutation still holds, a problem line when it
---- does not.
-local type Revalidate = function(): string
+--- The refusal a lost push race earns, exported so a verb can tell
+--- it from a terminal failure. Compared by identity, never matched:
+--- the recovery it names — re-run the verb against the current board
+--- — is the whole compare-and-swap, because only the verb can
+--- re-apply every gate it decided with.
+local LOST_RACE < const > = "lost the push race — the mutation was dropped "
+.. "whole and the checkout re-synced; re-run the verb against the "
+.. "current board"
 
 --- Git defaults for every store call: a deterministic committer, so a
 --- state commit is attributable to the board tool rather than the
@@ -346,61 +352,45 @@ local function sync(s: Store): boolean, string
   return rebase_onto_remote(s)
 end
 
---- Publish the last commit: push, and treat a rejected push as the
---- compare half of a compare-and-swap. On rejection, rebase onto what
---- won, re-ask `revalidate` against the merged state, and if the
---- mutation no longer holds, drop the commit and refuse — the same
---- refusal `move` gives at the limit, arriving late instead of never.
---- Bounded retries; a store with no origin publishes trivially.
+--- Publish the last commit: one push, and a rejected push is the
+--- compare half of a compare-and-swap FAILING. The mutation's guards
+--- were decided against state the winner just changed, and only the
+--- verb that applied them can re-apply them all — so no commit is
+--- ever replayed here. The mutation is dropped whole, the checkout
+--- re-synced to the merged state, and the refusal is `LOST_RACE`,
+--- which names the recovery: run the same verb again, and it decides
+--- afresh against the board as it now is.
 ---
 --- Dropping the mutation is `reset --hard HEAD~1`, which is exact
 --- because `save` writes every item one mutation touches into ONE
 --- commit. A caller that committed twice for a single logical change
---- would have half of it survive the refusal, so it must not.
+--- would have half of it survive the refusal, so it must not. The
+--- reset leaves nothing local, so the re-sync is a fast-forward with
+--- no conflict path.
 --- @param s Store The store
---- @param revalidate Revalidate Invariant re-check; nil skips it
 --- @return boolean True once the commit is on the remote
---- @return string Error message
-local function publish(s: Store, revalidate?: Revalidate): boolean, string
+--- @return string Error message; `LOST_RACE` exactly, for a lost race
+local function publish(s: Store): boolean, string
   if not has_origin(s) then
     return true
   end
-  for _ = 1, 3 do
-    local pushed = git(s, {"push", "-q", "origin", "HEAD"})
-    if pushed == nil then
-      return false, "git push could not start"
-    end
-    if pushed.ok then
-      return true
-    end
-    local rebased, rerr = rebase_onto_remote(s)
-    if not rebased then
-      -- The mutation cannot be replayed over the winner's, so it is
-      -- refused: drop it and take the remote's state, leaving a clean
-      -- checkout to re-apply the change in.
-      local _, uerr = git_ok(s, {"reset", "-q", "--hard", "HEAD~1"})
-      if uerr then
-        return false, ("%s (and the local commit could not be dropped: %s)")
-        :format(rerr, uerr)
-      end
-      local _, serr = rebase_onto_remote(s)
-      if serr then
-        return false, serr
-      end
-      return false, ("refused after concurrent update: %s"):format(rerr)
-    end
-    if revalidate then
-      local problem = revalidate()
-      if problem then
-        local _, uerr = git_ok(s, {"reset", "-q", "--hard", "HEAD~1"})
-        if uerr then
-          return false, uerr
-        end
-        return false, ("refused after concurrent update: %s"):format(problem)
-      end
-    end
+  local pushed = git(s, {"push", "-q", "origin", "HEAD"})
+  if pushed == nil then
+    return false, "git push could not start"
   end
-  return false, "publish did not converge after 3 attempts"
+  if pushed.ok then
+    return true
+  end
+  local _, uerr = git_ok(s, {"reset", "-q", "--hard", "HEAD~1"})
+  if uerr then
+    return false, ("the push was rejected and the local commit could not "
+      .. "be dropped: %s"):format(uerr)
+  end
+  local synced, serr = rebase_onto_remote(s)
+  if not synced then
+    return false, serr
+  end
+  return false, LOST_RACE
 end
 
 --- Mutation history, newest first, from git alone: one item's when
@@ -452,7 +442,7 @@ end
 local record store
   type Store = Store
   type Event = Event
-  type Revalidate = Revalidate
+  LOST_RACE: string
   open: function(root: string): Store | nil, string
   item_path: function(s: Store, id: string): string
   spec_path: function(s: Store, id: string): string
@@ -465,12 +455,13 @@ local record store
   also?: {item.Item}): boolean, string
   has_origin: function(s: Store): boolean
   sync: function(s: Store): boolean, string
-  publish: function(s: Store, revalidate?: Revalidate): boolean, string
+  publish: function(s: Store): boolean, string
   history: function(s: Store, id?: string): {Event} | nil, string
   touched_at: function(s: Store, id: string): integer | nil, string
 end
 
 local M: store = {
+  LOST_RACE = LOST_RACE,
   open = open,
   item_path = item_path,
   spec_path = spec_path,

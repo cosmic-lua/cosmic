@@ -223,7 +223,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- send-back is a return, so no WIP gate applies in any direction.
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("verdict %s %s (%s -> %s)%s%s"):format(id:sub(1, 8), kind, from, target,
-      by, landed), from, also)
+      by, landed), also)
   if not ok then
     return gate.verdict_line("verdict", false, err)
   end
