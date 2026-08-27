@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "check",
   ["pr"] = 1468,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "tl patch: metatable<T> is-dispatch never matches records — the table_kinded entries are dead",
 }
