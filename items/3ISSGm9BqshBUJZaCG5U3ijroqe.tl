@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3ITo9InvDKnofScNuZYfUluM4o8",
   ["id"] = "3ISSGm9BqshBUJZaCG5U3ijroqe",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "backlog",
+  ["resolution"] = "not-planned",
   ["title"] = "carried nil-narrowing crosses closures past reassignment: an unsound acceptance to close",
 }
