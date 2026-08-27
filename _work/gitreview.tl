@@ -53,8 +53,8 @@ local function cmd_review(s: store.Store, id: string, session: string,
       where = "no phase"
     end
     return gate.verdict_line("review", false,
-      ("%s is in %s — a review claims work awaiting a verdict in check")
-      :format(id:sub(1, 8), where))
+      ("REFUSED: %s is in %s — a review claims work awaiting a verdict "
+        .. "in check"):format(id:sub(1, 8), where))
   end
   -- The same distance rule the verdict enforces, moved to claim time:
   -- learning at the verdict that the review was invalid is exactly

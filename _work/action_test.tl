@@ -383,34 +383,6 @@ test_a_starved_ready_names_its_chain_root()
 -- verdict on what A wrote. That is the sequence observed on 3I7LGcLa
 -- / PR #1301, and `builders` is what withholds it.
 local function test_reviewable_skips_a_past_builder()
-
-  -- A live review claim fans reviewers out: the claimed diff is
-  -- another session's, the next unclaimed one is offered instead, and
-  -- an expired claim puts the diff back on offer.
-  local function test_reviewable_skips_a_live_foreign_reviewer()
-    local goal = make({})
-    local claimed = make({parent = goal.id, phase = "check", pr = 1,
-        claim = "builder-A", reviewer = "reviewer-B"})
-    local open_one = make({parent = goal.id, phase = "check", pr = 2,
-        claim = "builder-A"})
-    local items: {item.Item} = {goal, claimed, open_one}
-
-    local for_c = act.next_action(items, "session-C")
-    assert(for_c.kind == "review" and for_c.item.id == open_one.id,
-      "a live foreign review claim sends the next session elsewhere: "
-      .. for_c.kind)
-
-    local for_b = act.next_action(items, "session-B")
-    assert(for_b.kind == "review",
-      "the claimant is still offered a review: " .. for_b.kind)
-
-    local stale: {string: integer} = {}
-    stale[claimed.id] = health.REVIEW_LEASE_S + 1
-    local again = act.next_action(items, "session-C", stale)
-    assert(again.kind == "review",
-      "an expired review claim puts the diff back on offer: " .. again.kind)
-  end
-  test_reviewable_skips_a_live_foreign_reviewer()
   local goal = make({})
   local built = make({parent = goal.id, phase = "check", pr = 1301,
       claim = "session-B", builders = "session-A session-B"})
@@ -429,6 +401,34 @@ local function test_reviewable_skips_a_past_builder()
     "nor is the session holding the claim: " .. for_b.kind)
 end
 test_reviewable_skips_a_past_builder()
+
+-- A live review claim fans reviewers out: the claimed diff is
+-- another session's, the next unclaimed one is offered instead, and
+-- an expired claim puts the diff back on offer.
+local function test_reviewable_skips_a_live_foreign_reviewer()
+  local goal = make({})
+  local claimed = make({parent = goal.id, phase = "check", pr = 1,
+      claim = "builder-A", reviewer = "reviewer-B"})
+  local open_one = make({parent = goal.id, phase = "check", pr = 2,
+      claim = "builder-A"})
+  local items: {item.Item} = {goal, claimed, open_one}
+
+  local for_c = act.next_action(items, "session-C")
+  assert(for_c.kind == "review" and for_c.item.id == open_one.id,
+    "a live foreign review claim sends the next session elsewhere: "
+    .. for_c.kind)
+
+  local for_b = act.next_action(items, "session-B")
+  assert(for_b.kind == "review",
+    "the claimant is still offered a review: " .. for_b.kind)
+
+  local stale: {string: integer} = {}
+  stale[claimed.id] = health.REVIEW_LEASE_S + 1
+  local again = act.next_action(items, "session-C", stale)
+  assert(again.kind == "review",
+    "an expired review claim puts the diff back on offer: " .. again.kind)
+end
+test_reviewable_skips_a_live_foreign_reviewer()
 
 local function test_anothers_live_rework_is_held()
   local goal = make({})
