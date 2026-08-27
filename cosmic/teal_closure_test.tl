@@ -253,4 +253,36 @@ print(use())
 end
 test_a_local_shadowing_a_stdlib_global_still_carries()
 
+-- A global's narrow drops at a loop boundary too. Each of the four loop
+-- forms widens against its own node, and a global is always-assigned
+-- there, so the body -- which can run again after another module
+-- assigns the global -- sees the union. Straight-line use above the
+-- loop keeps its narrow, so exactly one diagnostic is expected per
+-- source.
+local function test_a_global_narrow_does_not_carry_into_a_loop_body()
+  local diag = "cannot index key 'upper' in variable 'gv' of type string | integer"
+  local forms: {{string}} = {
+    {"while", "while os.time() < 0 do print(gv:upper()) end"},
+    {"repeat", "repeat print(gv:upper()) until os.time() > 0"},
+    {"forin", "for _k, _v in pairs({a = 1}) do print(gv:upper()) end"},
+    {"fornum", "for _i = 1, 3 do print(gv:upper()) end"},
+  }
+  for _, form in ipairs(forms) do
+    local ok, msgs = checks("closure_global_loop_" .. form[1] .. ".tl", [[
+global gv: string | integer = "x"
+if not (gv is string) then return end
+print(gv:upper())
+]] .. form[2] .. "\n")
+    assert(not ok, "a global narrow must not carry into a " .. form[1] .. " body")
+    local n, at = 0, 1
+    while true do
+      local i, j = msgs:find(diag, at, true)
+      if not i then break end
+      n, at = n + 1, j + 1
+    end
+    assert(n == 1, form[1] .. ": expected one diagnostic, got: " .. msgs)
+  end
+end
+test_a_global_narrow_does_not_carry_into_a_loop_body()
+
 print("all closure carry tests passed")

@@ -18,8 +18,14 @@
 --
 -- The `["label"]` site keeps stock widen-all: a narrow at a label must
 -- hold for every goto path, including one from before the guard with
--- no assignment anywhere. Loop and if sites keep their own nodes —
--- they widen for a different question (assigned in the loop body).
+-- no assignment anywhere. The four loop sites — `while`, `repeat`,
+-- `forin` and `fornum` — pass their own node, so a LOCAL keeps its
+-- narrow unless the loop body assigns it. A GLOBAL does not: the
+-- always-assigned test sits inside `widen_all_unions` itself, which
+-- every one of those sites calls, so a global's narrow drops at loop
+-- entry as well as at a function boundary — the same soundness
+-- argument, since a loop body can run after another module assigns the
+-- global. Straight-line use below the guard keeps its narrow.
 --
 -- The mechanism is _make/patch.tl: each entry is an exact `find`
 -- string replaced by an exact `replace` string in one unpacked file,
