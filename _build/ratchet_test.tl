@@ -67,7 +67,6 @@ local function test_a_heading_confines_the_scan()
   assert(#model == 2, "expected the two model rows, got " .. #model)
   assert(model[1] == "`*_test.tl`", "got: " .. model[1])
 end
-test_a_heading_confines_the_scan()
 
 -- No heading is every table in the file. This is what the checks that
 -- sweep a whole document for a disallowed word use, and a reader that
@@ -77,7 +76,6 @@ local function test_no_heading_reads_every_table()
   assert(#got == 6, "expected every row of both tables plus the two " ..
     "unfiltered headers, got " .. #got .. ": " .. table.concat(got, " / "))
 end
-test_no_heading_reads_every_table()
 
 -- A heading that is not there returns no rows rather than falling back
 -- to the whole file. Empty is the honest answer; the CALLER is what
@@ -87,7 +85,6 @@ local function test_a_missing_heading_finds_nothing()
   assert(#got == 0, "a heading that is not in the document must " ..
     "match nothing, got " .. #got .. " rows")
 end
-test_a_missing_heading_finds_nothing()
 
 -- A row's subject can name more than one thing.
 local function test_a_cell_yields_its_backticked_names()
@@ -100,7 +97,6 @@ local function test_a_cell_yields_its_backticked_names()
   assert(#one == 1 and one[1] == "cmd/<name>/embed_gen.tl",
     "got: " .. table.concat(one, ", "))
 end
-test_a_cell_yields_its_backticked_names()
 
 -- `bearing` searches first cells by substring, never by pattern: a
 -- marker is full of `*`, `.` and `-`, and matching it as a pattern is
@@ -114,7 +110,6 @@ local function test_bearing_finds_a_row_by_substring()
   assert(not ratchet.bearing(rows, "`*_bench.tl`"), "a marker no row " ..
     "carries must not be found")
 end
-test_bearing_finds_a_row_by_substring()
 
 -- A document that is not there is an error, not an empty table. The
 -- distinction is the whole point: nothing found and nothing read look
@@ -124,6 +119,5 @@ local function test_a_missing_document_is_an_error()
   assert(not rows, "a missing document must not read as an empty table")
   assert(err:find("no/such/doc.md", 1, true), "got: " .. err)
 end
-test_a_missing_document_is_an_error()
 
 print("all ratchet reader tests passed")

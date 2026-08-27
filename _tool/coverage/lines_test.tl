@@ -20,7 +20,6 @@ return x
   assert(got[3], "call statement not marked")
   assert(got[4], "return not marked")
 end
-test_marks_basic_statements()
 
 local function test_skips_comments_and_blanks()
   local got = lines_of([[
@@ -36,7 +35,6 @@ x = 2
   assert(not got[4], "comment line marked")
   assert(got[5], "assignment not marked")
 end
-test_skips_comments_and_blanks()
 
 local function test_if_elseif_marked_else_not()
   local got = lines_of([[
@@ -57,7 +55,6 @@ end
   assert(got[7], "else-body not marked")
   assert(not got[8], "end line marked")
 end
-test_if_elseif_marked_else_not()
 
 local function test_repeat_marks_until_line()
   local got = lines_of([[
@@ -70,7 +67,6 @@ until i > 2
   assert(got[3], "loop body not marked")
   assert(got[4], "until line not marked")
 end
-test_repeat_marks_until_line()
 
 local function test_function_body_marked_definition_not()
   -- the VM attributes the closure instruction to the `end` line, so the
@@ -91,7 +87,6 @@ f(g())
   assert(got[5], "anonymous function body not marked")
   assert(got[7], "call statement not marked")
 end
-test_function_body_marked_definition_not()
 
 local function test_loops_and_break()
   local got = lines_of([[
@@ -112,7 +107,6 @@ end
   assert(got[7], "goto not marked")
   assert(not got[9], "label marked")
 end
-test_loops_and_break()
 
 local function test_teal_type_declarations_not_marked()
   local got = lines_of([[
@@ -130,11 +124,9 @@ return dist
   assert(got[6], "teal function body not marked")
   assert(got[8], "teal return not marked")
 end
-test_teal_type_declarations_not_marked()
 
 local function test_parse_failure_returns_nil()
   local result, err = cov_lines.executable_lines("local = = nonsense", "bad.lua")
   assert(result == nil, "expected nil for unparsable source")
   assert(err and #err > 0, "expected an error message")
 end
-test_parse_failure_returns_nil()

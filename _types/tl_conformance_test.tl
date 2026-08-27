@@ -108,7 +108,6 @@ local function test_probe_passes_against_shim()
   assert(r.ok, "probe must type-check against tl.d.tl:\n"
     .. teal.format_issues(r.errors) .. "\n" .. teal.format_issues(r.warnings))
 end
-test_probe_passes_against_shim()
 
 -- Check 2: the staged tl source, the pinned ground truth. The staged
 -- dir is prepended so tl resolves to tl.tl instead of the shim.
@@ -124,7 +123,6 @@ local function test_probe_passes_against_staged_tl()
     .. "means the shim declares a call shape upstream rejects:\n"
     .. teal.format_issues(r.errors))
 end
-test_probe_passes_against_staged_tl()
 
 -- Completeness ratchet: every function the shim declares must appear
 -- in the probe, so a member added to gentl's surface cannot ship
@@ -136,4 +134,3 @@ local function test_probe_covers_every_shim_member()
       "shim member 'tl." .. name .. "' is not exercised by the probe")
   end
 end
-test_probe_covers_every_shim_member()

@@ -23,7 +23,6 @@ function shm.unmap() end
   assert(dtl:match("unmap: function%(%): boolean\n"),
     "description comma before 'false' must not grow a second return:\n" .. dtl)
 end
-test_boolean_description_comma_is_not_a_return()
 
 -- The same shape with 'nil' prose ("..., nil on failure") stays one return.
 local function test_nil_prose_comma_is_not_a_return()
@@ -38,7 +37,6 @@ function shm.open() end
   assert(dtl:match("open: function%(%): integer\n"),
     "description comma before 'nil' must not grow a second return:\n" .. dtl)
 end
-test_nil_prose_comma_is_not_a_return()
 
 -- Regression pin: genuine multi-returns keep splitting, including a
 -- trailing description on the final segment (the corpus does this:
@@ -55,7 +53,6 @@ function shm.cputime() end
   assert(dtl:match("cputime: function%(%): integer, integer\n"),
     "a real type token after the comma must still split:\n" .. dtl)
 end
-test_genuine_multi_return_still_splits()
 
 -- Single-segment literal returns are not continuations and stay typed.
 local function test_single_segment_literal_return_unaffected()
@@ -71,7 +68,6 @@ function shm.fail() end
   assert(dtl:match("fail: function%(%): nil, string\n"),
     "leading literal types on their own @return lines keep working:\n" .. dtl)
 end
-test_single_segment_literal_return_unaffected()
 
 -- A union-typed vararg (`@return string|number? ... desc`) must render as a
 -- Teal variadic return, not a single scalar entry that silently drops the
@@ -92,7 +88,6 @@ function lsqlite3.Statement:get_uvalues() end
   assert(not dtl:match("get_uvalues[^\n]*values of all columns"),
     "the vararg description must not leak into the type list:\n" .. dtl)
 end
-test_union_vararg_return()
 
 -- A vararg return is only meaningful as the true LAST return: Teal forbids
 -- anything after one. Upstream documents unix.fcntl this way (`@return
@@ -118,7 +113,6 @@ function unix.fcntl(fd) end
   assert(output:match("fcntl: function%(fd: integer%): any | nil, string, Errno"),
     "a non-last vararg should demote to a plain type:\n" .. output)
 end
-test_non_last_vararg_demotes_to_plain_type()
 
 -- A class method's iterator return spells "the receiver again" as a bare
 -- `self` token (`fun(...) iterator, self`) — the same role the module's
@@ -140,7 +134,6 @@ function lsqlite3.VM:nrows(sql) end
   assert(dtl:match("nrows: function%(self: VM, sql: string%): function, VM"),
     "self should resolve to the enclosing class and gain a second return:\n" .. dtl)
 end
-test_self_return_token()
 
 -- `@return table <word>` must not reinterpret the lowercase word as the
 -- actual type: a heuristic that fires on zero cases in the corpus today
@@ -159,4 +152,3 @@ function unix.something() end
   assert(dtl:match("something: function%(%): table\n"),
     "a table return must stay 'table', not the first description word:\n" .. dtl)
 end
-test_table_return_word_not_reinterpreted()

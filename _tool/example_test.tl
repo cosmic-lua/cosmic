@@ -31,7 +31,6 @@ end
   -- expected_output includes trailing newline from parsing
   assert(examples[1].expected_output:match("^hello"), "should extract expected output")
 end
-test_parse_examples()
 
 -- Test parsing multiple examples
 local function test_parse_multiple_examples()
@@ -54,7 +53,6 @@ end
   assert(examples[1].name == "Example_first", "first example name")
   assert(examples[2].name == "Example_second", "second example name")
 end
-test_parse_multiple_examples()
 
 -- Test example without output (skip)
 local function test_example_no_output()
@@ -68,7 +66,6 @@ end
   assert(#examples == 1, "should find example")
   assert(examples[1].expected_output == nil, "should have no expected output")
 end
-test_example_no_output()
 
 -- Test that a variable/local named with a keyword prefix (`end_time`)
 -- is not lexed as the keyword `end`: a bare `%a+` word match stops at
@@ -89,7 +86,6 @@ end
   assert(examples[1].body:find("elapsed", 1, true),
     "body should include the statement after end_time, not stop early")
 end
-test_end_time_not_truncated()
 
 -- Test that a variable named with a block-opening keyword prefix
 -- (`for_each`) is not lexed as `for`: that would open a phantom nesting
@@ -117,7 +113,6 @@ end
   assert(not examples[1].body:find("Example_after_for_each", 1, true),
     "for_each's body must not swallow the next example")
 end
-test_for_each_prefix_not_over_extended()
 
 -- Test that a bare `do ... end` block (not attached to a for/while)
 -- opens its own nesting level: the depth-tracking keyword set must
@@ -145,7 +140,6 @@ end
     "body should include the statement after the bare do-block")
   assert(examples[2].name == "Example_after_do", "next example parsed separately")
 end
-test_bare_do_end_block()
 
 -- Test a nested (anonymous) function definition inside the example
 -- body: unaffected by either bug, but a regression guard for the
@@ -166,7 +160,6 @@ end
   assert(examples[1].body:find("adder%(1, 2%)"),
     "body should include the statement after the nested function")
 end
-test_nested_function_definition()
 
 -- Test running passing example
 local function test_run_passing()
@@ -182,7 +175,6 @@ end
   assert(#result.results == 1, "should have one result")
   assert(result.results[1].passed, "example should pass")
 end
-test_run_passing()
 
 -- Test running failing example
 local function test_run_failing()
@@ -198,7 +190,6 @@ end
   assert(#result.results == 1, "should have one result")
   assert(not result.results[1].passed, "example should fail")
 end
-test_run_failing()
 
 -- Test file with no examples (skip)
 local function test_run_no_examples()
@@ -211,7 +202,6 @@ end
   assert(result.exit_code == 2, "should return skip code")
   assert(#result.results == 0, "should have no results")
 end
-test_run_no_examples()
 
 -- Test missing file
 local function test_run_missing_file()
@@ -219,7 +209,6 @@ local function test_run_missing_file()
   assert(result.exit_code == 1, "should fail")
   assert(string.find(result.message or "", "cannot open"), "should have a message")
 end
-test_run_missing_file()
 
 -- Test cosmic --check example command passing
 local function test_cosmic_example_pass()
@@ -236,7 +225,6 @@ end
   assert(ok, "cosmic --check example should succeed")
   assert(out:find("PASS"), "output should show PASS")
 end
-test_cosmic_example_pass()
 
 -- Test cosmic --check example command failing
 local function test_cosmic_example_fail()
@@ -253,7 +241,6 @@ end
   assert(not ok, "cosmic --check example should fail")
   assert(out:find("FAIL"), "output should show FAIL")
 end
-test_cosmic_example_fail()
 
 -- Test cosmic --check example with skip
 local function test_cosmic_example_skip()
@@ -264,7 +251,6 @@ local x = 1
   assert(r.code == 2, "should return skip code 2")
   assert(r.stdout:find("SKIP"), "output should show SKIP")
 end
-test_cosmic_example_skip()
 
 -- Test multiline output
 local function test_multiline_output()
@@ -281,7 +267,6 @@ end
   assert(result.exit_code == 0, "should pass")
   assert(result.results[1].passed, "multiline example should pass")
 end
-test_multiline_output()
 
 -- Test blank lines in output
 local function test_blank_line_in_output()
@@ -301,7 +286,6 @@ end
   assert(result.results[1].passed, "blank line example should pass")
   assert(result.results[1].expected:find("\n\n"), "expected should contain blank line")
 end
-test_blank_line_in_output()
 
 -- Test trailing newline normalization
 local function test_trailing_newline()
@@ -315,7 +299,6 @@ end
   local result = example.run(input)
   assert(result.exit_code == 0, "should pass with normalized newlines")
 end
-test_trailing_newline()
 
 -- Test example with nested blocks
 local function test_nested_blocks()
@@ -333,7 +316,6 @@ end
   local result = example.run(input)
   assert(result.exit_code == 0, "should handle nested blocks")
 end
-test_nested_blocks()
 
 -- Test format_results output
 local function test_format_results()
@@ -349,7 +331,6 @@ end
   assert(formatted:find("Example_fmt"), "should contain example name")
   assert(formatted:find("PASS"), "should show PASS status")
 end
-test_format_results()
 
 -- Test example with runtime error
 local function test_runtime_error()
@@ -364,6 +345,5 @@ end
   assert(result.exit_code == 1, "should fail on runtime error")
   assert(string.find(result.results[1].error or "", "runtime error"), "should capture error")
 end
-test_runtime_error()
 
 print("All example tests passed!")

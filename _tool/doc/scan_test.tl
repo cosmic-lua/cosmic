@@ -15,7 +15,6 @@ local function test_end_time_identifier_not_truncated()
   assert(next_pos == #source, "next_pos should land right after the real end")
   assert(source:sub(next_pos, next_pos) == "\n", "next_pos should point at the trailing newline")
 end
-test_end_time_identifier_not_truncated()
 
 local function test_for_prefixed_identifier_does_not_over_nest()
   local source = "\nlocal for_each = 1\nlocal y = for_each\nend\nTRAILING"
@@ -28,7 +27,6 @@ local function test_for_prefixed_identifier_does_not_over_nest()
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_for_prefixed_identifier_does_not_over_nest()
 
 local function test_bare_do_end_block_own_nesting()
   local source = "\ndo\n  local x = 1\nend\nlocal y = 2\nend\nTRAILING"
@@ -41,7 +39,6 @@ local function test_bare_do_end_block_own_nesting()
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_bare_do_end_block_own_nesting()
 
 local function test_for_do_still_counts_once()
   -- A real for/while's own `do` must NOT also open a new level -
@@ -55,7 +52,6 @@ local function test_for_do_still_counts_once()
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_for_do_still_counts_once()
 
 local function test_nested_function_definition()
   local source = "\nlocal f = function()\n  return 1\nend\nlocal z = f()\nend\nTRAILING"
@@ -67,7 +63,6 @@ local function test_nested_function_definition()
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_nested_function_definition()
 
 local function test_skips_strings_and_comments()
   -- Keywords inside a string or a comment must not affect depth.
@@ -86,7 +81,6 @@ TRAILING]]
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_skips_strings_and_comments()
 
 local function test_skips_long_strings_and_comments()
   local source = [==[
@@ -104,7 +98,6 @@ TRAILING]==]
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_skips_long_strings_and_comments()
 
 local function test_repeat_until_closes_its_own_level()
   -- repeat/until pairs its own depth change, distinct from the
@@ -116,7 +109,6 @@ local function test_repeat_until_closes_its_own_level()
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_repeat_until_closes_its_own_level()
 
 local function test_skips_escaped_quote_in_string()
   -- A backslash-escaped quote inside a string must not end the string
@@ -133,13 +125,11 @@ TRAILING]]
   assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
-test_skips_escaped_quote_in_string()
 
 local function test_count_lines()
   local source = "a\nb\nc\nd"
   assert(scan.count_lines(source, 1, #source) == 3, "should count 3 newlines")
   assert(scan.count_lines(source, 1, 1) == 0, "no newline in a single-char range")
 end
-test_count_lines()
 
 print("All scan tests passed!")

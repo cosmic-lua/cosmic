@@ -47,7 +47,6 @@ return M_impl
   assert(not names_str:find("helper", 1, true),
     "an unexported local is still dropped (got: " .. names_str .. ")")
 end
-test_aliased_export_keeps_doc_under_exported_name()
 
 -- The real module the alias rule was found on: cosmic.log exports
 -- debug/error as renamed locals, and their docs must reach the page.
@@ -58,4 +57,3 @@ local function test_log_page_documents_debug_and_error()
   assert(md:find("### error\n", 1, true),
     "log's page must document error (aliased from error_msg)")
 end
-test_log_page_documents_debug_and_error()

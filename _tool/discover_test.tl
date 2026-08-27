@@ -45,7 +45,6 @@ local function test_an_all_called_file_is_legacy_in_order()
   check.equal(d.cases[1].line, 1)
   check.truthy(d.cases[1].called and d.cases[2].called)
 end
-test_an_all_called_file_is_legacy_in_order()
 
 local function test_a_none_called_file_is_runner()
   local src = "local function test_a()\n  return 1\nend\n\n"
@@ -55,7 +54,6 @@ local function test_a_none_called_file_is_runner()
   check.equal(#d.cases, 2)
   check.truthy(not d.cases[1].called and not d.cases[2].called)
 end
-test_a_none_called_file_is_runner()
 
 local function test_one_uncalled_of_two_is_mixed()
   local src = "local function test_a()\n  return 1\nend\ntest_a()\n\n"
@@ -65,7 +63,6 @@ local function test_one_uncalled_of_two_is_mixed()
   check.truthy(d.cases[1].called, "test_a self-calls")
   check.truthy(not d.cases[2].called, "test_b does not")
 end
-test_one_uncalled_of_two_is_mixed()
 
 local function test_late_calls_do_not_make_a_runner_file()
   -- Both tests are called, at the bottom: under legacy semantics they
@@ -76,7 +73,6 @@ local function test_late_calls_do_not_make_a_runner_file()
   local d = walk(src)
   check.equal(d.mode, "mixed")
 end
-test_late_calls_do_not_make_a_runner_file()
 
 local function test_an_indirect_reference_disqualifies_runner()
   -- pcall(test_a) is not a call token pair, but the name is referenced:
@@ -85,7 +81,6 @@ local function test_an_indirect_reference_disqualifies_runner()
   local d = walk(src)
   check.equal(d.mode, "mixed")
 end
-test_an_indirect_reference_disqualifies_runner()
 
 local function test_helpers_and_quoted_definitions_are_not_cases()
   local src = "local function make_fixture()\n  return 1\nend\n\n"
@@ -97,7 +92,6 @@ local function test_helpers_and_quoted_definitions_are_not_cases()
   check.equal(#d.cases, 1, "the helper and the quoted definition are not cases")
   check.equal(d.cases[1].name, "test_a")
 end
-test_helpers_and_quoted_definitions_are_not_cases()
 
 local function test_a_file_with_no_tests_is_empty()
   local src = "local function helper()\n  return 1\nend\nreturn helper\n"
@@ -105,7 +99,6 @@ local function test_a_file_with_no_tests_is_empty()
   check.equal(d.mode, "empty")
   check.equal(#d.cases, 0)
 end
-test_a_file_with_no_tests_is_empty()
 
 local function test_blank_lines_before_the_call_still_count()
   local src = "local function test_a()\n  return 1\nend\n\n\ntest_a()\n"
@@ -113,7 +106,6 @@ local function test_blank_lines_before_the_call_still_count()
   check.equal(d.mode, "legacy")
   check.truthy(d.cases[1].called, "the next NON-BLANK line is the call site")
 end
-test_blank_lines_before_the_call_still_count()
 
 local function test_nested_blocks_do_not_move_the_end()
   local src = "local function test_a()\n  for i = 1, 2 do\n"
@@ -123,7 +115,6 @@ local function test_nested_blocks_do_not_move_the_end()
   check.equal(d.mode, "legacy")
   check.truthy(d.cases[1].called)
 end
-test_nested_blocks_do_not_move_the_end()
 
 -- The 3IP9ijhv pair, first shape: a nested type declaration closes
 -- with `end` — the old depth count read that `end` as the function's
@@ -154,7 +145,6 @@ local function test_a_nested_type_declaration_does_not_move_the_end()
   check.equal(i.mode, "legacy", "a nested interface is not the function's end")
   check.truthy(i.cases[1].called)
 end
-test_a_nested_type_declaration_does_not_move_the_end()
 
 -- The pair's second shape: a `function` token in TYPE position opens
 -- no block, so the old count never closed and the definition was
@@ -177,7 +167,6 @@ local function test_a_type_position_function_does_not_lose_the_case()
   check.equal(#e.cases, 1, "an `is` function type is not an opener")
   check.truthy(e.cases[1].called)
 end
-test_a_type_position_function_does_not_lose_the_case()
 
 --- The trees of committed Teal source, as `_build/casts.tl` walks
 --- them; `3p/` is vendored and `testdata/` holds fixtures with their
@@ -240,4 +229,3 @@ local function test_discover_finds_every_definition_in_the_tree()
     "discover must find every top-level test_* definition:\n  "
     .. table.concat(shortfall, "\n  "))
 end
-test_discover_finds_every_definition_in_the_tree()

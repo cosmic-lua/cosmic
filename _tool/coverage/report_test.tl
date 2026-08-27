@@ -21,19 +21,16 @@ end
 local function test_format_ranges_empty()
   assert(report.format_ranges({}, 8) == "", "empty input must render empty")
 end
-test_format_ranges_empty()
 
 local function test_format_ranges_compacts_runs()
   local got = report.format_ranges({1, 2, 3, 5, 9, 10}, 8)
   assert(got == "1-3,5,9-10", "got: " .. got)
 end
-test_format_ranges_compacts_runs()
 
 local function test_format_ranges_truncates()
   local got = report.format_ranges({1, 3, 5, 7, 9}, 2)
   assert(got == "1,3 +3 more", "got: " .. got)
 end
-test_format_ranges_truncates()
 
 -- normalize
 
@@ -42,7 +39,6 @@ local function test_normalize_maps_compiled_artifact_to_source()
   local display = report.normalize("@o/cosmic/codec.lua", "")
   assert(display == "cosmic/codec.tl", "got: " .. tostring(display))
 end
-test_normalize_maps_compiled_artifact_to_source()
 
 local function test_normalize_strips_cwd_prefix()
   local cwd = check.must(fs.cwd(), "cwd failed")
@@ -52,7 +48,6 @@ local function test_normalize_strips_cwd_prefix()
   local dotted = report.normalize("@./o/cosmic/codec.lua", cwd)
   assert(dotted == "cosmic/codec.tl", "got: " .. tostring(dotted))
 end
-test_normalize_strips_cwd_prefix()
 
 local function test_normalize_skips_non_files_and_foreign_paths()
   assert(report.normalize("=stdin", "") == nil, "non-file chunk must skip")
@@ -63,7 +58,6 @@ local function test_normalize_skips_non_files_and_foreign_paths()
   assert(report.normalize("@o/cosmic/no_such_module.lua", "") == nil,
     "artifact without a .tl source must skip")
 end
-test_normalize_skips_non_files_and_foreign_paths()
 
 -- The artifact flattens a directory module: `require("cosmic.fs")`
 -- executes `/zip/cosmic/fs.lua`, whose source is `cosmic/fs/init.tl`.
@@ -74,7 +68,6 @@ local function test_normalize_maps_embedded_directory_modules()
   assert(report.normalize("@/zip/cosmic/fs.lua", "") == "cosmic/fs/init.tl",
     "a directory module maps to its init.tl")
 end
-test_normalize_maps_embedded_directory_modules()
 
 -- `.lua` sources are first-class in this project (see the `luaonly`
 -- fixture and `_make/testdata/luaonly/`): when a staged `o/x.lua` has
@@ -87,7 +80,6 @@ local function test_normalize_maps_lua_only_source_with_no_tl()
   assert(fs.set_cwd(saved))
   assert(display == "greet.lua", "got: " .. tostring(display))
 end
-test_normalize_maps_lua_only_source_with_no_tl()
 
 local function test_normalize_accepts_existing_tl_script()
   -- a directly-run script records a cwd-relative source; absolute
@@ -101,7 +93,6 @@ local function test_normalize_accepts_existing_tl_script()
   assert(display == "direct.tl", "got: " .. tostring(display))
   assert(abs_display == "direct.tl", "got: " .. tostring(abs_display))
 end
-test_normalize_accepts_existing_tl_script()
 
 -- read_cov
 
@@ -112,7 +103,6 @@ local function test_read_cov_roundtrip()
   local h = check.must(report.read_cov(path))
   assert(h["@x.lua"][3] == 7, "hit count lost in roundtrip")
 end
-test_read_cov_roundtrip()
 
 local function test_read_cov_accepts_prefixless_bodies()
   -- A .cov file may carry no `return` prefix, e.g. one left over from
@@ -122,7 +112,6 @@ local function test_read_cov_accepts_prefixless_bodies()
   local h = check.must(report.read_cov(path))
   assert(h["@y.lua"][2] == 1, "an old-generation .cov still reads")
 end
-test_read_cov_accepts_prefixless_bodies()
 
 local function test_read_cov_rejects_garbage_and_bad_version()
   local garbage = fs.join(tmpdir, "garbage.cov")
@@ -137,7 +126,6 @@ local function test_read_cov_rejects_garbage_and_bad_version()
   assert(hits == nil, "unsupported version must not decode")
   assert(err and #err > 0, "unsupported version must carry an error")
 end
-test_read_cov_rejects_garbage_and_bad_version()
 
 -- report
 
@@ -147,7 +135,6 @@ local function test_report_returns_error_without_data()
   local code = report.report({empty})
   assert(code == 1, "no .cov files must exit 1, got " .. code)
 end
-test_report_returns_error_without_data()
 
 local function test_report_renders_merged_data()
   local covroot = fs.join(tmpdir, "covroot")
@@ -161,7 +148,6 @@ local function test_report_renders_merged_data()
   local code = report.report({covroot})
   assert(code == 0, "report failed with " .. code)
 end
-test_report_renders_merged_data()
 
 --- One display path's `total` from a covroot holding a single chunk
 --- spelling of it.
@@ -213,4 +199,3 @@ local function test_denominator_is_independent_of_chunk_spelling()
   -- executable line the .tl does not have.
   assert(totals[1] == 3, "got: " .. totals[1])
 end
-test_denominator_is_independent_of_chunk_spelling()

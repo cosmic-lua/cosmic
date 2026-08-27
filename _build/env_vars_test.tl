@@ -79,7 +79,6 @@ local function test_every_read_variable_is_declared()
     "_cli/env_vars.tl — declare each with a role:\n  " ..
     table.concat(missing, "\n  "))
 end
-test_every_read_variable_is_declared()
 
 local function test_every_declared_variable_is_read()
   local found = scan()
@@ -94,6 +93,5 @@ local function test_every_declared_variable_is_read()
     "registry row(s) nothing reads — delete them from " ..
     "_cli/env_vars.tl:\n  " .. table.concat(stale, "\n  "))
 end
-test_every_declared_variable_is_read()
 
 print("all env-var registry tests passed")

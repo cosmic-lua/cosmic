@@ -27,7 +27,6 @@ local function test_run_scenario_measures_and_checks()
   assert(m.wall_ns ~= nil and m.wall_ns >= 0, "wall_ns missing")
   assert(m.min_ns <= m.wall_ns and m.wall_ns <= m.max_ns, "stats out of order")
 end
-test_run_scenario_measures_and_checks()
 
 local function test_setup_result_reaches_fn_and_teardown()
   local torn_down: any = nil
@@ -50,7 +49,6 @@ local function test_setup_result_reaches_fn_and_teardown()
   assert(m.error == nil, "unexpected error: " .. tostring(m.error))
   assert(torn_down ~= nil, "teardown never ran")
 end
-test_setup_result_reaches_fn_and_teardown()
 
 local function test_failing_check_fails_measurement()
   local m = harness.run_scenario({
@@ -65,7 +63,6 @@ local function test_failing_check_fails_measurement()
   assert(m.error ~= nil, "expected check failure")
   assert(m.error:find("wrong answer", 1, true), "reason lost: " .. m.error)
 end
-test_failing_check_fails_measurement()
 
 local function test_crashing_fn_fails_measurement()
   local torn_down = false
@@ -85,7 +82,6 @@ local function test_crashing_fn_fails_measurement()
   assert(m.error:find("boom", 1, true), "crash message lost: " .. m.error)
   assert(torn_down, "teardown must run even on crash")
 end
-test_crashing_fn_fails_measurement()
 
 local function test_failing_setup_fails_measurement()
   local m = harness.run_scenario({
@@ -103,7 +99,6 @@ local function test_failing_setup_fails_measurement()
   assert(m.error ~= nil, "expected setup failure")
   assert(m.error:find("no resources", 1, true), "setup reason lost: " .. m.error)
 end
-test_failing_setup_fails_measurement()
 
 local function test_run_all_reports_each_scenario()
   local seen: {string} = {}
@@ -124,7 +119,6 @@ local function test_run_all_reports_each_scenario()
   assert(#results == 2, "expected 2 results")
   assert(seen[1] == "one" and seen[2] == "two", "callback order wrong")
 end
-test_run_all_reports_each_scenario()
 
 local function test_format_helpers()
   assert(harness.format_ns(12) == "12.0 ns", "ns format wrong")
@@ -140,6 +134,5 @@ local function test_format_helpers()
   assert(fail_line:find("FAIL", 1, true) and fail_line:find("broke", 1, true),
     "fail line wrong: " .. fail_line)
 end
-test_format_helpers()
 
 print("OK harness_test")

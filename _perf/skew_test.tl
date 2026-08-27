@@ -68,4 +68,3 @@ local function test_perf_sources_type_check_under_the_pinned_bootstrap()
     "the new API through a tolerant map view + capability probe " ..
     "(see _perf/bench/literal_bench.tl):\n" .. r.stderr)
 end
-test_perf_sources_type_check_under_the_pinned_bootstrap()

@@ -51,28 +51,24 @@ local function test_verdict_baseline_refuses_candidate_accepts()
   check.equal(line, ACCEPTS)
   check.truthy(ok, "opposite statuses discriminate")
 end
-test_verdict_baseline_refuses_candidate_accepts()
 
 local function test_verdict_baseline_accepts_candidate_refuses()
   local line, ok = pin_probe.verdict(0, 1)
   check.equal(line, REFUSES)
   check.truthy(ok, "opposite statuses discriminate the other way too")
 end
-test_verdict_baseline_accepts_candidate_refuses()
 
 local function test_verdict_both_accept_is_vacuous()
   local line, ok = pin_probe.verdict(0, 0)
   check.equal(line, BOTH_ACCEPT)
   check.equal(ok, false, "two acceptances prove nothing")
 end
-test_verdict_both_accept_is_vacuous()
 
 local function test_verdict_both_refuse_is_vacuous()
   local line, ok = pin_probe.verdict(1, 1)
   check.equal(line, BOTH_REFUSE)
   check.equal(ok, false, "two refusals prove nothing, whatever they printed")
 end
-test_verdict_both_refuse_is_vacuous()
 
 local function test_report_both_accept_end_to_end()
   local probe = write_probe("accept_probe.tl", "local _x: integer = 1\n")
@@ -82,7 +78,6 @@ local function test_report_both_accept_end_to_end()
   check.truthy(text:find("baseline: ", 1, true), "the baseline block prints")
   check.truthy(text:find("candidate: ", 1, true), "the candidate block prints")
 end
-test_report_both_accept_end_to_end()
 
 local function test_report_both_refuse_end_to_end()
   local probe = write_probe("refuse_probe.tl", "local _x: integer = \"s\"\n")
@@ -90,7 +85,6 @@ local function test_report_both_refuse_end_to_end()
   check.equal(text:sub(-#BOTH_REFUSE), BOTH_REFUSE, text)
   check.equal(code, 1, "a vacuous probe exits 1")
 end
-test_report_both_refuse_end_to_end()
 
 local function test_report_refuses_a_missing_probe()
   local text, code = pin_probe.report(
@@ -99,9 +93,7 @@ local function test_report_refuses_a_missing_probe()
   check.equal(code, 2, "an unreadable probe is neither verdict")
   check.truthy(text:find("cannot read probe file", 1, true), text)
 end
-test_report_refuses_a_missing_probe()
 
 local function test_main_refuses_a_wrong_argument_count()
   check.equal(pin_probe.main("only-one"), 2, "usage errors exit 2")
 end
-test_main_refuses_a_wrong_argument_count()

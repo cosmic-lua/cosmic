@@ -56,7 +56,6 @@ local function test_the_cast_counts_match_the_committed_baseline()
     "file(s) under their cast baseline — " .. REBASELINE .. ":\n  " ..
     table.concat(under, "\n  "))
 end
-test_the_cast_counts_match_the_committed_baseline()
 
 -- What the count actually reads: `as` tokens, not the reasons beside
 -- them. The fixture holds a file with two casts, a file with none, one
@@ -99,6 +98,5 @@ local function test_count_reads_as_tokens_not_their_justifications()
   assert(got["untracked/loose.tl"] == nil,
     "only the counted trees are walked")
 end
-test_count_reads_as_tokens_not_their_justifications()
 
 print("all cast ratchet tests passed")

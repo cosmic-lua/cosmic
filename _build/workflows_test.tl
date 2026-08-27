@@ -110,7 +110,6 @@ local function test_one_container_image_across_every_workflow()
     "misses a site leaves lanes on skewed environments. Found " ..
     #distinct .. ":\n  " .. table.concat(distinct, "\n  "))
 end
-test_one_container_image_across_every_workflow()
 
 -- And the digest is a digest: a tag would make the pin decorative.
 local function test_the_image_is_pinned_by_digest()
@@ -122,7 +121,6 @@ local function test_the_image_is_pinned_by_digest()
     end
   end
 end
-test_the_image_is_pinned_by_digest()
 
 -- Every job that runs build machinery runs it in that container. Named
 -- rather than derived because "runs build machinery" is a judgement:
@@ -251,7 +249,6 @@ local function test_every_build_job_is_containerised()
   -- vacuously green.
   assert(jobs >= 4, "expected the workflow jobs to be found, saw " .. jobs)
 end
-test_every_build_job_is_containerised()
 
 -- One distinct `options:` across every containerised lane, by the same
 -- argument as the image: copies are only a per-lane pin if they agree.
@@ -275,7 +272,6 @@ local function test_one_container_options_across_every_workflow()
     "environment. Found " .. #distinct .. ":\n  " ..
     table.concat(distinct, "\n  "))
 end
-test_one_container_options_across_every_workflow()
 
 -- And those options grant the privilege the sandbox tests need. Without
 -- it Landlock cannot enforce, `_cli/fence_test.tl`'s denial assertion
@@ -289,7 +285,6 @@ local function test_the_container_is_privileged()
       "options: " .. job.options)
   end
 end
-test_the_container_is_privileged()
 
 -- Every containerised lane makes a non-root builder AND runs its build
 -- machinery as that user. Both halves, because either alone is the
@@ -307,7 +302,6 @@ local function test_every_containerised_job_drops_to_a_non_root_builder()
       "identity it prepared is not the one the gate runs under")
   end
 end
-test_every_containerised_job_drops_to_a_non_root_builder()
 
 -- The release perf compare's exit status must actually reach the step:
 -- it arrives through `| tee`, and a pipeline's status is tee's without
@@ -331,6 +325,5 @@ local function test_the_release_perf_compare_propagates_its_verdict()
   assert(body:find("perf-compare: SKIP", 1, true),
     path .. ": the bootstrap path (no baseline yet) must still succeed")
 end
-test_the_release_perf_compare_propagates_its_verdict()
 
 print("all workflow ratchet tests passed")

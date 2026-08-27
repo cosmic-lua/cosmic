@@ -20,7 +20,6 @@ local function test_clean_self_report_and_friction_parse()
   assert(j.friction[1]:find("flags module docs", 1, true) ~= nil,
     "friction items should be verbatim, got: " .. tostring(j.friction[1]))
 end
-test_clean_self_report_and_friction_parse()
 
 local function test_final_txt_attempts_parse()
   local j = journal.parse("_eval/testdata/run_pass/json-cli")
@@ -29,7 +28,6 @@ local function test_final_txt_attempts_parse()
   assert(j.attempts_green_ci == 3,
     "expected attempts_green_ci 3, got " .. tostring(j.attempts_green_ci))
 end
-test_final_txt_attempts_parse()
 
 local function test_unparseable_final_txt_leaves_attempts_nil()
   local j = journal.parse("_eval/testdata/run_partial/text-report")
@@ -40,7 +38,6 @@ local function test_unparseable_final_txt_leaves_attempts_nil()
     "a one-line final.txt should leave attempts_green_ci nil, got " ..
     tostring(j.attempts_green_ci))
 end
-test_unparseable_final_txt_leaves_attempts_nil()
 
 local function test_missing_files_leave_everything_nil()
   local dir = scratch_dir()
@@ -50,7 +47,6 @@ local function test_missing_files_leave_everything_nil()
   assert(j.attempts_first_build == nil, "missing final.txt should leave attempts_first_build nil")
   assert(j.attempts_green_ci == nil, "missing final.txt should leave attempts_green_ci nil")
 end
-test_missing_files_leave_everything_nil()
 
 local function test_contaminated_self_report_is_not_clean()
   local dir = scratch_dir()
@@ -64,7 +60,6 @@ local function test_contaminated_self_report_is_not_clean()
     "an admitted-familiarity self-report should parse as not clean, got " ..
     tostring(j.self_report_clean))
 end
-test_contaminated_self_report_is_not_clean()
 
 local function test_ambiguous_self_report_stays_nil()
   local dir = scratch_dir()
@@ -77,7 +72,6 @@ local function test_ambiguous_self_report_stays_nil()
     "an answer that is neither a clear denial nor an admission must stay nil, got " ..
     tostring(j.self_report_clean))
 end
-test_ambiguous_self_report_stays_nil()
 
 local function test_friction_markers_are_stripped()
   local dir = scratch_dir()
@@ -95,7 +89,6 @@ local function test_friction_markers_are_stripped()
   assert(j.friction[2] == "second item", "got: " .. tostring(j.friction[2]))
   assert(j.friction[3] == "third item", "got: " .. tostring(j.friction[3]))
 end
-test_friction_markers_are_stripped()
 
 local function test_last_occurrence_of_a_heading_wins()
   local dir = scratch_dir()
@@ -109,4 +102,3 @@ local function test_last_occurrence_of_a_heading_wins()
   assert(#j.friction == 1, "expected 1 friction item, got " .. #j.friction)
   assert(j.friction[1] == "the real friction item", "got: " .. tostring(j.friction[1]))
 end
-test_last_occurrence_of_a_heading_wins()

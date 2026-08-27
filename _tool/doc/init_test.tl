@@ -26,7 +26,6 @@ local x = 1
   assert(result.module_doc:find("module description"), "should contain description")
   assert(result.module_doc:find("multiple lines"), "should contain all lines")
 end
-test_parse_module_doc()
 
 -- Test parsing function with doc comment
 local function test_parse_function_doc()
@@ -51,7 +50,6 @@ end
   assert(#fn.returns == 1, "should have one return")
   assert(fn.returns[1].return_type == "number", "return type should be 'number'")
 end
-test_parse_function_doc()
 
 -- Test parsing record
 local function test_parse_record()
@@ -68,7 +66,6 @@ end
   assert(result.records[1].name == "Point", "record name should be 'Point'")
   assert(result.records[1].description:find("2D space"), "should have description")
 end
-test_parse_record()
 
 -- A keyword inside a field's doc comment must not close the record: an
 -- unguarded "end" in a comment would truncate Socket at that field,
@@ -92,7 +89,6 @@ end
   assert(#rec.fields == 3, "expected 3 fields, got " .. #rec.fields)
   assert(rec.fields[3][1] == "close", "field after keyword comments should survive")
 end
-test_parse_record_keyword_in_comment()
 
 -- Keywords inside string literals (nested enum values) and long comments
 -- must not close the record either.
@@ -117,7 +113,6 @@ end
   local last = rec.fields[#rec.fields]
   assert(last and last[1] == "retries", "fields after strings/comments should survive")
 end
-test_parse_record_keyword_in_strings_and_long_comments()
 
 -- A `local type Name = target` alias is a public name whose fields live
 -- on the target (zip's Archive = cosmo.zip.Reader): it must render as a
@@ -140,7 +135,6 @@ local type Archive = zip.Reader
   assert(rec.description:find("cosmic --docs gen.zip.Reader", 1, true),
     "points at the target's own docs")
 end
-test_parse_type_alias_points_at_target()
 
 -- Test parsing Example_* functions
 local function test_parse_example()
@@ -158,7 +152,6 @@ end
   -- doc.parse extracts output with trailing newline from comment lines
   assert(result.examples[1].expected_output:match("^hello"), "should extract expected output")
 end
-test_parse_example()
 
 -- Every line of a multi-line Output block must lose its `-- ` prefix:
 -- `.` matches newlines in Lua patterns, so a single `.*` match would
@@ -179,7 +172,6 @@ end
   local got = result.examples[1].expected_output
   assert(got == "a\nb:\t1", "prefixes stripped on every line, got: " .. string.format("%q", got))
 end
-test_parse_example_multiline_output()
 
 -- Test that regular `--` comments (not `---`) directly above an
 -- Example_* function are picked up as its description: doc.parse is
@@ -204,7 +196,6 @@ end
   assert(not result.examples[1].description:find("unrelated", 1, true),
     "should not reach past the blank line above the comment block")
 end
-test_example_regular_comment_description()
 
 -- Same, but the comment block is directly preceded by a non-blank,
 -- non-comment line (the other way extract_doc_comment's upward walk
@@ -225,7 +216,6 @@ end
   assert(not result.examples[1].description:find("unrelated", 1, true),
     "should stop at the preceding code line")
 end
-test_example_regular_comment_stops_at_code()
 
 -- Test that Example_* functions are not included in regular functions
 local function test_example_not_in_functions()
@@ -244,7 +234,6 @@ end
   assert(result.functions[1].name == "real_function", "should be the non-example function")
   assert(#result.examples == 1, "should find one example")
 end
-test_example_not_in_functions()
 
 -- Test that a variable/local named with a keyword prefix (`end_time`)
 -- is not lexed as the keyword `end`: a bare `%a+` word match stops at
@@ -263,7 +252,6 @@ end
   assert(result.examples[1].body:find("elapsed", 1, true),
     "body should include the statement after end_time, not stop early")
 end
-test_example_end_time_not_truncated()
 
 -- Test that a variable named with a block-opening keyword prefix
 -- (`for_each`) is not lexed as `for`: that would open a phantom nesting
@@ -287,7 +275,6 @@ end
   assert(not result.examples[1].body:find("Example_after_for_each", 1, true),
     "for_each's body must not swallow the next example")
 end
-test_example_for_each_prefix_not_over_extended()
 
 -- Test that a bare `do ... end` block (not attached to a for/while)
 -- opens its own nesting level: the depth-tracking keyword set must
@@ -311,7 +298,6 @@ end
     "body should include the statement after the bare do-block")
   assert(result.examples[2].name == "Example_after_do", "next example parsed separately")
 end
-test_example_bare_do_end_block()
 
 -- Test a nested (anonymous) function definition inside the example
 -- body: unaffected by either bug, but a regression guard for the
@@ -330,7 +316,6 @@ end
   assert(result.examples[1].body:find("adder%(1, 2%)"),
     "body should include the statement after the nested function")
 end
-test_example_nested_function_definition()
 
 -- Test render produces markdown
 local function test_render_markdown()
@@ -356,7 +341,6 @@ end
   assert(md:find("## Examples"), "should have Examples section")
   assert(md:find("```teal"), "should have teal code block")
 end
-test_render_markdown()
 
 -- Test render_file with valid file
 local function test_render_file()
@@ -369,7 +353,6 @@ end
   assert(md:find("# doc_test"), "should have filename as header")
   assert(md:find("A test file"), "should have module doc")
 end
-test_render_file()
 
 -- Test render_file with missing file
 local function test_render_file_missing()
@@ -377,7 +360,6 @@ local function test_render_file_missing()
   assert(md == nil, "render_file should fail on missing file")
   assert(err:find("cannot open"), "should have error message")
 end
-test_render_file_missing()
 
 -- Test function without doc comment
 local function test_function_no_doc()
@@ -392,7 +374,6 @@ end
   assert(result.functions[1].description == nil, "should have no description")
   assert(#result.functions[1].params == 0, "should have no params")
 end
-test_function_no_doc()
 
 -- Test multiple functions
 local function test_multiple_functions()
@@ -411,7 +392,6 @@ end
   assert(result.functions[1].name == "first", "first function")
   assert(result.functions[2].name == "second", "second function")
 end
-test_multiple_functions()
 
 -- Test example title conversion
 local function test_example_title()
@@ -425,7 +405,6 @@ end
   local md = docs.render_module("test", result)
   assert(md:find("### foo bar baz"), "should convert underscores to spaces in title")
 end
-test_example_title()
 
 -- Test that actual library files have proper documentation
 -- These tests verify that our source files have doc comments
@@ -434,7 +413,6 @@ local function test_embed_has_module_doc()
   -- Module should have a description after the header
   assert(md:find("# embed\n\n[^#]"), "embed/init.tl should have module description")
 end
-test_embed_has_module_doc()
 
 local function test_embed_has_type_descriptions()
   -- ExtractOptions is declared in the extraction half; init.tl aliases it.
@@ -442,14 +420,12 @@ local function test_embed_has_type_descriptions()
   -- ExtractOptions should have a description, not just a bare header
   assert(md:find("### ExtractOptions\n\n[^#]"), "ExtractOptions should have description")
 end
-test_embed_has_type_descriptions()
 
 local function test_child_has_type_descriptions()
   local md = check.must(doc.render_file("cosmic/child/init.tl"), "should read child/init.tl")
   -- Handle should have a description
   assert(md:find("### Handle\n\n[^#]"), "Handle should have description")
 end
-test_child_has_type_descriptions()
 
 local function test_fetch_has_module_description()
   local md = check.must(doc.render_file("cosmic/fetch/init.tl"), "should read fetch/init.tl")
@@ -458,7 +434,6 @@ local function test_fetch_has_module_description()
   -- Should describe what it does
   assert(md:find("HTTP fetch"), "should describe HTTP fetching")
 end
-test_fetch_has_module_description()
 
 -- The record field parser must skip comment lines: text inside a doc
 -- comment (like the `fd` in this field's @return line) must not be
@@ -486,6 +461,5 @@ end
   assert(names_str:find("bar"), "should find 'bar' field")
   print("test_record_fields_skip_comments: PASS")
 end
-test_record_fields_skip_comments()
 
 print("All doc tests passed!")

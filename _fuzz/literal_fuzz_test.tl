@@ -344,7 +344,6 @@ local function test_parse_totality()
     })
   check.truthy(ok, msg)
 end
-test_parse_totality()
 
 local function test_round_trip()
   local ok, msg = driver.run({
@@ -364,7 +363,6 @@ local function test_round_trip()
     })
   check.truthy(ok, msg)
 end
-test_round_trip()
 
 -- The property that catches a writer emitting what its own reader
 -- cannot read. Over a domain that includes functions, coroutines,
@@ -399,7 +397,6 @@ local function test_format_totality()
     })
   check.truthy(ok, msg)
 end
-test_format_totality()
 
 --- Generate one edited source: a valid literal, sometimes spliced with
 --- a second one, then byte-edited. Most come out refused and some still
@@ -422,7 +419,6 @@ local function test_mutation_survival()
     })
   check.truthy(ok, msg)
 end
-test_mutation_survival()
 
 -- Two readers implement this grammar -- one in C, the lexer in Teal --
 -- and `parse` picks between them, so what a caller sees must not depend
@@ -463,4 +459,3 @@ local function test_differential()
     })
   check.truthy(ok, msg)
 end
-test_differential()

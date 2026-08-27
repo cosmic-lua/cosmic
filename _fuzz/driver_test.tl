@@ -58,7 +58,6 @@ local function test_same_seed_reproduces_the_same_failure()
   check.equal(first[1], second[1], "same seed generated different inputs")
   check.truthy(first_msg:find("seed=42", 1, true), "seed missing: " .. first_msg)
 end
-test_same_seed_reproduces_the_same_failure()
 
 local function test_a_throwing_check_is_reported_as_a_failure()
   local ok, msg = driver.run_unisolated({
@@ -75,7 +74,6 @@ local function test_a_throwing_check_is_reported_as_a_failure()
   check.truthy(msg:find("boom", 1, true), "thrown error missing: " .. msg)
   check.truthy(msg:find("iteration=1", 1, true), "iteration missing: " .. msg)
 end
-test_a_throwing_check_is_reported_as_a_failure()
 
 local function test_failure_message_carries_the_failing_input()
   assert(env.set("FUZZ_SEED", "7"))
@@ -92,7 +90,6 @@ local function test_failure_message_carries_the_failing_input()
   -- iteration-1 input any more -- just decode cleanly.
   check.must(codec.decode_base64(encoded))
 end
-test_failure_message_carries_the_failing_input()
 
 local function test_failure_message_reports_a_minimized_input()
   assert(env.set("FUZZ_SEED", "5"))
@@ -112,7 +109,6 @@ local function test_failure_message_reports_a_minimized_input()
   check.truthy(encoded, "no base64 input in: " .. msg)
   check.truthy(#encoded <= 8, "input was not minimized, base64 length " .. #encoded)
 end
-test_failure_message_reports_a_minimized_input()
 
 local function test_iters_option_overrides_the_environment()
   assert(env.set("FUZZ_ITERS", "99"))
@@ -133,7 +129,6 @@ local function test_iters_option_overrides_the_environment()
   check.equal(calls, 5, "Options.iters did not override FUZZ_ITERS")
   check.truthy(msg:find("5 iterations", 1, true), "summary wrong: " .. msg)
 end
-test_iters_option_overrides_the_environment()
 
 local function test_environment_supplies_iterations_and_the_default_seed()
   assert(env.set("FUZZ_ITERS", "3"))
@@ -154,7 +149,6 @@ local function test_environment_supplies_iterations_and_the_default_seed()
   check.equal(calls, 3, "FUZZ_ITERS did not set the iteration count")
   check.truthy(msg:find("seed=1", 1, true), "default seed missing: " .. msg)
 end
-test_environment_supplies_iterations_and_the_default_seed()
 
 local function test_bytes_respects_its_length_bound()
   local rec = source.new(rand.insecure_source(3))
@@ -169,7 +163,6 @@ local function test_bytes_respects_its_length_bound()
   check.truthy(longest > 0, "bytes never produced any output")
   check.equal(driver.bytes(rec, 0), "", "max_len 0 should produce an empty string")
 end
-test_bytes_respects_its_length_bound()
 
 local function test_mutate_edits_the_sample()
   local rec = source.new(rand.insecure_source(5))
@@ -182,7 +175,6 @@ local function test_mutate_edits_the_sample()
   check.truthy(edited > 0, "mutate never changed the sample")
   check.equal(#driver.mutate(rec, "", 1), 1, "an edit on an empty string should insert")
 end
-test_mutate_edits_the_sample()
 
 local function test_same_seed_draws_the_same_sequence()
   local a = source.new(rand.insecure_source(11))
@@ -197,7 +189,6 @@ local function test_same_seed_draws_the_same_sequence()
     check.equal(da.ivalue, db.ivalue, "draw " .. i .. " ivalue mismatch")
   end
 end
-test_same_seed_draws_the_same_sequence()
 
 local function test_replay_regenerates_the_same_input()
   local rec = source.new(rand.insecure_source(19))
@@ -207,7 +198,6 @@ local function test_replay_regenerates_the_same_input()
   check.equal(input, input2, "replay should regenerate the same input")
   check.equal(#replayed.draws, #rec.draws, "replay should record the same draw count")
 end
-test_replay_regenerates_the_same_input()
 
 local function test_replay_past_the_end_fails_by_position()
   local rec = source.new(rand.insecure_source(23))
@@ -223,7 +213,6 @@ local function test_replay_past_the_end_fails_by_position()
   check.truthy(tostring(err):find(tostring(#rec.draws + 1), 1, true),
     "error should name the position, got: " .. tostring(err))
 end
-test_replay_past_the_end_fails_by_position()
 
 -- The two budget tests below arm the driver's instruction hook, which
 -- needs the VM's one hook slot: under the instrumented suite the
@@ -262,7 +251,6 @@ local function test_a_looping_property_fails_within_its_budget()
         "the budget failure is named: " .. msg)
     end)
 end
-test_a_looping_property_fails_within_its_budget()
 
 local function test_a_terminating_property_passes_under_its_budget()
   local ok, msg = driver.run_unisolated({
@@ -278,7 +266,6 @@ local function test_a_terminating_property_passes_under_its_budget()
     })
   check.truthy(ok, "a terminating property is unaffected by the budget: " .. msg)
 end
-test_a_terminating_property_passes_under_its_budget()
 
 -- The budget hook must not outlive the run that armed it: after a
 -- budget failure, a draw-heavy run whose TOTAL instruction count is far
@@ -311,7 +298,6 @@ local function test_the_budget_hook_is_cleared_between_runs()
       check.truthy(ok, "the hook from the failed run must be gone: " .. msg)
     end)
 end
-test_the_budget_hook_is_cleared_between_runs()
 
 -- The three tests below exercise driver.run() itself (not
 -- run_unisolated), so each spawns at least one real child process via
@@ -353,7 +339,6 @@ local function test_a_crashing_check_is_attributed_to_its_iteration()
   check.truthy(msg:find("crashed: signal", 1, true), "not reported as a crash: " .. msg)
   check.truthy(msg:find("iteration=5", 1, true), "wrong iteration attributed: " .. msg)
 end
-test_a_crashing_check_is_attributed_to_its_iteration()
 
 local function test_a_hanging_check_is_reported_as_a_timeout()
   local ok, msg = driver.run({
@@ -376,7 +361,6 @@ local function test_a_hanging_check_is_reported_as_a_timeout()
   check.equal(ok, false, "a hanging property must fail: " .. tostring(msg))
   check.truthy(msg:find("hung: exceeded 200ms", 1, true), "not reported as a hang: " .. msg)
 end
-test_a_hanging_check_is_reported_as_a_timeout()
 
 local function test_other_properties_in_the_file_are_skipped_when_isolating()
   local saved_isolate = env.get("FUZZ_ISOLATE")
@@ -403,7 +387,6 @@ local function test_other_properties_in_the_file_are_skipped_when_isolating()
   check.truthy(msg:find("skipped", 1, true), "not reported as skipped: " .. msg)
   check.equal(called, false, "gen/check must not run for a skipped property")
 end
-test_other_properties_in_the_file_are_skipped_when_isolating()
 
 -- timeout_for is pure: it reads no clock, spawns no child and runs no
 -- property, so the rule can be asserted at the depths that matter
@@ -433,7 +416,6 @@ local function test_the_child_timeout_scales_with_the_iteration_count()
   check.equal(driver.timeout_for(pinned, 50000), 200,
     "an explicit timeout_ms is absolute, never scaled and never a floor")
 end
-test_the_child_timeout_scales_with_the_iteration_count()
 
 -- A shrink candidate reruns check on a SMALLER input, and a property
 -- can loop on one while the generated input failed ordinarily. The
@@ -469,7 +451,6 @@ local function test_a_shrink_candidate_that_loops_is_caught()
     end)
   restore()
 end
-test_a_shrink_candidate_that_loops_is_caught()
 
 -- The reported input, detail and draw count are one artifact: a reader
 -- who replays the named input must see the named error. This property
@@ -494,4 +475,3 @@ local function test_the_reported_detail_and_draws_describe_the_minimized_input()
   check.equal(msg:find("threw:", 1, true), nil, "reported the throw: " .. msg)
   check.truthy(msg:find("draws=4", 1, true), "not the consumed count: " .. msg)
 end
-test_the_reported_detail_and_draws_describe_the_minimized_input()

@@ -48,7 +48,6 @@ local function test_report_counts_tl_files_and_lines_by_tree()
   assert(rep.binary_bytes == nil,
     "no --binary given, expected binary_bytes absent")
 end
-test_report_counts_tl_files_and_lines_by_tree()
 
 local function test_report_stats_the_binary_when_given()
   local root = fs.join(check.must(os.getenv("TEST_TMPDIR")), "size-binary")
@@ -58,7 +57,6 @@ local function test_report_stats_the_binary_when_given()
   local rep = size.report(root, bin_path)
   assert(rep.binary_bytes == 42, "binary_bytes: " .. tostring(rep.binary_bytes))
 end
-test_report_stats_the_binary_when_given()
 
 -- totals() sums only the tracked trees — an extra key some other caller
 -- put on the map (or a corrupt file) does not inflate the summary line.
@@ -76,7 +74,6 @@ local function test_totals_sums_only_tracked_trees()
   assert(lines == 50, "lines: " .. tostring(lines))
   assert(files == 5, "files: " .. tostring(files))
 end
-test_totals_sums_only_tracked_trees()
 
 -- format_compare() against two handwritten report files: exact totals,
 -- exact signed deltas, exact line text.
@@ -113,7 +110,6 @@ local function test_compare_output_against_handwritten_reports()
     "size: lines 1620 (+120), files 17 (+2), binary 1050000 (+50000), public modules 31 (+1)",
     "got: " .. line)
 end
-test_compare_output_against_handwritten_reports()
 
 -- Comparing a report against itself: all deltas read "+0", never a
 -- gate (see the module doc comment) — there is no threshold to clear.
@@ -129,7 +125,6 @@ local function test_compare_all_zero_deltas_when_reports_match()
     "size: lines 40 (+0), files 4 (+0), binary 222 (+0), public modules 9 (+0)",
     "got: " .. line)
 end
-test_compare_all_zero_deltas_when_reports_match()
 
 -- Every tracked tree is a real directory at the repo root. A rename
 -- that lands out from under this list (e.g. #1208's _plan/ -> _work/)
@@ -139,6 +134,5 @@ local function test_tracked_trees_are_real_directories()
     assert(fs.is_dir(tree), "tracked tree missing at repo root: " .. tree)
   end
 end
-test_tracked_trees_are_real_directories()
 
 print("all size report tests passed")

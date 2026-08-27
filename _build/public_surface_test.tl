@@ -48,7 +48,6 @@ local function test_the_surface_matches_the_committed_baseline()
   assert(#added == 0, table.concat(added, "\n  "))
   assert(#gone == 0, table.concat(gone, "\n  "))
 end
-test_the_surface_matches_the_committed_baseline()
 
 -- What the enumeration actually reads. The fixture holds each shape
 -- that decides a name: a plain module, an underscore module the
@@ -72,7 +71,6 @@ local function test_modules_reads_the_tree_by_position()
   local got = table.concat(surface.modules(root), " ")
   assert(got == "cosmic.box cosmic.shiny", "got: " .. got)
 end
-test_modules_reads_the_tree_by_position()
 
 -- A tree with no `cosmic/` has no surface, rather than an error the
 -- gate above would have to decide what to do with.
@@ -81,6 +79,5 @@ local function test_a_tree_without_cosmic_has_no_surface()
   local got = surface.modules(fs.join(root, "nowhere"))
   assert(#got == 0, "expected no names, got " .. #got)
 end
-test_a_tree_without_cosmic_has_no_surface()
 
 print("all public surface ratchet tests passed")

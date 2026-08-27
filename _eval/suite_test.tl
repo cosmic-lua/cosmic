@@ -20,7 +20,6 @@ local function test_manifest_parses()
   assert(#manifest.tasks == #EXPECTED_IDS,
     "expected " .. #EXPECTED_IDS .. " tasks, got " .. #manifest.tasks)
 end
-test_manifest_parses()
 
 local function test_ids_in_order()
   local manifest = check.must(stage.load_manifest(stage.MANIFEST_PATH))
@@ -29,7 +28,6 @@ local function test_ids_in_order()
       "task " .. i .. ": expected id " .. EXPECTED_IDS[i] .. ", got " .. tostring(task.id))
   end
 end
-test_ids_in_order()
 
 local function test_statuses_are_valid()
   local manifest = check.must(stage.load_manifest(stage.MANIFEST_PATH))
@@ -38,7 +36,6 @@ local function test_statuses_are_valid()
       task.id .. ": status must be proven or new, got " .. tostring(task.status))
   end
 end
-test_statuses_are_valid()
 
 local function test_metrics_are_nonempty()
   local manifest = check.must(stage.load_manifest(stage.MANIFEST_PATH))
@@ -46,7 +43,6 @@ local function test_metrics_are_nonempty()
     assert(#task.metrics > 0, task.id .. ": metrics must not be empty")
   end
 end
-test_metrics_are_nonempty()
 
 local function test_brief_paths_exist()
   local manifest = check.must(stage.load_manifest(stage.MANIFEST_PATH))
@@ -55,11 +51,9 @@ local function test_brief_paths_exist()
       task.id .. ": brief path does not exist: " .. tostring(task.brief))
   end
 end
-test_brief_paths_exist()
 
 local function test_missing_file_errors()
   local manifest, err = stage.load_manifest("_eval/no-such-suite.tl")
   assert(manifest == nil, "missing suite file should not parse")
   assert(err ~= nil and #err > 0, "missing suite file should report an error")
 end
-test_missing_file_errors()

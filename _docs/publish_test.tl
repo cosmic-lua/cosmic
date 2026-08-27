@@ -49,7 +49,6 @@ local function test_readme_has_doc_table()
   assert(readme:find("Embed files"), "should include embed description")
   assert(readme:find("Process spawning"), "should include child description")
 end
-test_readme_has_doc_table()
 
 -- The published site carries the public surface only:
 -- prune_internal removes internal module pages, keeps public module
@@ -84,6 +83,5 @@ local function test_prune_internal_keeps_public_surface_only()
   local readme = publish.make_readme(docs_dir)
   assert(not readme:find("child/io"), "README must not index internal pages")
 end
-test_prune_internal_keeps_public_surface_only()
 
 print("All publish tests passed!")

@@ -146,7 +146,6 @@ local function test_the_guide_teaches_exactly_the_models_kinds()
       "vocabulary survived review")
   end
 end
-test_the_guide_teaches_exactly_the_models_kinds()
 
 -- And each marker means what the walk means by it. The pairing above
 -- only proves a row EXISTS; this runs the model's own classifier over
@@ -163,7 +162,6 @@ local function test_each_taught_marker_classifies_as_its_kind()
     end
   end
 end
-test_each_taught_marker_classifies_as_its_kind()
 
 -- The verb table is the registry, restated for a reader. The guide
 -- says so itself — "`cosmic --make help` prints this list ... it is
@@ -219,7 +217,6 @@ local function test_the_verb_table_is_the_registry()
       "the registry, but the table no longer teaches it")
   end
 end
-test_the_verb_table_is_the_registry()
 
 -- An unlisted repo file is part of the project, never of its
 -- artifacts — shipping is opt-in, so in a teaching position (a table
@@ -240,7 +237,6 @@ local function test_no_table_row_teaches_asset_outside_pins()
     end
   end
 end
-test_no_table_row_teaches_asset_outside_pins()
 
 -- Wherever a guide table describes "everything else", it must say the
 -- file is never embedded — that row is the one place the opt-in rule
@@ -263,6 +259,5 @@ local function test_everything_else_teaches_never_embedded()
     "table — the opt-in rule is no longer taught where the model " ..
     "table is")
 end
-test_everything_else_teaches_never_embedded()
 
 print("all guide ratchet tests passed")

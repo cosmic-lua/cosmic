@@ -17,7 +17,6 @@ local function test_registry_has_four_peers_in_fixed_order()
   assert(ids[3] == "node", "expected node third, got " .. ids[3])
   assert(ids[4] == "go", "expected go fourth, got " .. ids[4])
 end
-test_registry_has_four_peers_in_fixed_order()
 
 local function test_registry_ids_are_unique()
   local seen: {string: boolean} = {}
@@ -26,7 +25,6 @@ local function test_registry_ids_are_unique()
     seen[p.id] = true
   end
 end
-test_registry_ids_are_unique()
 
 local function test_registry_sources_print_expected()
   for _, p in ipairs(peers.PEERS) do
@@ -34,31 +32,26 @@ local function test_registry_sources_print_expected()
       p.id .. ": source does not print " .. peers.EXPECT)
   end
 end
-test_registry_sources_print_expected()
 
 local function test_check_stdout_accepts_exact_match()
   local ok, err = peers.check_stdout("perf-hello")
   assert(ok, tostring(err))
 end
-test_check_stdout_accepts_exact_match()
 
 local function test_check_stdout_rejects_empty()
   local ok = peers.check_stdout("")
   assert(not ok, "empty stdout must not pass")
 end
-test_check_stdout_rejects_empty()
 
 local function test_check_stdout_rejects_wrong_text()
   local ok = peers.check_stdout("hello")
   assert(not ok, "wrong text must not pass")
 end
-test_check_stdout_rejects_wrong_text()
 
 local function test_check_stdout_rejects_extra_text()
   local ok = peers.check_stdout("perf-hello extra")
   assert(not ok, "trailing extra text must not pass")
 end
-test_check_stdout_rejects_extra_text()
 
 --- Only the peers with no build step: stage() never executes anything
 --- for them, so this needs no peer toolchain.
@@ -75,7 +68,6 @@ local function test_stage_writes_script_peers_without_executing()
     end
   end
 end
-test_stage_writes_script_peers_without_executing()
 
 local function test_probe_missing_executable_returns_nil_with_reason()
   local bogus: peers.Peer = {
@@ -88,6 +80,5 @@ local function test_probe_missing_executable_returns_nil_with_reason()
   assert(version == nil, "expected nil version for a missing executable")
   assert(err ~= nil and #err > 0, "expected a nonempty reason")
 end
-test_probe_missing_executable_returns_nil_with_reason()
 
 print("all peers registry tests passed")

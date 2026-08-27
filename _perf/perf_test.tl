@@ -71,6 +71,5 @@ local function test_all_scenarios_pass()
     bench.cleanup()
   end
 end
-test_all_scenarios_pass()
 
 print("OK perf_test")

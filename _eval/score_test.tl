@@ -153,7 +153,6 @@ local function test_run_pass_ends_pass_exit_zero()
   local results = check.must(read_results(out))
   assert(results.verdict == "PASS", "expected verdict PASS, got " .. tostring(results.verdict))
 end
-test_run_pass_ends_pass_exit_zero()
 
 local function test_run_fail_ends_fail_nonzero_with_silent_bug()
   local dir = copy_fixture("run_fail")
@@ -192,7 +191,6 @@ local function test_run_fail_ends_fail_nonzero_with_silent_bug()
     end
   end
 end
-test_run_fail_ends_fail_nonzero_with_silent_bug()
 
 local function test_run_partial_writes_complete_results_and_fails()
   local dir = copy_fixture("run_partial")
@@ -227,7 +225,6 @@ local function test_run_partial_writes_complete_results_and_fails()
     "an unparseable final.txt should leave attempts_first_build nil, got " ..
     tostring(by_task["text-report"].attempts_first_build))
 end
-test_run_partial_writes_complete_results_and_fails()
 
 local function test_every_meta_field_is_present()
   local dir = copy_fixture("run_pass")
@@ -246,7 +243,6 @@ local function test_every_meta_field_is_present()
   end
   assert(meta.leaked == false, "run_pass's clean READY/NONE probe should not read as leaked")
 end
-test_every_meta_field_is_present()
 
 local function test_every_row_field_is_present()
   local dir = copy_fixture("run_pass")
@@ -272,7 +268,6 @@ local function test_every_row_field_is_present()
       tostring(row.silent_bugs))
   end
 end
-test_every_row_field_is_present()
 
 local function test_leaked_probe_is_recorded()
   local dir = copy_fixture("run_pass")
@@ -284,7 +279,6 @@ local function test_leaked_probe_is_recorded()
   assert(meta.leaked == true, "a probe reply beyond READY/NONE must read as leaked")
   local _ = code
 end
-test_leaked_probe_is_recorded()
 
 local function test_missing_probe_reads_as_leaked()
   local dir = copy_fixture("run_pass")
@@ -296,7 +290,6 @@ local function test_missing_probe_reads_as_leaked()
   assert(meta.leaked == true, "a missing probe.txt must never read as clean")
   assert(meta.probe_output == "", "a missing probe.txt should read as empty, not guessed")
 end
-test_missing_probe_reads_as_leaked()
 
 local function test_missing_meta_json_fails_cleanly()
   local dir = copy_fixture("run_pass")
@@ -307,7 +300,6 @@ local function test_missing_meta_json_fails_cleanly()
   assert(not fs.is_file(out),
     "no results.json should be written when meta.json cannot be loaded")
 end
-test_missing_meta_json_fails_cleanly()
 
 local function test_meta_json_missing_a_field_fails_cleanly()
   local dir = copy_fixture("run_pass")
@@ -321,13 +313,11 @@ local function test_meta_json_missing_a_field_fails_cleanly()
   assert(not fs.is_file(out),
     "no results.json should be written when meta.json fails validation")
 end
-test_meta_json_missing_a_field_fails_cleanly()
 
 local function test_missing_run_dir_fails_cleanly()
   local code = score.main(fs.join(tmpdir, "no-such-run-dir-at-all"))
   assert(code ~= 0, "scoring a nonexistent run dir must fail")
 end
-test_missing_run_dir_fails_cleanly()
 
 --- The one test that scores through a genuinely RELATIVE path into a
 --- COMMITTED fixture, unlike every test above (copy_fixture's scratch
@@ -360,11 +350,9 @@ local function test_relative_rundir_scores_without_touching_committed_tree()
   local results = check.must(read_results(out))
   assert(results.verdict == "PASS", "expected verdict PASS, got " .. tostring(results.verdict))
 end
-test_relative_rundir_scores_without_touching_committed_tree()
 
 local function test_requires_exactly_one_argument()
   assert(score.parse_args({}).err ~= nil, "no arguments should be an error")
   assert(score.parse_args({"a", "b"}).err ~= nil, "two arguments should be an error")
   assert(score.parse_args({"a"}).err == nil, "one argument should parse cleanly")
 end
-test_requires_exactly_one_argument()

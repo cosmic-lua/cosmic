@@ -241,7 +241,6 @@ local function test_every_snippet_is_a_formatter_fixpoint()
     "it ```text:\n" .. table.concat(offenders, "\n"))
   print("formatter fixpoint: " .. checked .. " snippets")
 end
-test_every_snippet_is_a_formatter_fixpoint()
 
 local function test_every_snippet_compiles()
   local dir = fixture_dir()
@@ -266,4 +265,3 @@ local function test_every_snippet_compiles()
     table.concat(offenders, "\n"))
   print("compiled: " .. checked .. " snippets")
 end
-test_every_snippet_compiles()

@@ -48,7 +48,6 @@ local function test_every_fuzz_module_declares_its_env()
     "cached shallow verdict instead of actually running at depth, and " ..
     "their deep PASS is a lie")
 end
-test_every_fuzz_module_declares_its_env()
 
 -- The lane must run the whole directory, not an enumerated list of
 -- module paths -- `_fuzz` as a selection covers every file under it,
@@ -63,6 +62,5 @@ local function test_the_deep_lane_runs_the_whole_directory()
     "lane must run the whole directory, not an enumerated subset, so a " ..
     "narrowed selection fails here instead of silently ending the cadence")
 end
-test_the_deep_lane_runs_the_whole_directory()
 
 print("all fuzz ratchet tests passed")
