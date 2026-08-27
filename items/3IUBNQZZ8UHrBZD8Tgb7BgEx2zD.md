@@ -1,14 +1,20 @@
 ## Goal
 
 G6 — the defining paths, ratcheted: a codec compare row measured in
-one machine window never stands alone, because the machine drifts
-between at least four wall-time levels (96-98 / 116-133 / 138-156 /
-184-202 µs for codec_base64_roundtrip_64k, measured 2026-08-27 on
-byte-identical binaries; evidence and instrument eliminations in
-3IU0GxoA's Result) and no in-container observable moves with the
-level. The gate's noise floor for state-split scenarios derives from
-cross-window A/A history — which captures the drift — instead of
-single-window spread_pct, which cannot.
+one machine window never stands alone. The evidence (3IU0GxoA's
+reworked Result): same-command ISOLATED readings of
+codec_base64_roundtrip_64k drift across minutes-scale windows far
+beyond the ±3.3-4.8% same-binary in-window spread prior work
+measured (3ISlY5Xl/3ISWHyP7) — 190.2 vs 144.9 µs at medians eleven
+minutes apart — while none of the instruments read (cpu/wall,
+throttle, steal, pressure-absence) moves; binary-build identity
+across windows is a confound the current gate never records. Both
+facts argue the same countermeasure: the gate's noise floor for
+state-split scenarios derives from same-binary cross-window A/A
+history (the A/A selfcheck pair is same-binary by construction)
+instead of single-window spread_pct, and the harness stamps
+`meta.bin_sha` into every compare row it prints so cross-binary
+readings can never chain silently.
 
 ## Change
 
