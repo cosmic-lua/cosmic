@@ -1,12 +1,11 @@
 --- The item store: a checkout of the state repository, where each
 --- `items/<id>.tl` is one work item, its prose spec (when it has one)
 --- is the sidecar `items/<id>.md`, and git is both the log and the
---- lock. A mutation is commit-then-push; a rejected push means someone
---- else moved first, so publish drops the mutation whole, re-syncs
---- onto the winner's state, and refuses with `LOST_RACE` — the verb
---- is re-run against the merged board, re-applying EVERY gate it
---- decided with, never just replaying a commit whose preconditions
---- the winner may have falsified. That is the compare-and-swap
+--- lock. A mutation is commit-then-push; a lost push race drops the
+--- mutation whole, re-syncs onto the winner's state, and refuses
+--- with `LOST_RACE` — the verb is re-run against the merged board,
+--- re-applying EVERY gate, never replaying a commit whose
+--- preconditions the winner may have falsified. That is the compare-and-swap
 --- GitHub's eventually-consistent label index cannot offer, and
 --- `history` reads the same commits back as the flow record `stats`
 --- would otherwise reconstruct from the GitHub timeline API.
@@ -30,10 +29,8 @@ local record Event
 end
 
 --- The refusal a lost push race earns, exported so a verb can tell
---- it from a terminal failure. Compared by identity, never matched:
---- the recovery it names — re-run the verb against the current board
---- — is the whole compare-and-swap, because only the verb can
---- re-apply every gate it decided with.
+--- it from a terminal failure; compared by identity, never matched.
+--- The re-run it names is the whole compare-and-swap.
 local LOST_RACE < const > = "lost the push race — the mutation was dropped "
 .. "whole and the checkout re-synced; re-run the verb against the "
 .. "current board"
@@ -352,25 +349,23 @@ local function sync(s: Store): boolean, string
   return rebase_onto_remote(s)
 end
 
---- Publish the last commit: one push, and a rejected push is the
---- compare half of a compare-and-swap FAILING. The mutation's guards
---- were decided against state the winner just changed, and only the
---- verb that applied them can re-apply them all — so no commit is
---- ever replayed here. The mutation is dropped whole, the checkout
---- re-synced to the merged state, and the refusal is `LOST_RACE`,
---- which names the recovery: run the same verb again, and it decides
---- afresh against the board as it now is.
+--- Publish the last commit: one push, and a rejected push is
+--- diagnosed before anything is destroyed. It is a lost race only
+--- when the remote holds commits this checkout lacks: then no commit
+--- is replayed — the mutation's guards were decided against state
+--- the winner just changed — so the mutation is dropped whole, the
+--- checkout re-synced, and the refusal is `LOST_RACE`, whose
+--- recovery is re-running the verb against the merged board. A
+--- rejection with the remote unmoved — a pre-receive hook, a
+--- read-only token — is the remote's policy, not a race: the commit
+--- stays local and the refusal carries the remote's own words
+--- instead of asserting a race that never happened.
 ---
---- Dropping the mutation is `reset --hard HEAD~1`, which is exact
---- because `save` writes every item one mutation touches into ONE
---- commit. A caller that committed twice for a single logical change
---- would have half of it survive the refusal, so it must not. The
---- reset drops only the verb's commit: a checkout carrying an
---- UNPUBLISHED commit beneath it (the hand-edit workaround for a
---- missing verb) still has that commit to rebase, and the rebase can
---- conflict — so the refusal on that path says the mutation was
---- already dropped, or a user would read the conflict report and not
---- know their verb's change is gone.
+--- Dropping the mutation is `reset --hard HEAD~1`, exact because
+--- `save` writes one mutation as ONE commit. The reset drops only
+--- the verb's commit: an UNPUBLISHED hand-edit commit beneath it
+--- (the missing-verb workaround) still rebases and can conflict, and
+--- that refusal also says the mutation was already dropped.
 --- @param s Store The store
 --- @return boolean True once the commit is on the remote
 --- @return string Error message; `LOST_RACE` exactly, for a lost race
@@ -384,6 +379,25 @@ local function publish(s: Store): boolean, string
   end
   if pushed.ok then
     return true
+  end
+  -- After a fetch, an upstream that is an ancestor of HEAD gained
+  -- nothing this checkout lacks: not a race. Only a clean "not an
+  -- ancestor" (exit 1) is one; an unreadable remote or a missing
+  -- upstream keeps the conservative, non-destructive answer.
+  local _, ferr = git_ok(s, {"fetch", "-q", "origin"})
+  if ferr then
+    return false, ("the push was rejected and the remote could not be "
+      .. "read to say why — the commit is still local: %s"):format(ferr)
+  end
+  local race = git(s, {"merge-base", "--is-ancestor", "@{u}", "HEAD"})
+  if race == nil or race.code ~= 1 then
+    local why = (pushed.stderr or ""):gsub("%s+$", "")
+    if why == "" then
+      why = (pushed.stdout or ""):gsub("%s+$", "")
+    end
+    return false, ("the push was rejected, and not by a concurrent "
+      .. "mutation — the commit is still local; the remote said: %s")
+    :format(why)
   end
   local _, uerr = git_ok(s, {"reset", "-q", "--hard", "HEAD~1"})
   if uerr then

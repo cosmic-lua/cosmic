@@ -355,3 +355,34 @@ local function test_publish_names_the_drop_when_the_resync_conflicts()
     "the unpublished hand-edit beneath it survives the unwind")
 end
 test_publish_names_the_drop_when_the_resync_conflicts()
+
+-- A rejection with the remote unmoved is the remote's policy — a
+-- pre-receive hook, a read-only token — not a race. The destructive
+-- branch must not run: the commit stays local, the refusal does not
+-- claim a race, and the remote's own words reach the caller instead
+-- of being swallowed.
+local function test_publish_keeps_the_mutation_on_a_policy_rejection()
+  local bare, clones = init_shared("policy", 1)
+  local a = check.must(store.open(clones[1]))
+  local hook = fs.join(bare, "hooks", "pre-receive")
+  assert(fs.write(hook,
+      "#!/bin/sh\necho 'policy: board is read-only' >&2\nexit 1\n"))
+  assert(fs.set_mode(hook, fs.octal("755")))
+
+  local it = make_item("plan")
+  assert(store.save(a, it, "new under policy"))
+  local before = commit_count(clones[1])
+  local ok, err = store.publish(a)
+  assert(not ok, "the rejected push must refuse")
+  assert(err ~= store.LOST_RACE and not err:find("lost the push race", 1, true),
+    "no race is claimed when the remote never moved: " .. err)
+  assert(err:find("policy: board is read-only", 1, true),
+    "the remote's own words reach the caller: " .. err)
+  assert(err:find("still local", 1, true), "and the refusal says the "
+    .. "commit survives: " .. err)
+  assert(commit_count(clones[1]) == before,
+    "the mutation was not destroyed")
+  assert(check.must(store.load(a, it.id)).phase == "plan",
+    "and still reads back")
+end
+test_publish_keeps_the_mutation_on_a_policy_rejection()
