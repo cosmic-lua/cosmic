@@ -10,6 +10,7 @@ return {
   ["_make/root_test.tl"] = 3,
   ["_make/runverb.tl"] = 1,
   ["_make/stage.tl"] = 1,
+  ["_perf/bench/literal_bench.tl"] = 3,
   ["_perf/bench/micro_bench.tl"] = 1,
   ["_perf/perf_test.tl"] = 1,
   ["_perf/run.tl"] = 2,
