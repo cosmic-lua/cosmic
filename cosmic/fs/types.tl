@@ -245,11 +245,13 @@ local statfs_methods: {string: any} = {
 --- metatable is not an extensible Lua table.
 local function extend_metatable(raw: any, extra: {string: any}): boolean
   local mt = getmetatable(raw)
-  if type(mt) ~= "table" then
+  -- The carried narrow-metatable entries dispatch `is` over the std
+  -- metatable nominal: a table-kinded guard narrows it directly, which
+  -- is also the runtime type(mt) == "table" check the old guard spelled.
+  if not (mt is {string: any}) then
     return false
   end
-  -- cast: metatable<any> is a nominal the checker refuses is-dispatch on
-  local idx = (mt as {string: any}).__index
+  local idx = mt.__index
   if not (idx is {string: any}) then
     return false
   end

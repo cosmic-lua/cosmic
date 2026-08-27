@@ -101,9 +101,9 @@ local function install_wrappers(do_dump: function())
   or not (raw_exit is function(any, any)) then
     return
   end
-  -- Narrowing does not cross into a closure; these typed locals carry it.
-  local create_fn: function(any): thread = raw_create
-  local exit_fn: function(any, any) = raw_exit
+  -- The guards narrow into the closures below: the carried closure-carry
+  -- rule keeps an is-fact across a function boundary when the name is
+  -- assigned nowhere in the file, and neither name is.
   local function arm(cothread: thread)
     if ccov then
       ccov.arm(cothread)
@@ -112,14 +112,14 @@ local function install_wrappers(do_dump: function())
     end
   end
   co["create"] = function(f: any): any
-    local cothread = create_fn(f)
+    local cothread = raw_create(f)
     if depth > 0 then
       arm(cothread)
     end
     return cothread
   end
   co["wrap"] = function(f: any): any
-    local cothread = create_fn(f)
+    local cothread = raw_create(f)
     if depth > 0 then
       arm(cothread)
     end
@@ -134,7 +134,7 @@ local function install_wrappers(do_dump: function())
 
   os_mod["exit"] = function(code: any, close: any)
     do_dump()
-    exit_fn(code, close)
+    raw_exit(code, close)
   end
 end
 
