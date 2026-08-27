@@ -7,5 +7,5 @@ return {
   ["pr"] = 1465,
   ["title"] = "refine has no claim: next hands concurrent sessions the same plan item, and spec --base refuses only after the duplicate work is spent",
   ["verdict"] = "accept",
-  ["verdict_head"] = "d8fb3612fac03a6601c6e0ed084c9cb93ad990f4",
+  ["verdict_head"] = "9195ae29158829001fff1d4dfcf13eda9fdf4f0e",
 }
