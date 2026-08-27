@@ -1,29 +1,30 @@
 ## Capture — a human decision, not code
 
-The codec_base64_roundtrip_64k regression (+21% on the release host,
-cosmos 354c17e08, bisect 3ITOUv0w) has a diagnosed layout mechanism
-but no locally validatable fix: 3ITVR6Ku restored the hot entries'
-64-byte alignment (whilp/cosmopolitan PR #280, draft) and the
-rel-vs-rel interleave shows it recovers nothing on the measuring
-host, whose own expression of the effect is ~+3.6% steady-state
-(+25.7% only while boosted) — inside pairwise spreads. With internal
-layout equality restored and no recovery, the remaining mechanism is
-relative-position (BTB/frontend aliasing against the Lua VM loop)
-and/or frequency-dependent — not addressable by pinning symbols, and
-only measurable on the release CI host class.
+UPDATED 2026-08-27 after release run 33030086144 (the first compare
+since 2026-08-23 to run to completion — the two _perf skew fixes
+#1415/#1420 landed): the decision's facts changed.
 
-The release lane stays red until one of two calls, both outward-facing
-and therefore a human's:
+- codec_base64_roundtrip_64k read +7.9% (141.27 → 152.43 µs), UNDER
+  the ±10% bar — the +21% expression decayed with the new image's
+  layout roll, matching 3ITVR6Ku's relative-layout mechanism finding.
+  The draft alignment pin (whilp/cosmopolitan #280) is now robustness
+  against future rolls, not the unblock.
+- The gate failed instead on two marginal rows: json_decode_large
+  +11.9% (778.38 → 871.12 µs; pin exonerated by 3ISWHyP7's A/B, and
+  the scenario reads +12.6% against ITSELF in suite context) and
+  hash_sha256_small +10.3% (291.7 → 321.6 ns; fixed-overhead layout
+  microbench, hash_sha256_1mb flat at −0.1%).
+- Per the gate's own remedy ("a real regression reproduces, noise
+  does not"), one re-run was dispatched 2026-08-27 ~01:40Z. If it
+  publishes, this item closes with option "neither" — the lane
+  self-healed once it could measure.
 
-1. **Merge PR #280 and let release.yml measure it** — the compare
-   step (new release vs previous) is the only instrument on the
-   affected host class; the change is three alignment attributes, no
-   behavior or contract move, upstream tests green. If the gate stays
-   red, the PR cost nothing and option 2 remains.
-2. **Re-baseline**: dispatch release.yml with `perf_gate: false`
-   once, accepting +21% on this scenario as the new floor — the
-   workflow's own documented path for a deliberate accept. The
-   regression stays real for base64-heavy users on that host class.
+Remaining decision if the re-run also fails on the same marginal
+rows: the flags are instability of the two scenarios, not
+regressions — the call becomes a perf_gate:false re-baseline (the
+gate's documented accept) or scenario-stability work
+(json_decode_large's suite-context self-drift and the
+fixed-overhead microbench class) before any release can pass a ±10%
+bar it cannot itself hold.
 
-Blocked work behind this decision: 3ISVlHT6 (pin bump to a
-narrow-pack-n release) → 3ISPGV8z (pack-n cast retire).
+Blocked work behind this: 3ISVlHT6 (pin bump) → 3ISPGV8z.
