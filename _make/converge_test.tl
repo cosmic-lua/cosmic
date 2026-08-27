@@ -61,7 +61,6 @@ local function test_only_a_cosmic_converges()
   assert(found.name == "cosmic",
     "and it is the binary the gate would run under")
 end
-test_only_a_cosmic_converges()
 
 -- Every refusal names ITSELF. The verdict line is the record that
 -- survives a truncated log, so "not a fixpoint" -- which means the
@@ -78,7 +77,6 @@ local function test_refusals_name_which_one_they_are()
     "an unrunnable build is not an oscillation, got: " .. tostring(why))
   assert(err ~= "", "and says so")
 end
-test_refusals_name_which_one_they_are()
 
 -- The probe grades the ANSWER, not the exit status.
 --
@@ -114,7 +112,6 @@ local function test_the_probe_reads_the_answer()
   assert(not converge.drives_a_build(fs.join(dir, "nothing-here")),
     "and a path that is not a program is not an engine")
 end
-test_the_probe_reads_the_answer()
 
 -- The probe's mark and what `--make help` actually prints are the SAME
 -- constant (`_make.help`'s PROBE_MARK), never two copies that could
@@ -124,7 +121,6 @@ local function test_the_probe_mark_is_help_usages_own_constant()
   assert(help.usage():find(help.PROBE_MARK, 1, true) ~= nil,
     "usage() must print the exact mark the probe greps for")
 end
-test_the_probe_mark_is_help_usages_own_constant()
 
 -- The outcomes below are the ones that only happen when something has
 -- already gone wrong, which is why they need arranging rather than
@@ -189,7 +185,6 @@ local function test_a_build_that_makes_no_artifact_refuses()
   assert(err:find("o/bin/cosmic", 1, true),
     "naming the artifact it looked for, got: " .. err)
 end
-test_a_build_that_makes_no_artifact_refuses()
 
 -- The generation cap. This is the branch whose whole purpose is to fail
 -- loudly instead of spinning: the build keeps producing a DIFFERENT
@@ -213,7 +208,6 @@ local function test_a_build_that_never_settles_refuses()
   assert(err:find("still changed after", 1, true),
     "saying the artifact kept moving, got: " .. err)
 end
-test_a_build_that_never_settles_refuses()
 
 -- The wedge names its escape. A converging build that fails while the
 -- RUNNING binary is the tree's own o/bin/cosmic may be a stale
@@ -231,7 +225,6 @@ local function test_a_failing_build_under_the_artifact_names_the_escape()
   assert(err:find("rm o/bin/cosmic", 1, true),
     "and name the escape when it ran under the artifact, got: " .. err)
 end
-test_a_failing_build_under_the_artifact_names_the_escape()
 
 -- The pin path keeps the plain refusal: a pinned build cannot be
 -- stale, so its failure is the tree's own and the escape hint would
@@ -246,7 +239,6 @@ local function test_a_failing_build_under_the_pin_stays_plain()
   assert(err:find("rm o/bin/cosmic", 1, true) == nil,
     "with no escape hint on the pin path, got: " .. err)
 end
-test_a_failing_build_under_the_pin_stays_plain()
 
 -- And the branch that is NOT a refusal. A project that declares a
 -- toolchain by two ordinary names -- a `cosmic/` package and a `cosmic`
@@ -264,4 +256,3 @@ local function test_a_look_alike_toolchain_carries_on()
   local ok, err = converge_in(dir, toolchain("carry-on-proj"), self)
   assert(ok, "a look-alike must not fail the gate: " .. tostring(err))
 end
-test_a_look_alike_toolchain_carries_on()

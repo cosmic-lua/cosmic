@@ -28,7 +28,6 @@ end
   assert(out:find("vararg%[2%]=bar"), "vararg[2] should be bar")
   assert(out:find("vararg%[3%]=baz"), "vararg[3] should be baz")
 end
-test_varargs_only()
 
 -- Test script that uses only global arg table
 local function test_arg_table_only()
@@ -50,7 +49,6 @@ end
   assert(out:find("arg%[1%]=alpha"), "arg[1] should be alpha")
   assert(out:find("arg%[2%]=beta"), "arg[2] should be beta")
 end
-test_arg_table_only()
 
 -- Test that both varargs and arg table work together and match
 local function test_varargs_and_arg_table()
@@ -76,7 +74,6 @@ end
   assert(out:find("match%[2%]=true"), "arg[2] should match varargs[2]")
   assert(out:find("match%[3%]=true"), "arg[3] should match varargs[3]")
 end
-test_varargs_and_arg_table()
 
 -- Test the common pattern: function main(...) os.exit(main(...))
 local function test_main_function_with_varargs()
@@ -102,7 +99,6 @@ os.exit(main(...))
   assert(out:find("main_arg%[1%]=one"), "main_arg[1] should be one")
   assert(out:find("main_arg%[2%]=two"), "main_arg[2] should be two")
 end
-test_main_function_with_varargs()
 
 -- Test function main(param) with single optional parameter
 local function test_main_function_with_single_param()
@@ -131,7 +127,6 @@ os.exit(main(...))
   assert(ok, "cosmic should succeed")
   assert(out:find("param=default"), "param should be default")
 end
-test_main_function_with_single_param()
 
 -- Test script with no arguments
 local function test_no_arguments()
@@ -151,7 +146,6 @@ print("arg[0]=" .. tostring(arg[0]))
   assert(out:find("arg_count=0"), "arg should be empty")
   assert(out:find("arg%[0%]="), "arg[0] should be set")
 end
-test_no_arguments()
 
 -- Test arguments containing spaces
 local function test_arguments_with_spaces()
@@ -170,7 +164,6 @@ end
   assert(out:find("arg%[1%]=hello world"), "should preserve spaces in arg[1]")
   assert(out:find("arg%[2%]=foo bar"), "should preserve spaces in arg[2]")
 end
-test_arguments_with_spaces()
 
 -- Test arguments with special characters (use -- to separate from cosmic options)
 local function test_arguments_with_special_chars()
@@ -190,7 +183,6 @@ end
   assert(out:find("arg%[2%]=%-x"), "should handle -x")
   assert(out:find("arg%[3%]=value=123"), "should handle value=123")
 end
-test_arguments_with_special_chars()
 
 -- Test that cosmo.is_main() still works with new varargs approach
 local function test_cosmo_is_main_compatibility()
@@ -217,7 +209,6 @@ end
   assert(out:find("main_called=true"), "main should be called")
   assert(out:find("args_count=2"), "main should receive 2 args")
 end
-test_cosmo_is_main_compatibility()
 
 -- Test that --version after script name is passed to script (not consumed by cosmic)
 local function test_version_flag_after_script()
@@ -237,7 +228,6 @@ end
   assert(out:find("args_count=1"), "should have 1 arg")
   assert(out:find("arg%[1%]=%-%-version"), "arg[1] should be --version")
 end
-test_version_flag_after_script()
 
 -- Test that --help after script name is passed to script (not consumed by cosmic)
 local function test_help_flag_after_script()
@@ -257,7 +247,6 @@ end
   assert(out:find("args_count=1"), "should have 1 arg")
   assert(out:find("arg%[1%]=%-%-help"), "arg[1] should be --help")
 end
-test_help_flag_after_script()
 
 -- Test that -v after script name is passed to script (not consumed by cosmic)
 local function test_v_flag_after_script()
@@ -277,7 +266,6 @@ end
   assert(out:find("args_count=1"), "should have 1 arg")
   assert(out:find("arg%[1%]=%-v"), "arg[1] should be -v")
 end
-test_v_flag_after_script()
 
 -- Test cosmic options before script and script options after
 local function test_mixed_cosmic_and_script_options()
@@ -300,7 +288,6 @@ end
   assert(out:find("arg%[1%]=%-%-version"), "arg[1] should be --version")
   assert(out:find("arg%[2%]=arg2"), "arg[2] should be arg2")
 end
-test_mixed_cosmic_and_script_options()
 
 -- Test multiple option-like arguments after script name
 local function test_multiple_option_like_args()
@@ -324,7 +311,6 @@ end
   assert(out:find("arg%[4%]=%-i"), "arg[4] should be -i")
   assert(out:find("arg%[5%]=%-%-unknown"), "arg[5] should be --unknown")
 end
-test_multiple_option_like_args()
 
 -- Test that -- separator works without script options after it
 local function test_separator_with_no_following_options()
@@ -347,7 +333,6 @@ end
   -- Ensure -- separator is not included in script args
   assert(not out:find("arg%[%d+%]=%-%-$"), "-- should not be in script args")
 end
-test_separator_with_no_following_options()
 
 -- Test real-world nvim-like case: script.lua --version
 local function test_nvim_version_pattern()
@@ -370,7 +355,6 @@ print("No --version flag found")
   assert(out:find("NVIM v0%.12%.0%-dev"), "script should handle --version")
   assert(not out:find("No %-%-version flag found"), "should not print fallback message")
 end
-test_nvim_version_pattern()
 
 -- Test that all CLI options appear in help text
 local function test_help_includes_all_options()
@@ -405,7 +389,6 @@ local function test_help_includes_all_options()
     assert(help_text:find(pattern, 1, false), "help text missing long option: " .. opt)
   end
 end
-test_help_includes_all_options()
 
 -- A `--` among a script's arguments is the SCRIPT's, kept verbatim the
 -- way real `lua s.lua a -- b` keeps it -- a tool that parses its own
@@ -424,7 +407,6 @@ for i = 1, #arg do print("a[" .. i .. "]=" .. arg[i]) end
   assert(out:find("a[2]=--", 1, true) and out:find("a[4]=--", 1, true),
     "the `--` separators are kept verbatim, got: " .. out)
 end
-test_double_dash_reaches_the_script()
 
 -- --format, --fix and --check are separate commands: leftover
 -- positionals carry no position, so `--check fmt a.tl --fix b.tl` used
@@ -444,7 +426,6 @@ local function test_combined_file_commands_are_refused()
   assert(fs.read(a) == misformatted, "the refused run must not rewrite a.lua")
   assert(fs.read(b) == misformatted, "the refused run must not rewrite b.lua")
 end
-test_combined_file_commands_are_refused()
 
 -- Each command alone still claims the positionals: `--fix a b` fixes both.
 local function test_fix_alone_still_takes_positionals()
@@ -459,4 +440,3 @@ local function test_fix_alone_still_takes_positionals()
   assert(fs.read(a) ~= misformatted, "--fix must rewrite its first file")
   assert(fs.read(b) ~= misformatted, "--fix must rewrite its second file")
 end
-test_fix_alone_still_takes_positionals()

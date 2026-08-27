@@ -56,7 +56,6 @@ local function test_check_format_accepts_formatted_source()
   assert(r.code == 0,
     "well-formatted file should pass, got " .. r.code .. ": " .. r.err)
 end
-test_check_format_accepts_formatted_source()
 
 --- The `--check=kind file` equals-form embeds the kind in the option
 --- itself; without matching pre-scan handling the file is misread as
@@ -67,7 +66,6 @@ local function test_check_format_accepts_eq_form()
     "well-formatted file should pass via --check=fmt, got " .. r.code ..
     ": " .. r.err)
 end
-test_check_format_accepts_eq_form()
 
 local function test_check_format_rejects_misformatted_source()
   local r = cli("--check", "fmt", misformatted)
@@ -75,7 +73,6 @@ local function test_check_format_rejects_misformatted_source()
   assert((r.out .. r.err):find("misformatted", 1, true),
     "the diagnostic should name the file, got: " .. r.out .. r.err)
 end
-test_check_format_rejects_misformatted_source()
 
 local function test_check_format_reports_missing_file()
   local r = cli("--check", "fmt", fs.join(tmpdir, "nope-does-not-exist.tl"))
@@ -83,7 +80,6 @@ local function test_check_format_reports_missing_file()
   assert(#(r.out .. r.err) > 0,
     "a missing file should produce a diagnostic, not silence")
 end
-test_check_format_reports_missing_file()
 
 local function test_check_format_rejects_unparseable_source()
   local broken = fs.join(tmpdir, "broken.tl")
@@ -91,7 +87,6 @@ local function test_check_format_rejects_unparseable_source()
   local r = cli("--check", "fmt", broken)
   assert(r.code ~= 0, "unparseable source must be rejected, got exit 0")
 end
-test_check_format_rejects_unparseable_source()
 
 -- --docs: the lookup path and, per, its not-found UX.
 
@@ -100,7 +95,6 @@ local function test_docs_finds_a_real_module()
   assert(r.code == 0, "--docs cosmic.fs should succeed, got: " .. r.err)
   assert(r.out:find("fs", 1, true), "expected fs docs, got: " .. r.out)
 end
-test_docs_finds_a_real_module()
 
 --- The not-found path must fail loudly and say something useful. A
 --- miss that exited 0, or exited 1 with an empty message, both regress
@@ -114,7 +108,6 @@ local function test_docs_miss_fails_with_a_message()
     said:lower():find("no ") or said:lower():find("not found"),
     "the miss should reference the query or say not-found, got: " .. said)
 end
-test_docs_miss_fails_with_a_message()
 
 -- --examples: the chain lists as zero-coverage.
 
@@ -123,7 +116,6 @@ local function test_examples_lists_without_argument()
   assert(r.code == 0, "bare --examples should succeed, got: " .. r.err)
   assert(#r.out > 0, "bare --examples should list something")
 end
-test_examples_lists_without_argument()
 
 local function test_examples_shows_a_known_module()
   -- poll ships poll_example.tl, so this exercises the show-module path
@@ -133,13 +125,11 @@ local function test_examples_shows_a_known_module()
   assert(r.out:find("poll", 1, true),
     "expected poll examples, got: " .. r.out)
 end
-test_examples_shows_a_known_module()
 
 local function test_examples_miss_fails()
   local r = cli("--examples", "zzz-no-such-module")
   assert(r.code ~= 0, "--examples on an unknown module must not exit 0")
 end
-test_examples_miss_fails()
 
 -- --make: the dispatch chain, not the verb. `--make <verb> [paths…]`
 -- has to survive getopt, which permutes -- so the paths after the verb
@@ -166,7 +156,6 @@ local function test_make_dispatches_verb_and_paths()
   assert((r.stdout or ""):find("check: PASS (1 file)", 1, true),
     "the selection must reach the verb, got: " .. tostring(r.stdout))
 end
-test_make_dispatches_verb_and_paths()
 
 --- --make with no verb is a usage error: a flag with no argument says
 --- so rather than quietly picking a default action.
@@ -176,7 +165,6 @@ local function test_make_requires_a_verb()
   assert(r.err:find("--make requires", 1, true),
     "expected a usage error, got: " .. r.err)
 end
-test_make_requires_a_verb()
 
 -- The check gates run `cosmic --test <out> -- cosmic --check fmt F`.
 -- That `--` is load-bearing: without it the OUTER getopt consumes the
@@ -208,7 +196,6 @@ local function test_test_wrapper_propagates_child_exit_code()
   assert(got_good:gsub("%s+$", "") == "0",
     "a passing check must be recorded as 0, got: " .. got_good)
 end
-test_test_wrapper_propagates_child_exit_code()
 
 --- The same, WITHOUT the `--`. Requiring that separator without saying
 --- so means omitting it silently runs no check; --test slices its
@@ -235,7 +222,6 @@ local function test_test_wrapper_needs_no_separator()
   assert(got_good:gsub("%s+$", "") == "0",
     "without `--` a passing check must be 0, got: " .. got_good)
 end
-test_test_wrapper_needs_no_separator()
 
 -- Lint diagnostics carry the offending source line, fmt-style, so a
 -- multi-violation file is fixable from the terminal without opening it
@@ -252,4 +238,3 @@ local function test_check_lint_prints_the_offending_line()
   assert(r.err:find("| local y = x as {string: any}", 1, true),
     "the offending line prints under the diagnostic: " .. r.err)
 end
-test_check_lint_prints_the_offending_line()

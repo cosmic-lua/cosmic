@@ -40,7 +40,6 @@ local function test_copy_preserves_mode()
   local mode = st:mode() % 512
   assert(mode % 2 == 1, "exec bit preserved, mode: " .. string.format("%o", mode))
 end
-test_copy_preserves_mode()
 
 local function test_link_replaces()
   local linkpath = fs.join(tmpdir, "links/v.lua")
@@ -52,7 +51,6 @@ local function test_link_replaces()
   assert(code == 0, "relink failed: " .. err)
   assert(fs.readlink(linkpath) == "/other/target", "link replaced")
 end
-test_link_replaces()
 
 -- No flag-stamp argument: compiles are unconditionally strict, so the
 -- fixture is just a source and an output path.
@@ -72,7 +70,6 @@ local function test_compile_writes_output()
   local lua = (fs.read(out) or "")
   assert(lua:match("print"), "expected compiled lua, got: " .. lua)
 end
-test_compile_writes_output()
 
 -- An unchanged compile does not REWRITE its output -- the file is
 -- read-only for the second run, so a write would fail -- but it does
@@ -97,7 +94,6 @@ local function test_compile_unchanged_restamps_without_rewriting()
     "unchanged compile must bring the output up to date")
   assert(fs.read(out) == body, "and must not rewrite its contents")
 end
-test_compile_unchanged_restamps_without_rewriting()
 
 -- strictness: a type error must fail AND leave no output, so a
 -- file that did not typecheck can never be packed into the binary
@@ -108,7 +104,6 @@ local function test_compile_failure_no_output()
   assert(err ~= "", "compiler stderr must pass through")
   assert(not fs.stat(out), "failed compile must not write output")
 end
-test_compile_failure_no_output()
 
 local function test_compile_requires_all_paths()
   local src, _out = compile_fixture("c-usage", "print(1)\n")
@@ -116,7 +111,6 @@ local function test_compile_requires_all_paths()
   assert(code ~= 0, "a missing output path must fail")
   assert(err:match("usage: compile"), "expected a usage error, got: " .. err)
 end
-test_compile_requires_all_paths()
 
 -- The vocabulary is CLOSED, so an unknown verb is refused rather than
 -- passed through, and the refusal names what a recipe may run.
@@ -128,7 +122,6 @@ local function test_unknown_verb_is_refused_by_name()
   assert(err:find("copy", 1, true),
     "…and list the ones it has, got: " .. err)
 end
-test_unknown_verb_is_refused_by_name()
 
 local function test_tee_prints_and_writes()
   local out = fs.join(tmpdir, "tee/summary.txt")
@@ -143,7 +136,6 @@ local function test_tee_prints_and_writes()
   local written = (fs.read(out) or "")
   assert(written:match("report line"), "tee must write the file")
 end
-test_tee_prints_and_writes()
 
 local function test_child_flags_not_consumed()
   -- the payload after the mode is a foreign argv: cosmic flags in it
@@ -155,7 +147,6 @@ local function test_child_flags_not_consumed()
   assert(code == 0, "tee --version failed (" .. tostring(code) .. "): " .. err)
   assert(stdout:match("cosmic%-lua"), "child --version output expected, got: " .. stdout)
 end
-test_child_flags_not_consumed()
 
 local function test_tee_propagates_failure_after_writing()
   local out = fs.join(tmpdir, "tee/fail.txt")
@@ -167,7 +158,6 @@ local function test_tee_propagates_failure_after_writing()
   local written = (fs.read(out) or "")
   assert(written:match("partial"), "tee must write the file before failing")
 end
-test_tee_propagates_failure_after_writing()
 
 local function test_list_write_if_changed()
   local out = fs.join(tmpdir, "list/files.stamp")
@@ -186,7 +176,6 @@ local function test_list_write_if_changed()
   assert(code == 0, "changed list must rewrite")
   assert(fs.read(out) == "a.tl\n", "changed list content")
 end
-test_list_write_if_changed()
 
 local function test_require_marker()
   local dir = fs.join(tmpdir, "markers/nested")
@@ -198,7 +187,6 @@ local function test_require_marker()
   assert(code2 ~= 0, "missing marker must fail")
   assert(err:match("absent%-marker"), "failure names the marker, got: " .. err)
 end
-test_require_marker()
 
 local function test_require_elf()
   local elf = fs.join(tmpdir, "native.bin")
@@ -211,7 +199,6 @@ local function test_require_elf()
   assert(code2 ~= 0, "non-ELF must fail")
   assert(err:match("not a native ELF"), "failure explains, got: " .. err)
 end
-test_require_elf()
 
 -- Three cases of one contract: a file goes, a missing path is ignored,
 -- and a DANGLING symlink goes -- which `fs.is_present` misreads as gone.
@@ -229,7 +216,6 @@ local function test_remove()
   assert(not fs.stat(a), "existing file removed")
   assert(not fs.is_link(link), "dangling symlink removed")
 end
-test_remove()
 
 local function test_verdict()
   local o_dir = fs.join(tmpdir, "verdict")
@@ -254,4 +240,3 @@ local function test_verdict()
     "expected marker/summary/missing grading, got: " .. stdout)
   assert(stdout:match("ghost: no summary produced"), "missing summary named")
 end
-test_verdict()

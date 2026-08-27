@@ -58,7 +58,6 @@ local function test_each_selection_names_its_own_kind()
   assert(not built:find("embed/data.txt", 1, true),
     "build does not compile payload, got: " .. built)
 end
-test_each_selection_names_its_own_kind()
 
 -- The suffix filter is nil, not "": `sub(-#"")` is `sub(0)`, which is
 -- the whole string, so an empty-string filter matches NOTHING while
@@ -72,7 +71,6 @@ local function test_a_lua_test_survives_selection()
   assert(paths(stage.candidates(proj, stage.SELECTS.test)) == "pkg/a_test.lua",
     "a .lua test is a test")
 end
-test_a_lua_test_survives_selection()
 
 -- Every verb ends in a machine-readable verdict, because CI reads the
 -- last line and a caller that only reads the exit code still gets one
@@ -81,7 +79,6 @@ local function test_verdict_line_and_exit_code()
   assert(stage.verdict("test", true, "3 files") == 0, "PASS exits 0")
   assert(stage.verdict("test", false, "") == 1, "FAIL exits 1")
 end
-test_verdict_line_and_exit_code()
 
 -- The trailer after a successful `build` or `test` names the NEXT
 -- command instead of reporting what did not run: it is read at the
@@ -109,7 +106,6 @@ local function test_the_gate_note_recommends_the_gate()
     assert(env.unset(name))
   end
 end
-test_the_gate_note_recommends_the_gate()
 
 -- Where a project's binaries land is derived from the model, which is
 -- what lets `test` answer "which binary is under test" without being
@@ -119,7 +115,6 @@ local function test_bin_dir_is_derived()
   assert(stage.bin_dir(proj) == fs.join("/p", project.BUILD_DIR, "bin"),
     "got: " .. stage.bin_dir(proj))
 end
-test_bin_dir_is_derived()
 
 -- "Which binary is under test" is derived, not configured: the model
 -- says a binary lands at o/bin/<name>, so that is what TEST_BIN names
@@ -150,7 +145,6 @@ local function test_binaries_go_on_the_path()
   assert(env.set("PATH", saved_path, true))
   if saved_bin ~= "" then assert(env.set(stage.BIN_ENV, saved_bin, true)) end
 end
-test_binaries_go_on_the_path()
 
 -- A PATH-less environment must not crash. `get` returns nil, not "",
 -- for an unset variable, so the guard has to admit nil -- the concat in
@@ -167,7 +161,6 @@ local function test_binaries_on_path_without_a_path()
     tostring(env.get("PATH")))
   if saved ~= nil then assert(env.set("PATH", saved, true)) end
 end
-test_binaries_on_path_without_a_path()
 
 -- A stage's summary must not survive INTO a run that never reached it.
 --
@@ -220,6 +213,5 @@ local function test_a_dead_stage_does_not_report_a_stale_summary()
     "must not report the PREVIOUS run's stale failure count, got: " ..
     tostring(r2.stdout))
 end
-test_a_dead_stage_does_not_report_a_stale_summary()
 
 print("all stage tests passed")

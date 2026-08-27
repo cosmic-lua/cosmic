@@ -114,7 +114,6 @@ local function test_build_compiles_the_tree()
   assert(not fs.is_present(fs.join(root, "o/schema.lua")),
     "a non-module is not compiled")
 end
-test_build_compiles_the_tree()
 
 -- A compile error fails the build and names the file. Strict is not
 -- optional: nothing lands in o/ that the checker rejected.
@@ -128,7 +127,6 @@ local function test_build_fails_on_a_type_error()
   assert(not fs.is_present(fs.join(root, "o/a.lua")),
     "a rejected source must not land in o/")
 end
-test_build_fails_on_a_type_error()
 
 -- test: runs against the compiled tree and reports. A passing run ends
 -- in the verdict line, like every verb.
@@ -140,7 +138,6 @@ local function test_test_runs_and_reports()
     "the report should count one test, got: " .. r.out)
   assert(r.out:find("test: PASS (1 file)", 1, true), "got: " .. r.out)
 end
-test_test_runs_and_reports()
 
 -- A failing test fails the run WITHOUT stopping the others: the test
 -- verb records the result and returns 0, and the report grades. That
@@ -159,7 +156,6 @@ local function test_a_failing_test_does_not_stop_the_run()
     assert(fs.is_file(fs.join(root, rel)), "expected " .. rel .. " to exist")
   end
 end
-test_a_failing_test_does_not_stop_the_run()
 
 -- Skip semantics survive the trip through make. `--test` propagates
 -- exit 2, so a rule shaped that way would read a deliberate skip as a
@@ -178,7 +174,6 @@ local function test_a_skipping_test_is_a_skip_not_a_failure()
   assert(r.out:find("1 skipped", 1, true),
     "the report must grade it as a skip, got: " .. r.out)
 end
-test_a_skipping_test_is_a_skip_not_a_failure()
 
 -- fmt gates every .tl source, and fails on one that is misformatted.
 local function test_fmt_gates_formatting()
@@ -193,7 +188,6 @@ local function test_fmt_gates_formatting()
   assert((bad.out .. bad.err):find("ugly", 1, true),
     "the failure must name the file")
 end
-test_fmt_gates_formatting()
 
 -- Validation gates the graph too, and for a sharper reason than it
 -- gates check: a filename carrying whitespace would be split across two
@@ -207,7 +201,6 @@ local function test_validation_gates_the_graph()
   assert(r.out:find("build: FAIL (1 validation error)", 1, true),
     "got: " .. r.out)
 end
-test_validation_gates_the_graph()
 
 -- The no-network posture, end to end: a project whose pin points at a
 -- dead port still builds. Building is not fetching, and a pin that has
@@ -227,7 +220,6 @@ local function test_build_never_resolves_a_pin()
   assert(not fs.is_present(fs.join(root, "3p/blob.bin")),
     "build must not have fetched anything")
 end
-test_build_never_resolves_a_pin()
 
 -- End to end: no engine named, nothing installed, and the build
 -- still runs. This is the promise the whole design is for -- one
@@ -254,7 +246,6 @@ local function test_builds_with_no_engine_named()
   assert(fs.is_file(fs.join(root, "o/bin/build-embedded")),
     "…and produced the artifact")
 end
-test_builds_with_no_engine_named()
 
 -- The test fence, portable half: a test's temp directory lands inside
 -- its own step, not in a shared /tmp. This is what stops tests
@@ -276,7 +267,6 @@ local function test_a_test_gets_its_own_scratch_directory()
   assert(where:find("o/db/tmp_test.tl.test.tmp.d", 1, true),
     "a test's scratch must live inside its own step, got: " .. where)
 end
-test_a_test_gets_its_own_scratch_directory()
 
 -- The same verbs in process, against a named root. A spawned child's
 -- lines are attributed to the binary's embedded copy and vanish from
@@ -334,7 +324,6 @@ local function test_a_variant_base_ships_the_payload_twice()
       rel .. " should run its payload, got: " .. tostring(done.stdout))
   end
 end
-test_a_variant_base_ships_the_payload_twice()
 
 local function test_in_process_graph_verbs()
   local root = app("inproc")
@@ -353,6 +342,5 @@ local function test_in_process_graph_verbs()
   local broken = fixture("inproc-invalid", {["my notes.tl"] = "return {}\n"})
   assert(in_process(broken, "build") == 1, "validation gates the graph")
 end
-test_in_process_graph_verbs()
 
 print("all build tests passed")

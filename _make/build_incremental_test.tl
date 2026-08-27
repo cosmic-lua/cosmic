@@ -109,7 +109,6 @@ local function test_build_is_incremental()
   assert(not again.out:find("copy ", 1, true),
     "not even a copy, got: " .. again.out .. again.err)
 end
-test_build_is_incremental()
 
 -- A strict compile checks against the SOURCES it imports, so changing a
 -- module's contract must recompile its importers. Before srcdeps landed
@@ -161,7 +160,6 @@ local function test_a_changed_contract_recompiles_its_importers()
   assert(r.err:find("expected integer", 1, true),
     "and it must be the importer's type error: " .. r.err)
 end
-test_a_changed_contract_recompiles_its_importers()
 
 -- The dependency list is named for the fence, never handed to the
 -- child. Forwarding it was a silent disaster: a bare path lands as the
@@ -178,7 +176,6 @@ local function test_dependencies_never_reach_the_child()
   assert(out:find("main ran", 1, true),
     "o/cmd/app/main.lua must be COMPILED main.tl, not some child's stdout: " .. out)
 end
-test_dependencies_never_reach_the_child()
 
 -- Per-test incrementality: a test RUNS again when something it
 -- imports changes, and not when anything else does. Under batched
@@ -229,6 +226,5 @@ local function test_a_test_reruns_only_for_what_it_imports()
     and not facts:find("deps_db/b_test := o/", 1, true),
     "b_test imports nothing, so its closure names no module: " .. facts)
 end
-test_a_test_reruns_only_for_what_it_imports()
 
 print("all build incremental tests passed")

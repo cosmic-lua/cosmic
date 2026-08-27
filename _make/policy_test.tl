@@ -63,7 +63,6 @@ local function test_stage_order_is_the_documented_pipeline()
   assert(table.concat(names, " ") == "fmt check example lint coverage",
     "got: " .. table.concat(names, " "))
 end
-test_stage_order_is_the_documented_pipeline()
 
 -- Every stage is gated by MATERIAL: a project with no tests has no test
 -- stage and no coverage stage, and that is a PASS, not an error. A
@@ -75,7 +74,6 @@ local function test_stages_without_material_are_skipped()
   assert(table.concat(stub.ran, " ") == "fmt check lint",
     "only the unconditional stages run, got: " .. table.concat(stub.ran, " "))
 end
-test_stages_without_material_are_skipped()
 
 -- And with material, every stage runs.
 local function test_material_earns_the_stage()
@@ -86,7 +84,6 @@ local function test_material_earns_the_stage()
   assert(table.concat(stub.ran, " ") == "fmt check example lint coverage",
     "got: " .. table.concat(stub.ran, " "))
 end
-test_material_earns_the_stage()
 
 -- A failing stage does not stop the run: a gate that reports one
 -- problem per run costs a round trip per problem, and the stages are
@@ -98,7 +95,6 @@ local function test_ci_runs_every_stage_and_names_each_failure()
   assert(table.concat(stub.ran, " ") == "fmt check lint",
     "a failure must not stop the run, got: " .. table.concat(stub.ran, " "))
 end
-test_ci_runs_every_stage_and_names_each_failure()
 
 -- The material test itself, since every stage's gating rests on it.
 local function test_has_material()
@@ -107,7 +103,6 @@ local function test_has_material()
   assert(not policy.has(proj, {"example"}), "and no example")
   assert(policy.has(proj, {"example", "test"}), "either kind counts")
 end
-test_has_material()
 
 -- The ratchet is opt-in by committing a floor. Without one, coverage
 -- still runs and still passes -- the absence IS the answer to "should
@@ -123,6 +118,5 @@ local function test_the_baseline_is_a_convention()
   check.must(fs.set_cwd(cwd))
   assert(absent, "the fixture must not have a floor")
 end
-test_the_baseline_is_a_convention()
 
 print("all policy tests passed")

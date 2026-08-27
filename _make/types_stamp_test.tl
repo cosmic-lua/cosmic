@@ -100,7 +100,6 @@ local function test_a_types_gen_change_recompiles_unrelated_files()
   assert(code3 == 0 and out3:find(recompiled, 1, true),
     "a real types change must recompile an unrelated file too: " .. out3)
 end
-test_a_types_gen_change_recompiles_unrelated_files()
 
 -- The stamp itself, for a project WITH generated types: a real,
 -- hex-shaped digest, not the sentinel. In-process so the digesting code
@@ -115,7 +114,6 @@ local function test_stamp_is_a_content_digest()
   assert(stamp:match("^%x+\n$") and #stamp == 65,
     "the stamp holds one sha256 hex digest line, got: " .. stamp)
 end
-test_stamp_is_a_content_digest()
 
 -- And for a project with NO types generator: the sentinel, so the
 -- compile prerequisite always resolves to a real file. The output
@@ -131,4 +129,3 @@ local function test_stamp_sentinel_without_generated_types()
   assert(stamp == "empty\n",
     "an empty generated-types dir digests to the sentinel, got: " .. stamp)
 end
-test_stamp_sentinel_without_generated_types()

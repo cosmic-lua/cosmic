@@ -65,7 +65,6 @@ local function test_reserved_import_path()
     {"reserved import path 'cosmo'"})
   clean("reserved-ok", {["cosmicish/fs.tl"] = "return {}\n"})
 end
-test_reserved_import_path()
 
 -- The provider exemption. `cosmo` and `main.user` are a native binding
 -- and the wrapper's own slot, so nothing can claim them; `cosmic` and
@@ -93,7 +92,6 @@ local function test_provider_exemption()
   only("provides-main-user", {["main/user.tl"] = "return {}\n"},
     {"reserved import path 'main.user'", "no project file can provide"})
 end
-test_provider_exemption()
 
 -- claims() is the fact the artifact half reads: a claimed namespace
 -- drops the base's copy from the strip floor, so exactly one definition
@@ -111,7 +109,6 @@ local function test_claims()
       }))
   assert(not none.cosmic, "a piece of the namespace claims nothing")
 end
-test_claims()
 
 -- foo.tl beside foo.lua: two files claiming one import path. An error,
 -- not a precedence rule -- a precedence rule is a coin flip nobody
@@ -122,7 +119,6 @@ local function test_duplicate_import_path()
       ["pkg/a.lua"] = "return {}\n",
     }, {"duplicate import path 'pkg.a'", "pkg/a.lua"})
 end
-test_duplicate_import_path()
 
 -- A .d.tl declaring types for a .lua implementation beside it is the
 -- pattern .d.tl exists for, and must not read as a collision.
@@ -132,7 +128,6 @@ local function test_declaration_beside_lua_is_not_a_duplicate()
       ["pkg/a.d.tl"] = "local record a end\nreturn a\n",
     })
 end
-test_declaration_beside_lua_is_not_a_duplicate()
 
 -- cmd/foo cannot import cmd/bar: each cmd directory is private to the
 -- binary it builds, which is what makes an artifact's contents
@@ -148,14 +143,12 @@ local function test_cmd_cannot_import_another_cmd()
       ["cmd/servit/routes.tl"] = "return {}\n",
     })
 end
-test_cmd_cannot_import_another_cmd()
 
 -- A cmd/ directory with no entry compiles and ships nothing.
 local function test_missing_entry()
   only("no-entry", {["cmd/nomain/lib.tl"] = "return {}\n"},
     {"cmd/nomain", "no entry", "cmd/nomain/main.tl"})
 end
-test_missing_entry()
 
 -- Filenames: recipe lines are whitespace-split argv with no quoting
 -- anywhere, so a space is a filename to refuse rather than an escaping
@@ -168,7 +161,6 @@ local function test_filename_hygiene()
   only("dollar", {["a$b.tl"] = "return {}\n"},
     {"shell metacharacter: $"})
 end
-test_filename_hygiene()
 
 -- Whitespace in a DIRECTORY is refused the same way: the whole path
 -- reaches a recipe line, not just the basename.
@@ -176,7 +168,6 @@ local function test_directory_names_are_checked_too()
   only("space-dir", {["my dir/a.tl"] = "return {}\n"},
     {"my dir/a.tl", "path contains whitespace"})
 end
-test_directory_names_are_checked_too()
 
 -- Assets are checked too: an asset is copied by a recipe like every
 -- other file, so its path travels the same argv.
@@ -184,7 +175,6 @@ local function test_assets_are_name_checked()
   only("space-asset", {["my data.json"] = "{}\n"},
     {"my data.json", "path contains whitespace"})
 end
-test_assets_are_name_checked()
 
 -- `_` marks internal: a directory whose name starts with _ is
 -- importable only from within the directory containing it. Root _cli/
@@ -203,7 +193,6 @@ local function test_internal_imports()
       ["anywhere/deep/user.tl"] = "local m = require('_cli.main')\nreturn m\n",
     })
 end
-test_internal_imports()
 
 -- Imports that leave the project -- the standard library, a pinned
 -- dependency's own name -- are not this validator's business. Only
@@ -213,7 +202,6 @@ local function test_external_imports_are_ignored()
       ["a.tl"] = "local fs = require('cosmic.fs')\nreturn fs\n",
     })
 end
-test_external_imports_are_ignored()
 
 -- All rules run: a project with three problems reports three, so a
 -- fresh checkout is fixed in one pass instead of one error per run.
@@ -227,7 +215,6 @@ local function test_every_rule_runs()
     })
   assert(#issues == 4, "expected 4 issues, got " .. #issues .. ":\n" .. text)
 end
-test_every_rule_runs()
 
 -- Rendered form: `make: <path>: <message>`, one line per issue, so a
 -- log line names the file first.
@@ -239,7 +226,6 @@ local function test_format_issues()
   assert(text == "make: a.tl: something\nmake: b.tl: else",
     "got: " .. text)
 end
-test_format_issues()
 
 -- Make's own significant characters are as dangerous as the shell's
 -- here, because `o/project.mk` and the rules file ARE make input: a
@@ -257,7 +243,6 @@ local function test_make_significant_characters_are_refused()
       bad .. " should be refused, got: " .. text)
   end
 end
-test_make_significant_characters_are_refused()
 
 -- A root init.tl compiles and then silently never ships: dropping the
 -- trailing `init` leaves the project root with no name to be required
@@ -292,7 +277,6 @@ local function test_root_init_is_refused()
   assert(dup:find("duplicate benchmark", 1, true), "got: " .. dup)
   assert(dup:find("a marker is a name", 1, true), "got: " .. dup)
 end
-test_root_init_is_refused()
 
 -- The two cells the model left silent. `embed/**` is payload only at
 -- the root or under `cmd/<name>/`; anywhere else it falls through to
@@ -325,7 +309,6 @@ local function test_silent_positions_are_refused()
   assert(dlua:find("types/lpeg.d.tl", 1, true),
     "and spells the name it wants, got: " .. dlua)
 end
-test_silent_positions_are_refused()
 
 -- A binary is named by its cmd/<name>/ directory, so a root main.tl is
 -- refused: it could only be named after the checkout directory, which
@@ -346,7 +329,6 @@ local function test_root_main_is_refused()
     })
   assert(lua:find("checkout directory", 1, true), "got: " .. lua)
 end
-test_root_main_is_refused()
 
 -- Two binaries with one name share o/bin/<name>: the check that refuses
 -- that is defensive today -- root entries are refused, so every binary

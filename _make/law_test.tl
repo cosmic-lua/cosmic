@@ -38,7 +38,6 @@ local function test_no_paths_always_resolves()
     assert(ok, name .. " with no selection must resolve, got: " .. err)
   end
 end
-test_no_paths_always_resolves()
 
 -- A whole-project verb REFUSES a path and says why. Ignoring one is
 -- the failure this exists to close: the run succeeds, so the reader
@@ -54,7 +53,6 @@ local function test_whole_project_verbs_refuse_and_say_why()
   assert(not cok, "ci must refuse a selection")
   assert(cerr:find("whole gate", 1, true), "got: " .. cerr)
 end
-test_whole_project_verbs_refuse_and_say_why()
 
 -- A path naming nothing is refused by name, whichever arm answers. The
 -- three own-resolver verbs each have a different candidate set, and
@@ -74,7 +72,6 @@ local function test_a_path_naming_nothing_is_refused()
       name .. " should say '" .. want .. "', got: " .. err)
   end
 end
-test_a_path_naming_nothing_is_refused()
 
 -- A verb with no whole-project reason, no resolver and no Selection
 -- cannot have its paths checked -- so it does not get to accept them.
@@ -85,6 +82,5 @@ local function test_an_unknown_verb_shape_refuses_paths()
   assert(not ok, "a verb with no selection rule must refuse paths")
   assert(err:find("nosuch takes no paths", 1, true), "got: " .. err)
 end
-test_an_unknown_verb_shape_refuses_paths()
 
 print("all law tests passed")

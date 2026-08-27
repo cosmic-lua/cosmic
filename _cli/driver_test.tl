@@ -44,7 +44,6 @@ local function test_every_verb_has_a_shape()
   assert(#missing == 0,
     "verbs with no fence shape: " .. table.concat(missing, ", "))
 end
-test_every_verb_has_a_shape()
 
 local function test_copy_reads_src_and_writes_dst_parent()
   local src = touch("fence-src.txt")
@@ -58,7 +57,6 @@ local function test_copy_reads_src_and_writes_dst_parent()
   assert(not has(p.rw, dst), "the not-yet-existing file must not be a rule")
   assert(not has(p.rw, src), "src must NOT be writable")
 end
-test_copy_reads_src_and_writes_dst_parent()
 
 local function test_missing_reads_are_dropped()
   -- A rule naming a path that cannot be opened fails the whole
@@ -69,7 +67,6 @@ local function test_missing_reads_are_dropped()
   assert(p is sandbox.Fs, "copy must still plan")
   assert(not has(p.ro, absent), "a missing input must not become a rule")
 end
-test_missing_reads_are_dropped()
 
 local function test_compile_execs_the_bootstrap()
   local boot = touch("fence-boot")
@@ -81,7 +78,6 @@ local function test_compile_execs_the_bootstrap()
   assert(has(p.rw, tmpdir), "the output's parent must be writable")
   assert(not has(p.rw, src), "the source must NOT be writable")
 end
-test_compile_execs_the_bootstrap()
 
 -- The floor a COMPILE needs beyond its argv. The type checker reads
 -- `tlconfig.lua` and resolves modules through the include directories,
@@ -138,7 +134,6 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
   assert(not has(withdeps.ro, tmpdir),
     "…but the search path beside it is not")
 end
-test_a_compile_may_read_the_checkers_own_inputs()
 
 local function test_remove_takes_a_variadic_tail()
   -- unlink is a right on the parent directory, so every path in the
@@ -148,7 +143,6 @@ local function test_remove_takes_a_variadic_tail()
   assert(p is sandbox.Fs, "remove must plan a policy")
   assert(has(p.rw, tmpdir), "the parent must be writable to unlink")
 end
-test_remove_takes_a_variadic_tail()
 
 local function test_list_does_not_read_its_items()
   -- `write-list <out> [items...]`: the items are text written INTO out, not
@@ -160,7 +154,6 @@ local function test_list_does_not_read_its_items()
   assert(has(p.rw, tmpdir), "the output's parent must be writable")
   assert(not has(p.ro, item), "items are content, not reads")
 end
-test_list_does_not_read_its_items()
 
 -- A foreign program's reads are not derivable from its arguments -- a
 -- compiler reads headers nobody listed -- so exec is fenced to the
@@ -177,7 +170,6 @@ local function test_exec_gets_its_units_not_the_whole_tree()
   assert(not has(p.ro, "."), "the whole working tree must NOT be readable")
   assert(not has(p.ro, "--flag"), "arguments are not paths")
 end
-test_exec_gets_its_units_not_the_whole_tree()
 
 -- A path argument brings its own unit, so a step reading an input from
 -- elsewhere gets that directory and no more.
@@ -191,7 +183,6 @@ local function test_exec_reads_the_units_its_arguments_name()
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.ro, input), "the argument's unit must be readable")
 end
-test_exec_reads_the_units_its_arguments_name()
 
 -- A generation unit spans its whole subtree, so a path inside one
 -- resolves to the directory holding the *_gen.tl -- not to the path's
@@ -213,7 +204,6 @@ local function test_a_generation_unit_is_the_whole_subtree()
   assert(not has(p.ro, deep),
     "…and the leaf directory alone is not the unit")
 end
-test_a_generation_unit_is_the_whole_subtree()
 
 local function test_an_argumentless_verb_still_plans()
   -- A malformed line still reaches the verb, which reports its own
@@ -227,7 +217,6 @@ local function test_an_argumentless_verb_still_plans()
       "no arguments, so only the floor may be readable, got: " .. path)
   end
 end
-test_an_argumentless_verb_still_plans()
 
 local function test_the_running_binary_stays_executable()
   -- compile and capture re-exec cosmic; a fence that revoked that would
@@ -238,7 +227,6 @@ local function test_the_running_binary_stays_executable()
     assert(has(p.exec, arg[-1]), "the running binary must stay executable")
   end
 end
-test_the_running_binary_stays_executable()
 
 local function test_a_childs_own_paths_are_readable()
   -- `tee <out> <cmd> [args...]` hands the tail to a child: those
@@ -251,7 +239,6 @@ local function test_a_childs_own_paths_are_readable()
   assert(has(p.ro, got), "the child's input must be readable")
   assert(not has(p.ro, "--report"), "a flag is not a path")
 end
-test_a_childs_own_paths_are_readable()
 
 local function test_every_step_can_extract_and_run_the_ape_loader()
   -- A fat APE is a shell prologue the kernel will not load, so it
@@ -271,7 +258,6 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
     "and the DIRECTORY must be executable: `mv -f` over an existing " ..
     "loader makes a new inode, and a rule names the inode it opened")
 end
-test_every_step_can_extract_and_run_the_ape_loader()
 
 -- Without this pin, an unset TMPDIR falls through to $HOME, and the
 -- fence would grant rw+exec on the WHOLE home directory -- far wider
@@ -315,7 +301,6 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   assert(not has(p.rw, home) and not has(p.exec, home),
     "and the home directory itself is never granted")
 end
-test_an_unset_tmpdir_is_pinned_under_o_not_home()
 
 -- execve caches TMPDIR and HOME at each process's own startup, so the
 -- driver -- whose TMPDIR the pin set after it started -- still probes
@@ -341,7 +326,6 @@ local function test_an_existing_home_loader_is_granted_as_a_file_only()
   assert(not has(p.rw, home) and not has(p.exec, home),
     "the home directory itself is never granted")
 end
-test_an_existing_home_loader_is_granted_as_a_file_only()
 
 local function test_a_program_that_is_not_there_is_not_a_rule()
   -- A landlock rule is an OPEN, so naming a path that does not exist
@@ -354,7 +338,6 @@ local function test_a_program_that_is_not_there_is_not_a_rule()
   assert(not has(p.exec, "sh"),
     "a program that is not there must not become a rule")
 end
-test_a_program_that_is_not_there_is_not_a_rule()
 
 local function test_the_coverage_directory_is_granted_before_it_exists()
   -- The step CREATES this directory, so asking `isdir` first would
@@ -382,7 +365,6 @@ local function test_the_coverage_directory_is_granted_before_it_exists()
   assert(flagged is sandbox.Fs, "and still plan one for the flag form")
   assert(not has(flagged.rw, "1"), "`1` is a flag, not a directory")
 end
-test_the_coverage_directory_is_granted_before_it_exists()
 
 local function test_the_runtime_floor_is_granted()
   -- Derived-from-argv says nothing about what every process needs.
@@ -391,7 +373,6 @@ local function test_the_runtime_floor_is_granted()
   assert(has(p.rw, "/dev/null"), "/dev/null must be writable")
   assert(has(p.ro, "/dev/urandom"), "/dev/urandom must be readable")
 end
-test_the_runtime_floor_is_granted()
 
 -- The two nils are different answers and the caller acts on the
 -- difference. A shapeless verb has nothing to fence; a plan that could
@@ -417,4 +398,3 @@ local function test_a_underivable_plan_is_an_error_not_an_absence()
   assert(q == nil, "an unknown verb plans nothing")
   assert(qerr == nil, "and says nothing -- that is what makes it distinct")
 end
-test_a_underivable_plan_is_an_error_not_an_absence()

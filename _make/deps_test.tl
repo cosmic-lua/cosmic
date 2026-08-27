@@ -70,7 +70,6 @@ local function test_closure_is_transitive_and_exact()
   assert(closure_of(proj, "db/a_test.tl") == "o/db/init.lua o/util.lua",
     "got: " .. closure_of(proj, "db/a_test.tl"))
 end
-test_closure_is_transitive_and_exact()
 
 -- A test importing nothing from the project has an empty closure, and
 -- that is a real answer: it depends on no module, so no module's change
@@ -82,7 +81,6 @@ local function test_a_leaf_test_has_no_dependencies()
     })
   assert(closure_of(proj, "b_test.tl") == "", "got: " .. closure_of(proj, "b_test.tl"))
 end
-test_a_leaf_test_has_no_dependencies()
 
 -- `.lua` sources are first-class, and they are copied rather than
 -- compiled, so their built path keeps the extension.
@@ -94,7 +92,6 @@ local function test_lua_modules_are_dependencies_too()
   assert(closure_of(proj, "x_test.tl") == "o/legacy.lua",
     "got: " .. closure_of(proj, "x_test.tl"))
 end
-test_lua_modules_are_dependencies_too()
 
 -- A cycle terminates. Whether a project SHOULD have one is the
 -- validator's business; this function's business is not hanging.
@@ -107,7 +104,6 @@ local function test_a_cycle_terminates()
   assert(closure_of(proj, "c_test.tl") == "o/a.lua o/b.lua",
     "got: " .. closure_of(proj, "c_test.tl"))
 end
-test_a_cycle_terminates()
 
 -- The two flavours are not interchangeable, and getting them backwards
 -- is the difference between an incremental build that catches a broken
@@ -124,14 +120,12 @@ local function test_source_and_built_flavours()
   assert(closure_of(proj, "main.tl") == "o/util.lua",
     "a test depends on BUILT output: " .. closure_of(proj, "main.tl"))
 end
-test_source_and_built_flavours()
 
 -- Built paths: .tl compiles, .lua is copied.
 local function test_built_path()
   assert(deps.built_path("db/init.tl", "o") == "o/db/init.lua", "tl")
   assert(deps.built_path("legacy.lua", "o") == "o/legacy.lua", "lua")
 end
-test_built_path()
 
 -- The index resolves import paths to files, for every kind a require
 -- can land on. A `.d.tl` is one of them -- the checker resolves
@@ -151,7 +145,6 @@ local function test_index_covers_resolvable_kinds()
   assert(by_import["types.x"], "and so is a declaration")
   assert(not by_import["data"], "an asset is not")
 end
-test_index_covers_resolvable_kinds()
 
 -- A declaration is a SOURCE dependency and nothing else: it compiles
 -- to no file, so naming `o/…/x.lua` for it would name a target nothing
@@ -176,7 +169,6 @@ local function test_a_declaration_is_a_source_dependency_only()
   assert(built:find("o/ffi.lua", 1, true),
     "while the implementation still does: " .. built)
 end
-test_a_declaration_is_a_source_dependency_only()
 
 -- A benchmark is a resolvable kind: something else in the project may
 -- `require` it (a test exercising a `Benchmark_*` helper, say), and
@@ -193,6 +185,5 @@ local function test_a_benchmark_is_a_dependency()
   assert(closure_of(proj, "main_test.tl") == "o/foo_benchmark.lua",
     "got: " .. closure_of(proj, "main_test.tl"))
 end
-test_a_benchmark_is_a_dependency()
 
 print("all deps tests passed")

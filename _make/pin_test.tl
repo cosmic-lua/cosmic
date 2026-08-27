@@ -67,7 +67,6 @@ return {
   local nested: ExtractedPin = check.must(shape.into(got, PIN))
   assert(nested.platforms["*"].sha == "deadbeef", "nested table and bracket key")
 end
-test_extracts_a_literal()
 
 -- Everything a pin may NOT be. Each of these is a way for a file that
 -- looks like data to do something, and each is refused by name.
@@ -94,7 +93,6 @@ local function test_a_pin_cannot_be_code()
   refused('return { "positional" }', "name = <literal>",
     "an array entry with no key")
 end
-test_a_pin_cannot_be_code()
 
 --- Write a pin file and read it.
 local function read_pin(name: string, body: string): pin.Pin | nil, string
@@ -117,7 +115,6 @@ local function test_a_pin_needs_a_digest()
   assert(not nourl, "a pin without a url must be refused")
   assert(uerr:find("needs a url", 1, true), "got: " .. tostring(uerr))
 end
-test_a_pin_needs_a_digest()
 
 -- `{version}` substitution is the one templating the grammar allows,
 -- which is what makes a version bump a one-line diff.
@@ -131,7 +128,6 @@ local function test_version_substitution()
   assert(p.output:find("a.tar.gz", 1, true),
     "the output is named by the asset, got: " .. p.output)
 end
-test_version_substitution()
 
 --- Fork a loopback server answering one request with `body`, under
 --- `status` (default 200).
@@ -225,7 +221,6 @@ local function test_fetch_verifies_and_writes()
   assert(not fs.is_present(fs.join(root, "3p/blob.bin")),
     "and never beside the pin, in the tree")
 end
-test_fetch_verifies_and_writes()
 
 -- Bytes that do not hash to the pin are never written. Not "written
 -- then checked" -- a build either runs on the bytes you named or does
@@ -245,7 +240,6 @@ local function test_a_mismatch_is_never_written()
   assert(not fs.is_present(fs.join(root, "o/3p/blob.bin.tmp")),
     "and no partial file may survive either")
 end
-test_a_mismatch_is_never_written()
 
 -- A satisfied pin needs no network at all: the check is on the bytes,
 -- so the second run is a hash and nothing else. The URL here points at
@@ -260,7 +254,6 @@ local function test_a_satisfied_pin_does_not_fetch()
   assert(code == 0,
     "a pin whose output already hashes correctly must not need the network")
 end
-test_a_satisfied_pin_does_not_fetch()
 
 -- The posture, asserted structurally: `fetch` is the only part of
 -- --make that can open a socket at all. This is a stronger claim than
@@ -289,7 +282,6 @@ local function test_only_fetch_can_open_a_socket()
     "only the fetch verb may reach the network, but these do: " ..
     table.concat(networked, ", "))
 end
-test_only_fetch_can_open_a_socket()
 
 -- A pin that is not a pin fails the verb rather than being skipped.
 local function test_a_broken_pin_fails_fetch()
@@ -298,14 +290,12 @@ local function test_a_broken_pin_fails_fetch()
       'return { url = os.getenv("X") }\n'))
   assert(run(root, "fetch") == 1, "a pin that is code must fail the verb")
 end
-test_a_broken_pin_fails_fetch()
 
 -- Selection works here too, and an empty selection is an error.
 local function test_selection()
   local root = pinned("selected", "http://127.0.0.1:1/x", "abababababababababababababababababababababababababababababababab")
   assert(run(root, "fetch", "nope") == 1, "an empty selection must fail")
 end
-test_selection()
 
 -- The pin unit's scope is the pin file itself: `resolve` reads nothing
 -- else, which is why fetch needs no compiled tree.
@@ -319,7 +309,6 @@ local function test_resolve_reads_only_the_pin()
   assert(#pins == 1, "one pin")
   assert(pins[1].url == "https://x.test/a.bin", "got: " .. pins[1].url)
 end
-test_resolve_reads_only_the_pin()
 
 print("all pin tests passed")
 
@@ -359,7 +348,6 @@ local function test_a_declared_format_is_unpacked()
   assert(not fs.is_present(fs.join(root, "o/3p/.unpack")),
     "and the staging directory does not survive")
 end
-test_a_declared_format_is_unpacked()
 
 -- A pin may name its digest per platform, because some artifacts
 -- differ per host. Both spellings exist because this reader and the
@@ -394,7 +382,6 @@ local function test_a_pin_may_name_its_digest_per_platform()
   assert(not none, "a platforms table with no matching row is refused")
   assert(nerr:find("no platform row", 1, true), "got: " .. tostring(nerr))
 end
-test_a_pin_may_name_its_digest_per_platform()
 
 -- A pin that unpacks has TWO outputs, and only one is
 -- content-addressed. Hashing the archive alone answered "did the bytes
@@ -427,7 +414,6 @@ local function test_a_missing_unpack_is_redone()
   assert(run(root, "fetch") == 0, "the second fetch should repair, not refetch")
   assert(fs.is_file(out), "the unpacked tree is restored")
 end
-test_a_missing_unpack_is_redone()
 
 -- `Result.ok` is transport-level, so an unchecked 404 error page
 -- reaches the digest check and fails as a sha256 mismatch -- the wrong
@@ -444,7 +430,6 @@ local function test_a_non_2xx_names_the_status()
   assert(not out:find("mismatch", 1, true),
     "and does not blame the digest, got: " .. out)
 end
-test_a_non_2xx_names_the_status()
 
 -- A truncated digest is a copy-paste slip. Accepting one (any run of
 -- eight or more hex characters) defers it to fetch time as a mismatch,
@@ -470,4 +455,3 @@ local function test_a_short_digest_is_refused()
   assert(not query, "a url with a query string must be refused")
   assert(qerr:find("usable file name", 1, true), "got: " .. tostring(qerr))
 end
-test_a_short_digest_is_refused()

@@ -59,7 +59,6 @@ local function test_recipe_dispatches()
   assert(code == 0, "recipe copy failed (" .. tostring(code) .. "): " .. err)
   assert(fs.read(dst) == "hello\n", "recipe reaches the same modes table")
 end
-test_recipe_dispatches()
 
 -- record grades a result THIS run wrote, never a stale one. When its
 -- scratch directory cannot be made -- here a plain file sits where the
@@ -76,7 +75,6 @@ local function test_record_does_not_grade_a_stale_got()
     "record must fail when it cannot run, not pass on a stale .got: " ..
     tostring(code) .. " " .. err)
 end
-test_record_does_not_grade_a_stale_got()
 
 -- A fence that cannot be DERIVED fails the step rather than waving it
 -- through: dispatching would run the step with no Landlock at all. The
@@ -97,7 +95,6 @@ local function test_recipe_refuses_a_step_whose_fence_cannot_be_derived()
   assert(err:find("cannot create", 1, true), "expected it named: " .. err)
   assert(not out:find("write-list", 1, true), "not announced: " .. out)
 end
-test_recipe_refuses_a_step_whose_fence_cannot_be_derived()
 
 local function test_recipe_strips_the_sentinel()
   -- Generated recipes end in `;` so make routes them through SHELL at
@@ -110,7 +107,6 @@ local function test_recipe_strips_the_sentinel()
   assert(code == 0, "a sentinel line must run (" .. tostring(code) .. "): " .. err)
   assert(fs.read(dst) == "sentinel\n", "sentinel stripped before dispatch")
 end
-test_recipe_strips_the_sentinel()
 
 local function test_recipe_refuses_shell()
   -- A shell would treat these as a redirect and a command separator. As
@@ -126,7 +122,6 @@ local function test_recipe_refuses_shell()
   assert(code ~= 0, "a redirect must fail the line")
   assert(err:match("argv, not shell"), "expected the argv/shell message, got: " .. err)
 end
-test_recipe_refuses_shell()
 
 -- Globs matter for the same reason: they are exactly what makes make
 -- hand a line to SHELL, so a recipe carrying one DOES reach cosmic,
@@ -152,7 +147,6 @@ local function test_recipe_refuses_globs()
     assert(c ~= 0, "a line carrying '" .. ch .. "' must be refused")
   end
 end
-test_recipe_refuses_globs()
 
 local function test_recipe_unknown_verb()
   local code, _out, err = run_recipe("rm -rf " .. tmpdir)
@@ -163,7 +157,6 @@ local function test_recipe_unknown_verb()
     "expected the vocabulary listed, got: " .. err)
   assert(fs.stat(tmpdir), "an unknown verb runs nothing at all")
 end
-test_recipe_unknown_verb()
 
 local function test_recipe_blank_is_a_noop()
   -- make hands us no blank lines, but a variable that expanded to
@@ -171,7 +164,6 @@ local function test_recipe_blank_is_a_noop()
   local code = run_recipe("   ")
   assert(code == 0, "a blank recipe line succeeds")
 end
-test_recipe_blank_is_a_noop()
 
 -- exec: the one door out of the vocabulary, and it opens only onto
 -- bytes already under the build root.
@@ -212,7 +204,6 @@ local function test_exec_runs_bytes_under_the_root()
   assert(code == 0, "exec under the root failed (" .. tostring(code) .. "): " .. err)
   assert(out:match("42"), "expected the program's own output, got: " .. out)
 end
-test_exec_runs_bytes_under_the_root()
 
 local function test_exec_refuses_outside_the_root()
   -- /bin/sh exists and is executable; being outside the root is the
@@ -221,7 +212,6 @@ local function test_exec_refuses_outside_the_root()
   assert(code ~= 0, "a program outside the build root must be refused")
   assert(err:match("not under the build root"), "expected the root named, got: " .. err)
 end
-test_exec_refuses_outside_the_root()
 
 -- The root check has to resolve SYMLINKS, not just normalize `..`.
 -- abspath refuses a path that climbs out lexically, but the kernel
@@ -243,7 +233,6 @@ local function test_exec_refuses_a_symlink_out_of_the_root()
   assert(err:match("resolves to"),
     "and where it actually resolved to, got: " .. err)
 end
-test_exec_refuses_a_symlink_out_of_the_root()
 
 -- The other direction, because refusing everything would also pass the
 -- test above: a link INSIDE the root still runs.
@@ -267,7 +256,6 @@ local function test_exec_allows_a_symlink_inside_the_root()
   assert(code == 0, "a link inside the root must still run: " .. err)
   assert(out:match("linked"), "expected the program's output, got: " .. out)
 end
-test_exec_allows_a_symlink_inside_the_root()
 
 local function test_exec_never_searches_path()
   -- `sh` resolves through PATH for a shell; for exec it is just a
@@ -276,7 +264,6 @@ local function test_exec_never_searches_path()
   assert(code ~= 0, "a bare program name must not be found on PATH")
   assert(err:match("not under the build root"), "expected the root named, got: " .. err)
 end
-test_exec_never_searches_path()
 
 local function test_exec_reports_a_missing_program()
   local code, _out, err = run_recipe_env(
@@ -284,7 +271,6 @@ local function test_exec_reports_a_missing_program()
   assert(code ~= 0, "a missing program must fail")
   assert(err:match("no such file"), "expected a missing-file message, got: " .. err)
 end
-test_exec_reports_a_missing_program()
 
 local function test_exec_passes_through_the_exit_code()
   local root = fs.dirname(fs.absolute_path(test_bin))
@@ -292,4 +278,3 @@ local function test_exec_passes_through_the_exit_code()
   local code = run_recipe_env("exec " .. test_bin .. " " .. script, root)
   assert(code == 3, "expected the program's own exit code, got " .. tostring(code))
 end
-test_exec_passes_through_the_exit_code()

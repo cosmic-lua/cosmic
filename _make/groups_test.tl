@@ -26,7 +26,6 @@ local function test_groups_accumulate_by_directory()
   assert(body:find("groupof_pkg/sub/c := pkg/sub", 1, true),
     "nested members name the nested group")
 end
-test_groups_accumulate_by_directory()
 
 local function test_group_deps_are_deduplicated()
   local acc = groups.new()
@@ -36,7 +35,6 @@ local function test_group_deps_are_deduplicated()
   assert(body:find("groupdeps_pkg := lib/x.tl lib/y.tl", 1, true),
     "a dep shared by two members appears once: " .. body)
 end
-test_group_deps_are_deduplicated()
 
 local function test_root_level_sources_join_no_group()
   local acc = groups.new()
@@ -45,4 +43,3 @@ local function test_root_level_sources_join_no_group()
   assert(#lines == 0,
     "a root-level source emits no group facts; the per-file rule is its path")
 end
-test_root_level_sources_join_no_group()

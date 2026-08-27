@@ -58,7 +58,6 @@ local function test_notice_line()
   "the merge"
   assert(got == want, "got: " .. got)
 end
-test_notice_line()
 
 -- A full sha is 40 characters; the notice shows only the first 12.
 local function test_notice_truncates_sha()
@@ -69,7 +68,6 @@ local function test_notice_truncates_sha()
   assert(got:find(full, 1, true) == nil,
     "the full 40-char sha must not appear: " .. got)
 end
-test_notice_truncates_sha()
 
 -- No `origin/main` ref at all: `git rev-parse --verify -q origin/main`
 -- exits 1, and the probe is silent (nil) -- this is the CI case, where
@@ -79,7 +77,6 @@ local function test_diverged_missing_ref()
   local sha = diverged_in(root)
   assert(sha == nil, "no origin/main ref: expected nil, got " .. tostring(sha))
 end
-test_diverged_missing_ref()
 
 -- `origin/main` resolves and IS an ancestor of HEAD (here, the same
 -- commit): not diverged, so the probe is silent.
@@ -90,7 +87,6 @@ local function test_diverged_ancestor()
   assert(sha == nil,
     "origin/main == HEAD: expected nil (not diverged), got " .. tostring(sha))
 end
-test_diverged_ancestor()
 
 -- `origin/main` resolves and is NOT an ancestor of HEAD (here, a child
 -- commit on another branch): diverged, so the probe returns its sha.
@@ -107,4 +103,3 @@ local function test_diverged_true()
   assert(sha == feature_sha,
     "expected diverged sha " .. feature_sha .. ", got " .. tostring(sha))
 end
-test_diverged_true()

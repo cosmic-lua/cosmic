@@ -71,7 +71,6 @@ local function test_content_distinguishes_unset_empty_and_set()
   assert(empty ~= set, "empty and set must hash differently")
   assert(unset ~= set, "unset and set must hash differently")
 end
-test_content_distinguishes_unset_empty_and_set()
 
 -- Identical values, identical bytes: content is a pure function of the
 -- declared names and their current values, nothing else.
@@ -82,7 +81,6 @@ local function test_content_is_stable_for_identical_values()
   restore_foo()
   assert(a == b, "identical values must hash identically")
 end
-test_content_is_stable_for_identical_values()
 
 -- The file stores the hash, never a plaintext value: `o/` must not
 -- collect secrets.
@@ -93,7 +91,6 @@ local function test_content_never_carries_the_plaintext_value()
   assert(not got:find("super-secret-token", 1, true),
     "the stamp must not carry the plaintext value")
 end
-test_content_never_carries_the_plaintext_value()
 
 -- path_of: dot-prefixed under o/.env/, so the mirror under o/ (which
 -- maps o/<path> to the source at <path>) cannot collide with it.
@@ -101,7 +98,6 @@ local function test_path_of_is_dot_prefixed()
   local got = envstamp.path_of("_fuzz/sse_fuzz_test")
   assert(got == "o/.env/_fuzz/sse_fuzz_test.env", "got: " .. got)
 end
-test_path_of_is_dot_prefixed()
 
 local app = fixture("app", {
     ["main.tl"] = "print('x')\n",
@@ -120,7 +116,6 @@ local function test_write_all_writes_only_declaring_files()
       return true
     end)
 end
-test_write_all_writes_only_declaring_files()
 
 -- Write-if-changed: a second write with the value unmoved must not
 -- touch the stamp's mtime, or every declaring test re-runs on every
@@ -139,7 +134,6 @@ local function test_unmoved_value_keeps_the_stamp_mtime()
       return true
     end)
 end
-test_unmoved_value_keeps_the_stamp_mtime()
 
 -- A changed value DOES move the stamp -- the other half of the same
 -- property, and the one the whole slice exists for.
@@ -157,7 +151,6 @@ local function test_changed_value_moves_the_stamp()
       return true
     end)
 end
-test_changed_value_moves_the_stamp()
 
 -- materialize (graph.tl) wires the stamp into deps_<stem>, beside
 -- stamp.write_all -- the integration this module exists to feed.
@@ -175,6 +168,5 @@ local function test_materialize_carries_the_env_stamp_in_deps()
       return true
     end)
 end
-test_materialize_carries_the_env_stamp_in_deps()
 
 print("all envstamp tests passed")

@@ -73,7 +73,6 @@ local function test_project_mk_is_assignments_only()
   end
   assert(n >= 8, "expected the fact variables, got " .. n)
 end
-test_project_mk_is_assignments_only()
 
 -- The facts themselves: what the walk found, spelled relative to the
 -- root, sorted so the file is a function of the tree and nothing else.
@@ -100,7 +99,6 @@ local function test_project_mk_facts()
   assert(not text:find("testdata", 1, true),
     "testdata must not reach the graph: " .. text)
 end
-test_project_mk_facts()
 
 -- One dependency closure per test, so a test re-runs for what it
 -- imports and nothing else -- and the fence grants the same set. This
@@ -128,7 +126,6 @@ local function test_project_mk_carries_per_test_closures()
     end
   end
 end
-test_project_mk_carries_per_test_closures()
 
 -- Deterministic: same tree, same bytes. Sorting is what makes the file
 -- a function of the project rather than of directory order.
@@ -137,7 +134,6 @@ local function test_project_mk_is_deterministic()
   local b = check.must(graph.project_mk(app, "/bin/cosmic"))
   assert(a == b, "project.mk must not depend on iteration order")
 end
-test_project_mk_is_deterministic()
 
 -- The rules file is constant. Two different projects, byte-identical
 -- o/cosmic.mk -- and it is the file in the tree, so what ships and what
@@ -161,7 +157,6 @@ local function test_rules_are_constant()
   assert(packed == source,
     "the packed rules must be the file in the tree, not a stale copy")
 end
-test_rules_are_constant()
 
 -- Write-if-changed: re-running a verb must not invalidate the graph it
 -- just built. Content decides; mtime only schedules.
@@ -180,7 +175,6 @@ local function test_materialize_does_not_touch_unchanged_files()
       return true
     end)
 end
-test_materialize_does_not_touch_unchanged_files()
 
 -- The engine is named or it is pinned, never guessed. A `make` sitting
 -- on PATH must not be picked up: a build whose engine came from the
@@ -210,7 +204,6 @@ local function test_find_make_never_searches_path()
   assert(found == fs.join(box, "o", "make"),
     "the engine must be the extracted one, got: " .. found)
 end
-test_find_make_never_searches_path()
 
 -- COSMIC_MAKE names it; a name that is not there fails by name rather
 -- than falling back to something else.
@@ -233,7 +226,6 @@ local function test_find_make_honors_the_override()
     assert(cenv.set("COSMIC_MAKE", saved))
   end
 end
-test_find_make_honors_the_override()
 
 -- The engine ships in the binary, so a project needs nothing
 -- installed. Reasoning only from this repo's own checkout -- where
@@ -245,7 +237,6 @@ local function test_the_engine_ships_in_the_binary()
   local engine = bytes
   assert(#engine > 100000, "too small to be an engine: " .. #engine)
 end
-test_the_engine_ships_in_the_binary()
 
 -- Extraction produces something executable. A non-executable engine is
 -- the one failure that reads as "no make binary" rather than as a
@@ -261,7 +252,6 @@ local function test_extract_make_is_executable()
   assert(st:mode() & exec_bit ~= 0, "the extracted engine must be executable")
   assert(not fs.is_present(to .. ".tmp"), "the temp file must not survive")
 end
-test_extract_make_is_executable()
 
 -- With nothing named, find_make extracts rather than refusing. That is
 -- the difference between --make being usable and being a demo.
@@ -282,7 +272,6 @@ local function test_find_make_extracts_when_nothing_is_named()
   assert(found == fs.join(box, "o/make"), "got: " .. found)
   assert(fs.is_file(found), "…and it must be there")
 end
-test_find_make_extracts_when_nothing_is_named()
 
 -- Everything is parallel by default; the count is overridable.
 local function test_jobs_flag()
@@ -297,7 +286,6 @@ local function test_jobs_flag()
     assert(cenv.set("COSMIC_JOBS", saved))
   end
 end
-test_jobs_flag()
 
 print("all graph tests passed")
 
@@ -337,7 +325,6 @@ local function test_project_mk_carries_declared_reads()
   assert(err and err:find("does not exist", 1, true),
     "and say why, got: " .. tostring(err))
 end
-test_project_mk_carries_declared_reads()
 
 -- `--- env:` declarations: a test's declared env names join its
 -- deps_* closure as the env STAMP path (_make/envstamp.tl), NOT
@@ -358,4 +345,3 @@ local function test_project_mk_carries_declared_env()
   assert(ydeps and not ydeps:find("o/.env/", 1, true),
     "an undeclared sibling must not get an env stamp:\n" .. mk)
 end
-test_project_mk_carries_declared_env()

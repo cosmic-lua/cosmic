@@ -160,7 +160,6 @@ local function test_layout_is_derived()
   assert(not stored["types/lpeg.d.lua"], ".d.tl is type-only")
   assert(not stored["types/lpeg.d.tl"], ".d.tl is type-only")
 end
-test_layout_is_derived()
 
 -- A cmd/ directory is a unit: its scope is the root packages plus its
 -- own subtree, and nothing from a sibling. That is the same boundary
@@ -187,7 +186,6 @@ local function test_cmd_scope_is_its_own_subtree()
   assert(fetchit["main.lua"], "each cmd builds its own artifact")
   assert(not fetchit["cmd/servit/routes.lua"], "…from its own subtree only")
 end
-test_cmd_scope_is_its_own_subtree()
 
 -- The artifact runs, and the floor is enough to run ON: the standard
 -- library survives stripping, which is what makes the floor a floor.
@@ -208,7 +206,6 @@ local function test_artifact_runs_on_the_floor()
   assert(ran:find('{"said":"hi"}', 1, true),
     "it should use its own module AND the stdlib, got: " .. ran)
 end
-test_artifact_runs_on_the_floor()
 
 -- Stripping is not optional, and it is a POSITIVE floor: what a base
 -- carried that is not on the list is gone, including entries a future
@@ -268,7 +265,6 @@ local function test_stripped_to_the_floor()
       gone .. " must not survive stripping, got " .. tostring(bytes[gone]))
   end
 end
-test_stripped_to_the_floor()
 
 -- The provider exemption, end to end. A project that defines the whole
 -- `cosmic` namespace SUPERSEDES the base's rather than shadowing it:
@@ -321,7 +317,6 @@ local function test_provided_namespace_supersedes_the_floor()
   assert(ran:find("json:\tfalse", 1, true),
     "…and the superseded base library is really gone: " .. ran)
 end
-test_provided_namespace_supersedes_the_floor()
 
 -- Two builds of one tree, in different directories, agree byte for
 -- byte. Zip entries otherwise carry the staging file's mtime -- build
@@ -342,7 +337,6 @@ local function test_reproducible()
   assert(hash.sha256(a) == hash.sha256(b),
     "two builds of one tree must agree byte for byte")
 end
-test_reproducible()
 
 -- Build's targets are BINARIES, so a source path names none of them.
 -- Compiling part of the tree and reporting PASS would be a success
@@ -369,7 +363,6 @@ local function test_build_takes_binaries_not_sources()
   assert(fs.is_file(fs.join(root, "o/bin/artifact-selected")),
     "a selected build produces its artifact: " .. bout)
 end
-test_build_takes_binaries_not_sources()
 
 -- In process, for coverage and because it is the other calling
 -- convention: the same build through the module API.
@@ -389,7 +382,6 @@ local function test_in_process_build()
   assert(fs.is_file(fs.join(root, "o/bin/artifact-inproc")), "one binary")
   assert(fs.is_file(fs.join(root, "o/bin/tool")), "the other binary")
 end
-test_in_process_build()
 
 print("all artifact tests passed")
 
@@ -416,7 +408,6 @@ local function test_payload_maps_to_the_artifact_root()
   assert(not stored["embed/cosmic.lua"], "nor treated as a module")
   assert(stored["cosmic.mk"], "an engine's rules file lands where the engine reads it")
 end
-test_payload_maps_to_the_artifact_root()
 
 -- Payload is scoped to its unit, which is the same rule the artifact
 -- already applies to `cmd/<name>/**`: one binary carries a toolchain
@@ -441,7 +432,6 @@ local function test_payload_is_scoped_to_its_binary()
   assert(not lean[".types/cosmo.d.tl"], "all of it")
   assert(lean["shared.txt"], "but root payload still reaches every binary")
 end
-test_payload_is_scoped_to_its_binary()
 
 -- Generated payload is the other half of `embed/`: a generator writes
 -- into `o/<unit>/embed_gen/embed/**` and the artifact stages it exactly
@@ -480,4 +470,3 @@ local function test_generated_payload_stages_like_committed()
   assert(not stored["committed.txt.lint.got"],
     "the build's own bookkeeping is not payload")
 end
-test_generated_payload_stages_like_committed()

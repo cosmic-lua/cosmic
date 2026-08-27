@@ -94,7 +94,6 @@ local function test_selection_narrows_the_graph()
   assert(r.out:find("fmt: PASS (2 files)", 1, true),
     "db/ holds two formattable sources, got: " .. r.out)
 end
-test_selection_narrows_the_graph()
 
 -- A selection matching nothing is an error before make is ever started.
 local function test_empty_selection_fails()
@@ -103,7 +102,6 @@ local function test_empty_selection_fails()
   assert(r.code == 1, "an empty selection must fail")
   assert(r.err:find("nothing to do under: nope", 1, true), "got: " .. r.err)
 end
-test_empty_selection_fails()
 
 -- Selection names targets of the verb's OWN KIND. `build`'s targets are
 -- binaries, so `build cmd/foo` builds foo, rather than compiling a few
@@ -130,7 +128,6 @@ local function test_build_selects_binaries()
   local byname = make(root, "build", "tool")
   assert(byname.code == 0, "a binary is selectable by name too: " .. byname.err)
 end
-test_build_selects_binaries()
 
 -- A source path is not a binary, and `check` is the verb that takes
 -- one. Refusing says so instead of reporting PASS for a compile the
@@ -143,7 +140,6 @@ local function test_build_refuses_a_source_path()
   assert(r.err:find("use `check`", 1, true),
     "the refusal must point at the verb that does take sources: " .. r.err)
 end
-test_build_refuses_a_source_path()
 
 -- Every verb answers about paths. A verb that takes a selection
 -- restricts to it; a verb that cannot says so. Ignoring one is the
@@ -158,7 +154,6 @@ local function test_docs_restricts_to_its_selection()
   assert(not fs.is_present(fs.join(root, "o/docs/main.md")),
     "and the unselected one is not: " .. r.out)
 end
-test_docs_restricts_to_its_selection()
 
 -- `clean` removes the build directory and `ci` is the whole gate:
 -- neither has an S-restriction, so both refuse a path and name why.
@@ -174,7 +169,6 @@ local function test_whole_project_verbs_refuse_paths()
   assert(ci.code == 1, "ci must refuse a selection")
   assert(ci.err:find("ci takes no paths", 1, true), "got: " .. ci.err)
 end
-test_whole_project_verbs_refuse_paths()
 
 -- The refusal comes BEFORE the build. In a project whose own binary is
 -- the toolchain the gate converges into, refusing after would price a
@@ -188,6 +182,5 @@ local function test_a_bad_selection_refuses_before_building()
   assert(not fs.is_present(fs.join(root, "o/bin")),
     "nothing is built to answer a question the model settles: " .. r.out)
 end
-test_a_bad_selection_refuses_before_building()
 
 print("all selection tests passed")

@@ -143,7 +143,6 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
   assert(staged["generated.txt"],
     "and what it wrote stages at the artifact root")
 end
-test_build_runs_the_units_generator()
 
 -- A unit that produced `o/<unit>/embed_gen/base` names the runtime
 -- its artifact is built on. Everything else falls back to the cosmic
@@ -167,7 +166,6 @@ local function test_base_is_the_units_own_when_it_declares_one()
   assert(artifact.bases_of(proj, binary_of(proj, "lean"), cosmic)[1][2] == cosmic,
     "and a unit that declares none is built on the running cosmic")
 end
-test_base_is_the_units_own_when_it_declares_one()
 
 -- `.args` is derived, not declared: the entry is always /zip/main.lua
 -- in this layout, so what the APE's default argv names is a fact about
@@ -198,7 +196,6 @@ local function test_default_argv_is_derived()
   end
   assert(seen == 1, "and there is exactly one, never both")
 end
-test_default_argv_is_derived()
 
 -- The ROOT generator is every binary's, the way root `embed/` is: its
 -- output is staged into all of them. Hung off each binary's own build
@@ -234,7 +231,6 @@ assert(fs.write(fs.join(out, "embed/shared.txt"), "from the root generator\n"))
       name .. " stages the root generator's output")
   end
 end
-test_the_root_generator_runs_for_cmd_binaries()
 
 -- `generate_unit` asks the MODEL, not the disk: an ignored generator
 -- is invisible to `proj.files` and must not run.
@@ -255,7 +251,6 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
   assert(not fs.is_present(fs.join(root, "o/cmd/tool/embed_gen")),
     "and its output directory must not exist")
 end
-test_a_cosmicignored_generator_does_not_run()
 
 -- The same thing through the module API, which is the other calling
 -- convention and the only one this process can see: a build spawned as
@@ -316,7 +311,6 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   assert(fs.is_file(fs.join(root, "o/bin/lean")),
     "a sibling with no generator builds unchanged")
 end
-test_in_process_build_runs_the_generator()
 
 -- Two kinds can name one path inside the artifact, and `stage` writes
 -- both -- so which bytes shipped came down to `table.sort`'s behaviour
@@ -336,7 +330,6 @@ local function test_stored_path_collisions_are_refused()
   assert(err:find("embed/pkg/db.lua", 1, true),
     "and both origins, got: " .. tostring(err))
 end
-test_stored_path_collisions_are_refused()
 
 -- The real payload generator, against the real tree. The synthetic
 -- fixtures above exercise the MECHANISM; this asserts the contract
@@ -378,7 +371,6 @@ local function test_the_real_payload_generator()
     assert(fs.is_file(fs.join(out, want)), "payload is missing " .. want)
   end
 end
-test_the_real_payload_generator()
 
 -- A generator's helpers come from the TREE, even when the BINARY ships
 -- a module by that name.
@@ -422,7 +414,6 @@ local function test_a_generator_reads_its_helpers_from_the_tree()
     "a generator's helper must come from the tree, not the binary; got: "
     .. got)
 end
-test_a_generator_reads_its_helpers_from_the_tree()
 
 -- A `.lua` module in a generator's closure survives a COLD build.
 --
@@ -460,6 +451,5 @@ local function test_a_lua_module_in_a_generators_closure()
   assert(fs.is_file(fs.join(root, "o/helper.lua")),
     "and the mini-graph copied it, rather than naming a file it skipped")
 end
-test_a_lua_module_in_a_generators_closure()
 
 print("all generate tests passed")

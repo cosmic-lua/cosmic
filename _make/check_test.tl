@@ -101,7 +101,6 @@ local function test_clean_project_passes()
   assert(r.out:find("check: PASS (5 files)", 1, true),
     "expected a PASS verdict over 5 files, got: " .. r.out)
 end
-test_clean_project_passes()
 
 -- A type error fails the run, names the file and line, and the verdict
 -- counts files rather than errors -- one broken file is one thing to go
@@ -118,7 +117,6 @@ local function test_type_error_fails()
   assert(r.out:find("check: FAIL (1 of 2 files)", 1, true),
     "expected a FAIL verdict, got: " .. r.out)
 end
-test_type_error_fails()
 
 -- An import that resolves to nothing is a type error, which is what
 -- makes the passing case above evidence that resolution works at all.
@@ -129,7 +127,6 @@ local function test_unresolvable_import_fails()
   local r = make(root, "check")
   assert(r.code == 1, "an unresolvable import must fail, got " .. r.code)
 end
-test_unresolvable_import_fails()
 
 -- Validation runs first and is fatal: a project whose filenames cannot
 -- survive a recipe line has a problem the type checker cannot describe,
@@ -148,7 +145,6 @@ local function test_validation_precedes_type_checking()
   assert(not r.err:find("broken.tl", 1, true),
     "type checking must not have run, got: " .. r.err)
 end
-test_validation_precedes_type_checking()
 
 -- Selection is by path, and a directory selects its subtree. It changes
 -- which files are checked, never what the project is -- the model is
@@ -170,7 +166,6 @@ local function test_selection_by_path()
   assert(both.out:find("check: PASS (2 files)", 1, true),
     "several paths are accepted, got: " .. both.out)
 end
-test_selection_by_path()
 
 -- A selection matching nothing is an error, not a silent zero-file
 -- pass: "0 files checked, PASS" is how a typo becomes a green build.
@@ -181,7 +176,6 @@ local function test_empty_selection_fails()
   assert(r.err:find("nothing to do under: nope", 1, true),
     "the message must name the path, got: " .. r.err)
 end
-test_empty_selection_fails()
 
 -- An empty directory is a valid project with nothing to do. A fresh
 -- project must not fail on a stage that had no material.
@@ -191,7 +185,6 @@ local function test_empty_project_passes()
   assert(r.code == 0, "an empty project must pass, got " .. r.code .. ": " .. r.err)
   assert(r.out:find("check: PASS (0 files)", 1, true), "got: " .. r.out)
 end
-test_empty_project_passes()
 
 -- Running from inside a project is refused rather than silently
 -- checking a truncated file list.
@@ -202,7 +195,6 @@ local function test_ancestor_guard_end_to_end()
   assert(r.err:find("ambiguous root", 1, true), "got: " .. r.err)
   assert(r.err:find(root, 1, true), "the refusal must name the likely root")
 end
-test_ancestor_guard_end_to_end()
 
 -- The verb vocabulary is closed and self-describing: an unknown verb
 -- lists what exists, and a verb the design defines but this slice does
@@ -230,7 +222,6 @@ local function test_verb_vocabulary()
   assert(planned.err:find("planned but not implemented yet", 1, true),
     "got: " .. planned.err)
 end
-test_verb_vocabulary()
 
 -- Selection space had no bottom: every `-`-prefixed token fell through
 -- into it and died as a path, so `--make fmt --fix` -- a spelling the
@@ -256,7 +247,6 @@ local function test_flags_are_a_namespace()
   assert(narrowed.err:find("takes no paths", 1, true),
     "got: " .. narrowed.err)
 end
-test_flags_are_a_namespace()
 
 -- `fmt --fix` rewrites rather than reports, in process: a `.fmt.got`
 -- records a verdict ABOUT a file, and rewriting the file makes that
@@ -277,7 +267,6 @@ local function test_fmt_fix_rewrites()
   assert(again.code == 0, "a second run should succeed: " .. again.err)
   assert(again.out:find("0 rewritten", 1, true), "got: " .. again.out)
 end
-test_fmt_fix_rewrites()
 
 -- `help` is a verb you asked for, so it succeeds on stdout. Without
 -- the verb, the text reaches the reader only as the unknown-verb
@@ -301,7 +290,6 @@ local function test_help_is_a_verb()
     ": " .. outside.err)
   assert(outside.out:find("make: verbs:", 1, true), "got: " .. outside.out)
 end
-test_help_is_a_verb()
 
 -- `--make` with no verb is a usage error, not a default action:
 -- silently doing something with no verb is worse than saying so.
@@ -313,7 +301,6 @@ local function test_bare_make_is_a_usage_error()
   assert((r.stderr or ""):find("--make requires", 1, true),
     "got: " .. tostring(r.stderr))
 end
-test_bare_make_is_a_usage_error()
 
 -- COSMIC_MAKE_ROOT names a root for callers that cannot chdir, and the
 -- banner reports the root that was actually used.
@@ -331,7 +318,6 @@ local function test_root_override()
   assert((r.stdout or ""):find("make: root=" .. root, 1, true),
     "the banner must name the root actually used, got: " .. tostring(r.stdout))
 end
-test_root_override()
 
 -- In process, against a named root. `mk.run` chdirs into the root it
 -- resolved, so the caller's cwd is saved and restored around every
@@ -367,7 +353,6 @@ local function test_in_process_dispatch()
     })
   assert(in_process(typed, "check") == 1, "a type error fails")
 end
-test_in_process_dispatch()
 
 -- The vocabulary is data, and the usage text is built from it: a verb
 -- added to one list without the other would print a menu that lies.
@@ -380,7 +365,6 @@ local function test_usage_lists_the_vocabulary()
     assert(text:find(verb, 1, true), "usage must name " .. verb)
   end
 end
-test_usage_lists_the_vocabulary()
 
 -- `check.run` and `fetch.run` are module functions, and each refuses a
 -- selection naming nothing on its own. The `--make` pre-flight refuses
@@ -398,7 +382,6 @@ local function test_the_verbs_refuse_a_bad_selection_on_their_own()
   assert(mfetch.run(proj, {"nope"}) == 1,
     "fetch.run must refuse a path that names nothing")
 end
-test_the_verbs_refuse_a_bad_selection_on_their_own()
 
 -- `--make=verb path` (the GNU `=` spelling) keeps its path selection.
 -- A pre-scan matching only `--make`, not `--make=check`, would drop
@@ -414,7 +397,6 @@ local function test_make_equals_form_keeps_its_selection()
   assert(out:find("nothing to do under: nope.tl", 1, true),
     "the path reached the selection, not dropped: " .. out)
 end
-test_make_equals_form_keeps_its_selection()
 
 -- The graph's proof is honored exactly. A compiled output as new as
 -- the source, its closure, and both tool stamps skips the check; any
@@ -456,7 +438,6 @@ local function test_the_graph_proof_and_what_unmakes_it()
     "a moved compile stamp un-proves every file")
   assert(fs.set_cwd(cwd))
 end
-test_the_graph_proof_and_what_unmakes_it()
 
 -- End to end: the skip is real. A type-broken source under a CONCOCTED
 -- fresh output passes -- a state the graph cannot produce (its compile
@@ -483,6 +464,5 @@ local function test_check_skips_what_the_graph_proved()
     "a source newer than its proof must be checked, and fail")
   assert(fs.set_cwd(cwd))
 end
-test_check_skips_what_the_graph_proved()
 
 print("all make check tests passed")

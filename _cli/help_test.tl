@@ -9,13 +9,11 @@ local function test_generate_returns_string()
   assert(type(result) == "string", "generate() should return a string, got " .. type(result))
   assert(#result > 0, "generate() should return non-empty string")
 end
-test_generate_returns_string()
 
 local function test_generate_contains_usage()
   local result = help.generate()
   assert(result:find("Usage:"), "help text should contain 'Usage:'")
 end
-test_generate_contains_usage()
 
 local function test_generate_contains_all_longopts()
   local result = help.generate()
@@ -26,7 +24,6 @@ local function test_generate_contains_all_longopts()
     assert(result:find(pattern, 1, false), "help text missing long option: --" .. f.long)
   end
 end
-test_generate_contains_all_longopts()
 
 local function test_generate_contains_all_shortopts()
   local result = help.generate()
@@ -41,7 +38,6 @@ local function test_generate_contains_all_shortopts()
     end
   end
 end
-test_generate_contains_all_shortopts()
 
 local function test_generate_contains_env_vars()
   local result = help.generate()
@@ -56,7 +52,6 @@ local function test_generate_contains_env_vars()
     assert(result:find(var, 1, true), "help text missing environment variable: " .. var)
   end
 end
-test_generate_contains_env_vars()
 
 local function test_generate_renders_derived_lists()
   local result = help.generate()
@@ -68,13 +63,11 @@ local function test_generate_renders_derived_lists()
   assert(result:find("COSMIC_FENCE", 1, true),
     "the public env vars render from the registry")
 end
-test_generate_renders_derived_lists()
 
 local function test_generate_contains_documentation_section()
   local result = help.generate()
   assert(result:find("Documentation:"), "help text should contain 'Documentation:'")
 end
-test_generate_contains_documentation_section()
 
 local function test_generate_contains_guides_section()
   local result = help.generate()
@@ -83,4 +76,3 @@ local function test_generate_contains_guides_section()
   assert(result:find("formatting"), "help text should list formatting guide")
   assert(result:find("checking"), "help text should list checking guide")
 end
-test_generate_contains_guides_section()

@@ -16,7 +16,6 @@ local function test_import_path_inverts_the_layout_rule()
   assert(modules.import_path("o/x.lua", "o") == "x")
   assert(modules.import_path("o/a/b/c.lua", "o") == "a.b.c")
 end
-test_import_path_inverts_the_layout_rule()
 
 local function test_import_path_refuses_what_is_not_one()
   assert(modules.import_path("pkg/db.lua", "o") == nil,
@@ -26,7 +25,6 @@ local function test_import_path_refuses_what_is_not_one()
   assert(modules.import_path("o/x.tl.test.got", "o") == nil,
     "and neither is the graph's own bookkeeping")
 end
-test_import_path_refuses_what_is_not_one()
 
 -- The reader is the bootstrap and requires nothing, so the manifest has
 -- to say everything it needs: where the root is, what the build
@@ -38,7 +36,6 @@ local function test_render_names_root_build_and_modules()
   assert(text:find("mod a /r/o/a.lua\n", 1, true), "got: " .. text)
   assert(text:find("mod b /r/o/b/init.lua\n", 1, true), "got: " .. text)
 end
-test_render_names_root_build_and_modules()
 
 -- Sorted, so the bytes are a function of the closure and not of the
 -- order make happened to list it. A manifest that churns is a file
@@ -48,7 +45,6 @@ local function test_render_is_order_independent()
   local b = modules.render("/r", {"o/c.lua", "o/a.lua", "o/b.lua"}, "o")
   assert(a == b, "same closure, different order:\n" .. a .. "\n---\n" .. b)
 end
-test_render_is_order_independent()
 
 -- Non-modules are dropped rather than rendered as something: a `.d.tl`
 -- compiles to nothing and the graph's `.got` files are not imports.
@@ -60,7 +56,6 @@ local function test_render_drops_what_is_not_a_module()
   end
   assert(n == 1, "only the module should be listed, got: " .. text)
 end
-test_render_drops_what_is_not_a_module()
 
 -- attach() is the other half of the channel: the file plus the argument
 -- convention. Position 2 and 3, so the child's dispatcher sees the flag
@@ -79,7 +74,6 @@ local function test_attach_puts_the_flag_after_the_program()
   local text = check.must(fs.read(argv[3]))
   assert(text:find("mod a /r/o/a.lua", 1, true), "got: " .. text)
 end
-test_attach_puts_the_flag_after_the_program()
 
 -- A manifest that cannot be written is a MISS, not a failure: the child
 -- then runs as an ordinary cosmic, which is the behaviour that shipped
@@ -89,7 +83,6 @@ local function test_attach_is_a_miss_when_it_cannot_write()
   modules.attach(argv, "/proc/self/mem/nope/t", "/r", {"o/a.lua"})
   assert(#argv == 2, "an unwritable manifest must not change the argv")
 end
-test_attach_is_a_miss_when_it_cannot_write()
 
 -- The build directory exists in two places on purpose (the steps may
 -- not reach into `_make`), so the ratchet is what keeps them one fact.
@@ -98,6 +91,5 @@ local function test_build_dir_agrees_with_the_model()
     "modules.BUILD_DIR (" .. modules.BUILD_DIR .. ") must equal " ..
     "project.BUILD_DIR (" .. project.BUILD_DIR .. ")")
 end
-test_build_dir_agrees_with_the_model()
 
 print("all modules tests passed")

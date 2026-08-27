@@ -11,13 +11,11 @@ local function test_check_file_length_under()
   local diags = style.check_file_length("test.tl", 100, 500)
   assert(#diags == 0, "expected no diagnostic for file under limit")
 end
-test_check_file_length_under()
 
 local function test_check_file_length_at_limit()
   local diags = style.check_file_length("test.tl", 500, 500)
   assert(#diags == 0, "expected no diagnostic for file at limit")
 end
-test_check_file_length_at_limit()
 
 local function test_check_file_length_over()
   local diags = style.check_file_length("test.tl", 501, 500)
@@ -27,7 +25,6 @@ local function test_check_file_length_over()
   assert(diags[1].message:match("501"), "expected line count in message")
   assert(diags[1].message:match("500"), "expected limit in message")
 end
-test_check_file_length_over()
 
 local function test_lint_file_under_default()
   local path = fs.join(tmpdir, "short.tl")
@@ -40,7 +37,6 @@ local function test_lint_file_under_default()
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for short file, got: " .. tostring(#diagnostics))
 end
-test_lint_file_under_default()
 
 local function test_lint_file_over_default()
   local path = fs.join(tmpdir, "long.tl")
@@ -54,7 +50,6 @@ local function test_lint_file_over_default()
   assert(#diagnostics == 1, "expected 1 diagnostic for long file, got: " .. tostring(#diagnostics))
   assert(diagnostics[1].rule == "file-length", "expected file-length rule")
 end
-test_lint_file_over_default()
 
 -- A binary (or any non-Teal/Lua file) over the length limit gets the
 -- .cosmicignore hint: "split this file" is not actionable advice for an
@@ -72,7 +67,6 @@ local function test_lint_file_hints_cosmicignore_for_binary()
   assert(diagnostics[1].message:find(".cosmicignore", 1, true),
     "expected a .cosmicignore hint, got: " .. diagnostics[1].message)
 end
-test_lint_file_hints_cosmicignore_for_binary()
 
 local function test_lint_file_hints_cosmicignore_for_non_source_text()
   local path = fs.join(tmpdir, "data.csv")
@@ -89,7 +83,6 @@ local function test_lint_file_hints_cosmicignore_for_non_source_text()
   assert(diagnostics[1].message:find(".cosmicignore", 1, true),
     "expected a .cosmicignore hint, got: " .. diagnostics[1].message)
 end
-test_lint_file_hints_cosmicignore_for_non_source_text()
 
 -- Teal/Lua source over the limit keeps the plain message: the fix for
 -- source really is to split it, and a .cosmicignore hint there would
@@ -107,7 +100,6 @@ local function test_lint_file_no_ignore_hint_for_source()
   assert(not diagnostics[1].message:find(".cosmicignore", 1, true),
     "source files should not get the ignore hint: " .. diagnostics[1].message)
 end
-test_lint_file_no_ignore_hint_for_source()
 
 local function test_lint_file_skips_dtl()
   -- .d.tl files are type declarations for C bindings and are exempt from length checks
@@ -121,12 +113,10 @@ local function test_lint_file_skips_dtl()
   local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for .d.tl file, got: " .. tostring(#diagnostics))
 end
-test_lint_file_skips_dtl()
 
 local function test_default_file_lines()
   assert(style.DEFAULT_FILE_LINES == 500, "expected default to be 500")
 end
-test_default_file_lines()
 
 -- cosmo-require: the forbidden pattern is spelled via concatenation below so
 -- this file's own fixtures don't trip the rule (it is allowlisted anyway).
@@ -140,21 +130,18 @@ local function test_cosmo_require_flags_test_file()
   assert(diags[1].rule == "cosmo-require", "expected cosmo-require rule")
   assert(diags[1].line == 1, "expected line 1, got: " .. tostring(diags[1].line))
 end
-test_cosmo_require_flags_test_file()
 
 local function test_cosmo_require_flags_bare_cosmo_in_example()
   local lines = {"local cosmo = " .. REQ_COSMO}
   local diags = lint.check_cosmo_require("cosmic/foo_example.tl", lines)
   assert(#diags == 1, "expected 1 diagnostic, got: " .. tostring(#diags))
 end
-test_cosmo_require_flags_bare_cosmo_in_example()
 
 local function test_cosmo_require_ignores_non_test_files()
   local lines = {"local unix = " .. REQ_COSMO_UNIX}
   local diags = lint.check_cosmo_require("cosmic/foo.tl", lines)
   assert(#diags == 0, "library internals may require cosmo directly")
 end
-test_cosmo_require_ignores_non_test_files()
 
 local function test_cosmo_require_ignores_cosmic_requires()
   local lines = {
@@ -164,14 +151,12 @@ local function test_cosmo_require_ignores_cosmic_requires()
   local diags = lint.check_cosmo_require("cosmic/foo_test.tl", lines)
   assert(#diags == 0, "cosmic.* and cosmos are not cosmo requires")
 end
-test_cosmo_require_ignores_cosmic_requires()
 
 local function test_cosmo_require_honors_allowlist()
   local lines = {"local unix = " .. REQ_COSMO_UNIX}
   local diags = lint.check_cosmo_require("cosmic/child/init_test.tl", lines)
   assert(#diags == 0, "allowlisted files must not be flagged")
 end
-test_cosmo_require_honors_allowlist()
 
 -- One implementation, split by what each half may require: the pure
 -- checks stay in `_tool.lint` (inside the strip floor, where there is
@@ -185,7 +170,6 @@ local function test_the_pure_checks_come_from_style()
     and lint.check_cast_justification and lint.check_cosmo_require,
     "the composition and the lexer checks are this module's")
 end
-test_the_pure_checks_come_from_style()
 
 -- The convention is a TEST file one, and it applies to the functions
 -- that RUN: `test_*` and `Example_*`. A helper is defined once and
@@ -212,7 +196,6 @@ local function test_call_after_define_names_the_runnable_ones()
   assert(#diags == 2, "both are called too late, got " .. #diags)
   assert(diags[1].rule == "call-after-define", "got: " .. diags[1].rule)
 end
-test_call_after_define_names_the_runnable_ones()
 
 -- D29 makes the rule two-moded: a file whose tests never self-call is
 -- runner mode (the toolchain runs what discovery finds) and lints
@@ -225,7 +208,6 @@ local function test_a_runner_mode_file_lints_clean()
   assert(#diags == 0, "no self-calls at all is runner mode, got " .. #diags
     .. (diags[1] and (": " .. diags[1].message) or ""))
 end
-test_a_runner_mode_file_lints_clean()
 
 local function test_a_mixed_file_names_the_uncalled_test()
   local src = "local function test_a()\n  return 1\nend\ntest_a()\n\n" ..
@@ -236,7 +218,6 @@ local function test_a_mixed_file_names_the_uncalled_test()
   assert(diags[1].message:find("test_b", 1, true),
     "the diagnostic names the test that would silently not run")
 end
-test_a_mixed_file_names_the_uncalled_test()
 
 -- And it is a TOKEN scan, not a line scan: counting `function`/`end`
 -- in source TEXT would let a fixture string holding either move the
@@ -250,7 +231,6 @@ local function test_call_after_define_ignores_keywords_in_strings()
   assert(#diags == 0, "a keyword inside a string is not a block, got " ..
     #diags .. (diags[1] and (": " .. diags[1].message) or ""))
 end
-test_call_after_define_ignores_keywords_in_strings()
 
 -- Blocks inside the body still close correctly -- the case a
 -- depth-tracking implementation needs a corpus of examples for, and
@@ -263,7 +243,6 @@ local function test_call_after_define_handles_nested_blocks()
   assert(#diags == 0, "nested blocks must not move the closer, got " ..
     #diags .. (diags[1] and (": " .. diags[1].message) or ""))
 end
-test_call_after_define_handles_nested_blocks()
 
 -- The rule does not apply outside test and example files, where "call
 -- this function immediately after defining it" is not a convention
@@ -273,7 +252,6 @@ local function test_call_after_define_is_scoped_to_tests()
   assert(#lint.check_call_after_define("mod.tl", src, lines_of(src)) == 0,
     "an ordinary module is not held to the test convention")
 end
-test_call_after_define_is_scoped_to_tests()
 
 -- `find` with a variable needle is a pattern, and the bug it causes is
 -- silent: a path with a `-` in it stops matching itself. The rule asks
@@ -303,7 +281,6 @@ local function test_find_needle_wants_the_intent_stated()
   assert(#lint.check_find_needle("m.tl", 'local x = list.find(t, v)\n') == 0,
     "only string.find is string.find")
 end
-test_find_needle_wants_the_intent_stated()
 
 local function test_gsub_replacement_wants_the_intent_stated()
 
@@ -365,7 +342,6 @@ local function test_gsub_replacement_wants_the_intent_stated()
   assert(#lint.check_gsub_replacement("m.tl", dotted_lit, lines_of(dotted_lit)) == 0,
     "and a literal there passes")
 end
-test_gsub_replacement_wants_the_intent_stated()
 
 -- A `check.needs` guard that returns is the failure the rule is named
 -- for: the file runs on, exits 0, and the runner grades 0 as a pass, so
@@ -395,7 +371,6 @@ local function test_check_kinds_are_named_when_wrong()
   assert(chk.run("bogus", {"x.tl"}, {}) == 1, "an unknown kind fails")
   assert(chk.run("types", {}, {}) == 1, "a missing file fails")
 end
-test_check_kinds_are_named_when_wrong()
 
 -- The visibility rule: a shard require from outside cosmic/ is
 -- flagged; the public parent, files inside cosmic/, and generators
@@ -421,7 +396,6 @@ local function test_visibility_flags_shard_requires_outside_cosmic()
   assert(d.message:find("cosmic." .. "fs.types", 1, true),
     "the message names the shard")
 end
-test_visibility_flags_shard_requires_outside_cosmic()
 
 print("all lint tests passed")
 
@@ -457,4 +431,3 @@ local function test_render_diagnostics_snippets()
   assert(render.render_diagnostics(path, {}) == "",
     "no diagnostics render as nothing")
 end
-test_render_diagnostics_snippets()

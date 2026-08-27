@@ -72,7 +72,6 @@ local function test_batch_compiles_skips_and_restamps()
   assert(body2:find("compiled 0 skipped 2 of 2", 1, true),
     "second run skips both: " .. body2)
 end
-test_batch_compiles_skips_and_restamps()
 
 local function test_batch_reports_all_failures_and_writes_no_stamp()
   local args, outdir = batch_args("batch-bad", {aa = GOOD_A, bad = BAD, zz = GOOD_B})
@@ -85,7 +84,6 @@ local function test_batch_reports_all_failures_and_writes_no_stamp()
   assert(not fs.is_present(fs.join(outdir, "bad.lua")),
     "the broken member writes nothing")
 end
-test_batch_reports_all_failures_and_writes_no_stamp()
 
 local function test_fail_fast_stops_at_the_first_failure()
   local args, outdir = batch_args("batch-ff", {aa = BAD, zz = GOOD_B})
@@ -96,7 +94,6 @@ local function test_fail_fast_stops_at_the_first_failure()
   assert(not fs.is_present(fs.join(outdir, "zz.lua")),
     "members after the first failure are not attempted")
 end
-test_fail_fast_stops_at_the_first_failure()
 
 local function test_batch_refuses_unknown_flags_and_bad_usage()
   local args = batch_args("batch-flags", {a = GOOD_A})
@@ -106,4 +103,3 @@ local function test_batch_refuses_unknown_flags_and_bad_usage()
   local no_srcs, _ = batch_args("batch-nosrcs", {})
   assert(batch.compile_batch(no_srcs) ~= 0, "an empty member list is refused")
 end
-test_batch_refuses_unknown_flags_and_bad_usage()

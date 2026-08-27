@@ -110,7 +110,6 @@ local function test_every_marker_classifies()
   kind_of(proj, "cmd/servit/main.tl", "entry")
   kind_of(proj, "cmd/servit/routes.tl", "module")
 end
-test_every_marker_classifies()
 
 -- Import path = path relative to the root, extension dropped, / -> .,
 -- with init naming its own directory. The project root is the module
@@ -131,7 +130,6 @@ local function test_import_paths()
   assert(kind_of(proj, "_internal/log.tl", "module").import == "_internal.log",
     "an internal module still has an import path; the rule is who may use it")
 end
-test_import_paths()
 
 -- testdata/ is positional and wins over the suffix markers: its only
 -- job is keeping fixtures out of artifacts, and a fixture named like a
@@ -144,7 +142,6 @@ local function test_testdata_wins_over_suffixes()
   kind_of(proj, "db/testdata/sample_test.tl", "testdata")
   kind_of(proj, "db/testdata/nested/deep.tl", "testdata")
 end
-test_testdata_wins_over_suffixes()
 
 -- Binaries: the root entry takes the project's own name, a cmd/ entry
 -- takes its directory's.
@@ -170,7 +167,6 @@ local function test_binaries()
     end
   end
 end
-test_binaries()
 
 -- What the walk never sees. Each of these is a class of file that would
 -- otherwise be embedded in an artifact at its relative path: CI
@@ -190,7 +186,6 @@ local function test_exclusions()
     "expected only keep.tl, got " .. #proj.files .. " files")
   kind_of(proj, "keep.tl", "module")
 end
-test_exclusions()
 
 -- A dot-directory is pruned, not merely skipped: nothing below it is
 -- reachable either. Asserted separately because "the entry is
@@ -203,7 +198,6 @@ local function test_dot_directories_are_pruned()
     })
   assert(#proj.files == 1, "the .git subtree must not be walked")
 end
-test_dot_directories_are_pruned()
 
 -- An empty project is a project. A fresh `cosmic --make check` in an
 -- empty directory must not be an error.
@@ -212,7 +206,6 @@ local function test_empty_project()
   assert(#proj.files == 0, "expected no files")
   assert(#proj.binaries == 0, "expected no binaries")
 end
-test_empty_project()
 
 -- A missing root is a failure with a message, never an empty project:
 -- an empty file list is what every verb reads as "nothing to do".
@@ -222,7 +215,6 @@ local function test_missing_root_fails()
   assert(err:find("not a directory", 1, true),
     "expected a not-a-directory error, got: " .. tostring(err))
 end
-test_missing_root_fails()
 
 -- of_kind is how the verbs ask the model for their inputs.
 local function test_of_kind()
@@ -236,7 +228,6 @@ local function test_of_kind()
   assert(#project.of_kind(proj, {"module", "asset"}) == 2, "one module, one asset")
   assert(#project.of_kind(proj, {"entry"}) == 0, "no entry")
 end
-test_of_kind()
 
 print("all project tests passed")
 
@@ -258,7 +249,6 @@ local function test_embed_is_payload_whatever_it_is_named()
   assert(project.classify("embedded.tl") == "module",
     "a module whose name starts with 'embed' is still a module")
 end
-test_embed_is_payload_whatever_it_is_named()
 
 -- The directories a coverage report scans for files no test loaded.
 -- Compiled kinds only: a `testdata/` fixture or an `embed/` payload
@@ -280,4 +270,3 @@ local function test_source_dirs_are_the_compiled_ones()
   local got = table.concat(project.source_dirs(proj), " ")
   assert(got == ". pkg", "got: " .. got)
 end
-test_source_dirs_are_the_compiled_ones()

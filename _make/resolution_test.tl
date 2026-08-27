@@ -92,7 +92,6 @@ test_source()
   assert(from:find("/o/greet/init.lua", 1, true),
     "a test must load the graph's output, got: " .. from)
 end
-test_a_test_loads_what_the_graph_built()
 
 -- `run` takes a path, and what it runs resolves against the tree. The
 -- computed require is the interesting half: `require(name)` off argv is
@@ -111,7 +110,6 @@ io.write("FROM " .. debug.getinfo(mod.hi, "S").source .. "\n")
   assert(from:find(root, 1, true),
     "a computed require must resolve inside the project, got: " .. from)
 end
-test_run_resolves_a_computed_require()
 
 -- `run` is a passthrough: the target's flags are the target's, and its
 -- exit code is what the caller sees.
@@ -126,7 +124,6 @@ os.exit(7)
     "the target's own flags must arrive verbatim: " .. out)
   assert(code == 7, "the target's exit code is the verb's, got: " .. code)
 end
-test_run_passes_argv_and_exit_code_through()
 
 -- A binary NAME is the rejected `run [binary]` spelling, so it is the
 -- one wrong guess worth a sentence rather than "no such selection".
@@ -138,7 +135,6 @@ local function test_run_refuses_a_binary_name()
   assert(out:find("takes a path, not a binary name", 1, true) or
     out:find("no such source", 1, true), "got: " .. out)
 end
-test_run_refuses_a_binary_name()
 
 -- The resolution is per-invocation, in argv, and a GRANDCHILD does not
 -- get it. That is the whole reason the channel is a flag and not an
@@ -178,7 +174,6 @@ io.write(r.stdout or "")
     not child_src:find("/o/", 1, true),
     "a grandchild must NOT inherit the resolution, got: " .. child_src)
 end
-test_resolution_does_not_inherit()
 
 -- The same verb through the module API, which is the other calling
 -- convention and the only one this process can see: every case above
@@ -196,7 +191,6 @@ io.write("SAYS " .. greet.hi("x") .. "\n")
   assert(fs.set_cwd(cwd))
   assert(code == 0, "an in-process run should succeed")
 end
-test_run_in_process()
 
 -- And its refusals, which are the pre-flight `_make.law` runs before
 -- anything is built -- so they cost a walk rather than a rebuild.
@@ -218,7 +212,6 @@ local function test_run_refusals_in_process()
   -- which is what passthrough MEANS.
   assert(two == 0, "the second path belongs to the target")
 end
-test_run_refusals_in_process()
 
 -- A project with NO binary still runs a script: `run` compiles its
 -- target's closure directly, since prepare_stage builds nothing when
@@ -245,7 +238,6 @@ io.write("TOOL " .. greet.hi("nobin") .. "\n")
   assert(out:find("TOOL hi nobin", 1, true),
     "the target ran against its compiled closure, got: " .. out)
 end
-test_run_builds_a_target_with_no_binary()
 
 -- A binary-less target that does not compile fails `run` loudly, rather
 -- than spawning an o/ file the failed build never wrote.
@@ -259,7 +251,6 @@ local function test_run_reports_a_binaryless_build_failure()
   local code, out = make(root, {"run", "bad.tl"})
   assert(code ~= 0, "a target that fails to compile must fail run: " .. out)
 end
-test_run_reports_a_binaryless_build_failure()
 
 -- `run` is a stdin passthrough: the target reads the caller's real fd 0,
 -- not the literal string "inherit" (which resolve_stdio reads as pipe
@@ -281,6 +272,5 @@ io.write("GOT " .. tostring(io.read("l")) .. "\n")
   assert(out:find("GOT the-real-stdin", 1, true),
     "the target must read the caller's stdin, not \"inherit\": " .. out)
 end
-test_run_passes_stdin_through()
 
 print("all resolution tests passed")
