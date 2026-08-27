@@ -1,6 +1,5 @@
 #!/usr/bin/env cosmic
---- reads: _make
---- reads: _cli
+--- reads: _build _cli _docs _eval _fuzz _make _tool _types cmd
 -- The duplicate-body gate: the tree holds no two identical top-level
 -- function bodies in the scanned trees, and the scanner's judgments --
 -- rename-blind matching, the one-statement difference, the size floor,

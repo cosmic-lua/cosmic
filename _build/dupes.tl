@@ -4,8 +4,8 @@
 --- coverage -- so the only thing between a duplicate and main was a
 --- reviewer noticing; three copies of one body survived four green CI
 --- runs that way. This module finds identical top-level function
---- bodies across the two trees where that happened and names both
---- sites, so the gate fails before the review starts.
+--- bodies across the scanned trees and names both sites, so the gate
+--- fails before the review starts.
 ---
 --- Extraction is textual and rests on a gate: `fmt` enforces 2-space
 --- indentation, so a top-level body spans from a line matching
@@ -17,13 +17,26 @@
 --- measured over these trees, the only sub-floor duplicate is a
 --- trivial forwarder, and one-line accessors are not worth exporting.
 --- The gate starts and stays at zero findings -- no baseline, no
---- allowlist.
+--- allowlist -- so a tree joins the scope only when it is clean, and
+--- widening then costs nothing. The 2026-08-20 escape (byte-identical
+--- bodies in two _fuzz files passing ci) was exactly a tree the
+--- narrow scope missed.
 
 local fs = require("cosmic.fs")
 
---- The trees the scan covers: where the observed duplications lived,
---- and small enough that a false positive is cheap to inspect.
-local TREES < const >: {string} = {"_make", "_cli"}
+--- The trees the scan covers, mirrored by dupes_test.tl's
+--- `--- reads:` line so a diff in any of them invalidates the gate's
+--- cached verdict. The original narrow scope ({"_make", "_cli"},
+--- where the first duplications lived) is how a _fuzz duplication
+--- passed four green ci runs. Two trees wait outside: _perf (five
+--- duplicated bench helpers) and cosmic (whose glob_to_pattern
+--- _make/project.tl copies) join once their standing duplicates are
+--- exported and required — the gate is zero-tolerance, so a tree
+--- enters only clean.
+local TREES < const >: {string} = {
+  "_build", "_cli", "_docs", "_eval", "_fuzz", "_make", "_tool", "_types",
+  "cmd",
+}
 
 --- Normalized bodies shorter than this are skipped. Measured basis
 --- (2026-08-19, comment/whitespace normalization over the same scope):
