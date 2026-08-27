@@ -138,7 +138,7 @@ item and one follow-up item.
    reproduction rests on. Do not edit C sources to make an arm build.
 
 2. **Smoke each runtime before measuring it.** For each arm,
-   `/tmp/lua-<X> -e 'local s=("abc"):rep(21845) local e=cosmo.EncodeBase64(s) assert(cosmo.IsBase64(e)) assert(cosmo.DecodeBase64(e)==s) print("ok")'`
+   `/tmp/lua-<X> -e 'local cosmo=require("cosmo") local s=("abc"):rep(21845) local e=cosmo.EncodeBase64(s) assert(cosmo.IsBase64(e)) assert(cosmo.DecodeBase64(e)==s) print("ok")'`
    must print `ok`. An arm that does not is dropped as in (1).
 
 3. **Record each arm's base64 layout.** For each arm, from the same
@@ -410,3 +410,129 @@ arm C's diff once it looks like the answer (`Change` (7) and the first
 `Non-goals` bullet), softening the rule when an arm fails to separate
 (`Change` (6) and (7)'s third row), and reaching for a released binary
 as one of the arms (`Non-goals`).
+
+## Result
+
+Measured 2026-08-27 on one host (`uname -m` → `x86_64`,
+`Intel(R) Xeon(R) Processor @ 2.80GHz`, `nproc` → `4`), following
+`## Change` (1)-(7) with one correction noted at the end.
+
+- runtime A a108f199fc2e37f315e988776c948ffd4e597a689075786abc8ed4a9b6e01296
+- runtime B 44fd5c18efbf8e9d4eac5ea9fa23b88cea196ef64995317dc87cfeb62e9115bf
+- runtime C fdb21a6ee2f0f8e52f53ad19d4379913af6fb2250178812b5e923d3c8e6da215
+- cosmic A 9d81999474055f1066f35422c250a1b44ccc21190839c2cf0987d2b753440044
+- cosmic B f1ab6b39a24f0a49f01a7a3043d46cfafbbbe4ad1969dcce4bce3f8c0fd9dc95
+- cosmic C 884f59a41692ba8fe0c7a23c8377fb069d6cc15092cf42ce73720822b034a72a
+
+All three runtimes built `m=rel` from one whilp/cosmopolitan worktree
+with cosmocc `2025.12.30-0c0b4c8c8`, all three `bin/cosmic --make build`
+runs read `build: PASS (515 files, 1 binary)`, and all six digests
+differ. Each runtime passed the smoke in (2) printing `ok`.
+
+- layout A IsBase64 0x43a6a60 EncodeBase64 0x43a4cc0 DecodeBase64 0x43a49c0 text 2777412 ape 2987717 — `kBase64` at `0x444cd20` and `kBase64Alpha` at `0x444dda0`; no `CHARS` symbol (it is a string literal, not an object), so `absent` for that one.
+- layout B IsBase64 0x43a9d40 EncodeBase64 0x43a7fa0 DecodeBase64 0x43a7ca0 text 2790188 ape 3000420 — `kBase64` at `0x4450040` and `kBase64Alpha` at `0x44510c0`; `CHARS` absent for the same reason.
+- layout C IsBase64 0x43a9d40 EncodeBase64 0x43a7fa0 DecodeBase64 0x43a7ca0 text 2790188 ape 3000420 — `kBase64` at `0x4450040` and `kBase64Alpha` at `0x44510c0`; `CHARS` absent for the same reason.
+
+Arms B and C are identical in every one of those numbers while their
+binaries differ (`- runtime` digests above), and arm A differs from
+both: `DecodeBase64` moved `0x43a49c0` → `0x43a7ca0`, `+0x32E0`, and
+`.text` grew 2777412 → 2790188, `+12776` bytes.
+
+- selfcheck A -3.5% -0.8%
+- selfcheck B +0.0% +0.2%
+- selfcheck C -1.5% -3.7%
+- floor 3.7%
+
+| run | arm | µs/op | ± |
+|---|---|---|---|
+| 01 | A | 138.78 | 4.3% |
+| 02 | B | 162.42 | 1.8% |
+| 03 | C | 161.85 | 6.4% |
+| 04 | A | 144.84 | 35.0% |
+| 05 | B | 164.35 | 2.9% |
+| 06 | C | 167.62 | 32.7% |
+| 07 | A | 138.87 | 1.5% |
+| 08 | B | 178.06 | 2.8% |
+| 09 | C | 170.17 | 7.3% |
+| 10 | A | 138.67 | 3.5% |
+| 11 | B | 165.71 | 5.7% |
+| 12 | C | 160.81 | 1.2% |
+| 13 | A | 153.31 | 14.8% |
+| 14 | B | 167.84 | 8.1% |
+| 15 | C | 166.77 | 3.4% |
+| 16 | A | 143.88 | 13.4% |
+| 17 | B | 164.37 | 2.7% |
+| 18 | C | 166.91 | 5.5% |
+| 19 | A | 143.80 | 3.7% |
+| 20 | B | 162.82 | 7.4% |
+| 21 | C | 164.37 | 25.9% |
+| 22 | A | 144.21 | 4.3% |
+| 23 | B | 161.50 | 4.7% |
+| 24 | C | 167.26 | 10.2% |
+| 25 | A | 147.23 | 6.6% |
+| 26 | B | 172.33 | 5.4% |
+| 27 | C | 168.47 | 9.8% |
+
+- stats A min 138.67 lo 138.78 med 143.88 hi 147.23
+- stats B min 161.50 lo 162.42 med 164.37 hi 172.33
+- stats C min 160.81 lo 161.85 med 166.91 hi 168.47
+
+B: SLOWER THAN A — med 143.88 → 164.37 µs (+14.24%), trimmed ranges disjoint (hi A 147.23 < lo B 162.42), floor 3.7%
+
+C: SLOWER THAN A — med 143.88 → 166.91 µs (+16.00%), trimmed ranges disjoint (hi A 147.23 < lo C 161.85), floor 3.7%
+
+mechanism: not-link-position
+
+follow-up: 3ITdLKeRfSAe1HGgzOEhbqJvagM
+
+What this supports. `354c17e08` really does cost this scenario about
+20 µs, and it does so on locally built single-arch `m=rel` binaries —
+the first time the regression has been reproduced anywhere other than
+the released fat artifacts. The separation is not marginal: both
+candidate arms clear all three conditions of (6), and their RAW
+nine-reading ranges are disjoint from A's too (A max 153.31 < C min
+160.81 < B min 161.50), which the rule does not require. The
+measurement-identity traps are closed — six distinct digests, three
+`build: PASS` lines read directly, one cosmic tree at `5ef13f40` across
+all three arms with no `.tl` edit and no pin edit, and the readings
+taken round-robin so host drift hits every arm equally. This also
+retires the possibility that `3ITOUv0w`'s attribution was an artifact
+of the release toolchain or of the fat apelink: it is not.
+
+What this does NOT support, and the honest weakness of this run. Arm C
+was meant to be an arbitrary layout perturbation, and it was a NULL
+one. Moving `o/$(MODE)/tool/net/llua.o` within `TOOL_LUA_LUA_MODULES`
+left every base64 address, the `.text` size and the APE size
+bit-for-bit identical to arm B, so the arm perturbed nothing that could
+have mattered and its +16.00% is a restatement of B's +14.24%, not
+independent evidence. The `mechanism:` line above is therefore true in
+the narrow sense the (7) table's condition tests — that one-line
+`tool/lua/BUILD.mk` reorder is not a fix, and nobody should spend
+another session on it — and it must NOT be read as "layout is ruled
+out". Layout remains wide open: arm A's base64 routines sit at
+different addresses and different 64-byte offsets from arm B's
+(`DecodeBase64` and `EncodeBase64` are 64-byte aligned in A and
+32-byte-offset in B; `IsBase64` is the reverse), and this run
+distinguishes that from image growth, heap placement and everything
+else not at all. Designing a control that actually shifts compiled
+code is the next refinement's job, not this slice's, which is why (7)'s
+prescribed follow-up — find where the time went before designing
+another control — is the right one regardless of how weakly the row was
+reached.
+
+One departure from `## Change`, recorded rather than hidden. Step (2)'s
+smoke command indexed a global `cosmo`, which does not exist: the
+binding surface is a module, so the command was run as
+`/tmp/lua-<X> -e 'local cosmo=require("cosmo") local s=("abc"):rep(21845) local e=cosmo.EncodeBase64(s) assert(cosmo.IsBase64(e)) assert(cosmo.DecodeBase64(e)==s) print("ok")'`
+and step (2) above has been corrected in place to match. Nothing else in
+the spec was changed, and no other command was altered. Two further
+notes for whoever re-runs this: the readings were driven from a shell
+loop whose field extraction was wrong, so the µs and ± in the table
+above were read back out of the `o/perf/r-*.json` files each run wrote
+(`results[1].wall_ns / 1000` and `results[1].spread_pct`) rather than
+off the console — the same numbers from the same runs, by a different
+path; and the follow-up filed is (7) row two's item in purpose but not
+in instrument, because `perf` is not installed on this host (`which
+perf` → nothing) and a spec built on `perf record -g` could not have
+passed its own enablement check. The follow-up says so and names the
+profiler-free split it uses instead.
