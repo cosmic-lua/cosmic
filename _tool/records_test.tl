@@ -176,4 +176,72 @@ local function test_status_is_one_contract()
 end
 test_status_is_one_contract()
 
+-- A runner-mode child names the cases that failed and ends on a counts
+-- line; every other name in the file passed.
+local function test_parse_cases_attributes_pass_and_fail()
+  local out = "✗ test_b\n    stack traceback:\n"
+  .. records.counts(1, 1, 0) .. "\n"
+  local got = require("cosmic.check").must(
+    records.parse_cases({"test_a", "test_b"}, out))
+  assert(#got == 2, "one status per name, got " .. #got)
+  assert(got[1] == "pass", "test_a passed, got " .. tostring(got[1]))
+  assert(got[2] == "fail", "test_b failed, got " .. tostring(got[2]))
+end
+test_parse_cases_attributes_pass_and_fail()
+
+-- The trailing counts line IS the legacy/runner discriminator: a plain
+-- script never ends on one, and a file that prints one and keeps going
+-- is not reporting cases.
+local function test_parse_cases_refuses_a_non_runner_tail()
+  local none = records.parse_cases({"test_a"}, "hello from script\n")
+  assert(none == nil, "a plain script's output attributes nothing")
+  local trailing = records.parse_cases({"test_a"},
+    records.counts(1, 0, 0) .. "\nall tests passed\n")
+  assert(trailing == nil, "a counts line that is not last is not the tail")
+end
+test_parse_cases_refuses_a_non_runner_tail()
+
+-- Falling back is the right answer whenever the counts do not account
+-- for exactly these cases: a filtered run, a mid-run exit, a crash.
+local function test_parse_cases_refuses_a_short_count()
+  local short = records.parse_cases({"test_a", "test_b", "test_c"},
+    records.counts(2, 0, 0) .. "\n")
+  assert(short == nil, "two results cannot account for three cases")
+  local unnamed = records.parse_cases({"test_a", "test_b"},
+    records.counts(1, 1, 0) .. "\n")
+  assert(unnamed == nil, "a failure with no row naming it is not attributable")
+end
+test_parse_cases_refuses_a_short_count()
+
+-- `report` prints rows with the same icon, and a test that calls it
+-- writes them to its own stdout. Those rows name FILES, so the
+-- membership gate excludes them.
+local function test_parse_cases_ignores_a_report_row()
+  local out = records.row("fail", "cosmic/fs/init_test.tl", 0,
+    "test functions") .. "\n" .. records.counts(2, 0, 0) .. "\n"
+  local got = require("cosmic.check").must(
+    records.parse_cases({"test_a", "test_b"}, out))
+  assert(got[1] == "pass" and got[2] == "pass",
+    "a row naming a file is nobody's failure")
+end
+test_parse_cases_ignores_a_report_row()
+
+-- The tests line is ADDITIONAL to the checks line, never a replacement:
+-- every stage verdict is derived from the checks line, and
+-- `parse_counts`' patterns are unanchored, so a summary carrying both
+-- must still read back as the stage's own file counts.
+local function test_parse_counts_ignores_the_tests_line()
+  assert(records.test_counts(4, 2) == "6 tests: 4 passed, 2 failed",
+    "the tests line: " .. records.test_counts(4, 2))
+  assert(records.test_counts(3, 0) == "3 tests: 3 passed",
+    "no failures drops the clause: " .. records.test_counts(3, 0))
+  local summary = records.counts(18, 1, 0) .. "\n"
+  .. records.test_counts(4, 2) .. "\n"
+  local c = require("cosmic.check").must(records.parse_counts(summary))
+  assert(c.passed == 18 and c.failed == 1 and c.skipped == 0,
+    "the stage's counts moved: got " .. c.passed .. "/" .. c.failed
+    .. "/" .. c.skipped)
+end
+test_parse_counts_ignores_the_tests_line()
+
 print("all records tests passed")

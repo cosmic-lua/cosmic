@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local testrun = require("_tool.testrun")
+local records = require("_tool.records")
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 
@@ -238,5 +239,97 @@ local function test_report_missing_got()
   assert(exit_code == 1, "expected exit code 1 for missing .got file, got " .. exit_code)
 end
 test_report_missing_got()
+
+-- A runner-mode child reports its own cases, so the sidecar records a
+-- status per test instead of a bare name. The output base names the
+-- source beside it, which is where the names are scraped from.
+local function test_tests_sidecar_carries_statuses()
+  local src = fs.join(TEST_TMPDIR, "fake_test.tl")
+  assert(fs.write(src,
+      "local function test_a()\nend\nlocal function test_b()\nend\n"))
+
+  local script = fs.join(TEST_TMPDIR, "runner_mode.sh")
+  assert(fs.write(script, [[#!/bin/sh
+printf '%s\n' '✗ test_b'
+printf '%s\n' '    stack traceback:'
+printf '%s\n' '2 checks: 1 passed, 1 failed'
+exit 1
+]], {mode = tonumber("755", 8)}))
+
+  local output_base = src .. ".test"
+  local exit_code = testrun.run({script}, output_base)
+  assert(exit_code == 1, "expected exit code 1, got " .. exit_code)
+
+  local tests = fs.read(output_base .. ".tests")
+  assert(tests == "test_a\tpass\ntest_b\tfail\n",
+    "statuses in source order, got '" .. tostring(tests) .. "'")
+end
+test_tests_sidecar_carries_statuses()
+
+-- A legacy file's child says nothing about individual tests, so its
+-- sidecar stays byte-identical to what it has always been.
+local function test_tests_sidecar_stays_names_only_for_legacy()
+  local src = fs.join(TEST_TMPDIR, "legacy_test.tl")
+  assert(fs.write(src,
+      "local function test_a()\nend\nlocal function test_b()\nend\n"))
+
+  local output_base = src .. ".test"
+  local exit_code = testrun.run({"/bin/true"}, output_base)
+  assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
+
+  local tests = fs.read(output_base .. ".tests")
+  assert(tests == "test_a\ntest_b\n",
+    "a silent child keeps the names-only sidecar, got '"
+    .. tostring(tests) .. "'")
+end
+test_tests_sidecar_stays_names_only_for_legacy()
+
+-- The report totals tests on their own line and names each failing test
+-- in the failure block, while the `N checks:` line keeps counting FILES
+-- — that line is what every stage verdict is derived from.
+local function test_report_totals_tests_and_names_failures()
+  local statused = fs.join(TEST_TMPDIR, "report_tests_statused")
+  assert(fs.write(statused .. ".got", "1\n"))
+  assert(fs.write(statused .. ".out", ""))
+  assert(fs.write(statused .. ".err", ""))
+  assert(fs.write(statused .. ".tests", "test_a\tpass\ntest_b\tfail\n"))
+
+  -- No sidecar at all: one check, and nothing added to the test totals.
+  local plain = fs.join(TEST_TMPDIR, "report_tests_plain")
+  assert(fs.write(plain .. ".got", "0\n"))
+  assert(fs.write(plain .. ".out", ""))
+  assert(fs.write(plain .. ".err", ""))
+
+  local chunks: {string} = {}
+  local old_write = io.write
+  local function capture_write(...: any): FILE, string, integer
+    for _, v in ipairs({...}) do
+      chunks[#chunks + 1] = tostring(v)
+    end
+    return io.stdout
+  end
+  io.write = capture_write
+  local exit_code = testrun.report({statused, plain})
+  io.write = old_write
+
+  assert(exit_code == 1, "a failing file still fails, got " .. exit_code)
+  local text = table.concat(chunks)
+
+  local found = false
+  for line in text:gmatch("[^\n]+") do
+    if line:match("^%d+ tests: %d+ passed, %d+ failed$") then
+      found = true
+    end
+  end
+  assert(found, "no per-test totals line in:\n" .. text)
+  assert(text:match("\n  failing tests:\n    test_b\n") ~= nil,
+    "the failure block does not name the failing test:\n" .. text)
+
+  local c = require("cosmic.check").must(records.parse_counts(text))
+  assert(c.passed == 1 and c.failed == 1 and c.skipped == 0,
+    "the checks line stopped counting files: got " .. c.passed .. "/"
+    .. c.failed .. "/" .. c.skipped)
+end
+test_report_totals_tests_and_names_failures()
 
 print("testrun tests passed")

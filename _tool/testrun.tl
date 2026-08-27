@@ -169,8 +169,25 @@ local function run(argv: {string}, output_base: string): integer, string
       end
     end
   end
+  --
+  -- A runner-mode child says which of those functions passed, so the
+  -- sidecar records the statuses rather than the bare names: one
+  -- `<name>\t<status>` line per test, in source order. A legacy-mode
+  -- child says nothing about individual tests and `parse_cases`
+  -- refuses, which is when today's names-only bytes are written
+  -- instead — so a file that has not migrated has a byte-identical
+  -- sidecar.
   if #test_names > 0 then
-    local tok, terr = fs.write(output_base .. ".tests", table.concat(test_names, "\n") .. "\n")
+    local content = table.concat(test_names, "\n") .. "\n"
+    local statuses = records.parse_cases(test_names, stdout_content)
+    if statuses ~= nil then
+      local rows: {string} = {}
+      for i, tname in ipairs(test_names) do
+        rows[i] = tname .. "\t" .. statuses[i]
+      end
+      content = table.concat(rows, "\n") .. "\n"
+    end
+    local tok, terr = fs.write(output_base .. ".tests", content)
     if not tok then
       io.stderr:write("testrun: " .. (terr or "failed to write .tests") .. "\n")
     end
@@ -189,6 +206,11 @@ local record TestResult
   status: records.Status
   test_count: integer -- test_* functions in the file (0 when unknown)
   wall_ms: integer -- how long the test took, -1 when not recorded
+  -- The tests the sidecar recorded as failing, in source order; empty
+  -- for a legacy file, whose sidecar carries no statuses to read. A
+  -- field on the result rather than a third return: a fallible return
+  -- has two slots and this rides on the value.
+  failing_tests: {string}
 end
 
 --- Normalize a path to a .got file base path.
@@ -209,6 +231,12 @@ local function report(paths: {string}): integer
   local passed = 0
   local failed = 0
   local skipped = 0
+  -- Per-TEST totals, counted separately from the per-FILE ones above
+  -- and printed on their own line. The `N checks:` line stays about
+  -- files: every stage verdict is derived from it, and the fmt, lint,
+  -- example and benchmark stages share this same reporter.
+  local tests_passed = 0
+  local tests_failed = 0
 
   for _, path in ipairs(paths) do
     local base = normalize_path(path)
@@ -227,6 +255,7 @@ local function report(paths: {string}): integer
           status = "fail",
           test_count = 0,
           wall_ms = -1,
+          failing_tests = {},
         })
     else
       local exit_code = str.to_integer(string.match(got_content, "^(%d+)")) or -1
@@ -242,12 +271,24 @@ local function report(paths: {string}): integer
       -- no time.
       local wall_ms = str.to_integer(fs.read(base .. ".time") or "") or -1
 
-      -- Read recorded test_* function names, when present
+      -- Read recorded test_* function names, when present. The count is
+      -- of LINES, so the row's annotation means the same thing for a
+      -- names-only sidecar and a statused one. A line that also carries
+      -- a status contributes to the per-test totals and, when it failed,
+      -- names itself in the failure block.
       local test_count = 0
+      local failing_tests: {string} = {}
       local tests_content = fs.read(base .. ".tests")
       if tests_content then
-        for _ in string.gmatch(tests_content, "[^\n]+") do
+        for line in string.gmatch(tests_content, "[^\n]+") do
           test_count = test_count + 1
+          local tname, tstatus = line:match("^([^\t]+)\t(%S+)$")
+          if tstatus == "pass" then
+            tests_passed = tests_passed + 1
+          elseif tstatus == "fail" then
+            tests_failed = tests_failed + 1
+            failing_tests[#failing_tests + 1] = tname
+          end
         end
       end
 
@@ -268,6 +309,7 @@ local function report(paths: {string}): integer
           status = status,
           test_count = test_count,
           wall_ms = wall_ms,
+          failing_tests = failing_tests,
         })
     end
   end
@@ -290,8 +332,14 @@ local function report(paths: {string}): integer
         result.wall_ms >= 0 and result.wall_ms or nil) .. "\n")
   end
 
-  -- Print summary
+  -- Print summary. The per-test line comes AFTER the checks line, and
+  -- only when some sidecar carried statuses: `records.parse_counts`
+  -- reads the checks line with unanchored patterns, so a tests line
+  -- ahead of it would be read as the stage's own counts.
   io.write("\n" .. records.counts(passed, failed, skipped))
+  if tests_passed + tests_failed > 0 then
+    io.write("\n" .. records.test_counts(tests_passed, tests_failed))
+  end
   if total_wall_ms > 0 then
     io.write(string.format(
         "\nwall: %dms  slowest: %s (%dms)",
@@ -305,6 +353,12 @@ local function report(paths: {string}): integer
     for _, result in ipairs(results) do
       if result.status == "fail" then
         io.write("\n" .. result.name .. " (exit " .. result.exit_code .. "):\n")
+        if #result.failing_tests > 0 then
+          io.write("  failing tests:\n")
+          for _, tname in ipairs(result.failing_tests) do
+            io.write("    " .. tname .. "\n")
+          end
+        end
         if result.stderr ~= "" then
           io.write("  stderr:\n")
           for line in result.stderr:gmatch("[^\n]+") do
