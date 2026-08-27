@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3IOCdHTMLfZoga1s1BqhqJI2D3v",
   ["id"] = "3IOCdZCAMtWFj6fsMr7fG02QUh5",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "testrun and report: per-test statuses in .tests, totals by test, --filter passthrough",
 }
