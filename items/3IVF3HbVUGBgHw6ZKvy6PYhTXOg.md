@@ -51,3 +51,83 @@ shape as CLAUDE.md's cold-build rule, in which case the docstring and
 the error message must say so and the cost should be recorded. Until
 one is chosen, 3IUBNQZZ (and every future `_perf` signature change) is
 blocked on an undocumented two-PR-plus-a-release dance.
+
+## Correction — 2026-08-27 (session e532d9f6)
+
+**The framing above is half wrong, and the measurement that corrects it
+makes the finding larger.** "The guard does not do what its docstring
+says" is true; "so the guard is the defect" does not follow. Measured
+on the pinned bootstrap `2026-08-27-555873e`:
+
+**The binary carries `_perf` twice, and both copies shadow the tree.**
+
+```
+o/3p/cosmos/zip -sf o/bootstrap/cosmic | grep -cE '^\s+_perf/'      # 30 compiled modules at the zip root
+o/3p/cosmos/zip -sf o/bootstrap/cosmic | grep -cE '\.tl/_perf/'     # 30 sources on the include path
+```
+
+The `.tl/` copy is what the type checker reads, which is the failure
+3IUBNQZZ hit. The zip-root `_perf/*.lua` copy is what a RUNTIME
+`require` reads, and that one is the bigger fact. A bare script run
+from a tree root under that binary:
+
+```lua
+local compare = require("_perf.compare")
+print(debug.getinfo(compare.format, "S").source)
+```
+
+```
+$ o/bootstrap/cosmic /tmp/probe_resolve.lua
+format source: @/zip/_perf/compare.lua
+```
+
+Run from the worktree whose `_perf/compare.tl` widens
+`compare.format` to three parameters, the three-argument call
+nonetheless **succeeds against the one-parameter embedded copy** — Lua
+discards the extra arguments — printing the ordinary summary line. So
+the tree's module was not merely out-voted; it was never loaded, and
+nothing said so.
+
+**Therefore the guard is FAITHFUL, not broken.** It reproduces on the
+PR exactly the resolution the release lane has at runtime, which is
+what a guard is for. What is wrong is its DOCSTRING — "`_perf.*`
+resolves from the tree at cwd" is false in both contexts measured here
+— and its remedy advice, which sends the reader to a tolerant map view
+and a capability probe. That pattern is right for reaching a *cosmic*
+API newer than the pin; it is not a remedy for a *sibling `_perf`*
+signature change, where the honest reading is "the pinned binary is
+checking you against its own copy of the module you just changed."
+
+**And the consequence reaches past the guard.** `release.yml`'s
+compare step runs the tree's `_perf/run.tl` under the PREVIOUS release
+binary. `run.tl` itself is passed by path, so the tree's copy executes
+— but every `require("_perf.harness")`, `require("_perf.compare")` and
+`require("_perf.bench.*")` inside it resolves to that previous
+release's embedded copy, by the measurement above. Whether the lane is
+therefore measuring the tree's scenarios or the previous release's is
+the question this item now turns on, and it is NOT yet established.
+
+## What this item must settle, in order
+
+1. **The release-lane picture, measured**: for `release.yml`'s compare
+   step, which `_perf` files actually execute — tree or embed — for
+   the harness, for `compare`, and for each bench module; whether a
+   bench module added in the tree is seen or silently skipped; and
+   whether `run.tl` enumerates benches by filesystem scan or by a
+   require list. Until this is answered the fix cannot be chosen,
+   because the two candidate fixes serve different defects.
+2. **What governs precedence**, quoted from the searcher: whether
+   `/zip` beating cwd is deliberate and configurable, or incidental.
+3. **Then the fix**, which is one of:
+   - the resolution is correct and only the guard's docstring and
+     failure message are wrong — a documentation change, and
+     `_perf` signature changes genuinely stage behind a release and a
+     pin bump, a cost that should be written down where a session
+     planning a `_perf` change will read it;
+   - or the release lane is measuring the wrong code and the
+     precedence is the defect, in which case the fix is in the
+     searcher or the lane, not in the guard.
+
+Route 3a leaves 3IUBNQZZ needing a two-PR-plus-a-release dance;
+route 3b unblocks it in one PR. They are not the same item, so this
+one stops at the evidence and the choice.
