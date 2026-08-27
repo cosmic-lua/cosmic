@@ -13,6 +13,18 @@
 --- (/* ... */), so a `;` inside any of those never counts, and
 --- content after a real `;` that is only whitespace or comments never
 --- counts either (a trailing semicolon is one statement, not two).
+---
+--- One statement shape embeds semicolons of its own: a CREATE TRIGGER
+--- body (`... BEGIN stmt; stmt; END`) is a single prepared statement,
+--- and triggers are the only sqlite DDL that nests statements. The
+--- scan reads words for exactly that shape: `CREATE` (`TEMP` or
+--- `TEMPORARY` allowed between) `TRIGGER` arms it, `BEGIN` opens the
+--- body, and inside it `CASE` and `END` pair off — END terminates
+--- only CASE and TRIGGER in sqlite — until the body's own END closes
+--- the statement. Semicolons inside the body are internal. Everything
+--- ambiguous stays a refusal: a semicolon between TRIGGER and BEGIN
+--- (illegal SQL) counts as top-level, and a body that never closes
+--- leaves any later content counting as it always did.
 
 local function is_space(c: string): boolean
   return c == " " or c == "\t" or c == "\n" or c == "\r"
@@ -46,6 +58,13 @@ local function has_multiple_statements(sql: string): boolean
   local i = 1
   local n = #sql
   local seen_semi = false
+  -- The trigger recognizer: `keyword` is the arming sequence's state
+  -- ("create" seen, then "trigger" seen), `body_depth` is how many
+  -- ENDs the body still owes (0 = not in a body; BEGIN sets 1, CASE
+  -- adds one, END takes one away).
+  local after_create = false
+  local trigger_armed = false
+  local body_depth = 0
   while i <= n do
     local c = sql:sub(i, i)
     if c == "-" and sql:sub(i + 1, i + 1) == "-" then
@@ -57,17 +76,46 @@ local function has_multiple_statements(sql: string): boolean
     elseif is_space(c) then
       i = i + 1
     elseif seen_semi then
-      -- Any non-space, non-comment content after a `;` is a second
-      -- statement — including the opening quote of a string.
+      -- Any non-space, non-comment content after a top-level `;` is a
+      -- second statement — including the opening quote of a string.
       return true
     elseif c == ";" then
-      seen_semi = true
+      if body_depth == 0 then
+        seen_semi = true
+      end
       i = i + 1
     elseif c == "'" or c == "\"" or c == "`" then
       i = skip_quoted(sql, i, n)
     elseif c == "[" then
       local close = sql:find("]", i + 1, true)
       i = close and (close + 1) or (n + 1)
+    elseif c:match("[%a_]") then
+      -- Whole words, so an identifier like trigger_log can never match
+      -- a keyword by prefix. A quoted or bracketed `end` was consumed
+      -- above and never reaches here.
+      local word = sql:match("^[%a_][%w_]*", i):upper()
+      if body_depth > 0 then
+        if word == "CASE" then
+          body_depth = body_depth + 1
+        elseif word == "END" then
+          body_depth = body_depth - 1
+        end
+      elseif trigger_armed then
+        if word == "BEGIN" then
+          body_depth = 1
+          trigger_armed = false
+        end
+      elseif after_create then
+        if word == "TRIGGER" then
+          trigger_armed = true
+          after_create = false
+        elseif word ~= "TEMP" and word ~= "TEMPORARY" then
+          after_create = false
+        end
+      elseif word == "CREATE" then
+        after_create = true
+      end
+      i = i + #word
     else
       i = i + 1
     end
