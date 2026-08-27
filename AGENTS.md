@@ -122,7 +122,7 @@ common mappings:
 | `cosmo.unix.mkdtemp(t)` | `require("cosmic.fs").temp_dir(t)` |
 | `cosmo.unix.rmrf(p)` | `require("cosmic.fs").remove_all(p)` |
 | `cosmo.unix.makedirs(p)` | `require("cosmic.fs").make_dirs(p)` |
-| `cosmo.unix.chmod(p, m)` | `require("cosmic.fs").chmod(p, m)` |
+| `cosmo.unix.chmod(p, m)` | `require("cosmic.fs").set_mode(p, m)` |
 | `cosmo.DecodeJson(s)` | `require("cosmic.json").decode(s)` |
 | `cosmo.EncodeJson(v)` | `require("cosmic.json").encode(v)` |
 | `cosmo.Fetch(url, opts)` | `require("cosmic.fetch").fetch(url, opts)` |
