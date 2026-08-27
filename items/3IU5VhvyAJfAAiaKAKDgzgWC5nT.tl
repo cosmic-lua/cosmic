@@ -1,4 +1,8 @@
 return {
+  ["block_reason"] = {
+    ["3IU667WI130hFvXaEsWVzVctHiP"] = "sources will require the patched checker; the pinned bootstrap (2026-08-27-6b88a0d) predates c78504bd, so cold build fails until the pin catches up",
+  },
+  ["blocked_by"] = "3IU667WI130hFvXaEsWVzVctHiP",
   ["builders"] = "3f616956-66af-5d35-82b3-9ab54b187eb2",
   ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3IU5VhvyAJfAAiaKAKDgzgWC5nT",
