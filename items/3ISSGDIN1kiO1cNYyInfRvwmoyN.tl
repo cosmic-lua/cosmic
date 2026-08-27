@@ -5,6 +5,6 @@ return {
   ["blocked_by"] = "3ITo9InvDKnofScNuZYfUluM4o8",
   ["id"] = "3ISSGDIN1kiO1cNYyInfRvwmoyN",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "tl patch: carry is-fact narrowing into closures via an enclosing-body assigned_anywhere scan",
 }
