@@ -2,9 +2,10 @@
 -- The store is exercised against scratch git repositories this file
 -- builds itself: a local-only store for the save/load/spec mechanics,
 -- and a bare "remote" with two clones for publish — including the case
--- the whole design exists for, where two sessions race a WIP limit and
--- the loser's push comes back rejected, rebases onto the winner, finds
--- the limit now binds, and drops its own commit instead of exceeding it.
+-- the whole design exists for, where two sessions race and the loser's
+-- push comes back rejected: the mutation is dropped whole, the
+-- checkout re-syncs onto the winner's state, and the refusal is
+-- LOST_RACE, so the re-run verb decides against the merged board.
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
@@ -312,3 +313,45 @@ local function test_sync_unwinds_a_conflicting_rebase()
   assert(store.list(b), "the board stays readable after the refusal")
 end
 test_sync_unwinds_a_conflicting_rebase()
+
+-- The one publish path that can still conflict: a checkout carrying an
+-- unpublished hand-edit commit BENEATH the verb's commit. The reset
+-- drops only the verb's commit; the hand-edit then rebases and can
+-- collide — and the refusal must say the mutation was already dropped,
+-- or a user reads the conflict report and does not know their verb's
+-- change is gone.
+local function test_publish_names_the_drop_when_the_resync_conflicts()
+  local _, clones = init_shared("drop-conflict", 2)
+  local a = check.must(store.open(clones[1]))
+  local contested = make_item("ready")
+  assert(store.save(a, contested, "new contested"))
+  assert(store.publish(a))
+  local b = check.must(store.open(clones[2]))
+  assert(store.sync(b))
+
+  local ia = check.must(store.load(a, contested.id))
+  ia.phase = "do"
+  ia.claim = "session-a"
+  assert(store.save(a, ia, "move contested ready -> do"))
+  assert(store.publish(a))
+
+  -- b's hand-edit of the contested item, unpublished, then a verb's
+  -- mutation of another item on top of it.
+  local ib = check.must(store.load(b, contested.id))
+  ib.phase = "check"
+  ib.pr = 9
+  assert(store.save(b, ib, "hand-edit contested ready -> check"))
+  local mine = make_item("plan")
+  assert(store.save(b, mine, "new mine"))
+  local ok, err = store.publish(b)
+  assert(not ok, "the push is rejected and the rebase then conflicts")
+  assert(err:find("the mutation was dropped whole", 1, true), "got: " .. err)
+  assert(err:find("concurrent edit", 1, true),
+    "and the conflict is still named: " .. err)
+  local gone = store.load(b, mine.id)
+  assert(gone == nil, "the verb's mutation is gone whole")
+  local kept = check.must(store.load(b, contested.id))
+  assert(kept.phase == "check" and kept.pr == 9,
+    "the unpublished hand-edit beneath it survives the unwind")
+end
+test_publish_names_the_drop_when_the_resync_conflicts()

@@ -365,8 +365,12 @@ end
 --- because `save` writes every item one mutation touches into ONE
 --- commit. A caller that committed twice for a single logical change
 --- would have half of it survive the refusal, so it must not. The
---- reset leaves nothing local, so the re-sync is a fast-forward with
---- no conflict path.
+--- reset drops only the verb's commit: a checkout carrying an
+--- UNPUBLISHED commit beneath it (the hand-edit workaround for a
+--- missing verb) still has that commit to rebase, and the rebase can
+--- conflict — so the refusal on that path says the mutation was
+--- already dropped, or a user would read the conflict report and not
+--- know their verb's change is gone.
 --- @param s Store The store
 --- @return boolean True once the commit is on the remote
 --- @return string Error message; `LOST_RACE` exactly, for a lost race
@@ -388,7 +392,8 @@ local function publish(s: Store): boolean, string
   end
   local synced, serr = rebase_onto_remote(s)
   if not synced then
-    return false, serr
+    return false, ("lost the push race — the mutation was dropped whole, "
+      .. "and the re-sync then stopped: %s"):format(serr)
   end
   return false, LOST_RACE
 end

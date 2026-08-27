@@ -52,8 +52,7 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     return gate.verdict_line("new", false, table.concat(bad, "; "))
   end
   -- Read before `dephased_container` clears it below: this is the slot
-  -- the mutation frees, and both the up-front gate and the one after a
-  -- lost push race need it.
+  -- the mutation frees, and the up-front gate needs it.
   local vacated = ""
   if parent_item ~= nil then
     vacated = parent_item.phase or ""
