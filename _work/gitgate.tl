@@ -300,13 +300,26 @@ end
 --- @param it item.Item The item, already loaded and validated as workable
 --- @param claim string The session to record, "" to leave it
 --- @param pr integer The PR to record, 0 to leave it
+--- @param force boolean Overwrite a live foreign claim on the record
+--- @param why string Why --force was needed
 --- @return integer Exit code
 local function set_in_place(s: store.Store, it: item.Item, claim: string,
-    pr: integer): integer
+    pr: integer, force: boolean, why: string): integer
   local where = it.phase
   if (claim or "") == "" and (pr or 0) == 0 then
     return verdict_line("move", false,
       ("%s is already in %s"):format(it.id:sub(1, 8), where))
+  end
+  -- The same takeover rule the phase-crossing move applies: a claim
+  -- is a lock, and an in-place write was the one door that moved it
+  -- silently — a live session lost its item to a "set" nine seconds
+  -- after pulling it. Overwriting a live foreign claim says so with
+  -- --force --why, exactly like every other takeover.
+  if (claim or "") ~= "" and (it.claim or "") ~= "" and claim ~= it.claim
+  and not force then
+    return verdict_line("move", false,
+      ("REFUSED: %s is claimed by %s — take over a live claim with "
+        .. "--force --why"):format(it.id:sub(1, 8), it.claim))
   end
   if (claim or "") ~= "" then
     it.claim = claim
@@ -319,7 +332,8 @@ local function set_in_place(s: store.Store, it: item.Item, claim: string,
     return verdict_line("move", false, table.concat(wrong, "; "))
   end
   local ok, err = commit_and_publish(s, it, nil,
-    ("set %s in %s"):format(it.id:sub(1, 8), where), where)
+    ("set %s in %s%s"):format(it.id:sub(1, 8), where,
+      forced_suffix(force, why)), where)
   if not ok then
     return verdict_line("move", false, err)
   end
@@ -342,7 +356,7 @@ local record gitgate
   number: integer, repo: string | nil): string
   land_refusal: function(it: item.Item): string
   set_in_place: function(s: store.Store, it: item.Item, claim: string,
-  pr: integer): integer
+  pr: integer, force: boolean, why: string): integer
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end

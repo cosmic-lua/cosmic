@@ -44,6 +44,7 @@ local stat = require("_work.flowstat")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local rev = require("_work.gitreview")
+local take = require("_work.gittake")
 local vrd = require("_work.gitverdict")
 local show = require("_work.gitshow")
 local view = require("_work.gitview")
@@ -107,7 +108,11 @@ local CSPEC: flags.CommandSpec = {
           {long = "session", arg = "SESSION",
             help = "this session; skips work another session claimed and "
             .. "reviews of what this one built. Omit to derive it from the "
-            .. "environment (GITBOARD_SESSION, else a runner's own id)"}}}},
+            .. "environment (GITBOARD_SESSION, else a runner's own id)"},
+          {long = "take",
+            help = "claim the offered work in the same call: a review is "
+            .. "claimed, a pull is moved to do, and a candidate somebody "
+            .. "else claimed first falls to the next one"}}}},
     {name = "move", summary = "move workable ID to PHASE (WIP-limited)",
       spec = {usage = "ID PHASE [options]", flags = {dir_flag(),
           {long = "claim", arg = "SESSION",
@@ -200,6 +205,17 @@ local function main(...: string): integer
   end
   if d.command == "next" then
     local who = session.resolve(d.parsed.values["session"])
+    if d.parsed.switches["take"] then
+      -- Take-mode mutates, so it syncs the way every mutating verb
+      -- does before it reads the board at all.
+      local synced, syerr = store.sync(s)
+      if not synced then
+        io.stderr:write(("gitboard-next: could not sync before taking: %s\n")
+          :format(syerr))
+        return 1
+      end
+      return take.cmd_take(s, who)
+    end
     return view.cmd_next(s, who)
   end
   if d.command == "sync" then

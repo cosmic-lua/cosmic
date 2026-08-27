@@ -318,19 +318,43 @@ local function order_of(pos: {string: Position}, id: string): integer,
   return p.lift_band, p.lift_own, p.unblocks
 end
 
+--- FNV-1a over a string, folded to 32 bits: the seeded tie-break
+--- below needs a stable, cheap, well-mixed order over ids — never
+--- cryptography. Pure arithmetic, so every machine agrees.
+--- @param text string The text to hash
+--- @return integer The 32-bit hash
+local function fnv32(text: string): integer
+  local h = 2166136261
+  for k = 1, #text do
+    h = ((h ~ text:byte(k)) * 16777619) & 0xFFFFFFFF
+  end
+  return h
+end
+
 --- A new copy of `list` in priority order: lifted band first, then
 --- lifted standing within the band, then how much the item unblocks,
 --- then age. Age is the LAST word rather than the only one — ids are
 --- KSUIDs, so it remains an exact and total tie-break for everything
 --- nothing else separates.
+---
+--- A SEED replaces that last word with a per-seed order: items the
+--- comparator ties (same band, own standing, and unblocks count) are
+--- exactly the ones no recorded judgment separates, so concurrent
+--- sessions seeding with their own identity walk the same judged
+--- order but fan out across the tied remainder instead of converging
+--- on one item. No seed keeps the age tie-break, so reads without a
+--- session stay stable.
 --- @param list {Item} The items to order
 --- @param pos {string: Position} Position by item id
+--- @param seed string? Per-session tie-break seed; nil or "" for age
 --- @return {Item} A sorted copy
-local function sorted(list: {Item}, pos: {string: Position}): {Item}
+local function sorted(list: {Item}, pos: {string: Position},
+    seed?: string): {Item}
   local out: {Item} = {}
   for _, i in ipairs(list) do
     out[#out + 1] = i
   end
+  local salted = (seed or "") ~= ""
   table.sort(out, function(x: Item, y: Item): boolean
       local xband, xown, xfrees = order_of(pos, x.id)
       local yband, yown, yfrees = order_of(pos, y.id)
@@ -342,6 +366,13 @@ local function sorted(list: {Item}, pos: {string: Position}): {Item}
       end
       if xfrees ~= yfrees then
         return xfrees > yfrees
+      end
+      if salted then
+        local xh = fnv32(seed .. x.id)
+        local yh = fnv32(seed .. y.id)
+        if xh ~= yh then
+          return xh < yh
+        end
       end
       return x.id < y.id
     end)
@@ -413,7 +444,8 @@ local record priority
   order_of: function(pos: {string: Position}, id: string): integer,
   integer, integer
   is_placed: function(pos: {string: Position}, id: string): boolean
-  sorted: function(list: {Item}, pos: {string: Position}): {Item}
+  sorted: function(list: {Item}, pos: {string: Position},
+  seed?: string): {Item}
   cycle_problems: function(items: {Item}): {string}
   edge_refusal: function(index: Index, winner: string,
   loser: string): string | nil

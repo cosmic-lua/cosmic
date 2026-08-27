@@ -164,8 +164,8 @@ end
 --- @param pos {string: prio.Position} Position by item id
 --- @return {Item} Sorted items, possibly empty
 local function queued(b: Board, phase: string,
-    pos: {string: prio.Position}): {Item}
-  return prio.sorted(b[phase] or {}, pos)
+    pos: {string: prio.Position}, seed?: string): {Item}
+  return prio.sorted(b[phase] or {}, pos, seed)
 end
 
 --- WIP-limit violations, one line each ("do 6/5 over limit").
@@ -447,7 +447,7 @@ local record flow
   role: function(i: Item, items: {Item}): string
   board: function(items: {Item}): Board
   queued: function(b: Board, phase: string,
-  pos: {string: prio.Position}): {Item}
+  pos: {string: prio.Position}, seed?: string): {Item}
   wip_violations: function(b: Board): {string}
   is_blocked: function(i: Item, index: Index): boolean
   binds: function(index: Index, id: string): boolean
