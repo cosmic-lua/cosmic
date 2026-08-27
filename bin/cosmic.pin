@@ -4,5 +4,5 @@
 # `*_pin.tl` — those are resolved by `cosmic --make fetch`, which needs a
 # cosmic to run, which is the thing this pin provides. Bump both fields
 # together; the sha is what is verified before anything is executed.
-url = https://github.com/whilp/cosmic/releases/download/2026-08-27-afad5b5/cosmic-lua
-sha256 = 9f81e916ed78afacbc04a8cd901b8dc77b15638785f9ecc2c944b215b55799dd
+url = https://github.com/whilp/cosmic/releases/download/2026-08-27-6b88a0d/cosmic-lua
+sha256 = e770ce10251944d9ff08c77c34788db11349e0d322dcde19e530c17b196ca2c0
