@@ -185,19 +185,36 @@ No testrun or report change (3IOCdZCA, landed). No pin bump —
 - The diff is deletions only:
   `git diff origin/main --numstat -- '*_test.tl' | awk '{a+=$1} END {print a+0}'`
   → `0` insertions.
-- **The run counts the same tests it counted before**, which is the
-  cheapest no-test-lost check and needs no probe script:
+- **The run counts the same tests it counted before**, the cheap
+  no-test-lost check that needs no probe script:
   `bin/cosmic --make test _build _docs _types 3p _fuzz _eval _perf _tool`
   ends `test: PASS (65 files)` and, because every file in scope is now
   runner mode, prints a per-test totals line reading
-  `478 tests: 478 passed`. `478` is the case total measured in
-  Evidence; a smaller number means a case stopped running. (The line
-  is `_tool/records.tl`'s `test_counts`, landed with #1456 and, per
-  that PR, printed for the first time by this batch — no test file was
-  in runner mode before it. `_tool/coverage/baseline_test.tl`'s
-  `check.needs("a built cosmic at …")` would drop its 27 cases from
-  the total if it fired, which it cannot under a converged
-  `--make test`.)
+  `474 tests: 474 passed`. (The line is `_tool/records.tl`'s
+  `test_counts`, landed with #1456 and, per that PR, printed for the
+  first time by this batch — no test file was in runner mode before
+  it. `_tool/coverage/baseline_test.tl`'s `check.needs("a built cosmic
+  at …")` would drop its 27 cases from the total if it fired, which it
+  cannot under a converged `--make test`.)
+
+  **Re-measured at pull: the figure is `474`, not the `478` this line
+  first carried, and the four are an ACCOUNTING artifact, not a lost
+  test.** `_tool/records.tl`'s `parse_cases` reconciles a file's naive
+  `.tests` sidecar against the trailing counts line its run printed,
+  and contributes nothing for a file where the two disagree. The one
+  file in scope where they disagree is `_tool/seam_test.tl` — the same
+  long-bracket fixtures that make this the hand-edited file put eight
+  names in its sidecar (`test_addition`, `test_strings`,
+  `test_addition`, the four real cases, `test_broken`) against the
+  `4 checks: 4 passed` its run really prints — so its four real cases
+  drop out of the TOTAL while still running and still passing. The
+  arithmetic is exact and closes: the other 64 files contribute
+  `478 - 4 = 474`. Verified directly — `o/_tool/seam_test.tl.test.out`
+  reads `4 checks: 4 passed` and the file's row is `✓`. So a number
+  below `474` means a case stopped running; `474` itself does not, and
+  the name-for-name equality probe above is the guard that actually
+  proves no test was lost. The under-count is `parse_cases`'s and not
+  this batch's — captured as its own item, not fixed in this diff.
 - **The definition count is untouched** — a literally-runnable
   invariant over the same selection, `482` before the edit and `482`
   after, since the diff deletes calls and never definitions:
