@@ -1,611 +1,470 @@
 ## Goal
 
-G6 — the defining paths, ratcheted. The release perf gate compares two
-binaries, and a comparison is only a comparison if the measuring
-instrument is held fixed. Today it is not: the candidate side runs the
-tree's harness and the tree's scenarios, and the baseline side runs the
-PREVIOUS RELEASE's copies of both, because a bare run resolves
-`_perf.*` from the binary's own `/zip` rather than from the tree
-(measured below). So a harness change contaminates the delta, and a
-scenario changed in the tree is measured on one side only — the old
-body runs on the baseline side and nothing says so.
+G6 — the defining paths, ratcheted (parent `3HyRcd9F`: a
+`perf-compare: FAIL` blocks publishing). **The route is picked and it is
+route 2, repaired: give every lane that runs the tree's `_perf` under an
+OLDER binary a manifest root scoped to `_perf` ALONE — tree instrument,
+each side's own `cosmic` — and then narrow the skew guard's include path
+the same way, so a `_perf` signature change lands in one PR while the
+cosmic-newer-than-the-pin skew class stays caught.**
 
-This item makes the baseline side measure the tree's `_perf` on the old
-binary, which is the experiment the gate has always claimed to run, and
-corrects the one guard whose docstring asserts the resolution already
-works that way.
+The instrument is `_perf/**`; `cosmic/**` is the SUBJECT. A compare is
+only a compare if the instrument is held fixed and the subject is not.
+Today the baseline side runs the previous release's `_perf` (wrong
+instrument); the rejected PR #1463 put the tree's `cosmic/**` on both
+sides (subject held fixed, ratchet blind). A `_perf`-scoped root is the
+one shape that gives the first without the second, and this item is now
+committed to it — measured below, both halves.
 
-## Evidence
+This item ABSORBS the guard's behaviour (rejection question 2): its
+title claims the signature-change problem, so the guard is in scope, and
+without it nothing here unblocks `3IUBNQZZ`. It also absorbs the
+changed-existing-bench blind spot, orphaned when `3IVJLeCY` was ended
+`not-planned` — the same manifest closes it, measured.
 
-`_perf/skew_test.tl` type-checks every non-test `_perf/**` file under
-the pinned bootstrap binary. Its docstring claims "`_perf.*` resolves
-from the tree at cwd." It does not: the cosmic binary embeds its own
-`_perf` sources at `.tl/_perf/*.tl`, and that include path SHADOWS the
-tree. Measured in an empty directory holding only a `probe.tl` that
-requires `_perf.compare`, with no `_perf` tree present at all:
+## Evidence — measured 2026-08-27, session 0b13d2b4
 
-```
-$ o/bootstrap/cosmic --check types probe.tl
-Type check passed: probe.tl
-```
+Tree at `8269ff42` (`origin/main` `a80cf0cd` plus one `_make/patch.tl`
+commit that touches no `_perf` file: `git show --stat 8269ff42`).
+Baseline binary throughout is `o/bootstrap/cosmic`, content-wise the
+pinned release: its stamp `o/bootstrap/cosmic.pin` is
+`145057b9fe90…` = `bin/cosmic.pin`, while its own
+`sha256sum` is `90ff7f246b3f…` (the `--assimilate` mutation).
+The 30x demonstration ran in a `cp -a` copy of the tree under
+`$TMPDIR`; every command below is literally runnable from the repo root.
 
-So the guard checks the tree's `_perf/gate.tl` and `_perf/run.tl`
-against the PINNED RELEASE's `_perf/compare.tl`, not the tree's.
-
-**The consequence is general: any change to a `_perf` module's
-exported signature that a sibling `_perf` module calls is unlandable
-in one PR.** Found by 3IUBNQZZ, which widens `compare.format` with two
-optional parameters and is called from both siblings:
+### 1. A `_perf`-scoped root gives the split, a `$PWD` root does not
 
 ```
-_perf/gate.tl:128:23: error: wrong number of arguments (given 3, expects 1)
-_perf/run.tl:358:23: error: wrong number of arguments (given 3, expects 1)
+mkdir -p o/perf/treeroot/o
+ln -sfn "$PWD/_perf" o/perf/treeroot/_perf
+ln -sfn "$PWD/o/_perf" o/perf/treeroot/o/_perf
+printf 'root %s/o/perf/treeroot\nbuild o\n' "$PWD" > o/perf/tree.modules
+cat > o/perf/probe.lua <<'EOF'
+for _, n in ipairs({"_perf.harness", "_perf.bench.time_bench",
+                    "cosmic.json", "cosmic.teal"}) do
+  local m = require(n)
+  for _, v in pairs(m) do
+    if type(v) == "function" then
+      print(n .. " " .. debug.getinfo(v, "S").source); break
+    end
+  end
+end
+EOF
+o/bootstrap/cosmic o/perf/probe.lua                               # today
+o/bootstrap/cosmic --modules o/perf/tree.modules o/perf/probe.lua # this item
 ```
 
-Causation proven both ways: `git stash` then
-`bin/cosmic --make test _perf/skew_test.tl` ends `test: PASS`;
-unstashed it fails. `_perf/compare.tl` has not been touched since the
-skew guard landed (`ccd246ab`, #1427; last compare.tl change
-`ef963bab`, #1419), so 3IUBNQZZ is the FIRST change to a `_perf`
-module's exported signature after the guard and no precedent exists.
+| module | today (bare) | `root $PWD` (PR #1463) | `_perf`-scoped root |
+|---|---|---|---|
+| `_perf.harness` | `@/zip/_perf/harness.lua` | `@<root>/o/_perf/harness.lua` | `@<root>/o/_perf/harness.lua` |
+| `_perf.bench.time_bench` | `@/zip/…` | `@<root>/o/…` | `@<root>/o/…` |
+| `cosmic.json` | `@/zip/cosmic/json.lua` | **`@<root>/o/cosmic/json.lua`** | `@/zip/cosmic/json.lua` |
+| `cosmic.teal` | `@/zip/cosmic/teal.lua` | **`@<root>/o/cosmic/_teal_hints.lua`** | `@/zip/cosmic/teal.lua` |
 
-**The guard's error message is misleading in this case.** It says "a
-`_perf` file reaches an API the pinned bootstrap does not declare" and
-directs the reader to the map-view / capability-probe pattern — correct
-for a *cosmic* API newer than the pin, actively wrong for a sibling
-`_perf` module, where the honest reading is "you changed a `_perf`
-signature and the guard is comparing you against the pinned release's
-copy of it." Applying the prescribed pattern to one's own sibling
-module would add unjustifiable casts.
+`cosmic/searcher.tl`'s `tree_searcher` resolves `<root>/<build>/<rel>.lua`
+then `<root>/<rel>.tl` and MISSES otherwise, falling through to `/zip` at
+seat 3 — so a root whose only entries are `_perf` and `o/_perf` answers
+`_perf.*` and nothing else. No searcher or manifest-format change is
+needed for this; the scoping is entirely in what the root directory
+contains.
 
-## The decision this needs
+### 2. The regression that PR #1463 made vanish now BLOCKS
 
-Either the guard should place the tree AHEAD of the binary's embedded
-`.tl/_perf` — which would make it match its own docstring and unblock
-ordinary `_perf` refactoring — or `_perf` signature changes are
-genuinely meant to stage behind a release and pin bump, in the same
-shape as CLAUDE.md's cold-build rule, in which case the docstring and
-the error message must say so and the cost should be recorded. Until
-one is chosen, 3IUBNQZZ (and every future `_perf` signature change) is
-blocked on an undocumented two-PR-plus-a-release dance.
+A deliberate ~30x slowdown in `cosmic/literal.tl`'s `format` (the pin
+layout looped 30x), rebuilt, all four runs in one sitting with
+`--only literal --samples 1 --min-secs 0.05`:
 
-## Correction — 2026-08-27 (session e532d9f6)
+| scenario | candidate (`--make run`) | baseline TODAY (bare) | baseline `root $PWD` | baseline `_perf`-scoped |
+|---|---|---|---|---|
+| `literal_format_pin` | 595.59 µs | 22.40 µs | **598.98 µs** | 20.69 µs |
+| `literal_format_floor` | 14.91 ms | 506.01 µs | **17.62 ms** | 489.40 µs |
 
-**The framing above is half wrong, and the measurement that corrects it
-makes the finding larger.** "The guard does not do what its docstring
-says" is true; "so the guard is the defect" does not follow. Measured
-on the pinned bootstrap `2026-08-27-555873e`:
-
-**The binary carries `_perf` twice, and both copies shadow the tree.**
+`o/bin/cosmic --make run _perf/run.tl -- --compare BASE.json CAND.json`
+verdict lines:
 
 ```
-o/3p/cosmos/zip -sf o/bootstrap/cosmic | grep -cE '^\s+_perf/'      # 30 compiled modules at the zip root
-o/3p/cosmos/zip -sf o/bootstrap/cosmic | grep -cE '\.tl/_perf/'     # 30 sources on the include path
+today:          5 scenarios: 2 regression, 0 faster, 3 ok …   (blocks)
+root $PWD:      5 scenarios: 0 regression, 1 faster, 4 ok …   (PUBLISHES)
+_perf-scoped:   5 scenarios: 2 regression, 0 faster, 3 ok …   (blocks)
 ```
 
-The `.tl/` copy is what the type checker reads, which is the failure
-3IUBNQZZ hit. The zip-root `_perf/*.lua` copy is what a RUNTIME
-`require` reads, and that one is the bigger fact. A bare script run
-from a tree root under that binary:
+`literal_format_pin` reads `+2558.8%` today, `-0.6% ok` under `root
+$PWD`, `+2779.0%` under the `_perf`-scoped root. The rejection's
+blocking finding 1 is reproduced and repaired.
 
-```lua
-local compare = require("_perf.compare")
-print(debug.getinfo(compare.format, "S").source)
-```
+### 3. The guard, scoped to `_perf`, clears the arity wall and keeps the skew wall
 
-```
-$ o/bootstrap/cosmic /tmp/probe_resolve.lua
-format source: @/zip/_perf/compare.lua
-```
-
-Run from the worktree whose `_perf/compare.tl` widens
-`compare.format` to three parameters, the three-argument call
-nonetheless **succeeds against the one-parameter embedded copy** — Lua
-discards the extra arguments — printing the ordinary summary line. So
-the tree's module was not merely out-voted; it was never loaded, and
-nothing said so.
-
-**Therefore the guard is FAITHFUL, not broken.** It reproduces on the
-PR exactly the resolution the release lane has at runtime, which is
-what a guard is for. What is wrong is its DOCSTRING — "`_perf.*`
-resolves from the tree at cwd" is false in both contexts measured here
-— and its remedy advice, which sends the reader to a tolerant map view
-and a capability probe. That pattern is right for reaching a *cosmic*
-API newer than the pin; it is not a remedy for a *sibling `_perf`*
-signature change, where the honest reading is "the pinned binary is
-checking you against its own copy of the module you just changed."
-
-**And the consequence reaches past the guard.** `release.yml`'s
-compare step runs the tree's `_perf/run.tl` under the PREVIOUS release
-binary. `run.tl` itself is passed by path, so the tree's copy executes
-— but every `require("_perf.harness")`, `require("_perf.compare")` and
-`require("_perf.bench.*")` inside it resolves to that previous
-release's embedded copy, by the measurement above. Whether the lane is
-therefore measuring the tree's scenarios or the previous release's is
-the question this item now turns on, and it is NOT yet established.
-
-## What this item must settle, in order
-
-1. **The release-lane picture, measured**: for `release.yml`'s compare
-   step, which `_perf` files actually execute — tree or embed — for
-   the harness, for `compare`, and for each bench module; whether a
-   bench module added in the tree is seen or silently skipped; and
-   whether `run.tl` enumerates benches by filesystem scan or by a
-   require list. Until this is answered the fix cannot be chosen,
-   because the two candidate fixes serve different defects.
-2. **What governs precedence**, quoted from the searcher: whether
-   `/zip` beating cwd is deliberate and configurable, or incidental.
-3. **Then the fix**, which is one of:
-   - the resolution is correct and only the guard's docstring and
-     failure message are wrong — a documentation change, and
-     `_perf` signature changes genuinely stage behind a release and a
-     pin bump, a cost that should be written down where a session
-     planning a `_perf` change will read it;
-   - or the release lane is measuring the wrong code and the
-     precedence is the defect, in which case the fix is in the
-     searcher or the lane, not in the guard.
-
-Route 3a leaves 3IUBNQZZ needing a two-PR-plus-a-release dance;
-route 3b unblocks it in one PR. They are not the same item, so this
-one stops at the evidence and the choice.
-
-## Result — the resolution picture, measured 2026-08-27
-
-Established against `o/bootstrap/cosmic` (the previous release,
-content-wise) from a worktree whose `_perf/compare.tl` widens
-`compare.format` from 1 parameter to 3 — a probe that tells the tree's
-copy from an embedded one at a glance.
-
-**Precedence has three seats, all in `cosmic/searcher.tl`.** The `/zip`
-searcher inserts at `package.searchers` index 2; the TREE searcher
-(`install_manifest`) inserts at 2 as well and thereby demotes `/zip` to
-seat 3 — but only when the build engine hands it a manifest on argv
-(`--modules MANIFEST`). The channel is deliberately argv and never an
-environment variable, because an inherited path would answer a nested
-project's imports out of the wrong tree; `docs/design/make/resolution.md`
-records the removal of the old `TREE_LUA_PATH` escape hatch for that
-reason. So the tree wins under `--make run` and loses everywhere else,
-and `--include-dir` is not a lever: it feeds the type-check search path
-only, never `package.searchers`.
-
-| context | which `_perf` wins | proof |
-|---|---|---|
-| bare under the previous release (`release.yml:173`) | **binary embed** | `_perf.compare source=@/zip/_perf/compare.lua nparams=1` while the tree's is 3 |
-| bare under the tree's own binary | binary embed — equal to the tree by construction, since that binary was just built from it | `nparams=3` |
-| `--make run` (the documented local command) | **tree**, via the manifest | an OLD binary running `--make run _perf/gate.tl compare` prints the 3-param header; the same gate.tl bare under the same binary dies `wrong number of arguments (given 3, expects at most 1)` |
-| `--make test _perf/skew_test.tl` | tree — which then SPAWNS a bare `--check types`, i.e. the first row's resolution | fails on the modified tree naming `_perf/gate.tl:128` and `_perf/run.tl:358` |
-
-**The guard's docstring is false, and so is the correction above it.**
-"`_perf.*` resolves from the tree at cwd" holds in NO context. The
-guard nevertheless catches real failures, for a narrower reason than
-it states: the entry script is tree-compiled because it is passed BY
-PATH, and a module ABSENT from the binary's embed is tree-compiled
-because nothing else answers the require. Both incidents the docstring
-cites fit that narrower rule — `run.tl`'s `version_info` read was in
-the path-given entry, and `literal_bench` was a new file.
-
-**The larger finding: `release.yml:173` measures a MIX, and one class
-of tree change is silently unmeasured on the baseline side.**
-`_perf/run.tl` discovers benches by a filesystem scan of the tree
-(`fs.find(BENCH_DIR, {glob = "*_bench.tl"})`) and then loads each by
-`require`. So the NAMES come from the tree and the BYTES come from
-whatever answers the require. Measured on a fake root carrying one
-bench absent from every embed and one copy of an embedded bench with a
-scenario renamed:
+`--include-dir` prepends to the defaults (`cosmic/_teal_engine.tl`'s
+`merge_include_dirs`, "Caller dirs come first"), so a directory holding
+only a `_perf` symlink puts the tree's `_perf.*` ahead of
+`/zip/.tl/_perf/**` while `cosmic.*` still comes from `/zip/.tl` — the
+pin's. With `_perf/compare.tl`'s `format` widened to
+`(deltas, _base?, _cur?)` and all five call sites passing three
+arguments (exactly `3IUBNQZZ`'s shape):
 
 ```
-_perf.bench.probe_bench   from=@./_perf/bench/probe_bench.tl  scenarios=[probe_added_scenario]
-_perf.bench.time_bench    from=@/zip/_perf/bench/time_bench.lua  scenarios=[time_format_date,time_format_iso8601]
+D=$(mktemp -d); ln -s "$PWD/_perf" "$D/_perf"
+SRC=$(find _perf -name '*.tl' ! -name '*_test.tl' | sort)
+COSMIC_COVERAGE=0 o/bootstrap/cosmic --check types $SRC                      # exit 1
+COSMIC_COVERAGE=0 o/bootstrap/cosmic --check types --include-dir "$D" $SRC   # exit 0
 ```
 
-- an **added** bench module is seen and runs the tree's copy — compiled
-  by the OLD binary's Teal against the OLD embedded `cosmic.*`
-  declarations, which is exactly the skew class the guard exists for.
-  On the baseline side it reads as `new` in the compare, not as a
-  baseline datum.
-- a **changed** bench module runs the RELEASE's copy. The tree edit is
-  invisible: `TREE_COPY_MARKER` never appears. **The guard cannot see
-  this class at all**, because nothing fails to type-check — the old
-  code simply runs instead of the new.
+bare: 5 x `wrong number of arguments (given 3, expects 1)` at
+`_perf/gate.tl:143,199,250,290` and `_perf/run.tl:358`.
+scoped: exit 0, `Type check passed` x30, zero errors.
 
-**Two corrections to this item's earlier framing**, both mine:
+And the class the guard exists for still fails under the scope. With a
+`probe_new_api` added to the TREE's `cosmic/literal.tl` and used from a
+`_perf` file:
 
-- The claim "the guard is faithful, so the guard is not the defect" is
-  too generous. It is faithful to the baseline side's resolution for
-  the two classes it can see, and blind to a third.
-- A tree-vs-embed conclusion drawn in a worktree whose `o/bin/cosmic`
-  is byte-identical to the pin proves nothing, because the two agree
-  by construction. Every discriminating measurement here was run
-  against a tree that actually differs from its binary.
+```
+bare      → _perf/probe_skew.tl:4:51: error: invalid key 'probe_new_api' … (exit 1)
+scoped    → _perf/probe_skew.tl:4:51: error: invalid key 'probe_new_api' … (exit 1)
+--include-dir .  → exit 0   ← the trap, still a trap
+```
 
-Also worth knowing when reproducing: `o/bootstrap/cosmic`'s sha does
-NOT match `bin/cosmic.pin`'s and that is not corruption — `bin/cosmic`
-verifies the download against the pin and then `--assimilate`s it into
-a native ELF, mutating the bytes. The pin sha is recorded beside it in
-`o/bootstrap/cosmic.pin`.
+### 4. The changed-existing-bench blind spot closes
 
-**Not established**: whether a real release run has ever silently
-diverged this way. The mechanism is proven; its historical incidence
-needs release-run logs nobody has fetched.
+`_perf/run.tl:194` discovers benches by `fs.find("_perf/bench", …)` of
+the TREE and loads each by `require`, so names come from the tree and
+bytes from whatever answers. Bare, a bench the pin already carries runs
+the PIN's body. Under the scoped root it runs the tree's:
 
-## What is left to decide, narrowed
+```
+rm -rf o/perf/blindspot; mkdir -p o/perf/blindspot/o
+cp -r _perf o/perf/blindspot/_perf && cp -r o/_perf o/perf/blindspot/o/_perf
+sed -i 's/name = "time_format_date"/name = "time_format_date_TREEMARK"/' \
+  o/perf/blindspot/o/_perf/bench/time_bench.lua
+printf 'root %s/o/perf/blindspot\nbuild o\n' "$PWD" > o/perf/blindspot.modules
+o/bootstrap/cosmic _perf/run.tl --only time --samples 1 --min-secs 0.05
+o/bootstrap/cosmic --modules o/perf/blindspot.modules o/_perf/run.lua \
+  --only time --samples 1 --min-secs 0.05
+```
 
-The evidence closes questions 1 and 2 of the list above. What remains
-is the choice, and it is now a choice between three, not two:
+bare prints `time_format_date`; scoped prints `time_format_date_TREEMARK`.
 
-1. **Document the cost.** The resolution stands; the guard's docstring
-   and failure message are rewritten to say what actually happens, and
-   the two-PR-plus-a-release dance for a `_perf` signature change is
-   written down where a session planning one will read it. Cheapest,
-   and leaves 3IUBNQZZ needing the dance.
-2. **Give the baseline run the tree's `_perf`.** Hand `release.yml:173`
-   a manifest so the tree searcher wins there too. This makes the
-   baseline measure the tree's scenarios — which is what a compare
-   wants — and unblocks 3IUBNQZZ in one PR. It also changes what the
-   baseline number MEANS, so it needs its own argument: measuring an
-   old binary with new harness code is a different experiment from
-   what the lane runs today, and which one the gate should want is not
-   obvious.
-3. **Split the two.** Keep the baseline resolution as it is and fix
-   only the guard's honesty, while filing the changed-bench blind spot
-   as its own defect.
+### 5. Two more sites the rejected spec missed
 
-The changed-bench blind spot is real under 1 and 3 and should be its
-own item either way.
+- **`_perf/gate.tl:357` hardcodes the bare baseline argv**
+  (`{baseline_bin, "_perf/run.tl", "--out", out}`) with a comment
+  naming it "the exact invocation shape release.yml measures the
+  baseline with". `release.yml:184` passes `--baseline-bin`, so a
+  flagged regression's RETRY re-measures the baseline. Changing only
+  release.yml would make pass 1 and the retry disagree about which
+  `_perf` they measure — the retry is what decides the gate.
+  `grep -c '"_perf/run.tl"' _perf/gate.tl` → 1 today.
+- **The `peers` job carries no skew and is not a reason for anything.**
+  `release.yml:255-291` downloads artifact `cosmic-lua` from
+  `needs: build` — the CANDIDATE binary, built from this tree — so its
+  embed equals the tree by construction. PR #1463's claim that the
+  guard "keeps its job" because of the peers lane is false.
+
+### 6. The whole baseline suite runs clean under the scoped root
+
+```
+o/bootstrap/cosmic --modules o/perf/tree.modules o/_perf/run.lua \
+  --samples 1 --min-secs 0.05 --out o/perf/full.json
+```
+48 scenarios, 0 errors, 10.3 s wall; `meta.bin_sha` = `sha256sum
+o/bootstrap/cosmic`, not `o/bin/cosmic`.
 
 ## Change
 
-Two files.
+Seven files, plus the coverage floor.
 
-**1. `.github/workflows/release.yml`, the "compare against the previous
-release" step.** Replace the bare baseline measurement
+**1. New `_perf/baserun.tl`** — the ONE definition of "measure a
+baseline binary against the tree's `_perf`", so the workflow and the
+gate's retry cannot drift apart. Two exported functions plus a script
+mode:
+
+```teal
+--- @return string|nil Absolute path of the manifest written
+local function ensure_root(root: string, build: string): string | nil, string
+local function argv(bin: string, modules: string, extra: {string}): {string}
+```
+
+`ensure_root` makes `<root>/<build>/perf/treeroot/o`, symlinks
+`<root>/_perf` → `treeroot/_perf` and `<root>/<build>/_perf` →
+`treeroot/o/_perf` (idempotent: skip an existing link), writes
+`<root>/<build>/perf/tree.modules` holding exactly
+`root <abs treeroot>` and `build o`, and returns that path. It creates
+NO other entry under `treeroot` — that emptiness IS the fix.
+`argv` returns `{bin, "--modules", modules, "o/_perf/run.lua", extra…}`.
+Script mode (`proc.is_main()`): parse `--bin PATH`, pass every other
+argument through, `ensure_root(fs.cwd(), "o")`, `child.run` with
+`stdout`/`stderr` inherited, exit with the child's code (three
+`os.exit` sites, each carrying `-- exits: process boundary`).
+Measured: this exact prototype type-checks under the PIN
+(`o/bootstrap/cosmic --check types --include-dir "$D" _perf/baserun.tl`
+→ passed), and `bin/cosmic --make run _perf/baserun.tl --bin
+o/bootstrap/cosmic --only time --samples 1 --min-secs 0.05 --out
+o/perf/prev-probe.json` ran under the fence and wrote
+`bin_sha 90ff7f246b3f…` (the OLD binary). The entry must be
+`o/_perf/run.lua`, not `_perf/run.tl`: a `.tl` entry is type-checked
+through the binary's include path, which finds `/zip/.tl/_perf/*.tl`
+before any `require` runs.
+
+**2. New `_perf/baserun_test.tl`** — cases: `ensure_root` in
+`TEST_TMPDIR` writes a manifest whose `root` line points at
+`treeroot`; **the constructed root's entries are exactly `_perf` and
+`o`, and `o`'s entries exactly `_perf`** (the structural wall against
+the `root $PWD` over-capture); a second `ensure_root` call is
+idempotent; `argv` puts `--modules` before the entry and appends extras
+in order. Each `test_*` called on the line after its `end`.
+
+**3. `_perf/gate.tl`** — in `measure_baseline` (currently 351-361),
+replace the hardcoded `{baseline_bin, "_perf/run.tl", "--out", out}`
+with `baserun.argv(baseline_bin, baserun.ensure_root(cwd, "o"), …)`,
+requiring `_perf.baserun` beside the existing `local child =
+require("cosmic.child")`. Rewrite the comment above it to say the shape
+is `baserun`'s, shared with release.yml, and why (the retry must
+resolve `_perf` exactly as pass 1 did). A failed `ensure_root` returns
+1 with its message on stderr, like the existing child failure. Headroom:
+`wc -l _perf/gate.tl` = 406, 94 lines under the 500 cap.
+
+**4. `.github/workflows/release.yml`** — in the "compare against the
+previous release" step, replace line 181
 
 ```
 o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json
 ```
 
-with a manifest run against the PREBUILT entry, so the previous release
-binary measures the TREE's harness and the TREE's scenarios:
+with
 
 ```
-printf 'root %s\nbuild o\n' "$PWD" > o/perf/prev.modules
-o/perf/prev/cosmic-lua --modules o/perf/prev.modules o/_perf/run.lua \
+o/bin/cosmic --make run _perf/baserun.tl --bin o/perf/prev/cosmic-lua \
   --out o/perf/prev/perf.json
 ```
 
 Nothing else in the step moves: `baseline.tl`, the SKIP branch, the
-`chmod +x`, and the `gate.tl compare` invocation stand as written.
+`chmod +x`, `--baseline-bin`, the `| tee`, `pipefail` and `exit "$rc"`
+all stand. And rewrite the parenthetical at lines 162-163 — "(the
+previous binary measures its own embedded scenario set, exactly as its
+stored numbers did)" — which this change falsifies. The phrase
+`embedded scenario set` must not survive it: that is precisely what
+stops being true (see *What this changes about the gate's meaning*).
 
-**Why this shape and not `--make run`.** Both work and both keep the
-old binary as the interpreter. `--make run` additionally rebuilds
-(+2.6 s warm) and, being a build, can in principle replace
-`o/bin/cosmic` — the artifact this very workflow is about to publish
-and has already measured. Observed identical on a fixpoint tree, but
-"the old binary's compile happens to be byte-identical" is not a
-property to stake a release on. The manifest form touches nothing:
-`o/_perf/run.lua` and `o/_perf/bench/*.lua` already exist, built by the
-candidate-side `--make run` at the step above, so the baseline run is
-0.39 s and writes only its own results file.
+**5. `_perf/skew_test.tl`** — build a `_perf`-only include directory in
+`TEST_TMPDIR` (`fs.symlink(fs.join(cwd, "_perf"), fs.join(tmp,
+"_perf"))`), assert its entries are exactly `{"_perf"}` before using
+it, and pass `--include-dir <that dir>` to the child `--check types`.
+Then rewrite the header and the assert message:
 
-`mod` lines are optional — `root` + `build` alone installs the tree
-searcher, which resolves `<root>/o/<rel>.lua` then `<root>/<rel>.tl`
-ahead of `/zip`, and that fall-through is what covers the bench modules
-`run.tl` loads by COMPUTED require (`cosmic/searcher.tl`'s
-`tree_searcher` names this case in its own doc comment).
+- delete "`_perf.*` resolves from the tree at cwd" — false in every
+  context measured here and in the sidecar's earlier passes;
+- say what the guard now checks: every non-test `_perf/**` source
+  against the PIN's `cosmic.*` declarations and against the TREE's own
+  `_perf.*` declarations, because after change 4 the baseline lane runs
+  the tree's `_perf` on the previous release's `cosmic`;
+- say why the include dir is scoped: `--include-dir .` at the repo root
+  resolves `cosmic.*` from the tree and silently defeats the guard
+  (measured: exit 0 with an invented API in use);
+- the failure message stops prescribing the tolerant-map-view remedy as
+  the only reading. Both readings: a `cosmic` API newer than the pin
+  takes the map view or waits for the pin; anything else is a genuine
+  type error in a `_perf` file.
 
-The entry must be `o/_perf/run.lua`, not `_perf/run.tl`. Measured: with
-the same manifest, the `.tl` entry still fails, because the dispatcher
-type-checks the entry script through the binary's include path, which
-finds `/zip/.tl/_perf/compare.tl` before any `require` runs.
+Headroom: `wc -l _perf/skew_test.tl` = 70.
 
-**2. `_perf/skew_test.tl`, the header and the failure message.** The
-docstring's claim that "`_perf.*` resolves from the tree at cwd" is
-false in every context (Result above) and must go. Rewrite it to say
-what is now true:
+**6. `_build/workflows_test.tl`** — extend
+`test_the_release_perf_compare_propagates_its_verdict` (or add one
+beside it) asserting the compare step's baseline measurement goes
+through `_perf/baserun.tl` and that the step body does NOT contain
+`cosmic-lua _perf/run.tl`. Headroom: `wc -l _build/workflows_test.tl` =
+329.
 
-- the guard exists for a BARE run of the tree's `_perf` under an older
-  binary, where the older binary's embedded declarations type-check
-  what it compiles;
-- after change 1 the release compare step is no longer such a run — but
-  the `peers` job still is (`release.yml`, `./dl/cosmic-lua
-  _perf/peers/run.tl --bin ./dl/cosmic-lua`), so the guard keeps its
-  job and that lane is now the reason it exists;
-- the failure message stops prescribing the tolerant-map-view remedy
-  for what is in fact a sibling `_perf` signature change. Say both
-  readings: a cosmic API newer than the pin takes the map view; a
-  `_perf` signature the pinned binary declares differently is the
-  binary checking you against its own copy.
+**7. `skills/optimize/SKILL.md`** — its warning that `$BIN
+o/_perf/run.lua …` "reads like the fix and is not" stays true for a
+BARE run; add the one exception in the same bullet: with `--modules`
+naming a `_perf`-scoped root it resolves the tree's `_perf` against the
+binary's own `cosmic`, which is what the release baseline uses and what
+`_perf/baserun.tl` builds.
+
+**Coverage.** New files move the ratchet: run exactly the regen the
+gate's failure prints (`bin/cosmic --make coverage --baseline`) and
+commit `.cosmic-coverage`. Never weaken the gate any other way.
 
 ## Non-goals
 
-- **No change to the `peers` job.** It is still a bare run and still
-  carries the skew class; converting it is the same edit against a
-  different lane and a different artifact, and it is filed separately.
-- **No `_perf` source change of any kind** — no harness, comparator,
-  gate, scenario or `check()` edit. The one `_perf` file this touches
-  is `skew_test.tl`, and only its prose.
-- No threshold, bar or noise-floor change. In particular
-  `codec_base64_roundtrip_64k` keeps its floor: 3IU0GxoA's evidence
-  makes that scenario look MORE stable within a session, not less.
-- No decision record. Nothing settled is being reversed; a lane is
-  being made to measure what it always claimed to measure.
-- No `--make run` in the baseline step, for the artifact-replacement
-  reason above.
-- No change to `bin/cosmic.pin`, `cosmic/searcher.tl`, `_make/**`, or
-  the `--modules` format.
-- No attempt to guard the surface this newly exposes (below). Naming it
-  is this item's job; guarding it is not.
+- **No `root $PWD` and no repo-root manifest anywhere.** That is the
+  rejected shape; the treeroot's emptiness is the fix and
+  `_perf/baserun_test.tl` is what holds it.
+- **No `--include-dir .`** in the guard or anywhere else — measured to
+  defeat it silently.
+- No change to `cosmic/searcher.tl`, the `--modules` manifest format,
+  `_cli/**`, `_make/**`, or `bin/cosmic.pin`.
+- No change to `_perf/compare.tl` — its `format` signature is
+  `3IUBNQZZ`'s to widen. This item only removes the wall.
+- No scenario, `check()`, threshold, bar or noise-floor change. In
+  particular `codec_base64_roundtrip_64k` keeps its floor, and
+  `_perf/compare.tl:115-121`'s missing-scenario rule is not touched.
+- No change to the `peers` job: it runs the CANDIDATE artifact, so it
+  carries no skew (measured, Evidence 5).
+- No change to `3p/tl/tl_patch/**` or `_make/patch.tl` — live siblings
+  `3IVSDpFq` (#1477), `3IVZsiwL` (#1478), `3IVenbbU` (#1479).
+- No rewrite of `docs/design/make/resolution.md`; its table describes
+  BARE runs and stays true.
+- No decision record: a lane is being made to measure what it always
+  claimed to measure.
+- No attempt to guard the `cosmic`-on-old-`cosmo` surface (below) —
+  naming it is this item's job, guarding it is not.
 
-## What this newly exposes, stated rather than guarded
+## What this changes about the gate's meaning
 
-After change 1 the tree's `cosmic.*` Lua runs on the previous release's
-`cosmo.*` C bindings, because the manifest root covers `cosmic/**` too.
-A tree `cosmic.*` module reaching a `cosmo.*` binding the previous
-release does not carry fails at runtime on the baseline side. Measured
-on this tree it is clean — all 48 scenarios ran, exit 0, no error lines
-— but that is one observation, not a guard, and `skew_test` does not
-cover it (it checks `_perf/**` only, and only statically). This is the
-same class the pin bump procedure already manages for `cosmo.*`, and it
-is named here so the next failure is recognised rather than
-investigated from scratch.
+Stated so a reviewer judges it rather than discovers it.
+
+1. **The baseline number changes meaning, deliberately.** It becomes
+   "the previous release's `cosmic` measured by the tree's instrument"
+   instead of "the previous release measured by its own instrument".
+   That is the experiment the compare has always claimed to run: one
+   instrument, two subjects.
+2. **A scenario-set change stops being a gate event.** Both sides now
+   enumerate the tree's benches, so a rename or removal no longer shows
+   up as "present in baseline, missing in current"
+   (`_perf/compare.tl:115-121`) and the `perf_gate: false` re-baseline
+   door is no longer needed for one. The deletion of a scenario is
+   visible in the PR diff and to `--make ci`; the release gate's job is
+   regressions. The comment at `release.yml:162-163` must say this
+   instead of what it says now.
+3. **The tree's `_perf` now runs entirely on the previous release's
+   `cosmic` and `cosmo`** — previously only the path-given entry was
+   tree code. A `_perf/**` use of a `cosmic` API newer than the pin
+   therefore breaks the baseline side, which is exactly the class
+   `_perf/skew_test.tl` catches, so the guard becomes MORE load-bearing
+   after this change, not less. The residue it cannot see is a `cosmic`
+   module that type-checks against the pin and fails at RUNTIME on the
+   old `cosmo`; measured clean today (48 scenarios, 0 errors) but that
+   is one observation, not a guard.
 
 ## Acceptance
 
-`o/bootstrap/cosmic` stands in for the previous release throughout: it
-is content-wise the pinned release, and its sha differs from
-`bin/cosmic.pin`'s only because `bin/cosmic` `--assimilate`s it after
-verifying the download (the pin sha is recorded in
-`o/bootstrap/cosmic.pin`).
+`o/bootstrap/cosmic` stands in for the previous release: its stamp
+`o/bootstrap/cosmic.pin` matches `bin/cosmic.pin`
+(`145057b9fe90…`) while its own sha is `90ff7f246b3f…`.
+Quote both shas in the PR. Nothing here writes into the committed tree.
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
 
-- **The new command shape works and measures the OLD binary.** After
-  `bin/cosmic --make build`:
-
-  ```
-  printf 'root %s\nbuild o\n' "$PWD" > o/perf/prev.modules
-  o/bootstrap/cosmic --modules o/perf/prev.modules o/_perf/run.lua \
-    --out o/perf/prev-probe.json --samples 1 --min-secs 0.05
-  ```
-
-  exits 0, and the results file's `meta.bin_sha` equals
-  `sha256sum o/bootstrap/cosmic`, NOT `sha256sum o/bin/cosmic`. Both
-  sha values quoted in the PR so the reviewer can see they differ.
-
-- **It measures the TREE's `_perf`, not the binary's.** The same
-  invocation with a probe entry, or a `--only` run, reports
-  `_perf.harness` loading from a path under the repo root rather than
-  `@/zip/_perf/harness.lua`. Today the bare form
-  (`o/bootstrap/cosmic _perf/run.tl …`) reports `@/zip/_perf/harness.lua`
-  — quote both, they are the before and after of this whole item.
-
-- **The scenario set is the tree's.** The probe run's scenario count
-  equals the count the candidate-side `bin/cosmic --make run
-  _perf/run.tl` reports on the same tree.
-
-- **The guard still passes and still means something.**
-  `bin/cosmic --make test _perf/skew_test.tl` ends `test: PASS`, and
-  `grep -c 'resolves from the tree at cwd' _perf/skew_test.tl` → `0`.
-
-- **The workflow ratchet is clean.**
+- **New unit and workflow tests pass.**
+  `bin/cosmic --make test _perf/baserun_test.tl` ends `test: PASS`;
   `bin/cosmic --make test _build/workflows_test.tl` ends `test: PASS`.
 
-- The diff is exactly two files:
-  `git diff origin/main --name-only` → `.github/workflows/release.yml`
-  and `_perf/skew_test.tl`, nothing else. `git diff origin/main -- _perf
-  | grep -c '^[+-]' ` counts only comment and string lines — no
-  executable `_perf` line changes.
+- **The root is scoped, not the repo.** After
+  `bin/cosmic --make build && bin/cosmic --make run _perf/baserun.tl
+  --bin o/bootstrap/cosmic --only time --samples 1 --min-secs 0.05
+  --out o/perf/prev-probe.json`:
+  - `ls o/perf/treeroot` → exactly `_perf` and `o`;
+    `ls o/perf/treeroot/o` → exactly `_perf`.
+  - `grep -c "^root .*/o/perf/treeroot$" o/perf/tree.modules` → 1, and
+    `grep -c "^root $PWD$" o/perf/tree.modules` → 0.
+
+- **It measures the OLD binary.**
+  `grep -o '"bin_sha":"[a-f0-9]*"' o/perf/prev-probe.json` equals
+  `sha256sum o/bootstrap/cosmic`, and differs from
+  `sha256sum o/bin/cosmic`. Quote all three.
+
+- **It measures the TREE's `_perf` on the BINARY's `cosmic`** — the
+  before/after of this whole item. With the probe of Evidence 1:
+  `o/bootstrap/cosmic o/perf/probe.lua` prints `_perf.harness
+  @/zip/_perf/harness.lua`; `o/bootstrap/cosmic --modules
+  o/perf/tree.modules o/perf/probe.lua` prints `_perf.harness` under
+  `o/perf/treeroot/o/`, AND `cosmic.json @/zip/cosmic/json.lua` and
+  `cosmic.teal @/zip/cosmic/teal.lua` in BOTH. Quote all six lines: a
+  `cosmic.*` line naming a repo path is the rejected over-capture and
+  fails this item.
+
+- **A `cosmic/**` regression still blocks.** Run Evidence 2 verbatim:
+  patch `cosmic/literal.tl`'s `"pin"` branch to loop `lformat.format`
+  30 times, `bin/cosmic --make build`, then measure candidate
+  (`bin/cosmic --make run _perf/run.tl -- --only literal --samples 1
+  --min-secs 0.05 --out o/perf/cand.json`) and baseline
+  (`bin/cosmic --make run _perf/baserun.tl --bin o/bootstrap/cosmic
+  --only literal --samples 1 --min-secs 0.05 --out o/perf/base.json`),
+  and compare (`bin/cosmic --make run _perf/run.tl -- --compare
+  o/perf/base.json o/perf/cand.json`). The report must end
+  `2 regression` with `literal_format_pin` over `+2000%`. Revert the
+  patch (`git checkout cosmic/literal.tl`) and confirm `git status
+  --short` is clean before opening the PR.
+
+- **The changed-existing-bench blind spot is closed.** Run Evidence 4
+  verbatim: bare prints `time_format_date`, the scoped-root run prints
+  `time_format_date_TREEMARK`.
+
+- **The guard clears a sibling signature change and still catches
+  cosmic skew.** With `_perf/compare.tl`'s `format` widened to
+  `(deltas: {pt.Delta}, _base?: pt.Results, _cur?: pt.Results)` and the
+  five call sites at `_perf/gate.tl:143,199,250,290` and
+  `_perf/run.tl:358` passing `(deltas, nil, nil)`:
+  `bin/cosmic --make test _perf/skew_test.tl` ends `test: PASS`
+  (today the same edit gives `test: FAIL` with five `wrong number of
+  arguments`). Then, keeping that edit, add a `_perf` file calling an
+  invented `cosmic.literal` function: the same command ends
+  `test: FAIL` naming `invalid key`. Revert both probes; `git status
+  --short` clean.
+
+- **The guard's prose and scope are what the Change says.**
+  `grep -c 'resolves from the tree at cwd' _perf/skew_test.tl` → 0
+  (1 today); `grep -c -- '--include-dir' _perf/skew_test.tl` → 1
+  (0 today); `grep -c -- '--include-dir \.' _perf/skew_test.tl` → 0.
+
+- **No bare baseline invocation survives.**
+  `grep -c '"_perf/run.tl"' _perf/gate.tl` → 0 (1 today);
+  `grep -c 'cosmic-lua _perf/run.tl' .github/workflows/release.yml` → 0
+  (1 today); `grep -c 'embedded scenario set' .github/workflows/release.yml`
+  → 0 (1 today).
+
+- **The `_perf` source count moved by exactly one.**
+  `find _perf -name '*.tl' ! -name '*_test.tl' | wc -l` → 31 (30 today).
+
+- **The diff is exactly these files.**
+  `git diff origin/main...HEAD --name-only` →
+  `.cosmic-coverage`, `.github/workflows/release.yml`,
+  `_build/workflows_test.tl`, `_perf/baserun.tl`,
+  `_perf/baserun_test.tl`, `_perf/gate.tl`, `_perf/skew_test.tl`,
+  `skills/optimize/SKILL.md` — and nothing else. No `o/perf/*.json` is
+  committed.
 
 ## Enablement
 
-None needed, and measured rather than asserted. The three facts the
-Change rests on are each proved in the Result and the notes above:
-`run` is absent from `_make/converge.tl`'s `GATES`, so no verb here
-re-execs; `--modules` is a real documented flag (`sys/help.md`,
-`_cli/args.tl`) whose `mod` lines are optional; and the prebuilt
-`o/_perf/run.lua` the new command names is already produced by the
-candidate-side `--make run` that precedes it in the same job. The
-`_perf/skew_test.tl` shadowing that bounced 3IUBNQZZ does not reach
-this slice — the only `_perf` file it touches is that test's own prose,
-and no `_perf` signature moves.
+None needed as a blocker item, and the reasoning is mechanical rather
+than asserted. The three wrong turns this item's own history proves a
+session can take each have a countermeasure INSIDE the Acceptance,
+where a reviewer must see it:
 
-## Bounce — the committed route is contested, 2026-08-27 (session 05f7c552)
+- **the over-capture** (`root $PWD`) — `_perf/baserun_test.tl`'s
+  structural assertion on the treeroot's entries, plus the six-line
+  resolution probe that fails the item if any `cosmic.*` line names a
+  repo path;
+- **defeating the guard** (`--include-dir .`) — the guard asserts its
+  own scope dir holds exactly `_perf`, and the acceptance greps for the
+  literal `--include-dir .`;
+- **forgetting the gate's retry path** — `grep -c '"_perf/run.tl"'
+  _perf/gate.tl` → 0.
 
-Pulled to `do`, re-measured, and returned to `plan` WITHOUT a diff. The
-facts above all re-verify; what does not resolve is **which route this
-item is committed to**. Two mutually exclusive answers are live on the
-board at once, and choosing between them is plan's call, not a
-mid-slice one.
+Nothing must land first: `3IUBNQZZ` is DOWNSTREAM of this item, not
+upstream, and the pin does not move (measured: the new module
+type-checks under `o/bootstrap/cosmic`, so the cold-build rule is not
+engaged).
 
-**Re-measured at pull** (all against `o/bootstrap/cosmic`, whose stamp
-`o/bootstrap/cosmic.pin` = `145057b9…` matches `bin/cosmic.pin`, while
-its own sha is `90ff7f24…` — the `--assimilate` mutation the Result
-already notes):
+## History — why this item was rejected once and bounced once
 
-```
-$ unzip -l o/bootstrap/cosmic | awk '{print $4}' | grep -c '^_perf/'      # 30
-$ unzip -l o/bootstrap/cosmic | awk '{print $4}' | grep -c '^\.tl/_perf/' # 30
-```
-
-The failure shape reproduces exactly, in a scratch tree holding only a
-copy of `_perf` with `compare.format` widened to three parameters and
-its five call sites passing three arguments:
-
-```
-$ COSMIC_COVERAGE=0 o/bootstrap/cosmic --check types $(find _perf -name '*.tl' ! -name '*_test.tl')
-_perf/gate.tl:143:23: error: wrong number of arguments (given 3, expects 1)
-_perf/gate.tl:199:23: error: wrong number of arguments (given 3, expects 1)
-_perf/gate.tl:250:23: error: wrong number of arguments (given 3, expects 1)
-_perf/gate.tl:290:23: error: wrong number of arguments (given 3, expects 1)
-_perf/run.tl:358:23: error: wrong number of arguments (given 3, expects 1)
-```
-
-Four in `gate.tl`, one in `run.tl` — the split the route-3 reasoning
-turns on. And `release.yml`'s bare baseline line
-(`o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json`)
-still stands verbatim, so route 2's target is real too. **No value
-drift. The blocker is the choice, not a number.**
-
-### The conflict
-
-The sidecar's history carries two clobbers, not one. The first was
-repaired; the second was not noticed.
-
-| board commit | what its `## Change` committed to |
-|---|---|
-| `a4839510` | no pick — stops at the evidence and the three routes |
-| `8621e558` | route 3: `_perf/skew_test.tl` only (a clobber; dropped the Evidence/Correction/Result halves) |
-| `cc377d8d` | the repair: restores the full text AND appends `## Refinement — the pick` — **"The pick is route 3 of the three above: split"**, with its reasoning |
-| `2b1acdcc` | **deletes `## Refinement — the pick` and substitutes a route-2 `## Change`** (two files, `release.yml` + `skew_test.tl` prose) — silently, with no note and no answer to the reasoning it removed |
-| `fed418b1` | adds a `## Goal` consistent with route 2 |
-
-`2b1acdcc` removed the very section that existed to survive this — "
-`gitboard spec` keeps no trail, so the pointer is written here instead"
-— which is why it reads as a third clobber rather than a deliberate
-supersession.
-
-**Three other board artifacts still assert route 3**, all written after
-the route-2 text landed or independent of it:
-
-- `3IUBNQZZ`'s blocker-edge reason: "route 2 of the bounce fixes the
-  guard first and lands this unchanged as one PR". Under the current
-  `## Change` the guard's BEHAVIOUR is untouched (Non-goals: "the one
-  `_perf` file this touches is `skew_test.tl`, and only its prose"), so
-  all five errors above still fire and `3IUBNQZZ` does NOT land
-  unchanged. The edge's stated reason would be falsified by the work.
-- `3IVJLeCY`, filed 49 s after `fed418b1`, describes "`3IVF3HbV`'s
-  landed approach narrows its type-check sweep to `_perf/run.tl` plus
-  sources the pin does not carry" — route 3 — and **claims
-  `release.yml:173` as its own open scope** (its gap 2). Implementing
-  the current `## Change` would duplicate an open sibling item.
-- The pull brief handed to this session states the change as one file,
-  `_perf/skew_test.tl`, clearing the four `gate.tl` failures and
-  leaving `run.tl:358`. That is route 3 and is impossible under route 2.
-
-The document also still carries `## What is left to decide, narrowed`
-listing three OPEN routes, immediately above a `## Change` that
-implements one without naming it or saying why — the two halves
-conflict in the form the ready bar is meant to exclude.
-
-### What plan must settle
-
-1. **Route 2 or route 3.** One sentence in `## Change` naming the route
-   and answering `cc377d8d`'s reasoning for the other ("of the five
-   errors, four are checks of a configuration that never runs").
-2. **Then delete the stale half** — `## What is left to decide,
-   narrowed` cannot survive the pick, and whichever `## Goal` does not
-   match must go with it.
-3. **Deconflict with `3IVJLeCY`.** If route 2 stands, `3IVJLeCY`'s gap
-   2 is this item's work and must be struck from it; if route 3 stands,
-   this item's `## Change` and `## Acceptance` must stop naming
-   `release.yml`.
-4. **Restate what it unblocks.** Route 3 clears four of `3IUBNQZZ`'s
-   five errors and leaves `run.tl:358` a genuine release-lane break;
-   route 2 clears none of them. The blocker edge on `3IUBNQZZ` should
-   be reworded to match whichever lands.
-
-## Rejected — 2026-08-27, PR #1463 closed. What the attempt established.
-
-The `## Change` above was built, was gate-clean, and was REJECTED at
-head `15cab039`, because the fix is not inside that diff: the Change
-prescribes the manifest shape verbatim, so changing it is plan's call.
-The diff itself held up — `ci: PASS`, CI green on five lanes, exactly
-two files, every Non-goal honoured, and the rewritten `skew_test.tl`
-docstring and assert message judged worth keeping in whatever lands.
-
-**Finding 1, blocking: `root $PWD` captures `cosmic/**`, so the release
-ratchet goes blind to `cosmic/**` regressions.** The tree searcher
-resolves `<root>/o/<rel>.lua` for EVERY module, not just `_perf.*`:
-
-```
-$ o/bootstrap/cosmic --modules o/perf/prev.modules probe.lua
-_perf.harness   : @<root>/o/_perf/harness.lua
-cosmic.json     : @<root>/o/cosmic/json.lua
-cosmic.literal  : @<root>/o/cosmic/literal.lua
-```
-
-With the tree's `cosmic/**` on BOTH sides of the compare, a Lua-level
-regression in `cosmic/**` appears identically in baseline and candidate
-and cancels out of the delta. Demonstrated end to end with a deliberate
-~30x slowdown in `cosmic/literal.tl`'s `format`, all three runs on one
-tree, `--only literal --samples 1 --min-secs 0.05`:
-
-| scenario | candidate | baseline THIS PR | baseline TODAY |
-|---|---|---|---|
-| `literal_format_pin` | 1.20 ms | 1.41 ms | 42.08 µs |
-| `literal_format_floor` | 1.82 ms | 1.82 ms | 718.52 µs |
-| `literal_format_floor_compact` | 1.22 ms | 1.19 ms | 117.18 µs |
-
-Today the gate sees `+2750%` on `literal_format_pin` and blocks the
-release; after that change it sees `-15%` and publishes. Unpatched the
-scenario is `30.95 µs` on the baseline side, so the 1.41 ms is the
-tree's own regression being measured on the baseline side, not noise.
-
-That is the parent outcome's win condition (3HyRcd9F, G6: a
-`perf-compare: FAIL` blocks publishing) losing its largest class of
-coverage. Startup, embed, child and C-dominated scenarios stay
-sensitive; every in-process pure-Lua path goes blind — `cosmic.literal`,
-`cosmic.string`, `cosmic.fs`'s path logic, and `cosmic.teal`'s own
-wrapper, which is one of G6's four defining paths.
-
-**The error in the Goal, named so the next spec does not repeat it.**
-The Goal argued the instrument must be held fixed and that is right, but
-**the instrument is `_perf/**` and `cosmic/**` is the SUBJECT.** What
-the Goal actually describes is the tree's `_perf` running against EACH
-SIDE'S OWN `cosmic` — which a blanket root cannot express. The `## Change`
-justified the blanket form with "`mod` lines are optional"; that
-convenience is the whole defect. `## What this newly exposes` did name
-the cosmic-on-old-`cosmo` hazard, but framed it as runtime
-compatibility only and missed that it also destroys the comparison.
-Naming half a hazard reads as having considered it.
-
-**Finding 2, blocking: the route was never picked, and route 2 as built
-does not unblock 3IUBNQZZ.** The bounce that returned this item named
-four things plan had to settle; the rewrite settled them without ever
-saying which route it took, leaving `## What is left to decide` standing
-directly above a `## Change` that had quietly decided it. And the payoff
-claimed for that route is false. Measured at head `15cab039`, with
-`_perf/compare.tl` widened to `(deltas, _title?: string)` and one
-`gate.tl:143` call site passing it:
-
-```
-$ bin/cosmic --make test _perf/skew_test.tl
-_perf/gate.tl:143:23: error: wrong number of arguments (given 2, expects 1)
-test: FAIL (1 of 1 file)
-```
-
-The guard's BEHAVIOUR is untouched by design (Non-goals: "only its
-prose"), so every `_perf` signature change is still unlandable in one
-PR — the thing this item is titled after. 3IUBNQZZ stays blocked
-whether or not that diff merges.
-
-**Finding 3, non-blocking, carry it into whatever lands.**
-`.github/workflows/release.yml:151-155` still says the
-`perf_gate: false` re-baseline door is needed after a scenario rename
-"(the previous binary measures its own embedded scenario set, exactly
-as its stored numbers did)". Any change that puts the tree's scenarios
-on both sides falsifies that parenthetical and the hazard it explains.
-
-**One thing to keep off the table**, established during review: a
-blanket `--include-dir .` at the repo root resolves `cosmic.*` from the
-tree and silently defeats the guard. With an invented `probe_new_api`
-added to the tree's `cosmic.literal`, bare `--check types` gives
-`invalid key 'probe_new_api'` (rc=1) while `--check types --include-dir .`
-gives `Type check passed` (rc=0). `skew_test.tl` correctly spawns
-without it; keep it that way whatever route is chosen.
-
-## What the next refine must settle, in order
-
-1. **A manifest root that exposes `_perf` and NOT `cosmic`**, or another
-   mechanism achieving the same split — tree `_perf` on each side's own
-   `cosmic`. Whether a narrower root whose `o/` holds only `_perf` works,
-   and what constructs it, is unmeasured and is the first job. If no
-   shape gives that split, say so and the item's premise dies with it.
-2. **Whether this item absorbs the guard's BEHAVIOUR** or keeps it a
-   non-goal. Its title claims the signature-change problem; its Change
-   disclaimed it. Those cannot both stand. If it stays a non-goal, the
-   title is wrong and the item is really about the release lane's
-   measurement only.
-3. **Name the route in the Goal**, not below a Change that has already
-   taken it.
-4. Carry finding 3's comment fix.
+- `a4839510` stopped at the evidence with three routes open.
+- `cc377d8d` picked route 3 (guard only); `2b1acdcc` silently replaced
+  it with a route-2 `## Change` and deleted the pick, leaving three
+  open routes standing above a Change that had taken one.
+- PR #1463 built that Change and was REJECTED at head `15cab039` on two
+  blocking findings: `root $PWD` captured `cosmic/**` and made a 30x
+  `cosmic/literal` regression read `-15%` and publish; and the route was
+  never named, while its claimed payoff (unblocking `3IUBNQZZ` in one
+  PR) measured false because the guard's behaviour was a Non-goal.
+- This pass settles both: the route is named in the Goal, the
+  over-capture is repaired by scoping the root to `_perf` (Evidence 1
+  and 2), and the guard's behaviour is IN scope (Evidence 3), which is
+  what actually unblocks `3IUBNQZZ`. The rejection's non-blocking
+  finding 3 (`release.yml:162-163`) is carried in Change 4. The
+  ownerless changed-bench blind spot from `3IVJLeCY` (ended
+  `not-planned`) is absorbed here (Evidence 4) and needs no re-filing.
+- Nothing worth keeping from PR #1463's diff is lost: its rewritten
+  `skew_test.tl` docstring and assert message were judged worth keeping
+  and Change 5 rewrites the same two places, further.
