@@ -201,8 +201,20 @@ local function compile_in_process(src: string, out: string,
   local instrument = require("cosmic.instrument")
   local span = instrument.begin("compile", src)
   local tealc = require("cosmic.teal")
-  local result = tealc.compile_file(src,
-    {include_dirs = include_dirs, strict = true})
+  -- The D29 seam: a runner-mode test file compiles WITH its generated
+  -- tail, so the chunk runs what is defined. The seam reads the file
+  -- and hands back every other shape byte-identical; chunk_name keeps
+  -- the errors on the real path. It lives here and not in
+  -- cosmic.teal because the strip floor bars cosmic/** from
+  -- requiring _tool.discover.
+  local seam = require("_tool.seam")
+  local aug, aerr = seam.augment(src)
+  if aug == nil then
+    instrument.finish(span, 1)
+    return fail("compile " .. src .. ": " .. aerr)
+  end
+  local result = tealc.compile(aug.source,
+    {include_dirs = include_dirs, strict = true, chunk_name = src})
   if not result.ok then
     io.stderr:write(tealc.format_issues(result.errors, {hints = true}) .. "\n")
     instrument.finish(span, 1)

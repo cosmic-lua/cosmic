@@ -112,7 +112,16 @@ end
 local function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   local span = instrument.begin("compile", file)
   local tealc = require("cosmic.teal")
-  local result = tealc.compile_file(file, {include_dirs = include_dirs, strict = strict})
+  -- The D29 seam, same as the build's compile step: a runner-mode
+  -- test file compiles with its generated tail.
+  local aug, aerr = require("_tool.seam").augment(file)
+  if aug == nil then
+    io.stderr:write("cosmic-lua: " .. aerr .. "\n")
+    instrument.finish(span, 1)
+    return 1, aerr
+  end
+  local result = tealc.compile(aug.source,
+    {include_dirs = include_dirs, strict = strict, chunk_name = file})
   local exit_code: integer
   local err_msg: string
   if result.ok then
@@ -222,7 +231,17 @@ end
 local function handle_check_types(file: string, include_dirs?: {string}): integer
   local span = instrument.begin("check-types", file)
   local tealc = require("cosmic.teal")
-  local result = tealc.check_file(file, {include_dirs = include_dirs})
+  -- The D29 seam: the checker checks the same augmented source the
+  -- compiler ships, so a runner-mode file's cases are called and the
+  -- uncalled-local warning never fires.
+  local aug, aerr = require("_tool.seam").augment(file)
+  if aug == nil then
+    io.stderr:write("cosmic-lua: " .. aerr .. "\n")
+    instrument.finish(span, 1)
+    return 1
+  end
+  local result = tealc.check(aug.source,
+    {include_dirs = include_dirs, chunk_name = file})
 
   if #result.warnings > 0 then
     io.stderr:write(tealc.format_issues(result.warnings, {hints = true}) .. "\n")

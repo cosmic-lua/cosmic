@@ -28,7 +28,10 @@
     order is the run order.
   - **invocation is a toolchain-generated in-chunk tail**, appended at
     the compile/check seam —
-    `return require("cosmic.test").main({...})`. in-chunk because that is
+    `os.exit(require("cosmic.test").main({...}))` (an exit, not a
+    `return`: the script host discards a chunk's return value, so a
+    returned summary could never reach the exit code the test runner
+    reads). in-chunk because that is
     the only place file-local functions are reachable; appended because
     it changes no line number, so a failing test's traceback still points
     at the real source line. the same augmented source goes to the type
