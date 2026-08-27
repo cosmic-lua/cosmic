@@ -9,7 +9,10 @@ description: >
   orphan `board` branch as committed files, operated by gitboard. Use
   when planning what to build next, refining or decomposing work,
   pulling the next item to implement, reviewing a PR against its
-  spec, or landing an accepted one.
+  spec, or landing an accepted one. Invoked with a number (`/work 5`,
+  typically under `/loop`), run one pass of the standing loop
+  (loop.md): reconcile the last wave, then fan out up to that many
+  items.
 ---
 
 # The system of work for cosmic
@@ -52,6 +55,8 @@ the chapters:
   the flow review that tunes WIP limits.
 - `parallel.md` — running several sessions at once: picking a
   disjoint set, isolation, and the brief an agent needs.
+- `loop.md` — the standing loop (`/work N`): one orchestrator pass
+  per invocation, terse reporting, and never blocking.
 
 ## the board in one minute
 
@@ -399,7 +404,9 @@ take it on its own branch off `main`. the loop stops when `next` says
 
 running SEVERAL sessions AT ONCE is a different move with its own
 mechanics — a disjoint set, a checkout per session, a brief that
-carries the spec — and those are `parallel.md`.
+carries the spec — and those are `parallel.md`. running that fan-out
+on a cadence — `/work N`, one bounded pass per invocation — is
+`loop.md`.
 
 ## hard rules (guardrails)
 
