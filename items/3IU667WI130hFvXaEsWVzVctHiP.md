@@ -77,3 +77,24 @@ ancestries against the chosen tag, and say so in the PR body. As of
 this measurement neither `c78504bd` nor the seam's `7b9f0749` is an
 ancestor of the current pin's tag, so no eligible release exists yet
 for either.
+
+## Update at 2026-08-27T05:12Z — the bump is open as PR #1450
+
+The release arrived: `2026-08-27-cb39b65`, published 05:05:27Z, tag
+commit `cb39b65d`. Both ancestries check out —
+`git merge-base --is-ancestor c78504bd cb39b65d` succeeds, and so does
+the same test for `7b9f0749` (#1446's merge, the D29 compile seam that
+3IU62YqO needed).
+
+The single bump both items called for is **PR #1450** (branch
+`3IU62YqO-pin-bump`), open and in `check` under 3IU62YqO. It is
+verified rather than assumed: the artifact's `sha256` matches the
+release's own `SHA256SUMS`, a runner-mode probe type-checks clean
+under the new binary and fails under the old one, and a cold tree
+bootstrapped from the new pin runs `ci: PASS (5 stages)` and
+`--make test _build/coldbuild_test.tl` green.
+
+So this item's remaining condition is no longer "wait for a release" —
+it is "#1450 merges". When it does, re-run the Result's check against
+the merged `bin/cosmic.pin` and end this item; no second bump should
+be filed.
