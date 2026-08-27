@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["phase"] = "check",
   ["pr"] = 1461,
+  ["reviewer"] = "e532d9f6-4b7d-5145-9534-7c6759ebc0d8",
   ["title"] = "gitboard spec is last-write-wins: a concurrent refinement replaced a ready item's spec with no refusal and no trail",
 }
