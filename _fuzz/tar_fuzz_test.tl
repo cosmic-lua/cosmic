@@ -170,7 +170,6 @@ local function test_mutation_totality()
     })
   check.truthy(ok, msg)
 end
-test_mutation_totality()
 
 local truncation_iteration = 0
 
@@ -191,7 +190,6 @@ local function test_truncation_totality()
     })
   check.truthy(ok, msg)
 end
-test_truncation_totality()
 
 -- ---- property 3: no write ever escapes destdir ----
 
@@ -310,4 +308,3 @@ local function test_no_escape()
     })
   check.truthy(ok, msg)
 end
-test_no_escape()

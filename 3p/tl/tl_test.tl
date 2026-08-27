@@ -22,14 +22,12 @@ local function test_load_tl()
   assert(type(tl.loader) == "function", "tl.loader should be a function")
   assert(type(tl.generate) == "function", "tl.generate should be a function")
 end
-test_load_tl()
 
 local function test_parse_simple()
   local result = tl.process_string("local x: number = 1", false, nil, "test.tl")
   assert(result ~= nil, "tl.process_string should return a result")
   assert(result.syntax_errors == nil or #result.syntax_errors == 0, "should have no syntax errors")
 end
-test_parse_simple()
 
 -- Canary for the 5.4 codegen target: tl.generate's second argument is
 -- the target STRING — an options table was once passed here instead,
@@ -46,4 +44,3 @@ local function test_generate_emits_close_attribute()
   assert(code and code:find("<close>", 1, true),
     "5.4 target must emit the <close> attribute")
 end
-test_generate_emits_close_attribute()

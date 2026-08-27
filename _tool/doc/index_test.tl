@@ -156,7 +156,6 @@ local function test_examples_merge_into_module()
   assert(find_module(modules, "widget_example") == nil,
     "the _example shard should not be its own module entry")
 end
-test_examples_merge_into_module()
 
 -- An example file with no matching source module is registered under
 -- its base name instead of being silently dropped (deploy_example.tl
@@ -168,7 +167,6 @@ local function test_orphan_example_registered()
   assert(#mod.examples == 1,
     "orphan examples should be addressable, not dropped")
 end
-test_orphan_example_registered()
 
 -- Directory-module shards fold into the parent users require: the
 -- parent's export list admits a shard's exported function onto the
@@ -229,7 +227,6 @@ return { spin = spin, internal_only = internal_only }
   local shard_mod = modules["gadget.shard"]
   assert(shard_mod, "the shard stays addressable under its own name")
 end
-test_shards_flatten_into_parent()
 
 -- A directory module WITH a sibling example file: init must normalize
 -- before examples merge, or the example doc registers itself under the
@@ -306,7 +303,6 @@ return {}
     "the export filter survives the example merge")
   assert(#parent.examples == 1, "the example merges onto the same page")
 end
-test_example_beside_directory_module()
 
 -- An example file beside an init shard (gizmo/init_example.tl)
 -- documents the directory module: it must land on the normalized
@@ -356,7 +352,6 @@ return {}
   assert(#parent.examples == 1,
     "the init example lands on the directory module's page")
 end
-test_init_example_lands_on_directory_module()
 
 -- A private helper stays OFF the module's own page: a doc comment is
 -- not an export, and a page that names a helper a caller cannot reach
@@ -391,7 +386,6 @@ return M
   assert(not names["grind"],
     "a private helper must not be documented as public API")
 end
-test_private_helpers_stay_off_the_page()
 
 -- A module that IS its record (`return stream`) states its exports as
 -- that record's function fields, and defines them dot-qualified. Both
@@ -426,7 +420,6 @@ return sprocket
     "the table's own name is not a function anyone can call")
   assert(not names["grind"], "the private helper must stay off the page")
 end
-test_record_module_exports_and_dotted_names()
 
 -- A `function` word inside a doc comment must not swallow the real
 -- definition on the next line: a scan that ran past the newline to the
@@ -450,7 +443,6 @@ return { clicks = clicks }
   assert(names["clicks"],
     "a `function` word in the doc comment must not hide the function")
 end
-test_doc_comment_does_not_eat_the_next_function()
 
 -- The word `function` inside a string literal is not a definition.
 -- Only a line that BEGINS with the definition is one, which is why
@@ -484,4 +476,3 @@ return M
   assert(not names["on"],
     "`function on` inside a string literal is prose, not an export")
 end
-test_a_function_word_in_a_string_is_not_a_definition()

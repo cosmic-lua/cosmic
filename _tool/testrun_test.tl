@@ -21,7 +21,6 @@ local function test_run_cosmic_script()
   local out = fs.read(output_base .. ".out")
   assert(out == "hello from script\n", "expected script output, got '" .. (out or "nil") .. "'")
 end
-test_run_cosmic_script()
 
 -- Test run with nested output directory
 local function test_run_creates_parent_dirs()
@@ -43,7 +42,6 @@ local function test_run_creates_parent_dirs()
   -- Cleanup
   assert(fs.remove_all(fs.join(TEST_TMPDIR, "nested")))
 end
-test_run_creates_parent_dirs()
 
 -- Test run with executable that writes to stdout/stderr
 local function test_run_captures_output()
@@ -68,7 +66,6 @@ exit 0
   local err = fs.read(output_base .. ".err")
   assert(err == "stderr line\n", "expected .err to contain 'stderr line\\n', got '" .. (err or "nil") .. "'")
 end
-test_run_captures_output()
 
 -- Test that TEST_TMPDIR is set and is a directory
 local function test_run_sets_test_tmpdir()
@@ -101,7 +98,6 @@ exit 0
   local out = fs.read(output_base .. ".out")
   assert(out == "TEST_TMPDIR works\n", "expected success message, got '" .. (out or "nil") .. "'")
 end
-test_run_sets_test_tmpdir()
 
 -- COSMIC_MAKE_ROOT must never reach a test child: a fixture project's own
 -- root detection depends on its cwd, and an inherited root would override
@@ -138,7 +134,6 @@ fi
     "COSMIC_MAKE_ROOT must not be inherited by a test child, got '" ..
     (out or "nil") .. "'")
 end
-test_make_root_is_not_inherited()
 
 -- Test run with nonexistent executable
 local function test_run_nonexistent()
@@ -152,7 +147,6 @@ local function test_run_nonexistent()
   local got = fs.read(output_base .. ".got")
   assert(got == "127\n", "expected .got to contain '127\\n', got '" .. (got or "nil") .. "'")
 end
-test_run_nonexistent()
 
 -- Test report with passing test
 local function test_report_pass()
@@ -165,7 +159,6 @@ local function test_report_pass()
   local exit_code = testrun.report({base})
   assert(exit_code == 0, "expected exit code 0 for passing test, got " .. exit_code)
 end
-test_report_pass()
 
 -- Test report with failing test
 local function test_report_fail()
@@ -178,7 +171,6 @@ local function test_report_fail()
   local exit_code = testrun.report({base})
   assert(exit_code == 1, "expected exit code 1 for failing test, got " .. exit_code)
 end
-test_report_fail()
 
 -- Test report with skipped test
 local function test_report_skip()
@@ -191,7 +183,6 @@ local function test_report_skip()
   local exit_code = testrun.report({base})
   assert(exit_code == 0, "expected exit code 0 for skipped test, got " .. exit_code)
 end
-test_report_skip()
 
 -- Test report with multiple tests
 local function test_report_multiple()
@@ -214,7 +205,6 @@ local function test_report_multiple()
   local exit_code = testrun.report({base1, base2, base3})
   assert(exit_code == 1, "expected exit code 1 when any test fails, got " .. exit_code)
 end
-test_report_multiple()
 
 -- Test report with .got extension
 local function test_report_with_got_extension()
@@ -228,7 +218,6 @@ local function test_report_with_got_extension()
   local exit_code = testrun.report({base .. ".got"})
   assert(exit_code == 0, "expected exit code 0 when passing .got path, got " .. exit_code)
 end
-test_report_with_got_extension()
 
 -- Test report with missing .got file
 local function test_report_missing_got()
@@ -238,7 +227,6 @@ local function test_report_missing_got()
   local exit_code = testrun.report({base})
   assert(exit_code == 1, "expected exit code 1 for missing .got file, got " .. exit_code)
 end
-test_report_missing_got()
 
 -- A runner-mode child reports its own cases, so the sidecar records a
 -- status per test instead of a bare name. The output base names the
@@ -264,7 +252,6 @@ exit 1
   assert(tests == "test_a\tpass\ntest_b\tfail\n",
     "statuses in source order, got '" .. tostring(tests) .. "'")
 end
-test_tests_sidecar_carries_statuses()
 
 -- A legacy file's child says nothing about individual tests, so its
 -- sidecar stays byte-identical to what it has always been.
@@ -282,7 +269,6 @@ local function test_tests_sidecar_stays_names_only_for_legacy()
     "a silent child keeps the names-only sidecar, got '"
     .. tostring(tests) .. "'")
 end
-test_tests_sidecar_stays_names_only_for_legacy()
 
 -- The report totals tests on their own line and names each failing test
 -- in the failure block, while the `N checks:` line keeps counting FILES
@@ -330,6 +316,5 @@ local function test_report_totals_tests_and_names_failures()
     "the checks line stopped counting files: got " .. c.passed .. "/"
     .. c.failed .. "/" .. c.skipped)
 end
-test_report_totals_tests_and_names_failures()
 
 print("testrun tests passed")

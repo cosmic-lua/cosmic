@@ -54,7 +54,6 @@ local function test_other_shapes_pass_through_byte_identical()
   check.equal(plain.mode, "empty", "a non-test path is never classified")
   check.equal(plain.source, RUNNER_SRC)
 end
-test_other_shapes_pass_through_byte_identical()
 
 -- A runner-mode file gains exactly the tail: the original lines keep
 -- their numbers (the tail joins below the final newline), and the
@@ -72,7 +71,6 @@ local function test_runner_mode_gains_the_tail_below_the_source()
   assert(first ~= nil and second ~= nil and first < second,
     "cases enroll in source order")
 end
-test_runner_mode_gains_the_tail_below_the_source()
 
 -- The augmented source satisfies the strict checker: the tail's calls
 -- are the use warnings-as-errors demands, so an uncalled local never
@@ -83,7 +81,6 @@ local function test_the_augmented_source_checks_strictly()
   assert(result.ok and #result.warnings == 0,
     "the checker checks what runs, with no unused-local warning")
 end
-test_the_augmented_source_checks_strictly()
 
 --- Compile augmented `src`, run it under the pinned bootstrap, and
 --- hand back the child's exit code — the grammar testrun reads.
@@ -121,6 +118,5 @@ end
   check.equal(exit_of("grammar_skip_test.tl", RUNNER_SRC, "no_such_case"), 2,
     "a filter matching nothing exits 2")
 end
-test_the_tail_delivers_the_exit_grammar()
 
 print("all compile seam tests passed")

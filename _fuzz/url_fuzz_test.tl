@@ -220,7 +220,6 @@ local function test_parse_totality()
     })
   check.truthy(ok, message)
 end
-test_parse_totality()
 
 -- format reaches a normal form in one round and then stays there: for any
 -- URL that parses, format(parse(s)) reparses and formats to itself.
@@ -248,7 +247,6 @@ local function test_format_fixpoint()
     })
   check.truthy(ok, message)
 end
-test_format_fixpoint()
 
 -- unescape_param inverts escape_param over arbitrary bytes.
 local function test_escape_inverse()
@@ -273,7 +271,6 @@ local function test_escape_inverse()
     })
   check.truthy(ok, message)
 end
-test_escape_inverse()
 
 -- parse_query inverts format_query: keys, values and their order survive.
 local function test_query_round_trip()
@@ -296,4 +293,3 @@ local function test_query_round_trip()
     })
   check.truthy(ok, message)
 end
-test_query_round_trip()

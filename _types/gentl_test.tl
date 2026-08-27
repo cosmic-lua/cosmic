@@ -21,7 +21,6 @@ local function test_generates_from_staged_source()
   assert(generated, "generation should succeed: " .. tostring(gerr))
   assert(#generated > 0, "generated shim should not be empty")
 end
-test_generates_from_staged_source()
 
 -- The erasure rules are the load-bearing part of extraction; pin them.
 local function test_erasure_rules()
@@ -44,4 +43,3 @@ local function test_erasure_rules()
       "erase(" .. input .. "): want " .. want .. ", got " .. tostring(got))
   end
 end
-test_erasure_rules()

@@ -69,26 +69,22 @@ local function test_true_duplicate_fails_naming_both_sites()
   assert(found[1]:find("_make/b.tl:1", 1, true), found[1])
   assert(found[1]:find("export one and require it", 1, true), found[1])
 end
-test_true_duplicate_fails_naming_both_sites()
 
 local function test_renamed_parameters_still_match()
   local root = fixture("dup-renamed",
     {["a.tl"] = BODY_A, ["b.tl"] = BODY_A_RENAMED})
   check.equal(#dupes.scan(root), 1, "rename-only copy is a duplicate")
 end
-test_renamed_parameters_still_match()
 
 local function test_one_statement_difference_passes()
   local root = fixture("dup-diff", {["a.tl"] = BODY_A, ["b.tl"] = BODY_B})
   check.equal(#dupes.scan(root), 0, "a changed statement is not a copy")
 end
-test_one_statement_difference_passes()
 
 local function test_bodies_under_the_floor_pass()
   local root = fixture("dup-small", {["a.tl"] = SMALL, ["b.tl"] = SMALL})
   check.equal(#dupes.scan(root), 0, "sub-floor forwarders are exempt")
 end
-test_bodies_under_the_floor_pass()
 
 local function test_tests_and_testdata_are_excluded()
   local root = fixture("dup-excluded", {["a_test.tl"] = BODY_A})
@@ -98,13 +94,11 @@ local function test_tests_and_testdata_are_excluded()
   check.equal(#dupes.scan(root), 0,
     "one non-test copy beside excluded copies is no duplicate")
 end
-test_tests_and_testdata_are_excluded()
 
 local function test_the_tree_holds_no_duplicates()
   local found = dupes.scan(".")
   assert(#found == 0, "duplicated bodies in the tree:\n"
     .. table.concat(found, "\n"))
 end
-test_the_tree_holds_no_duplicates()
 
 print("all duplicate-body tests passed")

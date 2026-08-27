@@ -96,7 +96,6 @@ local function test_workspaces_hold_exactly_two_files()
       id .. ": cosmic must be executable")
   end
 end
-test_workspaces_hold_exactly_two_files()
 
 local function test_frame_embedded_placeholder_gone()
   for _, id in ipairs(EXPECTED_IDS) do
@@ -109,7 +108,6 @@ local function test_frame_embedded_placeholder_gone()
       id .. ": frame body must survive substitution")
   end
 end
-test_frame_embedded_placeholder_gone()
 
 local function test_meta_json_has_all_ten_fields()
   local meta = check.must(read_meta_object(fs.join(run_dir, "meta.json")))
@@ -125,7 +123,6 @@ local function test_meta_json_has_all_ten_fields()
   assert(meta.agent_tool == "claude", "agent_tool should be claude")
   assert(meta.timeout_secs == 2400, "timeout_secs should be 2400")
 end
-test_meta_json_has_all_ten_fields()
 
 local function test_bin_sha_matches_independent_digest()
   local bin = fixture_bin()
@@ -136,7 +133,6 @@ local function test_bin_sha_matches_independent_digest()
   local want = hash.sha256_hex(check.must(fs.read(bin)))
   assert(sha == want, "bin_sha must match an independently computed digest")
 end
-test_bin_sha_matches_independent_digest()
 
 local function test_printed_output_carries_the_env_scrub()
   local manifest = check.must(stage.load_manifest(stage.MANIFEST_PATH))
@@ -153,14 +149,12 @@ local function test_printed_output_carries_the_env_scrub()
   end
   assert(count == 8, "expected 1 probe + 7 launches = 8 'claude -p' lines, got " .. count)
 end
-test_printed_output_carries_the_env_scrub()
 
 local function test_stage_rejects_missing_bin()
   local out = fs.join(tmpdir, "stage-run-missing-bin")
   local code = stage.main("--bin", fs.join(tmpdir, "no-such-binary"), "--out", out)
   assert(code ~= 0, "staging a missing binary must fail")
 end
-test_stage_rejects_missing_bin()
 
 --- The probe directory is part of the reproducible run directory,
 --- same as the workspaces, so its creation can fail just like theirs:
@@ -173,7 +167,6 @@ local function test_stage_rejects_when_probe_dir_blocked()
   local code = stage.main("--bin", bin, "--out", out)
   assert(code ~= 0, "staging must fail when the probe directory can't be created")
 end
-test_stage_rejects_when_probe_dir_blocked()
 
 local function test_parse_args_requires_bin_and_out()
   assert(stage.parse_args({"--out", "x"}).err ~= nil, "--bin should be required")
@@ -181,4 +174,3 @@ local function test_parse_args_requires_bin_and_out()
   assert(stage.parse_args({"--bin", "x", "--out", "y"}).err == nil,
     "both flags present should parse cleanly")
 end
-test_parse_args_requires_bin_and_out()

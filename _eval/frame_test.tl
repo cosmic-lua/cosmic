@@ -30,4 +30,3 @@ local function test_frame_byte_equals_skill_template()
     "_eval/tasks/frame.md must be byte-identical to " .. SKILL_PATH ..
     "'s fenced prompt template (the copy has drifted)")
 end
-test_frame_byte_equals_skill_template()

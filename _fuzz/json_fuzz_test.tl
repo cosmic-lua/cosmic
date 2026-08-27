@@ -136,7 +136,6 @@ local function test_decode_totality()
     })
   check.truthy(ok, msg)
 end
-test_decode_totality()
 
 --- Compare two values for numeric TYPE, which deep.equal cannot see:
 --- 5.0 equals 5 in Lua, so a decoder that handed back an integer where a
@@ -189,7 +188,6 @@ local function test_round_trip()
     })
   check.truthy(ok, msg)
 end
-test_round_trip()
 
 local function test_mutation_survival()
   local ok, msg = driver.run({
@@ -201,4 +199,3 @@ local function test_mutation_survival()
     })
   check.truthy(ok, msg)
 end
-test_mutation_survival()

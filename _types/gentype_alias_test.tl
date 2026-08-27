@@ -42,7 +42,6 @@ function zip.open(path, mode) end
     "bare legacy aliases must not be emitted:\n" .. dtl)
   print("test_alias_enum_and_scalar: PASS")
 end
-test_alias_enum_and_scalar()
 
 -- A `---@class mod.Name: userdata` parent renders as Teal's `userdata`
 -- member, so `x is Name` compiles to a type(x) == "userdata" test.
@@ -62,7 +61,6 @@ function zip.open() end
     "userdata parent should render userdata member:\n" .. dtl)
   print("test_userdata_class_marker: PASS")
 end
-test_userdata_class_marker()
 
 -- A malformed ---@alias right-hand side must fail validate_module loudly,
 -- the same as a malformed param/return/field/constant type — aliases were
@@ -85,6 +83,5 @@ function zip.open() end
   assert(err:find("zip.Bad", 1, true), "error must name the offending alias: " .. err)
   print("test_malformed_alias_fails_validation: PASS")
 end
-test_malformed_alias_fails_validation()
 
 print("\nAll tests passed!")

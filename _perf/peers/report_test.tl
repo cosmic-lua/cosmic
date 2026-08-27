@@ -66,7 +66,6 @@ local function test_format_markdown_row_order_preserved()
   assert(pos_cpython < pos_node, "cpython must render before node")
   assert(pos_node < pos_go, "node must render before go")
 end
-test_format_markdown_row_order_preserved()
 
 local function test_format_markdown_renders_one_row_per_peer()
   local md = report.format_markdown(full_report())
@@ -75,14 +74,12 @@ local function test_format_markdown_renders_one_row_per_peer()
   assert(md:find("| node |", 1, true), "missing node row")
   assert(md:find("| go |", 1, true), "missing go row")
 end
-test_format_markdown_renders_one_row_per_peer()
 
 local function test_format_markdown_with_absent_row()
   local md = report.format_markdown(absent_go_report())
   assert(md:find("| go | absent |", 1, true), "expected an absent go row")
   assert(md:find("go absent:", 1, true), "expected the absent reason listed")
 end
-test_format_markdown_with_absent_row()
 
 local function test_format_markdown_last_line_is_summary_line()
   local rep = full_report()
@@ -91,7 +88,6 @@ local function test_format_markdown_last_line_is_summary_line()
   assert(last == report.summary_line(rep),
     "last line must be the summary line, got: " .. tostring(last))
 end
-test_format_markdown_last_line_is_summary_line()
 
 local function test_summary_line_all_measured()
   local line = report.summary_line(full_report())
@@ -99,28 +95,23 @@ local function test_summary_line_all_measured()
   assert(line:find("cosmic-lua", 1, true), "missing cosmic-lua in summary")
   assert(line:find("go", 1, true), "missing go in summary")
 end
-test_summary_line_all_measured()
 
 local function test_summary_line_absent_peer()
   local line = report.summary_line(absent_go_report())
   assert(line:find("go absent", 1, true), "expected 'go absent' in summary")
 end
-test_summary_line_absent_peer()
 
 local function test_verdict_all_measured()
   assert(report.verdict(full_report()) == "peers: OK 4/4 measured")
 end
-test_verdict_all_measured()
 
 local function test_verdict_one_absent()
   assert(report.verdict(absent_go_report()) == "peers: OK 3/4 measured (absent: go)")
 end
-test_verdict_one_absent()
 
 local function test_verdict_no_rows_fails()
   local rep: peers.Report = {meta = meta(), task = "unused", rows = {}}
   assert(report.verdict(rep) == "peers: FAIL ()")
 end
-test_verdict_no_rows_fails()
 
 print("all peers report tests passed")

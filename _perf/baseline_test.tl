@@ -18,7 +18,6 @@ local function test_newest_with_asset_wins_over_newer_without()
   assert(best ~= nil, "expected a baseline")
   assert(best.tag_name == "v1", "got: " .. tostring(best.tag_name))
 end
-test_newest_with_asset_wins_over_newer_without()
 
 local function test_prereleases_are_eligible()
   local releases: {baseline.Release} = {
@@ -29,7 +28,6 @@ local function test_prereleases_are_eligible()
   assert(best ~= nil, "prerelease should be eligible")
   assert(best.tag_name == "v1", "got: " .. tostring(best.tag_name))
 end
-test_prereleases_are_eligible()
 
 local function test_drafts_are_not_eligible()
   local releases: {baseline.Release} = {
@@ -39,13 +37,11 @@ local function test_drafts_are_not_eligible()
   local best = baseline.pick_baseline(releases, "perf.json")
   assert(best == nil, "draft should be excluded, got: " .. tostring(best))
 end
-test_drafts_are_not_eligible()
 
 local function test_empty_list_yields_nil()
   local best = baseline.pick_baseline({}, "perf.json")
   assert(best == nil, "empty list should yield nil")
 end
-test_empty_list_yields_nil()
 
 local function test_no_asset_list_yields_nil()
   local releases: {baseline.Release} = {
@@ -57,7 +53,6 @@ local function test_no_asset_list_yields_nil()
   local best = baseline.pick_baseline(releases, "perf.json")
   assert(best == nil, "no release carries perf.json, got: " .. tostring(best))
 end
-test_no_asset_list_yields_nil()
 
 local function test_asset_name_selects_a_different_release()
   local releases: {baseline.Release} = {
@@ -74,7 +69,6 @@ local function test_asset_name_selects_a_different_release()
   assert(size_best ~= nil, "expected a size.json baseline")
   assert(size_best.tag_name == "v1", "got: " .. tostring(size_best.tag_name))
 end
-test_asset_name_selects_a_different_release()
 
 local function test_newest_among_multiple_qualifying()
   local releases: {baseline.Release} = {
@@ -89,4 +83,3 @@ local function test_newest_among_multiple_qualifying()
   assert(best ~= nil, "expected a baseline")
   assert(best.tag_name == "v3", "got: " .. tostring(best.tag_name))
 end
-test_newest_among_multiple_qualifying()

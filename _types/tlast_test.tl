@@ -30,7 +30,6 @@ local function test_generates_deterministic_cache()
   -- succeeds without complaint
   assert(tlast_gen.generate(dir_a) == nil, "regenerate over identical cache")
 end
-test_generates_deterministic_cache()
 
 -- The cache thaws against a fresh, private tl instance (not the
 -- running binary's): programs come back table-shaped, and the stdlib
@@ -58,4 +57,3 @@ local function test_cache_thaws_on_fresh_tl()
   assert(#(stdlib_ast as {any}) > 0, -- cast: array view of a statement list
     "stdlib program should have top-level statements")
 end
-test_cache_thaws_on_fresh_tl()

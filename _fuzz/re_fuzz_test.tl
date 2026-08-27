@@ -121,7 +121,6 @@ local function test_compile_totality()
     })
   check.truthy(ok, msg)
 end
-test_compile_totality()
 
 -- The generated input is self-describing: a decimal pattern length,
 -- one LF, then the pattern bytes immediately followed by the text
@@ -174,7 +173,6 @@ local function test_match_totality()
     })
   check.truthy(ok, msg)
 end
-test_match_totality()
 
 --- Generate a pattern that compiles, retrying a bounded number of
 --- times; falls back to a trivial literal so the property always has
@@ -251,4 +249,3 @@ local function test_gsub_totality()
     })
   check.truthy(ok, msg)
 end
-test_gsub_totality()

@@ -25,7 +25,6 @@ local function test_lua()
   local want = "Lua"
   assert(got:find(want, 1, true), "expected '" .. want .. "' in output, got: " .. got)
 end
-test_lua()
 
 local function test_zip()
   local bin = fs.join(TEST_DIR, "zip")
@@ -36,4 +35,3 @@ local function test_zip()
   local want = "Zip"
   assert(got:find(want, 1, true), "expected '" .. want .. "' in output, got: " .. got)
 end
-test_zip()

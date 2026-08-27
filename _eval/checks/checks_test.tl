@@ -38,7 +38,6 @@ local function test_every_check_passes_its_own_run_pass_workspace()
       count .. ": " .. table.concat(findings, "; "))
   end
 end
-test_every_check_passes_its_own_run_pass_workspace()
 
 local function test_json_cli_check_catches_the_seeded_defect()
   local ws = copy_workspace("run_fail", "json-cli")
@@ -53,7 +52,6 @@ local function test_json_cli_check_catches_the_seeded_defect()
   assert(found, "expected a finding naming the veg filter, got: " ..
     table.concat(findings, "; "))
 end
-test_json_cli_check_catches_the_seeded_defect()
 
 local function test_support_accumulator_records_findings_in_order()
   local acc = support.new()
@@ -66,7 +64,6 @@ local function test_support_accumulator_records_findings_in_order()
   assert(findings[1] == "first problem" and findings[2] == "second problem",
     "fail() should record findings verbatim, in order")
 end
-test_support_accumulator_records_findings_in_order()
 
 local function test_expect_test_file_present_catches_absence()
   local dir = fs.join(tmpdir, "checks-no-test-file-" ..
@@ -77,7 +74,6 @@ local function test_expect_test_file_present_catches_absence()
   local count = support.result(acc)
   assert(count == 1, "a workspace with no *_test.tl should record one finding")
 end
-test_expect_test_file_present_catches_absence()
 
 local function test_expect_source_contains_catches_absence()
   local dir = fs.join(tmpdir, "checks-no-source-match-" ..
@@ -89,4 +85,3 @@ local function test_expect_source_contains_catches_absence()
   local count = support.result(acc)
   assert(count == 1, "a workspace with no matching source should record one finding")
 end
-test_expect_source_contains_catches_absence()

@@ -35,6 +35,5 @@ local function test_the_decisions_index_matches_the_records()
     "Run `bin/cosmic _docs/derive.tl` to rewrite it.\n\ncommitted:\n" ..
     committed .. "\n\nfrom the records:\n" .. rendered)
 end
-test_the_decisions_index_matches_the_records()
 
 print("all derived-document tests passed")

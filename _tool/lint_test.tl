@@ -29,7 +29,6 @@ add(1, 2)
   local ok, _ = __r1.ok, __r1.stdout
   assert(ok, "cosmic --check lint should succeed on valid file")
 end
-test_style_valid()
 
 -- A long line is REPORTED by the check and is not a gate failure. The
 -- 90-column limit is house style: this tree has roughly 800+ lines
@@ -49,7 +48,6 @@ local function test_style_long_line_is_not_enforced()
   local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "a long line must not fail the style gate")
 end
-test_style_long_line_is_not_enforced()
 
 -- The justification-marker reader, shared by the two conventions that
 -- demand a written reason beside a site: `-- cast:` and `-- assert:`.
@@ -66,7 +64,6 @@ local function test_is_justified_reads_the_line_and_the_one_above()
   check.truthy(not style.is_justified(lines, 4, "cast"),
     "line 3 carries no marker, so line 4 is unjustified")
 end
-test_is_justified_reads_the_line_and_the_one_above()
 
 local function test_is_justified_discriminates_by_marker()
   local lines: {string} = {
@@ -79,13 +76,11 @@ local function test_is_justified_discriminates_by_marker()
   check.truthy(not style.is_justified(lines, 2, "assert"),
     "and a cast reason does not license an assert")
 end
-test_is_justified_discriminates_by_marker()
 
 local function test_is_justified_demands_a_reason()
   local lines: {string} = {"local d = x as Rec -- cast:"}
   check.truthy(not style.is_justified(lines, 1, "cast"),
     "a bare marker with nothing after it justifies nothing")
 end
-test_is_justified_demands_a_reason()
 
 print("All style tests passed!")

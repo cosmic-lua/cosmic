@@ -227,7 +227,6 @@ local function test_chunking_invariance()
     })
   check.truthy(ok, msg)
 end
-test_chunking_invariance()
 
 local function test_parser_totality()
   local ok, msg = driver.run({
@@ -246,7 +245,6 @@ local function test_parser_totality()
     })
   check.truthy(ok, msg)
 end
-test_parser_totality()
 
 -- The round-trip domain is exactly the events format can write back:
 -- single-line data (multi-line data is valid SSE, but format splits it
@@ -294,4 +292,3 @@ local function test_format_parse_round_trip()
     })
   check.truthy(ok, msg)
 end
-test_format_parse_round_trip()

@@ -35,7 +35,6 @@ local function test_shrinks_a_long_string_to_the_boundary_length()
   check.equal(#minimized_input, 6, "expected the minimal failing length")
   check.truthy(attempts > 0, "shrink should have made at least one attempt")
 end
-test_shrinks_a_long_string_to_the_boundary_length()
 
 local function test_shrinks_an_int_draw_toward_its_lower_bound()
   local gen = function(src: source.Recorder): string
@@ -59,7 +58,6 @@ local function test_shrinks_an_int_draw_toward_its_lower_bound()
   local minimized_input = gen(replayed)
   check.equal(minimized_input, "201", "expected the smallest failing int")
 end
-test_shrinks_an_int_draw_toward_its_lower_bound()
 
 local function test_a_diverging_replay_does_not_throw_during_shrink()
   -- The generator's second draw only happens when the first is odd,
@@ -82,7 +80,6 @@ local function test_a_diverging_replay_does_not_throw_during_shrink()
     end)
   check.truthy(ok, "shrink must not throw on a diverging replay: " .. tostring(minimized))
 end
-test_a_diverging_replay_does_not_throw_during_shrink()
 
 local function test_shrink_respects_its_attempt_budget()
   -- A generator with a large, always-failing draw sequence exercises
@@ -103,4 +100,3 @@ local function test_shrink_respects_its_attempt_budget()
   local _minimized, attempts = shrink.shrink(gen, always_fails, draws)
   check.truthy(attempts <= 20000, "shrink exceeded its attempt budget: " .. attempts)
 end
-test_shrink_respects_its_attempt_budget()

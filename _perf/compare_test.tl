@@ -31,7 +31,6 @@ local function test_unchanged_is_ok()
   assert(failures == 0, "no failures expected")
   assert(find_delta(deltas, "a").verdict == "ok", "1% delta should be ok")
 end
-test_unchanged_is_ok()
 
 local function test_regression_beyond_noise_fails()
   local deltas, failures = compare.diff(
@@ -42,7 +41,6 @@ local function test_regression_beyond_noise_fails()
   assert(d.verdict == "regression", "30% slower should regress, got " .. d.verdict)
   assert(math.abs(d.delta_pct - 30.0) < 0.01, "delta_pct wrong: " .. d.delta_pct)
 end
-test_regression_beyond_noise_fails()
 
 local function test_noisy_scenario_needs_bigger_delta()
   -- 30% slower but 40% spread in the baseline: not a confident regression.
@@ -54,7 +52,6 @@ local function test_noisy_scenario_needs_bigger_delta()
   assert(d.verdict == "ok", "expected ok, got " .. d.verdict)
   assert(math.abs(d.noise_pct - 40.0) < 0.01, "noise bar wrong: " .. d.noise_pct)
 end
-test_noisy_scenario_needs_bigger_delta()
 
 local function test_improvement_beyond_noise_is_faster()
   local deltas, failures = compare.diff(
@@ -63,7 +60,6 @@ local function test_improvement_beyond_noise_is_faster()
   assert(failures == 0, "improvements are not failures")
   assert(find_delta(deltas, "a").verdict == "faster", "30% faster should be faster")
 end
-test_improvement_beyond_noise_is_faster()
 
 local function test_new_scenario_is_not_failure()
   local deltas, failures = compare.diff(
@@ -72,7 +68,6 @@ local function test_new_scenario_is_not_failure()
   assert(failures == 0, "new scenarios are informational")
   assert(find_delta(deltas, "fresh").verdict == "new", "expected new")
 end
-test_new_scenario_is_not_failure()
 
 local function test_missing_scenario_fails()
   -- Deleting a benchmark must not be a way to hide a regression.
@@ -82,7 +77,6 @@ local function test_missing_scenario_fails()
   assert(failures == 1, "missing scenario must fail")
   assert(find_delta(deltas, "gone").verdict == "missing", "expected missing")
 end
-test_missing_scenario_fails()
 
 local function test_errored_scenario_fails()
   local bad: pt.Measurement = {name = "broken", samples_ns = {}, error = "boom"}
@@ -92,7 +86,6 @@ local function test_errored_scenario_fails()
   assert(failures == 1, "errored scenario must fail")
   assert(find_delta(deltas, "broken").verdict == "error", "expected error verdict")
 end
-test_errored_scenario_fails()
 
 -- Deliberate pin: a scenario whose BASELINE row errored is a failing
 -- verdict, the same way a "missing" scenario is. It must not read as
@@ -108,7 +101,6 @@ local function test_errored_baseline_is_a_failure()
   assert(find_delta(deltas, "flaky").verdict == "baseline-error",
     "expected baseline-error, got " .. find_delta(deltas, "flaky").verdict)
 end
-test_errored_baseline_is_a_failure()
 
 -- A scenario truly absent from the baseline (never measured, not
 -- errored) stays "new" and non-failing -- this is what makes the case
@@ -120,7 +112,6 @@ local function test_truly_new_scenario_is_not_a_failure()
   assert(failures == 0, "a scenario absent from the baseline is not a failure")
   assert(find_delta(deltas, "brand_new").verdict == "new", "expected new")
 end
-test_truly_new_scenario_is_not_a_failure()
 
 -- A row with wall_ns nil and no error is malformed, not a crash: it
 -- must resolve to a clean verdict rather than arithmetic on nil below.
@@ -133,7 +124,6 @@ local function test_malformed_current_row_does_not_throw()
   assert(find_delta(deltas, "odd").verdict == "malformed",
     "expected malformed, got " .. find_delta(deltas, "odd").verdict)
 end
-test_malformed_current_row_does_not_throw()
 
 -- Symmetric case: a malformed BASELINE row (no error, no wall_ns) is
 -- just as undiffable as a malformed current row.
@@ -146,7 +136,6 @@ local function test_malformed_baseline_row_does_not_throw()
   assert(find_delta(deltas, "odd").verdict == "malformed",
     "expected malformed, got " .. find_delta(deltas, "odd").verdict)
 end
-test_malformed_baseline_row_does_not_throw()
 
 local function test_format_summarizes()
   local deltas = compare.diff(
@@ -157,7 +146,6 @@ local function test_format_summarizes()
   assert(text:find("2 scenarios: 1 regression", 1, true),
     "summary line wrong:\n" .. text)
 end
-test_format_summarizes()
 
 local function test_load_results_rejects_garbage()
   local r, err = compare.load_results("/nonexistent/path.json")
@@ -173,7 +161,6 @@ local function test_load_results_rejects_garbage()
     "wrong-shape file should be rejected: " .. tostring(err2))
   assert(os.remove(tmp))
 end
-test_load_results_rejects_garbage()
 
 local function test_triage_keeps_stable_regression()
   -- The regression reproduces: the A/A self-check is quiet for "a", so
@@ -184,7 +171,6 @@ local function test_triage_keeps_stable_regression()
   assert(failures == 1, "stable regression must still fail, got " .. failures)
   assert(find_delta(deltas, "a").verdict == "regression", "should stay regression")
 end
-test_triage_keeps_stable_regression()
 
 local function test_triage_reclassifies_noisy_regression()
   -- Same +30% "regression", but the current binary swings ~-31% against
@@ -196,7 +182,6 @@ local function test_triage_reclassifies_noisy_regression()
   assert(failures == 0, "noisy regression must not fail, got " .. failures)
   assert(find_delta(deltas, "a").verdict == "noise", "should reclassify to noise")
 end
-test_triage_reclassifies_noisy_regression()
 
 -- Reclassification is magnitude-aware: a regression only counts as
 -- noise when its size is comparable to the self-check swing, so an
@@ -213,7 +198,6 @@ local function test_triage_large_regression_in_unstable_scenario_still_fails()
   assert(find_delta(deltas, "a").verdict == "regression",
     "should stay regression, got " .. find_delta(deltas, "a").verdict)
 end
-test_triage_large_regression_in_unstable_scenario_still_fails()
 
 -- The K=2 boundary itself: |regression| <= max(bar, K * |self delta|).
 -- Here bar=10, self delta=20%, so the cutoff is exactly 40%. 40% must
@@ -235,7 +219,6 @@ local function test_triage_k_factor_boundary()
     "41% regression just past K*20% must stay regression, got " ..
     find_delta(over_boundary, "a").verdict)
 end
-test_triage_k_factor_boundary()
 
 local function test_triage_only_touches_regressions()
   -- "a" is a noisy regression -> noise; "b" is ok in the main diff even
@@ -250,7 +233,6 @@ local function test_triage_only_touches_regressions()
   assert(find_delta(deltas, "a").verdict == "noise", "a -> noise")
   assert(find_delta(deltas, "b").verdict == "ok", "b stays ok")
 end
-test_triage_only_touches_regressions()
 
 local function test_triage_format_counts_noise()
   local deltas = compare.triage(
@@ -259,7 +241,6 @@ local function test_triage_format_counts_noise()
   local text = compare.format(deltas)
   assert(text:find("1 noise", 1, true), "summary should count noise:\n" .. text)
 end
-test_triage_format_counts_noise()
 
 -- The release lane's json_decode_large flag, in numbers: 798.63µs ->
 -- 891.35µs is +11.6%, and the same binary drifts ~12.6% between two of
@@ -286,7 +267,6 @@ local function test_the_loudest_control_pair_sets_the_noise_credit()
   assert(find_delta(deltas, "json_decode_large").verdict == "noise",
     "loudest pair: reclassifies to noise")
 end
-test_the_loudest_control_pair_sets_the_noise_credit()
 
 -- The other half of the same release flag, and the property that makes
 -- the change a fix rather than a hole: codec_base64_roundtrip_64k went
@@ -306,6 +286,5 @@ local function test_a_real_regression_survives_every_control_pair()
   assert(find_delta(deltas, "codec_base64_roundtrip_64k").verdict == "regression",
     "stays regression across every pair")
 end
-test_a_real_regression_survives_every_control_pair()
 
 print("OK compare_test")

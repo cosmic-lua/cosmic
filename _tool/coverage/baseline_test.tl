@@ -49,7 +49,6 @@ local function test_render_parse_roundtrip()
   assert_row(text, "lib/a.tl", 9, 10)
   assert_row(text, "lib/b.tl", 0, 5)
 end
-test_render_parse_roundtrip()
 
 local function test_parse_rejects_malformed_input()
   local entries, err = baseline.parse("lib/a.tl nine ten\n")
@@ -58,7 +57,6 @@ local function test_parse_rejects_malformed_input()
   assert(bad == nil and berr and berr:find("a.tl", 1, true),
     "a non-integer row must not parse, naming the bad row: " .. tostring(berr))
 end
-test_parse_rejects_malformed_input()
 
 --- Compare current reports against a baseline built from the given rows.
 local function violations(current: {{string, integer, integer}},
@@ -75,7 +73,6 @@ local function test_holds_when_unchanged_or_improved()
   assert(#violations({{"lib/a.tl", 95, 100}, {"lib/b.tl", 10, 10}}, base) == 0,
     "improved coverage must hold")
 end
-test_holds_when_unchanged_or_improved()
 
 local function test_fails_on_file_decline_beyond_tolerance()
   local base = {{"lib/a.tl", 80, 100}}
@@ -83,7 +80,6 @@ local function test_fails_on_file_decline_beyond_tolerance()
   assert(#probs == 2, "file and total decline expected, got " .. #probs)
   assert(probs[1]:find("lib/a%.tl"), "file violation should name the file")
 end
-test_fails_on_file_decline_beyond_tolerance()
 
 local function test_small_decline_within_tolerance_holds()
   -- 1 line of 200 is a 0.5pp drop for the file (inside its 1.0pp
@@ -93,7 +89,6 @@ local function test_small_decline_within_tolerance_holds()
   assert(#violations({{"lib/a.tl", 179, 200}, {"lib/b.tl", 1000, 1000}}, base) == 0,
     "one flapping line must not trip the ratchet")
 end
-test_small_decline_within_tolerance_holds()
 
 local function test_tiny_file_gets_line_slack()
   -- 1 of 9 lines is an 11pp drop, but the two-line floor absorbs it
@@ -101,7 +96,6 @@ local function test_tiny_file_gets_line_slack()
   assert(#violations({{"lib/tiny.tl", 8, 9}, {"lib/big.tl", 900, 1000}}, base) == 0,
     "single line in a tiny file must not trip the ratchet")
 end
-test_tiny_file_gets_line_slack()
 
 local function test_fails_on_file_set_drift()
   local base = {{"lib/a.tl", 8, 10}}
@@ -112,7 +106,6 @@ local function test_fails_on_file_set_drift()
   assert(#stale >= 1 and stale[1]:find("stale baseline entry"),
     "removed file must require a baseline update")
 end
-test_fails_on_file_set_drift()
 
 local function test_total_ratchet_catches_masked_decline()
   -- Both files stay inside per-file slack, but the sum drops enough
@@ -133,20 +126,17 @@ local function test_total_ratchet_catches_masked_decline()
   assert(probs[1]:find("100.0% -> 99.0% (3960/4000, baseline 4000/4000)", 1, true),
     "the message reports the summed baseline, got: " .. probs[1])
 end
-test_total_ratchet_catches_masked_decline()
 
 local function test_gate_skips_under_only_filter()
   local code = baseline.gate("/no/such/baseline.txt", "sqlite", {})
   assert(code == 0, "gate must skip (exit 0) under an only= filter")
 end
-test_gate_skips_under_only_filter()
 
 local function test_gate_skips_without_baseline()
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local code = baseline.gate(tmpdir .. "/absent-baseline.txt", "", {})
   assert(code == 0, "gate must skip (exit 0) when no baseline is committed")
 end
-test_gate_skips_without_baseline()
 
 local function test_gate_checks_when_baseline_present()
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -158,7 +148,6 @@ local function test_gate_checks_when_baseline_present()
   local code = baseline.gate(path, "", {})
   assert(code == 1, "gate must run the real check when a baseline exists")
 end
-test_gate_checks_when_baseline_present()
 
 -- `text_for` is what a caller that owns its output file needs: the
 -- bytes, not a stream. `write` prints exactly these bytes, so the two
@@ -172,7 +161,6 @@ local function test_text_for_returns_the_rendered_baseline()
   assert(not text, "no coverage data means no baseline: " .. tostring(text))
   assert(err and err ~= "", "and the refusal says why")
 end
-test_text_for_returns_the_rendered_baseline()
 
 -- A rewrite that LOWERS a row is the one thing the ratchet cannot
 -- object to, so `--baseline` says it out loud. Percentage, not raw
@@ -188,7 +176,6 @@ local function test_lowered_names_only_real_declines()
   assert(rows[1]:find("b.tl", 1, true), "got: " .. rows[1])
   assert(rows[1]:find("50.0% -> 30.0%", 1, true), "got: " .. rows[1])
 end
-test_lowered_names_only_real_declines()
 
 -- A file the rewrite does not mention cannot have been lowered by it,
 -- and a malformed baseline is not a decline report -- both answer with
@@ -201,7 +188,6 @@ local function test_lowered_is_silent_when_it_cannot_tell()
   assert(#baseline.lowered("nonsense", after) == 0,
     "an unparseable baseline reports nothing")
 end
-test_lowered_is_silent_when_it_cannot_tell()
 
 -- The rewrite is ONE-WAY. `.cosmic-coverage` is a floor, and several rows were
 -- set to what the strictest environment measures; a rebaseline from a
@@ -225,7 +211,6 @@ local function test_render_never_raises_a_committed_floor()
   assert_row(text, "grown.tl", 8, 10)
   assert_row(text, "new.tl", 3, 4)
 end
-test_render_never_raises_a_committed_floor()
 
 -- A rewrite lowers a row only when the ratchet would have FAILED on it.
 -- Everything else keeps the committed numbers, so a regeneration is a
@@ -252,7 +237,6 @@ local function test_render_rewrites_only_rows_the_ratchet_would_fail()
   assert(moved[1]:find("real.tl", 1, true), "got: " .. moved[1])
   assert(moved[1]:find("90.0% -> 80.0%", 1, true), "got: " .. moved[1])
 end
-test_render_rewrites_only_rows_the_ratchet_would_fail()
 
 -- A tiny file's slack is two lines rather than a percentage, and the
 -- rewrite reads the same slack the check does: one line of nine is a
@@ -262,7 +246,6 @@ local function test_render_keeps_a_tiny_files_floor_within_its_line_slack()
   local text = check.must(baseline.render(reports({{"tiny.tl", 8, 9}}), base_floor))
   assert_row(text, "tiny.tl", 9, 9)
 end
-test_render_keeps_a_tiny_files_floor_within_its_line_slack()
 
 -- `.cosmic-coverage` merges with git's `union` strategy, so a row two
 -- branches both edited arrives twice. The lower percentage wins: a
@@ -277,7 +260,6 @@ local function test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
     "earlier lower row wins too")
   assert(b.duplicates == 2, "both repeats counted, got " .. b.duplicates)
 end
-test_parse_resolves_a_duplicated_path_to_the_lower_coverage()
 
 -- Two rows can tie on percentage, so the resolution has to keep going.
 -- The smaller line universe wins first: 1/2 and 2/4 are both 50%, and
@@ -291,7 +273,6 @@ local function test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
   assert(flipped.rows["a.tl"].total == 2,
     "and wins from the other side too, got " .. flipped.rows["a.tl"].total)
 end
-test_parse_breaks_a_percentage_tie_on_the_smaller_universe()
 
 -- Two branches can each append the same new row, in regions far enough
 -- apart that the merge keeps both copies. Nothing distinguishes them,
@@ -303,7 +284,6 @@ local function test_parse_resolves_identical_duplicate_rows()
     "identical rows resolve to themselves")
   assert(b.duplicates == 1, "and are still a duplicate, got " .. b.duplicates)
 end
-test_parse_resolves_identical_duplicate_rows()
 
 -- A freshly rendered baseline has nothing to resolve, and the count
 -- says so rather than being absent.
@@ -311,14 +291,12 @@ local function test_parse_counts_no_duplicates_in_a_clean_baseline()
   local b = check.must(baseline.parse(fixture({{"a.tl", 9, 10}, {"b.tl", 1, 4}})))
   assert(b.duplicates == 0, "clean baseline, got " .. b.duplicates)
 end
-test_parse_counts_no_duplicates_in_a_clean_baseline()
 
 -- With no floor to compare against, render records what it measured.
 local function test_render_without_a_floor_records_the_run()
   local text = check.must(baseline.render(reports({{"a.tl", 9, 10}})))
   assert_row(text, "a.tl", 9, 10)
 end
-test_render_without_a_floor_records_the_run()
 
 -- What a failing ratchet SAYS, which is the half nobody was testing:
 -- `gate` returning 1 was asserted, the report it prints on the way was
@@ -363,7 +341,6 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
   assert(last:find(src, 1, true),
     "and must name every declining file, got: " .. last)
 end
-test_a_failing_ratchet_names_the_rows_that_moved()
 
 --- A directory `report.compute` can read: one source file with three
 --- executable lines and one `.cov` file (compute refuses a run with no
@@ -396,7 +373,6 @@ local function test_check_refuses_an_unreadable_or_malformed_baseline()
   assert(baseline.check(garbage, {root}) == 1,
     "a baseline that cannot be parsed is not a pass")
 end
-test_check_refuses_an_unreadable_or_malformed_baseline()
 
 -- A merged baseline gates against the RESOLVED rows and says so. The
 -- duplicate note and the `ok` line land on this test's own streams,
@@ -418,7 +394,6 @@ local function test_check_gates_against_the_resolved_rows()
   assert(baseline.check(high, {root}) == 1,
     "the high row on its own is a decline")
 end
-test_check_gates_against_the_resolved_rows()
 
 -- A merged baseline still gates, and does not do it quietly. A `union`
 -- merge leaves duplicate rows behind; the check reads them (resolved to
@@ -461,7 +436,6 @@ local function test_check_gates_a_merged_baseline_and_names_the_duplicates()
   assert(err:find("1 duplicate row(s), resolved to the lower coverage", 1, true),
     "the duplicate rows must be named, got: " .. err)
 end
-test_check_gates_a_merged_baseline_and_names_the_duplicates()
 
 -- The migration this slice performs: `.cosmic-coverage` moved from
 -- "path covered total" lines to a `cosmic.literal` table, byte for
@@ -492,6 +466,5 @@ local function test_migration_preserves_every_row()
   assert(new_count == old_count,
     "row count changed during migration: " .. old_count .. " -> " .. new_count)
 end
-test_migration_preserves_every_row()
 
 print("all baseline tests passed")

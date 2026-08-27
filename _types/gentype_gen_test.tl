@@ -27,7 +27,6 @@ unix = {
   assert(dtl:match("EFOO: integer"), "the constant should still render:\n" .. dtl)
   print("test_spaced_type_tag_does_not_leak_into_description: PASS")
 end
-test_spaced_type_tag_does_not_leak_into_description()
 
 -- A plain two-dash Lua comment mentioning "@type" is not a doc tag and must
 -- not be able to inject a constant type (the recognized tag requires
@@ -44,7 +43,6 @@ unix = {
     "a two-dash '-- @type' comment must not override the default integer type:\n" .. dtl)
   print("test_two_dash_type_is_not_a_tag: PASS")
 end
-test_two_dash_type_is_not_a_tag()
 
 -- run() in all-modules mode must fail loudly, naming every module whose
 -- parse returned nil, instead of silently omitting it from the output.
@@ -65,7 +63,6 @@ local function test_run_all_modules_fails_loudly_on_unparseable_module()
   end
   print("test_run_all_modules_fails_loudly_on_unparseable_module: PASS")
 end
-test_run_all_modules_fails_loudly_on_unparseable_module()
 
 -- defs.read()'s GENTYPE_DEFS override must include the underlying fs.read
 -- error, not just the path, or a permissions/typo problem is undiagnosable.
@@ -80,6 +77,5 @@ local function test_defs_read_override_error_includes_reason()
     "error should include the underlying read failure, not just the path: " .. tostring(err))
   print("test_defs_read_override_error_includes_reason: PASS")
 end
-test_defs_read_override_error_includes_reason()
 
 print("\nAll gentype_gen tests passed!")

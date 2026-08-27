@@ -57,7 +57,6 @@ local function test_bundle_journals_counts_and_skips_missing()
   end
   assert(archive:close())
 end
-test_bundle_journals_counts_and_skips_missing()
 
 local function test_parse_args_requires_run_dir_and_out()
   assert(bundle.parse_args({"--out", "x"}).err ~= nil, "--run-dir should be required")
@@ -65,7 +64,6 @@ local function test_parse_args_requires_run_dir_and_out()
   assert(bundle.parse_args({"--run-dir", "x", "--out", "y"}).err == nil,
     "both flags present should parse cleanly")
 end
-test_parse_args_requires_run_dir_and_out()
 
 local function test_bundle_journals_on_empty_run_dir_writes_nothing()
   local out = fs.join(tmpdir,
@@ -78,4 +76,3 @@ local function test_bundle_journals_on_empty_run_dir_writes_nothing()
   assert(count == 0, "expected 0 files written, got " .. tostring(count))
   assert(not fs.is_file(zip_path), "no archive should be created when nothing is bundled")
 end
-test_bundle_journals_on_empty_run_dir_writes_nothing()

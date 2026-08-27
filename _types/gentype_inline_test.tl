@@ -29,7 +29,6 @@ local function test_a_list_of_positional_structs_is_a_nested_array()
   local t = inline.inline_array("{ [1]: string, [2]: string? }[]", convert)
   assert(t == "{{string}}", "got: " .. tostring(t))
 end
-test_a_list_of_positional_structs_is_a_nested_array()
 
 local function test_a_bare_positional_struct_is_an_array()
   local t = inline.inline_array("{ [1]: string, [2]: string? }", convert)
@@ -38,7 +37,6 @@ local function test_a_bare_positional_struct_is_an_array()
   local ints = inline.inline_array("{ [1]: integer, [2]: integer, [3]: integer }", convert)
   assert(ints == "{integer}", "got: " .. tostring(ints))
 end
-test_a_bare_positional_struct_is_an_array()
 
 -- Teal has no tuple type, so a struct whose members disagree has no honest
 -- array rendering; declining it leaves the caller's `any` in place.
@@ -46,7 +44,6 @@ local function test_mixed_members_are_declined()
   local t = inline.inline_array("{ [1]: string, [2]: integer }", convert)
   assert(t == nil, "got: " .. tostring(t))
 end
-test_mixed_members_are_declined()
 
 -- A named inline struct is a record shape, not an array, and stays declined
 -- whether or not it is wrapped in a list.
@@ -58,7 +55,6 @@ local function test_named_inline_structs_are_declined()
   assert(listed == "{any}", "a list of them is an array of what convert says: "
     .. tostring(listed))
 end
-test_named_inline_structs_are_declined()
 
 -- Nothing that is not an inline table is this module's business.
 local function test_other_types_are_declined()
@@ -66,6 +62,5 @@ local function test_other_types_are_declined()
   assert(inline.inline_array("string[]", convert) == nil, "a plain array")
   assert(inline.inline_array("fun(a: string): string", convert) == nil, "a function")
 end
-test_other_types_are_declined()
 
 print("all gentype inline table tests passed")

@@ -83,4 +83,3 @@ local function test_tree_type_checks_under_the_pinned_checker()
     "Stage the change behind a release + pin bump, or satisfy both " ..
     "checkers:\n" .. r.stderr)
 end
-test_tree_type_checks_under_the_pinned_checker()

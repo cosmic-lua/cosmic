@@ -89,7 +89,6 @@ local function test_round_trip_identity()
     })
   check.truthy(ok, msg)
 end
-test_round_trip_identity()
 
 local function test_corrupt_totality()
   local ok, msg = driver.run({
@@ -109,7 +108,6 @@ local function test_corrupt_totality()
     })
   check.truthy(ok, msg)
 end
-test_corrupt_totality()
 
 --- Compress a random plaintext under the default framing, then apply
 --- 1-4 random single-byte edits to the compressed bytes.
@@ -145,4 +143,3 @@ local function test_mutation_totality()
     })
   check.truthy(ok, msg)
 end
-test_mutation_totality()

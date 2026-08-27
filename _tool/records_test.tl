@@ -23,7 +23,6 @@ local function test_display_names_the_source()
   assert(records.display("o/.coverage/a_test.tl.test") ==
     ".coverage/a_test.tl", "the coverage lane stays distinguishable")
 end
-test_display_names_the_source()
 
 -- The label is not a path. `display` keeps `.coverage/` so the row says
 -- which run produced it, and nothing is on disk at that name -- so a
@@ -42,7 +41,6 @@ local function test_source_of_names_a_readable_path()
   assert(records.source_of("o/a/.coverage/b_test.tl.test") ==
     "a/.coverage/b_test.tl", "and the segment is stripped only at the root")
 end
-test_source_of_names_a_readable_path()
 
 -- `.test` must not strip out of `.benchmark`, which contains no `.test`
 -- but shares its shape closely enough to be worth pinning.
@@ -51,7 +49,6 @@ local function test_stage_of_reads_the_suffix()
   assert(records.stage_of("o/x.test") == "test", "test")
   assert(records.stage_of("o/x.lua") == "", "a name with no stage has none")
 end
-test_stage_of_reads_the_suffix()
 
 -- The annotation counts what the target RAN, so it belongs only to a
 -- status that ran it. A skip annotated with "(7 test functions)"
@@ -66,7 +63,6 @@ local function test_the_annotation_belongs_to_work_that_happened()
   assert(records.row("pass", "a_test.tl", 0, "test functions") ==
     "✓ a_test.tl", "an unrecorded count and duration print nothing")
 end
-test_the_annotation_belongs_to_work_that_happened()
 
 -- counts and parse_counts are inverses: the summary a stage writes is
 -- the summary its verb reads back.
@@ -84,7 +80,6 @@ local function test_counts_round_trips()
   local none = records.parse_counts("nothing to see here")
   assert(none == nil, "text with no counts line reports nil, not 0 (#992: was -1)")
 end
-test_counts_round_trips()
 
 -- The verdict detail says how much FAILED, not how much there was.
 local function test_detail_says_what_went_wrong()
@@ -92,7 +87,6 @@ local function test_detail_says_what_went_wrong()
   assert(records.detail(1, 19, "file") == "1 of 19 files", "one bad: which")
   assert(records.detail(0, 1, "file") == "1 file", "singular")
 end
-test_detail_says_what_went_wrong()
 
 -- A verb's verdict is a claim about the stage that just ran, and the
 -- only thing that counted that stage is the summary it wrote.
@@ -106,7 +100,6 @@ local function test_stage_detail_reads_the_summary()
   assert(records.stage_detail(nil, 7, "file") == "7 files",
     "no summary falls back to the size, without claiming a failure count")
 end
-test_stage_detail_reads_the_summary()
 
 -- The verdict's two halves: `format_verdict` renders the line and
 -- `exit_code` reports the status. The format and the code are
@@ -121,7 +114,6 @@ local function test_verdict_halves()
   assert(records.exit_code(true) == 0, "PASS exits 0")
   assert(records.exit_code(false) == 1, "FAIL exits 1")
 end
-test_verdict_halves()
 
 -- `cosmic.check` may not require this internal tree, so it defines
 -- its own EXIT_SKIP; the two are one contract and must agree.
@@ -130,7 +122,6 @@ local function test_exit_skip_agrees_with_check()
   assert(records.EXIT_SKIP == check.EXIT_SKIP,
     "records.EXIT_SKIP and check.EXIT_SKIP drifted apart")
 end
-test_exit_skip_agrees_with_check()
 
 -- `cosmic.test` may not require this internal tree either, so the
 -- in-process runner reproduces the two spellings it prints -- the
@@ -165,7 +156,6 @@ local function test_the_public_runner_prints_this_grammar()
     "the runner's counts line drifted from records.counts: "
     .. tostring(lines[#lines]))
 end
-test_the_public_runner_prints_this_grammar()
 
 -- Exit codes are the same three everywhere, and a skip is not a pass.
 local function test_status_is_one_contract()
@@ -174,7 +164,6 @@ local function test_status_is_one_contract()
   assert(records.status_of(1) == "fail", "1 fails")
   assert(records.status_of(137) == "fail", "and so does a signal")
 end
-test_status_is_one_contract()
 
 -- A runner-mode child names the cases that failed and ends on a counts
 -- line; every other name in the file passed.
@@ -187,7 +176,6 @@ local function test_parse_cases_attributes_pass_and_fail()
   assert(got[1] == "pass", "test_a passed, got " .. tostring(got[1]))
   assert(got[2] == "fail", "test_b failed, got " .. tostring(got[2]))
 end
-test_parse_cases_attributes_pass_and_fail()
 
 -- The trailing counts line IS the legacy/runner discriminator: a plain
 -- script never ends on one, and a file that prints one and keeps going
@@ -199,7 +187,6 @@ local function test_parse_cases_refuses_a_non_runner_tail()
     records.counts(1, 0, 0) .. "\nall tests passed\n")
   assert(trailing == nil, "a counts line that is not last is not the tail")
 end
-test_parse_cases_refuses_a_non_runner_tail()
 
 -- Falling back is the right answer whenever the counts do not account
 -- for exactly these cases: a filtered run, a mid-run exit, a crash.
@@ -211,7 +198,6 @@ local function test_parse_cases_refuses_a_short_count()
     records.counts(1, 1, 0) .. "\n")
   assert(unnamed == nil, "a failure with no row naming it is not attributable")
 end
-test_parse_cases_refuses_a_short_count()
 
 -- `report` prints rows with the same icon, and a test that calls it
 -- writes them to its own stdout. Those rows name FILES, so the
@@ -224,7 +210,6 @@ local function test_parse_cases_ignores_a_report_row()
   assert(got[1] == "pass" and got[2] == "pass",
     "a row naming a file is nobody's failure")
 end
-test_parse_cases_ignores_a_report_row()
 
 -- The tests line is ADDITIONAL to the checks line, never a replacement:
 -- every stage verdict is derived from the checks line, and
@@ -242,6 +227,5 @@ local function test_parse_counts_ignores_the_tests_line()
     "the stage's counts moved: got " .. c.passed .. "/" .. c.failed
     .. "/" .. c.skipped)
 end
-test_parse_counts_ignores_the_tests_line()
 
 print("all records tests passed")

@@ -52,7 +52,6 @@ local function test_clean_compare_measures_nothing()
   assert(code == 0, "clean compare must pass, got " .. code)
   assert(calls == 0, "clean compare must not re-measure, got " .. calls)
 end
-test_clean_compare_measures_nothing()
 
 local function test_flagged_regression_retries_then_passes()
   local base, cur, selfb = paths("retry")
@@ -70,7 +69,6 @@ local function test_flagged_regression_retries_then_passes()
   assert(code == 0, "noise filtered by the retry must pass, got " .. code)
   assert(calls == 1, "expected exactly one re-measurement, got " .. calls)
 end
-test_flagged_regression_retries_then_passes()
 
 -- CUR.json is an INPUT: the retry writes beside it, never over it, so
 -- a second gate call over the same paths still compares against the
@@ -97,7 +95,6 @@ local function test_retry_does_not_overwrite_current()
     "CUR must still hold the caller's own measurement, got " ..
     tostring(reread.results[1].wall_ns))
 end
-test_retry_does_not_overwrite_current()
 
 local function test_persistent_regression_triaged_as_noise_passes()
   -- The +30% regression and the A/A control's ~+38% swing are
@@ -125,7 +122,6 @@ local function test_persistent_regression_triaged_as_noise_passes()
   assert(code == 0, "A/A-reclassified noise must pass, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
-test_persistent_regression_triaged_as_noise_passes()
 
 -- Reclassification is magnitude-aware: a scenario's A/A self-check
 -- clearing the bar does not wave through ANY regression there, only
@@ -154,7 +150,6 @@ local function test_large_regression_survives_unstable_selfcheck_and_fails()
     "a regression far larger than the self-check swing must still fail, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
-test_large_regression_survives_unstable_selfcheck_and_fails()
 
 local function test_real_regression_survives_triage_and_fails()
   local base, cur, selfb = paths("real")
@@ -176,7 +171,6 @@ local function test_real_regression_survives_triage_and_fails()
   assert(code == 1, "a real regression must fail the gate, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
-test_real_regression_survives_triage_and_fails()
 
 local function test_measure_failure_propagates()
   local base, cur, selfb = paths("mfail")
@@ -190,7 +184,6 @@ local function test_measure_failure_propagates()
     })
   assert(code == 3, "a failed measurement must propagate its code, got " .. code)
 end
-test_measure_failure_propagates()
 
 local function test_selfcheck_reports_quiet_and_noisy()
   local a, b, _ = paths("self")
@@ -211,7 +204,6 @@ local function test_selfcheck_reports_quiet_and_noisy()
     })
   assert(code == 0, "noisy selfcheck is informational and exits 0, got " .. code)
 end
-test_selfcheck_reports_quiet_and_noisy()
 
 local function test_missing_baseline_fails_loudly()
   local base, cur, selfb = paths("missing")
@@ -224,7 +216,6 @@ local function test_missing_baseline_fails_loudly()
     })
   assert(code == 1, "a missing baseline must fail, got " .. code)
 end
-test_missing_baseline_fails_loudly()
 
 local function test_main_parses_positionals_without_separator()
   -- the cosmic dispatcher consumes a standalone "--", so main takes its
@@ -236,7 +227,6 @@ local function test_main_parses_positionals_without_separator()
   code = gate.main("bogus-mode")
   assert(code == 2, "unknown mode must print usage, got " .. code)
 end
-test_main_parses_positionals_without_separator()
 
 -- The identity rules. `meta.bin` is a NAME -- two runs forty commits
 -- apart both say `o/bin/cosmic` -- so the gate reads `bin_sha`, and
@@ -257,7 +247,6 @@ local function test_compare_refuses_a_binary_against_itself()
   assert(code == 1, "comparing a binary with itself must refuse, got " .. code)
   assert(calls == 0, "and refuse before measuring anything, got " .. calls)
 end
-test_compare_refuses_a_binary_against_itself()
 
 -- The same pair naming DIFFERENT binaries is the comparison the gate
 -- exists for, so it runs -- which is what makes the refusal above about
@@ -274,7 +263,6 @@ local function test_compare_runs_when_the_binaries_differ()
     })
   assert(code == 0, "a real comparison must proceed, got " .. code)
 end
-test_compare_runs_when_the_binaries_differ()
 
 -- A noise floor is only a noise floor if the subject is constant.
 -- Measured across two binaries it reports the change as noise and
@@ -292,7 +280,6 @@ local function test_selfcheck_refuses_two_different_binaries()
   assert(code == 1,
     "an A/A control across two binaries must refuse, got " .. code)
 end
-test_selfcheck_refuses_two_different_binaries()
 
 -- A file that does not say what it measured cannot be checked either
 -- way. It says so on stderr and the comparison proceeds, so a results
@@ -322,7 +309,6 @@ local function test_retry_remeasurement_changing_identity_is_refused()
   assert(calls == 1,
     "must refuse right after the retry, before any A/A step, got " .. calls)
 end
-test_retry_remeasurement_changing_identity_is_refused()
 
 -- Before triage() trusts the A/A pair as a noise floor, `current` and
 -- `selfcheck_b` must name the SAME binary -- otherwise the "noise floor"
@@ -350,7 +336,6 @@ local function test_aa_control_naming_different_binary_is_refused()
   assert(calls == 2,
     "must measure the retry and the A/A control before refusing, got " .. calls)
 end
-test_aa_control_naming_different_binary_is_refused()
 
 local function test_a_file_without_a_sha_is_not_refused()
   local base, cur, selfb = paths("no-sha")
@@ -364,7 +349,6 @@ local function test_a_file_without_a_sha_is_not_refused()
     })
   assert(code == 0, "an unidentified pair still compares, got " .. code)
 end
-test_a_file_without_a_sha_is_not_refused()
 
 -- Three runs of the current binary exist when the gate triages, so the
 -- noise it reads comes from every pair among them and not just the
@@ -394,7 +378,6 @@ local function test_the_gate_triages_against_every_measured_control()
     "the loudest control pair must reclassify the regression, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
-test_the_gate_triages_against_every_measured_control()
 
 -- The strike-twice rule. Pass 1 flags only `a`; the retry reads `a`
 -- quiet but flags `b` for the first time, and the controls agree with
@@ -418,7 +401,6 @@ local function test_strike_once_regression_reclassifies_and_passes()
     "a regression flagging only in the retry did not reproduce, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
-test_strike_once_regression_reclassifies_and_passes()
 
 -- ...and only the strike-once flag reclassifies: `a`, striking in both
 -- passes, still fails the same run that waves `b` through as noise.
@@ -439,7 +421,6 @@ local function test_strike_twice_regression_still_fails()
     "a regression striking in both passes must still fail, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
-test_strike_twice_regression_still_fails()
 
 -- The other failure mode from that run: the baseline is measured once,
 -- so a one-off low reading there anchors every pass (attempt 1 flagged
@@ -471,7 +452,6 @@ local function test_baseline_retry_rescues_a_one_off_baseline_reading()
   assert(bpath ~= nil and bpath:match("%-base%-retry%.json$"),
     "the baseline retry gets BASE's own -retry.json sibling, got " .. tostring(bpath))
 end
-test_baseline_retry_rescues_a_one_off_baseline_reading()
 
 -- A baseline retry that names a different binary than the baseline file
 -- re-measured the wrong thing; trusting it would compare the candidate
@@ -497,4 +477,3 @@ local function test_baseline_retry_naming_a_different_binary_is_refused()
     "a baseline retry naming a different binary must refuse, got " .. code)
   assert(bcalls == 1, "must refuse right after the baseline retry, got " .. bcalls)
 end
-test_baseline_retry_naming_a_different_binary_is_refused()
