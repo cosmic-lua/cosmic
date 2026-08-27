@@ -8,8 +8,9 @@ return {
   ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3IOCdHTMLfZoga1s1BqhqJI2D3v",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1446,
-  ["reviewer"] = "e831e06e-2f80-53d1-84e9-8198069f90ed",
   ["title"] = "compile seam: runner-mode test files get the generated tail, in the checker and the chunk",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "3a0450176befc9f28048d8520a271b0a12fc8a66",
 }
