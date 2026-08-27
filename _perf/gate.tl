@@ -1,11 +1,16 @@
 #!/usr/bin/env lua
 --- Perf gate orchestration: the compare retry and the A/A triage behind
 --- the compare and selfcheck gates, in Teal rather than as
---- shell ||-chains. A flagged regression re-measures once (noise
---- must strike twice in the same direction); if it persists, an A/A
---- self-check reclassifies swings the current binary shows against
---- itself as noise. Measurement is injected so the orchestration is
---- testable without running real benchmarks; main wires perf.run.
+--- shell ||-chains. A flagged regression re-measures once and fails
+--- only when it strikes in BOTH passes — a scenario that flags only in
+--- the retry did not reproduce and reclassifies to noise. When the
+--- caller can re-run the baseline binary (--baseline-bin), the retry
+--- re-measures BOTH sides, because a single unlucky baseline reading
+--- otherwise anchors every pass and no amount of current-side retrying
+--- washes it out. A persisting regression then meets an A/A self-check
+--- that reclassifies swings the current binary shows against itself as
+--- noise. Measurement is injected so the orchestration is testable
+--- without running real benchmarks; main wires perf.run.
 local compare = require("_perf.compare")
 local pt = require("_perf.perf_types")
 local proc = require("cosmic.proc")
@@ -18,6 +23,9 @@ local record GateOptions
   selfcheck_b: string
   threshold: number
   measure: Measure
+  --- Re-measures the BASELINE binary into a path; nil when the caller
+  --- cannot re-run it (the retry then re-reads the baseline file).
+  measure_baseline: Measure
 end
 
 local record SelfcheckOptions
@@ -28,9 +36,12 @@ local record SelfcheckOptions
 end
 
 local usage < const > = [[
-usage: gate.lua compare BASE.json CUR.json SELFB.json [--threshold PCT] <run args...>
+usage: gate.lua compare BASE.json CUR.json SELFB.json [--threshold PCT]
+         [--baseline-bin PATH] <run args...>
          BASE, CUR: read; SELFB: written by the A/A pass
          a flagged regression re-measures into CUR's sibling CUR-retry.json
+         and fails only when it flags in both passes; --baseline-bin also
+         re-measures PATH into BASE's sibling BASE-retry.json on retry
        gate.lua selfcheck A.json B.json [--threshold PCT] <run args...>
          A, B: both written -- selfcheck's job is to measure twice
 ]]
@@ -47,15 +58,19 @@ local function retry_path(cur_path: string): string
   return (stem or cur_path) .. "-retry.json"
 end
 
---- Load, compare (optionally triaged), and print one comparison.
+--- Load and compare (optionally triaged) one comparison. The caller
+--- prints the deltas (`compare.format`) — the final pass amends
+--- verdicts before printing, so printing here would show a table the
+--- gate did not act on.
 --- @param base_path string Baseline results path
 --- @param cur_path string Current results path
 --- @param threshold number? Noise bar in percent
 --- @param control_paths {string}? Same-binary control runs; triage mode when two or more
 --- @return integer Failure count, or -1 on a load error
 --- @return string? Error message when loading failed
+--- @return {pt.Delta}? The per-scenario deltas the count came from
 local function compare_once(base_path: string, cur_path: string,
-    threshold: number, control_paths?: {string}): integer, string
+    threshold: number, control_paths?: {string}): integer, string, {pt.Delta}
   local base, berr = compare.load_results(base_path)
   if base == nil then
     return -1, berr
@@ -76,8 +91,7 @@ local function compare_once(base_path: string, cur_path: string,
     end
     deltas, failures = compare.triage_many(base, cur, controls, threshold)
   end
-  print(compare.format(deltas))
-  return failures
+  return failures, nil, deltas
 end
 
 --- The identity rule of `compare.identity_refusal`, over two paths.
@@ -120,13 +134,26 @@ local function gate_inner(opts: GateOptions): integer
     io.stderr:write(refusal .. "\n")
     return 1
   end
-  local failures, err = compare_once(opts.baseline, opts.current, opts.threshold)
+  local failures, err, deltas =
+  compare_once(opts.baseline, opts.current, opts.threshold)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
+  print(compare.format(deltas))
   if failures == 0 then
     return 0
+  end
+  -- Pass 1's flags. A regression fails the gate only when it flags in
+  -- BOTH passes: a scenario clean here that flags only in the retry did
+  -- not reproduce, and reclassifies at the final judgment below. Only
+  -- `regression` is subject to the rule — error/missing/baseline-error/
+  -- malformed verdicts fail on their own in whichever pass they appear.
+  local flagged_first: {string: boolean} = {}
+  for _, d in ipairs(deltas) do
+    if d.verdict == "regression" then
+      flagged_first[d.name] = true
+    end
   end
   local retry = retry_path(opts.current)
   print("perf-compare: regression flagged; re-measuring once into " .. retry ..
@@ -135,20 +162,41 @@ local function gate_inner(opts: GateOptions): integer
   if rc ~= 0 then
     return rc
   end
+  local base_side = opts.baseline
+  if opts.measure_baseline then
+    -- Re-measure the baseline binary too: pass 1's base numbers came
+    -- from a single run, and a one-off reading there anchors every
+    -- later pass — no amount of current-side retrying washes it out.
+    base_side = retry_path(opts.baseline)
+    print("perf-compare: re-measuring the baseline into " .. base_side ..
+      " so a one-off baseline reading cannot anchor the verdict")
+    rc = opts.measure_baseline(base_side)
+    if rc ~= 0 then
+      return rc
+    end
+    -- A baseline retry is only a retry if it re-measured the SAME
+    -- binary the baseline file names.
+    refusal = identity_refusal(opts.baseline, base_side, true)
+    if refusal then
+      io.stderr:write(refusal .. "\n")
+      return 1
+    end
+  end
   -- The retry measured under whatever binary is running now, which may
   -- not be the one the baseline was measured against. Re-check identity
   -- against that freshly measured file, or a real regression can be
   -- masked by an identity change mid-retry.
-  refusal = identity_refusal(opts.baseline, retry, false)
+  refusal = identity_refusal(base_side, retry, false)
   if refusal then
     io.stderr:write(refusal .. "\n")
     return 1
   end
-  failures, err = compare_once(opts.baseline, retry, opts.threshold)
+  failures, err, deltas = compare_once(base_side, retry, opts.threshold)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
+  print(compare.format(deltas))
   if failures == 0 then
     return 0
   end
@@ -182,11 +230,24 @@ local function gate_inner(opts: GateOptions): integer
   if identity_refusal(retry, opts.current, true) == nil then
     table.insert(controls, 1, opts.current)
   end
-  failures, err = compare_once(opts.baseline, retry, opts.threshold, controls)
+  failures, err, deltas = compare_once(base_side, retry, opts.threshold, controls)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
+  -- The strike-twice rule: a regression standing here that pass 1 did
+  -- not flag appeared only in the retry — it did not reproduce, and a
+  -- verdict the gate would not act on may not stand in the printed
+  -- table, which is the record.
+  for _, d in ipairs(deltas) do
+    if d.verdict == "regression" and not flagged_first[d.name] then
+      d.verdict = "noise"
+      failures = failures - 1
+      print("perf-compare: " .. d.name ..
+        " flagged only in the retry -- not reproduced, counted as noise")
+    end
+  end
+  print(compare.format(deltas))
   if failures > 0 then
     io.stderr:write("perf: " .. failures ..
       " scenario(s) regressed, errored, or went missing\n")
@@ -221,11 +282,12 @@ local function selfcheck(opts: SelfcheckOptions): integer
     io.stderr:write(refusal .. "\n")
     return 1
   end
-  local failures, err = compare_once(opts.a, opts.b, opts.threshold)
+  local failures, err, deltas = compare_once(opts.a, opts.b, opts.threshold)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
+  print(compare.format(deltas))
   if failures == 0 then
     print("perf-selfcheck: nothing exceeded the bar — the machine is quiet" ..
       " at this threshold")
@@ -261,6 +323,7 @@ local function main(...: string): integer
     paths[#paths + 1] = argv[i]
   end
   local threshold: number = nil
+  local baseline_bin: string = nil
   local runargs: {string} = {}
   local i = want + 2
   while i <= #argv do
@@ -268,6 +331,9 @@ local function main(...: string): integer
     if v == "--threshold" then
       i = i + 1
       threshold = tonumber(argv[i])
+    elseif v == "--baseline-bin" then
+      i = i + 1
+      baseline_bin = argv[i]
     else
       runargs[#runargs + 1] = v
     end
@@ -281,6 +347,26 @@ local function main(...: string): integer
     end
     return run.main(table.unpack(margs))
   end
+  local measure_baseline: Measure = nil
+  if baseline_bin then
+    -- The exact invocation shape release.yml measures the baseline
+    -- with — `PATH _perf/run.tl --out OUT` — so script-mode module
+    -- resolution inside the previous binary is identical to pass 1's.
+    local child = require("cosmic.child")
+    measure_baseline = function(out: string): integer
+      local cargv: {string} = {baseline_bin, "_perf/run.tl", "--out", out}
+      for _, r in ipairs(runargs) do
+        cargv[#cargv + 1] = r
+      end
+      local res, cerr = child.run(cargv, {stdout = "inherit", stderr = "inherit"})
+      if res == nil then
+        io.stderr:write("perf-compare: baseline re-measure failed: " ..
+          tostring(cerr) .. "\n")
+        return 1
+      end
+      return res.code or 1
+    end
+  end
   if mode == "compare" then
     return gate({
         baseline = paths[1],
@@ -288,6 +374,7 @@ local function main(...: string): integer
         selfcheck_b = paths[3],
         threshold = threshold,
         measure = measure,
+        measure_baseline = measure_baseline,
       })
   end
   return selfcheck({

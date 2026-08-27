@@ -173,6 +173,7 @@ jobs:
               o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json
               o/bin/cosmic --make run _perf/gate.tl compare \
                 o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
+                --baseline-bin o/perf/prev/cosmic-lua \
                 | tee o/perf/compare.txt
             fi' || rc=$?
           if [ "$rc" -ne 0 ]; then
