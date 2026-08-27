@@ -436,3 +436,50 @@ print(table.unpack(results, 2, results.n))
     "mixed table.pack must keep .n integer: " .. table.concat(msgs, "; "))
 end
 test_mixed_pack_keeps_n_integer()
+
+-- The metatable-is patch: a getmetatable() result is a table at
+-- runtime, so `is` against a table-kinded target narrows it instead of
+-- refusing. Unpatched this file reports "cannot resolve a type for mt
+-- here" plus the can-never-be branch warning (probed 2026-08-27); with
+-- the patch the guarded index checks clean.
+local function test_metatable_is_table_narrows()
+  local path = fs.join(tmpdir, "narrow_metatable_table.tl")
+  assert(fs.write(path, [[
+local function f(x: any): boolean
+  local mt = getmetatable(x)
+  if not (mt is {string: any}) then
+    return false
+  end
+  return mt.__index ~= nil
+end
+print(f({}))
+]]))
+  local result = teal.check_file(path)
+  local msgs = {}
+  for _, e in ipairs(result.errors) do
+    msgs[#msgs + 1] = e.message
+  end
+  assert(result.ok,
+    "a metatable narrowed by `is {string: any}` must check: " ..
+    table.concat(msgs, "; "))
+end
+test_metatable_is_table_narrows()
+
+-- ...and only table-kinded targets qualify: a metatable can never be a
+-- scalar, so that `is` keeps refusing.
+local function test_metatable_is_scalar_is_refused()
+  local path = fs.join(tmpdir, "narrow_metatable_scalar.tl")
+  assert(fs.write(path, [[
+local function g(x: any): boolean
+  local mt = getmetatable(x)
+  if mt is integer then
+    return true
+  end
+  return false
+end
+print(g({}))
+]]))
+  local result = teal.check_file(path)
+  assert(not result.ok, "`mt is integer` must keep failing to check")
+end
+test_metatable_is_scalar_is_refused()
