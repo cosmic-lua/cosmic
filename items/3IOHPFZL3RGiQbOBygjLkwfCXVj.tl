@@ -4,7 +4,7 @@ return {
   ["enable"] = "none: the spec enumerated the case correctly; the build omitted one test from the enumerated list — builder omission caught in review, no ready-bar gap",
   ["id"] = "3IOHPFZL3RGiQbOBygjLkwfCXVj",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1438,
   ["title"] = "sqlite exec misdiagnoses CREATE TRIGGER as multi-statement sql",
   ["verdict"] = "request changes",
