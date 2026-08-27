@@ -4,7 +4,7 @@ return {
   ["enable"] = "none: this item spec own gap — ## Acceptance for --take (\"claims the primary or a later candidate\") is satisfied by the sync-and-recompute fallback alone, so it never demanded a test that distinguishes the candidate-list walk, and ## Change said nothing about the terminal answer when every do item is blocked",
   ["id"] = "3IU9CuuSQfHmPtRtH1BmLqEVUKU",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1454,
   ["title"] = "gitboard next: candidate lists, seeded fan-out, fused claim (--take), starvation reorder, set-claim guard",
   ["verdict"] = "request changes",
