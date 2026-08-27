@@ -86,3 +86,16 @@ local function test_a_semicolon_before_begin_counts()
     "a semicolon between TRIGGER and BEGIN is top-level")
 end
 test_a_semicolon_before_begin_counts()
+
+-- A body that never closes is the deliberate exception: the depth
+-- never returns to zero, so the scan answers false whatever follows.
+-- The property still holds because sqlite3_prepare refuses the
+-- incomplete trigger outright — nothing runs, rather than a prefix
+-- running silently — and this pins the division of labor on the
+-- record.
+local function test_an_unclosed_body_defers_to_prepare()
+  assert(not multi("CREATE TRIGGER t AFTER INSERT ON x " ..
+      "BEGIN SELECT 1; DROP TABLE users"),
+    "past an unclosed BEGIN every semicolon reads as internal")
+end
+test_an_unclosed_body_defers_to_prepare()

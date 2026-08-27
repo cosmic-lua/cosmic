@@ -21,10 +21,15 @@
 --- `TEMPORARY` allowed between) `TRIGGER` arms it, `BEGIN` opens the
 --- body, and inside it `CASE` and `END` pair off — END terminates
 --- only CASE and TRIGGER in sqlite — until the body's own END closes
---- the statement. Semicolons inside the body are internal. Everything
---- ambiguous stays a refusal: a semicolon between TRIGGER and BEGIN
---- (illegal SQL) counts as top-level, and a body that never closes
---- leaves any later content counting as it always did.
+--- the statement. Semicolons inside the body are internal. A
+--- semicolon between TRIGGER and BEGIN (illegal SQL) stays a
+--- top-level refusal. A body that never closes is the one shape the
+--- scan waves through: with no END the depth never returns to zero,
+--- so every later semicolon reads as internal and the scan answers
+--- false whatever follows. The backstop there is sqlite3_prepare
+--- itself — an unclosed trigger is an incomplete statement it
+--- refuses outright, so nothing runs, rather than a prefix running
+--- silently.
 
 local function is_space(c: string): boolean
   return c == " " or c == "\t" or c == "\n" or c == "\r"
