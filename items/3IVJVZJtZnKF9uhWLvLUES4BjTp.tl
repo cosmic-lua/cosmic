@@ -3,8 +3,9 @@ return {
   ["claim"] = "99ab8363-15f9-521d-84ee-bea371b7ac6c",
   ["id"] = "3IVJVZJtZnKF9uhWLvLUES4BjTp",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1475,
-  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "built_by matches exact names, so a wave orchestrator is offered verdicts on work its minted agents built",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "7311071f18ad483d4947a0d85bc07cee34500134",
 }
