@@ -98,13 +98,16 @@ seconds and arbitrary within one — the board's queues are stable, not
 the mint order of items filed in the same breath.
 
 reads need no network and no token; a mutation is ONE commit on
-`board` and publishes (push). a rejected push is the compare half of a
-compare-and-swap: the tool rebases onto whoever moved first, re-checks
-the WIP invariant against the merged board, and refuses if the limit
-now binds, dropping its own commit whole — there is no lagged index,
-no retry ritual, and no half-landed mutation. two sessions editing the
-SAME item cannot rebase past each other; that refusal names the items
-and hands back a clean checkout, so re-read and re-apply.
+`board` and publishes (push). a rejected push is diagnosed before
+anything is destroyed. a lost race — the remote holds commits the
+checkout lacks — drops the mutation whole, re-syncs onto the winner's
+state, and refuses with a line naming the recovery: run the same verb
+again, and it decides afresh with EVERY gate applied to the merged
+board, never a replayed commit whose preconditions the winner may
+have falsified. a rejection with the remote unmoved is the remote's
+policy, not a race: the commit stays local and the refusal carries
+the remote's own words. there is no lagged index, no replay, and no
+half-landed mutation.
 
 **a mutation publishes itself, and board state never goes through a
 pull request.** the verb commits and pushes in one step, so there is
