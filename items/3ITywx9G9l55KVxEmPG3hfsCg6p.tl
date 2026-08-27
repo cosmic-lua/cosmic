@@ -3,8 +3,9 @@ return {
   ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3ITywx9G9l55KVxEmPG3hfsCg6p",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1448,
-  ["reviewer"] = "3f616956-66af-5d35-82b3-9ab54b187eb2",
   ["title"] = "cosmic/teal_narrowing_test.tl is 15 lines under the cap with the narrow-* patch queue still behind it",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "6c04cd7f3df6e1fadfd30e9407a2b25f405761d2",
 }
