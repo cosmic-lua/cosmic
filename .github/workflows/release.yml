@@ -120,16 +120,16 @@ jobs:
       # A failure here fails the release: scenario check() failures mean
       # the binary this run is about to publish is WRONG, not slow. This
       # is the same _perf harness that measures a local dev tree, run
-      # twice — once for the record, once so the compare step below has
-      # an A/A self-check to separate a real regression from noise.
+      # twice against the same binary, on one runner in one job.
       #
-      # Both readings are published. Together they are the release's own
-      # same-binary A/A control: two full-suite measurements of one binary
-      # on one runner in one job, so the noise floor of a release runner
-      # can be read after the fact. Nothing gates on the second half. On a
-      # run where the gate escalates, it re-measures into `selfcheck.json`
-      # itself, so the two halves of a published pair may be taken minutes
-      # or tens of minutes apart.
+      # Both files are published, so each release retains its own
+      # same-binary A/A control and the noise floor of a release runner
+      # can be read after the fact. On a clean run the pair is these two
+      # readings. When the gate escalates it overwrites `selfcheck.json`
+      # with its own control measurement of the same binary and reads
+      # that as a triage control, so a published pair's halves may be
+      # minutes or tens of minutes apart. Publishing adds no gate input:
+      # nothing reads the released asset.
       - name: measure the release
         timeout-minutes: 15
         shell: bash
