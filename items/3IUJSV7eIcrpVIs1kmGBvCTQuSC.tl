@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["phase"] = "check",
   ["pr"] = 1457,
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "pin bump: a release carrying #1455 (discover extent fix), unblocking the runner-mode batches",
 }
