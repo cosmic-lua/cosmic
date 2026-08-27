@@ -49,7 +49,8 @@
     amendment demanded for the shape D22 pioneered.
 
   every such site carries a trailing justification — `-- throws: <why>`
-  on an `error(` line, `-- exits: <why>` on an `os.exit(` line, or
+  on an `error(` line, `-- exits: <why>` on an exit call's line
+  (`os.exit(`, `unix.exit(`), or
   either on the line directly above when the 90-column width won't fit
   it — the same grammar contract as `-- cast:` and `-- assert:`.
   `cosmic/check.tl` and `cosmic/rand.tl` carry no per-site comments:
