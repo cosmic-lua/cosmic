@@ -35,11 +35,14 @@ claim-overwrite guard, directly as one machinery change.
    claim in place now needs `--force --why`, the same rule the move
    verb applies — closes the observed silent-takeover hole.
 8. Tests: `_work/action_pick_test.tl` (new; starvation binds vs
-   falls back, blocked finish skip, alternates shape and caps,
-   seeded fan-out), additions to `_work/priority_test.tl` (seeded
-   tiebreak properties), `_work/gitclaim_test.tl` (the in-place
-   guard; the test pinning the old silent overwrite updates),
-   `_work/gittake_test.tl` (new; take claims past a lost candidate).
+   falls back, the do-blocked fallback, blocked finish skip,
+   alternates shape and caps, and the seeded tiebreak properties —
+   the file exercising `prio.sorted` directly, so the seeded pins
+   live here rather than in `_work/priority_test.tl`),
+   `_work/gitclaim_test.tl` (the in-place guard; the test pinning
+   the old silent overwrite updates), `_work/gittake_test.tl` (new;
+   take claims, walks past a lost candidate, and the walk itself is
+   mutation-killable via the parked-finish fixture).
 9. `docs/flow-review.md`: the starvation-rule change recorded with
    its tripwire.
 
