@@ -10,5 +10,6 @@ return {
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["phase"] = "check",
   ["pr"] = 1459,
+  ["reviewer"] = "e532d9f6-4b7d-5145-9534-7c6759ebc0d8",
   ["title"] = "migrate to runner mode, batch 2/7: _cli, _make",
 }
