@@ -1,5 +1,6 @@
 return {
   ["3p/tl/tl_patch/ast_cache.tl"] = {["covered"] = 0, ["total"] = 1},
+  ["3p/tl/tl_patch/closure.tl"] = {["covered"] = 0, ["total"] = 1},
   ["3p/tl/tl_patch/narrow.tl"] = {["covered"] = 0, ["total"] = 1},
   ["_build/casts.tl"] = {["covered"] = 47, ["total"] = 65},
   ["_build/casts_baseline.tl"] = {["covered"] = 0, ["total"] = 1},
