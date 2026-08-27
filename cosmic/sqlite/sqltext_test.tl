@@ -49,6 +49,9 @@ local function test_a_trigger_body_is_one_statement()
   assert(not multi("CREATE TRIGGER trg AFTER INSERT ON t BEGIN " ..
       "UPDATE t SET n = CASE WHEN n > 0 THEN 1 ELSE 0 END; END"),
     "a CASE inside the body owns its own END")
+  assert(not multi("CREATE /* c */ TRIGGER trg -- note\n AFTER INSERT ON t " ..
+      "BEGIN UPDATE t SET n = 1; END"),
+    "comments between the keywords do not split the arming sequence")
 end
 test_a_trigger_body_is_one_statement()
 
