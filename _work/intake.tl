@@ -58,6 +58,48 @@ local function first_unblocked(b: flow.Board, phase: string,
   return found, waiting
 end
 
+--- What the refine draw offered and what it stepped over. A record
+--- rather than further return slots: the nil-admitting item allows
+--- exactly one companion, and this draw has two counts to report.
+local record RefineDraw
+  --- The item to refine; absent when every plan item is blocked or
+  --- under another session's live refine claim.
+  item: Item
+  --- Blocked items skipped.
+  waiting: integer
+  --- Items under another session's live refine claim.
+  held: integer
+end
+
+--- The highest-placed `plan` item this session may refine: not
+--- blocked, and not under another session's LIVE refine claim
+--- (`health.is_refine_stale` — an hour without a board commit makes
+--- the claim anyone's again). A session's own claim is its own to
+--- keep refining; an unnamed session is skipped past nothing, the
+--- same stance every claim-aware draw takes.
+--- @param b flow.Board The board
+--- @param index flow.Index Items by id
+--- @param pos {string: prio.Position} Position by item id
+--- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
+--- @return RefineDraw The draw and what was stepped over
+local function refinable(b: flow.Board, index: flow.Index,
+    pos: {string: prio.Position}, session: string,
+    ages: health.Ages): RefineDraw
+  local out: RefineDraw = {waiting = 0, held = 0}
+  for _, i in ipairs(flow.queued(b, "plan", pos)) do
+    if flow.is_blocked(i, index) then
+      out.waiting = out.waiting + 1
+    elseif (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
+    and not health.is_refine_stale(i, ages) then
+      out.held = out.held + 1
+    elseif out.item == nil then
+      out.item = i
+    end
+  end
+  return out
+end
+
 --- The LOWEST-placed rotten backlog item, and how many have rotted.
 --- Lowest rather than oldest: age says the decision has gone unmade,
 --- placement says how little it would cost to make it "no". Sweeping
@@ -110,9 +152,11 @@ end
 --- @param index flow.Index Items by id
 --- @param pos {string: prio.Position} Position by item id
 --- @param ages health.Ages Seconds since last board commit, by id
+--- @param session string This session's name; omitted reads as unnamed
 --- @return Action | nil The decision
 local function intake_action(items: {Item}, b: flow.Board, index: flow.Index,
-    pos: {string: prio.Position}, ages: health.Ages): Action | nil
+    pos: {string: prio.Position}, ages: health.Ages,
+    session?: string): Action | nil
   local triage = flow.untriaged(items)
   if #triage > flow.TRIAGE_LIMIT then
     return {
@@ -122,14 +166,19 @@ local function intake_action(items: {Item}, b: flow.Board, index: flow.Index,
         .. "draining outranks refining"):format(#triage, flow.TRIAGE_LIMIT),
     }
   end
-  local refining, waiting = first_unblocked(b, "plan", index, pos)
-  if refining ~= nil and #(b["ready"] or {}) < flow.LIMITS["ready"] then
+  local drawn = refinable(b, index, pos, session or "", ages)
+  if drawn.item ~= nil and #(b["ready"] or {}) < flow.LIMITS["ready"] then
+    local refining = drawn.item
+    local held = ""
+    if drawn.held > 0 then
+      held = (", %d under refinement elsewhere"):format(drawn.held)
+    end
     return {
       kind = "refine",
       item = refining,
       reason = ("ready holds %d/%d — refine a committed item toward the "
-        .. "bar%s"):format(#(b["ready"] or {}), flow.LIMITS["ready"],
-        trailer(pos, refining, waiting)),
+        .. "bar%s%s"):format(#(b["ready"] or {}), flow.LIMITS["ready"],
+        trailer(pos, refining, drawn.waiting), held),
     }
   end
   local promoting, blocked = first_unblocked(b, "backlog", index, pos)
@@ -194,16 +243,22 @@ local function intake_action(items: {Item}, b: flow.Board, index: flow.Index,
 end
 
 local record intake
+  type RefineDraw = RefineDraw
   first_unblocked: function(b: flow.Board, phase: string,
   index: flow.Index, pos: {string: prio.Position}): Item | nil, integer
+  refinable: function(b: flow.Board, index: flow.Index,
+  pos: {string: prio.Position}, session: string,
+  ages: health.Ages): RefineDraw
   last_rotten: function(b: flow.Board, pos: {string: prio.Position},
   ages: health.Ages): Item | nil, integer
   intake_action: function(items: {Item}, b: flow.Board, index: flow.Index,
-  pos: {string: prio.Position}, ages: health.Ages): Action | nil
+  pos: {string: prio.Position}, ages: health.Ages,
+  session?: string): Action | nil
 end
 
 local M: intake = {
   first_unblocked = first_unblocked,
+  refinable = refinable,
   last_rotten = last_rotten,
   intake_action = intake_action,
 }
