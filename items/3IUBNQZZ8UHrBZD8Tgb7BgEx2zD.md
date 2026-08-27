@@ -1,40 +1,45 @@
 ## Goal
 
 G6 — the defining paths, ratcheted: a compare row can be traced to the
-binary that produced it, and a scenario's noise floor is derived from
-evidence rather than from one window's spread.
+binary that produced it, and a codec claim never rests on readings
+taken in two different measurement sessions.
 
-Goal narrowed 2026-08-27 (second rework of 3IU0GxoA, the item that is
-this one's evidence base). Read the title as the hypothesis this item
-opens with, not as a finding: "state-split" is NOT established, and no
-verb renames an item (3IFWAdlL, band 1, backlog).
+Goal rewritten 2026-08-27 (second rework of 3IU0GxoA, this item's
+evidence base). Read the title as this item's opening hypothesis, not
+as a finding: "state-split" as the title states it is NOT established,
+and no verb renames an item (3IFWAdlL, band 1, backlog).
 
-What 3IU0GxoA's Result actually establishes, and all this item may
-assume:
+What 3IU0GxoA's Result establishes, and all this item may assume:
 
-- Over 40 isolated launches spanning 40 minutes on ONE recorded binary
-  (`bin_sha c81de75b787a…`, cosmos `2026.08.27-13977f2ef`),
-  `codec_base64_roundtrip_64k` held median 190.0 µs at **CV 2.1%**,
-  unimodal, with no drift between the first and second halves. Within
-  a window and a binary this scenario is STABLE — the earlier premise
-  of a minutes-scale bimodal machine mode is withdrawn.
-- Across the six isolated datasets on record the LEVEL spans 144.9 to
-  227 µs with the codec source byte-identical throughout, every group
-  is internally tight (CV 1.2-5.3%), and **every level step coincides
-  with a change of binary**. The largest, 190.0 → 144.9 µs (~24%)
-  eleven minutes apart, is between two cosmic builds over the same
-  pinned cosmos. Machine state and build identity were never
-  separated; no two datasets were measured back to back.
-- The perf gate records nothing about which binary produced a row, so
-  a level difference of this size can enter a compare with no trace.
+- **Within one measurement session the scenario is stable.** 40
+  isolated launches over 40 minutes on one recorded binary
+  (`bin_sha c81de75b787a…`, cosmos `2026.08.27-13977f2ef`) held median
+  190.0 µs at **CV 2.1%**, unimodal, with no trend between the first
+  and second halves. Every other labeled group on record is internally
+  tight at CV 1.2-5.3%. The earlier premise of a minutes-scale bimodal
+  machine mode is WITHDRAWN — this item's own data refutes it.
+- **Between sessions the absolute level moves 20-33% with the binary
+  BYTE-IDENTICAL.** 3ISlWFiS and 3ITOUv0w each measured cosmic
+  `d8492168eace…` (`sha256sum`-verified in both, and a third time by
+  3ITHROpY) with the same isolated command: median 191.31 µs in one
+  session, 144.29 µs in the other, raw ranges disjoint (+32.6%). Its
+  sibling arm `940f21bb…` read 209.35 and 173.38 the same way
+  (+20.7%). The two ratios differ, so it is not a uniform frequency
+  scaling, and nothing observable inside the container moved.
+- **A real regression's measured magnitude depends on which level the
+  session landed on.** The same code delta read +9.44% interleaved at
+  the ~191 level (3ISlWFiS) and +20.16% interleaved at the ~144 level
+  (3ITOUv0w) — both verdicts REPRODUCED, both correctly interleaved
+  within one session. So a fixed-percentage bar has a different
+  sensitivity from session to session even on a correctly interleaved
+  pair.
+- **The gate records nothing about which binary produced a row.** The
+  harness writes `meta.bin_sha` per results file and never stamps it
+  into a printed compare row, so two rows from different binaries — or
+  from different sessions — can chain silently.
 
-So the surviving, actionable premise is a RECORDING gap, justified by
-the confound EXISTING: the harness writes `meta.bin_sha` per run but
-never stamps it into a compare row, so cross-binary readings can chain
-silently. Deriving noise floors from cross-window A/A history remains
-a HYPOTHESIS this item may test at plan against accumulated selfcheck
-history — it is not a finding, and it is explicitly not a warrant to
-widen any bar (see Non-goals).
+The founded, actionable premise is therefore a RECORDING gap plus a
+level-dependent sensitivity, not a wider bar.
 
 ## Change
 
@@ -42,42 +47,48 @@ Two parts, and only the first is founded today.
 
 1. **Traceability, founded.** Stamp the producing binary into every
    compare row the harness prints, so a reader can see at a glance
-   whether two rows came from the same binary. `_perf/run.tl` already
-   writes `meta.bin_sha` into each results file; the shape and the
-   files to touch are to be settled at plan.
+   whether two rows came from the same binary and the same run.
+   `_perf/run.tl` already writes `meta.bin_sha` into each results
+   file; the shape and the files to touch are to be settled at plan.
 
-2. **Noise floors from history, a hypothesis to test at plan.**
-   Whether a per-scenario floor derived from accumulated same-binary
-   A/A selfcheck spreads (the selfcheck pair is same-binary by
-   construction) beats today's single-window `spread_pct` is an open
-   question, and the first job at plan is to answer it from the
-   selfcheck files the gate already writes — not to implement a
-   derivation on the assumption. If the history shows what 3IU0GxoA's
-   bracket shows for base64 (tight within a binary), the honest
-   outcome for that scenario is a floor that does not move, and this
-   part closes with that recorded.
+2. **Level-aware sensitivity, a hypothesis to test at plan.** Whether
+   a per-scenario floor derived from accumulated same-binary A/A
+   selfcheck spreads (the selfcheck pair is same-binary AND
+   same-session by construction) improves on today's single-window
+   `spread_pct` is an open question, and the first job at plan is to
+   answer it from the selfcheck files the gate already writes — not to
+   implement a derivation on the assumption. Note what the evidence
+   already says: same-session spread is TIGHT at both levels, so a
+   history-derived floor would likely come out small, and the real
+   sensitivity problem is that the same delta measures ~2x larger at
+   the fast level. A floor expressed relative to the session's own
+   measured level, or a normalisation of the delta by it, is the
+   shape worth weighing first.
 
 Alternatives to weigh at refinement: a D31 amendment requiring an
-interleaved A/B control before any single-window codec delta is read
-as a code effect, or per-scenario `noise_floor_pct` in the scenario
-module derived from the same history.
+interleaved same-session A/B before any codec delta is read as a code
+effect (which is what 3ISlWFiS and 3ITOUv0w already did by hand), or
+per-scenario `noise_floor_pct` in the scenario module derived from the
+same history.
 
 ## Non-goals
 
 - **No widening of `codec_base64_roundtrip_64k`'s noise floor**, and
-  no change to any bar, on the evidence in 3IU0GxoA. That evidence
-  makes this scenario look MORE stable within a window, not less: its
+  no change to any bar, on 3IU0GxoA's evidence. That evidence makes
+  this scenario look MORE stable within a session, not less: its
   40-run bracket is tighter than the ±4.8% figure 3ISlY5Xl's
   arithmetic used. 3ISlY5Xl held a release at +21.0% via
-  `21.0 > max(10.0, 2 x 4.8)`; the cross-binary spread recorded in
-  3IU0GxoA is not a noise budget, because no two of those datasets
-  were measured back to back. Widening this scenario's floor would
-  retire the arithmetic that kept that gate honest, and nothing here
-  licenses it.
+  `21.0 > max(10.0, 2 x 4.8)`, and the release lane measures baseline
+  and candidate in the SAME job on the SAME runner — the interleaved
+  shape the cross-session effect cannot reach. The 20-33% cross-session
+  spread is not a noise budget for that gate; treating it as one would
+  retire the arithmetic that kept it honest over a regression two
+  independent interleaved experiments have since confirmed.
 - No weakening or removal of codec rows from any compare.
 - No scenario or `check()` changes.
-- The interleaved A/B (skills/optimize/measurement.md) stays the
-  instrument of record for codec claims; nothing here replaces it.
+- The interleaved A/B within one session
+  (skills/optimize/measurement.md) stays the instrument of record for
+  codec claims; nothing here replaces it.
 
 ## Acceptance
 
@@ -89,11 +100,8 @@ may end larger than it starts.
 
 ## Enablement
 
-3IU0GxoA's Result is the evidence base — read its by-binary table and
-its "What this does NOT license" paragraph before refining. The gate
-and selfcheck machinery already exist (#1432). The one open confound
-3IU0GxoA names — the two recorded binaries were never measured back
-to back — is closable with an interleaved A/B of
-`c81de75b787a…` and `afdd72c09850…` over cosmos `13977f2ef`, and
-doing that at plan would decide part 2 on evidence instead of on a
-hypothesis.
+3IU0GxoA's Result is the evidence base — read its byte-identical
+cross-session control table and its "What this does NOT license"
+paragraph before refining. 3ISlWFiS and 3ITOUv0w carry the per-arm
+readings and hashes that control rests on. The gate and selfcheck
+machinery already exist (#1432).
