@@ -8,8 +8,9 @@ return {
   ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3INGg7XO379JEpXKUlN368FX8kL",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1447,
-  ["reviewer"] = "3f616956-66af-5d35-82b3-9ab54b187eb2",
   ["title"] = "literal: a long bracket keeps CR bytes Lua normalizes, in both the Teal and the C reader",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d7ac9f10900113d8fb7df8c2d4d1e40537269bc7",
 }
