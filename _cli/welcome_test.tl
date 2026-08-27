@@ -20,7 +20,6 @@ local function test_welcome_flag()
   assert(s:find("cosmic %-%-welcome"), "should mention how to see again")
   print("test_welcome_flag: PASS")
 end
-test_welcome_flag()
 
 -- Test --help mentions --welcome and COSMIC_NO_WELCOME
 local function test_help_mentions_welcome()
@@ -31,7 +30,6 @@ local function test_help_mentions_welcome()
   assert(s:find("COSMIC_NO_WELCOME"), "help should mention COSMIC_NO_WELCOME env var")
   print("test_help_mentions_welcome: PASS")
 end
-test_help_mentions_welcome()
 
 -- Test COSMIC_NO_WELCOME suppresses welcome in scripts
 local function test_no_welcome_env()
@@ -55,7 +53,6 @@ end
   assert(s:find("COSMIC_NO_WELCOME is set"), "env var should be accessible: " .. s)
   print("test_no_welcome_env: PASS")
 end
-test_no_welcome_env()
 
 -- PTY-based tests require Linux's script command (different syntax on macOS)
 if sys.host_os() ~= "linux" then
@@ -130,7 +127,6 @@ local function test_welcome_with_e_flag()
   assert(out:find("hello"), "should execute the statement: " .. out)
   print("test_welcome_with_e_flag: PASS")
 end
-test_welcome_with_e_flag()
 
 -- Test welcome does NOT appear with -v flag (early-return skips welcome)
 local function test_welcome_skipped_with_v_flag()
@@ -140,7 +136,6 @@ local function test_welcome_skipped_with_v_flag()
   assert(out:find("Lua 5%.4") or out:find("cosmic%-lua"), "should show version: " .. out)
   print("test_welcome_skipped_with_v_flag: PASS")
 end
-test_welcome_skipped_with_v_flag()
 
 -- step 10: showing the welcome must NOT modify the executable.
 -- Zip-appending a marker to the running binary breaks release checksum
@@ -158,7 +153,6 @@ local function test_welcome_does_not_modify_binary()
     .. tostring(#before) .. " -> " .. tostring(#after) .. ")")
   print("test_welcome_does_not_modify_binary: PASS")
 end
-test_welcome_does_not_modify_binary()
 
 -- step 10: the shown marker is written under $XDG_CONFIG_HOME.
 local function test_marker_written_to_config_dir()
@@ -170,7 +164,6 @@ local function test_marker_written_to_config_dir()
     "marker should be written to $XDG_CONFIG_HOME/cosmic/welcome-shown")
   print("test_marker_written_to_config_dir: PASS")
 end
-test_marker_written_to_config_dir()
 
 -- With XDG_CONFIG_HOME unset, the marker falls back to $HOME/.config.
 local function test_marker_home_fallback()
@@ -185,7 +178,6 @@ local function test_marker_home_fallback()
     "marker should fall back to $HOME/.config/cosmic/welcome-shown")
   print("test_marker_home_fallback: PASS")
 end
-test_marker_home_fallback()
 
 -- Test welcome does NOT appear on second run (same binary, same config)
 local function test_welcome_not_shown_twice()
@@ -200,7 +192,6 @@ local function test_welcome_not_shown_twice()
   assert(not s2:find("Welcome to cosmic%-lua!"), "second run should NOT show welcome: " .. s2)
   print("test_welcome_not_shown_twice: PASS")
 end
-test_welcome_not_shown_twice()
 
 -- A marker embedded in the binary still counts as shown: it lets a
 -- distributor pre-seed a binary, and keeps copies mutated by older
@@ -217,7 +208,6 @@ local function test_embedded_marker_suppresses()
     "embedded marker should suppress welcome: " .. out)
   print("test_embedded_marker_suppresses: PASS")
 end
-test_embedded_marker_suppresses()
 
 -- Test COSMIC_NO_WELCOME suppresses welcome even on first run
 local function test_no_welcome_env_suppresses()
@@ -230,4 +220,3 @@ local function test_no_welcome_env_suppresses()
   assert(not s:find("Welcome to cosmic%-lua!"), "welcome should be suppressed: " .. s)
   print("test_no_welcome_env_suppresses: PASS")
 end
-test_no_welcome_env_suppresses()

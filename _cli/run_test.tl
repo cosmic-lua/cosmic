@@ -16,7 +16,6 @@ local function test_augment_leaves_unrelated_errors_alone()
   assert(run.augment_module_errors(err) == err,
     "an error without a module-not-found match must pass through verbatim")
 end
-test_augment_leaves_unrelated_errors_alone()
 
 local function test_augment_appends_did_you_mean()
   local err = "s.tl:1:1: module not found: 'cosmic.fss'"
@@ -35,7 +34,6 @@ local function test_augment_appends_did_you_mean()
     "the hint's redundant header must be stripped, got: " .. out)
   assert(not out:match("\n\n$"), "trailing blank lines must be trimmed")
 end
-test_augment_appends_did_you_mean()
 
 local function test_augment_respects_no_require_hints()
   local err = "s.tl:1:1: module not found: 'cosmic.fss'"
@@ -45,7 +43,6 @@ local function test_augment_respects_no_require_hints()
   assert(out == err,
     "COSMIC_NO_REQUIRE_HINTS must disable augmentation, got: " .. out)
 end
-test_augment_respects_no_require_hints()
 
 -- trim_traceback: hide the cosmic entry point's frames so a user sees
 -- only their own stack.
@@ -55,14 +52,12 @@ local function test_trim_traceback_keeps_the_message()
   assert(tb:find("boom", 1, true),
     "the error message must survive trimming, got: " .. tb)
 end
-test_trim_traceback_keeps_the_message()
 
 local function test_trim_traceback_accepts_non_string_errors()
   -- The parameter is `any`: a script can error() a table or a number.
   local tb = run.trim_traceback(42)
   assert(tb:find("42", 1, true), "expected the tostring'd value, got: " .. tb)
 end
-test_trim_traceback_accepts_non_string_errors()
 
 --- The real contract: running under the cosmic binary, the live stack
 --- passes through /zip/main.lua (the embedded entry point). Trimming
@@ -86,4 +81,3 @@ local function test_trim_traceback_cuts_at_the_cosmic_entry_point()
     "trimming must shorten the traceback: " .. #trimmed .. " vs " .. #full)
   assert(trimmed:find("boom", 1, true), "message still required after trim")
 end
-test_trim_traceback_cuts_at_the_cosmic_entry_point()

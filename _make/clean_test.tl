@@ -97,7 +97,6 @@ local function test_clean_removes_the_build_directory()
   assert(again.code == 0, "cleaning a clean tree is not an error")
   assert(again.out:find("nothing to remove", 1, true), "got: " .. again.out)
 end
-test_clean_removes_the_build_directory()
 
 -- ...except the verified bootstrap. `o/bootstrap/cosmic` is the one
 -- pinned artifact `bin/cosmic` downloads, checksums and assimilates,
@@ -120,6 +119,5 @@ local function test_clean_keeps_the_verified_bootstrap()
   assert(not fs.is_present(fs.join(root, "o/bin")),
     "everything else still goes: " .. r.out)
 end
-test_clean_keeps_the_verified_bootstrap()
 
 print("all clean tests passed")

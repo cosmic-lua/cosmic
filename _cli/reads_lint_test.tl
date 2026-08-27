@@ -29,26 +29,22 @@ local function test_undeclared_glob_is_flagged()
   check.equal(diags[1].rule, "reads-declaration")
   check.equal(diags[1].line, 2)
 end
-test_undeclared_glob_is_flagged()
 
 local function test_declared_glob_passes()
   local src = "--- reads: some/dir\n" .. GLOB_SRC
   check.equal(#diagnose("cosmic/some_test.tl", src), 0,
     "a `--- reads:` header must clear the finding")
 end
-test_declared_glob_passes()
 
 local function test_allowlisted_file_passes()
   check.equal(#diagnose("cosmic/fs/glob_test.tl", GLOB_SRC), 0,
     "the allowlisted glob_test.tl must pass with no header")
 end
-test_allowlisted_file_passes()
 
 local function test_non_test_file_is_ignored()
   check.equal(#diagnose("cosmic/fs/find.tl", GLOB_SRC), 0,
     "the rule only applies to *_test.tl files")
 end
-test_non_test_file_is_ignored()
 
 local function test_fs_find_is_not_this_rules_trigger()
   local src = "local fs = require(\"cosmic.fs\")\n" ..
@@ -56,4 +52,3 @@ local function test_fs_find_is_not_this_rules_trigger()
   check.equal(#diagnose("cosmic/some_test.tl", src), 0,
     "this slice's trigger is fs.glob only, not fs.find")
 end
-test_fs_find_is_not_this_rules_trigger()

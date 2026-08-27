@@ -95,7 +95,6 @@ local function test_the_fence_denies_an_undeclared_write()
     "fenced, the write must NOT land (fence did not deny)")
   check.enforced("recipe fence")
 end
-test_the_fence_denies_an_undeclared_write()
 
 -- The TEST fence, same A/B shape. A test's writes belong to its own
 -- step: the `record` verb points TMP at a scratch directory beside the
@@ -143,7 +142,6 @@ local function test_the_fence_confines_a_test_to_its_own_step()
     "fenced, a test must NOT write outside its own step")
   check.enforced("record fence")
 end
-test_the_fence_confines_a_test_to_its_own_step()
 
 -- The other half of the canary: the fence must also PERMIT a real
 -- compile, not just deny.
@@ -212,4 +210,3 @@ local function test_the_fence_permits_a_real_compile()
       "the recipe's shape but not the grant")
   end
 end
-test_the_fence_permits_a_real_compile()

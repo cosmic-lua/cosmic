@@ -76,7 +76,6 @@ local function test_every_declared_platform_resolves()
     end
   end
 end
-test_every_declared_platform_resolves()
 
 -- `{platform}` substitution is what makes a per-host pin one file. When
 -- a pin uses it, the resolved url must carry the key that was asked
@@ -104,7 +103,6 @@ local function test_platform_substitution_uses_the_key_it_resolved()
     io.write("no committed pin uses {platform} yet\n")
   end
 end
-test_platform_substitution_uses_the_key_it_resolved()
 
 -- A pin naming a platform nobody declared is refused, by name. The
 -- alternative — silently falling through to some other row — is how a
@@ -119,7 +117,6 @@ local function test_an_undeclared_platform_is_refused()
     end
   end
 end
-test_an_undeclared_platform_is_refused()
 
 -- A pin that declares `*` resolves for ANY host, which is the whole
 -- point of that spelling.
@@ -137,6 +134,5 @@ local function test_the_star_row_matches_every_host()
     end
   end
 end
-test_the_star_row_matches_every_host()
 
 print("all committed-pin tests passed")

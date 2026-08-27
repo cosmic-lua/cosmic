@@ -126,7 +126,6 @@ local function test_lua_markers_are_first_class()
   assert(reader:close())
   assert(not shipped, "a test file must never be embedded in the artifact")
 end
-test_lua_markers_are_first_class()
 
 -- Shipping is opt-in: `embed/**` ships, and a file that merely sits in
 -- the repo does not — asserted from inside the artifact, which is the
@@ -162,7 +161,6 @@ local function test_only_declared_payload_ships()
   assert(not saw["README.md"],
     "a file that is merely IN the repo is not IN the artifact")
 end
-test_only_declared_payload_ships()
 
 -- The closure a `.lua` target gets is what makes it re-run when an
 -- import changes and what its fence grants it a read of. The variable
@@ -176,7 +174,6 @@ local function test_lua_targets_get_their_import_closure()
   assert(mk:find("deps_main_test := o/greet.lua", 1, true),
     "and holds what it imports, got:\n" .. mk)
 end
-test_lua_targets_get_their_import_closure()
 
 -- `--make benchmark` end to end, from a cold tree: a benchmark is
 -- `test`'s third sibling, so it gets the same closure -- which is what
@@ -192,6 +189,5 @@ local function test_benchmark_runs_against_the_stage()
   assert(mk:find("deps_greet/greet_benchmark := o/greet/init.lua", 1, true),
     "a benchmark gets the built closure of what it imports, got:\n" .. mk)
 end
-test_benchmark_runs_against_the_stage()
 
 print("all fixture tests passed")

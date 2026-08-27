@@ -44,7 +44,6 @@ local function test_root_markers()
   assert(not root.is_root(tree("cmd-no-entry", {["cmd/a/lib.tl"] = "return {}\n"})),
     "a cmd/ without an entry declares nothing")
 end
-test_root_markers()
 
 -- The ancestor scan finds the nearest project above a directory, and
 -- returns nothing when there is none.
@@ -58,7 +57,6 @@ local function test_ancestor_root()
   local none = root.ancestor_root(tree("orphan", {["a.tl"] = "return {}\n"}))
   assert(none == nil, "no project above an orphan tree, got " .. tostring(none))
 end
-test_ancestor_root()
 
 -- The refusal names the likely root AND the exact command, because the
 -- user is one `cd` away from the right answer and a bare "ambiguous"
@@ -85,7 +83,6 @@ local function test_refusal_names_the_command()
   assert(err:find("COSMIC_MAKE_ROOT=", 1, true),
     "the refusal must name the override for the other reading")
 end
-test_refusal_names_the_command()
 
 -- COSMIC_MAKE_ROOT is the explicit answer, so it suppresses the guard:
 -- the guard exists to catch a root the user did not think about, and
@@ -102,7 +99,6 @@ local function test_override_suppresses_the_guard()
   assert(got == sub, "expected " .. sub .. ", got " .. tostring(got) ..
     " (" .. tostring(err) .. ")")
 end
-test_override_suppresses_the_guard()
 
 -- A named root that is not a directory fails by name, rather than
 -- scanning something surprising.
@@ -113,7 +109,6 @@ local function test_override_must_exist()
   assert(not got, "a missing root must fail")
   assert(err:find("not a directory", 1, true), "got: " .. tostring(err))
 end
-test_override_must_exist()
 
 -- A build directory is a MIRROR of the project that produced it, so
 -- every marker is on both sides and shape cannot tell them apart. The
@@ -130,7 +125,6 @@ local function test_a_build_directory_is_not_a_root()
   assert(not root.is_root(dir),
     dir .. " has both makefiles: it is output, not a project")
 end
-test_a_build_directory_is_not_a_root()
 
 -- Only both together. One of the two is an ordinary file a project may
 -- well have -- this repo committed a `cosmic.mk` of its own for the
@@ -148,7 +142,6 @@ local function test_one_makefile_alone_is_not_output()
     })
   assert(root.is_root(facts), "a project may commit a project.mk")
 end
-test_one_makefile_alone_is_not_output()
 
 -- And the consequence the fix exists for: the guard stays quiet for a
 -- directory whose only ancestor-shaped thing is a build tree.
@@ -163,7 +156,6 @@ local function test_no_ambiguity_under_a_build_directory()
   assert(not root.ancestor_root(scratch),
     "a build directory must not be reported as the ancestor project")
 end
-test_no_ambiguity_under_a_build_directory()
 
 -- Anything under `<root>/o/` is something a build PUT there — a staged
 -- tree, a generator's output, a test's own scratch directory — so a
@@ -183,7 +175,6 @@ local function test_the_walk_stops_at_an_output_directory()
   assert(root.ancestor_root(fs.join(proj, "pkg")) == proj,
     "a source subdirectory is still inside its project")
 end
-test_the_walk_stops_at_an_output_directory()
 
 -- A directory is not a project until it declares itself. Without this
 -- refusal EVERY directory would be one: `--make build` in an empty one
@@ -204,7 +195,6 @@ local function test_a_bare_directory_is_not_a_project()
   assert(err:find("COSMIC_MAKE_ROOT", 1, true),
     "and names the way to mean it anyway, got: " .. err)
 end
-test_a_bare_directory_is_not_a_project()
 
 -- A root make cannot NAME is refused up front. Prerequisites are
 -- whitespace-separated with no escape that survives, and `o/project.mk`
@@ -222,7 +212,6 @@ local function test_a_root_with_whitespace_is_refused()
   assert(err:find("whitespace", 1, true), "and says why, got: " .. err)
   assert(err:find(dir, 1, true), "naming the path, got: " .. err)
 end
-test_a_root_with_whitespace_is_refused()
 
 -- Whitespace is not the only character that corrupts a recipe line or
 -- the `COSMIC` variable assignment: `(`, `$`, `:`, `=`, `%`
@@ -237,7 +226,6 @@ local function test_a_root_with_a_metacharacter_is_refused()
   assert(err:find("make-significant", 1, true), "and says why, got: " .. err)
   assert(err:find(dir, 1, true), "naming the path, got: " .. err)
 end
-test_a_root_with_a_metacharacter_is_refused()
 
 -- `resolve_self` is what makes argv[-1] usable as "the running cosmic
 -- binary": a real file at (or under) the cwd wins as-is.
@@ -249,7 +237,6 @@ local function test_resolve_self_resolves_a_real_path()
   assert(fs.set_cwd(saved))
   assert(self == fs.absolute_path(fs.join(dir, "cosmic")), "got: " .. tostring(self))
 end
-test_resolve_self_resolves_a_real_path()
 
 -- A bare, PATH-invoked argv0 that names nothing under the cwd falls
 -- back to a real $PATH search instead of `fs.absolute_path`'s phantom
@@ -265,7 +252,6 @@ local function test_resolve_self_falls_back_to_path_search()
   assert(self == proc.which("ls"), "got: " .. tostring(self))
   assert(self ~= fs.join(dir, "ls"), "must not be the cwd-relative phantom")
 end
-test_resolve_self_falls_back_to_path_search()
 
 -- Neither the cwd nor $PATH has it: unresolvable stays unresolvable,
 -- rather than a phantom path that later fails somewhere less clear.
@@ -273,4 +259,3 @@ local function test_resolve_self_returns_nil_when_unresolvable()
   local self = root.resolve_self("cosmic_xyz_does_not_exist_12345")
   assert(self == nil, "got: " .. tostring(self))
 end
-test_resolve_self_returns_nil_when_unresolvable()

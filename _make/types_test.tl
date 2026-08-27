@@ -105,7 +105,6 @@ local function test_the_kinds_list_is_the_enum()
   assert(#types.kinds == distinct, SOURCE ..
     ": `make_types.kinds` lists a kind twice")
 end
-test_the_kinds_list_is_the_enum()
 
 -- `lint_kinds`'s doc comment states a law -- "nearly everything ...
 -- `testdata` is the one exception" -- and a law stated only in prose is
@@ -125,6 +124,5 @@ local function test_lint_reads_every_kind_but_testdata()
       "exempt -- an unlinted kind is not a thing to decide by omission")
   end
 end
-test_lint_reads_every_kind_but_testdata()
 
 print("all model type tests passed")

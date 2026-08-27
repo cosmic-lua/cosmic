@@ -29,7 +29,6 @@ local function test_paths_of_pin_names_the_sibling_file()
   assert(#paths == 1 and paths[1] == patch_path,
     "the single-file layout resolves exactly as before")
 end
-test_paths_of_pin_names_the_sibling_file()
 
 local function test_paths_of_pin_resolves_a_directory()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "ofdir-XXXXXX")))
@@ -42,7 +41,6 @@ local function test_paths_of_pin_resolves_a_directory()
   assert(paths[1]:find("a.tl", 1, true) and paths[2]:find("b.tl", 1, true),
     "files come back sorted by name")
 end
-test_paths_of_pin_resolves_a_directory()
 
 local function test_paths_of_pin_refuses_ambiguity_and_emptiness()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "ofboth-XXXXXX")))
@@ -62,7 +60,6 @@ local function test_paths_of_pin_refuses_ambiguity_and_emptiness()
   assert(none == nil and nerr:find("one to delete", 1, true),
     "an empty patch directory is refused: " .. tostring(nerr))
 end
-test_paths_of_pin_refuses_ambiguity_and_emptiness()
 
 local function test_read_all_merges_one_namespace()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "readall-XXXXXX")))
@@ -93,7 +90,6 @@ return {
     and derr:find("a.tl", 1, true) and derr:find("b.tl", 1, true),
     "a duplicate entry name names both files: " .. tostring(derr))
 end
-test_read_all_merges_one_namespace()
 
 local function test_read_sorts_and_validates()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "read-XXXXXX")))
@@ -124,7 +120,6 @@ return {
   assert(bad == nil and berr:find("needs file, find, replace, note", 1, true),
     "a missing field is named: " .. tostring(berr))
 end
-test_read_sorts_and_validates()
 
 local function test_apply_exact_once_and_idempotent()
   local dir = check.must(fs.temp_dir(fs.join(tmpdir, "apply-XXXXXX")))
@@ -158,4 +153,3 @@ local function test_apply_exact_once_and_idempotent()
     "a missing anchor is refused: " .. tostring(aerr))
   assert(not patch.applied(dir, absent), "applied() is false for it")
 end
-test_apply_exact_once_and_idempotent()

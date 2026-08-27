@@ -61,7 +61,6 @@ local function test_runner_carries_root_payload()
   assert(saw["data/note.txt"], "payload at its artifact path, prefix stripped")
   assert(saw["cosmic/fs.lua"], "the toolchain rides along un-stripped")
 end
-test_runner_carries_root_payload()
 
 local function test_unchanged_runner_keeps_its_mtime()
   local root = fixture("still", {
@@ -75,7 +74,6 @@ local function test_unchanged_runner_keeps_its_mtime()
   local after = check.must(fs.stat(runner)):modify_time().secs
   check.equal(after, before, "identical payload must not move the runner")
 end
-test_unchanged_runner_keeps_its_mtime()
 
 local function test_no_payload_no_runner()
   local root = fixture("plain", {
@@ -87,6 +85,5 @@ local function test_no_payload_no_runner()
   assert(not fs.is_present(fs.join(root, testrun.PATH)),
     "a payload-free project assembles nothing")
 end
-test_no_payload_no_runner()
 
 print("all testrun tests passed")

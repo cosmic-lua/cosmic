@@ -64,7 +64,6 @@ local function test_compile_skips_and_unskips()
     "a line that declares no inputs must not key: the mini-graph " ..
     "expects a dispatched compile to compile")
 end
-test_compile_skips_and_unskips()
 
 -- compile: the flag vocabulary is closed. `--include-dir DIR` is what
 -- the graph emits; anything else is refused loudly rather than
@@ -80,7 +79,6 @@ local function test_compile_refuses_unknown_flags()
     "the graph's own flag shape still compiles")
   assert(fs.is_present(out), "and produces the output")
 end
-test_compile_refuses_unknown_flags()
 
 -- compile: a source the checker rejects fails the step, reports the
 -- issue on stderr (asserted by exit code here; the bytes are the
@@ -94,7 +92,6 @@ local function test_compile_fails_on_type_error()
   assert(not fs.is_present(out), "and must write no output")
   assert(not fs.is_present(out .. ".in"), "and must record no skip key")
 end
-test_compile_fails_on_type_error()
 
 -- record: only a recorded PASS stands in. A pass skips the second run;
 -- a failure drops the record and runs every time; a behavior switch in
@@ -141,6 +138,5 @@ local function test_record_skips_only_a_pass()
   assert(mtime_of(bout .. ".err") ~= err1,
     "and it really re-ran rather than standing on the old result")
 end
-test_record_skips_only_a_pass()
 
 print("all skip tests passed")

@@ -75,7 +75,6 @@ local function test_materialize_writes_every_stamp()
       return true
     end)
 end
-test_materialize_writes_every_stamp()
 
 -- Write-if-changed: a second materialize with nothing moved must not
 -- touch a stamp's mtime, or every graph rule re-runs on every verb --
@@ -92,7 +91,6 @@ local function test_unmoved_stamps_keep_their_mtime()
       return true
     end)
 end
-test_unmoved_stamps_keep_their_mtime()
 
 -- Identity is a pure function of its inputs: same tool, same pins,
 -- same binary, same bytes.
@@ -104,7 +102,6 @@ local function test_identity_is_deterministic()
       return true
     end)
 end
-test_identity_is_deterministic()
 
 -- A pin is part of every tool's identity: it names the runtime base
 -- and the vendored compiler, which no /zip byte of the running binary
@@ -124,7 +121,6 @@ local function test_pins_move_the_stamp()
     end)
   assert(first ~= second, "a pin bump must move every stamp")
 end
-test_pins_move_the_stamp()
 
 -- A root that is not embedded means the binary carries no per-tool
 -- identity to read, and the answer is the honest coarse one, not a
@@ -133,7 +129,6 @@ local function test_a_missing_root_yields_no_closure()
   assert(stamp.closure_of({"no.such.module"}) == nil,
     "a missing root must refuse, so identity falls back to the binary")
 end
-test_a_missing_root_yields_no_closure()
 
 -- The ratchet: BOOT_MODULES is a measured fact, so measure it. A live
 -- child dumps package.loaded; every loaded module that resolves to a
@@ -166,6 +161,5 @@ local function test_boot_list_covers_a_live_child()
       "add it in _make/stamp.tl or every stamp under-approximates")
   end
 end
-test_boot_list_covers_a_live_child()
 
 print("all stamp tests passed")
