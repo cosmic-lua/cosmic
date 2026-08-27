@@ -214,7 +214,7 @@ local function test_verdict_refuses_a_past_builder()
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "builder-one", 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "check", nil, 9, false, "") == 0)
-  local counter = file_item(s, "the countermeasure", goal, false)
+  local counter = file_item(s, "the countermeasure", goal)
   assert(vrd.cmd_verdict(s, leaf, "request changes", 9, "aaa1111",
       counter, "reviewer-r") == 0, "the first round bounces the item")
   -- The rework is taken over: the claim moves on, the builders stay.
