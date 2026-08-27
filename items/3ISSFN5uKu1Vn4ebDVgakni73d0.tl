@@ -7,7 +7,7 @@ return {
   ["claim"] = "0e714d6a-0cbe-5595-8ef6-73346e2f4d81",
   ["id"] = "3ISSFN5uKu1Vn4ebDVgakni73d0",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "do",
-  ["pr"] = 1416,
+  ["phase"] = "check",
+  ["pr"] = 1422,
   ["title"] = "or-fallback casts in _cli/build/init_test.tl are stale: the patch already narrows their shape",
 }
