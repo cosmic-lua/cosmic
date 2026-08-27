@@ -1,57 +1,49 @@
-`cosmic.literal` refuses `"a\z` followed by a raw newline, which is
-legal Lua that `load` accepts — in the one module whose stated contract
-is that its result equals what executing the source would return.
+## Goal
 
-## Evidence
+`cosmic.literal` accepts a `\z` that crosses a newline — legal Lua
+that `load` accepts, in the module whose contract is that its result
+equals what executing the source returns. `return {s = "a\z\n  b"}`
+reads as `{s = "ab"}` instead of refusing `unterminated string`.
 
-Found 2026-08-24 while building the C parser for the same grammar
-(board item 3IKSjEgW), whose test asserts every accepting case against
-`load`. This source is the whole case:
+## Change
 
-```lua
-return {s = "a\z
-     b"}
-```
+Both readers, same breath (the capture's first option):
 
-`load` returns `{s = "ab"}` — that is what `\z` is FOR: it skips the
-whitespace that follows it, newlines included. `literal.parse` returns
-`nil, "...: unterminated string"`.
+1. cosmic (`cosmic/_literal_lex.tl`, short-string scan): on `\`, a
+   following `z` consumes the pair and then every whitespace byte,
+   newlines included — the scan's raw-newline refusal keeps ending a
+   string everywhere else. The emitted token's line accounting counts
+   the breaks inside the slice (also fixing the pre-existing y drift
+   for `\<newline>`, the other escape that already spanned lines).
+   The decoder (`escape_at`'s z branch) already skips newlines and
+   needs nothing. Tests: the capture's exact source through
+   `literal_test.tl`, plus the engine corpus as an ACCEPT case —
+   safe under any pin because a C refusal falls through to this
+   lexer for the answer (dispatch in literal.tl), so behavior is
+   correct today and merely faster once the C side lands.
+2. cosmopolitan (`tool/net/llua.c`, the `esc == 'z'` branch): drop
+   the `*q != '\n'` stop so `\z` skips newlines too, and rewrite the
+   comment that made the divergence deliberate. Raw newlines not
+   behind `\z` still refuse (outer scan). Upstream test updated in
+   the same commit; lands as its own PR on the designated branch,
+   consumed by a later cosmos pin bump.
 
-The cause is in the lexer, not the escape decoder.
-`cosmic/_literal_lex.tl:126-133` scans a short string forward to its
-closing quote and refuses on any raw `\n` it passes:
+## Non-goals
 
-```teal
-      while j <= n and src:sub(j, j) ~= c do
-        local d = src:sub(j, j)
-        if d == "\n" then
-          return nil, where .. ":" .. tostring(y) .. ": unterminated string"
-        end
-        j = j + (d == "\\" and 2 or 1)
-      end
-```
+No other escape changes; no long-string changes; no lexer
+restructure. The C-side PR does not change any binding contract shape
+(DecodeLua's signature and error channel stand), so no
+definitions.lua change.
 
-`\z` is consumed as a two-character pair by the `d == "\\"` step, so the
-newline it exists to skip is the very byte that ends the scan.
-`escape_at`'s `\z` branch (`cosmic/literal.tl:79-83`) is therefore only
-ever reached for whitespace that is not a newline — it is written to
-skip newlines and never sees one.
+## Acceptance
 
-## Why it might matter
+cosmic: `--make ci` PASS; `literal.parse('return {s = "a\z\n b"}')`
+returns `{s = "ab"}` under both engines; line numbers after a
+spanning string are right (a refusal on the next line reports the
+right y). cosmopolitan: `make o//tool/lua/test` PASS with the
+updated case.
 
-The module's own words are that a reader returning different data than
-`load` is "the failure this exists to make impossible"
-(`cosmic/literal.tl:117-121`). A REFUSAL is the safe half of that — no
-caller reads wrong data — so this is a fidelity gap, not corruption,
-and nothing in the tree writes `\z` today (`format` never emits it).
-What makes it worth a record is that the C parser now reproduces the
-refusal ON PURPOSE, to keep the two readers differentially equal, so
-the divergence is about to have two implementations instead of one.
+## Enablement
 
-## Direction, not a decision
-
-Either fix the lexer (a `\z` may cross a newline; a raw newline still
-ends the string otherwise) and fix the C parser in the same breath, or
-decide the refusal is the contract and say so where the escape is
-documented. The choice matters more than which way it goes: two readers
-now have to agree.
+None for the cosmic half (fall-through makes it order-free). The C
+half rides the designated branch and the next cosmos pin bump.
