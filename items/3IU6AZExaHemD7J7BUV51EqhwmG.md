@@ -185,8 +185,8 @@ No testrun or report change (3IOCdZCA, landed). No pin bump —
 - The diff is deletions only:
   `git diff origin/main --numstat -- '*_test.tl' | awk '{a+=$1} END {print a+0}'`
   → `0` insertions.
-- **The run counts the same tests it counted before**, the cheap
-  no-test-lost check that needs no probe script:
+- **The run counts the same tests it counted before**, which is the
+  cheapest no-test-lost check and needs no probe script:
   `bin/cosmic --make test _build _docs _types 3p _fuzz _eval _perf _tool`
   ends `test: PASS (65 files)` and, because every file in scope is now
   runner mode, prints a per-test totals line reading
@@ -197,24 +197,36 @@ No testrun or report change (3IOCdZCA, landed). No pin bump —
   at …")` would drop its 27 cases from the total if it fired, which it
   cannot under a converged `--make test`.)
 
-  **Re-measured at pull: the figure is `474`, not the `478` this line
-  first carried, and the four are an ACCOUNTING artifact, not a lost
-  test.** `_tool/records.tl`'s `parse_cases` reconciles a file's naive
-  `.tests` sidecar against the trailing counts line its run printed,
-  and contributes nothing for a file where the two disagree. The one
-  file in scope where they disagree is `_tool/seam_test.tl` — the same
-  long-bracket fixtures that make this the hand-edited file put eight
-  names in its sidecar (`test_addition`, `test_strings`,
-  `test_addition`, the four real cases, `test_broken`) against the
-  `4 checks: 4 passed` its run really prints — so its four real cases
-  drop out of the TOTAL while still running and still passing. The
-  arithmetic is exact and closes: the other 64 files contribute
-  `478 - 4 = 474`. Verified directly — `o/_tool/seam_test.tl.test.out`
-  reads `4 checks: 4 passed` and the file's row is `✓`. So a number
-  below `474` means a case stopped running; `474` itself does not, and
-  the name-for-name equality probe above is the guard that actually
-  proves no test was lost. The under-count is `parse_cases`'s and not
-  this batch's — captured as its own item, not fixed in this diff.
+  **Re-measured at pull, 2026-08-27, against `origin/main` at
+  `267c2a4d`: the number is `474`, not the `478` written here before,
+  and the four-case gap is a REPORTING artifact of `_tool/seam_test.tl`
+  — not a lost test.** `_tool/testrun.tl:159-171` builds the `.tests`
+  sidecar's name list by grepping the SOURCE for
+  `^local function (test_[%w_]+)` — the same naive line match this
+  spec's own definition count uses, and one that cannot see strings.
+  For `_tool/seam_test.tl` it yields 8 names (4 real cases plus the 4
+  inside the `LEGACY_SRC`/`RUNNER_SRC` long brackets), the runner's
+  stdout carries only the 4 real ones, so `records.parse_cases` refuses
+  the whole file and testrun falls back to writing NAMES ONLY. Only a
+  `<name>\t<status>` line contributes to the aggregate
+  (`_tool/testrun.tl:281-292`), so seam_test's 4 real cases report as
+  `(8 test functions)` in its row and `0` in the totals line. Measured:
+  the sidecar sweep
+  `find o/_build o/_docs o/_types o/3p o/_fuzz o/_eval o/_perf o/_tool
+  -name '*_test.tl.test.tests'` finds exactly one unstatused sidecar,
+  `o/_tool/seam_test.tl.test.tests` (8 bare lines), and the statused
+  lines across the other 64 total exactly `474` — i.e. `478` minus
+  seam_test's `4`. `--make test` still ends `test: PASS (65 files)` and
+  seam_test's row is `✓`.
+
+  So this line is now a WEAKER check than it reads: it cannot
+  distinguish a lost case in seam_test from this artifact. The
+  name-for-name case-list equality probe above is the binding
+  no-test-lost proof for this batch (`65 files, 478 cases after, 0
+  differences`), and it covers seam_test like every other file. The
+  reporting gap itself — testrun using a naive grep where
+  `_tool/discover`'s lexer exists — is out of this batch's scope and
+  is captured on the board rather than fixed in the diff.
 - **The definition count is untouched** — a literally-runnable
   invariant over the same selection, `482` before the edit and `482`
   after, since the diff deletes calls and never definitions:
