@@ -137,14 +137,15 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
         .. "new to judge"):format(id:sub(1, 8), it.verdict, head:sub(1, 7)))
   end
   -- A review is worth the distance between the builder and the
-  -- reviewer, and until now that distance was advice: `next
-  -- --session` withheld the item, and nothing stopped a session from
-  -- reaching for `verdict` directly. Naming yourself is what is
-  -- checked — an unnamed session is not refused, so a repair written
-  -- without one still works.
-  if (session or "") ~= "" and session == (it.claim or "") then
+  -- reviewer, and the verb checks the same durable record `next`
+  -- routes by: `built_by` reads the claim AND the builders list, so a
+  -- rework takeover that moved the claim to a second builder does not
+  -- hand the first their own diff to accept. An unnamed session is
+  -- not refused — a repair written without one still works.
+  if (session or "") ~= "" and flow.built_by(it, session) then
     return gate.verdict_line("verdict", false,
-      ("REFUSED: %s is %s's own build — no session accepts its own work")
+      ("REFUSED: %s is %s's own build — the claim or builders record "
+        .. "names them, and no session accepts its own work")
       :format(id:sub(1, 8), session))
   end
   -- An accept asserts the work is fit to land, so it is the one
