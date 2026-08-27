@@ -503,3 +503,109 @@ conflict in the form the ready bar is meant to exclude.
    five errors and leaves `run.tl:358` a genuine release-lane break;
    route 2 clears none of them. The blocker edge on `3IUBNQZZ` should
    be reworded to match whichever lands.
+
+## Rejected — 2026-08-27, PR #1463 closed. What the attempt established.
+
+The `## Change` above was built, was gate-clean, and was REJECTED at
+head `15cab039`, because the fix is not inside that diff: the Change
+prescribes the manifest shape verbatim, so changing it is plan's call.
+The diff itself held up — `ci: PASS`, CI green on five lanes, exactly
+two files, every Non-goal honoured, and the rewritten `skew_test.tl`
+docstring and assert message judged worth keeping in whatever lands.
+
+**Finding 1, blocking: `root $PWD` captures `cosmic/**`, so the release
+ratchet goes blind to `cosmic/**` regressions.** The tree searcher
+resolves `<root>/o/<rel>.lua` for EVERY module, not just `_perf.*`:
+
+```
+$ o/bootstrap/cosmic --modules o/perf/prev.modules probe.lua
+_perf.harness   : @<root>/o/_perf/harness.lua
+cosmic.json     : @<root>/o/cosmic/json.lua
+cosmic.literal  : @<root>/o/cosmic/literal.lua
+```
+
+With the tree's `cosmic/**` on BOTH sides of the compare, a Lua-level
+regression in `cosmic/**` appears identically in baseline and candidate
+and cancels out of the delta. Demonstrated end to end with a deliberate
+~30x slowdown in `cosmic/literal.tl`'s `format`, all three runs on one
+tree, `--only literal --samples 1 --min-secs 0.05`:
+
+| scenario | candidate | baseline THIS PR | baseline TODAY |
+|---|---|---|---|
+| `literal_format_pin` | 1.20 ms | 1.41 ms | 42.08 µs |
+| `literal_format_floor` | 1.82 ms | 1.82 ms | 718.52 µs |
+| `literal_format_floor_compact` | 1.22 ms | 1.19 ms | 117.18 µs |
+
+Today the gate sees `+2750%` on `literal_format_pin` and blocks the
+release; after that change it sees `-15%` and publishes. Unpatched the
+scenario is `30.95 µs` on the baseline side, so the 1.41 ms is the
+tree's own regression being measured on the baseline side, not noise.
+
+That is the parent outcome's win condition (3HyRcd9F, G6: a
+`perf-compare: FAIL` blocks publishing) losing its largest class of
+coverage. Startup, embed, child and C-dominated scenarios stay
+sensitive; every in-process pure-Lua path goes blind — `cosmic.literal`,
+`cosmic.string`, `cosmic.fs`'s path logic, and `cosmic.teal`'s own
+wrapper, which is one of G6's four defining paths.
+
+**The error in the Goal, named so the next spec does not repeat it.**
+The Goal argued the instrument must be held fixed and that is right, but
+**the instrument is `_perf/**` and `cosmic/**` is the SUBJECT.** What
+the Goal actually describes is the tree's `_perf` running against EACH
+SIDE'S OWN `cosmic` — which a blanket root cannot express. The `## Change`
+justified the blanket form with "`mod` lines are optional"; that
+convenience is the whole defect. `## What this newly exposes` did name
+the cosmic-on-old-`cosmo` hazard, but framed it as runtime
+compatibility only and missed that it also destroys the comparison.
+Naming half a hazard reads as having considered it.
+
+**Finding 2, blocking: the route was never picked, and route 2 as built
+does not unblock 3IUBNQZZ.** The bounce that returned this item named
+four things plan had to settle; the rewrite settled them without ever
+saying which route it took, leaving `## What is left to decide` standing
+directly above a `## Change` that had quietly decided it. And the payoff
+claimed for that route is false. Measured at head `15cab039`, with
+`_perf/compare.tl` widened to `(deltas, _title?: string)` and one
+`gate.tl:143` call site passing it:
+
+```
+$ bin/cosmic --make test _perf/skew_test.tl
+_perf/gate.tl:143:23: error: wrong number of arguments (given 2, expects 1)
+test: FAIL (1 of 1 file)
+```
+
+The guard's BEHAVIOUR is untouched by design (Non-goals: "only its
+prose"), so every `_perf` signature change is still unlandable in one
+PR — the thing this item is titled after. 3IUBNQZZ stays blocked
+whether or not that diff merges.
+
+**Finding 3, non-blocking, carry it into whatever lands.**
+`.github/workflows/release.yml:151-155` still says the
+`perf_gate: false` re-baseline door is needed after a scenario rename
+"(the previous binary measures its own embedded scenario set, exactly
+as its stored numbers did)". Any change that puts the tree's scenarios
+on both sides falsifies that parenthetical and the hazard it explains.
+
+**One thing to keep off the table**, established during review: a
+blanket `--include-dir .` at the repo root resolves `cosmic.*` from the
+tree and silently defeats the guard. With an invented `probe_new_api`
+added to the tree's `cosmic.literal`, bare `--check types` gives
+`invalid key 'probe_new_api'` (rc=1) while `--check types --include-dir .`
+gives `Type check passed` (rc=0). `skew_test.tl` correctly spawns
+without it; keep it that way whatever route is chosen.
+
+## What the next refine must settle, in order
+
+1. **A manifest root that exposes `_perf` and NOT `cosmic`**, or another
+   mechanism achieving the same split — tree `_perf` on each side's own
+   `cosmic`. Whether a narrower root whose `o/` holds only `_perf` works,
+   and what constructs it, is unmeasured and is the first job. If no
+   shape gives that split, say so and the item's premise dies with it.
+2. **Whether this item absorbs the guard's BEHAVIOUR** or keeps it a
+   non-goal. Its title claims the signature-change problem; its Change
+   disclaimed it. Those cannot both stand. If it stays a non-goal, the
+   title is wrong and the item is really about the release lane's
+   measurement only.
+3. **Name the route in the Goal**, not below a Change that has already
+   taken it.
+4. Carry finding 3's comment fix.
