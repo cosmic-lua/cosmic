@@ -170,7 +170,18 @@ jobs:
               echo "perf-compare: SKIP (no baseline: first measured release)" > o/perf/compare.txt
             else
               chmod +x o/perf/prev/cosmic-lua
-              o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json
+              # The previous release binary is the instrument; the tree
+              # is what it measures. A bare run resolves every
+              # require("_perf.*") to the copies embedded in that
+              # binary, so the baseline would report the old harness
+              # running the old scenarios. The manifest installs the
+              # tree searcher ahead of /zip, and the entry is the
+              # prebuilt o/_perf/run.lua because the dispatcher
+              # type-checks a .tl entry through the include path of the
+              # binary before any require runs.
+              printf "root %s\nbuild o\n" "$PWD" > o/perf/prev.modules
+              o/perf/prev/cosmic-lua --modules o/perf/prev.modules \
+                o/_perf/run.lua --out o/perf/prev/perf.json
               o/bin/cosmic --make run _perf/gate.tl compare \
                 o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
                 --baseline-bin o/perf/prev/cosmic-lua \

@@ -1,27 +1,35 @@
 --- reads: _perf o/bootstrap/cosmic
---- Guard for the release compare step's bare-load skew class.
+--- Guard for the skew a bare load of the tree's _perf runs into.
 ---
---- release.yml's compare step runs the tree's _perf harness and bench
---- modules BARE under the previous release binary
---- (`o/perf/prev/cosmic-lua _perf/run.tl`), so that binary's EMBEDDED
---- cosmic declarations type-check every file the load reaches, while
---- `_perf.*` resolves from the tree at cwd. A _perf/** use of a cosmic
---- API newer than that release therefore crashes the release lane days
---- after the use merges: run.tl's version_info read killed the
---- 2026-08-26 run (#1415), and literal_bench's two-argument
---- literal.format would have killed the next (#1420).
+--- A cosmic binary handed a tree .tl path compiles it against the
+--- cosmic declarations EMBEDDED in that binary, and answers every
+--- require("_perf.*") from its own embedded copies rather than from
+--- the tree at cwd. What such a run takes from the tree is the entry
+--- script, named by path, plus any module the embed does not carry. So
+--- a _perf/** use of a cosmic API a released binary predates fails
+--- when that binary loads it, days after the use merges and with
+--- nothing on its PR to show for it. release.yml's peers job is a bare
+--- load of this shape (`./dl/cosmic-lua _perf/peers/run.tl --bin
+--- ./dl/cosmic-lua`), and so is a --modules run that falls through to
+--- source because the prebuilt o/<path>.lua is missing.
 ---
 --- This test moves that failure to the PR that introduces it: every
 --- non-test _perf/** file must type-check under the pinned bootstrap
---- (`o/bootstrap/cosmic`), which is at least as old as the previous
---- release — the pin only ever trails published releases, so
---- bootstrap-clean implies previous-release-clean.
+--- (`o/bootstrap/cosmic`), which is at least as old as any released
+--- binary those loads reach — the pin only ever trails published
+--- releases, so bootstrap-clean implies release-clean.
 ---
---- When this fails: the named file reaches an API the pinned release
---- does not declare. Reach it through a tolerant map view plus a
---- capability probe instead — the pattern in
---- _perf/bench/literal_bench.tl — or drop the use until the pin
---- catches up.
+--- A failure has two readings, and they call for opposite moves:
+---
+--- 1. **A cosmic API newer than the pin.** Reach it through a tolerant
+---    map view plus a capability probe — the pattern in
+---    _perf/bench/literal_bench.tl — or drop the use until the pin
+---    catches up.
+--- 2. **A _perf signature the pinned binary declares differently.** The
+---    binary is checking the call against its OWN embedded copy of the
+---    sibling _perf module the tree just changed. No cast is honest
+---    here; the signature change lands once a release carries it and
+---    the pin names that release.
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
@@ -62,9 +70,12 @@ local function test_perf_sources_type_check_under_the_pinned_bootstrap()
   -- directory.
   local r = check.must(child.run(argv,
       {env = env.list({set = {COSMIC_COVERAGE = "0"}})}))
-  assert(r.ok, "a _perf file reaches an API the pinned bootstrap (" ..
-    BOOTSTRAP .. ") does not declare, so the release compare step " ..
-    "would crash loading it bare under the previous release. Reach " ..
-    "the new API through a tolerant map view + capability probe " ..
-    "(see _perf/bench/literal_bench.tl):\n" .. r.stderr)
+  assert(r.ok, "a _perf file does not type-check under the pinned " ..
+    "bootstrap (" .. BOOTSTRAP .. "), so a bare load of the tree's " ..
+    "_perf under a released binary fails the same way. Two readings: a " ..
+    "cosmic API newer than the pin takes a tolerant map view + " ..
+    "capability probe (see _perf/bench/literal_bench.tl); a _perf " ..
+    "signature the pinned binary declares differently means it is " ..
+    "checking the call against its own embedded copy of that sibling " ..
+    "module, and lands after a release and a pin bump:\n" .. r.stderr)
 end
