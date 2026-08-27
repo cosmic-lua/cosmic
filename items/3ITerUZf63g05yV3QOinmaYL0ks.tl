@@ -1,8 +1,4 @@
 return {
-  ["block_reason"] = {
-    ["3ITicXY1P5F0DrvPwNAiQRDJB7U"] = "merging #281 answers a question its own PR body puts to the repository owner (land, close, or extend to DecodeBase64) and publishes a release outward from whilp/cosmopolitan master; the merge waits on that decision",
-  },
-  ["blocked_by"] = "3ITicXY1P5F0DrvPwNAiQRDJB7U",
   ["builders"] = "965dd12a-4bec-534c-951a-182bad2a4c2e",
   ["claim"] = "965dd12a-4bec-534c-951a-182bad2a4c2e",
   ["id"] = "3ITerUZf63g05yV3QOinmaYL0ks",
