@@ -8,7 +8,9 @@ return {
   ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3ISSFrCOHAKPtslNGCLS5gqBEk8",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1439,
   ["title"] = "tl patch: is-dispatch over metatable<T> against table-kinded targets — sketch validated",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d743c9bb49fb00d3cfbedf7f76561988705fcffd",
 }
