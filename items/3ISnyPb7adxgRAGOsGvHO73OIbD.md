@@ -43,3 +43,31 @@ build: FAIL (536 files)
 
 Related standing capture: `3IIm7ZyN`, filed for the same family after
 PR #1405.
+
+## Refinement findings (2026-08-27, claim-time measurement)
+
+- The skew-guard shape (`_perf/skew_test.tl`, landed as 3ITdgu6f /
+  PR #1427) does NOT generalize tree-wide as-is. Measured: a
+  whole-tree sweep `COSMIC_COVERAGE=0 o/bootstrap/cosmic --check
+  types $(git ls-files '*.tl' | grep -v testdata)` passes on today's
+  tree in ~15s wall. But the bootstrap resolves `cosmic.*` from its
+  EMBEDDED declarations (verified in 3ITdgu6f's spec: the two-arg
+  literal.format probe fails under the 08-23 release binary from the
+  repo root), while build generation 1 resolves tree modules against
+  the TREE — so the sweep over-enforces: any PR adding a new public
+  `cosmic.*` API plus a caller would false-fail the sweep while a
+  cold build is green. Today the sweep passes only because the pin
+  (2026-08-27-afad5b5) is hours behind HEAD.
+- The sound mechanism therefore needs the pinned CHECKER (old tl +
+  old patch set) with TREE module resolution — exactly generation 1's
+  semantics. Open question for the next refine: whether `--check
+  types` under the bootstrap can be pointed at the tree ahead of its
+  embedded declarations (searcher/include-path behavior in the check
+  verb), or whether the verb has to be a `--make` half-build that
+  stops after generation 1's compile.
+- Fix 1 (restate the scope tree-wide) has no in-tree home today:
+  `grep -rn "pinned checker" docs skills AGENTS.md` finds only an
+  unrelated paragraph in docs/design/make/resolution.md. The rule
+  currently lives only in board item 3ISKgfS6's spec. Writing it into
+  the tree (where patch-consuming sessions read) is part of any cut
+  of this item.
