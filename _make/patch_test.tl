@@ -289,3 +289,49 @@ return f
   assert(joined:find("cannot index key", 1, true),
     "the reversed error names the failed index: " .. joined)
 end
+
+local function test_reverse_flips_the_metatable_value_type()
+  local teal = require("cosmic.teal")
+  local src = [==[
+local function f(x: any): integer
+  local mt = getmetatable(x)
+  if not (mt is {string: integer}) then
+    return 0
+  end
+  return mt.__index + 1
+end
+return f
+]==]
+  local shipped: {string} = {}
+  for _, issue in ipairs(teal.check(src, {chunk_name = "snippet.tl"}).errors) do
+    shipped[#shipped + 1] = issue.message
+  end
+  local shipped_joined = table.concat(shipped, "\n")
+  assert(shipped_joined:find("cannot use operator '+'", 1, true),
+    "the carried entry narrows mt to {string: any}, so the metamethod"
+    .. " stays `any`: " .. shipped_joined)
+
+  local saved = package.loaded["tl"]
+  local raw, rerr = patch.reverse({
+      pin = "3p/tl/tl_pin.tl",
+      dir = "o/3p/tl",
+      entries = {"narrow-metatable-is"},
+      file = "tl.lua",
+      module_name = "tl",
+    })
+  local messages: {string} = {}
+  if raw ~= nil then
+    for _, issue in ipairs(teal.check(src, {chunk_name = "snippet.tl"}).errors) do
+      messages[#messages + 1] = issue.message
+    end
+  end
+  package.loaded["tl"] = saved
+  assert(raw ~= nil, "reverse: " .. tostring(rerr))
+  local joined = table.concat(messages, "\n")
+  assert(joined:find("can never be a {string : integer}", 1, true),
+    "without the entry the rescue is gone and the `is` itself is"
+    .. " refused: " .. joined)
+  assert(not shipped_joined:find("can never be a {string : integer}", 1, true),
+    "the shipped checker admits the `is` and refuses only the"
+    .. " arithmetic: " .. shipped_joined)
+end

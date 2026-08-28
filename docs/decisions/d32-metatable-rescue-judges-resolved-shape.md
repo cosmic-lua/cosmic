@@ -1,7 +1,7 @@
 # D32 — the metatable is-rescue judges the resolved shape, not the spelling
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08 (D33 closed the value-type hole)
 - **context:** the carried tl patch (D21) rescues `is` dispatch on a
   `metatable<T>`-typed value: `local mt = getmetatable(x); if mt is
   {string: any} then` narrows instead of being refused, because a
@@ -80,3 +80,12 @@
   from the RESOLVED type rather than `ub`. That deletes the carried
   entry outright rather than amending this record, which is D21's
   maturity clause doing its job.
+
+- **amended 2026-08 (D33 closed the value-type hole):** the accepted
+  cost above no longer holds. The rescue's is-fact now carries the
+  target's KIND with `any` values instead of the target itself, so
+  `mt is {string: integer}` narrows `mt` to `{string: any}` and
+  `mt.__index + 1` is refused. What this record decided — resolve the
+  nominal, admit `map` and `array`, refuse records, interfaces and
+  scalars — is unchanged; only the type the narrowed variable receives
+  is weaker. D33 records the tradeoff.

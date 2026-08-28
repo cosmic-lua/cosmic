@@ -257,13 +257,36 @@ return {
   },
   ["narrow-metatable-is"] = {
     file = "tl.lua",
-    note = "the positive `mt is {string: any}` branch narrows to the target, not invalid",
+    note = "the positive `mt is {K: V}` branch narrows to the target's KIND with `any` values, not to the target",
     find = [=====[               elseif not self:is_a(f.typ, typ) then
                   self.errs:add(f.w, f.var .. " (of type %s) can never be a %s", typ, f.typ)
                   return { [f.var] = invalid_from(f) }]=====],
     replace = [=====[               elseif not self:is_a(f.typ, typ) then
                   if is_table_metatable(self, typ, f.typ) then
-                     return { [f.var] = f }
+                     -- cosmic carried patch: the rescue admits the
+                     -- target by its KIND, so only the kind may reach
+                     -- the narrowed variable. A metatable<T>'s values
+                     -- are metamethods, not the target's value type,
+                     -- so the fact is rebuilt over the same kind with
+                     -- `any` values: `mt is {string: integer}` narrows
+                     -- mt to {string: any}, never to {string: integer},
+                     -- and mt.__index stops typing as integer.
+                     local metatable_target = f.typ
+                     if metatable_target.typename == "nominal" then
+                        metatable_target = self:resolve_nominal(metatable_target)
+                     end
+                     local anyt = a_type(f.w, "any", {})
+                     local opened
+                     if metatable_target.typename == "array" then
+                        opened = a_type(f.w, "array", { elements = anyt })
+                     else
+                        opened = a_type(f.w, "map", {
+                           keys = metatable_target.keys, values = anyt,
+                        })
+                     end
+                     return { [f.var] = IsFact({ fact = "is",
+                        var = f.var, typ = opened, w = f.w,
+                        no_infer = f.no_infer }) }
                   end
                   self.errs:add(f.w, f.var .. " (of type %s) can never be a %s", typ, f.typ)
                   return { [f.var] = invalid_from(f) }]=====],
