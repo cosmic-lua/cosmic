@@ -107,6 +107,51 @@ against. What that paragraph says about CLAIMS stays as it is.
 `loop.md` takes the same one-clause correction wherever it states the
 audit-trail promise: the verdict's identity is exported, not derived.
 
+**7. `skills/work/loop.md` — rewrite the `## minted identities and the
+verdict wall` section.** The wall goes and isolation carries the whole
+distance: a subagent whose window never held the build is disinterested
+however it was spawned, so nothing is left for the wall to add. Rename
+the heading to the subject the section now has — the orchestrator's own
+wave — and keep the minted-claim paragraph exactly as it is (unique
+suffixes so claims lock, the orchestrator prefix so provenance stays
+readable in the log). The wall's paragraphs are replaced by four
+statements:
+
+- **the rule.** An orchestrator may take the verdict on its own wave.
+  The review runs in a subagent whose window never held the build —
+  not the brief that spawned the builder, not the agent's report, not
+  the pass's reasoning about the item — so this is `review.md`'s rule
+  reaching the case a loop meets every pass, not an exception carved
+  out of it.
+- **the brief.** The distance is only as good as the brief: it carries
+  the item id, the PR number and the checks, and NOT the session's own
+  reading of the item, because a brief that summarises what the wave
+  was trying to achieve hands the reviewer back the commitment a fresh
+  window exists to be without.
+- **the audit record.** The claim and `builders` say who held the item
+  and who built it; the verdict carries the review subagent's own
+  exported name. This is Change 6's audit-trail correction, landing
+  inside the rewritten section rather than beside it.
+- **what `next` does with it.** `next` does not offer an item whose
+  claim or `builders` name this session — names compare by the claim's
+  prefix, so work a minted agent built reads as the orchestrator's own
+  — and it steps over such an item silently, surfacing the count only
+  when `check` is at its limit and nothing else fires. So the review
+  subagent is spawned on the item id directly, the one step 1
+  reconciled into `check`, rather than waited for. Step 3 names the
+  same id source and the `never blocked` table gains the row.
+
+Write all four as properties of the tool in the skill's own voice: no
+history, no item references, no interim framing.
+
+**8. `skills/work/parallel.md` — the `do not merge` bullet's landing
+clause.** "a PR lands only after an accept, in a later pass by a
+session that did not build it" asserts the identity doctrine this item
+retires, and it contradicts the loop's own landing step, which lands a
+wave's accepted PRs on the next pass of the session that spawned the
+wave. Correct that one clause. What the bullet tells the AGENT is
+unchanged: it does not merge, and its loop ends at the opened PR.
+
 ## Non-goals
 
 - Do NOT touch `_work/**`. The machinery removal is `3IYYwdp7`, and it
@@ -138,9 +183,17 @@ Run from the repo root.
   `1` (`0` today).
 - `grep -c 'N agents reviewing N PRs' skills/work/parallel.md` prints
   `1` (`1` today) — the prohibition survives the split.
-- `wc -l skills/work/SKILL.md` is at most `500` (`450` today);
-  `review.md` at most `500` (`286`); `parallel.md` at most `500` (`206`);
-  `loop.md` at most `500` (`124`).
+- `grep -c 'verdict wall' skills/work/loop.md` prints `0` (`1` on
+  `origin/main`) — the section is renamed, not merely reworded.
+- `grep -c 'may take the verdict on its own wave' skills/work/loop.md`
+  prints `1` (`0` on `origin/main`).
+- `grep -c 'withholds' skills/work/loop.md` prints at least `1` (`0` on
+  `origin/main`) — the pass is told what `next` does with its own wave.
+- `grep -c 'a session that did not build it' skills/work/parallel.md`
+  prints `0` (`1` on `origin/main`).
+- `wc -l skills/work/SKILL.md` is at most `500` (`456` at the PR head);
+  `review.md` at most `500` (`308`); `parallel.md` at most `500` (`210`);
+  `loop.md` at most `500` (`142`).
 - `git diff --name-only origin/main` lists only files under
   `skills/work/`.
 
