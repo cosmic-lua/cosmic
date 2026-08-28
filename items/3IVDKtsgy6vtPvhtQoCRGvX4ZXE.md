@@ -76,3 +76,28 @@ making the gate's answer less trusted rather than only for making it
 smarter. A `check` that printed which sections it merely found NON-EMPTY,
 as against which it verified, would close the misreading without needing
 to settle what a section promises.
+
+## Fourth instance — and it defeats the phrase-list fix
+
+`3IWMDe1R`, same day. `check` again reported only the empty
+`## Enablement`, while `## Acceptance` read "To be set at refinement."
+and `## Change` opened:
+
+    Refine before building: decide which…
+
+That second one matters more than another tally mark. Every prior
+instance used a deferral PHRASE — "to be written", "to be settled",
+"not yet specified" — and the note above proposed a short phrase list as
+the cheap partial fix. **This one would pass such a list.** It reads as
+an ordinary imperative sentence; what makes it a placeholder is that its
+verb is a RESEARCH verb, and the section it heads is supposed to state a
+decided shape.
+
+So the blocklist is not merely weaker than a contract check — it is
+defeated by the fourth instance in the sample it was proposed from. That
+is worth knowing before anyone builds the cheap version and calls the
+class closed.
+
+The contract framing survives intact and is now the only candidate left:
+`## Change` promises a decided shape, and a section instructing the
+reader to decide is failing that promise on its face.
