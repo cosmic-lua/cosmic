@@ -345,3 +345,94 @@ Run from the repo root. Every command is literally runnable as written.
   was verified by running them against the prototype. (d) Adding
   `test_x()` self-call lines — named in `Change` step 6 with the
   measurement that shows the neighbour has none.
+
+## Bounced from `do` at 2026-08-28 (re-measured at pull)
+
+The Change was implemented in full and is CORRECT — but it cannot land
+on `origin/main` as it stands, because the `Enablement` section's
+pinned-checker claim is wrong. Branch
+`claude/3IVLAF3Z-stampless-identity` (`b346ca66`) carries the finished
+work; no PR was opened.
+
+**The gap.** `_perf/skew_test.tl` type-checks every non-test `_perf`
+source under the pinned bootstrap. The bootstrap ships the release's
+own `_perf` DECLARATIONS at `/zip/.tl/_perf/*.tl`, and those shadow the
+tree's — so `_perf/gate.tl`'s `require("_perf.compare")` resolves to
+the RELEASE's `compare` record, which has no `same_binary`:
+
+```text
+$ COSMIC_COVERAGE=0 o/bootstrap/cosmic --check types \
+    _perf/compare.tl _perf/gate.tl
+Type check passed: _perf/compare.tl
+_perf/gate.tl:126:18: error: invalid key 'same_binary' in record
+  'compare' of type record compare
+```
+
+`bin/cosmic --make ci` therefore ends `ci: FAIL (coverage)` with
+`coverage: FAIL (1 of 252 files)`, that one file being
+`_perf/skew_test.tl`. The bootstrap's embedded
+`.tl/_perf/compare.tl` is byte-IDENTICAL to `origin/main`'s, so the pin
+has no lag to wait out: on today's main, ANY new cross-module `_perf`
+API fails this guard. The failure is not narrowing and not a `cosmic.*`
+API — it is `Change` step 3 reaching `Change` step 1's new record key
+from another `_perf` module, which the Enablement section did not
+consider.
+
+Isolated to that one cause (verified): inlining the sha comparison
+inside `_perf/gate.tl` instead of calling `compare.same_binary` makes
+`_perf/skew_test.tl` PASS, so nothing else in the Change trips it.
+
+**The fix already exists, in flight.** `3IVF3HbV` / PR #1480
+(`origin/claude/3IVF3HbV-perf-scoped-manifest`) rewrites
+`_perf/skew_test.tl` to pass `--include-dir` scoped to a `_perf`-only
+directory, so `_perf.*` declarations resolve from the tree while
+`cosmic.*` still comes from the pin. Its own doc comment says this is
+"what lets a `_perf` signature change land in one PR". With ONLY that
+file swapped in on the implementation branch, everything passes:
+
+```text
+ci: PASS (5 stages)          # 252 checks: 251 passed, 1 skipped
+                             # 936 tests: 936 passed
+```
+
+**What plan must decide** (this is a decision, not a fact, so it was
+not taken mid-slice):
+
+1. add `blocked_by 3IVF3HbV` and re-ready this item once #1480 merges —
+   the Enablement section's `none needed` and "no `blocked_by` edge"
+   become wrong either way and must be rewritten; or
+2. stage behind a release + pin bump, per the cold-build rule; or
+3. change the shape so no new cross-module `_perf` key is reached —
+   e.g. `same_binary` lives in `_perf/gate.tl` alone. This drops
+   Acceptance 5's `grep -c "same_binary" _perf/compare.tl >= 3`, so it
+   is a spec change, not an implementation choice.
+
+**Everything else in the spec verified at pull, unchanged.**
+
+- Source facts re-measured at `origin/main` = `6a4d0182` (the sha the
+  spec was written against): `wc -l` 357 / 406 / 479,
+  `grep -c same_binary _perf/compare.tl` = 0,
+  `grep -c 'identity_refusal(retry, opts.current, true)'` = 1,
+  `awk 'length>90' _perf/gate_test.tl | wc -l` = 0,
+  `grep -c '^test_' _perf/gate_test.tl` = 0.
+- The five predicted fixture stampings are exactly right. Unstamped
+  against the fix, `--make test _perf/gate_test.tl` fails exactly
+  three: `test_persistent_regression_triaged_as_noise_passes`,
+  `test_selfcheck_reports_quiet_and_noisy`,
+  `test_the_gate_triages_against_every_measured_control`. Stamped, all
+  21 pass with no assertion touched.
+- `_perf/gate_identity_test.tl` (117 lines) passes 4/4 on the branch.
+- Merge compositions still clean at `HEAD` = `b346ca66`:
+  `git merge-tree --write-tree HEAD origin/claude/3IVF3HbV-perf-scoped-manifest`
+  rc=0 (`12cedca1`), and against
+  `origin/claude/3IVL9t0P-strike-twice` rc=0 (`f04890f2`).
+
+**One detail to fix while replanning.** `Change` step 5 directs moving
+two trailing comments in `test_the_gate_triages_against_every_measured_control`
+onto their own line above (they measure 91 and 95 columns once the
+stamp argument is added — both figures confirmed). That costs +2 lines,
+so `_perf/gate_test.tl` becomes 481, which contradicts Acceptance 6's
+"`wc -l` equals its value on the merge base". The two cannot both hold;
+Acceptance 6's equality clause should say "at most +2 lines, and under
+the 500-line cap". Only those two comments moved; every other trailing
+comment stays inline at <= 88 columns.
