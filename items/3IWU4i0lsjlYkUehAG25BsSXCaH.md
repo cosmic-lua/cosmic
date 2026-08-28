@@ -7,6 +7,14 @@ dismissal was noise.
 
 ## Change
 
+Teach the compare gate to demand evidence for a DISMISSAL: a regression
+pass 1 flagged that pass 2 read quiet stands unless the same-binary
+controls explain the disagreement. `_perf/compare.tl`, `_perf/gate.tl`
+and `_perf/gate_strike_test.tl` change; `_perf/reproduce.tl` and
+`_perf/reproduce_test.tl` are new; one decision record is added and D34's
+closing paragraph amended. The sections below give the defect, the rule,
+the alternatives it beats, and each file's edit.
+
 ### The defect, reproduced end to end today
 
 `gate_inner` ends the compare gate the moment pass 2 reads clean
