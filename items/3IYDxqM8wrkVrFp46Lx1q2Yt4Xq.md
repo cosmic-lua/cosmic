@@ -283,7 +283,11 @@ item into a container and it could then never be ended.
   the classes that make it up, and both candidate wordings. This item
   does not decide it. `3HyArM3A`'s closing note named this successor
   on 2026-08-19 and nothing has been filed for it since; `gitboard
-  find "zero casts"` and `find "goals.md"` return only done items.
+  find "zero casts"` and `find "goals.md"` returned only done items on
+  2026-08-28. The board is worked concurrently, so re-run those two
+  finds before minting: if an OPEN item already puts the floor against
+  the win condition, cite it in the PR description and mint nothing —
+  the Acceptance check below is satisfied by the existing item.
 
 List every minted id in the PR description, one per line, as
 `<8-char id> — <title>`. Board ids stay OUT of both new files: the
