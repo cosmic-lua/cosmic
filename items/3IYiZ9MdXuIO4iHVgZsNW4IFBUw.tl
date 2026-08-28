@@ -5,7 +5,7 @@ return {
   ["enable"] = "none: the spec's Change 7 asserted a tree-fact without measuring it — 'the count of them surfaces only when check is at its limit' — and the diff implemented it faithfully; the re-refine measures it (probe against _work.action, both sides of the limit) and states what next actually reports",
   ["id"] = "3IYiZ9MdXuIO4iHVgZsNW4IFBUw",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1494,
   ["title"] = "review distance moves to the procedure: the review runs in a fresh-context subagent",
   ["verdict"] = "request changes",
