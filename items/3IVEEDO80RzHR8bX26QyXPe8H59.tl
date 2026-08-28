@@ -7,6 +7,7 @@ return {
   ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5/3IVEEDO8",
   ["id"] = "3IVEEDO80RzHR8bX26QyXPe8H59",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1493,
   ["title"] = "perf report says which binary but not which session: meta.timestamp is written, dropped by RESULTS_SPEC, and never printed",
 }
