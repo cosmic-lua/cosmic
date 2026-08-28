@@ -6,12 +6,10 @@
 --- `_perf/**` file is loaded by an OLD binary: the instrument is the
 --- tree's, the `cosmic.*` and `cosmo.*` under it are the previous
 --- release's. A `_perf/**` use of a cosmic API newer than that release
---- therefore crashes the release lane days after the use merges:
---- run.tl's version_info read killed the 2026-08-26 run (#1415), and
---- literal_bench's two-argument literal.format would have killed the
---- next (#1420). Making the baseline side run the tree's `_perf`
---- entirely, rather than only its path-given entry, makes this guard
---- MORE load-bearing, not less.
+--- therefore crashes the release lane days after the use merges, with
+--- no PR left to attribute it to. The baseline side runs the tree's
+--- `_perf` entirely, not only its path-given entry, so every module in
+--- it is exposed, not just the harness.
 ---
 --- This test moves that failure to the PR that introduces it: every
 --- non-test `_perf/**` file must type-check under the pinned bootstrap
@@ -30,10 +28,11 @@
 --- hence a constructed directory rather than the tree.
 ---
 --- When this fails, read it two ways. A `cosmic` API newer than the
---- pin: reach it through a tolerant map view plus a capability probe
---- (the pattern in `_perf/bench/literal_bench.tl`), or wait for the
---- pin to catch up. Anything else: a genuine type error in a `_perf`
---- file, to fix as one.
+--- pin: wait for the pin to catch up, or reach the API through a
+--- tolerant map view plus a capability probe -- look the name up on
+--- `<module> as {string: any}`, confirm at run time that this binary
+--- really has it, and skip the work when it does not. Anything else:
+--- a genuine type error in a `_perf` file, to fix as one.
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
@@ -98,8 +97,9 @@ local function test_perf_sources_type_check_under_the_pinned_bootstrap()
   assert(r.ok, "a _perf file fails to type-check under the pinned " ..
     "bootstrap (" .. BOOTSTRAP .. "), so the release compare step " ..
     "would crash loading it under the previous release. If it reaches " ..
-    "a cosmic API newer than the pin, use a tolerant map view + " ..
-    "capability probe (see _perf/bench/literal_bench.tl) or wait for " ..
-    "the pin; otherwise it is an ordinary type error:\n" .. r.stderr)
+    "a cosmic API newer than the pin, wait for the pin, or look the " ..
+    "name up on a {string: any} view of the module and probe at run " ..
+    "time that this binary has it; otherwise it is an ordinary type " ..
+    "error:\n" .. r.stderr)
 end
 test_perf_sources_type_check_under_the_pinned_bootstrap()
