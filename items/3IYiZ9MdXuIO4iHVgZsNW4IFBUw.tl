@@ -5,7 +5,7 @@ return {
   ["enable"] = "none: the spec never settled loop.md verdict wall disposition after the prior review found the SKILL.md contradiction, so the rework chose a policy the spec does not authorise and the tree does not yet support",
   ["id"] = "3IYiZ9MdXuIO4iHVgZsNW4IFBUw",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1494,
   ["title"] = "review distance moves to the procedure: the review runs in a fresh-context subagent",
   ["verdict"] = "request changes",
