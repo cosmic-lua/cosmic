@@ -89,10 +89,11 @@ without.
 the claim and `builders` stay the audit record — who held the item, who
 built it — and the verdict carries the review subagent's own name,
 exported rather than derived: a subagent inherits the session id of the
-process that spawned it, so a reviewer that does not name itself records
-the verdict as this session's (`review.md`). the log is what shows
-whether a review ran at a distance. no gate can inspect a context
-window; that record is the evidence.
+process that spawned it, so a reviewer that does not name itself asks
+the board to judge this session's own build, and both `review` and
+`verdict` refuse it (`review.md`). the log is what shows whether a
+review ran at a distance. no gate can inspect a context window; that
+record is the evidence.
 
 ## never blocked
 
