@@ -32,9 +32,18 @@ local function render(names: {string}): string
   return "{" .. table.concat(names, ", ") .. "}"
 end
 
+--- A project root holding the two directories the scoped root links to.
+--- @param name string Basename under the test temp directory
+--- @return string The root path
+local function tree(name: string): string
+  local root = fs.join(tmpdir, name)
+  assert(fs.make_dirs(fs.join(root, "_perf")))
+  assert(fs.make_dirs(fs.join(root, "o", "_perf")))
+  return root
+end
+
 local function test_ensure_root_writes_a_manifest_rooted_at_treeroot()
-  local root = fs.join(tmpdir, "manifest")
-  assert(fs.make_dirs(root))
+  local root = tree("manifest")
   local manifest = check.must(baserun.ensure_root(root, "o"))
   assert(manifest == fs.join(root, "o", "perf", "tree.modules"),
     "manifest landed at " .. manifest)
@@ -47,8 +56,7 @@ end
 test_ensure_root_writes_a_manifest_rooted_at_treeroot()
 
 local function test_the_root_holds_perf_and_nothing_else()
-  local root = fs.join(tmpdir, "scoped")
-  assert(fs.make_dirs(root))
+  local root = tree("scoped")
   check.must(baserun.ensure_root(root, "o"))
   local base = fs.join(root, "o", "perf", "treeroot")
   local top = entries(base)
@@ -61,8 +69,7 @@ end
 test_the_root_holds_perf_and_nothing_else()
 
 local function test_ensure_root_is_idempotent()
-  local root = fs.join(tmpdir, "twice")
-  assert(fs.make_dirs(root))
+  local root = tree("twice")
   local first = check.must(baserun.ensure_root(root, "o"))
   local second = check.must(baserun.ensure_root(root, "o"))
   assert(first == second, "manifest path moved: " .. first .. " vs " .. second)
@@ -74,6 +81,17 @@ local function test_ensure_root_is_idempotent()
     "the tree link points at " .. link)
 end
 test_ensure_root_is_idempotent()
+
+local function test_a_missing_link_target_fails_loudly()
+  local root = fs.join(tmpdir, "dangling")
+  assert(fs.make_dirs(fs.join(root, "_perf")))
+  local manifest, err = baserun.ensure_root(root, "o")
+  assert(manifest == nil, "ensure_root accepted a root with no o/_perf")
+  local built = fs.absolute_path(fs.join(root, "o", "_perf"))
+  assert(err:find(built, 1, true), "the error must name " .. built ..
+    "; got " .. tostring(err))
+end
+test_a_missing_link_target_fails_loudly()
 
 local function test_argv_puts_modules_before_the_entry()
   local a = baserun.argv("BIN", "M.modules", {"--only", "time"})

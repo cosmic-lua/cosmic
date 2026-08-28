@@ -52,11 +52,24 @@ usage: baserun.lua --bin PATH [run args...]
 ]]
 
 --- Create one symlink, tolerating an existing one.
+---
+--- The target is verified to be a directory FIRST, on every call,
+--- including the one that finds the link already there. A link to a
+--- missing target is not an error the child would report: the scoped
+--- root's searcher simply misses and falls through to the binary's own
+--- `/zip`, which is the very defect this module exists to prevent, so a
+--- dangling link — freshly made, or left by an earlier run — has to
+--- fail here where it is still visible.
 --- @param target string What the link points at
 --- @param linkpath string Where the link lives
 --- @return boolean Success
 --- @return string Error message on failure
 local function link_once(target: string, linkpath: string): boolean, string
+  if not fs.is_dir(target) then
+    return false, "missing " .. target ..
+    ": the scoped root would link to nothing and the baseline would " ..
+    "resolve _perf from its own /zip instead of the tree"
+  end
   if fs.is_link(linkpath) then
     return true, nil
   end
