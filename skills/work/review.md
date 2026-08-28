@@ -20,11 +20,15 @@ be skeptical operates on a session that still carries its own
 commitment to the work, and the same observation then reads as a known
 limitation rather than a defect.
 
-the subagent records the verdict ITSELF — `gitboard verdict` under its
-own identity, not a recommendation handed back for somebody else to
-enter. the board's log then shows which reviews ran at a distance and
-which did not, and that log is the only evidence of it: no gate can
-inspect a context window.
+the subagent records the verdict ITSELF — `gitboard verdict`, not a
+recommendation handed back for somebody else to enter — and it names
+itself first: `export GITBOARD_SESSION=review-<ID>-<unique>`, a value
+belonging to this review and nothing else. a subagent inherits the
+session id of the process that spawned it, so a reviewer that names
+nothing derives the BUILDER's identity, and the board records the
+verdict under the session whose window held the work. that log is the
+only evidence a review ran at a distance — no gate can inspect a
+context window — and under the wrong name it evidences nothing.
 
 `check` is the only phase a verdict may end, and the verb refuses one
 from anywhere else: an accept reaches `land` past every gate between

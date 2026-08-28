@@ -261,7 +261,15 @@ unique by construction. pass the flag only to override that — a human
 at a terminal naming themselves, a fixture pinning a value — never to
 restate a name the environment already carries. a runner that sets no
 usable id can export `GITBOARD_SESSION=<something unique per run>`;
-inventing a name inline is the anti-pattern, not setting that.
+inventing a name inline is the anti-pattern, not setting that. a
+review subagent exports it too, and is the one case where the derived
+value is WRONG rather than missing: a subagent inherits the session id
+of the process that spawned it, so what it would derive names the
+session that BUILT the work. it names itself before recording a
+verdict (`review.md`) — an identity the environment cannot see, not a
+name invented over one the environment already carries. the carve-out
+is the verdict alone: a session pulling an item to build still passes
+nothing and takes what the environment derives.
 
 **doing several actions is running the loop again.** acting moves the
 board, so ask again rather than planning a batch: the second answer is
