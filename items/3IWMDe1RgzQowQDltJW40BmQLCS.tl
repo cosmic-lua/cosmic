@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "check",
   ["pr"] = 1482,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "the tl patch probe pointer lives only in _make/patch.tl, where a session probing an entry never looks",
 }
