@@ -9,5 +9,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1485,
+  ["reviewer"] = "3c701f9f-2f04-59eb-9c59-57010939747c",
   ["title"] = "codec compare rows are state-split: derive per-scenario noise floors from cross-window A/A history",
 }
