@@ -1,8 +1,10 @@
 #!/usr/bin/env cosmic
--- The doc-citation rule: a `file:line` citation in a markdown document
--- must name a file that exists, at a line that exists, quoting what is
--- really there -- unless the document declares itself a snapshot of a
--- past commit, whose positions this check cannot read.
+-- The doc-citation rule: a fenced `file:line` citation in a markdown
+-- document must name a file that exists, at a line that exists, quoting
+-- what is really there. The inline form quotes nothing, so in a live
+-- document it is refused rather than checked -- unless the document
+-- declares itself a snapshot of a past commit, whose positions this
+-- check cannot read and whose paths it still can.
 
 local check = require("cosmic.check")
 local citations = require("_cli.citations")
@@ -40,50 +42,67 @@ assert(fs.write(fs.join(ROOT, "src", "sample.tl"),
     "line one\n  local s = \"two\"\nline three\n"), "fixture source")
 assert(fs.set_cwd(ROOT), "chdir into the fixture")
 
-local function test_inline_citation_that_resolves()
+local function test_live_inline_citation_is_refused()
   local diags = diagnose("doc.md", "See `src/sample.tl:2` for the shape.")
-  check.equal(#diags, 0, "a citation naming a real line must not be flagged")
+  check.equal(#diags, 1,
+    "an inline citation in a live document pins a line nothing verifies,"
+    .. " so the form itself is refused")
+  check.equal(diags[1].rule, "doc-citation")
+  check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
+    "the message must name the defect: " .. diags[1].message)
+  check.truthy(diags[1].message:find("fenced citation", 1, true),
+    "the message must name the way out: " .. diags[1].message)
 end
-test_inline_citation_that_resolves()
+test_live_inline_citation_is_refused()
 
 local function test_inline_citation_past_end_of_file()
   local diags = diagnose("doc.md", "See `src/sample.tl:9` for the shape.")
   check.equal(#diags, 1, "a citation past end-of-file must be flagged")
-  check.equal(diags[1].rule, "doc-citation")
   check.equal(diags[1].line, 1)
-  check.truthy(diags[1].message:find("past end of file", 1, true),
-    "the message must say what is wrong: " .. diags[1].message)
+  check.equal(diags[1].rule, "doc-citation")
+  check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
+    "the inline form is refused whatever it points at: " .. diags[1].message)
 end
 test_inline_citation_past_end_of_file()
 
 local function test_inline_citation_naming_no_file()
   local diags = diagnose("doc.md", "See `src/renamed.tl:1` for the shape.")
   check.equal(#diags, 1, "a citation naming no file must be flagged")
-  check.truthy(diags[1].message:find("names no file", 1, true),
-    "the message must name the failure: " .. diags[1].message)
+  check.equal(diags[1].rule, "doc-citation")
+  check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
+    "the inline form is refused whatever it points at: " .. diags[1].message)
 end
 test_inline_citation_naming_no_file()
 
-local function test_generated_citation_is_skipped()
+local function test_generated_inline_citation_is_refused()
   local diags = diagnose("doc.md",
     "The declaration is `o/_types/types_gen/cosmo/path.d.tl:40`.")
-  check.equal(#diags, 0,
-    "a citation into the build output is generated and unresolvable by"
-    .. " design, so it is skipped")
+  check.equal(#diags, 1,
+    "a generated file's position is less readable, not more, so the"
+    .. " inline form is refused there too")
+  check.equal(diags[1].rule, "doc-citation")
+  check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
+    "the inline form is refused whatever it points at: " .. diags[1].message)
 end
-test_generated_citation_is_skipped()
+test_generated_inline_citation_is_refused()
 
-local function test_range_inside_the_file()
+local function test_inline_range_is_refused()
   local diags = diagnose("doc.md", "The block is `src/sample.tl:1-3`.")
-  check.equal(#diags, 0, "a range wholly inside the file must not be flagged")
+  check.equal(#diags, 1,
+    "a range wholly inside the file is still a position nothing verifies")
+  check.equal(diags[1].rule, "doc-citation")
+  check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
+    "the inline form is refused whatever it points at: " .. diags[1].message)
 end
-test_range_inside_the_file()
+test_inline_range_is_refused()
 
-local function test_range_past_end_of_file()
+local function test_inline_range_past_end_of_file_is_refused_too()
   local diags = diagnose("doc.md", "The block is `src/sample.tl:2-9`.")
   check.equal(#diags, 1, "a range running past end-of-file must be flagged")
+  check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
+    "the refusal lands before any bounds check: " .. diags[1].message)
 end
-test_range_past_end_of_file()
+test_inline_range_past_end_of_file_is_refused_too()
 
 --- A fenced block citing the fixture's second line, quoting `quote`.
 --- @param quote string The line the document claims is there
@@ -92,6 +111,16 @@ local function fenced(quote: string): string
   return "Prose above.\n\n```text\n-- src/sample.tl:2\n" .. quote
   .. "\n```\n\nProse below.\n"
 end
+
+local function test_fenced_citation_past_end_of_file()
+  local diags = diagnose("doc.md",
+    "```text\n-- src/sample.tl:9\nline nine\n```\n")
+  check.equal(#diags, 1, "a fenced citation past end-of-file must be flagged")
+  check.equal(diags[1].rule, "doc-citation")
+  check.truthy(diags[1].message:find("past end of file", 1, true),
+    "the message must say what is wrong: " .. diags[1].message)
+end
+test_fenced_citation_past_end_of_file()
 
 local function test_fenced_quote_that_matches()
   local diags = diagnose("doc.md", fenced("  local s = \"two\""))

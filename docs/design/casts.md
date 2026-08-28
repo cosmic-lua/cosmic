@@ -52,12 +52,12 @@ one decoded table, each read costing its own cast; the test form casts
 the decoded value to the shape the test then asserts on.
 
 **What closes it.** Partly, tools already in the tree:
-`cosmic/json.tl:135` declares `decode_object(str): {string: any} | nil,
-string` and `cosmic/json.tl:155` declares `decode_array(str): {any} |
-nil, string`, so a `json.decode(s) as {string: any}` site is a call
-change and nothing more. That closes the top level only. The field reads
-underneath it need a decode that validates into a declared record and
-returns it typed — one API, applicable at every site in this class.
+`cosmic/json.tl` declares `decode_object(str): {string: any} | nil,
+string` and `decode_array(str): {any} | nil, string`, so a
+`json.decode(s) as {string: any}` site is a call change and nothing
+more. That closes the top level only. The field reads underneath it need
+a decode that validates into a declared record and returns it typed —
+one API, applicable at every site in this class.
 
 ### Any-map field walk
 

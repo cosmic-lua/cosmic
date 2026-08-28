@@ -8,13 +8,16 @@
 --- off its line, or a path that was renamed away, silently turns that
 --- evidence into fiction.
 ---
---- Two shapes are checked, each at the strength it admits. An INLINE
---- reference is a whole backticked span that is nothing but
---- `<path>:<line>` (or a `<line>-<line>` range); it pins a position, so
---- the position is what is checked. A FENCED reference is a
---- `-- <path>:<line>` comment as a code block's first line, followed by
---- the quoted source; that one also pins TEXT, so the text is compared
---- too.
+--- Two shapes are recognized, and only one of them can carry evidence.
+--- An INLINE reference is a whole backticked span that is nothing but
+--- `<path>:<line>` (or a `<line>-<line>` range). It pins a position and
+--- nothing else, so the strongest thing a checker without the tree's
+--- history can say about it is that the file is that long: a number ten
+--- lines off reads exactly as green as the truth. In a live document
+--- the form therefore admits no strength at all, and is refused rather
+--- than checked. A FENCED reference is a `-- <path>:<line>` comment as
+--- a code block's first line, followed by the quoted source; that one
+--- pins TEXT, so the text is compared and the citation is worth making.
 ---
 --- A citation is a claim about the working tree unless its document
 --- says otherwise. A document that opens with a `Measured against
@@ -151,6 +154,30 @@ local function finding(file: string, line: integer, col: integer,
     message = message}
 end
 
+--- Refuse a live document's inline citation.
+---
+--- The form admits no strength: all `check_one` could say is that the
+--- cited file is that long, so a line number wrong by ten inside the
+--- file is as green as the right one. Both ways out are named in the
+--- message, so a session that trips this does not have to read this
+--- module to recover.
+--- @param file string The citing document
+--- @param at integer The document line the citation is on
+--- @param col integer The column it starts at
+--- @param cite Citation The citation
+--- @param out {Diagnostic} Findings, appended to
+local function refuse_inline(file: string, at: integer, col: integer,
+    cite: Citation, out: {Diagnostic})
+  out[#out + 1] = finding(file, at, col, string.format(
+      "%s:%d: inline citation `%s` pins a line nothing verifies — this"
+      .. " check can only tell that %s is that long. Quote it as a fenced"
+      .. " citation (a `-- <path>:<line>` comment as the code block's"
+      .. " first line, then the line itself, whose text is compared), or"
+      .. " drop the `:<line>` and name the symbol in prose. A document"
+      .. " describing a past commit says so with a `Measured against `"
+      .. " line.", file, at, cite.text, cite.path))
+end
+
 --- Check one citation's path, and — for a document that is not a
 --- snapshot — that its line span is within that path.
 --- @param file string The citing document
@@ -218,7 +245,7 @@ end
 --- can give.
 --- @param file string Path, for the diagnostics
 --- @param lines {string} The document's lines
---- @return {Diagnostic} One per unresolvable or mismatched citation
+--- @return {Diagnostic} One per refused, unresolvable or mismatched citation
 local function check_citations(file: string, lines: {string}): {Diagnostic}
   local snapshot = false
   local open_char, open_len = "", 0
@@ -269,7 +296,11 @@ local function check_citations(file: string, lines: {string}): {Diagnostic}
         local cite = inline_citation(span)
         if cite then
           local col = line:find(span, 1, true) or 1
-          check_one(file, i, col, cite, snapshot, cache, out)
+          if snapshot then
+            check_one(file, i, col, cite, snapshot, cache, out)
+          else
+            refuse_inline(file, i, col, cite, out)
+          end
         end
       end
     end

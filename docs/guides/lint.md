@@ -341,6 +341,68 @@ through its public parent: `require("cosmic.fs")` is API,
 internal. inside `cosmic/`, shards require each other freely — that is
 what shards are for.
 
+## doc-citation
+
+markdown that cites the tree by `path:line` has to cite something that
+is really there. lint reads bytes, so every `.md` the project model
+walks is held to this — a design document's evidence, a decision
+record's context, a guide's worked example.
+
+both citation forms are checked for the PATH: a file renamed or deleted
+away leaves the reader nothing to follow. only one of them can be
+checked for what it SAYS, and that difference is the rule.
+
+the INLINE form is a whole backticked span that is nothing but a path
+and a line (or a line range). it pins a position and quotes nothing, so
+the strongest claim this gate could ever make about it is that the file
+is at least that long — a number ten lines off reads exactly as green as
+the truth. in a live document the form is refused outright:
+
+```
+`_perf/run.tl:163` is that case in this repo.
+
+/tmp/demo.md:3:2: doc-citation: /tmp/demo.md:3: inline citation
+`_perf/run.tl:163` pins a line nothing verifies — this check can only
+tell that _perf/run.tl is that long. Quote it as a fenced citation (a
+`-- <path>:<line>` comment as the code block's first line, then the line
+itself, whose text is compared), or drop the `:<line>` and name the
+symbol in prose. A document describing a past commit says so with a
+`Measured against ` line.
+```
+
+the message names both ways out. the first is to QUOTE it, as a FENCED
+citation — a `-- path:line` comment on a code block's FIRST line,
+followed by the line itself:
+
+```
+-- docs/guides/lint.md:1
+# Lint Rules
+```
+
+that block pins TEXT, so the gate opens the source, compares the quoted
+line against the cited one (trimmed at both ends) and fails naming both
+sides when either has drifted. the example above is this file citing its
+own first line, which is why it is still passing.
+
+the second way out is to drop the number and name the symbol, which
+stays true across every edit above it: `` `_perf/run.tl`'s `load_module` ``
+rather than a line in `_perf/run.tl`. prefer this when the sentence
+wants to point at code, not quote it.
+
+a document describing a PAST commit is making no claim about the working
+tree, and declares that in a line of its own:
+
+```
+Measured against `40776231` on 2026-08-28.
+```
+
+such a document is a SNAPSHOT. its positions and quotes describe a tree
+this gate cannot read — there is no `git` in the lint gate — so neither
+is judged and its inline citations are left as written. the paths are
+still checked, because a renamed file is unfollowable whichever commit
+it was measured at. the sentence only counts as a declaration outside a
+code fence; a document quoting it has not declared anything.
+
 ## running one rule's worth of output
 
 ```bash

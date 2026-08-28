@@ -10,16 +10,16 @@
   1's deltas against the caller's `baseline` file, against the flags
   standing after pass 2. When the caller can re-run the baseline binary
   (`--baseline-bin`, whose one caller is
-  `.github/workflows/release.yml:184`), the gate re-measures the
-  baseline between those two passes and judges passes 2 and 3 against
-  the RE-MEASURED file. So the rule asked whether a regression
-  reproduced against a moving reference, and a scenario whose pass-1
-  baseline reading was one-off SLOW — which masks the regression there —
-  flags for the first time in pass 2 against the honest retry, survives
-  triage with quiet controls, and is then discarded at the final
-  judgment as "flagged only in the retry -- not reproduced". Reproduced
-  end to end through `gate.gate` at `origin/main@6a4d0182`, base
-  `{a=1000, b=1300}` against current `{a=1300, b=1300}` with the
+  `.github/workflows/release.yml`'s perf-compare step), the gate
+  re-measures the baseline between those two passes and judges passes 2
+  and 3 against the RE-MEASURED file. So the rule asked whether a
+  regression reproduced against a moving reference, and a scenario whose
+  pass-1 baseline reading was one-off SLOW — which masks the regression
+  there — flags for the first time in pass 2 against the honest retry,
+  survives triage with quiet controls, and is then discarded at the
+  final judgment as "flagged only in the retry -- not reproduced".
+  Reproduced end to end through `gate.gate` at `origin/main@6a4d0182`,
+  base `{a=1000, b=1300}` against current `{a=1300, b=1300}` with the
   baseline retry reading `{a=1000, b=1000}`:
 
   ```text

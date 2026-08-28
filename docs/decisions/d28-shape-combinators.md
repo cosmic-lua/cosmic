@@ -7,21 +7,22 @@
   [docs/design/casts.md](../design/casts.md) — is decoded-data shaping: a
   value comes out of `json.decode`, `literal.parse`, a loaded chunk or
   `Response:json()` and is then read field by field into a shape the code
-  already knows, each read costing a cast. `_eval/score.tl:194` is the
-  pattern at its purest, ten consecutive fields lifted off one decoded
-  table with ten casts, preceded by a hand-rolled presence loop over a
-  `REQUIRED_META_FIELDS` list. `cosmic.json.decode_object` and
-  `decode_array` type the outermost table and stop; nothing turns a
-  decoded table into a declared record with the fields checked, so every
-  one of those reads is an unchecked assertion about data that came from
-  outside the program. Two facts constrained the answer. The value does
-  not always come from JSON — 17 of the 61 sites decode with
-  `literal.parse`, `loadfile` or `pcall(chunk)` — so the mechanism cannot
-  be a decode function. And Teal has no runtime reflection over record
-  fields, so the target shape has to be described by a value the caller
-  passes; the type itself comes from the caller's own annotation, which
-  `cosmic --check types` confirms is inferred through a generic return in
-  three call shapes and not in a fourth.
+  already knows, each read costing a cast. `_eval/score.tl`'s
+  `load_meta` is the pattern at its purest, ten consecutive fields
+  lifted off one decoded table with ten casts, preceded by a hand-rolled
+  presence loop over a `REQUIRED_META_FIELDS` list.
+  `cosmic.json.decode_object` and `decode_array` type the outermost
+  table and stop; nothing turns a decoded table into a declared record
+  with the fields checked, so every one of those reads is an unchecked
+  assertion about data that came from outside the program. Two facts
+  constrained the answer. The value does not always come from JSON — 17
+  of the 61 sites decode with `literal.parse`, `loadfile` or
+  `pcall(chunk)` — so the mechanism cannot be a decode function. And Teal
+  has no runtime reflection over record fields, so the target shape has
+  to be described by a value the caller passes; the type itself comes
+  from the caller's own annotation, which `cosmic --check types` confirms
+  is inferred through a generic return in three call shapes and not in a
+  fourth.
 - **decision:**
   1. **`cosmic.shape` validates an already-decoded value, and the
      decoders keep their signatures.** `shape.into(value, spec)` takes
