@@ -6,6 +6,7 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1480,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "_perf/skew_test.tl checks siblings against the pinned release's _perf, not the tree's — every _perf signature change is unlandable in one PR",
   ["verdict"] = "reject",
   ["verdict_head"] = "15cab0398399c171000bf850dc7cac0971ebce04",
