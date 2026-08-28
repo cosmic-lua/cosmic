@@ -349,16 +349,34 @@ local function main(...: string): integer
   end
   local measure_baseline: Measure = nil
   if baseline_bin then
-    -- The exact invocation shape release.yml measures the baseline
-    -- with — `PATH _perf/run.tl --out OUT` — so script-mode module
-    -- resolution inside the previous binary is identical to pass 1's.
+    -- baserun's shape, which release.yml's compare step also uses: the
+    -- TREE's _perf measured on the baseline binary's own cosmic. One
+    -- definition rather than two argvs, because the retry is what
+    -- decides the gate — a retry that resolved _perf differently from
+    -- pass 1 would answer a different question than the one that
+    -- flagged.
     local child = require("cosmic.child")
+    local baserun = require("_perf.baserun")
+    local fs = require("cosmic.fs")
     measure_baseline = function(out: string): integer
-      local cargv: {string} = {baseline_bin, "_perf/run.tl", "--out", out}
-      for _, r in ipairs(runargs) do
-        cargv[#cargv + 1] = r
+      local cwd, cwderr = fs.cwd()
+      if cwd == nil then
+        io.stderr:write("perf-compare: baseline re-measure failed: " ..
+          tostring(cwderr) .. "\n")
+        return 1
       end
-      local res, cerr = child.run(cargv, {stdout = "inherit", stderr = "inherit"})
+      local manifest, merr = baserun.ensure_root(cwd, "o")
+      if manifest == nil then
+        io.stderr:write("perf-compare: baseline re-measure failed: " ..
+          merr .. "\n")
+        return 1
+      end
+      local extra: {string} = {"--out", out}
+      for _, r in ipairs(runargs) do
+        extra[#extra + 1] = r
+      end
+      local res, cerr = child.run(baserun.argv(baseline_bin, manifest, extra),
+        {stdout = "inherit", stderr = "inherit"})
       if res == nil then
         io.stderr:write("perf-compare: baseline re-measure failed: " ..
           tostring(cerr) .. "\n")

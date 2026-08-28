@@ -155,12 +155,15 @@ jobs:
       # A `perf-baseline: FAIL` (network or API failure) fails the step
       # too; the next cron fire retries. `perf-compare: SKIP (no
       # baseline)` still succeeds. `perf_gate: false` on a dispatch
-      # remains the way to publish past a KNOWN, captured regression or
-      # a scenario-set change — `_perf/compare.tl:115-121` counts a
-      # scenario present in the baseline and missing from the current
-      # run as a failure, so a rename with the gate on would block
-      # every later release too (the previous binary measures its own
-      # embedded scenario set, exactly as its stored numbers did).
+      # remains the way to publish past a KNOWN, captured regression.
+      # It is no longer needed for a scenario-set change: both sides now
+      # enumerate the TREE's benches (`_perf/baserun.tl` runs the
+      # previous binary against the tree's `_perf`), so a rename or a
+      # removal no longer reads as "present in the baseline, missing
+      # from the current run" (`_perf/compare.tl:115-121`). What the
+      # baseline number now means is "the previous release's cosmic,
+      # measured by this tree's instrument" — one instrument, two
+      # subjects, which is the experiment a compare claims to run.
       - name: compare against the previous release
         timeout-minutes: 15
         shell: bash
@@ -178,7 +181,8 @@ jobs:
               echo "perf-compare: SKIP (no baseline: first measured release)" > o/perf/compare.txt
             else
               chmod +x o/perf/prev/cosmic-lua
-              o/perf/prev/cosmic-lua _perf/run.tl --out o/perf/prev/perf.json
+              o/bin/cosmic --make run _perf/baserun.tl --bin o/perf/prev/cosmic-lua \
+                --out o/perf/prev/perf.json
               o/bin/cosmic --make run _perf/gate.tl compare \
                 o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
                 --baseline-bin o/perf/prev/cosmic-lua \
@@ -190,7 +194,7 @@ jobs:
             echo "perf gate: this release regressed against the previous one and was not published." >&2
             echo "  re-run the release workflow to re-measure: a real regression reproduces, noise does not." >&2
             echo "  if it reproduces, work it under skills/optimize/SKILL.md; never weaken a scenario or its check()." >&2
-            echo "  after a deliberate scenario rename or removal, re-baseline by dispatching this workflow once with perf_gate: false." >&2
+            echo "  to publish past a KNOWN, captured regression, dispatch this workflow once with perf_gate: false." >&2
             if [ "$PERF_GATE" = "true" ]; then exit "$rc"; fi
             echo "perf gate: DISABLED by workflow input — regression reported, not enforced." >&2
           fi
