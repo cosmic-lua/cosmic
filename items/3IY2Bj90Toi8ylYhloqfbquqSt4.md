@@ -33,3 +33,29 @@ The distance is the system's final gate, and this is the one hole in it
 that leaves no trace to audit after the fact. A session cannot discover
 the conflict from `gitboard show`; it has to think to run `git log` on
 the sidecar and read what it finds there.
+
+## The other half of this defect
+
+`3IYYwdp7` records the same conflation firing the other way. Both rest on
+one fact: the guard keys on HAVING HELD THE CLAIM (`_work/flow.tl:433-444`
+reads `claim` now and `builders` ever), and claim-holding is a proxy for
+authorship that is wrong in both directions.
+
+- **Under-fires — this item.** Writing a spec touches only the `.md`
+  sidecar and records nothing, so authorship of a DECISION never
+  disqualifies.
+- **Over-fires — `3IYYwdp7`.** `item.record_builder` is called on every
+  claim-setting move (`_work/gitverbs.tl:251`), so a claim that produced
+  a diff nobody is reviewing disqualifies anyway. Measured: `3IUBNQZZ`
+  carries `0b13d2b4` in `builders` for PR #1484, which that session
+  CLOSED as a duplicate; the diff in review is #1485, written by
+  `05f7c552`. Neither session may judge it, and 27 backlog items sit
+  behind that and its sibling.
+
+They are siblings, not one item, because they do not share a fix:
+re-keying the guard on the artifact under review closes `3IYYwdp7` and
+leaves spec authorship as invisible as it is today, while recording spec
+authorship closes this one and leaves a discarded build still
+disqualifying. A single change keyed on the KIND of participation could
+close both — that is a `plan` decision, and whichever item reaches it
+first should say so rather than assume it.
