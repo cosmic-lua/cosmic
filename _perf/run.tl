@@ -355,7 +355,7 @@ local function run_compare(a: Args): integer
   else
     deltas, failures = compare.diff(base, cur, a.threshold)
   end
-  print(compare.format(deltas))
+  print(compare.format(deltas, base, cur))
   if failures > 0 then
     io.stderr:write("perf: " .. failures .. " scenario(s) regressed, errored, or went missing\n")
     return 1

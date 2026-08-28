@@ -120,6 +120,24 @@ local function identity_refusal(a: string, b: string, same: boolean): string | n
   return compare.identity_refusal(a, ra, b, rb, same)
 end
 
+--- Print one comparison report over the pair of files it compared,
+--- with the binary each side measured named above the rows.
+---
+--- The two paths are re-read here rather than threaded down from
+--- `compare_once`, which returns only counts and deltas. A file that
+--- will not load is the next call's error to report, in its own
+--- words -- the same reasoning `identity_refusal` above uses -- so the
+--- `| nil` flows into `format`'s optional parameter and the report
+--- prints without the header.
+--- @param base_path string Baseline results path
+--- @param cur_path string Current results path
+--- @param deltas {pt.Delta} The deltas already computed from that pair
+local function print_report(base_path: string, cur_path: string, deltas: {pt.Delta})
+  local base = compare.load_results(base_path)
+  local cur = compare.load_results(cur_path)
+  print(compare.format(deltas, base, cur))
+end
+
 --- Print the gate's verdict and pass its code through. The line is the
 --- same convention as `ci: PASS` and exists for the same reason: a
 --- piped invocation (`gate.lua ... | tail`) returns the pipe's exit
@@ -150,7 +168,7 @@ local function gate_inner(opts: GateOptions): integer
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
-  print(compare.format(deltas))
+  print_report(opts.baseline, opts.current, deltas)
   if failures == 0 then
     return 0
   end
@@ -232,7 +250,7 @@ local function gate_inner(opts: GateOptions): integer
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
-  print(compare.format(deltas))
+  print_report(base_side, retry, deltas)
   if failures == 0 then
     return 0
   end
@@ -283,7 +301,7 @@ local function gate_inner(opts: GateOptions): integer
         " flagged only in the retry -- not reproduced, counted as noise")
     end
   end
-  print(compare.format(deltas))
+  print_report(base_side, retry, deltas)
   if failures > 0 then
     io.stderr:write("perf: " .. failures ..
       " scenario(s) regressed, errored, or went missing\n")
@@ -323,7 +341,7 @@ local function selfcheck(opts: SelfcheckOptions): integer
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
-  print(compare.format(deltas))
+  print_report(opts.a, opts.b, deltas)
   if failures == 0 then
     print("perf-selfcheck: nothing exceeded the bar — the machine is quiet" ..
       " at this threshold")
