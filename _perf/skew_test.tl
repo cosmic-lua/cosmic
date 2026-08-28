@@ -1,27 +1,39 @@
 --- reads: _perf o/bootstrap/cosmic
---- Guard for the release compare step's bare-load skew class.
+--- Guard for the release compare step's cosmic-skew class.
 ---
---- release.yml's compare step runs the tree's _perf harness and bench
---- modules BARE under the previous release binary
---- (`o/perf/prev/cosmic-lua _perf/run.tl`), so that binary's EMBEDDED
---- cosmic declarations type-check every file the load reaches, while
---- `_perf.*` resolves from the tree at cwd. A _perf/** use of a cosmic
---- API newer than that release therefore crashes the release lane days
---- after the use merges: run.tl's version_info read killed the
---- 2026-08-26 run (#1415), and literal_bench's two-argument
---- literal.format would have killed the next (#1420).
+--- release.yml's compare step measures the previous release binary
+--- against the TREE's `_perf` (`_perf/baserun.tl`), so every non-test
+--- `_perf/**` file is loaded by an OLD binary: the instrument is the
+--- tree's, the `cosmic.*` and `cosmo.*` under it are the previous
+--- release's. A `_perf/**` use of a cosmic API newer than that release
+--- therefore crashes the release lane days after the use merges:
+--- run.tl's version_info read killed the 2026-08-26 run (#1415), and
+--- literal_bench's two-argument literal.format would have killed the
+--- next (#1420). Making the baseline side run the tree's `_perf`
+--- entirely, rather than only its path-given entry, makes this guard
+--- MORE load-bearing, not less.
 ---
 --- This test moves that failure to the PR that introduces it: every
---- non-test _perf/** file must type-check under the pinned bootstrap
+--- non-test `_perf/**` file must type-check under the pinned bootstrap
 --- (`o/bootstrap/cosmic`), which is at least as old as the previous
 --- release — the pin only ever trails published releases, so
 --- bootstrap-clean implies previous-release-clean.
 ---
---- When this fails: the named file reaches an API the pinned release
---- does not declare. Reach it through a tolerant map view plus a
---- capability probe instead — the pattern in
---- _perf/bench/literal_bench.tl — or drop the use until the pin
---- catches up.
+--- The check runs against a constructed include directory holding
+--- NOTHING but a `_perf` symlink, and asserts that emptiness before
+--- using it. Caller include dirs come first, so a `_perf`-only
+--- directory resolves `_perf.*` declarations from the tree — which is
+--- what lets a `_perf` signature change land in one PR — while
+--- `cosmic.*` still comes from `/zip/.tl`, the pin's. Handing the
+--- repo root itself to the same flag would resolve `cosmic.*` from the
+--- tree too and defeat this guard silently, with no failure to read;
+--- hence a constructed directory rather than the tree.
+---
+--- When this fails, read it two ways. A `cosmic` API newer than the
+--- pin: reach it through a tolerant map view plus a capability probe
+--- (the pattern in `_perf/bench/literal_bench.tl`), or wait for the
+--- pin to catch up. Anything else: a genuine type error in a `_perf`
+--- file, to fix as one.
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
@@ -44,6 +56,26 @@ local function perf_sources(): {string}
   return out
 end
 
+--- An include directory holding exactly one entry: a `_perf` symlink
+--- into the tree. Asserts its own scope, because a directory that
+--- resolved anything more would quietly stop guarding cosmic skew.
+--- @return string The directory
+local function perf_only_include_dir(): string
+  local tmp = fs.join(check.must(os.getenv("TEST_TMPDIR")), "skew-include")
+  assert(fs.make_dirs(tmp))
+  local link = fs.join(tmp, "_perf")
+  if not fs.is_link(link) then
+    assert(fs.symlink(fs.absolute_path("_perf"), link))
+  end
+  local found = check.must(fs.find(tmp,
+      {max_depth = 1, include_dirs = true, sorted = true}))
+  assert(#found == 1 and fs.basename(found[1]) == "_perf",
+    "the include dir must scope to _perf alone, or cosmic.* resolves " ..
+    "from the tree and this guard passes over real skew; got " ..
+    tostring(#found) .. " entries")
+  return tmp
+end
+
 local function test_perf_sources_type_check_under_the_pinned_bootstrap()
   -- Never a silent skip: a missing bootstrap means the sweep checked
   -- nothing, and a gate that reports PASS over files it never read is
@@ -53,7 +85,8 @@ local function test_perf_sources_type_check_under_the_pinned_bootstrap()
   local files = perf_sources()
   assert(#files > 0, "the sweep found no _perf sources to guard")
 
-  local argv: {string} = {BOOTSTRAP, "--check", "types"}
+  local argv: {string} = {BOOTSTRAP, "--check", "types",
+    "--include-dir", perf_only_include_dir()}
   for _, f in ipairs(files) do
     argv[#argv + 1] = f
   end
@@ -62,9 +95,11 @@ local function test_perf_sources_type_check_under_the_pinned_bootstrap()
   -- directory.
   local r = check.must(child.run(argv,
       {env = env.list({set = {COSMIC_COVERAGE = "0"}})}))
-  assert(r.ok, "a _perf file reaches an API the pinned bootstrap (" ..
-    BOOTSTRAP .. ") does not declare, so the release compare step " ..
-    "would crash loading it bare under the previous release. Reach " ..
-    "the new API through a tolerant map view + capability probe " ..
-    "(see _perf/bench/literal_bench.tl):\n" .. r.stderr)
+  assert(r.ok, "a _perf file fails to type-check under the pinned " ..
+    "bootstrap (" .. BOOTSTRAP .. "), so the release compare step " ..
+    "would crash loading it under the previous release. If it reaches " ..
+    "a cosmic API newer than the pin, use a tolerant map view + " ..
+    "capability probe (see _perf/bench/literal_bench.tl) or wait for " ..
+    "the pin; otherwise it is an ordinary type error:\n" .. r.stderr)
 end
+test_perf_sources_type_check_under_the_pinned_bootstrap()

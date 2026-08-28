@@ -326,4 +326,27 @@ local function test_the_release_perf_compare_propagates_its_verdict()
     path .. ": the bootstrap path (no baseline yet) must still succeed")
 end
 
+--- The release compare is only a compare if both sides run the SAME
+--- instrument. Run the previous binary bare and it answers `_perf.*`
+--- from its own embedded copy, so the baseline number describes the
+--- previous release's scenarios rather than this tree's — and a
+--- `_perf` signature change becomes unlandable in one PR. The step
+--- must therefore measure the baseline through `_perf/baserun.tl`,
+--- whose `--modules` root scopes the tree to `_perf` alone, and must
+--- not carry the bare form beside it.
+local function test_the_release_baseline_runs_the_trees_perf()
+  local path = WORKFLOWS .. "/release.yml"
+  local body = step_body(path, "compare against the previous release")
+  assert(body:find("_perf/baserun.tl", 1, true),
+    path .. ": the compare step must measure the baseline through " ..
+    "`_perf/baserun.tl`, or the previous binary answers `_perf.*` from " ..
+    "its own embed and the two sides are measured by different instruments")
+  assert(not body:find("cosmic-lua _perf/run.tl", 1, true),
+    path .. ": the bare baseline invocation `cosmic-lua _perf/run.tl` " ..
+    "must not survive — it is the shape `_perf/baserun.tl` replaces")
+  assert(body:find("--baseline-bin", 1, true),
+    path .. ": the gate still needs `--baseline-bin` so a flagged " ..
+    "regression re-measures both sides")
+end
+
 print("all workflow ratchet tests passed")

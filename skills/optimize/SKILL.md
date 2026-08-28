@@ -52,7 +52,15 @@ identity traps, and both return a number either way:
   the tree's entry file and then loads `_perf.harness` and every
   `_perf/bench/*` from the BINARY's embedded copies. Edit a scenario,
   re-run, and nothing changes. `--make run` builds first and resolves
-  both against the tree (docs/design/make/resolution.md).
+  both against the tree (docs/design/make/resolution.md). The one
+  exception is `$BIN --modules <manifest> o/_perf/run.lua …` where the
+  manifest roots a directory holding NOTHING but `_perf` and
+  `o/_perf`: the tree answers `_perf.*` and the binary still answers
+  every `cosmic.*`. That is what the release gate measures its baseline
+  with, and `_perf/baserun.tl` is what builds it — use that rather than
+  hand-rolling the manifest, and never widen the root, because a root
+  that also answers `cosmic.*` puts the tree's library on both sides of
+  a compare and makes a real regression cancel out.
 - **The subject's identity.** The trust root prefers `o/bin/cosmic` when
   one exists and falls back to the pin when it does not, so measuring
   through `bin/cosmic` measures whatever `o/` happens to hold.
