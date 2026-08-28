@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "check",
   ["pr"] = 1487,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "cosmic --check types answers from the shipped checker whatever a probe preloads: the third silent form of the tl-patch probe",
 }
