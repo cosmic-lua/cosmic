@@ -1,3 +1,44 @@
+## CORRECTION 2026-08-28 — this item's premise is false; ended not-planned
+
+The class described below does not exist. Under
+[D29](docs/decisions/d29-tests-run-because-defined.md) a `*_test.tl`
+with NO self-calls is **runner mode**: the toolchain appends a
+generated tail at the compile/check seam and every `test_*` runs. The
+evidence below was gathered by running the file as a BARE SCRIPT, which
+is precisely the path that skips that tail.
+
+Re-run through the runner, in a clean export of PR #1480's merged tree
+with `_perf/baserun.tl` removed from `release.yml`:
+
+```
+$ ./o/bin/cosmic _build/workflows_test.tl          # bare script — the wrong method
+all workflow ratchet tests passed
+exit=0
+
+$ ./o/bin/cosmic --make test _build/workflows_test.tl
+8 checks: 7 passed, 1 failed        # test_the_release_baseline_runs_the_trees_perf
+test: FAIL (1 of 1 file)
+```
+
+And `origin/main`'s `_perf/skew_test.tl` (1 definition, 0 self-calls)
+with `assert(false)` injected into its body: `1 checks: 0 passed, 1
+failed`. It was never inert.
+
+The proposed countermeasure — a lint requiring a self-call after every
+`test_*` — would contradict D29 outright and fight the tree's migration
+to runner mode (`3IOCdooE`); `call-after-define` already fails the one
+shape that must (mixed).
+
+The real, narrower gap this hunt did find is filed as **`3IY0HUUk`**:
+`_build/workflows_test.tl`'s unconditional trailing
+`print("all workflow ratchet tests passed")` makes a bare run read
+green, and AGENTS.md still states the self-call rule as absolute with
+no mention of runner mode — which is what produced the false finding.
+
+Everything below is the original, falsified spec, kept as the record.
+
+---
+
 ## Goal
 
 G4 — zero-config project gates: one command must give a MEANINGFUL
