@@ -1,71 +1,100 @@
-## Evidence
+## Correction to this item's opening capture
 
-Two sessions built `3IUBNQZZ` at once and opened two PRs for it — #1484
-(`claude/3IUBNQZZ-cross-window-noise`, `7167dbe9`) and #1485
-(`claude/3IUBNQZZ-compare-rows`, `37ea41cb`), both off `3ff022d3`, both four
-files, both the same change. The board's claim did NOT fail to prevent this.
-It held correctly, and was then overwritten by a direct file edit.
-
-The item's whole history has exactly ONE claim and ONE handover:
+The capture asserted that the overwrite came through the "edit the item file
+directly when the tool lacks a verb" escape hatch, on the evidence that `set`
+is absent from `gitboard help`. **That was wrong.** `set` is a tool-emitted
+commit message, not a hand edit — `_work/gitgate.tl:296` writes it for an
+in-place `move` that changes only `claim`/`pr` without crossing a phase:
 
 ```
-$ git log --oneline -- items/3IUBNQZZ8UHrBZD8Tgb7BgEx2zD.tl
-95858214 set 3IUBNQZZ in check
-19240f1f move 3IUBNQZZ do -> check
-0ae54065 move 3IUBNQZZ ready -> do
+$ grep -rn 'set %s in' _work/*.tl
+_work/gitgate.tl:296:    ("set %s in %s%s"):format(it.id:sub(1, 8), where, forced_suffix(force, why))
 ```
 
-What each wrote:
+The defect is real and the evidence below stands. Only the mechanism was
+misidentified, and the true one is worse.
 
-```
-$ git show 19240f1f -- items/     # 14:28:50
--  ["phase"] = "do",
-+  ["phase"] = "check",
-+  ["pr"] = 1484,
+## The guard already exists, and it did not fire
 
-$ git show 95858214 -- items/     # 14:28:55, five seconds later
--  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c/3IUBNQZZ",
-+  ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
--  ["pr"] = 1484,
-+  ["pr"] = 1485,
-```
+`_work/gitgate.tl:279-284` refuses exactly this, and its comment describes
+this incident class in the same words:
 
-`19240f1f` is a `move`: the claiming session handed its work over through the
-verb, and the verb enforced the claim (it first REFUSED an environment-derived
-identity that did not match the minted claim, which is the check working).
-`95858214` is not a verb at all —
-
-```
-$ ./o/bin/gitboard help | grep -c '  set '
-0
+```teal
+-- The same takeover rule the phase-crossing move applies: a claim
+-- is a lock, and an in-place write was the one door that moved it
+-- silently — a live session lost its item to a "set" nine seconds
+-- after pulling it. Overwriting a live foreign claim says so with
+-- --force --why, exactly like every other takeover.
+if (claim or "") ~= "" and (it.claim or "") ~= "" and claim ~= it.claim
+and not force then
+  return verdict_line("move", false,
+    ("REFUSED: %s is claimed by %s — take over a live claim with "
+      .. "--force --why"):format(it.id:sub(1, 8), it.claim))
+end
 ```
 
-— so it is the `SKILL.md` escape hatch ("when the tool LACKS a verb the
-session needs, work around it ONCE by editing the item file and committing").
-That path writes the file directly and therefore passes through none of the
-gates a `move` applies. It silently replaced another session's live claim and
-discarded the PR reference that claim had produced.
+It landed **two days before this incident**:
 
-## Why this is the claim's whole value
+```
+$ git log --format='%h %ad %s' -S'is claimed by' -- _work/gitgate.tl | tail -1
+246e3a8c Wed Aug 26 23:01:22 2026 -0700  gitboard next: candidate lists, seeded fan-out, and the fused claim (#1454)
+```
 
-A claim is described as a lock — "the move is the lock" — and the review
-distance rests on it: `flow.built_by` reads `claim` and `builders` to decide
-who may not judge an item. An edit path that rewrites `claim` with no check
-means the lock is advisory against the one operation that can erase it, and
-the durable `builders` record is the only thing that still remembers who
-actually built #1484.
+And the overwrite was **not** a declared takeover — a forced write appends
+`(forced: <why>)` via `forced_suffix` (`:70-75`), and the commit carries no
+such suffix:
 
-The cost here was one duplicated implementation (two agents, ~110k tokens,
-two green CI runs) and an orphaned PR. The worse cost is latent: an item whose
-`claim` has been rewritten can be routed for review to the session that built
-it, because `built_by` no longer names them.
+```
+$ git log -1 --format='%s%n%b' 95858214
+set 3IUBNQZZ in check
+                       # empty body, no "(forced: …)"
+```
+
+Every branch of the guard's condition held: `it.claim` was non-empty
+(`0b13d2b4-…/3IUBNQZZ`), the incoming claim was non-empty (it replaced it),
+and the two differed. The write should have been refused. It was not.
+
+## The finding, restated
+
+**Board invariants are enforced by the client binary, so a session running a
+stale `o/bin/gitboard` bypasses them silently.** The `board` branch ships its
+own machinery and its own built binary; a worktree that has not rebuilt since
+`246e3a8c` (2026-08-26) runs a gate that has no takeover rule in it, and the
+board accepts the resulting commit because the commit itself is well-formed.
+
+The split is visible in this same incident. Two protections were tested
+minutes apart, with opposite outcomes:
+
+- `gitboard spec --base` **correctly refused** a second session's write
+  ("3IVLAF3Z's spec changed since you read it"). That is compare-and-swap over
+  content the writer had to have read — it cannot be bypassed by an old
+  client, because the base it compares against comes off the remote.
+- The claim/pr takeover check **did not fire**. That is pure client-side
+  logic over a field, and an old client simply does not run it.
+
+So the rule of thumb: an invariant expressed as "compare against what the
+remote holds" survives a stale client; an invariant expressed as "refuse this
+combination of flags" does not.
+
+## Cost
+
+One duplicated implementation of `3IUBNQZZ` (two agents, two green CI runs,
+~110k tokens on this side alone) and an orphaned PR #1484, closed by hand in
+favour of #1485. The latent cost is the review wall: `flow.built_by` reads
+`claim` and `builders`, so an item whose `claim` was silently replaced can be
+routed for review to the session that built it. `builders` retained both
+sessions here, which is what kept the wall standing.
 
 ## Not asserted here
 
-Whether the fix is to give the escape hatch a verb with the same gates, to
-refuse an item-file commit that changes `claim` or `pr` while a live claim is
-held by another session, to make the hatch append to `builders` rather than
-replace `claim`, or to detect the duplicate at `move ... check` (a second PR
-number arriving for an item already in `check` is the observable symptom).
-The escape hatch is deliberate and load-bearing; narrowing it is a reviewed
-change to the machinery, not a call this capture makes.
+The stale-client hypothesis explains every observation and no other
+explanation fits the evidence, but it was not confirmed against the other
+session's binary — that session is not this one's to inspect. Confirming it is
+the first step of any fix.
+
+Nor does this name the fix. Candidates: a version or machinery-digest stamp
+carried in each commit so the board can reject a write from a client older
+than the invariant it must honour; expressing the claim check as a
+compare-and-swap over the claim field the way `spec --base` does; or a
+rebuild-before-mutate step in the loop. They trade differently and the choice
+belongs in `plan`.
