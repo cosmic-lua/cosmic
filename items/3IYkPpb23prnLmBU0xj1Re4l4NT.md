@@ -1,6 +1,6 @@
 ## Goal
 
-G8 — the flow system. Four passages in `skills/work/**` on `main` still
+G8 — the flow system. Six passages in `skills/work/**` on `main` still
 describe review distance as something the board machinery enforces by
 identity. `3IYiZ9Md` moved the rule into the review procedure and
 `3IYYwdp7` deletes the machinery, but `3IYYwdp7` is board-branch only and
@@ -11,7 +11,8 @@ on a gate that no longer exists.
 ## Evidence
 
 Measured against `main` at PR #1492's head (the branch that landed
-`3IYiZ9Md`). Each passage names a mechanism `3IYYwdp7` removes:
+`3IYiZ9Md`), and re-measured 2026-08-28 against `3IYiZ9Md`'s open head.
+Each passage names a mechanism `3IYYwdp7` removes:
 
 **`skills/work/SKILL.md`, the "what IS still split" paragraph near the
 top** states that "`next --session NAME` never hands a session a verdict
@@ -28,6 +29,20 @@ unreviewable by the next run — the collision is silent and durable,
 because the builder is remembered". Unique names still matter for CLAIMS,
 which is the paragraph's real subject; the unreviewable consequence is
 the deleted gate.
+
+**`skills/work/SKILL.md`, the phases table's `check` row** reads "PR
+open; awaiting a verdict from a session that did not build it". The
+identity clause is the gate: after `3IYYwdp7` what `check` awaits is a
+verdict from a review that did not hold the build, which is a property
+of the reviewer's context window and not of which session writes the
+verdict down.
+
+**`skills/work/SKILL.md`, step 6 of the session loop** says "never
+accept your own: the item now carries your claim, so `next` will route
+it elsewhere and hand you something else". The routing IS the gate. The
+rule survives — no session accepts its own work — but the mechanism it
+names stops running, and a step that promises `next` will hand the
+session something else describes a `next` that no longer withholds.
 
 **`skills/work/review.md`, the "claim before you read" paragraph** ends
 "The claim is mutual exclusion, not authority — any non-builder's verdict
@@ -51,6 +66,17 @@ so provenance is readable) is unaffected and must survive.
 `skills/work/{SKILL.md,review.md,loop.md}`, prose only. Each passage
 keeps what it says about CLAIMS and drops what it says about the identity
 gate withholding a verdict.
+
+**The three `SKILL.md` sites, each named.** The "what IS still split"
+paragraph loses the `next --session NAME` sentence and its "a property
+of the board" conclusion, and says instead that the distance is the
+review subagent's context. The phases table's `check` row drops "from a
+session that did not build it" and says what `check` actually awaits —
+a verdict from a review that did not hold the build. Step 6 keeps
+"never accept your own" as the rule and loses "so `next` will route it
+elsewhere", naming the review procedure as what carries it. The "do not
+invent that name" paragraph keeps its claims half and drops the
+unreviewable consequence.
 
 **`loop.md`'s verdict-wall section is already rewritten**, by
 `3IYiZ9Md`: it is now `## minted identities and your own wave`, and it
@@ -86,13 +112,25 @@ the brief, the audit record — are unaffected and stay verbatim.
 Run from the repo root.
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
-- `grep -c 'non-builder' skills/work/review.md` prints `0`.
-- `grep -c 'built_by' skills/work/loop.md` prints `0`.
-- `grep -c 'unreviewable by the next run' skills/work/SKILL.md` prints `0`.
-- `grep -c 'a property of the board' skills/work/SKILL.md` prints `0`.
-- `grep -c 'withholds' skills/work/loop.md` prints `0` (`1` once
-  `3IYiZ9Md` has landed) — the `next` clause and its `never blocked` row
-  are gone.
+Every "today" below was measured on 2026-08-28 against `3IYiZ9Md`'s
+head, which is where this item starts.
+
+- `grep -c 'non-builder' skills/work/review.md` prints `0` (`1` today).
+- `grep -c 'built_by' skills/work/loop.md` prints `0` (`0` today —
+  `3IYiZ9Md`'s rewritten section already carries none, so this one
+  guards against reintroduction rather than removing anything).
+- `grep -c 'unreviewable by the next run' skills/work/SKILL.md` prints
+  `0` (`1` today) — the "do not invent that name" paragraph.
+- `grep -c 'a property of the board' skills/work/SKILL.md` prints `0`
+  (`1` today) — the "what IS still split" paragraph.
+- `grep -c 'a verdict from a session that did not build it'
+  skills/work/SKILL.md` prints `0` (`1` today) — the phases table's
+  `check` row.
+- `grep -c 'will route it elsewhere' skills/work/SKILL.md` prints `0`
+  (`1` today) — step 6 of the session loop.
+- `grep -c 'withholds' skills/work/loop.md` prints `0` (`2` today, one
+  in the section and one in the `never blocked` table) — the `next`
+  clause and its row are both gone.
 - `git diff --name-only origin/main` lists only files under `skills/work/`.
 
 Note that each `grep -c` above matches a phrase that sits on one line in
