@@ -1,6 +1,6 @@
 return {
   ["id"] = "3IYCkSTYUsu5wiVWo2g349bgj7B",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "backlog",
+  ["phase"] = "plan",
   ["title"] = "perf gate: a disagreeing baseline pair has no tiebreak, so no formula can separate a false red from a masked regression",
 }
