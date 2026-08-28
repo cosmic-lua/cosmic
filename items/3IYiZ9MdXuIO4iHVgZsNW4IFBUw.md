@@ -135,11 +135,23 @@ statements:
 - **what `next` does with it.** `next` does not offer an item whose
   claim or `builders` name this session — names compare by the claim's
   prefix, so work a minted agent built reads as the orchestrator's own
-  — and it steps over such an item silently, surfacing the count only
-  when `check` is at its limit and nothing else fires. So the review
-  subagent is spawned on the item id directly, the one step 1
-  reconciled into `check`, rather than waited for. Step 3 names the
-  same id source and the `never blocked` table gains the row.
+  — and it steps over such an item silently. So the review subagent
+  is spawned on the item id directly, the one step 1 reconciled into
+  `check`, rather than waited for. Step 3 names the same id source and
+  the `never blocked` table gains the row. Say nothing about when the
+  stepped-over count surfaces: both `none` returns under `if ph.mine >
+  0 or ph.reviewing > 0` in `_work/action.tl` carry that count, and the
+  WIP limit only selects which sentence carries it. Measured by calling
+  `action.next_action` with `check` below its limit and at it:
+
+  ```
+  check at 1/10  → nothing in check is this session's to judge
+                   (1 built by this session, 0 under another session's
+                   review) — their verdicts land elsewhere
+  check at 10/10 → check is at 10/10 with nothing this session may
+                   judge (10 built by this session, 0 …) — nothing can
+                   be handed over until a verdict lands
+  ```
 
 Write all four as properties of the tool in the skill's own voice: no
 history, no item references, no interim framing.
@@ -189,6 +201,9 @@ Run from the repo root.
   prints `1` (`0` on `origin/main`).
 - `grep -c 'withholds' skills/work/loop.md` prints at least `1` (`0` on
   `origin/main`) — the pass is told what `next` does with its own wave.
+- `grep -c 'surfaces only when' skills/work/loop.md` prints `0` (`1` at
+  the PR head) — the pass is not told a false thing about when `next`
+  names the count it stepped over.
 - `grep -c 'a session that did not build it' skills/work/parallel.md`
   prints `0` (`1` on `origin/main`).
 - `wc -l skills/work/SKILL.md` is at most `500` (`456` at the PR head);
