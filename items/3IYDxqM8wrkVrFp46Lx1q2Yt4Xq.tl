@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["phase"] = "check",
   ["pr"] = 1489,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "casts beyond from-any: every remaining class mapped to what closes it, or named as the floor the win condition must admit",
 }
