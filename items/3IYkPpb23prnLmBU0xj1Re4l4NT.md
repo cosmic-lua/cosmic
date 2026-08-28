@@ -97,6 +97,19 @@ clause, drop the `never blocked` row it feeds, and let step 3 say that
 `next` offers the item. The section's other three statements — the rule,
 the brief, the audit record — are unaffected and stay verbatim.
 
+**Two more passages state the refusal `3IYYwdp7` deletes.**
+`review.md`'s naming paragraph and `loop.md`'s audit-record paragraph
+both say that `review` and `verdict` REFUSE a session its own build, so
+an unnamed reviewer cannot record a verdict at all. That is measured
+truth while `built_by` lives (`_work/gitreview.tl:62`,
+`_work/gitverdict.tl:145`) and false the moment it goes: with the gate
+deleted an unnamed reviewer's verdict is ACCEPTED and recorded under the
+builder's session, which is exactly the mis-recording the naming rule
+exists to prevent. Both passages swap the refusal for that consequence.
+The instruction itself — export `GITBOARD_SESSION` before `gitboard
+verdict` — and the audit-trail reason are unchanged; only the failure
+mode moves.
+
 ## Non-goals
 
 - No change to `_work/**`; the machinery is `3IYYwdp7`.
@@ -131,6 +144,11 @@ head, which is where this item starts.
 - `grep -c 'withholds' skills/work/loop.md` prints `0` (`2` today, one
   in the section and one in the `never blocked` table) — the `next`
   clause and its row are both gone.
+- `grep -c 'both REFUSE a session its own build' skills/work/review.md`
+  prints `0` (`1` today) — the naming paragraph no longer promises a
+  refusal the machinery no longer performs.
+- `grep -c 'refuse it' skills/work/loop.md` prints `0` (`1` today) —
+  the same claim at its second site.
 - `git diff --name-only origin/main` lists only files under `skills/work/`.
 
 Note that each `grep -c` above matches a phrase that sits on one line in
