@@ -19,6 +19,13 @@ files outside `**/testdata/**`. The site list this document is built
 from is committed beside it as `nil-flow-sites.tsv`; where the two
 disagree, the file is right.
 
+Probing one of these rules by hand: `cosmic --docs guide.checking` has
+the three probe forms and says which of them actually swap the checker.
+`cosmic --check types` is not one of them — it never runs the file it
+checks, so a `package.loaded["tl"]` preload written inside that file is
+inert and the shipped patched checker answers, at exit 0, with nothing
+logged.
+
 ## Method
 
 The census comes from a throwaway strict checker, built inside `o/` and

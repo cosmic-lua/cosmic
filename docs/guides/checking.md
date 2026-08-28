@@ -401,6 +401,77 @@ message, and `check.must(...)` is the sanctioned idiom in tests and
 examples. the rule runs wherever the strict gate runs — `--check
 types`, and the build's strict compile.
 
+## Which Checker Answered
+
+`cosmic --check types` always answers from the Teal checker the RUNNING
+binary embeds, patch entries included. cosmic carries its own narrowing
+and performance entries over the pinned tl (`3p/tl/tl_patch/`), so a
+verdict from `--check types` is a verdict about the patched checker, never
+about upstream tl.
+
+it never executes the file it checks. `handle_check_types` reads the
+source, augments it, and hands the TEXT to `cosmic.teal.check`; nothing in
+the checked file ever runs. so a `package.loaded["tl"]` or
+`package.preload["tl"]` assignment written inside the checked file is
+inert — it does not swap the checker, and the run reports the shipped
+checker's verdict, at exit 0, with nothing logged. a probe written that
+way gets a confident answer to a question it never asked:
+
+```text
+$ cat probe.tl
+package.loaded["tl"] = dofile("/nonexistent/stock/tl.lua")
+
+local record R
+  x: integer
+end
+local function make(): R | nil
+  return nil
+end
+local r = make()
+if not r then
+  return
+end
+print(r.x)
+
+$ cosmic --check types probe.tl
+Type check passed: probe.tl
+```
+
+the `dofile` names a path that does not exist and would have thrown had
+the line ever run. it never ran.
+
+a modified `tl.lua` placed on `package.path` is ignored for the same class
+of reason: the binary's `/zip` searcher outranks the file searcher, so
+`require("tl")` resolves to the copy the binary embeds.
+
+to measure a DIFFERENT checker, swap it in the checking process before the
+first check. `_make.patch`'s `reverse` reverses named patch entries into a
+temporary copy and installs it in `package.loaded["tl"]`, the table
+`require` reads before any searcher; `cosmic.teal.check` then answers from
+it. the worked, gated recipe is `_make/patch_test.tl`'s
+`test_reverse_flips_the_checker_on_the_real_pin` and
+`test_reverse_flips_the_metatable_value_type` — copy those, do not
+re-derive them.
+
+to see which bytes answered, ask the loaded module:
+
+```text
+debug.getinfo(require("tl").process_string, "S").source
+--> @/zip/tl.lua                     the shipped copy
+--> @/tmp/patch-reverse-XXXXXX/tl.lua  a reversed copy
+```
+
+a probe script must run under `cosmic --make run` to load the tree's
+`_make/patch.tl`:
+
+```bash
+cosmic --make run probe.tl
+```
+
+a bare `cosmic probe.tl` resolves `require("_make.patch")` to
+`@/zip/_make/patch.lua`, the binary's embedded copy, even from the repo
+root.
+
 ## Include Directories
 
 `cosmic --check types` searches for type definitions in the binary's bundled paths. if your project has its own `.d.tl` type definitions, place them in a `types/` directory and they will be found automatically.

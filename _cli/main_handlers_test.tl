@@ -238,3 +238,36 @@ local function test_check_lint_prints_the_offending_line()
   assert(r.err:find("| local y = x as {string: any}", 1, true),
     "the offending line prints under the diagnostic: " .. r.err)
 end
+
+-- `--check types` never executes the file it checks: it reads the source,
+-- augments it, and hands the TEXT to the checker. A `package.loaded["tl"]`
+-- assignment written inside the checked file is therefore inert -- it does
+-- not swap the checker, and the shipped patched checker answers. The probe
+-- below names a `dofile` path that does not exist, so the run would have
+-- thrown had the line ever run; instead the guarded `R | nil` index passes
+-- on `narrow-truthiness`, at exit 0, with nothing logged. This is the
+-- claim `cosmic --docs guide.checking` makes, pinned so it cannot rot.
+local function test_check_types_ignores_a_preload_written_in_the_checked_file()
+  local missing = fs.join(tmpdir, "nonexistent-stock", "tl.lua")
+  local probe = fs.join(tmpdir, "preload_probe.tl")
+  assert(fs.write(probe,
+      'package.loaded["tl"] = dofile("' .. missing .. '")\n'
+      .. "\n"
+      .. "local record R\n"
+      .. "  x: integer\n"
+      .. "end\n"
+      .. "local function make(): R | nil\n"
+      .. "  return nil\n"
+      .. "end\n"
+      .. "local r = make()\n"
+      .. "if not r then\n"
+      .. "  return\n"
+      .. "end\n"
+      .. "print(r.x)\n"))
+  local r = cli("--check", "types", probe)
+  assert(r.code == 0,
+    "a preload inside the checked file never runs, so the guarded index "
+    .. "passes: got " .. r.code .. ": " .. r.out .. r.err)
+  assert(r.out:find("Type check passed", 1, true),
+    "the shipped checker's verdict is what is reported, got: " .. r.out)
+end

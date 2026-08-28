@@ -25,7 +25,11 @@
 --- such a probe measures the shipped copy and reports a confident
 --- wrong answer with nothing logged. `patch.reverse` is the probe: it
 --- reverses named entries into a temporary copy and installs it in
---- `package.loaded`, which `require` reads before any searcher.
+--- `package.loaded`, which `require` reads before any searcher. A
+--- third form is inert for a third reason: `cosmic --check types` on
+--- a file that preloads `tl` never runs that file, so the shipped
+--- checker answers at exit 0 with nothing logged — `cosmic --docs
+--- guide.checking` lays the three forms side by side.
 ---
 --- The patch sits beside its pin — `3p/tl/tl_pin.tl` carries
 --- `3p/tl/tl_patch.tl`, or, when the entry set outgrows the 500-line
