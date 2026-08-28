@@ -3,7 +3,14 @@ G3 — an honest type layer, no escape hatches: a session that asks "is
 this narrowing the carried patch or upstream tl?" must not get a
 confident wrong answer from the tool.
 
-## Problem (re-measured 2026-08-28 against `origin/main` = `37ea41cb`, `o/bin/cosmic` built 2026-08-28 14:49)
+## Problem (re-measured at pull 2026-08-28 against `origin/main` = `3ff022d3`, `o/bin/cosmic` rebuilt from it)
+
+Re-measured at pull: `origin/main` moved from `37ea41cb` to `3ff022d3`
+between refinement and implementation. Every figure and command quoted
+below was re-run against `3ff022d3` and reproduces unchanged — the CLI
+probe still passes at exit 0, the in-process contrast still flips, and
+every line count, `grep -c` and `wc -l` in `Change`, `Non-goals` and
+`Acceptance` is identical. No detail drifted.
 
 Three ways to ask "which checker answered". Two of them lie, silently.
 
