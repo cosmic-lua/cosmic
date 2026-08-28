@@ -9,5 +9,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1488,
+  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "release.yml's peers lane runs the tree's peer harness bare, so it measures the release's copies, not the tree's",
 }
