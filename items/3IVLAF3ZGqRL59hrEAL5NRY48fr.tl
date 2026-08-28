@@ -7,8 +7,9 @@ return {
   ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IVLAF3ZGqRL59hrEAL5NRY48fr",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1486,
-  ["reviewer"] = "33e04976-cb40-5237-a844-b3c569b01592",
   ["title"] = "perf gate: stampless files pass identity refusals and join the same-binary noise controls",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "2a29c4d3981e9a8fadf8d9833862c67a65d25e09",
 }
