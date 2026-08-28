@@ -7,8 +7,9 @@ return {
   ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IUBNQZZ8UHrBZD8Tgb7BgEx2zD",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1485,
-  ["reviewer"] = "3c701f9f-2f04-59eb-9c59-57010939747c",
   ["title"] = "codec compare rows are state-split: derive per-scenario noise floors from cross-window A/A history",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "37ea41cb5d3216403fb8508920e1c811502d15a1",
 }
