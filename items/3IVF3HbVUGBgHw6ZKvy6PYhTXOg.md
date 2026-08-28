@@ -22,10 +22,13 @@ without it nothing here unblocks `3IUBNQZZ`. It also absorbs the
 changed-existing-bench blind spot, orphaned when `3IVJLeCY` was ended
 `not-planned` — the same manifest closes it, measured.
 
-## Evidence — measured 2026-08-27, session 0b13d2b4
+## Evidence — measured 2026-08-27, re-measured at pull 2026-08-28 (session 0b13d2b4)
 
 Tree at `8269ff42` (`origin/main` `a80cf0cd` plus one `_make/patch.tl`
 commit that touches no `_perf` file: `git show --stat 8269ff42`).
+Re-measured at pull off `origin/main` `835c874d` (#1477 and #1478
+landed since; neither touches `_perf`). Every structural claim below
+reproduced verbatim; the two numeric drifts are marked inline.
 Baseline binary throughout is `o/bootstrap/cosmic`, content-wise the
 pinned release: its stamp `o/bootstrap/cosmic.pin` is
 `145057b9fe90…` = `bin/cosmic.pin`, while its own
@@ -60,7 +63,7 @@ o/bootstrap/cosmic --modules o/perf/tree.modules o/perf/probe.lua # this item
 | `_perf.harness` | `@/zip/_perf/harness.lua` | `@<root>/o/_perf/harness.lua` | `@<root>/o/_perf/harness.lua` |
 | `_perf.bench.time_bench` | `@/zip/…` | `@<root>/o/…` | `@<root>/o/…` |
 | `cosmic.json` | `@/zip/cosmic/json.lua` | **`@<root>/o/cosmic/json.lua`** | `@/zip/cosmic/json.lua` |
-| `cosmic.teal` | `@/zip/cosmic/teal.lua` | **`@<root>/o/cosmic/_teal_hints.lua`** | `@/zip/cosmic/teal.lua` |
+| `cosmic.teal` | `@/zip/cosmic/teal.lua` | **`@<root>/o/cosmic/teal.lua`** | `@/zip/cosmic/teal.lua` |
 
 `cosmic/searcher.tl`'s `tree_searcher` resolves `<root>/<build>/<rel>.lua`
 then `<root>/<rel>.tl` and MISSES otherwise, falling through to `/zip` at
@@ -77,21 +80,30 @@ layout looped 30x), rebuilt, all four runs in one sitting with
 
 | scenario | candidate (`--make run`) | baseline TODAY (bare) | baseline `root $PWD` | baseline `_perf`-scoped |
 |---|---|---|---|---|
-| `literal_format_pin` | 595.59 µs | 22.40 µs | **598.98 µs** | 20.69 µs |
-| `literal_format_floor` | 14.91 ms | 506.01 µs | **17.62 ms** | 489.40 µs |
+| `literal_format_pin` | 699.34 µs | 21.71 µs | **623.39 µs** | 19.92 µs |
+| `literal_format_floor` | 14.37 ms | 551.07 µs | **15.24 ms** | 484.13 µs |
 
 `o/bin/cosmic --make run _perf/run.tl -- --compare BASE.json CAND.json`
 verdict lines:
 
 ```
-today:          5 scenarios: 2 regression, 0 faster, 3 ok …   (blocks)
-root $PWD:      5 scenarios: 0 regression, 1 faster, 4 ok …   (PUBLISHES)
+today:          5 scenarios: 2 regression, 2 faster, 1 ok …   (blocks)
+root $PWD:      5 scenarios: 1 regression, 0 faster, 4 ok …   (see below)
 _perf-scoped:   5 scenarios: 2 regression, 0 faster, 3 ok …   (blocks)
 ```
 
-`literal_format_pin` reads `+2558.8%` today, `-0.6% ok` under `root
-$PWD`, `+2779.0%` under the `_perf`-scoped root. The rejection's
-blocking finding 1 is reproduced and repaired.
+`literal_format_pin` reads `+3121.4%` today, `+12.2%` under `root
+$PWD`, `+3410.2%` under the `_perf`-scoped root. **Numeric drift at
+pull, stated plainly:** the first pass measured the `root $PWD`
+baseline reading `-0.6% ok` and PUBLISHING; at pull the same shape read
+`+12.2%`, marginally over the flat ±10% bar, so it happened to block on
+that scenario. What did not drift is the masking itself — the rejected
+shape collapses a 34x regression to 1.12x and turns
+`literal_format_floor`'s true `+2867.6%` into `-5.7% ok` — and 12.2%
+sits inside the range the gate's own A/A triage discounts, so blocking
+there is luck, not a gate. The `_perf`-scoped root reports the real
+size on both scenarios in both passes. The rejection's blocking
+finding 1 is reproduced and repaired.
 
 ### 3. The guard, scoped to `_perf`, clears the arity wall and keeps the skew wall
 
