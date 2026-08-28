@@ -91,6 +91,22 @@ procedure, and `SKILL.md` says which. The session-identity paragraph
 keeps everything it says about unique names for CLAIMS — that half is
 unaffected — and drops the clause about withholding a verdict.
 
+**6. `skills/work/review.md` and `skills/work/SKILL.md` — the review
+subagent NAMES ITSELF.** State in `review.md`, where the subagent is
+established, that it exports `GITBOARD_SESSION` set to a value unique to
+that review before running `gitboard verdict`, and why: a subagent
+inherits the session id of the process that spawned it, so an unnamed
+reviewer resolves to the BUILDER's identity and the board records the
+verdict under the session whose window held the work. The identity is
+what makes the isolation checkable afterwards; no gate can inspect a
+context window. `SKILL.md`'s session-identity paragraph carries the
+matching carve-out, or it contradicts this: a review subagent is the
+case where the derived value is WRONG rather than absent, so it names
+itself, and that is not the inline invention the paragraph warns
+against. What that paragraph says about CLAIMS stays as it is.
+`loop.md` takes the same one-clause correction wherever it states the
+audit-trail promise: the verdict's identity is exported, not derived.
+
 ## Non-goals
 
 - Do NOT touch `_work/**`. The machinery removal is `3IYYwdp7`, and it
@@ -118,6 +134,8 @@ Run from the repo root.
   (`1` today).
 - `grep -c 'derived session identity enforces it' skills/work/SKILL.md`
   prints `0` (`1` today).
+- `grep -c 'GITBOARD_SESSION' skills/work/review.md` prints at least
+  `1` (`0` today).
 - `grep -c 'N agents reviewing N PRs' skills/work/parallel.md` prints
   `1` (`1` today) — the prohibition survives the split.
 - `wc -l skills/work/SKILL.md` is at most `500` (`450` today);
