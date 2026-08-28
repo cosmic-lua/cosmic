@@ -116,13 +116,16 @@ The record's four sections, decided here:
   re-baselines to the previous release's BINARY daily, so one escape is absorbed
   into the ratchet permanently and never re-asked; and the machine evidence that
   a one-off per-scenario reading is routine on either side. That evidence,
-  measured 2026-08-28 in one container from a worktree at `origin/main@6a4d0182`:
+  re-measured at pull, 2026-08-28, in one container:
   `bin/cosmic --make run _perf/gate.tl selfcheck A.json B.json` over the full
-  suite reported `48 scenarios: 12 regression, 2 faster, 34 ok, 0 noise, 0 new,
-  0 missing, 0 error, 0 baseline-error, 0 malformed` — 14 of 48 scenarios move
+  suite reported `48 scenarios: 12 regression, 1 faster, 35 ok, 0 noise, 0 new,
+  0 missing, 0 error, 0 baseline-error, 0 malformed` — 13 of 48 scenarios move
   past the 10% bar with the SAME binary measured twice back to back, up to
-  +62.2% (`re_split_colon_list`), +57.3% (`sqlite_point_query`), +32.9%
-  (`re_match_log_line`).
+  +95.1% (`sqlite_point_query`), +33.1% (`stream_lines_iterate`), +31.0%
+  (`re_match_log_line`). The refine-time reading of the same command at
+  `origin/main@6a4d0182` was 14 of 48, loudest +62.2% (`re_split_colon_list`):
+  the shape is stable, the individual scenarios and magnitudes are not, which is
+  itself the evidence the record cites.
 - **decision** — the reproduction rule reads ONE baseline, the re-measured one,
   and asks two independent current-side samples about it. `TRIAGE_K` and the
   default bar are untouched.
