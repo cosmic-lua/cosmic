@@ -40,3 +40,47 @@ corresponding benefit.
 Worth checking during the fix whether other recorded verdicts carry the
 same defect, since the value is written by hand today and this instance
 was found by chance rather than by a check.
+
+## The same field's other half, 2026-08-28: a stale verdict survives re-handover
+
+A verdict is not cleared when an item returns to `check`, so an item can
+carry a verdict whose head is not its PR's head — and, after a bounce to
+a new PR, not even its PR.
+
+Measured on the live board:
+
+    3IVF3HbV   pr: #1480   verdict: reject (head 15cab039…)
+    3IVHXoDw   pr: #1471   verdict: request changes (head 844da8a9…)
+
+`15cab039` is the head of PR **#1463**, which was rejected and CLOSED;
+`3IVF3HbV` was respecced and rebuilt as #1480, whose head is different.
+`844da8a9` is `3IVHXoDw`'s pre-rework head; the rework pushed `e4579058`
+plus a merge and handed the item back.
+
+## Why it matters, stated precisely
+
+It is not a soundness hole. `land` compares the PR's current head against
+`verdict_head`, so a stale ACCEPT cannot land a reworked diff — the shas
+differ and the verb refuses. The damage is to legibility, and it is real:
+a reader sees `verdict: reject` beside `phase: check` and concludes the
+current work was rejected.
+
+That is not hypothetical. A session reading these two items reported them
+as "verdicts sitting on work this session built — worth attention given
+the reviewer-distance rule". Both verdicts were in fact recorded by OTHER
+sessions against EARLIER heads. The stale field manufactured a
+review-distance violation that did not exist, and a less careful reader
+would have acted on it.
+
+## Shape of a fix
+
+The two halves belong together: this item already asks that `verdict`
+refuse a `--head` that is not the PR's current head. The companion is
+that a move INTO `check` clears any verdict whose head is not the head
+being handed over — or, better, that `show` and `status` render a verdict
+as stale when `verdict_head` does not match the PR's head, since that
+needs no state change and cannot lose information.
+
+Rendering is the safer half to build first: clearing risks discarding a
+verdict someone still wants to read, while a `(stale)` marker costs
+nothing and fixes the misreading directly.
