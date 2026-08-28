@@ -55,22 +55,32 @@ of babysitting:
    else worth waiting on either notifies (task completion, PR events)
    or is the next pass's problem.
 
-## minted identities and the verdict wall
+## minted identities and your own wave
 
 each agent's claim is minted from this session's own identity plus a
 unique suffix: `<session>/<item-prefix>`. unique per agent, so claims
 lock (`parallel.md`); prefixed by the orchestrator, so the wave's
 provenance is readable in the log.
 
-the wall: **work built by an agent this session spawned is this
-session's own work.** the board cannot see that yet — `built_by`
-matches names exactly, so `next` will happily offer this session a
-verdict on its own wave's PR under its minted name. do not take it:
-never `review` or `verdict` an item whose claim or `builders` carry
-this session's identity or any name it minted. those items wait in
-`check` for a session that did not drive them — another loop, another
-run, a human. a loop that reviews its own wave is one session merging
-its own work with extra steps.
+**an orchestrator may take the verdict on its own wave.** the review
+runs in a subagent whose window never held the build — not the brief
+that spawned the builder, not the agent's report, not this pass's
+reasoning about the item — so the distance a verdict is worth is there
+however the reviewer was spawned. that is the rule `review.md` states,
+reaching the case a loop meets every pass, not an exception carved out
+of it.
+
+the distance is only as good as the brief. it carries the item id, the
+PR number and the checks, and NOT this session's reading of the item:
+the subagent reads the spec off the board and the diff off the PR
+itself. a brief that summarises what the wave was trying to achieve
+hands the reviewer back the commitment a fresh window exists to be
+without.
+
+the claim and `builders` stay the audit record — who held the item, who
+built it — and the verdict carries the review subagent's own derived
+identity, so the log shows whether a review ran at a distance. no gate
+can inspect a context window; that record is the evidence.
 
 ## never blocked
 
