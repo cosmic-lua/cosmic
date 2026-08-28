@@ -67,3 +67,4 @@ build when the committed copy drifts.
 | D30 | a cosmic module throws or exits only where no caller could receive the value | active | [→](d30-throw-exit-boundaries.md) |
 | D31 | the perf gate reads noise from every same-binary pair it already measured | active | [→](d31-gate-noise-from-every-control-pair.md) |
 | D32 | the metatable is-rescue judges the resolved shape, not the spelling | active | [→](d32-metatable-rescue-judges-resolved-shape.md) |
+| D34 | the perf gate judges reproduction against the re-measured baseline | active | [→](d34-reproduction-against-remeasured-baseline.md) |

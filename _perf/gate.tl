@@ -2,15 +2,25 @@
 --- Perf gate orchestration: the compare retry and the A/A triage behind
 --- the compare and selfcheck gates, in Teal rather than as
 --- shell ||-chains. A flagged regression re-measures once and fails
---- only when it strikes in BOTH passes — a scenario that flags only in
---- the retry did not reproduce and reclassifies to noise. When the
---- caller can re-run the baseline binary (--baseline-bin), the retry
---- re-measures BOTH sides, because a single unlucky baseline reading
---- otherwise anchors every pass and no amount of current-side retrying
---- washes it out. A persisting regression then meets an A/A self-check
---- that reclassifies swings the current binary shows against itself as
---- noise. Measurement is injected so the orchestration is testable
---- without running real benchmarks; main wires perf.run.
+--- only when it strikes in BOTH passes — two independent current-side
+--- samples judged against ONE common baseline, so a scenario that
+--- flags in only one of them did not reproduce and reclassifies to
+--- noise. When the caller can re-run the baseline binary
+--- (--baseline-bin), the retry re-measures BOTH sides, because a
+--- single unlucky baseline reading otherwise anchors every pass and no
+--- amount of current-side retrying washes it out; pass 1's flags are
+--- then recomputed against that re-measured baseline, or the
+--- reproduction question would be asked across two different
+--- references and a regression masked by a one-off slow baseline
+--- reading would be discarded as not reproduced. A persisting
+--- regression then meets an A/A self-check that reclassifies swings
+--- the current binary shows against itself as noise. The sampling is
+--- asymmetric, and this module does not fix that: a regression reading
+--- quiet on the retry ends the gate there on two current-side samples
+--- with no A/A control at all, while one flagging twice earns a third
+--- sample and triage across three control pairs. Measurement is
+--- injected so the orchestration is testable without running real
+--- benchmarks; main wires perf.run.
 local compare = require("_perf.compare")
 local pt = require("_perf.perf_types")
 local proc = require("cosmic.proc")
@@ -180,6 +190,32 @@ local function gate_inner(opts: GateOptions): integer
     if refusal then
       io.stderr:write(refusal .. "\n")
       return 1
+    end
+  end
+  if base_side ~= opts.baseline then
+    -- Re-key pass 1's flags to the baseline the failing judgment reads.
+    -- Pass 1 judged the caller's current file against the ORIGINAL
+    -- baseline; passes 2 and 3 judge against the re-measured one, so
+    -- asking whether a regression reproduced ACROSS those two asks it
+    -- against a moving reference. A scenario whose pass-1 baseline
+    -- reading was one-off SLOW is masked in pass 1, flags in pass 2
+    -- against the honest retry, survives triage, and is then discarded
+    -- as "not reproduced" — a real regression published. Recomputing
+    -- pass 1's flags from the caller's own current file against the
+    -- re-measured baseline makes the rule read what it always meant:
+    -- two INDEPENDENT current-side samples judged against ONE common
+    -- baseline. Both files are already on disk, so this costs no
+    -- measurement.
+    failures, err, deltas = compare_once(base_side, opts.current, opts.threshold)
+    if failures < 0 then
+      io.stderr:write(tostring(err) .. "\n")
+      return 1
+    end
+    flagged_first = {}
+    for _, d in ipairs(deltas) do
+      if d.verdict == "regression" then
+        flagged_first[d.name] = true
+      end
     end
   end
   -- The retry measured under whatever binary is running now, which may
