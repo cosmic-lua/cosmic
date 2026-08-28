@@ -64,30 +64,6 @@ local function build_floor(): {string: any}
   return rows
 end
 
--- The compact layout is reached through a map view, never the typed
--- two-argument call: release.yml's compare step runs this module bare
--- under the PREVIOUS release binary, whose embedded cosmic.literal may
--- predate FormatOptions, and the typed call is a load-time type error
--- there — the class that killed the release lane at run.tl's
--- version_info read. Tolerance alone is not enough either: Lua ignores
--- extra arguments, so under such a binary the call would silently
--- measure the PIN layout under the compact scenario's name. The
--- scenario therefore registers only when the layout is really
--- supported: the two spellings of a probe table must differ.
--- cast: an older embedded cosmic.literal may predate FormatOptions
-local lit = literal as {string: any}
--- cast: dynamic lookup; support probed before the scenario registers
-local format_any = lit.format as function(any, any): any
--- cast: the same function at its one-argument spelling, for the probe
-local format_one = lit.format as function(any): any
-
---- True when this runtime's `format` really has the compact layout.
---- @return boolean
-local function supports_compact(): boolean
-  local probe = {alpha = 1}
-  return format_any(probe, {layout = "compact"}) ~= format_one(probe)
-end
-
 local PIN, FLOOR = build_pin(), build_floor()
 local PIN_KEYS = count_keys(PIN)
 local PIN_SOURCE = check.must(literal.format(PIN))
@@ -180,18 +156,16 @@ local function scenarios(): {pt.Scenario}, string
   -- Third, not appended: the floor scenarios run first (see the
   -- header) and the compact writer belongs beside the pin-layout
   -- writer it is measured against.
-  if supports_compact() then
-    table.insert(list, 3, {
-        name = "literal_format_floor_compact",
-        fn = function(_: any): any
-          return (format_any(FLOOR, {layout = "compact"}))
-        end,
-        check = function(_: any, res: any): boolean, string
-          return verify("literal_format_floor_compact", res, FLOOR_ROWS, FLOOR_KEY,
-            "covered", FLOOR_COVERED)
-        end,
-      })
-  end
+  table.insert(list, 3, {
+      name = "literal_format_floor_compact",
+      fn = function(_: any): any
+        return (literal.format(FLOOR, {layout = "compact"}))
+      end,
+      check = function(_: any, res: any): boolean, string
+        return verify("literal_format_floor_compact", res, FLOOR_ROWS, FLOOR_KEY,
+          "covered", FLOOR_COVERED)
+      end,
+    })
   return list
 end
 
