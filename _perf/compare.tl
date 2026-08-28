@@ -249,11 +249,49 @@ local function format_delta(d: pt.Delta): string
     d.name, base_str, cur_str, delta_str, noise_str, d.verdict)
 end
 
+--- Format the binary-identity header for a pair of results files.
+---
+--- The identity is a property of a results FILE, not of a row: every
+--- row in one report comes from the same pair of files, so it is said
+--- once above the table rather than repeated in a column no terminal
+--- has room for. The 12-hex prefix is the one `identity_refusal` uses,
+--- so a header and a refusal naming the same binary agree on sight.
+---
+--- A side whose file records no `bin_sha` prints `unknown`, and the
+--- pair's verdict is then `(unverifiable)` rather than `(same)` --
+--- two files that cannot name their subject are not thereby the same
+--- subject. The word is printed, never stored: perf.run leaves an
+--- unhashable binary's `bin_sha` absent for exactly that reason.
+--- @param base Results The baseline side
+--- @param cur Results The current side
+--- @return string A single header line
+local function format_identity(base: pt.Results, cur: pt.Results): string
+  local sb = base.meta and base.meta.bin_sha
+  local sc = cur.meta and cur.meta.bin_sha
+  local state = "unverifiable"
+  if sb and sc then
+    state = sb == sc and "same" or "differ"
+  end
+  return string.format("binaries: base %s  current %s  (%s)",
+    sb and string.sub(sb, 1, 12) or "unknown",
+    sc and string.sub(sc, 1, 12) or "unknown",
+    state)
+end
+
 --- Format a full comparison report with a summary line.
+---
+--- Given both results files the report is headed by
+--- `format_identity`; given neither it is exactly the table and its
+--- summary, so a caller that has no files in reach is unaffected.
 --- @param deltas {Delta} Deltas from diff()
+--- @param base Results The baseline side, for the identity header
+--- @param cur Results The current side, for the identity header
 --- @return string The report text
-local function format(deltas: {pt.Delta}): string
+local function format(deltas: {pt.Delta}, base?: pt.Results, cur?: pt.Results): string
   local lines: {string} = {}
+  if base and cur then
+    table.insert(lines, format_identity(base, cur))
+  end
   local counts: {string: integer} = {}
   for _, d in ipairs(deltas) do
     table.insert(lines, format_delta(d))
@@ -339,7 +377,8 @@ local record compare
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage_many: function(base: pt.Results, cur: pt.Results, controls: {pt.Results}, threshold_pct?: number): {pt.Delta}, integer
   format_delta: function(d: pt.Delta): string
-  format: function(deltas: {pt.Delta}): string
+  format_identity: function(base: pt.Results, cur: pt.Results): string
+  format: function(deltas: {pt.Delta}, base?: pt.Results, cur?: pt.Results): string
 end
 
 local M: compare = {
@@ -351,6 +390,7 @@ local M: compare = {
   triage = triage,
   triage_many = triage_many,
   format_delta = format_delta,
+  format_identity = format_identity,
   format = format,
 }
 

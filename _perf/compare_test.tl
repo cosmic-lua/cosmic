@@ -287,4 +287,60 @@ local function test_a_real_regression_survives_every_control_pair()
     "stays regression across every pair")
 end
 
+-- The identity header. A report's two sides come from two FILES, so the
+-- binary each was measured on is said once above the table.
+
+local function sha_results(measurements: {pt.Measurement}, bin_sha?: string): pt.Results
+  local meta: pt.Meta = {}
+  if bin_sha then
+    meta.bin_sha = bin_sha
+  end
+  return {meta = meta, results = measurements}
+end
+
+local function test_identity_header_says_same_for_one_binary()
+  local line = compare.format_identity(
+    sha_results({m("a", 1000, 2)}, "145057b9fe90aabbccdd"),
+    sha_results({m("a", 1010, 2)}, "145057b9fe90aabbccdd"))
+  assert(line == "binaries: base 145057b9fe90  current 145057b9fe90  (same)",
+    "got: " .. line)
+end
+
+local function test_identity_header_says_differ_for_two_binaries()
+  local line = compare.format_identity(
+    sha_results({m("a", 1000, 2)}, "145057b9fe90aabbccdd"),
+    sha_results({m("a", 1010, 2)}, "9f2c1ab30de4aabbccdd"))
+  assert(line == "binaries: base 145057b9fe90  current 9f2c1ab30de4  (differ)",
+    "got: " .. line)
+end
+
+-- A side with no stamp is `unknown`, and the pair is `(unverifiable)` --
+-- never `(same)`, which would assert what neither file says.
+local function test_identity_header_is_unverifiable_without_a_stamp()
+  local line = compare.format_identity(
+    sha_results({m("a", 1000, 2)}, "145057b9fe90aabbccdd"),
+    sha_results({m("a", 1010, 2)}))
+  assert(line == "binaries: base 145057b9fe90  current unknown  (unverifiable)",
+    "got: " .. line)
+end
+
+-- The identity arguments are optional, and a caller that omits them
+-- gets exactly the table and summary it got before the header existed.
+local function test_format_without_identity_is_the_bare_report()
+  local base = sha_results({m("a", 1000, 2)}, "145057b9fe90aabbccdd")
+  local cur = sha_results({m("a", 1010, 2)}, "145057b9fe90aabbccdd")
+  local deltas = compare.diff(base, cur, 10)
+  local bare = compare.format(deltas)
+  local lines: {string} = {}
+  for line in bare:gmatch("[^\n]+") do
+    lines[#lines + 1] = line
+  end
+  assert(#lines == 2, "one row and one summary, got " .. #lines)
+  assert(lines[1] == compare.format_delta(deltas[1]), "got: " .. lines[1])
+  assert(bare:find("binaries:", 1, true) == nil, "no header without both files")
+  assert(compare.format(deltas, base, cur) ==
+    compare.format_identity(base, cur) .. "\n" .. bare,
+    "both files given: the header is prepended and nothing else moves")
+end
+
 print("OK compare_test")
