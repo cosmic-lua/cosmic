@@ -86,6 +86,41 @@ local function step_body(path: string, name: string): string
   return table.concat(body, "\n")
 end
 
+--- The body of one job in a workflow: from the line whose text is
+--- `  <name>:` up to (not including) the next line at that depth or
+--- shallower. Job-wide rather than step-wide because `step_body` keys
+--- on `- name:` and a bare `- uses:` step carries none — the peers
+--- lane's `actions/download-artifact` step is one, so nothing
+--- step-scoped can read it.
+---
+--- Scanned line by line rather than matched, the same technique
+--- `jobs_in` uses and for the same reason: a job name may contain `-`,
+--- which is a quantifier in a Lua pattern, so building a pattern out
+--- of the name would silently match the wrong block.
+--- @param path string The workflow file
+--- @param name string The job's key under `jobs:`
+--- @return string The job's lines, including its own `<name>:` line
+local function job_body(path: string, name: string): string
+  local body: {string} = {}
+  local in_jobs = false
+  local found = false
+  for line in check.must(fs.read(path)):gmatch("([^\n]*)\n?") do
+    if found then
+      if line:match("^%S") or line:match("^  %S") then
+        break
+      end
+      body[#body + 1] = line
+    elseif line:match("^jobs:%s*$") then
+      in_jobs = true
+    elseif in_jobs and line:match("^  ([%w_%-]+):%s*$") == name then
+      found = true
+      body[#body + 1] = line
+    end
+  end
+  assert(found, path .. ": job '" .. name .. "' not found")
+  return table.concat(body, "\n")
+end
+
 -- One distinct container reference across every workflow. This is the
 -- assertion the six copies exist for: they are only "a visible pin per
 -- lane" if they are the same pin.
@@ -347,6 +382,41 @@ local function test_the_release_baseline_runs_the_trees_perf()
   assert(body:find("--baseline-bin", 1, true),
     path .. ": the gate still needs `--baseline-bin` so a flagged " ..
     "regression re-measures both sides")
+end
+
+-- The peer table is measured by running the peer harness bare, so
+-- `_perf.*` resolves from the measured binary's own /zip rather than
+-- from the checkout. Sound only because that binary is this run's own
+-- candidate: `needs: build`, and the `cosmic-lua` artifact the `build`
+-- job uploaded. Point the lane at a published release instead and the
+-- harness doing the measuring becomes that release's, while the table
+-- still reads as a report on this tree -- a skew with no symptom.
+local function test_the_peers_lane_measures_this_runs_own_binary()
+  local path = WORKFLOWS .. "/release.yml"
+  local body = job_body(path, "peers")
+  assert(body:find("needs: build", 1, true),
+    path .. ": the `peers` job must declare `needs: build`, or the " ..
+    "binary it measures is not this run's candidate and the bare peer " ..
+    "harness run reports a stale embedded instrument as this tree's")
+  assert(body:find("name: cosmic-lua", 1, true),
+    path .. ": the `peers` job must download the `cosmic-lua` artifact " ..
+    "the `build` job uploaded — that artifact is what makes the " ..
+    "measured binary this checkout's own, and its embedded `_perf` ours")
+  assert(body:find("_perf/peers/run.tl", 1, true),
+    path .. ": the `peers` job must run the tree's peer harness " ..
+    "`_perf/peers/run.tl`; without it the lane publishes no peer table")
+  assert(not body:find("_perf/baseline.tl", 1, true),
+    path .. ": the `peers` job has ONE cosmic subject measured against " ..
+    "CPython, Node and Go — there is no second cosmic instrument to " ..
+    "hold fixed, so a baseline runner has no place in this lane")
+  assert(not body:find("gh release download", 1, true),
+    path .. ": the `peers` job must not take its binary from a " ..
+    "published release — the bare harness run would then measure that " ..
+    "release's embedded `_perf`, not this checkout's")
+  local build = job_body(path, "build")
+  assert(build:find("name: cosmic-lua", 1, true),
+    path .. ": the `build` job must upload the `cosmic-lua` artifact " ..
+    "the `peers` job downloads, or the two lanes are not the one binary")
 end
 
 print("all workflow ratchet tests passed")
