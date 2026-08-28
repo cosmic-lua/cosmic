@@ -6,6 +6,7 @@ return {
   ["parent"] = "3IODJgkObjfhsxqMPEgFPIM6RHR",
   ["phase"] = "check",
   ["pr"] = 1471,
+  ["reviewer"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["title"] = "the checker accepts return nil from a bare non-nil declared return, so an annotation can lie and no nil tool fires",
   ["verdict"] = "request changes",
   ["verdict_head"] = "844da8a99ee89509ab3d6e60c3b19bc9c897b862",
