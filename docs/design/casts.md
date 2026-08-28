@@ -1,215 +1,467 @@
-# from-any casts
+# casts
 
 Every `as` cast in this tree carries a `-- cast: <reason>`
-justification, and `from any` is one of those reasons — the shape that
-stands furthest between the tree and G3's zero-cast win condition,
-because a value typed `any` defeats the checker rather than merely
-inconveniencing it. This document classifies the from-any sites by the
-shape of the site, and names for each shape the mechanism that would
-close it.
+justification, enforced by `cosmic --check lint`. This document
+classifies all of them: what each class of cast IS, and what would
+retire it. Each class gets exactly one of three verdicts. **What closes
+it here** means the mechanism exists in this repository, or writing it
+is ordinary work. **What closes it upstream** means the fix belongs in
+`whilp/cosmopolitan`'s `tool/net/definitions.lua` or in tl, and arrives
+as a pin bump. **Why it is a floor** means no mechanism closes it
+without deleting the thing the cast serves.
 
-The document holds no counts: what each class IS and what would retire
-it is durable, while how many sites a class has today is derived, and
-the `## Method` command derives it in a second. Every site quoted below
-is quoted in the fenced form, so `--make ci` compares the quote against
-its source line on every run — a site that closes fails the gate here,
-and the document cannot silently describe a tree that has moved.
+The document holds no counts: what a class IS and what would retire it
+is durable, while how many sites it has today is derived. Every site
+quoted below is quoted in the fenced form, so `--make ci` compares the
+quote against its source line on every run — a site that closes fails
+the gate here, and the document cannot silently describe a tree that
+has moved.
 
 ## Method
 
-The site list:
+The authoritative total is the committed per-file floor, which
+`_build/casts.tl` produces by walking `as` tokens through the linter's
+lexer:
 
 ```text
-git ls-files '*.tl' | xargs grep -n -- "-- cast: .*from any"
+awk -F'= ' '/\] = /{gsub(/,/,"",$2); s+=$2} END {print s}' \
+  _build/casts_baseline.tl
 ```
 
-Some of those hits are the reason text quoted inside test fixtures
-rather than casts — `_build/casts_test.tl`, `_cli/assert_lint_test.tl`
-and `_tool/lint_test.tl` all hold a fixture line that says `-- cast:
-from any` as data. The grep cannot tell them apart; `_build/casts.tl`
-can, because it counts `as` tokens through the linter's lexer.
-
-The from-any bucket against every other cast reason:
+A grep for the justification comment counts higher — 11 higher today —
+because a `-- cast: ` string can appear in a file without being a cast.
+The lint's own fixtures and doc comments quote the reason text as data,
+and a grep cannot tell code from a quoted example of code. That
+divergence is confined to five files: `_build/casts.tl`,
+`_build/casts_test.tl`, `_cli/assert_lint_test.tl`, `_cli/lint.tl` and
+`_tool/lint_test.tl`; everywhere else the two agree file for file. Use
+the lexer — `_cli.lint.cast_lines(content, file)` returns the real cast
+lines, and `_build/casts.tl` is its one caller.
 
 ```text
 git ls-files '*.tl' | xargs grep -h -- "-- cast: " | wc -l
-git ls-files '*.tl' | xargs grep -h -- "-- cast: " | grep -c "from any"
 ```
+
+The reason census, which the classes below were read from:
+
+```text
+git ls-files '*.tl' | xargs grep -ho -- "-- cast: .*" \
+  | sed 's/-- cast: //; s/ *(.*//' | sort | uniq -c | sort -rn
+```
+
+Reason text is a signal, not the classification: the same shape appears
+under several spellings and one spelling spans two shapes, so every
+site below was read rather than pattern-matched.
+
+The site inventory is committed beside this document as
+`docs/design/cast-sites.tsv`: one row per cast, holding the path, the
+line the `as` token is on, and the class. The reason comment is not
+always on the cast's line — for roughly a third of the sites it stands
+alone on the line above — so a `file:line` join between the grep's
+output and the lexer's mismatches on all of those. Where the inventory
+and this prose disagree, the inventory is right.
 
 ## Classes
 
-Seven shapes, disjoint: every site belongs to exactly one. Where two
-descriptions fit a site, the more specific one takes it — a column read
-off a sqlite row is a row read, not a generic map walk, and a value that
-arrived from a decoder is decoded data however it is then indexed.
+Every cast belongs to exactly one class. Where two descriptions fit a
+site, the more specific one takes it: a column read off a sqlite row is
+a row read rather than a generic map view, a test that re-types an API
+to defeat it is a probe rather than whatever shape the re-typing takes,
+and a value typed by a `cosmo.*` declaration is a binding site rather
+than a narrowing one.
 
-### Decoded-data shaping
+### type-defeating test probe
 
-A value that came out of `json.decode`, `literal.parse`, a loaded config
-chunk, or a decoded report, then reshaped or read field by field into a
-known record. The purest form is a run of consecutive fields lifted off
-one decoded table, each read costing its own cast; the test form casts
-the decoded value to the shape the test then asserts on.
-
-**What closes it.** Partly, tools already in the tree:
-`cosmic/json.tl` declares `decode_object(str): {string: any} | nil,
-string` and `decode_array(str): {any} | nil, string`, so a
-`json.decode(s) as {string: any}` site is a call change and nothing
-more. That closes the top level only. The field reads underneath it need
-a decode that validates into a declared record and returns it typed —
-one API, applicable at every site in this class.
-
-### Any-map field walk
-
-Indexing a value the code knows is a table but whose type is `any` or
-`{string: any}`, one field at a time down a path. Each step of the path
-costs a cast, so a two-level read costs two. The values are box
-configuration, tl syntax-tree nodes, and coverage records — real
-structures with real shapes that no record describes.
-
-**What closes it.** A declared record per shape, which is ordinary work
-with no missing mechanism behind it: the box configuration and the
-coverage record are cosmic's own data and can simply be typed. Where the
-value genuinely is dynamic, `is {string: any}` dispatch narrows without a
-cast and is already available. Sites accumulate here because nobody has
-written the records, not because anything blocks writing them.
-
-### sqlite row column read
-
-A `Row` is `{string: any}`, so reading a column with a known type costs
-a cast at every read: `row.name as string`, `(row.c as number)`.
-
-**What closes it.** Typed column accessors on `Row` — a `text`,
-`number`, `integer` and `blob` reader that takes the column name and
-returns the declared type or fails. The row's dynamic shape is real (a
-query's columns are known only at runtime), so the record cannot be
-typed; the accessor is what moves the check from the caller's cast to
-one place that can fail honestly.
-
-### Dynamic-value boundary
-
-A value whose type genuinely is not knowable at the boundary it crosses:
-a `pcall`, `load`, `require`, `coroutine.resume` or `package.loaded`
-return, and the `any`-typed parameters cosmic's own APIs declare. The
-live site is one of the latter — a response constructor handed to
-`fetch`'s extras, declared to take `any` and immediately re-shaped:
+A test that re-types an API to feed it input the real signature
+forbids, or to reach a surface the type deliberately hides, so the
+runtime guard can be exercised. `check.refuses` is the shared helper
+for the invalid-input half and carries the class's one library cast.
 
 ```text
--- cosmic/fetch/init.tl:384
-    return make_response(t as {string: any}) -- cast: from any
+-- cosmic/hash_test.tl:169
+  local bad = {variant = "invalid"} as hash.Options
 ```
 
-**What closes it.** Two different things, which is why this class does
-not collapse into one item. Repeated `pcall(require, ...)` sites want one
-typed helper that returns the module or nil; the `any`-typed parameters
-want the API to declare what it actually accepts, a union or a record
-rather than `any`. What is left after both — `load` of an arbitrary
-chunk, a resumed coroutine's values — is dynamic by nature and closes
-only with an `is` guard at the point of use.
+**Why it is a floor.** A test that proves a runtime guard rejects input
+the type forbids must first defeat the type; remove the cast and the
+test goes with it. The class is compressible, not closable: every
+probe can route through a helper, and two helpers is the floor.
 
-### Binding boundary
+### userdata boundary
 
-A `cosmo.*` or Lua-stdlib call whose generated declaration types the
-return `any`, or returns an untyped tuple the caller has to type slot by
-slot. An `E*` constant looked up by name off the `unix` table, and a
-signal number looked up the same way:
+A raw userdata handle from a binding, re-typed to the record that
+describes it; or a method table typed `{string: any}` whose `self` is
+`any`, re-typed once per method. Teal's `userdata` member makes `is`
+narrow such a record, but cannot type an untyped handle in the first
+place.
+
+```text
+-- cosmic/fs/types.tl:279
+    return raw as fs_types.Stat -- cast: userdata boundary
+```
+
+**Why it is a floor.** A userdata value has no structure Teal can read,
+so the record describing it is an assertion, and the assertion has to
+be written somewhere. The floor is one cast per handle type at its wrap
+point — six today — with the per-method casts collapsing into those.
+
+### tl compiler surface
+
+The narrowed tl API types a parsed program, its statements and its
+environment as `any`, so every field read, array view and method beyond
+the curated surface costs a cast. Nothing here describes those shapes,
+because the AST is deliberately not part of what the extraction emits.
+
+```text
+-- _tool/discover.tl:87
+    local node = stmt as {string: any} -- cast: tl AST node fields
+```
+
+**What closes it upstream.** tl is where the AST node types live, and
+`_types/gentl.tl` erases them by rule because the upstream records
+carry internal fields no consumer should depend on. A published node
+type in tl emits a concrete record, arriving here as a tl pin bump.
+
+### binding contract shape
+
+A `cosmo.*` declaration whose type is the union of every shape the C
+function can take or return: a tuple whose slots are all
+`success | failure`, a return typed `any`, or a parameter widened to
+cover every accepted form. The caller has guarded; the declaration has
+not.
+
+```text
+-- cosmic/time.tl:132
+    return nil, errno.format(mon as string, "gmtime") -- cast: tuple element
+```
+
+**What closes it upstream.** These declarations are generated from
+`tool/net/definitions.lua` in `whilp/cosmopolitan`, so the annotation
+there is the source: concrete per-slot return types emit concrete Teal
+types and the call-site cast disappears, arriving here as a pin bump.
+
+### proved-value narrowing
+
+A `T | nil` re-typed to `T` because the code above established that the
+nil cannot occur — by an early-exit guard, by an `or` fallback that
+cannot itself be nil, or by a fact about the environment a test runs
+in. These casts do not make the code compile; they state the intent.
+
+```text
+-- _make/root.tl:67
+      local hits = (fs.glob(cmd, pattern) or {}) as {string} -- cast: or keeps the nil union
+```
+
+**What closes it here.** The mechanisms ship already. `check.must`
+turns a fallible call into a plain value in tests, which is what the
+`fs.cwd()` sites want; the carried patch already narrows `x or
+fallback` and below an early-exit guard, so several are dead weight.
+
+### enum relation
+
+An enum value used where a plain `string` is wanted, or one enum's word
+set used where a wider enum is declared even though every word of the
+narrow set is a word of the wide one. Teal relates neither pair, so a
+relation the reader verifies by eye costs a cast.
+
+```text
+-- cosmic/hash.tl:104
+    string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening
+```
+
+**What closes it upstream.** The subtyping rule is tl's: an enum whose
+words are a subset of another's is a subtype of it, and every enum is a
+subtype of `string`. Both are narrowing rules of the kind the carried
+patch holds (`3p/tl/tl_patch/`), so both close as a patch plus a bump.
+
+### runtime capability probe
+
+Code that asks at runtime whether a surface exists, because the answer
+depends on the runtime or on which binary is loaded rather than on the
+types: whether this platform's `proc` carries `pledge`, whether a
+reader implements the delimiter capability, whether a module predates a
+function.
+
+```text
+-- cosmic/stream.tl:237
+  local dr = r as stream.DelimReader -- cast: duck-typed capability probe
+```
+
+**Why it is a floor.** The question is unanswerable at check time by
+construction: a type says what a value is in the tree being checked,
+and the probe exists because the value may come from a different tree.
+Each probed shape needs one cast to name what it found — five today.
+
+### metatable access
+
+`getmetatable` and `debug.getmetatable` return `any` by definition, so
+an identity compare against a known metatable, or a read of a
+metamethod off one, costs a cast at every site. The `__close` tests use
+the second form; the sqlite blob check uses the first.
+
+```text
+-- cosmic/sqlite/bind.tl:40
+  return getmetatable(v) == blob_mt as any -- cast: metatable identity compare
+```
+
+**Why it is a floor.** A metatable is a table whose type is whatever
+its owner made it; Lua's contract for `getmetatable` returns a value of
+no particular type, and a typed wrapper would assert the same thing one
+level down. Two helpers — identity compare and metamethod fetch.
+
+### function shape
+
+An overloaded binding declared as a union of signatures, with one arm
+selected by casting the function before calling it. The unix socket
+calls are the pure case: `bind` and `connect` take either a sockaddr or
+a filesystem path, and one declaration covers both.
+
+```text
+-- cosmic/net/socket.tl:334
+    local ok, err = (unix.bind as function(number, string): (boolean, string))(fd, path)
+```
+
+**What closes it upstream.** `tool/net/definitions.lua` declares one
+function per C entry point, so an overload is one annotation covering
+two contracts. Splitting the overloaded entries into separately
+annotated names removes the cast at every call site.
+
+### container variance
+
+A container re-typed to another container type Teal will not relate: an
+array read as a map or the reverse, a map widened at its key or value
+type, an element enum where the element is `string`, a bare `table`
+narrowed to a shape. Teal's containers are invariant.
+
+```text
+-- cosmic/sqlite/bind.tl:111
+  local list = params as {any} -- cast: array-part probe of the params table
+```
+
+**What closes it upstream.** Covariance on reads is the missing tl
+rule: `{Promise}` where `{string}` is wanted, and `{string: Rule}`
+where `{string: any}` is wanted, are sound everywhere this tree uses
+them. The bare-`table` sites are the exception and want a union.
+
+### numeric narrowing
+
+A value the code has established is an integer, declared `number`:
+digits just parsed by `tonumber` with an explicit base, a computation
+bounded above and below, a value a `math.type` check has already
+sorted, or a tl API field reporting a line or column.
+
+```text
+-- cosmic/fs/octal.tl:23
+  return tonumber(digits, 8) as integer -- cast: octal digits parse integral
+```
+
+**What closes it upstream.** `math.type(x) == "integer"` is a guard the
+checker could narrow on, exactly as it narrows a nil union, and
+`tonumber(s, base)` over a digit string is integral by Lua's contract.
+Both are checker rules, so both land in the patch or upstream in tl.
+
+### dynamic name lookup
+
+A table indexed by a name computed at runtime, where the declared type
+cannot say what any single name maps to: a verb registry keyed by verb
+name, a `package.searchers` slot, a module fetched through an
+indirection that defeats static resolution.
+
+```text
+-- _make/init.tl:143
+  local v = by_name("build") as Verb -- cast: the registry defines it
+```
+
+**What closes it here.** The registry is this tree's own data. A
+`by_name` returning `Verb | nil` closes seven of these outright, and
+the guard that follows is one the checker already narrows. The searcher
+slot wants a declared record and nothing more.
+
+### generic T
+
+A fresh table, a map view, or a value pulled out of a dynamic walk,
+re-typed as a generic parameter, because Teal cannot relate the
+concrete thing the body built to the `T` the signature promised. Every
+site sits in a generic whose contract is honest and unprovable inside.
+
+```text
+-- cosmic/deep.tl:52
+  return copy_impl(value, {}) as T
+```
+
+**Why it is a floor.** The body of a generic function cannot construct
+a value of its own type parameter: only the caller knows what `T` is,
+and the walk underneath is dynamic by design. Eight sites, one per
+generic body that returns a constructed value, already incompressible.
+
+### module surface record
+
+A `require` result, or a freshly loaded chunk, re-typed to a
+hand-written record naming only the part the caller uses. The record is
+a deliberate narrowing rather than a workaround — it documents the seam
+— but it is spelled as a cast.
+
+```text
+-- _types/gentype.tl:19
+local render = require("_types.gentype_render") as GentypeRender -- cast: narrow surface
+```
+
+**What closes it here.** These are this tree's own modules, and the
+narrow record is the module's real contract written on the wrong side
+of the seam. Declaring it in the module's own source and returning it
+typed makes the plain `require` resolve to that type.
+
+### decoded data shaping
+
+A value that came out of `literal.parse`, a decoded config or a parsed
+baseline, then read field by field or narrowed into a declared record.
+The outermost table is typed by the decoder; everything under it is
+`any`, so each field read costs its own cast.
+
+```text
+-- _tool/coverage/baseline.tl:165
+  return {covered = covered as integer, total = total as integer} -- cast: math.type checked above
+```
+
+**What closes it here.** `cosmic.shape` already validates a value
+against a declared spec and returns it typed, which is the
+decode-into-a-record step these sites hand-roll. Routing the baseline
+and pin readers through it replaces the field-wise casts with one call.
+
+### record union after guard
+
+A union re-typed after a guard the checker does not carry to the use:
+the guard sits on a record FIELD rather than a plain variable, or it
+proved which arm of a record union a value is on in a way `is` cannot
+express. The fact is established; it does not survive to the next line.
+
+```text
+-- _make/stage.tl:183
+  local sel = v.select as Selection -- cast: a graph verb always has one
+```
+
+**What closes it upstream.** Record-field narrowing is the named gap: a
+guard on `v.select` narrows nothing, and the documented workaround is
+to copy the field to a local. Carrying a guard on a field — invalidated
+by any assignment to it — is a narrowing rule, so it lands in tl.
+
+### incremental record construction
+
+A table assembled field by field, or seeded empty and filled by the
+lines that follow, re-typed to the record it satisfies once the filling
+is done. Teal checks a record literal but has nothing to say about a
+table built up over several statements.
+
+```text
+-- cosmic/sqlite/row_iter.tl:64
+  local iter = setmetatable({} as Rows, { -- cast: table seeded as record
+```
+
+**What closes it here.** Most of these can be written as record
+literals, which the checker verifies field by field: the module tables
+and the response constructor have every value in scope already. The
+iterator wants its field set declared up front, closures assigned after.
+
+### pcall return shape
+
+`pcall` returns a boolean and then whatever the call returned, which
+the checker can only spell as `any`, so a caller that knows the
+protected function's signature re-types the tuple. Slot two is a raised
+error on failure and the callee's first return on success.
+
+```text
+-- cosmic/shm.tl:146
+    local ok, err = pcall(raw.write, raw, off, data, write_count) as (boolean, any)
+```
+
+**What closes it upstream.** `pcall` is a checker special case, not an
+ordinary function: tl knows the callee's type at the call site and
+could type the success arm from it, leaving the failure arm as the
+error type. That rule lands in the carried patch or upstream in tl.
+
+### binding constant by name
+
+A `cosmo.unix` constant resolved by a name computed at runtime — an
+`E*` errno name, a `SIG*` signal name — which needs the module table
+viewed as a map and the result re-typed to `integer`. The constants are
+declared correctly; looking one up by name has no typed surface.
 
 ```text
 -- cosmic/errno.tl:52
   return (unix as {string: any})[name] as integer -- cast: dynamic E* lookup, from any
 ```
 
-```text
--- cosmic/quicksand/proc.tl:262
-    local n = by_name[s] as integer -- cast: from any
-```
+**What closes it upstream.** `whilp/cosmopolitan` holds the constants
+and can expose them as real maps — one `{string: integer}` for the
+errno names and one for the signal names — annotated so the generator
+emits typed tables. The lookup becomes a map read with an honest `| nil`.
 
-An `fcntl` return that is an integer for every command cosmic passes:
+### map view of a declared value
 
-```text
--- cosmic/fd.tl:187
-    return result as integer -- cast: from any
-```
-
-A zip reader handle, and `cosmo.Fetch`'s dual-shape second return, which
-is the headers table on success and the error string on failure — one
-declaration covering both, so the success path re-types it at each of
-the two call sites that read it:
+A value this tree gave a type — a record, a stdlib module table, or a
+parameter it declared `any` at a module seam — re-typed to
+`{string: any}` so code can assign through a computed key, or so two
+modules can pass a value without a circular type dependency.
 
 ```text
--- cosmic/zip.tl:222
-    return make_archive("read", {reader = handle as zip.Reader}) -- cast: from any
+-- cosmic/coverage/init.tl:92
+  local co = coroutine as {string: any} -- cast: patch stdlib table
 ```
+
+**What closes it here.** Declaring the type is the whole fix, and the
+type is knowable in every case: a narrow record for the two stdlib
+functions the coverage hook swaps, the walker taking the record it
+walks, and the response callback declaring the map it accepts.
+
+### sqlite row column read
+
+A `Row` is `{string: any}`, so reading a column whose type the query
+already fixes costs a cast at every read.
 
 ```text
--- cosmic/fetch/init.tl:239
-  local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
+-- cosmic/sqlite/lifecycle_test.tl:12
+  return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as integer
 ```
 
-```text
--- cosmic/fetch/init.tl:367
-  local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
-```
+**What closes it here.** Typed column accessors on `Row` — a `text`,
+`number`, `integer` and `blob` reader taking the column name and
+returning the declared type or failing. The row's dynamic shape is
+real, so the accessor is what makes the check fail honestly.
 
-**What closes it.** Not cosmic. `_types/gentype.tl` generates these
-declarations from `tool/net/definitions.lua` in `whilp/cosmopolitan`, so
-the annotation there is the source: a binding annotated with its
-concrete return type emits a concrete Teal type and the cast at the call
-site disappears. That makes this class a change in the other repository,
-landed as its own work, followed by a pin bump here.
+## The floor
 
-### Untyped-probe fallout
+Five classes carry the verdict **Why it is a floor**: type-defeating
+test probe, userdata boundary, runtime capability probe, metatable
+access, and generic T. Together they hold 76 of the tree's casts today,
+by `docs/design/cast-sites.tsv`. They do not all stay that size — four
+of the five compress hard, because the shape repeats and one helper can
+carry it. Summing each class's smallest reachable count — six wrap
+points, two probe helpers, five probed shapes, two metatable helpers
+and eight generic bodies — puts the floor at **23**.
 
-A test that deliberately re-types an API to feed it input the real
-signature forbids, or reaches a surface the type deliberately does not
-describe. The invalid-input form re-types a constructor as
-`function(any): any, any` so it can pass a bad argument, and everything
-read off that call is then `any`. The surface form walks the published
-modules by name, which no type describes; it narrows with an `is`
-guard at the point of use rather than a cast.
+That number is what the win condition has to answer to. G3's measure in
+`docs/goals.md` is zero `as` casts, and these 23 are not casts standing
+in for work nobody has done: they are the places where a type system
+that cannot see userdata, cannot see a metatable, cannot see another
+binary's surface, and cannot see inside its own generics has to be
+told. Reaching literal zero means deleting what they serve — the tests
+that prove the runtime guards refuse bad input, the typed wrappers over
+`cosmo.*` handles, the generic copy and merge.
 
-**What closes it.** For the invalid-input probes, one test helper that
-performs the untyped call and hands back a typed `(nil, string)` — the
-tests all want the same thing, which is to assert on an error message.
-
-### Fixture text, not a cast
-
-Not a cast at all: a string literal holding `-- cast: from any` as
-fixture input for a lint's own test. `_build/casts_test.tl` feeds it to
-the cast counter, and `_cli/assert_lint_test.tl` and `_tool/lint_test.tl`
-feed the same shape to the justification rules.
-
-**What closes it.** Nothing, because nothing is broken: the counter and
-the lint rules both walk tokens through the linter's lexer, so a cast
-quoted inside a string is neither counted nor flagged, and
-`_build/casts_baseline.tl` carries no row for a file whose only `as` is
-test data. The class is here because the census command is a grep, and a
-grep cannot tell code from a quoted example of code.
-
-## What no mechanism closes
-
-Two of the seven have no tool waiting for them.
-
-**Decoded-data shaping** below its top level. `json.decode_object` and
-`json.decode_array` type the outermost table and stop; nothing in the
-tree turns a decoded table into a declared record with the fields
-checked. That missing piece is a cosmic API — a decode that takes the
-target record and validates into it.
-
-**Binding boundary** returns. The declarations are generated, so no edit
-in this repository can improve them; the fix is an annotation in
-`whilp/cosmopolitan`'s `tool/net/definitions.lua`, which then flows here
-as a pin bump. Nothing in the carried tl patch (`3p/tl/tl_patch/`) or
-upstream tl is implicated — these are honest `any` declarations, not
-narrowing gaps.
-
-Everything else here is ordinary work against mechanisms that already
-exist: records nobody has written, accessors nobody has added, and calls
-that should be using the typed decoder already shipping.
+So the question, which this document puts and does not answer: does G3
+keep zero as a literal target and accept that it is reached by deleting
+those, or does it become zero outside a named floor — the justified
+casts no mechanism closes, held per class and ratcheted by
+`_build/casts_baseline.tl` — with a further condition on the test half,
+since 26 of the 76 are test probes and a probe behind one named helper
+is a different thing from a probe written by hand at each site? That is
+the goal owner's call, made by amending `docs/goals.md`, not here.
 
 ## What this is not
 
 Not a floor and not a gate. `_build/casts_baseline.tl` is the ratchet
-that holds the cast count down, per file, and `cosmic --check lint` is
-what enforces the justification comment; this document is the map that
-says what the remaining sites are and in what order they can be closed.
+that holds the cast count down, per file; `cosmic --check lint` enforces
+the justification comment and checks this document's citations against
+the tree; `docs/design/cast-sites.tsv` is the site inventory. This
+document is the map: what the remaining sites are, which can be closed,
+and by whom.

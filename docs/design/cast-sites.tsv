@@ -1,0 +1,215 @@
+path	line	class
+_build/casts.tl	90	decoded data shaping
+_cli/build/steps.tl	279	proved-value narrowing
+_fuzz/compress_fuzz_test.tl	76	enum relation
+_make/generate.tl	99	record union after guard
+_make/imports.tl	182	proved-value narrowing
+_make/init.tl	143	dynamic name lookup
+_make/init.tl	184	dynamic name lookup
+_make/init.tl	246	dynamic name lookup
+_make/init.tl	251	dynamic name lookup
+_make/init.tl	283	dynamic name lookup
+_make/init.tl	291	dynamic name lookup
+_make/init.tl	300	dynamic name lookup
+_make/root.tl	67	proved-value narrowing
+_make/root_test.tl	187	proved-value narrowing
+_make/root_test.tl	234	proved-value narrowing
+_make/root_test.tl	248	proved-value narrowing
+_make/runverb.tl	144	proved-value narrowing
+_make/stage.tl	183	record union after guard
+_perf/bench/literal_bench.tl	78	runtime capability probe
+_perf/bench/literal_bench.tl	80	runtime capability probe
+_perf/bench/literal_bench.tl	82	runtime capability probe
+_perf/bench/micro_bench.tl	192	record union after guard
+_perf/perf_test.tl	31	proved-value narrowing
+_perf/run.tl	156	runtime capability probe
+_perf/run.tl	159	runtime capability probe
+_tool/coverage/baseline.tl	159	decoded data shaping
+_tool/coverage/baseline.tl	165	decoded data shaping
+_tool/coverage/baseline_test.tl	459	decoded data shaping
+_tool/coverage/lines.tl	86	tl compiler surface
+_tool/coverage/lines.tl	98	tl compiler surface
+_tool/coverage/lines.tl	133	tl compiler surface
+_tool/discover.tl	86	tl compiler surface
+_tool/discover.tl	87	tl compiler surface
+_tool/discover.tl	90	tl compiler surface
+_types/gentype.tl	19	module surface record
+_types/gentype.tl	24	module surface record
+_types/gentype.tl	30	module surface record
+_types/tlast.tl	105	tl compiler surface
+_types/tlast.tl	158	metatable access
+_types/tlast.tl	249	module surface record
+_types/tlast.tl	250	module surface record
+_types/tlast.tl	260	tl compiler surface
+_types/tlast.tl	270	metatable access
+_types/tlast_test.tl	47	module surface record
+_types/tlast_test.tl	57	tl compiler surface
+cmd/cosmic/embed_gen.tl	312	decoded data shaping
+cmd/cosmic/embed_gen.tl	352	decoded data shaping
+cmd/cosmic/main.tl	456	container variance
+cosmic/_literal_format.tl	113	container variance
+cosmic/_literal_format.tl	131	container variance
+cosmic/_literal_lex.tl	198	numeric narrowing
+cosmic/_literal_lex.tl	226	numeric narrowing
+cosmic/_literal_lex.tl	230	numeric narrowing
+cosmic/_teal_ast_test.tl	34	tl compiler surface
+cosmic/_teal_ast_test.tl	35	tl compiler surface
+cosmic/_teal_ast_test.tl	37	tl compiler surface
+cosmic/_teal_discard.tl	183	tl compiler surface
+cosmic/_teal_discard.tl	205	tl compiler surface
+cosmic/_teal_discard.tl	258	tl compiler surface
+cosmic/_teal_engine.tl	175	tl compiler surface
+cosmic/_teal_engine.tl	231	tl compiler surface
+cosmic/_teal_engine.tl	232	tl compiler surface
+cosmic/_teal_engine.tl	251	pcall return shape
+cosmic/check.tl	121	type-defeating test probe
+cosmic/check.tl	287	record union after guard
+cosmic/check_assertions_test.tl	115	type-defeating test probe
+cosmic/check_assertions_test.tl	360	type-defeating test probe
+cosmic/check_assertions_test.tl	382	function shape
+cosmic/compress_test.tl	25	enum relation
+cosmic/compress_test.tl	38	enum relation
+cosmic/compress_test.tl	152	enum relation
+cosmic/compress_test.tl	171	type-defeating test probe
+cosmic/coverage/init.tl	44	module surface record
+cosmic/coverage/init.tl	45	module surface record
+cosmic/coverage/init.tl	92	map view of a declared value
+cosmic/coverage/init.tl	93	map view of a declared value
+cosmic/coverage/init.tl	173	function shape
+cosmic/deep.tl	52	generic T
+cosmic/deep.tl	121	generic T
+cosmic/embed/init.tl	103	userdata boundary
+cosmic/errno.tl	52	binding constant by name
+cosmic/errno.tl	119	binding constant by name
+cosmic/fd.tl	187	binding contract shape
+cosmic/fd_read_test.tl	106	type-defeating test probe
+cosmic/fd_read_test.tl	107	type-defeating test probe
+cosmic/fd_read_test.tl	109	type-defeating test probe
+cosmic/fetch/extras.tl	184	generic T
+cosmic/fetch/extras.tl	199	generic T
+cosmic/fetch/extras.tl	202	generic T
+cosmic/fetch/extras.tl	239	generic T
+cosmic/fetch/init.tl	214	enum relation
+cosmic/fetch/init.tl	220	incremental record construction
+cosmic/fetch/init.tl	239	binding contract shape
+cosmic/fetch/init.tl	241	binding contract shape
+cosmic/fetch/init.tl	363	binding contract shape
+cosmic/fetch/init.tl	367	binding contract shape
+cosmic/fetch/init.tl	384	map view of a declared value
+cosmic/format/init.tl	118	incremental record construction
+cosmic/format/init.tl	141	numeric narrowing
+cosmic/format/init.tl	142	numeric narrowing
+cosmic/format/init.tl	162	numeric narrowing
+cosmic/format/init.tl	163	numeric narrowing
+cosmic/fs/find.tl	211	userdata boundary
+cosmic/fs/find.tl	235	userdata boundary
+cosmic/fs/find.tl	313	userdata boundary
+cosmic/fs/find_close_test.tl	86	metatable access
+cosmic/fs/find_close_test.tl	88	metatable access
+cosmic/fs/octal.tl	23	numeric narrowing
+cosmic/fs/ops.tl	411	userdata boundary
+cosmic/fs/ops.tl	425	userdata boundary
+cosmic/fs/traps_test.tl	11	type-defeating test probe
+cosmic/fs/tree.tl	23	userdata boundary
+cosmic/fs/types.tl	214	userdata boundary
+cosmic/fs/types.tl	217	userdata boundary
+cosmic/fs/types.tl	220	userdata boundary
+cosmic/fs/types.tl	223	userdata boundary
+cosmic/fs/types.tl	226	userdata boundary
+cosmic/fs/types.tl	229	userdata boundary
+cosmic/fs/types.tl	232	userdata boundary
+cosmic/fs/types.tl	235	userdata boundary
+cosmic/fs/types.tl	238	userdata boundary
+cosmic/fs/types.tl	262	userdata boundary
+cosmic/fs/types.tl	279	userdata boundary
+cosmic/fs/types.tl	293	userdata boundary
+cosmic/fs/walk.tl	89	record union after guard
+cosmic/fs/walk.tl	116	userdata boundary
+cosmic/fs/walk.tl	146	generic T
+cosmic/fs/walk.tl	157	userdata boundary
+cosmic/fuzzy_test.tl	88	type-defeating test probe
+cosmic/hash.tl	104	enum relation
+cosmic/hash.tl	141	enum relation
+cosmic/hash.tl	203	enum relation
+cosmic/hash_test.tl	169	type-defeating test probe
+cosmic/hash_test.tl	263	type-defeating test probe
+cosmic/hash_test.tl	302	type-defeating test probe
+cosmic/literal_example.tl	20	decoded data shaping
+cosmic/log_test.tl	111	type-defeating test probe
+cosmic/log_test.tl	123	type-defeating test probe
+cosmic/log_test.tl	176	type-defeating test probe
+cosmic/net/connect.tl	96	function shape
+cosmic/net/socket.tl	334	function shape
+cosmic/net/socket.tl	397	function shape
+cosmic/net/socket.tl	437	function shape
+cosmic/quicksand/box/init.tl	86	runtime capability probe
+cosmic/quicksand/box/merge.tl	135	map view of a declared value
+cosmic/quicksand/box/merge.tl	138	incremental record construction
+cosmic/quicksand/box/merge_test.tl	111	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	166	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	167	type-defeating test probe
+cosmic/quicksand/box/run.tl	211	record union after guard
+cosmic/quicksand/caps.tl	63	binding constant by name
+cosmic/quicksand/init.tl	73	function shape
+cosmic/quicksand/init_test.tl	183	type-defeating test probe
+cosmic/quicksand/proc.tl	259	binding constant by name
+cosmic/quicksand/proc.tl	262	binding constant by name
+cosmic/quicksand/proxy.tl	115	container variance
+cosmic/quicksand/proxy.tl	141	record union after guard
+cosmic/quicksand/proxy.tl	143	function shape
+cosmic/quicksand/proxy.tl	144	function shape
+cosmic/quicksand/proxy.tl	146	function shape
+cosmic/quicksand/proxy/rules_test.tl	57	container variance
+cosmic/quicksand/proxy/rules_test.tl	131	type-defeating test probe
+cosmic/rand_test.tl	104	type-defeating test probe
+cosmic/rand_test.tl	184	container variance
+cosmic/re.tl	200	proved-value narrowing
+cosmic/re.tl	287	binding contract shape
+cosmic/re.tl	333	binding contract shape
+cosmic/sandbox/init.tl	175	runtime capability probe
+cosmic/sandbox/init.tl	180	runtime capability probe
+cosmic/sandbox/init.tl	195	runtime capability probe
+cosmic/sandbox/init_test.tl	21	type-defeating test probe
+cosmic/sandbox/init_test.tl	50	type-defeating test probe
+cosmic/sandbox/init_test.tl	110	container variance
+cosmic/sandbox/init_test.tl	119	type-defeating test probe
+cosmic/searcher.tl	98	proved-value narrowing
+cosmic/searcher.tl	324	proved-value narrowing
+cosmic/searcher_test.tl	59	dynamic name lookup
+cosmic/shape.tl	279	generic T
+cosmic/shm.tl	146	pcall return shape
+cosmic/shm.tl	171	pcall return shape
+cosmic/signal.tl	250	binding contract shape
+cosmic/signal.tl	287	incremental record construction
+cosmic/sqlite/bind.tl	40	metatable access
+cosmic/sqlite/bind.tl	49	metatable access
+cosmic/sqlite/bind.tl	56	binding contract shape
+cosmic/sqlite/bind.tl	111	container variance
+cosmic/sqlite/bind.tl	115	container variance
+cosmic/sqlite/close_test.tl	61	metatable access
+cosmic/sqlite/close_test.tl	63	metatable access
+cosmic/sqlite/close_test.tl	179	metatable access
+cosmic/sqlite/close_test.tl	181	metatable access
+cosmic/sqlite/extras.tl	63	pcall return shape
+cosmic/sqlite/extras.tl	106	pcall return shape
+cosmic/sqlite/extras_test.tl	51	sqlite row column read
+cosmic/sqlite/init.tl	214	incremental record construction
+cosmic/sqlite/init.tl	295	incremental record construction
+cosmic/sqlite/lifecycle_test.tl	12	sqlite row column read
+cosmic/sqlite/row_iter.tl	64	incremental record construction
+cosmic/stream.tl	237	runtime capability probe
+cosmic/string_test.tl	34	type-defeating test probe
+cosmic/string_test.tl	36	type-defeating test probe
+cosmic/string_test.tl	269	proved-value narrowing
+cosmic/sys.tl	46	enum relation
+cosmic/sys_test.tl	15	enum relation
+cosmic/sys_test.tl	32	enum relation
+cosmic/time.tl	89	binding contract shape
+cosmic/time.tl	132	binding contract shape
+cosmic/time.tl	137	binding contract shape
+cosmic/time.tl	138	binding contract shape
+cosmic/time.tl	162	binding contract shape
+cosmic/time.tl	167	binding contract shape
+cosmic/time.tl	168	binding contract shape
+cosmic/url.tl	54	numeric narrowing
+cosmic/zip.tl	222	userdata boundary

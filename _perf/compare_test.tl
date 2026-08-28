@@ -287,4 +287,74 @@ local function test_a_real_regression_survives_every_control_pair()
     "stays regression across every pair")
 end
 
+-- The identity header, in its three states. `format` takes the two
+-- results FILES because the binary is a property of a file, not of a
+-- row, and the header is what lets a reader of a saved report tell
+-- whether two levels differ because the code differs.
+local SHA_A = "145057b9fe90" .. string.rep("0", 52)
+local SHA_B = "9f2c1ab30de4" .. string.rep("0", 52)
+
+local function sha_results(sha: string): pt.Results
+  return {meta = {bin_sha = sha}, results = {m("a", 1000, 2)}}
+end
+
+local function test_format_identity_names_one_binary_on_both_sides()
+  local base = sha_results(SHA_A)
+  local cur = sha_results(SHA_A)
+  local text = compare.format(compare.diff(base, cur, 10), base, cur)
+  assert(text:find(
+      "binaries: base 145057b9fe90  current 145057b9fe90  (same)\n", 1, true) == 1,
+    "same-binary header must head the report:\n" .. text)
+end
+
+local function test_format_identity_names_two_different_binaries()
+  local base = sha_results(SHA_A)
+  local cur = sha_results(SHA_B)
+  local text = compare.format(compare.diff(base, cur, 10), base, cur)
+  assert(text:find(
+      "binaries: base 145057b9fe90  current 9f2c1ab30de4  (differ)\n", 1, true) == 1,
+    "differing-binary header must head the report:\n" .. text)
+end
+
+-- A file with no `bin_sha` cannot name its subject, so the header says
+-- `unknown` and refuses to call the pair `(same)` -- including when
+-- NEITHER side is named, where two absences would otherwise read as an
+-- agreement the files never claimed.
+local function test_format_identity_will_not_vouch_for_an_unnamed_binary()
+  local named = sha_results(SHA_A)
+  local unnamed = results({m("a", 1000, 2)})
+
+  local cur_side = compare.format(compare.diff(named, unnamed, 10), named, unnamed)
+  assert(cur_side:find(
+      "binaries: base 145057b9fe90  current unknown  (unverifiable)\n", 1, true) == 1,
+    "an unnamed current side is unverifiable:\n" .. cur_side)
+
+  local base_side = compare.format(compare.diff(unnamed, named, 10), unnamed, named)
+  assert(base_side:find(
+      "binaries: base unknown  current 145057b9fe90  (unverifiable)\n", 1, true) == 1,
+    "an unnamed baseline side is unverifiable:\n" .. base_side)
+
+  local neither = compare.format(compare.diff(unnamed, unnamed, 10), unnamed, unnamed)
+  assert(neither:find(
+      "binaries: base unknown  current unknown  (unverifiable)\n", 1, true) == 1,
+    "two unnamed sides are not the same binary:\n" .. neither)
+end
+
+-- Both files are optional, so every caller that has only deltas in
+-- hand keeps the report it had: the rows and the summary, and no
+-- header at all.
+local function test_format_without_files_prints_the_rows_alone()
+  local deltas = compare.diff(
+    results({m("a", 1000, 2), m("b", 1000, 2)}),
+    results({m("a", 2000, 2), m("b", 990, 2)}), 10)
+  local text = compare.format(deltas)
+  local expected = compare.format_delta(deltas[1]) .. "\n" ..
+  compare.format_delta(deltas[2]) .. "\n" ..
+  "2 scenarios: 1 regression, 0 faster, 1 ok, 0 noise, 0 new, 0 missing," ..
+  " 0 error, 0 baseline-error, 0 malformed"
+  assert(text == expected, "report without files changed shape:\n" .. text)
+  assert(text:find("binaries:", 1, true) == nil,
+    "no files means no header:\n" .. text)
+end
+
 print("OK compare_test")
