@@ -275,6 +275,22 @@ local function format(deltas: {pt.Delta}): string
   return table.concat(lines, "\n")
 end
 
+--- Whether two results files positively name the SAME binary.
+---
+--- Absence is never proof: a file with no `bin_sha` names no binary,
+--- so it can never establish that two runs measured the same one. The
+--- predicate is POSITIVE for that reason -- reading
+--- `identity_refusal(...) == nil` as "same binary" is a double
+--- negative that answers "no evidence of difference", and that is what
+--- admitted stampless files to the same-binary noise controls.
+--- @param a_res Results The first file
+--- @param b_res Results The second file
+--- @return boolean True only when both carry the same recorded sha
+local function same_binary(a_res: pt.Results, b_res: pt.Results): boolean
+  local sa = a_res.meta and a_res.meta.bin_sha
+  local sb = b_res.meta and b_res.meta.bin_sha
+  return sa ~= nil and sb ~= nil and sa == sb
+end
 --- Refuse a pair of results files that cannot answer the question asked
 --- of them.
 ---
@@ -294,9 +310,19 @@ end
 ---   to clear. A noise floor is only a noise floor if the subject is
 ---   constant.
 ---
---- A file with no `bin_sha` cannot be checked either way, which is said
---- out loud rather than passed over: an unchecked identity is exactly
---- the invisible thing this exists to make visible.
+--- A file with no `bin_sha` names no binary, and that absence is
+--- ASYMMETRIC evidence: it can never PROVE two runs measured the same
+--- binary, but it is no evidence that they measured different ones
+--- either. So it is said out loud both ways -- an unchecked identity
+--- is exactly the invisible thing this exists to make visible -- and
+--- then answered by the question being asked. Under `same`, a pair the
+--- caller requires to match is refused: those pairs are freshly
+--- written by the gate's own measurement, so an absent stamp there
+--- means the running binary could not identify itself, and an
+--- unidentified pair is not a noise floor. Under `not same`, where the
+--- claim is that the two DIFFER, absence falsifies nothing and the
+--- comparison proceeds -- which keeps archived and pre-`bin_sha`
+--- results comparable.
 --- @param a_path string First results path, for the message
 --- @param a_res Results The first file
 --- @param b_path string Second results path, for the message
@@ -311,6 +337,14 @@ local function identity_refusal(a_path: string, a_res: pt.Results,
     io.stderr:write("perf: " .. (not sa and a_path or b_path) ..
       " does not record which binary it measured, so these two runs" ..
       " cannot be told apart\n")
+    if same then
+      return "perf: " .. a_path .. " and " .. b_path ..
+      " cannot be shown to have measured the SAME binary: " ..
+      (not sa and a_path or b_path) .. " records no bin_sha. An" ..
+      " unidentified pair is not a noise floor -- absence of a stamp is" ..
+      " not evidence of sameness, and a floor read from one raises the" ..
+      " bar every real regression afterwards has to clear."
+    end
     return nil
   end
   if same and sa ~= sb then
@@ -334,6 +368,7 @@ local record compare
   DEFAULT_THRESHOLD_PCT: number
   TRIAGE_K: number
   load_results: function(path: string): pt.Results | nil, string
+  same_binary: function(a_res: pt.Results, b_res: pt.Results): boolean
   identity_refusal: function(a_path: string, a_res: pt.Results, b_path: string, b_res: pt.Results, same: boolean): string | nil
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
@@ -346,6 +381,7 @@ local M: compare = {
   DEFAULT_THRESHOLD_PCT = DEFAULT_THRESHOLD_PCT,
   TRIAGE_K = TRIAGE_K,
   load_results = load_results,
+  same_binary = same_binary,
   identity_refusal = identity_refusal,
   diff = diff,
   triage = triage,

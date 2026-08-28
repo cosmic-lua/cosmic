@@ -110,6 +110,22 @@ local function identity_refusal(a: string, b: string, same: boolean): string | n
   return compare.identity_refusal(a, ra, b, rb, same)
 end
 
+--- The positive identity rule of `compare.same_binary`, over two paths.
+--- A file that will not load names nothing, so it is not the same
+--- binary as anything -- the caller that must report the load failure
+--- does so in its own words.
+--- @param a string First results path
+--- @param b string Second results path
+--- @return boolean True only when both load and record the same sha
+local function same_binary(a: string, b: string): boolean
+  local ra = compare.load_results(a)
+  local rb = compare.load_results(b)
+  if ra == nil or rb == nil then
+    return false
+  end
+  return compare.same_binary(ra, rb)
+end
+
 --- Print the gate's verdict and pass its code through. The line is the
 --- same convention as `ci: PASS` and exists for the same reason: a
 --- piped invocation (`gate.lua ... | tail`) returns the pipe's exit
@@ -227,7 +243,7 @@ local function gate_inner(opts: GateOptions): integer
   -- the pair that must hold is checked above, and dropping `current`
   -- leaves exactly the one pair the gate read before.
   local controls = {retry, opts.selfcheck_b}
-  if identity_refusal(retry, opts.current, true) == nil then
+  if same_binary(retry, opts.current) then
     table.insert(controls, 1, opts.current)
   end
   failures, err, deltas = compare_once(base_side, retry, opts.threshold, controls)
