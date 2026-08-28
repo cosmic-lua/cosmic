@@ -20,7 +20,10 @@
 -- before any searcher. A modified copy placed on `package.path` is ignored
 -- instead: the binary's own `/zip` searcher outranks the file searcher, so
 -- such a probe measures the shipped checker and reports a confident wrong
--- answer with nothing logged.
+-- answer with nothing logged. A third form is inert for a third reason:
+-- `cosmic --check types` on a file that preloads `tl` never runs that
+-- file, so the shipped checker answers at exit 0 with nothing logged —
+-- `cosmic --docs guide.checking` lays the three forms side by side.
 return {
   ["narrow-and-operand"] = {
     file = "tl.lua",
