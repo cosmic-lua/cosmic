@@ -7,8 +7,9 @@ return {
   ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5/3IVJI3ZS",
   ["id"] = "3IVJI3ZSndyRcy2x1MseWwbg5Oy",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1488,
-  ["reviewer"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["title"] = "release.yml's peers lane runs the tree's peer harness bare, so it measures the release's copies, not the tree's",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "e0d3bef39786a8a1dac0542d3b1f78ed8e44a5b5",
 }
