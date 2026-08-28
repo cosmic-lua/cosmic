@@ -4,7 +4,7 @@ return {
   ["enable"] = "3IWzsabcs6mtNdEOPP7CDK5R47W",
   ["id"] = "3IVF3HbVUGBgHw6ZKvy6PYhTXOg",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1480,
   ["title"] = "_perf/skew_test.tl checks siblings against the pinned release's _perf, not the tree's — every _perf signature change is unlandable in one PR",
   ["verdict"] = "request changes",
