@@ -49,6 +49,13 @@
 -- Carried, not forked: each anchor must match the pinned source exactly
 -- once, so a tl pin bump that moves this code fails the fetch loudly
 -- until the patch is re-audited (or dropped, once upstream lands it).
+--
+-- Probing an entry: reverse it with `_make.patch`'s `reverse`, which loads
+-- the de-patched copy into `package.loaded`, the table `require` reads
+-- before any searcher. A modified copy placed on `package.path` is ignored
+-- instead: the binary's own `/zip` searcher outranks the file searcher, so
+-- such a probe measures the shipped checker and reports a confident wrong
+-- answer with nothing logged.
 return {
   ["closure-assigned-scan"] = {
     file = "tl.lua",
