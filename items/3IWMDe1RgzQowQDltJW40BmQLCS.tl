@@ -3,6 +3,7 @@ return {
   ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IWMDe1RgzQowQDltJW40BmQLCS",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
-  ["phase"] = "do",
+  ["phase"] = "check",
+  ["pr"] = 1482,
   ["title"] = "the tl patch probe pointer lives only in _make/patch.tl, where a session probing an entry never looks",
 }
