@@ -74,11 +74,10 @@ of it.
 **`next` withholds that item.** it offers nothing whose claim or
 `builders` name this session, and a minted claim compares by its
 prefix, so everything this session's agents built reads as this
-session's own. the item is stepped over in silence — the count of them
-surfaces only when `check` is at its limit and nothing else fires — so
-a pass that waits for `next` to hand back its own wave waits forever.
-spawn the review subagent on the id directly, the one step 1
-reconciled into `check`.
+session's own. the item is stepped over in silence, so a pass that
+waits for `next` to hand back its own wave waits forever. spawn the
+review subagent on the id directly, the one step 1 reconciled into
+`check`.
 
 the distance is only as good as the brief. it carries the item id, the
 PR number and the checks, and NOT this session's reading of the item:
