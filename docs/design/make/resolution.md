@@ -228,11 +228,11 @@ it on deliberately.
 Layer 2 fires for imports no closure names, which is exactly the class
 `_make/deps.tl` calls out: "A computed require is invisible there, and
 the consequence is a denied read rather than only a missing rule."
-`_perf/run.tl:163` is that case in this repo — `pcall(require, name)`
-with `name` off argv, which is how every `_perf/bench/*_bench.tl`
-scenario loads. Under layer 3 alone the flagship case comes out
-half-fixed: the harness resolves from the tree and the scenario still
-comes from `/zip`, silently.
+`_perf/run.tl`'s `load_module` is that case in this repo —
+`pcall(require, name)` with `name` off argv, which is how every
+`_perf/bench/*_bench.tl` scenario loads. Under layer 3 alone the
+flagship case comes out half-fixed: the harness resolves from the tree
+and the scenario still comes from `/zip`, silently.
 
 So the fence has to grant reads it did not derive. For a **test** it
 already does — `_cli/grants.tl` gives `record` `ro = "."`, the whole

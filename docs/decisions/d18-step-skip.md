@@ -95,11 +95,11 @@
   pattern or collides with `ENV_SWITCHES` — the latter is already in
   every step key, and `COSMIC_COVERAGE` specifically is rewritten
   per-lane by the runner before the child ever sees it
-  (`_tool/testrun.tl:54-68`), so a declaration would stamp a value the
-  child does not run with. "Hash the whole environment" stays rejected
-  for the same reason it was rejected the first time: make already
-  assumes the environment is inert outside the fixed switch list, and a
-  declaration channel is strictly more honest than widening that
-  assumption, not less. Undeclared env is unchanged: it caches exactly
-  as before, which is the point — only a name a test actually declares
-  can move its stamp.
+  (`_tool/testrun.tl`'s child-environment loop), so a declaration would
+  stamp a value the child does not run with. "Hash the whole
+  environment" stays rejected for the same reason it was rejected the
+  first time: make already assumes the environment is inert outside the
+  fixed switch list, and a declaration channel is strictly more honest
+  than widening that assumption, not less. Undeclared env is unchanged:
+  it caches exactly as before, which is the point — only a name a test
+  actually declares can move its stamp.
