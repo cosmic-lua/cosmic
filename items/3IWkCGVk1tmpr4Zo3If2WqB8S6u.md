@@ -223,3 +223,77 @@ The check was run and recorded above:
 - `3IWMDe1R` (#1482) — the pointer moved into the entry-file headers;
   `patch.reverse` added.
 - This item is the third face: the `--check types` CLI form.
+
+## Amendment — the Non-goals' false-positive measurement, re-measured
+
+Added by session `0b13d2b4`, which held this item's claim while the spec
+above was written. Nothing above is altered; this records one measurement
+that bears on a decision the Non-goals make, so whoever builds this can
+re-decide with it rather than discover it.
+
+The second Non-goal rejects a warn-on-preload countermeasure because the
+pattern "cannot separate a probe's preload from a legitimate in-process
+swap", citing `_make/patch_test.tl` lines 271, 285, 314, 328 and
+`cosmic/teal.tl:19` — "a rule with a measured false positive in the tree is
+not a gate."
+
+**That measurement does not survive two restrictions the probe form allows:
+column 1, and assignment rather than read.** A probe's preload is by
+construction a top-level statement; the cited sites are neither.
+
+```
+$ grep -rn --include=*.tl -E '^package\.(loaded|preload)' . | grep -v '^\./o/' | wc -l
+0
+$ grep -rn --include=*.tl -E '^[[:space:]]*package\.(loaded|preload)[^=]*=[^=]' . | grep -v '^\./o/' | wc -l
+14
+$ grep -rn --include=*.tl -E '^[[:space:]]*package\.(loaded|preload)[^=]*=[^=]' . | grep -v '^\./o/' | sed 's|:.*||' | sort | uniq -c
+      1 ./_make/patch.tl
+      5 ./_make/patch_test.tl
+      8 ./_perf/run_test.tl
+```
+
+Zero sites in the tree assign `package.loaded`/`package.preload` at column 1.
+All 14 are indented inside function bodies. The four sites the Non-goal names
+are at column 3, and two of them are READS, not assignments:
+
+```
+$ sed -n '271p;285p;314p;328p' _make/patch_test.tl
+  local saved = package.loaded["tl"]
+  package.loaded["tl"] = saved
+  local saved = package.loaded["tl"]
+  package.loaded["tl"] = saved
+```
+
+`cosmic/teal.tl:19` is likewise a read, in a condition:
+
+```
+$ sed -n '19p' cosmic/teal.tl
+if not package.loaded["tl"] and not package.preload["tl"]
+```
+
+So a rule restricted to a column-1 ASSIGNMENT fires on nothing in the tree
+today while still catching the filed reproduction. The false-positive count
+is zero, not four.
+
+**This does not overturn the Non-goal.** Cost, the boot surface, and whether a
+stderr notice is worth a core change are all still live, and the shape
+suggested by the analysis this came from — a token-exact `tl.lex` scan in
+`handle_check_types`, exit code and stdout verdict untouched — carries an
+enablement hazard: `_cli.main_handlers` is on the boot surface
+(`_make/stamp.tl:59`), and `_make/stamp_test.tl`'s
+`test_boot_list_covers_a_live_child` fails on any boot-loaded module
+`BOOT_MODULES` does not name, so anything new it reaches must be required
+lazily inside the function, as `cosmic.teal` and `_tool.seam` already are.
+
+What is retracted is only the stated REASON: the measured false positive.
+Whoever builds this should either re-reject the countermeasure on a reason
+that holds, or take it.
+
+## Cold-build rule — checked, does not apply
+
+Neither this spec's shape nor the rejected alternative touches
+`3p/tl/tl_patch/**` or the vendored checker, so no release-and-pin-bump
+staging is owed. New `_cli` sources must still type-check under the pinned
+checker in generation 1, and `_build/coldbuild_test.tl` already sweeps `_cli`
+(its `--- reads:` line and `TREES` list both name it), so that guard is
+automatic.
