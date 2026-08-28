@@ -5,7 +5,7 @@ return {
   ["enable"] = "3IZ0nP5RQEOKtnuYUdd9j6E4POu",
   ["id"] = "3IYiZ9MdXuIO4iHVgZsNW4IFBUw",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1494,
   ["title"] = "review distance moves to the procedure: the review runs in a fresh-context subagent",
   ["verdict"] = "request changes",
