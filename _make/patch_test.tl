@@ -153,3 +153,139 @@ local function test_apply_exact_once_and_idempotent()
     "a missing anchor is refused: " .. tostring(aerr))
   assert(not patch.applied(dir, absent), "applied() is false for it")
 end
+
+local function test_package_path_does_not_override_an_embedded_module()
+  local NAME = "cosmic.string"
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "shadow-XXXXXX")))
+  local shadow = fs.join(dir, "cosmic", "string.lua")
+  write(shadow, 'return {SCRATCH_MARKER = "shadow"}\n')
+  local saved_module = package.loaded[NAME]
+  local saved_path = package.path
+  package.path = fs.join(dir, "?.lua") .. ";" .. package.path
+  local named = package.searchpath(NAME, package.path)
+  package.loaded[NAME] = nil
+  local got = require(NAME)
+  package.loaded[NAME] = saved_module
+  package.path = saved_path
+  assert(named == shadow,
+    "package.path names the shadow first: " .. tostring(named))
+  if not (got is {string: any}) then
+    error("cosmic.string did not load as a table") -- throws: a test refusal
+  end
+  assert(got["SCRATCH_MARKER"] == nil,
+    "require ignored package.path and loaded the embedded module")
+end
+
+local FIXTURE_MODULE < const > = "_make_patch_probe_fixture"
+
+-- A pin carrying one applied entry: `m.lua` holds
+-- `return {v = "patched"}`, which the entry reverses to `"stock"`.
+local function probe_fixture(): string, string
+  local dir = check.must(fs.temp_dir(fs.join(tmpdir, "reverse-XXXXXX")))
+  local pin = fs.join(dir, "x_pin.tl")
+  write(pin, "return {}\n")
+  write(fs.join(dir, "x_patch.tl"), [==[
+return {
+  ["swap-v"] = {
+    file = "m.lua",
+    find = [=====[return {v = "stock"}]=====],
+    replace = [=====[return {v = "patched"}]=====],
+    note = "fixture",
+  },
+}
+]==])
+  write(fs.join(dir, "m.lua"), 'return {v = "stock"}\n')
+  local edits = check.must(patch.read_all(check.must(patch.paths_of_pin(pin))))
+  assert(patch.apply(dir, edits))
+  return dir, pin
+end
+
+local function test_reverse_loads_the_reversed_copy()
+  local dir, pin = probe_fixture()
+  local patched = check.must(fs.read(fs.join(dir, "m.lua")))
+  assert(patched:find("patched", 1, true), "the fixture starts patched")
+  local raw, err = patch.reverse({
+      pin = pin,
+      dir = dir,
+      entries = {"swap-v"},
+      file = "m.lua",
+      module_name = FIXTURE_MODULE,
+    })
+  if not (raw is {string: any}) then
+    error("reverse: " .. tostring(err)) -- throws: a test refusal
+  end
+  assert(raw["v"] == "stock", "the loaded copy is the unpatched text")
+  assert(package.loaded[FIXTURE_MODULE] == raw,
+    "reverse installs the module it returns")
+  assert(check.must(fs.read(fs.join(dir, "m.lua"))) == patched,
+    "reverse copies: the unpack directory keeps its patched bytes")
+  package.loaded[FIXTURE_MODULE] = nil
+end
+
+local function test_reverse_refuses_unknown_and_mismatched_entries()
+  local dir, pin = probe_fixture()
+  local empty, eerr = patch.reverse({
+      pin = pin, dir = dir, entries = {}, file = "m.lua",
+      module_name = FIXTURE_MODULE,
+    })
+  assert(empty == nil and eerr:find("at least one entry", 1, true),
+    "an empty entry list is refused: " .. tostring(eerr))
+
+  local unknown, uerr = patch.reverse({
+      pin = pin, dir = dir, entries = {"no-such-entry"}, file = "m.lua",
+      module_name = FIXTURE_MODULE,
+    })
+  assert(unknown == nil and uerr:find("no-such-entry", 1, true)
+    and uerr:find("not declared by", 1, true),
+    "an undeclared entry name is refused: " .. tostring(uerr))
+
+  local wrong, werr = patch.reverse({
+      pin = pin, dir = dir, entries = {"swap-v"}, file = "other.lua",
+      module_name = FIXTURE_MODULE,
+    })
+  assert(wrong == nil and werr:find("swap-v", 1, true)
+    and werr:find("targets m.lua", 1, true),
+    "an entry targeting another file is refused: " .. tostring(werr))
+  assert(package.loaded[FIXTURE_MODULE] == nil, "a refusal installs nothing")
+end
+
+local function test_reverse_flips_the_checker_on_the_real_pin()
+  local teal = require("cosmic.teal")
+  local src = [==[
+local record R
+  x: integer
+end
+local function f(r: R | nil): integer
+  if not r then
+    return 0
+  end
+  return r.x
+end
+return f
+]==]
+  local shipped = teal.check(src, {chunk_name = "snippet.tl"})
+  assert(#shipped.errors == 0,
+    "the carried entry narrows `not r`: " .. tostring(#shipped.errors) ..
+    " error(s)")
+
+  local saved = package.loaded["tl"]
+  local raw, rerr = patch.reverse({
+      pin = "3p/tl/tl_pin.tl",
+      dir = "o/3p/tl",
+      entries = {"narrow-truthiness"},
+      file = "tl.lua",
+      module_name = "tl",
+    })
+  local messages: {string} = {}
+  if raw ~= nil then
+    for _, issue in ipairs(teal.check(src, {chunk_name = "snippet.tl"}).errors) do
+      messages[#messages + 1] = issue.message
+    end
+  end
+  package.loaded["tl"] = saved
+  assert(raw ~= nil, "reverse: " .. tostring(rerr))
+  assert(#messages >= 1, "the reversed checker refuses the index")
+  local joined = table.concat(messages, "\n")
+  assert(joined:find("cannot index key", 1, true),
+    "the reversed error names the failed index: " .. joined)
+end

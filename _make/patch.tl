@@ -19,6 +19,14 @@
 ---   (the archive's bytes are still pristine; unpack restores them
 ---   before edits re-apply).
 ---
+--- **Probing an entry.** A modified copy of a pinned file placed on
+--- `package.path` is ignored. `require` resolves a module the binary
+--- embeds from its own `/zip` before `package.path` is consulted, so
+--- such a probe measures the shipped copy and reports a confident
+--- wrong answer with nothing logged. `patch.reverse` is the probe: it
+--- reverses named entries into a temporary copy and installs it in
+--- `package.loaded`, which `require` reads before any searcher.
+---
 --- The patch sits beside its pin — `3p/tl/tl_pin.tl` carries
 --- `3p/tl/tl_patch.tl`, or, when the entry set outgrows the 500-line
 --- file cap, a `3p/tl/tl_patch/` directory whose `*.tl` files each
@@ -235,13 +243,108 @@ local function apply(dir: string, edits: {Edit}): boolean, string
   return true
 end
 
+--- Which entries to reverse, in which unpacked file, loaded as what.
+local record Options
+  --- The pin's source path, e.g. "3p/tl/tl_pin.tl".
+  pin: string
+  --- The pin's unpack directory, e.g. "o/3p/tl".
+  dir: string
+  --- Entry names to reverse. Must be non-empty.
+  entries: {string}
+  --- The file under `dir` to load, e.g. "tl.lua". Every named entry
+  --- must target it.
+  file: string
+  --- Module name to install the loaded copy as, e.g. "tl".
+  module_name: string
+end
+
+--- Reverse named entries out of the unpacked file and install the
+--- result as `opts.module_name`, so the next `require` of that name
+--- observes the pin WITHOUT those edits.
+---
+--- The copy is installed in `package.loaded` because `require` reads
+--- that table before it runs any searcher. The unpack directory is
+--- never written: the reversed text lands in a fresh temporary
+--- directory, under `TEST_TMPDIR` when that is set.
+---
+--- A caller whose process outlives the probe saves
+--- `package.loaded[opts.module_name]` beforehand and puts it back
+--- itself — `reverse` does not restore.
+--- @param opts Options The entries to reverse and the name to load as
+--- @return any|nil The loaded module
+--- @return string The error
+local function reverse(opts: Options): any, string
+  local paths, perr = paths_of_pin(opts.pin)
+  if not paths then
+    return nil, perr or
+    ("make: " .. opts.pin .. ": carries no patch to reverse")
+  end
+  local edits, rerr = read_all(paths)
+  if not edits then
+    return nil, rerr
+  end
+  if #opts.entries == 0 then
+    return nil, "make: reverse needs at least one entry name"
+  end
+  local by_name: {string: Edit} = {}
+  for _, e in ipairs(edits) do
+    by_name[e.name] = e
+  end
+  local chosen: {Edit} = {}
+  for _, name in ipairs(opts.entries) do
+    local e = by_name[name]
+    if not e then
+      return nil, "make: patch edit '" .. name .. "': not declared by " ..
+      opts.pin
+    end
+    if e.file ~= opts.file then
+      return nil, "make: patch edit '" .. name .. "': targets " .. e.file ..
+      ", not " .. opts.file
+    end
+    chosen[#chosen + 1] = e
+  end
+  local target = fs.join(opts.dir, opts.file)
+  local text, terr = fs.read(target)
+  if not (text is string) then
+    return nil, "make: reverse: cannot read " .. target .. ": " ..
+    (terr or "unknown error")
+  end
+  local body = text
+  for _, e in ipairs(chosen) do
+    local n = count(body, e.replace)
+    if n ~= 1 then
+      return nil, "make: patch edit '" .. e.name .. "': replacement occurs " ..
+      tostring(n) .. " time(s) in " .. target .. ", need exactly 1 — " ..
+      "the unpack directory is not patched; run `--make fetch`"
+    end
+    body = str.replace(body, e.replace, e.find, 1)
+  end
+  local root = os.getenv("TEST_TMPDIR") or "/tmp"
+  local scratch, derr = fs.temp_dir(fs.join(root, "patch-reverse-XXXXXX"))
+  if not scratch then
+    return nil, "make: reverse: cannot make a temporary directory: " ..
+    (derr or "unknown error")
+  end
+  local copy = fs.join(scratch, fs.basename(opts.file))
+  local wok, werr = fs.write(copy, body)
+  if not wok then
+    return nil, "make: reverse: cannot write " .. copy .. ": " ..
+    (werr or "unknown error")
+  end
+  local loaded = dofile(copy)
+  package.loaded[opts.module_name] = loaded
+  return loaded
+end
+
 local record PatchModule
   type Edit = Edit
+  type Options = Options
   paths_of_pin: function(pin_source: string): {string} | nil, string
   read: function(path: string): {Edit} | nil, string
   read_all: function(paths: {string}): {Edit} | nil, string
   applied: function(dir: string, edits: {Edit}): boolean
   apply: function(dir: string, edits: {Edit}): boolean, string
+  reverse: function(opts: Options): any, string
 end
 
 local M: PatchModule = {
@@ -250,6 +353,7 @@ local M: PatchModule = {
   read_all = read_all,
   applied = applied,
   apply = apply,
+  reverse = reverse,
 }
 
 return M
