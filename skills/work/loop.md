@@ -29,10 +29,14 @@ of babysitting:
 2. **land** whatever carries an accept. a merge the environment cannot
    perform (a 403 from a scheduled session) is reported in one line and
    stepped past, never retried in a spin.
-3. **review** what `next` offers to review — inline, in this session,
-   never fanned out (`parallel.md`, "what never fans out"). one item
-   per pass is a good bound: a verdict is the system's most expensive
-   judgment, and a pass that writes five is skimming.
+3. **review** what `next` offers to review: spawn ONE review subagent
+   with the brief `review.md` describes, wait for it, and act on the
+   verdict it recorded. the subagent's window holds the spec and the
+   diff and none of this pass's reasoning, which is what makes the
+   judgment disinterested. one review, never a fan-out of them
+   (`parallel.md`, "what never fans out"); one item per pass is a good
+   bound, because a verdict is the system's most expensive judgment and
+   a pass that writes five is skimming.
 4. **fill the wave.** while `do` has room and the pass has width left:
    walk the ready queue for a disjoint set (yours to judge —
    `parallel.md`), claim each item FIRST (`move ID do --claim
@@ -45,10 +49,11 @@ of babysitting:
    triage, unblock — at most one or two such actions, then stop. the
    fallback is what "blocked" turns into: a session that cannot pull
    still moves the board.
-6. **report and end the pass.** never wait inside a pass — not for an
-   agent, not for CI, not for a review, not for an answer. everything
-   worth waiting on either notifies (task completion, PR events) or is
-   the next pass's problem.
+6. **report and end the pass.** never wait inside a pass — not for a
+   wave agent, not for CI, not for an answer. the step-3 review
+   subagent is the single exception, and one item bounds it. everything
+   else worth waiting on either notifies (task completion, PR events)
+   or is the next pass's problem.
 
 ## minted identities and the verdict wall
 
