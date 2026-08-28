@@ -50,10 +50,26 @@ so provenance is readable) is unaffected and must survive.
 
 `skills/work/{SKILL.md,review.md,loop.md}`, prose only. Each passage
 keeps what it says about CLAIMS and drops what it says about the identity
-gate withholding a verdict. The verdict wall's section needs the larger
-rewrite: state that a wave's PRs are reviewed by a subagent spawned for
-that one item, and that what must never happen is the orchestrator
-entering a verdict out of its own window.
+gate withholding a verdict.
+
+**`loop.md`'s verdict-wall section is already rewritten**, by
+`3IYiZ9Md`: it is now `## minted identities and your own wave`, and it
+states the rule this item's other passages are being converged on — an
+orchestrator may take the verdict on its own wave, because the review
+runs in a subagent whose window never held the build. That section needs
+no rewrite here.
+
+**What it does need is its `next` clause dropped.** The rewritten
+section tells a pass that `next` does not offer an item whose claim or
+`builders` name this session, and that the review subagent is therefore
+spawned on the id step 1 reconciled rather than waited for; step 3 names
+the same id source and the `never blocked` table carries the matching
+row. Deleting `built_by` makes the first half false — `next` then offers
+a session its own wave like any other item — and the second half merely
+one way to reach the item rather than the only one. Drop the withholding
+clause, drop the `never blocked` row it feeds, and let step 3 say that
+`next` offers the item. The section's other three statements — the rule,
+the brief, the audit record — are unaffected and stay verbatim.
 
 ## Non-goals
 
@@ -74,6 +90,9 @@ Run from the repo root.
 - `grep -c 'built_by' skills/work/loop.md` prints `0`.
 - `grep -c 'unreviewable by the next run' skills/work/SKILL.md` prints `0`.
 - `grep -c 'a property of the board' skills/work/SKILL.md` prints `0`.
+- `grep -c 'withholds' skills/work/loop.md` prints `0` (`1` once
+  `3IYiZ9Md` has landed) — the `next` clause and its `never blocked` row
+  are gone.
 - `git diff --name-only origin/main` lists only files under `skills/work/`.
 
 Note that each `grep -c` above matches a phrase that sits on one line in
