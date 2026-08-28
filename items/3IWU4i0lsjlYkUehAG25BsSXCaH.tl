@@ -4,9 +4,9 @@ return {
     ["3IVLAF3ZGqRL59hrEAL5NRY48fr"] = "API dependency, measured 2026-08-28: the same_side guard is same_binary(opts.current, retry), the gate.tl helper #1486 adds over compare.same_binary. Without it the guard is identity_refusal(...) == nil, which #1486 measured to admit STAMPLESS pairs as same-binary; a pair naming no binary would turn this rule on with no control credit and restore every dismissal. Not a merge conflict at the insertion point the spec names: with the loudest_control export beside triage_many, git merge-tree --write-tree --messages <proto> origin/claude/3IVLAF3Z-stampless-identity-v2 -> rc=0 (beside load_results it is rc=1 in _perf/compare.tl).",
   },
   ["blocked_by"] = "3IUBNQZZ8UHrBZD8Tgb7BgEx2zD 3IVLAF3ZGqRL59hrEAL5NRY48fr",
-  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
+  ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IWU4i0lsjlYkUehAG25BsSXCaH",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "plan",
+  ["phase"] = "ready",
   ["title"] = "perf gate: a regression quiet on pass 2 gets two samples and no A/A control",
 }
