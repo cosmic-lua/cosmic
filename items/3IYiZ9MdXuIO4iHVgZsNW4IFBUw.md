@@ -96,16 +96,40 @@ subagent NAMES ITSELF.** State in `review.md`, where the subagent is
 established, that it exports `GITBOARD_SESSION` set to a value unique to
 that review before running `gitboard verdict`, and why: a subagent
 inherits the session id of the process that spawned it, so an unnamed
-reviewer resolves to the BUILDER's identity and the board records the
-verdict under the session whose window held the work. The identity is
-what makes the isolation checkable afterwards; no gate can inspect a
-context window. `SKILL.md`'s session-identity paragraph carries the
-matching carve-out, or it contradicts this: a review subagent is the
-case where the derived value is WRONG rather than absent, so it names
-itself, and that is not the inline invention the paragraph warns
-against. What that paragraph says about CLAIMS stays as it is.
-`loop.md` takes the same one-clause correction wherever it states the
-audit-trail promise: the verdict's identity is exported, not derived.
+reviewer resolves to the BUILDER's identity — and `built_by` reads the
+claim AND the `builders` list, so `review` and `verdict` both REFUSE.
+An unnamed reviewer cannot record a verdict at all. Naming itself is
+what makes the review recordable, and what makes the log name the
+reviewer rather than the builder. Do NOT write that the board records an
+unnamed reviewer's verdict under the builder: while `built_by` is live
+it records nothing. The refusals are `_work/gitreview.tl:62` and
+`_work/gitverdict.tl:145`, both on `flow.built_by`. Measured
+2026-08-28 on a synthetic board (`gitboard --dir`) whose item sits in
+`check` under the claim `builder-demo`:
+
+```
+$ GITBOARD_SESSION=builder-demo gitboard review 3IZ1M9Kc
+REFUSED: 3IZ1M9Kc is builder-demo's own build — no session reviews
+its own work
+
+$ GITBOARD_SESSION=builder-demo gitboard verdict 3IZ1M9Kc \
+    'request changes' --enable 'none: demo'
+REFUSED: 3IZ1M9Kc is builder-demo's own build — the claim or builders
+record names them, and no session accepts its own work
+
+$ GITBOARD_SESSION=review-demo-1 gitboard verdict 3IZ1M9Kc \
+    'request changes' --enable 'none: demo'
+request changes on 3IZ1M9Kc: check -> do
+  … verdict 3IZ1M9Kc request changes (check -> do) by review-demo-1
+```
+
+`SKILL.md`'s session-identity paragraph carries the matching carve-out,
+or it contradicts this: a review subagent is the case where the derived
+value is WRONG rather than absent, so it names itself, and that is not
+the inline invention the paragraph warns against. What that paragraph
+says about CLAIMS stays as it is. `loop.md` takes the same one-clause
+correction wherever it states the audit-trail promise: the verdict's
+identity is exported, not derived, and an unnamed one is refused.
 
 **7. `skills/work/loop.md` — rewrite the `## minted identities and the
 verdict wall` section.** The wall goes and isolation carries the whole
@@ -204,11 +228,17 @@ Run from the repo root.
 - `grep -c 'surfaces only when' skills/work/loop.md` prints `0` (`1` at
   the PR head) — the pass is not told a false thing about when `next`
   names the count it stepped over.
+- `grep -c 'verdict under the session' skills/work/review.md` prints `0`
+  (`1` at the PR head) — the prose does not claim the board records an
+  unnamed reviewer's verdict under the builder; both verbs refuse it.
+- `grep -c 'the verdict as this session' skills/work/loop.md` prints `0`
+  (`1` at the PR head) — the same false claim, guarded at its second
+  site.
 - `grep -c 'a session that did not build it' skills/work/parallel.md`
   prints `0` (`1` on `origin/main`).
 - `wc -l skills/work/SKILL.md` is at most `500` (`456` at the PR head);
   `review.md` at most `500` (`308`); `parallel.md` at most `500` (`210`);
-  `loop.md` at most `500` (`142`).
+  `loop.md` at most `500` (`152`).
 - `git diff --name-only origin/main` lists only files under
   `skills/work/`.
 
