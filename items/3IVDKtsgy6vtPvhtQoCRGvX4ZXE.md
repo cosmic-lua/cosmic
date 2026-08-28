@@ -37,3 +37,42 @@ Evidence that this is not a one-off: the same pull also found `## Change`
 deferring its own shape to a plan step that had already happened. Two
 required sections in one item passed the bar while explicitly declaring
 themselves unfinished.
+
+## Third instance, 2026-08-28 — and the first two were not the whole pattern
+
+`3IWJ2cHm` passed `gitboard check` with only ONE reported problem (an
+empty `## Enablement`) while BOTH `## Change` and `## Acceptance` read
+"not yet specified" / "to be specified". The gate counted them as
+present, so an item whose entire buildable content was two placeholders
+was one section away from a green check.
+
+That is the same failure as the original report, but it sharpens the
+shape in two ways.
+
+**It is not confined to `## Acceptance`.** The first report framed the
+fix around Acceptance promising runnable commands, and noted a section
+with no command in it fails on its own terms. `## Change` carries no
+such self-evident test — it promises a decided shape, which is not
+mechanically checkable — yet it failed here in exactly the same words.
+A rule keyed to Acceptance alone would have passed this item.
+
+**The deferral phrases are stable across authors and weeks.** Three
+instances now: "To be written at refinement", "the shape and the files
+to touch are to be settled at plan", "not yet specified" / "to be
+specified". A short phrase list would have caught all three, which is
+weaker than a contract check but is not nothing, and is cheap enough to
+land while the contract question is still open.
+
+**The cost is measurable and repeats.** Each instance spends a
+refinement pass discovering the item is not what the gate said it was.
+Here the refiner had been dispatched to write one missing section and
+had to rewrite two more; on `3IUBNQZZ` an earlier instance cost a full
+pull, a build, and a bounce.
+
+Worth noting what did NOT fail: in all three cases the human-shaped
+check — a session actually reading the sidecar — caught it immediately.
+The gate is the only thing that was fooled, which is an argument for
+making the gate's answer less trusted rather than only for making it
+smarter. A `check` that printed which sections it merely found NON-EMPTY,
+as against which it verified, would close the misreading without needing
+to settle what a section promises.
