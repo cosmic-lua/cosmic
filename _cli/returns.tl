@@ -1,6 +1,11 @@
 --- The returns invariant: a fallible function returns at most two
 --- values, and slot 2 is its error.
 ---
+--- The type grammar underneath it — `skip_balanced`, `parse_type`,
+--- `parse_list`, `params_open` — is exported, because reading a
+--- declared return list is not this rule\'s alone: `_cli.nilreturn`
+--- asks the same parser whether slot 1 admits nil.
+---
 --- The error must be reachable from `local v, err = ...` and from
 --- `check.must`, so a tuple never carries it in slot 3 or beyond. This
 --- is that rule made mechanical, so the class is closed by
@@ -45,6 +50,34 @@ local tl = require("tl")
 local type Diagnostic = style.Diagnostic
 local type Token = tl.Token
 
+--- How many levels of a `<`...`>` group one token closes.
+---
+--- Lua 5.4 lexes `>>` as ONE token, the right shift, so a nested
+--- generic's closing angles arrive together: `Box<Box<T>>` ends on a
+--- single `>>`. Counting that once leaves the outer `<` open to the end
+--- of the file, and everything after it is read in the wrong context.
+--- A shift cannot appear in a type position, so `>>` there is always
+--- two closers; `>=` is a `>` run together with the `=` of the
+--- declaration it ends.
+--- @param tk string The token's text
+--- @param close string The closing token's text
+--- @return integer 0 when this token closes nothing
+local function closes(tk: string, close: string): integer
+  if tk == close then
+    return 1
+  end
+  if close ~= ">" then
+    return 0
+  end
+  if tk == ">>" then
+    return 2
+  end
+  if tk == ">=" then
+    return 1
+  end
+  return 0
+end
+
 --- Index just past the token that closes a balanced group.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the opening token
@@ -56,11 +89,12 @@ local function skip_balanced(tokens: {Token}, i: integer,
   local depth = 0
   for j = i, #tokens do
     local tk = tokens[j].tk
+    local shut = closes(tk, close)
     if tk == open then
       depth = depth + 1
-    elseif tk == close then
-      depth = depth - 1
-      if depth == 0 then
+    elseif shut > 0 then
+      depth = depth - shut
+      if depth <= 0 then
         return j + 1
       end
     end
@@ -276,11 +310,17 @@ local record ReturnsModule
   check_fallible_returns: function(file: string, content: string): {Diagnostic}
   skip_balanced: function(tokens: {Token}, i: integer,
   open: string, close: string): integer
+  parse_type: function(tokens: {Token}, i: integer): integer, boolean
+  parse_list: function(tokens: {Token}, i: integer): {boolean}, integer
+  params_open: function(tokens: {Token}, i: integer): integer
 end
 
 local M: ReturnsModule = {
   check_fallible_returns = check_fallible_returns,
   skip_balanced = skip_balanced,
+  parse_type = parse_type,
+  parse_list = parse_list,
+  params_open = params_open,
 }
 
 return M
