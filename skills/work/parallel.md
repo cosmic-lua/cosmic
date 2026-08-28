@@ -173,8 +173,12 @@ improvise unless the brief says that stopping is a good outcome.
 ## what never fans out
 
 - **the review verdict.** it is the system's final gate and a
-  sophisticated model's judgment (`review.md`); N agents reviewing N
-  PRs is N unreviewed merges wearing a costume.
+  sophisticated model's judgment; N agents reviewing N PRs is N
+  unreviewed merges wearing a costume. what is forbidden is the
+  quantity, not the location: ONE review, in ONE subagent holding a
+  fresh context, is REQUIRED (`review.md`) — a window that never held
+  the build cannot be biased by it. a wave may not spread that single
+  judgment across agents to keep pace with the PRs it opened.
 - **refinement.** parallel refiners contend on the same phases and
   the same outcomes, and two will decompose the same one twice.
 - **anything two slices share.** see above — this is the whole game.

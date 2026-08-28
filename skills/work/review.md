@@ -8,12 +8,23 @@ attached — that phase means exactly "awaiting a verdict", nothing
 else — and a session ends that state with one of three verdicts,
 every time.
 
-**never your own.** the claim recorded when the item was pulled
-survives into `check`, so `next --session NAME` routes a session's
-own work to somebody else and hands it something different. that distance
-is the whole value of the gate: honour it if you reach for `verdict`
-directly, and if you are the only session running, leave the item in
-`check` for the next wake rather than judging what you just built.
+**the review runs in a subagent.** spawn one for the item at hand and
+give it a FRESH context window. the brief carries the item id, the PR
+number, the six checks below and the verdict grammar — and nothing
+else: not the reasoning that produced the item, not what the build was
+trying to achieve, not which findings already looked acceptable. the
+subagent reads the spec off the board (`gitboard show ID`) and the diff
+off the PR itself. a fresh window cannot be biased by context it does
+not hold, and that is the distance the gate is worth: an instruction to
+be skeptical operates on a session that still carries its own
+commitment to the work, and the same observation then reads as a known
+limitation rather than a defect.
+
+the subagent records the verdict ITSELF — `gitboard verdict` under its
+own identity, not a recommendation handed back for somebody else to
+enter. the board's log then shows which reviews ran at a distance and
+which did not, and that log is the only evidence of it: no gate can
+inspect a context window.
 
 `check` is the only phase a verdict may end, and the verb refuses one
 from anywhere else: an accept reaches `land` past every gate between
@@ -33,7 +44,14 @@ and consumes it.
 ## the review itself
 
 read the item first (`gitboard show ID` — the spec sidecar), then the
-PR against it:
+PR against it. the posture is adversarial: the job is to make the diff
+FAIL, and a review that only reads has verified nothing. run the
+acceptance commands rather than reading the run quoted in the PR body,
+and mutation-test at least one guard the change adds — break what it
+guards, watch the test go red, restore it. a gate that cannot be shown
+to fail is decoration.
+
+six checks, every time:
 
 1. **acceptance ran.** demand the evidence yourself: the spec's
    `Acceptance` commands, run, ending on the verdict lines they must

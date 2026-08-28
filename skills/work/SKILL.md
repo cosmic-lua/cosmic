@@ -243,11 +243,9 @@ it, and an inbox nobody empties is a channel that only takes — which is
 why draining an over-bound triage queue jumps ahead of refinement, and
 why taking in new work comes last.
 
-**the session identity is what makes the loop safe in company and honest
-alone:** it withholds work another session claimed, and withholds a
-verdict on what THIS session built. without it you will be handed your
-own PR to review, and reviewing your own work is the one thing the
-ordering cannot make good.
+**the session identity is what makes the loop safe in company:** it
+withholds work another session claimed, so two sessions never pull the
+same item and a wave never builds one slice twice.
 
 **do not invent that name — let the tool derive it, and do not pass
 `--session` at all.** the identity has to be UNIQUE per run, and a name
@@ -432,10 +430,10 @@ on a cadence — `/work N`, one bounded pass per invocation — is
   scope question discovered mid-implementation goes back to the board,
   not into the diff — being the same worker who wrote the spec is not
   permission to reinterpret it mid-slice.
-- no session accepts its own work. the derived session identity
-  enforces it in `next`; honour it if you reach for `verdict` directly,
-  and never override the derivation with a name that is not unique per
-  run.
+- no session accepts its own work. the review procedure carries this
+  one: the verdict comes from a subagent whose context window holds the
+  spec and the diff and nothing else, so it cannot be biased by a build
+  it never saw (`review.md`).
 - every phased item has a position in the priority order — checked
   structurally by `gitboard check` for the item at hand and by
   `gitboard status` for the board, not by convention. an item nothing
