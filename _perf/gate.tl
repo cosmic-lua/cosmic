@@ -104,6 +104,18 @@ local function compare_once(base_path: string, cur_path: string,
   return failures, nil, deltas
 end
 
+--- Whether the results files at two paths name the SAME binary.
+--- A file that will not load names no binary, so it answers false.
+--- @param a string First results path
+--- @param b string Second results path
+--- @return boolean True when both load and record the same `bin_sha`
+local function same_binary(a: string, b: string): boolean
+  local ra = compare.load_results(a)
+  local rb = compare.load_results(b)
+  if ra == nil or rb == nil then return false end
+  return compare.same_binary(ra, rb)
+end
+
 --- The identity rule of `compare.identity_refusal`, over two paths.
 --- @param a string First results path
 --- @param b string Second results path
@@ -263,7 +275,7 @@ local function gate_inner(opts: GateOptions): integer
   -- the pair that must hold is checked above, and dropping `current`
   -- leaves exactly the one pair the gate read before.
   local controls = {retry, opts.selfcheck_b}
-  if identity_refusal(retry, opts.current, true) == nil then
+  if same_binary(retry, opts.current) then
     table.insert(controls, 1, opts.current)
   end
   failures, err, deltas = compare_once(base_side, retry, opts.threshold, controls)

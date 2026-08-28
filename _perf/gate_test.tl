@@ -104,17 +104,17 @@ local function test_persistent_regression_triaged_as_noise_passes()
   -- test_large_regression_survives_unstable_selfcheck_and_fails below
   -- for the case where the sizes do NOT match and it must still fail.
   local base, cur, selfb = paths("noise")
-  write_results(base, 1000)
-  write_results(cur, 1300)
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1300, "bbbb2222")
   local calls = 0
   local code = gate.gate({
       baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
       measure = function(out: string): integer
         calls = calls + 1
         if calls == 1 then
-          write_results(out, 1300) -- regression persists on re-measurement
+          write_results(out, 1300, "bbbb2222") -- regression persists on re-measurement
         else
-          write_results(out, 1800) -- A/A control swings just as hard: noise
+          write_results(out, 1800, "bbbb2222") -- A/A control swings just as hard: noise
         end
         return 0
       end,
@@ -130,17 +130,17 @@ end
 -- the instability just isn't big enough to explain the regression.
 local function test_large_regression_survives_unstable_selfcheck_and_fails()
   local base, cur, selfb = paths("large-unstable")
-  write_results(base, 1000)
-  write_results(cur, 4000) -- +300%
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 4000, "bbbb2222") -- +300%
   local calls = 0
   local code = gate.gate({
       baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
       measure = function(out: string): integer
         calls = calls + 1
         if calls == 1 then
-          write_results(out, 4000) -- regression persists on re-measurement
+          write_results(out, 4000, "bbbb2222") -- regression persists on re-measurement
         else
-          write_results(out, 5200) -- A/A control swings +30%: unstable, but
+          write_results(out, 5200, "bbbb2222") -- A/A control swings +30%: unstable, but
           -- nowhere near +300%
         end
         return 0
@@ -153,17 +153,17 @@ end
 
 local function test_real_regression_survives_triage_and_fails()
   local base, cur, selfb = paths("real")
-  write_results(base, 1000)
-  write_results(cur, 1300)
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1300, "bbbb2222")
   local calls = 0
   local code = gate.gate({
       baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
       measure = function(out: string): integer
         calls = calls + 1
         if calls == 1 then
-          write_results(out, 1300) -- persists
+          write_results(out, 1300, "bbbb2222") -- persists
         else
-          write_results(out, 1310) -- A/A control is quiet: it is real
+          write_results(out, 1310, "bbbb2222") -- A/A control is quiet: it is real
         end
         return 0
       end,
@@ -190,7 +190,7 @@ local function test_selfcheck_reports_quiet_and_noisy()
   local code = gate.selfcheck({
       a = a, b = b, threshold = 10,
       measure = function(out: string): integer
-        write_results(out, out == a and 1000 or 1010)
+        write_results(out, out == a and 1000 or 1010, "bbbb2222")
         return 0
       end,
     })
@@ -198,7 +198,7 @@ local function test_selfcheck_reports_quiet_and_noisy()
   code = gate.selfcheck({
       a = a, b = b, threshold = 10,
       measure = function(out: string): integer
-        write_results(out, out == a and 1000 or 1500)
+        write_results(out, out == a and 1000 or 1500, "bbbb2222")
         return 0
       end,
     })
@@ -359,17 +359,19 @@ end
 -- clears it (25 <= 2 * 17.9).
 local function test_the_gate_triages_against_every_measured_control()
   local base, cur, selfb = paths("every-control")
-  write_results(base, 1000)
-  write_results(cur, 1400)
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1400, "bbbb2222")
   local calls = 0
   local code = gate.gate({
       baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
       measure = function(out: string): integer
         calls = calls + 1
         if calls == 1 then
-          write_results(out, 1250) -- the regression persists on re-measurement
+          -- the regression persists on re-measurement
+          write_results(out, 1250, "bbbb2222")
         else
-          write_results(out, 1150) -- quiet against the retry, loud against current
+          -- quiet against the retry, loud against current
+          write_results(out, 1150, "bbbb2222")
         end
         return 0
       end,

@@ -275,6 +275,18 @@ local function format(deltas: {pt.Delta}): string
   return table.concat(lines, "\n")
 end
 
+--- Whether two results files positively name the SAME binary. Absence is
+--- never proof, so a stampless file answers false: reading
+--- `identity_refusal(...) == nil` as "same" admitted stampless controls.
+--- @param a_res Results The first file
+--- @param b_res Results The second file
+--- @return boolean True when both files record the same `bin_sha`
+local function same_binary(a_res: pt.Results, b_res: pt.Results): boolean
+  local sa = a_res.meta and a_res.meta.bin_sha
+  local sb = b_res.meta and b_res.meta.bin_sha
+  return sa ~= nil and sb ~= nil and sa == sb
+end
+
 --- Refuse a pair of results files that cannot answer the question asked
 --- of them.
 ---
@@ -294,9 +306,10 @@ end
 ---   to clear. A noise floor is only a noise floor if the subject is
 ---   constant.
 ---
---- A file with no `bin_sha` cannot be checked either way, which is said
---- out loud rather than passed over: an unchecked identity is exactly
---- the invisible thing this exists to make visible.
+--- A file with no `bin_sha` names no binary, which is said out loud
+--- rather than passed over. Absence is asymmetric evidence: it can
+--- never PROVE sameness, so a `same` pair is refused, and it is no
+--- evidence of difference either, so a `not same` pair still compares.
 --- @param a_path string First results path, for the message
 --- @param a_res Results The first file
 --- @param b_path string Second results path, for the message
@@ -311,7 +324,9 @@ local function identity_refusal(a_path: string, a_res: pt.Results,
     io.stderr:write("perf: " .. (not sa and a_path or b_path) ..
       " does not record which binary it measured, so these two runs" ..
       " cannot be told apart\n")
-    return nil
+    if not same then return nil end
+    return "perf: " .. a_path .. " and " .. b_path .. " do not both" ..
+    " record a binary; an unidentified pair is not a noise floor."
   end
   if same and sa ~= sb then
     return "perf: " .. a_path .. " and " .. b_path ..
@@ -334,6 +349,7 @@ local record compare
   DEFAULT_THRESHOLD_PCT: number
   TRIAGE_K: number
   load_results: function(path: string): pt.Results | nil, string
+  same_binary: function(a_res: pt.Results, b_res: pt.Results): boolean
   identity_refusal: function(a_path: string, a_res: pt.Results, b_path: string, b_res: pt.Results, same: boolean): string | nil
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
@@ -346,6 +362,7 @@ local M: compare = {
   DEFAULT_THRESHOLD_PCT = DEFAULT_THRESHOLD_PCT,
   TRIAGE_K = TRIAGE_K,
   load_results = load_results,
+  same_binary = same_binary,
   identity_refusal = identity_refusal,
   diff = diff,
   triage = triage,
