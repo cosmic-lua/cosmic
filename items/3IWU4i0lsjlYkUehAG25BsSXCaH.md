@@ -229,6 +229,14 @@ extraction of `main`'s `measure` / `measure_baseline` closures
 (`_perf/gate.tl:405-452` on the merged tree, ~48 lines) as its own item
 and block this one on it.
 
+That thinness is already a filed capture: `3IYCQxfH` (`backlog`,
+"`_perf/gate.tl` reaches 490/500 once the two PRs in check merge, and
+three open items want to edit it"). This item does NOT wait on it — the
+measured 493 fits — but it does spend most of what is left, and
+`3IYCQxfH` counts `3IWx3I4Z`'s smallest plumbing at +9 lines, which lands
+at 502 on top of this change. Say so in the PR description so the split
+is sequenced deliberately rather than discovered by the next red lint.
+
 **The prototype ran green.** On the merged tree, with the shape described
 above plus the probe:
 `cosmic --make test _perf/probe_test.tl _perf/gate_strike_test.tl _perf/gate_test.tl _perf/compare_test.tl`
