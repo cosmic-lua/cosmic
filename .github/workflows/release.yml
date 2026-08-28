@@ -256,6 +256,20 @@ jobs:
   # _build/workflows_test.tl. This table reports standing; it never
   # gates -- the only thing that can fail this job is a broken
   # cosmic-lua row.
+  #
+  # The measure step runs the peer harness under `_perf/peers/` bare,
+  # so `_perf.*` resolves from the measured binary's own /zip rather
+  # than from the checkout -- /zip/?.lua precedes the cwd patterns on
+  # the search path. That is correct here and only here: `needs: build`
+  # plus the `cosmic-lua` artifact make the measured binary this run's
+  # own candidate, built from this same checkout, so its embedded
+  # `_perf` IS this checkout's and instrument and subject agree by
+  # construction. It stops being correct the moment this job takes its
+  # binary from a published release instead: the embedded harness would
+  # then be that release's, and the table would silently report a stale
+  # instrument's numbers as this tree's. See
+  # test_the_peers_lane_measures_this_runs_own_binary in
+  # _build/workflows_test.tl, which holds that shape.
   peers:
     needs: build
     runs-on: ubuntu-latest
