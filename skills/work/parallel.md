@@ -161,8 +161,8 @@ not carry:
   evidence each, and return to the slice. the orchestrator files each
   as an unparented board item; an agent that cannot hand evidence
   either loses it or widens its diff to fix it;
-- **do not merge** — a PR lands only after an accept, in a later
-  pass by a session that did not build it. the brief's loop ends at
+- **do not merge** — a PR lands only after an accept, on a later
+  pass of the loop that spawned the agent. the brief's loop ends at
   the opened PR.
 
 carry the bounce rule verbatim (`SKILL.md`, "when the spec

@@ -29,14 +29,15 @@ of babysitting:
 2. **land** whatever carries an accept. a merge the environment cannot
    perform (a 403 from a scheduled session) is reported in one line and
    stepped past, never retried in a spin.
-3. **review** what `next` offers to review: spawn ONE review subagent
-   with the brief `review.md` describes, wait for it, and act on the
-   verdict it recorded. the subagent's window holds the spec and the
-   diff and none of this pass's reasoning, which is what makes the
-   judgment disinterested. one review, never a fan-out of them
-   (`parallel.md`, "what never fans out"); one item per pass is a good
-   bound, because a verdict is the system's most expensive judgment and
-   a pass that writes five is skimming.
+3. **review** one item sitting in `check`: the id step 1 reconciled
+   there, or what `next` offers. spawn ONE review subagent with the
+   brief `review.md` describes, wait for it, and act on the verdict it
+   recorded. the subagent's window holds the spec and the diff and
+   none of this pass's reasoning, which is what makes the judgment
+   disinterested. one review, never a fan-out of them (`parallel.md`,
+   "what never fans out"); one item per pass is a good bound, because
+   a verdict is the system's most expensive judgment and a pass that
+   writes five is skimming.
 4. **fill the wave.** while `do` has room and the pass has width left:
    walk the ready queue for a disjoint set (yours to judge —
    `parallel.md`), claim each item FIRST (`move ID do --claim
@@ -70,6 +71,15 @@ however the reviewer was spawned. that is the rule `review.md` states,
 reaching the case a loop meets every pass, not an exception carved out
 of it.
 
+**`next` withholds that item.** it offers nothing whose claim or
+`builders` name this session, and a minted claim compares by its
+prefix, so everything this session's agents built reads as this
+session's own. the item is stepped over in silence — the count of them
+surfaces only when `check` is at its limit and nothing else fires — so
+a pass that waits for `next` to hand back its own wave waits forever.
+spawn the review subagent on the id directly, the one step 1
+reconciled into `check`.
+
 the distance is only as good as the brief. it carries the item id, the
 PR number and the checks, and NOT this session's reading of the item:
 the subagent reads the spec off the board and the diff off the PR
@@ -100,6 +110,7 @@ all:
 | a comparison that raises work | post the pair in the report, keep working |
 | out-of-scope finding | capture it (below), return to the pass |
 | merge refused (403, branch protection) | one report line, next pass retries once |
+| `next` offers no review while your own wave sits in `check` | it withholds this session's own wave; spawn the review subagent on the id step 1 reconciled |
 | `next` says `none` | report the named bottleneck in one line, end the pass |
 
 `none` is an answer, not a failure: the loop's value on a quiet board
