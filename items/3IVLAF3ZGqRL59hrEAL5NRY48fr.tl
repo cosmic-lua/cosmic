@@ -9,5 +9,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1486,
+  ["reviewer"] = "e532d9f6-4b7d-5145-9534-7c6759ebc0d8",
   ["title"] = "perf gate: stampless files pass identity refusals and join the same-binary noise controls",
 }
