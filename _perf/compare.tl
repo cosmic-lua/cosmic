@@ -15,6 +15,7 @@ local harness = require("_perf.harness")
 local pt = require("_perf.perf_types")
 local fs = require("cosmic.fs")
 local shape = require("cosmic.shape")
+local time = require("cosmic.time")
 
 local DEFAULT_THRESHOLD_PCT = 10.0
 
@@ -32,12 +33,17 @@ local TRIAGE_K = 2.0
 --- `bin_sha` in identity_refusal, `wall_ns` as the "malformed"
 --- verdict, `spread_pct` behind `or 0`, `error` as the failed-row
 --- marker — so demanding any of them here would reject a file the
---- code handles. The fields perf.run also writes but nothing here
---- reads (iterations, samples_ns, cpu_ns, min_ns, max_ns, alloc_kb)
---- are left unnamed: `into` ignores keys a Spec does not name.
+--- code handles. `meta.timestamp` is the one exception that is named:
+--- format_measured below floors it and formats it, so a file carrying
+--- a non-number there would throw out of this module rather than be
+--- refused on the error channel load_results already has. The fields
+--- perf.run also writes but nothing here reads (iterations,
+--- samples_ns, cpu_ns, min_ns, max_ns, alloc_kb) are left unnamed:
+--- `into` ignores keys a Spec does not name.
 local RESULTS_SPEC < const > = shape.record({
     meta = shape.optional(shape.record({
           bin_sha = shape.optional(shape.string),
+          timestamp = shape.optional(shape.number),
         })),
     results = shape.list(shape.record({
           name = shape.string,
@@ -278,13 +284,71 @@ local function format_identity(base: pt.Results, cur: pt.Results): string
     agreement)
 end
 
+--- Render a signed interval in the largest unit that still answers
+--- "same measurement window or not", dropping finer precision above a
+--- minute: seconds below a minute, floored minutes below an hour,
+--- floored hours and minutes above it.
+--- @param secs integer The interval in seconds, negative when the
+--- current side is the earlier one
+--- @return string The signed interval, e.g. `+12s`, `+2m`, `-8h33m`
+local function format_gap(secs: integer): string
+  local sign = secs < 0 and "-" or "+"
+  local a = secs < 0 and -secs or secs
+  if a < 60 then return string.format("%s%ds", sign, a) end
+  if a < 3600 then return string.format("%s%dm", sign, a // 60) end
+  return string.format("%s%dh%02dm", sign, a // 3600, (a % 3600) // 60)
+end
+
+--- Date the measurement window each side of a comparison came from, as
+--- one line beneath the binaries line.
+---
+--- Like the binary, the stamp is a property of a results FILE, so it is
+--- said once rather than in a column per side. Each side renders
+--- through `time.format_iso8601`, which is UTC with a `Z` suffix, and
+--- reads `meta.timestamp`, which perf.run writes when it WRITES the
+--- file -- so the line dates the reading, not the start of the run.
+---
+--- A side is `unknown` -- the word `format_identity` uses for a binary
+--- it cannot name -- when its `meta` is absent, its `meta.timestamp` is
+--- absent, or the stamp will not format. The parenthetical is signed
+--- against the base, matching the `base -> current` direction the rows
+--- already read in, and is `(gap unknown)` whenever either side is
+--- unknown. It is informational: no gap refuses, warns, or moves a bar.
+--- @param base Results The baseline file
+--- @param cur Results The current file
+--- @return string A single line dating both sides
+local function format_measured(base: pt.Results, cur: pt.Results): string
+  local bt = base.meta and base.meta.timestamp
+  local ct = cur.meta and cur.meta.timestamp
+  local bs: string | nil
+  local cs: string | nil
+  local bi: integer
+  local ci: integer
+  if bt ~= nil then
+    bi = math.floor(bt)
+    bs = time.format_iso8601(bi)
+  end
+  if ct ~= nil then
+    ci = math.floor(ct)
+    cs = time.format_iso8601(ci)
+  end
+  local gap = "(gap unknown)"
+  if bs ~= nil and cs ~= nil then
+    gap = "(current " .. format_gap(ci - bi) .. ")"
+  end
+  return string.format("measured: base %s  current %s  %s",
+    bs or "unknown", cs or "unknown", gap)
+end
+
 --- Format a full comparison report with a summary line.
 ---
 --- Given both results files, the report is headed by
 --- `format_identity`'s line, so a reader can tell which binary each
---- side came from. With either absent it is the rows and the summary
---- alone: a caller holding deltas but no files still gets a report,
---- rather than a header it cannot fill in.
+--- side came from, and beneath it `format_measured`'s line, so a
+--- reader can tell which measurement window each side came from. With
+--- either absent it is the rows and the summary alone: a caller
+--- holding deltas but no files still gets a report, rather than a
+--- header it cannot fill in.
 --- @param deltas {Delta} Deltas from diff()
 --- @param base Results? The baseline file the deltas came from
 --- @param cur Results? The current file the deltas came from
@@ -294,6 +358,7 @@ local function format(deltas: {pt.Delta}, base?: pt.Results, cur?: pt.Results): 
   local counts: {string: integer} = {}
   if base and cur then
     table.insert(lines, format_identity(base, cur))
+    table.insert(lines, format_measured(base, cur))
   end
   for _, d in ipairs(deltas) do
     table.insert(lines, format_delta(d))

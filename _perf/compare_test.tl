@@ -357,4 +357,75 @@ local function test_format_without_files_prints_the_rows_alone()
     "no files means no header:\n" .. text)
 end
 
+-- The measured header, in its states. `format` takes the two results
+-- FILES because the measurement window, like the binary, is a property
+-- of a file: it is what lets a reader of a saved report tell whether
+-- two levels came from the same session or from sessions hours apart.
+local STAMP_BASE = 1787809812 -- 2026-08-27T05:50:12Z
+local GAP_SECS = 30815 -- 8h33m, to the second
+
+local function stamped_results(timestamp: number): pt.Results
+  return {meta = {timestamp = timestamp}, results = {m("a", 1000, 2)}}
+end
+
+local function measured_line(base: pt.Results, cur: pt.Results): string
+  local text = compare.format(compare.diff(base, cur, 10), base, cur)
+  local line = text:match("\n([^\n]*)")
+  assert(line ~= nil, "report has no second line:\n" .. text)
+  return line
+end
+
+local function test_format_measured_line()
+  local line = measured_line(
+    stamped_results(STAMP_BASE), stamped_results(STAMP_BASE + GAP_SECS))
+  assert(line == "measured: base 2026-08-27T05:50:12Z" ..
+    "  current 2026-08-27T14:23:47Z  (current +8h33m)",
+    "measured header must date both sides:\n" .. line)
+end
+
+-- A baseline measured AFTER the current side is a real ordering, and
+-- the sign says so rather than the reader inferring it.
+local function test_format_measured_negative_gap()
+  local line = measured_line(
+    stamped_results(STAMP_BASE + GAP_SECS), stamped_results(STAMP_BASE))
+  assert(line:find("(current -8h33m)", 1, true) ~= nil,
+    "a current side measured earlier reads negative:\n" .. line)
+end
+
+local function test_format_measured_gap_units()
+  local seconds = measured_line(
+    stamped_results(STAMP_BASE), stamped_results(STAMP_BASE + 12))
+  assert(seconds:find("(current +12s)", 1, true) ~= nil,
+    "a gap under a minute reads in seconds:\n" .. seconds)
+
+  local minutes = measured_line(
+    stamped_results(STAMP_BASE), stamped_results(STAMP_BASE + 150))
+  assert(minutes:find("(current +2m)", 1, true) ~= nil,
+    "a gap under an hour reads in floored minutes:\n" .. minutes)
+
+  local hours = measured_line(
+    stamped_results(STAMP_BASE), stamped_results(STAMP_BASE + GAP_SECS))
+  assert(hours:find("(current +8h33m)", 1, true) ~= nil,
+    "a gap over an hour reads in floored hours and minutes:\n" .. hours)
+end
+
+-- One undated side leaves the gap unanswerable, so it is said out loud
+-- instead of a zero or an omitted parenthetical standing in for it.
+local function test_format_measured_unknown_side()
+  local line = measured_line(stamped_results(STAMP_BASE), results({m("a", 1000, 2)}))
+  assert(line == "measured: base 2026-08-27T05:50:12Z" ..
+    "  current unknown  (gap unknown)",
+    "an undated current side is unknown, and so is the gap:\n" .. line)
+end
+
+local function test_format_without_identity_unchanged()
+  local deltas = compare.diff(
+    results({m("a", 1000, 2)}), results({m("a", 1000, 2)}), 10)
+  local text = compare.format(deltas)
+  assert(text:find("measured: ", 1, true) == nil,
+    "no files means no measured header:\n" .. text)
+  assert(text:find("binaries: ", 1, true) == nil,
+    "no files means no binaries header:\n" .. text)
+end
+
 print("OK compare_test")
