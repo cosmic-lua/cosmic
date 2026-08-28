@@ -7,6 +7,7 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["phase"] = "check",
   ["pr"] = 1494,
+  ["reviewer"] = "review-3IYiZ9Md-1756400000-rev1",
   ["title"] = "review distance moves to the procedure: the review runs in a fresh-context subagent",
   ["verdict"] = "request changes",
   ["verdict_head"] = "fce9d19698d7b8a961df7fb9c1663c4d0d111b52",
