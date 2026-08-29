@@ -79,6 +79,20 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
 end
 test_a_verdict_refuses_a_pair_it_already_judged()
 
+-- A cure can land OUTSIDE the PR — head and spec both unmoved — so the
+-- refusal for an already-judged pair names the way forward instead of
+-- dead-ending: extend the spec with a Rework note, then judge again.
+local function test_already_judged_refusal_names_the_way_forward()
+  local msg = vrd.already_judged_refusal("abcdef1234", "cafe1230000")
+  assert(msg:find("was already judged with this spec", 1, true) ~= nil,
+    "still says what happened: " .. msg)
+  assert(msg:find("gitboard spec", 1, true) ~= nil,
+    "names the tool for the cure: " .. msg)
+  assert(msg:find("record the verdict again", 1, true) ~= nil,
+    "names the way forward: " .. msg)
+end
+test_already_judged_refusal_names_the_way_forward()
+
 -- The verb DOES keep an identity distance now: the session named on
 -- the claim (`it.builders`, joined by `take`) is refused a verdict on
 -- its own item, `--force` alone is not enough, and only `--force

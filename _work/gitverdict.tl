@@ -48,6 +48,23 @@ local KINDS: {string: boolean} = {
   ["reject"] = true,
 }
 
+--- The refusal for a head+spec pair judged before. Some cures happen
+--- OUTSIDE the PR — a fix landing elsewhere can make the spec's claims
+--- true with the head and spec both unmoved — and the doctrine for
+--- that stays record-the-cure-on-the-spec rather than a new guard
+--- surface, so the refusal names that way forward instead of dead-
+--- ending: append what changed to the item's spec, then judge again.
+--- @param id string The item under verdict
+--- @param head string The head already judged
+--- @return string The refusal
+local function already_judged_refusal(id: string, head: string): string
+  return ("%s's head %s was already judged with this spec — neither "
+    .. "the diff nor the spec has moved since. If something outside "
+    .. "the PR cured it, append a short Rework note to the item's "
+    .. "spec (`gitboard spec`) and record the verdict again."):format(
+    id:sub(1, 8), head:sub(1, 7))
+end
+
 --- @param s store.Store The store
 --- @param id string The item under verdict
 --- @param kind string accept | request changes | reject (aliases apply)
@@ -140,9 +157,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if (head or "") ~= "" and head == (it.verdict_head or "")
   and (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec then
     return gate.verdict_line("verdict", false,
-      ("REFUSED: %s's head %s was already judged with this spec — "
-        .. "neither the diff nor the spec has moved since"):format(
-        id:sub(1, 8), head:sub(1, 7)))
+      "REFUSED: " .. already_judged_refusal(id, head))
   end
   -- An accept asserts the work is fit to land, so it is the one
   -- verdict whose truth depends on the request's own state. Checking
@@ -229,10 +244,12 @@ local record gitverdict
   cmd_verdict: function(s: store.Store, id: string, kind: string,
   pr: integer, head: string, session?: string, force?: boolean,
   why?: string): integer
+  already_judged_refusal: function(id: string, head: string): string
 end
 
 local M: gitverdict = {
   cmd_verdict = cmd_verdict,
+  already_judged_refusal = already_judged_refusal,
 }
 
 return M
