@@ -14,6 +14,7 @@ local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
 local graph = require("_work.gitgraph")
+local view = require("_work.gitview")
 
 local tmpdir = fixture.tmpdir
 local READY_SPEC < const > = fixture.READY_SPEC
@@ -232,3 +233,23 @@ local function test_spec_force_and_why_overrides_a_foreign_claim()
       1, true), "the reason rides the commit: " .. events[1].subject)
 end
 test_spec_force_and_why_overrides_a_foreign_claim()
+
+-- The reproduced incident: a bounce's gap lived only in the board
+-- log, so the next session that pulled the same item re-discovered
+-- it. `next`'s offer now carries the gap from the drop already on
+-- record.
+local function test_next_carries_the_last_bounce_gap()
+  local s = init_state_repo("bouncenote")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_drop(s, leaf, "session-a",
+      "the encoding question is unanswered", false) == 0)
+  local all = check.must(store.list(s))
+  local report = view.next_report_live(s, all, view.read_specs(s, all),
+    "", {})
+  assert(report:find("last bounce:", 1, true) ~= nil, report)
+  assert(report:find("the encoding question is unanswered", 1, true) ~= nil,
+    report)
+end
+test_next_carries_the_last_bounce_gap()

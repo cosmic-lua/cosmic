@@ -158,26 +158,13 @@ local function cmd_status(s: store.Store): integer
   return verdict_line("show", true, verdict)
 end
 
---- The one next action, as the verdict detail. Acting on it moves
---- the board, so a session taking several asks again after each one
---- rather than reading a list. A `none` names the fact that binds,
---- which is the diagnosis a session reports.
----
---- Under that line, indented, is what the kind MEANS
---- (`_work.guidance`): the verb that performs it and the ordering
---- rule behind it, so a session acts on the answer without going to
---- read prose elsewhere.
---- @param all {item.Item} Every item
---- @param specs act.Specs Sidecar body by id
---- @param session string This session's name, "" when unnamed
---- @param ages health.Ages Seconds since last board commit, by id
+--- Renders a decided action: what to do, to what, and under which
+--- rule, followed by what the kind MEANS (`_work.guidance`) and any
+--- alternates — so a session acts on the answer without going to read
+--- prose elsewhere.
+--- @param action act.Action The decision
 --- @return string The action, its target, the rule behind it, and its guidance
-local function next_report(all: {item.Item}, specs: act.Specs,
-    session?: string, ages?: health.Ages): string
-  -- The session seeds the tie-break, so concurrent sessions asking
-  -- the same board fan out across items no judgment separates
-  -- instead of converging on one.
-  local action = act.next_action(all, specs, session, ages, session)
+local function render_action(action: act.Action): string
   local target = ""
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
@@ -197,13 +184,67 @@ local function next_report(all: {item.Item}, specs: act.Specs,
   return table.concat(out, "\n")
 end
 
+--- The one next action, as the verdict detail. Acting on it moves
+--- the board, so a session taking several asks again after each one
+--- rather than reading a list. A `none` names the fact that binds,
+--- which is the diagnosis a session reports.
+--- @param all {item.Item} Every item
+--- @param specs act.Specs Sidecar body by id
+--- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
+--- @return string The action, its target, the rule behind it, and its guidance
+local function next_report(all: {item.Item}, specs: act.Specs,
+    session?: string, ages?: health.Ages): string
+  -- The session seeds the tie-break, so concurrent sessions asking
+  -- the same board fan out across items no judgment separates
+  -- instead of converging on one.
+  return render_action(act.next_action(all, specs, session, ages, session))
+end
+
+--- The gap named by an item's most recent board commit, when that
+--- commit was a bounce (`drop ID: <why>`) rather than a take or a
+--- reviewer's release (`drop ID review: <why>` — the review comes
+--- free again, but the build was never dropped).
+--- @param subject string The most recent board-commit subject
+--- @return string " (last bounce: <why>)", or "" when it was not one
+local function bounce_note(subject: string): string
+  local why = subject:match("^drop %S+: (.+)$")
+  if why == nil then
+    return ""
+  end
+  return (" (last bounce: %s)"):format(why)
+end
+
+--- `next_report`, but for a decided `pull` the reason carries the gap
+--- named by the item's last bounce, read once for the one decided
+--- action rather than once per candidate: a session that dropped an
+--- item and asks again starts from the recorded gap instead of
+--- re-discovering it.
+--- @param s store.Store The store
+--- @param all {item.Item} Every item
+--- @param specs act.Specs Sidecar body by id
+--- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
+--- @return string The action, its target, the rule behind it, and its guidance
+local function next_report_live(s: store.Store, all: {item.Item},
+    specs: act.Specs, session?: string, ages?: health.Ages): string
+  local action = act.next_action(all, specs, session, ages, session)
+  if action.kind == "pull" and action.item then
+    local events = store.history(s, action.item.id)
+    if events and events[1] then
+      action.reason = action.reason .. bounce_note(events[1].subject)
+    end
+  end
+  return render_action(action)
+end
+
 local function cmd_next(s: store.Store, session?: string): integer
   local all, aerr = store.list(s)
   if all == nil then
     return verdict_line("next", false, aerr)
   end
   return verdict_line("next", true,
-    next_report(all, read_specs(s, all), session, claim_ages(s, all)))
+    next_report_live(s, all, read_specs(s, all), session, claim_ages(s, all)))
 end
 
 local record gitview
@@ -211,6 +252,9 @@ local record gitview
   ages?: health.Ages): {string}, string
   next_report: function(all: {item.Item}, specs: act.Specs,
   session?: string, ages?: health.Ages): string
+  next_report_live: function(s: store.Store, all: {item.Item},
+  specs: act.Specs, session?: string, ages?: health.Ages): string
+  bounce_note: function(subject: string): string
   read_specs: function(s: store.Store, all: {item.Item}): act.Specs
   cmd_status: function(s: store.Store): integer
   cmd_next: function(s: store.Store, session?: string): integer
@@ -219,6 +263,8 @@ end
 local M: gitview = {
   status_report = status_report,
   next_report = next_report,
+  next_report_live = next_report_live,
+  bounce_note = bounce_note,
   read_specs = read_specs,
   cmd_status = cmd_status,
   cmd_next = cmd_next,
