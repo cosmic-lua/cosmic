@@ -30,12 +30,13 @@ capable of implementing one, and the ordering decides which it does
 now.
 
 what IS still split is the moment of judgment. a review is worth the
-distance between the builder and the reviewer, so `next --session
-NAME` never hands a session a verdict on work that session built —
-the claim recorded when it pulled the item survives into `check` and
-says who did it. that distance is now a property of the board rather
-than of which model is running, which is why it survives one worker
-doing everything.
+distance between the builder and the reviewer, so the verdict is
+recorded by a review subagent whose context window never held the
+build — it reads the spec off the board and the diff off the PR, and
+carries none of the commitment that produced them (`review.md`). that
+distance is a property of the reviewer's context rather than of which
+model is running, which is why it survives one worker doing
+everything.
 
 the worker's defining duty is not writing specs; it is making the NEXT
 session succeed — often itself, with none of today's context. when a
@@ -195,7 +196,7 @@ because nobody acts there — it is a buffer:
 | `plan` | committed: being refined now, until it meets the ready bar |
 | `ready` | meets the ready bar (`decompose.md`); nobody's until a session pulls it |
 | `do` | claimed work and rework — the claimant's, until a PR opens or a bounce |
-| `check` | PR open; awaiting a verdict from a session that did not build it |
+| `check` | PR open; awaiting a verdict from a review that did not hold the build |
 | `land` | accepted; awaiting the merge |
 
 **placing an item is not committing to it.** triage answers one cheap
@@ -252,14 +253,14 @@ same item and a wave never builds one slice twice.
 a session types for itself is the one thing that is not: the readable
 half of an assigned branch (`magical-bell` out of
 `claude/magical-bell-74byv9`) is shared across every run in that slug's
-rotation, and a run that reuses it makes every item it touches
-unreviewable by the next run — the collision is silent and durable,
-because the builder is remembered. so `next`, `move` and `verdict` with
-NO `--session`/`--claim` derive the identity from the environment
-(`GITBOARD_SESSION`, else a runner's own per-session id), which is
-unique by construction. pass the flag only to override that — a human
-at a terminal naming themselves, a fixture pinning a value — never to
-restate a name the environment already carries. a runner that sets no
+rotation, and a run that reuses it reads every claim the earlier run
+left as its own — the mutual exclusion stops holding, silently,
+because nothing tells the two runs apart. so `next`, `move` and
+`verdict` with NO `--session`/`--claim` derive the identity from the
+environment (`GITBOARD_SESSION`, else a runner's own per-session id),
+which is unique by construction. pass the flag only to override that —
+a human at a terminal naming themselves, a fixture pinning a value —
+never to restate a name the environment already carries. a runner that sets no
 usable id can export `GITBOARD_SESSION=<something unique per run>`;
 inventing a name inline is the anti-pattern, not setting that. a
 review subagent exports it too, and is the one case where the derived
@@ -383,9 +384,10 @@ slice and this is the loop:
    what it names, because anything it catches is something a reviewer
    would otherwise discover instead of reviewing.
 6. stop implementing and rejoin the loop. never merge a PR that has
-   not been accepted, and never accept your own: the item now carries
-   your claim, so `next` will route it elsewhere and
-   hand you something else.
+   not been accepted, and never accept your own: `next` offers you
+   this verdict like any other item in `check`, and the distance is
+   the review procedure's to hold — spawn the review subagent
+   (`review.md`) rather than judging the diff you just wrote.
 
 **when the spec under-specifies** — you hit a decision the sidecar
 does not settle, a command that does not exist, a contract question —
