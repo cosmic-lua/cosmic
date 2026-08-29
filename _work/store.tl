@@ -133,10 +133,10 @@ local function load_item(s: Store, id: string): item.Item | nil, string
   return item.decode(t)
 end
 
---- The full id a unique prefix names — KSUIDs are 27 characters, so
---- verbs accept any unambiguous prefix the way git accepts short
---- hashes. An exact-length id resolves without touching the
---- directory.
+--- The full id a unique prefix names — KSUIDs are 27 characters, so verbs accept any
+--- unambiguous prefix the way git accepts short hashes, or the 8-character render
+--- handle `_work.tail` resolves separately (bare or wrapped, either divider,
+--- case-tolerant). An exact-length id resolves without touching the directory.
 --- @param s Store The store
 --- @param prefix string An id or a prefix of one
 --- @return string | nil The full id

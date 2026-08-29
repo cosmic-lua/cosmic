@@ -10,7 +10,9 @@ push-as-compare-and-swap at once.
 
 ```
 items/       the board: one <ksuid>.tl per item (cosmic.literal data)
-             with its spec prose in the matching <ksuid>.md
+             with its spec prose in the matching <ksuid>.md; every verb
+             and render addresses it by the 8-character handle (bare or
+             wrapped, either divider, case-tolerant) or an unambiguous prefix
 _work/       the machinery: gitboard (CLI), gitverbs (mutations),
              gitcompare (the priority relation as a verb), gitview
              (reads), gitgate (the spec bar, the doing bound, and the
