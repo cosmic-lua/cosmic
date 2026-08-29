@@ -24,6 +24,7 @@
 --- outcome prose that gives the tree its meaning lives in
 --- `docs/goals.md` on `main` and is read by people, not by this.
 local ksuid = require("_work.ksuid")
+local shape = require("cosmic.shape")
 
 local record Item
   --- The filename stem and the one name other items use: a KSUID.
@@ -83,6 +84,53 @@ local record Item
   --- Why a finished item ended: "completed" | "not-planned"; "" while
   --- open. A non-empty resolution IS what "done" means.
   resolution: string
+end
+
+--- The shape `decode`'s input must have. Every field is optional —
+--- the literal domain omits zero values on write (see `encode`), so
+--- an absent key is ordinary, not a mismatch — and nothing here is
+--- coerced: a wrong-typed field is a refusal, not a silent zero.
+--- `blocked_by`, `beats` and `builders` validate as the space-joined
+--- strings the file actually carries; splitting them into lists is a
+--- transform `decode` still does after validation.
+local SPEC < const > = shape.record({
+    id = shape.optional(shape.string),
+    title = shape.optional(shape.string),
+    parent = shape.optional(shape.string),
+    repo = shape.optional(shape.string),
+    beats = shape.optional(shape.string),
+    blocked_by = shape.optional(shape.string),
+    block_reason = shape.optional(shape.map(shape.string)),
+    claim = shape.optional(shape.string),
+    builders = shape.optional(shape.string),
+    reviewer = shape.optional(shape.string),
+    pr = shape.optional(shape.integer),
+    verdict = shape.optional(shape.string),
+    verdict_head = shape.optional(shape.string),
+    verdict_spec = shape.optional(shape.string),
+    resolution = shape.optional(shape.string),
+  })
+
+--- The type `shape.into` hands `decode` back: SPEC typed, with every
+--- field still optional since the Spec admits absence. Not `Item` —
+--- the space-joined list fields and the zero-value defaults are still
+--- raw here; `decode` derives `Item` from this after validation.
+local record Raw
+  id: string | nil
+  title: string | nil
+  parent: string | nil
+  repo: string | nil
+  beats: string | nil
+  blocked_by: string | nil
+  block_reason: {string: string} | nil
+  claim: string | nil
+  builders: string | nil
+  reviewer: string | nil
+  pr: integer | nil
+  verdict: string | nil
+  verdict_head: string | nil
+  verdict_spec: string | nil
+  resolution: string | nil
 end
 
 local VERDICTS: {string: boolean} = {
@@ -189,41 +237,42 @@ end
 --- @return Item | nil The item
 --- @return string Error message listing every problem
 local function decode(t: {string: any}): Item | nil, string
+  local raw, err: Raw | nil, string = shape.into(t, SPEC)
+  if not raw then
+    return nil, err
+  end
   local blocked: {string} = {}
-  for ref in tostring(t.blocked_by or ""):gmatch("%S+") do
+  for ref in (raw.blocked_by or ""):gmatch("%S+") do
     blocked[#blocked + 1] = ref
   end
   local reasons: {string: string} = {}
-  local raw_reasons = t.block_reason
-  if raw_reasons is {string: any} then
-    for k, v in pairs(raw_reasons) do
-      reasons[k] = tostring(v)
-    end
+  for k, v in pairs(raw.block_reason or {}) do
+    reasons[k] = v
   end
   local beats: {string} = {}
-  for ref in tostring(t.beats or ""):gmatch("%S+") do
+  for ref in (raw.beats or ""):gmatch("%S+") do
     beats[#beats + 1] = ref
   end
   local builders: {string} = {}
-  for name in tostring(t.builders or ""):gmatch("%S+") do
+  for name in (raw.builders or ""):gmatch("%S+") do
     builders[#builders + 1] = name
   end
   local it: Item = {
-    id = tostring(t.id or ""),
-    title = tostring(t.title or ""),
-    parent = tostring(t.parent or ""),
-    repo = tostring(t.repo or ""),
+    id = raw.id or "",
+    title = raw.title or "",
+    parent = raw.parent or "",
+    repo = raw.repo or "",
     beats = beats,
     blocked_by = blocked,
     block_reason = reasons,
-    claim = tostring(t.claim or ""),
+    claim = raw.claim or "",
     builders = builders,
-    reviewer = tostring(t.reviewer or ""),
-    pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
-    verdict = tostring(t.verdict or ""),
-    verdict_head = tostring(t.verdict_head or ""),
-    verdict_spec = tostring(t.verdict_spec or ""),
-    resolution = tostring(t.resolution or ""),
+    reviewer = raw.reviewer or "",
+    pr = raw.pr or 0,
+    verdict = raw.verdict or "",
+    verdict_head = raw.verdict_head or "",
+    verdict_spec = raw.verdict_spec or "",
+    resolution = raw.resolution or "",
   }
   local bad = problems(it)
   if #bad > 0 then
