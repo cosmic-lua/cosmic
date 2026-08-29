@@ -287,10 +287,13 @@ filed, `--enable 'none: <reason>'` records that this item's own spec
 was the fault. what the flag cannot judge is whether the reason is a
 real one — that part is a judgment, not a field.
 
-a bounce that quotes a wrong or unmeasured tree-fact names its
-countermeasure directly — the spec asserted something about the tree
-without measuring it — and the fix is a freshly measured claim, with
-its command, in the re-refined spec, not a prose apology.
+a bounce quoting a wrong or unmeasured tree-fact or behavioural claim
+names its countermeasure directly — the spec asserted something about
+the tree, or about what a verb, gate or report DOES, without measuring
+it — and the fix is a freshly measured claim in the re-refined spec,
+with its command and, for a behavioural one, the output that command
+produced (`decompose.md`, "run it, don't read it"), not a prose
+apology.
 
 captured evidence enters the same loop from the building side: at
 the triage step a session takes every unplaced root — `attach` it
