@@ -16,8 +16,8 @@ inputs:
     required: true
   status:
     description: >
-      The calling job's own status (`${{ job.status }}`): success,
-      failure, or cancelled.
+      The calling job's own status context expression, evaluated by the
+      caller: success, failure, or cancelled.
     required: true
 
 runs:
