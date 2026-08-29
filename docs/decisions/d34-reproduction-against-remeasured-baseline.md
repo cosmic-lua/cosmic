@@ -1,7 +1,7 @@
 # D34 — the perf gate judges reproduction against the re-measured baseline
 
 - **date:** 2026-08
-- **status:** amended 2026-08 (D35 closed the dismissal asymmetry)
+- **status:** superseded by D36
 - **context:** `release.yml`'s perf gate fails a regression only when it
   strikes TWICE — the strike-twice rule, added because a scenario
   flagging in one pass and quiet in the next did not reproduce and is

@@ -6,13 +6,14 @@
 --- samples judged against ONE common baseline, so a scenario that
 --- flags in only one of them did not reproduce and reclassifies to
 --- noise. When the caller can re-run the baseline binary
---- (--baseline-bin), the retry re-measures BOTH sides, because a
---- single unlucky baseline reading otherwise anchors every pass and no
---- amount of current-side retrying washes it out; pass 1's flags are
---- then recomputed against that re-measured baseline, or the
---- reproduction question would be asked across two different
---- references and a regression masked by a one-off slow baseline
---- reading would be discarded as not reproduced. A persisting
+--- (--baseline-bin), the retry re-measures BOTH sides: a single unlucky
+--- baseline reading otherwise anchors every pass, and no amount of
+--- current-side retrying washes it out. Two readings have no majority,
+--- so _perf.tiebreak buys a third when they disagree and judges against
+--- the median. Pass 1's flags are recomputed against whichever baseline
+--- that is, or the reproduction question would be asked across two
+--- different references and a regression masked by a one-off slow
+--- baseline reading discarded as not reproduced. A persisting
 --- regression then meets an A/A self-check that reclassifies swings
 --- the current binary shows against itself as noise. Both ways the two
 --- samples can disagree are answered, by _perf.reproduce: a regression
@@ -26,6 +27,7 @@ local compare = require("_perf.compare")
 local pt = require("_perf.perf_types")
 local proc = require("cosmic.proc")
 local reproduce = require("_perf.reproduce")
+local tiebreak = require("_perf.tiebreak")
 
 local type Measure = function(out: string): integer
 
@@ -210,20 +212,17 @@ local function gate_inner(opts: GateOptions): integer
     -- Re-measure the baseline binary too: pass 1's base numbers came
     -- from a single run, and a one-off reading there anchors every
     -- later pass — no amount of current-side retrying washes it out.
-    base_side = retry_path(opts.baseline)
-    print("perf-compare: re-measuring the baseline into " .. base_side ..
-      " so a one-off baseline reading cannot anchor the verdict")
-    rc = opts.measure_baseline(base_side)
-    if rc ~= 0 then
-      return rc
-    end
-    -- A baseline retry is only a retry if it re-measured the SAME
-    -- binary the baseline file names.
-    refusal = identity_refusal(opts.baseline, base_side, true)
-    if refusal then
-      io.stderr:write(refusal .. "\n")
+    -- Two readings have no majority, though, so _perf.tiebreak owns the
+    -- rest of the question: a pair that disagrees past the bar earns a
+    -- third reading, and the per-scenario median of the three is what
+    -- passes 2 and 3 read.
+    local resolved, rerr =
+    tiebreak.baseline_side(opts.baseline, opts.threshold, opts.measure_baseline)
+    if resolved == nil then
+      io.stderr:write(rerr .. "\n")
       return 1
     end
+    base_side = resolved
   end
   if base_side ~= opts.baseline then
     -- Re-key pass 1's flags to the baseline the failing judgment reads.
