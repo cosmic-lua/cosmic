@@ -1,4 +1,4 @@
-# D36 — the board holds two states; quality is two gates, not stages
+# D37 — the board holds two states; quality is two gates, not stages
 
 - **date:** 2026-08
 - **status:** active

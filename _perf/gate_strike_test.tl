@@ -98,14 +98,15 @@ local function test_baseline_retry_rescues_a_one_off_baseline_reading()
       end,
       measure_baseline = function(out: string): integer
         bcalls = bcalls + 1
-        bpath = out
+        bpath = bpath or out -- the FIRST re-measure gets -retry.json
         write_results(out, 1300, "aaaa1111")
         return 0
       end,
     })
   assert(code == 0,
     "a baseline retry must wash out a one-off baseline reading, got " .. code)
-  assert(bcalls == 1, "expected exactly one baseline re-measure, got " .. bcalls)
+  assert(bcalls == 2,
+    "a disagreeing baseline pair earns a third reading, got " .. bcalls)
   assert(bpath ~= nil and bpath:match("%-base%-retry%.json$"),
     "the baseline retry gets BASE's own -retry.json sibling, got " .. tostring(bpath))
 end
@@ -160,16 +161,19 @@ local function test_masked_baseline_regression_still_fails()
     "a regression the pass-1 baseline masked must still fail, got " .. code)
 end
 
--- The accepted cost, in the false-positive direction. `x` is steady on
+-- The false red the baseline pair could not decide. `x` is steady on
 -- every current-side run and the BASELINE retry is the one-off fast
--- reading, so both current samples flag against it and the gate fails
--- where the old rule passed. The controls are all quiet, so nothing
--- absorbs it -- a false red costs one workflow re-run, which is the
--- cheaper of the two errors.
-local function test_a_one_off_fast_baseline_retry_fails_the_gate()
+-- reading, so both current samples flag against it and two readings
+-- have no majority to say which was the outlier. The third reading
+-- supplies one: the median of {1000, 700, 1000} is 1000, the pair's
+-- dissenter is outvoted, and `x` reads `ok` against it. Only the FIRST
+-- re-measure is the one-off -- a closure repeating it on every call
+-- would not be modelling a one-off at all.
+local function test_a_one_off_fast_baseline_retry_is_outvoted()
   local base, cur, selfb = paths("fast-base-retry")
   write_multi(base, {a = 1000, x = 1000}, "aaaa1111")
   write_multi(cur, {a = 1300, x = 1000}, "bbbb2222")
+  local bcalls = 0
   local code = gate.gate({
       baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
       measure = function(out: string): integer
@@ -177,20 +181,26 @@ local function test_a_one_off_fast_baseline_retry_fails_the_gate()
         return 0
       end,
       measure_baseline = function(out: string): integer
-        write_multi(out, {a = 1000, x = 700}, "aaaa1111") -- the one-off
+        bcalls = bcalls + 1
+        write_multi(out, {a = 1000, x = bcalls == 1 and 700 or 1000}, "aaaa1111")
         return 0
       end,
     })
-  assert(code == 1,
-    "a one-off fast baseline retry on a stable scenario fails, got " .. code)
+  assert(code == 0,
+    "a one-off fast baseline retry must be outvoted, got " .. code)
+  assert(bcalls == 2,
+    "a disagreeing baseline pair earns a third reading, got " .. bcalls)
 end
 
--- ...and the guard on that cost. Same numbers, except `x` also swings
--- on the current side: the A/A control pair reads +30%, which is
--- TRIAGE_K-comparable to the +42.9% flag, so the existing noise credit
--- absorbs it and the gate passes. A scenario unstable enough to
--- produce a one-off baseline reading is normally unstable on the
--- current side too, where the credit already lives.
+-- ...and the other side of the tiebreak: a baseline binary that really
+-- IS the faster one. Both re-measures read 700, so the majority
+-- outvotes the caller's 1000, the median is 700, and `x` genuinely
+-- flags +42.9% against it. `x` also swings on the current side, where
+-- the A/A control pair reads +30% -- TRIAGE_K-comparable to the flag --
+-- so the existing noise credit absorbs it and the gate passes. A
+-- scenario unstable enough to produce a one-off baseline reading is
+-- normally unstable on the current side too, where the credit already
+-- lives.
 local function test_current_side_instability_absorbs_the_fast_baseline_retry()
   local base, cur, selfb = paths("unstable-current")
   write_multi(base, {a = 1000, x = 1000}, "aaaa1111")
