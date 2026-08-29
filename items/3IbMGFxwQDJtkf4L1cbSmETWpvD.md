@@ -1,0 +1,3 @@
+## Change
+
+The machinery's id prose predates the tail handle. Measured 2026-08-29 (`grep -rn "unambiguous prefix" _work/*.tl README.md`): `_work/gitboard.tl:13` says "Ids are KSUIDs; every verb accepts an unambiguous prefix", `_work/store.tl:137` likens prefixes to git short hashes, and `README.md:12` describes items/ by ksuid alone — none mentions that renders lead with the handle («d0x1_37YJ», the id's last 8 chars) or that verbs resolve it (bare or wrapped, either divider, case-tolerant). Update those three prose sites to state the handle beside the prefix. Comment/doc lines only; no behavior, no tests beyond what fmt requires.
