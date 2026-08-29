@@ -193,6 +193,29 @@ only value drift — which is the reason to write every measurement to
 be literally runnable, and to date it: a claim that cannot be re-run
 in seconds turns the free correction into a judgment call.
 
+**run it, don't read it.** the facts above are all answered by reading
+bytes — a length, a count, a location — and that is the whole list the
+rule used to name. a claim about BEHAVIOUR is a different kind of fact:
+what a verb prints, which branch a condition selects, what a report
+contains, where a rule fires, what a gate refuses. reading the source
+to answer one of those is inference, and it is inference that keeps
+being wrong — the wrong turn is never a fact somebody guessed at, it is
+one that read as obviously true. so a behavioural claim carries the
+command AND the output that command produced, pasted; a description of
+what the code should do is not a measurement of what it does. the tell
+a refiner can apply to their own draft: any sentence whose subject is a
+verb, a gate or a report, in the present tense — "`next` surfaces …",
+"`show` reads …", "the restore fires exactly when …", "`verdict`
+refuses …" — is a PREDICTION until a command has produced it. and
+absence is behavioural too: a grep that returns nothing establishes
+that the PATTERN matched nothing, never that the thing is not there —
+widen the pattern, or name what the narrow one could miss. nothing
+enforces any of this. `gitboard check` lints that the five sections are
+present and non-empty; it cannot tell an executed claim from a
+plausible one, and no static check can. this is a rule the refiner
+applies and the reviewer checks, and the command with its output beside
+the claim is the only artifact either of them gets.
+
 ## a worked example
 
 the spec sidecar of a ready slice:
@@ -241,6 +264,13 @@ are in AGENTS.md.
 - **scope by omission** — an empty Non-goals section on a change near
   a frozen contract (the `cosmo.*` C boundary, error strings, verdict
   line formats) is a refinement error; name the walls.
+- **behaviour by reading** — a claim about what a verb, a gate or a
+  report DOES, arrived at by reading the source rather than running it.
+  D35 stated the perf gate's restore fires "exactly when `N < f < 2r`";
+  sweeping `f` in [0, 300] against `r` in [0, 20] through the real
+  `compare.diff` and `reproduce.restore` disagreed with the code at
+  4097 of 4961 points, and the true region is not even an interval. the
+  arithmetic was plausible, which is exactly why nobody ran it.
 - **decomposing to dust** — slices so small the overhead dominates
   (rename-only items, one-liner items in a chain). a slice earns
   its place by being independently verifiable, not by being tiny.
