@@ -13,25 +13,15 @@ local style = require("_tool.lint")
 
 local type Diagnostic = style.Diagnostic
 
---- Run the rule over a document string, as lint_file does: split into
---- lines the same way before handing them to the checker.
---- @param file string The document's path, for the diagnostics
---- @param source string The document's bytes
---- @return {Diagnostic}
-local function diagnose(file: string, source: string): {Diagnostic}
-  local lines: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = line
-  end
-  return citations.check_citations(file, lines)
-end
-
 -- Cited paths resolve relative to the process's cwd, which is the
 -- project root when `--check lint` runs. So the fixture needs to BE the
--- cwd for the duration of this file, and the old one is restored at the
--- bottom (cosmic/fs/init_test.tl's test_getcwd_and_chdir is the same
--- move on a smaller scale).
-local ORIGINAL < const > = check.must(fs.cwd())
+-- cwd while the checker runs --- but cases run later than this file's
+-- own top level (the runner collects each case as a closure and calls
+-- it only once every case is defined), so a chdir bracketing the FILE
+-- would restore before any case ran. `diagnose` is the one call every
+-- case makes, so it is the chdir/restore's bracket instead (cosmic/fs
+-- /init_test.tl's test_getcwd_and_chdir is the same move on a single
+-- case).
 local BASE < const > = os.getenv("TEST_TMPDIR")
 or check.must(fs.temp_dir("citations"))
 local ROOT < const > = fs.join(BASE, "citations-fixture")
@@ -40,7 +30,25 @@ assert(fs.make_dirs(fs.join(ROOT, "src")), "fixture src dir")
 -- Three lines, of which the second is the one every quote test cites.
 assert(fs.write(fs.join(ROOT, "src", "sample.tl"),
     "line one\n  local s = \"two\"\nline three\n"), "fixture source")
-assert(fs.set_cwd(ROOT), "chdir into the fixture")
+
+--- Run the rule over a document string, as lint_file does: split into
+--- lines the same way before handing them to the checker, with the
+--- fixture as cwd for the duration of the call so the checker's
+--- relative-path lookups resolve against it.
+--- @param file string The document's path, for the diagnostics
+--- @param source string The document's bytes
+--- @return {Diagnostic}
+local function diagnose(file: string, source: string): {Diagnostic}
+  local lines: {string} = {}
+  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  local original = check.must(fs.cwd())
+  assert(fs.set_cwd(ROOT), "chdir into the fixture")
+  local diags = citations.check_citations(file, lines)
+  assert(fs.set_cwd(original), "restore the original cwd")
+  return diags
+end
 
 local function test_live_inline_citation_is_refused()
   local diags = diagnose("doc.md", "See `src/sample.tl:2` for the shape.")
@@ -53,7 +61,6 @@ local function test_live_inline_citation_is_refused()
   check.truthy(diags[1].message:find("fenced citation", 1, true),
     "the message must name the way out: " .. diags[1].message)
 end
-test_live_inline_citation_is_refused()
 
 local function test_inline_citation_past_end_of_file()
   local diags = diagnose("doc.md", "See `src/sample.tl:9` for the shape.")
@@ -63,7 +70,6 @@ local function test_inline_citation_past_end_of_file()
   check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
     "the inline form is refused whatever it points at: " .. diags[1].message)
 end
-test_inline_citation_past_end_of_file()
 
 local function test_inline_citation_naming_no_file()
   local diags = diagnose("doc.md", "See `src/renamed.tl:1` for the shape.")
@@ -72,7 +78,6 @@ local function test_inline_citation_naming_no_file()
   check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
     "the inline form is refused whatever it points at: " .. diags[1].message)
 end
-test_inline_citation_naming_no_file()
 
 local function test_generated_inline_citation_is_refused()
   local diags = diagnose("doc.md",
@@ -84,7 +89,6 @@ local function test_generated_inline_citation_is_refused()
   check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
     "the inline form is refused whatever it points at: " .. diags[1].message)
 end
-test_generated_inline_citation_is_refused()
 
 local function test_inline_range_is_refused()
   local diags = diagnose("doc.md", "The block is `src/sample.tl:1-3`.")
@@ -94,7 +98,6 @@ local function test_inline_range_is_refused()
   check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
     "the inline form is refused whatever it points at: " .. diags[1].message)
 end
-test_inline_range_is_refused()
 
 local function test_inline_range_past_end_of_file_is_refused_too()
   local diags = diagnose("doc.md", "The block is `src/sample.tl:2-9`.")
@@ -102,7 +105,6 @@ local function test_inline_range_past_end_of_file_is_refused_too()
   check.truthy(diags[1].message:find("pins a line nothing verifies", 1, true),
     "the refusal lands before any bounds check: " .. diags[1].message)
 end
-test_inline_range_past_end_of_file_is_refused_too()
 
 --- A fenced block citing the fixture's second line, quoting `quote`.
 --- @param quote string The line the document claims is there
@@ -120,20 +122,17 @@ local function test_fenced_citation_past_end_of_file()
   check.truthy(diags[1].message:find("past end of file", 1, true),
     "the message must say what is wrong: " .. diags[1].message)
 end
-test_fenced_citation_past_end_of_file()
 
 local function test_fenced_quote_that_matches()
   local diags = diagnose("doc.md", fenced("  local s = \"two\""))
   check.equal(#diags, 0, "a quote matching its source must not be flagged")
 end
-test_fenced_quote_that_matches()
 
 local function test_fenced_quote_that_matches_ignoring_indent()
   local diags = diagnose("doc.md", fenced("local s = \"two\""))
   check.equal(#diags, 0,
     "leading and trailing whitespace is stripped from both sides")
 end
-test_fenced_quote_that_matches_ignoring_indent()
 
 local function test_fenced_quote_that_does_not_match()
   local diags = diagnose("doc.md", fenced("local s = \"three\""))
@@ -145,7 +144,6 @@ local function test_fenced_quote_that_does_not_match()
   check.truthy(diags[1].message:find("local s = \"two\"", 1, true),
     "the message must carry what the source says: " .. diags[1].message)
 end
-test_fenced_quote_that_does_not_match()
 
 --- The same document, prefixed with the sentence that declares a
 --- snapshot of a past commit.
@@ -162,7 +160,6 @@ local function test_snapshot_leaves_positions_unjudged()
     "a snapshot's line numbers and quotes describe a commit this check"
     .. " cannot read, so neither is judged")
 end
-test_snapshot_leaves_positions_unjudged()
 
 local function test_snapshot_still_checks_paths()
   local diags = diagnose("doc.md",
@@ -173,7 +170,6 @@ local function test_snapshot_still_checks_paths()
   check.truthy(diags[1].message:find("names no file", 1, true),
     "the message must name the failure: " .. diags[1].message)
 end
-test_snapshot_still_checks_paths()
 
 local function test_measured_against_inside_a_fence_is_not_a_declaration()
   local quoted = "```text\nMeasured against `deadbee` on 2026-08-26.\n```\n\n"
@@ -181,7 +177,6 @@ local function test_measured_against_inside_a_fence_is_not_a_declaration()
   check.equal(#diags, 1,
     "a document QUOTING the sentence has not declared itself a snapshot")
 end
-test_measured_against_inside_a_fence_is_not_a_declaration()
 
 local function test_prose_span_that_merely_contains_a_path()
   local diags = diagnose("doc.md", "Run `sed -n 9p src/sample.tl:9` here.")
@@ -189,12 +184,8 @@ local function test_prose_span_that_merely_contains_a_path()
     "only a whole backticked span that is nothing but a citation counts;"
     .. " a command that mentions a path is prose")
 end
-test_prose_span_that_merely_contains_a_path()
 
 local function test_a_document_with_no_citations()
   local diags = diagnose("doc.md", "# title\n\nProse with `code` in it.\n")
   check.equal(#diags, 0, "a document citing nothing must be clean")
 end
-test_a_document_with_no_citations()
-
-assert(fs.set_cwd(ORIGINAL), "restore the original cwd")
