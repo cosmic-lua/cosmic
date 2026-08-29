@@ -61,6 +61,22 @@ alone on the line above — so a `file:line` join between the grep's
 output and the lexer's mismatches on all of those. Where the inventory
 and this prose disagree, the inventory is right.
 
+The inventory is half generated, half curated. Its path and line
+columns are `_cli.lint.cast_lines`' answer, the same lexer
+`_build/casts.tl` counts with — a fact about the tree, reproducible by
+a walk. Its class column is this document's judgment about what each
+site is for, which no walk can produce. So there is no full
+`--baseline`-style regen: `bin/cosmic --make run _build/cast_sites.tl
+--reconcile` re-derives path and line, carries the class forward for
+every site that still exists, drops a row whose site is gone, and
+refuses to write — naming the site instead — when a cast has appeared
+with no prior row to carry a class from, because a blank class is a
+worse map than a stale one. `_build/cast_sites_test.tl` gates the
+committed file against a fresh reconcile: its per-file counts against
+`_build/casts_baseline.tl`, every class against a `### ` heading here
+and back, and every row's line against a real cast by the lexer, never
+a grep.
+
 ## Classes
 
 Every cast belongs to exactly one class. Where two descriptions fit a
@@ -432,7 +448,7 @@ real, so the accessor is what makes the check fail honestly.
 
 Five classes carry the verdict **Why it is a floor**: type-defeating
 test probe, userdata boundary, runtime capability probe, metatable
-access, and generic T. Together they hold 76 of the tree's casts today,
+access, and generic T. Together they hold 71 of the tree's casts today,
 by `docs/design/cast-sites.tsv`. They do not all stay that size — four
 of the five compress hard, because the shape repeats and one helper can
 carry it. Summing each class's smallest reachable count — six wrap
@@ -453,7 +469,7 @@ keep zero as a literal target and accept that it is reached by deleting
 those, or does it become zero outside a named floor — the justified
 casts no mechanism closes, held per class and ratcheted by
 `_build/casts_baseline.tl` — with a further condition on the test half,
-since 26 of the 76 are test probes and a probe behind one named helper
+since 26 of the 71 are test probes and a probe behind one named helper
 is a different thing from a probe written by hand at each site? That is
 the goal owner's call, made by amending `docs/goals.md`, not here.
 
@@ -462,6 +478,7 @@ the goal owner's call, made by amending `docs/goals.md`, not here.
 Not a floor and not a gate. `_build/casts_baseline.tl` is the ratchet
 that holds the cast count down, per file; `cosmic --check lint` enforces
 the justification comment and checks this document's citations against
-the tree; `docs/design/cast-sites.tsv` is the site inventory. This
-document is the map: what the remaining sites are, which can be closed,
-and by whom.
+the tree; `docs/design/cast-sites.tsv` is the site inventory, held
+against the baseline and against this document's headings by
+`_build/cast_sites_test.tl`. This document is the map: what the
+remaining sites are, which can be closed, and by whom.

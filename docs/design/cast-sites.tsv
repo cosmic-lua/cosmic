@@ -17,13 +17,8 @@ _make/root_test.tl	234	proved-value narrowing
 _make/root_test.tl	248	proved-value narrowing
 _make/runverb.tl	144	proved-value narrowing
 _make/stage.tl	183	record union after guard
-_perf/bench/literal_bench.tl	78	runtime capability probe
-_perf/bench/literal_bench.tl	80	runtime capability probe
-_perf/bench/literal_bench.tl	82	runtime capability probe
 _perf/bench/micro_bench.tl	192	record union after guard
 _perf/perf_test.tl	31	proved-value narrowing
-_perf/run.tl	156	runtime capability probe
-_perf/run.tl	159	runtime capability probe
 _tool/coverage/baseline.tl	159	decoded data shaping
 _tool/coverage/baseline.tl	165	decoded data shaping
 _tool/coverage/baseline_test.tl	459	decoded data shaping
