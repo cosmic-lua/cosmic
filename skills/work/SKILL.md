@@ -116,8 +116,11 @@ next action is to review, rework, or merge.
 
 work flows right to left — finishing beats
 starting: merge what is accepted, review what awaits a verdict,
-rework what was returned, build what you claimed, refine the top of
-todo, take in new work — in that order. `gitboard next` names the one
+rework what was returned, build what you claimed, triage what
+arrived, refine the top of todo, decompose an undriven outcome — in
+that order (triage before refinement because it is the cheap decision
+and the starvable one: an unplaced capture is invisible to every
+queue). `gitboard next` names the one
 next action by exactly this ordering; do it and ask again — acting
 moves the board, so the second answer derives from the board the
 first left behind. stop when it says `none`: do not invent work, and
