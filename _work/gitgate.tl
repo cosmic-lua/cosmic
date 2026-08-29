@@ -167,7 +167,7 @@ local function ready_problems(s: store.Store, it: item.Item,
   end
   local body = store.read_spec(s, it.id)
   for _, gap in ipairs(flow.ready_gaps(body)) do
-    out[#out + 1] = ("spec section missing or empty: %s"):format(gap)
+    out[#out + 1] = ("spec: %s"):format(gap)
   end
   return out
 end

@@ -1,13 +1,15 @@
---- The spec bar's section grammar: the headings a spec sidecar must
---- carry, and which of them a given body leaves missing or empty.
+--- The spec bar's grammar: the two headings a spec sidecar must
+--- carry — what to build and how to prove it — and which of them a
+--- given body leaves missing, empty, or unprovable.
 ---
---- Its own module because it is the one piece of the board's rules
---- that outlived the label board it was written for. The sections
---- mean the same thing over a markdown sidecar that they meant over
---- an issue body, so the grammar moved across unchanged; what each
---- section is FOR is skills/work/SKILL.md. Goal context is the parent
---- chain and dependencies are `blocked_by` edges, so neither is a
---- section.
+--- The bar checks only what a machine can check honestly. Whether the
+--- Change decides enough is the puller's judgment (a wrong call comes
+--- back as a drop with the gap named); whether walls need stating is
+--- the refiner's (optional prose sections ride along untouched). What
+--- IS mechanical is the shape of Acceptance: a definition of done
+--- with no literal command in it cannot be run by the builder or the
+--- reviewer, so the bar refuses it by shape — acceptance by vibes is
+--- the one spec failure a lint can catch outright.
 ---
 --- It also names a spec's REVISION, because the sidecar is half of
 --- what a review judges: the diff is the other half, and a rework
@@ -16,53 +18,17 @@ local hash = require("cosmic.hash")
 
 --- The headings a spec must carry.
 local READY_SECTIONS < const >: {string} = {
-  "Change", "Non-goals", "Acceptance",
+  "Change", "Acceptance",
 }
-
---- Spec-bar lint: the required sections a body is missing or has
---- left empty. A heading counts at any level ("## Change", "# change"),
---- matched on the heading text alone, case-insensitively — and only
---- when at least one non-blank line follows it before the next
---- heading, so a pasted template with hollow sections still fails.
---- A thematic break (---) ends the current section: trailing footers
---- appended below one are nobody's content.
---- @param body string The spec sidecar's markdown
---- @return {string} Missing/empty section names, in READY_SECTIONS order
-local function ready_gaps(body: string): {string}
-  local filled: {string: boolean} = {}
-  local current: string = nil
-  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
-    local text = line:match("^#+%s+(.-)%s*$")
-    if text then
-      current = text:lower()
-      if filled[current] == nil then
-        filled[current] = false
-      end
-    elseif line:match("^%s*%-%-%-+%s*$") then
-      current = nil
-    elseif current and line:match("%S") then
-      filled[current] = true
-    end
-  end
-  local missing: {string} = {}
-  for _, name in ipairs(READY_SECTIONS) do
-    if not filled[name:lower()] then
-      missing[#missing + 1] = name
-    end
-  end
-  return missing
-end
 
 --- The one section `name` names, its heading line included, "" when
 --- the body does not carry it.
 ---
---- Headings match exactly as `ready_gaps` matches them — any level,
---- case-insensitively on the heading text — so one grammar serves the
---- spec bar and a narrowed read alike, and `--section acceptance`
---- and `--section Acceptance` name the same thing. The section ends
---- at the next heading or at a thematic break, for the same reason
---- `ready_gaps` stops there: a footer appended below a break is
---- nobody's content.
+--- Headings match at any level, case-insensitively on the heading
+--- text, so `--section acceptance` and `--section Acceptance` name
+--- the same thing. The section ends at the next heading or at a
+--- thematic break (---): a footer appended below a break is nobody's
+--- content.
 --- @param body string The spec sidecar's markdown
 --- @param name string The section's heading text
 --- @return string The section including its heading, "" when absent
@@ -91,6 +57,47 @@ local function section_of(body: string, name: string): string
     return ""
   end
   return table.concat(out, "\n") .. "\n"
+end
+
+--- Spec-bar lint: the gaps that keep a body from being buildable,
+--- each as one readable line. A heading counts at any level
+--- ("## Change", "# change"), matched case-insensitively — and only
+--- when at least one non-blank line follows it before the next
+--- heading, so a pasted template with hollow sections still fails.
+--- The same break rule as `section_of` applies. Acceptance
+--- additionally needs a literal command (a backticked span): a bound
+--- with no command is the anti-pattern wearing digits, and it is the
+--- one content failure the lint can see.
+--- @param body string The spec sidecar's markdown
+--- @return {string} Gap descriptions, possibly empty
+local function ready_gaps(body: string): {string}
+  local filled: {string: boolean} = {}
+  local current: string = nil
+  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+    local text = line:match("^#+%s+(.-)%s*$")
+    if text then
+      current = text:lower()
+      if filled[current] == nil then
+        filled[current] = false
+      end
+    elseif line:match("^%s*%-%-%-+%s*$") then
+      current = nil
+    elseif current and line:match("%S") then
+      filled[current] = true
+    end
+  end
+  local gaps: {string} = {}
+  for _, name in ipairs(READY_SECTIONS) do
+    if not filled[name:lower()] then
+      gaps[#gaps + 1] = ("%s is missing or empty"):format(name)
+    end
+  end
+  if filled["acceptance"]
+  and not section_of(body, "Acceptance"):find("`", 1, true) then
+    gaps[#gaps + 1] = "Acceptance carries no literal command (`...`) — "
+    .. "a bound with no command cannot be run by the builder or the reviewer"
+  end
+  return gaps
 end
 
 --- The revision of a spec sidecar: a content digest of its body, so
