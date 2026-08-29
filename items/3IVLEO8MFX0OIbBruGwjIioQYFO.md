@@ -1,44 +1,57 @@
-# Problem
+## Change
 
-G8's measured-by is UNBUILT, and goals.md says so in those words: flow
-health per release (ready→merged lead time, WIP-limit adherence, no
-column starved or saturated for a whole release) and the cost ratchet
-(tokens × model tier per merged slice, trending down). The board
-branch's git log holds every transition — `gitboard stats` already
-reads dwell and transition counts from it (n=1295 transitions today)
-— but nothing renders the per-release health verdict, and nothing
-records cost at all: no field on an item carries tokens or model
-tier, so the ratchet has no data source, not just no reader.
+`_work/flowstats.tl`: the G8 flow reader — lead time, rework rate,
+and bounce counts derived from the board's own git log, emitted as
+`key=value` lines in the house grammar.
 
-Today's board is a live example of what the report would catch:
-ready=1, do=1, check=0 against a 158-item backlog — refinement
-starved for at least one visible window, and nothing surfaced it.
+The board log already carries every event, in fixed grammars
+(sampled 2026-08-29 from `git log --format='%ct %s' origin/board`):
 
-# Change
+    1788019810 done 3IVUGuv6 completed (from accepted)
+    1788019766 verdict 3IVUGuv6 accept by review-3IVUGuv6-1788019588
+    1788019571 take 3IVUGuv6 by wave-w3-1788018501 pr:1503
+    1788019409 verdict 3IVUGuv6 request changes by review-...
+    1788019157 review 3IVUGuv6 claimed by review-...
 
-Two halves, sized in plan:
+D37 amended G8's measured-by to lead time, rework rate, and the cost
+ratchet; nothing computes the first two today (`ls _work/flowstats*`
+→ no such file; the old flowstat.tl was deleted with the phases).
 
-- the READER: extend the stats machinery to a per-release flow-health
-  report — lead time distribution, WIP adherence, starvation windows
-  per column — keyed by release tags, published with the release
-  assets like perf and size history.
-- the COST source: decide where tokens × model tier per slice comes
-  from (recorded at claim/verdict by the session, a field the runner
-  stamps, or declared out of reach and the goal's measured-by amended
-  via a goals.md PR + decision). Building a reader for data nobody
-  writes is the failure mode to avoid; deciding the source is in
-  scope, building heavy telemetry is not.
+The change, two new files (no gitboard verb — the 14-verb surface is
+settled; this is a report script run as
+`bin/cosmic _work/flowstats.tl [--dir D] [--since EPOCH]`):
 
-# Non-goals
+1. `_work/flowstats.tl` (≤500 lines), two halves:
+   - PURE: `events_of(lines: {string}): {Event}` parsing
+     `%ct %s`-formatted log lines into typed events (take with
+     optional pr, drop with why, verdict accept/request-changes,
+     done with reason, review claim; unknown subjects skipped), and
+     `stats_of(events: {Event}): Stats` deriving, per completed item:
+     lead_s (first take → done completed), review rounds (verdict
+     count), bounces (non-review drop count); and board-wide: items
+     completed, median and p90 lead_s, rework_rate (request-changes
+     verdicts / all verdicts, rendered as the pair "x/y" beside the
+     ratio), bounce total.
+   - IO: read the log via one `cosmic.child` git call
+     (`git log --format=%ct %s`, `--since` honored), print one
+     `flow item=<id8> lead_s=N rounds=N bounces=N` line per completed
+     item and one `flow summary items=N lead_p50_s=N lead_p90_s=N
+     rework=x/y bounces=N` line, in the `key=value` grammar
+     `cosmic.instrument`/`cosmic.log` share, so downstream readers
+     parse it with the standing tools rather than a new format. Use
+     `cosmic.proc.is_main()` for the dual-use entry.
+2. `_work/flowstats_test.tl`: the pure halves over synthetic event
+   lists — the sampled grammar lines above parse to the right events;
+   a take→verdict(rc)→take pr→verdict(accept)→done item yields
+   rounds=2 bounces=0 and its lead from first take to done; a
+   take→drop→take→…→done item yields bounces=1 with lead still from
+   FIRST take (time in the queue after a bounce is lead time, that is
+   the point of measuring it); an incomplete item contributes
+   nothing; summary medians over a three-item set.
 
-- Retuning WIP limits (review.md's flow review does that, fed by this
-  report).
-- Any change to verbs' transition behavior.
+## Non-goals
 
-# Acceptance
-
-- the report runs over the real board log and prints a per-release
-  verdict for the flow-health clauses goals.md names.
-- the cost half lands as either a recorded field with a reader, or an
-  amended goals.md measured-by with its decision record — not
-  silence.
+No new gitboard verb, no change to any existing verb or verdict-line
+format, no cost ratchet in this slice (its input is CI billing data
+the board does not hold — a later item), no persistence: the report
+recomputes from the log every run.
