@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write  # gate/* commit statuses; see .github/actions/gate-status
 
 # A superseded PR run answers a question nobody is asking any more.
 # Pushes to main are never cancelled AND never queued behind each other:
@@ -232,6 +233,12 @@ jobs:
           done
           exit 0
 
+      # Recovery path for a lost run: see .github/actions/gate-status.
+      # The other three required jobs below carry the same step.
+      - if: always()
+        uses: ./.github/actions/gate-status
+        with: {context: gate/ci, status: "${{ job.status }}"}
+
   # The first build, and what only it can prove: the fixpoint. The
   # gate lane deliberately lacks a network after fetch; this lane has
   # one, builds the artifact every other job consumes, and asserts the
@@ -311,6 +318,10 @@ jobs:
         with:
           name: cosmic-smoke
           path: o/bin/cosmic
+
+      - if: always()
+        uses: ./.github/actions/gate-status
+        with: {context: gate/build, status: "${{ job.status }}"}
 
   # The artifact is a pure function of the source tree. This job is a
   # FRESH checkout in a FRESH container -- a cold tree by construction,
@@ -396,6 +407,10 @@ jobs:
               exit 1
             fi'
 
+      - if: always()
+        uses: ./.github/actions/gate-status
+        with: {context: gate/repro, status: "${{ job.status }}"}
+
   # The artifact is a fat APE shipped for six operating systems, and the
   # gate is Linux-only. This runs the built binary on real macOS and
   # Windows runners: it starts, answers from its embedded docs, and
@@ -477,3 +492,8 @@ jobs:
           done
           echo "::endgroup::"
           echo "smoke: PASS"
+
+      # Per-OS context: the matrix makes each OS its own required check.
+      - if: always()
+        uses: ./.github/actions/gate-status
+        with: {context: "gate/smoke-${{ matrix.os }}", status: "${{ job.status }}"}

@@ -1,0 +1,50 @@
+name: gate status
+description: >
+  Posts a commit STATUS (not a check run) to the PR's head SHA. A check
+  run belongs to the run that created it; a status attaches to the SHA
+  itself, so a `workflow_dispatch` re-run can satisfy a required-status
+  ruleset the way a re-run's green check runs could not — the incident
+  this recovers from ("Required status check 'build' is expected" while
+  five dispatch-run checks sat green on the head). One call per required
+  job (`ci`, `build`, `repro`, `smoke`), always — pass the calling job's
+  own `job.status` and this posts `failure` on a red run too, rather
+  than leave the ruleset's context sitting unset.
+
+inputs:
+  context:
+    description: The gate/<name> status context to post, e.g. gate/ci.
+    required: true
+  status:
+    description: >
+      The calling job's own status context expression, evaluated by the
+      caller: success, failure, or cancelled.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Head SHA, not the merge ref: on `pull_request` that is the PR's
+    # own head; every other trigger this workflow declares (`push`,
+    # `workflow_dispatch`) carries no pull-request payload, so this
+    # falls back to `github.sha`, which on those triggers already IS
+    # the head.
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        CONTEXT: ${{ inputs.context }}
+        JOB_STATUS: ${{ inputs.status }}
+      run: |
+        set -eux
+        case "$JOB_STATUS" in
+          success) state=success ;;
+          cancelled) state=error ;;
+          *) state=failure ;;
+        esac
+        body=$(printf '{"state":"%s","context":"%s","description":"cosmic gate: %s","target_url":"%s/%s/actions/runs/%s"}' \
+          "$state" "$CONTEXT" "$JOB_STATUS" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+        curl -sS -X POST \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+          -d "$body"
