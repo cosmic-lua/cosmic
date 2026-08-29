@@ -1,27 +1,27 @@
-# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
-# columns: path covered-lines total-lines
-_work/action.tl 97 103
-_work/api.tl 10 27
-_work/decision.tl 3 3
-_work/fixture.tl 83 85
-_work/flow.tl 209 229
-_work/gh.tl 14 73
-_work/gitboard.tl 0 92
-_work/gitcompare.tl 41 47
-_work/gitgate.tl 107 124
-_work/gitgraph.tl 126 144
-_work/gitshow.tl 89 123
-_work/gitverbs.tl 172 229
-_work/gitverdict.tl 78 100
-_work/gitview.tl 122 160
-_work/guidance.tl 97 98
-_work/health.tl 57 61
-_work/intake.tl 94 94
-_work/item.tl 88 93
-_work/ksuid.tl 68 75
-_work/priority.tl 163 179
-_work/review.tl 39 39
-_work/session.tl 25 25
-_work/spec.tl 28 28
-_work/store.tl 177 215
-cmd/gitboard/main.tl 0 2
+return {
+  ["_work/action.tl"] = {["covered"] = 156, ["total"] = 159},
+  ["_work/api.tl"] = {["covered"] = 10, ["total"] = 27},
+  ["_work/decision.tl"] = {["covered"] = 7, ["total"] = 7},
+  ["_work/fixture.tl"] = {["covered"] = 87, ["total"] = 89},
+  ["_work/flow.tl"] = {["covered"] = 142, ["total"] = 149},
+  ["_work/gh.tl"] = {["covered"] = 19, ["total"] = 62},
+  ["_work/gitboard.tl"] = {["covered"] = 0, ["total"] = 113},
+  ["_work/gitcompare.tl"] = {["covered"] = 47, ["total"] = 53},
+  ["_work/gitgate.tl"] = {["covered"] = 88, ["total"] = 100},
+  ["_work/gitgraph.tl"] = {["covered"] = 114, ["total"] = 130},
+  ["_work/gitshow.tl"] = {["covered"] = 76, ["total"] = 102},
+  ["_work/gitverbs.tl"] = {["covered"] = 217, ["total"] = 258},
+  ["_work/gitverdict.tl"] = {["covered"] = 79, ["total"] = 100},
+  ["_work/gitview.tl"] = {["covered"] = 88, ["total"] = 117},
+  ["_work/guidance.tl"] = {["covered"] = 95, ["total"] = 96},
+  ["_work/health.tl"] = {["covered"] = 43, ["total"] = 46},
+  ["_work/intake.tl"] = {["covered"] = 46, ["total"] = 46},
+  ["_work/item.tl"] = {["covered"] = 140, ["total"] = 143},
+  ["_work/ksuid.tl"] = {["covered"] = 68, ["total"] = 75},
+  ["_work/priority.tl"] = {["covered"] = 163, ["total"] = 179},
+  ["_work/review.tl"] = {["covered"] = 65, ["total"] = 65},
+  ["_work/session.tl"] = {["covered"] = 44, ["total"] = 44},
+  ["_work/spec.tl"] = {["covered"] = 31, ["total"] = 31},
+  ["_work/store.tl"] = {["covered"] = 190, ["total"] = 222},
+  ["cmd/gitboard/main.tl"] = {["covered"] = 0, ["total"] = 2},
+}
