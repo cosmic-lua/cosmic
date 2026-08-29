@@ -1,0 +1,3 @@
+## Change
+
+Evidence (review of PR 1522, 2026-08-29): `.github/actions/gate-status/action.yml`'s `curl` POST to the statuses API lacks `--fail` (and any response check), so an HTTP error — e.g. the read-only GITHUB_TOKEN a fork PR gets — exits 0 and the step goes green with NO status posted. The failure direction is closed (an unset gate/* context blocks merge under the flipped ruleset, never wrongly greens), so this is observability: the step should fail loudly when the POST fails. Add `--fail-with-body` (curl >=7.76 on GitHub runners) to the curl in the composite action, so a rejected POST turns the always() step red and the run log carries the API's error body.
