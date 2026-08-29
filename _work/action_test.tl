@@ -161,7 +161,7 @@ local function test_pull_skips_what_is_blocked_and_what_misses_the_bar()
   items[#items + 1] = unrefined
   items[#items + 1] = free
   local specs = ready_specs(items)
-  specs[unrefined.id] = "## Change\nonly this\n"
+  specs[unrefined.id] = "## Non-goals\nno Change decided yet\n"
   local a = act.next_action(items, specs, "me")
   assert(a.kind == "pull" and a.item.id == free.id,
     ("blocked and unrefined items are skipped: %s %s"):format(a.kind,

@@ -29,13 +29,14 @@ local NOTES < const >: {string: {string}} = {
     .. "the same PR and hand it back with `take ID --pr N`, which re-opens the "
     .. "verdict for the new head.",
     "A build with no PR yet is yours to finish: open the PR ready, `Board: "
-    .. "<id>` and the acceptance runs in its body, then `take ID --pr N`.",
+    .. "<id>` and the gate's `ci: PASS` line in its body, then `take ID --pr N`.",
   },
   ["review"] = {
     "Claim it first — `review ID` locks the diff before you read a line; a "
     .. "claim idle past the hour lease is anyone's again.",
-    "Read the acceptance evidence in the PR description before the diff, then "
-    .. "`verdict ID accept|request-changes --pr N --head SHA --session <you>`.",
+    "Run the gate yourself — acceptance IS the CI gate, plus the tests the "
+    .. "diff adds — then `verdict ID accept|request-changes --pr N --head SHA "
+    .. "--session <you>`.",
     "The verdict comes from a fresh-context reviewer that never held the "
     .. "build; no session accepts its own work.",
   },

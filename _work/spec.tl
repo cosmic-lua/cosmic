@@ -1,15 +1,14 @@
---- The spec bar's grammar: the two headings a spec sidecar must
---- carry — what to build and how to prove it — and which of them a
---- given body leaves missing, empty, or unprovable.
+--- The spec bar's grammar: the one heading a spec sidecar must
+--- carry — what to build — and whether a given body carries it.
 ---
---- The bar checks only what a machine can check honestly. Whether the
---- Change decides enough is the puller's judgment (a wrong call comes
---- back as a drop with the gap named); whether walls need stating is
---- the refiner's (optional prose sections ride along untouched). What
---- IS mechanical is the shape of Acceptance: a definition of done
---- with no literal command in it cannot be run by the builder or the
---- reviewer, so the bar refuses it by shape — acceptance by vibes is
---- the one spec failure a lint can catch outright.
+--- There is no Acceptance section, because acceptance is not
+--- per-item: the CI gate passing is the one definition of done every
+--- item shares, and proof specific to a change rides the DIFF as a
+--- test or ratchet the gate runs — a gate outlives the sidecar that
+--- asked for it. The bar checks only what a machine can check
+--- honestly: whether the Change decides enough is the puller's
+--- judgment (a wrong call comes back as a drop with the gap named),
+--- and optional prose sections ride along untouched.
 ---
 --- It also names a spec's REVISION, because the sidecar is half of
 --- what a review judges: the diff is the other half, and a rework
@@ -18,7 +17,7 @@ local hash = require("cosmic.hash")
 
 --- The headings a spec must carry.
 local READY_SECTIONS < const >: {string} = {
-  "Change", "Acceptance",
+  "Change",
 }
 
 --- The one section `name` names, its heading line included, "" when
@@ -64,10 +63,7 @@ end
 --- ("## Change", "# change"), matched case-insensitively — and only
 --- when at least one non-blank line follows it before the next
 --- heading, so a pasted template with hollow sections still fails.
---- The same break rule as `section_of` applies. Acceptance
---- additionally needs a literal command (a backticked span): a bound
---- with no command is the anti-pattern wearing digits, and it is the
---- one content failure the lint can see.
+--- The same break rule as `section_of` applies.
 --- @param body string The spec sidecar's markdown
 --- @return {string} Gap descriptions, possibly empty
 local function ready_gaps(body: string): {string}
@@ -91,11 +87,6 @@ local function ready_gaps(body: string): {string}
     if not filled[name:lower()] then
       gaps[#gaps + 1] = ("%s is missing or empty"):format(name)
     end
-  end
-  if filled["acceptance"]
-  and not section_of(body, "Acceptance"):find("`", 1, true) then
-    gaps[#gaps + 1] = "Acceptance carries no literal command (`...`) — "
-    .. "a bound with no command cannot be run by the builder or the reviewer"
   end
   return gaps
 end

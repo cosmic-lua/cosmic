@@ -36,8 +36,6 @@ local READY_SPEC < const > = [[
 Do exactly this.
 ## Non-goals
 Not that.
-## Acceptance
-`cosmic --make ci`
 ]]
 
 --- Run one git command in `cwd`, failing loudly — fixture setup.
