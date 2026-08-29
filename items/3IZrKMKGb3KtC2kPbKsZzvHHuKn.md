@@ -1,3 +1,69 @@
+## Change
+
+A board mutation lands while the shared worktree carries unrelated
+uncommitted `_work/**` edits. Today every mutating verb (new, attach,
+compare, block, unblock, spec, take, drop, verdict, done) is disabled
+for every session sharing the checkout whenever any `_work/**` file
+is dirty, because the sync step runs whole-tree `git pull --rebase`,
+which refuses on any unstaged change at any path — and the lost-race
+recovery uses `reset --hard`, which would DESTROY those edits. (The
+original evidence, measured 2026-08-29 against a live dirty window,
+is preserved below the `---`; the verb list is updated to the
+14-verb surface, and the code now lives in `_work/publish.tl` after
+the store split.)
+
+The mechanism, each claim executed 2026-08-29 in a scratch repo:
+
+1. `_work/publish.tl`: `sync` and `rebase_onto_remote` replace
+   `git pull --rebase` with `git fetch origin <branch>` followed by
+   `git merge --ff-only origin/<branch>`. Proven behavior:
+   - unrelated dirty file → fast-forward SUCCEEDS, dirt intact:
+     `git merge --ff-only origin/board` with dirty `_work/b.txt`
+     advanced HEAD and left the file byte-identical.
+   - overlapping dirty file → clean refusal naming the file:
+     `error: Your local changes to the following files would be
+     overwritten by merge: _work/a.txt`, exit nonzero, no conflict
+     markers, no stash entry, edit preserved.
+   Board history is linear (append-only, squash-merged PRs never
+   land on board except via this same path), so ff-only refusing a
+   divergent local history is the CAS model's own error surfaced,
+   not a new failure mode; keep the existing refusal text shape for
+   that case and surface the merge's file-naming stderr for the
+   overlap case, appending the `--dir` remedy sentence.
+2. `_work/publish.tl`: the lost-race recovery in `publish` replaces
+   `reset --hard` with: `git reset --mixed origin/<branch>` then
+   `git checkout origin/<branch> -- <the mutation's own staged
+   paths>` — dropping the mutation whole (its items/ files restored
+   from the new tip) while every path the mutation does not own is
+   left byte-identical. The staged-path list already exists where
+   `stage` builds it; thread it to the recovery.
+3. Tests, in `_work/store_test.tl` or `_work/publish_race_test.tl`
+   (measure headroom; a new `_work/publish_test.tl` is fine):
+   - dirty unrelated `_work/x.tl` in a fixture checkout → a mutation
+     completes; the commit's `--name-only` is exactly the item's
+     files; the dirty file byte-identical after; `git stash list`
+     empty.
+   - lost push race with the same dirt → mutation refused
+     `LOST_RACE`, dirty file byte-identical (this is the regression
+     test for the reset --hard hazard; it MUST fail against the
+     current code before the fix — verify red first, then green).
+   - incoming `_work/**` commit over an overlapping local edit →
+     refusal naming the file, no markers, no stash entry.
+4. `README.md` (board): one short paragraph — a `_work/**` slice
+   belongs in its own clone driven with `--dir`, and `git stash` is
+   never an escape here (the stash stack is shared repo-wide).
+
+## Non-goals
+
+Reads stay untouched (they already work on a dirty tree). No
+change to the CAS contract: a lost race still drops the mutation
+whole and refuses with recovery named. No stash use anywhere. The
+handover-model sibling (3IZZ1icV) stays separate.
+
+---
+
+(Original evidence, 2026-08-29, pre-split file layout:)
+
 ## Goal
 
 G8 — the flow system. Let a board mutation land while the shared board
