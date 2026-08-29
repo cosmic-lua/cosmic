@@ -159,9 +159,9 @@ mints one distinct name per agent it spawns.
    question the spec cannot answer goes back to the board, never into
    the diff — having written the spec is not permission to
    reinterpret it mid-build.
-5. run the `Acceptance` commands and open the PR READY for review
-   (not draft), carrying `Board: <id>` and the acceptance runs'
-   verdict lines in the body — that evidence is what you owe the
+5. run `bin/cosmic --make ci` to `ci: PASS` and open the PR READY
+   for review (not draft), carrying `Board: <id>` and the gate's
+   verdict line in the body — that evidence is what you owe the
    reviewer, who reads it before the diff and cannot reconstruct it
    from the branch. record the PR number on the item.
 6. rejoin the loop. never merge unreviewed work, and never accept
@@ -177,29 +177,26 @@ to cover a finding.
 
 ## the spec bar
 
-a pullable spec carries two sections — what to build and how to
-prove it. `gitboard check ID` lints their presence, that the item is
-placed, and the one shape rule a machine can judge honestly:
-Acceptance must hold at least one literal command in backticks, so
-acceptance by vibes ("works correctly", "is faster") is caught
-outright instead of discovered at review. everything else is a
-reader's judgment, and the test for every sentence: could a competent
-but literal-minded session, with nothing beyond this spec and
-AGENTS.md, get it wrong? if yes, it is not ready.
+a pullable spec carries one section — `## Change` — because
+acceptance is not per-item: `bin/cosmic --make ci` ending `ci: PASS`
+is the one definition of done every item shares, and proof specific
+to a change rides the DIFF as a test or ratchet the gate runs. a
+gate outlives the sidecar that asked for it; a sidecar command runs
+at most twice and dies with the item. `gitboard check ID` lints the
+Change's presence and that the item is placed; everything else is a
+reader's judgment, and the test for every sentence: could a
+competent but literal-minded session, with nothing beyond this spec
+and AGENTS.md, get it wrong? if yes, it is not ready.
 
-- `## Change` — what to build: files named, the shape of the change
-  in each, every decision made. imperative and concrete — never
-  "improve", "investigate", or "support". when the change sits near a
-  frozen contract (the `cosmo.*` C boundary, error strings and return
-  shapes, verdict-line formats), name the wall — here, or in an
-  optional `## Non-goals` section. walls are stated where they exist,
-  never filled in as ceremony.
-- `## Acceptance` — the exact commands to run and the verdict lines
-  they must end with. `bin/cosmic --make ci` ending `ci: PASS` is the
-  floor; add the narrow checks that prove THIS change. every command
-  is safe and meaningful to run verbatim from the repo root; a
-  numeric bound the spec imposes is an Acceptance command (`wc -l` ≤
-  N, `grep -c` = N), never `Change` prose.
+`## Change` is what to build: files named, the shape of the change
+in each, every decision made. imperative and concrete — never
+"improve", "investigate", or "support". a bound the change imposes
+(a line cap, a match count) lands as a test or ratchet IN the diff,
+never as prose a reviewer must remember to check. when the change
+sits near a frozen contract (the `cosmo.*` C boundary, error strings
+and return shapes, verdict-line formats), name the wall — here, or
+in an optional `## Non-goals` section. walls are stated where they
+exist, never filled in as ceremony.
 
 **measured, not inferred:** every tree-fact the spec relies on (a
 file's headroom under the 500-line cap, a pattern's match count, a
@@ -249,9 +246,11 @@ board and the diff off the PR, and records the verdict itself.
 the posture is adversarial — the job is to make the diff fail, and a
 review that only reads has verified nothing:
 
-1. **acceptance ran** — run the spec's commands yourself, and CI is
-   green on the PR's CURRENT head. absent or failing evidence ends
-   the review immediately: request changes.
+1. **the gate ran** — run `bin/cosmic --make ci` yourself, and CI is
+   green on the PR's CURRENT head. acceptance IS the gate, so the
+   diff must carry its own proof: a claim the change makes that no
+   test in the diff would catch regressing is a gap to quote. absent
+   or failing evidence ends the review immediately: request changes.
 2. **the diff is the Change** — everything present, nothing extra.
    scope creep gets cut even when it is good; good ideas become
    items.
@@ -260,9 +259,9 @@ review that only reads has verified nothing:
 4. **conventions hold** — AGENTS.md binds; anything a gate should
    have caught but did not is itself a finding to file.
 5. **it serves the outcome** — walk the parent chain to the root and
-   judge the diff against it. satisfying the letter of Acceptance
-   while missing the point means the SPEC was wrong: fix the spec,
-   never wave the diff through.
+   judge the diff against it. a green gate on a change that misses
+   the point means the SPEC was wrong: fix the spec, never wave the
+   diff through.
 6. **it is the least thing** — name any surplus concretely (a helper
    with one caller, generality nobody asked for) and have it removed
    before merge.
@@ -307,7 +306,7 @@ board worktree or push rights to `board`:
   it" turns a specified item back into an interpretation — plus the
   branch name off the latest `origin/main`, honest gate timeouts
   (`--make ci` takes minutes), the PR form (ready, `Board: <id>`,
-  acceptance evidence in the body), do-not-merge, the capture rule
+  the gate's verdict line in the body), do-not-merge, the capture rule
   (report findings as one evidence paragraph each in the final
   message; the orchestrator files them), and the bounce rule
   verbatim: stopping on an under-specified spec is a good outcome. an

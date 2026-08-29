@@ -21,10 +21,11 @@
 - **decision:** an open workable leaf is in exactly one of two
   states, and everything finer is derived, never declared:
   - **todo** — unclaimed; *pullable* when its spec passes the check:
-    a Change and an Acceptance whose commands are literal (at least
-    one backticked command, machine-checked — acceptance by vibes is
-    caught by shape), walls stated as optional prose where a contract
-    is near. otherwise refining it is the work.
+    a Change that decides the work, walls stated as optional prose
+    where a contract is near. acceptance is not spec content at all —
+    the CI gate passing is the one acceptance every item shares, and
+    proof specific to a change rides the diff as a test the gate
+    runs. otherwise refining it is the work.
   - **doing** — claimed; the claim is the lock and a lease. within
     doing, the item's own facts (`pr`, `verdict`) say what happens
     next; a released claim with the gap named returns it to todo.
@@ -57,17 +58,21 @@
     limit. the single doing bound closes exactly that hole, and by
     refusing only new takes it makes finish-before-start mechanical
     rather than advisory.
-  - **keeping the five-section spec form (Goal / Change / Non-goals /
-    Acceptance / Enablement).** a presence lint cannot judge
-    substance — a scenario eval showed a spec passing every section
-    check while being unbuildable, caught only by the puller's
-    judgment — so required sections beyond Change and Acceptance are
-    ceremony the lint cannot cash. Goal context is the parent chain,
-    dependencies are `blocked_by` edges, and walls are stated where a
-    contract is near rather than filled in everywhere. the lint keeps
-    only what it can prove, and proves more where it can: Acceptance
-    must carry a literal backticked command, which catches the
-    acceptance-by-vibes anti-pattern by shape instead of at review.
+  - **keeping a per-item Acceptance section — and with it the
+    five-section form (Goal / Change / Non-goals / Acceptance /
+    Enablement).** a presence lint cannot judge substance — a
+    scenario eval showed a spec passing every section check while
+    being unbuildable, caught only by the puller's judgment — and
+    even a machine-checked "at least one literal command" judged only
+    shape. the deeper fault: a sidecar command runs at most twice
+    (the puller and the reviewer) and dies with the item, while the
+    same proof written as a test or ratchet in the diff runs on every
+    future change. so acceptance is not spec content: the CI gate is
+    the one definition of done, per-change proof lands in the tree,
+    Goal context is the parent chain, dependencies are `blocked_by`
+    edges, and walls are stated where a contract is near rather than
+    filled in everywhere. the lint keeps the one section it can
+    prove present: Change.
   - **dropping the review or the spec bar to go faster.** rework is
     the expensive path at high throughput — a wrong merge or a
     mid-build improvisation costs more than either gate. the gates
