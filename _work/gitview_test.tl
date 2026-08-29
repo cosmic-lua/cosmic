@@ -130,6 +130,43 @@ local function test_status_reports_the_bound_binding()
 end
 test_status_reports_the_bound_binding()
 
+-- The lanes row renders one `lane=conclusion` pair per required lane,
+-- in the stable LANES order, beside the doing table — but only when
+-- there is a state to report: a fresh board that has never synced
+-- has no `lanes_state.tl`, and `show` prints no row rather than one
+-- of blanks.
+local function test_status_renders_the_lanes_row_when_state_exists()
+  local lines = view.status_report(board_items(), full_specs(), nil,
+    {["release.yml"] = "success", ["fuzz.yml"] = "failure",
+      ["docs.yml"] = "success"})
+  assert(has(lines,
+      "^lanes  release%.yml=success fuzz%.yml=failure docs%.yml=success$"),
+    "the lanes row lists every required lane in stable order: "
+    .. table.concat(lines, "\n"))
+end
+test_status_renders_the_lanes_row_when_state_exists()
+
+-- A lane with no recorded conclusion (an empty string, the shape a
+-- partial or not-yet-observed lane takes) is left out of the row
+-- rather than printed as `lane=`.
+local function test_the_lanes_row_omits_an_unrecorded_lane()
+  local lines = view.status_report(board_items(), full_specs(), nil,
+    {["release.yml"] = "success", ["fuzz.yml"] = "", ["docs.yml"] = "success"})
+  assert(has(lines, "^lanes  release%.yml=success docs%.yml=success$"),
+    "the blank lane is omitted, not printed as lane=: "
+    .. table.concat(lines, "\n"))
+end
+test_the_lanes_row_omits_an_unrecorded_lane()
+
+local function test_status_omits_the_lanes_row_when_unsynced()
+  local lines = view.status_report(board_items(), full_specs())
+  for _, line in ipairs(lines) do
+    assert(not line:match("^lanes"),
+      "no lanes row prints when the board has never synced: " .. line)
+  end
+end
+test_status_omits_the_lanes_row_when_unsynced()
+
 local function test_next_names_one_action_and_its_rule()
   local report = view.next_report(board_items(), full_specs())
   assert(report:find("review", 1, true)

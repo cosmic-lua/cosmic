@@ -7,9 +7,14 @@
 -- real `observe` returned one.
 
 local check = require("cosmic.check")
+local action = require("_work.action")
+local cmp = require("_work.gitcompare")
 local fixture = require("_work.fixture")
+local flow = require("_work.flow")
+local gate = require("_work.gitgate")
 local item = require("_work.item")
 local lanes = require("_work.lanes")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 local init_state_repo = fixture.init_state_repo
@@ -35,8 +40,16 @@ end
 local function test_mint_is_idempotent_per_lane()
   local s = init_state_repo("mint-idempotent")
   assert(lanes.mint(s, RED))
-  assert(repair_for(check.must(store.list(s)), "release.yml") ~= nil,
-    "one repair item filed for the red lane")
+  local repair = repair_for(check.must(store.list(s)), "release.yml")
+  assert(repair ~= nil, "one repair item filed for the red lane")
+
+  -- The minted sidecar clears the spec bar honestly — `_work.spec`'s
+  -- real check, not a copy of its rule — which is what lets `next`
+  -- offer the item and `take` admit it without disagreeing.
+  local body = store.read_spec(s, repair.id)
+  local gaps = spec.ready_gaps(body)
+  assert(#gaps == 0,
+    "the minted sidecar passes the spec bar: " .. table.concat(gaps, "; "))
 
   assert(lanes.mint(s, RED))
   local all = check.must(store.list(s))
@@ -117,3 +130,41 @@ local function test_observe_with_no_origin_is_unknown_not_red()
   assert(err:find("no origin remote", 1, true) ~= nil, "got: " .. err)
 end
 test_observe_with_no_origin_is_unknown_not_red()
+
+-- A minted repair is coherent with the two verbs that decide its
+-- fate: `next` (`_work.action.next_action`) offers it, and `take`
+-- (`_work.gitgate.ready_problems` plus `flow.doing_refusal`, the exact
+-- pair `cmd_take` calls) admits it. Placed the way the real repair
+-- parent (G8) already is on the live board — one comparison on the
+-- parent, inherited by every child minted under it — so the only
+-- variable under test is the sidecar `file_repair` now writes.
+local function test_a_minted_repair_is_offered_and_admitted()
+  local s = init_state_repo("mint-admitted")
+  local parent = check.must(item.decode({id = lanes.LANE_PARENT,
+        title = "lane repair outcome"}))
+  assert(store.save(s, parent, "new " .. parent.id:sub(1, 8) .. " lane repairs"))
+  local peer_id = fixture.file_item(s, "a peer outcome", "")
+  assert(cmp.cmd_compare(s, parent.id, peer_id) == 0,
+    "compare should be accepted")
+
+  assert(lanes.mint(s, RED))
+  local all = check.must(store.list(s))
+  local repair = repair_for(all, "release.yml")
+  assert(repair ~= nil, "the red lane minted a repair")
+
+  local specs: {string: string} = {}
+  for _, it in ipairs(all) do
+    specs[it.id] = store.read_spec(s, it.id)
+  end
+  local a = action.next_action(all, specs)
+  assert(a.kind == "pull" and a.item.id == repair.id,
+    "next offers the minted repair: " .. a.kind
+    .. " " .. (a.item and a.item.id or ""))
+
+  local problems = gate.ready_problems(s, repair, all)
+  assert(#problems == 0,
+    "take admits it too: " .. table.concat(problems, "; "))
+  assert(flow.doing_refusal(all, repair) == nil,
+    "and the doing bound never holds a lane repair back")
+end
+test_a_minted_repair_is_offered_and_admitted()

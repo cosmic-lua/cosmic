@@ -265,6 +265,103 @@ local function test_a_blocked_building_item_is_still_offered()
 end
 test_a_blocked_building_item_is_still_offered()
 
+-- A lane repair is the pull that cannot wait: it outranks ordinary
+-- pulls, but a merge, a review or a builder's own rework still land
+-- ahead of it — a broken lane never outranks landing what is already
+-- accepted.
+local function test_lane_repair_outranks_ordinary_pulls()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local repair = make({parent = root.id, lane = "release.yml"})
+  local ordinary = make({parent = root.id})
+  items[#items + 1] = repair
+  items[#items + 1] = ordinary
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "pull" and a.item.id == repair.id,
+    "the repair is offered ahead of the ordinary pull: " .. a.kind
+    .. " " .. (a.item and a.item.id or ""))
+  assert(a.reason == "lane repair: release.yml",
+    "the reason names the lane: " .. a.reason)
+end
+test_lane_repair_outranks_ordinary_pulls()
+
+local function test_a_pending_merge_still_outranks_the_repair()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local accepted = make({parent = root.id, claim = "who", pr = 1,
+      verdict = "accept"})
+  local repair = make({parent = root.id, lane = "release.yml"})
+  items[#items + 1] = accepted
+  items[#items + 1] = repair
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "finish" and a.item.id == accepted.id,
+    "landing what is already accepted still comes first: " .. a.kind)
+end
+test_a_pending_merge_still_outranks_the_repair()
+
+-- The wall the spec pins for merge holds for review too: an open PR
+-- with no verdict yet outranks a red-lane repair, the same as an
+-- accepted one does. Pinned separately from the merge case because
+-- the ordering rungs are independent code paths in `phased_action` —
+-- reverting only the repair-offer block above the review loop leaves
+-- the merge test green while this one goes red.
+local function test_a_pending_review_still_outranks_the_repair()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local reviewable = make({parent = root.id, claim = "who", pr = 2})
+  local repair = make({parent = root.id, lane = "release.yml"})
+  items[#items + 1] = reviewable
+  items[#items + 1] = repair
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "review" and a.item.id == reviewable.id,
+    "a verdict awaiting a PR still comes before a lane repair: " .. a.kind)
+end
+test_a_pending_review_still_outranks_the_repair()
+
+-- The doing bound never holds a lane repair back: `flow.doing_refusal`
+-- admits it at the same bound it refuses an ordinary take at, and
+-- `next_action` still offers it as the pull rather than falling
+-- through to the bound's own terminal "none".
+local function test_lane_repair_is_admitted_at_the_doing_bound()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  for k = 1, flow.DOING_LIMIT do
+    items[#items + 1] = make({parent = root.id,
+        claim = ("wake-%d"):format(k)})
+  end
+  local repair = make({parent = root.id, lane = "fuzz.yml"})
+  items[#items + 1] = repair
+  assert(flow.doing_refusal(items) ~= nil,
+    "the bound still refuses an ordinary take")
+  assert(flow.doing_refusal(items, repair) == nil,
+    "but never a lane repair's own take")
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "pull" and a.item.id == repair.id,
+    "the repair is still offered at the bound: " .. a.kind)
+end
+test_lane_repair_is_admitted_at_the_doing_bound()
+
+-- A blocked repair waits on its blocker exactly like any other pull —
+-- the lane class changes ordering, never the block/take relationship.
+local function test_a_blocked_repair_does_not_jump_its_blocker()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local blocker = make({parent = root.id, claim = "other"})
+  local repair = make({parent = root.id, lane = "release.yml",
+      blocked_by = blocker.id})
+  items[#items + 1] = blocker
+  items[#items + 1] = repair
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind ~= "pull" or a.item.id ~= repair.id,
+    "a blocked repair is not offered as the pull: " .. a.kind)
+end
+test_a_blocked_repair_does_not_jump_its_blocker()
+
 local function test_none_names_the_binding_fact()
   -- The root is deliberately unplaced with an open child, so no
   -- intake rung fires: it is not triage (it has children), nothing is

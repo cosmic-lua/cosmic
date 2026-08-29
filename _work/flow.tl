@@ -137,10 +137,18 @@ end
 --- The refusal a NEW take earns from the doing bound, or nil while
 --- the board has room. Only a take of todo work asks — a takeover of
 --- in-flight work adds nothing to the count, and finishing motions
---- never ask at all.
+--- never ask at all. A lane-repair item is the other arrival the
+--- bound never holds back: the fix for a red lane cannot wait on a
+--- queue depth it did not cause, the same admits-over-limit hole an
+--- accept into land once used before the phase model retired.
 --- @param items {Item} All items
+--- @param taking Item The item about to be taken; nil when only
+--- reporting the bound, never bypassed
 --- @return string | nil The refusal
-local function doing_refusal(items: {Item}): string | nil
+local function doing_refusal(items: {Item}, taking?: Item): string | nil
+  if taking ~= nil and (taking.lane or "") ~= "" then
+    return nil
+  end
   local n = 0
   for _, i in ipairs(items) do
     if it.is_open(i) and is_doing(i) and role(i, items) == "work" then
@@ -335,7 +343,7 @@ local record flow
   role: function(i: Item, items: {Item}): string
   in_state: function(items: {Item}, state: string,
   pos: {string: prio.Position}, seed?: string): {Item}
-  doing_refusal: function(items: {Item}): string | nil
+  doing_refusal: function(items: {Item}, taking?: Item): string | nil
   is_blocked: function(i: Item, index: Index): boolean
   binds: function(index: Index, id: string): boolean
   waits_on: function(index: Index, from: string, target: string,
