@@ -11,9 +11,9 @@ local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local cmp = require("_work.gitcompare")
+local gitspec = require("_work.gitspec")
 local graph = require("_work.gitgraph")
 local store = require("_work.store")
-local verbs = require("_work.gitverbs")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -129,7 +129,7 @@ end
 local function give_spec(s: store.Store, id: string)
   local path = fs.join(tmpdir, "ready-spec.md")
   assert(fs.write(path, READY_SPEC))
-  assert(verbs.cmd_spec(s, id, path) == 0, "spec should be accepted")
+  assert(gitspec.cmd_spec(s, id, path) == 0, "spec should be accepted")
 end
 
 --- An organizing root with one workable leaf under it, both filed

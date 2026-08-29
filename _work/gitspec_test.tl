@@ -9,6 +9,7 @@
 local check = require("cosmic.check")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local gitspec = require("_work.gitspec")
 local fs = require("cosmic.fs")
 local publish = require("_work.publish")
 local store = require("_work.store")
@@ -63,8 +64,8 @@ local function test_a_no_op_mutation_is_named()
   local _, leaf = root_with_leaf(s)
   local path = fs.join(tmpdir, "ready-spec.md")
   assert(fs.write(path, READY_SPEC))
-  assert(verbs.cmd_spec(s, leaf, path) == 0)
-  assert(verbs.cmd_spec(s, leaf, path, path) ~= 0,
+  assert(gitspec.cmd_spec(s, leaf, path) == 0)
+  assert(gitspec.cmd_spec(s, leaf, path, path) ~= 0,
     "the same spec twice records nothing the second time")
 end
 test_a_no_op_mutation_is_named()
@@ -81,12 +82,12 @@ end
 local function test_spec_refuses_a_write_with_no_base()
   local s = init_state_repo("nobase")
   local _, leaf = root_with_leaf(s)
-  assert(verbs.cmd_spec(s, leaf, spec_file("nobase-first", READY_SPEC)) == 0,
+  assert(gitspec.cmd_spec(s, leaf, spec_file("nobase-first", READY_SPEC)) == 0,
     "the first spec has nothing to overwrite, so it needs no base")
   local second = spec_file("nobase-second",
     (READY_SPEC:gsub("Not that.", "Rewritten.")))
   local before = commits(s)
-  assert(verbs.cmd_spec(s, leaf, second) ~= 0,
+  assert(gitspec.cmd_spec(s, leaf, second) ~= 0,
     "a second write with no base is last-write-wins")
   assert(store.read_spec(s, leaf) == READY_SPEC, "so the first text stands")
   assert(commits(s) == before, "and nothing was committed")
@@ -100,18 +101,18 @@ local function test_spec_refuses_a_stale_base()
   local s = init_state_repo("stalebase")
   local _, leaf = root_with_leaf(s)
   local first = spec_file("stale-first", READY_SPEC)
-  assert(verbs.cmd_spec(s, leaf, first) == 0)
+  assert(gitspec.cmd_spec(s, leaf, first) == 0)
   local second = spec_file("stale-second",
     (READY_SPEC:gsub("Not that.", "First edit.")))
-  assert(verbs.cmd_spec(s, leaf, second, first) == 0, "the base it read")
+  assert(gitspec.cmd_spec(s, leaf, second, first) == 0, "the base it read")
   local third = spec_file("stale-third",
     (READY_SPEC:gsub("Not that.", "Second edit.")))
-  assert(verbs.cmd_spec(s, leaf, third, first) ~= 0,
+  assert(gitspec.cmd_spec(s, leaf, third, first) ~= 0,
     "a base the second write already replaced is stale")
-  assert(verbs.cmd_spec(s, leaf, third, fs.join(tmpdir, "gone.md")) ~= 0,
+  assert(gitspec.cmd_spec(s, leaf, third, fs.join(tmpdir, "gone.md")) ~= 0,
     "and an unreadable base is refused, not taken as empty")
   local current = spec_file("stale-current", store.read_spec(s, leaf))
-  assert(verbs.cmd_spec(s, leaf, third, current) == 0,
+  assert(gitspec.cmd_spec(s, leaf, third, current) == 0,
     "re-reading the sidecar makes the same write land")
   assert(store.read_spec(s, leaf):find("Second edit.", 1, true) ~= nil,
     "carrying the text it meant to write")
@@ -167,7 +168,7 @@ local function test_spec_refuses_a_foreign_live_claim()
   local base = spec_file("foreign-base", before_spec)
   local rewrite = spec_file("foreign-rewrite",
     (before_spec:gsub("Not that.", "Rewritten.")))
-  assert(verbs.cmd_spec(s, leaf, rewrite, base, "refiner-b") ~= 0,
+  assert(gitspec.cmd_spec(s, leaf, rewrite, base, "refiner-b") ~= 0,
     "a foreign session may not redefine work another session has "
     .. "already built and handed to review")
   assert(store.read_spec(s, leaf) == before_spec, "the sidecar is untouched")
@@ -188,7 +189,7 @@ local function test_spec_the_holders_own_rewrite_still_lands()
   local base = spec_file("holder-base", store.read_spec(s, leaf))
   local rewrite = spec_file("holder-rewrite",
     (READY_SPEC:gsub("Not that.", "Reworked answering a bounce.")))
-  assert(verbs.cmd_spec(s, leaf, rewrite, base, "builder-a") == 0,
+  assert(gitspec.cmd_spec(s, leaf, rewrite, base, "builder-a") == 0,
     "the claim holder reworks their own spec")
   assert(store.read_spec(s, leaf):find("Reworked answering a bounce.", 1, true)
     ~= nil)
@@ -207,7 +208,7 @@ local function test_spec_force_needs_why()
   local base = spec_file("forceonly-base", before_spec)
   local rewrite = spec_file("forceonly-rewrite",
     (before_spec:gsub("Not that.", "Overridden.")))
-  assert(verbs.cmd_spec(s, leaf, rewrite, base, "refiner-b", true) ~= 0,
+  assert(gitspec.cmd_spec(s, leaf, rewrite, base, "refiner-b", true) ~= 0,
     "--force with no --why is refused")
   assert(store.read_spec(s, leaf) == before_spec, "and nothing changed")
   assert(commits(s) == before_commits, "nothing was committed")
@@ -225,7 +226,7 @@ local function test_spec_force_and_why_overrides_a_foreign_claim()
   local base = spec_file("override-base", before_spec)
   local rewrite = spec_file("override-rewrite",
     (before_spec:gsub("Not that.", "Overridden.")))
-  assert(verbs.cmd_spec(s, leaf, rewrite, base, "refiner-b", true,
+  assert(gitspec.cmd_spec(s, leaf, rewrite, base, "refiner-b", true,
       "builder-a's session died mid-build") == 0,
     "forced, with a reason, the foreign write lands")
   assert(store.read_spec(s, leaf):find("Overridden.", 1, true) ~= nil)
@@ -244,7 +245,7 @@ local function test_spec_records_the_speccer_in_the_same_commit()
   local _, leaf = root_with_leaf(s)
   local first = spec_file("speccer-first", READY_SPEC)
   local before = commits(s)
-  assert(verbs.cmd_spec(s, leaf, first, nil, "refiner-a") == 0)
+  assert(gitspec.cmd_spec(s, leaf, first, nil, "refiner-a") == 0)
   assert(commits(s) == before + 1, "one mutation, one commit")
   local it = check.must(store.load(s, leaf))
   assert(#it.speccers == 1 and it.speccers[1] == "refiner-a",
@@ -257,11 +258,27 @@ local function test_spec_records_the_speccer_in_the_same_commit()
 
   local second = spec_file("speccer-second",
     (READY_SPEC:gsub("Not that.", "Refined again.")))
-  assert(verbs.cmd_spec(s, leaf, second, first, "refiner-a") == 0)
+  assert(gitspec.cmd_spec(s, leaf, second, first, "refiner-a") == 0)
   local again = check.must(store.load(s, leaf))
   assert(#again.speccers == 1, "the same session again does not duplicate")
 end
 test_spec_records_the_speccer_in_the_same_commit()
+
+-- The incident's shape at this entry: a mangled argv absorbing a flag
+-- as the session. Refused before anything is staged, so a dash-led
+-- token can no longer enter `speccers`.
+local function test_spec_refuses_a_flag_shaped_session()
+  local s = init_state_repo("flagspec")
+  local _, leaf = root_with_leaf(s)
+  local first = spec_file("flag-first", READY_SPEC)
+  local before = commits(s)
+  assert(gitspec.cmd_spec(s, leaf, first, nil, "--session") ~= 0,
+    "a flag-shaped session is refused")
+  assert(commits(s) == before, "nothing was committed")
+  assert(#check.must(store.load(s, leaf)).speccers == 0,
+    "and no speccer was recorded")
+end
+test_spec_refuses_a_flag_shaped_session()
 
 -- The reproduced incident: a bounce's gap lived only in the board
 -- log, so the next session that pulled the same item re-discovered

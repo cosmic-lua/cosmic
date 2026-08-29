@@ -7,6 +7,7 @@
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
+local gitspec = require("_work.gitspec")
 local fs = require("cosmic.fs")
 local publish = require("_work.publish")
 local store = require("_work.store")
@@ -73,7 +74,7 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
   local moved = fs.join(fixture.tmpdir, "pair-moved.md")
   assert(fs.write(moved, store.read_spec(s, leaf)
       .. "\nMeasured again at rework.\n"))
-  assert(verbs.cmd_spec(s, leaf, moved, base, "session-a") == 0)
+  assert(gitspec.cmd_spec(s, leaf, moved, base, "session-a") == 0)
   assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe123") == 0,
     "the same head over a moved spec is judgeable")
 end
@@ -219,6 +220,24 @@ local function test_a_malformed_head_refuses_before_any_commit()
   assert(#after_events == #before_events, "neither refusal committed")
 end
 test_a_malformed_head_refuses_before_any_commit()
+
+-- `--session` here is audit, but a flag-shaped name is a mangled
+-- argv, not an identity: refused before anything is judged, so it
+-- never rides a verdict subject the log would then trust.
+local function test_verdict_refuses_a_flag_shaped_session()
+  local s = init_state_repo("verdict-flag-session")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, 53)
+  local before_events = check.must(publish.history(s, leaf))
+  assert(vrd.cmd_verdict(s, leaf, "accept", 53, "cafe1234", "--force") ~= 0,
+    "a flag-shaped session is refused")
+  local it = check.must(store.load(s, leaf))
+  assert(it.verdict == "" and it.verdict_head == "",
+    "the refusal recorded nothing")
+  assert(#check.must(publish.history(s, leaf)) == #before_events,
+    "and committed nothing")
+end
+test_verdict_refuses_a_flag_shaped_session()
 
 -- A well-formed head over a local-only board (no origin to check it
 -- against) lands exactly as it always has: the shape check is a new
