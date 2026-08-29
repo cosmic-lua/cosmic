@@ -163,3 +163,7 @@ above without waiting on that verdict. It needs a decision on two open
 questions before it is ready: how the diff base is named alongside the
 sha, and whether a commit-carrying item ends on accept or passes
 through `land`.
+
+## Result
+
+Closed 2026-08-29, overtaken by practice: board-branch machinery work is PR-carried now — this session alone landed nine reviewed PRs against base `board` (1515-1517, 1520-1521, 1523, 1525-1529 span), each through the standard take --pr handover, fresh-context review, and verdict. The third handover form (commit-naming) is unnecessary because the norm it would serve — direct push of reviewable code to board — is no longer how machinery changes land; mutations (state) remain direct-push by design and are not review objects.
