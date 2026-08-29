@@ -178,10 +178,11 @@ Run from the `board` worktree root.
    `test_a_spec_only_rework_earns_a_fresh_verdict`).
 3. `bin/cosmic --make test _work/item_test.tl _work/gitshow_test.tl` —
    ends `test: PASS (2 files)`.
-4. `grep -c "verdict_spec" _work/gitverdict.tl` — at least `3` (the
-   guard's read, the recorded write, and the refusal's argument);
-   measured today across `_work/` and `cmd/`,
-   `grep -rn "verdict_spec" _work/ cmd/ | wc -l` → `0`.
+4. `grep -c "verdict_spec" _work/gitverdict.tl` — exactly `2`: the
+   guard's read of the recorded revision and the write that records
+   the new one. The refusal formats the freshly computed local, not
+   the field, so it is not a third. Measured today across `_work/` and
+   `cmd/`, `grep -rn "verdict_spec" _work/ cmd/ | wc -l` → `0`.
 5. The mutation test, run by hand and quoted in the handover: delete the
    `and (it.verdict_spec or "") ~= "" and now == it.verdict_spec` half of
    the guard's predicate and re-run command 2 — it must FAIL on
@@ -314,3 +315,94 @@ _work/review.tl:116,119,121,122,140,143,151,153,164,165
 omits several fields (`builders`, `reviewer`, `enable`), so a new field
 needs no edit there — confirmed by that literal type-checking today
 without them.
+
+---
+
+## Result
+
+Landed on `board` as `46bfab8` ("verdict judges a pair: the head and the
+spec revision it is measured against"). There is no PR: this is
+board-branch machinery, which the branch's own README publishes by push
+and gates with the `board` workflow.
+
+**What shipped.** The evidence a verdict judges is now the pair (PR
+head, spec revision). `_work.spec.revision(body)` digests the sidecar;
+`gitverdict` computes it once per call, refuses only when the head is
+known-and-unchanged AND the recorded revision is known-and-unchanged,
+records it beside `verdict_head`, and names both halves in the refusal.
+`gitverbs` clears both halves together on a leftward move out of
+`check`/`land`. `gitshow` renders the derived fact — `spec changed
+since` / `spec unchanged since` — and says nothing when the revision is
+unrecorded.
+
+**Diff stat**, `git show --stat 46bfab8`:
+
+```
+ _work/gitshow.tl         | 18 ++++++++++--
+ _work/gitshow_test.tl    | 30 +++++++++++++++++++
+ _work/gitverbs.tl        | 12 +++++---
+ _work/gitverdict.tl      | 35 +++++++++++++++++-----
+ _work/gitverdict_test.tl | 75 +++++++++++++++++++++++++++++++++++++----
+ _work/item.tl            |  9 ++++++
+ _work/item_test.tl       | 22 ++++++++++++++
+ _work/spec.tl            | 19 ++++++++++++
+ 8 files changed, 200 insertions(+), 20 deletions(-)
+```
+
+**Acceptance, run.**
+
+1. `bin/cosmic --make ci` → `ci: PASS (4 stages)`, with
+   `coverage: PASS (29 files)` and `coverage ratchet ok`.
+2. `bin/cosmic --make test _work/gitverdict_test.tl` →
+   `✓ _work/gitverdict_test.tl (11 test functions)` and
+   `test: PASS (1 file)`. 9 before, 11 after, as specified.
+3. `bin/cosmic --make test _work/item_test.tl _work/gitshow_test.tl` →
+   run together with (2) as `test: PASS (3 files)`:
+   `✓ _work/gitshow_test.tl (8 test functions)`,
+   `✓ _work/item_test.tl (12 test functions)`.
+4. `grep -c "verdict_spec" _work/gitverdict.tl` → `2`, the corrected
+   bound (see the note below).
+5. Mutation test. Replacing the guard with its old predicate —
+   `if (head or "") ~= "" and head == (it.verdict_head or "") then`,
+   dropping the `and (it.verdict_spec or "") ~= "" and judged_spec ==
+   it.verdict_spec` half — and re-running (2) gives
+   `test: FAIL (1 of 1 file)` at
+   `o/_work/gitverdict_test.lua:129: and the accept on that same head
+   is a fresh round`, inside
+   `test_a_spec_only_rework_earns_a_fresh_verdict`. Restoring the half
+   returns `test: PASS (1 file)`. The guard has been shown to fail.
+6. `o/bin/gitboard show 3IZ0nP5R` after `bin/cosmic --make build` →
+   `verdict: request changes (head 5364cc217cbc4377966dd16dcbd981d91686b5ba)`,
+   byte-identical to the pre-change form, because that item's revision
+   is unrecorded. Same for `3IZaO4Vj`.
+
+**Board CI.** Run 3361 on `board`,
+<https://github.com/whilp/cosmic/actions/runs/33255642987>, head
+`46bfab8`, job `ci`, conclusion **success** (the `gate` step is
+`bin/cosmic --make ci`).
+
+**Two deviations from the Change, both naming only.** The local holding
+the freshly computed revision is `judged_spec`, not `now` — it sits one
+line from `it.verdict_spec` and `now` read as a timestamp. And the
+Acceptance count in (4) was written as "at least 3" on the assumption
+that the refusal would format the FIELD; it formats the local, so the
+true count is 2 and the bound was corrected in place rather than the
+code contorted to meet it.
+
+**What did not move.** `--head` is still required and `verdict_head` is
+still written on every verdict; `_work/gitland.tl` and
+`_work/review.tl` are untouched, so `land`'s head enforcement is
+exactly what it was. No `--force` was added to `verdict`. No verdict
+was recorded on `3IZ0nP5R` and its files were not touched. Nothing
+under `items/**` was hand-edited. `skills/**` and the product tree on
+`main` were not touched; the matching sentence at
+`skills/work/review.md:128` is filed as `3IalNYkq`.
+
+**What a reviewer should check hardest.** That an unrecorded revision
+refusing nothing is the right migration rule. Every item verdicted
+before `46bfab8` — `3IZ0nP5R` and `3IZaO4Vj` among them — gets exactly
+one re-verdict on an unmoved head, because the board genuinely cannot
+say what spec those verdicts read. The alternative, reconstructing the
+sidecar at the verdict commit from the git log, would be precise but
+would make the guard depend on archaeology rather than on a recorded
+fact. That tradeoff is the one judgment call in this diff.
