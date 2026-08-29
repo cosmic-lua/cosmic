@@ -20,6 +20,7 @@
 ---   cosmic --make run _work/gitboard.tl compare 2ai3 2akQ
 ---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl block 2akQ 2ai3 | unblock 2akQ 2ai3
+---   cosmic --make run _work/gitboard.tl set 2akQ --title "a truer title"
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
 ---   cosmic --make run _work/gitboard.tl show [2akQ]
 ---   cosmic --make run _work/gitboard.tl next [--session S]
@@ -54,7 +55,7 @@ local view = require("_work.gitview")
 local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["take"] = true, ["drop"] = true, ["verdict"] = true,
-  ["done"] = true, ["compare"] = true,
+  ["done"] = true, ["compare"] = true, ["set"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -108,6 +109,14 @@ local CSPEC: flags.CommandSpec = {
             help = "what concretely cannot proceed until BLOCKER ends"}}}},
     {name = "unblock", summary = "drop BLOCKER from ID's blockers",
       spec = {usage = "ID BLOCKER [options]", flags = {dir_flag()}}},
+    {name = "set", summary = "repair ID's title, repo and/or base "
+      .. "(at least one; nothing else moves here)",
+      spec = {usage = "ID [options]", flags = {dir_flag(),
+          {long = "title", arg = "TITLE", help = "the item's title"},
+          {long = "repo", arg = "OWNER/NAME",
+            help = "the repo its PR lands in"},
+          {long = "base", arg = "BRANCH",
+            help = "the branch its PR targets"}}}},
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag(),
           {long = "base", arg = "FILE",
@@ -270,6 +279,10 @@ local function main(...: string): integer
     end
     return graph.cmd_block(s, id, blocker, d.command == "unblock",
       d.parsed.values["reason"] or "")
+  end
+  if d.command == "set" then
+    return graph.cmd_set(s, id, d.parsed.values["title"],
+      d.parsed.values["repo"], d.parsed.values["base"])
   end
   if d.command == "spec" then
     local file = d.parsed.args[2]

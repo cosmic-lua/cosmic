@@ -55,6 +55,7 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
   end
   if it.parent ~= "" then out[#out + 1] = ("parent: %s"):format(it.parent) end
   if it.repo ~= "" then out[#out + 1] = ("repo: %s"):format(it.repo) end
+  if it.base ~= "" then out[#out + 1] = ("base: %s"):format(it.base) end
   if item.is_open(it) and flow.role(it, all) == "work" then
     out[#out + 1] = ("state: %s"):format(state_of(it))
   end

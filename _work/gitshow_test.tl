@@ -75,6 +75,22 @@ local function test_show_prints_fields_role_and_history()
 end
 test_show_prints_fields_role_and_history()
 
+-- `repo` and `base` render on their own field lines, base right after
+-- repo, and neither prints when the item carries none.
+local function test_show_prints_repo_and_base()
+  local all = a_board()
+  local scoped = check.must(item.decode({id = WORK, title = "a slice",
+        parent = UNDER, repo = "whilp/cosmopolitan", base = "release"}))
+  local lines = show.show_report(scoped, all, "", {}, {})
+  assert(matched(lines, "^repo: whilp/cosmopolitan$"), table.concat(lines, "\n"))
+  assert(matched(lines, "^base: release$"), table.concat(lines, "\n"))
+
+  local plain = show.show_report(all[3], all, "", {}, {})
+  assert(not matched(plain, "^repo:"), "no repo, no line")
+  assert(not matched(plain, "^base:"), "no base, no line")
+end
+test_show_prints_repo_and_base()
+
 -- The take gate's problem list renders on the read that precedes the
 -- pull, one `bar:` line each — `show` absorbed the old `check` verb,
 -- so what would refuse a take is nobody's surprise.

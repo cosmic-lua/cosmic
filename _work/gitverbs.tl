@@ -164,9 +164,10 @@ end
 ---
 --- Recording a PR is the handover to review: the number must be free
 --- (no other OPEN item already carries it — `gate.pr_collision_refusal`),
---- the request is read (open, not draft, `Board:` line, CI not failing —
---- `gate.handover_refusal`), and a standing `request changes` verdict
---- clears, because the new push is a new head to judge.
+--- the request is read (open, not draft, `Board:` line, on the item's
+--- own `base` when it names one, CI not failing — `gate.handover_refusal`),
+--- and a standing `request changes` verdict clears, because the new
+--- push is a new head to judge.
 --- @param s store.Store The store
 --- @param id string The item to take
 --- @param session string The claiming session
@@ -271,7 +272,7 @@ local function cmd_take(s: store.Store, id: string, session: string,
       if collision then
         return gate.verdict_line("take", false, "REFUSED: " .. collision)
       end
-      local refusal = gate.handover_refusal(s, id, pr, it.repo)
+      local refusal = gate.handover_refusal(s, id, pr, it.repo, it.base)
       if refusal then
         return gate.verdict_line("take", false, "REFUSED: " .. refusal)
       end

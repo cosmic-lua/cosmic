@@ -15,12 +15,14 @@ local function pull(over: {string: any}): review.Pull
     draft = false,
     body = "Board: " .. ID .. "\n\nthe fix, and how it was run.",
     head_sha = "cafe1234",
+    base = "main",
     state = "open",
   }
   for k, v in pairs(over or {}) do
     if k == "number" and v is integer then p.number = v end
     if k == "draft" and v is boolean then p.draft = v end
     if k == "body" and v is string then p.body = v end
+    if k == "base" and v is string then p.base = v end
     if k == "state" and v is string then p.state = v end
   end
   return p
@@ -58,6 +60,34 @@ local function test_an_eight_character_prefix_joins_it()
     "the prefix names the item as well as the full id does")
 end
 test_an_eight_character_prefix_joins_it()
+
+-- An item that names a base is refused when the PR targets something
+-- else — the mismatch names both sides and the fix (retarget, or set
+-- --base), never one alone.
+local function test_a_mismatched_base_blocks()
+  local msg = review.blocks_base(pull({base = "release"}), "main")
+  assert(msg ~= nil, "a PR targeting the wrong branch is refused")
+  assert(msg:find("#42", 1, true), "it names the PR: " .. msg)
+  assert(msg:find("release", 1, true), "the PR's actual base: " .. msg)
+  assert(msg:find("main", 1, true), "the item's recorded base: " .. msg)
+end
+test_a_mismatched_base_blocks()
+
+-- A PR whose base matches the item's recorded base passes cleanly.
+local function test_a_matching_base_passes()
+  assert(review.blocks_base(pull({base = "main"}), "main") == nil,
+    "the PR's base agrees with the item's")
+end
+test_a_matching_base_passes()
+
+-- An item with no base field is UNGATED: today's behavior, and what
+-- lets board-machinery items whose PRs target `board` stand without
+-- backfill.
+local function test_an_absent_base_is_ungated()
+  assert(review.blocks_base(pull({base = "some-other-branch"}), "") == nil,
+    "no recorded base means nothing is compared")
+end
+test_an_absent_base_is_ungated()
 
 local function test_a_concluded_failure_blocks()
   local msg = review.blocks_on_ci({

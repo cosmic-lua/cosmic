@@ -164,7 +164,8 @@ end
 
 --- The refusal a PR handover earns from GitHub, or nil when the
 --- request is worth a reviewer's time: open, not a draft, joined
---- to its item by a `Board:` line, and not already known to fail CI.
+--- to its item by a `Board:` line, targeting the item's own `base`
+--- when it names one, and not already known to fail CI.
 ---
 --- A missing token is itself a refusal rather than a silent pass —
 --- a gate that waves things through when it cannot see is worse than
@@ -174,9 +175,10 @@ end
 --- @param id string The item being handed over
 --- @param number integer The PR number
 --- @param repo string | nil The item's repo field, when it carries one
+--- @param base string | nil The item's base field, when it carries one
 --- @return string | nil The refusal
 local function handover_refusal(s: store.Store, id: string,
-    number: integer, repo: string | nil): string
+    number: integer, repo: string | nil, base: string | nil): string
   -- A local-only board has no pull requests to ask about, the same
   -- reason publishing there is a no-op.
   if not publish.has_origin(s) then
@@ -190,6 +192,10 @@ local function handover_refusal(s: store.Store, id: string,
   local blocked = review.blocks_check(p, id)
   if blocked then
     return blocked
+  end
+  local off_base = review.blocks_base(p, base or "")
+  if off_base then
+    return off_base
   end
   local runs, cerr = gh.checks(s, p.head_sha, repo)
   if runs == nil then
@@ -268,7 +274,7 @@ local record gitgate
   message: string, also?: {item.Item}): boolean, string
   containered: function(parent: item.Item): {item.Item}
   handover_refusal: function(s: store.Store, id: string,
-  number: integer, repo: string | nil): string
+  number: integer, repo: string | nil, base: string | nil): string
   pr_collision_refusal: function(all: {item.Item}, id: string,
   number: integer): string
   ready_problems: function(s: store.Store, it: item.Item,
