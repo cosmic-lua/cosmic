@@ -146,6 +146,75 @@ local function test_drop_releases_by_derivation()
 end
 test_drop_releases_by_derivation()
 
+-- The distance guard binds inside the derivation itself, with no
+-- --force escape: a fresh context cannot be forced into existing. A
+-- session named in `builders` never claims the review, even one it no
+-- longer holds as its build claim.
+local function test_a_named_builder_cannot_review_claim_it()
+  local s = init_state_repo("review-distance-builder")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  local it = check.must(store.load(s, leaf))
+  it.claim = "reviewer-b"
+  it.pr = 5
+  it.builders = {"session-a"}
+  assert(store.save(s, it,
+      "fixture: builder recorded, someone else holds the claim"))
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") ~= 0,
+    "the named builder is refused the review claim")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, true, "try anyway") ~= 0,
+    "and --force opens no escape here")
+  check.equal(check.must(store.load(s, leaf)).reviewer, "",
+    "no reviewer was stamped")
+end
+test_a_named_builder_cannot_review_claim_it()
+
+-- Authorship of the SPEC is the same hole authorship of the diff is:
+-- a session named in `speccers` is refused the review claim too.
+local function test_a_named_speccer_cannot_review_claim_it()
+  local s = init_state_repo("review-distance-speccer")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  local it = check.must(store.load(s, leaf))
+  it.claim = "reviewer-b"
+  it.pr = 6
+  it.speccers = {"session-x"}
+  assert(store.save(s, it,
+      "fixture: speccer recorded, someone else holds the claim"))
+  assert(verbs.cmd_take(s, leaf, "session-x", 0, false, "") ~= 0,
+    "the named speccer is refused the review claim")
+  check.equal(check.must(store.load(s, leaf)).reviewer, "",
+    "no reviewer was stamped")
+end
+test_a_named_speccer_cannot_review_claim_it()
+
+-- Decision, from skills/work/SKILL.md's session-identity section: "a
+-- review subagent names itself
+-- (`export GITBOARD_SESSION=review-<ID>-<unique>`), because it would
+-- otherwise inherit the BUILDER's identity" -- a review subagent's
+-- name is ALWAYS distinct from the builder's, so one session name
+-- holding a build claim and a review claim at once is not a pattern
+-- the skill's design produces. Nothing here manufactures a guard
+-- against it either: the one-claim-per-session refusal
+-- (`gate.second_claim_refusal`) reasons only about `it.claim`, never
+-- `it.reviewer`, so a review claim under a name that also holds a
+-- build claim elsewhere stays a yes -- consistent with the skill's
+-- text, not a pattern it depends on.
+local function test_a_review_claim_coexists_with_a_build_claim()
+  local s = init_state_repo("review-and-build")
+  local _, a = root_with_leaf(s)
+  local _, b = root_with_leaf(s)
+  give_spec(s, a)
+  handed_over(s, b, "builder-b")
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0,
+    "session-a claims a's build")
+  assert(verbs.cmd_take(s, b, "session-a", 0, false, "") == 0,
+    "and, under the same name, claims b's review too")
+  check.equal(check.must(store.load(s, b)).reviewer, "session-a")
+  check.equal(check.must(store.load(s, a)).claim, "session-a")
+end
+test_a_review_claim_coexists_with_a_build_claim()
+
 -- The review lease is the short one, and staleness is a property of
 -- the ages the caller reads — pinned here at the boundary values.
 local function test_the_review_lease_is_short_and_exact()

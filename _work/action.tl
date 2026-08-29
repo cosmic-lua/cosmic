@@ -37,6 +37,7 @@
 --- is handed the claimed item anyway rather than stepped past it.
 local decision = require("_work.decision")
 local flow = require("_work.flow")
+local gate = require("_work.gitgate")
 local health = require("_work.health")
 local intake = require("_work.intake")
 local item = require("_work.item")
@@ -192,7 +193,12 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   end
   for _, i in ipairs(doing) do
     if flow.substate(i) == "review" then
-      if (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
+      if gate.distance_refusal(i, session) ~= nil then
+        -- session built or specced this item — the same distance
+        -- `take` refuses, so `next` never offers it either: offered to
+        -- nobody here, and not counted as another session's hold,
+        -- because it is not one.
+      elseif (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
       and not health.is_review_stale(i, ages) then
         reviewing = reviewing + 1
       elseif #acts < CANDIDATES then

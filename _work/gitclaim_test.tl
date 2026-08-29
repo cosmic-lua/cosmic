@@ -107,3 +107,37 @@ local function test_a_rework_return_keeps_the_builder_recorded()
     "the sole builder is recorded once, not repeated")
 end
 test_a_rework_return_keeps_the_builder_recorded()
+
+-- One claim per session: a session already holding a live claim on
+-- ANOTHER open item is refused a second one, and the refusal is never
+-- forced away -- a collision is never repair, unlike a takeover.
+local function test_a_second_live_claim_is_refused_and_never_forced()
+  local s = init_state_repo("second-claim")
+  local _, a = root_with_leaf(s)
+  local _, b = root_with_leaf(s)
+  give_spec(s, a)
+  give_spec(s, b)
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, b, "session-a", 0, false, "") ~= 0,
+    "a second claim under one name is refused")
+  assert(verbs.cmd_take(s, b, "session-a", 0, true,
+      "collision repair") ~= 0,
+    "--force --why does not open an escape here")
+  assert(check.must(store.load(s, b)).claim == "", "and b is untouched")
+end
+test_a_second_live_claim_is_refused_and_never_forced()
+
+-- A re-take of the session's own already-claimed item names no OTHER
+-- item, so the one-claim guard never asks about it -- rework
+-- handovers and PR recording on your own claim depend on this staying
+-- a yes.
+local function test_a_re_take_of_the_sessions_own_item_still_succeeds()
+  local s = init_state_repo("second-claim-own")
+  local _, a = root_with_leaf(s)
+  give_spec(s, a)
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, a, "session-a", 9, false, "") == 0,
+    "recording a PR on the session's own claim is not a second claim")
+  assert(check.must(store.load(s, a)).pr == 9)
+end
+test_a_re_take_of_the_sessions_own_item_still_succeeds()

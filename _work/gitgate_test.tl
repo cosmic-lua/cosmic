@@ -16,6 +16,7 @@ local publish = require("_work.publish")
 local store = require("_work.store")
 
 local init_shared = fixture.init_shared
+local init_state_repo = fixture.init_state_repo
 
 local counter = 0
 
@@ -114,3 +115,41 @@ local function test_containered_clears_the_locks()
     "the claim and the review clear together")
 end
 test_containered_clears_the_locks()
+
+-- The distance guard: named on either involvement list refuses,
+-- either half is enough, and an unnamed session is never involved.
+local function test_distance_refusal_covers_builders_and_speccers()
+  local built = make_item({builders = "me"})
+  assert(gate.distance_refusal(built, "me") ~= nil, "a builder is refused")
+  local specced = make_item({speccers = "me"})
+  assert(gate.distance_refusal(specced, "me") ~= nil, "a speccer is refused")
+  local stranger = make_item({builders = "someone-else"})
+  assert(gate.distance_refusal(stranger, "me") == nil,
+    "a session named on neither list is not refused")
+  assert(gate.distance_refusal(stranger, "") == nil,
+    "an unnamed session is never involved")
+end
+test_distance_refusal_covers_builders_and_speccers()
+
+-- The one-claim-per-session guard: a live claim on ANOTHER open item
+-- refuses; the item being claimed itself, and a session with no live
+-- claim anywhere, are excluded.
+local function test_second_claim_refusal_scopes_to_other_open_claims()
+  local s = init_state_repo("gate-second-claim")
+  local mine = make_item({claim = "me"})
+  local theirs = make_item({claim = "someone-else"})
+  local unclaimed = make_item()
+  assert(store.save(s, mine, "fixture: mine"))
+  assert(store.save(s, theirs, "fixture: theirs"))
+  assert(store.save(s, unclaimed, "fixture: unclaimed"))
+  local all = check.must(store.list(s))
+  assert(gate.second_claim_refusal(s, all, unclaimed.id, "me") ~= nil,
+    "a live claim on another item refuses")
+  assert(gate.second_claim_refusal(s, all, mine.id, "me") == nil,
+    "the item being claimed itself is excluded")
+  assert(gate.second_claim_refusal(s, all, unclaimed.id, "someone-else") ~= nil,
+    "symmetric for the other session")
+  assert(gate.second_claim_refusal(s, all, unclaimed.id, "nobody-yet") == nil,
+    "a session with no live claim anywhere is free to take")
+end
+test_second_claim_refusal_scopes_to_other_open_claims()

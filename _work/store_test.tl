@@ -116,6 +116,35 @@ local function make_item(claim?: string): item.Item
       }))
 end
 
+-- init_repo prepares a fresh directory whole: a git worktree (created
+-- when none is there) plus an items/ directory a `.gitkeep` makes
+-- trackable — exactly what `open` requires.
+local function test_init_repo_creates_a_fresh_git_and_items_dir()
+  local root = fs.join(tmpdir, "init-fresh")
+  assert(fs.remove_all(root))
+  assert(store.init_repo(root))
+  assert(fs.is_present(fs.join(root, ".git")), "a git repo now exists")
+  assert(fs.is_dir(fs.join(root, "items")), "and items/")
+  assert(fs.is_file(fs.join(root, "items", ".gitkeep")))
+  assert(check.must(store.open(root)).root == root,
+    "open accepts exactly what init_repo left")
+end
+test_init_repo_creates_a_fresh_git_and_items_dir()
+
+-- A directory that is already a git repo (no `.git` to create) still
+-- gets its items/ directory, and a second call over the same tree is
+-- a no-op yes rather than a refusal.
+local function test_init_repo_is_idempotent_over_an_existing_git()
+  local root = fs.join(tmpdir, "init-existing")
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(root))
+  git(root, {"init", "-q"})
+  assert(store.init_repo(root))
+  assert(fs.is_dir(fs.join(root, "items")))
+  assert(store.init_repo(root), "a second call over the same tree is a yes")
+end
+test_init_repo_is_idempotent_over_an_existing_git()
+
 local function test_save_load_spec_and_history()
   local root = init_state_repo("roundtrip")
   local s = check.must(store.open(root))
