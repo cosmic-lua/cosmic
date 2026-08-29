@@ -1,19 +1,17 @@
 --- Board health beyond per-item shape: the stalls `status` renders
 --- and `next` must not answer around. Pure over already-read state,
 --- the way `_work.flow` is — timestamps arrive from the caller, so
---- nothing here touches git or the filesystem. Three detectors:
+--- nothing here touches git or the filesystem. Two lease detectors
+--- and one graph detector:
 ---
 ---   stale claims    a claim is a lock with no expiry, held by
 ---                   sessions that are ephemeral by construction; a
 ---                   claimed item whose last board commit is older
 ---                   than the lease is stalled, not in progress
+---   stale reviews   the review claim's shorter horizon, same idea
 ---   blocker cycles  reciprocal `block` calls racing from two
 ---                   checkouts edit different files, merge cleanly,
 ---                   and land a cycle the verb's own check never saw
----   starvation      a `ready` column where every item waits on an
----                   open blocker admits no pull however deep it is;
----                   the actionable fact is the chain's deepest open
----                   blocker, not the count
 local flow = require("_work.flow")
 local item = require("_work.item")
 
@@ -25,13 +23,13 @@ local type Ages = {string: integer}
 
 --- Seconds a claim holds without a board commit before it reads as
 --- stale. Every board mutation is a commit, so an item being actively
---- worked is touched at its pull and again at its handover; between
+--- worked is touched at its take and again at its handover; between
 --- the two there is nothing to commit, which is why the lease is
---- hours against a measured `do` dwell median of 6 minutes (the table
---- in `_work.flow`). The sessions that claim work here are ephemeral
---- cloud or scheduled runs that cannot return an item when they die.
---- Takeover is offered, never automatic: the move that re-claims is
---- still a session's explicit act, on the record.
+--- hours against a build dwell measured in minutes. The sessions that
+--- claim work here are ephemeral cloud or scheduled runs that cannot
+--- drop an item when they die. Takeover is offered, never automatic:
+--- the take that re-claims is still a session's explicit act, on the
+--- record.
 local LEASE_S < const > = 4 * 60 * 60
 
 --- Whether an item's claim has outlived the lease.
@@ -45,7 +43,7 @@ end
 
 --- Seconds a review claim holds without a board commit before it
 --- reads as stale. Short against the build lease, because the two
---- claims lock different amounts of work: a build is pull-to-handover
+--- claims lock different amounts of work: a build is take-to-handover
 --- against a dwell measured in tens of minutes, a review is
 --- read-verify-verdict against a dwell of minutes — a reviewer that
 --- has not moved the board inside an hour is gone, and the diff
@@ -59,46 +57,6 @@ local REVIEW_LEASE_S < const > = 60 * 60
 local function is_review_stale(i: Item, ages: Ages): boolean
   local age = ages[i.id]
   return (i.reviewer or "") ~= "" and age ~= nil and age > REVIEW_LEASE_S
-end
-
---- Seconds a refine claim holds without a board commit before it
---- reads as stale. The review lease's scale, not the build's:
---- refinement dwell is minutes to an hour, and spec commits are its
---- liveness signal exactly as verdicts are a review's. The claim
---- field is the same one a build holds; the item's phase says which
---- lease applies, and this one is read for items in `plan`.
-local REFINE_LEASE_S < const > = 60 * 60
-
---- Whether an item's refine claim has outlived its lease.
---- @param i Item The item
---- @param ages Ages Seconds since last board commit, by id
---- @return boolean True for a claimed item older than the refine lease
-local function is_refine_stale(i: Item, ages: Ages): boolean
-  local age = ages[i.id]
-  return (i.claim or "") ~= "" and age ~= nil and age > REFINE_LEASE_S
-end
-
---- Seconds a placed, uncommitted item sits untouched before it reads
---- as rotten. A `backlog` entry is a record of known work, not a
---- commitment, so depth alone is no reason to close one — but an item
---- nothing has touched for a week is one nobody chose across every
---- promotion in that window, and the board should ask whether it is
---- still real rather than carry it silently forever. Long against the
---- claim lease because the two measure opposite things: a stale claim
---- is a lock nobody released, a rotten backlog entry is a decision
---- nobody made.
-local ROT_S < const > = 7 * 24 * 60 * 60
-
---- Whether an unclaimed item has sat untouched past the rot horizon.
---- Claimed items are excluded: a claim that outlives its lease is
---- `is_stale`'s report, and one signal per item keeps the two repairs
---- (take it over, decide whether to keep it) from naming each other.
---- @param i Item The item
---- @param ages Ages Seconds since last board commit, by id
---- @return boolean True for an unclaimed item older than the horizon
-local function is_rotten(i: Item, ages: Ages): boolean
-  local age = ages[i.id]
-  return (i.claim or "") == "" and age ~= nil and age > ROT_S
 end
 
 --- An item's age in whole hours, for rendering.
@@ -122,7 +80,7 @@ local function blocker_cycle_problems(items: {Item}): {string}
     if item.is_open(i) and #(i.blocked_by or {}) > 0
     and flow.waits_on(index, i.id, i.id) then
       out[#out + 1] = ("%s: its blocker chain returns to itself — nothing "
-        .. "on the cycle can be pulled; break it with `gitboard unblock`")
+        .. "on the cycle can be taken; break it with `gitboard unblock`")
       :format(i.id)
     end
   end
@@ -155,74 +113,25 @@ local function chain_root(index: flow.Index, i: Item): Item
   return cur
 end
 
---- The starvation report for `ready`: nil while anything there is
---- pullable, else the chain root every pull is waiting behind and a
---- line saying so. The line names the root's phase and claim because
---- those decide the remedy — finish it, take over its stale claim, or
---- refine it — and a bare "everything is blocked" names none of them.
---- @param b flow.Board The board
---- @param index flow.Index Items by id
---- @param ages Ages Seconds since last board commit, by id
---- @return Item | nil The chain root every ready item waits behind
---- @return string The starvation line
-local function starved(b: flow.Board, index: flow.Index,
-    ages: Ages): Item | nil, string
-  local waiting = b["ready"] or {}
-  if #waiting == 0 then
-    return nil, ""
-  end
-  for _, i in ipairs(waiting) do
-    if not flow.is_blocked(i, index) then
-      return nil, ""
-    end
-  end
-  local root = chain_root(index, waiting[1])
-  local where = root.phase
-  if where == "" then
-    where = "unphased"
-  end
-  local held = ""
-  if (root.claim or "") ~= "" then
-    held = (", @%s"):format(root.claim)
-    if is_stale(root, ages) then
-      held = held .. (" — claim stale %dh"):format(stale_hours(root, ages))
-    end
-  end
-  return root, ("every ready item is blocked; the chain bottoms at %s %s "
-    .. "(%s%s) — resolve that before promoting more"):format(
-    root.id:sub(1, 8), root.title, where, held)
-end
-
 local record health
   type Ages = Ages
   LEASE_S: integer
-  ROT_S: integer
   is_stale: function(i: Item, ages: Ages): boolean
   REVIEW_LEASE_S: integer
   is_review_stale: function(i: Item, ages: Ages): boolean
-  REFINE_LEASE_S: integer
-  is_refine_stale: function(i: Item, ages: Ages): boolean
-  is_rotten: function(i: Item, ages: Ages): boolean
   stale_hours: function(i: Item, ages: Ages): integer
   blocker_cycle_problems: function(items: {Item}): {string}
   chain_root: function(index: flow.Index, i: Item): Item
-  starved: function(b: flow.Board, index: flow.Index,
-  ages: Ages): Item | nil, string
 end
 
 local M: health = {
   LEASE_S = LEASE_S,
-  ROT_S = ROT_S,
   is_stale = is_stale,
   REVIEW_LEASE_S = REVIEW_LEASE_S,
   is_review_stale = is_review_stale,
-  REFINE_LEASE_S = REFINE_LEASE_S,
-  is_refine_stale = is_refine_stale,
-  is_rotten = is_rotten,
   stale_hours = stale_hours,
   blocker_cycle_problems = blocker_cycle_problems,
   chain_root = chain_root,
-  starved = starved,
 }
 
 return M

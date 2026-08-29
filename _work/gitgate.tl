@@ -1,19 +1,18 @@
---- The gate between the flow rules and the verbs: the WIP refusal an
---- arrival earns, the ready bar an item must meet, the items a
---- mutation writes besides its subject, and the commit-and-publish
---- that records them. Every verb's verdict line is here too, so the
---- read verbs need nothing from the mutating ones.
+--- The gate between the flow rules and the verbs: the doing-bound
+--- refusal a new take earns, the spec bar an item must meet before it
+--- is taken, and the commit-and-publish every mutation goes through.
+--- Every verb's verdict line is here too, so the read verbs need
+--- nothing from the mutating ones.
 ---
 --- The rule these share: ONE mutation is ONE commit. A refused
 --- publish drops a single commit, so anything a mutation touches
 --- beyond its subject travels with it rather than being committed
---- alongside — a de-phased parent committed on its own would survive
---- the refusal of the child that caused it.
+--- alongside.
 local gh = require("_work.gh")
 local flow = require("_work.flow")
 local item = require("_work.item")
+local prio = require("_work.priority")
 local review = require("_work.review")
-local spec = require("_work.spec")
 local store = require("_work.store")
 
 --- Print a verb's verdict line and return its exit code.
@@ -27,23 +26,6 @@ local function verdict_line(verb: string, ok: boolean, detail: string): integer
     return 0
   end
   return 1
-end
-
---- The WIP refusal an arrival in a phase earns, or nil when it may
---- enter: `move`'s gate. `new` carries none — a filed child always
---- enters unbounded `backlog`, so there is nothing here for it to ask.
---- @param b flow.Board The board
---- @param from string Current phase, or nil for an entry
---- @param to string Target phase
---- @return string | nil The refusal
-local function wip_refusal(b: flow.Board, from: string, to: string): string
-  local limit = flow.LIMITS[to]
-  if limit == nil or #(b[to] or {}) < limit
-  or flow.is_return(from, to) then
-    return nil
-  end
-  return ("%s is at %d/%d — drain it before pulling more"):format(
-    to, #(b[to] or {}), limit)
 end
 
 --- The refusal a bare `--force` earns, or nil when the mutation may
@@ -77,11 +59,10 @@ end
 --- Save an item and publish the commit. Everything one mutation
 --- touches goes in through `also`, so a lost race drops the whole
 --- mutation rather than half of it. There is no post-race re-check
---- here any more: a lost push comes back as `store.LOST_RACE` with
---- the mutation dropped and the checkout synced, and the verb is run
---- again — which re-applies EVERY gate it decided with (the WIP
---- refusal, `force`, and all the rest) against
---- the merged board, where the old closure re-asked only the limit.
+--- here: a lost push comes back as `store.LOST_RACE` with the
+--- mutation dropped and the checkout synced, and the verb is run
+--- again — which re-applies EVERY gate it decided with against the
+--- merged board.
 --- @param s store.Store The store
 --- @param it item.Item The mutated item
 --- @param body string Replacement spec markdown, or nil to leave the sidecar alone
@@ -98,26 +79,25 @@ local function commit_and_publish(s: store.Store, it: item.Item, body: string,
   return store.publish(s)
 end
 
---- The items a decomposition writes besides the child: the parent
---- that just gained one, de-phased because it is no longer workable
---- and leaves the board. Its claim clears with the phase.
+--- The locks a decomposition clears on the parent that just gained a
+--- child: it is no longer workable, so a claim or review standing on
+--- it locks nothing anyone can build.
 ---
 --- Returned rather than saved, so the caller commits it TOGETHER with
---- the child. Committed on its own it would survive a refused child —
---- a parent silently off the board with nothing decomposing it.
+--- the child; committed on its own it would survive a refused child.
 --- @param parent item.Item The item that gained a child
 --- @return {item.Item} The parent when it changed, empty otherwise
-local function dephased_container(parent: item.Item): {item.Item}
-  if (parent.phase or "") == "" then
+local function containered(parent: item.Item): {item.Item}
+  if (parent.claim or "") == "" and (parent.reviewer or "") == "" then
     return {}
   end
-  parent.phase = ""
   parent.claim = ""
+  parent.reviewer = ""
   return {parent}
 end
 
---- The refusal a handover into `check` earns from GitHub, or nil when
---- the request is worth a reviewer's time: open, not a draft, joined
+--- The refusal a PR handover earns from GitHub, or nil when the
+--- request is worth a reviewer's time: open, not a draft, joined
 --- to its item by a `Board:` line, and not already known to fail CI.
 ---
 --- A missing token is itself a refusal rather than a silent pass —
@@ -153,10 +133,10 @@ local function handover_refusal(s: store.Store, id: string,
   return review.blocks_on_ci(runs)
 end
 
---- The problems that keep an item from `ready`: it must be workable,
---- its spec must fill the ready-bar sections, and the whole graph
---- must be traceable. The one list `check` reports and `move ID
---- ready` enforces.
+--- The problems that keep an item from being taken: it must be
+--- workable, placed in the priority order, its spec must fill the
+--- spec-bar sections, and its own chain must be traceable. The one
+--- list `check` reports and `take` enforces.
 --- @param s store.Store The store
 --- @param it item.Item The item
 --- @param all {item.Item} Every item
@@ -164,10 +144,18 @@ end
 local function ready_problems(s: store.Store, it: item.Item,
     all: {item.Item}): {string}
   local index = flow.by_id(all)
-  local out = flow.item_problems(it, all, index)
+  local out = flow.item_problems(it, index)
   local r = flow.role(it, all)
   if r ~= "work" then
     out[#out + 1] = ("%s is a %s, not workable"):format(it.id:sub(1, 8), r)
+  end
+  -- Placement is ordinal — where does this sit against everything
+  -- else — so an item nothing has been compared against, at any
+  -- height, has no answer to it and cannot be queued honestly.
+  if not prio.is_placed(prio.positions(all), it.id) then
+    out[#out + 1] = ("%s has no position in the priority order — compare "
+      .. "it against something with `gitboard compare <id> <id>`, or attach "
+      .. "it under an item that has one"):format(it.id:sub(1, 8))
   end
   -- A blocker id with no item behind it never blocks (`flow.is_blocked`
   -- reasons about state the board holds), so a mistyped one reads as
@@ -181,156 +169,29 @@ local function ready_problems(s: store.Store, it: item.Item,
   for _, gap in ipairs(flow.ready_gaps(body)) do
     out[#out + 1] = ("spec section missing or empty: %s"):format(gap)
   end
-  -- A blocker stated only in prose is one `next` cannot see, so the
-  -- slice pulls as if nothing were sequenced before it.
-  if spec.claims_blocker(body) and #(it.blocked_by or {}) == 0 then
-    out[#out + 1] = "Enablement names a blocker, but blocked_by is empty — "
-    .. "record it with `gitboard block <id> <blocker>`"
-  end
   return out
-end
-
---- The parent a closing item hands the board back to: the item it
---- decomposed, if that parent is now out of open children. A
---- decomposition de-phases its parent, and nothing restored the phase
---- when the decomposition finished — so the parent sat open, workable
---- and unphased, invisible to `status` and `next` while still making
---- its goal look driven. It comes back to `backlog`, where verifying
---- the outcome the children were supposed to deliver is queued and
---- placed like any other work. `backlog` and not `plan` because this
---- re-phase rides on the commit that CLOSES the last child: a bounded
---- target could refuse that mutation, and a `done` that cannot land
---- because the parent has nowhere to go is the drain refusing itself.
---- @param it item.Item The item being closed
---- @param all {item.Item} Every item, as loaded before the close
---- @return {item.Item} The re-phased parent, or empty
-local function rephased_parent(it: item.Item, all: {item.Item}): {item.Item}
-  local parent = flow.by_id(all)[it.parent or ""]
-  if parent == nil or not item.is_open(parent) or item.is_root(parent) then
-    return {}
-  end
-  if (parent.phase or "") ~= "" then
-    return {}
-  end
-  for _, other in ipairs(all) do
-    if other.parent == parent.id and other.id ~= it.id and item.is_open(other) then
-      return {}
-    end
-  end
-  parent.phase = "backlog"
-  return {parent}
-end
-
---- The refusal that keeps an item out of `land` without a standing
---- accept, nil when it carries one.
----
---- `land` is the phase whose one remaining act is a merge, and
---- `gitboard land` reads the item's verdict and PR to check that the
---- merge happened. An arrival carrying neither would sit where `next`
---- answers `finish` forever and `land` refuses forever, so the
---- arrival is what gets refused. The two grounds are reported
---- separately because they are different repairs: one needs a review,
---- the other needs a PR number.
---- @param it item.Item The item arriving in land
---- @return string | nil The refusal
-local function land_refusal(it: item.Item): string
-  if (it.verdict or "") ~= "accept" then
-    local has = it.verdict
-    if has == "" then
-      has = "no verdict"
-    end
-    return ("a move into land carries a standing accept — %s has %s"):format(
-      it.id:sub(1, 8), has)
-  end
-  if (it.pr or 0) == 0 then
-    return ("a move into land names its PR — %s names none"):format(
-      it.id:sub(1, 8))
-  end
-  return nil
-end
-
---- Write `claim`/`pr` onto an item without moving it, and publish.
----
---- A same-phase `move` used to refuse and SWALLOW its field flags: the
---- command exited 0 and nothing said the write had not happened. So
---- correcting a claim took a leftward-then-rightward round trip, which
---- writes two transitions a flow instrument later reads as real dwell.
---- With a field to set this sets it; with none it still refuses,
---- because a move that neither moves nor writes is a typo.
---- @param s store.Store The store
---- @param it item.Item The item, already loaded and validated as workable
---- @param claim string The session to record, "" to leave it
---- @param pr integer The PR to record, 0 to leave it
---- @param force boolean Overwrite a live foreign claim on the record
---- @param why string Why --force was needed
---- @return integer Exit code
-local function set_in_place(s: store.Store, it: item.Item, claim: string,
-    pr: integer, force: boolean, why: string): integer
-  local where = it.phase
-  if (claim or "") == "" and (pr or 0) == 0 then
-    return verdict_line("move", false,
-      ("%s is already in %s"):format(it.id:sub(1, 8), where))
-  end
-  -- The same takeover rule the phase-crossing move applies: a claim
-  -- is a lock, and an in-place write was the one door that moved it
-  -- silently — a live session lost its item to a "set" nine seconds
-  -- after pulling it. Overwriting a live foreign claim says so with
-  -- --force --why, exactly like every other takeover.
-  if (claim or "") ~= "" and (it.claim or "") ~= "" and claim ~= it.claim
-  and not force then
-    return verdict_line("move", false,
-      ("REFUSED: %s is claimed by %s — take over a live claim with "
-        .. "--force --why"):format(it.id:sub(1, 8), it.claim))
-  end
-  if (claim or "") ~= "" then
-    it.claim = claim
-  end
-  if (pr or 0) ~= 0 then
-    it.pr = pr
-  end
-  local wrong = item.problems(it)
-  if #wrong > 0 then
-    return verdict_line("move", false, table.concat(wrong, "; "))
-  end
-  local ok, err = commit_and_publish(s, it, nil,
-    ("set %s in %s%s"):format(it.id:sub(1, 8), where,
-      forced_suffix(force, why)))
-  if not ok then
-    return verdict_line("move", false, err)
-  end
-  return verdict_line("move", true,
-    ("%s stays in %s"):format(it.id:sub(1, 8), where))
 end
 
 local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
-  wip_refusal: function(b: flow.Board, from: string, to: string): string
   force_refusal: function(force: boolean, why: string): string
   forced_suffix: function(force: boolean, why: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
   message: string, also?: {item.Item}): boolean, string
-  dephased_container: function(parent: item.Item): {item.Item}
-  rephased_parent: function(it: item.Item, all: {item.Item}): {item.Item}
+  containered: function(parent: item.Item): {item.Item}
   handover_refusal: function(s: store.Store, id: string,
   number: integer, repo: string | nil): string
-  land_refusal: function(it: item.Item): string
-  set_in_place: function(s: store.Store, it: item.Item, claim: string,
-  pr: integer, force: boolean, why: string): integer
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end
 
 local M: gitgate = {
   verdict_line = verdict_line,
-  wip_refusal = wip_refusal,
   force_refusal = force_refusal,
   forced_suffix = forced_suffix,
   commit_and_publish = commit_and_publish,
-  dephased_container = dephased_container,
-  rephased_parent = rephased_parent,
+  containered = containered,
   handover_refusal = handover_refusal,
-  land_refusal = land_refusal,
-  set_in_place = set_in_place,
   ready_problems = ready_problems,
 }
 

@@ -2,9 +2,8 @@
 -- The item codec is pure: encode omits zero values, decode fills them
 -- back in and validates, and the two round-trip through cosmic.literal
 -- byte-for-byte. The per-item rules pin the emergent-role invariants a
--- single file can carry: only parented items hold phases or
--- coordination fields, only roots hold ranks, done items hold neither
--- phase nor claim to a slot.
+-- single file can carry: only parented items hold coordination
+-- fields, roots hold edges alone, and done items hold no locks.
 
 local check = require("cosmic.check")
 local item = require("_work.item")
@@ -38,7 +37,6 @@ test_root_round_trips_minimal()
 local function test_worked_item_round_trips()
   local t = base()
   t.parent = PARENT
-  t.phase = "check"
   t.claim = "session-a"
   t.pr = 456
   t.verdict = "request changes"
@@ -47,30 +45,25 @@ local function test_worked_item_round_trips()
   local it = check.must(item.decode(t))
   local back = check.must(item.decode(
       check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
-  assert(back.parent == PARENT and back.phase == "check", "position fields")
+  assert(back.parent == PARENT, "position fields")
   assert(back.claim == "session-a" and back.pr == 456, "coordination fields")
   assert(#back.blocked_by == 2 and back.blocked_by[1] == PARENT, "blocked_by")
 end
 test_worked_item_round_trips()
 
-local function test_roots_hold_edges_not_phases()
+local function test_roots_hold_edges_not_locks()
   local root = base()
   root.beats = PARENT
   local g = check.must(item.decode(root))
   assert(#g.beats == 1 and g.beats[1] == PARENT,
     "a root's priority edge decodes")
-  local phased = base()
-  phased.phase = "plan"
-  local bad, err = item.decode(phased)
-  assert(bad == nil and err:find("root is never phased", 1, true),
-    "a phased root is refused: " .. tostring(err))
   local claimed = base()
   claimed.claim = "session-a"
   local cbad, cerr = item.decode(claimed)
   assert(cbad == nil and cerr:find("not roots", 1, true),
     "a claimed root is refused: " .. tostring(cerr))
 end
-test_roots_hold_edges_not_phases()
+test_roots_hold_edges_not_locks()
 
 local function test_priority_edges_name_other_items()
   local looping = base()
@@ -86,24 +79,40 @@ local function test_priority_edges_name_other_items()
 end
 test_priority_edges_name_other_items()
 
-local function test_done_items_carry_no_phase()
+local function test_done_items_hold_no_locks()
   local t = base()
   t.parent = PARENT
-  t.phase = "land"
+  t.claim = "session-a"
   t.resolution = "completed"
   local bad, err = item.decode(t)
-  assert(bad == nil and err:find("no phase", 1, true),
-    "a done phased item is refused: " .. tostring(err))
-  t.phase = nil
+  assert(bad == nil and err:find("no claim", 1, true),
+    "a done claimed item is refused: " .. tostring(err))
+  t.claim = nil
   local done = check.must(item.decode(t))
   assert(not item.is_open(done), "resolution IS done")
 end
-test_done_items_carry_no_phase()
+test_done_items_hold_no_locks()
+
+-- A verdict is a judgment of a diff, so an item with no PR cannot
+-- carry one: the pair is what lets every reader derive the review
+-- substate from the file alone.
+local function test_a_verdict_needs_a_pr()
+  local t = base()
+  t.parent = PARENT
+  t.claim = "session-a"
+  t.verdict = "accept"
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("carries no verdict", 1, true),
+    "a verdict with no PR is refused: " .. tostring(err))
+  t.pr = 7
+  assert(check.must(item.decode(t)).verdict == "accept",
+    "with the PR it decodes")
+end
+test_a_verdict_needs_a_pr()
 
 local function test_repo_scopes_a_workable_items_pr()
   local t = base()
   t.parent = PARENT
-  t.phase = "plan"
   t.repo = "whilp/cosmopolitan"
   local it = check.must(item.decode(t))
   assert(it.repo == "whilp/cosmopolitan", "a well-formed repo decodes")
@@ -118,7 +127,6 @@ local function test_repo_scopes_a_workable_items_pr()
 
   local garbage = base()
   garbage.parent = PARENT
-  garbage.phase = "plan"
   garbage.repo = "not-a-slug"
   local gbad, gerr = item.decode(garbage)
   assert(gbad == nil and gerr:find("repo must be owner/name", 1, true),

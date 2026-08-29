@@ -91,7 +91,8 @@ local function board_items(): {item.Item}
     check.must(item.decode({id = container, title = "a piece of it",
           parent = root})),
     check.must(item.decode({id = fresh_id(), title = "a slice",
-          parent = container, phase = "land", pr = 7})),
+          parent = container, claim = "who", pr = 7,
+          verdict = "accept"})),
   }
 end
 
@@ -99,7 +100,7 @@ end
 --- indented two spaces — so a session reads what to do and what it
 --- means in one answer.
 local function test_next_prints_guidance_under_the_action()
-  local report = view.next_report(board_items())
+  local report = view.next_report(board_items(), {})
   local lines: {string} = {}
   for line in (report .. "\n"):gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line

@@ -25,7 +25,7 @@ local verbs = require("_work.gitverbs")
 --- land: verify the accepted PR is merged, then end the item.
 --- @param s store.Store The store
 --- @param id string The item to land
---- @param force boolean Skip the accept and phase checks
+--- @param force boolean Skip the accept check
 --- @param why string Why --force was needed
 --- @return integer 0 on success, 1 otherwise
 local function cmd_land(s: store.Store, id: string, force: boolean,
@@ -38,17 +38,10 @@ local function cmd_land(s: store.Store, id: string, force: boolean,
   if it == nil then
     return gate.verdict_line("land", false, lerr)
   end
-  if not force then
-    if it.phase ~= "land" then
-      return gate.verdict_line("land", false,
-        ("REFUSED: %s is in %s — only an accepted item lands"):format(
-          id:sub(1, 8), it.phase == "" and "no phase" or it.phase))
-    end
-    if it.verdict ~= "accept" then
-      return gate.verdict_line("land", false,
-        ("REFUSED: %s carries no accept — the planner's verdict is what "
-          .. "authorises a merge"):format(id:sub(1, 8)))
-    end
+  if not force and it.verdict ~= "accept" then
+    return gate.verdict_line("land", false,
+      ("REFUSED: %s carries no accept — a fresh-context review's verdict "
+        .. "is what authorises a merge"):format(id:sub(1, 8)))
   end
   if (it.pr or 0) == 0 then
     return gate.verdict_line("land", false,

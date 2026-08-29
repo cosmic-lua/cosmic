@@ -49,14 +49,14 @@ end
 
 --- A placed root (it outranks BEATEN, which is what gives everything
 --- beneath it a position), a container under it holding one claimed
---- item in `do`, and a leaf left with no phase.
+--- build, and a fresh todo leaf.
 local function a_board(): {item.Item}
   return {
     check.must(item.decode({id = ROOT, title = "an outcome", beats = BEATEN})),
     check.must(item.decode({id = UNDER, title = "a container", parent = ROOT})),
     check.must(item.decode({id = WORK, title = "a slice", parent = UNDER,
-          phase = "do", claim = "session-a", pr = 42})),
-    check.must(item.decode({id = ADRIFT, title = "off the board",
+          claim = "session-a", pr = 42})),
+    check.must(item.decode({id = ADRIFT, title = "a fresh leaf",
           parent = ROOT})),
     check.must(item.decode({id = BEATEN, title = "a lesser outcome"})),
   }
@@ -70,21 +70,23 @@ local function test_show_prints_fields_role_and_history()
   local lines, verdict = show.show_report(all[3], all, "## Goal\nserves G1\n",
     events)
   assert(matched(lines, "^role: work$"), table.concat(lines, "\n"))
-  assert(matched(lines, "^phase: do$"), "its phase")
+  assert(matched(lines, "^state: review$"), "its state")
   assert(matched(lines, "^pr: #42$"), "its PR")
   assert(matched(lines, "^%-%-%- spec %-%-%-$"), "the sidecar is the spec")
   assert(matched(lines, "abc1234 move it"), "git log IS the item's history")
-  assert(verdict == WORK:sub(1, 8) .. " is do", verdict)
+  assert(verdict == WORK:sub(1, 8) .. " is review", verdict)
 end
 test_show_prints_fields_role_and_history()
 
 local function test_show_names_an_items_own_graph_problem()
   local all = a_board()
-  local lines, verdict = show.show_report(all[4], all, "", {})
-  assert(matched(lines, "graph: .* no phase"),
-    "an item off the board says so where it is read: "
+  local adrift = all[4]
+  adrift.parent = next_id()
+  local lines, verdict = show.show_report(adrift, all, "", {})
+  assert(matched(lines, "graph: .* does not exist"),
+    "a broken chain says so where it is read: "
     .. table.concat(lines, "\n"))
-  assert(verdict:find("is open", 1, true), verdict)
+  assert(verdict:find("is todo", 1, true), verdict)
 end
 test_show_names_an_items_own_graph_problem()
 
@@ -99,11 +101,11 @@ local function test_show_separates_binding_blockers_from_cleared_ones()
   local open_blocker = next_id()
   local ended_blocker = next_id()
   all[#all + 1] = check.must(item.decode({id = open_blocker,
-        title = "still open", parent = UNDER, phase = "plan"}))
+        title = "still open", parent = UNDER}))
   all[#all + 1] = check.must(item.decode({id = ended_blocker,
         title = "landed already", parent = UNDER, resolution = "completed"}))
   local waiting = check.must(item.decode({id = next_id(),
-        title = "waits on one of them", parent = UNDER, phase = "plan",
+        title = "waits on one of them", parent = UNDER,
         blocked_by = open_blocker .. " " .. ended_blocker}))
   all[#all + 1] = waiting
   local lines = show.show_report(waiting, all, "", {})
@@ -113,7 +115,7 @@ local function test_show_separates_binding_blockers_from_cleared_ones()
     "the ended edge is still the record: " .. table.concat(lines, "\n"))
 
   local settled = check.must(item.decode({id = next_id(),
-        title = "waits on nothing open", parent = UNDER, phase = "plan",
+        title = "waits on nothing open", parent = UNDER,
         blocked_by = ended_blocker}))
   all[#all + 1] = settled
   local settled_lines = show.show_report(settled, all, "", {})
@@ -124,7 +126,7 @@ local function test_show_separates_binding_blockers_from_cleared_ones()
 end
 test_show_separates_binding_blockers_from_cleared_ones()
 
--- `--fields` answers what phase, whose claim, which PR — questions the
+-- `--fields` answers what state, whose claim, which PR — questions the
 -- RECORD answers — so it drops the two prose blocks and keeps
 -- everything else, graph problems included. Asserting only that the
 -- fields survive would pass on a report that dropped nothing.
@@ -134,13 +136,13 @@ local function test_fields_keeps_the_record_and_drops_both_prose_blocks()
     {sha = "def5678", at = "2026-08-18T00:00:00Z", subject = "claim it"},
   }
   local lines, verdict = show.show_report(all[3], all, SIDECAR, events, "fields")
-  assert(matched(lines, "^phase: do$"), table.concat(lines, "\n"))
+  assert(matched(lines, "^state: review$"), table.concat(lines, "\n"))
   assert(matched(lines, "^claim: session%-a$"), "the claim is a field")
   assert(not matched(lines, "^%-%-%- spec %-%-%-$"),
     "the sidecar is prose: " .. table.concat(lines, "\n"))
   assert(not matched(lines, "def5678"),
     "so is the history: " .. table.concat(lines, "\n"))
-  assert(verdict == WORK:sub(1, 8) .. " is do", verdict)
+  assert(verdict == WORK:sub(1, 8) .. " is review", verdict)
 end
 test_fields_keeps_the_record_and_drops_both_prose_blocks()
 

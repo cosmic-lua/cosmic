@@ -1,11 +1,11 @@
 #!/usr/bin/env cosmic
 -- The read verbs render the board without mutating it: what `status`
--- reports as health, what `tree` calls an item whose phase is empty,
--- and what `next` names for each role. Their output is what a session
--- reads to decide, so the words are the contract — asserted here on
--- the pure reports the `cmd_*` wrappers print. What `show` prints for
--- one item is `_work/gitshow_test.tl`; the one case that spans both,
--- a repo mark rendered by three reports at once, stays here.
+-- reports as health, what `tree` calls each node, and what `next`
+-- names. Their output is what a session reads to decide, so the words
+-- are the contract — asserted here on the pure reports the `cmd_*`
+-- wrappers print. What `show` prints for one item is
+-- `_work/gitshow_test.tl`; the one case that spans both, a repo mark
+-- rendered by three reports at once, stays here.
 
 local check = require("cosmic.check")
 local item = require("_work.item")
@@ -25,7 +25,7 @@ end
 local GOAL < const > = fresh_id()
 local CONTAINER < const > = fresh_id()
 local LEAF < const > = fresh_id()
-local LIMBO < const > = fresh_id()
+local FRESH < const > = fresh_id()
 local LESSER < const > = fresh_id()
 
 --- Whether any line matches a Lua pattern.
@@ -40,80 +40,102 @@ end
 
 --- The standing fixture: a placed root (it outranks LESSER, which is
 --- what gives everything beneath it a position), a container under it
---- with one open child in `do`, and a leaf left with no phase.
+--- with one child in flight and one fresh todo leaf.
 local function board_items(): {item.Item}
   return {
     check.must(item.decode({id = GOAL, title = "a goal", beats = LESSER})),
     check.must(item.decode({id = CONTAINER, title = "a container",
           parent = GOAL})),
     check.must(item.decode({id = LEAF, title = "a leaf", parent = CONTAINER,
-          phase = "do", claim = "session-a", pr = 42})),
-    check.must(item.decode({id = LIMBO, title = "off the board",
+          claim = "session-a", pr = 42})),
+    check.must(item.decode({id = FRESH, title = "a fresh leaf",
           parent = GOAL})),
     check.must(item.decode({id = LESSER, title = "a lesser outcome"})),
   }
 end
 
-local function test_status_counts_phases_and_names_graph_problems()
-  local lines, verdict = view.status_report(board_items())
-  assert(has(lines, "^do      1/5$"), table.concat(lines, "\n"))
-  assert(has(lines, "^backlog 0$"),
-    "an unbounded phase renders its depth alone: "
-    .. table.concat(lines, "\n"))
-  assert(has(lines, "^land    0$"),
-    "and `land` is one of them, a depth with no ratio: "
-    .. table.concat(lines, "\n"))
-  assert(has(lines, "@session%-a"), "the claim shows")
-  assert(has(lines, "pr:42"), "so does the PR")
-  assert(has(lines, "graph: " .. LIMBO .. ":"),
-    "an item off the board is board health: " .. table.concat(lines, "\n"))
-  assert(verdict == "WIP ok; 1 graph problem(s)", verdict)
-end
-test_status_counts_phases_and_names_graph_problems()
-
-local function test_status_reports_a_phase_over_its_limit()
-  local items = board_items()
-  for _ = 1, 5 do
-    items[#items + 1] = check.must(item.decode({id = fresh_id(),
-          title = "more", parent = CONTAINER, phase = "do"}))
+--- A spec map where every open item passes the bar, so `pullable`
+--- marks are about state rather than missing sections.
+local function full_specs(): {string: string}
+  local out: {string: string} = {}
+  for _, i in ipairs(board_items()) do
+    out[i.id] = fixture.READY_SPEC
   end
-  local _, verdict = view.status_report(items)
-  assert(verdict:find("do 6/5 over limit", 1, true), verdict)
+  return out
 end
-test_status_reports_a_phase_over_its_limit()
 
-local function test_tree_separates_containers_from_unphased_leaves()
+local function test_status_renders_doing_against_the_bound()
+  local lines, verdict = view.status_report(board_items(), full_specs())
+  assert(has(lines, "^doing  1/10$"), table.concat(lines, "\n"))
+  assert(has(lines, "%[review%]"), "the substate shows")
+  assert(has(lines, "@session%-a"), "so does the claim")
+  assert(has(lines, "pr:42"), "and the PR")
+  assert(has(lines, "^todo   1 %(1 pullable%)$"),
+    "todo renders its depth and its pullable count: "
+    .. table.concat(lines, "\n"))
+  assert(has(lines, FRESH:sub(1, 8) .. " a fresh leaf %[pullable%]"),
+    "the top of todo shows its marks: " .. table.concat(lines, "\n"))
+  assert(verdict == "doing 1/10", verdict)
+end
+test_status_renders_doing_against_the_bound()
+
+local function test_status_names_graph_problems()
+  local items = board_items()
+  items[#items + 1] = check.must(item.decode({id = fresh_id(),
+        title = "an orphan", parent = fresh_id()}))
+  local lines, verdict = view.status_report(items, full_specs())
+  assert(has(lines, "graph: "),
+    "a broken chain is board health: " .. table.concat(lines, "\n"))
+  assert(verdict:find("1 graph problem(s)", 1, true), verdict)
+end
+test_status_names_graph_problems()
+
+local function test_status_reports_the_bound_binding()
+  local items = board_items()
+  for k = 1, 10 do
+    items[#items + 1] = check.must(item.decode({id = fresh_id(),
+          title = "more", parent = CONTAINER,
+          claim = ("wake-%d"):format(k)}))
+  end
+  local _, verdict = view.status_report(items, full_specs())
+  assert(verdict:find("bound: doing is at 11/10", 1, true), verdict)
+end
+test_status_reports_the_bound_binding()
+
+local function test_tree_tags_nodes_by_role_and_state()
   local lines, verdict = view.tree_report(board_items())
   assert(has(lines, "^%[>1%] " .. GOAL:sub(1, 8) .. " a goal$"),
     "a placed root leads with what it outranks: " .. table.concat(lines, "\n"))
   assert(has(lines, CONTAINER:sub(1, 8) .. " %[container%]"),
     "an item with an open child is a container")
-  assert(has(lines, LIMBO:sub(1, 8) .. " %[unphased%]"),
-    "a leaf with no phase is NOT one: " .. table.concat(lines, "\n"))
-  assert(has(lines, LEAF:sub(1, 8) .. " %[do%]"), "the leaf shows its phase")
+  assert(has(lines, LEAF:sub(1, 8) .. " %[review%]"),
+    "an in-flight leaf shows its substate: " .. table.concat(lines, "\n"))
+  assert(has(lines, FRESH:sub(1, 8) .. " %[todo%]"),
+    "a fresh leaf is todo: " .. table.concat(lines, "\n"))
   assert(verdict == "2 organizing root(s), 0 item(s) awaiting triage", verdict)
 end
-test_tree_separates_containers_from_unphased_leaves()
+test_tree_tags_nodes_by_role_and_state()
 
 local function test_tree_marks_a_root_nothing_is_driving()
   local only_root: {item.Item} = {
     check.must(item.decode({id = GOAL, title = "a goal", beats = LESSER})),
     check.must(item.decode({id = LESSER, title = "a lesser outcome"})),
-    check.must(item.decode({id = LIMBO, title = "a capture"})),
+    check.must(item.decode({id = FRESH, title = "a capture"})),
   }
   local lines, verdict = view.tree_report(only_root)
   assert(has(lines, "%(no live work%)"), table.concat(lines, "\n"))
-  assert(has(lines, "^triage " .. LIMBO:sub(1, 8)),
+  assert(has(lines, "^triage " .. FRESH:sub(1, 8)),
     "an unplaced capture queues below: " .. table.concat(lines, "\n"))
   assert(verdict:find("1 item(s) awaiting triage", 1, true), verdict)
 end
 test_tree_marks_a_root_nothing_is_driving()
 
 local function test_next_names_one_action_and_its_rule()
-  local report = view.next_report(board_items())
-  assert(report:find("finish", 1, true)
+  local report = view.next_report(board_items(), full_specs())
+  assert(report:find("review", 1, true)
     and report:find(LEAF:sub(1, 8), 1, true),
-    "work in do is finished before anything is pulled: " .. report)
+    "a PR awaiting a verdict is judged before anything is pulled: "
+    .. report)
   assert(report:find("—", 1, true),
     "and the rule that chose it is stated: " .. report)
 end
@@ -128,21 +150,17 @@ local function test_repo_is_rendered_in_show_status_and_tree()
   local all = board_items()
   local scoped = check.must(item.decode({
         id = fresh_id(), title = "a cosmopolitan-side slice",
-        parent = CONTAINER, phase = "do", repo = "whilp/cosmopolitan"}))
+        parent = CONTAINER, claim = "session-b",
+        repo = "whilp/cosmopolitan"}))
   all[#all + 1] = scoped
 
   local show_lines = show.show_report(scoped, all, "", {})
   assert(has(show_lines, "^repo: whilp/cosmopolitan$"),
     "show prints a repo line: " .. table.concat(show_lines, "\n"))
 
-  local status_lines = view.status_report(all)
+  local status_lines = view.status_report(all, full_specs())
   assert(has(status_lines, "%[whilp/cosmopolitan%]"),
     "status marks the item with its repo: " .. table.concat(status_lines, "\n"))
-  -- The mark means "cross-repo", so it must not reach a same-repo
-  -- line. Hold the LEAF's line before asserting about it: `status`
-  -- writes a PR as ` pr:42` where `show` writes `pr: #42`, and a
-  -- negative assertion over a pattern from the wrong report matches
-  -- nothing and passes however badly the mark leaks.
   local leaf_line = ""
   for _, line in ipairs(status_lines) do
     if line:find("pr:42", 1, true) then
@@ -164,22 +182,6 @@ local function test_repo_is_rendered_in_show_status_and_tree()
 end
 test_repo_is_rendered_in_show_status_and_tree()
 
-local function test_status_counts_the_triage_queue_against_its_bound()
-  local lines, verdict = view.status_report(board_items())
-  assert(has(lines, "^triage 0/8$"), table.concat(lines, "\n"))
-  assert(not verdict:find("triage", 1, true),
-    "an empty queue is no violation: " .. verdict)
-  local items = board_items()
-  for _ = 1, 9 do
-    items[#items + 1] = check.must(item.decode({id = fresh_id(),
-          title = "a finding"}))
-  end
-  local over, over_verdict = view.status_report(items)
-  assert(has(over, "^triage 9/8$"), table.concat(over, "\n"))
-  assert(over_verdict:find("triage 9/8 over limit", 1, true), over_verdict)
-end
-test_status_counts_the_triage_queue_against_its_bound()
-
 --- The fixture plus one ended item, so a search can be asked the
 --- question it exists for: has this already been filed?
 local ENDED < const > = fresh_id()
@@ -194,13 +196,13 @@ end
 
 local function test_find_matches_titles_and_spec_bodies()
   local specs: {string: string} = {
-    [CONTAINER] = "## Goal\n   serves the widget pipeline\nand nothing else\n",
+    [CONTAINER] = "## Change\n   serves the widget pipeline\nand nothing else\n",
   }
-  local titled, tverdict = view.find_report(searchable_items(), specs, "leaf")
+  local titled, tverdict = view.find_report(searchable_items(), specs, "a leaf")
   assert(#titled == 1, table.concat(titled, "\n"))
-  assert(has(titled, "^" .. LEAF:sub(1, 8) .. " %[do%] a leaf$"),
+  assert(has(titled, "^" .. LEAF:sub(1, 8) .. " %[review%] a leaf$"),
     table.concat(titled, "\n"))
-  assert(tverdict == "1 item(s) matching \"leaf\"", tverdict)
+  assert(tverdict == "1 item(s) matching \"a leaf\"", tverdict)
   local bodied, bverdict = view.find_report(searchable_items(), specs, "widget")
   assert(has(bodied, "^" .. CONTAINER:sub(1, 8) .. " %[container%] a container$"),
     "a body-only hit still names the item: " .. table.concat(bodied, "\n"))
@@ -212,7 +214,7 @@ end
 test_find_matches_titles_and_spec_bodies()
 
 local function test_find_ignores_case_in_both_directions()
-  local specs: {string: string} = {[LIMBO] = "The WIDGET again\n"}
+  local specs: {string: string} = {[FRESH] = "The WIDGET again\n"}
   local upper = view.find_report(searchable_items(), specs, "A GOAL")
   assert(has(upper, GOAL:sub(1, 8) .. " %[container%] a goal"),
     "an upper-case term finds a lower-case title: "
@@ -249,7 +251,7 @@ local function test_find_matches_the_term_literally_not_as_a_pattern()
   items[#items + 1] = check.must(item.decode({id = decoy,
         title = "the axb gate", parent = CONTAINER}))
   local lines, verdict = view.find_report(items, {}, "a.b")
-  assert(#lines == 1 and has(lines, dotted:sub(1, 8) .. " %[work%] "),
+  assert(#lines == 1 and has(lines, dotted:sub(1, 8) .. " %[todo%] "),
     "a term is text, never a pattern: " .. table.concat(lines, "\n"))
   assert(verdict == "1 item(s) matching \"a.b\"", verdict)
   local pct = view.find_report(items, {[dotted] = "100% of the time\n"}, "100%")
@@ -265,8 +267,8 @@ local function test_find_reads_the_sidecars_and_refuses_an_empty_term()
   fixture.give_spec(s, leaf)
   assert(view.cmd_find(s, "") == 1,
     "no term is a refusal on the verdict line, never a crash")
-  assert(view.cmd_find(s, "ranked goal") == 0, "a title hit is a clean read")
-  assert(view.cmd_find(s, "Serves the ranked goal above it") == 0,
+  assert(view.cmd_find(s, "workable slice") == 0, "a title hit is a clean read")
+  assert(view.cmd_find(s, "Do exactly this") == 0,
     "and so is one only the sidecar carries, which cmd_find reads")
 end
 test_find_reads_the_sidecars_and_refuses_an_empty_term()

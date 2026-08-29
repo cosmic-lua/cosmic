@@ -22,10 +22,10 @@ local store = require("_work.store")
 
 local verdict_line = gate.verdict_line
 
---- Seconds since each claimed, phased item's last board commit, read
---- from git once per render. Only claimed items are asked about —
---- staleness is a property of a claim — so the cost is a handful of
---- `git log -1` calls, not one per item on the board.
+--- Seconds since each claimed item's last board commit, read from git
+--- once per render. Only claimed items are asked about — staleness is
+--- a property of a claim — so the cost is a handful of `git log -1`
+--- calls, not one per item on the board.
 --- @param s store.Store The store
 --- @param all {item.Item} Every item
 --- @return health.Ages Ages by item id
@@ -33,7 +33,7 @@ local function claim_ages(s: store.Store, all: {item.Item}): health.Ages
   local ages: health.Ages = {}
   local now = os.time()
   for _, i in ipairs(all) do
-    if item.is_open(i) and (i.phase or "") ~= ""
+    if item.is_open(i)
     and ((i.claim or "") ~= "" or (i.reviewer or "") ~= "") then
       local t = store.touched_at(s, i.id)
       if t ~= nil and t <= now then
@@ -44,54 +44,80 @@ local function claim_ages(s: store.Store, all: {item.Item}): health.Ages
   return ages
 end
 
---- The kanban, its per-item marks, and board-wide graph health.
---- Health reports HERE rather than in the ready bar: one item's
---- broken chain is everyone's to see and nobody's reason to be
---- refused a promotion.
----
---- The triage queue counts here too, against its own bound, because
---- a queue past it is the planner's next action. Flow health beyond
---- WIP conformance renders here as well: a stale claim, a blocker
---- cycle, and a starved `ready` are each a stall `WIP ok` used to
---- print over.
+--- Every spec sidecar, by item id, for the bar checks the reports
+--- run. Read once per render; the reports stay pure over the map.
+--- @param s store.Store The store
 --- @param all {item.Item} Every item
+--- @return act.Specs Sidecar body by id
+local function read_specs(s: store.Store, all: {item.Item}): act.Specs
+  local out: act.Specs = {}
+  for _, i in ipairs(all) do
+    if item.is_open(i) then
+      out[i.id] = store.read_spec(s, i.id)
+    end
+  end
+  return out
+end
+
+--- How many todo lines status renders item-by-item. The top of the
+--- queue is what a session acts on; the rest is the count.
+local TODO_SHOWN < const >: integer = 8
+
+--- The board: doing item by item against the one bound, the top of
+--- todo with its pullable marks, the triage depth, and board-wide
+--- graph health. Health reports HERE rather than in the spec bar:
+--- one item's broken chain is everyone's to see and nobody's reason
+--- to be refused a take.
+--- @param all {item.Item} Every item
+--- @param specs act.Specs Sidecar body by id
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @return {string} The lines to print
 --- @return string The verdict detail
-local function status_report(all: {item.Item},
+local function status_report(all: {item.Item}, specs: act.Specs,
     ages?: health.Ages): {string}, string
   local aged = ages or {}
-  local b = flow.board(all)
   local index = flow.by_id(all)
   local pos = prio.positions(all)
   local out: {string} = {}
-  for _, phase in ipairs(item.PHASES) do
-    -- An unbounded phase renders its depth alone: "backlog 37" rather
-    -- than a ratio against a limit it does not have.
-    local limit = flow.LIMITS[phase]
-    if limit == nil then
-      out[#out + 1] = ("%-7s %d"):format(phase, #(b[phase] or {}))
-    else
-      out[#out + 1] = ("%-7s %d/%d"):format(phase, #(b[phase] or {}), limit)
+  local doing = flow.in_state(all, "doing", pos)
+  out[#out + 1] = ("%-6s %d/%d"):format("doing", #doing, flow.DOING_LIMIT)
+  for _, i in ipairs(doing) do
+    local marks = (" [%s]"):format(flow.substate(i))
+    if i.claim ~= "" then marks = marks .. " @" .. i.claim end
+    if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
+    if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
+    if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
+    if health.is_stale(i, aged) then
+      marks = marks .. (" [claim stale %dh]"):format(
+        health.stale_hours(i, aged))
     end
-    for _, i in ipairs(flow.queued(b, phase, pos)) do
-      local marks = ""
-      if i.claim ~= "" then marks = marks .. " @" .. i.claim end
-      if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
-      if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
-      if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
-      if health.is_stale(i, aged) then
-        marks = marks .. (" [claim stale %dh]"):format(
-          health.stale_hours(i, aged))
-      end
-      out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
+    out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
+  end
+  local todo = flow.in_state(all, "todo", pos)
+  local pullable = 0
+  for _, i in ipairs(todo) do
+    if act.passes_bar(i, specs, pos) and not flow.is_blocked(i, index) then
+      pullable = pullable + 1
     end
   end
-  -- The triage queue is not a phase, so it carries a count and no
-  -- item lines: untriaged roots are not on the board, and `tree` is
-  -- where they are listed one by one.
-  out[#out + 1] = ("%-6s %d/%d"):format("triage", #flow.untriaged(all),
-    flow.TRIAGE_LIMIT)
+  out[#out + 1] = ("%-6s %d (%d pullable)"):format("todo", #todo, pullable)
+  for k = 1, math.min(#todo, TODO_SHOWN) do
+    local i = todo[k]
+    local marks = ""
+    if act.passes_bar(i, specs, pos) then
+      marks = " [pullable]"
+    end
+    if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
+    if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
+    out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
+  end
+  if #todo > TODO_SHOWN then
+    out[#out + 1] = ("  ... %d more"):format(#todo - TODO_SHOWN)
+  end
+  -- The triage queue carries a count and no item lines: untriaged
+  -- roots are not workable yet, and `tree` is where they are listed
+  -- one by one.
+  out[#out + 1] = ("%-6s %d"):format("triage", #flow.untriaged(all))
   local graph = flow.graph_problems(all)
   for _, p in ipairs(health.blocker_cycle_problems(all)) do
     graph[#graph + 1] = p
@@ -99,24 +125,13 @@ local function status_report(all: {item.Item},
   for _, p in ipairs(graph) do
     out[#out + 1] = "  graph: " .. p
   end
-  local starved_root, starving = health.starved(b, index, aged)
-  if starved_root ~= nil then
-    out[#out + 1] = "  flow: " .. starving
-  end
-  local verdict = "WIP ok"
-  local violations = flow.wip_violations(b)
-  local over_triage = flow.triage_violation(all)
-  if over_triage then
-    violations[#violations + 1] = over_triage
-  end
-  if #violations > 0 then
-    verdict = "WIP: " .. table.concat(violations, "; ")
+  local verdict = ("doing %d/%d"):format(#doing, flow.DOING_LIMIT)
+  local bound = flow.doing_refusal(all)
+  if bound then
+    verdict = "bound: " .. bound
   end
   if #graph > 0 then
     verdict = ("%s; %d graph problem(s)"):format(verdict, #graph)
-  end
-  if starved_root ~= nil then
-    verdict = verdict .. "; ready starved"
   end
   return out, verdict
 end
@@ -126,7 +141,8 @@ local function cmd_status(s: store.Store): integer
   if all == nil then
     return verdict_line("status", false, aerr)
   end
-  local lines, verdict = status_report(all, claim_ages(s, all))
+  local lines, verdict = status_report(all, read_specs(s, all),
+    claim_ages(s, all))
   for _, line in ipairs(lines) do
     print(line)
   end
@@ -156,14 +172,9 @@ local function render_children(out: {string}, all: {item.Item}, parent: string,
     end
   end
   for _, k in ipairs(prio.sorted(kids, pos)) do
-    -- An unphased leaf is NOT a container: it is off the board with
-    -- nothing decomposing it, and calling it one would hide that.
-    local tag = k.phase
-    if tag == "" then
-      tag = "container"
-      if not flow.has_open_children(all, k.id) then
-        tag = "unphased"
-      end
+    local tag = "container"
+    if not flow.has_open_children(all, k.id) then
+      tag = flow.is_doing(k) and flow.substate(k) or "todo"
     end
     local repo = ""
     if k.repo ~= "" then repo = " [" .. k.repo .. "]" end
@@ -220,23 +231,24 @@ end
 
 --- The one next action, as the verdict detail. Acting on it moves
 --- the board, so a session taking several asks again after each one
---- rather than reading a list. A `none` names the phase whose limit
---- binds, which is the diagnosis a session reports.
+--- rather than reading a list. A `none` names the fact that binds,
+--- which is the diagnosis a session reports.
 ---
 --- Under that line, indented, is what the kind MEANS
 --- (`_work.guidance`): the verb that performs it and the ordering
 --- rule behind it, so a session acts on the answer without going to
 --- read prose elsewhere.
 --- @param all {item.Item} Every item
+--- @param specs act.Specs Sidecar body by id
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @return string The action, its target, the rule behind it, and its guidance
-local function next_report(all: {item.Item}, session?: string,
-    ages?: health.Ages): string
+local function next_report(all: {item.Item}, specs: act.Specs,
+    session?: string, ages?: health.Ages): string
   -- The session seeds the tie-break, so concurrent sessions asking
   -- the same board fan out across items no judgment separates
   -- instead of converging on one.
-  local action = act.next_action(all, session, ages, session)
+  local action = act.next_action(all, specs, session, ages, session)
   local target = ""
   if action.item then
     target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
@@ -261,7 +273,8 @@ local function cmd_next(s: store.Store, session?: string): integer
   if all == nil then
     return verdict_line("next", false, aerr)
   end
-  return verdict_line("next", true, next_report(all, session, claim_ages(s, all)))
+  return verdict_line("next", true,
+    next_report(all, read_specs(s, all), session, claim_ages(s, all)))
 end
 
 --- The longest excerpt text a body line contributes, leaving room
@@ -278,9 +291,9 @@ local function contains(hay: string, needle: string): boolean
   return hay:lower():find(needle, 1, true) ~= nil
 end
 
---- What to call a matched item in one word: its phase while it holds
---- one, else the role its graph position gives it, and its
---- resolution once it has ended.
+--- What to call a matched item in one word: its resolution once it
+--- has ended, its state while workable, else the role its graph
+--- position gives it.
 --- @param i item.Item The matched item
 --- @param all {item.Item} Every item
 --- @return string The tag
@@ -288,8 +301,8 @@ local function find_tag(i: item.Item, all: {item.Item}): string
   if not item.is_open(i) then
     return ("done: %s"):format(i.resolution)
   end
-  if i.phase ~= "" then
-    return i.phase
+  if flow.role(i, all) == "work" then
+    return flow.is_doing(i) and flow.substate(i) or "todo"
   end
   return flow.role(i, all)
 end
@@ -374,9 +387,9 @@ local function cmd_find(s: store.Store, text: string): integer
   return verdict_line("find", true, verdict)
 end
 
---- The ready bar asked of one item: is it workable, does its spec
---- fill the required sections, is its chain traceable. A READ — it
---- prints the same problem list `move ID ready` enforces and changes
+--- The spec bar asked of one item: is it workable and placed, does
+--- its spec fill the required sections, is its chain traceable. A
+--- READ — it prints the same problem list `take` enforces and changes
 --- nothing — so it lives with the reads rather than with the verbs
 --- whose gate it shares.
 --- @param s store.Store The store
@@ -397,20 +410,22 @@ local function cmd_check(s: store.Store, id: string): integer
   end
   if #problems > 0 then
     return verdict_line("check", false,
-      ("%s misses the ready bar (%d problem(s))"):format(id:sub(1, 8),
+      ("%s misses the spec bar (%d problem(s))"):format(id:sub(1, 8),
         #problems))
   end
   return verdict_line("check", true,
-    ("%s meets the ready bar"):format(id:sub(1, 8)))
+    ("%s meets the spec bar"):format(id:sub(1, 8)))
 end
 
 local record gitview
-  status_report: function(all: {item.Item}, ages?: health.Ages): {string}, string
+  status_report: function(all: {item.Item}, specs: act.Specs,
+  ages?: health.Ages): {string}, string
   tree_report: function(all: {item.Item}): {string}, string
-  next_report: function(all: {item.Item}, session?: string,
-  ages?: health.Ages): string
+  next_report: function(all: {item.Item}, specs: act.Specs,
+  session?: string, ages?: health.Ages): string
   find_report: function(all: {item.Item}, specs: {string: string},
   text: string): {string}, string
+  read_specs: function(s: store.Store, all: {item.Item}): act.Specs
   cmd_status: function(s: store.Store): integer
   cmd_tree: function(s: store.Store): integer
   cmd_next: function(s: store.Store, session?: string): integer
@@ -423,6 +438,7 @@ local M: gitview = {
   tree_report = tree_report,
   next_report = next_report,
   find_report = find_report,
+  read_specs = read_specs,
   cmd_status = cmd_status,
   cmd_tree = cmd_tree,
   cmd_next = cmd_next,

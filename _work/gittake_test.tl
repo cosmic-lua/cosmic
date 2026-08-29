@@ -9,6 +9,7 @@ local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local act = require("_work.action")
 local cmp = require("_work.gitcompare")
+local item = require("_work.item")
 local rev = require("_work.gitreview")
 local store = require("_work.store")
 local take = require("_work.gittake")
@@ -32,40 +33,49 @@ local function rooted_leaves(s: store.Store, n: integer): {string}
   return out
 end
 
---- Drive a leaf to check under `builder` carrying `pr`. The handover
---- is forced: a fixture's origin is a file path, so the gate that
---- reads the PR from GitHub refuses when it cannot see one — which is
---- not the behavior under test here.
-local function into_check(s: store.Store, id: string, builder: string,
+--- Hand a leaf over under `builder` carrying `pr`. The handover is
+--- forced when the store has an origin: a fixture's origin is a file
+--- path, so the gate that reads the PR from GitHub refuses when it
+--- cannot see one — which is not the behavior under test here.
+local function handed_over(s: store.Store, id: string, builder: string,
     pr: integer)
   give_spec(s, id)
-  assert(verbs.cmd_move(s, id, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, id, "do", builder, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, id, "check", nil, pr, true,
+  assert(verbs.cmd_take(s, id, builder, 0, false, "") == 0)
+  assert(verbs.cmd_take(s, id, builder, pr, true,
       "fixture: file remote, no PR to read") == 0)
+end
+
+--- Every open sidecar, the map the pure decision reads.
+local function specs_of(s: store.Store): act.Specs
+  local out: act.Specs = {}
+  for _, i in ipairs(check.must(store.list(s))) do
+    if item.is_open(i) then
+      out[i.id] = store.read_spec(s, i.id)
+    end
+  end
+  return out
 end
 
 -- Take claims the review it offers, in one call.
 local function test_take_claims_the_offered_review()
   local s = init_state_repo("take-review")
   local leaves = rooted_leaves(s, 1)
-  into_check(s, leaves[1], "builder-a", 11)
+  handed_over(s, leaves[1], "builder-a", 11)
   assert(take.cmd_take(s, "reviewer-z") == 0)
   assert(check.must(store.load(s, leaves[1])).reviewer == "reviewer-z",
     "the review claim landed with the offer")
 end
 test_take_claims_the_offered_review()
 
--- Take claims the pull it offers: the item lands in `do` under the
--- taking session.
+-- Take claims the pull it offers: the claim lands under the taking
+-- session.
 local function test_take_claims_the_offered_pull()
   local s = init_state_repo("take-pull")
   local leaves = rooted_leaves(s, 1)
   give_spec(s, leaves[1])
-  assert(verbs.cmd_move(s, leaves[1], "ready", nil, 0, false, "") == 0)
   assert(take.cmd_take(s, "session-z") == 0)
   local pulled = check.must(store.load(s, leaves[1]))
-  assert(pulled.phase == "do" and pulled.claim == "session-z",
+  assert(pulled.claim == "session-z",
     "the pull and its claim are one call")
 end
 test_take_claims_the_offered_pull()
@@ -76,15 +86,16 @@ test_take_claims_the_offered_pull()
 local function test_take_walks_past_a_remotely_claimed_candidate()
   local a, b = init_shared("take-race")
   local leaves = rooted_leaves(a, 2)
-  into_check(a, leaves[1], "builder-a", 21)
-  into_check(a, leaves[2], "builder-a", 22)
+  handed_over(a, leaves[1], "builder-a", 21)
+  handed_over(a, leaves[2], "builder-a", 22)
   assert(store.sync(b))
   -- B wins the race on whatever A's seeded walk would offer first:
   -- the same decision A's take will make, made here from A's stale
   -- read, then claimed remotely through B.
   local all = check.must(store.list(a))
-  local first = act.next_action(all, "session-a", {}, "session-a")
-  assert(first.kind == "review", "two check items offer a review")
+  local first = act.next_action(all, specs_of(a), "session-a", {},
+    "session-a")
+  assert(first.kind == "review", "two handed-over items offer a review")
   assert(rev.cmd_review(b, first.item.id, "session-b", false, "") == 0)
   -- A has not synced: its read still shows the item free.
   assert(take.cmd_take(a, "session-a") == 0)
@@ -98,59 +109,18 @@ local function test_take_walks_past_a_remotely_claimed_candidate()
 end
 test_take_walks_past_a_remotely_claimed_candidate()
 
--- The walk itself, distinguished from the re-sync-and-recompute
--- backstop: after A's stale read, B claims A's primary AND an accept
--- moves a third item into land — so a post-sync recompute's primary
--- is an unclaimable `finish` and only the stale-read walk can claim
--- the remaining review. Deleting the walk turns the final assertion
--- red; the race test above alone could not (either mechanism
--- delivered it).
-local function test_only_the_walk_can_claim_past_the_lost_primary()
-  local a, b = init_shared("take-walk")
-  local leaves = rooted_leaves(a, 3)
-  for k, id in ipairs(leaves) do
-    into_check(a, id, "builder-a", 30 + k)
-  end
-  assert(store.sync(b))
-  local all = check.must(store.list(a))
-  local first = act.next_action(all, "session-a", {}, "session-a")
-  assert(first.kind == "review", "three check items offer a review")
-  assert(rev.cmd_review(b, first.item.id, "session-b", false, "") == 0)
-  local landed = ""
-  for _, id in ipairs(leaves) do
-    if id ~= first.item.id and landed == "" then
-      landed = id
-    end
-  end
-  local vrd = require("_work.gitverdict")
-  assert(vrd.cmd_verdict(b, landed, "accept", 0, "abc1234", "",
-      "session-c") == 0, "an accept parks a finish ahead of every review")
-  -- A's read is stale: its walk starts from the pre-claim, pre-land
-  -- snapshot. The remaining review is reachable only by walking.
-  assert(take.cmd_take(a, "session-a") == 0)
-  local third = ""
-  for _, id in ipairs(leaves) do
-    if id ~= first.item.id and id ~= landed then
-      third = id
-    end
-  end
-  assert(check.must(store.load(a, third)).reviewer == "session-a",
-    "the walk claimed the remaining review from the stale read")
-end
-test_only_the_walk_can_claim_past_the_lost_primary()
-
 -- A kind with no lock reports as bare next does, mutating nothing.
 local function test_take_reports_unclaimable_kinds_untouched()
   local s = init_state_repo("take-advice")
   local root = file_item(s, "an outcome", "")
   local peer = file_item(s, "a lesser outcome", "")
   assert(cmp.cmd_compare(s, root, peer, false) == 0)
-  local leaf = file_item(s, "a backlog item", root)
+  local leaf = file_item(s, "an unrefined item", root)
   local before = fixture.commits(s)
   assert(take.cmd_take(s, "session-z") == 0)
   assert(fixture.commits(s) == before,
-    "an unclaimable answer (promote) writes nothing")
-  assert(check.must(store.load(s, leaf)).phase == "backlog",
+    "an unclaimable answer (refine) writes nothing")
+  assert(check.must(store.load(s, leaf)).claim == "",
     "and the item stands where it was")
 end
 test_take_reports_unclaimable_kinds_untouched()

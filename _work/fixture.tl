@@ -32,16 +32,12 @@ assert(env.set("GIT_CONFIG_GLOBAL", hermetic_config))
 assert(env.set("GIT_CONFIG_NOSYSTEM", "1"))
 
 local READY_SPEC < const > = [[
-## Goal
-Serves the outcome above it.
 ## Change
 Do exactly this.
 ## Non-goals
 Not that.
 ## Acceptance
 `cosmic --make ci`
-## Enablement
-Nothing needed.
 ]]
 
 --- Run one git command in `cwd`, failing loudly — fixture setup.

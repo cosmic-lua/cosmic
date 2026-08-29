@@ -1,16 +1,18 @@
 #!/usr/bin/env cosmic
--- What the one next action is. There is one worker and one ordering,
--- and that ordering is the system's central claim: finishing beats
--- starting, all the way down the board. The claim filter is what
--- makes it safe to ask when several sessions run at once — and what
--- keeps a session from reviewing what it built.
+-- The one next action, case by case: work flows right to left, so an
+-- accepted item outranks a review, a review outranks finishing a
+-- build, finishing outranks pulling, and only then does intake add
+-- anything. The convergence claims — that doing what `next` says
+-- always moves the board and drains it — are `converge_test.tl`.
 
 local check = require("cosmic.check")
+local act = require("_work.action")
 local flow = require("_work.flow")
 local health = require("_work.health")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
-local act = require("_work.action")
+
+local type Item = item.Item
 
 local counter = 0
 
@@ -22,7 +24,7 @@ local function fresh_id(): string
 end
 
 --- One valid item.
-local function make(over: {string: any}): item.Item
+local function make(over: {string: any}): Item
   local t: {string: any} = {id = fresh_id(), title = "item"}
   for k, v in pairs(over or {}) do
     t[k] = v
@@ -30,434 +32,205 @@ local function make(over: {string: any}): item.Item
   return check.must(item.decode(t))
 end
 
-local function test_finishing_beats_pulling()
-  local goal = make({})
-  local ready = make({parent = goal.id, phase = "ready"})
-  local doing = make({parent = goal.id, phase = "do"})
-  local landing = make({parent = goal.id, phase = "land"})
-  local items: {item.Item} = {goal, ready, doing, landing}
-  local action = act.next_action(items)
-  assert(action.kind == "finish" and action.item.id == landing.id,
-    "land first, got " .. action.kind)
+--- A placed root: it outranks a spent peer, so everything beneath it
+--- has a position.
+local function placed_root(items: {Item}): Item
+  local spent = make({resolution = "completed"})
+  local root = make({beats = spent.id})
+  items[#items + 1] = spent
+  items[#items + 1] = root
+  return root
 end
-test_finishing_beats_pulling()
 
-local function test_blocked_ready_items_are_not_pulled()
-  local goal = make({})
-  local blocker = make({parent = goal.id, phase = "plan"})
-  local blocked = make({parent = goal.id, phase = "ready",
-      blocked_by = blocker.id})
-  local free = make({parent = goal.id, phase = "ready"})
-  local items: {item.Item} = {goal, blocker, blocked, free}
-  local action = act.next_action(items)
-  assert(action.kind == "pull" and action.item.id == free.id,
-    "the blocked item is skipped for the free one: " .. action.kind)
-end
-test_blocked_ready_items_are_not_pulled()
+--- A spec map passing the bar for every id given.
+local READY < const > = "## Change\nDo this.\n## Non-goals\nNot that.\n"
+.. "## Acceptance\n`ci`\n"
 
-local function test_another_sessions_claim_is_not_handed_over()
-  local goal = make({})
-  local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
-  local ready = make({parent = goal.id, phase = "ready"})
-  local items: {item.Item} = {goal, theirs, ready}
-  local mine = act.next_action(items, "session-B")
-  assert(mine.kind == "pull" and mine.item.id == ready.id,
-    "B pulls rather than finishing A's claim: " .. mine.kind)
-  local theirs_again = act.next_action(items, "session-A")
-  assert(theirs_again.kind == "finish" and theirs_again.item.id == theirs.id,
-    "A finishes its own claim: " .. theirs_again.kind)
-end
-test_another_sessions_claim_is_not_handed_over()
-
-local function test_an_unclaimed_do_item_is_anyones()
-  local goal = make({})
-  local loose = make({parent = goal.id, phase = "do"})
-  local items: {item.Item} = {goal, loose}
-  local action = act.next_action(items, "session-B")
-  assert(action.kind == "finish" and action.item.id == loose.id,
-    "an unclaimed do item is finishable by anyone: " .. action.kind)
-end
-test_an_unclaimed_do_item_is_anyones()
-
-local function test_an_unnamed_session_skips_nothing_but_says_whose()
-  local goal = make({})
-  local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
-  local items: {item.Item} = {goal, theirs}
-  local action = act.next_action(items)
-  assert(action.kind == "finish" and action.item.id == theirs.id,
-    "a session that names nothing is held back by nothing")
-  assert(action.reason:find("claimed by session-A", 1, true),
-    "and is told whose it is: " .. action.reason)
-end
-test_an_unnamed_session_skips_nothing_but_says_whose()
-
-local function test_held_work_with_nothing_to_pull_says_so()
-  local goal = make({})
-  local theirs = make({parent = goal.id, phase = "do", claim = "session-A"})
-  local items: {item.Item} = {goal, theirs}
-  local action = act.next_action(items, "session-B")
-  assert(action.kind == "none", "nothing for B to do: " .. action.kind)
-  assert(action.reason:find("claimed by other sessions", 1, true),
-    "and the reason names why: " .. action.reason)
-  -- A claim has no expiry, so an abandoned one strands its item and
-  -- everything waiting on it until a person takes it back. The reason
-  -- has to say which item and whose, not just how many.
-  assert(action.reason:find(theirs.id:sub(1, 8) .. " @session-A", 1, true),
-    "and which item is held, by whom: " .. action.reason)
-end
-test_held_work_with_nothing_to_pull_says_so()
-
--- Placement is what separates the two: an unplaced capture is
--- triage, a placed root nothing drives is intake.
--- The phased half outranks all of this, so the live work here is held
--- by ANOTHER session: that is what leaves the intake half to decide.
-local function test_triage_then_intake()
-  local idle = make({})
-  local driven = make({beats = idle.id})
-  local worked = make({parent = driven.id, phase = "do", claim = "session-B"})
-  local captured = make({})
-  local items: {item.Item} = {idle, driven, worked, captured}
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "triage" and action.item.id == captured.id,
-    "an unplaced capture outranks intake: " .. action.kind)
-  local drained: {item.Item} = {idle, driven, worked}
-  local intake = act.next_action(drained, "session-A")
-  assert(intake.kind == "intake" and intake.item.id == idle.id,
-    "the placed root with no live work: " .. intake.kind)
-end
-test_triage_then_intake()
-
--- One worker builds and reviews, and the ordering keeps no identity
--- distance between the two: review isolation is the review
--- PROCEDURE's job, so the claim that says who built the item does not
--- withhold the verdict from anyone.
-local function test_a_session_is_handed_its_own_work_to_review()
-  local root = make({})
-  local mine = make({parent = root.id, phase = "check", pr = 7,
-      claim = "session-A"})
-  local items: {item.Item} = {root, mine}
-  local same = act.next_action(items, "session-A")
-  assert(same.kind == "review" and same.item.id == mine.id,
-    "the session that built it is handed the verdict: " .. same.kind)
-  local other = act.next_action(items, "session-B")
-  assert(other.kind == "review" and other.item.id == mine.id,
-    "another session reviews it: " .. other.kind)
-  local anon = act.next_action(items)
-  assert(anon.kind == "review",
-    "a session that names nothing has no distance to keep: " .. anon.kind)
-end
-test_a_session_is_handed_its_own_work_to_review()
-
--- Nothing is skipped, so the rightmost-phase-first rule decides: its
--- own item in `check` is a verdict awaiting a decision, and that
--- outranks pulling new work off `ready`.
-local function test_its_own_review_outranks_a_pull()
-  local root = make({})
-  local mine = make({parent = root.id, phase = "check", pr = 7,
-      claim = "session-A"})
-  local ready = make({parent = root.id, phase = "ready"})
-  local items: {item.Item} = {root, mine, ready}
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "review" and action.item.id == mine.id,
-    "the verdict comes before the pull: " .. action.kind)
-end
-test_its_own_review_outranks_a_pull()
-
-local function test_verdicts_come_before_refinement()
-  local goal = make({})
-  local planning = make({parent = goal.id, phase = "plan"})
-  local checking = make({parent = goal.id, phase = "check", pr = 7})
-  local items: {item.Item} = {goal, planning, checking}
-  local action = act.next_action(items)
-  assert(action.kind == "review" and action.item.id == checking.id,
-    "verdicts come before refinement: " .. action.kind)
-end
-test_verdicts_come_before_refinement()
-
-local function test_an_over_bound_triage_queue_outranks_refining()
-  local goal = make({})
-  local planning = make({parent = goal.id, phase = "plan"})
-  local items: {item.Item} = {goal, planning}
-  local oldest: item.Item = nil
-  for _ = 1, flow.TRIAGE_LIMIT do
-    local finding = make({})
-    oldest = oldest or finding
-    items[#items + 1] = finding
+local function ready_specs(items: {Item}): act.Specs
+  local out: act.Specs = {}
+  for _, i in ipairs(items) do
+    out[i.id] = READY
   end
-  local under = act.next_action(items)
-  assert(under.kind == "refine" and under.item.id == planning.id,
-    "at the bound, ready has slack and refinement still wins: " .. under.kind)
-  items[#items + 1] = make({})
-  local over = act.next_action(items)
-  assert(over.kind == "triage" and over.item.id == oldest.id,
-    "past the bound, the oldest finding is drained first: " .. over.kind)
-  assert(over.reason:find("outranks refining", 1, true), over.reason)
+  return out
 end
-test_an_over_bound_triage_queue_outranks_refining()
 
-local function test_verdicts_outrank_an_over_bound_triage_queue()
-  local goal = make({})
-  local checking = make({parent = goal.id, phase = "check", pr = 7})
-  local items: {item.Item} = {goal, checking}
-  for _ = 1, flow.TRIAGE_LIMIT + 1 do
-    items[#items + 1] = make({})
-  end
-  local action = act.next_action(items)
-  assert(action.kind == "review" and action.item.id == checking.id,
-    "check is still the rightmost phase: " .. action.kind)
+local function test_the_ordering_runs_right_to_left()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local accepted = make({parent = root.id, claim = "who", pr = 1,
+      verdict = "accept"})
+  local reviewable = make({parent = root.id, claim = "who", pr = 2})
+  local building = make({parent = root.id, claim = "me"})
+  local fresh = make({parent = root.id})
+  items[#items + 1] = accepted
+  items[#items + 1] = reviewable
+  items[#items + 1] = building
+  items[#items + 1] = fresh
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "finish" and a.item.id == accepted.id,
+    "the accepted item is the most finished work there is: " .. a.kind)
+  accepted.resolution = "completed"
+  accepted.claim = ""
+  local b = act.next_action(items, specs, "me")
+  assert(b.kind == "review" and b.item.id == reviewable.id,
+    "then the verdict: " .. b.kind)
+  reviewable.verdict = "accept"
+  local c = act.next_action(items, specs, "me")
+  assert(c.kind == "finish" and c.item.id == reviewable.id,
+    "an accept re-enters as the next finish: " .. c.kind)
+  reviewable.resolution = "completed"
+  reviewable.claim = ""
+  local d = act.next_action(items, specs, "me")
+  assert(d.kind == "finish" and d.item.id == building.id,
+    "then my own build: " .. d.kind)
+  building.resolution = "completed"
+  building.claim = ""
+  local e = act.next_action(items, specs, "me")
+  assert(e.kind == "pull" and e.item.id == fresh.id,
+    "and only then a pull: " .. e.kind)
 end
-test_verdicts_outrank_an_over_bound_triage_queue()
+test_the_ordering_runs_right_to_left()
 
--- `check` full of this session's own work used to deadlock: no
--- verdict this session could write drained the phase, and the WIP
--- gate refused every handover into it, so the ordering answered
--- `none` forever. With no identity gate the session judges the
--- highest-placed of them, and that verdict is what drains the phase
--- and releases the handover.
-local function test_a_full_check_of_its_own_is_now_a_review()
-  local root = make({})
-  local items: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["check"] do
-    items[#items + 1] = make({parent = root.id, phase = "check", pr = 7,
-        claim = "session-A"})
-  end
-  items[#items + 1] = make({parent = root.id, phase = "do",
-      claim = "session-A"})
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "review",
-    "the full check is drained by a verdict, not stalled: " .. action.kind)
+local function test_a_live_foreign_review_claim_is_stepped_past()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local first = make({parent = root.id, claim = "b1", pr = 1,
+      reviewer = "other"})
+  local second = make({parent = root.id, claim = "b2", pr = 2})
+  items[#items + 1] = first
+  items[#items + 1] = second
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "review" and a.item.id == second.id,
+    "a live foreign review claim excludes the diff: " .. a.item.id)
+  local stale: health.Ages = {[first.id] = health.REVIEW_LEASE_S + 1}
+  local b = act.next_action(items, specs, "me", stale)
+  assert(b.kind == "review" and b.item.id == first.id,
+    "a stale one is anyone's again, and it is first in queue order")
+  local unnamed = act.next_action(items, specs)
+  assert(unnamed.kind == "review" and unnamed.item.id == first.id,
+    "an unnamed session is stepped past nothing")
 end
-test_a_full_check_of_its_own_is_now_a_review()
+test_a_live_foreign_review_claim_is_stepped_past()
 
--- A full `check` no longer strands the session by falling through to
--- the intake half: it falls to nothing, because the session can judge
--- what is in front of it, and the rightmost phase wins.
-local function test_a_full_check_still_leaves_the_intake_half()
-  local root = make({})
-  local items: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["check"] do
-    items[#items + 1] = make({parent = root.id, phase = "check", pr = 7,
-        claim = "session-A"})
-  end
-  -- The `do` item and the `plan` item are what make this a real
-  -- distinction: both are work the session may take, and the verdict
-  -- in `check` outranks each of them.
-  items[#items + 1] = make({parent = root.id, phase = "do",
-      claim = "session-A"})
-  local planning = make({parent = root.id, phase = "plan"})
-  items[#items + 1] = planning
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "review",
-    "the verdict outranks the intake half: " .. action.kind)
+local function test_anothers_live_build_is_held_a_stale_one_offered()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local theirs = make({parent = root.id, claim = "other"})
+  items[#items + 1] = theirs
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind ~= "finish",
+    "a live foreign claim is a builder mid loop: " .. a.kind)
+  local stale: health.Ages = {[theirs.id] = health.LEASE_S + 1}
+  local b = act.next_action(items, specs, "me", stale)
+  assert(b.kind == "finish" and b.item.id == theirs.id,
+    "a stale claim is anyone's: " .. b.kind)
+  assert(b.reason:find("take it over", 1, true),
+    "and the takeover is named, on the record: " .. b.reason)
 end
-test_a_full_check_still_leaves_the_intake_half()
+test_anothers_live_build_is_held_a_stale_one_offered()
 
--- `pull` skips a blocked ready item, so refining one manufactures
--- inventory the other end of the ordering will not take.
-local function test_refinement_skips_a_blocked_plan_item()
-  local root = make({})
-  local blocker = make({parent = root.id, phase = "do", claim = "session-B"})
-  local blocked = make({parent = root.id, phase = "plan",
-      blocked_by = blocker.id})
-  local free = make({parent = root.id, phase = "plan"})
-  local items: {item.Item} = {root, blocker, blocked, free}
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "refine" and action.item.id == free.id,
-    "the older blocked item is skipped for the free one: " .. action.kind)
-  assert(action.reason:find("1 blocked and skipped", 1, true),
-    "and the reason says how many it stepped over: " .. action.reason)
-end
-test_refinement_skips_a_blocked_plan_item()
-
--- Refinement reaches a blocker before the work waiting on it, and
--- says so. The ordering comes from `_work.priority`; what this pins is
--- that the reason names the release, because an item handed out for
--- what it unblocks rather than for its own standing looks like the
--- wrong item until the line explains it.
-local function test_refinement_reaches_a_blocker_and_names_the_release()
-  local lesser = make({})
-  local top = make({beats = lesser.id})
-  local gate = make({parent = lesser.id, phase = "plan"})
-  local waiting = make({parent = top.id, phase = "plan",
-      blocked_by = gate.id})
-  local action = act.next_action({lesser, top, gate, waiting}, "session-A")
-  assert(action.kind == "refine" and action.item.id == gate.id,
-    "the lower-banded blocker is refined first: " .. action.kind)
-  assert(action.reason:find("it unblocks 1 open item(s)", 1, true),
-    "and the reason says why it jumped: " .. action.reason)
-end
-test_refinement_reaches_a_blocker_and_names_the_release()
-
-local function test_every_plan_item_blocked_falls_through()
-  local idle = make({})
-  local driven = make({beats = idle.id})
-  local blocker = make({parent = driven.id, phase = "do", claim = "session-B"})
-  local blocked = make({parent = driven.id, phase = "plan",
-      blocked_by = blocker.id})
-  local items: {item.Item} = {idle, driven, blocker, blocked}
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "intake" and action.item.id == idle.id,
-    "nothing refinable, so the idle root is decomposed: " .. action.kind)
-end
-test_every_plan_item_blocked_falls_through()
-
--- `do` full of other sessions' claims binds against this session: an
--- unheld item would have been finished above, so reaching the pull
--- branch here means the move into `do` would be refused.
-local function test_a_full_do_of_others_claims_is_not_a_pull()
-  local root = make({})
-  local items: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["do"] do
-    items[#items + 1] = make({parent = root.id, phase = "do",
-        claim = "session-B"})
-  end
-  items[#items + 1] = make({parent = root.id, phase = "ready"})
-  local action = act.next_action(items, "session-A")
-  assert(action.kind ~= "pull",
-    "the pull would be refused, so it is not offered: " .. action.kind)
-  assert(action.kind == "none" and action.reason:find("@session-B", 1, true),
-    "and the held slots are named: " .. action.reason)
-end
-test_a_full_do_of_others_claims_is_not_a_pull()
-
--- Pulling while `check` is full manufactures work whose only exit is a
--- handover the gate refuses: the item enters `do` and stops there.
--- Finishing beats starting, and a start that cannot finish is not one.
-local function test_a_full_check_stops_the_pull_too()
-  local root = make({})
-  local items: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["check"] do
-    items[#items + 1] = make({parent = root.id, phase = "check", pr = 7,
-        claim = "session-A"})
-  end
-  items[#items + 1] = make({parent = root.id, phase = "ready"})
-  local action = act.next_action(items, "session-A")
-  assert(action.kind ~= "pull",
-    "nothing pulls into a do it cannot hand over: " .. action.kind)
-end
-test_a_full_check_stops_the_pull_too()
-
--- A claim is a lock whose holder may have died: past the lease the
--- ordering offers the item to whoever asks, the way it already offers
--- rework. Without ages nothing reads as stale, so callers with no git
--- in reach keep the old behavior.
-local function test_a_stale_claim_is_offered_for_takeover()
-  local root = make({})
-  local theirs = make({parent = root.id, phase = "do", claim = "session-B"})
-  local items: {item.Item} = {root, theirs}
-  local fresh = act.next_action(items, "session-A")
-  assert(fresh.kind == "none",
-    "without ages the claim holds: " .. fresh.kind)
-  local ages: {string: integer} = {[theirs.id] = 5 * 60 * 60}
-  local action = act.next_action(items, "session-A", ages)
-  assert(action.kind == "finish" and action.item.id == theirs.id,
-    "past the lease the item is anyone's: " .. action.kind)
-  assert(action.reason:find("stale", 1, true)
-    and action.reason:find("--claim session-A", 1, true),
-    "the reason says how to take it over: " .. action.reason)
-end
-test_a_stale_claim_is_offered_for_takeover()
-
--- A ready column where everything waits still refuses the pull — but
--- while it has room, the blocked items only occupy slots, so intake
--- keeps working around them: here the chain's own root is the
--- highest-value refine. The starving answer is the limit's and the
--- fallback's (action_pick_test.tl), never the first resort.
-local function test_a_starved_ready_under_limit_refines_past_the_blocked()
-  local root = make({})
-  local bottom = make({parent = root.id, phase = "plan"})
-  local middle = make({parent = root.id, phase = "plan",
-      blocked_by = bottom.id})
-  local waiting = make({parent = root.id, phase = "ready",
-      blocked_by = middle.id})
-  local items: {item.Item} = {root, bottom, middle, waiting}
-  local action = act.next_action(items, "session-A")
-  assert(action.kind == "refine" and action.item.id == bottom.id,
-    "the unblocked chain root is refined toward ready: " .. action.kind)
-end
-test_a_starved_ready_under_limit_refines_past_the_blocked()
-
--- The claim is a LEASE and it moves. Session A pulls and builds, the
--- item is returned (clearing the claim), B pulls it, and A hands its
--- own diff to check — after which `claim` reads B and `builders`
--- records both. That is the sequence observed on 3I7LGcLa / PR #1301,
--- and none of it withholds the review: A, B and a stranger are all
--- offered the verdict alike.
-local function test_reviewable_offers_a_past_builder()
-  local goal = make({})
-  local built = make({parent = goal.id, phase = "check", pr = 1301,
-      claim = "session-B", builders = "session-A session-B"})
-  local items: {item.Item} = {goal, built}
-
-  local for_a = act.next_action(items, "session-A")
-  assert(for_a.kind == "review" and for_a.item.id == built.id,
-    "the session that built it is offered the verdict: " .. for_a.kind)
-
-  local for_c = act.next_action(items, "session-C")
-  assert(for_c.kind == "review" and for_c.item.id == built.id,
-    "a session that never held it still reviews: " .. for_c.kind)
-
-  local for_b = act.next_action(items, "session-B")
-  assert(for_b.kind == "review" and for_b.item.id == built.id,
-    "and so is the session holding the claim: " .. for_b.kind)
-end
-test_reviewable_offers_a_past_builder()
-
--- A live review claim fans reviewers out: the claimed diff is
--- another session's, the next unclaimed one is offered instead, and
--- an expired claim puts the diff back on offer.
-local function test_reviewable_skips_a_live_foreign_reviewer()
-  local goal = make({})
-  local claimed = make({parent = goal.id, phase = "check", pr = 1,
-      claim = "builder-A", reviewer = "reviewer-B"})
-  local open_one = make({parent = goal.id, phase = "check", pr = 2,
-      claim = "builder-A"})
-  local items: {item.Item} = {goal, claimed, open_one}
-
-  local for_c = act.next_action(items, "session-C")
-  assert(for_c.kind == "review" and for_c.item.id == open_one.id,
-    "a live foreign review claim sends the next session elsewhere: "
-    .. for_c.kind)
-
-  local for_b = act.next_action(items, "session-B")
-  assert(for_b.kind == "review",
-    "the claimant is still offered a review: " .. for_b.kind)
-
-  local stale: {string: integer} = {}
-  stale[claimed.id] = health.REVIEW_LEASE_S + 1
-  local again = act.next_action(items, "session-C", stale)
-  assert(again.kind == "review",
-    "an expired review claim puts the diff back on offer: " .. again.kind)
-end
-test_reviewable_skips_a_live_foreign_reviewer()
-
-local function test_anothers_live_rework_is_held()
-  local goal = make({})
-  local theirs = make({parent = goal.id, phase = "do", claim = "session-A",
+local function test_rework_returns_to_its_builder_first()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local sent_back = make({parent = root.id, claim = "builder", pr = 7,
       verdict = "request changes"})
-  local ready = make({parent = goal.id, phase = "ready"})
-  local items: {item.Item} = {goal, theirs, ready}
-  local mine = act.next_action(items, "session-B")
-  assert(mine.kind == "pull" and mine.item.id == ready.id,
-    "a live claim holds rework like any other work: " .. mine.kind)
-  local theirs_again = act.next_action(items, "session-A")
-  assert(theirs_again.kind == "finish" and theirs_again.item.id == theirs.id,
-    "the builder still finishes their own rework: " .. theirs_again.kind)
+  items[#items + 1] = sent_back
+  local specs = ready_specs(items)
+  local mine = act.next_action(items, specs, "builder")
+  assert(mine.kind == "finish" and mine.item.id == sent_back.id,
+    "the builder picks their own rework up: " .. mine.kind)
+  assert(mine.reason:find("rework", 1, true), mine.reason)
+  local other = act.next_action(items, specs, "someone-else")
+  assert(other.kind ~= "finish",
+    "a live rework claim holds like any other: " .. other.kind)
 end
-test_anothers_live_rework_is_held()
+test_rework_returns_to_its_builder_first()
 
-local function test_stale_rework_is_offered_as_a_forced_takeover()
-  local goal = make({})
-  local theirs = make({parent = goal.id, phase = "do", claim = "session-A",
-      verdict = "request changes"})
-  local items: {item.Item} = {goal, theirs}
-  local ages: {string: integer} = {[theirs.id] = 5 * 60 * 60}
-  local action = act.next_action(items, "session-B", ages)
-  assert(action.kind == "finish" and action.item.id == theirs.id,
-    "a stale rework claim is anyone's to take over: " .. action.kind)
-  assert(action.reason:find("rework of session-A's build", 1, true),
-    "the guidance names whose build it was: " .. action.reason)
-  assert(action.reason:find("--force --why", 1, true),
-    "the guidance carries what the move guard demands: " .. action.reason)
+local function test_pull_skips_what_is_blocked_and_what_misses_the_bar()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local blocker = make({parent = root.id, claim = "other"})
+  local blocked = make({parent = root.id, blocked_by = blocker.id})
+  local unrefined = make({parent = root.id})
+  local free = make({parent = root.id})
+  items[#items + 1] = blocker
+  items[#items + 1] = blocked
+  items[#items + 1] = unrefined
+  items[#items + 1] = free
+  local specs = ready_specs(items)
+  specs[unrefined.id] = "## Change\nonly this\n"
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "pull" and a.item.id == free.id,
+    ("blocked and unrefined items are skipped: %s %s"):format(a.kind,
+      a.item and a.item.id or ""))
 end
-test_stale_rework_is_offered_as_a_forced_takeover()
+test_pull_skips_what_is_blocked_and_what_misses_the_bar()
+
+local function test_the_doing_bound_suppresses_the_pull()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  for k = 1, flow.DOING_LIMIT do
+    items[#items + 1] = make({parent = root.id,
+        claim = ("wake-%d"):format(k)})
+  end
+  local fresh = make({parent = root.id})
+  items[#items + 1] = fresh
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind ~= "pull",
+    "at the bound nothing new is offered: " .. a.kind)
+end
+test_the_doing_bound_suppresses_the_pull()
+
+local function test_the_decision_carries_alternates_across_rungs()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local reviewable = make({parent = root.id, claim = "who", pr = 2})
+  local fresh_a = make({parent = root.id})
+  local fresh_b = make({parent = root.id})
+  items[#items + 1] = reviewable
+  items[#items + 1] = fresh_a
+  items[#items + 1] = fresh_b
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "review", "the primary is the rightmost rung")
+  local alts = a.alternates or {}
+  assert(#alts >= 2, "and the list crosses rungs to the pulls: " .. #alts)
+  assert(alts[1].kind == "pull",
+    "rung order holds within the list: " .. alts[1].kind)
+end
+test_the_decision_carries_alternates_across_rungs()
+
+local function test_all_blocked_names_the_chain_root()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local bottom = make({parent = root.id, claim = "other"})
+  local waiting = make({parent = root.id, blocked_by = bottom.id})
+  items[#items + 1] = bottom
+  items[#items + 1] = waiting
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "unblock" and a.item.id == bottom.id,
+    ("every takeable item blocked names the chain bottom: %s %s"):format(
+      a.kind, a.item and a.item.id:sub(1, 8) or ""))
+end
+test_all_blocked_names_the_chain_root()
+
+local function test_none_names_the_binding_fact()
+  -- The root is deliberately unplaced with an open child, so no
+  -- intake rung fires: it is not triage (it has children), nothing is
+  -- todo, and it is not a placed root to decompose. What remains is
+  -- the fact that binds — another session's live claim.
+  local root = make({})
+  local theirs = make({parent = root.id, claim = "other"})
+  local items: {Item} = {root, theirs}
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "none", "nothing here is mine to move: " .. a.kind)
+  assert(a.reason:find("@other", 1, true),
+    "and the holder is named, not counted: " .. a.reason)
+end
+test_none_names_the_binding_fact()

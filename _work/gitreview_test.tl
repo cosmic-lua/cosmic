@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 -- The review claim: pushed before the reading, consumed by the
--- verdict, cleared by any move out of check, and honored by the
--- review ordering. The scratch board harness is `_work.fixture`.
+-- verdict, cleared by a drop, and honored by the review ordering.
+-- The scratch board harness is `_work.fixture`.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
@@ -15,14 +15,11 @@ local init_state_repo = fixture.init_state_repo
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
 
---- Walk a fresh leaf into check: the phases in order, built by
---- `builder`, handed over carrying PR 7.
-local function into_check(s: store.Store, leaf: string, builder: string)
+--- A fresh leaf taken by `builder` and handed over carrying PR 7.
+local function handed_over(s: store.Store, leaf: string, builder: string)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "plan", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", builder, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", builder, 7, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, builder, 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, builder, 7, false, "") == 0)
 end
 
 -- The claim is first-writer-wins: a second session is refused while
@@ -31,7 +28,7 @@ end
 local function test_a_live_claim_excludes_a_second_reviewer()
   local s = init_state_repo("review-claim")
   local _, leaf = root_with_leaf(s)
-  into_check(s, leaf, "builder-a")
+  handed_over(s, leaf, "builder-a")
   assert(rev.cmd_review(s, leaf, "reviewer-b", false, "") == 0,
     "the first reviewer claims")
   check.equal(check.must(store.load(s, leaf)).reviewer, "reviewer-b")
@@ -49,7 +46,7 @@ test_a_live_claim_excludes_a_second_reviewer()
 local function test_takeover_goes_through_force_why()
   local s = init_state_repo("review-force")
   local _, leaf = root_with_leaf(s)
-  into_check(s, leaf, "builder-a")
+  handed_over(s, leaf, "builder-a")
   assert(rev.cmd_review(s, leaf, "reviewer-b", false, "") == 0)
   assert(rev.cmd_review(s, leaf, "reviewer-c", true, "") ~= 0,
     "--force without --why is refused")
@@ -65,7 +62,7 @@ test_takeover_goes_through_force_why()
 local function test_the_builder_may_claim_the_review()
   local s = init_state_repo("review-builder")
   local _, leaf = root_with_leaf(s)
-  into_check(s, leaf, "builder-a")
+  handed_over(s, leaf, "builder-a")
   assert(rev.cmd_review(s, leaf, "builder-a", false, "") == 0,
     "the builder may claim the review")
   check.equal(check.must(store.load(s, leaf)).reviewer, "builder-a",
@@ -73,48 +70,51 @@ local function test_the_builder_may_claim_the_review()
 end
 test_the_builder_may_claim_the_review()
 
--- A claim by nobody excludes nobody, and only check has reviews to
--- claim.
-local function test_unnamed_sessions_and_other_phases_are_refused()
+-- A claim by nobody excludes nobody, and only a PR awaiting a verdict
+-- has a review to claim.
+local function test_unnamed_sessions_and_unreviewable_items_are_refused()
   local s = init_state_repo("review-shape")
   local _, leaf = root_with_leaf(s)
   assert(rev.cmd_review(s, leaf, "reviewer-b", false, "") ~= 0,
-    "a backlog item has no review to claim")
-  into_check(s, leaf, "builder-a")
+    "a todo item has no diff to claim")
+  handed_over(s, leaf, "builder-a")
   assert(rev.cmd_review(s, leaf, "", false, "") ~= 0,
     "an unnamed session cannot claim")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 7, "abc1234") == 0)
+  assert(rev.cmd_review(s, leaf, "reviewer-b", false, "") ~= 0,
+    "a standing verdict leaves nothing awaiting review")
 end
-test_unnamed_sessions_and_other_phases_are_refused()
+test_unnamed_sessions_and_unreviewable_items_are_refused()
 
 -- The verdict consumes the claim — from the claimant or from any
 -- other session, because the claim is mutual exclusion, not authority.
 local function test_a_verdict_consumes_the_claim()
   local s = init_state_repo("review-verdict")
   local _, leaf = root_with_leaf(s)
-  into_check(s, leaf, "builder-a")
+  handed_over(s, leaf, "builder-a")
   assert(rev.cmd_review(s, leaf, "reviewer-b", false, "") == 0)
   assert(vrd.cmd_verdict(s, leaf, "request changes", 7, "abc1234",
-      "none: test", "reviewer-c") == 0,
+      "reviewer-c") == 0,
     "a non-claimant's verdict still stands")
   local it = check.must(store.load(s, leaf))
   check.equal(it.reviewer, "", "the claim was consumed")
-  check.equal(it.phase, "do", "and the verdict's move followed")
+  check.equal(it.verdict, "request changes", "and the send-back stands")
 end
 test_a_verdict_consumes_the_claim()
 
--- Any move out of check ends the reading, so the claim never follows
--- the item somewhere no verdict can consume it.
-local function test_leaving_check_clears_the_claim()
-  local s = init_state_repo("review-move")
+-- A drop ends the reading with everything else: the claim never
+-- outlives the diff it locked.
+local function test_a_drop_clears_the_review_claim()
+  local s = init_state_repo("review-drop")
   local _, leaf = root_with_leaf(s)
-  into_check(s, leaf, "builder-a")
+  handed_over(s, leaf, "builder-a")
   assert(rev.cmd_review(s, leaf, "reviewer-b", false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "builder-a", 0, true,
-      "rework without a verdict, for the test") == 0)
+  assert(verbs.cmd_drop(s, leaf, "builder-a",
+      "the spec cannot answer the encoding question", false) == 0)
   check.equal(check.must(store.load(s, leaf)).reviewer, "",
-    "the claim went with the phase")
+    "the claim went with the drop")
 end
-test_leaving_check_clears_the_claim()
+test_a_drop_clears_the_review_claim()
 
 -- The review lease is the short one, and staleness is a property of
 -- the ages the caller reads — pinned here at the boundary values.

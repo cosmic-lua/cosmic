@@ -30,25 +30,24 @@ local MODES: {string: boolean} = {
   [""] = true, ["spec"] = true, ["section"] = true, ["fields"] = true,
 }
 
---- One word for where an item stands: its phase while it holds one,
---- else how it ended, else that it is merely open.
+--- One word for where an item stands: how it ended, else its derived
+--- state while in flight, else todo.
 --- @param it item.Item The item
 --- @return string The state
 local function state_of(it: item.Item): string
-  local state = it.phase
-  if state == "" then
-    state = it.resolution
-    if state == "" then
-      state = "open"
-    end
+  if (it.resolution or "") ~= "" then
+    return it.resolution
   end
-  return state
+  if flow.is_doing(it) then
+    return flow.substate(it)
+  end
+  return "todo"
 end
 
 --- One item's fields, role, spec, history, and its own graph
 --- problems. Under `fields` the two prose blocks — the sidecar and
 --- the git history — are left out; everything else renders the same,
---- because the questions `--fields` answers (what phase, whose claim,
+--- because the questions `--fields` answers (what state, whose claim,
 --- which PR, what is it waiting on) are the record's to answer.
 --- @param it item.Item The item
 --- @param all {item.Item} Every item
@@ -69,7 +68,9 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
   end
   if it.parent ~= "" then out[#out + 1] = ("parent: %s"):format(it.parent) end
   if it.repo ~= "" then out[#out + 1] = ("repo: %s"):format(it.repo) end
-  if it.phase ~= "" then out[#out + 1] = ("phase: %s"):format(it.phase) end
+  if item.is_open(it) and flow.role(it, all) == "work" then
+    out[#out + 1] = ("state: %s"):format(state_of(it))
+  end
   local at = prio.positions(all)
   local band, own = prio.key_of(at, it.id)
   if band < 0 then
@@ -139,7 +140,7 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
       out[#out + 1] = ("  %s %s %s"):format(e.at, e.sha, e.subject)
     end
   end
-  for _, p in ipairs(flow.item_problems(it, all, flow.by_id(all))) do
+  for _, p in ipairs(flow.item_problems(it, flow.by_id(all))) do
     out[#out + 1] = "  graph: " .. p
   end
   return out, ("%s is %s"):format(it.id:sub(1, 8), state_of(it))

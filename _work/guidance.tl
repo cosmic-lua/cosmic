@@ -23,62 +23,50 @@ local WIDTH < const >: integer = 88
 --- is about the words alone.
 local NOTES < const >: {string: {string}} = {
   ["finish"] = {
-    "From `land` the item is already judged: `land ID` squash-merges the PR its "
-    .. "`pr` field names and ends the item, in that order.",
-    "From `do` it is claimed work, or rework a `request changes` verdict sent "
-    .. "back — address the quoted gaps on that PR and hand it over again with "
-    .. "`move ID check --pr N`.",
+    "An accepted item awaits its merge: `land ID` verifies the PR its `pr` "
+    .. "field names is merged and ends the item — merge first, then land.",
+    "A rework carries a `request changes` verdict: address the quoted gaps on "
+    .. "the same PR and hand it back with `take ID --pr N`, which re-opens the "
+    .. "verdict for the new head.",
+    "A build with no PR yet is yours to finish: open the PR ready, `Board: "
+    .. "<id>` and the acceptance runs in its body, then `take ID --pr N`.",
   },
   ["review"] = {
     "Claim it first — `review ID` locks the diff before you read a line; a "
     .. "claim idle past the hour lease is anyone's again.",
     "Read the acceptance evidence in the PR description before the diff, then "
-    .. "`verdict ID accept|request-changes --pr N --session <you>`.",
-    "An item with no `pr` is an evidence handover: read its `## Result` "
-    .. "section, and an accept ENDS it — no merge, no `land`.",
+    .. "`verdict ID accept|request-changes --pr N --head SHA --session <you>`.",
+    "The verdict comes from a fresh-context reviewer that never held the "
+    .. "build; no session accepts its own work.",
   },
   ["pull"] = {
-    "A fresh `ready` item, highest-placed of those nothing blocks. Claim it "
-    .. "first with `move ID do --claim <you>`: the move is the lock.",
-    "The lock is a lease — a claim whose session stops committing to the board "
-    .. "reads as stale after a few hours, and `next` offers the item to whoever "
-    .. "asks next.",
-    "Then `show ID`: the spec sidecar is the spec; `verdict`/`pr` carry the "
-    .. "review state so far.",
+    "The highest-placed todo item passing the spec bar with nothing blocking "
+    .. "it. `take ID` is the claim and the lock; the lock is a lease, and a "
+    .. "claim idle past it is anyone's again.",
+    "Then `show ID`: the spec sidecar is the spec; re-run its measured "
+    .. "commands before building.",
   },
   ["unblock"] = {
-    "Every `ready` item waits on an open blocker, so nothing pulls however deep "
-    .. "the queue is. The item named is the chain's deepest open one.",
+    "Every takeable item waits on an open blocker, so nothing pulls however "
+    .. "deep the queue is. The item named is the chain's deepest open one.",
     "Resolving it is whatever its own state calls for. When the reason recorded "
     .. "on the edge no longer binds, drop the edge with `unblock ID BLOCKER`.",
   },
   ["refine"] = {
-    "Take a `plan` item one rung down the ladder: decompose a container's "
-    .. "outcome further, or drive a workable leaf to the ready bar.",
-    "Claim it first — `next --take` does; a claim idle past the hour lease is "
-    .. "anyone's, and it sheds at `ready`. `check ID` has to pass before "
-    .. "`move ID ready`.",
-    "Refinement outranks promotion for the reason finishing outranks starting: "
-    .. "what is already committed to is nearer `ready`.",
-  },
-  ["promote"] = {
-    "Commit to the highest-placed `backlog` item nothing blocks: `move ID plan`.",
-    "`plan` is a small queue, and that is what makes this a decision — read what "
-    .. "else sits near the top of the backlog before taking it.",
-  },
-  ["sweep"] = {
-    "The board is saturated and this `backlog` item — the lowest-placed of those "
-    .. "untouched for over a week — is the one to settle.",
-    "Two answers: `move ID plan`, or `done ID --reason not-planned`. A backlog "
-    .. "carrying work nobody will do is a backlog nobody can read.",
+    "Drive the highest-placed todo item toward the spec bar: `check ID` names "
+    .. "the gaps, `spec ID FILE --base BASE` writes the refinement back.",
+    "Decompose rather than pad: a spec that needs the word \"and\" between two "
+    .. "independent changes is two items (`new \"child\" --parent ID`).",
+    "Every tree-fact measured, with its command, so the taker re-runs it in "
+    .. "seconds.",
   },
   ["triage"] = {
-    "An unplaced capture awaits a decision. `attach ID PARENT` enters it in "
-    .. "`backlog` under the outcome its evidence serves; `compare ID OTHER` "
-    .. "makes it an outcome itself.",
+    "An unplaced capture awaits a decision. `attach ID PARENT` makes it todo "
+    .. "under the outcome its evidence serves; `compare ID OTHER` makes it an "
+    .. "outcome itself.",
     "No outcome fits? Attach under the lowest-placed one regardless: it outranks "
     .. "nothing, `attach` re-parents freely, and an unplaced item can never be "
-    .. "promoted.",
+    .. "taken.",
     "Or end it: `done ID` when landed work covers it, `--reason not-planned` for "
     .. "a dead end.",
   },

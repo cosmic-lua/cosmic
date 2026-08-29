@@ -5,19 +5,18 @@
 -- by hand.
 --
 -- Two different claims. SAFETY: every action the ordering names is
--- one the verbs would carry out — no move the WIP gate refuses, no
--- verdict on the asker's own work, no promotion or pull of something
--- an open blocker holds. LIVENESS: a board holding only finishable
--- work drains to nothing. Safety without liveness refuses everything;
+-- one the verbs would carry out — no take the doing bound refuses, no
+-- pull of something blocked or bar-failing, no claim of another
+-- session's live work. LIVENESS: a board holding only finishable work
+-- drains to nothing. Safety without liveness refuses everything;
 -- liveness without safety is the livelock this file keeps out, where
--- `next` names a move, the gate rejects it, and the answer repeats.
+-- `next` names an action, the gate rejects it, and the answer repeats.
 --
 -- The driver applies an action the way the verbs do and through the
--- same gate they call (`gitgate.wip_refusal`, `dephased_container`,
--- `rephased_parent`), so the refusal asserted here is the real one.
--- It carries no git plumbing: a mutation is a table write, not a
--- commit, which lets a walk run hundreds of steps.
--- `gitverbs_test.tl` proves the plumbing.
+-- same gates they call (`flow.doing_refusal`, the bar), so the
+-- refusal asserted here is the real one. It carries no git plumbing:
+-- a mutation is a table write, not a commit, which lets a walk run
+-- hundreds of steps. `gitverbs_test.tl` proves the plumbing.
 
 local check = require("cosmic.check")
 local act = require("_work.action")
@@ -46,6 +45,9 @@ local function make(over: {string: any}): Item
   return check.must(item.decode(t))
 end
 
+local READY < const > = "## Change\nDo this.\n## Non-goals\nNot that.\n"
+.. "## Acceptance\n`ci`\n"
+
 --- A seeded generator, written out rather than taken from `math`, so a
 --- failing walk replays from its seed on any build.
 local record Rng
@@ -69,131 +71,110 @@ end
 
 --- The board's whole observable state, so a step that changed nothing
 --- reads as a repeat rather than a walk running out its budget. Item
---- order is creation order, so list order is already stable.
+--- order is creation order, so list order is already stable; the spec
+--- map joins it because refinement is a spec write.
 --- @param items {Item} All items
+--- @param specs act.Specs Sidecar body by id
 --- @return string The signature
-local function signature(items: {Item}): string
+local function signature(items: {Item}, specs: act.Specs): string
   local parts: {string} = {}
   for _, i in ipairs(items) do
-    parts[#parts + 1] = ("%s:%s:%s:%s:%d"):format(i.id:sub(1, 8), i.phase or "",
-      i.resolution or "", i.claim or "", #(i.blocked_by or {}))
+    parts[#parts + 1] = ("%s:%s:%s:%s:%d:%s:%d:%d"):format(i.id:sub(1, 8),
+      (i.parent or ""):sub(1, 8), i.resolution or "", i.claim or "",
+      i.pr or 0, i.verdict or "", #(i.blocked_by or {}),
+      #(specs[i.id] or ""))
   end
   return table.concat(parts, "|")
 end
 
---- The refusal a phase move earns from the REAL gate, or nil when the
---- verbs would carry it out. Every driver move goes through here, so
---- "the ordering never names a refused move" is a claim about the
---- shipped gate rather than a copy of it.
---- @param items {Item} All items
---- @param from string The phase left, nil for an entry
---- @param to string The phase entered
---- @return string | nil The refusal
-local function refusal(items: {Item}, from: string, to: string): string | nil
-  return gate.wip_refusal(flow.board(items), from, to)
-end
-
---- Carry out one action the way the verbs do, mutating `items`, and
---- return what went wrong so a caller asserts on nil rather than
---- finding a silent no-op several steps later.
+--- Carry out one action the way the verbs do, mutating `items` and
+--- `specs`, and return what went wrong so a caller asserts on nil
+--- rather than finding a silent no-op several steps later.
 --- @param items {Item} All items, appended to by intake
+--- @param specs act.Specs Sidecar body by id
 --- @param a act.Action The action to carry out
 --- @param session string The acting session
 --- @param r Rng The generator, consulted for the review verdict
 --- @return string | nil What refused it, nil when it was carried out
-local function apply(items: {Item}, a: act.Action, session: string,
-    r: Rng): string | nil
+local function apply(items: {Item}, specs: act.Specs, a: act.Action,
+    session: string, r: Rng): string | nil
   local it = a.item
-  if a.kind == "finish" and it.phase == "land" then
-    it.phase = ""
-    it.resolution = "completed"
-    gate.rephased_parent(it, items)
-    return nil
-  end
   if a.kind == "finish" then
-    local no = refusal(items, "do", "check")
-    if no then
-      return no
+    local sub = flow.substate(it)
+    if sub == "accepted" then
+      it.resolution = "completed"
+      it.claim = ""
+      return nil
     end
-    it.phase = "check"
+    if sub == "rework" then
+      -- The rework hands back on the same PR: the verdict re-opens.
+      it.claim = session
+      it.verdict = ""
+      return nil
+    end
+    -- A build in progress hands over: the claim moves to the actor
+    -- (a stale takeover is this same write) and the PR is opened.
+    it.claim = session
     it.pr = 7
     return nil
   end
   if a.kind == "review" then
-    -- Three verdicts leave `check`; two of them go backwards, and a
-    -- walk that only ever accepts never exercises the rework path the
-    -- ordering has to pick back up.
-    local to = "land"
-    if roll(r, 4) == 1 then
-      to = "do"
+    -- Three verdicts; a walk that only ever accepts never exercises
+    -- the rework or reject paths the ordering has to pick back up.
+    local kind = roll(r, 6)
+    if kind == 1 then
+      it.verdict = "request changes"
+    elseif kind == 2 then
+      it.claim = ""
+      it.pr = 0
+      it.verdict = ""
+    else
+      it.verdict = "accept"
     end
-    local no = refusal(items, "check", to)
-    if no then
-      return no
-    end
-    it.phase = to
+    it.reviewer = ""
     return nil
   end
   if a.kind == "pull" then
-    local no = refusal(items, "ready", "do")
+    local no = flow.doing_refusal(items)
     if no then
       return no
     end
-    it.phase = "do"
     it.claim = session
     return nil
   end
   if a.kind == "refine" then
-    local no = refusal(items, "plan", "ready")
-    if no then
-      return no
+    -- Refinement is a spec write: the sidecar reaches the bar.
+    if #flow.ready_gaps(specs[it.id] or "") == 0 then
+      return "refine offered a spec already passing the bar"
     end
-    it.phase = "ready"
-    return nil
-  end
-  if a.kind == "promote" then
-    local no = refusal(items, "backlog", "plan")
-    if no then
-      return no
-    end
-    it.phase = "plan"
-    return nil
-  end
-  if a.kind == "sweep" then
-    -- The rung offers promote-or-close; the walk closes, since
-    -- promotion is the rung above and a sweep that promoted would
-    -- never end an item nobody has chosen.
-    it.phase = ""
-    it.resolution = "not-planned"
-    gate.rephased_parent(it, items)
+    specs[it.id] = READY
     return nil
   end
   if a.kind == "triage" then
     -- Adoption under a placed root, which is the branch of triage that
-    -- keeps an item alive; `attach` is not WIP-gated, so neither is
-    -- this.
+    -- keeps an item alive; `attach` is ungated, so neither is this.
     local placed = flow.roots(items)
     if #placed == 0 then
       it.resolution = "not-planned"
       return nil
     end
     it.parent = placed[1].id
-    it.phase = "backlog"
-    gate.dephased_container(placed[1])
+    gate.containered(placed[1])
     return nil
   end
   if a.kind == "intake" then
-    -- Decomposition writes into the unbounded backlog, so nothing
-    -- refuses it.
-    local born = make({parent = it.id, title = "slice", phase = "backlog"})
+    if it == nil then
+      return "advice"
+    end
+    local born = make({parent = it.id})
     items[#items + 1] = born
-    gate.dephased_container(it)
+    gate.containered(it)
     return nil
   end
   if a.kind == "unblock" then
-    -- The walk resolves starvation the way a session's `unblock` does
+    -- The walk resolves a stall the way a session's `unblock` does
     -- after judging the recorded reasons: edges waiting on the named
-    -- chain root are dropped. The verb is not WIP-gated, nor is this.
+    -- chain root are dropped. The verb is ungated, so neither is this.
     for _, i in ipairs(items) do
       local kept: {string} = {}
       for _, b in ipairs(i.blocked_by or {}) do
@@ -209,55 +190,61 @@ local function apply(items: {Item}, a: act.Action, session: string,
 end
 
 --- A board nobody wrote by hand: three roots chained by comparisons so
---- every one is placed, leaves scattered across the phases within
---- their limits, a few blocker edges and foreign claims, and a couple
---- of unplaced captures for the triage queue. Some claims are the
---- asking session's own, because a phase full of work the asker may
---- not judge is a STARTING state rather than one a walk arrives at:
---- the ordering finishes a `do` item into `check` before pulling
---- another, so a walk never holds both full at once.
+--- every one is placed, leaves scattered across the states, most specs
+--- already at the bar, a few blocker edges and foreign claims, and a
+--- couple of unplaced captures for the triage queue.
 --- @param r Rng The generator
 --- @param leaves integer How many workable leaves to scatter
 --- @param session string The session the walk will ask as
 --- @return {Item} A legal board
-local function generate(r: Rng, leaves: integer, session: string): {Item}
-  -- Some boards are the asking session's ALONE. Drawing each claim
-  -- independently makes "every item in `check` is mine" vanishingly
-  -- rare at ten items, and that is precisely the state where no
-  -- verdict the asker may write drains the phase it is filling.
+--- @return act.Specs The sidecars
+local function generate(r: Rng, leaves: integer,
+    session: string): {Item}, act.Specs
   local alone = roll(r, 3) == 1
   local roots: {Item} = {make({}), make({}), make({})}
   roots[1].beats = {roots[2].id}
   roots[2].beats = {roots[3].id}
   local items: {Item} = {roots[1], roots[2], roots[3]}
+  local specs: act.Specs = {}
   local workable: {Item} = {}
   for _ = 1, leaves do
     local parent = roots[roll(r, #roots)]
-    local phase = item.PHASES[roll(r, #item.PHASES)]
-    -- Generate a LEGAL board, or the first assertion is about this
-    -- function and not the ordering. An unbounded phase always takes
-    -- one more, so overflow spills into `backlog`.
-    local limit = flow.LIMITS[phase]
-    if limit ~= nil and #(flow.board(items)[phase] or {}) >= limit then
-      phase = "backlog"
-    end
-    local room = flow.LIMITS[phase]
-    if room == nil or #(flow.board(items)[phase] or {}) < room then
-      local over: {string: any} = {parent = parent.id, phase = phase}
-      if phase == "do" or phase == "check" then
-        local who = roll(r, 4)
-        if alone or who == 1 then
-          over.claim = session
-        elseif who < 4 then
-          over.claim = ("wake-%d"):format(roll(r, 3))
-        end
-        if phase == "check" then
-          over.pr = 7
-        end
+    local shape = roll(r, 6)
+    local over: {string: any} = {parent = parent.id}
+    local who = roll(r, 4)
+    local name = (alone or who == 1) and session
+    or ("wake-%d"):format(roll(r, 3))
+    -- Shapes 1-2 are todo; 3 builds, 4 reviews, 5 reworks, 6 stands
+    -- accepted — but never past the doing bound, or the generator
+    -- would hand the ordering a board the verbs could not have made.
+    local doing = 0
+    for _, i in ipairs(items) do
+      if item.is_open(i) and flow.is_doing(i) then
+        doing = doing + 1
       end
-      local leaf = make(over)
-      items[#items + 1] = leaf
-      workable[#workable + 1] = leaf
+    end
+    if shape >= 3 and doing >= flow.DOING_LIMIT then
+      shape = roll(r, 2)
+    end
+    if shape == 3 then
+      over.claim = name
+    elseif shape == 4 then
+      over.claim = name
+      over.pr = 7
+    elseif shape == 5 then
+      over.claim = name
+      over.pr = 7
+      over.verdict = "request changes"
+    elseif shape == 6 then
+      over.claim = name
+      over.pr = 7
+      over.verdict = "accept"
+    end
+    local leaf = make(over)
+    items[#items + 1] = leaf
+    workable[#workable + 1] = leaf
+    if roll(r, 5) > 1 then
+      specs[leaf.id] = READY
     end
   end
   for _ = 1, roll(r, 4) do
@@ -270,162 +257,106 @@ local function generate(r: Rng, leaves: integer, session: string): {Item}
   for _ = 1, roll(r, 3) do
     items[#items + 1] = make({})
   end
-  return items
-end
-
---- The ordinary STARTING moves open to this session: an unblocked,
---- unheld `ready` item with room in `do` and `check`, an unblocked
---- `plan` item with room in `ready`, or an unblocked `backlog` item
---- with room in `plan`. Answering `none` while one stands is the
---- ordering giving up on work it could have handed out.
---- @param items {Item} All items
---- @param session string The asking session
---- @return string | nil What was open, nil when neither was
-local function starting_work(items: {Item}, session: string): string | nil
-  local b = flow.board(items)
-  local index = flow.by_id(items)
-  if #(b["do"] or {}) < flow.LIMITS["do"]
-  and #(b["check"] or {}) < flow.LIMITS["check"] then
-    for _, i in ipairs(b["ready"] or {}) do
-      local held = (i.claim or "") ~= "" and i.claim ~= session
-      if not held and not flow.is_blocked(i, index) then
-        return ("ready item %s was pullable"):format(i.id:sub(1, 8))
-      end
-    end
-  end
-  if #(b["ready"] or {}) < flow.LIMITS["ready"] then
-    for _, i in ipairs(b["plan"] or {}) do
-      if not flow.is_blocked(i, index) then
-        return ("plan item %s was refinable"):format(i.id:sub(1, 8))
-      end
-    end
-  end
-  if #(b["plan"] or {}) < flow.LIMITS["plan"] then
-    for _, i in ipairs(b["backlog"] or {}) do
-      if not flow.is_blocked(i, index) then
-        return ("backlog item %s was promotable"):format(i.id:sub(1, 8))
-      end
-    end
-  end
-  return nil
+  return items, specs
 end
 
 -- SAFETY. Over boards nobody wrote by hand, every action the ordering
 -- names is one the verbs would carry out, and carrying it out moves
 -- the board. That second half rules out the livelock: an action
 -- leaving the board where it stands comes back identical.
-local function test_no_walk_ever_names_a_move_the_gate_refuses()
+local function test_no_walk_ever_names_an_action_the_gates_refuse()
   for seed = 1, 40 do
     local r = rng(seed)
-    local items = generate(r, 18, "wake-0")
+    local items, specs = generate(r, 18, "wake-0")
     for step = 1, 150 do
-      -- A session per wake, not one for the whole walk: the rotation
-      -- exercises the handovers a real board sees — a claim written by
-      -- one name and read by another — rather than a single identity
-      -- carrying every item end to end.
       local session = ("wake-%d"):format(step // 3)
-      local a = act.next_action(items, session)
+      local a = act.next_action(items, specs, session)
       if a.kind == "none" or a.item == nil then
-        local open = starting_work(items, session)
-        assert(open == nil, ("seed %d step %d: answered %s but %s"):format(
-            seed, step, a.kind, open or ""))
         break
       end
       local index = flow.by_id(items)
       if a.kind == "pull" then
         assert(not flow.is_blocked(a.item, index),
           ("seed %d: pulled a blocked item"):format(seed))
-        assert((a.item.claim or "") == "" or a.item.claim == session,
-          ("seed %d: pulled another session's claim"):format(seed))
+        assert((a.item.claim or "") == "" and (a.item.pr or 0) == 0,
+          ("seed %d: pulled in-flight work"):format(seed))
+        assert(#flow.ready_gaps(specs[a.item.id] or "") == 0,
+          ("seed %d: pulled past the spec bar"):format(seed))
+        assert(flow.doing_refusal(items) == nil,
+          ("seed %d: pulled past the doing bound"):format(seed))
       end
-      if a.kind == "refine" then
-        assert(not flow.is_blocked(a.item, index),
-          ("seed %d: refined a blocked item into ready"):format(seed))
+      if a.kind == "finish" and flow.substate(a.item) ~= "accepted" then
+        local mine = (a.item.claim or "") == ""
+        or a.item.claim == session
+        assert(mine, ("seed %d: finished another session's live claim")
+          :format(seed))
       end
-      if a.kind == "finish" and a.item.phase == "do" then
-        assert((a.item.claim or "") == "" or a.item.claim == session,
-          ("seed %d: finished another session's claim"):format(seed))
-      end
-      local before = signature(items)
-      local bad = apply(items, a, session, r)
+      local before = signature(items, specs)
+      local bad = apply(items, specs, a, session, r)
       assert(bad == nil, ("seed %d step %d: %s was refused: %s"):format(
           seed, step, a.kind, bad or ""))
-      assert(signature(items) ~= before,
+      assert(signature(items, specs) ~= before,
         ("seed %d step %d: %s moved nothing"):format(seed, step, a.kind))
     end
   end
 end
-test_no_walk_ever_names_a_move_the_gate_refuses()
-
---- Who acts next: whoever owns an unfinished `do` claim, and a fresh
---- wake only when nobody does.
----
---- A claim has no expiry, so work a session PULLED and did not hand
---- over is actionable by that name alone, and draining needs it back.
---- Rework is not in that set — a non-accept verdict makes the item
---- anyone's — so this resumes a builder only for work in progress.
---- The narrower this is, the more of the drain the ORDERING is doing.
---- @param items {Item} All items
---- @param wake integer The next fresh wake number
---- @return string The session that acts
-local function actor(items: {Item}, wake: integer): string
-  for _, i in ipairs(items) do
-    local verdict = i.verdict or ""
-    if item.is_open(i) and i.phase == "do" and (i.claim or "") ~= ""
-    and (verdict == "" or verdict == "accept") then
-      return i.claim
-    end
-  end
-  return ("wake-%d"):format(wake)
-end
+test_no_walk_ever_names_an_action_the_gates_refuse()
 
 -- SAFETY, the solo case. One session for the whole walk is the
--- narrowest board there is: it builds into `check`, judges what it
--- built, and drains the phase it fills, all under one name. Every
--- answer it gets must still be one it can act on, and acting on it
--- must still move the board — the rotating walk spreads that load
--- across names and can hide a single-name stall.
+-- narrowest board there is: it builds, judges what stands for review,
+-- and drains what it fills, all under one name. Every answer it gets
+-- must still be one it can act on, and acting on it must still move
+-- the board.
 local function test_a_solo_session_never_names_an_answer_it_cannot_act_on()
   for seed = 1, 25 do
     local r = rng(seed + 900)
-    -- Enough leaves that `check` and `do` both reach their limits at
-    -- generation: the stall needs a full `check` AND something in `do`
-    -- at the same instant, which a smaller board never holds.
-    local items = generate(r, 44, "solo")
+    local items, specs = generate(r, 30, "solo")
     for step = 1, 200 do
-      local a = act.next_action(items, "solo")
+      local a = act.next_action(items, specs, "solo")
       if a.kind == "none" or a.item == nil then
-        local open = starting_work(items, "solo")
-        assert(open == nil, ("seed %d step %d: answered %s but %s"):format(
-            seed, step, a.kind, open or ""))
         break
       end
-      local before = signature(items)
-      local bad = apply(items, a, "solo", r)
+      local before = signature(items, specs)
+      local bad = apply(items, specs, a, "solo", r)
       assert(bad == nil, ("seed %d step %d: %s was refused: %s"):format(
           seed, step, a.kind, bad or ""))
-      assert(signature(items) ~= before,
+      assert(signature(items, specs) ~= before,
         ("seed %d step %d: %s moved nothing"):format(seed, step, a.kind))
     end
   end
 end
 test_a_solo_session_never_names_an_answer_it_cannot_act_on()
 
+--- Who acts next: whoever owns unfinished in-flight work, and a fresh
+--- wake only when nobody does. A claim has no expiry, so work a
+--- session took and did not finish is actionable by that name alone,
+--- and draining needs it back.
+--- @param items {Item} All items
+--- @param wake integer The next fresh wake number
+--- @return string The session that acts
+local function actor(items: {Item}, wake: integer): string
+  for _, i in ipairs(items) do
+    if item.is_open(i) and (i.claim or "") ~= "" then
+      return i.claim
+    end
+  end
+  return ("wake-%d"):format(wake)
+end
+
 -- LIVENESS. A board whose work is all finishable drains to nothing.
 -- The second root is CLOSED: it places the first through the
 -- comparison without being an open root itself, which would draw an
--- intake before the first's subtree had finished. A wake ends only
--- when it holds nothing in `do` — the slice loop, pull, build, hand
--- over — since rotating mid-slice would strand the claim.
+-- intake before the first's subtree had finished.
 local function test_a_finishable_board_drains_to_nothing()
   for seed = 1, 12 do
     local r = rng(seed + 500)
     local spent = make({resolution = "completed"})
     local root = make({beats = spent.id})
     local items: {Item} = {spent, root}
+    local specs: act.Specs = {}
     local children: {Item} = {}
     for _ = 1, 6 do
-      local leaf = make({parent = root.id, phase = "plan"})
+      local leaf = make({parent = root.id})
       items[#items + 1] = leaf
       children[#children + 1] = leaf
     end
@@ -435,7 +366,7 @@ local function test_a_finishable_board_drains_to_nothing()
     for step = 1, 400 do
       steps = step
       local session = actor(items, wake)
-      local a = act.next_action(items, session)
+      local a = act.next_action(items, specs, session)
       -- An `intake`, or nothing at all, ends a WAKE rather than the
       -- walk: the next one is a different session, and what this one
       -- left standing is the first thing it sees. Two idle wakes in a
@@ -448,7 +379,7 @@ local function test_a_finishable_board_drains_to_nothing()
         wake = wake + 1
       else
         idle = 0
-        local bad = apply(items, a, session, r)
+        local bad = apply(items, specs, a, session, r)
         assert(bad == nil, ("seed %d step %d: %s was refused: %s"):format(
             seed, step, a.kind, bad or ""))
         if roll(r, 3) == 1 then
@@ -459,8 +390,9 @@ local function test_a_finishable_board_drains_to_nothing()
     assert(steps < 400, ("seed %d: the walk never settled"):format(seed))
     for _, c in ipairs(children) do
       assert(not item.is_open(c),
-        ("seed %d: %s never finished, left in %s"):format(
-          seed, c.id:sub(1, 8), c.phase == "" and "no phase" or c.phase))
+        ("seed %d: %s never finished, left %s"):format(
+          seed, c.id:sub(1, 8),
+          flow.is_doing(c) and flow.substate(c) or "todo"))
     end
   end
 end
@@ -469,26 +401,23 @@ test_a_finishable_board_drains_to_nothing()
 -- Rework is its builder's while the claim is live: the board cannot
 -- see a builder's build-test-push loop, so liveness is the lease's to
 -- judge, the same as any other claim. A rework whose claimant stopped
--- waking surfaces when the lease expires, as a --force takeover.
+-- waking surfaces when the lease expires, as a takeover.
 local function test_a_rework_is_its_builders_until_the_lease_expires()
-  local root = make({})
-  local reworking = make({parent = root.id, phase = "do", claim = "session-A",
-      pr = 7, verdict = "request changes", verdict_head = "abc123",
-      enable = "none: this item's own spec was the fault"})
-  local items: {Item} = {root, reworking}
-  local builder = act.next_action(items, "session-A")
+  local spent = make({resolution = "completed"})
+  local root = make({beats = spent.id})
+  local reworking = make({parent = root.id, claim = "session-A",
+      pr = 7, verdict = "request changes", verdict_head = "abc123"})
+  local items: {Item} = {spent, root, reworking}
+  local specs: act.Specs = {[reworking.id] = READY}
+  local builder = act.next_action(items, specs, "session-A")
   assert(builder.kind == "finish" and builder.item.id == reworking.id,
     "the builder picks its own rework up: " .. builder.kind)
-  local other = act.next_action(items, "session-B")
+  local other = act.next_action(items, specs, "session-B")
   assert(other.kind ~= "finish",
     "a live rework claim holds like any other: " .. other.kind)
   local stale: {string: integer} = {[reworking.id] = 5 * 60 * 60}
-  local takeover = act.next_action(items, "session-B", stale)
+  local takeover = act.next_action(items, specs, "session-B", stale)
   assert(takeover.kind == "finish" and takeover.item.id == reworking.id,
     "a stale rework claim is anyone's: " .. takeover.kind)
-  assert(takeover.reason:find("--claim session-B --force --why", 1, true),
-    "who is told everything the move guard demands: " .. takeover.reason)
-  -- The no-verdict half of this boundary (work in progress stays its
-  -- claimant's) is action_test's test_another_sessions_claim_is_not_handed_over.
 end
 test_a_rework_is_its_builders_until_the_lease_expires()

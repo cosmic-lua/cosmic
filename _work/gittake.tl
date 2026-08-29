@@ -4,19 +4,16 @@
 --- `next`, reading boards that do not carry the claim yet, hands out
 --- the same item. Take-mode closes it: the decision's candidate list
 --- is walked in order, each claimable candidate is claimed on the
---- spot (`review` for a review, `move do --claim` for a pull, a
---- same-phase `move plan --claim` for a refine), and a
---- refusal — the compare-and-swap losing, or a claim already landed —
---- falls to the next candidate instead of fighting. When the list
---- exhausts, the board is synced and the decision recomputed once:
---- losing every candidate means the board moved under this session,
---- and the fresh read is the answer.
+--- spot (`review` for a review, `take` for a pull), and a refusal —
+--- the compare-and-swap losing, or a claim already landed — falls to
+--- the next candidate instead of fighting. When the list exhausts,
+--- the board is synced and the decision recomputed once: losing every
+--- candidate means the board moved under this session, and the fresh
+--- read is the answer.
 ---
---- A kind with no lock (finish, unblock, promote, sweep, triage,
---- intake, none) reports exactly as bare `next` does — there is
---- nothing to fuse. Refinement IS locked: two sessions handed the
---- same plan item refine it twice and the second write is refused
---- after the work, so the claim moves to where the collision starts.
+--- A kind with no lock (finish, unblock, refine, triage, intake,
+--- none) reports exactly as bare `next` does — there is nothing to
+--- fuse.
 local act = require("_work.action")
 local decision = require("_work.decision")
 local gate = require("_work.gitgate")
@@ -69,10 +66,7 @@ end
 
 --- Attempt the claim a candidate's kind calls for. The claim verbs
 --- print their own verdict lines, which is deliberate: a lost race is
---- visible in the transcript rather than swallowed. A refine claim is
---- a same-phase move, so `set_in_place` writes it and refuses a live
---- foreign claim; one this session already holds is already taken,
---- with nothing to record.
+--- visible in the transcript rather than swallowed.
 --- @param s store.Store The store
 --- @param c Action The candidate
 --- @param session string The claiming session
@@ -82,15 +76,7 @@ local function claimed(s: store.Store, c: Action, session: string): boolean
     return rev.cmd_review(s, c.item.id, session, false, "") == 0
   end
   if c.kind == "pull" then
-    return verbs.cmd_move(s, c.item.id, "do", session, 0, false, "",
-      false, session) == 0
-  end
-  if c.kind == "refine" then
-    if (c.item.claim or "") == session then
-      return true
-    end
-    return verbs.cmd_move(s, c.item.id, "plan", session, 0, false, "",
-      false, session) == 0
+    return verbs.cmd_take(s, c.item.id, session, 0, false, "") == 0
   end
   return false
 end
@@ -99,7 +85,7 @@ end
 --- @param c Action The candidate
 --- @return boolean True for the claimable kinds
 local function claimable(c: Action): boolean
-  return c.kind == "review" or c.kind == "pull" or c.kind == "refine"
+  return c.kind == "review" or c.kind == "pull"
 end
 
 --- The take loop: decide, claim down the candidate list, and on a
@@ -118,7 +104,14 @@ local function cmd_take(s: store.Store, session: string): integer
     if all == nil then
       return gate.verdict_line("next", false, aerr)
     end
-    local action = act.next_action(all, session, claim_ages(s, all), session)
+    local specs: act.Specs = {}
+    for _, i in ipairs(all) do
+      if item.is_open(i) then
+        specs[i.id] = store.read_spec(s, i.id)
+      end
+    end
+    local action = act.next_action(all, specs, session,
+      claim_ages(s, all), session)
     if not claimable(action) then
       return gate.verdict_line("next", true, render(action, ""))
     end

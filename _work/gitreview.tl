@@ -1,7 +1,7 @@
---- The review claim: `check`'s counterpart to `move --claim`, pushed
+--- The review claim: the reviewer's counterpart to `take`, pushed
 --- BEFORE the reading starts so two sessions never verify one diff.
 ---
---- The builder's claim survives into `check`, but it names who BUILT
+--- The builder's claim survives the handover, but it names who BUILT
 --- the thing — it excludes nobody from reviewing, so under concurrent
 --- sessions every session that asked `next` was handed the same top
 --- item, and the second learned of the first only when its verdict
@@ -46,14 +46,17 @@ local function cmd_review(s: store.Store, id: string, session: string,
   if it == nil then
     return gate.verdict_line("review", false, lerr)
   end
-  if (it.phase or "") ~= "check" then
-    local where = it.phase
-    if where == "" then
-      where = "no phase"
-    end
+  if (it.pr or 0) == 0 then
     return gate.verdict_line("review", false,
-      ("REFUSED: %s is in %s — a review claims work awaiting a verdict "
-        .. "in check"):format(id:sub(1, 8), where))
+      ("REFUSED: %s has no PR — a review claims a diff awaiting a "
+        .. "verdict"):format(id:sub(1, 8)))
+  end
+  if (it.verdict or "") ~= "" then
+    return gate.verdict_line("review", false,
+      ("REFUSED: %s already carries a %s verdict — %s"):format(
+        id:sub(1, 8), it.verdict,
+        it.verdict == "accept" and "land it" or
+        "the rework returns for review when its builder hands it back"))
   end
   if (it.reviewer or "") == session then
     return gate.verdict_line("review", true,

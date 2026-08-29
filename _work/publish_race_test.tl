@@ -10,6 +10,7 @@
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
+local flow = require("_work.flow")
 local graph = require("_work.gitgraph")
 local health = require("_work.health")
 local item = require("_work.item")
@@ -48,12 +49,11 @@ end
 test_a_lost_block_race_cannot_land_a_cycle()
 
 -- Concurrent `done` of a container's last two children: each session
--- read the other's child as still open, so neither computed the
--- parent's return, and the parent sat open, workable and unphased.
--- Now the loser re-runs against the merged state, sees it is closing
--- the LAST open child, and the parent comes back to backlog in the
--- same commit.
-local function test_a_lost_done_race_rephases_the_parent()
+-- read the other's child as still open. The loser re-runs against the
+-- merged state, sees it is closing the LAST open child, and its
+-- verdict line says the parent is workable again — no write needed,
+-- because state is derived, but the fact must not be lost.
+local function test_a_lost_done_race_reopens_the_parent()
   local a, b = init_shared("race-done")
   local root = file_item(a, "an outcome", "")
   local parent = file_item(a, "a slice being decomposed", root)
@@ -62,20 +62,23 @@ local function test_a_lost_done_race_rephases_the_parent()
   assert(store.sync(b))
 
   assert(verbs.cmd_done(a, c1, "completed", false, "") == 0)
-  -- b still sees c1 open, so its stale run would not re-phase the
-  -- parent — the miss that used to merge cleanly.
+  -- b still sees c1 open, so its stale run would not see the parent
+  -- becoming workable — the miss that used to merge cleanly.
   assert(verbs.cmd_done(b, c2, "completed", false, "") ~= 0,
     "the losing done is refused, not replayed")
   assert(item.is_open(check.must(store.load(b, c2))),
     "the dropped close is undone whole")
-  -- The re-run closes the last open child and brings the parent back.
+  -- The re-run closes the last open child; the parent is workable
+  -- again by derivation.
   assert(verbs.cmd_done(b, c2, "completed", false, "") == 0,
     "the re-run lands against the merged state")
   assert(store.sync(a))
   assert(not item.is_open(check.must(store.load(a, c2))), "c2 is closed")
-  assert(check.must(store.load(a, parent)).phase == "backlog",
-    "the parent returns to the board instead of stranding unphased")
+  local all = check.must(store.list(a))
+  local back = check.must(store.load(a, parent))
+  assert(flow.role(back, all) == "work",
+    "the parent is workable again instead of stranding off the board")
 end
-test_a_lost_done_race_rephases_the_parent()
+test_a_lost_done_race_reopens_the_parent()
 
 print("all publish-race tests passed")

@@ -1,16 +1,18 @@
 #!/usr/bin/env cosmic
 -- The flow rules are pure functions over item lists. What they pin is
--- the emergent-role claim itself: with no kind field anywhere, a
--- parentless item reads as a root, one with open children as a
--- container, and a parented leaf as the only thing the kanban moves —
--- plus the return a limit never holds back, the blocker relation, and
--- placement in the priority order as a graph property. What a role
--- does with all this is `_work/action_test.tl`.
+-- the emergent-role and derived-state claims themselves: with no kind
+-- field and no phase field anywhere, a parentless item reads as a
+-- root, one with open children as a container, and a parented leaf as
+-- workable — todo while unclaimed and PR-less, doing otherwise, with
+-- the substate read off the same facts. Plus the one doing bound, the
+-- blocker relation, and the graph problems `status` reports. What a
+-- session DOES with all this is `_work/action_test.tl`.
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local prio = require("_work.priority")
 
 local counter = 0
 
@@ -34,7 +36,7 @@ local function test_roles_emerge_from_the_graph()
   local top = make({})
   local captured = make({})
   local epic = make({parent = top.id})
-  local leaf = make({parent = epic.id, phase = "ready"})
+  local leaf = make({parent = epic.id})
   local items: {item.Item} = {top, captured, epic, leaf}
   assert(flow.role(top, items) == "container", "a root with children")
   assert(flow.role(captured, items) == "root", "a childless root")
@@ -43,50 +45,68 @@ local function test_roles_emerge_from_the_graph()
 end
 test_roles_emerge_from_the_graph()
 
-local function test_board_holds_open_phased_items_only()
+local function test_state_derives_from_the_facts()
   local goal = make({})
-  local worked = make({parent = goal.id, phase = "ready"})
-  local unphased = make({parent = goal.id})
+  local fresh = make({parent = goal.id})
+  local claimed = make({parent = goal.id, claim = "session-A"})
+  local handed = make({parent = goal.id, claim = "session-A", pr = 7})
+  local sent_back = make({parent = goal.id, claim = "session-A", pr = 7,
+      verdict = "request changes"})
+  local judged = make({parent = goal.id, claim = "session-A", pr = 7,
+      verdict = "accept"})
+  assert(not flow.is_doing(fresh), "unclaimed and PR-less is todo")
+  assert(flow.is_doing(claimed) and flow.substate(claimed) == "building",
+    "a claim alone is a build in progress")
+  assert(flow.substate(handed) == "review", "a PR with no verdict awaits one")
+  assert(flow.substate(sent_back) == "rework", "a send-back is rework")
+  assert(flow.substate(judged) == "accepted", "an accept awaits its merge")
+end
+test_state_derives_from_the_facts()
+
+local function test_in_state_holds_open_workable_leaves_only()
+  local goal = make({})
+  local todo = make({parent = goal.id})
+  local doing = make({parent = goal.id, claim = "session-A"})
   local done = make({parent = goal.id, resolution = "completed"})
-  local items: {item.Item} = {goal, worked, unphased, done}
-  local b = flow.board(items)
-  local total = 0
-  for _, list in pairs(b) do
-    total = total + #list
+  local capture = make({})
+  local items: {item.Item} = {goal, todo, doing, done, capture}
+  local pos = prio.positions(items)
+  local todos = flow.in_state(items, "todo", pos)
+  assert(#todos == 1 and todos[1].id == todo.id,
+    "roots, containers, doing and done items are not todo")
+  local doings = flow.in_state(items, "doing", pos)
+  assert(#doings == 1 and doings[1].id == doing.id,
+    "only the claimed leaf is doing")
+end
+test_in_state_holds_open_workable_leaves_only()
+
+local function test_the_doing_bound_binds_new_takes_only()
+  local root = make({})
+  local items: {item.Item} = {root}
+  for k = 1, flow.DOING_LIMIT - 1 do
+    items[#items + 1] = make({parent = root.id,
+        claim = ("wake-%d"):format(k)})
   end
-  assert(total == 1 and b["ready"][1].id == worked.id,
-    "roots, containers-in-waiting, and done items are off the board")
+  assert(flow.doing_refusal(items) == nil,
+    "below the bound nothing is refused")
+  items[#items + 1] = make({parent = root.id, pr = 9})
+  local over = flow.doing_refusal(items)
+  assert(over ~= nil and over:find("finish something", 1, true),
+    "at the bound a new take is refused: " .. tostring(over))
 end
-test_board_holds_open_phased_items_only()
-
-local function test_a_return_is_admitted_over_a_limit()
-  assert(flow.is_return("check", "do"), "a send-back is a return")
-  assert(not flow.is_return("ready", "do"), "a pull queues")
-  assert(not flow.is_return(nil, "plan"), "an entry queues")
-end
-test_a_return_is_admitted_over_a_limit()
-
-local function test_arrivals_versus_writes_that_move_nothing()
-  assert(flow.is_arrival(nil, "plan"), "an entry arrives")
-  assert(flow.is_arrival("do", "check"), "a cross-phase move arrives")
-  assert(not flow.is_arrival("plan", "plan"),
-    "a same-phase write (spec, block) does not arrive")
-  assert(not flow.is_arrival("plan", ""), "de-phasing arrives nowhere")
-end
-test_arrivals_versus_writes_that_move_nothing()
+test_the_doing_bound_binds_new_takes_only()
 
 local function test_blocked_items_are_skipped()
   local goal = make({})
-  local open_blocker = make({parent = goal.id, phase = "do"})
-  local blocked = make({parent = goal.id, phase = "ready",
-      blocked_by = open_blocker.id})
-  local free = make({parent = goal.id, phase = "ready"})
+  local open_blocker = make({parent = goal.id, claim = "session-A"})
+  local blocked = make({parent = goal.id, blocked_by = open_blocker.id})
+  local free = make({parent = goal.id})
   local items: {item.Item} = {goal, open_blocker, blocked, free}
   local index = flow.by_id(items)
   assert(flow.is_blocked(blocked, index), "open blocker blocks")
   assert(not flow.is_blocked(free, index), "no blocker")
   local done_blocker = make({parent = goal.id, resolution = "completed"})
-  local was_blocked = make({parent = goal.id, phase = "ready",
+  local was_blocked = make({parent = goal.id,
       blocked_by = done_blocker.id})
   local later = flow.by_id({goal, done_blocker, was_blocked})
   assert(not flow.is_blocked(was_blocked, later),
@@ -97,27 +117,22 @@ test_blocked_items_are_skipped()
 local function test_graph_problems()
   local goal = make({})
   local finding = make({})
-  local orphan = make({parent = fresh_id(), phase = "plan"})
+  local orphan = make({parent = fresh_id()})
   local epic = make({parent = goal.id})
-  local phased_parent = make({parent = goal.id, phase = "do"})
-  local kid = make({parent = phased_parent.id, phase = "plan"})
-  local untraced = make({parent = finding.id, phase = "plan"})
-  local items: {item.Item} = {goal, finding, orphan, epic, phased_parent,
-    kid, untraced}
+  local kid = make({parent = epic.id})
+  local items: {item.Item} = {goal, finding, orphan, epic, kid}
   local problems = flow.graph_problems(items)
   local text = table.concat(problems, "\n")
   assert(text:find("does not exist", 1, true), "orphan parent: " .. text)
-  assert(text:find("has open children", 1, true), "phased container: " .. text)
-  assert(text:find("no position in the priority order", 1, true),
-    "phased work nothing has placed: " .. text)
+  assert(#problems == 1, "nothing else is a graph problem: " .. text)
 end
 test_graph_problems()
 
 local function test_waits_on_follows_a_blocker_chain()
   local goal = make({})
-  local a = make({parent = goal.id, phase = "ready"})
-  local b = make({parent = goal.id, phase = "ready", blocked_by = a.id})
-  local c = make({parent = goal.id, phase = "ready", blocked_by = b.id})
+  local a = make({parent = goal.id})
+  local b = make({parent = goal.id, blocked_by = a.id})
+  local c = make({parent = goal.id, blocked_by = b.id})
   local index = flow.by_id({goal, a, b, c})
   assert(flow.waits_on(index, c.id, a.id), "c waits on a through b")
   assert(not flow.waits_on(index, a.id, c.id), "and a waits on nothing")
@@ -126,72 +141,26 @@ test_waits_on_follows_a_blocker_chain()
 
 local function test_waits_on_terminates_on_a_cycle_already_in_the_data()
   local goal = make({})
-  local a = make({parent = goal.id, phase = "ready"})
-  local b = make({parent = goal.id, phase = "ready", blocked_by = a.id})
+  local a = make({parent = goal.id})
+  local b = make({parent = goal.id, blocked_by = a.id})
   a.blocked_by = {b.id}
   local index = flow.by_id({goal, a, b})
   assert(flow.waits_on(index, a.id, b.id), "the cycle is still reported")
-  local elsewhere = make({parent = goal.id, phase = "ready"})
+  local elsewhere = make({parent = goal.id})
   assert(not flow.waits_on(index, a.id, elsewhere.id),
     "and a walk that finds nothing still returns rather than spinning")
 end
 test_waits_on_terminates_on_a_cycle_already_in_the_data()
 
-local function test_the_triage_queue_has_a_bound()
-  local queue: {item.Item} = {}
-  for _ = 1, flow.TRIAGE_LIMIT do
-    queue[#queue + 1] = make({})
-  end
-  assert(flow.triage_violation(queue) == nil,
-    "a queue at the bound is not a violation")
-  queue[#queue + 1] = make({})
-  local over = flow.triage_violation(queue)
-  local want = ("triage %d/%d over limit"):format(flow.TRIAGE_LIMIT + 1,
-    flow.TRIAGE_LIMIT)
-  assert(over == want, "got: " .. tostring(over))
+local function test_untriaged_holds_unplaced_childless_roots()
+  local placed = make({})
+  local lesser = make({})
+  placed.beats = {lesser.id}
+  local capture = make({})
+  local adopted = make({parent = placed.id})
+  local items: {item.Item} = {placed, lesser, capture, adopted}
+  local queue = flow.untriaged(items)
+  assert(#queue == 1 and queue[1].id == capture.id,
+    "compared roots and adopted leaves are not triage")
 end
-test_the_triage_queue_has_a_bound()
-
--- The gate refuses an ordinary arrival from `count == limit` upward,
--- so a phase sitting exactly at its number is already turning work
--- away. Reporting only `count > limit` printed `WIP ok` over a board
--- that could not accept another item.
-local function test_a_phase_at_its_limit_reports_arrivals_refused()
-  local root = make({})
-  local under: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["do"] - 1 do
-    under[#under + 1] = make({parent = root.id, phase = "do"})
-  end
-  assert(#flow.wip_violations(flow.board(under)) == 0,
-    "below the limit reports nothing")
-  local at: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["do"] do
-    at[#at + 1] = make({parent = root.id, phase = "do"})
-  end
-  local lines = flow.wip_violations(flow.board(at))
-  assert(#lines == 1 and lines[1]:find("at limit — arrivals refused", 1, true),
-    "at the limit it says arrivals are refused: " .. table.concat(lines, "; "))
-  local over: {item.Item} = {root}
-  for _ = 1, flow.LIMITS["do"] + 1 do
-    over[#over + 1] = make({parent = root.id, phase = "do"})
-  end
-  local past = flow.wip_violations(flow.board(over))
-  assert(#past == 1 and past[1]:find("over limit", 1, true),
-    "past it, the older line stands: " .. table.concat(past, "; "))
-end
-test_a_phase_at_its_limit_reports_arrivals_refused()
-
--- `land` holds no limit at all: it is the rightmost phase, where the
--- only move left is out of the system, so however many items stand
--- there none of them is an arrival being turned away.
-local function test_land_is_unbounded()
-  assert(flow.LIMITS["land"] == nil, "land holds no WIP limit")
-  local root = make({})
-  local items: {item.Item} = {root}
-  for _ = 1, 12 do
-    items[#items + 1] = make({parent = root.id, phase = "land"})
-  end
-  assert(#flow.wip_violations(flow.board(items)) == 0,
-    "a deep land column is not turning anything away")
-end
-test_land_is_unbounded()
+test_untriaged_holds_unplaced_childless_roots()

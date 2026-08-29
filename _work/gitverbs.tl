@@ -1,5 +1,6 @@
---- The phase verbs: `move` and `done` (the phase crossings), `spec`,
---- and the housekeeping `init` and `sync` — every `cmd_*` behind
+--- The state verbs: `take` (claim work, record its PR), `drop`
+--- (release a claim with the gap named), `done`, `spec`, and the
+--- housekeeping `init` and `sync` — every `cmd_*` behind
 --- `_work/gitboard.tl`'s dispatch that is not a graph mutation. The
 --- verbs that shape the graph — `new`, `attach`, `block` and its
 --- `unblock` half — are `_work.gitgraph`. Both halves run over
@@ -14,8 +15,8 @@ local child = require("cosmic.child")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local fs = require("cosmic.fs")
+local health = require("_work.health")
 local item = require("_work.item")
-local spec = require("_work.spec")
 local store = require("_work.store")
 
 local function cmd_init(dir: string): integer
@@ -99,214 +100,206 @@ local function cmd_spec(s: store.Store, id: string, file: string,
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
---- Whether an item's spec sidecar carries a `## Result` section with
---- content under it. `spec.section_of` returns the heading line with
---- the section, so the heading alone is what an empty section looks
---- like here: the test is for a non-blank line below it.
+--- The age of one item's claim, for the lease checks, read from its
+--- last board commit.
 --- @param s store.Store The store
---- @param id string The item's full id
---- @return boolean True when the section exists and says something
-local function has_result(s: store.Store, id: string): boolean
-  local section = spec.section_of(store.read_spec(s, id), "Result")
-  local first = true
-  for line in (section .. "\n"):gmatch("([^\n]*)\n") do
-    if not first and line:match("%S") then
-      return true
-    end
-    first = false
+--- @param it item.Item The item
+--- @return health.Ages Seconds since last commit, for this item alone
+local function age_of(s: store.Store, it: item.Item): health.Ages
+  local ages: health.Ages = {}
+  local now = os.time()
+  local t = store.touched_at(s, it.id)
+  if t ~= nil and t <= now then
+    ages[it.id] = now - t
   end
-  return false
+  return ages
 end
 
-local function cmd_move(s: store.Store, id: string, target: string,
-    claim: string, pr: integer, force: boolean, why: string,
-    evidence?: boolean, mover?: string): integer
+--- take: claim an item, or record the PR that hands its build over.
+---
+--- A take of TODO work (no claim, no PR) is the pull, and it is where
+--- the two quality gates bind: the spec bar (`gate.ready_problems`)
+--- and the doing bound (`flow.doing_refusal`). Everything else `take`
+--- does — recording a PR on your own claim, re-claiming your own
+--- item, taking over a stale claim — is motion on work already in
+--- flight and asks neither.
+---
+--- Recording a PR is the handover to review: the request is read
+--- (open, not draft, `Board:` line, CI not failing —
+--- `gate.handover_refusal`), and a standing `request changes` verdict
+--- clears, because the new push is a new head to judge.
+--- @param s store.Store The store
+--- @param id string The item to take
+--- @param session string The claiming session
+--- @param pr integer The PR to record, 0 for none
+--- @param force boolean Take over a LIVE foreign claim
+--- @param why string Why --force was needed
+--- @return integer Exit code
+local function cmd_take(s: store.Store, id: string, session: string,
+    pr: integer, force: boolean, why: string): integer
   local forced = gate.force_refusal(force, why)
   if forced then
-    return gate.verdict_line("move", false, "REFUSED: " .. forced)
+    return gate.verdict_line("take", false, "REFUSED: " .. forced)
+  end
+  if (session or "") == "" then
+    return gate.verdict_line("take", false,
+      "REFUSED: a claim names its session — set GITBOARD_SESSION or pass "
+      .. "--session")
   end
   local it, lerr = store.load(s, id)
   if it == nil then
-    return gate.verdict_line("move", false, lerr)
+    return gate.verdict_line("take", false, lerr)
   end
   local all, aerr = store.list(s)
   if all == nil then
-    return gate.verdict_line("move", false, aerr)
+    return gate.verdict_line("take", false, aerr)
   end
   local r = flow.role(it, all)
   if r ~= "work" then
-    return gate.verdict_line("move", false,
-      ("%s is a %s — only workable leaves move through phases"):format(
-        id:sub(1, 8), r))
+    return gate.verdict_line("take", false,
+      ("%s is a %s — only workable leaves are taken"):format(id:sub(1, 8), r))
   end
-  local from = it.phase
-  if from == target then
-    return gate.set_in_place(s, it, claim, pr, force, why)
+  if not item.is_open(it) then
+    return gate.verdict_line("take", false,
+      ("%s is done (%s)"):format(id:sub(1, 8), it.resolution))
   end
-  -- The bar is asked of the item AS IT WOULD BE in the target phase,
-  -- so a repair move out of no-phase is judged on where it lands.
-  it.phase = target
-  if target == "ready" and not force then
-    local problems = gate.ready_problems(s, it, all)
-    if #problems > 0 then
-      for _, p in ipairs(problems) do
-        print("  " .. p)
+  -- Re-taking your own claim with nothing new to record is a no-op,
+  -- not a mutation: there is no change for the commit to carry.
+  if (it.claim or "") == session and (pr or 0) == 0 then
+    return gate.verdict_line("take", true,
+      ("%s is already yours"):format(id:sub(1, 8)))
+  end
+  -- The takeover rule: a claim is a lease. A live foreign claim is a
+  -- builder mid loop on a machine the board cannot see, taken over
+  -- only on the record; a stale one is anyone's again, noted.
+  local taken = ""
+  if (it.claim or "") ~= "" and it.claim ~= session then
+    if not health.is_stale(it, age_of(s, it)) and not force then
+      return gate.verdict_line("take", false,
+        ("REFUSED: %s is claimed by %s — take over a live claim with "
+          .. "--force --why"):format(id:sub(1, 8), it.claim))
+    end
+    taken = (" (taken over from %s)"):format(it.claim)
+  end
+  local was_todo = not flow.is_doing(it)
+  if was_todo then
+    local blocked: {string} = {}
+    local index = flow.by_id(all)
+    for _, b in ipairs(it.blocked_by or {}) do
+      if flow.binds(index, b) then
+        blocked[#blocked + 1] = b:sub(1, 8)
       end
-      return gate.verdict_line("move", false,
-        ("REFUSED: %s misses the ready bar"):format(id:sub(1, 8)))
+    end
+    if #blocked > 0 and not force then
+      return gate.verdict_line("take", false,
+        ("REFUSED: %s waits on %s — finish the blocker first, or drop "
+          .. "the edge if it no longer binds"):format(id:sub(1, 8),
+          table.concat(blocked, " ")))
+    end
+    if not force then
+      local problems = gate.ready_problems(s, it, all)
+      if #problems > 0 then
+        for _, p in ipairs(problems) do
+          print("  " .. p)
+        end
+        return gate.verdict_line("take", false,
+          ("REFUSED: %s misses the spec bar — refine it first"):format(
+            id:sub(1, 8)))
+      end
+      local bound = flow.doing_refusal(all)
+      if bound then
+        return gate.verdict_line("take", false, "REFUSED: " .. bound)
+      end
     end
   end
-  -- A handover to check is a handover to a REVIEWER, and the reviewer
-  -- follows the pr field to the diff — as does the landing step that
-  -- reads it back. Without one the item says "judge something" and
-  -- names nothing.
-  --
-  -- Except when what it hands over is evidence. A research slice's
-  -- deliverable is recorded findings and the follow-up items they
-  -- seed, and there is something to judge in that — are the numbers
-  -- sound, does the verdict follow, are the follow-ups the right ones
-  -- — which a session that did not do the measuring can judge. So
-  -- `--evidence` names that handover, and what it points the reviewer
-  -- at is the sidecar's `## Result` section. The flag is required
-  -- rather than inferred from a missing `--pr`: a code slice whose
-  -- builder forgot the number would otherwise reach a reviewer with
-  -- nothing to read.
-  if target == "check" and (pr or 0) == 0 and (it.pr or 0) == 0 and not force then
-    if not evidence then
-      return gate.verdict_line("move", false,
-        ("REFUSED: a handover to check names its PR — pass --pr N,"
-          .. " or --evidence to hand over recorded findings"))
+  it.claim = session
+  item.record_builder(it, session)
+  local handed = ""
+  if (pr or 0) ~= 0 then
+    if pr == (it.pr or 0) and (it.verdict or "") ~= "request changes"
+    and (it.claim or "") == session then
+      return gate.verdict_line("take", true,
+        ("%s already records pr:%d"):format(id:sub(1, 8), pr))
     end
-    if not has_result(s, id) then
-      return gate.verdict_line("move", false,
-        ("REFUSED: an evidence handover carries its findings — %s's spec"
-          .. " has no ## Result section"):format(id:sub(1, 8)))
+    if not force then
+      local refusal = gate.handover_refusal(s, id, pr, it.repo)
+      if refusal then
+        return gate.verdict_line("take", false, "REFUSED: " .. refusal)
+      end
     end
-  end
-  -- The claim is what says who built the diff a reviewer is about to
-  -- read, so a handover naming nobody hands over a diff with no
-  -- author, and no way to ask about it. Rework
-  -- is where this bites: the claim stays with the first builder by
-  -- design, so a second session taking the rework has to say so.
-  if target == "check" and (claim or "") == "" and (it.claim or "") == ""
-  and not force then
-    return gate.verdict_line("move", false,
-      "REFUSED: a handover to check names its builder — pass --claim <session>")
-  end
-  -- What GitHub is asked about is a PR, so this gate runs only when a
-  -- number is in hand. An evidence handover names none: there is
-  -- nothing to read and nothing to say, which is not the "cannot see"
-  -- case `gitgate.handover_refusal` deliberately refuses. Skipping it
-  -- HERE rather than inside that function is what keeps the refuse-
-  -- when-blind property true for every handover that does name a PR.
-  if target == "check" and not force
-  and ((pr or 0) ~= 0 or (it.pr or 0) ~= 0) then
-    local refusal = gate.handover_refusal(s, id,
-      (pr or 0) ~= 0 and pr or it.pr, it.repo)
-    if refusal then
-      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
-    end
-  end
-  -- `land` holds work whose review is FINISHED, and what remains
-  -- there is a merge, followed by the `gitboard land` that reads it
-  -- from the verdict and PR the item carries. An arrival carrying
-  -- neither is an item `next` answers `finish` for and `land`
-  -- refuses, forever.
-  if target == "land" and not force then
-    local refusal = gate.land_refusal(it)
-    if refusal then
-      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
-    end
-  end
-  -- Leaving `do` is the one leftward move that abandons work in
-  -- progress: the claim there means a builder mid build-test-push
-  -- loop on a machine the board cannot see, and the return path
-  -- below clears it. The builder returns their own work freely (a
-  -- bounce is the system correcting itself); anyone else abandoning
-  -- a live claim says so with --force --why, exactly like the
-  -- replacement takeover. `check` and `land` hold nothing in
-  -- progress — the claim there records who built the diff, and
-  -- leaving those phases abandons no loop — so `do` is the bound.
-  -- Overwriting the claim itself is still guarded everywhere, by the
-  -- takeover rule below.
-  if flow.is_return(from, target) and from == "do"
-  and (it.claim or "") ~= "" and it.claim ~= (mover or "")
-  and (claim or "") == "" and not force then
-    return gate.verdict_line("move", false,
-      ("REFUSED: moving %s out of do abandons %s's live claim — the "
-        .. "builder returns their own work; take over a dead "
-        .. "session's with --force --why"):format(
-        id:sub(1, 8), it.claim))
-  end
-  -- A claim is a lease over work in progress. Taking over a live one
-  -- is legitimate — a session dies, another picks the item up — but it
-  -- is never SILENT: the earlier holder may still be mid loop on a
-  -- machine the board cannot see, so it goes through --force --why
-  -- and into the log.
-  if claim ~= nil and claim ~= "" and claim ~= it.claim
-  and (it.claim or "") ~= "" and not force then
-    return gate.verdict_line("move", false,
-      ("REFUSED: %s is claimed by %s — take over a live claim with "
-        .. "--force --why"):format(id:sub(1, 8), it.claim))
-  end
-  if claim ~= nil and claim ~= "" then
-    it.claim = claim
-    item.record_builder(it, claim)
-  end
-  if pr ~= nil and pr ~= 0 then
     it.pr = pr
-  end
-  -- A review claim locks a reading of the item AS IT SITS in check;
-  -- any move out of that phase ends the reading, forward or back, so
-  -- the claim goes with it rather than following the item somewhere
-  -- no verdict can consume it.
-  if from == "check" and target ~= "check" then
-    it.reviewer = ""
-  end
-  -- `ready` is nobody's until a session pulls it, so an arrival there
-  -- sheds the refine claim that drove it to the bar: `pullables` has
-  -- no lease check, and a claim surviving into ready would reserve
-  -- the item for its refiner against every other session forever.
-  if target == "ready" and not flow.is_return(from, target) then
-    it.claim = ""
-  end
-  if flow.is_return(from, target) then
-    it.claim = ""
-    -- A verdict describes one head in one phase. Moving leftward out
-    -- of a judged phase says that head is no longer what the item is,
-    -- so the judgment goes with it — otherwise rework re-enters land
-    -- on the old accept and merges what nobody reviewed.
-    if from == "check" or from == "land" then
+    -- A new head to judge: the rework's send-back is spent, so the
+    -- item is awaiting a verdict again. The judged head stays in
+    -- verdict_head, which is how a reviewer sees what moved.
+    if it.verdict == "request changes" then
       it.verdict = ""
-      it.verdict_head = ""
-      it.enable = ""
     end
+    handed = (" pr:%d — awaiting review"):format(pr)
   end
   local bad = item.problems(it)
   if #bad > 0 then
-    return gate.verdict_line("move", false, table.concat(bad, "; "))
-  end
-  if not force then
-    local refusal = gate.wip_refusal(flow.board(all), from, target)
-    if refusal then
-      return gate.verdict_line("move", false, "REFUSED: " .. refusal)
-    end
+    return gate.verdict_line("take", false, table.concat(bad, "; "))
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("move %s %s -> %s%s"):format(id:sub(1, 8), from, target,
+    ("take %s by %s%s%s"):format(id:sub(1, 8), session,
+      (pr or 0) ~= 0 and (" pr:%d"):format(pr) or "",
       gate.forced_suffix(force, why)))
   if not ok then
-    return gate.verdict_line("move", false, err)
+    return gate.verdict_line("take", false, err)
   end
-  return gate.verdict_line("move", true,
-    ("%s %s -> %s"):format(id:sub(1, 8), from, target))
+  return gate.verdict_line("take", true,
+    ("%s is yours%s%s"):format(id:sub(1, 8), taken, handed))
 end
 
---- Phases `done` refuses to end from without --force: the mid-flow
---- phases where an ending would make work vanish. Completing from
---- land IS the landing; a not-planned ending there would discard an
---- accept, so only "completed" passes.
-local NO_DONE: {string: boolean} = {ready = true, ["do"] = true}
+--- drop: release an item back to todo, the gap named.
+---
+--- A drop is the system correcting itself — an under-specified spec
+--- caught before a wrong guess — so it is never refused for flow;
+--- the one guard is over somebody else's LIVE claim, which is a
+--- takeover of the abandoning kind and says so on the record. The
+--- claim, the PR, and any standing verdict clear together: what
+--- remains is the item, its spec, and the trail.
+--- @param s store.Store The store
+--- @param id string The item to drop
+--- @param session string The dropping session
+--- @param why string The gap, recorded in the commit subject
+--- @param force boolean Drop another session's live claim
+--- @return integer Exit code
+local function cmd_drop(s: store.Store, id: string, session: string,
+    why: string, force: boolean): integer
+  if (why or ""):match("%S") == nil then
+    return gate.verdict_line("drop", false,
+      "REFUSED: a drop names the gap — pass --why '<what the spec "
+      .. "cannot answer>'; the next session refines from it")
+  end
+  local it, lerr = store.load(s, id)
+  if it == nil then
+    return gate.verdict_line("drop", false, lerr)
+  end
+  if not flow.is_doing(it) then
+    return gate.verdict_line("drop", false,
+      ("%s is not in flight — nothing to drop"):format(id:sub(1, 8)))
+  end
+  if (it.claim or "") ~= "" and it.claim ~= (session or "")
+  and not health.is_stale(it, age_of(s, it)) and not force then
+    return gate.verdict_line("drop", false,
+      ("REFUSED: %s is %s's live claim — the builder drops their own "
+        .. "work; abandon a dead session's with --force"):format(
+        id:sub(1, 8), it.claim))
+  end
+  it.claim = ""
+  it.reviewer = ""
+  it.pr = 0
+  it.verdict = ""
+  it.verdict_head = ""
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("drop %s: %s"):format(id:sub(1, 8), why))
+  if not ok then
+    return gate.verdict_line("drop", false, err)
+  end
+  return gate.verdict_line("drop", true,
+    ("%s is todo again — the gap is in the log"):format(id:sub(1, 8)))
+end
 
 local function cmd_done(s: store.Store, id: string, reason: string,
     force: boolean, why: string): integer
@@ -325,30 +318,47 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   if all == nil then
     return gate.verdict_line("done", false, aerr)
   end
-  local refused = NO_DONE[it.phase]
-  or (it.phase == "land" and reason ~= "completed")
-  if refused and not force then
+  -- An open PR is work mid-review: ending the item under it makes the
+  -- diff vanish from the board while it still exists on GitHub. The
+  -- accepted path runs through `land`, which verifies the merge; an
+  -- unreviewed PR is dropped or judged first.
+  if (it.pr or 0) ~= 0 and (it.verdict or "") ~= "accept" and not force then
     return gate.verdict_line("done", false,
-      ("REFUSED: %s is mid-flow in %s — move it left first"):format(
-        id:sub(1, 8), it.phase))
+      ("REFUSED: %s has PR #%d awaiting a verdict — land it after an "
+        .. "accept, or drop it with the gap named"):format(id:sub(1, 8), it.pr))
   end
-  local from = it.phase
-  if from == "" then
-    from = "unphased"
+  local from = flow.is_doing(it) and flow.substate(it) or "todo"
+  if flow.role(it, all) ~= "work" then
+    from = flow.role(it, all)
   end
-  it.phase = ""
+  it.claim = ""
+  it.reviewer = ""
   it.resolution = reason
-  local back = gate.rephased_parent(it, all)
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("done %s %s (from %s)%s"):format(id:sub(1, 8), reason, from,
-      gate.forced_suffix(force, why)), back)
+      gate.forced_suffix(force, why)))
   if not ok then
     return gate.verdict_line("done", false, err)
   end
+  -- A parent whose last open child just ended is workable again by
+  -- derivation — nothing to write, but worth saying: verifying the
+  -- outcome its children were supposed to deliver is the next thing
+  -- anyone does with it.
   local returned = ""
-  if #back > 0 then
-    returned = (" — %s was its last open child, so %s returns to plan")
-    :format(id:sub(1, 8), back[1].id:sub(1, 8))
+  local parent = flow.by_id(all)[it.parent or ""]
+  if parent ~= nil and item.is_open(parent) then
+    local siblings = false
+    for _, other in ipairs(all) do
+      if other.parent == parent.id and other.id ~= it.id
+      and item.is_open(other) then
+        siblings = true
+        break
+      end
+    end
+    if not siblings then
+      returned = (" — %s was %s's last open child: verify its outcome "
+        .. "holds, then end it"):format(id:sub(1, 8), parent.id:sub(1, 8))
+    end
   end
   return gate.verdict_line("done", true,
     ("%s %s (%s)%s"):format(id:sub(1, 8), reason, from, returned))
@@ -366,9 +376,10 @@ local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string,
   base?: string): integer
-  cmd_move: function(s: store.Store, id: string, target: string,
-  claim: string, pr: integer, force: boolean, why: string,
-  evidence?: boolean, mover?: string): integer
+  cmd_take: function(s: store.Store, id: string, session: string,
+  pr: integer, force: boolean, why: string): integer
+  cmd_drop: function(s: store.Store, id: string, session: string,
+  why: string, force: boolean): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
   force: boolean, why: string): integer
   cmd_sync: function(s: store.Store): integer
@@ -377,7 +388,8 @@ end
 local M: gitverbs = {
   cmd_init = cmd_init,
   cmd_spec = cmd_spec,
-  cmd_move = cmd_move,
+  cmd_take = cmd_take,
+  cmd_drop = cmd_drop,
   cmd_done = cmd_done,
   cmd_sync = cmd_sync,
 }

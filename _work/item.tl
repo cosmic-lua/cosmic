@@ -1,6 +1,6 @@
 --- One work item as a committed file: `items/<ksuid>.tl` in the state
 --- repository, read/written through `cosmic.literal`, with its prose
---- spec (the ready-bar sections) in a markdown sidecar
+--- spec (the spec-bar sections) in a markdown sidecar
 --- `items/<ksuid>.md`. There is ONE record and no kind field — an
 --- item's role emerges from where it sits in the dependency graph,
 --- the same way a file's role in cosmic emerges from its position:
@@ -10,19 +10,19 @@
 ---     with none          is untriaged — captured, not yet placed
 ---   a parented item
 ---     with open children is a container being decomposed
----     with none          is workable — the only thing that holds a PHASE
+---     with none          is workable
+---
+--- A workable item's state is DERIVED from the facts it carries,
+--- never declared: open and unclaimed with no PR is `todo`; a claim
+--- or a PR makes it `doing`; a non-empty resolution ends it. The
+--- derivation lives in `_work.flow` — this file only validates
+--- per-item shape (fields, exclusivity rules).
 ---
 --- There is no goal tier either: every item is the same record, and
 --- what makes one more important than another is a committed
 --- comparison (`beats`), never a field asserting its own rank. The
 --- outcome prose that gives the tree its meaning lives in
 --- `docs/goals.md` on `main` and is read by people, not by this.
----
---- What this file validates is per-item shape (fields, exclusivity
---- rules); what needs the whole graph — leaf-ness, a position in the
---- priority order — lives in `_work.flow` and `_work.priority`. The
---- id carries creation time (`_work.ksuid`), so nothing here records
---- when.
 local ksuid = require("_work.ksuid")
 
 local record Item
@@ -33,8 +33,6 @@ local record Item
   parent: string
   --- The owner/name the item's PR lands in; "" = the board's origin.
   repo: string
-  --- Board phase; workable items only, "" otherwise.
-  phase: string
   --- Items this one is ranked ABOVE, each by id: the priority
   --- relation, recorded on the winner of a comparison. Stored as one
   --- "id id" string — the literal domain has no lists. Any item may
@@ -54,46 +52,36 @@ local record Item
   --- Every session that has held the claim, oldest first. Stored as
   --- one "name name" string — the literal domain has no lists.
   ---
-  --- The claim is a LEASE and moves: a return clears it and the next
-  --- pull writes a new one, so the claim alone cannot answer "who has
+  --- The claim is a LEASE and moves: a drop clears it and the next
+  --- take writes a new one, so the claim alone cannot answer "who has
   --- worked this item". This is that answer — the audit record, never
   --- cleared while the item is open, so who built and who took over
   --- stays readable in the committed file and in the log after the
   --- fact. Outside this module nothing reads it: no verb renders it
   --- and none refuses on it.
   builders: {string}
-  --- The session reviewing it in `check`; "" when nobody claimed the
+  --- The session reviewing the item's PR; "" when nobody claimed the
   --- review. A lease like `claim`, on a shorter horizon
   --- (`_work.health`): the claim is pushed BEFORE the reading starts,
-  --- the verdict consumes it, and leaving `check` clears it.
+  --- the verdict consumes it.
   reviewer: string
   --- The PR under review; 0 when none.
   pr: integer
-  --- Standing review verdict: "" | "accept" | "request changes"
-  --- | "reject".
+  --- Standing review verdict: "" | "accept" | "request changes".
+  --- A reject stands nowhere: it clears the claim and the PR, so the
+  --- item is todo again and the learning lives in its spec.
   verdict: string
-  --- Head commit the verdict was written against.
+  --- Head commit the last verdict was written against.
   verdict_head: string
-  --- The countermeasure a non-accept verdict filed: an item id, or
-  --- "none: <reason>". "" when no such verdict stands.
-  enable: string
   --- Why a finished item ended: "completed" | "not-planned"; "" while
   --- open. A non-empty resolution IS what "done" means.
   resolution: string
-end
-
-local PHASES: {string} = {"backlog", "plan", "ready", "do", "check", "land"}
-
-local PHASE_SET: {string: boolean} = {}
-for _, p in ipairs(PHASES) do
-  PHASE_SET[p] = true
 end
 
 local VERDICTS: {string: boolean} = {
   [""] = true,
   ["accept"] = true,
   ["request changes"] = true,
-  ["reject"] = true,
 }
 
 local RESOLUTIONS: {string: boolean} = {
@@ -137,22 +125,16 @@ local function problems(it: Item): {string}
   if not RESOLUTIONS[it.resolution or ""] then
     out[#out + 1] = ("unknown resolution: %s"):format(tostring(it.resolution))
   end
-  local phase = it.phase or ""
-  if phase ~= "" then
-    if not PHASE_SET[phase] then
-      out[#out + 1] = ("unknown phase: %s"):format(phase)
-    end
-    if is_root(it) then
-      out[#out + 1] = "a root is never phased; phase needs a parent"
-    end
-    if not is_open(it) then
-      out[#out + 1] = "a done item carries no phase"
-    end
+  if not is_open(it) and ((it.claim or "") ~= "" or (it.reviewer or "") ~= "") then
+    out[#out + 1] = "a done item holds no claim and no review"
   end
   if is_root(it) and ((it.claim or "") ~= "" or (it.reviewer or "") ~= ""
     or (it.pr or 0) ~= 0
-    or (it.verdict or "") ~= "" or (it.enable or "") ~= "" or (it.repo or "") ~= "") then
+    or (it.verdict or "") ~= "" or (it.repo or "") ~= "") then
     out[#out + 1] = "claim/reviewer/pr/verdict/repo belong to worked items, not roots"
+  end
+  if (it.verdict or "") ~= "" and (it.pr or 0) == 0 then
+    out[#out + 1] = "a verdict judges a PR; an item with none carries no verdict"
   end
   if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
     out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
@@ -193,7 +175,9 @@ local function problems(it: Item): {string}
 end
 
 --- An item from the table `cosmic.literal` parsed, with zero values
---- filled in and every field validated.
+--- filled in and every field validated. Unknown keys are ignored, so
+--- a file carrying retired fields still reads — and sheds them on its
+--- next write.
 --- @param t {string: any} Parsed literal table
 --- @return Item | nil The item
 --- @return string Error message listing every problem
@@ -222,7 +206,6 @@ local function decode(t: {string: any}): Item | nil, string
     title = tostring(t.title or ""),
     parent = tostring(t.parent or ""),
     repo = tostring(t.repo or ""),
-    phase = tostring(t.phase or ""),
     beats = beats,
     blocked_by = blocked,
     block_reason = reasons,
@@ -232,7 +215,6 @@ local function decode(t: {string: any}): Item | nil, string
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
     verdict = tostring(t.verdict or ""),
     verdict_head = tostring(t.verdict_head or ""),
-    enable = tostring(t.enable or ""),
     resolution = tostring(t.resolution or ""),
   }
   local bad = problems(it)
@@ -253,7 +235,6 @@ local function encode(it: Item): {string: any}
   }
   if (it.parent or "") ~= "" then t.parent = it.parent end
   if (it.repo or "") ~= "" then t.repo = it.repo end
-  if (it.phase or "") ~= "" then t.phase = it.phase end
   if #(it.beats or {}) > 0 then
     t.beats = table.concat(it.beats, " ")
   end
@@ -283,7 +264,6 @@ local function encode(it: Item): {string: any}
   if (it.pr or 0) ~= 0 then t.pr = it.pr end
   if (it.verdict or "") ~= "" then t.verdict = it.verdict end
   if (it.verdict_head or "") ~= "" then t.verdict_head = it.verdict_head end
-  if (it.enable or "") ~= "" then t.enable = it.enable end
   if (it.resolution or "") ~= "" then t.resolution = it.resolution end
   return t
 end
@@ -291,7 +271,7 @@ end
 --- Record that `session` has held this item's claim.
 ---
 --- The claim answers who holds the item NOW and moves with every
---- return; `builders` answers who has HELD it and never moves, which
+--- drop; `builders` answers who has HELD it and never moves, which
 --- is what makes the sequence of holders auditable once the claim has
 --- moved on. A session reclaiming an item it already held is already
 --- in the list, and the record carries no repeats — `problems`
@@ -309,7 +289,6 @@ end
 
 local record item
   type Item = Item
-  PHASES: {string}
   is_open: function(it: Item): boolean
   is_root: function(it: Item): boolean
   problems: function(it: Item): {string}
@@ -319,7 +298,6 @@ local record item
 end
 
 local M: item = {
-  PHASES = PHASES,
   is_open = is_open,
   is_root = is_root,
   problems = problems,

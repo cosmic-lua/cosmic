@@ -8,7 +8,7 @@ local item = require("_work.item")
 local type Item = item.Item
 
 --- Every kind an action takes, in the order the two halves choose
---- between them: rightmost phase first, then the upstream rungs,
+--- between them: most-finished work first, then the upstream rungs,
 --- then the stall.
 ---
 --- Data rather than a doc comment because things key off a kind —
@@ -17,8 +17,8 @@ local type Item = item.Item
 --- checked against this table, so a kind added to the ordering is a
 --- kind those tables are made to answer for.
 local KINDS < const >: {string} = {
-  "finish", "review", "pull", "unblock", "refine", "promote", "sweep",
-  "triage", "intake", "none",
+  "finish", "review", "pull", "unblock", "refine", "triage", "intake",
+  "none",
 }
 
 --- One decided action: what to do, to what, and under which rule.
@@ -30,8 +30,8 @@ local record Action
   --- The rule that chose this action, stated for the human/agent.
   reason: string
   --- Further candidates a session may act on when this one is taken
-  --- by somebody else first, best first. Only the phased kinds carry
-  --- them; absent everywhere else.
+  --- by somebody else first, best first. Only the in-flight kinds
+  --- carry them; absent everywhere else.
   alternates: {Action}
 end
 
