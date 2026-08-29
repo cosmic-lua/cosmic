@@ -83,8 +83,13 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if shape_err then
     return gate.verdict_line("verdict", false, "REFUSED: " .. shape_err)
   end
+  -- Hoisted so the accept path below reuses this same read instead of
+  -- fetching the PR again: one snapshot decides both which head was
+  -- judged and whether it is fit to land.
+  local p: review.Pull | nil = nil
   if store.has_origin(s) then
-    local p, perr = gh.pull(s, judged, it.repo)
+    local perr: string
+    p, perr = gh.pull(s, judged, it.repo)
     if p == nil then
       return gate.verdict_line("verdict", false,
         ("REFUSED: cannot verify --head against PR #%d: %s"):format(
@@ -113,23 +118,22 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
         id:sub(1, 8), head:sub(1, 7)))
   end
   -- An accept asserts the work is fit to land, so it is the one
-  -- verdict whose truth depends on the request's own state. Reading
+  -- verdict whose truth depends on the request's own state. Checking
   -- it here collapses two cases the landing step handles badly: a
   -- merged request needs no land at all, and a closed unmerged one
-  -- has no land that could succeed. A read that FAILS is not a
-  -- refusal — an outage must not wedge reviews — so the ordinary path
-  -- carries on and `land` stays the backstop it already is.
+  -- has no land that could succeed. `p` is the same read the head
+  -- guard above already made — one snapshot for both decisions — so
+  -- there is nothing further to fetch or fail here; no origin (or no
+  -- PR) just means the ordinary path carries on and `land` stays the
+  -- backstop it already is.
   local merged_sha = ""
-  if kind == "accept" and judged ~= 0 and store.has_origin(s) then
-    local p = gh.pull(s, judged, it.repo)
-    if p ~= nil then
-      local blocked = review.blocks_accept(p)
-      if blocked then
-        return gate.verdict_line("verdict", false, "REFUSED: " .. blocked)
-      end
-      if p.merged then
-        merged_sha = p.merge_sha
-      end
+  if kind == "accept" and judged ~= 0 and p ~= nil then
+    local blocked = review.blocks_accept(p)
+    if blocked then
+      return gate.verdict_line("verdict", false, "REFUSED: " .. blocked)
+    end
+    if p.merged then
+      merged_sha = p.merge_sha
     end
   end
   -- The judgment consumes the review claim, whoever held it: the
