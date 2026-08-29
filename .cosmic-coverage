@@ -117,6 +117,7 @@ return {
   ["_perf/peers/report.tl"] = {["covered"] = 82, ["total"] = 84},
   ["_perf/peers/run.tl"] = {["covered"] = 0, ["total"] = 99},
   ["_perf/perf_types.tl"] = {["covered"] = 2, ["total"] = 2},
+  ["_perf/reproduce.tl"] = {["covered"] = 51, ["total"] = 51},
   ["_perf/run.tl"] = {["covered"] = 97, ["total"] = 191},
   ["_perf/stats.tl"] = {["covered"] = 67, ["total"] = 67},
   ["_tool/benchmark.tl"] = {["covered"] = 145, ["total"] = 172},

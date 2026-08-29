@@ -212,3 +212,92 @@ local function test_current_side_instability_absorbs_the_fast_baseline_retry()
     "current-side instability must absorb the baseline retry, got " .. code)
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
+
+-- The dismissal the gate used to publish. Both current-side samples say
+-- the scenario is up by roughly a tenth (+12.0% in pass 1, +9.0% on the
+-- retry) and the controls that could explain the disagreement read
+-- quiet, so the retry's quiet reading is not evidence of noise -- it is
+-- the same measurement one notch under the bar. The flag is restored
+-- and escalates.
+local function test_two_agreeing_samples_straddling_the_bar_fail()
+  local base, cur, selfb = paths("straddle")
+  write_multi(base, {a = 1000}, "aaaa1111")
+  write_multi(cur, {a = 1120}, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        write_multi(out, {a = 1090}, "bbbb2222")
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "two samples agreeing the scenario is up must fail, got " .. code)
+  assert(calls == 2, "an unexplained dismissal escalates, got " .. calls)
+end
+
+-- ...and the loud dismissal, which is what the retry was always for.
+-- Pass 1 flags +30% and the retry reads the baseline's own number, so
+-- the (current, retry) control pair itself swings -23.1% -- the
+-- scenario is that unstable, the credit rule absorbs the flag, and
+-- the gate passes on two samples as before.
+local function test_a_noisy_dismissal_still_passes()
+  local base, cur, selfb = paths("noisy-dismissal")
+  write_multi(base, {a = 1000}, "aaaa1111")
+  write_multi(cur, {a = 1300}, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        write_multi(out, {a = 1000}, "bbbb2222")
+        return 0
+      end,
+    })
+  assert(code == 0, "a control-explained dismissal passes, got " .. code)
+  assert(calls == 1, "the clean path takes no extra sample, got " .. calls)
+end
+
+-- The false-red guard, and why the restore ESCALATES rather than
+-- failing on the spot: the same straddling numbers, but the A/A
+-- self-check reads 1300, so the fuller control set credits the scenario
+-- 30% and full triage waves the restored flag through. A third sample
+-- is taken only after the dismissal is already unexplained.
+local function test_a_third_sample_absorbs_an_unexplained_dismissal()
+  local base, cur, selfb = paths("third-sample")
+  write_multi(base, {a = 1000}, "aaaa1111")
+  write_multi(cur, {a = 1120}, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        write_multi(out, {a = calls == 1 and 1090 or 1300}, "bbbb2222")
+        return 0
+      end,
+    })
+  assert(code == 0, "a credited scenario passes on triage, got " .. code)
+  assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
+end
+
+-- Two current-side samples are comparable to each other only when they
+-- measured the same binary. With the retry naming a different one there
+-- is no same-binary control pair to demand evidence from, so the rule
+-- is off and the dismissal stands.
+local function test_a_dismissal_with_no_same_binary_pair_stands()
+  local base, cur, selfb = paths("cross-binary-dismissal")
+  write_multi(base, {a = 1000}, "aaaa1111")
+  write_multi(cur, {a = 1120}, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        write_multi(out, {a = 1090}, "cccc3333")
+        return 0
+      end,
+    })
+  assert(code == 0, "no same-binary pair leaves the rule off, got " .. code)
+  assert(calls == 1, "the rule is off, so nothing escalates, got " .. calls)
+end

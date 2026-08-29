@@ -1,7 +1,7 @@
 # D34 — the perf gate judges reproduction against the re-measured baseline
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08 (D35 closed the dismissal asymmetry)
 - **context:** `release.yml`'s perf gate fails a regression only when it
   strikes TWICE — the strike-twice rule, added because a scenario
   flagging in one pass and quiet in the next did not reproduce and is
@@ -110,3 +110,16 @@
   still ends the gate on two current-side samples with no A/A control at
   all, while one flagging twice earns a third sample and triage across
   three control pairs.
+
+- **amended 2026-08 (D35 closed the dismissal asymmetry):** the
+  asymmetry named in the closing paragraph above is no longer left
+  open. A regression pass 1 flagged that pass 2 reads quiet no longer
+  ends the gate on the spot: it must be explained by the same-binary
+  controls the gate already holds, or its verdict is amended back to
+  `regression` and it escalates to the third sample and full triage
+  like any other persisting one.
+  [D35](d35-dismissal-owes-evidence.md) records that tradeoff, including
+  the measured region the restore fires in. What this record decided —
+  that reproduction is judged against the RE-MEASURED baseline, with
+  pass 1's flags re-keyed to it — is unchanged, and so are its three
+  rejected options; D35 sits beside it rather than over it.

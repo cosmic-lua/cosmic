@@ -14,16 +14,18 @@
 --- references and a regression masked by a one-off slow baseline
 --- reading would be discarded as not reproduced. A persisting
 --- regression then meets an A/A self-check that reclassifies swings
---- the current binary shows against itself as noise. The sampling is
---- asymmetric, and this module does not fix that: a regression reading
---- quiet on the retry ends the gate there on two current-side samples
---- with no A/A control at all, while one flagging twice earns a third
---- sample and triage across three control pairs. Measurement is
---- injected so the orchestration is testable without running real
---- benchmarks; main wires perf.run.
+--- the current binary shows against itself as noise. Both ways the two
+--- samples can disagree are answered, by _perf.reproduce: a regression
+--- standing only in the retry reclassifies to noise, and one pass 1
+--- flagged that the retry reads quiet is dismissed only when the
+--- same-binary controls explain the gap -- an unexplained dismissal is
+--- restored to the record and escalates like any other persisting
+--- regression. Measurement is injected so the orchestration is
+--- testable without running real benchmarks; main wires perf.run.
 local compare = require("_perf.compare")
 local pt = require("_perf.perf_types")
 local proc = require("cosmic.proc")
+local reproduce = require("_perf.reproduce")
 
 local type Measure = function(out: string): integer
 
@@ -189,10 +191,11 @@ local function gate_inner(opts: GateOptions): integer
   -- not reproduce, and reclassifies at the final judgment below. Only
   -- `regression` is subject to the rule — error/missing/baseline-error/
   -- malformed verdicts fail on their own in whichever pass they appear.
-  local flagged_first: {string: boolean} = {}
+  -- The DELTA is kept: dismissing a flag weighs it against the controls.
+  local flagged_first: {string: pt.Delta} = {}
   for _, d in ipairs(deltas) do
     if d.verdict == "regression" then
-      flagged_first[d.name] = true
+      flagged_first[d.name] = d
     end
   end
   local retry = retry_path(opts.current)
@@ -244,7 +247,7 @@ local function gate_inner(opts: GateOptions): integer
     flagged_first = {}
     for _, d in ipairs(deltas) do
       if d.verdict == "regression" then
-        flagged_first[d.name] = true
+        flagged_first[d.name] = d
       end
     end
   end
@@ -261,6 +264,18 @@ local function gate_inner(opts: GateOptions): integer
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
     return 1
+  end
+  -- A dismissal owes evidence, from the two current-side samples already
+  -- on disk — comparable only when they measured the same binary. It is
+  -- weighed before the report and the clean exit below: an amended
+  -- verdict belongs in the record, and a restored regression escalates.
+  local same_side = same_binary(opts.current, retry)
+  if same_side then
+    for _, m in ipairs(reproduce.restore_paths(deltas, flagged_first,
+        {opts.current, retry}, opts.threshold)) do
+      print(m)
+      failures = failures + 1
+    end
   end
   print_report(base_side, retry, deltas)
   if failures == 0 then
@@ -286,14 +301,12 @@ local function gate_inner(opts: GateOptions): integer
   -- in one pair and swing in the next (that is the variance being
   -- measured), so triaging against every pair catches an unstable
   -- scenario the single retry/self-check pair happens to miss. The
-  -- extra pairs cost nothing: the runs are already measured.
-  --
-  -- `current` joins the controls only when it names the SAME binary as
-  -- the retry. When it does not, it is a control lost, not a refusal —
-  -- the pair that must hold is checked above, and dropping `current`
-  -- leaves exactly the one pair the gate read before.
+  -- extra pairs cost nothing: the runs are already measured. `current`
+  -- joins them only when it names the SAME binary as the retry — the
+  -- `same_side` question already asked above. When it does not, it is a
+  -- control lost, not a refusal: dropping it leaves the one pair before.
   local controls = {retry, opts.selfcheck_b}
-  if same_binary(retry, opts.current) then
+  if same_side then
     table.insert(controls, 1, opts.current)
   end
   failures, err, deltas = compare_once(base_side, retry, opts.threshold, controls)
@@ -301,17 +314,13 @@ local function gate_inner(opts: GateOptions): integer
     io.stderr:write(tostring(err) .. "\n")
     return 1
   end
-  -- The strike-twice rule: a regression standing here that pass 1 did
-  -- not flag appeared only in the retry — it did not reproduce, and a
-  -- verdict the gate would not act on may not stand in the printed
-  -- table, which is the record.
-  for _, d in ipairs(deltas) do
-    if d.verdict == "regression" and not flagged_first[d.name] then
-      d.verdict = "noise"
-      failures = failures - 1
-      print("perf-compare: " .. d.name ..
-        " flagged only in the retry -- not reproduced, counted as noise")
-    end
+  -- Both directions of the reproduction rule over the final table: no
+  -- verdict the gate would not act on, and no unexplained dismissal.
+  local messages, change =
+  reproduce.reconcile(deltas, flagged_first, controls, opts.threshold, same_side)
+  failures = failures + change
+  for _, m in ipairs(messages) do
+    print(m)
   end
   print_report(base_side, retry, deltas)
   if failures > 0 then
