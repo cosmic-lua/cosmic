@@ -1,9 +1,9 @@
 return {
   ["builders"] = "wave7-a-1788027023",
-  ["claim"] = "wave7-a-1788027023",
   ["id"] = "3IbHLhwhDSqDxc0eyjpU3UrGucS",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1516,
+  ["resolution"] = "completed",
   ["title"] = "bare show's triage lines still render the head-8; flip to the tail chunk",
   ["verdict"] = "accept",
   ["verdict_head"] = "fb9ebb4a989fadcc50621f26ee76fa02ce741d92",
