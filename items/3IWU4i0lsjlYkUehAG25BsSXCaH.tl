@@ -11,6 +11,7 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1496,
+  ["reviewer"] = "review-3IWU4i0l-1787979827-rev2",
   ["title"] = "perf gate: a regression quiet on pass 2 gets two samples and no A/A control",
   ["verdict"] = "request changes",
   ["verdict_head"] = "a060b2105196a3e16a7390c87e2f6a45468942eb",
