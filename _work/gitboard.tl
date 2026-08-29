@@ -59,6 +59,29 @@ local function dir_flag(): flags.Flag
     help = "state repository checkout"}
 end
 
+--- Resolve one id-taking argument, whatever position it sits in: an
+--- id prefix is tried first; only when that refuses AND the input has
+--- a tail's shape (8 base62 characters, one optional hyphen, either
+--- bare or guillemet-wrapped) does a board-wide tail search follow —
+--- so a plain id-prefix typo still gets store.resolve's own message.
+--- Every id-taking argument (the first, and PARENT/OTHER/BLOCKER)
+--- routes through this so a rendered handle resolves in any position.
+--- @param s store.Store The store
+--- @param input string What a session typed
+--- @return string | nil The resolved item id
+--- @return string Error message
+local function resolve_id(s: store.Store, input: string): string | nil, string
+  local id, rerr = store.resolve(s, input)
+  if id == nil and tail.is_tail_shape(input) then
+    local all, aerr = store.list(s)
+    if all == nil then
+      return nil, aerr
+    end
+    id, rerr = tail.resolve(all, input)
+  end
+  return id, rerr
+end
+
 local CSPEC: flags.CommandSpec = {
   name = "gitboard",
   summary = "the work board over committed item files: todo, doing, done",
@@ -195,7 +218,7 @@ local function main(...: string): integer
     local parent = ""
     local parent_prefix = d.parsed.values["parent"]
     if parent_prefix ~= nil then
-      local resolved, perr = store.resolve(s, parent_prefix)
+      local resolved, perr = resolve_id(s, parent_prefix)
       if resolved == nil then
         io.stderr:write(tostring(perr) .. "\n")
         return 1
@@ -214,26 +237,14 @@ local function main(...: string): integer
     end
     return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "")
   end
-  -- An id prefix is tried first; only when that refuses AND the input
-  -- has a tail's shape (8 base62 characters, one optional hyphen)
-  -- does a board-wide tail search follow, so a plain id-prefix typo
-  -- still gets store.resolve's own message.
   local input = d.parsed.args[1] or ""
-  local id, rerr = store.resolve(s, input)
-  if id == nil and tail.is_tail_shape(input) then
-    local all, aerr = store.list(s)
-    if all == nil then
-      io.stderr:write(tostring(aerr) .. "\n")
-      return 1
-    end
-    id, rerr = tail.resolve(all, input)
-  end
+  local id, rerr = resolve_id(s, input)
   if id == nil then
     io.stderr:write(tostring(rerr) .. "\n")
     return 1
   end
   if d.command == "attach" then
-    local parent, perr = store.resolve(s, d.parsed.args[2] or "")
+    local parent, perr = resolve_id(s, d.parsed.args[2] or "")
     if parent == nil then
       io.stderr:write(tostring(perr) .. "\n")
       return 1
@@ -241,7 +252,7 @@ local function main(...: string): integer
     return graph.cmd_attach(s, id, parent)
   end
   if d.command == "compare" then
-    local other, oerr = store.resolve(s, d.parsed.args[2] or "")
+    local other, oerr = resolve_id(s, d.parsed.args[2] or "")
     if other == nil then
       io.stderr:write(tostring(oerr) .. "\n")
       return 1
@@ -249,7 +260,7 @@ local function main(...: string): integer
     return cmp.cmd_compare(s, id, other)
   end
   if d.command == "block" or d.command == "unblock" then
-    local blocker, berr = store.resolve(s, d.parsed.args[2] or "")
+    local blocker, berr = resolve_id(s, d.parsed.args[2] or "")
     if blocker == nil then
       io.stderr:write(tostring(berr) .. "\n")
       return 1
