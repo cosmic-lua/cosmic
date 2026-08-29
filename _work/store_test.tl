@@ -299,13 +299,16 @@ local function test_publish_drops_a_lost_edit_of_the_same_item()
 end
 test_publish_drops_a_lost_edit_of_the_same_item()
 
--- The conflict-unwind now lives on the sync path alone: a checkout
--- carrying an UNPUBLISHED local commit (the hand-edit workaround the
--- skill allows when a verb is missing) that syncs onto a remote which
--- changed the same item stops mid-rebase — and a conflicted item file
--- is unparseable, so the rebase must be unwound to a clean checkout
--- and the refusal must name the collided item.
-local function test_sync_unwinds_a_conflicting_rebase()
+-- A checkout carrying an UNPUBLISHED local commit (the hand-edit
+-- workaround the skill allows when a verb is missing) that syncs
+-- against a remote which advanced too has DIVERGED history — neither
+-- is the other's ancestor — so `git merge --ff-only` refuses outright
+-- rather than attempting any content merge: no conflict markers ever
+-- land in the item file, and board history being linear here (commits
+-- reach this branch only through this same fast-forward path) means
+-- that refusal is the compare-and-swap's own shape surfacing, not a
+-- new failure mode.
+local function test_sync_refuses_a_diverged_local_commit()
   local _, clones = init_shared("sync-conflict", 2)
   local a = check.must(store.open(clones[1]))
   local contested = make_item()
@@ -324,22 +327,25 @@ local function test_sync_unwinds_a_conflicting_rebase()
   ib.pr = 7
   assert(store.save(b, ib, "hand-edit contested for session-b"))
   local ok, err = publish.sync(b)
-  assert(not ok, "a conflicting sync must be refused")
-  assert(err:find("concurrent edit", 1, true), "got: " .. err)
-  assert(err:find(contested.id:sub(1, 8), 1, true),
-    "the refusal names the collided item: " .. err)
+  assert(not ok, "a diverged sync must be refused")
+  assert(err ~= store.LOST_RACE, "a sync refusal is not a race refusal: " .. err)
   assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
-    "no rebase may be left in progress")
+    "no rebase is ever attempted, so none is left in progress")
+  assert(check.must(store.load(b, contested.id)).claim == "session-b",
+    "the refusal leaves the checkout exactly as it was")
   assert(store.list(b), "the board stays readable after the refusal")
 end
-test_sync_unwinds_a_conflicting_rebase()
+test_sync_refuses_a_diverged_local_commit()
 
 -- The one publish path that can still conflict: a checkout carrying an
--- unpublished hand-edit commit BENEATH the verb's commit. The reset
--- drops only the verb's commit; the hand-edit then rebases and can
--- collide — and the refusal must say the mutation was already dropped,
--- or a user reads the conflict report and does not know their verb's
--- change is gone.
+-- unpublished hand-edit commit BENEATH the verb's commit. Dropping the
+-- verb's own commit is `reset --mixed HEAD~1` plus restoring only the
+-- paths that commit touched, so the hand-edit commit beneath it is
+-- left standing as the new HEAD; the re-sync that follows then finds
+-- it diverged from the remote (both changed the contested item) and
+-- refuses — and the refusal must say the mutation was already
+-- dropped, or a user reads the conflict report and does not know
+-- their verb's change is gone.
 local function test_publish_names_the_drop_when_the_resync_conflicts()
   local _, clones = init_shared("drop-conflict", 2)
   local a = check.must(store.open(clones[1]))
@@ -363,10 +369,8 @@ local function test_publish_names_the_drop_when_the_resync_conflicts()
   local mine = make_item()
   assert(store.save(b, mine, "new mine"))
   local ok, err = publish.publish(b)
-  assert(not ok, "the push is rejected and the rebase then conflicts")
+  assert(not ok, "the push is rejected and the re-sync then diverges")
   assert(err:find("the mutation was dropped whole", 1, true), "got: " .. err)
-  assert(err:find("concurrent edit", 1, true),
-    "and the conflict is still named: " .. err)
   local gone = store.load(b, mine.id)
   assert(gone == nil, "the verb's mutation is gone whole")
   local kept = check.must(store.load(b, contested.id))

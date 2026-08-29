@@ -1,7 +1,7 @@
 --- Publishing a store's commits to its remote: the compare-and-swap a
---- lost push race resolves with, the rebase that unwinds a stopped
---- conflict, and reading the log back as history. A mutation is
---- commit-then-push; a lost push race drops the mutation whole,
+--- lost push race resolves with, the fast-forward that pulls in
+--- concurrent state, and reading the log back as history. A mutation
+--- is commit-then-push; a lost push race drops the mutation whole,
 --- re-syncs onto the winner's state, and refuses with
 --- `store.LOST_RACE` — the verb is re-run against the merged board,
 --- re-applying EVERY gate, never replaying a commit whose
@@ -11,6 +11,18 @@
 --- every call runs under, and the `Store` it runs against, live in
 --- `_work.store`; every git command here goes back through its
 --- `git`/`git_ok`.
+---
+--- Sync and the lost-race recovery both leave paths outside their own
+--- mutation untouched, on purpose: the shared board worktree often
+--- carries an unrelated `_work/**` edit mid-flight, and a mutation
+--- must not block on it, or destroy it recovering from a lost race.
+--- `git fetch` plus `git merge --ff-only` never touches the working
+--- tree at a path it does not need to move, and refuses by naming the
+--- path when a local edit overlaps the incoming commit, instead of a
+--- whole-tree `git pull --rebase` refusing outright on any dirt
+--- anywhere; the lost-race recovery narrows `reset --hard` to
+--- `reset --mixed` plus a checkout of only the dropped mutation's own
+--- paths, for the same reason.
 local fs = require("cosmic.fs")
 local store = require("_work.store")
 
@@ -32,55 +44,78 @@ local function has_origin(s: store.Store): boolean
   return r ~= nil and r.ok and r.stdout:find("origin", 1, true) ~= nil
 end
 
---- The items a stopped rebase left conflicted, as one readable list.
---- @param s store.Store The store
---- @return string Item ids, or "" when the paths cannot be read
-local function conflicted_items(s: store.Store): string
-  local r = store.git(s, {"diff", "--name-only", "--diff-filter=U"})
-  if r == nil or not r.ok then
-    return ""
-  end
-  local ids: {string} = {}
-  for line in r.stdout:gmatch("([^\n]+)") do
-    local id = line:match("^items/(.+)%.tl$") or line:match("^items/(.+)%.md$")
-    if id then
-      ids[#ids + 1] = id:sub(1, 8)
+--- Git's own text, trimmed of the "hint:" advice lines it appends to
+--- steer a normal terminal user toward `--no-ff`/`stash`/rebase —
+--- guidance that is wrong here, so a refusal built from this text
+--- never repeats it.
+--- @param text string Raw stdout or stderr from a git command
+--- @return string The text with advice lines removed, trailing
+--- whitespace trimmed
+local function clean_git_message(text: string): string
+  local lines: {string} = {}
+  for line in text:gmatch("([^\n]+)") do
+    if not line:match("^hint:") then
+      lines[#lines + 1] = line
     end
   end
-  return table.concat(ids, " ")
+  return (table.concat(lines, " "):gsub("%s+$", ""))
 end
 
---- Rebase this checkout's unpublished commits onto the remote.
----
---- Two sessions editing the SAME item conflict, and git stops the
---- rebase mid-flight with markers in the item file — a state where
---- every later verb fails, reads included, because a conflicted item
---- is no longer parseable literal data. So a stopped rebase is always
---- unwound here: the checkout goes back to where it started and the
---- caller is told which items collided, rather than being left to
---- discover a half-applied rebase.
+--- The checkout's current branch — the name `origin/<name>` merges
+--- and checkouts below target.
 --- @param s store.Store The store
---- @return boolean True when the rebase completed
---- @return string Error message naming the conflicting items
-local function rebase_onto_remote(s: store.Store): boolean, string
-  local r, err = store.git(s, {"pull", "-q", "--rebase", "origin"})
+--- @return string | nil The branch name
+--- @return string Error message
+local function current_branch(s: store.Store): string | nil, string
+  local r, err = store.git_ok(s, {"rev-parse", "--abbrev-ref", "HEAD"})
   if r == nil then
-    return false, err
+    return nil, err
+  end
+  return ((r.stdout or ""):gsub("%s+$", ""))
+end
+
+--- Pull the remote's commits into this checkout without ever touching
+--- the working tree at a path the fast-forward does not itself need
+--- to move. A whole-tree `git pull --rebase` refuses on ANY unstaged
+--- change anywhere, which is what used to block a mutation for the
+--- length of an unrelated `_work/**` edit; `git merge --ff-only` only
+--- refuses when the incoming commit and a local edit overlap the SAME
+--- path, and then names it. Board history is linear here — commits
+--- land only through this same fast-forward path — so a merge that
+--- cannot fast-forward at all means this checkout carries a local
+--- commit the remote does not have (the unpublished hand-edit
+--- workaround): that is the compare-and-swap's own shape surfacing,
+--- not a new failure mode, and it carries no per-file detail because
+--- no merge was attempted.
+--- @param s store.Store The store
+--- @return boolean True when the checkout is level with the remote
+--- @return string Error message
+local function rebase_onto_remote(s: store.Store): boolean, string
+  local branch, berr = current_branch(s)
+  if branch == nil then
+    return false, berr
+  end
+  local _, ferr = store.git_ok(s, {"fetch", "-q", "origin"})
+  if ferr then
+    return false, ferr
+  end
+  local target = ("origin/%s"):format(branch)
+  local r = store.git(s, {"merge", "--ff-only", "-q", target})
+  if r == nil then
+    return false, "git merge could not start"
   end
   if r.ok then
     return true
   end
-  local ids = conflicted_items(s)
-  local _, aerr = store.git(s, {"rebase", "--abort"})
-  if aerr then
-    return false, aerr
+  local detail = clean_git_message(r.stderr or "")
+  if detail == "" then
+    detail = clean_git_message(r.stdout or "")
   end
-  if ids == "" then
-    return false, ("git pull --rebase failed: %s"):format(
-      ((r.stderr or ""):gsub("%s+$", "")))
+  if detail:find("would be overwritten by merge", 1, true) then
+    return false, ("%s — a _work/** slice belongs in its own clone; "
+      .. "sync and mutate it there with --dir <private clone>"):format(detail)
   end
-  return false, ("concurrent edit of %s — the rebase was undone; "
-    .. "sync and re-apply your change"):format(ids)
+  return false, ("git fetch/merge failed: %s"):format(detail)
 end
 
 --- Pull concurrent state. A store with no origin is local-only and
@@ -95,6 +130,58 @@ local function sync(s: store.Store): boolean, string
   return rebase_onto_remote(s)
 end
 
+--- The paths the tip commit touched — exactly what `stage` staged
+--- there, read back rather than threaded through, since `save` writes
+--- one mutation as ONE commit and this checkout may hold no other.
+--- @param s store.Store The store
+--- @return {string} | nil The paths, relative to the store root
+--- @return string Error message
+local function committed_paths(s: store.Store): {string} | nil, string
+  local r, err = store.git_ok(s,
+    {"diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"})
+  if r == nil then
+    return nil, err
+  end
+  local out: {string} = {}
+  for line in r.stdout:gmatch("([^\n]+)") do
+    out[#out + 1] = line
+  end
+  return out
+end
+
+--- Put each path back to `treeish`'s content, in the index and the
+--- working tree — a path `treeish` does not carry either (a `new`
+--- item's file, never committed before the dropped mutation created
+--- it) has nothing to restore FROM, so it is removed outright instead.
+--- Every OTHER path in the checkout, including one this mutation never
+--- touched, is left exactly as it was.
+--- @param s store.Store The store
+--- @param treeish string A commit-ish to restore from, e.g. "HEAD"
+--- @param paths {string} Paths to restore or remove
+--- @return boolean True once every path is settled
+--- @return string Error message
+local function restore_paths(s: store.Store, treeish: string,
+    paths: {string}): boolean, string
+  for _, p in ipairs(paths) do
+    local exists = store.git(s, {"cat-file", "-e", ("%s:%s"):format(treeish, p)})
+    if exists == nil then
+      return false, ("could not check %s at %s"):format(p, treeish)
+    end
+    if exists.ok then
+      local _, cerr = store.git_ok(s, {"checkout", treeish, "--", p})
+      if cerr then
+        return false, cerr
+      end
+    elseif fs.is_present(fs.join(s.root, p)) then
+      local removed, rerr = fs.remove(fs.join(s.root, p))
+      if not removed then
+        return false, rerr
+      end
+    end
+  end
+  return true
+end
+
 --- Publish the last commit: one push, and a rejected push is
 --- diagnosed before anything is destroyed. It is a lost race only
 --- when the remote holds commits this checkout lacks: then no commit
@@ -106,10 +193,15 @@ end
 --- policy, not a race: the commit stays local and the refusal
 --- carries the remote's own words instead of asserting a race.
 ---
---- Dropping the mutation is `reset --hard HEAD~1`, exact because
---- `save` writes one mutation as ONE commit. The reset drops only
---- the verb's commit: an UNPUBLISHED hand-edit commit beneath it
---- (the missing-verb workaround) still rebases and can conflict, and
+--- Dropping the mutation is `reset --mixed HEAD~1` — narrowed from
+--- `reset --hard`, which would blow away every uncommitted edit in
+--- the checkout, `_work/**` dirt included — followed by restoring
+--- only the paths the dropped commit itself touched; every other
+--- path, dirty or not, never moves. `reset --mixed` still drops
+--- exactly the verb's own commit, exact because `save` writes one
+--- mutation as ONE commit: an UNPUBLISHED hand-edit commit beneath it
+--- (the missing-verb workaround) survives, and the re-sync that
+--- follows still rebases it onto the remote and can still conflict —
 --- that refusal also says the mutation was already dropped.
 --- @param s store.Store The store
 --- @return boolean True once the commit is on the remote
@@ -144,10 +236,22 @@ local function publish(s: store.Store): boolean, string
       .. "mutation — the commit is still local; the remote said: %s")
     :format(why)
   end
-  local _, uerr = store.git_ok(s, {"reset", "-q", "--hard", "HEAD~1"})
+  -- Read the tip commit's own paths back before HEAD moves off it —
+  -- afterward there is no commit left to ask.
+  local paths, perr = committed_paths(s)
+  if paths == nil then
+    return false, ("the push was rejected and the local commit's paths "
+      .. "could not be read: %s"):format(perr)
+  end
+  local _, uerr = store.git_ok(s, {"reset", "-q", "--mixed", "HEAD~1"})
   if uerr then
     return false, ("the push was rejected and the local commit could not "
       .. "be dropped: %s"):format(uerr)
+  end
+  local restored, rperr = restore_paths(s, "HEAD", paths)
+  if not restored then
+    return false, ("the push was rejected, the local commit was dropped, "
+      .. "but its own paths could not be restored: %s"):format(rperr)
   end
   local synced, serr = rebase_onto_remote(s)
   if not synced then

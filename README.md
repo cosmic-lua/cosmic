@@ -99,6 +99,19 @@ board, not a replayed commit whose preconditions may no longer hold.
 A mutation never half-lands, and the checkout is always left clean
 and current. Reads need no network and no token.
 
+A mutation syncs by `git fetch` plus a fast-forward-only merge, which
+tolerates an unrelated dirty file anywhere in the checkout and only
+refuses, naming the file, when a local edit overlaps the incoming
+commit — so a session editing `_work/**` here does not lock every
+other session sharing this worktree out of the board. That slice of
+work still belongs in its OWN clone, though: `git worktree add` (or a
+plain `git clone`) plus `--dir` is how the machinery itself gets
+edited, built and tested without racing the mutations running against
+the shared checkout. And `git stash` is never the escape here — the
+stash stack is shared across every worktree of this repo, so a push
+from one session can pop and destroy another session's in-progress
+edit; reach for a private clone instead.
+
 Run `bin/cosmic --make ci` before pushing machinery changes; the
 `board` workflow runs the same gate on every push to this branch.
 
