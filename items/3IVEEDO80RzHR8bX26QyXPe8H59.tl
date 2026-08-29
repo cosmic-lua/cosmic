@@ -9,5 +9,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1493,
+  ["reviewer"] = "review-3IVEEDO8-1787976898-rev1",
   ["title"] = "perf report says which binary but not which session: meta.timestamp is written, dropped by RESULTS_SPEC, and never printed",
 }
