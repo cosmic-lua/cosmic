@@ -123,6 +123,23 @@ local function test_new_repo_lands_the_field()
 end
 test_new_repo_lands_the_field()
 
+-- A title carrying a newline lands in the item file and `show` then
+-- renders the second line as its own board row, indistinguishable
+-- from a real item — the shape check lives in `item.problems`, the
+-- one place both `new` and `set --title` route their finished item
+-- through, so this refusal is the same one `set` gets below.
+local function test_new_refuses_a_multiline_or_padded_title()
+  local s = init_state_repo("new-hostile-title")
+  local before = check.must(store.list(s))
+  assert(graph.cmd_new(s, "innocent\nfake line", "", nil, "") ~= 0,
+    "a newline in the title is refused")
+  assert(graph.cmd_new(s, "  padded  ", "", nil, "") ~= 0,
+    "leading/trailing whitespace in the title is refused")
+  local after = check.must(store.list(s))
+  assert(#after == #before, "neither refusal filed an item")
+end
+test_new_refuses_a_multiline_or_padded_title()
+
 -- Filing and adoption are never refused: todo is unbounded by design
 -- — the queue intake writes into can always accept — and the doing
 -- bound binds at take, where committing to work is the expensive
@@ -203,6 +220,22 @@ local function test_set_refuses_an_empty_repo_or_base()
     "neither refusal cleared the field")
 end
 test_set_refuses_an_empty_repo_or_base()
+
+-- `set --title` is the other entry point that writes a title; the
+-- same shape check refuses it there, and nothing gets overwritten.
+local function test_set_refuses_a_multiline_or_padded_title()
+  local s = init_state_repo("set-hostile-title")
+  local _, leaf = root_with_leaf(s)
+  local before = check.must(store.load(s, leaf))
+  assert(graph.cmd_set(s, leaf, "innocent\nfake line", nil, nil) ~= 0,
+    "a newline in the title is refused")
+  assert(graph.cmd_set(s, leaf, "  padded  ", nil, nil) ~= 0,
+    "leading/trailing whitespace in the title is refused")
+  local after = check.must(store.load(s, leaf))
+  assert(after.title == before.title,
+    "neither refusal changed the stored title")
+end
+test_set_refuses_a_multiline_or_padded_title()
 
 -- A finished item's destination facts are history, not a repair
 -- target.

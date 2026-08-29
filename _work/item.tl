@@ -195,6 +195,10 @@ local function problems(it: Item): {string}
   end
   if it.title == nil or it.title == "" then
     out[#out + 1] = "title must be non-empty"
+  elseif it.title:find("[\n\r]") ~= nil then
+    out[#out + 1] = "title must be one line: no newlines"
+  elseif it.title ~= it.title:match("^%s*(.-)%s*$") then
+    out[#out + 1] = "title must not have leading or trailing whitespace"
   end
   if not VERDICTS[it.verdict or ""] then
     out[#out + 1] = ("unknown verdict: %s"):format(tostring(it.verdict))
