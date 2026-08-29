@@ -28,14 +28,15 @@ local NOTES < const >: {string: {string}} = {
     "A rework carries a `request changes` verdict: address the quoted gaps on "
     .. "the same PR and hand it back with `take ID --pr N`, which re-opens the "
     .. "verdict for the new head.",
-    "A build with no PR yet is yours to finish: open the PR ready, `Board: "
-    .. "<id>` and the gate's `ci: PASS` line in its body, then `take ID --pr N`.",
+    "A build with no PR yet is yours to finish: open the PR ready with "
+    .. "`Board: <id>` in its body, then `take ID --pr N` — CI proves the "
+    .. "gate, so the body carries no evidence.",
   },
   ["review"] = {
     "Claim it first — `review ID` locks the diff before you read a line; a "
     .. "claim idle past the hour lease is anyone's again.",
-    "Run the gate yourself — acceptance IS the CI gate, plus the tests the "
-    .. "diff adds — then `verdict ID accept|request-changes --pr N --head SHA "
+    "CI proves the gate; judge what it cannot — spec vs diff, a mutation "
+    .. "test — then `verdict ID accept|request-changes --pr N --head SHA "
     .. "--session <you>`.",
     "The verdict comes from a fresh-context reviewer that never held the "
     .. "build; no session accepts its own work.",
