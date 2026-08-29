@@ -15,6 +15,7 @@ local guide = require("_work.guidance")
 local health = require("_work.health")
 local item = require("_work.item")
 local act = require("_work.action")
+local lanes = require("_work.lanes")
 local prio = require("_work.priority")
 local sess = require("_work.session")
 local store = require("_work.store")
@@ -72,6 +73,26 @@ local function id_line(it: item.Item): string
   return ("%s %s"):format(tail.handle(it.id), it.title)
 end
 
+--- The lanes row: one `lane=conclusion` pair per required lane, in
+--- `lanes.LANES` order, or nil to print no row at all. nil facts is a
+--- fresh board that has never synced — silence there, not a row of
+--- blanks, is what tells the two states apart.
+--- @param facts {string: string} | nil Lane state, nil when unsynced
+--- @return string | nil The row, or nil to print nothing
+local function lanes_row(facts: {string: string} | nil): string | nil
+  if facts == nil then
+    return nil
+  end
+  local parts: {string} = {}
+  for _, lane in ipairs(lanes.LANES) do
+    local c = facts[lane]
+    if c ~= nil and c ~= "" then
+      parts[#parts + 1] = ("%s=%s"):format(lane, c)
+    end
+  end
+  return ("%-6s %s"):format("lanes", table.concat(parts, " "))
+end
+
 --- The board: doing item by item against the one bound, the top of
 --- todo with its pullable marks, the triage queue, and board-wide
 --- graph health. Health reports HERE rather than in the spec bar:
@@ -80,10 +101,11 @@ end
 --- @param all {item.Item} Every item
 --- @param specs act.Specs Sidecar body by id
 --- @param ages health.Ages Seconds since last board commit, by id
+--- @param lane_facts {string: string} | nil Lane state, nil when unsynced
 --- @return {string} The lines to print
 --- @return string The verdict detail
 local function status_report(all: {item.Item}, specs: act.Specs,
-    ages?: health.Ages): {string}, string
+    ages?: health.Ages, lane_facts?: {string: string}): {string}, string
   local aged = ages or {}
   local index = flow.by_id(all)
   local pos = prio.positions(all)
@@ -101,6 +123,10 @@ local function status_report(all: {item.Item}, specs: act.Specs,
         health.stale_hours(i, aged))
     end
     out[#out + 1] = ("  %s%s"):format(id_line(i), marks)
+  end
+  local row = lanes_row(lane_facts)
+  if row then
+    out[#out + 1] = row
   end
   local todo = flow.in_state(all, "todo", pos)
   local pullable = 0
@@ -155,8 +181,19 @@ local function cmd_status(s: store.Store): integer
   if all == nil then
     return verdict_line("show", false, aerr)
   end
+  -- An unsynced board has no lanes_state.tl at all, and read_state
+  -- reports that the same way it reports every lane already at its
+  -- last-recorded value: an empty map. That is also, and only, what
+  -- a synced-but-all-green board with nothing to say would look
+  -- like — except `record` never commits with nothing changed, so an
+  -- empty map here means the file was never written.
+  local facts = lanes.read_state(s)
+  local lane_facts: {string: string} | nil = nil
+  if next(facts) ~= nil then
+    lane_facts = facts
+  end
   local lines, verdict = status_report(all, read_specs(s, all),
-    claim_ages(s, all))
+    claim_ages(s, all), lane_facts)
   for _, line in ipairs(lines) do
     print(line)
   end
@@ -257,8 +294,9 @@ local function cmd_next(s: store.Store, session?: string): integer
 end
 
 local record gitview
+  lanes_row: function(facts: {string: string} | nil): string | nil
   status_report: function(all: {item.Item}, specs: act.Specs,
-  ages?: health.Ages): {string}, string
+  ages?: health.Ages, lane_facts?: {string: string}): {string}, string
   next_report: function(all: {item.Item}, specs: act.Specs,
   session?: string, ages?: health.Ages): string
   next_report_live: function(s: store.Store, all: {item.Item},
@@ -270,6 +308,7 @@ local record gitview
 end
 
 local M: gitview = {
+  lanes_row = lanes_row,
   status_report = status_report,
   next_report = next_report,
   next_report_live = next_report_live,

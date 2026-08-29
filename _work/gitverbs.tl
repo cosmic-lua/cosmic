@@ -250,7 +250,7 @@ local function cmd_take(s: store.Store, id: string, session: string,
           ("REFUSED: %s misses the spec bar — refine it first"):format(
             id:sub(1, 8)))
       end
-      local bound = flow.doing_refusal(all)
+      local bound = flow.doing_refusal(all, it)
       if bound then
         return gate.verdict_line("take", false, "REFUSED: " .. bound)
       end

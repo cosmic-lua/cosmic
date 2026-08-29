@@ -98,6 +98,9 @@ end
 
 --- The facts last recorded, read straight from the committed file —
 --- this is what keeps a fresh worktree's reads offline and truthful.
+--- Exported for `show`'s lanes row too: a fresh board that has never
+--- synced has no file, so `read_state` comes back empty and `show`
+--- renders no row rather than a row of blanks.
 --- @param s store.Store The store
 --- @return {string: string} One conclusion per lane, "" for the rest
 local function read_state(s: store.Store): {string: string}
@@ -237,6 +240,7 @@ end
 local record lanes
   LANES: {string}
   observe: function(s: store.Store): {string: string} | nil, string
+  read_state: function(s: store.Store): {string: string}
   record: function(s: store.Store, facts: {string: string}): boolean, string
   mint: function(s: store.Store, facts: {string: string}): boolean, string
 end
@@ -244,6 +248,7 @@ end
 local M: lanes = {
   LANES = LANES,
   observe = observe,
+  read_state = read_state,
   record = record,
   mint = mint,
 }

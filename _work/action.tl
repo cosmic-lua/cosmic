@@ -124,6 +124,22 @@ local function passes_bar(i: Item, specs: Specs,
   return #flow.ready_gaps(specs[i.id] or "") == 0
 end
 
+--- The first open, unclaimed, unblocked lane-repair item in queue
+--- order, or nil. The todo queue already excludes claimed items, so
+--- "unclaimed" needs no separate check; a blocked one waits on its
+--- blocker like any other pull rather than jumping it.
+--- @param todo {Item} The todo queue, already priority-ordered
+--- @param index flow.Index Items by id
+--- @return Item | nil The repair item to offer
+local function lane_repair(todo: {Item}, index: flow.Index): Item | nil
+  for _, i in ipairs(todo) do
+    if (i.lane or "") ~= "" and not flow.is_blocked(i, index) then
+      return i
+    end
+  end
+  return nil
+end
+
 --- The in-flight half of the ordering — land, review, finish — and
 --- the pull that starts new work under the doing bound. The decision
 --- is a LIST: the best action first and up to `CANDIDATES` more
@@ -199,14 +215,27 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
       end
     end
   end
+  -- A red lane's repair is the pull that cannot wait: offered ahead
+  -- of ordinary pulls (below finishing, above starting), and never
+  -- capped by the doing bound the way an ordinary pull is — the take
+  -- gate admits it the same way (`flow.doing_refusal`'s lane bypass).
+  local todo = flow.in_state(items, "todo", pos, seed)
+  local repair = lane_repair(todo, index)
+  if repair ~= nil and #acts < CANDIDATES then
+    acts[#acts + 1] = {
+      kind = "pull",
+      item = repair,
+      reason = ("lane repair: %s"):format(repair.lane),
+    }
+  end
   local parked = 0
   local stuck: Item = nil
   local suppressed = 0
   local room = flow.DOING_LIMIT - #doing
   if room > 0 then
     local cap = math.min(room, CANDIDATES - #acts)
-    for _, i in ipairs(flow.in_state(items, "todo", pos, seed)) do
-      if passes_bar(i, specs, pos) then
+    for _, i in ipairs(todo) do
+      if i ~= repair and passes_bar(i, specs, pos) then
         if flow.is_blocked(i, index) then
           parked = parked + 1
           if stuck == nil then
@@ -227,8 +256,9 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
     -- The bound refused to offer anything: count what it withheld,
     -- so the terminal answer can name the bound instead of reading
     -- as an empty queue.
-    for _, i in ipairs(flow.in_state(items, "todo", pos, seed)) do
-      if passes_bar(i, specs, pos) and not flow.is_blocked(i, index) then
+    for _, i in ipairs(todo) do
+      if i ~= repair and passes_bar(i, specs, pos)
+      and not flow.is_blocked(i, index) then
         suppressed = suppressed + 1
       end
     end
