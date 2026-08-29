@@ -13,6 +13,7 @@ local check = require("cosmic.check")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local show = require("_work.gitshow")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 local seq = 0
@@ -191,3 +192,32 @@ local function test_two_narrowing_flags_are_refused()
   assert(code ~= 0, "a read naming two narrowings is refused")
 end
 test_two_narrowing_flags_are_refused()
+
+-- A verdict judges a head AND the spec that head is measured against,
+-- and `show` is what a re-reviewer reads to decide whether there is
+-- anything new to see. A rework answering a bounce on the Evidence
+-- moves the sidecar and no commit, so the head alone cannot answer it.
+local function test_show_says_whether_the_spec_moved_since_the_verdict()
+  local all = a_board()
+  local judged = spec.revision(SIDECAR)
+  local reworked = check.must(item.decode({id = WORK, title = "a slice",
+        parent = UNDER, phase = "check", pr = 42,
+        verdict = "request changes", verdict_head = "5364cc21",
+        verdict_spec = judged}))
+  local moved = show.show_report(reworked, all, SIDECAR .. "\n## Evidence\n",
+    {})
+  assert(matched(moved, "^verdict: request changes %(head 5364cc21, "
+      .. "spec changed since%)$"), table.concat(moved, "\n"))
+  local still = show.show_report(reworked, all, SIDECAR, {})
+  assert(matched(still, "^verdict: request changes %(head 5364cc21, "
+      .. "spec unchanged since%)$"), table.concat(still, "\n"))
+  -- An unrecorded revision says nothing rather than guessing: the line
+  -- reads exactly as it did before the field existed.
+  local legacy = check.must(item.decode({id = WORK, title = "a slice",
+        parent = UNDER, phase = "check", pr = 42, verdict = "accept",
+        verdict_head = "5364cc21"}))
+  local plain = show.show_report(legacy, all, SIDECAR, {})
+  assert(matched(plain, "^verdict: accept %(head 5364cc21%)$"),
+    table.concat(plain, "\n"))
+end
+test_show_says_whether_the_spec_moved_since_the_verdict()

@@ -6,6 +6,12 @@
 --- mean the same thing over a markdown sidecar that they meant over
 --- an issue body, so the grammar moved across unchanged; what each
 --- section is FOR is skills/work/decompose.md.
+---
+--- It also names a spec's REVISION, because the sidecar is half of
+--- what a review judges: the diff is the other half, and a rework
+--- that answers a bounce by rewriting the spec moves this half alone.
+local hash = require("cosmic.hash")
+
 --- The headings a spec must carry.
 local READY_SECTIONS < const >: {string} = {
   "Goal", "Change", "Non-goals", "Acceptance", "Enablement",
@@ -112,10 +118,22 @@ local function section_of(body: string, name: string): string
   return table.concat(out, "\n") .. "\n"
 end
 
+--- The revision of a spec sidecar: a content digest of its body, so
+--- two readings of the same text are the same revision and any edit is
+--- a different one. A body of "" — an item with no sidecar — hashes to
+--- a stable constant, which is the right answer rather than a case to
+--- special-case: an item that has never had a spec has not changed one.
+--- @param body string The spec sidecar's markdown, "" when it has none
+--- @return string The revision, 64 lowercase hex characters
+local function revision(body: string): string
+  return hash.sha256_hex(body)
+end
+
 local record spec
   READY_SECTIONS: {string}
   claims_blocker: function(body: string): boolean
   ready_gaps: function(body: string): {string}
+  revision: function(body: string): string
   section_of: function(body: string, name: string): string
 end
 
@@ -123,6 +141,7 @@ local M: spec = {
   READY_SECTIONS = READY_SECTIONS,
   ready_gaps = ready_gaps,
   claims_blocker = claims_blocker,
+  revision = revision,
   section_of = section_of,
 }
 

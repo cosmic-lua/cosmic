@@ -272,13 +272,17 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   if flow.is_return(from, target) then
     it.claim = ""
-    -- A verdict describes one head in one phase. Moving leftward out
-    -- of a judged phase says that head is no longer what the item is,
-    -- so the judgment goes with it — otherwise rework re-enters land
-    -- on the old accept and merges what nobody reviewed.
+    -- A verdict describes one head and one spec revision in one
+    -- phase. Moving leftward out of a judged phase says that evidence
+    -- is no longer what the item is, so the judgment goes with it —
+    -- otherwise rework re-enters land on the old accept and merges
+    -- what nobody reviewed. Both halves clear together: a revision
+    -- left beside a cleared head is half a record, and the verdict
+    -- guard would compare against it.
     if from == "check" or from == "land" then
       it.verdict = ""
       it.verdict_head = ""
+      it.verdict_spec = ""
       it.enable = ""
     end
   end

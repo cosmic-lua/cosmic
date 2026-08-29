@@ -1,11 +1,13 @@
 #!/usr/bin/env cosmic
 -- The verdict verb: the one phase it may end, what a non-accept one
--- files with it, and the head it refuses to judge twice. The scratch
--- board harness is `_work.fixture`.
+-- files with it, and the evidence — head and spec revision together —
+-- it refuses to judge twice. The scratch board harness is
+-- `_work.fixture`.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local fs = require("cosmic.fs")
+local spec = require("_work.spec")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -70,9 +72,12 @@ local function test_a_non_accept_verdict_files_its_countermeasure()
 end
 test_a_non_accept_verdict_files_its_countermeasure()
 
--- A verdict judges a head; judging the same one twice says nothing
--- happened in between, which is not a fresh round.
-local function test_a_verdict_refuses_a_head_it_already_judged()
+-- A verdict judges a head AND the spec that head is measured against;
+-- judging the same PAIR twice says nothing happened in between, which
+-- is not a fresh round. Neither verdict kind is exempt: an accept on
+-- evidence that has not moved at all is the rubber stamp the guard
+-- exists to refuse.
+local function test_a_verdict_refuses_evidence_it_already_judged()
   local s = init_state_repo("head")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
@@ -81,14 +86,70 @@ local function test_a_verdict_refuses_a_head_it_already_judged()
   assert(verbs.cmd_move(s, leaf, "check", nil, 6, false, "") == 0)
   assert(vrd.cmd_verdict(s, leaf, "request changes", 6, "cafe123",
       "none: this item's own spec was the gap") == 0)
+  local judged = check.must(store.load(s, leaf))
+  check.equal(judged.verdict_spec, spec.revision(store.read_spec(s, leaf)),
+    "the verdict records the spec revision it judged")
   assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0)
   assert(vrd.cmd_verdict(s, leaf, "request changes", 6, "cafe123",
       "none: still the same gap") ~= 0,
-    "the same head twice has nothing new to judge")
+    "the same head over the same spec has nothing new to judge")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe123", "") ~= 0,
+    "and a change of verdict is not itself a change of evidence")
   assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe456", "") == 0,
     "a moved head does")
 end
-test_a_verdict_refuses_a_head_it_already_judged()
+test_a_verdict_refuses_evidence_it_already_judged()
+
+-- A bounce on the Evidence is answered by rewriting the SPEC, which
+-- moves no commit: the head stands still by design. Comparing the head
+-- alone made that rework unjudgeable, so the pair is what the guard
+-- compares and a spec-only round gets its verdict.
+local function test_a_spec_only_rework_earns_a_fresh_verdict()
+  local s = init_state_repo("spec-rework")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 31, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 31, "5364cc21",
+      "none: the spec's Evidence was the gap", "reviewer-one") == 0)
+  -- The rework moves the sidecar and nothing else; the PR head is
+  -- unchanged, which is what the bounce asked for.
+  local base = fs.join(fixture.tmpdir, "spec-rework-base.md")
+  local next_spec = fs.join(fixture.tmpdir, "spec-rework-next.md")
+  assert(fs.write(base, store.read_spec(s, leaf)))
+  assert(fs.write(next_spec,
+      fixture.READY_SPEC .. "## Evidence\nRe-ran every command.\n"))
+  assert(verbs.cmd_spec(s, leaf, next_spec, base) == 0,
+    "the rework rewrites the spec")
+  assert(verbs.cmd_move(s, leaf, "check", nil, 31, false, "") == 0)
+  local back = check.must(store.load(s, leaf))
+  check.equal(back.verdict_head, "5364cc21", "the judged head still stands")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 31, "5364cc21", "",
+      "reviewer-two") == 0,
+    "and the accept on that same head is a fresh round")
+  check.equal(check.must(store.load(s, leaf)).phase, "land", "which lands")
+end
+test_a_spec_only_rework_earns_a_fresh_verdict()
+
+-- A leftward move clears the judgment whole. A revision left beside a
+-- cleared head is half a record, and the guard would compare against it.
+local function test_a_return_clears_both_halves_of_the_judgment()
+  local s = init_state_repo("verdict-cleared")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_move(s, leaf, "check", nil, 41, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 41, "abc1234", "") == 0)
+  assert(check.must(store.load(s, leaf)).verdict_spec ~= "",
+    "the accept recorded a revision")
+  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  local returned = check.must(store.load(s, leaf))
+  check.equal(returned.verdict_head, "", "the return clears the head")
+  check.equal(returned.verdict_spec, "", "and the revision with it")
+end
+test_a_return_clears_both_halves_of_the_judgment()
 
 -- The verb keeps no identity distance: the session named on the claim
 -- and in `builders` accepts its own item and it moves `check -> land`,

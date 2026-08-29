@@ -43,6 +43,7 @@ local function test_worked_item_round_trips()
   t.pr = 456
   t.verdict = "request changes"
   t.verdict_head = "abc1234"
+  t.verdict_spec = "d244c2e538f53b0f"
   t.blocked_by = PARENT .. " " .. OTHER
   local it = check.must(item.decode(t))
   local back = check.must(item.decode(
@@ -50,8 +51,29 @@ local function test_worked_item_round_trips()
   assert(back.parent == PARENT and back.phase == "check", "position fields")
   assert(back.claim == "session-a" and back.pr == 456, "coordination fields")
   assert(#back.blocked_by == 2 and back.blocked_by[1] == PARENT, "blocked_by")
+  -- The verdict judges a pair, so both halves survive the file: a
+  -- revision that did not round-trip would read as "unrecorded" on the
+  -- next verdict, which refuses nothing.
+  check.equal(back.verdict_head, "abc1234", "the head the verdict judged")
+  check.equal(back.verdict_spec, "d244c2e538f53b0f", "and the spec revision")
 end
 test_worked_item_round_trips()
+
+-- An unrecorded revision is written as absent rather than as an empty
+-- string: the file carries only what is set, and "unknown" is what the
+-- verdict guard reads an absent one as.
+local function test_an_unrecorded_spec_revision_is_omitted()
+  local t = base()
+  t.parent = PARENT
+  t.phase = "check"
+  t.verdict = "accept"
+  t.verdict_head = "abc1234"
+  local it = check.must(item.decode(t))
+  check.equal(it.verdict_spec, "", "an absent revision decodes to empty")
+  assert(item.encode(it).verdict_spec == nil,
+    "and encodes to nothing at all")
+end
+test_an_unrecorded_spec_revision_is_omitted()
 
 local function test_roots_hold_edges_not_phases()
   local root = base()

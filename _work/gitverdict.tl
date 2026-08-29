@@ -5,9 +5,20 @@
 --- exactly "awaiting a planner verdict", and an accept given anywhere
 --- else would carry unreviewed work into `land` past every gate
 --- between them. The other two guards are what keep a verdict
---- informative rather than ceremonial: a head already judged has
+--- informative rather than ceremonial: evidence already judged has
 --- nothing new to say, and a non-accept verdict files the
 --- countermeasure its bounce is evidence for.
+---
+--- The evidence a verdict judges is a PAIR — the pull request head and
+--- the spec revision it is measured against — because a bounce on the
+--- Evidence is answered by rewriting the spec, which moves no commit.
+--- Comparing the head alone made every such rework unjudgeable, so the
+--- second look is refused only when BOTH halves are known and BOTH are
+--- unchanged. Widening the evidence rather than exempting `accept` is
+--- deliberate: an accept that follows a real rework passes because
+--- something moved, and one on byte-identical evidence is the rubber
+--- stamp this guard exists to refuse. There is no `--force` here for
+--- the same reason.
 ---
 --- `--session` is the audit half. Nothing here refuses on it: the
 --- name it gives rides in the commit subject — every board commit is
@@ -34,6 +45,7 @@ local gate = require("_work.gitgate")
 local gh = require("_work.gh")
 local item = require("_work.item")
 local review = require("_work.review")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 --- The phase each verdict sends an item to: the three directions out
@@ -127,13 +139,21 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
       ("%s is in %s — a verdict judges work in check"):format(
         id:sub(1, 8), where))
   end
-  -- A verdict judges a head. Judging the same one twice says nothing
-  -- new happened between them, which is the state review.md calls
-  -- "nothing to judge" rather than a fresh round.
-  if (head or "") ~= "" and head == (it.verdict_head or "") then
+  -- A verdict judges a head AND the spec that head is measured
+  -- against. Judging the same pair twice says nothing new happened
+  -- between them, which is the state review.md calls "nothing to
+  -- judge" rather than a fresh round; a rework that moved either half
+  -- is a fresh round even when the other stood still. An unrecorded
+  -- revision refuses nothing, for the same reason an empty head does
+  -- not: the board cannot say what spec that verdict read, so it
+  -- cannot claim nothing happened.
+  local judged_spec = spec.revision(store.read_spec(s, id))
+  if (head or "") ~= "" and head == (it.verdict_head or "")
+  and (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec then
     return gate.verdict_line("verdict", false,
-      ("REFUSED: %s already carries a %s verdict on head %s — nothing "
-        .. "new to judge"):format(id:sub(1, 8), it.verdict, head:sub(1, 7)))
+      ("REFUSED: %s already carries a %s verdict on head %s with spec %s "
+        .. "— neither the diff nor the spec has moved since"):format(
+        id:sub(1, 8), it.verdict, head:sub(1, 7), judged_spec:sub(1, 7)))
   end
   -- An accept asserts the work is fit to land, so it is the one
   -- verdict whose truth depends on the request's own state. Reading
@@ -162,6 +182,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- over.
   it.reviewer = ""
   it.verdict_head = head or ""
+  it.verdict_spec = judged_spec
   it.enable = ""
   if kind ~= "accept" then
     it.enable = filed

@@ -78,6 +78,13 @@ local record Item
   verdict: string
   --- Head commit the verdict was written against.
   verdict_head: string
+  --- The spec revision the verdict judged (`_work.spec.revision` of
+  --- the sidecar as it stood). A review judges a diff AND the spec it
+  --- is measured against, so the head alone cannot say whether a
+  --- second look has anything new to see. "" on an item verdicted
+  --- before the field existed — unknown, which is not the same as
+  --- unchanged, and nothing may be concluded from it.
+  verdict_spec: string
   --- The countermeasure a non-accept verdict filed: an item id, or
   --- "none: <reason>". "" when no such verdict stands.
   enable: string
@@ -236,6 +243,7 @@ local function decode(t: {string: any}): Item | nil, string
     pr = math.tointeger(tonumber(tostring(t.pr or "0"))) or 0,
     verdict = tostring(t.verdict or ""),
     verdict_head = tostring(t.verdict_head or ""),
+    verdict_spec = tostring(t.verdict_spec or ""),
     enable = tostring(t.enable or ""),
     resolution = tostring(t.resolution or ""),
   }
@@ -287,6 +295,7 @@ local function encode(it: Item): {string: any}
   if (it.pr or 0) ~= 0 then t.pr = it.pr end
   if (it.verdict or "") ~= "" then t.verdict = it.verdict end
   if (it.verdict_head or "") ~= "" then t.verdict_head = it.verdict_head end
+  if (it.verdict_spec or "") ~= "" then t.verdict_spec = it.verdict_spec end
   if (it.enable or "") ~= "" then t.enable = it.enable end
   if (it.resolution or "") ~= "" then t.resolution = it.resolution end
   return t
