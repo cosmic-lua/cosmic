@@ -5,5 +5,6 @@ return {
   ["claim"] = "wave2-wa2-1788020861",
   ["id"] = "3Ib4KH0qiFx9LvQ3cFaZdDm2UMG",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["pr"] = 1507,
   ["title"] = "item.decode hand-coerces 14 fields the new cosmic.shape validates declaratively",
 }
