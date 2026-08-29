@@ -16,8 +16,8 @@ render/resolve time. Rendered BESIDE the raw id in show/next/status
 (alias for eyes and typing, id for grep); prefix resolution accepts
 either form; commit subjects and item files keep raw ids only — the
 log's fixed grammars are a parsing contract (flowstats ships against
-them). Optional third layer: stable per-id ANSI color via cosmic.ansi
-in tty renders, gated on NO_COLOR. Petnames (adjective-noun word
+them). Color rendering was considered and
+rejected outright (owner-set): not needed. Petnames (adjective-noun word
 list) were considered and set aside: same mechanics, worse density,
 plus a shipped word list — revisit only if cross-conversation
 memorability proves worth it.
