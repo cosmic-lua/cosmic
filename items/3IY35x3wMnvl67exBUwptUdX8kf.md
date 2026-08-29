@@ -98,3 +98,7 @@ than the invariant it must honour; expressing the claim check as a
 compare-and-swap over the claim field the way `spec --base` does; or a
 rebuild-before-mutate step in the loop. They trade differently and the choice
 belongs in `plan`.
+
+## Result
+
+Closed 2026-08-29, overtaken + consolidated: the mechanism this item captured (the phase-era in-place `set ... in <phase>` write at gitgate.tl:296) was deleted with the two-state rewrite; today a foreign LIVE claim can only move via `take --force --why` (audited) and a shared PR is refused by pr_collision_refusal (PR 1512). The residual concern — that authorship history survives an overwrite so no-self-review can still be derived — is exactly the involvement record item 3IVCd39E now specifies (builders append on every claim take, including forced takeovers).
