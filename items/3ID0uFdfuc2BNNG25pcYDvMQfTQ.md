@@ -56,3 +56,7 @@ board's origin is expressible (the block/unblock shape). `attach
 `set ID field=value` is rejected — each mutation verb's refusal
 encodes an invariant, and repo deserves the same typed treatment as
 block and compare.
+
+## Result
+
+Closed 2026-08-29: `gitboard set ID --repo OWNER/NAME` landed in PR 1529 (item 3IFWAdlL, the consolidated set verb). Verified live on this item: repo set to whilp/cosmic after open, rendered by show, then repaired to whilp/cosmopolitan — the exact after-open lifecycle the evidence lacked.
