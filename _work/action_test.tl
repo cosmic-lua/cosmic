@@ -226,6 +226,45 @@ local function test_all_blocked_names_the_chain_root()
 end
 test_all_blocked_names_the_chain_root()
 
+local function test_an_open_blocker_holds_the_merge_off_the_offer()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local peer = make({parent = root.id, claim = "other"})
+  local accepted = make({parent = root.id, claim = "who", pr = 7,
+      verdict = "accept", blocked_by = peer.id})
+  items[#items + 1] = peer
+  items[#items + 1] = accepted
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind ~= "finish" or a.item.id ~= accepted.id,
+    "a binding blocker holds the merge back: " .. a.kind)
+  assert(a.kind == "none",
+    "nothing else is offered either: " .. a.kind)
+  assert(a.reason:find("accepted item", 1, true)
+    and a.reason:find("merges are held", 1, true),
+    "the held merge is named: " .. a.reason)
+  peer.resolution = "completed"
+  local b = act.next_action(items, specs, "me")
+  assert(b.kind == "finish" and b.item.id == accepted.id,
+    "ending the blocker returns it to the finish offer: " .. b.kind)
+end
+test_an_open_blocker_holds_the_merge_off_the_offer()
+
+local function test_a_blocked_building_item_is_still_offered()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local peer = make({parent = root.id, claim = "other"})
+  local building = make({parent = root.id, claim = "me",
+      blocked_by = peer.id})
+  items[#items + 1] = peer
+  items[#items + 1] = building
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "finish" and a.item.id == building.id,
+    "a blocker records landing order, not a build to finish: " .. a.kind)
+end
+test_a_blocked_building_item_is_still_offered()
+
 local function test_none_names_the_binding_fact()
   -- The root is deliberately unplaced with an open child, so no
   -- intake rung fires: it is not triage (it has children), nothing is

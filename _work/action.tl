@@ -79,6 +79,9 @@ local record Phased
   --- Pullable items the saturated doing bound refused to offer: the
   --- bound must name itself, or the stall reads as an empty queue.
   suppressed: integer
+  --- Accepted, awaiting-merge items skipped because a blocker still
+  --- binds: a deliberate hold, not an empty queue either.
+  merge_held: integer
 end
 
 --- How many candidates one ask hands out, the primary included.
@@ -142,14 +145,22 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   local acts: {Action} = {}
   local held = 0
   local reviewing = 0
+  local merge_held = 0
   for _, i in ipairs(doing) do
-    if flow.substate(i) == "accepted" and #acts < CANDIDATES then
-      acts[#acts + 1] = {
-        kind = "finish",
-        item = i,
-        reason = ("%s is accepted, awaiting merge — finishing beats "
-          .. "starting"):format(i.id:sub(1, 8)),
-      }
+    if flow.substate(i) == "accepted" then
+      if flow.is_blocked(i, index) then
+        -- A blocker records landing order, not a build or review to
+        -- finish: hold this merge back rather than offer it, and
+        -- count it so the terminal answer can name the hold.
+        merge_held = merge_held + 1
+      elseif #acts < CANDIDATES then
+        acts[#acts + 1] = {
+          kind = "finish",
+          item = i,
+          reason = ("%s is accepted, awaiting merge — finishing beats "
+            .. "starting"):format(i.id:sub(1, 8)),
+        }
+      end
     end
   end
   for _, i in ipairs(doing) do
@@ -232,10 +243,11 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
       primary.alternates = alts
     end
     return {action = primary, held = held, reviewing = reviewing,
-      parked = parked, stuck = stuck, suppressed = suppressed}
+      parked = parked, stuck = stuck, suppressed = suppressed,
+      merge_held = merge_held}
   end
   return {held = held, reviewing = reviewing, parked = parked,
-    stuck = stuck, suppressed = suppressed}
+    stuck = stuck, suppressed = suppressed, merge_held = merge_held}
 end
 
 --- The one action to take now, right to left. Ages are optional the
@@ -282,6 +294,17 @@ local function next_action(items: {Item}, specs: Specs, session?: string,
         .. "something in flight finishes"):format(
         #flow.in_state(items, "doing", pos), flow.DOING_LIMIT,
         ph.suppressed),
+    }
+  end
+  -- Accepted work a blocker is deliberately holding back outranks
+  -- intake advice too: the honest answer names the hold, not an
+  -- empty queue that would send a session past the recorded landing
+  -- order.
+  if ph.merge_held > 0 then
+    return {
+      kind = "none",
+      reason = ("%d accepted item(s) wait on open blockers — resolve "
+        .. "the blockers; their merges are held"):format(ph.merge_held),
     }
   end
   local taking = intake.intake_action(items, specs, index, pos)
