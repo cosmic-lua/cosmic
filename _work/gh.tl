@@ -69,12 +69,18 @@ local function pull(s: store.Store, number: integer, repo: string | nil):
   if head is {string: any} then
     sha = tostring(head["sha"] or "")
   end
+  local base = v["base"]
+  local base_ref = ""
+  if base is {string: any} then
+    base_ref = tostring(base["ref"] or "")
+  end
   return {
     number = number,
     draft = v["draft"] == true,
     merged = v["merged"] == true,
     body = tostring(v["body"] or ""),
     head_sha = sha,
+    base = base_ref,
     state = tostring(v["state"] or ""),
     merge_sha = tostring(v["merge_commit_sha"] or ""),
   }

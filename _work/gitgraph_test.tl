@@ -7,6 +7,7 @@
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
+local gitboard = require("_work.gitboard")
 local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
@@ -145,3 +146,128 @@ local function test_filing_is_admitted_at_the_doing_bound()
     "and the take is what the bound refuses")
 end
 test_filing_is_admitted_at_the_doing_bound()
+
+-- `set` repairs the three destination facts a refinement can outgrow:
+-- title, repo, base. Each round-trips through a real store, and the
+-- commit subject names WHICH fields moved, never their values.
+local function test_set_round_trips_title_repo_and_base()
+  local s = init_state_repo("set-round-trip")
+  local goal, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, "a truer title", "whilp/cosmopolitan",
+      "release") == 0)
+  local it = check.must(store.load(s, leaf))
+  assert(it.title == "a truer title", "title landed: " .. it.title)
+  assert(it.repo == "whilp/cosmopolitan", "repo landed: " .. it.repo)
+  assert(it.base == "release", "base landed: " .. it.base)
+  local events = check.must(publish.history(s, leaf))
+  assert(events[1].subject:match("^set %w%w%w%w%w%w%w%w title repo base$")
+    ~= nil, "the subject names the fields, canonically ordered, no "
+    .. "values: " .. events[1].subject)
+  assert(not events[1].subject:find("a truer title", 1, true),
+    "the title text stays out of the subject: " .. events[1].subject)
+
+  -- Setting only one field leaves the others untouched.
+  assert(graph.cmd_set(s, leaf, nil, nil, "main") == 0)
+  local moved = check.must(store.load(s, leaf))
+  assert(moved.base == "main" and moved.title == "a truer title"
+    and moved.repo == "whilp/cosmopolitan",
+    "an unset flag leaves its field alone")
+  assert(goal ~= "", "root filed for the fixture")
+end
+test_set_round_trips_title_repo_and_base()
+
+-- No flags at all names nothing to repair.
+local function test_set_with_no_flags_is_refused()
+  local s = init_state_repo("set-empty")
+  local _, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, nil, nil, nil) ~= 0,
+    "set needs at least one field")
+end
+test_set_with_no_flags_is_refused()
+
+-- An explicit empty --repo/--base would silently CLEAR the field —
+-- an un-gating path (an empty base means "ungated") with no flag
+-- naming what it just did. Refuse it instead; the way to change the
+-- field stays `set --repo/--base <value>`.
+local function test_set_refuses_an_empty_repo_or_base()
+  local s = init_state_repo("set-empty-clear")
+  local _, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, "a truer title", "whilp/cosmopolitan",
+      "release") == 0)
+  assert(graph.cmd_set(s, leaf, nil, "", nil) ~= 0,
+    "an empty --repo is refused, not treated as a clear")
+  assert(graph.cmd_set(s, leaf, nil, nil, "") ~= 0,
+    "an empty --base is refused, not treated as a clear")
+  local it = check.must(store.load(s, leaf))
+  assert(it.repo == "whilp/cosmopolitan" and it.base == "release",
+    "neither refusal cleared the field")
+end
+test_set_refuses_an_empty_repo_or_base()
+
+-- A finished item's destination facts are history, not a repair
+-- target.
+local function test_set_refuses_a_done_item()
+  local s = init_state_repo("set-done")
+  local _, leaf = root_with_leaf(s)
+  assert(verbs.cmd_done(s, leaf, "not-planned", false, "") == 0)
+  assert(graph.cmd_set(s, leaf, "a new title", nil, nil) ~= 0,
+    "a done item refuses set")
+  local it = check.must(store.load(s, leaf))
+  assert(it.title ~= "a new title", "and nothing was written")
+end
+test_set_refuses_a_done_item()
+
+-- `set` declares only title/repo/base — every flow field (claim, pr,
+-- verdict, resolution, parent, blocked_by, lane) has its own verb and
+-- gate, so `set` refuses those by not declaring the flag at all: the
+-- dispatcher's own unrecognized-flag error, before `cmd_set` runs.
+local function test_set_refuses_an_unknown_flag()
+  local s = init_state_repo("set-unknown-flag")
+  local _, leaf = root_with_leaf(s)
+  assert(gitboard.main("set", leaf, "--claim", "session-x",
+      "--dir", s.root) ~= 0,
+    "a flow field is not a set flag")
+  local it = check.must(store.load(s, leaf))
+  assert(it.claim == "", "nothing was written")
+end
+test_set_refuses_an_unknown_flag()
+
+-- The wall by name: EVERY flow field — not just --claim — has its own
+-- verb and gate, and `set` must refuse each as an unrecognized flag
+-- rather than reach `cmd_set`'s body, which has no field to write it
+-- into. Driven through the full CLI dispatch (not `graph.cmd_set`
+-- directly) because the wall lives in the flag SPEC `set` declares,
+-- not in `cmd_set`'s own logic. A test that only checks the exit code
+-- of `--claim` alone cannot tell the dispatcher's unknown-flag
+-- refusal from cmd_set's unrelated "needs at least one of --title,
+-- --repo, --base" refusal — both exit nonzero — so this checks the
+-- item file is untouched after every attempt too: a flag that got
+-- wired AND written would leave a trace here even if some other path
+-- also happened to exit nonzero.
+local function test_set_refuses_every_flow_field_flag()
+  local s = init_state_repo("set-flow-wall")
+  local _, leaf = root_with_leaf(s)
+  local before = check.must(store.load(s, leaf))
+  local flow_flags: {{string, string}} = {
+    {"--claim", "session-x"},
+    {"--pr", "5"},
+    {"--verdict", "accept"},
+    {"--parent", leaf},
+    {"--resolution", "completed"},
+    {"--lane", "release.yml"},
+  }
+  for _, pair in ipairs(flow_flags) do
+    local flag, value = pair[1], pair[2]
+    assert(gitboard.main("set", leaf, flag, value, "--dir", s.root) ~= 0,
+      flag .. " is a flow field, not a set flag")
+  end
+  local after = check.must(store.load(s, leaf))
+  assert(after.claim == before.claim, "claim untouched: " .. after.claim)
+  assert(after.pr == before.pr, "pr untouched: " .. tostring(after.pr))
+  assert(after.verdict == before.verdict, "verdict untouched: " .. after.verdict)
+  assert(after.parent == before.parent, "parent untouched: " .. after.parent)
+  assert(after.resolution == before.resolution,
+    "resolution untouched: " .. after.resolution)
+  assert(after.lane == before.lane, "lane untouched: " .. after.lane)
+end
+test_set_refuses_every_flow_field_flag()

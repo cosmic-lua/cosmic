@@ -1,7 +1,12 @@
 --- The graph verbs: `new`, `attach`, `block` and its `unblock` half —
 --- the mutations that shape the item GRAPH (an item's existence, a
 --- parent edge, a blocker edge) rather than moving work state, which
---- is `_work.gitverbs`. Verbs receive FULL ids — the dispatcher
+--- is `_work.gitverbs`. `set` lives here too: not a graph edge, but
+--- the other class of fact nothing else moves — an item's own
+--- destination (`title`, `repo`, `base`), fixed at file time and
+--- otherwise stuck once a refinement outgrows it.
+---
+--- Verbs receive FULL ids — the dispatcher
 --- resolves prefixes — and every verb prints a `gitboard-<verb>:`
 --- verdict line and returns its exit code. Mutations commit locally
 --- and publish through `publish.publish`, whose rejected-push path
@@ -217,18 +222,94 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
       blocker:sub(1, 8), #kept))
 end
 
+--- set: repair one of the three destination-fact fields directly —
+--- `title`, `repo`, `base` — the fields no other verb moves once an
+--- item is filed. Flow fields (claim, pr, verdict, resolution, parent,
+--- blocked_by, lane) have their own verbs and gates; `set` refuses
+--- them by not existing for them — the dispatcher's flag spec never
+--- declares those long names on this command, so passing one is an
+--- unrecognized-flag refusal before `set` is ever called.
+---
+--- Every passed field lands in canonical order (title, repo, base)
+--- regardless of flag order, so the commit subject — `set <id8>
+--- <field>...` — is deterministic and names only WHICH fields moved;
+--- the values ride in the diff, not the subject, because a title is
+--- long and a diff already shows what changed.
+--- @param s store.Store The store
+--- @param id string The item to repair
+--- @param title string | nil The new title, nil to leave it unchanged
+--- @param repo string | nil The new repo, nil to leave it unchanged
+--- @param new_base string | nil The new base branch, nil to leave it unchanged
+--- @return integer Exit code
+local function cmd_set(s: store.Store, id: string, title: string | nil,
+    repo: string | nil, new_base: string | nil): integer
+  if title == nil and repo == nil and new_base == nil then
+    return gate.verdict_line("set", false,
+      "REFUSED: set needs at least one of --title, --repo, --base")
+  end
+  local it, lerr = store.load(s, id)
+  if it == nil then
+    return gate.verdict_line("set", false, lerr)
+  end
+  if not item.is_open(it) then
+    return gate.verdict_line("set", false,
+      ("REFUSED: %s is done (%s) — a finished item's facts are history, "
+        .. "not a repair target"):format(id:sub(1, 8), it.resolution))
+  end
+  local fields: {string} = {}
+  if title ~= nil then
+    if title:match("%S") == nil then
+      return gate.verdict_line("set", false, "REFUSED: --title cannot be empty")
+    end
+    it.title = title
+    fields[#fields + 1] = "title"
+  end
+  if repo ~= nil then
+    if repo:match("%S") == nil then
+      return gate.verdict_line("set", false,
+        "REFUSED: --repo cannot be empty — clearing it is not supported; "
+        .. "set --repo <owner>/<name> to change it")
+    end
+    it.repo = repo
+    fields[#fields + 1] = "repo"
+  end
+  if new_base ~= nil then
+    if new_base:match("%S") == nil then
+      return gate.verdict_line("set", false,
+        "REFUSED: --base cannot be empty — clearing it is not supported; "
+        .. "set --base <branch> to change it")
+    end
+    it.base = new_base
+    fields[#fields + 1] = "base"
+  end
+  local bad = item.problems(it)
+  if #bad > 0 then
+    return gate.verdict_line("set", false, table.concat(bad, "; "))
+  end
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("set %s %s"):format(id:sub(1, 8), table.concat(fields, " ")))
+  if not ok then
+    return gate.verdict_line("set", false, err)
+  end
+  return gate.verdict_line("set", true,
+    ("%s: %s updated"):format(id:sub(1, 8), table.concat(fields, ", ")))
+end
+
 local record gitgraph
   cmd_new: function(s: store.Store, title: string, parent: string,
   spec: string, repo: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer
+  cmd_set: function(s: store.Store, id: string, title: string | nil,
+  repo: string | nil, new_base: string | nil): integer
 end
 
 local M: gitgraph = {
   cmd_new = cmd_new,
   cmd_attach = cmd_attach,
   cmd_block = cmd_block,
+  cmd_set = cmd_set,
 }
 
 return M

@@ -140,6 +140,38 @@ local function test_repo_scopes_a_workable_items_pr()
 end
 test_repo_scopes_a_workable_items_pr()
 
+-- `base` mirrors `repo`: a plain branch-name shape, round-trips,
+-- omitted at zero, and refused on a root the same way repo is.
+local function test_base_names_the_prs_target_branch()
+  local t = base()
+  t.parent = PARENT
+  t.base = "release"
+  local it = check.must(item.decode(t))
+  assert(it.base == "release", "a well-formed base decodes")
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
+  assert(back.base == "release", "base round-trips")
+
+  local default = check.must(item.decode(base()))
+  assert(default.base == "", "unset base defaults to ungated")
+  local dt = item.encode(default)
+  assert(dt.base == nil, "a default base carries no key at all")
+
+  local garbage = base()
+  garbage.parent = PARENT
+  garbage.base = "not a branch!"
+  local gbad, gerr = item.decode(garbage)
+  assert(gbad == nil and gerr:find("base must be a branch name", 1, true),
+    "a malformed base is refused: " .. tostring(gerr))
+
+  local rooted = base()
+  rooted.base = "release"
+  local rbad, rerr = item.decode(rooted)
+  assert(rbad == nil and rerr:find("not roots", 1, true),
+    "a base on a root is refused: " .. tostring(rerr))
+end
+test_base_names_the_prs_target_branch()
+
 -- A list field's invariants hold by validation, not by the writer's
 -- convention: `block` rebuilds its list through a `seen` set, but a
 -- migration or a hand-edit reaches the file directly, and a repeated

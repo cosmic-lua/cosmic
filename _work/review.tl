@@ -14,6 +14,8 @@ local record Pull
   draft: boolean
   body: string
   head_sha: string
+  --- The branch the request targets, "" when GitHub reported none.
+  base: string
   --- "open" | "closed"
   state: string
   --- Already merged, by any route.
@@ -60,6 +62,29 @@ local function blocks_check(p: Pull, id: string): string
       .. "request to its item"):format(p.number, id:sub(1, 8))
   end
   return nil
+end
+
+--- The refusal a pull request's base branch earns against what the
+--- item's `base` field records, or nil when they agree or the item
+--- names none.
+---
+--- The field is opt-in: an item with no `base` is UNGATED, which is
+--- what lets board-machinery items whose PRs target `board` (not
+--- `main`) stand without ever setting the field, and what an item
+--- filed before this gate existed keeps meaning.
+--- @param p Pull The fetched pull request
+--- @param base string The item's base field, "" when it names none
+--- @return string | nil The refusal
+local function blocks_base(p: Pull, base: string): string
+  local want = base or ""
+  if want == "" then
+    return nil
+  end
+  if (p.base or "") == want then
+    return nil
+  end
+  return ("PR #%d targets %s, the item says %s — retarget the PR or set "
+    .. "--base"):format(p.number, p.base, want)
 end
 
 --- The refusal a head's CI earns, or nil when nothing has concluded
@@ -190,6 +215,7 @@ local record review
   type Pull = Pull
   type CheckRun = CheckRun
   blocks_check: function(p: Pull, id: string): string
+  blocks_base: function(p: Pull, base: string): string
   blocks_accept: function(p: Pull): string
   head_moved: function(p: Pull, verdict_head: string): boolean
   blocks_land: function(p: Pull, verdict_head: string, id: string): string
@@ -199,6 +225,7 @@ end
 
 local M: review = {
   blocks_check = blocks_check,
+  blocks_base = blocks_base,
   blocks_accept = blocks_accept,
   head_moved = head_moved,
   blocks_land = blocks_land,

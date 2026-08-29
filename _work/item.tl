@@ -34,6 +34,11 @@ local record Item
   parent: string
   --- The owner/name the item's PR lands in; "" = the board's origin.
   repo: string
+  --- The branch the item's PR targets; "" = ungated — no verb checks
+  --- it and no PR is refused for disagreeing. Set it once a non-`board`
+  --- (or non-default) target is known; `gitgate.handover_refusal`
+  --- compares it against the PR's own base ref.
+  base: string
   --- The scheduled workflow file this item repairs; "" for ordinary
   --- items. `_work.lanes.mint`'s idempotency key: at most one OPEN
   --- item may carry a given lane.
@@ -102,6 +107,7 @@ local SPEC < const > = shape.record({
     title = shape.optional(shape.string),
     parent = shape.optional(shape.string),
     repo = shape.optional(shape.string),
+    base = shape.optional(shape.string),
     lane = shape.optional(shape.string),
     beats = shape.optional(shape.string),
     blocked_by = shape.optional(shape.string),
@@ -125,6 +131,7 @@ local record Raw
   title: string | nil
   parent: string | nil
   repo: string | nil
+  base: string | nil
   lane: string | nil
   beats: string | nil
   blocked_by: string | nil
@@ -191,14 +198,19 @@ local function problems(it: Item): {string}
   end
   if is_root(it) and ((it.claim or "") ~= "" or (it.reviewer or "") ~= ""
     or (it.pr or 0) ~= 0
-    or (it.verdict or "") ~= "" or (it.repo or "") ~= "") then
-    out[#out + 1] = "claim/reviewer/pr/verdict/repo belong to worked items, not roots"
+    or (it.verdict or "") ~= "" or (it.repo or "") ~= ""
+    or (it.base or "") ~= "") then
+    out[#out + 1] =
+    "claim/reviewer/pr/verdict/repo/base belong to worked items, not roots"
   end
   if (it.verdict or "") ~= "" and (it.pr or 0) == 0 then
     out[#out + 1] = "a verdict judges a PR; an item with none carries no verdict"
   end
   if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
     out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
+  end
+  if (it.base or "") ~= "" and not it.base:match("^[%w%-%._/]+$") then
+    out[#out + 1] = ("base must be a branch name: %s"):format(it.base)
   end
   local blocked_seen: {string: boolean} = {}
   for _, b in ipairs(it.blocked_by or {}) do
@@ -268,6 +280,7 @@ local function decode(t: {string: any}): Item | nil, string
     title = raw.title or "",
     parent = raw.parent or "",
     repo = raw.repo or "",
+    base = raw.base or "",
     lane = raw.lane or "",
     beats = beats,
     blocked_by = blocked,
@@ -299,6 +312,7 @@ local function encode(it: Item): {string: any}
   }
   if (it.parent or "") ~= "" then t.parent = it.parent end
   if (it.repo or "") ~= "" then t.repo = it.repo end
+  if (it.base or "") ~= "" then t.base = it.base end
   if (it.lane or "") ~= "" then t.lane = it.lane end
   if #(it.beats or {}) > 0 then
     t.beats = table.concat(it.beats, " ")
