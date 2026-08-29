@@ -10,5 +10,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1496,
+  ["reviewer"] = "review-3IWU4i0l-1787978113-rev1",
   ["title"] = "perf gate: a regression quiet on pass 2 gets two samples and no A/A control",
 }
