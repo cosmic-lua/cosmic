@@ -19,3 +19,7 @@ settable at `new` (and repairable, unlike repo today), rendered by
 `show`, with the check gate refusing a handover whose PR base
 disagrees with it; the skill's branch-cutting and acceptance prose
 then reads the field instead of assuming main.
+
+## Result
+
+Closed 2026-08-29: the `base` field landed in PR 1529 (item 3IFWAdlL) — settable at any point via `gitboard set ID --base BRANCH` (verified live on this item: base set to board, rendered by show), shape-checked, and enforced at handover: `gitgate.handover_refusal` refuses a PR whose actual base ref (read via gh.pull) disagrees with a non-empty item base; an absent base stays ungated, so existing items need no backfill. Residue deliberately not done here: the work skill's branch-cutting prose still says "off the latest origin/main" unconditionally — a one-line qualifier ("or the item's base when it carries one") belongs in the next skill-doc PR, not its own item.
