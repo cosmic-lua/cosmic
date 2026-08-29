@@ -42,6 +42,13 @@ perf-compare: PASS
 PROBE code=0 calls=1
 ```
 
+**Re-measured at pull, 2026-08-29**, against `origin/main@29011923`
+("skills/work: the orchestrator may take the verdict on its own wave
+(#1494)") — the tree that now carries both blockers, #1485 and #1486,
+merged. The same probe answers `PROBE code=0 calls=1` with the same two
+rows, each now preceded by #1485's `binaries: base aaaa1111  current
+bbbb2222  (differ)` header. The defect is unchanged.
+
 Both samples say the scenario is up by roughly a tenth; one fell under
 the bar and the gate published. `release.yml` re-baselines to the
 PREVIOUS RELEASE's binary daily, so the escape is absorbed into
@@ -97,11 +104,15 @@ non-reproducing kind — is absorbed exactly as today.
 
 ### Files
 
-Line numbers below are on the MERGED tree (`origin/main` +
+Line numbers below were written against the MERGED tree (`origin/main` +
 `origin/claude/3IUBNQZZ-compare-rows` +
 `origin/claude/3IVLAF3Z-stampless-identity-v2`, tree
-`e95e5f821a75284314b5bf9c44ee358dc35f5ee1`), which is the tree this item
-lands on — see `## Enablement`.
+`e95e5f821a75284314b5bf9c44ee358dc35f5ee1`). **Re-measured at pull,
+2026-08-29:** both blockers have LANDED, so that merged tree is now
+plain `origin/main@29011923` and every file length below re-measures
+identically (gate 490, compare 416, gate_strike_test 214, gate_test 382,
+compare_test 360). Two line-number citations shifted by one and are
+corrected in place; nothing else moved.
 
 1. **`_perf/compare.tl`** — export the existing `loudest_control`
    (defined at `:161` on `origin/main`; no behaviour change). Add the
@@ -132,7 +143,7 @@ lands on — see `## Enablement`.
      `identity_refusal` uses).
    - `reconcile(deltas, flagged, control_paths, threshold, same_side:
      boolean): {string}, integer` — the strike-twice reclassification
-     loop MOVED here from `_perf/gate.tl:305-316` (a regression standing
+     loop MOVED here from `_perf/gate.tl:304-315` (a regression standing
      that pass 1 did not flag becomes `noise`), followed by
      `restore_paths` when `same_side`. Returns the messages to print and
      the change to the caller's failure count.
@@ -153,7 +164,7 @@ lands on — see `## Enablement`.
      table carries the amended verdicts (D34's rule that a verdict the
      gate would not act on may not stand in the record) and an
      unexplained dismissal escalates.
-   - the strike-twice loop at `:305-316` is replaced by one
+   - the strike-twice loop at `:304-315` is replaced by one
      `reproduce.reconcile(deltas, flagged_first, controls, opts.threshold,
      same_side)` call whose messages are printed and whose integer is
      added to `failures`.
@@ -200,14 +211,21 @@ lands on — see `## Enablement`.
    at the new record; leave its decision and its three rejected options
    as written. Regenerate the index with `bin/cosmic _docs/derive.tl`.
 
-### Measured facts, 2026-08-28
+### Measured facts, 2026-08-28 (re-measured at pull, 2026-08-29)
 
 Every number below was produced by the command beside it, on one
-container, today.
+container. **Re-measured at pull:** `origin/main` is now `29011923` and
+carries both blockers merged, so the "merged" column below IS
+`origin/main` today and every one of its lengths re-reads unchanged —
+gate 490, compare 416, gate_strike_test 214, gate_test 382,
+compare_test 360. `grep -c loudest_control _perf/compare.tl` still reads
+2, `loudest_control` is still defined at `_perf/compare.tl:161`, and
+`grep -c '^local function test_' _perf/gate_strike_test.tl` still reads
+7. `d34` is still the highest decision number on every remote branch.
 
 | fact | command | value |
 |---|---|---|
-| today's main | `git log --oneline -1 origin/main` | `40776231` |
+| today's main | `git log --oneline -1 origin/main` | `40776231` (now `29011923`) |
 | the two open PRs merge cleanly with each other | `git merge-tree --write-tree --messages origin/claude/3IUBNQZZ-compare-rows origin/claude/3IVLAF3Z-stampless-identity-v2` | rc 0, tree `e95e5f82` |
 | `_perf/gate.tl` | `git show origin/main:_perf/gate.tl \| wc -l` | 460 |
 | `_perf/gate.tl`, merged | `git show e95e5f82:_perf/gate.tl \| wc -l` | **490** (10 under the cap) |
@@ -226,7 +244,7 @@ Moving the loop into `reproduce.tl` measured `_perf/gate.tl` 493,
 which is thin. If the implementation cannot hold `_perf/gate.tl` at 500
 or under, that is a bounce, not a licence to widen the cap: file the
 extraction of `main`'s `measure` / `measure_baseline` closures
-(`_perf/gate.tl:405-452` on the merged tree, ~48 lines) as its own item
+(`_perf/gate.tl:409-452` on the merged tree, ~48 lines) as its own item
 and block this one on it.
 
 That thinness is already a filed capture: `3IYCQxfH` (`backlog`,
