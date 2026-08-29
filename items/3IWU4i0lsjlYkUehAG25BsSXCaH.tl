@@ -9,7 +9,7 @@ return {
   ["enable"] = "none: both fixes are direct edits to text the builder already owns -- restate the firing region in D35 and _perf/reproduce.tl from the measured sweep, and apply skills/decide amend form to D34; no new capability, fixture or gate is needed",
   ["id"] = "3IWU4i0lsjlYkUehAG25BsSXCaH",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "do",
+  ["phase"] = "check",
   ["pr"] = 1496,
   ["title"] = "perf gate: a regression quiet on pass 2 gets two samples and no A/A control",
   ["verdict"] = "request changes",
