@@ -162,3 +162,57 @@ local function test_head_moved_compares_the_accepted_head()
     "and what to do before merging it: " .. refusal)
 end
 test_head_moved_compares_the_accepted_head()
+
+-- A head that is not even the right shape is refused whether or not a
+-- PR stands to check it against — everything downstream treats the
+-- stored field as an opaque string, and a non-hex value would just
+-- make those comparisons silently never match.
+local function test_head_refusal_rejects_a_head_too_short()
+  local msg = review.head_refusal(nil, "abc123")
+  assert(msg ~= nil and msg:find("git sha", 1, true), "got: " .. tostring(msg))
+end
+test_head_refusal_rejects_a_head_too_short()
+
+local function test_head_refusal_rejects_non_hex()
+  local msg = review.head_refusal(nil, "xyz1234")
+  assert(msg ~= nil and msg:find("git sha", 1, true), "got: " .. tostring(msg))
+end
+test_head_refusal_rejects_non_hex()
+
+-- Uppercase hex is not the shape stored elsewhere: git shas are
+-- reported and compared lowercase, so an uppercase caller is refused
+-- rather than silently normalized.
+local function test_head_refusal_rejects_uppercase()
+  local msg = review.head_refusal(nil, "ABC1234")
+  assert(msg ~= nil and msg:find("git sha", 1, true), "got: " .. tostring(msg))
+end
+test_head_refusal_rejects_uppercase()
+
+-- A shape-valid head still has to prefix-match the PR's own full
+-- head: the caller may hand over a short sha, but nothing shorter
+-- than the PR's truth is honest.
+local function test_head_refusal_rejects_a_mismatched_prefix()
+  local at: review.Pull = {number = 7, state = "open", merged = false,
+    draft = false, body = "", head_sha = "cafe1234567", merge_sha = ""}
+  local msg = review.head_refusal(at, "beef123")
+  assert(msg ~= nil and msg:find("#7", 1, true), "got: " .. tostring(msg))
+end
+test_head_refusal_rejects_a_mismatched_prefix()
+
+local function test_head_refusal_passes_a_matched_prefix()
+  local at: review.Pull = {number = 7, state = "open", merged = false,
+    draft = false, body = "", head_sha = "cafe1234567", merge_sha = ""}
+  assert(review.head_refusal(at, "cafe123") == nil,
+    "a genuine prefix of the PR's head")
+  assert(review.head_refusal(at, "cafe1234567") == nil,
+    "the PR's full head matches itself")
+end
+test_head_refusal_passes_a_matched_prefix()
+
+-- No PR read yet — a local-only board, or the shape-only pass before
+-- one — means only the shape is judged.
+local function test_head_refusal_with_no_pr_judges_shape_only()
+  assert(review.head_refusal(nil, "cafe123") == nil,
+    "a shape-valid head with nothing to check it against")
+end
+test_head_refusal_with_no_pr_judges_shape_only()
