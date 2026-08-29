@@ -26,15 +26,16 @@ local function make(id: string, title: string): item.Item
   return check.must(item.decode({id = id, title = title}))
 end
 
-local function test_handle_hyphenates_and_wraps_the_last_eight_characters()
+local function test_handle_underscores_and_wraps_the_last_eight_characters()
   local id = make_id("Q4TX9GMD")
   assert(tail.handle(id) == "«Q4TX_9GMD»", tail.handle(id))
 end
-test_handle_hyphenates_and_wraps_the_last_eight_characters()
+test_handle_underscores_and_wraps_the_last_eight_characters()
 
 local function test_is_tail_shape_accepts_both_forms()
   assert(tail.is_tail_shape("s1WSJ6A3"), "divider-free")
   assert(tail.is_tail_shape("s1WS-J6A3"), "hyphenated after the 4th")
+  assert(tail.is_tail_shape("«s1WS-J6A3»"), "a wrapped, hyphenated handle")
   assert(tail.is_tail_shape("«s1WS_J6A3»"), "a pasted, wrapped handle")
 end
 test_is_tail_shape_accepts_both_forms()
