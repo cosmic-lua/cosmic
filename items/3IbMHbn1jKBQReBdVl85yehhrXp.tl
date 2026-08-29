@@ -1,4 +1,6 @@
 return {
+  ["block_reason"] = {["3IbN8f3ETAdLLApGLIJF4My0D4j"] = "PR 1518's sentence promises handles in every id slot; it is false until secondary slots resolve them, so the rework lands after the tool change"},
+  ["blocked_by"] = "3IbN8f3ETAdLLApGLIJF4My0D4j",
   ["builders"] = "wave9-b-1788028743",
   ["claim"] = "wave9-b-1788028743",
   ["id"] = "3IbMHbn1jKBQReBdVl85yehhrXp",
