@@ -8,6 +8,7 @@ local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
+local vrd = require("_work.gitverdict")
 
 local init_state_repo = fixture.init_state_repo
 local give_spec = fixture.give_spec
@@ -82,5 +83,27 @@ local function test_a_handover_names_its_builder()
   local it = check.must(store.load(s, leaf))
   assert(it.claim == "session-a", "the builder is on the claim")
   assert(it.pr == 33, "and the diff is joined to the item")
+  assert(#it.builders == 1 and it.builders[1] == "session-a",
+    "and the handover appends the builder, same as a plain pull")
 end
 test_a_handover_names_its_builder()
+
+-- A rework return — the builder's re-take of their own item after a
+-- `request changes` verdict sent the PR back — is a claim path too:
+-- the session is already a builder, so the append is a no-op, but the
+-- record stays intact rather than growing a repeat.
+local function test_a_rework_return_keeps_the_builder_recorded()
+  local s = init_state_repo("rework-return")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 9, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 9, "abc1234") == 0)
+  -- The hand-back: same PR, re-opening the verdict.
+  assert(verbs.cmd_take(s, leaf, "session-a", 9, false, "") == 0,
+    "the rework return is a claim path")
+  local it = check.must(store.load(s, leaf))
+  assert(#it.builders == 1 and it.builders[1] == "session-a",
+    "the sole builder is recorded once, not repeated")
+end
+test_a_rework_return_keeps_the_builder_recorded()

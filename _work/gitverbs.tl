@@ -47,7 +47,8 @@ end
 --- against `base` proving the writer read what is there. An in-flight
 --- item's spec is its claim holder's to move (`gate.spec_refusal`) — a
 --- foreign write onto a live claim needs `--force --why`, same as
---- taking one over.
+--- taking one over. A named session joins `it.speccers` — `builders`'
+--- counterpart for spec authorship — in the SAME commit as the sidecar.
 --- @param s store.Store The store
 --- @param id string The item whose spec is replaced
 --- @param file string Path to the replacement markdown
@@ -81,6 +82,10 @@ local function cmd_spec(s: store.Store, id: string, file: string,
   local stale = gate.base_refusal(store.read_spec(s, id), base or "", id)
   if stale then
     return gate.verdict_line("spec", false, stale)
+  end
+  local who = session or ""
+  if who ~= "" then
+    item.record_involvement(it.speccers, who)
   end
   local ok, err = gate.commit_and_publish(s, it, body,
     ("spec %s%s"):format(id:sub(1, 8), gate.forced_suffix(frc, rsn)))
@@ -259,7 +264,7 @@ local function cmd_take(s: store.Store, id: string, session: string,
     end
   end
   it.claim = session
-  item.record_builder(it, session)
+  item.record_involvement(it.builders, session)
   local handed = ""
   if (pr or 0) ~= 0 then
     if pr == (it.pr or 0) and (it.verdict or "") ~= "request changes"

@@ -70,6 +70,13 @@ local record Item
   --- fact. Outside this module nothing reads it: no verb renders it
   --- and none refuses on it.
   builders: {string}
+  --- Every session that has replaced this item's spec sidecar, oldest
+  --- first. Stored and validated exactly like `builders` — same
+  --- space-joined string, same no-repeats rule — because the
+  --- no-self-review guarantee needs authorship of the SPEC recorded
+  --- too: a session offered the review of a decision it wrote is the
+  --- same hole `builders` closes for the diff.
+  speccers: {string}
   --- The session reviewing the item's PR; "" when nobody claimed the
   --- review. A lease like `claim`, on a shorter horizon
   --- (`_work.health`): the claim is pushed BEFORE the reading starts,
@@ -114,6 +121,7 @@ local SPEC < const > = shape.record({
     block_reason = shape.optional(shape.map(shape.string)),
     claim = shape.optional(shape.string),
     builders = shape.optional(shape.string),
+    speccers = shape.optional(shape.string),
     reviewer = shape.optional(shape.string),
     pr = shape.optional(shape.integer),
     verdict = shape.optional(shape.string),
@@ -138,6 +146,7 @@ local record Raw
   block_reason: {string: string} | nil
   claim: string | nil
   builders: string | nil
+  speccers: string | nil
   reviewer: string | nil
   pr: integer | nil
   verdict: string | nil
@@ -232,6 +241,14 @@ local function problems(it: Item): {string}
       built_seen[name] = true
     end
   end
+  local specced_seen: {string: boolean} = {}
+  for _, name in ipairs(it.speccers or {}) do
+    if specced_seen[name] then
+      out[#out + 1] = ("speccers repeats %s"):format(name)
+    else
+      specced_seen[name] = true
+    end
+  end
   local beats_seen: {string: boolean} = {}
   for _, b in ipairs(it.beats or {}) do
     if not ksuid.is_id(b) then
@@ -275,6 +292,10 @@ local function decode(t: {string: any}): Item | nil, string
   for name in (raw.builders or ""):gmatch("%S+") do
     builders[#builders + 1] = name
   end
+  local speccers: {string} = {}
+  for name in (raw.speccers or ""):gmatch("%S+") do
+    speccers[#speccers + 1] = name
+  end
   local it: Item = {
     id = raw.id or "",
     title = raw.title or "",
@@ -287,6 +308,7 @@ local function decode(t: {string: any}): Item | nil, string
     block_reason = reasons,
     claim = raw.claim or "",
     builders = builders,
+    speccers = speccers,
     reviewer = raw.reviewer or "",
     pr = raw.pr or 0,
     verdict = raw.verdict or "",
@@ -339,6 +361,9 @@ local function encode(it: Item): {string: any}
   if #(it.builders or {}) > 0 then
     t.builders = table.concat(it.builders, " ")
   end
+  if #(it.speccers or {}) > 0 then
+    t.speccers = table.concat(it.speccers, " ")
+  end
   if (it.reviewer or "") ~= "" then t.reviewer = it.reviewer end
   if (it.pr or 0) ~= 0 then t.pr = it.pr end
   if (it.verdict or "") ~= "" then t.verdict = it.verdict end
@@ -348,23 +373,24 @@ local function encode(it: Item): {string: any}
   return t
 end
 
---- Record that `session` has held this item's claim.
+--- Record that `session` is named in an involvement list — `builders`
+--- (who claimed) or `speccers` (who wrote the spec) alike.
 ---
 --- The claim answers who holds the item NOW and moves with every
---- drop; `builders` answers who has HELD it and never moves, which
---- is what makes the sequence of holders auditable once the claim has
---- moved on. A session reclaiming an item it already held is already
---- in the list, and the record carries no repeats — `problems`
---- refuses one.
---- @param it Item The item being claimed
---- @param session string The claiming session
-local function record_builder(it: Item, session: string)
-  for _, name in ipairs(it.builders) do
+--- drop; an involvement list answers who has EVER been party to it
+--- and never moves, which is what makes the sequence of holders
+--- auditable once the claim (or the spec's authorship) has moved on.
+--- A session already on the list is a no-op — `problems` refuses a
+--- repeat, so this is the only place a caller need not check first.
+--- @param list {string} The involvement list, mutated in place
+--- @param session string The session recorded
+local function record_involvement(list: {string}, session: string)
+  for _, name in ipairs(list) do
     if name == session then
       return
     end
   end
-  it.builders[#it.builders + 1] = session
+  list[#list + 1] = session
 end
 
 local record item
@@ -372,7 +398,7 @@ local record item
   is_open: function(it: Item): boolean
   is_root: function(it: Item): boolean
   problems: function(it: Item): {string}
-  record_builder: function(it: Item, session: string)
+  record_involvement: function(list: {string}, session: string)
   decode: function(t: {string: any}): Item | nil, string
   encode: function(it: Item): {string: any}
 end
@@ -381,7 +407,7 @@ local M: item = {
   is_open = is_open,
   is_root = is_root,
   problems = problems,
-  record_builder = record_builder,
+  record_involvement = record_involvement,
   decode = decode,
   encode = encode,
 }
