@@ -1,0 +1,3 @@
+## Change
+
+`skills/work/SKILL.md` (main repo) still describes ids by prefix alone — measured 2026-08-29, lines 43-44: "ids are KSUIDs; every verb accepts an unambiguous prefix." The board now renders every item by its handle — the id's last 8 characters, guillemet-wrapped and underscore-divided («d0x1_37YJ») — and every verb resolves that handle typed bare or wrapped, with either divider or none, case-tolerantly, alongside the full id and the head prefix. Extend that one sentence to say so, so a session reading the skill recognizes the handles the tool prints and knows it can type them back. One file, a few lines; no other SKILL.md content changes.
