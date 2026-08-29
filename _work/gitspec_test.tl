@@ -149,3 +149,86 @@ local function test_a_recorded_blocker_sequences_the_take()
     "and frees it when the blocker ends")
 end
 test_a_recorded_blocker_sequences_the_take()
+
+-- The reproduced incident: a foreign session silently replacing the
+-- definition of work another session already built and handed to
+-- review. `spec` refuses it, and nothing moves.
+local function test_spec_refuses_a_foreign_live_claim()
+  local s = init_state_repo("foreignspec")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 7, false, "") == 0,
+    "builder-a hands the build over for review")
+  local before_spec = store.read_spec(s, leaf)
+  local before_commits = commits(s)
+  local base = spec_file("foreign-base", before_spec)
+  local rewrite = spec_file("foreign-rewrite",
+    (before_spec:gsub("Not that.", "Rewritten.")))
+  assert(verbs.cmd_spec(s, leaf, rewrite, base, "refiner-b") ~= 0,
+    "a foreign session may not redefine work another session has "
+    .. "already built and handed to review")
+  assert(store.read_spec(s, leaf) == before_spec, "the sidecar is untouched")
+  assert(commits(s) == before_commits, "and nothing was committed")
+  local it = check.must(store.load(s, leaf))
+  assert(it.claim == "builder-a" and it.pr == 7, "the claim and PR stand")
+end
+test_spec_refuses_a_foreign_live_claim()
+
+-- What stays legal: the claim holder rewriting their OWN item's spec
+-- at any point — spec-only rework answering a bounce is a designed
+-- path, not something the new gate touches.
+local function test_spec_the_holders_own_rewrite_still_lands()
+  local s = init_state_repo("holderspec")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 0, false, "") == 0)
+  local base = spec_file("holder-base", store.read_spec(s, leaf))
+  local rewrite = spec_file("holder-rewrite",
+    (READY_SPEC:gsub("Not that.", "Reworked answering a bounce.")))
+  assert(verbs.cmd_spec(s, leaf, rewrite, base, "builder-a") == 0,
+    "the claim holder reworks their own spec")
+  assert(store.read_spec(s, leaf):find("Reworked answering a bounce.", 1, true)
+    ~= nil)
+end
+test_spec_the_holders_own_rewrite_still_lands()
+
+-- A bare --force is refused: a forced mutation with no stated reason
+-- is indistinguishable in the log from an ordinary one.
+local function test_spec_force_needs_why()
+  local s = init_state_repo("specforceonly")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 0, false, "") == 0)
+  local before_spec = store.read_spec(s, leaf)
+  local before_commits = commits(s)
+  local base = spec_file("forceonly-base", before_spec)
+  local rewrite = spec_file("forceonly-rewrite",
+    (before_spec:gsub("Not that.", "Overridden.")))
+  assert(verbs.cmd_spec(s, leaf, rewrite, base, "refiner-b", true) ~= 0,
+    "--force with no --why is refused")
+  assert(store.read_spec(s, leaf) == before_spec, "and nothing changed")
+  assert(commits(s) == before_commits, "nothing was committed")
+end
+test_spec_force_needs_why()
+
+-- --force --why overrides a foreign live claim, and the reason rides
+-- the commit subject, same as take's and done's forced writes.
+local function test_spec_force_and_why_overrides_a_foreign_claim()
+  local s = init_state_repo("specoverride")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 0, false, "") == 0)
+  local before_spec = store.read_spec(s, leaf)
+  local base = spec_file("override-base", before_spec)
+  local rewrite = spec_file("override-rewrite",
+    (before_spec:gsub("Not that.", "Overridden.")))
+  assert(verbs.cmd_spec(s, leaf, rewrite, base, "refiner-b", true,
+      "builder-a's session died mid-build") == 0,
+    "forced, with a reason, the foreign write lands")
+  assert(store.read_spec(s, leaf):find("Overridden.", 1, true) ~= nil)
+  local events = check.must(store.history(s, leaf))
+  assert(events[1].subject:find("forced: builder-a's session died mid-build",
+      1, true), "the reason rides the commit: " .. events[1].subject)
+end
+test_spec_force_and_why_overrides_a_foreign_claim()

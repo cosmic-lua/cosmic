@@ -72,7 +72,7 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
   local moved = fs.join(fixture.tmpdir, "pair-moved.md")
   assert(fs.write(moved, store.read_spec(s, leaf)
       .. "\nMeasured again at rework.\n"))
-  assert(verbs.cmd_spec(s, leaf, moved, base) == 0)
+  assert(verbs.cmd_spec(s, leaf, moved, base, "session-a") == 0)
   assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe123") == 0,
     "the same head over a moved spec is judgeable")
 end
