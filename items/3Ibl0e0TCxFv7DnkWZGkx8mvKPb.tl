@@ -4,5 +4,6 @@ return {
   ["id"] = "3Ibl0e0TCxFv7DnkWZGkx8mvKPb",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1536,
+  ["reviewer"] = "review-3Ibl0e0T-1788045499",
   ["title"] = "session identities enter item fields unvalidated: a mangled argv records --session as a builder",
 }
