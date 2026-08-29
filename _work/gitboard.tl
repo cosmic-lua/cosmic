@@ -106,9 +106,10 @@ local CSPEC: flags.CommandSpec = {
       .. "the kind of action means",
       spec = {flags = {dir_flag(),
           {long = "session", arg = "SESSION",
-            help = "this session; skips work and reviews another session "
-            .. "holds. Omit to derive it from the environment "
-            .. "(GITBOARD_SESSION, else a runner's own id)"},
+            help = "this session; steps over anything another session "
+            .. "has claimed, work and reviews alike. Omit to derive it "
+            .. "from the environment (GITBOARD_SESSION, else a runner's "
+            .. "own id)"},
           {long = "take",
             help = "claim the offered work in the same call: a review is "
             .. "claimed, a pull is moved to do, a refine is claimed in "

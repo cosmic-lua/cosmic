@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
 -- The claim as a LEASE: who holds it, who has held it, what it takes
 -- to move it, and what a handover to `check` must name. The claim is
--- the only thing standing between a session and a verdict on its own
--- work, so the rules about who may write it are the review gate's
--- foundation rather than bookkeeping — and correcting one must not
--- cost the item two spurious transitions.
+-- mutual exclusion by exact string and the name a handover records,
+-- so the rules about who may write it decide whether two sessions can
+-- collide over one item — and correcting one must not cost the item
+-- two spurious transitions.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
@@ -19,8 +19,8 @@ local root_with_leaf = fixture.root_with_leaf
 
 -- The claim moves; the record of who built does not. A return clears
 -- the lease so the next session may pull, and `builders` keeps every
--- holder — which is what `next` consults to withhold a verdict from
--- whoever wrote the diff.
+-- holder — the audit record of that sequence, which nothing outside
+-- `item.tl` reads.
 local function test_claim_appends_a_builder_and_a_return_keeps_it()
   local s = init_state_repo("builders")
   local _, leaf = root_with_leaf(s)
@@ -96,8 +96,8 @@ local function test_check_refuses_a_handover_with_no_pr()
 end
 test_check_refuses_a_handover_with_no_pr()
 
--- The claim is what `next` reads to withhold a verdict from the item's
--- builder, so a handover naming nobody hands the diff to everyone.
+-- The claim is what names the builder of the diff a reviewer is about
+-- to read, so a handover naming nobody hands over an unattributed one.
 -- Rework is where this bites: a second session taking it over must say
 -- so, and correcting that must not need a phase round trip.
 local function test_check_handover_names_its_builder()

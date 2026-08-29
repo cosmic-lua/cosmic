@@ -291,13 +291,13 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
   end
   -- A handover into `check` is a move the WIP gate refuses once check
   -- is full, and pulling adds work whose only exit is that same move.
-  -- Reaching here with check full means every item in it is this
-  -- session's or under another session's live review (`reviewable`
-  -- would have returned any other), so no verdict this session may
-  -- write can drain it. Handing out either
-  -- action would name a move the gate rejects, and `next` would repeat
-  -- it forever; fall through to the intake half instead, which is
-  -- still real work, and let `next_action` say what is holding.
+  -- Reaching here with check full means every item in it is under
+  -- another session's live review claim (`reviewable` would have
+  -- returned any other), so the ordering has no verdict to offer this
+  -- session that would drain it. Handing out either action would name
+  -- a move the gate rejects, and `next` would repeat it forever; fall
+  -- through to the intake half instead, which is still real work, and
+  -- let `next_action` say what is holding.
   local handover_open = #(b["check"] or {}) < flow.LIMITS["check"]
   -- And `do` has to have room for the pull itself. Reaching the pull
   -- branch with `do` full means every slot is another session's claim
@@ -419,10 +419,10 @@ local function next_action(items: {Item}, session?: string,
         ph.parked, bottom.id:sub(1, 8), bottom.title, where)}
   end
   if ph.reviewing > 0 then
-    -- Full with nothing this session may judge is not "somebody will
-    -- get to it": no verdict this session may write drains check, and
-    -- the handover waits until one does. Say what holds each item —
-    -- another session's live review claim covers it.
+    -- Full with nothing offered is not "somebody will get to it":
+    -- every item here is another session's review to write, and the
+    -- handover waits until one of them lands. Say what holds each
+    -- item — another session's live review claim covers it.
     local shape = ("%d under another session's review"):format(ph.reviewing)
     if #(b["check"] or {}) >= flow.LIMITS["check"] then
       return {

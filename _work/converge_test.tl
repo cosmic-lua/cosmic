@@ -6,8 +6,8 @@
 --
 -- Two different claims. SAFETY: every action the ordering names is
 -- one the verbs would carry out — no move the WIP gate refuses, no
--- verdict on the asker's own work, no promotion or pull of something
--- an open blocker holds. LIVENESS: a board holding only finishable
+-- pull or finish over another session's live claim, no promotion or
+-- pull of something an open blocker holds. LIVENESS: a board holding only finishable
 -- work drains to nothing. Safety without liveness refuses everything;
 -- liveness without safety is the livelock this file keeps out, where
 -- `next` names a move, the gate rejects it, and the answer repeats.
@@ -212,8 +212,8 @@ end
 --- every one is placed, leaves scattered across the phases within
 --- their limits, a few blocker edges and foreign claims, and a couple
 --- of unplaced captures for the triage queue. Some claims are the
---- asking session's own, because a phase full of work the asker may
---- not judge is a STARTING state rather than one a walk arrives at:
+--- asking session's own, because a phase full of the asker's own
+--- claims is a STARTING state rather than one a walk arrives at:
 --- the ordering finishes a `do` item into `check` before pulling
 --- another, so a walk never holds both full at once.
 --- @param r Rng The generator
@@ -223,8 +223,9 @@ end
 local function generate(r: Rng, leaves: integer, session: string): {Item}
   -- Some boards are the asking session's ALONE. Drawing each claim
   -- independently makes "every item in `check` is mine" vanishingly
-  -- rare at ten items, and that is precisely the state where no
-  -- verdict the asker may write drains the phase it is filling.
+  -- rare at ten items, and that is precisely the shape where nothing
+  -- is stepped over for a foreign claim, so every step of the walk
+  -- has to come from the ordering itself.
   local alone = roll(r, 3) == 1
   local roots: {Item} = {make({}), make({}), make({})}
   roots[1].beats = {roots[2].id}

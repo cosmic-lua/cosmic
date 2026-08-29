@@ -184,10 +184,10 @@ local function cmd_move(s: store.Store, id: string, target: string,
     end
   end
   -- The claim is what says who built the diff a reviewer is about to
-  -- read, so a handover naming nobody hands over a diff with no
-  -- author, and no way to ask about it. Rework
-  -- is where this bites: the claim stays with the first builder by
-  -- design, so a second session taking the rework has to say so.
+  -- read, so a handover naming nobody hands over a diff with no author
+  -- and no way to ask about it. Rework is where this bites: the claim
+  -- stays with the first builder by design, so a second session taking
+  -- the rework has to say so.
   if target == "check" and (claim or "") == "" and (it.claim or "") == ""
   and not force then
     return gate.verdict_line("move", false,

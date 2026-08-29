@@ -51,16 +51,20 @@ local record Item
   block_reason: {string: string}
   --- The session that claimed it; "" when unclaimed.
   claim: string
-  --- Every session that has held the claim, oldest first. Stored as
-  --- one "name name" string — the literal domain has no lists.
+  --- Every session a phase-crossing claim has named, oldest first.
+  --- Stored as one "name name" string — the literal domain has no
+  --- lists.
   ---
   --- The claim is a LEASE and moves: a return clears it and the next
   --- pull writes a new one, so the claim alone cannot answer "who has
-  --- worked this item". This is that answer — the audit record, never
-  --- cleared while the item is open, so who built and who took over
-  --- stays readable in the committed file and in the log after the
-  --- fact. Outside this module nothing reads it: no verb renders it
-  --- and none refuses on it.
+  --- worked this item". This is that answer as far as it goes — the
+  --- audit record, never cleared while the item is open, so the
+  --- sequence of holders stays readable in the committed file and in
+  --- the log after the fact. A move that CHANGES PHASE appends; an
+  --- in-place `--claim` takeover writes the claim without appending,
+  --- so what accumulates here is the crossings, not every hand the
+  --- item has passed through. Outside this module nothing reads it:
+  --- no verb renders it and none refuses on it.
   builders: {string}
   --- The session reviewing it in `check`; "" when nobody claimed the
   --- review. A lease like `claim`, on a shorter horizon
@@ -291,11 +295,12 @@ end
 --- Record that `session` has held this item's claim.
 ---
 --- The claim answers who holds the item NOW and moves with every
---- return; `builders` answers who has HELD it and never moves, which
---- is what makes the sequence of holders auditable once the claim has
---- moved on. A session reclaiming an item it already held is already
---- in the list, and the record carries no repeats — `problems`
---- refuses one.
+--- return; `builders` accumulates and never moves, which is what
+--- makes the sequence of holders auditable once the claim has moved
+--- on. Only a phase-crossing move calls this, so an in-place claim
+--- takeover leaves the record where it stands. A session reclaiming
+--- an item it already held is already in the list, and the record
+--- carries no repeats — `problems` refuses one.
 --- @param it Item The item being claimed
 --- @param session string The claiming session
 local function record_builder(it: Item, session: string)
