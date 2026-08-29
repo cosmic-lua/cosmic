@@ -38,6 +38,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local graph = require("_work.gitgraph")
+local gitspec = require("_work.gitspec")
 local publish = require("_work.publish")
 local session = require("_work.session")
 local store = require("_work.store")
@@ -294,7 +295,7 @@ local function main(...: string): integer
       return 1
     end
     local who = session.resolve(d.parsed.values["session"])
-    return verbs.cmd_spec(s, id, file, d.parsed.values["base"] or "", who,
+    return gitspec.cmd_spec(s, id, file, d.parsed.values["base"] or "", who,
       d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   if d.command == "take" then

@@ -43,6 +43,29 @@ local function test_take_asks_the_spec_bar_of_todo_work()
 end
 test_take_asks_the_spec_bar_of_todo_work()
 
+-- The incident, refused at the door: a mangled argv absorbing a
+-- literal `--session` as the identity can no longer enter the claim,
+-- the builders list, or — via the review-claim derivation — the
+-- reviewer field.
+local function test_take_refuses_a_flag_shaped_session()
+  local s = init_state_repo("flagsession")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "--session", 0, false, "") ~= 0,
+    "a flag-shaped claim is refused")
+  local it = check.must(store.load(s, leaf))
+  assert(it.claim == "" and #it.builders == 0, "and nothing is written")
+  -- The review claim runs through the same gate: hand the build over
+  -- as a real session, then offer the review to a flag-shaped one.
+  assert(verbs.cmd_take(s, leaf, "builder-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 7, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "--force", 0, false, "") ~= 0,
+    "a flag-shaped reviewer is refused")
+  assert(check.must(store.load(s, leaf)).reviewer == "",
+    "and no reviewer is recorded")
+end
+test_take_refuses_a_flag_shaped_session()
+
 -- An unplaced item is refused at take: placement is ordinal, and an
 -- item nothing has been compared against cannot be queued honestly.
 local function test_take_refuses_unplaced_work()

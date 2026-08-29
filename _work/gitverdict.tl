@@ -20,10 +20,11 @@
 ---                    learning goes in its spec — wrong work merged
 ---                    is expensive, rejection is cheap by design
 ---
---- `--session` is the audit half. Nothing here refuses on it: the
---- name it gives rides in the commit subject — every board commit is
---- authored as one fixed identity, so the subject is the only place
---- the log can record who judged.
+--- `--session` is the audit half: the name it gives rides in the
+--- commit subject — every board commit is authored as one fixed
+--- identity, so the subject is the only place the log can record who
+--- judged. The one refusal on it is shape (`item.identity_refusal`):
+--- a dash-led name is a flag a mangled argv absorbed, not a session.
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
 local item = require("_work.item")
@@ -82,6 +83,10 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   local forced = gate.force_refusal(frc, rsn)
   if forced then
     return gate.verdict_line("verdict", false, "REFUSED: " .. forced)
+  end
+  local bad_session = item.identity_refusal(session or "")
+  if bad_session then
+    return gate.verdict_line("verdict", false, "REFUSED: " .. bad_session)
   end
   kind = KIND_ALIASES[kind] or kind
   if not KINDS[kind] then

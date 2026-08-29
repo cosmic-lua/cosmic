@@ -1,9 +1,10 @@
 --- The state verbs: `take` (claim work, record its PR), `drop`
---- (release a claim with the gap named), `done`, `spec`, and the
+--- (release a claim with the gap named), `done`, and the
 --- housekeeping `init` and `sync` — every `cmd_*` behind
 --- `_work/gitboard.tl`'s dispatch that is not a graph mutation. The
 --- verbs that shape the graph — `new`, `attach`, `block` and its
---- `unblock` half — are `_work.gitgraph`. Both halves run over
+--- `unblock` half — are `_work.gitgraph`; the spec sidecar's own
+--- verb is `_work.gitspec`. All of them run over
 --- `_work.store` (persistence) and `_work.flow` (policy). Verbs
 --- receive FULL ids — the dispatcher resolves prefixes — and every
 --- verb prints a `gitboard-<verb>:` verdict line and returns its exit
@@ -14,7 +15,6 @@
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
-local fs = require("cosmic.fs")
 local health = require("_work.health")
 local item = require("_work.item")
 local lanes = require("_work.lanes")
@@ -34,58 +34,6 @@ local function cmd_init(dir: string): integer
   end
   return gate.verdict_line("init", true,
     ("state repository ready at %s"):format(dir))
-end
-
---- spec: replace ID's spec sidecar with FILE's text, the compare-and-swap
---- against `base` proving the writer read what is there. An in-flight
---- item's spec is its claim holder's to move (`gate.spec_refusal`) — a
---- foreign write onto a live claim needs `--force --why`, same as
---- taking one over. A named session joins `it.speccers` — `builders`'
---- counterpart for spec authorship — in the SAME commit as the sidecar.
---- @param s store.Store The store
---- @param id string The item whose spec is replaced
---- @param file string Path to the replacement markdown
---- @param base string | nil The spec text the caller read, as a file path
---- @param session string | nil The session making the write
---- @param force boolean | nil Rewrite a foreign LIVE claim's spec
---- @param why string | nil Why --force was needed
---- @return integer Exit code
-local function cmd_spec(s: store.Store, id: string, file: string,
-    base?: string, session?: string, force?: boolean, why?: string): integer
-  local frc = force or false
-  local rsn = why or ""
-  local forced = gate.force_refusal(frc, rsn)
-  if forced then
-    return gate.verdict_line("spec", false, "REFUSED: " .. forced)
-  end
-  local it, lerr = store.load(s, id)
-  if it == nil then
-    return gate.verdict_line("spec", false, lerr)
-  end
-  if not frc then
-    local refusal = gate.spec_refusal(it, session or "")
-    if refusal then
-      return gate.verdict_line("spec", false, refusal)
-    end
-  end
-  local body, rerr = fs.read(file)
-  if body == nil then
-    return gate.verdict_line("spec", false, rerr)
-  end
-  local stale = gate.base_refusal(store.read_spec(s, id), base or "", id)
-  if stale then
-    return gate.verdict_line("spec", false, stale)
-  end
-  local who = session or ""
-  if who ~= "" then
-    item.record_involvement(it.speccers, who)
-  end
-  local ok, err = gate.commit_and_publish(s, it, body,
-    ("spec %s%s"):format(id:sub(1, 8), gate.forced_suffix(frc, rsn)))
-  if not ok then
-    return gate.verdict_line("spec", false, err)
-  end
-  return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
 --- The review claim inside `take`: the lock pushed BEFORE the
@@ -176,6 +124,13 @@ local function cmd_take(s: store.Store, id: string, session: string,
       "REFUSED: a claim names its session — set GITBOARD_SESSION or pass "
       .. "--session")
   end
+  -- The identity shape gate: a dash-led name is a flag a mangled argv
+  -- absorbed, refused before it can enter claim, builders, or (via
+  -- the review-claim derivation below) reviewer.
+  local bad_session = item.identity_refusal(session)
+  if bad_session then
+    return gate.verdict_line("take", false, "REFUSED: " .. bad_session)
+  end
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("take", false, lerr)
@@ -259,7 +214,10 @@ local function cmd_take(s: store.Store, id: string, session: string,
     end
   end
   it.claim = session
-  item.record_involvement(it.builders, session)
+  local recorded, ierr = item.record_involvement(it.builders, session)
+  if not recorded then
+    return gate.verdict_line("take", false, "REFUSED: " .. ierr)
+  end
   local handed = ""
   if (pr or 0) ~= 0 then
     if pr == (it.pr or 0) and (it.verdict or "") ~= "request changes"
@@ -472,8 +430,6 @@ end
 
 local record gitverbs
   cmd_init: function(dir: string): integer
-  cmd_spec: function(s: store.Store, id: string, file: string,
-  base?: string, session?: string, force?: boolean, why?: string): integer
   cmd_take: function(s: store.Store, id: string, session: string,
   pr: integer, force: boolean, why: string): integer
   cmd_drop: function(s: store.Store, id: string, session: string,
@@ -485,7 +441,6 @@ end
 
 local M: gitverbs = {
   cmd_init = cmd_init,
-  cmd_spec = cmd_spec,
   cmd_take = cmd_take,
   cmd_drop = cmd_drop,
   cmd_done = cmd_done,

@@ -302,6 +302,63 @@ local function test_a_wrong_typed_field_is_refused()
 end
 test_a_wrong_typed_field_is_refused()
 
+-- Every identity shape a real session has presented — enumerated from
+-- the board's own log and item files — passes the shape check and
+-- records. No grammar unifies them (uuids, uuid/handle pairs, minted
+-- wave and handoff names, reviewer names with and without a -revN,
+-- scheduled runs, free-form runner names, a user-host pair), which is
+-- why `identity_refusal` is a blocklist, not an allowlist.
+local LIVE_IDENTITIES: {string} = {
+  "0b13d2b4-bb26-5bc1-8635-407acd85452c",
+  "05f7c552-0c90-51cb-99b3-e018759c6ed5/3IVEEDO8",
+  "wave15-b-1788042780",
+  "wave-w1-1788018497",
+  "wave2-wa2-1788020861",
+  "handoff-b1-1788045000",
+  "review-3IbhHpG9-1788043076",
+  "review-3IbS3xsB-1788033981-rev2",
+  "claude-sched-2026-08-24T0238",
+  "magical-bell",
+  "qmnmv1",
+  "sched-pcoatp",
+  "workflow-3q9w2x",
+  "9502275599-1-ci",
+  "wcmaier-somehost",
+}
+local function test_every_live_identity_shape_passes()
+  for _, name in ipairs(LIVE_IDENTITIES) do
+    assert(item.identity_refusal(name) == nil,
+      "a live identity must pass: " .. name)
+    local list: {string} = {}
+    assert(item.record_involvement(list, name), "and record: " .. name)
+    assert(item.record_involvement(list, name), "a repeat is a no-op")
+    assert(#list == 1 and list[1] == name, "recorded once: " .. name)
+  end
+end
+test_every_live_identity_shape_passes()
+
+-- The incident's token: a mangled argv absorbing a literal
+-- `--session` as the identity. Refused by shape — dash-led — at the
+-- write, and never wired into decode/problems, so the one historical
+-- item already carrying it keeps reading.
+local function test_a_flag_shaped_identity_is_refused()
+  assert(item.identity_refusal("--session") ~= nil, "the incident's token")
+  assert(item.identity_refusal("-x") ~= nil, "any dash-led token")
+  local list: {string} = {"session-a"}
+  local ok, err = item.record_involvement(list, "--session")
+  assert(not ok and err:find("--session", 1, true) ~= nil,
+    "refused, naming the token: " .. tostring(err))
+  assert(#list == 1 and list[1] == "session-a", "and nothing was recorded")
+  -- The poisoned historical record still decodes: gating reads would
+  -- brick every `store.list` over the one bad item.
+  local t = base()
+  t.parent = PARENT
+  t.builders = "--session builder-a"
+  local it = check.must(item.decode(t))
+  assert(#it.builders == 2, "a recorded flag-shaped builder still reads")
+end
+test_a_flag_shaped_identity_is_refused()
+
 -- Unknown keys stay tolerated: a Spec that does not name a key never
 -- looks at it, so a file carrying a retired field still decodes.
 local function test_an_unknown_key_still_decodes()

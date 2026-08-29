@@ -11,6 +11,7 @@ return {
   ["_work/gitgate.tl"] = {["covered"] = 88, ["total"] = 100},
   ["_work/gitgraph.tl"] = {["covered"] = 114, ["total"] = 130},
   ["_work/gitshow.tl"] = {["covered"] = 76, ["total"] = 102},
+  ["_work/gitspec.tl"] = {["covered"] = 34, ["total"] = 36},
   ["_work/gitverbs.tl"] = {["covered"] = 217, ["total"] = 258},
   ["_work/gitverdict.tl"] = {["covered"] = 79, ["total"] = 100},
   ["_work/gitview.tl"] = {["covered"] = 88, ["total"] = 117},
