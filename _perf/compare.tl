@@ -459,6 +459,7 @@ local record compare
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage_many: function(base: pt.Results, cur: pt.Results, controls: {pt.Results}, threshold_pct?: number): {pt.Delta}, integer
+  loudest_control: function(controls: {pt.Results}, threshold_pct?: number): {string: pt.Delta}
   format_delta: function(d: pt.Delta): string
   format_identity: function(base: pt.Results, cur: pt.Results): string
   format: function(deltas: {pt.Delta}, base?: pt.Results, cur?: pt.Results): string
@@ -473,6 +474,7 @@ local M: compare = {
   diff = diff,
   triage = triage,
   triage_many = triage_many,
+  loudest_control = loudest_control,
   format_delta = format_delta,
   format_identity = format_identity,
   format = format,

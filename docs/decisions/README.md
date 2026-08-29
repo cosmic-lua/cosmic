@@ -69,3 +69,4 @@ build when the committed copy drifts.
 | D32 | the metatable is-rescue judges the resolved shape, not the spelling | amended 2026-08 (D33 closed the value-type hole) | [→](d32-metatable-rescue-judges-resolved-shape.md) |
 | D33 | the metatable is-rescue narrows to the target's kind, not the target | active | [→](d33-metatable-rescue-carries-the-kind.md) |
 | D34 | the perf gate judges reproduction against the re-measured baseline | active | [→](d34-reproduction-against-remeasured-baseline.md) |
+| D35 | a dismissed perf regression owes the same evidence a credited one does | active | [→](d35-dismissal-owes-evidence.md) |

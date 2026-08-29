@@ -105,8 +105,11 @@
   What would make us revisit: repeated reds traceable to the baseline
   retry rather than to the change under test. Then buy the baseline-pair
   credit above, which is the instrument that fixes the cost properly.
-  What this does NOT fix, stated so nobody reads it as more than it is:
-  the sampling stays asymmetric. A regression reading quiet on the retry
-  still ends the gate on two current-side samples with no A/A control at
-  all, while one flagging twice earns a third sample and triage across
-  three control pairs.
+  What this does NOT fix: the sampling asymmetry it leaves behind. A
+  regression reading quiet on the retry ended the gate there on two
+  current-side samples with no A/A control at all, while one flagging
+  twice earned a third sample and triage across three control pairs.
+  That half is settled separately, in
+  [D35](d35-dismissal-owes-evidence.md), which makes a dismissal answer
+  to the same-binary controls; the decision here — which baseline the
+  reproduction question is asked against — is untouched by it.
