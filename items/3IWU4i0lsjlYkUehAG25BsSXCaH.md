@@ -349,14 +349,30 @@ Run from the repo root. None writes into the committed tree.
    ```
 
    ends `test: FAIL (1 of 1 file)` naming
-   `test_two_agreeing_samples_straddling_the_bar_fail`. (The `o/3p` and
+   `test_two_agreeing_samples_straddling_the_bar_fail`. **Re-measured at
+   build, 2026-08-29:** it does, and `11 checks: 9 passed, 2 failed` —
+   TWO of the eleven fail on the base, not one.
+   `test_a_third_sample_absorbs_an_unexplained_dismissal` asserts
+   `calls == 2`, i.e. that the restored flag ESCALATED to the A/A
+   self-check before triage credited it, which is precisely the
+   behaviour this change adds; on the base the gate never escalates and
+   it reports `expected re-measure + selfcheck-b, got 1`. Dropping that
+   assertion to satisfy "the other ten pass" would leave the test
+   passing identically before and after, proving nothing, so the
+   assertion stands and this bullet is corrected instead. (The `o/3p` and
    `o/bootstrap` copy is required: without it the fresh worktree's build
    stops at `tlast_gen: o/3p/tl/tl.lua: missing; run 'cosmic --make fetch'
    first`, and `--make fetch` needs a network.)
 4. Line caps — the bound is the contract, not the prose:
    - `wc -l < _perf/gate.tl` ≤ 500 (490 before this change; 493 measured
      on the prototype)
-   - `wc -l < _perf/compare.tl` ≤ 500 (416 before; 418 measured)
+   - `wc -l < _perf/compare.tl` ≤ 500 (416 before; 418 measured).
+     **Re-measured at build:** `origin/main` moved again to `da24e666`
+     (#1493, "_perf: date the measurement window each side of a compare
+     came from"), which takes `_perf/compare.tl` to 481 before this
+     change and **483** after — still under, with 17 lines of headroom
+     rather than 82. `_perf/gate.tl` is untouched by #1493 and measures
+     **499**.
    - `wc -l < _perf/reproduce.tl` ≤ 200 (104 measured)
    - `wc -l < _perf/gate_strike_test.tl` ≤ 400 (214 before)
    - `wc -l < _perf/reproduce_test.tl` ≤ 300
@@ -366,14 +382,24 @@ Run from the repo root. None writes into the committed tree.
    - `grep -c 'flagged only in the retry' _perf/reproduce.tl` = 1
    - `grep -c loudest_control _perf/compare.tl` = 4 (2 before)
    - `grep -c 'flagged_first' _perf/gate.tl` = 5 (5 before — the count is
-     unchanged; the TYPE is what moves)
+     unchanged; the TYPE is what moves). **Re-measured at build: 6.**
+     The count does not survive the change this spec prescribes: the
+     loop's single use is replaced by TWO call sites that both name it,
+     `reproduce.restore_paths` after the retry and `reproduce.reconcile`
+     at the final judgment, exactly as `Change` step 3 writes them. 6 is
+     the correct count for the prescribed shape.
 6. `bin/cosmic _docs/derive.tl && bin/cosmic --make test _build/docs_test.tl`
    ends `test: PASS (1 file)` with the new record in
    `docs/decisions/README.md`.
 7. `git diff origin/main --name-only` lists exactly: `_perf/compare.tl`,
    `_perf/gate.tl`, `_perf/reproduce.tl`, `_perf/reproduce_test.tl`,
    `_perf/gate_strike_test.tl`, `docs/decisions/dNN-*.md`,
-   `docs/decisions/README.md` — nothing under `o/`.
+   `docs/decisions/README.md` — nothing under `o/`. **Re-measured at
+   build:** `.cosmic-coverage` joins that list, because a NEW module is
+   a new ratchet row and `coverage` fails until it has one
+   (`_perf/reproduce.tl: not in baseline`). The row is 51/51 and no
+   floor is lowered, and it was produced by the exact regen command the
+   failure printed, which `## Non-goals` already permits.
 
 ## Enablement
 
