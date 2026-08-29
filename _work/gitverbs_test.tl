@@ -127,6 +127,79 @@ local function test_take_pr_records_the_handover()
 end
 test_take_pr_records_the_handover()
 
+-- One PR couples one item's verdict: recording a number another OPEN
+-- item already carries is refused, naming the holder, and nothing is
+-- written to the item that tried.
+local function test_take_pr_refuses_a_number_another_item_holds()
+  local s = init_state_repo("pr-collision")
+  local _, a = root_with_leaf(s)
+  local _, b = root_with_leaf(s)
+  give_spec(s, a)
+  give_spec(s, b)
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, b, "session-b", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, a, "session-a", 7, false, "") == 0)
+  assert(verbs.cmd_take(s, b, "session-b", 7, false, "") ~= 0,
+    "PR #7 is already A's -- one PR, one item")
+  assert(check.must(store.load(s, b)).pr == 0, "and nothing is written")
+end
+test_take_pr_refuses_a_number_another_item_holds()
+
+-- The same item re-recording its own number stays the existing no-op:
+-- the collision check never fires against itself.
+local function test_take_pr_rerecord_of_its_own_number_stays_a_noop()
+  local s = init_state_repo("pr-self-noop")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0)
+  local before = commits(s)
+  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0,
+    "re-recording its own number is a no-op")
+  assert(commits(s) == before, "nothing new to commit")
+end
+test_take_pr_rerecord_of_its_own_number_stays_a_noop()
+
+-- A DONE item's PR is spent: it does not block another item from
+-- recording the same number.
+local function test_take_pr_ignores_a_done_items_number()
+  local s = init_state_repo("pr-done-spent")
+  local _, a = root_with_leaf(s)
+  local _, b = root_with_leaf(s)
+  give_spec(s, a)
+  give_spec(s, b)
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, a, "session-a", 7, false, "") == 0)
+  assert(verbs.cmd_done(s, a, "completed", true,
+      "closing for the fixture") == 0)
+  assert(verbs.cmd_take(s, b, "session-b", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, b, "session-b", 7, false, "") == 0,
+    "A's PR is spent once A is done")
+  assert(check.must(store.load(s, b)).pr == 7, "and B's records it")
+end
+test_take_pr_ignores_a_done_items_number()
+
+-- --force --why overrides the collision, same as every other refusal
+-- here, and the reason rides the commit subject.
+local function test_take_pr_collision_forced_lands_with_the_suffix()
+  local s = init_state_repo("pr-collision-forced")
+  local _, a = root_with_leaf(s)
+  local _, b = root_with_leaf(s)
+  give_spec(s, a)
+  give_spec(s, b)
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, b, "session-b", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, a, "session-a", 7, false, "") == 0)
+  assert(verbs.cmd_take(s, b, "session-b", 7, true,
+      "repairing a duplicate PR record") == 0,
+    "--force --why overrides the collision")
+  assert(check.must(store.load(s, b)).pr == 7, "the number lands")
+  local events = check.must(store.history(s, b))
+  assert(events[1].subject:find("forced: repairing a duplicate", 1, true),
+    "the reason rides the commit: " .. events[1].subject)
+end
+test_take_pr_collision_forced_lands_with_the_suffix()
+
 -- A drop names its gap, clears every lock together, and is never
 -- refused for flow — leftward motion is the system correcting itself.
 local function test_drop_clears_the_locks_and_names_the_gap()

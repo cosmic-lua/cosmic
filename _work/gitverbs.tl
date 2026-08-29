@@ -160,8 +160,9 @@ end
 --- taking over a stale claim — is motion on work already in flight
 --- and asks neither gate.
 ---
---- Recording a PR is the handover to review: the request is read
---- (open, not draft, `Board:` line, CI not failing —
+--- Recording a PR is the handover to review: the number must be free
+--- (no other OPEN item already carries it — `gate.pr_collision_refusal`),
+--- the request is read (open, not draft, `Board:` line, CI not failing —
 --- `gate.handover_refusal`), and a standing `request changes` verdict
 --- clears, because the new push is a new head to judge.
 --- @param s store.Store The store
@@ -264,6 +265,10 @@ local function cmd_take(s: store.Store, id: string, session: string,
         ("%s already records pr:%d"):format(id:sub(1, 8), pr))
     end
     if not force then
+      local collision = gate.pr_collision_refusal(all, id, pr)
+      if collision then
+        return gate.verdict_line("take", false, "REFUSED: " .. collision)
+      end
       local refusal = gate.handover_refusal(s, id, pr, it.repo)
       if refusal then
         return gate.verdict_line("take", false, "REFUSED: " .. refusal)
