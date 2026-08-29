@@ -71,6 +71,24 @@ local function test_the_builders_take_is_not_a_review_claim()
 end
 test_the_builders_take_is_not_a_review_claim()
 
+-- A reviewer is not a builder: the review claim is a derived path
+-- inside `take`, separate from every claim path, and must never join
+-- `builders` — appending there would poison the very record the
+-- no-self-review guarantee reads.
+local function test_a_review_claim_never_joins_builders()
+  local s = init_state_repo("review-not-builder")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, "builder-a")
+  assert(verbs.cmd_take(s, leaf, "reviewer-b", 0, false, "") == 0,
+    "reviewer-b claims the review")
+  local it = check.must(store.load(s, leaf))
+  check.equal(it.reviewer, "reviewer-b", "the review claim lands")
+  assert(#it.builders == 1 and it.builders[1] == "builder-a",
+    "but the builders record names only the builder: "
+    .. table.concat(it.builders, ","))
+end
+test_a_review_claim_never_joins_builders()
+
 -- A claim by nobody excludes nobody, and a standing verdict leaves no
 -- review to claim — a foreign take then is a build takeover, refused
 -- while the builder's claim is live.

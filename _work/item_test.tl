@@ -268,6 +268,29 @@ local function test_builders_round_trip()
 end
 test_builders_round_trip()
 
+-- `speccers` is `builders`' counterpart for spec authorship: same
+-- space-joined encoding, same no-repeats rule.
+local function test_speccers_round_trip()
+  local t = base()
+  t.parent = PARENT
+  t.speccers = "session-a session-b"
+  local it = check.must(item.decode(t))
+  assert(#it.speccers == 2 and it.speccers[1] == "session-a"
+    and it.speccers[2] == "session-b",
+    "the list decodes in order: " .. table.concat(it.speccers, ","))
+  assert(item.encode(it).speccers == "session-a session-b",
+    "and encodes back to the same string")
+
+  it.speccers = {}
+  assert(item.encode(it).speccers == nil, "an empty list is not written")
+
+  t.speccers = "session-a session-a"
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("speccers repeats", 1, true),
+    "a repeated speccer is invalid: " .. tostring(err))
+end
+test_speccers_round_trip()
+
 -- decode validates through cosmic.shape now: a wrong-typed field is a
 -- refusal with a dotted path, not a silent coercion to zero.
 local function test_a_wrong_typed_field_is_refused()

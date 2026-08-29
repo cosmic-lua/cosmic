@@ -235,6 +235,34 @@ local function test_spec_force_and_why_overrides_a_foreign_claim()
 end
 test_spec_force_and_why_overrides_a_foreign_claim()
 
+-- `spec` records who wrote it: a named session joins `it.speccers`,
+-- landing in the same commit as the sidecar since `stage` always
+-- writes the item file alongside a replacement spec. A second spec by
+-- the same session does not duplicate the entry.
+local function test_spec_records_the_speccer_in_the_same_commit()
+  local s = init_state_repo("speccer")
+  local _, leaf = root_with_leaf(s)
+  local first = spec_file("speccer-first", READY_SPEC)
+  local before = commits(s)
+  assert(verbs.cmd_spec(s, leaf, first, nil, "refiner-a") == 0)
+  assert(commits(s) == before + 1, "one mutation, one commit")
+  local it = check.must(store.load(s, leaf))
+  assert(#it.speccers == 1 and it.speccers[1] == "refiner-a",
+    "the speccer is recorded")
+  local shown = check.must(store.git(s, {"show", "--name-only",
+        "--pretty=format:", "HEAD"}))
+  assert(shown.stdout:find(fs.join("items", leaf .. ".tl"), 1, true) ~= nil
+    and shown.stdout:find(fs.join("items", leaf .. ".md"), 1, true) ~= nil,
+    "the item and the sidecar land in the one commit: " .. shown.stdout)
+
+  local second = spec_file("speccer-second",
+    (READY_SPEC:gsub("Not that.", "Refined again.")))
+  assert(verbs.cmd_spec(s, leaf, second, first, "refiner-a") == 0)
+  local again = check.must(store.load(s, leaf))
+  assert(#again.speccers == 1, "the same session again does not duplicate")
+end
+test_spec_records_the_speccer_in_the_same_commit()
+
 -- The reproduced incident: a bounce's gap lived only in the board
 -- log, so the next session that pulled the same item re-discovered
 -- it. `next`'s offer now carries the gap from the drop already on
