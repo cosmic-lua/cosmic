@@ -1,35 +1,51 @@
-`gitboard next` hands out a `finish` action for an item in `land` even
-when that item carries an open blocker, so a blocker recorded against
-a `land` cannot hold the merge and the loop cannot get past it.
+## Change
 
-Observed 2026-08-27. `3ITerUZf` was accepted into `land` with
-`pr: 281`, then blocked on `3ITicXY1` with a reason. `gitboard status`
-renders it correctly — `land 1 / 3ITerUZf ... pr:281 [blocked]` — but
-`gitboard next` still answers:
+`gitboard next` stops offering the merge of an accepted item whose
+blockers still bind, and names the hold when that is what stalls
+everything.
 
-```
-gitboard-next: finish 3ITerUZf ... — land holds 1 — 3ITerUZf is
-accepted, awaiting merge
-```
+Reproduced 2026-08-29 on a scratch board (board head f10c9b6): an
+item with `verdict: accept`, `pr: 7`, then
+`gitboard block ID PEER --reason "hold the merge"`; the peer is open,
+so the edge binds (`show` renders `blocked by:`), yet
 
-and repeats that answer on every subsequent call, because nothing else
-can be offered while `land` is non-empty. A session that declines the
-merge for a stated reason therefore stalls: the ordering has exactly
-one answer and it is the action being withheld.
+    gitboard-next: finish 3Ib1Jdko the slice — 3Ib1Jdko is accepted,
+    awaiting merge — finishing beats starting
 
-The other phases appear to consult blockers — `ready`'s sole item
-`3ISVlHT6` is `[blocked]` and `status` reports "every ready item is
-blocked; the chain bottoms at `3ITVR6Ku`", which is a routing decision
-the ordering made — so this looks like `land` being the one phase
-whose action is emitted unconditionally rather than a deliberate rule
-that a judged item merges regardless.
+— the merge of deliberately-held work is the board's top offer, and a
+session that follows it merges past the recorded landing order.
 
-Two shapes a fix could take, neither chosen here: `next` could route
-past a blocked `land` the way it routes past blocked `ready` work and
-name the blocker in the flow note, or `block` could refuse an item in
-`land` outright, which would say that the merge is not a thing a
-blocker may hold and force the wait to be recorded some other way
-(a `request changes` verdict, or a return to `check`). The first
-matches how blockers read everywhere else. Whichever it is, the
-current combination lets a session record a wait the ordering then
-ignores, which is worse than either.
+The change, in `_work/action.tl` (334 lines now —
+`wc -l < _work/action.tl`):
+
+1. In `phased_action`, the rung that emits the accepted-awaiting-
+   merge `finish` action skips items where
+   `flow.is_blocked(i, index)` — the same predicate `show`'s
+   `blocked by:` heading and the status `[blocked]` mark derive
+   from, so the three can never disagree. ONLY the accepted rung
+   changes: a blocked item still building or under review stays
+   offered (a blocker records landing order; building and judging
+   are not landings).
+2. Count what was skipped (a `merge_held` field on the `Phased`
+   record, alongside the existing `suppressed`), and in
+   `next_action`, when no rung fired and `merge_held > 0`, return
+   `kind = "none"` whose reason names it:
+   `"N accepted item(s) wait on open blockers — resolve the
+   blockers; their merges are held"` — placed with the other
+   terminal answers, before the intake rung, in the same shape as
+   the doing-bound answer added at 04de3ee.
+
+Tests in `_work/action_test.tl`: the reproduced scenario — an
+accepted item with a binding blocker is not offered as finish, and
+with nothing else on the board `next` returns `none` naming the
+held merge; ending the blocker (resolution set) makes the same item
+the `finish` offer again; a blocked item in `building` substate is
+still offered to its own session.
+
+## Non-goals
+
+Existing verdict-line formats unchanged; the new terminal reason is
+a new line, not an edit to one. `done` itself is untouched — this
+gates the OFFER, and `done`'s own merge verification stays the
+enforcement. No blocker check on the review or building rungs, and
+none on `take`'s finishing motions.
