@@ -102,7 +102,9 @@ stage columns and no per-column WIP limits:
   build; PR open, no verdict — review it, at a distance; `request
   changes` — rework on the same PR; `accept` — merge it and `done`
   the item; a gap the spec cannot answer — release the claim with the
-  gap named, and the item is todo again.
+  gap named, and the item is todo again. landing differs by repo: a
+  main-repo accept is landed by enabling auto-merge, so the queue
+  merges it, while a board PR merges at accept as before.
 
 two WIP rules, not a number per column. each worker holds ONE claim,
 so capacity spreads with the number of agents. and the board holds one
