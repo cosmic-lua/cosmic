@@ -7,10 +7,12 @@
 -- real `observe` returned one.
 
 local check = require("cosmic.check")
+local child = require("cosmic.child")
 local action = require("_work.action")
 local cmp = require("_work.gitcompare")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
+local fs = require("cosmic.fs")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local lanes = require("_work.lanes")
@@ -118,6 +120,62 @@ local function test_record_commits_only_on_change()
   assert(fixture.commits(s) == before + 2)
 end
 test_record_commits_only_on_change()
+
+-- record's commit subject is a grammar other code will eventually
+-- parse (a future consumer of `lanes_state.tl`'s history): pin the
+-- exact string — `sync lanes: <lane>=<conclusion> ...`, space-joined
+-- in LANES order — so the format cannot drift silently before that
+-- consumer exists to notice.
+local function test_record_commit_subject_is_exact()
+  local s = init_state_repo("record-subject")
+  assert(lanes.record(s, RED), "a new observation commits")
+  local r = check.must(child.run({"git", "log", "-1", "--format=%s"},
+      {cwd = s.root}))
+  assert(r.ok, "git log failed: " .. r.stderr)
+  local subject = r.stdout:gsub("%s+$", "")
+  assert(subject == "sync lanes: release.yml=failure "
+    .. "fuzz.yml=success docs.yml=success", "got: " .. subject)
+end
+test_record_commit_subject_is_exact()
+
+-- `report` is what `cmd_sync` calls (via `at_sync`) after a real
+-- `observe` returns facts; a `record` failure must show up in its
+-- lines rather than vanish the way `cmd_sync` used to discard it.
+-- Forced by a directory sitting where `record` wants to write its
+-- state FILE — an EISDIR even root cannot bypass, unlike a chmod,
+-- which a root-run test (as this one may be) would sail through.
+local function test_report_surfaces_a_record_failure()
+  local s = init_state_repo("report-record-fails")
+  assert(fs.make_dirs(fs.join(s.root, "lanes_state.tl")),
+    "a directory in the way makes record's write fail with EISDIR")
+  local lines = lanes.report(s, RED)
+  local found = false
+  for _, line in ipairs(lines) do
+    if line:find("lanes record failed", 1, true) then found = true end
+  end
+  assert(found, "a record failure is printed, not discarded: "
+    .. table.concat(lines, " | "))
+end
+test_report_surfaces_a_record_failure()
+
+-- Symmetric case: `items/` replaced by a plain file makes `mint`'s
+-- `store.list` fail with ENOTDIR (opendir on a non-directory, also
+-- root-proof) without touching `record`, which writes at the store
+-- root instead. `report` must surface this one too.
+local function test_report_surfaces_a_mint_failure()
+  local s = init_state_repo("report-mint-fails")
+  local items_dir = fs.join(s.root, "items")
+  assert(fs.remove_all(items_dir))
+  assert(fs.write(items_dir, "not a directory"))
+  local lines = lanes.report(s, RED)
+  local found = false
+  for _, line in ipairs(lines) do
+    if line:find("lanes mint failed", 1, true) then found = true end
+  end
+  assert(found, "a mint failure is printed, not discarded: "
+    .. table.concat(lines, " | "))
+end
+test_report_surfaces_a_mint_failure()
 
 -- observe needs a slug to address GitHub with; a checkout with no
 -- origin has none, so the whole observation comes back "unknown" —

@@ -454,23 +454,16 @@ local function cmd_done(s: store.Store, id: string, reason: string,
 end
 
 -- Lane health (`_work.lanes`): a `nil` observe (offline, no token)
--- prints and is never treated as red.
+-- prints and is never treated as red; `at_sync` does the observe /
+-- record / mint pipeline and hands back the lines to print, keeping
+-- this module under its 500-line cap.
 local function cmd_sync(s: store.Store): integer
   local ok, err = store.sync(s)
   if not ok then
     return gate.verdict_line("sync", false, err)
   end
-  local facts, lerr = lanes.observe(s)
-  if facts == nil then
-    print(("gitboard-sync: lanes: unknown (%s)"):format(lerr))
-  else
-    local _rok, _rerr = lanes.record(s, facts)
-    local _mok, _merr = lanes.mint(s, facts)
-    for _, lane in ipairs(lanes.LANES) do
-      if facts[lane] ~= "success" then
-        print(("gitboard-sync: lane %s is %s"):format(lane, facts[lane]))
-      end
-    end
+  for _, line in ipairs(lanes.at_sync(s)) do
+    print(line)
   end
   return gate.verdict_line("sync", true, "state is current")
 end

@@ -265,6 +265,8 @@ local record lanes
   read_state: function(s: store.Store): {string: string}
   record: function(s: store.Store, facts: {string: string}): boolean, string
   mint: function(s: store.Store, facts: {string: string}): boolean, string
+  report: function(s: store.Store, facts: {string: string}): {string}
+  at_sync: function(s: store.Store): {string}
 end
 
 local M: lanes = {
@@ -275,5 +277,52 @@ local M: lanes = {
   record = record,
   mint = mint,
 }
+
+--- Record an already-observed fact set and mint or close repair items
+--- for it, returning every line the caller should print — a record or
+--- mint failure included, so nothing sync learns is ever silently
+--- discarded. Split from `at_sync` so a test can drive it with a fake
+--- facts table, the same way `record` and `mint` already are, with no
+--- live `observe` (network + token) needed to produce one. Goes
+--- through `M` rather than the bare locals: `record` is also a Teal
+--- keyword, and only the qualified call parses as one.
+--- @param s store.Store The store
+--- @param facts {string: string} One conclusion per lane
+--- @return {string} Lines for the caller to print, one fact per line
+local function report(s: store.Store, facts: {string: string}): {string}
+  local lines: {string} = {}
+  local rok, rerr = M.record(s, facts)
+  if not rok and rerr ~= "" then
+    lines[#lines + 1] = ("gitboard-sync: lanes record failed: %s"):format(rerr)
+  end
+  local mok, merr = M.mint(s, facts)
+  if not mok then
+    lines[#lines + 1] = ("gitboard-sync: lanes mint failed: %s"):format(merr)
+  end
+  for _, lane in ipairs(LANES) do
+    if facts[lane] ~= "success" then
+      lines[#lines + 1] = ("gitboard-sync: lane %s is %s"):format(lane, facts[lane])
+    end
+  end
+  return lines
+end
+
+M.report = report
+
+--- The whole sync-time pipeline: observe, then `report` on what it
+--- found (or a one-line "unknown" when observe itself failed).
+--- Isolated here, not in `cmd_sync` itself, so `_work.gitverbs` stays
+--- under its 500-line cap; `cmd_sync` is the only caller.
+--- @param s store.Store The store
+--- @return {string} Lines for the caller to print, one fact per line
+local function at_sync(s: store.Store): {string}
+  local facts, lerr = M.observe(s)
+  if facts == nil then
+    return {("gitboard-sync: lanes: unknown (%s)"):format(lerr)}
+  end
+  return M.report(s, facts)
+end
+
+M.at_sync = at_sync
 
 return M
