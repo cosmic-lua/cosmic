@@ -76,6 +76,9 @@ local record Phased
   --- its chain, not vanish into a generic stall.
   parked: integer
   stuck: Item
+  --- Pullable items the saturated doing bound refused to offer: the
+  --- bound must name itself, or the stall reads as an empty queue.
+  suppressed: integer
 end
 
 --- How many candidates one ask hands out, the primary included.
@@ -187,6 +190,7 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   end
   local parked = 0
   local stuck: Item = nil
+  local suppressed = 0
   local room = flow.DOING_LIMIT - #doing
   if room > 0 then
     local cap = math.min(room, CANDIDATES - #acts)
@@ -208,6 +212,15 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
         end
       end
     end
+  else
+    -- The bound refused to offer anything: count what it withheld,
+    -- so the terminal answer can name the bound instead of reading
+    -- as an empty queue.
+    for _, i in ipairs(flow.in_state(items, "todo", pos, seed)) do
+      if passes_bar(i, specs, pos) and not flow.is_blocked(i, index) then
+        suppressed = suppressed + 1
+      end
+    end
   end
   if #acts > 0 then
     local primary = acts[1]
@@ -218,10 +231,11 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
       end
       primary.alternates = alts
     end
-    return {action = primary, held = held,
-      reviewing = reviewing, parked = parked, stuck = stuck}
+    return {action = primary, held = held, reviewing = reviewing,
+      parked = parked, stuck = stuck, suppressed = suppressed}
   end
-  return {held = held, reviewing = reviewing, parked = parked, stuck = stuck}
+  return {held = held, reviewing = reviewing, parked = parked,
+    stuck = stuck, suppressed = suppressed}
 end
 
 --- The one action to take now, right to left. Ages are optional the
@@ -255,6 +269,20 @@ local function next_action(items: {Item}, specs: Specs, session?: string,
       reason = ("%d takeable item(s) wait on open blockers; the chain "
         .. "bottoms at %s %s"):format(
         ph.parked, bottom.id:sub(1, 8), bottom.title)}
+  end
+  -- Pullable work the saturated bound withheld outranks intake
+  -- advice: the honest answer is the bound, named — a session sent
+  -- to decompose while ten builds are in flight and work waits at
+  -- the gate would only deepen what cannot enter.
+  if ph.suppressed > 0 then
+    return {
+      kind = "none",
+      reason = ("doing is at %d/%d and %d pullable item(s) wait — the "
+        .. "bound throttles starting; nothing here is yours until "
+        .. "something in flight finishes"):format(
+        #flow.in_state(items, "doing", pos), flow.DOING_LIMIT,
+        ph.suppressed),
+    }
   end
   local taking = intake.intake_action(items, specs, index, pos)
   if taking then

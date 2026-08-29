@@ -182,6 +182,13 @@ local function test_the_doing_bound_suppresses_the_pull()
   local a = act.next_action(items, specs, "me")
   assert(a.kind ~= "pull",
     "at the bound nothing new is offered: " .. a.kind)
+  -- The terminal answer names the bound, not a decompose errand: a
+  -- session sent to make more work while pullable work waits at the
+  -- gate would deepen what cannot enter (caught by a scenario eval).
+  assert(a.kind == "none", "the honest answer is a stop: " .. a.kind)
+  assert(a.reason:find("bound", 1, true)
+    and a.reason:find("1 pullable", 1, true),
+    "and it names the bound and what it withheld: " .. a.reason)
 end
 test_the_doing_bound_suppresses_the_pull()
 
