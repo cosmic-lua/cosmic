@@ -13,3 +13,7 @@ nothing, but a comparison that would RAISE an item is the goal
 owner's. Completed items stay where they died (history, not state).
 Worth doing before the next flow review, whose per-band numbers read
 placement.
+
+## Result
+
+Sweep run 2026-08-29: every OPEN item parented under 3HyRcW05 was enumerated with its spec's goal references (`grep -o "G[0-9]+"` over each sidecar). 20 open items: 18 name G3, 2 name no goal; zero name G8/G6 or any other root. The observed offenders (3ISUA9aR, 3ISWHWQT, 3ISWHyP7) are completed and stay where they died per this spec. Nothing to re-parent.
