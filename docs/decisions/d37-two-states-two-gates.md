@@ -20,9 +20,11 @@
   vocabulary was overhead against it, not protection.
 - **decision:** an open workable leaf is in exactly one of two
   states, and everything finer is derived, never declared:
-  - **todo** — unclaimed; *pullable* when its spec passes the check
-    (Change / Non-goals / Acceptance, measured claims, literal-runnable
-    commands), otherwise refining it is the work.
+  - **todo** — unclaimed; *pullable* when its spec passes the check:
+    a Change and an Acceptance whose commands are literal (at least
+    one backticked command, machine-checked — acceptance by vibes is
+    caught by shape), walls stated as optional prose where a contract
+    is near. otherwise refining it is the work.
   - **doing** — claimed; the claim is the lock and a lease. within
     doing, the item's own facts (`pr`, `verdict`) say what happens
     next; a released claim with the gap named returns it to todo.
@@ -55,6 +57,17 @@
     limit. the single doing bound closes exactly that hole, and by
     refusing only new takes it makes finish-before-start mechanical
     rather than advisory.
+  - **keeping the five-section spec form (Goal / Change / Non-goals /
+    Acceptance / Enablement).** a presence lint cannot judge
+    substance — a scenario eval showed a spec passing every section
+    check while being unbuildable, caught only by the puller's
+    judgment — so required sections beyond Change and Acceptance are
+    ceremony the lint cannot cash. Goal context is the parent chain,
+    dependencies are `blocked_by` edges, and walls are stated where a
+    contract is near rather than filled in everywhere. the lint keeps
+    only what it can prove, and proves more where it can: Acceptance
+    must carry a literal backticked command, which catches the
+    acceptance-by-vibes anti-pattern by shape instead of at review.
   - **dropping the review or the spec bar to go faster.** rework is
     the expensive path at high throughput — a wrong merge or a
     mid-build improvisation costs more than either gate. the gates

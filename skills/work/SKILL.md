@@ -155,7 +155,7 @@ mints one distinct name per agent it spawns.
    branch names where to START, not a ceiling: N items pulled is N
    branches and N PRs, and this paragraph is standing permission for
    every item the loop hands you.
-4. build exactly the `Change`; `Non-goals` are walls. a scope
+4. build exactly the `Change`; its stated walls hold. a scope
    question the spec cannot answer goes back to the board, never into
    the diff — having written the spec is not permission to
    reinterpret it mid-build.
@@ -177,19 +177,23 @@ to cover a finding.
 
 ## the spec bar
 
-a pullable spec carries exactly three sections. `gitboard check ID`
-lints that each is present and that the item is placed; only a reader
-judges content. the test for every sentence: could a competent but
-literal-minded session, with nothing beyond this spec and AGENTS.md,
-get it wrong? if yes, it is not ready.
+a pullable spec carries two sections — what to build and how to
+prove it. `gitboard check ID` lints their presence, that the item is
+placed, and the one shape rule a machine can judge honestly:
+Acceptance must hold at least one literal command in backticks, so
+acceptance by vibes ("works correctly", "is faster") is caught
+outright instead of discovered at review. everything else is a
+reader's judgment, and the test for every sentence: could a competent
+but literal-minded session, with nothing beyond this spec and
+AGENTS.md, get it wrong? if yes, it is not ready.
 
 - `## Change` — what to build: files named, the shape of the change
   in each, every decision made. imperative and concrete — never
-  "improve", "investigate", or "support".
-- `## Non-goals` — the walls: contracts that must not move, files not
-  to touch, adjacent improvements not to make. name the frozen
-  contracts the change sits near (the `cosmo.*` C boundary, error
-  strings and return shapes, verdict-line formats).
+  "improve", "investigate", or "support". when the change sits near a
+  frozen contract (the `cosmo.*` C boundary, error strings and return
+  shapes, verdict-line formats), name the wall — here, or in an
+  optional `## Non-goals` section. walls are stated where they exist,
+  never filled in as ceremony.
 - `## Acceptance` — the exact commands to run and the verdict lines
   they must end with. `bin/cosmic --make ci` ending `ci: PASS` is the
   floor; add the narrow checks that prove THIS change. every command
@@ -239,8 +243,8 @@ review that only reads has verified nothing:
 2. **the diff is the Change** — everything present, nothing extra.
    scope creep gets cut even when it is good; good ideas become
    items.
-3. **the walls held** — `Non-goals` untouched, frozen contracts
-   unmoved.
+3. **the walls held** — frozen contracts unmoved, and any walls the
+   spec states untouched.
 4. **conventions hold** — AGENTS.md binds; anything a gate should
    have caught but did not is itself a finding to file.
 5. **it serves the outcome** — walk the parent chain to the root and
