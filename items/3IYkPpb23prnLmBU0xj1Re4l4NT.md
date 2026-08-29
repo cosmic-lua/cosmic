@@ -2,162 +2,206 @@
 
 G8 — the flow system. Six passages in `skills/work/**` on `main` still
 describe review distance as something the board machinery enforces by
-identity. `3IYiZ9Md` moved the rule into the review procedure and
-`3IYYwdp7` deletes the machinery, but `3IYYwdp7` is board-branch only and
-carries `Do NOT touch skills/work/**` as a non-goal, so nothing removes
-these. The moment `3IYYwdp7` lands, the skill instructs sessions to rely
-on a gate that no longer exists.
+matching session identities. `3IYiZ9Md` moved the rule into the review
+procedure and `3IYYwdp7` deleted the machinery, so the skill now
+instructs sessions to rely on a gate that no longer exists.
 
 ## Evidence
 
-Measured against `main` at PR #1492's head (the branch that landed
-`3IYiZ9Md`), and re-measured 2026-08-28 against `3IYiZ9Md`'s open head.
-Each passage names a mechanism `3IYYwdp7` removes:
+`3IYYwdp7` has LANDED (board branch, commit `2d05d019`, accepted
+2026-08-28): `flow.built_by` and every consumer are gone. Measured
+2026-08-29 against `main` at `29011923`, worktree of `origin/main`.
 
-**`skills/work/SKILL.md`, the "what IS still split" paragraph near the
-top** states that "`next --session NAME` never hands a session a verdict
-on work that session built — the claim recorded when it pulled the item
-survives into `check` and says who did it", and concludes "that distance
-is now a property of the board rather than of which model is running".
-After `3IYYwdp7` both sentences are false: `action.reviewable` stops
-testing `built_by`, and the distance is a property of the review
-subagent's context window.
+**The machinery, run rather than read.** On the `board` branch:
 
-**`skills/work/SKILL.md`, the "do not invent that name" paragraph**
-argues that a reused session name "makes every item it touches
-unreviewable by the next run — the collision is silent and durable,
-because the builder is remembered". Unique names still matter for CLAIMS,
-which is the paragraph's real subject; the unreviewable consequence is
-the deleted gate.
+```
+grep -rn 'built_by' _work/ cmd/        # → no matches
+bin/cosmic --make test _work/action_test.tl _work/gitverdict_test.tl \
+  _work/gitreview_test.tl              # → test: PASS (3 files)
+```
 
-**`skills/work/SKILL.md`, the phases table's `check` row** reads "PR
-open; awaiting a verdict from a session that did not build it". The
-identity clause is the gate: after `3IYYwdp7` what `check` awaits is a
-verdict from a review that did not hold the build, which is a property
-of the reviewer's context window and not of which session writes the
-verdict down.
+Those three passing files pin what is now true:
 
-**`skills/work/SKILL.md`, step 6 of the session loop** says "never
-accept your own: the item now carries your claim, so `next` will route
-it elsewhere and hand you something else". The routing IS the gate. The
-rule survives — no session accepts its own work — but the mechanism it
-names stops running, and a step that promises `next` will hand the
-session something else describes a `next` that no longer withholds.
+- `_work/action_test.tl:386 test_reviewable_offers_a_past_builder` —
+  `next` offers the verdict on an item to the session that built it,
+  to the session holding its claim, and to a stranger, alike.
+  `_work/action.tl:187 reviewable` steps over exactly one thing: an
+  item under ANOTHER session's live review claim.
+- `_work/gitreview_test.tl:78 test_unnamed_sessions_and_other_phases_are_refused`
+  — `gitboard review` still refuses an UNNAMED session, because a
+  claim names its holder. That refusal is about the claim, not about
+  who built the work.
+- `_work/gitverdict_test.tl:129` (inside
+  `test_verdict_subject_names_the_reviewer`) — "an unnamed verdict is
+  still allowed, and says nothing rather than claiming an empty
+  reviewer". `gitboard verdict` refuses NO session on identity
+  grounds; the session name only decides whether the commit subject
+  carries a `by <name>` clause.
 
-**`skills/work/review.md`, the "claim before you read" paragraph** ends
-"The claim is mutual exclusion, not authority — any non-builder's verdict
-stands and consumes it." `non-builder` names the removed test. The
-sentence's point survives verbatim as "any verdict stands and consumes
-it".
+Consequence for the two naming paragraphs: a review subagent that does
+not export `GITBOARD_SESSION` does not fail — it DERIVES the spawning
+session's id, and its verdict is recorded under the builder's name, so
+the log reads as a builder accepting its own build. That mis-recording,
+not a refusal, is what the naming rule now prevents.
 
-**`skills/work/loop.md`, the whole "minted identities and the verdict
-wall" section** is built on the gate: "`built_by` matches names exactly,
-so `next` will happily offer this session a verdict on its own wave's PR
-under its minted name", and the wall it draws sends such items to "wait
-in `check` for a session that did not drive them". With the review in a
-fresh-context subagent that never held the wave, waiting for a different
-SESSION is no longer what makes the judgment disinterested — the
-orchestrator spawning the review is the intended path. The minted-claim
-half of the section (unique suffixes so claims lock, orchestrator prefix
-so provenance is readable) is unaffected and must survive.
+**The six stale passages.** Each command below was run from the repo
+root at `29011923`:
+
+| site | command | today |
+|------|---------|-------|
+| `SKILL.md` "what IS still split" | `grep -c 'never hands a session a verdict' skills/work/SKILL.md` | `1` |
+| same paragraph, its conclusion | `grep -c 'a property of the board' skills/work/SKILL.md` | `1` |
+| `SKILL.md` phases table, `check` row | `grep -c 'a verdict from a session that did not build it' skills/work/SKILL.md` | `1` |
+| `SKILL.md` "do not invent that name" | `grep -c 'unreviewable by the next run' skills/work/SKILL.md` | `1` |
+| `SKILL.md` session loop step 6 | `grep -c 'will route it elsewhere' skills/work/SKILL.md` | `1` |
+| `review.md` naming paragraph | `grep -c 'both REFUSE a session its own build' skills/work/review.md` | `1` |
+| `review.md` "claim before you read" | `grep -c 'non-builder' skills/work/review.md` | `1` |
+| `loop.md` "`next` withholds that item" + its `never blocked` row | `grep -c 'withholds' skills/work/loop.md` | `2` |
+| `loop.md` audit-record paragraph | `grep -c 'refuse it' skills/work/loop.md` | `1` |
+
+`parallel.md`, `decompose.md` and `enable.md` carry none of it:
+
+```
+grep -rniE 'did not build|own build|the builder is remembered|route it elsewhere|non-builder|unreviewable|property of the board' skills/work/
+```
+
+returns hits only in the three files above. `SKILL.md:247` ("the
+session identity … withholds work another session claimed") is TRUE
+and out of scope: `_work/action.tl`'s `pullables` compares
+`i.claim ~= session`, so a claim by another session is still skipped.
 
 ## Change
 
 `skills/work/{SKILL.md,review.md,loop.md}`, prose only. Each passage
-keeps what it says about CLAIMS and drops what it says about the identity
-gate withholding a verdict.
+keeps what it says about CLAIMS and about the review procedure, and
+drops what it says about the board machinery withholding or refusing a
+verdict on identity grounds.
 
-**The three `SKILL.md` sites, each named.** The "what IS still split"
-paragraph loses the `next --session NAME` sentence and its "a property
-of the board" conclusion, and says instead that the distance is the
-review subagent's context. The phases table's `check` row drops "from a
-session that did not build it" and says what `check` actually awaits —
-a verdict from a review that did not hold the build. Step 6 keeps
-"never accept your own" as the rule and loses "so `next` will route it
-elsewhere", naming the review procedure as what carries it. The "do not
-invent that name" paragraph keeps its claims half and drops the
-unreviewable consequence.
+**`SKILL.md`, four sites.**
 
-**`loop.md`'s verdict-wall section is already rewritten**, by
-`3IYiZ9Md`: it is now `## minted identities and your own wave`, and it
-states the rule this item's other passages are being converged on — an
-orchestrator may take the verdict on its own wave, because the review
-runs in a subagent whose window never held the build. That section needs
-no rewrite here.
+1. The "what IS still split" paragraph (≈L33-38) loses the
+   ``next --session NAME`` sentence and its "a property of the board"
+   conclusion. It says instead that the verdict is recorded by a
+   review subagent whose context window never held the build, and
+   that the distance is a property of the REVIEWER'S CONTEXT rather
+   than of which model is running.
+2. The phases table's `check` row (L198) drops "from a session that
+   did not build it" and reads `awaiting a verdict from a review that
+   did not hold the build`.
+3. The "do not invent that name" paragraph (≈L253-257) keeps its
+   claims half and drops the unreviewable consequence: a run that
+   reuses a name reads the earlier run's claims as its OWN, so the
+   mutual exclusion stops holding. Nothing about reviewability.
+4. Session-loop step 6 (≈L385-388) keeps `never accept your own`
+   VERBATIM as the rule and loses "so `next` will route it elsewhere
+   and hand you something else". It says instead that `next` offers
+   this verdict like any other and that the review procedure
+   (`review.md`) is what holds the distance.
 
-**What it does need is its `next` clause dropped.** The rewritten
-section tells a pass that `next` does not offer an item whose claim or
-`builders` name this session, and that the review subagent is therefore
-spawned on the id step 1 reconciled rather than waited for; step 3 names
-the same id source and the `never blocked` table carries the matching
-row. Deleting `built_by` makes the first half false — `next` then offers
-a session its own wave like any other item — and the second half merely
-one way to reach the item rather than the only one. Drop the withholding
-clause, drop the `never blocked` row it feeds, and let step 3 say that
-`next` offers the item. The section's other three statements — the rule,
-the brief, the audit record — are unaffected and stay verbatim.
+**`review.md`, two sites.**
 
-**Two more passages state the refusal `3IYYwdp7` deletes.**
-`review.md`'s naming paragraph and `loop.md`'s audit-record paragraph
-both say that `review` and `verdict` REFUSE a session its own build, so
-an unnamed reviewer cannot record a verdict at all. That is measured
-truth while `built_by` lives (`_work/gitreview.tl:62`,
-`_work/gitverdict.tl:145`) and false the moment it goes: with the gate
-deleted an unnamed reviewer's verdict is ACCEPTED and recorded under the
-builder's session, which is exactly the mis-recording the naming rule
-exists to prevent. Both passages swap the refusal for that consequence.
-The instruction itself — export `GITBOARD_SESSION` before `gitboard
-verdict` — and the audit-trail reason are unchanged; only the failure
-mode moves.
+5. The naming paragraph (≈L25-32) swaps the refusal for the
+   mis-recording: a reviewer that names nothing derives the BUILDER's
+   identity, nothing refuses that verdict, and it is recorded under
+   the builder's name. The instruction (`export
+   GITBOARD_SESSION=review-<ID>-<unique>`) and the audit-trail reason
+   are unchanged; only the failure mode moves.
+6. "claim before you read" (≈L47-48) — `any non-builder's verdict
+   stands and consumes it` becomes `any verdict stands and consumes
+   it`.
+
+**`loop.md`, three sites.**
+
+7. The `**`next` withholds that item.**` paragraph (≈L74-80) is
+   replaced by one saying `next` OFFERS that item: nothing is stepped
+   over for having been built here, so this session's own wave comes
+   back like any other item in `check`, and the review subagent is
+   spawned on it either way. Step 3 already reads "the id step 1
+   reconciled there, or what `next` offers" and needs no edit.
+8. The audit-record paragraph (≈L88-95) keeps the claim/`builders`
+   sentence and the log-is-the-evidence sentence, and replaces "and
+   both `review` and `verdict` refuse it" with the recorded
+   consequence — the verdict lands under this session's own name and
+   the log reads as a builder accepting its own build.
+9. The `never blocked` table row `| `next` offers no review while
+   your own wave sits in `check` | …withholds… |` (L113) is DELETED:
+   the stall it answers cannot occur now that `next` offers the item.
+
+The rewritten `## minted identities and your own wave` heading, its
+rule ("an orchestrator may take the verdict on its own wave"), its
+brief paragraph and its minted-claim paragraph stay verbatim.
 
 ## Non-goals
 
-- No change to `_work/**`; the machinery is `3IYYwdp7`.
-- Do not relax the review-isolation rule `3IYiZ9Md` installed, and do not
-  reintroduce an identity check under another name.
-- Do not remove `builders` or any prose describing it as the audit record
-  of who held a claim.
-- Do not change the three verdicts, the six review checks, or the verdict
-  grammar.
+- No change to `_work/**` or to the `board` branch; the machinery's
+  own stale comments and `gitboard --help` strings are `3IZaO4Vj`.
+- Do not weaken `parallel.md`'s `N agents reviewing N PRs`
+  prohibition, or touch `parallel.md`, `decompose.md`, `enable.md`.
+- Do not change `SKILL.md`'s hard rule that no session accepts its own
+  work. That rule is correct and stays; only claims about the BOARD
+  MACHINERY enforcing it are stale.
+- Do not relax the review-isolation rule `3IYiZ9Md` installed, and do
+  not reintroduce an identity check under another name.
+- Do not remove `builders` or any prose describing it as the audit
+  record of who held a claim.
+- Do not change the three verdicts, the six review checks, or the
+  verdict grammar.
 
 ## Acceptance
 
-Run from the repo root.
+Run from the repo root. Every "today" is measured 2026-08-29 at
+`29011923`, where this item starts.
 
 - `bin/cosmic --make ci` ends `ci: PASS`.
-Every "today" below was measured on 2026-08-28 against `3IYiZ9Md`'s
-head, which is where this item starts.
-
-- `grep -c 'non-builder' skills/work/review.md` prints `0` (`1` today).
-- `grep -c 'built_by' skills/work/loop.md` prints `0` (`0` today —
-  `3IYiZ9Md`'s rewritten section already carries none, so this one
-  guards against reintroduction rather than removing anything).
-- `grep -c 'unreviewable by the next run' skills/work/SKILL.md` prints
-  `0` (`1` today) — the "do not invent that name" paragraph.
+- `grep -c 'never hands a session a verdict' skills/work/SKILL.md`
+  prints `0` (`1` today).
 - `grep -c 'a property of the board' skills/work/SKILL.md` prints `0`
-  (`1` today) — the "what IS still split" paragraph.
+  (`1` today).
 - `grep -c 'a verdict from a session that did not build it'
-  skills/work/SKILL.md` prints `0` (`1` today) — the phases table's
-  `check` row.
+  skills/work/SKILL.md` prints `0` (`1` today).
+- `grep -c 'unreviewable by the next run' skills/work/SKILL.md` prints
+  `0` (`1` today).
 - `grep -c 'will route it elsewhere' skills/work/SKILL.md` prints `0`
-  (`1` today) — step 6 of the session loop.
-- `grep -c 'withholds' skills/work/loop.md` prints `0` (`2` today, one
-  in the section and one in the `never blocked` table) — the `next`
-  clause and its row are both gone.
+  (`1` today).
 - `grep -c 'both REFUSE a session its own build' skills/work/review.md`
-  prints `0` (`1` today) — the naming paragraph no longer promises a
-  refusal the machinery no longer performs.
-- `grep -c 'refuse it' skills/work/loop.md` prints `0` (`1` today) —
-  the same claim at its second site.
-- `git diff --name-only origin/main` lists only files under `skills/work/`.
+  prints `0` (`1` today).
+- `grep -c 'non-builder' skills/work/review.md` prints `0` (`1` today).
+- `grep -c 'withholds' skills/work/loop.md` prints `0` (`2` today —
+  the paragraph and the `never blocked` row).
+- `grep -c 'refuse it' skills/work/loop.md` prints `0` (`1` today).
+- `grep -c 'built_by' skills/work/loop.md` prints `0` (`0` today —
+  a guard against reintroduction, not a removal).
 
-Note that each `grep -c` above matches a phrase that sits on one line in
-the file today; a rewrite that reflows the paragraph can make a count
-pass for the wrong reason, so read the file rather than trusting the
-count alone.
+Each `→ 0` phrase above occurs at exactly one line today except
+`withholds`, which occurs at two, and each is unique to the passage
+being rewritten within its own file — no unrelated line in the same
+file carries the substring, so every target is reachable. `withholds`
+also occurs once in `SKILL.md:247`, where it is TRUE; that bullet is
+scoped to `loop.md` and does not touch it.
 
-## Ordering
+Four guards that the surviving prose survived:
 
-This must land AFTER `3IYYwdp7`, or the skill would describe a gate that
-is still running. It is not a blocker on `3IYYwdp7` — the gap is prose
-that is briefly redundant, not prose that is briefly wrong.
+- `grep -c 'never accept your own' skills/work/SKILL.md` prints `1`
+  (`1` today).
+- `grep -c 'an orchestrator may take the verdict on its own wave'
+  skills/work/loop.md` prints `1` (`1` today).
+- `grep -c 'builders' skills/work/loop.md` prints `1` (`2` today — the
+  deleted `next` paragraph carries one, the surviving audit-record
+  sentence the other).
+- `grep -c 'N agents reviewing N PRs' skills/work/parallel.md` prints
+  `1` (`1` today).
+
+Scope:
+
+- `git diff --name-only origin/main` lists only paths under
+  `skills/work/` (`0` files today).
+
+Each `grep -c` matches a phrase that sits on one line today; a rewrite
+that reflows the paragraph can make a count pass for the wrong reason,
+so read the file rather than trusting the count alone.
+
+## Enablement
+
+`none needed` — the one blocker, `3IYYwdp7`, was accepted and
+completed on 2026-08-28 (board commit `2d05d019`), which is what makes
+this item's replacement prose true rather than premature.
