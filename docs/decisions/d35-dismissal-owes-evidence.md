@@ -60,12 +60,47 @@
     baseline-versus-current pair — the comparison under test — is ever
     formed as a control, which is what keeps this separate from the
     baseline-pair credit D34 rejected as its own slice.
-  - **what actually changes**, in closed form: with the control pair
-    reading roughly `f - r`, a dismissal is unexplained exactly when
-    `f > max(N, 2 * (f - r))`, i.e. `N < f < 2r`. At `N = 10` that is a
-    pass-1 delta in (10, 20) with a retry in (5, 10]. Every other
-    dismissal — the loud, genuinely non-reproducing kind — is absorbed
-    exactly as before.
+  - **what actually changes**, measured by sweeping the (f, r) plane
+    through `compare.diff` and `reproduce.restore`. Two things make the
+    region wider and stranger than the arithmetic suggests. The control
+    pair does not read the difference `f - r`: it reads the RATIO
+    `c = (r - f) / (1 + f)`, whose denominator is the loud pass-1
+    sample. And `compare.loudest_control` records a control only when
+    that control's own verdict is `regression` or `faster`, so a
+    control pair UNDER the noise bar buys no credit at all rather than
+    `2|c|` — it is treated exactly like no control. The rule is
+    therefore `restore iff |c| <= N or f > 2|c|`: it absorbs on
+    `[L(r), U(r)]` and fires everywhere else above `N`, with
+
+    ```text
+    L(r) = max((N + r) / (1 - N), (1 - sqrt(1 - 8r)) / 2)
+    U(r) = (1 + sqrt(1 - 8r)) / 2          (r and N as fractions)
+    ```
+
+    Bisected on the real code at `N = 10`, and matching that form to
+    four decimals:
+
+    | retry `r` | absorbed band `[L(r), U(r)]` |
+    |---|---|
+    | 0.0% | [11.1111%, 100.0000%] |
+    | 2.5% | [13.8889%, 94.7214%] |
+    | 5.0% | [16.6667%, 88.7298%] |
+    | 7.5% | [19.4444%, 81.6228%] |
+    | 9.0% | [23.5425%, 76.4575%] |
+    | 10.0% | [27.6393%, 72.3607%] |
+
+    Two consequences follow, and neither is what "the loud kind is
+    absorbed" would predict. **The firing region is not an interval; it
+    has an unbounded upper arm.** `|c|` is a ratio and cannot exceed
+    100%, so `2|c| < 200%` always and `U(r) <= 100%`: a pass-1 flag
+    past +100% is restored however quiet the retry, and so is the loud
+    kind well below that — `f = 75%` with `r = 10%` restores. **And the
+    rule is non-monotone in `r`.** The absorbed band is WIDEST when the
+    retry returns ALL the way to baseline, because a control pair that
+    swings hard buys the most credit: `f = 15%` with `r = 0%` is
+    absorbed, while the same flag with the WEAKER refutation `r = 5%`
+    is restored. `_perf/reproduce_test.tl` pins every edge above, so
+    this record cannot drift from the code.
 - **rejected:**
   - **take a third current-side sample whenever pass 2 reads quiet.**
     The straightforward answer, and it buys a real extra measurement
@@ -97,11 +132,14 @@
   before the gate publishes, so a regression that reads +12% then +9%
   fails instead of shipping, and the reason is printed rather than
   inferred. `test_two_agreeing_samples_straddling_the_bar_fail` pins it.
-  The cost is a new false-red class, and it is narrow by construction:
-  only a scenario whose pass-1 delta lands in `(N, 2r)` with quiet
-  controls can be restored, and the restoration escalates rather than
-  failing outright, so the third sample and the fuller control set get
-  their say first —
+  The cost is a new false-red class, and it is not narrow: the region
+  measured above is `(N, L(r))` plus an unbounded arm above `U(r)`, so
+  a loud non-reproducing dismissal is restored as readily as a
+  straddling one, and a retry that refutes the flag completely is
+  absorbed where a partial refutation is not. What keeps that
+  affordable is that the restoration ESCALATES rather than failing
+  outright, so the third sample and the fuller control set get their
+  say first —
   `test_a_third_sample_absorbs_an_unexplained_dismissal` shows a
   restored flag being credited and passing. A dismissal across two
   different binaries is left alone entirely
@@ -109,6 +147,6 @@
   false red is the one `release.yml` already prints: re-run, because a
   real regression reproduces and noise does not. What would make us
   revisit: restored flags that the third sample keeps absorbing, which
-  would say the band is credited noise rather than a straddling
-  regression — and the fix then is the baseline-pair credit above, not a
-  wider bar.
+  would say the region is credited noise rather than a straddling
+  regression — and the fix then is the baseline-pair credit above, or
+  giving an under-bar control pair its own credit, not a wider bar.

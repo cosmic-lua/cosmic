@@ -16,11 +16,32 @@
 ---   it to the printed record and escalates it to the A/A self-check
 ---   and full triage like any other persisting regression.
 ---
---- In closed form, with noise bar N, a pass-1 delta f > N and a pass-2
---- delta r <= N over a control pair reading roughly f - r, a dismissal
---- is unexplained exactly when N < f < 2r: both samples agree the
---- scenario is up and one merely fell under the bar. The loud,
---- genuinely non-reproducing dismissal is absorbed as before.
+--- The region the restore fires in, measured by sweeping the (f, r)
+--- plane through `compare.diff` and `restore` below. With noise bar N,
+--- a pass-1 delta f > N and a pass-2 delta r <= N, the control pair
+--- does NOT read f - r. It reads the ratio c = (r - f) / (1 + f),
+--- whose denominator is the loud pass-1 sample; and `loudest_control`
+--- records a control only when that control's OWN verdict is
+--- "regression" or "faster", so a control pair under the noise bar
+--- buys NO credit at all rather than 2|c|. The rule is therefore
+--- `restore iff |c| <= N or f > 2|c|`, which absorbs on [L(r), U(r)]
+--- and fires everywhere else above N:
+---
+---   L(r) = max((N + r) / (1 - N), (1 - sqrt(1 - 8r)) / 2)
+---   U(r) = (1 + sqrt(1 - 8r)) / 2         (r and N as fractions)
+---
+--- At N = 10% the absorbed band runs [11.11%, 100.00%] at r = 0 and
+--- narrows to [27.64%, 72.36%] at r = 10%. Two consequences worth
+--- naming, because both contradict the intuitive reading. The firing
+--- region is NOT an interval: |c| is a ratio and cannot exceed 100%,
+--- so U(r) <= 100% and a pass-1 flag past +100% is restored however
+--- quiet the retry -- as is the loud, genuinely non-reproducing kind
+--- well below that (f = 75% with r = 10% restores). And it is
+--- non-monotone in r: the absorbed band is WIDEST when the retry
+--- returns ALL the way to baseline, since a control pair that swings
+--- hard buys the most credit, so f = 15% with r = 0% is absorbed while
+--- the same f with the weaker refutation r = 5% is restored.
+--- `_perf/reproduce_test.tl` pins every edge above.
 ---
 --- The controls are the current-side runs the gate already has on
 --- disk, so the rule costs no measurement pass. No baseline-versus-
