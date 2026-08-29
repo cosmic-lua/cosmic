@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["phase"] = "check",
   ["pr"] = 1495,
+  ["reviewer"] = "review-3IYkPpb2-1787977654-rev1",
   ["title"] = "skills/work still tells sessions the board withholds a verdict on their own work: four passages outlive the identity gate",
 }
