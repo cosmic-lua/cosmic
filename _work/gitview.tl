@@ -148,7 +148,7 @@ local function cmd_status(s: store.Store): integer
   end
   -- Who the board thinks this session is, printed rather than
   -- documented: the identity decides which work is withheld and which
-  -- verdicts are refused, so a session that cannot see it cannot tell
+  -- claims are refused, so a session that cannot see it cannot tell
   -- a healthy board from one that has stopped offering it anything.
   print(sess.note(sess.resolve(nil)))
   return verdict_line("status", true, verdict)

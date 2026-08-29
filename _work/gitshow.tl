@@ -98,8 +98,22 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
   if it.claim ~= "" then out[#out + 1] = ("claim: %s"):format(it.claim) end
   if it.pr ~= 0 then out[#out + 1] = ("pr: #%d"):format(it.pr) end
   if it.verdict ~= "" then
-    out[#out + 1] = ("verdict: %s (head %s)"):format(it.verdict,
-      it.verdict_head)
+    -- A verdict judges a head AND the spec that head is measured
+    -- against, so the head alone cannot answer the question a
+    -- re-reviewer asks here: is there anything new to see? A rework
+    -- that answers a bounce on the Evidence moves the sidecar and no
+    -- commit, and reading an unmoved head as "nothing happened" is
+    -- exactly the mistake. An unrecorded revision says nothing rather
+    -- than guessing: the line then reads as it always did.
+    local moved = ""
+    if (it.verdict_spec or "") ~= "" then
+      moved = ", spec unchanged since"
+      if spec.revision(body) ~= it.verdict_spec then
+        moved = ", spec changed since"
+      end
+    end
+    out[#out + 1] = ("verdict: %s (head %s%s)"):format(it.verdict,
+      it.verdict_head, moved)
   end
   -- Which edges still bind is `flow.binds`, the same predicate
   -- `flow.is_blocked` is built from, so this heading, the `[blocked]`

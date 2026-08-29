@@ -12,10 +12,13 @@ wrong.
 
 ## Evidence
 
-Four instances, each re-verified for this spec on 2026-08-29. Each is a
+Three instances, each re-verified for this spec on 2026-08-29. Each is a
 claim about behaviour that read as obviously true, survived authoring
-and at least one read, and fell the moment somebody RAN the thing. Two
-are checkable in the tree today; two are on history and say so.
+and at least one read, and was ALREADY FALSE about the code it
+described when it was written — each fell the first time somebody RAN
+the thing. Two carry a command that still falsifies them in the tree
+today; the third was swept before it could merge and is pinned on
+`main` by the tests that replaced it.
 
 **1. `next`'s skipped count.** `skills/work/loop.md` said the count of a
 session's own items in `check` "surfaces only when `check` is at its
@@ -34,26 +37,7 @@ carries it. Reading the branch says "limit"; running the branch says
 "always". Fixed on merged history — `git show 68f9fba2` on
 whilp/cosmic, squashed into `main` as #1494.
 
-**2. `verdict`'s refusal.** `skills/work/review.md` said an unnamed
-review subagent "derives the BUILDER's identity — and `review` and
-`verdict` both REFUSE a session its own build, so an unnamed reviewer
-cannot record a verdict at all". #1495 replaced that: the identity gate
-had been deleted, so nothing refuses and the verdict is simply
-misrecorded. Checkable now, from `/home/user/cosmic/o/board`:
-
-```
-$ grep -c 'session' _work/gitverdict.tl
-5
-```
-
-All five are the parameter's declaration, its two signature lines, and
-the two lines that splice it into the commit subject. There is no
-comparison against the claim anywhere in the verb, so `gitverdict` has
-no refusal to reach. The file's OWN doc comment still says "A session
-that names itself as the item's claimant is refused" — a live instance
-of this same failure, and `3IZaO4Vj`'s to fix, not this item's.
-
-**3. D35's firing region.** `docs/decisions/d35-dismissal-owes-evidence.md`
+**2. D35's firing region.** `docs/decisions/d35-dismissal-owes-evidence.md`
 said the perf gate's restore fires "exactly when `N < f < 2r`". Swept
 against the shipped `compare.diff` + `reproduce.restore` over
 `f` in [0, 300] step 2.5 and `r` in [0, 20] step 0.5, the predicate
@@ -65,7 +49,7 @@ bisected band edges are on `main` today, pinned by
 and `test_the_region_edges_are_where_the_record_says`; the false claim
 never reached `main`, because the sweep ran before the merge.
 
-**4. `builders` is read by `show`.** `3IYYwdp7`'s spec kept the
+**3. `builders` is read by `show`.** `3IYYwdp7`'s spec kept the
 `builders` field on the grounds that it "stays written, read by `show`".
 Checkable now, from `/home/user/cosmic/o/board`:
 
@@ -74,11 +58,20 @@ $ grep -c 'builders' _work/gitshow.tl
 0
 ```
 
-`show` does not mention the field. `grep -rn 'builders' _work/*.tl`
-returns hits in `_work/item.tl` only — the record declaration, the
-parse and serialize halves, the duplicate check, and
-`record_builder` — so the field is written and persisted and rendered
-by nothing. The claim was one `grep -c` away and nobody ran it.
+`show` does not mention the field. Widening the search has to name
+which half of `_work` it covers: the bare `grep -rn 'builders'
+_work/*.tl` matches 46 lines across 8 files, seven of them `_test.tl`.
+Restricted to the machinery — the non-test half — it is one file:
+
+```
+$ grep -rl 'builders' _work/*.tl | grep -v _test
+_work/item.tl
+```
+
+`item.tl` holds the record declaration, the parse and serialize halves,
+the duplicate check, and `record_builder` — so the field is written and
+persisted and rendered by nothing. The claim was one `grep -c` away and
+nobody ran it.
 
 **What this spec does NOT claim.** The item's filing cited a fifth
 instance: a coordinator's own sweep reporting `loop.md` and `review.md`
@@ -88,6 +81,26 @@ artifact in the tree or in git — there is nothing to re-run, so it is
 not carried here as measured evidence. Its shape is nonetheless the one
 this change's absence clause addresses: a narrow grep finding nothing is
 a fact about the PATTERN, not about the tree.
+
+**A claim that went STALE is a different failure, and is not carried
+either.** An earlier draft of this spec listed `review.md`'s sentence
+that a subagent naming nothing "derives the BUILDER's identity — and
+`review` and `verdict` both REFUSE a session its own build, so an
+unnamed reviewer cannot record a verdict at all". That sentence was
+TRUE when it merged. `29011923` (#1494) added it at
+2026-08-28T23:07:06Z, and both refusals were live at that moment:
+`gitreview.tl` carried an unguarded `if flow.built_by(it, session)` and
+`gitverdict.tl` its non-empty-session equivalent, `flow.built_by`
+compared names by root, and the session ladder derives an inherited
+`CLAUDE_CODE_SESSION_ID` — so a reviewer that named nothing did take
+the builder's identity and was refused. `db981771` deleted both
+refusals at 2026-08-29T03:16:28Z, 4h09m later, with no machinery change
+in between; #1495 replaced the by-then-false sentence at
+2026-08-29T04:35:33Z. Prose going stale under a machinery change is a
+real failure, and it has its own items (`3IYoARc5`, `3IZaO4Vj`) — but
+it is not a claim asserted without running, because no command run at
+authoring time would have caught it. It does not count toward this
+item's thesis.
 
 **The item's own spec sidecar was wrong too.** At the moment this pass
 opened, `items/3IZ0nP5RQEOKtnuYUdd9j6E4POu.md` held a verbatim copy of
@@ -168,8 +181,8 @@ re-runs it, which a behavioural claim's command satisfies unchanged.
 ## Non-goals
 
 - **No change under `_work/**`.** The board machinery's stale comments —
-  including `gitverdict`'s own doc comment quoted in Evidence 2 — belong
-  to `3IZaO4Vj`. This item touches `main` prose only.
+  including the `gitverdict` doc comment named in the staleness note
+  above — belong to `3IZaO4Vj`. This item touches `main` prose only.
 - **No new gate, and no prose implying one.** `_work/spec.tl`'s section
   lint is unchanged and `gitboard check`'s output is unchanged. A static
   check cannot distinguish an executed claim from a plausible one; the

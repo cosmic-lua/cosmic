@@ -7,6 +7,7 @@
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
+local fs = require("cosmic.fs")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -43,9 +44,12 @@ local function test_verdict_judges_a_pr_awaiting_one()
 end
 test_verdict_judges_a_pr_awaiting_one()
 
--- A verdict judges a head; judging the same one twice says nothing
--- happened in between, which is not a fresh round.
-local function test_a_verdict_refuses_a_head_it_already_judged()
+-- A verdict judges a pair — the head and the spec revision it is
+-- measured against. The same pair twice says nothing happened in
+-- between; a rework that moved EITHER half is a fresh round, because
+-- a bounce on the spec's claims is answered by rewriting the spec,
+-- which moves no commit.
+local function test_a_verdict_refuses_a_pair_it_already_judged()
   local s = init_state_repo("head")
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 6)
@@ -53,17 +57,26 @@ local function test_a_verdict_refuses_a_head_it_already_judged()
   local back = check.must(store.load(s, leaf))
   assert(flow.substate(back) == "rework", "the send-back stands")
   assert(back.claim == "session-a", "with the builder's claim kept")
-  -- The rework hands back: the same PR, a new head, and the verdict
-  -- re-opens for it.
+  assert((back.verdict_spec or "") ~= "",
+    "the judged spec revision is on the record")
+  -- The rework hands back: the same PR, and the verdict re-opens.
   assert(verbs.cmd_take(s, leaf, "session-a", 6, false, "") == 0)
   assert(flow.substate(check.must(store.load(s, leaf))) == "review",
     "the handover re-opens the verdict")
   assert(vrd.cmd_verdict(s, leaf, "request changes", 6, "cafe123") ~= 0,
-    "the same head twice has nothing new to judge")
-  assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe456") == 0,
-    "a moved head does")
+    "the same head over the same spec has nothing new to judge")
+  -- A spec rewrite alone is a fresh round: the diff stood still and
+  -- the other half of the evidence moved.
+  local base = fs.join(fixture.tmpdir, "pair-base.md")
+  assert(fs.write(base, store.read_spec(s, leaf)))
+  local moved = fs.join(fixture.tmpdir, "pair-moved.md")
+  assert(fs.write(moved, store.read_spec(s, leaf)
+      .. "\nMeasured again at rework.\n"))
+  assert(verbs.cmd_spec(s, leaf, moved, base) == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe123") == 0,
+    "the same head over a moved spec is judgeable")
 end
-test_a_verdict_refuses_a_head_it_already_judged()
+test_a_verdict_refuses_a_pair_it_already_judged()
 
 -- The verb keeps no identity distance: the session named on the claim
 -- accepts its own item, because review isolation is carried by the

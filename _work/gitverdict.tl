@@ -28,6 +28,7 @@ local gate = require("_work.gitgate")
 local gh = require("_work.gh")
 local item = require("_work.item")
 local review = require("_work.review")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 --- The spellings people actually type for the middle verdict: the
@@ -71,14 +72,19 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
     return gate.verdict_line("verdict", false,
       ("REFUSED: %s already carries an accept — land it"):format(id:sub(1, 8)))
   end
-  -- A verdict judges a head. Judging the same one twice says nothing
+  -- A verdict judges a head AND the spec that head is measured
+  -- against: a rework can answer a bounce by rewriting the spec,
+  -- which moves no commit. Judging the same PAIR twice says nothing
   -- new happened between them — that is "nothing to judge" rather
-  -- than a fresh round.
-  if (head or "") ~= "" and head == (it.verdict_head or "") then
+  -- than a fresh round. An unrecorded revision refuses nothing: the
+  -- board cannot say what spec an older verdict read.
+  local judged_spec = spec.revision(store.read_spec(s, id))
+  if (head or "") ~= "" and head == (it.verdict_head or "")
+  and (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec then
     return gate.verdict_line("verdict", false,
-      ("REFUSED: %s's head %s was already judged (%s) — nothing new")
-      :format(id:sub(1, 8), head:sub(1, 7),
-        it.verdict == "" and "since reworked" or it.verdict))
+      ("REFUSED: %s's head %s was already judged with this spec — "
+        .. "neither the diff nor the spec has moved since"):format(
+        id:sub(1, 8), head:sub(1, 7)))
   end
   -- An accept asserts the work is fit to land, so it is the one
   -- verdict whose truth depends on the request's own state. Reading
@@ -106,6 +112,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- over.
   it.reviewer = ""
   it.verdict_head = head or ""
+  it.verdict_spec = judged_spec
   if pr ~= nil and pr ~= 0 then
     it.pr = pr
   end
@@ -120,6 +127,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
     -- spec (plus the closed PR) carries what was learned.
     it.verdict = ""
     it.verdict_head = ""
+    it.verdict_spec = ""
     it.claim = ""
     it.pr = 0
     outcome = "reject — todo again"

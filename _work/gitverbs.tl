@@ -292,6 +292,7 @@ local function cmd_drop(s: store.Store, id: string, session: string,
   it.pr = 0
   it.verdict = ""
   it.verdict_head = ""
+  it.verdict_spec = ""
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("drop %s: %s"):format(id:sub(1, 8), why))
   if not ok then
