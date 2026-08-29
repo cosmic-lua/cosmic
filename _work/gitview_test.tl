@@ -39,10 +39,12 @@ local function has(lines: {string}, pattern: string): boolean
   return false
 end
 
---- Escape a derived value's Lua-pattern metacharacters — here just
---- the hyphen the rendered handle carries — so it can be spliced
---- into a `has` pattern as literal text. The guillemets the handle
---- wraps in are not Lua-pattern magic, so they need no escaping.
+--- Escape a derived value's Lua-pattern metacharacters so it can be
+--- spliced into a `has` pattern as literal text. The rendered
+--- handle's divider is now `_` and its wrapping guillemets, and
+--- neither is Lua-pattern magic — so today there is nothing here to
+--- escape — but the helper stays in place as a hedge against a
+--- future divider (or other spliced value) that is.
 local function lit(s: string): string
   return (s:gsub("%-", "%%-"))
 end

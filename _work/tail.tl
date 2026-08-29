@@ -10,26 +10,31 @@
 --- collision-free across every item, exact and case-folded.
 local item = require("_work.item")
 
---- Render an item's tail as two hyphenated 4-char chunks, wrapped in
---- guillemets so a reader can tell a handle from a word, a count, or
---- the `[full id]` bracket on sight.
+--- Render an item's tail as two underscore-divided 4-char chunks,
+--- wrapped in guillemets so a reader can tell a handle from a word, a
+--- count, or the `[full id]` bracket on sight. The divider is an
+--- underscore rather than a hyphen because `_` is a word character
+--- and `-` is not: a double-click selects the whole 9-character
+--- handle body in one gesture.
 --- @param id string A full item id (a 27-char KSUID)
---- @return string "«XXXX-XXXX»"
+--- @return string "«XXXX_XXXX»"
 local function handle(id: string): string
   local t = id:sub(20)
-  return "«" .. t:sub(1, 4) .. "-" .. t:sub(5, 8) .. "»"
+  return "«" .. t:sub(1, 4) .. "_" .. t:sub(5, 8) .. "»"
 end
 
 --- Whether input has a tail's shape: 8 base62 characters, with at
---- most one hyphen, which — when present — sits right after the 4th
---- character, optionally wrapped in the guillemets a rendered handle
---- carries. So a caller can tell a tail attempt from an id prefix
---- before asking `resolve` to search.
+--- most one divider (`_` or `-`), which — when present — sits right
+--- after the 4th character, optionally wrapped in the guillemets a
+--- rendered handle carries. Both dividers are accepted so a
+--- hyphenated handle from scrollback still parses — only rendering
+--- has settled on the underscore. So a caller can tell a tail
+--- attempt from an id prefix before asking `resolve` to search.
 --- @param input string Candidate input
 --- @return boolean True when it has tail shape
 local function is_tail_shape(input: string): boolean
-  return input:match("^%w%w%w%w%-?%w%w%w%w$") ~= nil
-  or input:match("^«%w%w%w%w%-?%w%w%w%w»$") ~= nil
+  return input:match("^%w%w%w%w[%-_]?%w%w%w%w$") ~= nil
+  or input:match("^«%w%w%w%w[%-_]?%w%w%w%w»$") ~= nil
 end
 
 --- Resolve a tail against every item's `id:sub(20)`. An exact match
@@ -43,7 +48,7 @@ end
 --- @return string | nil The matching item's id
 --- @return string Error message
 local function resolve(items: {item.Item}, input: string): string | nil, string
-  local normalized = (input:gsub("[«»%-]", ""))
+  local normalized = (input:gsub("[«»%-_]", ""))
   local exact_ids: {string} = {}
   local exact_tails: {string} = {}
   for _, it in ipairs(items) do

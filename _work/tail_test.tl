@@ -26,16 +26,17 @@ local function make(id: string, title: string): item.Item
   return check.must(item.decode({id = id, title = title}))
 end
 
-local function test_handle_hyphenates_and_wraps_the_last_eight_characters()
+local function test_handle_underscores_and_wraps_the_last_eight_characters()
   local id = make_id("Q4TX9GMD")
-  assert(tail.handle(id) == "«Q4TX-9GMD»", tail.handle(id))
+  assert(tail.handle(id) == "«Q4TX_9GMD»", tail.handle(id))
 end
-test_handle_hyphenates_and_wraps_the_last_eight_characters()
+test_handle_underscores_and_wraps_the_last_eight_characters()
 
 local function test_is_tail_shape_accepts_both_forms()
-  assert(tail.is_tail_shape("s1WSJ6A3"), "hyphen-free")
+  assert(tail.is_tail_shape("s1WSJ6A3"), "divider-free")
   assert(tail.is_tail_shape("s1WS-J6A3"), "hyphenated after the 4th")
-  assert(tail.is_tail_shape("«s1WS-J6A3»"), "a pasted, wrapped handle")
+  assert(tail.is_tail_shape("«s1WS-J6A3»"), "a wrapped, hyphenated handle")
+  assert(tail.is_tail_shape("«s1WS_J6A3»"), "a pasted, wrapped handle")
 end
 test_is_tail_shape_accepts_both_forms()
 
@@ -43,7 +44,7 @@ local function test_is_tail_shape_rejects_malformed_input()
   assert(not tail.is_tail_shape("s1WSJ6A"), "too short")
   assert(not tail.is_tail_shape("s1WSJ6A33"), "too long")
   assert(not tail.is_tail_shape("s1W-SJ6A3"), "hyphen in the wrong place")
-  assert(not tail.is_tail_shape("s1WS_J6A3"), "underscore is not base62")
+  assert(not tail.is_tail_shape("s1WS.J6A3"), "period is not a valid divider")
   assert(not tail.is_tail_shape(""), "empty")
 end
 test_is_tail_shape_rejects_malformed_input()
@@ -59,10 +60,18 @@ test_resolve_matches_exactly_hyphenated_or_not()
 local function test_resolve_accepts_a_pasted_wrapped_handle()
   local id = make_id("d0x137YJ")
   local all: {item.Item} = {make(id, "a slice")}
-  assert(check.must(tail.resolve(all, "«d0x1-37YJ»")) == id,
+  assert(check.must(tail.resolve(all, "«d0x1_37YJ»")) == id,
     "a copy-pasted rendered handle resolves like any other tail")
 end
 test_resolve_accepts_a_pasted_wrapped_handle()
+
+local function test_resolve_accepts_a_hyphenated_paste_for_backward_tolerance()
+  local id = make_id("d0x137YJ")
+  local all: {item.Item} = {make(id, "a slice")}
+  assert(check.must(tail.resolve(all, "«d0x1-37YJ»")) == id,
+    "a handle copied before the divider changed still resolves")
+end
+test_resolve_accepts_a_hyphenated_paste_for_backward_tolerance()
 
 local function test_resolve_falls_back_to_case_folded_match()
   local id = make_id("Q4TXaBcD")
