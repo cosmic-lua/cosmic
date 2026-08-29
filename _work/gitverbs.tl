@@ -41,61 +41,47 @@ local function cmd_init(dir: string): integer
     ("state repository ready at %s"):format(dir))
 end
 
---- The refusal a stale base earns, or nil when the write may proceed.
----
---- `spec` replaces the WHOLE sidecar, so the write has to say which
---- text it is replacing. The push half is a compare-and-swap already,
---- but it compares COMMITS: a session that synced between reading a
---- spec and writing its refinement back rebases cleanly over the write
---- it is erasing. The base is the missing half — the text the caller
---- read, compared against the text that is there.
----
---- One rule covers both calls, because an item with no sidecar reads
---- back "" and that is what a call with no `--base` compares against:
---- the FIRST write of a spec needs no flag, and every later one does.
---- @param current string The sidecar as it stands
---- @param base string The base file's path, "" when none was given
---- @param id string The item's full id, for the message and the path
---- @return string | nil The refusal
-local function base_refusal(current: string, base: string,
-    id: string): string | nil
-  local claimed = ""
-  if base ~= "" then
-    local read, rerr = fs.read(base)
-    if read == nil then
-      return ("REFUSED: --base %s is unreadable: %s"):format(base, rerr)
-    end
-    claimed = read
-  end
-  if claimed == current then
-    return nil
-  end
-  local id8 = id:sub(1, 8)
-  if base == "" then
-    return ("REFUSED: %s already has a spec — pass --base FILE holding the "
-      .. "text you read; a write with no base is last-write-wins"):format(id8)
-  end
-  return ("REFUSED: %s's spec changed since you read it — re-read "
-    .. "items/%s.md, re-apply your edit, and pass the re-read text as "
-    .. "--base (the trail is `gitboard show %s`)"):format(id8, id, id8)
-end
-
+--- spec: replace ID's spec sidecar with FILE's text, the compare-and-swap
+--- against `base` proving the writer read what is there. An in-flight
+--- item's spec is its claim holder's to move (`gate.spec_refusal`) — a
+--- foreign write onto a live claim needs `--force --why`, same as
+--- taking one over.
+--- @param s store.Store The store
+--- @param id string The item whose spec is replaced
+--- @param file string Path to the replacement markdown
+--- @param base string | nil The spec text the caller read, as a file path
+--- @param session string | nil The session making the write
+--- @param force boolean | nil Rewrite a foreign LIVE claim's spec
+--- @param why string | nil Why --force was needed
+--- @return integer Exit code
 local function cmd_spec(s: store.Store, id: string, file: string,
-    base?: string): integer
+    base?: string, session?: string, force?: boolean, why?: string): integer
+  local frc = force or false
+  local rsn = why or ""
+  local forced = gate.force_refusal(frc, rsn)
+  if forced then
+    return gate.verdict_line("spec", false, "REFUSED: " .. forced)
+  end
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("spec", false, lerr)
+  end
+  if not frc then
+    local refusal = gate.spec_refusal(it, session or "")
+    if refusal then
+      return gate.verdict_line("spec", false, refusal)
+    end
   end
   local body, rerr = fs.read(file)
   if body == nil then
     return gate.verdict_line("spec", false, rerr)
   end
-  local stale = base_refusal(store.read_spec(s, id), base or "", id)
+  local stale = gate.base_refusal(store.read_spec(s, id), base or "", id)
   if stale then
     return gate.verdict_line("spec", false, stale)
   end
   local ok, err = gate.commit_and_publish(s, it, body,
-    ("spec %s"):format(id:sub(1, 8)))
+    ("spec %s%s"):format(id:sub(1, 8), gate.forced_suffix(frc, rsn)))
   if not ok then
     return gate.verdict_line("spec", false, err)
   end
@@ -472,7 +458,7 @@ end
 local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_spec: function(s: store.Store, id: string, file: string,
-  base?: string): integer
+  base?: string, session?: string, force?: boolean, why?: string): integer
   cmd_take: function(s: store.Store, id: string, session: string,
   pr: integer, force: boolean, why: string): integer
   cmd_drop: function(s: store.Store, id: string, session: string,

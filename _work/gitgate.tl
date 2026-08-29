@@ -8,6 +8,7 @@
 --- publish drops a single commit, so anything a mutation touches
 --- beyond its subject travels with it rather than being committed
 --- alongside.
+local fs = require("cosmic.fs")
 local gh = require("_work.gh")
 local flow = require("_work.flow")
 local item = require("_work.item")
@@ -54,6 +55,70 @@ local function forced_suffix(force: boolean, why: string): string
     return ""
   end
   return (" (forced: %s)"):format(why)
+end
+
+--- The refusal a stale base earns, or nil when the write may proceed.
+---
+--- `spec` replaces the WHOLE sidecar, so the write has to say which
+--- text it is replacing. The push half is a compare-and-swap already,
+--- but it compares COMMITS: a session that synced between reading a
+--- spec and writing its refinement back rebases cleanly over the write
+--- it is erasing. The base is the missing half — the text the caller
+--- read, compared against the text that is there.
+---
+--- One rule covers both calls, because an item with no sidecar reads
+--- back "" and that is what a call with no `--base` compares against:
+--- the FIRST write of a spec needs no flag, and every later one does.
+--- @param current string The sidecar as it stands
+--- @param base string The base file's path, "" when none was given
+--- @param id string The item's full id, for the message and the path
+--- @return string | nil The refusal
+local function base_refusal(current: string, base: string,
+    id: string): string | nil
+  local claimed = ""
+  if base ~= "" then
+    local read, rerr = fs.read(base)
+    if read == nil then
+      return ("REFUSED: --base %s is unreadable: %s"):format(base, rerr)
+    end
+    claimed = read
+  end
+  if claimed == current then
+    return nil
+  end
+  local id8 = id:sub(1, 8)
+  if base == "" then
+    return ("REFUSED: %s already has a spec — pass --base FILE holding the "
+      .. "text you read; a write with no base is last-write-wins"):format(id8)
+  end
+  return ("REFUSED: %s's spec changed since you read it — re-read "
+    .. "items/%s.md, re-apply your edit, and pass the re-read text as "
+    .. "--base (the trail is `gitboard show %s`)"):format(id8, id, id8)
+end
+
+--- The refusal a foreign session's spec write earns on an item that is
+--- in flight under someone else's claim, or nil when the write may
+--- proceed. An in-flight item's spec is its claim holder's to move —
+--- spec-only rework answering a bounce is a designed path, at any
+--- point in the holder's own build — and a write to an unclaimed item
+--- (todo, or dropped back to it) is nobody's to gate. Only a foreign
+--- LIVE claim earns this: rewriting it needs `--force --why`, same as
+--- taking one over.
+--- @param it item.Item The item whose spec would be rewritten
+--- @param session string The session making the write
+--- @return string | nil The refusal
+local function spec_refusal(it: item.Item, session: string): string | nil
+  if not flow.is_doing(it) then
+    return nil
+  end
+  if (it.claim or "") == "" then
+    return nil
+  end
+  if it.claim == (session or "") then
+    return nil
+  end
+  return ("REFUSED: %s is claimed by %s — rewriting another session's "
+    .. "live build needs --force --why"):format(it.id:sub(1, 8), it.claim)
 end
 
 --- Save an item and publish the commit. Everything one mutation
@@ -176,6 +241,8 @@ local record gitgate
   verdict_line: function(verb: string, ok: boolean, detail: string): integer
   force_refusal: function(force: boolean, why: string): string
   forced_suffix: function(force: boolean, why: string): string
+  base_refusal: function(current: string, base: string, id: string): string
+  spec_refusal: function(it: item.Item, session: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
   message: string, also?: {item.Item}): boolean, string
   containered: function(parent: item.Item): {item.Item}
@@ -189,6 +256,8 @@ local M: gitgate = {
   verdict_line = verdict_line,
   force_refusal = force_refusal,
   forced_suffix = forced_suffix,
+  base_refusal = base_refusal,
+  spec_refusal = spec_refusal,
   commit_and_publish = commit_and_publish,
   containered = containered,
   handover_refusal = handover_refusal,

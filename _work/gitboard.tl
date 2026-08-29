@@ -84,7 +84,13 @@ local CSPEC: flags.CommandSpec = {
     {name = "spec", summary = "replace ID's spec sidecar with FILE",
       spec = {usage = "ID FILE [options]", flags = {dir_flag(),
           {long = "base", arg = "FILE",
-            help = "the spec text you read, as the compare-and-swap base"}}}},
+            help = "the spec text you read, as the compare-and-swap base"},
+          {long = "session", arg = "SESSION",
+            help = "the session making the write. Omit to derive it from "
+            .. "the environment"},
+          {long = "force", help = "rewrite another session's LIVE claim's "
+            .. "spec (a stale one needs no force)"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "next", summary = "the one next action to take now, and what "
       .. "the kind of action means",
       spec = {flags = {dir_flag(),
@@ -243,7 +249,9 @@ local function main(...: string): integer
       io.stderr:write("spec needs a markdown file\n")
       return 1
     end
-    return verbs.cmd_spec(s, id, file, d.parsed.values["base"] or "")
+    local who = session.resolve(d.parsed.values["session"])
+    return verbs.cmd_spec(s, id, file, d.parsed.values["base"] or "", who,
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   if d.command == "take" then
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
