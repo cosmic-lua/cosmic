@@ -72,13 +72,43 @@ on disk (`opts.current` and the retry). **This buys no measurement on the
 clean path**: the A/A control the item's title says is missing was there
 all along, unread — it is the disagreement itself.
 
-What actually changes, in closed form. With noise bar `N`, pass-1 delta
-`f > N`, pass-2 delta `r <= N`, and the control pair reading `c ≈ f - r`,
-the dismissal is unexplained exactly when `f > max(N, 2c)`, i.e.
-`N < f < 2r`. At `N = 10` that is `f` in (10, 20) with `r` in (5, 10]:
-both current-side samples agree the scenario is up and one merely fell
-under the bar. Every other dismissal — the loud, genuinely
-non-reproducing kind — is absorbed exactly as today.
+What actually changes, **re-derived by sweeping the (f, r) plane through
+the real `compare.diff` + `reproduce.restore`** (the earlier closed form
+in this section was wrong; corrected here before the tree was). With
+noise bar `N`, pass-1 delta `f > N` and pass-2 delta `r <= N`, the
+control pair does NOT read `f - r`: it reads the RATIO
+`c = (r - f) / (1 + f)`, whose denominator is the loud pass-1 sample.
+And `loudest_control` records a control only when that control's own
+verdict is `regression` or `faster`, so a control pair UNDER the noise
+bar contributes ZERO credit, not `2|c|`. The rule is therefore
+`restore iff |c| <= N or f > 2|c|`, which fires on
+`(N, L(r)) ∪ (U(r), ∞)` and absorbs on `[L(r), U(r)]`, with
+`L(r) = max((N + r)/(1 - N), (1 - sqrt(1 - 8r))/2)` and
+`U(r) = (1 + sqrt(1 - 8r))/2` (r, N as fractions). Measured at
+`N = 10`, bisected on the real code, matching that form to four
+decimals:
+
+| `r` | absorbed band `[L(r), U(r)]` |
+|---|---|
+| 0.0% | [11.1111%, 100.0000%] |
+| 2.5% | [13.8889%, 94.7214%] |
+| 5.0% | [16.6667%, 88.7298%] |
+| 7.5% | [19.4444%, 81.6228%] |
+| 9.0% | [23.5425%, 76.4575%] |
+| 10.0% | [27.6393%, 72.3607%] |
+
+Two claims the old form (`N < f < 2r`, i.e. `f` in (10, 20) with `r` in
+(5, 10]) got wrong, both measured. **The firing region is not an
+interval — it has an unbounded upper arm.** `|c|` is a ratio and can
+never exceed 100%, so `2|c| < 200%` always and `U(r) <= 100%`: every
+pass-1 flag above +100% is restored for any quiet retry, and so is the
+loud kind well below it — `f = 75%, r = 10%`
+restores, which is precisely the "genuinely non-reproducing" dismissal
+the old form promised was absorbed. **The band is non-monotone in `r`.**
+It is WIDEST when the retry returns all the way to baseline, because a
+control pair that swings hard buys the most credit: `f = 15%` with
+`r = 0%` is absorbed, while the same `f` with `r = 5%` — a weaker
+refutation — is restored.
 
 ### Why this fix and not the two the capture listed
 
@@ -283,7 +313,8 @@ original capture 14 of 48 at up to +62.2%, so the count swings 6..14
 within a day on the same container. Two consequences, both stated
 deliberately: the escape this item closes is not exotic (a quiet second
 sample is routine), and the false red this rule accepts is real, because
-today's loudest A/A swings (12.6..15.7%) sit inside the `f` in (10, 20)
+today's loudest A/A swings (12.6..15.7%) sit below `L(r)` for every `r`
+-- `L` is narrowest at `L(10%) = 27.6%` -- and so land squarely in the
 band where the rule fires. The guard is the escalation: a scenario that
 noisy normally shows it across the three control pairs the third sample
 opens, which is what
