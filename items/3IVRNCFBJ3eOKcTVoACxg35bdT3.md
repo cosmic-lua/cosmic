@@ -44,3 +44,7 @@ field that accidentally matches would say the opposite.
 
 Option 1 is the one worth weighing first: it is the only one that makes
 the error impossible rather than repairable.
+
+## Result
+
+Option 1 landed with the two-state rewrite (2026-08-29, `_work/gitverdict.tl:82-105`): `verdict` validates the caller's head against the PR's own (`review.head_refusal(p, head)`) and records the PR's canonical `head_sha`, refusing any sha that is not the PR head or a prefix of it — the incident's failure mode (recording an unrelated FETCH_HEAD commit) is now refused at record time, so a wrong sha fails loudly, which was this item's own bar. The reviewer still TYPES the head deliberately: a pure derive-from-PR would silently record a head pushed mid-review, judging code nobody read — typed-then-validated closes the error class without opening that one. No correction verb is needed for a field that can no longer be wrong.
