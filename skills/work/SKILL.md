@@ -205,7 +205,19 @@ AGENTS.md, get it wrong? if yes, it is not ready.
 file's headroom under the 500-line cap, a pattern's match count, a
 function's callers) is measured during refinement and written into
 the prose WITH the command that produced it, so the puller re-runs it
-in seconds and the reviewer can check the claim.
+in seconds and the reviewer can check the claim. a claim about
+BEHAVIOUR — what a verb prints, which branch a condition selects,
+what a gate refuses — is a prediction until a command has produced
+it: reading the source to answer it is inference, and the wrong turns
+are never guesses, they are readings that felt obviously true (D35's
+"fires exactly when `N < f < 2r`" disagreed with the code at 4097 of
+4961 swept points). so a behavioural claim carries its command AND
+the pasted output, and absence is behavioural too: a grep returning
+nothing establishes that the PATTERN matched nothing, never that the
+thing is absent — widen it, or name what the narrow one could miss.
+no lint can tell an executed claim from a plausible one; this is a
+rule the refiner applies and the reviewer checks, demanding the
+output beside the command in spec and bounce alike.
 
 **sizing:** one PR one session holds in its head (~400 changed lines
 is the smell threshold, not a rule). an "and" between two independent
