@@ -1,4 +1,8 @@
 return {
+  ["block_reason"] = {
+    ["3Ib5S8KI00JRVoH5vm5WA0n8XRm"] = "cosmic.shape resolves only once the pin carries it",
+  },
+  ["blocked_by"] = "3Ib5S8KI00JRVoH5vm5WA0n8XRm",
   ["builders"] = "wave2-wa-1788020175",
   ["id"] = "3Ib4KH0qiFx9LvQ3cFaZdDm2UMG",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
