@@ -10,7 +10,9 @@
 --- in a git checkout (`_work.store`), its spec prose the sidecar
 --- `items/<ksuid>.md`; the flow rules are `_work.flow`. Pull requests
 --- stay on GitHub and carry the fix; issues shrink to an inbound
---- queue. Ids are KSUIDs; every verb accepts an unambiguous prefix.
+--- queue. Ids are KSUIDs; renders lead with the handle, the id's last
+--- 8 characters (e.g. «d0x1_37YJ»); every verb accepts that handle,
+--- bare or wrapped, either divider, case-tolerant — or an unambiguous prefix.
 ---
 ---   cosmic --make run _work/gitboard.tl init [--dir D]
 ---   cosmic --make run _work/gitboard.tl new "an outcome"
