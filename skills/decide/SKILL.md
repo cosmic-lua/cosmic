@@ -78,7 +78,7 @@ what does not transfer is the separate lifecycle. an RFD is discussed
 before it is built, across teams, so it needs six states and a branch
 of its own. here the record lands **in the pull request that makes the
 change**, reviewed by the same planner review any change gets
-(`skills/work/review.md`), and its state after merge is exactly one of
+(`skills/work/SKILL.md`), and its state after merge is exactly one of
 three: it stands, it was amended, it was superseded. write the record
 first — before the diff — when the tradeoff is contested or the
 implementation is expensive; the draft is the cheapest place to

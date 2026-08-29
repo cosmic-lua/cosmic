@@ -5,7 +5,7 @@ goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
 when a goal holds — and **instruments** — how we see and steer, orthogonal
 to the outcomes they serve. outcomes are ordered, by paired comparison
 ([D25](decisions/d25-outcomes-and-instruments.md), method in
-`skills/work/decompose.md`): each answer is committed on the board as
+`skills/work/SKILL.md`): each answer is committed on the board as
 one `gitboard compare` edge, and the order is DERIVED from those
 comparisons rather than asserted anywhere. the list below is that
 order written out for a reader, so changing it means re-asking the
@@ -52,7 +52,7 @@ for every builder, and each module shipped is surface to keep honest —
 so surplus generality, speculative structure, and unpruned surface are
 defects even when they work. the measured half of this pressure is G9;
 the judged half is the reviewer's least-thing check
-(`skills/work/review.md`).
+(`skills/work/SKILL.md`).
 
 ### 1. no silent bugs
 
@@ -253,14 +253,14 @@ sophisticated models implement it, and a sophisticated model's review
 is the final gate. its job is to make the outcomes above move and to
 say what the movement costs.
 
-- **measured by:** flow health per release — ready→merged lead time,
-  WIP-limit adherence, no column starved or saturated for a whole
-  release — and the cost ratchet: tokens × model tier per merged
-  slice, tracked and trending down. the measurement is currently
-  UNBUILT for the file-based board: every transition is a commit on
-  the `board` branch, so `git log` holds the flow record, but nothing
-  reads it yet — the label-era `stats` tool measured GitHub timelines,
-  which no longer carry the board.
+- **measured by:** flow health per release — pull→merged lead time,
+  and the rework rate: the share of merged items that needed more
+  than one review round or a bounce — and the cost ratchet: tokens ×
+  model tier per merged slice, tracked and trending down. the
+  measurement is currently UNBUILT for the file-based board: every
+  mutation is a commit on the `board` branch, so `git log` holds the
+  flow record, but nothing reads it yet — the label-era `stats` tool
+  measured GitHub timelines, which no longer carry the board.
 - **win condition:** the board runs the repo's work with flow health
   holding and cost per merged slice ratcheting down. delegation share
   (how much lands implemented by less sophisticated models) is an
