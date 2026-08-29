@@ -235,3 +235,25 @@ local function test_builders_round_trip()
     "a repeated builder is invalid: " .. tostring(err))
 end
 test_builders_round_trip()
+
+-- decode validates through cosmic.shape now: a wrong-typed field is a
+-- refusal with a dotted path, not a silent coercion to zero.
+local function test_a_wrong_typed_field_is_refused()
+  local t = base()
+  t.pr = "seven"
+  local bad, err = item.decode(t)
+  assert(bad == nil and err:find("pr", 1, true) and err:find("integer", 1, true),
+    "a wrong-typed pr is refused with its path: " .. tostring(err))
+end
+test_a_wrong_typed_field_is_refused()
+
+-- Unknown keys stay tolerated: a Spec that does not name a key never
+-- looks at it, so a file carrying a retired field still decodes.
+local function test_an_unknown_key_still_decodes()
+  local t = base()
+  t.retired_field = "leftover from an older schema"
+  local it = check.must(item.decode(t))
+  assert(it.id == ID and it.title == "an item",
+    "an unknown key does not block decode")
+end
+test_an_unknown_key_still_decodes()
