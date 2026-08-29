@@ -19,6 +19,7 @@ return {
   ["_work/intake.tl"] = {["covered"] = 46, ["total"] = 46},
   ["_work/item.tl"] = {["covered"] = 140, ["total"] = 143},
   ["_work/ksuid.tl"] = {["covered"] = 68, ["total"] = 75},
+  ["_work/lanes.tl"] = {["covered"] = 94, ["total"] = 127},
   ["_work/priority.tl"] = {["covered"] = 163, ["total"] = 179},
   ["_work/review.tl"] = {["covered"] = 65, ["total"] = 65},
   ["_work/session.tl"] = {["covered"] = 44, ["total"] = 44},
