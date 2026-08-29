@@ -1,9 +1,9 @@
 return {
   ["builders"] = "wave3-a-1788021863",
-  ["claim"] = "wave3-a-1788021863",
   ["id"] = "3IYiQ0N31tQt20qOHjTIKOmxCsd",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1510,
+  ["resolution"] = "completed",
   ["title"] = "cast-sites.tsv has no ratchet: it went stale 20 minutes after landing and ci stayed green",
   ["verdict"] = "accept",
   ["verdict_head"] = "40669a7feddf5fd5d60d6d6178c4c49006ed4c67",
