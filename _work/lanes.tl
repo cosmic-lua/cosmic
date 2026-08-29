@@ -29,6 +29,23 @@ local LANES: {string} = {"release.yml", "fuzz.yml", "docs.yml"}
 --- outcome this mechanism serves.
 local LANE_PARENT < const > = "3HyRdT1JQS7pCPgF3sZi2Deo66q"
 
+--- The minted spec sidecar every repair item carries: short and
+--- generic, because machinery files it, not a person — but it fills
+--- the spec bar honestly (`## Change`, non-empty), the same bar every
+--- other item clears before `take` admits it. Naming the workflow file
+--- and the read-the-log-first step is enough for a builder to start;
+--- anything more specific belongs in the PR the repair produces, not
+--- in a template minted once per red lane.
+--- @param lane string Workflow filename
+--- @return string The spec sidecar's markdown
+local function repair_spec(lane: string): string
+  return ("## Change\n"
+    .. "The scheduled workflow `.github/workflows/%s` is red. Read the "
+    .. "latest failing run's log (Actions UI or `gh run view --log-failed`), "
+    .. "diagnose the failure, and fix it on a PR like any other item.\n")
+  :format(lane)
+end
+
 --- The committed fact file's path, at the board root rather than
 --- under `items/` — it is board state, not an item, and living
 --- outside `items/` is what keeps it off the append-only item history.
@@ -193,7 +210,7 @@ local function file_repair(s: store.Store, lane: string): boolean, string
   if #bad > 0 then
     return false, table.concat(bad, "; ")
   end
-  return gate.commit_and_publish(s, it, nil,
+  return gate.commit_and_publish(s, it, repair_spec(lane),
     ("new %s %s"):format(it.id:sub(1, 8), title))
 end
 
@@ -239,6 +256,11 @@ end
 
 local record lanes
   LANES: {string}
+  --- Exported for tests only: `mint`'s idempotency key search and
+  --- `file_repair`'s parent both close over the local, and a test that
+  --- wants to place the real repair parent (the way G8 already is on
+  --- the live board) needs the same id rather than a second literal.
+  LANE_PARENT: string
   observe: function(s: store.Store): {string: string} | nil, string
   read_state: function(s: store.Store): {string: string}
   record: function(s: store.Store, facts: {string: string}): boolean, string
@@ -247,6 +269,7 @@ end
 
 local M: lanes = {
   LANES = LANES,
+  LANE_PARENT = LANE_PARENT,
   observe = observe,
   read_state = read_state,
   record = record,

@@ -301,6 +301,26 @@ local function test_a_pending_merge_still_outranks_the_repair()
 end
 test_a_pending_merge_still_outranks_the_repair()
 
+-- The wall the spec pins for merge holds for review too: an open PR
+-- with no verdict yet outranks a red-lane repair, the same as an
+-- accepted one does. Pinned separately from the merge case because
+-- the ordering rungs are independent code paths in `phased_action` —
+-- reverting only the repair-offer block above the review loop leaves
+-- the merge test green while this one goes red.
+local function test_a_pending_review_still_outranks_the_repair()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local reviewable = make({parent = root.id, claim = "who", pr = 2})
+  local repair = make({parent = root.id, lane = "release.yml"})
+  items[#items + 1] = reviewable
+  items[#items + 1] = repair
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "review" and a.item.id == reviewable.id,
+    "a verdict awaiting a PR still comes before a lane repair: " .. a.kind)
+end
+test_a_pending_review_still_outranks_the_repair()
+
 -- The doing bound never holds a lane repair back: `flow.doing_refusal`
 -- admits it at the same bound it refuses an ordinary take at, and
 -- `next_action` still offers it as the pull rather than falling

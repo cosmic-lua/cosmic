@@ -124,16 +124,27 @@ local function passes_bar(i: Item, specs: Specs,
   return #flow.ready_gaps(specs[i.id] or "") == 0
 end
 
---- The first open, unclaimed, unblocked lane-repair item in queue
---- order, or nil. The todo queue already excludes claimed items, so
---- "unclaimed" needs no separate check; a blocked one waits on its
---- blocker like any other pull rather than jumping it.
+--- The first open, unclaimed, unblocked, bar-passing lane-repair item
+--- in queue order, or nil. The todo queue already excludes claimed
+--- items, so "unclaimed" needs no separate check; a blocked one waits
+--- on its blocker like any other pull rather than jumping it. The
+--- spec bar applies here exactly as it does to an ordinary pull —
+--- `_work.lanes.file_repair` mints every repair with a sidecar that
+--- clears it, so this is never the reason a live repair goes unoffered;
+--- what it catches is a hand-edited or pre-migration item with none,
+--- which `take` would refuse anyway. Offering only what `take` would
+--- admit is the whole point: a repair `next` offers and `take` refuses
+--- is the gap this closes.
 --- @param todo {Item} The todo queue, already priority-ordered
+--- @param specs Specs Spec sidecar body, by item id
 --- @param index flow.Index Items by id
+--- @param pos {string: prio.Position} Position by item id
 --- @return Item | nil The repair item to offer
-local function lane_repair(todo: {Item}, index: flow.Index): Item | nil
+local function lane_repair(todo: {Item}, specs: Specs, index: flow.Index,
+    pos: {string: prio.Position}): Item | nil
   for _, i in ipairs(todo) do
-    if (i.lane or "") ~= "" and not flow.is_blocked(i, index) then
+    if (i.lane or "") ~= "" and not flow.is_blocked(i, index)
+    and passes_bar(i, specs, pos) then
       return i
     end
   end
@@ -220,7 +231,7 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   -- capped by the doing bound the way an ordinary pull is — the take
   -- gate admits it the same way (`flow.doing_refusal`'s lane bypass).
   local todo = flow.in_state(items, "todo", pos, seed)
-  local repair = lane_repair(todo, index)
+  local repair = lane_repair(todo, specs, index, pos)
   if repair ~= nil and #acts < CANDIDATES then
     acts[#acts + 1] = {
       kind = "pull",
