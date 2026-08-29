@@ -128,3 +128,7 @@ Immediate unblock, independent of any of the above: a session naming itself by
 its branch SUFFIX may review all eight it did not build.
 
 Related, already on the board: 3IEv60qj (land has no lease and no exit check).
+
+## Result
+
+Closed 2026-08-29, consolidated: the identity DERIVATION shipped earlier (noted above); the remaining alarm half is now item 3IY2Bj90's re-spec, point 3 — a take that would claim a second item under a session name already holding a live claim refuses loudly, which is exactly the collision detector this item wanted (two runners sharing a name collide at the second take instead of silently breaking mutual exclusion).
