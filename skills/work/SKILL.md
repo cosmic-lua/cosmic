@@ -40,8 +40,11 @@ describe — `gitboard help` lists them, `gitboard help <verb>` gives
 one its options — and this skill deliberately restates none of them;
 what the verbs are FOR is this skill's half. start every session with
 `sync`. every verb ends with a `gitboard-<verb>:` verdict line — read
-that, never a piped exit status. ids are KSUIDs; every verb accepts
-an unambiguous prefix.
+that, never a piped exit status. ids are KSUIDs, and the board
+renders each item by its handle — the id's last 8 characters,
+wrapped and divided for the eye: `«d0x1_37YJ»`. every verb accepts
+the full id, an unambiguous prefix, or that handle as printed or
+retyped — bare or wrapped, `_` or `-` or no divider, any case.
 
 a mutation is ONE commit on `board` and publishes itself (push) as
 the verb returns — nothing to stage, nothing to batch, and board
