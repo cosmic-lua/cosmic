@@ -103,6 +103,7 @@ end
 local record alias
   of: function(id: string): string
   chunk: function(s: string): string
+  fold: function(input: string): string
   is_alias_shape: function(input: string): boolean
   resolve: function(all: {item.Item}, input: string): string | nil, string
 end
@@ -110,6 +111,7 @@ end
 local M: alias = {
   of = of,
   chunk = chunk,
+  fold = fold,
   is_alias_shape = is_alias_shape,
   resolve = resolve,
 }

@@ -49,19 +49,62 @@ local function test_resolve_folds_input()
   local id = fresh_id()
   local a = alias.of(id)
   local all: {item.Item} = {make(id, "a slice")}
-  -- Exact case, lowercase, hyphen dropped, and the ambiguous letters
-  -- (i/l -> 1, o -> 0) all name the same item.
+  -- Exact case, lowercase, and hyphen dropped all name the same item.
+  -- The ambiguous-letter fold-back property is pinned separately below
+  -- (test_fold_covers_every_substitution and
+  -- test_resolve_folds_ambiguous_letters) rather than here, because
+  -- whether this particular alias contains a 0 or 1 to fold back
+  -- depends on fresh_id()'s counter and cannot be relied on.
   assert(check.must(alias.resolve(all, a)) == id, "exact")
   assert(check.must(alias.resolve(all, a:lower())) == id, "lowercase")
   assert(check.must(alias.resolve(all, (a:gsub("%-", "")))) == id,
     "hyphen-free")
-  local folded_source = (a:gsub("1", "I"):gsub("0", "O"))
-  if folded_source ~= a then
-    assert(check.must(alias.resolve(all, folded_source)) == id,
-      "ambiguous letters fold back")
-  end
 end
 test_resolve_folds_input()
+
+local function test_fold_covers_every_substitution()
+  -- Direct, unconditional coverage of every clause fold() applies —
+  -- independent of what characters any derived alias happens to
+  -- contain. Each of the six ambiguous letters is asserted on its own,
+  -- so deleting any one gsub clause turns exactly the assertions for
+  -- its letters red.
+  assert(alias.fold("o") == "0", "o folds to 0")
+  assert(alias.fold("O") == "0", "O folds to 0")
+  assert(alias.fold("i") == "1", "i folds to 1")
+  assert(alias.fold("I") == "1", "I folds to 1")
+  assert(alias.fold("l") == "1", "l folds to 1")
+  assert(alias.fold("L") == "1", "L folds to 1")
+  assert(alias.fold("a-b") == "AB", "hyphen stripped, case raised")
+  assert(alias.fold("oOiIlL-") == "001111", "all six substitutions together")
+end
+test_fold_covers_every_substitution()
+
+local function test_resolve_folds_ambiguous_letters()
+  -- resolve() must apply fold() to its input, not just to the derived
+  -- alias it compares against — checked here with a real, derived
+  -- alias rather than a guarded assertion that only sometimes runs
+  -- (the bug this test replaces): search fresh_id() draws until one's
+  -- alias actually carries a 0 or 1 to substitute, then verify the
+  -- reverse-substituted, still-ambiguous form still resolves.
+  local id = ""
+  local a = ""
+  for _ = 1, 200 do
+    local candidate_id = fresh_id()
+    local candidate_alias = alias.of(candidate_id)
+    if candidate_alias:find("0", 1, true) or candidate_alias:find("1", 1, true) then
+      id = candidate_id
+      a = candidate_alias
+      break
+    end
+  end
+  assert(id ~= "", "no alias with an ambiguous digit found in 200 tries")
+  local all: {item.Item} = {make(id, "a slice")}
+  local ambiguous = (a:gsub("0", "O"):gsub("1", "I"))
+  assert(ambiguous ~= a, "reverse substitution must change the string")
+  assert(check.must(alias.resolve(all, ambiguous)) == id,
+    "ambiguous letters fold back through resolve")
+end
+test_resolve_folds_ambiguous_letters()
 
 local function test_resolve_refuses_no_match()
   local all: {item.Item} = {make(fresh_id(), "a slice")}
