@@ -205,3 +205,108 @@ Lands after `3IYYwdp7`, which is what made these passages false. It is
 independent of `3IYkPpb2` — that item converges the skill on `main`,
 this one the machinery on `board`, and their Non-goals exclude each
 other's files.
+
+## Result
+
+Landed by direct push to `board` — this slice carries a commit, not a
+pull request, so the handover is `--evidence` and this section is what
+the reviewer reads (`3IZZ1icV`).
+
+**Pushed.** `3903d9357eec49c3c8d6a5a91daac84197214c38`, one commit,
+`d63bede8..3903d935`. Diff stat: 9 files, +62 / -57, all under
+`_work/**`:
+
+```
+_work/action.tl          | 38 +++++++++++++++---------------
+_work/gitboard.tl        | 10 ++++-----
+_work/gitreview_test.tl  |  4 ++--
+_work/gitverbs.tl        | 23 ++++++++++--------
+_work/gitverdict.tl      |  9 +++----
+_work/gitverdict_test.tl |  5 ++--
+_work/item.tl            | 19 ++++++++------
+_work/session.tl         |  7 ++++--
+_work/session_test.tl    |  4 ++--
+```
+
+No line of executable code changed: every hunk is a comment, a doc
+comment, or a `help =` string literal.
+
+**Gates.** `bin/cosmic --make ci` from the board worktree ends
+`ci: PASS (4 stages)`, preceded by the expected orphan-branch note
+(`ci: HEAD is not a descendant of origin/main`). Test stage inside it:
+`29 checks: 29 passed`, `coverage ratchet ok`, `coverage: PASS (29
+files)`. Board CI for the pushed sha: run `33236961682`, conclusion
+`success`
+(https://github.com/whilp/cosmic/actions/runs/33236961682).
+
+**Acceptance, measured after the change.**
+
+| check | result |
+| --- | --- |
+| `help verdict` contains "refused when it built" | 0 (was 1) |
+| `help next` contains "what this one built" | 0 (was 1) |
+| `grep -rc 'review distance' _work/*.tl` | 0 every file (was 2) |
+| `grep -rc 'disqualif' _work/*.tl` | 0 every file (was 2) |
+| `grep -c 'did not build' _work/action.tl` | 0 (was 1) |
+| `grep -c 'non-builder' _work/action.tl` | 0 (was 1) |
+| `grep -c 'no-self-accept' _work/item.tl` | 0 (was 2) |
+| `grep -rcE "builder.distance\|arm.s length\|accepts its own work" _work/` | 0 every file (was 3) |
+| `grep -c 'offered no verdict' _work/session.tl` | 0 (was 1) |
+| `grep -c 'withhold a verdict' _work/gitverbs.tl` | 0 (was 1) |
+
+The freshly built binary now prints:
+
+```
+      --session SESSION  the reviewing session; it rides in the commit subject.
+                         Omit to derive it from the environment
+      --session SESSION  this session; skips work and reviews another session
+                         holds. Omit to derive it from the environment
+                         (GITBOARD_SESSION, else a runner's own id)
+```
+
+**Every rewritten claim was run, not read.** On synthetic boards built
+by the new `o/bin/gitboard`:
+
+- `next --session builder-S` on an item in `check` whose `claim` and
+  `builders` both name `builder-S` answers `review <id>` — so the new
+  `next` help drops the builder clause, and `action.tl`'s header no
+  longer says the item goes to somebody else.
+- `verdict <id> accept --session builder-Q` on that item exits 0 and
+  the item moves `check -> land`. The commit reads `verdict 3IZqJwOD
+  accept (check -> land) by builder-Q` — which is the new `verdict`
+  help string and the new `gitverdict.tl` header, verified.
+- With a review claim held by `other-T`, `next --session builder-S`
+  steps over the item and answers `promote` instead — the review-claim
+  skip the new `next` help and `reviewable`'s doc now name.
+- With every `session.SOURCES` variable unset, `status` prints
+  `session: unnamed …` and `next` IS offered that same review — so
+  `session.tl` no longer says an unnamed session "is offered no verdict
+  on anything", and `reviewable`'s doc says it is offered the claimed
+  item too. In the `do` shape the unnamed session is likewise handed
+  `finish <id> … (claimed by builder-Q)` rather than stepped past it.
+- The three refusals whose comments were rewritten still refuse,
+  each exit 1 with its existing message: a handover to `check` with no
+  claim on an unclaimed item ("a handover to check names its builder"),
+  a leftward move out of `do` over another session's live claim
+  ("abandons builder-Q's live claim"), and a `--claim` overwriting a
+  live foreign claim ("take over a live claim with --force --why").
+- `builders` accumulates as claimed: an item held by `builder-X` then
+  taken over by `other-Y` carries `["builders"] = "builder-X other-Y"`.
+  `gitboard show` prints no builders line, and `grep -rn builders
+  _work/*.tl` outside the tests hits only `item.tl` — which is what the
+  new field doc says.
+
+**Scope note for the reviewer.** The title says six comments; the
+re-measure found fourteen, and the Evidence and Change sections were
+refreshed in place (compare-and-swap) before implementation to list
+them. The eight beyond the original six are `action.tl`'s module header
+and `draw` doc, `gitverbs.tl:186-189`, `gitverdict.tl:12-16`,
+`session.tl:19-20`, `gitverdict_test.tl:114-116` and
+`gitreview_test.tl:89-90` — each false for the same reason and each
+verified false by running the path it describes.
+
+**Not done, deliberately.** `gitboard show` still does not render
+`builders`; rendering it is a behaviour change this item's Non-goals
+forbid, so the field doc states the record is readable in the committed
+file and the log instead. `builders`, `record_builder` and the
+`problems` repeat validation are byte-identical.
