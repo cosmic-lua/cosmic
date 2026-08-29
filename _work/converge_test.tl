@@ -319,10 +319,10 @@ local function test_no_walk_ever_names_a_move_the_gate_refuses()
     local r = rng(seed)
     local items = generate(r, 18, "wake-0")
     for step = 1, 150 do
-      -- A session per wake, not one for the whole walk: the claim rule
-      -- routes a verdict away from the session that built the item, so
-      -- a single name could never review anything and the walk would
-      -- never reach `land`.
+      -- A session per wake, not one for the whole walk: the rotation
+      -- exercises the handovers a real board sees — a claim written by
+      -- one name and read by another — rather than a single identity
+      -- carrying every item end to end.
       local session = ("wake-%d"):format(step // 3)
       local a = act.next_action(items, session)
       if a.kind == "none" or a.item == nil then
@@ -332,10 +332,6 @@ local function test_no_walk_ever_names_a_move_the_gate_refuses()
         break
       end
       local index = flow.by_id(items)
-      if a.kind == "review" then
-        assert(a.item.claim ~= session,
-          ("seed %d: handed its own work to review"):format(seed))
-      end
       if a.kind == "pull" then
         assert(not flow.is_blocked(a.item, index),
           ("seed %d: pulled a blocked item"):format(seed))
@@ -383,12 +379,12 @@ local function actor(items: {Item}, wake: integer): string
   return ("wake-%d"):format(wake)
 end
 
--- SAFETY, the solo case. One session for the whole walk is where the
--- claim rule's two halves meet: it builds into `check`, may not judge
--- its own work, and so cannot drain the phase it fills. Once `check`
--- is full every handover is refused, and an ordering that still named
--- one would repeat it forever. The rotating walk cannot reach this —
--- its wakes review each other and keep `check` moving.
+-- SAFETY, the solo case. One session for the whole walk is the
+-- narrowest board there is: it builds into `check`, judges what it
+-- built, and drains the phase it fills, all under one name. Every
+-- answer it gets must still be one it can act on, and acting on it
+-- must still move the board — the rotating walk spreads that load
+-- across names and can hide a single-name stall.
 local function test_a_solo_session_never_names_an_answer_it_cannot_act_on()
   for seed = 1, 25 do
     local r = rng(seed + 900)
@@ -441,9 +437,9 @@ local function test_a_finishable_board_drains_to_nothing()
       local session = actor(items, wake)
       local a = act.next_action(items, session)
       -- An `intake`, or nothing at all, ends a WAKE rather than the
-      -- walk: the next one is a different session, and the review this
-      -- one was refused on its own work is the first thing it sees. Two
-      -- idle wakes in a row is the board having nothing left.
+      -- walk: the next one is a different session, and what this one
+      -- left standing is the first thing it sees. Two idle wakes in a
+      -- row is the board having nothing left.
       if a.kind == "none" or a.kind == "intake" or a.item == nil then
         if idle >= 1 then
           break

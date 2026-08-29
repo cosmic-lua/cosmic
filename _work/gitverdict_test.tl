@@ -90,25 +90,26 @@ local function test_a_verdict_refuses_a_head_it_already_judged()
 end
 test_a_verdict_refuses_a_head_it_already_judged()
 
--- Builder distance was advice at this end: `next --session` withheld
--- the item and nothing stopped a session reaching for `verdict`
--- directly. Naming yourself as the claimant is what is refused — an
--- unnamed session still works, so every repair path survives.
-local function test_verdict_refuses_the_builder()
+-- The verb keeps no identity distance: the session named on the claim
+-- and in `builders` accepts its own item and it moves `check -> land`,
+-- because review isolation is carried by the review procedure — a
+-- subagent holding the diff and the spec and nothing else.
+local function test_the_builder_may_verdict_its_own_item()
   local s = init_state_repo("verdict-session")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
   assert(verbs.cmd_move(s, leaf, "check", nil, 11, false, "") == 0)
-  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "", "session-a") ~= 0,
-    "the session that built it cannot accept it")
-  assert(check.must(store.load(s, leaf)).phase == "check", "and it does not move")
-  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "", "session-b") == 0,
-    "another session can")
+  local it = check.must(store.load(s, leaf))
+  check.equal(it.claim, "session-a", "the claim names the builder")
+  assert(#(it.builders or {}) > 0 and it.builders[1] == "session-a",
+    "and so does the durable builders record")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "", "session-a") == 0,
+    "the session that built it may accept it")
   assert(check.must(store.load(s, leaf)).phase == "land", "and it lands")
 end
-test_verdict_refuses_the_builder()
+test_the_builder_may_verdict_its_own_item()
 
 -- Every board commit is authored as one fixed identity, so the subject
 -- is the only place the log can record who judged — without it, "no
@@ -204,10 +205,11 @@ local function test_accept_on_an_evidence_handover_ends_the_item()
 end
 test_accept_on_an_evidence_handover_ends_the_item()
 
--- The distance the verb enforces is the durable record's, not the
--- claim's: a rework takeover moves the claim to a second builder while
--- the diff stays the first's, and BOTH are refused a verdict on it.
-local function test_verdict_refuses_a_past_builder()
+-- A rework takeover moves the claim to a second builder while the
+-- durable `builders` record keeps the first. Neither record withholds
+-- the verdict: the first builder accepts the diff they built, and the
+-- item leaves `check` on that one accept.
+local function test_a_past_builder_may_verdict()
   local s = init_state_repo("verdict-builders")
   local goal, leaf = root_with_leaf(s)
   give_spec(s, leaf)
@@ -223,13 +225,10 @@ local function test_verdict_refuses_a_past_builder()
   assert(check.must(store.load(s, leaf)).claim == "builder-two",
     "the claim names the second builder")
   assert(vrd.cmd_verdict(s, leaf, "accept", 9, "bbb2222", "",
-      "builder-one") ~= 0,
-    "the first builder is refused on the diff they built")
-  assert(vrd.cmd_verdict(s, leaf, "accept", 9, "bbb2222", "",
-      "builder-two") ~= 0, "so is the claim holder")
-  assert(check.must(store.load(s, leaf)).verdict == "request changes",
-    "and the standing rework verdict is untouched by the refusals")
-  assert(vrd.cmd_verdict(s, leaf, "accept", 9, "bbb2222", "",
-      "reviewer-two") == 0, "a session that built nothing judges it")
+      "builder-one") == 0,
+    "the first builder judges the diff they built")
+  local done = check.must(store.load(s, leaf))
+  check.equal(done.verdict, "accept", "the accept replaces the rework verdict")
+  check.equal(done.phase, "land", "and the item leaves check")
 end
-test_verdict_refuses_a_past_builder()
+test_a_past_builder_may_verdict()

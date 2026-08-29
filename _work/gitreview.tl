@@ -3,9 +3,9 @@
 ---
 --- The builder's claim survives into `check`, but it names who BUILT
 --- the thing — it excludes nobody from reviewing, so under concurrent
---- sessions every non-builder that asked `next` was handed the same
---- top item, and the second learned of the first only when its
---- verdict was refused, after the whole verification. The board's
+--- sessions every session that asked `next` was handed the same top
+--- item, and the second learned of the first only when its verdict
+--- was refused, after the whole verification. The board's
 --- own doctrine already says what fixes this — the claim is the
 --- lock, and the board commit is what makes it visible — so this
 --- verb applies it to reviews: `review ID` stamps the session, the
@@ -15,9 +15,8 @@
 --- The claim is a LEASE on `_work.health`'s review horizon — short,
 --- because a review's dwell is minutes — and mutual exclusion only:
 --- it does not make the claimant the one valid judge. A verdict from
---- any non-builder stands and consumes the claim, or a takeover
---- would wedge on the authority of the session it is replacing.
-local flow = require("_work.flow")
+--- any session stands and consumes the claim, or a takeover would
+--- wedge on the authority of the session it is replacing.
 local gate = require("_work.gitgate")
 local health = require("_work.health")
 local store = require("_work.store")
@@ -55,14 +54,6 @@ local function cmd_review(s: store.Store, id: string, session: string,
     return gate.verdict_line("review", false,
       ("REFUSED: %s is in %s — a review claims work awaiting a verdict "
         .. "in check"):format(id:sub(1, 8), where))
-  end
-  -- The same distance rule the verdict enforces, moved to claim time:
-  -- learning at the verdict that the review was invalid is exactly
-  -- the after-the-work failure this verb exists to prevent.
-  if flow.built_by(it, session) then
-    return gate.verdict_line("review", false,
-      ("REFUSED: %s is %s's own build — no session reviews its own work")
-      :format(id:sub(1, 8), session))
   end
   if (it.reviewer or "") == session then
     return gate.verdict_line("review", true,

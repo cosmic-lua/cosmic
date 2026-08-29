@@ -1,11 +1,10 @@
 --- The identity a session presents to the board: what `--session` and
 --- `--claim` mean when nobody passes them.
 ---
---- The board's review distance rests entirely on distinct sessions
---- carrying distinct names — `next --session NAME` withholds a verdict
---- on work NAME built, and `built_by` (`_work.action`) consults the
---- durable `builders` list, so a name reused across runs makes every
---- item those runs produced unreviewable forever. Nothing made the
+--- The board's claims rest entirely on distinct sessions carrying
+--- distinct names — a claim is mutual exclusion by exact string, so a
+--- name reused across concurrent runs makes two sessions look like
+--- one and each reads the other's lock as its own. Nothing made the
 --- names distinct: each session chose its own string, and a session
 --- asked for a name reaches for the readable half of whatever it was
 --- given.
@@ -48,9 +47,9 @@ local SOURCES < const >: {{string}} = {
   -- and across re-runs, so the attempt and job name are what make it
   -- one identity per actual run.
   {"GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB"},
-  -- A person at a terminal. Stable across days ON PURPOSE: a human
-  -- reviewing their own work is exactly what the distance forbids, and
-  -- two people on one host still differ.
+  -- A person at a terminal. Stable across days ON PURPOSE: one
+  -- person's claims are one person's across runs, and two people on
+  -- one host still differ.
   {"USER", "HOSTNAME"},
   {"LOGNAME", "HOSTNAME"},
 }

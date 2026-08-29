@@ -127,18 +127,18 @@ local function test_triage_then_intake()
 end
 test_triage_then_intake()
 
--- One worker builds and reviews, so the distance between the two is
--- no longer a model boundary — it is the claim, which survives the
--- move into `check` and says who did the work.
-local function test_a_session_is_not_handed_its_own_work_to_review()
+-- One worker builds and reviews, and the ordering keeps no identity
+-- distance between the two: review isolation is the review
+-- PROCEDURE's job, so the claim that says who built the item does not
+-- withhold the verdict from anyone.
+local function test_a_session_is_handed_its_own_work_to_review()
   local root = make({})
   local mine = make({parent = root.id, phase = "check", pr = 7,
       claim = "session-A"})
   local items: {item.Item} = {root, mine}
   local same = act.next_action(items, "session-A")
-  assert(same.kind ~= "review",
-    "the session that built it is not handed the verdict: " .. same.kind)
-  assert(same.reason:find("built by this session", 1, true), same.reason)
+  assert(same.kind == "review" and same.item.id == mine.id,
+    "the session that built it is handed the verdict: " .. same.kind)
   local other = act.next_action(items, "session-B")
   assert(other.kind == "review" and other.item.id == mine.id,
     "another session reviews it: " .. other.kind)
@@ -146,21 +146,22 @@ local function test_a_session_is_not_handed_its_own_work_to_review()
   assert(anon.kind == "review",
     "a session that names nothing has no distance to keep: " .. anon.kind)
 end
-test_a_session_is_not_handed_its_own_work_to_review()
+test_a_session_is_handed_its_own_work_to_review()
 
--- Skipping its own review must not strand the session: the ordering
--- carries on to the left, and it takes the next thing it MAY do.
-local function test_skipping_its_own_review_falls_through()
+-- Nothing is skipped, so the rightmost-phase-first rule decides: its
+-- own item in `check` is a verdict awaiting a decision, and that
+-- outranks pulling new work off `ready`.
+local function test_its_own_review_outranks_a_pull()
   local root = make({})
   local mine = make({parent = root.id, phase = "check", pr = 7,
       claim = "session-A"})
   local ready = make({parent = root.id, phase = "ready"})
   local items: {item.Item} = {root, mine, ready}
   local action = act.next_action(items, "session-A")
-  assert(action.kind == "pull" and action.item.id == ready.id,
-    "it pulls instead of stalling: " .. action.kind)
+  assert(action.kind == "review" and action.item.id == mine.id,
+    "the verdict comes before the pull: " .. action.kind)
 end
-test_skipping_its_own_review_falls_through()
+test_its_own_review_outranks_a_pull()
 
 local function test_verdicts_come_before_refinement()
   local goal = make({})
@@ -207,12 +208,13 @@ local function test_verdicts_outrank_an_over_bound_triage_queue()
 end
 test_verdicts_outrank_an_over_bound_triage_queue()
 
--- `check` full of this session's own work is the one state where the
--- two halves of the claim rule meet: no verdict this session may write
--- drains the phase, and the WIP gate refuses every handover into it.
--- Naming `finish` there would name a move the gate rejects, and asking
--- again would name it again — the loop would never terminate.
-local function test_a_full_check_of_its_own_is_not_a_finish_action()
+-- `check` full of this session's own work used to deadlock: no
+-- verdict this session could write drained the phase, and the WIP
+-- gate refused every handover into it, so the ordering answered
+-- `none` forever. With no identity gate the session judges the
+-- highest-placed of them, and that verdict is what drains the phase
+-- and releases the handover.
+local function test_a_full_check_of_its_own_is_now_a_review()
   local root = make({})
   local items: {item.Item} = {root}
   for _ = 1, flow.LIMITS["check"] do
@@ -222,16 +224,14 @@ local function test_a_full_check_of_its_own_is_not_a_finish_action()
   items[#items + 1] = make({parent = root.id, phase = "do",
       claim = "session-A"})
   local action = act.next_action(items, "session-A")
-  assert(action.kind == "none",
-    "the handover would be refused, so it is not offered: " .. action.kind)
-  assert(action.reason:find("until a verdict lands", 1, true),
-    "and the reason says what would unstick it: " .. action.reason)
+  assert(action.kind == "review",
+    "the full check is drained by a verdict, not stalled: " .. action.kind)
 end
-test_a_full_check_of_its_own_is_not_a_finish_action()
+test_a_full_check_of_its_own_is_now_a_review()
 
--- Refusing to hand over is not refusing to work: the intake half is
--- untouched by a full `check`, and stalling there instead would be the
--- same lost session by another route.
+-- A full `check` no longer strands the session by falling through to
+-- the intake half: it falls to nothing, because the session can judge
+-- what is in front of it, and the rightmost phase wins.
 local function test_a_full_check_still_leaves_the_intake_half()
   local root = make({})
   local items: {item.Item} = {root}
@@ -239,16 +239,16 @@ local function test_a_full_check_still_leaves_the_intake_half()
     items[#items + 1] = make({parent = root.id, phase = "check", pr = 7,
         claim = "session-A"})
   end
-  -- The `do` item is what makes this a real distinction: without the
-  -- guard the ordering stops here and names a handover the gate would
-  -- refuse, never reaching the refinement below it.
+  -- The `do` item and the `plan` item are what make this a real
+  -- distinction: both are work the session may take, and the verdict
+  -- in `check` outranks each of them.
   items[#items + 1] = make({parent = root.id, phase = "do",
       claim = "session-A"})
   local planning = make({parent = root.id, phase = "plan"})
   items[#items + 1] = planning
   local action = act.next_action(items, "session-A")
-  assert(action.kind == "refine" and action.item.id == planning.id,
-    "refinement is still real work: " .. action.kind)
+  assert(action.kind == "review",
+    "the verdict outranks the intake half: " .. action.kind)
 end
 test_a_full_check_still_leaves_the_intake_half()
 
@@ -379,28 +379,29 @@ test_a_starved_ready_under_limit_refines_past_the_blocked()
 
 -- The claim is a LEASE and it moves. Session A pulls and builds, the
 -- item is returned (clearing the claim), B pulls it, and A hands its
--- own diff to check — after which `claim` reads B and A is offered a
--- verdict on what A wrote. That is the sequence observed on 3I7LGcLa
--- / PR #1301, and `builders` is what withholds it.
-local function test_reviewable_skips_a_past_builder()
+-- own diff to check — after which `claim` reads B and `builders`
+-- records both. That is the sequence observed on 3I7LGcLa / PR #1301,
+-- and none of it withholds the review: A, B and a stranger are all
+-- offered the verdict alike.
+local function test_reviewable_offers_a_past_builder()
   local goal = make({})
   local built = make({parent = goal.id, phase = "check", pr = 1301,
       claim = "session-B", builders = "session-A session-B"})
   local items: {item.Item} = {goal, built}
 
   local for_a = act.next_action(items, "session-A")
-  assert(for_a.kind ~= "review",
-    "the session that built it is not offered the verdict: " .. for_a.kind)
+  assert(for_a.kind == "review" and for_a.item.id == built.id,
+    "the session that built it is offered the verdict: " .. for_a.kind)
 
   local for_c = act.next_action(items, "session-C")
   assert(for_c.kind == "review" and for_c.item.id == built.id,
     "a session that never held it still reviews: " .. for_c.kind)
 
   local for_b = act.next_action(items, "session-B")
-  assert(for_b.kind ~= "review",
-    "nor is the session holding the claim: " .. for_b.kind)
+  assert(for_b.kind == "review" and for_b.item.id == built.id,
+    "and so is the session holding the claim: " .. for_b.kind)
 end
-test_reviewable_skips_a_past_builder()
+test_reviewable_offers_a_past_builder()
 
 -- A live review claim fans reviewers out: the claimed diff is
 -- another session's, the next unclaimed one is offered instead, and
@@ -460,21 +461,3 @@ local function test_stale_rework_is_offered_as_a_forced_takeover()
     "the guidance carries what the move guard demands: " .. action.reason)
 end
 test_stale_rework_is_offered_as_a_forced_takeover()
-
--- The wave provenance reaches the ordering: a check item built under
--- an orchestrator's minted identity is never offered back to the
--- orchestrator as a review, and is offered to anyone else.
-local function test_review_skips_the_minting_orchestrator()
-  local goal = make({})
-  local judged = make({parent = goal.id, phase = "check", pr = 4,
-      claim = "orch/3IVKVslE", builders = "orch/3IVKVslE"})
-  local _ = judged
-  local items: {item.Item} = {goal, judged}
-  local mine = act.next_action(items, "orch")
-  assert(not (mine.kind == "review"),
-    "the orchestrator is not handed its wave's diff: " .. mine.kind)
-  local theirs = act.next_action(items, "other")
-  assert(theirs.kind == "review" and theirs.item.id == judged.id,
-    "a session outside the wave judges it")
-end
-test_review_skips_the_minting_orchestrator()

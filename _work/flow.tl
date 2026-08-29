@@ -403,48 +403,7 @@ local function triage_violation(items: {Item}): string | nil
   return nil
 end
 
---- The name up to its first `/` — the wave separator. An orchestrator
---- mints per-agent claims as `<its own id>/<suffix>`, so everything
---- under one root is ONE session for review distance; a name with no
---- `/` roots to itself, so plain identities compare exactly as before.
---- Claim LOCKS elsewhere stay exact-string and are untouched by this.
---- @param name string A session or recorded builder name
---- @return string The root
-local function root(name: string): string
-  local slash = name:find("/", 1, true)
-  if slash then
-    return name:sub(1, slash - 1)
-  end
-  return name
-end
-
---- Whether `session` has built this item: it holds the claim now, or
---- it held the claim at some point. The claim alone is a LEASE — a
---- return clears it, the next pull rewrites it — so `builders` is the
---- durable half, and consulting both is what makes "no session accepts
---- its own work" hold across a handover. Names compare by `root`, so
---- work an orchestrator's minted agents built is the orchestrator's
---- own. The review ordering (`_work.action`), the review claim
---- (`_work.gitreview`) and the verdict verb all turn on this answer,
---- so it lives here once.
---- @param i Item The item in check
---- @param session string This session's name, never ""
---- @return boolean True when this session built it
-local function built_by(i: Item, session: string): boolean
-  local who = root(session)
-  if root(i.claim or "") == who then
-    return true
-  end
-  for _, name in ipairs(i.builders or {}) do
-    if root(name) == who then
-      return true
-    end
-  end
-  return false
-end
-
 local record flow
-  built_by: function(i: Item, session: string): boolean
   type Item = Item
   type Board = Board
   type Index = Index
@@ -474,7 +433,6 @@ local record flow
 end
 
 local M: flow = {
-  built_by = built_by,
   LIMITS = LIMITS,
   TRIAGE_LIMIT = TRIAGE_LIMIT,
   is_return = is_return,

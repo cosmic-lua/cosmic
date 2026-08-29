@@ -59,19 +59,19 @@ local function test_takeover_goes_through_force_why()
 end
 test_takeover_goes_through_force_why()
 
--- The distance rule moves to claim time: the builder is refused the
--- claim, by lease and by durable builders alike, so the collision
--- never waits for the verdict.
-local function test_the_builder_is_refused_the_claim()
+-- The claim is mutual exclusion and nothing more: the builder asks
+-- for it like anyone else and gets it, because review isolation is
+-- the review procedure's job rather than an identity test here.
+local function test_the_builder_may_claim_the_review()
   local s = init_state_repo("review-builder")
   local _, leaf = root_with_leaf(s)
   into_check(s, leaf, "builder-a")
-  assert(rev.cmd_review(s, leaf, "builder-a", false, "") ~= 0,
-    "no session reviews its own build")
-  check.equal(check.must(store.load(s, leaf)).reviewer, "",
-    "and nothing was stamped")
+  assert(rev.cmd_review(s, leaf, "builder-a", false, "") == 0,
+    "the builder may claim the review")
+  check.equal(check.must(store.load(s, leaf)).reviewer, "builder-a",
+    "and the claim is stamped")
 end
-test_the_builder_is_refused_the_claim()
+test_the_builder_may_claim_the_review()
 
 -- A claim by nobody excludes nobody, and only check has reviews to
 -- claim.

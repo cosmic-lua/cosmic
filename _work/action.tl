@@ -178,8 +178,6 @@ local record ReviewPick
   --- alternates a session falls to when the claim on the first is
   --- lost to somebody faster.
   more: {Item}
-  --- Items this session built.
-  mine: integer
   --- Items under another session's live review claim.
   reviewing: integer
 end
@@ -189,11 +187,9 @@ end
 local function reviewable(b: flow.Board, session: string,
     pos: {string: prio.Position}, ages: health.Ages,
     seed: string): ReviewPick
-  local pick: ReviewPick = {more = {}, mine = 0, reviewing = 0}
+  local pick: ReviewPick = {more = {}, reviewing = 0}
   for _, i in ipairs(flow.queued(b, "check", pos, seed)) do
-    if session ~= "" and flow.built_by(i, session) then
-      pick.mine = pick.mine + 1
-    elseif (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
+    if (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
     and not health.is_review_stale(i, ages) then
       pick.reviewing = pick.reviewing + 1
     elseif pick.item == nil then
@@ -239,8 +235,6 @@ local record Phased
   action: Action
   --- Items held by other sessions.
   held: integer
-  --- Items in `check` this session built.
-  mine: integer
   --- Items in `check` under another session's live review claim.
   reviewing: integer
   --- Blocked `do` items stepped over, and the highest-placed of
@@ -284,7 +278,6 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
     end
   end
   local picked = reviewable(b, session, pos, ages, seed)
-  local mine = picked.mine
   local reviewing = picked.reviewing
   if picked.item then
     local why = "check is the rightmost phase awaiting a decision — "
@@ -363,10 +356,10 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
       end
       primary.alternates = alts
     end
-    return {action = primary, held = held, mine = mine,
+    return {action = primary, held = held,
       reviewing = reviewing, parked = drawn.blocked, stuck = drawn.stuck}
   end
-  return {held = held, mine = mine, reviewing = reviewing,
+  return {held = held, reviewing = reviewing,
     parked = drawn.blocked, stuck = drawn.stuck}
 end
 
@@ -427,14 +420,12 @@ local function next_action(items: {Item}, session?: string,
         .. "fires; the chain bottoms at %s %s (%s)"):format(
         ph.parked, bottom.id:sub(1, 8), bottom.title, where)}
   end
-  if ph.mine > 0 or ph.reviewing > 0 then
+  if ph.reviewing > 0 then
     -- Full with nothing this session may judge is not "somebody will
     -- get to it": no verdict this session may write drains check, and
-    -- the gate refuses every handover until one does. Say what holds
-    -- each item — this session built it, or another session's live
-    -- review claim covers it.
-    local shape = ("%d built by this session, %d under another "
-      .. "session's review"):format(ph.mine, ph.reviewing)
+    -- the handover waits until one does. Say what holds each item —
+    -- another session's live review claim covers it.
+    local shape = ("%d under another session's review"):format(ph.reviewing)
     if #(b["check"] or {}) >= flow.LIMITS["check"] then
       return {
         kind = "none",
