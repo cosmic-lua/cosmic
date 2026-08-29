@@ -22,7 +22,12 @@
   `github.event_name == 'pull_request'`, so queue runs never cancel
   each other. board, by contrast, receives direct state pushes every
   few minutes from concurrent agents; queuing those would serialize
-  work the queue exists to parallelize instead.
+  work the queue exists to parallelize instead. the queue is a GitHub
+  feature restricted to repositories owned by an organization (public
+  repos on any plan, private repos on GitHub Enterprise Cloud) —
+  unavailable on personal-account repos. whilp/cosmic moved to the
+  cosmic-lua organization on 2026-08-29, which is what cleared the way
+  to enable it here.
 - **decision:** enable a GitHub merge queue ruleset on `main`, and land
   main-repo PRs through it:
   - `pr.yml` gains a `merge_group:` trigger alongside `push`,

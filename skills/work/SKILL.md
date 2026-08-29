@@ -14,7 +14,7 @@ description: >
 
 # The system of work for cosmic
 
-how work on cosmic (and its C core, whilp/cosmopolitan) is defined,
+how work on cosmic (and its C core, cosmic-lua/cosmopolitan) is defined,
 prioritized, implemented, reviewed, and landed. the design goal is
 flow with quality: many concurrent agents pulling from one ordered
 queue, with rework kept rare by exactly two gates — a spec a session
@@ -24,7 +24,7 @@ limits, no ceremony a gate does not pay for.
 
 ## the board
 
-ALL work state lives on the orphan `board` branch of whilp/cosmic:
+ALL work state lives on the orphan `board` branch of cosmic-lua/cosmic:
 one committed file per item (`items/<ksuid>.tl`) with its spec prose
 in the sidecar `items/<ksuid>.md`. the branch carries its own
 machinery and trust root, so it is a runnable cosmic project; reach
