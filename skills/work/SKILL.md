@@ -101,8 +101,20 @@ stage columns and no per-column WIP limits:
   the item; a gap the spec cannot answer — release the claim with the
   gap named, and the item is todo again.
 
-capacity is the number of concurrent workers, each holding ONE claim,
-not a number on a column. work flows right to left — finishing beats
+two WIP rules, not a number per column. each worker holds ONE claim,
+so capacity spreads with the number of agents. and the board holds one
+bound on `doing` as a whole: at the limit, taking NEW work is refused
+until something in flight finishes. the bound exists because workers
+come and go — claims and open PRs outlive the sessions that made
+them, so a fleet with no bound accumulates half-finished work faster
+than reviews retire it. finishing motions (a release, a verdict, a
+merge, a takeover of a stale claim) are never refused: the bound
+throttles starting, never finishing. the number is the tool's —
+`status` prints the count against it — and it forces the right-to-left
+ordering mechanically: a session that cannot take is a session whose
+next action is to review, rework, or merge.
+
+work flows right to left — finishing beats
 starting: merge what is accepted, review what awaits a verdict,
 rework what was returned, build what you claimed, refine the top of
 todo, take in new work — in that order. `gitboard next` names the one
@@ -323,7 +335,8 @@ completion, so the wakeup is a long fallback, never a poll.
 - claim before you build; one claim per worker; a claim is a lease,
   not a deed — treat losing one you went quiet on as the system
   working.
-- the spec bar is never lowered to make an item pullable. `--force`
+- the spec bar is never lowered to make an item pullable, and the
+  doing bound is never widened to admit one more take. `--force`
   exists for repair, not for flow.
 - build the spec, not your memory of intent; gaps discovered
   mid-build go back to the board, never into the diff.

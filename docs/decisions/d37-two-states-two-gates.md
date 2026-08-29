@@ -26,8 +26,13 @@
   - **doing** — claimed; the claim is the lock and a lease. within
     doing, the item's own facts (`pr`, `verdict`) say what happens
     next; a released claim with the gap named returns it to todo.
-  - the only WIP rule is one claim per concurrent worker, so capacity
-    is the number of agents, not a number on a column.
+  - two WIP rules replace the per-phase table: one claim per
+    concurrent worker (capacity spreads with the number of agents),
+    and a single bound on `doing` as a whole — at the limit, taking
+    NEW work is refused; finishing motions (a release, a verdict, a
+    merge, a takeover of a stale claim) never are. the bound is what
+    stops accumulation when workers come and go: claims and open PRs
+    outlive the sessions that made them.
   - quality is held by exactly two gates: the spec bar before work is
     pulled, and a fresh-context review before anything merges. both
     survive at full strength; everything between them is thin.
@@ -41,17 +46,25 @@
   - **keeping per-phase WIP limits and the flow review.** a limit
     binds arrivals, but the queues it bounded were empty in practice
     and the measurement that was to tune them (G8 flow health) was
-    never built. one-claim-per-worker bounds work in progress by
-    construction, with no numbers to tune and no refusal machinery.
+    never built. one number on the whole in-flight span replaces four
+    per-phase numbers and the machinery for tuning them.
+  - **no bound at all (capacity only).** one claim per worker bounds
+    what runs concurrently but not what accumulates: a claim and an
+    open PR both outlive the session that made them, so a fleet of
+    come-and-go workers grows unreviewed in-flight work without
+    limit. the single doing bound closes exactly that hole, and by
+    refusing only new takes it makes finish-before-start mechanical
+    rather than advisory.
   - **dropping the review or the spec bar to go faster.** rework is
     the expensive path at high throughput — a wrong merge or a
     mid-build improvisation costs more than either gate. the gates
     are what make pace safe; they are the two things deliberately
     NOT simplified.
-- **consequences:** gitboard sheds `move`, the phase field, `LIMITS`,
-  the triage bound, and the flow-review instrumentation (a follow-up
-  change on the `board` branch; the existing items are migrated in
-  one commit — phases fold into the facts they restated). the board's
+- **consequences:** gitboard sheds `move`, the phase field, the
+  per-phase `LIMITS`, the triage bound, and the flow-review
+  instrumentation, and gains the one `DOING_LIMIT` (a change on the
+  `board` branch; the existing items are migrated in one commit —
+  phases fold into the facts they restated). the board's
   git log keeps the old phase history readable. G8's measured-by
   becomes lead time, rework rate, and the cost ratchet — this amends
   the measured-by detail in D25, whose two-tier split stands. the
