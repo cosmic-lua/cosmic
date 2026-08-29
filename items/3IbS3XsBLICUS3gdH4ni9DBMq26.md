@@ -1,0 +1,3 @@
+## Change
+
+Two findings from PR 1521's review, one seam: (1) `_work/gitverbs.tl:467-468` discards `lanes.record`/`lanes.mint` errors into `_`-locals — AGENTS.md forbids silently discarding errors; surface them as one stderr line each without growing gitverbs.tl past the 500 cap (measured at exactly 500 — move the orchestration line into `_work/lanes.tl` as a single `lanes.at_sync(s)` that returns the printable lines, if that is what fits). (2) No test pins the `sync lanes: <lane>=<conclusion> ...` commit subject grammar — add one in `_work/lanes_test.tl` asserting the exact subject `record` writes, so the grammar cannot drift silently before a consumer exists.
