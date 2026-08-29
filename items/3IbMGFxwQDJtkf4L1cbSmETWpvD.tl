@@ -1,4 +1,6 @@
 return {
+  ["block_reason"] = {["3IbN8f3ETAdLLApGLIJF4My0D4j"] = "PR 1519's comments promise handles in every id slot; false until secondary slots resolve them — same overpromise 1518 bounced on, cured by the tool change, not by weaker prose"},
+  ["blocked_by"] = "3IbN8f3ETAdLLApGLIJF4My0D4j",
   ["builders"] = "wave9-a-1788028741",
   ["claim"] = "wave9-a-1788028741",
   ["id"] = "3IbMGFxwQDJtkf4L1cbSmETWpvD",
