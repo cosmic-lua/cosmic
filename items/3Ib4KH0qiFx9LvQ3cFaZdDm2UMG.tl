@@ -6,5 +6,6 @@ return {
   ["id"] = "3Ib4KH0qiFx9LvQ3cFaZdDm2UMG",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1507,
+  ["reviewer"] = "review-3Ib4KH0q-1788021201",
   ["title"] = "item.decode hand-coerces 14 fields the new cosmic.shape validates declaratively",
 }
