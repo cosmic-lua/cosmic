@@ -17,6 +17,26 @@ give the finding, the rule, the alternatives it beats, and each file's
 edit. Everything numbered here was executed on 2026-08-28 and carries
 the command that produced it.
 
+**Re-measured at pull, 2026-08-29, on `origin/main@9048f3b6`** (after
+`3IWU4i0l` landed as #1496). The shape holds unchanged: both probes
+reproduce, byte for byte. Detail drift only, refreshed below —
+`_perf/gate.tl` is **499**, not the 490/493 predicted (#1496 spent more
+of the file than its own estimate), `_perf/compare.tl` is **483**,
+`_perf/gate_strike_test.tl` is **303** with **ten** cases rather than
+seven, `_perf/reproduce.tl` and `_perf/reproduce_test.tl` are new, and
+the highest `dNN` on any branch is now **d35**, so the new record is
+**D36**. `_perf/tiebreak.tl` therefore lands `_perf/gate.tl` at
+**498** — one line under what it found, and under the cap — so the
+capacity question `3IYCQxfH` raises does not block this item.
+`_perf/compare.tl`'s constants moved one line each (`DEFAULT_THRESHOLD_PCT
+= 10.0` at line 20, `TRIAGE_K = 2.0` at line 28) and did not change
+value. One further edit the frozen spec could not have named: D35 did
+not exist when it was written, and D35's rejected list refers the
+baseline-pair credit forward as "still the instrument that fixes the
+false red D34 accepted" — which this item disproves — so D35 gets an
+appended amendment bullet and its status set, per `skills/decide`'s
+both-ways-pointer rule. Its decision is untouched.
+
 ### The finding: two readings have no majority, and the current side is silent
 
 `gate_inner` reads the baseline binary twice — the caller's
@@ -48,6 +68,9 @@ masked-reg :144    reg=+30.0000%  ctrl=-23.0769%  |reg|/|ctrl|=1.3000  K=2 credi
 TRIAGE_K = 2.0
 ```
 
+Re-run 2026-08-29 on `origin/main@9048f3b6`: identical to the digit,
+including `TRIAGE_K = 2.0`.
+
 `:169` is `test_a_one_off_fast_baseline_retry_fails_the_gate`, the false
 red D34 knowingly accepts and this item exists to remove. `:144` is
 `test_masked_baseline_regression_still_fails`, the regression D34 landed
@@ -73,6 +96,11 @@ runs 1000, differing ONLY in the third baseline reading:
 ```text
 PROBE C identical-two-sample-inputs: third=1000 -> 0   third=700 -> 1
 ```
+
+Re-run 2026-08-29: the UNCHANGED gate answers `third=1000 -> 1
+third=700 -> 1` — it gives one verdict to both ground truths, which is
+the finding — and the implemented change answers `third=1000 -> 0
+third=700 -> 1`, reproducing the prototype's figure exactly.
 
 `third=1000` is the false red (the 700 was the one-off; no regression,
 gate must pass). `third=700` is a real +42.9% regression that a one-off
@@ -113,7 +141,7 @@ says it can. From the release workflow's own step timings:
 | two measurement passes | run `33098467706`, step "measure the release", 17:29:01 -> 17:31:17 | 136 (≈68/pass) |
 | gate step, clean path (download + one baserun pass) | same run, "compare against the previous release", 17:31:17 -> 17:32:30 | 73 |
 | gate step, one current-side retry taken | run `33034667243` attempt 3, same step, 03:25:42 -> 03:27:55 | 133 |
-| one full pass, this container | `cosmic _perf/run.tl --out o/perf/p1.json` | 65 |
+| one full pass, this container | `cosmic _perf/run.tl --out o/perf/p1.json` | 65 (re-measured 2026-08-29: 65) |
 
 The gate step carries `timeout-minutes: 15` (900 s). Today's worst case
 is baserun + retry + baseline retry + selfcheck-b ≈ 73 + 3 x 68 ≈ **277 s**.
@@ -167,7 +195,8 @@ Line numbers and counts are on the MERGED tree — `origin/main@40776231` +
 `73633bea`, committed as `d164e4d1` — plus `3IWU4i0l`, which this item is
 blocked on (see `## Enablement`).
 
-1. **`_perf/tiebreak.tl`** — NEW module, 137 lines, owning the whole
+1. **`_perf/tiebreak.tl`** — NEW module, 188 lines as landed (the
+   prototype was 137), owning the whole
    question "what is the baseline side":
    - `disagrees(a: pt.Results, b: pt.Results, threshold: number): boolean`
      — true when `compare.diff(a, b, threshold)` gives any scenario a
@@ -187,7 +216,8 @@ blocked on (see `## Enablement`).
      prints one new line, measures the third, identity-checks it the same
      way, writes `median_of({a, b, c})` and returns the median path. On
      any failure it returns `nil` and the message.
-2. **`_perf/gate.tl`** — 490 -> **488**, two lines SMALLER than it found
+2. **`_perf/gate.tl`** — 499 -> **498** (re-measured 2026-08-29; the
+   frozen figures were 490 -> 488), one line SMALLER than it found
    the file. Add `local tiebreak = require("_perf.tiebreak")` beside the
    other requires. Replace the whole `if opts.measure_baseline then ...
    end` block in `gate_inner` — the `base_side = retry_path(...)`
@@ -201,7 +231,8 @@ blocked on (see `## Enablement`).
    third. Rewrite the module header's "when the caller can re-run the
    baseline binary" sentence to state the median rule. `retry_path` stays
    — the current-side retry still uses it.
-3. **`_perf/tiebreak_test.tl`** — NEW, 112 lines, seven cases:
+3. **`_perf/tiebreak_test.tl`** — NEW, 152 lines as landed (the
+   prototype was 112), nine cases:
    `disagrees` under and over the bar in the `faster` direction; the
    median following the majority in both directions; a row missing from
    one reading carried through; an agreeing pair costing exactly ONE
@@ -210,7 +241,8 @@ blocked on (see `## Enablement`).
    file carries the majority number; a third reading naming another binary
    refused with the `DIFFERENT binaries` message; a failed measurement
    reported rather than swallowed.
-4. **`_perf/gate_strike_test.tl`** — 214 -> **219**, two fixtures:
+4. **`_perf/gate_strike_test.tl`** — 303 -> **313** (re-measured
+   2026-08-29; the frozen figures were 214 -> 219), two fixtures:
    - `test_a_one_off_fast_baseline_retry_fails_the_gate` becomes
      `test_a_one_off_fast_baseline_retry_is_outvoted`. Its
      `measure_baseline` closure counts calls and writes `x = 700` only on
@@ -222,7 +254,8 @@ blocked on (see `## Enablement`).
      +30%, so it earns the third reading) and `bpath` records the FIRST
      out path (`bpath = bpath or out`) so its `-base-retry.json`
      assertion still names the retry.
-   - The other five stand unchanged, including
+   - The other EIGHT stand unchanged (#1496 added three cases),
+     including
      `test_masked_baseline_regression_still_fails`,
      `test_baseline_retry_naming_a_different_binary_is_refused` (its
      refusal still fires after exactly one baseline call) and
@@ -245,8 +278,9 @@ blocked on (see `## Enablement`).
    --format='%(refname:short)' | grep -v HEAD); do git ls-tree
    --name-only $b docs/decisions/; done` returns `d34` as the highest on
    2026-08-28, and `3IWU4i0l` — which lands first — claims one too, so
-   re-run it rather than assuming `d35`. Regenerate the index with
-   `bin/cosmic _docs/derive.tl`.
+   re-run it rather than assuming `d35`. Re-run 2026-08-29: `d35` is the
+   highest, taken by #1496, so this record is **D36**. Regenerate the
+   index with `bin/cosmic _docs/derive.tl`.
 
 ### Measured facts, 2026-08-28
 
@@ -258,17 +292,17 @@ Every row was produced by the command beside it, on one container, today.
 | #1485 head | `git rev-parse --short origin/claude/3IUBNQZZ-compare-rows` | `37ea41cb` |
 | #1486 head | `git rev-parse --short origin/claude/3IVLAF3Z-stampless-identity-v2` | `2a29c4d3` |
 | the two PRs merge onto main | `git merge-tree --write-tree --messages origin/main origin/claude/3IUBNQZZ-compare-rows`, then that tree as a commit against `...3IVLAF3Z-stampless-identity-v2` | rc 0 both; tree `73633bea` |
-| `_perf/gate.tl` | `git show origin/main:_perf/gate.tl \| wc -l` / `git cat-file -p 73633bea:_perf/gate.tl \| wc -l` | 460 / **490** |
-| `_perf/gate.tl` AFTER this change | `wc -l` on the prototype in the merged worktree | **488** |
-| `_perf/compare.tl` | same | 357 / 416, **unchanged** by this item |
-| `_perf/gate_strike_test.tl` | same | 214 / 214 -> **219** |
+| `_perf/gate.tl` | `git show origin/main:_perf/gate.tl \| wc -l` / `git cat-file -p 73633bea:_perf/gate.tl \| wc -l` | 460 / **490**; re-measured 2026-08-29 on `9048f3b6`: **499** |
+| `_perf/gate.tl` AFTER this change | `wc -l` on the prototype in the merged worktree | **488**; as landed on `9048f3b6`: **498** |
+| `_perf/compare.tl` | same | 357 / 416; re-measured 2026-08-29: **483**, still **unchanged** by this item |
+| `_perf/gate_strike_test.tl` | same | 214 / 214 -> **219**; re-measured 2026-08-29: 303 -> **313** |
 | prototype vs #1485 | `git merge-tree --write-tree --messages <proto> origin/claude/3IUBNQZZ-compare-rows` | **rc 0**, `Auto-merging _perf/gate.tl` |
 | prototype vs #1486 | same, `...3IVLAF3Z-stampless-identity-v2` | **rc 0**, `Auto-merging _perf/gate.tl` |
 | prototype vs both merged | same, against `d164e4d1` | **rc 0**; `_perf/gate.tl` 488 |
-| the whole `_perf` suite, merged tree + prototype | `cosmic --make test _perf` | `14 checks: 14 passed` / `test: PASS (14 files)` |
+| the whole `_perf` suite, merged tree + prototype | `cosmic --make test _perf` | `14 checks: 14 passed` / `test: PASS (14 files)`; re-measured 2026-08-29: `15 checks: 15 passed` / `test: PASS (15 files)` |
 | the same on plain `origin/main` + prototype | `cosmic --make test _perf` | `test: PASS (13 files)` — no API from either PR is used |
-| `_perf/gate.tl` coverage floor | `grep _perf/gate.tl .cosmic-coverage` | `covered = 164, total = 208` |
-| highest `dNN` on any branch | the all-branches `ls-tree` above | `d34` |
+| `_perf/gate.tl` coverage floor | `grep _perf/gate.tl .cosmic-coverage` | `covered = 164, total = 208`; unchanged 2026-08-29, and `_perf/tiebreak.tl` enters the baseline at 77/82 |
+| highest `dNN` on any branch | the all-branches `ls-tree` above | `d34`; re-measured 2026-08-29: **`d35`** |
 
 **The mutation.** With `_perf/gate_strike_test.tl` at its post-change text
 and `_perf/gate.tl` / `_perf/tiebreak.tl` reverted, `cosmic --make test
@@ -346,6 +380,7 @@ Run from the repo root. Each command must end with the verdict line given.
   item and `test: PASS (14 files)` with `_perf/tiebreak_test.tl` added;
   `3IWU4i0l` adds `_perf/reproduce_test.tl`, so the count is 15 once both
   have landed — the file COUNT is not the contract, the verdict is.
+  Re-measured 2026-08-29: `test: PASS (15 files)`, as predicted.
 - `bin/cosmic --make test _perf/gate_strike_test.tl` ends
   `test: PASS (1 file)`, including
   `test_a_one_off_fast_baseline_retry_is_outvoted` — **the mutation
@@ -366,14 +401,18 @@ Run from the repo root. Each command must end with the verdict line given.
   `git show origin/main:_perf/gate.tl | wc -l` — this change must not
   grow the file. Measured: 460 on `origin/main@40776231`, 490 on the
   merged tree of #1485 + #1486, 488 with this change on that tree.
-  `3IWU4i0l` takes it to 493 first, so the landed value is ~491.
-- `wc -l _perf/tiebreak.tl` is at most 500. The prototype is 137.
-- `wc -l _perf/tiebreak_test.tl` is at most 500. The prototype is 112.
+  Re-measured 2026-08-29: `3IWU4i0l` (#1496) took it to **499**, and
+  this change lands it at **498**.
+- `wc -l _perf/tiebreak.tl` is at most 500. The prototype was 137; as
+  landed, 188.
+- `wc -l _perf/tiebreak_test.tl` is at most 500. The prototype was 112;
+  as landed, 152.
 - `git diff --name-only origin/main...HEAD -- _perf/compare.tl` prints
   nothing: this item does not edit `_perf/compare.tl`.
 - `git grep -n 'DEFAULT_THRESHOLD_PCT = \|TRIAGE_K = ' _perf/compare.tl`
-  still shows `DEFAULT_THRESHOLD_PCT = 10.0` (line 19) and
-  `TRIAGE_K = 2.0` (line 27).
+  still shows `DEFAULT_THRESHOLD_PCT = 10.0` and `TRIAGE_K = 2.0` —
+  lines 19 and 27 when frozen, lines 20 and 28 on `9048f3b6`; the VALUES
+  are the contract, not the lines.
 - `git grep -nE 'noise_floor|threshold_pct *=' -- _perf/bench` prints
   nothing. It prints nothing today.
 - `grep -c 'baseline-bin' .github/workflows/release.yml` is 1. It is 1
