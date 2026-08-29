@@ -1,458 +1,373 @@
 ---
 name: work
 description: >
-  The system of work for cosmic: work backwards from the outcomes
-  that matter most, decompose them into workable items that flow
-  kanban-style across a WIP-limited board, and refine each item until
-  it can be implemented from its spec alone. One worker asks the board
-  what matters most, does it, and asks again. The board lives on the
-  orphan `board` branch as committed files, operated by gitboard. Use
-  when planning what to build next, refining or decomposing work,
-  pulling the next item to implement, reviewing a PR against its
-  spec, or landing an accepted one. Invoked with a number (`/work 5`,
-  typically under `/loop`), run one pass of the standing loop
-  (loop.md): reconcile the last wave, then fan out up to that many
-  items.
+  The system of work for cosmic: one prioritized board of items on the
+  orphan `board` branch, operated by gitboard. Two states — todo and
+  doing — with quality held at two gates: a spec good enough to build
+  from alone before work is pulled, and a fresh-context review before
+  anything merges. Use when planning what to build next, refining an
+  item, pulling one to implement, reviewing a PR against its spec, or
+  landing an accepted one. Invoked with a number (`/work 5`, typically
+  under `/loop`), run one orchestrator pass: reconcile the last wave,
+  then fan out up to that many disjoint items.
 ---
 
 # The system of work for cosmic
 
-this skill is the operating manual for how work on cosmic (and its C
-core, whilp/cosmopolitan) is defined, refined, implemented, reviewed,
-and landed.
+how work on cosmic (and its C core, whilp/cosmopolitan) is defined,
+prioritized, implemented, reviewed, and landed. the design goal is
+flow with quality: many concurrent agents pulling from one ordered
+queue, with rework kept rare by exactly two gates — a spec a session
+can build from alone, and a review at a distance from the builder.
+everything else is deliberately thin: no stage columns, no per-column
+limits, no ceremony a gate does not pay for.
 
-there is ONE worker. it wakes, asks the board what matters most, does
-that, and asks again — decomposing an ambitious outcome, driving a
-slice to the ready bar, implementing one, judging what comes back, and
-merging what it accepts, as the board demands each in turn. the work
-is not split by kind of mind: a session capable of writing a spec is
-capable of implementing one, and the ordering decides which it does
-now.
-
-what IS still split is the moment of judgment. a review is worth the
-distance between the builder and the reviewer, so the verdict is
-recorded by a review subagent whose context window never held the
-build — it reads the spec off the board and the diff off the PR, and
-carries none of the commitment that produced them (`review.md`). that
-distance is a property of the reviewer's context rather than of which
-model is running, which is why it survives one worker doing
-everything.
-
-the worker's defining duty is not writing specs; it is making the NEXT
-session succeed — often itself, with none of today's context. when a
-piece of work is too ambiguous to implement from its spec alone, the
-answer is never to implement it anyway from memory: refine the spec
-further, or change the system (core first, then docs, then skills)
-until the ambiguity is gone. see `enable.md`.
-
-the chapters:
-
-- `SKILL.md` — this file: the board, the roles, the session loop, the
-  rules.
-- `decompose.md` — working backwards from outcomes; the refinement
-  ladder; the ready bar in full, with a worked example.
-- `enable.md` — making the next session succeed: core > docs > skills.
-- `review.md` — the review verdicts, the friction feedback loop, and
-  the flow review that tunes WIP limits.
-- `parallel.md` — running several sessions at once: picking a
-  disjoint set, isolation, and the brief an agent needs.
-- `loop.md` — the standing loop (`/work N`): one orchestrator pass
-  per invocation, terse reporting, and never blocking.
-
-## the board in one minute
+## the board
 
 ALL work state lives on the orphan `board` branch of whilp/cosmic:
-one committed file per item (`items/<ksuid>.tl`, `cosmic.literal`
-data) with its spec prose in the sidecar `items/<ksuid>.md`. The
-branch also carries the machinery (`_work/`) and its own `bin/cosmic`
-trust root, so it is a runnable cosmic project on its own. Reach it
-as a worktree of the checkout you already have:
+one committed file per item (`items/<ksuid>.tl`) with its spec prose
+in the sidecar `items/<ksuid>.md`. the branch carries its own
+machinery and trust root, so it is a runnable cosmic project; reach
+it as a worktree of the checkout you already have:
 
 ```bash
 git worktree add o/board board        # once per checkout
 cd o/board && bin/cosmic --make build # once, on a cold worktree
 ```
 
-that build produces `o/bin/gitboard`, the binary this branch ships,
-and `gitboard` below means running it from the worktree — one process,
-one verdict line, no make output interleaved with the answer.
+that build produces `o/bin/gitboard`. the verbs are the tool's to
+describe — `gitboard help` lists them, `gitboard help <verb>` gives
+one its options — and this skill deliberately restates none of them;
+what the verbs are FOR is this skill's half. start every session with
+`sync`. every verb ends with a `gitboard-<verb>:` verdict line — read
+that, never a piped exit status. ids are KSUIDs; every verb accepts
+an unambiguous prefix.
 
-**the verbs are the tool's to describe, not this skill's.** `gitboard
-help` lists them and `gitboard help <verb>` gives one its options,
-generated from the CLI itself, so that listing is current by
-construction and cannot drift from what the tool does. how the
-machinery is run, built and gated is the branch's own `README.md`,
-beside it. what the verbs are FOR — when to reach for which, and what
-the system means by them — is this skill, and that is the only half
-that belongs on `main`.
-
-**start every session with `sync`.** reads are a directory scan of
-the worktree, so they are only as current as the last pull; a mutation
-publishes against the remote and would discover a stale checkout the
-hard way, as a refusal after the fact.
-
-every verb ends with a `gitboard-<verb>:` verdict line — read that,
-never a piped exit status. ids are KSUIDs; every verb accepts an
-unambiguous prefix (`gitboard show 3I1v4K`), git-style. a KSUID orders
-by its one-second timestamp, so "oldest first" is exact across
-seconds and arbitrary within one — the board's queues are stable, not
-the mint order of items filed in the same breath.
-
-reads need no network and no token; a mutation is ONE commit on
-`board` and publishes (push). a rejected push is diagnosed before
-anything is destroyed. a lost race — the remote holds commits the
-checkout lacks — drops the mutation whole, re-syncs onto the winner's
-state, and refuses with a line naming the recovery: run the same verb
-again, and it decides afresh with EVERY gate applied to the merged
-board, never a replayed commit whose preconditions the winner may
-have falsified. a rejection with the remote unmoved is the remote's
-policy, not a race: the commit stays local and the refusal carries
-the remote's own words. there is no lagged index, no replay, and no
-half-landed mutation.
-
-**a mutation publishes itself, and board state never goes through a
-pull request.** the verb commits and pushes in one step, so there is
-nothing to stage, nothing to batch, and no moment where a session
-decides it has accumulated enough to publish — a claim, a verdict, a
-bounce and an ended item are each on the remote as the verb returns.
-pull requests are `main`'s: opening one over `items/**` would put a
-review gate in front of state the tool has already validated, and
-leave the board stale for as long as it sat there. a change to the
-branch's own machinery is a different subject, and the branch's
-`README.md` has it.
-
-**the `board` branch is append-only: never rebased, never
-force-pushed.** rewriting published state history breaks every
+a mutation is ONE commit on `board` and publishes itself (push) as
+the verb returns — nothing to stage, nothing to batch, and board
+state never goes through a pull request. a lost push race drops the
+mutation whole, re-syncs onto the winner's state, and refuses with
+the recovery named: run the same verb again, and it decides afresh
+against the merged board. the branch is append-only: never rebased,
+never force-pushed — rewriting published state breaks every
 checkout's compare-and-swap at once.
 
-**where TLS is intercepted, trusting the interceptor is an explicit
-opt-in.** cosmic loads the system CA bundle only when
-`SSL_USE_SYSTEM_CERTS` is set — a locally-installed CA never joins the
-trust store just by being installed. so in an environment that
-re-terminates TLS (a corporate egress proxy, a sandboxed runner) the
-two verbs that reach GitHub — `move … check`, whose refusals read the
-PR, and `land`, which merges it — fail every call with
-`badcert_not_trusted` until the session says otherwise:
+where a proxy re-terminates TLS, export `SSL_USE_SYSTEM_CERTS=1` in
+the session (never in a committed file), or the verbs that reach
+GitHub fail every call with `badcert_not_trusted`.
 
-```bash
-export SSL_USE_SYSTEM_CERTS=1   # only where a proxy re-terminates TLS
-```
+## items, order, roles
 
-`sync` and the push half are git's, and git reads its own CA
-configuration, so they keep working and the failure looks like one
-verb being broken rather than the environment. set the variable in the
-session, never in a committed file: it is a statement about where the
-session runs, not about the board.
+an item's role is its position in the graph: a parentless item is a
+root (an outcome, or a captured finding awaiting triage), an item
+with open children is a container being decomposed, and a parented
+leaf is workable. roles change by changing the graph (`attach`), and
+decomposition is working backwards: start from an outcome's win
+condition, cut until each piece is one session's PR.
 
-## roles emerge from the graph
+importance is a relation, not a field: `compare A B` commits "A
+outranks B", and every order the board renders is derived from the
+accumulated edges — transitivity closes the pairs nobody was asked
+about, a comparison at any height places the subtree beneath it, and
+age is the last word among items no comparison separates. an item no
+comparison reaches is unplaced: triage it by attaching it under the
+outcome its evidence serves, comparing it in, or ending it. when
+nobody is around to rank it, attach it under the lowest-placed
+outcome it plausibly serves and say so — placing low asserts nothing,
+is reversed by one `attach`, and keeps the item workable; unplaced
+work is invisible to every queue.
 
-an item carries no kind field; its role is its position in the
-dependency graph, the way a file's role in cosmic is its position in
-the tree:
+a comparison that would put NEW work above existing work belongs to
+the goal owner — it answers "which is the better cosmic". post the
+pair (in chat, or in the session's report when nobody is watching)
+and keep working; the answer lands as a `compare` whenever it
+arrives. outcome prose lives in `docs/goals.md`; reordering outcomes
+is comparisons plus a goals.md PR.
 
-| position | role |
-|----------|------|
-| open children | a **container** being decomposed |
-| parentless leaf | a **root**: an outcome, or evidence awaiting triage |
-| parented leaf | **workable** — the only thing that holds a phase |
+## two states
 
-there is no goal tier and no `rank` field: importance is a RELATION
-between items, not a number an item asserts about itself. `gitboard
-compare A B` commits one judgment — A outranks B — and every order the
-board renders is DERIVED from the accumulated comparisons.
-transitivity closes the pairs nobody was asked about, a comparison at
-any height places everything beneath it, and age is the last word
-among items no comparison separates. what separates the two kinds of
-root is therefore placement, not a marker: a root somebody has
-compared is an outcome to decompose, and one no comparison reaches is
-what the triage queue holds.
+an open workable leaf is in exactly one of two states, and everything
+finer is derived from facts the item already carries — there are no
+stage columns and no per-column WIP limits:
 
-roles change by changing the graph: `attach` is both decomposition (a
-workable item that gains a child is de-phased into a container in the
-same mutation) and triage (an adopted capture becomes a backlog-phase
-leaf). PLACEMENT is the checked property: every phased item must have
-a position in the priority order, itself or through an ancestor, and
-`check` says so when THAT item does not. the question is ordinal —
-where does this sit against everything else — rather than
-genealogical, so an item nothing has been compared against has no
-answer to it. the board's own health (every item's placement and
-chain, any leaf left off the board, and any cycle the comparisons
-hold) reads from `status`: one item's problem is everyone's to see and
-nobody's reason to be refused a promotion.
+- **todo** — unclaimed. it is *pullable* when its spec passes the
+  bar `gitboard show ID` prints (the spec bar below); otherwise
+  refining it toward that bar IS the work it offers.
+- **doing** — claimed. the claim is the lock and a lease: claim
+  before you build, and a claim idle past its lease is anyone's
+  again. within doing, the facts say what happens next: no PR yet —
+  build; PR open, no verdict — review it, at a distance; `request
+  changes` — rework on the same PR; `accept` — merge it and `done`
+  the item; a gap the spec cannot answer — release the claim with the
+  gap named, and the item is todo again.
 
-decomposition is reversible without ceremony. an item that gains a
-child is de-phased in the same commit; when its LAST open child ends,
-the item returns to `backlog` in the closing commit, from where the
-session promotes it to verify the outcome its children were supposed
-to deliver, and ends it.
+two WIP rules, not a number per column. each worker holds ONE claim,
+so capacity spreads with the number of agents. and the board holds one
+bound on `doing` as a whole: at the limit, taking NEW work is refused
+until something in flight finishes. the bound exists because workers
+come and go — claims and open PRs outlive the sessions that made
+them, so a fleet with no bound accumulates half-finished work faster
+than reviews retire it. finishing motions (a release, a verdict, a
+merge, a takeover of a stale claim) are never refused: the bound
+throttles starting, never finishing. the number is the tool's — bare
+`show` prints the count against it — and it forces the right-to-left
+ordering mechanically: a session that cannot take is a session whose
+next action is to review, rework, or merge.
 
-phases, left to right (only workable leaves carry one). a phase is
-named for the action performed in it; `ready` is the one noun,
-because nobody acts there — it is a buffer:
+work flows right to left — finishing beats
+starting: merge what is accepted, review what awaits a verdict,
+rework what was returned, build what you claimed, triage what
+arrived, refine the top of todo, decompose an undriven outcome — in
+that order (triage before refinement because it is the cheap decision
+and the starvable one: an unplaced capture is invisible to every
+queue). `gitboard next` names the one
+next action by exactly this ordering; do it and ask again — acting
+moves the board, so the second answer derives from the board the
+first left behind. stop when it says `none`: do not invent work, and
+do not open items to fill a quota.
 
-| phase | meaning |
-|-------|---------|
-| `backlog` | placed under an outcome, ordered, not committed to — the queue intake writes into |
-| `plan` | committed: being refined now, until it meets the ready bar |
-| `ready` | meets the ready bar (`decompose.md`); nobody's until a session pulls it |
-| `do` | claimed work and rework — the claimant's, until a PR opens or a bounce |
-| `check` | PR open; awaiting a verdict from a review that did not hold the build |
-| `land` | accepted; awaiting the merge |
+**session identity:** never pass `--session` — the tool derives a
+unique-per-run identity from the environment
+(`GITBOARD_SESSION`, else a runner's own per-session id), and a name
+a session invents for itself collides across runs, which silently
+breaks the mutual exclusion. two exceptions only: a review subagent
+names itself (`export GITBOARD_SESSION=review-<ID>-<unique>`),
+because it would otherwise inherit the BUILDER's identity and the log
+would show a builder accepting its own work; and an orchestrator
+mints one distinct name per agent it spawns.
 
-**placing an item is not committing to it.** triage answers one cheap
-question — is this real, and under which outcome — and writes into
-`backlog`, which is UNBOUNDED: an inbox that can always accept is what
-keeps the cheap decision cheap. the expensive question is `promote`,
-the only way into `plan`, and `plan` is small enough that taking one
-is a choice against everything else in the queue. fusing the two made
-a triage drain deposit a batch of commitments nobody had sized.
+## building an item
 
-every phase but `backlog` is WIP-limited. the numbers are the tool's —
-`status` prints each phase against its own, and an unbounded one as a
-bare depth — and retuning one is a reviewed change to the machinery,
-not a reading of this table: `review.md`'s flow review is the method
-that earns one.
+1. claim it, then read `gitboard show ID` — the sidecar is the spec,
+   and the item's `verdict`/`pr` fields carry any standing review
+   state.
+2. re-run the spec's measured commands before building — the queue
+   ages faster than the tree stands still. numbers moved but the
+   shape holds: refresh them in place (`gitboard spec`) and proceed.
+   a fresh fact that breaks the shape or reopens a decision: release
+   the claim with the gap named. a bounce is a good outcome — the bar
+   failing loudly instead of a silent wrong guess — and refining the
+   item back may well be your own next action; do that from the spec
+   and the tree, not from what you remember wanting.
+3. one item = one fresh branch off the latest `origin/main`, named
+   for the id prefix = one PR. never stack a second item on a branch,
+   and never reuse a branch whose PR is open. a runner-assigned
+   branch names where to START, not a ceiling: N items pulled is N
+   branches and N PRs, and this paragraph is standing permission for
+   every item the loop hands you.
+4. build exactly the `Change`; its stated walls hold. a scope
+   question the spec cannot answer goes back to the board, never into
+   the diff — having written the spec is not permission to
+   reinterpret it mid-build.
+5. open the PR READY for review (not draft) with `Board: <id>` in
+   the body, and record the PR number on the item. the body carries
+   no evidence: CI proves the gate on the head mechanically, and a
+   pasted verdict line could only agree with the checks tab or lie.
+   run the gate locally before pushing — a red head burns a review
+   round — but the run is for you, not for the record.
+6. rejoin the loop. never merge unreviewed work, and never accept
+   your own: the verdict comes from a fresh-context review, however
+   the loop routes you back to this item.
 
-a full phase still admits the motion that cannot sensibly wait: a
-return is never refused, because leftward motion is the system
-correcting itself, and an accept is a decision already made rather
-than new inventory. everything else queues until the phase drains,
-and which arrivals qualify is the tool's rule to state rather than
-this table's — an over-limit phase blocks further pull and nothing
-else. roots and containers are never phased, so no exemption
-vocabulary exists for them — they occupy no slot to exempt.
+**out-of-scope findings** (a real defect, a stale doc, a gap the item
+sits next to but does not own): search first — the board is a git
+checkout of text files, so `grep -ril '<phrase>' items/` in the board
+worktree answers "already filed?" — and cite the existing item rather
+than duplicate it; else `gitboard new "title" --spec-file F` with one
+paragraph of evidence, unparented.
+filing is never refused. then back to the item: never widen the diff
+to cover a finding.
 
-**work flows right to left.** finishing beats starting: merging before
-reviewing, reviewing before finishing, finishing before pulling,
-pulling before refining, and refining before intake.
+## the spec bar
 
-GitHub keeps two jobs. pull requests carry fixes: the diff, its CI,
-and its review conversation, exactly as before. issues are the
-INBOUND queue only — a bug report or an external request arrives
-there and a session imports it as an unparented item (`gitboard new`
-with the evidence as `--spec-file`, no parent) at triage; no workflow
-state ever returns to labels or issue comments.
+a pullable spec carries one section — `## Change` — because
+acceptance is not per-item: `bin/cosmic --make ci` ending `ci: PASS`
+is the one definition of done every item shares, and proof specific
+to a change rides the DIFF as a test or ratchet the gate runs. a
+gate outlives the sidecar that asked for it; a sidecar command runs
+at most twice and dies with the item. `gitboard show ID` prints the
+bar's problems — the Change's presence, the item's placement;
+everything else is a
+reader's judgment, and the test for every sentence: could a
+competent but literal-minded session, with nothing beyond this spec
+and AGENTS.md, get it wrong? if yes, it is not ready.
 
-## the session loop
+`## Change` is what to build: files named, the shape of the change
+in each, every decision made. imperative and concrete — never
+"improve", "investigate", or "support". a bound the change imposes
+(a line cap, a match count) lands as a test or ratchet IN the diff,
+never as prose a reviewer must remember to check. when the change
+sits near a frozen contract (the `cosmo.*` C boundary, error strings
+and return shapes, verdict-line formats), name the wall — here, or
+in an optional `## Non-goals` section. walls are stated where they
+exist, never filled in as ceremony.
 
-run `gitboard next` and do what it says. it names the one next action,
-the rule that chose it, and how that kind of action is carried out; the
-ordering is the tool's, and what it encodes is this skill's: work flows
-right to left, so finishing beats starting. an accepted PR is the
-most-finished work there is, a verdict unblocks whoever is waiting on
-it, and an inbox nobody empties is a channel that only takes — which is
-why draining an over-bound triage queue jumps ahead of refinement, and
-why taking in new work comes last.
+**measured, not inferred:** every tree-fact the spec relies on (a
+file's headroom under the 500-line cap, a pattern's match count, a
+function's callers) is measured during refinement and written into
+the prose WITH the command that produced it, so the puller re-runs it
+in seconds and the reviewer can check the claim. a claim about
+BEHAVIOUR — what a verb prints, which branch a condition selects,
+what a gate refuses — is a prediction until a command has produced
+it: reading the source to answer it is inference, and the wrong turns
+are never guesses, they are readings that felt obviously true (D35's
+"fires exactly when `N < f < 2r`" disagreed with the code at 4097 of
+4961 swept points). so a behavioural claim carries its command AND
+the pasted output, and absence is behavioural too: a grep returning
+nothing establishes that the PATTERN matched nothing, never that the
+thing is absent — widen it, or name what the narrow one could miss.
+no lint can tell an executed claim from a plausible one; this is a
+rule the refiner applies and the reviewer checks, demanding the
+output beside the command in spec and bounce alike.
 
-**the session identity is what makes the loop safe in company:** it
-withholds work another session claimed, so two sessions never pull the
-same item and a wave never builds one slice twice.
+**sizing:** one PR one session holds in its head (~400 changed lines
+is the smell threshold, not a rule). an "and" between two independent
+changes in `Change` means cut it in two. prefer file-disjoint
+siblings — two specs growing one file near the 500-line cap collide
+at the merge, a failure neither diff can see. real landing order is a
+blocker edge; research is an item whose deliverable is recorded
+findings and follow-up items, not code.
 
-**do not invent that name — let the tool derive it, and do not pass
-`--session` at all.** the identity has to be UNIQUE per run, and a name
-a session types for itself is the one thing that is not: the readable
-half of an assigned branch (`magical-bell` out of
-`claude/magical-bell-74byv9`) is shared across every run in that slug's
-rotation, and a run that reuses it reads every claim the earlier run
-left as its own — the mutual exclusion stops holding, silently,
-because nothing tells the two runs apart. so `next`, `move` and
-`verdict` with NO `--session`/`--claim` derive the identity from the
-environment (`GITBOARD_SESSION`, else a runner's own per-session id),
-which is unique by construction. pass the flag only to override that —
-a human at a terminal naming themselves, a fixture pinning a value —
-never to restate a name the environment already carries. a runner that sets no
-usable id can export `GITBOARD_SESSION=<something unique per run>`;
-inventing a name inline is the anti-pattern, not setting that. a
-review subagent exports it too, and is the one case where the derived
-value is WRONG rather than missing: a subagent inherits the session id
-of the process that spawned it, so what it would derive names the
-session that BUILT the work. it names itself before recording a
-verdict (`review.md`) — an identity the environment cannot see, not a
-name invented over one the environment already carries. the carve-out
-is the verdict alone: a session pulling an item to build still passes
-nothing and takes what the environment derives.
+goal context is the parent chain — there is no Goal section to
+maintain. dependencies are `blocked_by` edges — there is no
+Enablement section. enablement is still the highest-leverage work:
+when the same wrong turn appears twice, file the countermeasure as an
+ordinary item, preferring a gate in core over a doc, and a doc over a
+skill — gates transfer to every future session; prose does not.
 
-**doing several actions is running the loop again.** acting moves the
-board, so ask again rather than planning a batch: the second answer is
-derived from the board the first one left behind. stop when `next`
-says `none` — do not invent work, and do not open items to fill a
-quota. a longer backlog is not progress, and `none` names the
-bottleneck so you can say what it was.
+## review
 
-**the mechanics arrive with the answer.** what the named kind of
-action is, the command that performs it, and the ordering rule behind
-it are printed under the action itself, for the one action you were
-handed — so there is no catalogue of kinds to read here before acting,
-and none to fall behind the tool. what is left is the judgment the
-tool cannot make for you:
+nothing merges without a verdict from a review at a DISTANCE from the
+builder: a subagent whose context window never held the build. its
+brief carries the item id, the PR number, and this section — not the
+builder's reasoning, and not a summary of what the change was trying
+to achieve, which would hand back the commitment a fresh window
+exists to be without. it claims the review first (the claim is the
+lock; losing the race there costs seconds, losing it at the verdict
+costs the whole verification), names itself, reads the spec off the
+board and the diff off the PR, and records the verdict itself.
 
-- **review** — the verdicts, what each demands of the diff, and the
-  friction the review feeds back are `review.md`.
-- **unblock** — how the chain's deepest open item gets resolved is
-  whatever its state calls for: finish it, take over its stale claim,
-  refine it. when the reason recorded on the edge no longer binds —
-  the spec grew its own workaround — drop the edge instead of working
-  the blocker.
-- **refine** — the ladder, the ready bar and a worked example are
-  `decompose.md`; the enablement check a `ready` move waits on is
-  `enable.md`.
-- **promote** — you are choosing this item over everything else in the
-  queue, so read what else is near the top before you commit to it.
-- **sweep** — the answer is one of two, promote it or end it as not
-  planned, and for an item nobody has chosen across every promotion in
-  a week it is usually the second. closing it is not a failure: a
-  backlog carrying work nobody will do is a backlog nobody can read.
-- **intake** — the outcome prose stays in `docs/goals.md`, which
-  nothing derives from; it is context to read when interpreting and
-  adjusting the tree.
+the posture is adversarial — the job is to make the diff fail, and a
+review that only reads has verified nothing:
 
-**a comparison that RAISES work is not yours to make alone.** a
-comparison answers "which of these is the better cosmic", and that
-judgment belongs to the goal owner (`decompose.md`). attaching a
-capture under something already placed needs no such question — it
-inherits a position. what needs one is a comparison that would put new
-work ABOVE existing work: a NEW outcome ordered against the ranked
-ones, or a capture compared up into a band it would displace. post
-that pair — in chat, or in the session's report when nobody is
-watching — and keep working; the answer lands as a `compare` whenever
-it arrives.
+1. **green is mechanical** — CI on the PR's CURRENT head is the
+   acceptance: read it, don't re-run it. red or still running ends
+   the review immediately. what CI cannot see is the whole job: the
+   diff must carry its own proof, so a claim the change makes that
+   no test in the diff would catch regressing is a gap to quote.
+2. **the diff is the Change** — everything present, nothing extra.
+   scope creep gets cut even when it is good; good ideas become
+   items.
+3. **the walls held** — frozen contracts unmoved, and any walls the
+   spec states untouched.
+4. **conventions hold** — AGENTS.md binds; anything a gate should
+   have caught but did not is itself a finding to file.
+5. **it serves the outcome** — walk the parent chain to the root and
+   judge the diff against it. a green gate on a change that misses
+   the point means the SPEC was wrong: fix the spec, never wave the
+   diff through.
+6. **it is the least thing** — name any surplus concretely (a helper
+   with one caller, generality nobody asked for) and have it removed
+   before merge.
 
-**an unanswerable ranking is never a reason to stop.** when a capture
-fits no existing outcome, attach it under the lowest-placed outcome it
-plausibly serves and say so. placing low asserts nothing anyone has to
-trust: it outranks nothing, `attach` re-parents it the moment the goal
-owner answers, and in the meantime the item is at least visible to
-every verb that walks the order. leaving it unplaced is the worse
-answer, not the humbler one — `check` refuses to promote work with no
-position, so an unplaced capture is unpullable by anyone, and the
-queue it sits in is the one whose draining outranks refinement.
-progress under a provisional, reversible placement beats a stalled
-loop behind a question nobody is awake to answer.
+mutation-test at least one guard the change adds: break what it
+guards, watch the test go red, restore it. a gate that cannot be
+shown to fail is decoration.
 
-## implementing a slice
+three verdicts: **accept** — merge, then `done ID`; **request
+changes** — the concrete gaps quoted on the PR, the claimant reworks
+on the same PR; **reject** — the approach is wrong: close the PR,
+record what was learned on the item, clear the claim — it is todo
+again. rejection is cheap by design; wrong work merged is expensive.
+a research item takes the same verdicts, re-running its recorded
+checks in place of a diff.
 
-when the action is **pull**, or **finish** from `do`, the item is a
-slice and this is the loop:
+when a container's last child ends, verify the container's stated
+outcome actually holds — run its observable test, not the
+children's — then end it.
 
-1. read it with `gitboard show ID` — the spec sidecar is the spec, and
-   the item's `verdict`/`pr` fields carry the standing review state.
-2. re-measure before you build. a spec's figures were true when
-   written, and the queue ages faster than the tree stands still, so
-   every measured claim carries its command (the ready bar demands
-   it) — re-run those commands against the tree you just claimed,
-   optimistically:
-   - **detail drift** — numbers moved but the shape holds: the
-     Problem is still real, the `Change` still buildable as written,
-     the `Acceptance` still runnable as written. refresh the measured
-     lines in place (`gitboard spec`, written back against the text
-     you read, as one commit noting "re-measured at pull") and
-     proceed. no bounce, no replan — and the reviewer then reads
-     pull-time numbers, never stale ones.
-   - **value drift** — a fresh fact breaks the shape, or would change
-     a decision the spec encodes. that is the under-specified case
-     below, caught minutes into the claim instead of after the build.
-   the line between them: a claim-time refresh updates FACTS, never
-   decisions — if the new number makes you want a different shape,
-   that choice is plan's, not yours mid-slice.
-3. cut the branch this slice lives on: a fresh one off the latest
-   `origin/main`, named after the item's id prefix — the same
-   convention `parallel.md` fixes for a wave. one branch is one PR is
-   one slice. never stack a second slice on a branch that already
-   carries one, and never reuse a branch whose PR is open: both
-   rewrite a diff somebody is reviewing, and neither can be reviewed,
-   reverted or merged as the slice it claims to be.
+## concurrent agents
 
-   **a branch a runner assigns this session names where to START, not
-   a ceiling.** N items pulled in one session is N branches off
-   `main` and N PRs, and the second one needs no permission you have
-   to go and ask for — where a runner's own instructions pin one
-   branch per repo and require explicit permission before another,
-   this paragraph is that permission, standing, for every item the
-   loop hands you. a session that treats the assigned branch as its
-   only branch finishes one slice and then stalls with `next` still
-   offering work.
-4. implement EXACTLY what the spec says. its `Change` is the scope,
-   its `Non-goals` are walls, its `Acceptance` commands are the
-   definition of done — run them and quote their verdict lines in the
-   PR description.
-5. open the PR READY for review, carrying `Board: <id>` in its body
-   and the acceptance run in its description — that evidence is what
-   you OWE the reviewer, who reads it before reading the diff and
-   cannot reconstruct it from the branch. hand it over WITH its
-   number: `gitboard move ID check --pr N`. the move refuses a
-   request not yet worth a reviewer's time; read the refusal and fix
-   what it names, because anything it catches is something a reviewer
-   would otherwise discover instead of reviewing.
-6. stop implementing and rejoin the loop. never merge a PR that has
-   not been accepted, and never accept your own: `next` offers you
-   this verdict like any other item in `check`, and the distance is
-   the review procedure's to hold — spawn the review subagent
-   (`review.md`) rather than judging the diff you just wrote.
+one orchestrator, N builders, and the board stays with the
+orchestrator — agents never run board verbs, so no agent needs the
+board worktree or push rights to `board`:
 
-**when the spec under-specifies** — you hit a decision the sidecar
-does not settle, a command that does not exist, a contract question —
-do not improvise. `gitboard move ID plan` (a return, never refused)
-with the gap named in the PR-or-item trail, leave the PR draft or
-close it, and rejoin the loop. a bounce is a good outcome: it is the
-ready bar failing loudly instead of a silent wrong guess, and every
-bounce becomes enablement evidence (`enable.md`). refining it back to
-the bar may well be your own next action — do that as a refine, from
-the spec and the tree, not from what you remember wanting.
+- **claim first, then spawn.** claim each item yourself, one at a
+  time, reading each verdict line, with a distinct minted session
+  name per agent. a lost race is the lock working: take the next
+  item.
+- **disjoint or not at all.** `next` names one item and cannot see
+  what else you are taking; file-disjointness across the wave is your
+  check, judged on the MERGE — a shared file with thin headroom under
+  the 500-line cap counts as shared. say what you skipped and why.
+  never split one item across agents to make it faster.
+- **one fresh worktree per agent, never nested** inside another
+  checkout — nesting breaks `--make` gates in both directions, and
+  neither failure names the layout. a fresh worktree starts with
+  `bin/cosmic --make fetch`; a copied or moved tree drops its stale
+  `o/` first, or its first gate result is fiction.
+- **the brief carries the spec verbatim** — "read the board and do
+  it" turns a specified item back into an interpretation — plus the
+  branch name off the latest `origin/main`, honest gate timeouts
+  (`--make ci` takes minutes), the PR form (ready, `Board: <id>` in
+  the body), do-not-merge, the capture rule
+  (report findings as one evidence paragraph each in the final
+  message; the orchestrator files them), and the bounce rule
+  verbatim: stopping on an under-specified spec is a good outcome. an
+  agent told to finish WILL improvise unless the brief says that.
+- **reconcile the wave.** finished with a PR: record it on the item.
+  dead (no PR, no branch): release the claim so the item is pullable
+  again. still running: leave it. then the PRs are yours to watch —
+  the agents are gone.
+- **what never fans out:** the review verdict — one review, in one
+  fresh subagent, however many PRs a wave opened; N agents reviewing
+  N PRs is N unreviewed merges wearing a costume — and refinement,
+  because two parallel refiners decompose the same outcome twice.
 
-**when you find something out of scope** — a real defect, a stale
-doc, a gap the slice sits next to but does not own — it goes to the
-board, never into the diff: `gitboard new "title" --spec-file F`,
-where F is one paragraph of evidence. an unparented item IS a
-capture; no trace is required of you, and filing is never refused —
-an unparented item holds no phase, so no limit has anything to say.
-then return to the slice: do not refine it, do not fix it in passing,
-do not widen the diff to cover it.
+## /work N — the standing loop
 
-one slice at a time — which bounds what a session has IN FLIGHT, not
-what it may finish. handing a slice to review ends that slice, not
-the session: rejoin the loop, and if `next` hands you another pull,
-take it on its own branch off `main`. the loop stops when `next` says
-`none`, never because a session has already opened a PR today.
+invoked with a number (typically under `/loop`), the session is a
+looped orchestrator: run ONE bounded pass and end it. never wait
+inside a pass — not for a wave agent, not for CI, not for an answer;
+the single exception is the one review subagent:
 
-running SEVERAL sessions AT ONCE is a different move with its own
-mechanics — a disjoint set, a checkout per session, a brief that
-carries the spec — and those are `parallel.md`. running that fan-out
-on a cadence — `/work N`, one bounded pass per invocation — is
-`loop.md`.
+1. `sync`, then reconcile the previous wave (above).
+2. merge whatever carries an accept.
+3. review at most one item awaiting a verdict.
+4. fill the wave: claim then spawn in the background, up to the
+   smallest of N and what is actually disjoint. zero agents is a
+   legitimate pass.
+5. spare width goes to one or two refine/triage actions.
+6. report a terse ledger — one line per board action, one for
+   anything posted for a human — and end the pass.
 
-## hard rules (guardrails)
+`none` from `next` is an answer, not a failure: report the named
+bottleneck in one line and end. under `/loop` in dynamic mode a pass
+that moved nothing is a no-op tick; agents in flight notify on
+completion, so the wakeup is a long fallback, never a poll.
 
-- ALL work state lives in items on the `board` branch — never in
-  GitHub labels, issue comments, notes docs, or TODO comments in the
-  product tree. (perf hypotheses are board items too — the `optimize`
-  skill has their form; legacy `perf`-labeled issues are inbound
-  evidence a board item may link, never duplicate.)
-- board state moves and reads through `gitboard` only. when the tool
-  LACKS a verb the session needs, work around it ONCE by editing the
-  item file and committing — the file format is the contract — and
-  file the missing verb as an unparented item.
-- the ready bar is never lowered to make an item pullable, and the
-  WIP limits are never widened to make a move succeed. `--force`
+## hard rules
+
+- ALL work state lives in items on the board, moved and read through
+  `gitboard` only — never GitHub labels, issue comments, notes docs,
+  or TODO comments in the product tree. issues are the inbound queue
+  only; a session imports evidence as an unparented item. when the
+  tool lacks a verb, work around it ONCE by editing the item file and
+  committing, and file the missing verb as an item.
+- claim before you build; one claim per worker; a claim is a lease,
+  not a deed — treat losing one you went quiet on as the system
+  working.
+- the spec bar is never lowered to make an item pullable, and the
+  doing bound is never widened to admit one more take. `--force`
   exists for repair, not for flow.
-- a container is never pulled: only workable leaves hold phases, and
-  the tool de-phases an item the moment a child attaches under it.
-- implementation follows the spec; the spec is decided in `plan`. a
-  scope question discovered mid-implementation goes back to the board,
-  not into the diff — being the same worker who wrote the spec is not
-  permission to reinterpret it mid-slice.
-- no session accepts its own work. the review procedure carries this
-  one: the verdict comes from a subagent whose context window holds the
-  spec and the diff and nothing else, so it cannot be biased by a build
-  it never saw (`review.md`).
-- every phased item has a position in the priority order — checked
-  structurally by `gitboard check` for the item at hand and by
-  `gitboard status` for the board, not by convention. an item nothing
-  has been compared against, at any height, is not workable: place it
-  or end it as not planned, however good the idea. when the ORDER
-  itself is wrong, change it with `compare`/`uncompare` (plus a
-  docs/goals.md PR when the outcome prose moves), never by lowering
-  the bar for one item.
+- build the spec, not your memory of intent; gaps discovered
+  mid-build go back to the board, never into the diff.
+- nothing merges without a fresh-context review, and no session
+  accepts its own work.
+- findings become items, never widened diffs.
+- every workable item has a position in the priority order — place it
+  or end it, however good the idea.
 - repo conventions are never relaxed: `--make ci` and the contract
   freezes in AGENTS.md bind every PR regardless of which model wrote
-  it. when a convention keeps tripping sessions, the fix is enablement
-  (`enable.md`), never an exception.
+  it. when a convention keeps tripping sessions, the fix is a
+  countermeasure item, never an exception.

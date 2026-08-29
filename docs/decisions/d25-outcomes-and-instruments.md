@@ -1,7 +1,7 @@
 # D25 — goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08 (D37 replaced G8's measured-by detail)
 - **context:** goals.md listed seven goals in one flat tier, and three
   structural problems surfaced when the flow system
   (`skills/work`) tried to work backwards from them. first, G1 (the
@@ -57,3 +57,8 @@
   promise applied to the goals file itself; and the flow system is
   accountable in tokens, so "more process" has to pay for itself in
   cheaper merged slices.
+- **amended 2026-08 (D37):** the two-tier split stands unchanged. what
+  moved is G8's measured-by detail: the board no longer has WIP limits
+  or columns to measure adherence and starvation against
+  ([D37](d37-two-states-two-gates.md)), so flow health is now lead
+  time, rework rate, and the cost ratchet.

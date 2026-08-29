@@ -59,7 +59,7 @@ build when the committed copy drifts.
 | D22 | the CSPRNG surface is infallible; a broken one crashes | amended 2026-08 (adds a seedable, non-crypto source beside the CSPRNG) | [→](d22-infallible-csprng.md) |
 | D23 | cosmic.check throws by design; needs/reap may exit | amended 2026-08 (the closed list becomes a rule: an unreachable-nil assert) | [→](d23-check-throws.md) |
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | active | [→](d24-structured-failures.md) |
-| D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | active | [→](d25-outcomes-and-instruments.md) |
+| D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | amended 2026-08 (D37 replaced G8's measured-by detail) | [→](d25-outcomes-and-instruments.md) |
 | D26 | a decision record: four sections, a status header, amended in place | active | [→](d26-decision-records.md) |
 | D27 | every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default | active | [→](d27-one-committed-floor.md) |
 | D28 | a validating decode is combinators the checker checks, not a table of type-name strings | active | [→](d28-shape-combinators.md) |
@@ -71,3 +71,4 @@ build when the committed copy drifts.
 | D34 | the perf gate judges reproduction against the re-measured baseline | superseded by D36 | [→](d34-reproduction-against-remeasured-baseline.md) |
 | D35 | a dismissed perf regression owes the same evidence a credited one does | amended 2026-08 (D36 disproved the baseline-pair credit) | [→](d35-dismissal-owes-evidence.md) |
 | D36 | a disagreeing baseline pair earns a third reading and is judged by the median | active | [→](d36-baseline-tiebreak-third-reading.md) |
+| D37 | the board holds two states; quality is two gates, not stages | active | [→](d37-two-states-two-gates.md) |

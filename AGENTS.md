@@ -456,8 +456,9 @@ discipline). the backlog is perf hypotheses on the work board.
 ## The flow of work
 
 what to build next is decided by the `work` skill (`skills/work/SKILL.md`):
-work items flow kanban-style through `plan` → `ready` → `do` → `check` → `land`,
-WIP-limited, pulled right to left. the board lives on the orphan `board` branch —
+one prioritized queue of items in two states — `todo` and `doing` (claimed) —
+with quality held by a spec bar at pull and a fresh-context review before
+merge, not by stage columns. the board lives on the orphan `board` branch —
 one `items/<ksuid>.tl` per item, the machinery beside it — reached as a worktree.
 the skill has the bootstrap and what the system means; the board branch's own
 README and `gitboard help` have the tool. issues remain only the inbound
