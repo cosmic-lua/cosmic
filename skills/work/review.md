@@ -25,12 +25,12 @@ recommendation handed back for somebody else to enter — and it names
 itself first: `export GITBOARD_SESSION=review-<ID>-<unique>`, a value
 belonging to this review and nothing else. a subagent inherits the
 session id of the process that spawned it, so a reviewer that names
-nothing derives the BUILDER's identity — and `review` and `verdict`
-both REFUSE a session its own build, so an unnamed reviewer cannot
-record a verdict at all. naming is what makes the review recordable,
-and what makes the log name the reviewer: that log is the only evidence
-a review ran at a distance — no gate can inspect a context window — and
-under the wrong name it evidences nothing.
+nothing derives the BUILDER's identity — and nothing refuses that
+verdict: it is recorded, under the builder's name, and the log then
+says the session that built the work accepted it. naming is what makes
+the log name the reviewer: that log is the only evidence a review ran
+at a distance — no gate can inspect a context window — and under the
+wrong name it evidences nothing.
 
 `check` is the only phase a verdict may end, and the verb refuses one
 from anywhere else: an accept reaches `land` past every gate between
@@ -44,8 +44,7 @@ once verified one diff in full, their verdicts thirty seconds
 apart). A live claim is another session mid-review: take the next
 item. A claim idle past its hour lease is anyone's again, and taking
 over a live one is `--force --why`, on the record. The claim is
-mutual exclusion, not authority — any non-builder's verdict stands
-and consumes it.
+mutual exclusion, not authority — any verdict stands and consumes it.
 
 ## the review itself
 

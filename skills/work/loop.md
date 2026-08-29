@@ -71,13 +71,12 @@ however the reviewer was spawned. that is the rule `review.md` states,
 reaching the case a loop meets every pass, not an exception carved out
 of it.
 
-**`next` withholds that item.** it offers nothing whose claim or
-`builders` name this session, and a minted claim compares by its
-prefix, so everything this session's agents built reads as this
-session's own. the item is stepped over in silence, so a pass that
-waits for `next` to hand back its own wave waits forever. spawn the
-review subagent on the id directly, the one step 1 reconciled into
-`check`.
+**`next` offers that item.** nothing is stepped over for having been
+built here, so this session's own wave comes back like any other item
+in `check`. spawn the review subagent on it either way — the id `next`
+names, or the one step 1 reconciled into `check`. which id the pass
+takes decides nothing about the distance; the subagent's fresh window
+does.
 
 the distance is only as good as the brief. it carries the item id, the
 PR number and the checks, and NOT this session's reading of the item:
@@ -89,11 +88,11 @@ without.
 the claim and `builders` stay the audit record — who held the item, who
 built it — and the verdict carries the review subagent's own name,
 exported rather than derived: a subagent inherits the session id of the
-process that spawned it, so a reviewer that does not name itself asks
-the board to judge this session's own build, and both `review` and
-`verdict` refuse it (`review.md`). the log is what shows whether a
-review ran at a distance. no gate can inspect a context window; that
-record is the evidence.
+process that spawned it, so a reviewer that does not name itself
+records its verdict under this session's own name, and the log then
+reads as a builder accepting its own build (`review.md`). the log is
+what shows whether a review ran at a distance. no gate can inspect a
+context window; that record is the evidence.
 
 ## never blocked
 
@@ -110,7 +109,6 @@ all:
 | a comparison that raises work | post the pair in the report, keep working |
 | out-of-scope finding | capture it (below), return to the pass |
 | merge refused (403, branch protection) | one report line, next pass retries once |
-| `next` offers no review while your own wave sits in `check` | it withholds this session's own wave; spawn the review subagent on the id step 1 reconciled |
 | `next` says `none` | report the named bottleneck in one line, end the pass |
 
 `none` is an answer, not a failure: the loop's value on a quiet board
