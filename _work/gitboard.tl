@@ -15,19 +15,16 @@
 ---   cosmic --make run _work/gitboard.tl init [--dir D]
 ---   cosmic --make run _work/gitboard.tl new "an outcome"
 ---   cosmic --make run _work/gitboard.tl new "a piece of it" --parent 2ai3
----   cosmic --make run _work/gitboard.tl compare 2ai3 2akQ | uncompare ...
+---   cosmic --make run _work/gitboard.tl compare 2ai3 2akQ
 ---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl block 2akQ 2ai3 | unblock 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
----   cosmic --make run _work/gitboard.tl check 2akQ
+---   cosmic --make run _work/gitboard.tl show [2akQ]
+---   cosmic --make run _work/gitboard.tl next [--session S]
 ---   cosmic --make run _work/gitboard.tl take 2akQ [--pr 42]
 ---   cosmic --make run _work/gitboard.tl drop 2akQ --why "the gap"
----   cosmic --make run _work/gitboard.tl status | tree | next [--session S]
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
----   cosmic --make run _work/gitboard.tl land 2akQ
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
----   cosmic --make run _work/gitboard.tl show 2akQ [--spec | --section N]
----   cosmic --make run _work/gitboard.tl find "some text"
 ---   cosmic --make run _work/gitboard.tl sync
 ---
 --- This file is the argument parsing, prefix resolution, and dispatch
@@ -39,11 +36,8 @@ local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local graph = require("_work.gitgraph")
 local session = require("_work.session")
-local land = require("_work.gitland")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
-local rev = require("_work.gitreview")
-local take = require("_work.gittake")
 local vrd = require("_work.gitverdict")
 local show = require("_work.gitshow")
 local view = require("_work.gitview")
@@ -56,8 +50,7 @@ local view = require("_work.gitview")
 local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["take"] = true, ["drop"] = true, ["verdict"] = true,
-  ["done"] = true, ["review"] = true,
-  ["land"] = true, ["compare"] = true, ["uncompare"] = true,
+  ["done"] = true, ["compare"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -79,9 +72,8 @@ local CSPEC: flags.CommandSpec = {
             help = "the repo its PR lands in; default is the board's origin"}}}},
     {name = "attach", summary = "put ID under PARENT (adopt, re-parent)",
       spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
-    {name = "compare", summary = "record that ID outranks OTHER",
-      spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
-    {name = "uncompare", summary = "drop the edge putting ID over OTHER",
+    {name = "compare", summary = "record that ID outranks OTHER "
+      .. "(a standing reverse edge is reversed)",
       spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
     {name = "block", summary = "record that ID waits on BLOCKER",
       spec = {usage = "ID BLOCKER [options]", flags = {dir_flag(),
@@ -93,12 +85,6 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "ID FILE [options]", flags = {dir_flag(),
           {long = "base", arg = "FILE",
             help = "the spec text you read, as the compare-and-swap base"}}}},
-    {name = "check", summary = "spec-bar and graph lint of ID",
-      spec = {usage = "ID [options]", flags = {dir_flag()}}},
-    {name = "status", summary = "render doing against its bound, the top of todo, and health",
-      spec = {flags = {dir_flag()}}},
-    {name = "tree", summary = "render the roots, their subtrees, and the triage queue",
-      spec = {flags = {dir_flag()}}},
     {name = "next", summary = "the one next action to take now, and what "
       .. "the kind of action means",
       spec = {flags = {dir_flag(),
@@ -106,13 +92,10 @@ local CSPEC: flags.CommandSpec = {
             help = "this session; steps over anything another session "
             .. "has claimed, work and reviews alike. Omit to derive it "
             .. "from the environment (GITBOARD_SESSION, else a runner's "
-            .. "own id)"},
-          {long = "take",
-            help = "claim the offered work in the same call: a review or a "
-            .. "pull is claimed on the spot, and a candidate somebody else "
-            .. "claimed first falls to the next one"}}}},
-    {name = "take", summary = "claim ID (the pull: spec bar and doing "
-      .. "bound apply), or record its PR",
+            .. "own id)"}}}},
+    {name = "take", summary = "claim ID: the pull (spec bar and doing "
+      .. "bound apply), its review when it awaits a verdict, or record "
+      .. "its PR",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "session", arg = "SESSION",
             help = "the claiming session. Omit to derive it from the "
@@ -131,14 +114,6 @@ local CSPEC: flags.CommandSpec = {
             help = "the dropping session. Omit to derive it from the "
             .. "environment"},
           {long = "force", help = "drop another session's live claim"}}}},
-    {name = "review", summary = "claim ID's review before reading it",
-      spec = {usage = "ID [options]", flags = {dir_flag(),
-          {long = "session", arg = "SESSION",
-            help = "the reviewing session. Omit to derive it from the "
-            .. "environment"},
-          {long = "force", help = "take over another session's LIVE review "
-            .. "claim (a stale one needs no force)"},
-          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "verdict", summary = "record a review verdict; its effect follows",
       spec = {usage = "ID KIND [options]", flags = {dir_flag(),
           {long = "pr", arg = "N", help = "the PR the verdict judges"},
@@ -146,24 +121,17 @@ local CSPEC: flags.CommandSpec = {
           {long = "session", arg = "SESSION",
             help = "the reviewing session; it rides in the commit "
             .. "subject. Omit to derive it from the environment"}}}},
-    {name = "done", summary = "end ID, recording why",
+    {name = "done", summary = "end ID, recording why (an accepted PR is "
+      .. "verified merged first)",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "reason", arg = "REASON", default = "completed",
             help = "completed or not-planned"},
-          {long = "force", help = "end an item under an unjudged PR"},
+          {long = "force", help = "end an item under an unjudged PR, or "
+            .. "without reading its merge"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
-    {name = "land",
-      summary = "end an accepted item once its PR is merged",
-      spec = {usage = "ID [options]", flags = {dir_flag(),
-          {long = "force", help = "land without a standing accept"},
-          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
-    {name = "show", summary = "print ID's fields, role, spec, and git history",
-      spec = {usage = "ID [options]", flags = {dir_flag(),
-          {long = "spec", help = "the spec sidecar alone"},
-          {long = "section", arg = "NAME", help = "one section of the spec alone"},
-          {long = "fields", help = "the record alone: no spec, no history"}}}},
-    {name = "find", summary = "list items whose title or spec contains TEXT",
-      spec = {usage = "TEXT [options]", flags = {dir_flag()}}},
+    {name = "show", summary = "the board (no ID), or one item: fields, "
+      .. "spec-bar problems, spec, git history",
+      spec = {usage = "[ID] [options]", flags = {dir_flag()}}},
     {name = "sync", summary = "rebase onto the remote's state",
       spec = {flags = {dir_flag()}}},
   },
@@ -199,32 +167,17 @@ local function main(...: string): integer
       return 1
     end
   end
-  if d.command == "status" then
-    return view.cmd_status(s)
-  end
-  if d.command == "tree" then
-    return view.cmd_tree(s)
-  end
   if d.command == "next" then
     local who = session.resolve(d.parsed.values["session"])
-    if d.parsed.switches["take"] then
-      -- Take-mode mutates, so it syncs the way every mutating verb
-      -- does before it reads the board at all.
-      local synced, syerr = store.sync(s)
-      if not synced then
-        io.stderr:write(("gitboard-next: could not sync before taking: %s\n")
-          :format(syerr))
-        return 1
-      end
-      return take.cmd_take(s, who)
-    end
     return view.cmd_next(s, who)
   end
   if d.command == "sync" then
     return verbs.cmd_sync(s)
   end
-  if d.command == "find" then
-    return view.cmd_find(s, d.parsed.args[1] or "")
+  -- Bare `show` is the board; `show ID` is one item, resolved below
+  -- with every other id-taking verb.
+  if d.command == "show" and (d.parsed.args[1] or "") == "" then
+    return view.cmd_status(s)
   end
   if d.command == "new" then
     local title = d.parsed.args[1]
@@ -267,13 +220,13 @@ local function main(...: string): integer
     end
     return graph.cmd_attach(s, id, parent)
   end
-  if d.command == "compare" or d.command == "uncompare" then
+  if d.command == "compare" then
     local other, oerr = store.resolve(s, d.parsed.args[2] or "")
     if other == nil then
       io.stderr:write(tostring(oerr) .. "\n")
       return 1
     end
-    return cmp.cmd_compare(s, id, other, d.command == "uncompare")
+    return cmp.cmd_compare(s, id, other)
   end
   if d.command == "block" or d.command == "unblock" then
     local blocker, berr = store.resolve(s, d.parsed.args[2] or "")
@@ -292,9 +245,6 @@ local function main(...: string): integer
     end
     return verbs.cmd_spec(s, id, file, d.parsed.values["base"] or "")
   end
-  if d.command == "check" then
-    return view.cmd_check(s, id)
-  end
   if d.command == "take" then
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     local who = session.resolve(d.parsed.values["session"])
@@ -306,11 +256,6 @@ local function main(...: string): integer
     return verbs.cmd_drop(s, id, who, d.parsed.values["why"] or "",
       d.parsed.switches["force"])
   end
-  if d.command == "review" then
-    local who = session.resolve(d.parsed.values["session"])
-    return rev.cmd_review(s, id, who,
-      d.parsed.switches["force"], d.parsed.values["why"] or "")
-  end
   if d.command == "verdict" then
     local kind = d.parsed.args[2]
     if kind == nil then
@@ -321,25 +266,11 @@ local function main(...: string): integer
     local who = session.resolve(d.parsed.values["session"])
     return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "", who)
   end
-  if d.command == "land" then
-    return land.cmd_land(s, id, d.parsed.switches["force"],
-      d.parsed.values["why"] or "")
-  end
   if d.command == "done" then
     return verbs.cmd_done(s, id, d.parsed.values["reason"] or "completed",
       d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
-  -- Every narrowing flag the session passed, joined: one of them
-  -- names a read and more than one names none, so `cmd_show` sees the
-  -- ambiguity rather than a precedence rule silently picking for it.
-  local wanted: {string} = {}
-  if d.parsed.switches["spec"] then wanted[#wanted + 1] = "spec" end
-  if (d.parsed.values["section"] or "") ~= "" then
-    wanted[#wanted + 1] = "section"
-  end
-  if d.parsed.switches["fields"] then wanted[#wanted + 1] = "fields" end
-  return show.cmd_show(s, id, table.concat(wanted, "+"),
-    d.parsed.values["section"] or "")
+  return show.cmd_show(s, id)
 end
 
 if proc.is_main() then

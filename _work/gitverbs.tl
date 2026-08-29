@@ -14,9 +14,11 @@
 local child = require("cosmic.child")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local gh = require("_work.gh")
 local fs = require("cosmic.fs")
 local health = require("_work.health")
 local item = require("_work.item")
+local review = require("_work.review")
 local store = require("_work.store")
 
 local function cmd_init(dir: string): integer
@@ -115,14 +117,62 @@ local function age_of(s: store.Store, it: item.Item): health.Ages
   return ages
 end
 
---- take: claim an item, or record the PR that hands its build over.
+--- The review claim inside `take`: the lock pushed BEFORE the
+--- reading starts, so two sessions never verify one diff. Reached by
+--- derivation, not by a verb of its own — an item awaiting a verdict,
+--- taken by a session that is not its builder, can only mean the
+--- review. The claim is a lease (`health`'s review horizon — short,
+--- because a review's dwell is minutes) and mutual exclusion only: a
+--- verdict from any session stands and consumes it.
+--- @param s store.Store The store
+--- @param it item.Item The item whose review is claimed
+--- @param session string The reviewing session
+--- @param force boolean Take over a LIVE foreign review claim
+--- @param why string Why --force was needed
+--- @return integer Exit code
+local function take_review(s: store.Store, it: item.Item, session: string,
+    force: boolean, why: string): integer
+  local id8 = it.id:sub(1, 8)
+  if (it.reviewer or "") == session then
+    return gate.verdict_line("take", true,
+      ("%s's review is already yours"):format(id8))
+  end
+  -- A standing foreign claim splits on the lease: a live one is a
+  -- reviewer mid read-verify-verdict, taken over only on the record;
+  -- a stale one is a session that stopped moving the board, and the
+  -- diff is anyone's again — the takeover is noted, never gated.
+  local taken = ""
+  if (it.reviewer or "") ~= "" then
+    if not health.is_review_stale(it, age_of(s, it)) and not force then
+      return gate.verdict_line("take", false,
+        ("REFUSED: %s is under review by %s — take over a live review "
+          .. "with --force --why"):format(id8, it.reviewer))
+    end
+    taken = (" (taken over from %s)"):format(it.reviewer)
+  end
+  it.reviewer = session
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("review %s claimed by %s%s"):format(id8, session,
+      gate.forced_suffix(force, why)))
+  if not ok then
+    return gate.verdict_line("take", false, err)
+  end
+  return gate.verdict_line("take", true,
+    ("%s's review is yours%s — verdict when done consumes the claim")
+    :format(id8, taken))
+end
+
+--- take: claim an item, record its PR, or claim its review — which
+--- one is derived from the item's own facts, never declared.
 ---
 --- A take of TODO work (no claim, no PR) is the pull, and it is where
 --- the two quality gates bind: the spec bar (`gate.ready_problems`)
---- and the doing bound (`flow.doing_refusal`). Everything else `take`
---- does — recording a PR on your own claim, re-claiming your own
---- item, taking over a stale claim — is motion on work already in
---- flight and asks neither.
+--- and the doing bound (`flow.doing_refusal`). A take of an item
+--- AWAITING A VERDICT by a session that is not its builder is the
+--- review claim (`take_review`). Everything else `take` does —
+--- recording a PR on your own claim, re-claiming your own item,
+--- taking over a stale claim — is motion on work already in flight
+--- and asks neither gate.
 ---
 --- Recording a PR is the handover to review: the request is read
 --- (open, not draft, `Board:` line, CI not failing —
@@ -162,6 +212,12 @@ local function cmd_take(s: store.Store, id: string, session: string,
   if not item.is_open(it) then
     return gate.verdict_line("take", false,
       ("%s is done (%s)"):format(id:sub(1, 8), it.resolution))
+  end
+  -- An item awaiting a verdict, taken by a session that is not its
+  -- builder with no PR to record, is the review claim.
+  if (pr or 0) == 0 and (it.pr or 0) ~= 0 and (it.verdict or "") == ""
+  and (it.claim or "") ~= session then
+    return take_review(s, it, session, force, why)
   end
   -- Re-taking your own claim with nothing new to record is a no-op,
   -- not a mutation: there is no change for the commit to carry.
@@ -280,6 +336,21 @@ local function cmd_drop(s: store.Store, id: string, session: string,
     return gate.verdict_line("drop", false,
       ("%s is not in flight — nothing to drop"):format(id:sub(1, 8)))
   end
+  -- A drop by the session holding only the REVIEW lock releases the
+  -- review, not the item: the diff still awaits its verdict, and the
+  -- builder's claim is not the reviewer's to bounce.
+  if (it.reviewer or "") ~= "" and it.reviewer == (session or "")
+  and (it.claim or "") ~= (session or "") then
+    it.reviewer = ""
+    local rok, rerr = gate.commit_and_publish(s, it, nil,
+      ("drop %s review: %s"):format(id:sub(1, 8), why))
+    if not rok then
+      return gate.verdict_line("drop", false, rerr)
+    end
+    return gate.verdict_line("drop", true,
+      ("%s's review is anyone's again — the gap is in the log"):format(
+        id:sub(1, 8)))
+  end
   if (it.claim or "") ~= "" and it.claim ~= (session or "")
   and not health.is_stale(it, age_of(s, it)) and not force then
     return gate.verdict_line("drop", false,
@@ -320,13 +391,38 @@ local function cmd_done(s: store.Store, id: string, reason: string,
     return gate.verdict_line("done", false, aerr)
   end
   -- An open PR is work mid-review: ending the item under it makes the
-  -- diff vanish from the board while it still exists on GitHub. The
-  -- accepted path runs through `land`, which verifies the merge; an
+  -- diff vanish from the board while it still exists on GitHub. An
   -- unreviewed PR is dropped or judged first.
   if (it.pr or 0) ~= 0 and (it.verdict or "") ~= "accept" and not force then
     return gate.verdict_line("done", false,
-      ("REFUSED: %s has PR #%d awaiting a verdict — land it after an "
-        .. "accept, or drop it with the gap named"):format(id:sub(1, 8), it.pr))
+      ("REFUSED: %s has PR #%d awaiting a verdict — done after an accept, "
+        .. "or drop it with the gap named"):format(id:sub(1, 8), it.pr))
+  end
+  -- The accepted path verifies the merge before ending the item: an
+  -- item ended over an unmerged request says the work landed when it
+  -- did not, and nothing downstream would catch it. Whether the merge
+  -- happened is the one fact the board cannot hold itself, so the
+  -- request is read every time (a local-only board has none to read).
+  if (it.pr or 0) ~= 0 and (it.verdict or "") == "accept"
+  and store.has_origin(s) and not force then
+    local p, perr = gh.pull(s, it.pr, it.repo)
+    if p == nil then
+      return gate.verdict_line("done", false,
+        ("cannot read PR #%d: %s"):format(it.pr, perr))
+    end
+    local blocked = review.blocks_land(p, it.verdict_head, id)
+    if blocked then
+      return gate.verdict_line("done", false, "REFUSED: " .. blocked)
+    end
+    -- A merge cannot be undone, so a head that moved past the one the
+    -- accept judged is not a refusal: refusing would strand the item
+    -- forever. Say it loudly instead, so the substitution is in the
+    -- log rather than nowhere.
+    if review.head_moved(p, it.verdict_head) then
+      print(("gitboard-done: WARNING PR #%d merged at %s but the accept "
+          .. "judged %s"):format(it.pr, (p.head_sha or ""):sub(1, 7),
+          (it.verdict_head or ""):sub(1, 7)))
+    end
   end
   local from = flow.is_doing(it) and flow.substate(it) or "todo"
   if flow.role(it, all) ~= "work" then

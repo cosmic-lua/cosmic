@@ -25,8 +25,10 @@ bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 
 A workable item's state is DERIVED from the facts its file carries,
 never declared: open, unclaimed, and PR-less is `todo` (pullable once
-its spec passes `check`); a claim or a PR makes it `doing`; a
-resolution ends it. Within doing the same facts say what happens
+its spec passes the bar `show ID` prints); a claim or a PR makes it
+`doing`; a resolution ends it. Which claim a `take` makes is derived
+the same way — an item awaiting a verdict, taken by a session that is
+not its builder, is the review claim. Within doing the same facts say what happens
 next — building, awaiting review, rework, accepted. One WIP bound,
 `_work/flow.tl`'s `DOING_LIMIT`, covers the whole in-flight span:
 taking NEW work is refused at the limit, finishing motions never
@@ -69,7 +71,7 @@ worktree — `--dir` then defaults to it and needs no argument:
 git worktree add o/board board     # once per checkout
 cd o/board
 bin/cosmic --make build            # once, on a cold worktree
-o/bin/gitboard status
+o/bin/gitboard show
 o/bin/gitboard next
 ```
 

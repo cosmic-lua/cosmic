@@ -23,8 +23,8 @@ local WIDTH < const >: integer = 88
 --- is about the words alone.
 local NOTES < const >: {string: {string}} = {
   ["finish"] = {
-    "An accepted item awaits its merge: `land ID` verifies the PR its `pr` "
-    .. "field names is merged and ends the item — merge first, then land.",
+    "An accepted item awaits its merge: `done ID` verifies the PR its `pr` "
+    .. "field names is merged and ends the item — merge first, then done.",
     "A rework carries a `request changes` verdict: address the quoted gaps on "
     .. "the same PR and hand it back with `take ID --pr N`, which re-opens the "
     .. "verdict for the new head.",
@@ -33,8 +33,9 @@ local NOTES < const >: {string: {string}} = {
     .. "gate, so the body carries no evidence.",
   },
   ["review"] = {
-    "Claim it first — `review ID` locks the diff before you read a line; a "
-    .. "claim idle past the hour lease is anyone's again.",
+    "Claim it first — `take ID` on an item awaiting a verdict locks the diff "
+    .. "before you read a line; a claim idle past the hour lease is anyone's "
+    .. "again.",
     "CI proves the gate; judge what it cannot — spec vs diff, a mutation "
     .. "test — then `verdict ID accept|request-changes --pr N --head SHA "
     .. "--session <you>`.",
@@ -55,7 +56,7 @@ local NOTES < const >: {string: {string}} = {
     .. "on the edge no longer binds, drop the edge with `unblock ID BLOCKER`.",
   },
   ["refine"] = {
-    "Drive the highest-placed todo item toward the spec bar: `check ID` names "
+    "Drive the highest-placed todo item toward the spec bar: `show ID` names "
     .. "the gaps, `spec ID FILE --base BASE` writes the refinement back.",
     "Decompose rather than pad: a spec that needs the word \"and\" between two "
     .. "independent changes is two items (`new \"child\" --parent ID`).",

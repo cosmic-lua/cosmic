@@ -14,7 +14,6 @@ local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
 local graph = require("_work.gitgraph")
-local view = require("_work.gitview")
 
 local tmpdir = fixture.tmpdir
 local READY_SPEC < const > = fixture.READY_SPEC
@@ -38,7 +37,7 @@ local function test_the_spec_bar_is_the_items_own()
   assert(store.save(s, stray, "hand-edited parent"))
   local all = check.must(store.list(s))
   assert(#flow.graph_problems(all) > 0, "the board does have a problem")
-  assert(view.cmd_check(s, leaf) == 0,
+  assert(#gate.ready_problems(s, check.must(store.load(s, leaf)), all) == 0,
     "a sound item meets the bar while another item is broken")
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
     "and it may be taken")
