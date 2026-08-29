@@ -108,6 +108,60 @@ does survive in the committed item file and the git log, so nothing is
 lost — but nothing surfaces it either, and the reason given for keeping
 it is wrong.
 
+
+**Eight more, found by a sweep rather than by another reading.** The
+site count went 8 → 16 → 23 because each list was produced by the same
+reading that missed the rest. A wrap-proof grep over the whole of
+`_work/**` (the command is in Acceptance) surfaces every passage in one
+pass, and triaging its output found these — each verified against the
+freshly built `o/bin/gitboard`, not read.
+
+- `_work/gitclaim_test.tl:3-7` — the file header: the claim "is the
+  only thing standing between a session and a verdict on its own work
+  … the review gate's foundation". Run: a session named on both `claim`
+  and `builders` is offered `review <id>` by `next` and its
+  `verdict <id> accept` returns 0.
+- `_work/gitclaim_test.tl:20-23` — `builders` "is what `next` consults
+  to withhold a verdict from whoever wrote the diff". `next` never
+  reads the field: `grep -rn builders _work/*.tl` outside the tests
+  hits only `item.tl`, and `action.tl` does not mention it.
+- `_work/gitclaim_test.tl:99-100` — "The claim is what `next` reads to
+  withhold a verdict from the item's builder", the exact sentence
+  corrected in `gitverbs.tl:186` and left standing here.
+- `_work/gitview.tl:133-135` — "the identity decides which work is
+  withheld and which verdicts are refused". The first half is true; the
+  second is not. Run with every `session.SOURCES` variable cleared, an
+  unnamed session's `verdict <id> accept` exits 0 and moves the item out
+  of `check`. `review` and `--take` DO refuse an unnamed session — those
+  are claim refusals, and that distinction is what the rewrite keeps.
+- `_work/converge_test.tl:7-9` — SAFETY described as including "no
+  verdict on the asker's own work". The safety loop at `:313-356`
+  asserts pull, refine and finish claims and nothing about verdicts,
+  and `apply`'s `review` branch at `:122-136` tests no identity.
+- `_work/converge_test.tl:215-216` — "a phase full of work the asker
+  may not judge is a STARTING state".
+- `_work/converge_test.tl:225-227` — "no verdict the asker may write
+  drains the phase it is filling", contradicted by
+  `action_test.tl:210-225`, which the previous slice converged.
+- `_work/action.tl:292-296` — the fall-through comment: "every item in
+  it is this session's or under another session's live review
+  (`reviewable` would have returned any other)". `reviewable`
+  (`:238-249`) skips ONLY items under another session's live,
+  non-stale review claim; a session's own build is picked, not
+  stepped over. The `this session's` disjunct is the deleted gate.
+
+**`builders` does not record an in-place takeover.** `item.tl:57-62`
+says the field records "who built and who took over". Measured: a
+phase-crossing `move <id> <other-phase> --claim Z` appends (`builders`
+goes `builder-X` → `builder-X third-Z`), but an in-place
+`move <id> <same-phase> --claim Z --force --why` routes through
+`gitgate.set_in_place` (`gitgate.tl:267-302`), which writes `it.claim`
+and never calls `record_builder` — `builders` stays `builder-X` while
+`claim` reads `other-Y`. The gap is pre-existing behaviour; only the
+sentence is this item's, so the sentence is narrowed to what the field
+actually records and the boundary is stated at the site. Changing
+`set_in_place` is a behaviour change the Non-goals forbid.
+
 ## Change
 
 `_work/{gitboard.tl,action.tl,item.tl,gitverbs.tl,gitverdict.tl,
@@ -148,6 +202,27 @@ rendering it is a behaviour change this item forbids, and the record is
 already readable in the committed item file and the git log. The field
 doc now says exactly that instead of claiming `show` prints it.
 
+Second slice, after the sweep: `_work/{gitclaim_test.tl,gitview.tl,
+converge_test.tl,action.tl,item.tl}`, same walls.
+
+- `gitclaim_test.tl` — the header says what the file actually pins (the
+  lease and what a handover must name), and the two `withhold a
+  verdict` sentences give the claim its real job: it names the builder
+  in the commit and the audit record, and it is a lock against
+  concurrent writers.
+- `gitview.tl:133-135` — the identity decides which work is WITHHELD
+  and which CLAIMS are refused. Verdicts are not on that list.
+- `converge_test.tl` — SAFETY drops the verdict clause it never
+  asserted; `generate`'s two paragraphs keep the reason the asking
+  session's own claims are drawn (a `do` claim is that session's to
+  finish) and lose the verdict deadlock, which no longer exists.
+- `action.tl:292-296` — the fall-through names the one thing
+  `reviewable` steps over: another session's live review claim.
+- `item.tl:57-62` — `builders` records the sessions a phase-crossing
+  claim named, and says plainly that an in-place `--claim` takeover
+  writes the claim without appending. `record_builder`'s doc
+  (`:291-298`) is narrowed the same way.
+
 ## Non-goals
 
 - No behaviour change anywhere in `_work/**`.
@@ -160,27 +235,68 @@ doc now says exactly that instead of claiming `show` prints it.
 
 ## Acceptance
 
-Run from the `board` worktree. Every "today" was measured 2026-08-29 at
-`db981771`.
+Run from a `board` checkout. Every "today" was measured 2026-08-29 at
+`68eeafaa`.
 
+**The sweep, not a list.** Three enumerations of this item's sites
+(8 → 16 → 23) each missed passages, because each was a reading. This is
+the check that is not: it joins comment runs and concatenated help
+strings before matching, so a phrase wrapped across lines cannot hide,
+and it covers every tracked file under `_work/`, `cmd/`, `docs/` and
+`README.md` rather than a named subset. Save it as `sweep.sh` and run
+it from the checkout root:
+
+```sh
+#!/bin/sh
+# Sweep the board machinery's PROSE for the vocabulary of the deleted
+# identity review gate. Comment runs and concatenated help strings are
+# joined before matching, so a phrase wrapped across lines cannot hide;
+# `verdict_line` is elided because it is a function name, not prose.
+V='withh[eo]ld|disqualif|arm.s length|at a distance|(review|builder).distance'
+V="$V"'|non.builder|self.accept|(accept|judge)[a-z]* its own|own (work|build|diff|item)'
+V="$V"'|who(ever)? built|did not build|wrote the diff|exclude|elsewhere'
+V="$V"'|somebody else|someone else|no verdict|verdicts? (are|is) refused'
+V="$V"'|refus[a-z]* (a|the|any|every|its|this) verdict|(may|cannot|does) not judge|not hand'
+for f in $(git ls-files _work cmd docs README.md); do
+  tr '\n' ' ' < "$f" \
+  | sed 's/verdict_line/VL/g; s/--*/ /g; s/"[[:space:]]*\.\.[[:space:]]*"/ /g;
+         s/[[:space:]][[:space:]]*/ /g' \
+  | grep -oiE ".{0,50}($V).{0,50}" \
+  | sed "s|^|$f: |"
+done
+```
+
+- `sh sweep.sh | wc -l` prints `63` today. The count is not the check —
+  the OUTPUT is. Every hit must triage into one of three, and the
+  reviewer re-runs it rather than trusting any list:
+  - **irrelevant** — the vocabulary in another sense: `elsewhere` as a
+    variable or as "tested elsewhere" (`fixture.tl`, `flow_test.tl`,
+    `gitverbs_test.tl`, `gitview.tl:{doc}`, `intake.tl`,
+    `refine_claim_test.tl`), "no verdict" as `land`'s missing-verdict
+    refusal (`gitgate.tl`, `gitgate_test.tl`, `gitverbs_test.tl`,
+    `flowstat_test.tl`), "somebody else" as a concurrent writer
+    (`README.md`, `decision.tl`, `gitboard.tl`), "excluded" as
+    `health.tl`'s rot horizon, "its own" as a spec's workaround
+    (`gitgraph.tl`).
+  - **true as written** — the CLAIM and the review LEASE, which both
+    still exist: a live claim excludes a second holder
+    (`gitreview.tl`, `gitreview_test.tl`, `refine_claim_test.tl`,
+    `gitboard.tl:308`), a builder returns their own work freely
+    (`gitverbs.tl:224-242`, `gitverbs_test.tl:286`,
+    `gitboard.tl:315-317`), and the passages that state the gate's
+    ABSENCE (`action_test.tl:132-133`, `:210-225`, `:382-384`,
+    `gitverdict_test.tl:93-96`, `:114-116`, `:208-212`,
+    `session.tl:19-20`, `gitreview.tl:4-8`).
+  - **false** — zero permitted. Today's zero is what this item buys.
+- `sh sweep.sh | grep -icE 'withhold a verdict|verdicts are refused|may not judge|non.builder|disqualif|arm.s length|(review|builder).distance|self.accept|verdict on the asker|no verdict this session|no verdict the asker'` prints `0` (`8` before this slice).
+- `o/bin/gitboard help verdict` contains no "refused when it built".
+- `o/bin/gitboard help next` contains no "what this one built".
 - `bin/cosmic --make ci` ends `ci: PASS`.
 - `bin/cosmic --make test _work/` ends `test: PASS (29 files)`.
-- `o/bin/gitboard help verdict` contains no "refused when it built"
-  (1 occurrence today).
-- `o/bin/gitboard help next` contains no "what this one built"
-  (1 today).
-- `grep -rc 'review distance' _work/*.tl` prints `0` for every file
-  (`gitverbs.tl` 1, `session_test.tl` 1 today).
-- `grep -rc 'disqualif' _work/*.tl` prints `0` for every file
-  (`item.tl` 1, `gitverbs.tl` 1 today).
-- `grep -c 'did not build' _work/action.tl` prints `0` (`1` today).
-- `grep -c 'non-builder' _work/action.tl` prints `0` (`1` today).
-- `grep -c 'no-self-accept' _work/item.tl` prints `0` (`2` today).
-- `grep -rcE 'builder.distance|arm.s length|accepts its own work' _work/`
-  prints `0` for every file (`gitverdict.tl` 1, `action.tl` 1,
-  `gitverdict_test.tl` 1 today).
-- `grep -c 'offered no verdict' _work/session.tl` prints `0` (`1` today).
-- `grep -c 'withhold a verdict' _work/gitverbs.tl` prints `0` (`1` today).
+- **No executable line changed.** `git diff <base> -- _work/ | grep -E
+  '^[-+]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[-+][[:space:]]*(--|$)'`
+  prints only `help =` string-literal lines, and stripping every
+  comment line from both revisions and diffing the result is empty.
 - The three refusals this item's comments sit on still refuse, run
   literally: a handover to `check` with no claim on an unclaimed item,
   a leftward move out of `do` over another session's live claim, and a
@@ -189,10 +305,15 @@ Run from the `board` worktree. Every "today" was measured 2026-08-29 at
 - The reversal still holds, run literally: a fixture item in `check`
   whose `claim` and `builders` both name `S` is offered to `S` by
   `next --session S` as a `review`, and `verdict <id> accept --session S`
-  returns 0. Unchanged from `db981771` — this item must not move it.
-
-Read the files rather than trusting the counts: each phrase sits on one
-line today and a reflow can pass a count for the wrong reason.
+  returns 0. This item must not move it.
+- The claim refusals that DO exist still refuse, run literally with
+  every `session.SOURCES` variable cleared: `review <id>` and
+  `next --take` each exit 1 naming an unnamed session, while `next`,
+  `status` and `verdict <id> accept` do not.
+- `builders` still behaves as measured: a phase-crossing
+  `move --claim Z` appends, an in-place `move <same-phase> --claim Z
+  --force --why` does not, `record_builder` and the `problems` repeat
+  check are byte-identical.
 
 ## Enablement
 
