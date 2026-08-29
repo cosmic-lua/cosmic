@@ -44,7 +44,7 @@ end
 --- @return string The verdict detail
 local function show_report(it: item.Item, all: {item.Item}, body: string,
     events: {store.Event}, problems: {string}): {string}, string
-  local out: {string} = {("%s %s [%s]"):format(tail.chunk(it.id), it.title,
+  local out: {string} = {("%s %s [%s]"):format(tail.handle(it.id), it.title,
       it.id)}
   out[#out + 1] = ("role: %s"):format(flow.role(it, all))
   local seconds = ksuid.time_of(it.id)

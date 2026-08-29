@@ -64,8 +64,8 @@ local function test_show_prints_fields_role_and_history()
   }
   local lines, verdict = show.show_report(all[3], all, "## Change\ndo it\n",
     events, {})
-  assert(lines[1] == tail.chunk(WORK) .. " a slice [" .. WORK .. "]",
-    "the header carries the chunked tail and the full id: " .. lines[1])
+  assert(lines[1] == tail.handle(WORK) .. " a slice [" .. WORK .. "]",
+    "the header carries the wrapped handle and the full id: " .. lines[1])
   assert(matched(lines, "^role: work$"), table.concat(lines, "\n"))
   assert(matched(lines, "^state: review$"), "its state")
   assert(matched(lines, "^pr: #42$"), "its PR")
