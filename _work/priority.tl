@@ -45,9 +45,12 @@ local record Position
   --- Whether any edge reaches this item, itself or through an
   --- ancestor. An unplaced item has no priority at all.
   placed: boolean
-  --- The dominance count of the nearest placed self-or-ancestor: the
-  --- band this item sits in. -1 when unplaced, so band order alone
-  --- sorts the unplaced last.
+  --- The dominance count of the nearest placed ANCESTOR, or this
+  --- item's own dominance count when no ancestor holds a position —
+  --- so a comparison between two items that each inherit their band
+  --- moves neither of them: it only changes `own`, which is what
+  --- orders peers inside a band. -1 when unplaced, so band order
+  --- alone sorts the unplaced last.
   band: integer
   --- This item's OWN dominance count, which orders peers within one
   --- band.
@@ -252,18 +255,27 @@ local function positions(items: {Item}): {string: Position}
   end
   local out: {string: Position} = {}
   for _, i in ipairs(items) do
+    -- The ancestor chain is searched FIRST, starting above `i` itself:
+    -- an edge of the item's own must never outrank a placed ancestor,
+    -- or the moment a leaf is compared it would jump out of the band
+    -- its parent put it in — the exact side effect `compare` must not
+    -- have on an inherited placement. Only when no ancestor at any
+    -- height is placed does the item's own edge decide its band, which
+    -- is what makes a bare `beats`/beaten root item placed at all.
     local band = -1
-    local cur = i
+    local cur = index[i.parent or ""]
     for _ = 1, MAX_DEPTH do
+      if cur == nil then
+        break
+      end
       if has_out_edge(index, cur) or beaten[cur.id] then
         band = own[cur.id] or 0
         break
       end
-      local parent = index[cur.parent or ""]
-      if parent == nil then
-        break
-      end
-      cur = parent
+      cur = index[cur.parent or ""]
+    end
+    if band < 0 and (has_out_edge(index, i) or beaten[i.id]) then
+      band = own[i.id] or 0
     end
     -- `placed` is NOT lifted. Placement is "some comparison reaches
     -- this item or an ancestor", and `check` refuses to promote work

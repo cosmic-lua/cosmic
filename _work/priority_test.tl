@@ -89,6 +89,50 @@ local function test_an_edge_the_board_cannot_see_is_not_an_edge()
 end
 test_an_edge_the_board_cannot_see_is_not_an_edge()
 
+-- Two leaves that each inherit their band from a DIFFERENT parent, at
+-- DIFFERENT bands, compared directly against each other: the module's
+-- own header promises this "refines the order INSIDE a band without
+-- disturbing the bands themselves". Before the walk searched ancestors
+-- first, the fresh `beats` edge each leaf gained made `has_out_edge`
+-- true at the leaf itself, so the walk stopped there instead of
+-- reaching the parent — collapsing both leaves' bands to their own
+-- two-item dominance count (1 and 0) and demoting the very item that
+-- had just won the comparison.
+local function test_comparing_two_inherited_leaves_leaves_their_bands_alone()
+  local lesser_a = make({})
+  local top_a = make({beats = lesser_a.id})
+  local leaf_a = make({parent = top_a.id, phase = "ready"})
+
+  local z1 = make({})
+  local z2 = make({beats = z1.id})
+  local z3 = make({beats = z2.id})
+  local top_b = make({beats = z3.id})
+  local leaf_b = make({parent = top_b.id, phase = "ready"})
+
+  local items: {item.Item} = {lesser_a, top_a, leaf_a, z1, z2, z3, top_b,
+    leaf_b}
+  local before = prio.positions(items)
+  local band_a0 = prio.key_of(before, leaf_a.id)
+  local band_b0 = prio.key_of(before, leaf_b.id)
+  assert(band_a0 == 1 and band_b0 == 3,
+    ("leaves start in their parents' bands: %d, %d"):format(
+      band_a0, band_b0))
+
+  leaf_a.beats = {leaf_b.id}
+  local at = prio.positions(items)
+  local band_a = prio.key_of(at, leaf_a.id)
+  local band_b = prio.key_of(at, leaf_b.id)
+  assert(band_a == 1,
+    ("the winner keeps its inherited band: %d"):format(band_a))
+  assert(band_b == 3,
+    ("the loser keeps its inherited band too: %d"):format(band_b))
+  local _, own_a = prio.key_of(at, leaf_a.id)
+  assert(own_a == 1,
+    ("the comparison still moves standing WITHIN the band: %d"):format(
+      own_a))
+end
+test_comparing_two_inherited_leaves_leaves_their_bands_alone()
+
 local function test_order_is_band_then_standing_then_age()
   local c = make({})
   local b = make({beats = c.id})
