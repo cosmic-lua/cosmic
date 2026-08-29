@@ -9,5 +9,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["phase"] = "check",
   ["pr"] = 1498,
+  ["reviewer"] = "review-3IYCkSTY-20260829-055711-rev1",
   ["title"] = "perf gate: a disagreeing baseline pair has no tiebreak, so no formula can separate a false red from a masked regression",
 }
