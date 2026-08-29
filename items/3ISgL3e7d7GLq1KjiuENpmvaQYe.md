@@ -1,52 +1,45 @@
-Every accepted PR in `land` is unmergeable today because its
-`pull_request`-event workflow run is stuck in a pre-queued limbo that
-GitHub will neither start, re-run, nor cancel, so the ruleset's
-required `build` check stays "expected" forever.
+## Change
 
-Observed 2026-08-26 ~16:40–16:55 UTC against `whilp/cosmic`, on all
-three items sitting in `land`:
+Refreshed 2026-08-29 against the two-state board (the original
+evidence below reasons about the deleted `land` column; the incident
+evidence stands, the board half is retired — today an accepted item
+simply cannot reach `done` until the merge succeeds, which is the
+correct surviving behavior and needs no new state).
 
-- 3ISWHWQT / PR #1415 (head `e3ccf1b`), 3ISNVQBg / PR #1412 (head
-  `7ff1260c`), 3IOCd5xW / PR #1413 (head `57107433`).
-- Each head carries five SUCCESSFUL check runs — `ci`, `build`,
-  `repro`, `smoke (macos-latest)`, `smoke (windows-latest)` — posted
-  by a `workflow_dispatch` run of the same `pr.yml`.
-- `PUT /repos/whilp/cosmic/pulls/<N>/merge` nonetheless returns
-  `405 Repository rule violations found: Required status check "build"
-  is expected.` for all three. `mergeable_state` is `blocked`.
-- The stuck runs: #1413's `pull_request` run `32985995623` (queued
-  since 15:44 on the current head), #1412's `32986001847`, #1415's
-  `32985764676`. They are casualties of the ~15:28–16:00 UTC GitHub
-  runner incident already noted in #1415's review comment.
-- The Actions API refuses every remedy on them:
-  `cancel` → `409 Cannot cancel a workflow run that has not been
-  queued yet`; `rerun` → `403 This workflow is already running`. A
-  re-run of one of them (`32985915525`) went straight back to `queued`
-  and produced no jobs.
+The surviving slice is the recovery path: make a re-run CI able to
+satisfy the ruleset when the original `pull_request` run is lost.
+Measured 2026-08-29: `.github/workflows/pr.yml` triggers on
+`pull_request` AND `workflow_dispatch` (lines 6-8, `grep -n`), so a
+dispatch re-run already produces green check runs — the incident
+proved those do not satisfy the required check ("Required status
+check 'build' is expected" while five dispatch-run checks sat green
+on the head).
 
-So a `workflow_dispatch` run's green checks do NOT satisfy the
-ruleset, and the only lever that would — a fresh `pull_request` event
-superseding the stuck run via the workflow's `cancel-in-progress`
-concurrency — needs a push to the branch or a close/reopen, both of
-which the operating rules forbid as CI-kicking.
+The change, in `.github/workflows/pr.yml` on main:
 
-Two things this is evidence for, either of which could be the slice:
+1. Each of the four required jobs (`ci`, `build`, `repro`, `smoke`)
+   gains a final step that POSTs a commit STATUS to the head SHA via
+   the statuses API (`POST /repos/:owner/:repo/statuses/:sha`,
+   `GITHUB_TOKEN`, context `gate/<job>`, state from the job's
+   outcome — post failure too, from an `if: always()` step, so a red
+   run marks the commit red rather than leaving "expected"). Commit
+   statuses attach to the SHA regardless of which event triggered
+   the workflow, which is exactly the property check runs lacked in
+   the incident.
+2. A test is not runnable for workflow YAML; the diff's proof is one
+   dispatch run on the PR's own head showing the `gate/*` statuses
+   appear on the commit (the builder runs the dispatch and reads the
+   statuses API back — command and output re-run by the reviewer).
+3. The admin half is NOT this diff: switching the ruleset's required
+   contexts from the job check runs to the `gate/*` statuses is a
+   repo-settings change only the operator can make. The PR
+   description states the exact before/after required-context list
+   as the ask; until the operator flips it, the statuses are
+   additive and change nothing.
 
-1. **The lane has no recovery path a session may take.** When a
-   `pull_request` run is lost, a session can re-run CI but cannot make
-   the result count. Options worth weighing: allow a
-   `workflow_dispatch` run of `pr.yml` to satisfy the ruleset (e.g. by
-   having the gate publish a commit status the rule names, rather than
-   relying on the job name); or narrow the required set to a single
-   aggregating check the dispatch lane also posts.
-2. **`gitboard land` inherits the stall.** `land` refuses until the PR
-   is merged, and nothing on the board records "merge blocked by the
-   forge". Three items sat in `land` across a whole session with no
-   way to move and no trace of why. Whether the board should carry a
-   blocked-on-forge state, or whether that is deliberately outside it,
-   is the question.
+## Non-goals
 
-Cost of leaving it: #1415 is the release-lane fix — release.yml has
-been unable to publish since this morning's schedule run — so the
-stall is holding the release lane down as well as the board's `land`
-column.
+No board machinery changes (the `land`-column half of the original
+evidence is retired with that column). No workflow behavior changes
+beyond the added status posts — triggers, jobs, gates untouched. No
+close/reopen or empty-commit CI kicking, ever.
