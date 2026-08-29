@@ -4,5 +4,6 @@ return {
   ["id"] = "3IbDFQzqLMbjjahypa7s1WSJ6A3",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1515,
+  ["reviewer"] = "review-3IbDFQzq-1788025560",
   ["title"] = "board renders lead with the ksuid tail-8; the derived alias is removed",
 }
