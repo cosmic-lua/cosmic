@@ -8,11 +8,11 @@
 -- rendered by two reports at once, stays here.
 
 local check = require("cosmic.check")
-local alias = require("_work.alias")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local fixture = require("_work.fixture")
 local show = require("_work.gitshow")
+local tail = require("_work.tail")
 local view = require("_work.gitview")
 
 local counter = 0
@@ -40,8 +40,8 @@ local function has(lines: {string}, pattern: string): boolean
 end
 
 --- Escape a derived value's Lua-pattern metacharacters — here just
---- the hyphen the id8/alias chunking introduces — so it can be
---- spliced into a `has` pattern as literal text.
+--- the hyphen the tail chunking introduces — so it can be spliced
+--- into a `has` pattern as literal text.
 local function lit(s: string): string
   return (s:gsub("%-", "%%-"))
 end
@@ -81,9 +81,9 @@ local function test_status_renders_doing_against_the_bound()
   assert(has(lines, "^todo   1 %(1 pullable%)$"),
     "todo renders its depth and its pullable count: "
     .. table.concat(lines, "\n"))
-  assert(has(lines, lit(alias.chunk(FRESH:sub(1, 8))) .. " a fresh leaf %["
-      .. lit(alias.of(FRESH)) .. "%] %[pullable%]"),
-    "the top of todo shows the chunked id, the alias, and its marks: "
+  assert(has(lines, "^  " .. lit(tail.chunk(FRESH))
+      .. " a fresh leaf %[pullable%]$"),
+    "the top of todo shows the chunked tail and its marks: "
     .. table.concat(lines, "\n"))
   assert(verdict == "doing 1/10", verdict)
 end
@@ -129,13 +129,17 @@ test_status_reports_the_bound_binding()
 local function test_next_names_one_action_and_its_rule()
   local report = view.next_report(board_items(), full_specs())
   assert(report:find("review", 1, true)
-    and report:find(alias.chunk(LEAF:sub(1, 8)), 1, true),
+    and report:find(tail.chunk(LEAF), 1, true),
     "a PR awaiting a verdict is judged before anything is pulled: "
     .. report)
-  assert(report:find("[" .. alias.of(LEAF) .. "]", 1, true),
-    "the target's alias is there too: " .. report)
   assert(report:find("—", 1, true),
     "and the rule that chose it is stated: " .. report)
+  -- The `or:` alternate line's full rendered format, pinned directly:
+  -- a prior review found no test covered it, and reverting that
+  -- line's format left every render test green.
+  assert(report:find("or: pull " .. tail.chunk(FRESH) .. " a fresh leaf",
+      1, true),
+    "the alternate names its kind, tail, and title: " .. report)
 end
 test_next_names_one_action_and_its_rule()
 

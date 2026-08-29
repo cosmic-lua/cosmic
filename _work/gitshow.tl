@@ -9,7 +9,6 @@
 --- and the `cmd_` half owns the store reads: what a session reads is
 --- the contract, and a report that returns its lines can be asserted
 --- on without capturing stdout.
-local alias = require("_work.alias")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
@@ -17,6 +16,7 @@ local ksuid = require("_work.ksuid")
 local prio = require("_work.priority")
 local spec = require("_work.spec")
 local store = require("_work.store")
+local tail = require("_work.tail")
 
 local verdict_line = gate.verdict_line
 
@@ -44,8 +44,8 @@ end
 --- @return string The verdict detail
 local function show_report(it: item.Item, all: {item.Item}, body: string,
     events: {store.Event}, problems: {string}): {string}, string
-  local out: {string} = {("%s %s [%s]"):format(alias.chunk(it.id:sub(1, 8)),
-      it.title, alias.of(it.id))}
+  local out: {string} = {("%s %s [%s]"):format(tail.chunk(it.id), it.title,
+      it.id)}
   out[#out + 1] = ("role: %s"):format(flow.role(it, all))
   local seconds = ksuid.time_of(it.id)
   if seconds then
