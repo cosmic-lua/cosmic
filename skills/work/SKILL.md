@@ -159,11 +159,12 @@ mints one distinct name per agent it spawns.
    question the spec cannot answer goes back to the board, never into
    the diff — having written the spec is not permission to
    reinterpret it mid-build.
-5. run `bin/cosmic --make ci` to `ci: PASS` and open the PR READY
-   for review (not draft), carrying `Board: <id>` and the gate's
-   verdict line in the body — that evidence is what you owe the
-   reviewer, who reads it before the diff and cannot reconstruct it
-   from the branch. record the PR number on the item.
+5. open the PR READY for review (not draft) with `Board: <id>` in
+   the body, and record the PR number on the item. the body carries
+   no evidence: CI proves the gate on the head mechanically, and a
+   pasted verdict line could only agree with the checks tab or lie.
+   run the gate locally before pushing — a red head burns a review
+   round — but the run is for you, not for the record.
 6. rejoin the loop. never merge unreviewed work, and never accept
    your own: the verdict comes from a fresh-context review, however
    the loop routes you back to this item.
@@ -246,11 +247,11 @@ board and the diff off the PR, and records the verdict itself.
 the posture is adversarial — the job is to make the diff fail, and a
 review that only reads has verified nothing:
 
-1. **the gate ran** — run `bin/cosmic --make ci` yourself, and CI is
-   green on the PR's CURRENT head. acceptance IS the gate, so the
-   diff must carry its own proof: a claim the change makes that no
-   test in the diff would catch regressing is a gap to quote. absent
-   or failing evidence ends the review immediately: request changes.
+1. **green is mechanical** — CI on the PR's CURRENT head is the
+   acceptance: read it, don't re-run it. red or still running ends
+   the review immediately. what CI cannot see is the whole job: the
+   diff must carry its own proof, so a claim the change makes that
+   no test in the diff would catch regressing is a gap to quote.
 2. **the diff is the Change** — everything present, nothing extra.
    scope creep gets cut even when it is good; good ideas become
    items.
@@ -305,8 +306,8 @@ board worktree or push rights to `board`:
 - **the brief carries the spec verbatim** — "read the board and do
   it" turns a specified item back into an interpretation — plus the
   branch name off the latest `origin/main`, honest gate timeouts
-  (`--make ci` takes minutes), the PR form (ready, `Board: <id>`,
-  the gate's verdict line in the body), do-not-merge, the capture rule
+  (`--make ci` takes minutes), the PR form (ready, `Board: <id>` in
+  the body), do-not-merge, the capture rule
   (report findings as one evidence paragraph each in the final
   message; the orchestrator files them), and the bounce rule
   verbatim: stopping on an under-specified spec is a good outcome. an
