@@ -1,9 +1,9 @@
 return {
   ["builders"] = "wave9-a-1788028741",
-  ["claim"] = "wave9-a-1788028741",
   ["id"] = "3IbMGFxwQDJtkf4L1cbSmETWpvD",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1519,
+  ["resolution"] = "completed",
   ["title"] = "machinery id docs predate the tail handle: gitboard.tl, store.tl comments and README omit it",
   ["verdict"] = "accept",
   ["verdict_head"] = "7c600b2fa9d61ddeb0df8a497a768060da892429",
