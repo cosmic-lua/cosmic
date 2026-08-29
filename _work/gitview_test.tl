@@ -81,9 +81,9 @@ local function test_status_renders_doing_against_the_bound()
   assert(has(lines, "^todo   1 %(1 pullable%)$"),
     "todo renders its depth and its pullable count: "
     .. table.concat(lines, "\n"))
-  assert(has(lines, lit(alias.chunk(FRESH:sub(1, 8))) .. " a fresh leaf %["
-      .. lit(alias.of(FRESH)) .. "%] %[pullable%]"),
-    "the top of todo shows the chunked id, the alias, and its marks: "
+  assert(has(lines, lit(alias.of(FRESH)) .. " a fresh leaf %["
+      .. lit(alias.chunk(FRESH:sub(1, 8))) .. "%] %[pullable%]"),
+    "the top of todo shows the alias, the chunked id, and its marks: "
     .. table.concat(lines, "\n"))
   assert(verdict == "doing 1/10", verdict)
 end
@@ -129,11 +129,11 @@ test_status_reports_the_bound_binding()
 local function test_next_names_one_action_and_its_rule()
   local report = view.next_report(board_items(), full_specs())
   assert(report:find("review", 1, true)
-    and report:find(alias.chunk(LEAF:sub(1, 8)), 1, true),
+    and report:find(alias.of(LEAF), 1, true),
     "a PR awaiting a verdict is judged before anything is pulled: "
     .. report)
-  assert(report:find("[" .. alias.of(LEAF) .. "]", 1, true),
-    "the target's alias is there too: " .. report)
+  assert(report:find("[" .. alias.chunk(LEAF:sub(1, 8)) .. "]", 1, true),
+    "the target's chunked id is there too: " .. report)
   assert(report:find("—", 1, true),
     "and the rule that chose it is stated: " .. report)
 end

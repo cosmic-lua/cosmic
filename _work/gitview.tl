@@ -63,14 +63,15 @@ end
 --- of the queue is what a session acts on; the rest is the count.
 local TODO_SHOWN < const >: integer = 8
 
---- The id and title every rendered item line leads with: the id8
---- chunked for legibility, the derived alias bracketed after the
---- title so a session reading the board can retype either back.
+--- The id and title every rendered item line leads with: the derived
+--- alias — the name a reader and a typist use — with the chunked id8
+--- bracketed after the title so a session reading the board can
+--- retype either back.
 --- @param it item.Item The item
---- @return string "id8-chunked title [alias]"
+--- @return string "alias title [id8-chunked]"
 local function id_line(it: item.Item): string
-  return ("%s %s [%s]"):format(alias.chunk(it.id:sub(1, 8)), it.title,
-    alias.of(it.id))
+  return ("%s %s [%s]"):format(alias.of(it.id), it.title,
+    alias.chunk(it.id:sub(1, 8)))
 end
 
 --- The board: doing item by item against the one bound, the top of
@@ -188,8 +189,7 @@ local function render_action(action: act.Action): string
   end
   for _, alt in ipairs(action.alternates or {}) do
     if alt.item then
-      out[#out + 1] = ("  or: %s %s %s"):format(alt.kind,
-        alt.item.id:sub(1, 8), alt.item.title)
+      out[#out + 1] = ("  or: %s %s"):format(alt.kind, id_line(alt.item))
     end
   end
   return table.concat(out, "\n")
