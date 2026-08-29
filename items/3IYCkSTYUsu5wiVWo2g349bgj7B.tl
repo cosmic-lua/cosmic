@@ -7,8 +7,9 @@ return {
   ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IYCkSTYUsu5wiVWo2g349bgj7B",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
-  ["phase"] = "check",
+  ["phase"] = "land",
   ["pr"] = 1498,
-  ["reviewer"] = "review-3IYCkSTY-20260829-055711-rev1",
   ["title"] = "perf gate: a disagreeing baseline pair has no tiebreak, so no formula can separate a false red from a masked regression",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "086f87934e3e06272e06bdd0ba360c5ad707d7de",
 }
