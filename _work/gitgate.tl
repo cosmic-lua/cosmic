@@ -198,6 +198,26 @@ local function handover_refusal(s: store.Store, id: string,
   return review.blocks_on_ci(runs)
 end
 
+--- The refusal a PR handover earns when another OPEN item already
+--- records the same number, or nil when it is free to take. One pull
+--- request couples one item's verdict, so recording a number an open
+--- item already holds would let a single diff answer for two — a DONE
+--- item's PR is spent and names nothing.
+--- @param all {item.Item} Every item
+--- @param id string The item recording the PR
+--- @param number integer The PR number being recorded
+--- @return string | nil The refusal
+local function pr_collision_refusal(all: {item.Item}, id: string,
+    number: integer): string | nil
+  for _, other in ipairs(all) do
+    if other.id ~= id and item.is_open(other) and (other.pr or 0) == number then
+      return ("PR #%d is already %s's — one PR, one item; --force --why "
+        .. "to override for repair"):format(number, other.id:sub(1, 8))
+    end
+  end
+  return nil
+end
+
 --- The problems that keep an item from being taken: it must be
 --- workable, placed in the priority order, its spec must fill the
 --- spec-bar sections, and its own chain must be traceable. The one
@@ -248,6 +268,8 @@ local record gitgate
   containered: function(parent: item.Item): {item.Item}
   handover_refusal: function(s: store.Store, id: string,
   number: integer, repo: string | nil): string
+  pr_collision_refusal: function(all: {item.Item}, id: string,
+  number: integer): string
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end
@@ -261,6 +283,7 @@ local M: gitgate = {
   commit_and_publish = commit_and_publish,
   containered = containered,
   handover_refusal = handover_refusal,
+  pr_collision_refusal = pr_collision_refusal,
   ready_problems = ready_problems,
 }
 
