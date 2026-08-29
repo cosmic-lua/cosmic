@@ -313,9 +313,12 @@ original capture 14 of 48 at up to +62.2%, so the count swings 6..14
 within a day on the same container. Two consequences, both stated
 deliberately: the escape this item closes is not exotic (a quiet second
 sample is routine), and the false red this rule accepts is real, because
-today's loudest A/A swings (12.6..15.7%) sit below `L(r)` for every `r`
--- `L` is narrowest at `L(10%) = 27.6%` -- and so land squarely in the
-band where the rule fires. The guard is the escalation: a scenario that
+today's loudest A/A swings (12.6..15.7%) sit below `L(r)` for most of
+the quiet range -- over `0 <= r <= 10%`, `L` is smallest at
+`L(0) = 11.1%` and grows to `L(10%) = 27.6%`, so a 12.6% swing is inside
+the firing band once the retry reads above ~1.3%, and a 15.7% one above
+~4.1% -- and so land in the band where the rule fires unless the retry
+returns nearly to baseline. The guard is the escalation: a scenario that
 noisy normally shows it across the three control pairs the third sample
 opens, which is what
 `test_a_third_sample_absorbs_an_unexplained_dismissal` pins. When it does
