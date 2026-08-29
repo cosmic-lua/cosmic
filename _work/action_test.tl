@@ -114,6 +114,36 @@ local function test_a_live_foreign_review_claim_is_stepped_past()
 end
 test_a_live_foreign_review_claim_is_stepped_past()
 
+-- The distance guard applies here too, so `next` never offers what
+-- `take` refuses: a session steps past a diff it built and a decision
+-- it specced, alone offered neither and together offered neither, to
+-- the one genuine candidate behind them.
+local function test_a_builder_or_speccer_review_is_stepped_past()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local built = make({parent = root.id, claim = "b1", pr = 1,
+      builders = "me"})
+  local specced = make({parent = root.id, claim = "b2", pr = 2,
+      speccers = "me"})
+  items[#items + 1] = built
+  items[#items + 1] = specced
+  local specs = ready_specs(items)
+  local nothing = act.next_action(items, specs, "me")
+  assert(nothing.kind ~= "review",
+    "built and specced diffs are offered to nobody: " .. nothing.kind)
+  assert(not nothing.reason:find("under another session's live review",
+      1, true),
+    "and the reason never blames another session's hold, because it "
+    .. "is not one: " .. nothing.reason)
+
+  local reviewable = make({parent = root.id, claim = "b3", pr = 3})
+  items[#items + 1] = reviewable
+  local stepped = act.next_action(items, specs, "me")
+  assert(stepped.kind == "review" and stepped.item.id == reviewable.id,
+    "and stepped past to the one genuine candidate: " .. stepped.item.id)
+end
+test_a_builder_or_speccer_review_is_stepped_past()
+
 local function test_anothers_live_build_is_held_a_stale_one_offered()
   local items: {Item} = {}
   local root = placed_root(items)

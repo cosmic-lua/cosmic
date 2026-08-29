@@ -11,6 +11,7 @@
 local fs = require("cosmic.fs")
 local gh = require("_work.gh")
 local flow = require("_work.flow")
+local health = require("_work.health")
 local item = require("_work.item")
 local prio = require("_work.priority")
 local publish = require("_work.publish")
@@ -120,6 +121,77 @@ local function spec_refusal(it: item.Item, session: string): string | nil
   end
   return ("REFUSED: %s is claimed by %s — rewriting another session's "
     .. "live build needs --force --why"):format(it.id:sub(1, 8), it.claim)
+end
+
+--- Seconds since one item's claim was last touched, for the lease
+--- checks — shared by every takeover path (`take`, `take_review`,
+--- `drop`) and the one-claim-per-session guard alike.
+--- @param s store.Store The store
+--- @param it item.Item The item
+--- @return health.Ages Seconds since last commit, for this item alone
+local function age_of(s: store.Store, it: item.Item): health.Ages
+  local ages: health.Ages = {}
+  local now = os.time()
+  local t = publish.touched_at(s, it.id)
+  if t ~= nil and t <= now then
+    ages[it.id] = now - t
+  end
+  return ages
+end
+
+--- Whether `session` already built or specced this item — the
+--- distance a review needs from either half of the decision: the
+--- diff (`builders`) or the spec it answers to (`speccers`). Shared by
+--- the review-claim derivation, which refuses outright with no escape
+--- (a fresh context cannot be forced into existing), and verdict
+--- recording, which allows `--force --why` as the audited repair path.
+--- @param it item.Item The item under review
+--- @param session string The session asking
+--- @return string | nil The refusal
+local function distance_refusal(it: item.Item, session: string): string | nil
+  if (session or "") == "" then
+    return nil
+  end
+  for _, name in ipairs(it.builders or {}) do
+    if name == session then
+      return ("REFUSED: %s built/specced %s — the verdict needs a fresh "
+        .. "context"):format(session, it.id:sub(1, 8))
+    end
+  end
+  for _, name in ipairs(it.speccers or {}) do
+    if name == session then
+      return ("REFUSED: %s built/specced %s — the verdict needs a fresh "
+        .. "context"):format(session, it.id:sub(1, 8))
+    end
+  end
+  return nil
+end
+
+--- The refusal a NEW claim earns when `session` already holds a live
+--- claim on another open item, or nil when it is free to claim. One
+--- claim per name, so two runners sharing a session name collide
+--- loudly here instead of silently corrupting mutual exclusion. Never
+--- forced away — a collision is never repair, unlike a takeover — and
+--- never asked about the item being claimed itself: a re-take of a
+--- session's own item names no OTHER item and never refuses here.
+--- @param s store.Store The store
+--- @param all {item.Item} Every item
+--- @param id string The item being claimed
+--- @param session string The claiming session
+--- @return string | nil The refusal
+local function second_claim_refusal(s: store.Store, all: {item.Item},
+    id: string, session: string): string | nil
+  if (session or "") == "" then
+    return nil
+  end
+  for _, other in ipairs(all) do
+    if other.id ~= id and item.is_open(other) and other.claim == session
+    and not health.is_stale(other, age_of(s, other)) then
+      return ("REFUSED: %s already holds %s — one claim per worker; drop "
+        .. "it or finish it first"):format(session, other.id:sub(1, 8))
+    end
+  end
+  return nil
 end
 
 --- Save an item and publish the commit. Everything one mutation
@@ -270,6 +342,10 @@ local record gitgate
   forced_suffix: function(force: boolean, why: string): string
   base_refusal: function(current: string, base: string, id: string): string
   spec_refusal: function(it: item.Item, session: string): string
+  age_of: function(s: store.Store, it: item.Item): health.Ages
+  distance_refusal: function(it: item.Item, session: string): string
+  second_claim_refusal: function(s: store.Store, all: {item.Item},
+  id: string, session: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
   message: string, also?: {item.Item}): boolean, string
   containered: function(parent: item.Item): {item.Item}
@@ -287,6 +363,9 @@ local M: gitgate = {
   forced_suffix = forced_suffix,
   base_refusal = base_refusal,
   spec_refusal = spec_refusal,
+  age_of = age_of,
+  distance_refusal = distance_refusal,
+  second_claim_refusal = second_claim_refusal,
   commit_and_publish = commit_and_publish,
   containered = containered,
   handover_refusal = handover_refusal,

@@ -72,8 +72,34 @@ local function git_ok(s: Store, argv: {string}): child.Result | nil, string
   return r
 end
 
+--- Create a state repository at `dir`: a git worktree (initialized
+--- when none is there yet) holding an `items/` directory with a
+--- `.gitkeep`, so a repo with no items yet still has something for
+--- git to track. What `open` requires already exists after this.
+--- @param dir string The directory to prepare
+--- @return boolean True on success
+--- @return string Error message
+local function init_repo(dir: string): boolean, string
+  if not fs.is_dir(fs.join(dir, ".git")) then
+    local r, err = child.run({"git", "init", "-q", dir})
+    if r == nil or not r.ok then
+      return false, err or (r and r.stderr) or "git init failed"
+    end
+  end
+  local made, merr = fs.make_dirs(fs.join(dir, "items"))
+  if not made then
+    return false, merr
+  end
+  local kept, kerr = fs.write(fs.join(dir, "items", ".gitkeep"), "")
+  if not kept then
+    return false, kerr
+  end
+  return true
+end
+
 --- Open a state repository checkout. The root must be a git worktree
---- holding an `items/` directory — `gitboard init` creates both.
+--- holding an `items/` directory — `gitboard init` (`init_repo`)
+--- creates both.
 --- @param root string Checkout root
 --- @return Store | nil The store
 --- @return string Error message
@@ -269,6 +295,7 @@ local record store
   LOST_RACE: string
   git: function(s: Store, argv: {string}): child.Result | nil, string
   git_ok: function(s: Store, argv: {string}): child.Result | nil, string
+  init_repo: function(dir: string): boolean, string
   open: function(root: string): Store | nil, string
   item_path: function(s: Store, id: string): string
   spec_path: function(s: Store, id: string): string
@@ -285,6 +312,7 @@ local M: store = {
   LOST_RACE = LOST_RACE,
   git = git,
   git_ok = git_ok,
+  init_repo = init_repo,
   open = open,
   item_path = item_path,
   spec_path = spec_path,

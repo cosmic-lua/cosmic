@@ -162,7 +162,10 @@ local CSPEC: flags.CommandSpec = {
           {long = "head", arg = "SHA", help = "head commit it judges"},
           {long = "session", arg = "SESSION",
             help = "the reviewing session; it rides in the commit "
-            .. "subject. Omit to derive it from the environment"}}}},
+            .. "subject. Omit to derive it from the environment"},
+          {long = "force", help = "record over the distance guard "
+            .. "(the session built or specced this item) — repair only"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "done", summary = "end ID, recording why (an accepted PR is "
       .. "verified merged first)",
       spec = {usage = "ID [options]", flags = {dir_flag(),
@@ -313,7 +316,8 @@ local function main(...: string): integer
     end
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     local who = session.resolve(d.parsed.values["session"])
-    return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "", who)
+    return vrd.cmd_verdict(s, id, kind, pr, d.parsed.values["head"] or "", who,
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   if d.command == "done" then
     return verbs.cmd_done(s, id, d.parsed.values["reason"] or "completed",

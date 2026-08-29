@@ -11,7 +11,6 @@
 --- `publish.publish`, whose rejected-push path drops the mutation
 --- whole, re-syncs, and refuses — re-running the verb re-applies
 --- every gate against the merged board.
-local child = require("cosmic.child")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
@@ -23,21 +22,15 @@ local publish = require("_work.publish")
 local review = require("_work.review")
 local store = require("_work.store")
 
+--- init: prepare a state repository at `dir` — the mechanics live in
+--- `store.init_repo`, alongside `open`, the other half of the same
+--- contract; this is just its verdict line.
+--- @param dir string The directory to prepare
+--- @return integer Exit code
 local function cmd_init(dir: string): integer
-  if not fs.is_dir(fs.join(dir, ".git")) then
-    local r, err = child.run({"git", "init", "-q", dir})
-    if r == nil or not r.ok then
-      return gate.verdict_line("init", false,
-        err or (r and r.stderr) or "git init failed")
-    end
-  end
-  local made, merr = fs.make_dirs(fs.join(dir, "items"))
-  if not made then
-    return gate.verdict_line("init", false, merr)
-  end
-  local kept, kerr = fs.write(fs.join(dir, "items", ".gitkeep"), "")
-  if not kept then
-    return gate.verdict_line("init", false, kerr)
+  local ok, err = store.init_repo(dir)
+  if not ok then
+    return gate.verdict_line("init", false, err)
   end
   return gate.verdict_line("init", true,
     ("state repository ready at %s"):format(dir))
@@ -95,21 +88,6 @@ local function cmd_spec(s: store.Store, id: string, file: string,
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 
---- The age of one item's claim, for the lease checks, read from its
---- last board commit.
---- @param s store.Store The store
---- @param it item.Item The item
---- @return health.Ages Seconds since last commit, for this item alone
-local function age_of(s: store.Store, it: item.Item): health.Ages
-  local ages: health.Ages = {}
-  local now = os.time()
-  local t = publish.touched_at(s, it.id)
-  if t ~= nil and t <= now then
-    ages[it.id] = now - t
-  end
-  return ages
-end
-
 --- The review claim inside `take`: the lock pushed BEFORE the
 --- reading starts, so two sessions never verify one diff. Reached by
 --- derivation, not by a verb of its own — an item awaiting a verdict,
@@ -125,6 +103,13 @@ end
 --- @return integer Exit code
 local function take_review(s: store.Store, it: item.Item, session: string,
     force: boolean, why: string): integer
+  -- The distance guard binds here with no --force escape: a fresh
+  -- context cannot be forced into existing, so a session that already
+  -- built or specced this item never claims its review, live or stale.
+  local distance = gate.distance_refusal(it, session)
+  if distance then
+    return gate.verdict_line("take", false, distance)
+  end
   local id8 = it.id:sub(1, 8)
   if (it.reviewer or "") == session then
     return gate.verdict_line("take", true,
@@ -136,7 +121,7 @@ local function take_review(s: store.Store, it: item.Item, session: string,
   -- diff is anyone's again — the takeover is noted, never gated.
   local taken = ""
   if (it.reviewer or "") ~= "" then
-    if not health.is_review_stale(it, age_of(s, it)) and not force then
+    if not health.is_review_stale(it, gate.age_of(s, it)) and not force then
       return gate.verdict_line("take", false,
         ("REFUSED: %s is under review by %s — take over a live review "
           .. "with --force --why"):format(id8, it.reviewer))
@@ -225,7 +210,7 @@ local function cmd_take(s: store.Store, id: string, session: string,
   -- only on the record; a stale one is anyone's again, noted.
   local taken = ""
   if (it.claim or "") ~= "" and it.claim ~= session then
-    if not health.is_stale(it, age_of(s, it)) and not force then
+    if not health.is_stale(it, gate.age_of(s, it)) and not force then
       return gate.verdict_line("take", false,
         ("REFUSED: %s is claimed by %s — take over a live claim with "
           .. "--force --why"):format(id:sub(1, 8), it.claim))
@@ -261,6 +246,16 @@ local function cmd_take(s: store.Store, id: string, session: string,
       if bound then
         return gate.verdict_line("take", false, "REFUSED: " .. bound)
       end
+    end
+  end
+  -- One claim per session, never forced away: a collision here is
+  -- never repair, unlike a takeover. Only a genuinely NEW claim asks —
+  -- a re-take of the session's own item leaves `it.claim` unchanged
+  -- and never reaches this.
+  if (it.claim or "") ~= session then
+    local collision = gate.second_claim_refusal(s, all, id, session)
+    if collision then
+      return gate.verdict_line("take", false, collision)
     end
   end
   it.claim = session
@@ -351,7 +346,7 @@ local function cmd_drop(s: store.Store, id: string, session: string,
         id:sub(1, 8)))
   end
   if (it.claim or "") ~= "" and it.claim ~= (session or "")
-  and not health.is_stale(it, age_of(s, it)) and not force then
+  and not health.is_stale(it, gate.age_of(s, it)) and not force then
     return gate.verdict_line("drop", false,
       ("REFUSED: %s is %s's live claim — the builder drops their own "
         .. "work; abandon a dead session's with --force"):format(

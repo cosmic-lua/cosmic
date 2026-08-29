@@ -79,21 +79,28 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
 end
 test_a_verdict_refuses_a_pair_it_already_judged()
 
--- The verb keeps no identity distance: the session named on the claim
--- accepts its own item, because review isolation is carried by the
--- review procedure — a subagent holding the diff and the spec and
--- nothing else — and the log, not the verb, is the audit.
-local function test_the_builder_may_verdict_its_own_item()
+-- The verb DOES keep an identity distance now: the session named on
+-- the claim (`it.builders`, joined by `take`) is refused a verdict on
+-- its own item, `--force` alone is not enough, and only `--force
+-- --why` records it, the audited repair path.
+local function test_the_builder_needs_force_to_verdict_its_own_item()
   local s = init_state_repo("verdict-session")
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 11)
-  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a") == 0,
-    "the session that built it may accept it")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a") ~= 0,
+    "the session that built it may not accept it")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a",
+      true) ~= 0, "--force without --why is refused")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a",
+      true, "solo repair, nobody else to review it") == 0,
+    "--force --why records it")
   local events = check.must(publish.history(s, leaf))
   assert(events[1].subject:find(" by session-a", 1, true),
     "and the log says who judged: " .. events[1].subject)
+  assert(events[1].subject:find("(forced: solo repair", 1, true),
+    "and that it was forced: " .. events[1].subject)
 end
-test_the_builder_may_verdict_its_own_item()
+test_the_builder_needs_force_to_verdict_its_own_item()
 
 -- Every board commit is authored as one fixed identity, so the subject
 -- is the only place the log can record who judged.

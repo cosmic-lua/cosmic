@@ -48,8 +48,24 @@ local KINDS: {string: boolean} = {
   ["reject"] = true,
 }
 
+--- @param s store.Store The store
+--- @param id string The item under verdict
+--- @param kind string accept | request changes | reject (aliases apply)
+--- @param pr integer The PR the verdict judges, 0 to use the item's own
+--- @param head string The head commit the verdict judges
+--- @param session string | nil The reviewing session; rides in the subject
+--- @param force boolean | nil Record over the distance guard — repair only
+--- @param why string | nil Why --force was needed
+--- @return integer Exit code
 local function cmd_verdict(s: store.Store, id: string, kind: string,
-    pr: integer, head: string, session?: string): integer
+    pr: integer, head: string, session?: string, force?: boolean,
+    why?: string): integer
+  local frc = force or false
+  local rsn = why or ""
+  local forced = gate.force_refusal(frc, rsn)
+  if forced then
+    return gate.verdict_line("verdict", false, "REFUSED: " .. forced)
+  end
   kind = KIND_ALIASES[kind] or kind
   if not KINDS[kind] then
     return gate.verdict_line("verdict", false,
@@ -60,6 +76,16 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   local it, lerr = store.load(s, id)
   if it == nil then
     return gate.verdict_line("verdict", false, lerr)
+  end
+  -- The distance guard, same predicate the review-claim derivation
+  -- refuses on — here with `--force --why` as the audited repair
+  -- escape, since a verdict already recorded is a fact to correct on
+  -- the log, not a claim to take over.
+  if not frc then
+    local distance = gate.distance_refusal(it, session or "")
+    if distance then
+      return gate.verdict_line("verdict", false, distance)
+    end
   end
   local all, aerr = store.list(s)
   if all == nil then
@@ -186,7 +212,8 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
     by = (" by %s"):format(session)
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("verdict %s %s%s%s"):format(id:sub(1, 8), kind, by, landed), also)
+    ("verdict %s %s%s%s%s"):format(id:sub(1, 8), kind, by, landed,
+      gate.forced_suffix(frc, rsn)), also)
   if not ok then
     return gate.verdict_line("verdict", false, err)
   end
@@ -200,7 +227,8 @@ end
 
 local record gitverdict
   cmd_verdict: function(s: store.Store, id: string, kind: string,
-  pr: integer, head: string, session?: string): integer
+  pr: integer, head: string, session?: string, force?: boolean,
+  why?: string): integer
 end
 
 local M: gitverdict = {
