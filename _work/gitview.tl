@@ -17,6 +17,7 @@ local item = require("_work.item")
 local act = require("_work.action")
 local lanes = require("_work.lanes")
 local prio = require("_work.priority")
+local publish = require("_work.publish")
 local sess = require("_work.session")
 local store = require("_work.store")
 local tail = require("_work.tail")
@@ -36,7 +37,7 @@ local function claim_ages(s: store.Store, all: {item.Item}): health.Ages
   for _, i in ipairs(all) do
     if item.is_open(i)
     and ((i.claim or "") ~= "" or (i.reviewer or "") ~= "") then
-      local t = store.touched_at(s, i.id)
+      local t = publish.touched_at(s, i.id)
       if t ~= nil and t <= now then
         ages[i.id] = now - t
       end
@@ -276,7 +277,7 @@ local function next_report_live(s: store.Store, all: {item.Item},
     specs: act.Specs, session?: string, ages?: health.Ages): string
   local action = act.next_action(all, specs, session, ages, session)
   if action.kind == "pull" and action.item then
-    local events = store.history(s, action.item.id)
+    local events = publish.history(s, action.item.id)
     if events and events[1] then
       action.reason = action.reason .. bounce_note(events[1].subject)
     end

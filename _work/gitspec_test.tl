@@ -10,6 +10,7 @@ local check = require("cosmic.check")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local fs = require("cosmic.fs")
+local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
@@ -228,7 +229,7 @@ local function test_spec_force_and_why_overrides_a_foreign_claim()
       "builder-a's session died mid-build") == 0,
     "forced, with a reason, the foreign write lands")
   assert(store.read_spec(s, leaf):find("Overridden.", 1, true) ~= nil)
-  local events = check.must(store.history(s, leaf))
+  local events = check.must(publish.history(s, leaf))
   assert(events[1].subject:find("forced: builder-a's session died mid-build",
       1, true), "the reason rides the commit: " .. events[1].subject)
 end

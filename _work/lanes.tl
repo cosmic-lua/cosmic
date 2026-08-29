@@ -17,6 +17,7 @@ local gh = require("_work.gh")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local literal = require("cosmic.literal")
+local publish = require("_work.publish")
 local store = require("_work.store")
 
 --- The scheduled workflows the board tracks, by filename under
@@ -179,7 +180,7 @@ local function record(s: store.Store, facts: {string: string}): boolean, string
     return false, ("git commit failed: %s"):format(
       committed and committed.stderr or "could not start git")
   end
-  return store.publish(s)
+  return publish.publish(s)
 end
 
 --- Whether `it` is the open repair item for `lane` — the search

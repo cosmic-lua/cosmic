@@ -7,6 +7,7 @@
 
 local check = require("cosmic.check")
 local flow = require("_work.flow")
+local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
 local graph = require("_work.gitgraph")
@@ -43,7 +44,7 @@ local function test_a_reparent_survives_a_rebase()
   local a, b = init_shared("attach-race")
   local goal, leaf = root_with_leaf(a)
   local other = file_item(a, "another leaf", goal)
-  assert(store.sync(b))
+  assert(publish.sync(b))
   for i = 1, 3 do
     assert(graph.cmd_new(b, ("theirs %d"):format(i), goal, nil, "") == 0)
   end

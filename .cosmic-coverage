@@ -21,6 +21,7 @@ return {
   ["_work/ksuid.tl"] = {["covered"] = 68, ["total"] = 75},
   ["_work/lanes.tl"] = {["covered"] = 94, ["total"] = 127},
   ["_work/priority.tl"] = {["covered"] = 163, ["total"] = 179},
+  ["_work/publish.tl"] = {["covered"] = 82, ["total"] = 93},
   ["_work/review.tl"] = {["covered"] = 65, ["total"] = 65},
   ["_work/session.tl"] = {["covered"] = 44, ["total"] = 44},
   ["_work/spec.tl"] = {["covered"] = 31, ["total"] = 31},

@@ -7,9 +7,9 @@
 local check = require("cosmic.check")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local publish = require("_work.publish")
 local show = require("_work.gitshow")
 local spec = require("_work.spec")
-local store = require("_work.store")
 local tail = require("_work.tail")
 
 local seq = 0
@@ -59,7 +59,7 @@ end
 
 local function test_show_prints_fields_role_and_history()
   local all = a_board()
-  local events: {store.Event} = {
+  local events: {publish.Event} = {
     {sha = "abc1234", at = "2026-08-17T00:00:00Z", subject = "move it"},
   }
   local lines, verdict = show.show_report(all[3], all, "## Change\ndo it\n",
