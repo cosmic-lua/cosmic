@@ -5,6 +5,7 @@ _work/api.tl 10 27
 _work/decision.tl 3 3
 _work/fixture.tl 83 85
 _work/flow.tl 209 229
+_work/flowstats.tl 141 175
 _work/gh.tl 14 73
 _work/gitboard.tl 0 92
 _work/gitcompare.tl 41 47
