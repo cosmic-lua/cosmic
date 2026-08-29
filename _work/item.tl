@@ -34,6 +34,10 @@ local record Item
   parent: string
   --- The owner/name the item's PR lands in; "" = the board's origin.
   repo: string
+  --- The scheduled workflow file this item repairs; "" for ordinary
+  --- items. `_work.lanes.mint`'s idempotency key: at most one OPEN
+  --- item may carry a given lane.
+  lane: string
   --- Items this one is ranked ABOVE, each by id: the priority
   --- relation, recorded on the winner of a comparison. Stored as one
   --- "id id" string — the literal domain has no lists. Any item may
@@ -98,6 +102,7 @@ local SPEC < const > = shape.record({
     title = shape.optional(shape.string),
     parent = shape.optional(shape.string),
     repo = shape.optional(shape.string),
+    lane = shape.optional(shape.string),
     beats = shape.optional(shape.string),
     blocked_by = shape.optional(shape.string),
     block_reason = shape.optional(shape.map(shape.string)),
@@ -120,6 +125,7 @@ local record Raw
   title: string | nil
   parent: string | nil
   repo: string | nil
+  lane: string | nil
   beats: string | nil
   blocked_by: string | nil
   block_reason: {string: string} | nil
@@ -262,6 +268,7 @@ local function decode(t: {string: any}): Item | nil, string
     title = raw.title or "",
     parent = raw.parent or "",
     repo = raw.repo or "",
+    lane = raw.lane or "",
     beats = beats,
     blocked_by = blocked,
     block_reason = reasons,
@@ -292,6 +299,7 @@ local function encode(it: Item): {string: any}
   }
   if (it.parent or "") ~= "" then t.parent = it.parent end
   if (it.repo or "") ~= "" then t.repo = it.repo end
+  if (it.lane or "") ~= "" then t.lane = it.lane end
   if #(it.beats or {}) > 0 then
     t.beats = table.concat(it.beats, " ")
   end

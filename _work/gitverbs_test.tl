@@ -320,3 +320,14 @@ local function test_a_take_survives_a_lost_race()
     "the mutation leaves no stray change: " .. r.stdout)
 end
 test_a_take_survives_a_lost_race()
+
+-- sync rebases and then asks about lane health; a local-only checkout
+-- has no origin, so lane health comes back unknown rather than red,
+-- and sync itself still succeeds — the same shape a token-less or
+-- offline session sees. `_work.lanes_test` drives `observe`/`record`/
+-- `mint` directly; this pins that `cmd_sync` reaches them at all.
+local function test_sync_asks_about_lanes_and_survives_not_knowing()
+  local s = init_state_repo("sync-lanes")
+  assert(verbs.cmd_sync(s) == 0, "an unknown lane state does not fail sync")
+end
+test_sync_asks_about_lanes_and_survives_not_knowing()

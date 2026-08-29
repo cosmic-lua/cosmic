@@ -18,6 +18,7 @@ local gh = require("_work.gh")
 local fs = require("cosmic.fs")
 local health = require("_work.health")
 local item = require("_work.item")
+local lanes = require("_work.lanes")
 local review = require("_work.review")
 local store = require("_work.store")
 
@@ -452,10 +453,24 @@ local function cmd_done(s: store.Store, id: string, reason: string,
     ("%s %s (%s)%s"):format(id:sub(1, 8), reason, from, returned))
 end
 
+-- Lane health (`_work.lanes`): a `nil` observe (offline, no token)
+-- prints and is never treated as red.
 local function cmd_sync(s: store.Store): integer
   local ok, err = store.sync(s)
   if not ok then
     return gate.verdict_line("sync", false, err)
+  end
+  local facts, lerr = lanes.observe(s)
+  if facts == nil then
+    print(("gitboard-sync: lanes: unknown (%s)"):format(lerr))
+  else
+    local _rok, _rerr = lanes.record(s, facts)
+    local _mok, _merr = lanes.mint(s, facts)
+    for _, lane in ipairs(lanes.LANES) do
+      if facts[lane] ~= "success" then
+        print(("gitboard-sync: lane %s is %s"):format(lane, facts[lane]))
+      end
+    end
   end
   return gate.verdict_line("sync", true, "state is current")
 end
