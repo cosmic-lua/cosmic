@@ -39,9 +39,9 @@ local record Event
   --- drop: released the review claim rather than the item; a bounce
   --- is a drop with this false.
   review_drop: boolean
-  --- verdict: "accept" | "request changes". Any other kind (a
-  --- "reject", or an older log grammar this file does not parse) is
-  --- an event `events_of` does not emit at all.
+  --- verdict: "accept" | "request changes" | "reject". Any other kind
+  --- (an older log grammar this file does not parse) is an event
+  --- `events_of` does not emit at all.
   verdict_kind: string
   --- done: "completed" | "not-planned".
   reason: string
@@ -72,8 +72,8 @@ local record Stats
   lead_p50_s: integer
   --- 90th-percentile lead_s across `items`.
   lead_p90_s: integer
-  --- Request-changes verdicts across `items` — the rework rate's
-  --- numerator.
+  --- Request-changes and reject verdicts across `items` — the rework
+  --- rate's numerator.
   rework_accepts: integer
   --- All verdicts across `items` — the rework rate's denominator.
   rework_total: integer
@@ -119,8 +119,9 @@ local function try_drop(ts: integer, rest: string): Event | nil
   return nil
 end
 
---- A `verdict ID accept...` or `verdict ID request changes...` line,
---- or nil for any other kind (a reject, or an older log's grammar).
+--- A `verdict ID accept...`, `verdict ID request changes...`, or
+--- `verdict ID reject...` line, or nil for any other kind (an older
+--- log's grammar).
 local function try_verdict(ts: integer, rest: string): Event | nil
   local id, after = rest:match("^verdict (%S+) (.*)$")
   if id == nil then
@@ -131,6 +132,8 @@ local function try_verdict(ts: integer, rest: string): Event | nil
     kind = "request changes"
   elseif after:match("^accept") then
     kind = "accept"
+  elseif after:match("^reject") then
+    kind = "reject"
   end
   if kind == "" then
     return nil
@@ -252,7 +255,9 @@ local function stats_of(events: {Event}): Stats
       a.drops = a.drops + 1
     elseif e.kind == "verdict" then
       a.verdicts = a.verdicts + 1
-      if e.verdict_kind == "request changes" then
+      -- A reject is a send-away, at least as much rework as a
+      -- request-changes: both count against the numerator.
+      if e.verdict_kind == "request changes" or e.verdict_kind == "reject" then
         a.rework = a.rework + 1
       end
     elseif e.kind == "done" and e.reason == "completed" then

@@ -54,6 +54,14 @@ local function test_take_pr_is_optional()
 end
 test_take_pr_is_optional()
 
+local function test_a_reject_verdict_parses()
+  local events = flowstats.events_of({"100 verdict abc12345 reject by rev-x"})
+  assert(#events == 1 and events[1].kind == "verdict"
+    and events[1].verdict_kind == "reject",
+    "reject verdict parses: got " .. events[1].verdict_kind)
+end
+test_a_reject_verdict_parses()
+
 local function test_a_review_drop_parses_with_the_flag_set()
   local events = flowstats.events_of(
     {"100 drop abcd1234 review: looks dead to me"})
@@ -113,6 +121,27 @@ local function test_a_rework_round_then_accept_counts_two_rounds()
     "lead is the first take (100) to done (140): got " .. it.lead_s)
 end
 test_a_rework_round_then_accept_counts_two_rounds()
+
+-- take -> reject -> take (a reject clears the claim by the verb itself,
+-- no separate drop line) -> accept -> done: two rounds, and the reject
+-- counts toward rework just as a request-changes would — 1 of 2.
+local function test_a_reject_then_fresh_take_and_accept_counts_two_rounds()
+  local events: {Event} = {
+    take(100, "item0006", 0),
+    verdict(110, "item0006", "reject"),
+    take(200, "item0006", 0),
+    verdict(210, "item0006", "accept"),
+    done(220, "item0006", "completed"),
+  }
+  local stats = flowstats.stats_of(events)
+  assert(#stats.items == 1, "one completed item: got " .. #stats.items)
+  local it = stats.items[1]
+  assert(it.rounds == 2, "two verdicts: got " .. it.rounds)
+  assert(stats.rework_total == 2, "two verdicts total: got " .. stats.rework_total)
+  assert(stats.rework_accepts == 1,
+    "reject counts as rework, accept doesn't: got " .. stats.rework_accepts)
+end
+test_a_reject_then_fresh_take_and_accept_counts_two_rounds()
 
 -- take -> drop -> take -> ... -> done: one bounce, and the lead still
 -- runs from the FIRST take — time spent back in the queue after a
