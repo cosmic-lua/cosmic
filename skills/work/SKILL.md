@@ -90,9 +90,9 @@ an open workable leaf is in exactly one of two states, and everything
 finer is derived from facts the item already carries — there are no
 stage columns and no per-column WIP limits:
 
-- **todo** — unclaimed. it is *pullable* when its spec passes
-  `gitboard check` (the spec bar below); otherwise refining it toward
-  that bar IS the work it offers.
+- **todo** — unclaimed. it is *pullable* when its spec passes the
+  bar `gitboard show ID` prints (the spec bar below); otherwise
+  refining it toward that bar IS the work it offers.
 - **doing** — claimed. the claim is the lock and a lease: claim
   before you build, and a claim idle past its lease is anyone's
   again. within doing, the facts say what happens next: no PR yet —
@@ -109,8 +109,8 @@ come and go — claims and open PRs outlive the sessions that made
 them, so a fleet with no bound accumulates half-finished work faster
 than reviews retire it. finishing motions (a release, a verdict, a
 merge, a takeover of a stale claim) are never refused: the bound
-throttles starting, never finishing. the number is the tool's —
-`status` prints the count against it — and it forces the right-to-left
+throttles starting, never finishing. the number is the tool's — bare
+`show` prints the count against it — and it forces the right-to-left
 ordering mechanically: a session that cannot take is a session whose
 next action is to review, rework, or merge.
 
@@ -170,9 +170,11 @@ mints one distinct name per agent it spawns.
    the loop routes you back to this item.
 
 **out-of-scope findings** (a real defect, a stale doc, a gap the item
-sits next to but does not own): `gitboard find <phrase>` first — cite
-an existing item rather than duplicate it — else `gitboard new
-"title" --spec-file F` with one paragraph of evidence, unparented.
+sits next to but does not own): search first — the board is a git
+checkout of text files, so `grep -ril '<phrase>' items/` in the board
+worktree answers "already filed?" — and cite the existing item rather
+than duplicate it; else `gitboard new "title" --spec-file F` with one
+paragraph of evidence, unparented.
 filing is never refused. then back to the item: never widen the diff
 to cover a finding.
 
@@ -183,8 +185,9 @@ acceptance is not per-item: `bin/cosmic --make ci` ending `ci: PASS`
 is the one definition of done every item shares, and proof specific
 to a change rides the DIFF as a test or ratchet the gate runs. a
 gate outlives the sidecar that asked for it; a sidecar command runs
-at most twice and dies with the item. `gitboard check ID` lints the
-Change's presence and that the item is placed; everything else is a
+at most twice and dies with the item. `gitboard show ID` prints the
+bar's problems — the Change's presence, the item's placement;
+everything else is a
 reader's judgment, and the test for every sentence: could a
 competent but literal-minded session, with nothing beyond this spec
 and AGENTS.md, get it wrong? if yes, it is not ready.

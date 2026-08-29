@@ -82,12 +82,20 @@
   per-phase `LIMITS`, the triage bound, and the flow-review
   instrumentation, and gains the one `DOING_LIMIT` (a change on the
   `board` branch; the existing items are migrated in one commit —
-  phases fold into the facts they restated). the board's
+  phases fold into the facts they restated). the verb surface follows
+  the same rule — a verb whose meaning the item's facts already
+  determine does not exist: `review` folds into `take` (an item
+  awaiting a verdict, taken by a session that is not its builder, can
+  only mean the review claim), `land` into `done` (which verifies the
+  accepted PR merged), `check` and `status` into `show`, `uncompare`
+  into `compare` (a direct contrary edge reverses in one commit), and
+  `tree`, `find` and `next --take` retire — twenty-one verbs become
+  fourteen. the board's
   git log keeps the old phase history readable. G8's measured-by
   becomes lead time, rework rate, and the cost ratchet — this amends
   the measured-by detail in D25, whose two-tier split stands. the
   cost accepted: sub-states are no longer visible as columns, so
-  `status`/`next` must derive them well for the board to stay
+  `show`/`next` must derive them well for the board to stay
   legible. revisit if the rework rate rises (the bar or the review
   weakening) or claim contention becomes the bottleneck (too little
   queue structure for the number of agents).
