@@ -59,5 +59,5 @@ if you read the wrapper and it's a two-line delegation to a `cosmo.*`
 call, or it already calls `unix.*` directly for every operation, there
 is no cosmic-layer fix — the cost is inside the C binding, the Lua
 runtime, or the kernel. record that finding on the item's spec and
-re-file it for the C layer (`--repo whilp/cosmopolitan`), then
+re-file it for the C layer (`--repo cosmic-lua/cosmopolitan`), then
 continue with `cosmopolitan.md`.

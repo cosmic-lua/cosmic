@@ -239,7 +239,7 @@ What it settled, and one thing it did not:
   unloadable and unextractable, and the floor is a positive list so a
   future base cannot silently start shipping a new directory. What is
   missing is compaction, which needs a zip rewrite the binding does not
-  expose — an upstream whilp/cosmopolitan change, and exactly the kind
+  expose — an upstream cosmic-lua/cosmopolitan change, and exactly the kind
   of thing the fork exists for. Until then the size table in ../payload.md is
   a projection, not a measurement.
 - **removing a directory marker removes its subtree.**

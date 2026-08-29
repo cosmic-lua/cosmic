@@ -338,7 +338,7 @@ stated: **a fresh clone cannot resolve `cosmo.*` until it has fetched and
 built once**, and an editor needs `o/_types/types_gen` on its include path.
 
 the single source of truth for `cosmo.*` is `tool/net/definitions.lua` in
-whilp/cosmopolitan, embedded in the pinned cosmos release binary at
+cosmic-lua/cosmopolitan, embedded in the pinned cosmos release binary at
 `/zip/.lua/definitions.lua`. upstream, per-module annotation-coverage
 ratchet tests guarantee every C binding is annotated; here,
 `_types/gentype.tl` parses those annotations into Teal records. `tl.d.tl`
@@ -450,7 +450,7 @@ scenario or its check to make numbers pass; never commit `o/perf/*.json`.
 
 the manual is split by chapter: `skills/optimize/finding.md` (spotting
 cosmic-layer wins), `skills/optimize/cosmopolitan.md` (the C layer against
-a local whilp/cosmopolitan build), `skills/optimize/measurement.md` (noise
+a local cosmic-lua/cosmopolitan build), `skills/optimize/measurement.md` (noise
 discipline). the backlog is perf hypotheses on the work board.
 
 ## The flow of work

@@ -6,7 +6,7 @@ classifies all of them: what each class of cast IS, and what would
 retire it. Each class gets exactly one of three verdicts. **What closes
 it here** means the mechanism exists in this repository, or writing it
 is ordinary work. **What closes it upstream** means the fix belongs in
-`whilp/cosmopolitan`'s `tool/net/definitions.lua` or in tl, and arrives
+`cosmic-lua/cosmopolitan`'s `tool/net/definitions.lua` or in tl, and arrives
 as a pin bump. **Why it is a floor** means no mechanism closes it
 without deleting the thing the cast serves.
 
@@ -152,7 +152,7 @@ not.
 ```
 
 **What closes it upstream.** These declarations are generated from
-`tool/net/definitions.lua` in `whilp/cosmopolitan`, so the annotation
+`tool/net/definitions.lua` in `cosmic-lua/cosmopolitan`, so the annotation
 there is the source: concrete per-slot return types emit concrete Teal
 types and the call-site cast disappears, arriving here as a pin bump.
 
@@ -407,7 +407,7 @@ declared correctly; looking one up by name has no typed surface.
   return (unix as {string: any})[name] as integer -- cast: dynamic E* lookup, from any
 ```
 
-**What closes it upstream.** `whilp/cosmopolitan` holds the constants
+**What closes it upstream.** `cosmic-lua/cosmopolitan` holds the constants
 and can expose them as real maps — one `{string: integer}` for the
 errno names and one for the signal names — annotated so the generator
 emits typed tables. The lookup becomes a map read with an honest `| nil`.

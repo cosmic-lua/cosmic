@@ -25,10 +25,10 @@ file in this directory so no chapter ever fights the repo's
 - `SKILL.md` — this file: the harness, the loop, the rules.
 - `finding.md` — how to find cosmic-layer opportunities.
 - `cosmopolitan.md` — how to optimize the C layer
-  (whilp/cosmopolitan) with a local build, no release required.
+  (cosmic-lua/cosmopolitan) with a local build, no release required.
 - `measurement.md` — measurement discipline and noise.
 - the hypothesis backlog — the work board (`skills/work/SKILL.md`):
-  one item per hypothesis, C-layer ones naming whilp/cosmopolitan as
+  one item per hypothesis, C-layer ones naming cosmic-lua/cosmopolitan as
   their landing repo. see "the hypothesis backlog" below.
 
 ## the harness in one minute
@@ -133,7 +133,7 @@ sqlite_point_query    4537 x   12.62 µs/op  ± 0.7%  cpu/wall 1.00  alloc 2.36 
 
 every scenario calls `cosmic.*` wrappers (Teal, this repo), which call
 the `cosmo.*` C bindings compiled into the cosmos binary (C, built from
-whilp/cosmopolitan). the same numbers therefore measure both layers, and
+cosmic-lua/cosmopolitan). the same numbers therefore measure both layers, and
 an optimization can land in either:
 
 - **cosmic layer** — pure-Lua work a C binding could do, redundant
@@ -141,7 +141,7 @@ an optimization can land in either:
   here. see `finding.md`.
 - **cosmopolitan layer** — the C bindings themselves, the Lua runtime,
   the APE loader and zip filesystem (`startup_*` scenarios). fixed in a
-  whilp/cosmopolitan checkout and measured against a locally built
+  cosmic-lua/cosmopolitan checkout and measured against a locally built
   binary by hand — you do NOT need to cut a release to
   measure a C change. see `cosmopolitan.md`.
 
@@ -257,7 +257,7 @@ code. the workflow that has worked:
    probe numbers as scouting in the issue; accept/reject decisions
    still require the real harness.
 6. one board capture per hypothesis (`gitboard new`, unparented; when
-   the fix lands in the C layer, name whilp/cosmopolitan as the
+   the fix lands in the C layer, name cosmic-lua/cosmopolitan as the
    landing repo IN THE SPEC — an unparented capture takes no `--repo`,
    and the item's repo field is set once the item is worked), each
    with the evidence, the expected mechanism, the correctness
@@ -270,7 +270,7 @@ the work board holds the log (`skills/work/SKILL.md` has the system;
 the board branch's own README has the tool) — one item per concrete,
 evidence-backed starting point, filed as an unparented capture:
 `gitboard new "<title>" --spec-file F`. a capture takes no `--repo`;
-when the fix lands in the C layer, the spec names whilp/cosmopolitan
+when the fix lands in the C layer, the spec names cosmic-lua/cosmopolitan
 as the landing repo and the item's repo field is set once it is
 worked. open =
 unworked; ended completed = done; ended not planned = a rejected dead

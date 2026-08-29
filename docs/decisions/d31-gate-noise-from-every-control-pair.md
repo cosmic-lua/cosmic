@@ -72,6 +72,6 @@
   onto and the one the tests pin: `json_decode_large`'s numbers
   reclassify to noise, `codec_base64_roundtrip_64k`'s +21% stays a
   regression and keeps refusing the release, which is correct — that
-  one is real and is worked where it lives, in whilp/cosmopolitan.
+  one is real and is worked where it lives, in cosmic-lua/cosmopolitan.
   `compare.triage`'s signature is frozen by its nine callers and stays;
   `triage_many` is the shape new callers take.

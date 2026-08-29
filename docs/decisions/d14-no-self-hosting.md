@@ -9,7 +9,7 @@
   `.ENV`/`.SANDBOXED` in landlock-make). a cosmic-native graph executor
   would close the loop and make cosmic fully self-hosting.
 - **decision:** pinned cosmo-make (the landlock-make maintained next
-  door in whilp/cosmopolitan) is a **permanent component, not a
+  door in cosmic-lua/cosmopolitan) is a **permanent component, not a
   waypoint**. the endgame shrinks what make *means* — a job-execution
   system and dependency graph, nothing else — and that is the end
   state. build capabilities arrive as landlock-make features upstream

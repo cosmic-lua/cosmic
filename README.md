@@ -17,7 +17,7 @@ and tooling for building your own single-file executables.
 download the latest release, make it executable, run it:
 
 ```sh
-curl -fsSLO https://github.com/whilp/cosmic/releases/latest/download/cosmic-lua
+curl -fsSLO https://github.com/cosmic-lua/cosmic/releases/latest/download/cosmic-lua
 chmod +x cosmic-lua
 ./cosmic-lua --version
 ```
@@ -26,7 +26,7 @@ to verify the download, fetch `SHA256SUMS` from the same release and
 check it:
 
 ```sh
-curl -fsSLO https://github.com/whilp/cosmic/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/cosmic-lua/cosmic/releases/latest/download/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
@@ -80,7 +80,7 @@ hello.tl` checks without running. `./cosmic-lua -i` starts a REPL, and
   system sees a project
 - [docs/contributing.md](docs/contributing.md) and
   [AGENTS.md](AGENTS.md) — developing cosmic itself
-- [whilp/cosmopolitan](https://github.com/whilp/cosmopolitan) — the
+- [cosmic-lua/cosmopolitan](https://github.com/cosmic-lua/cosmopolitan) — the
   Cosmopolitan fork that provides the C core
 
 ## license

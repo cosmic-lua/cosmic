@@ -3,7 +3,7 @@
 ## Development Setup
 
 ```bash
-git clone https://github.com/whilp/cosmic
+git clone https://github.com/cosmic-lua/cosmic
 cd cosmic
 bin/cosmic --make fetch   # resolve the pins (the only networked verb)
 bin/cosmic --make build   # build cosmic

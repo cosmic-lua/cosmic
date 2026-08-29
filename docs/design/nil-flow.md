@@ -346,7 +346,7 @@ passed". No call site in this tree does that — every one passes at
 least one non-nil path — so the nil is unreachable and the union is a
 declaration Teal cannot make precise. It is the single largest
 mechanical win available, and it is a `definitions.lua` question in
-whilp/cosmopolitan, not a cosmic one.
+cosmic-lua/cosmopolitan, not a cosmic one.
 
 **Optional record fields**, 30 sites across `cosmic/format/init.tl:22`,
 `cosmic/_teal_engine.tl:50`, `_tool/example.tl`, `_tool/benchmark.tl`,

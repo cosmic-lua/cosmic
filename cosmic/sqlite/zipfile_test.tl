@@ -29,7 +29,7 @@ local function test_zipfile_module_is_registered()
     "SELECT name FROM pragma_module_list WHERE name = 'zipfile'")
   assert(row ~= nil,
     "sqlite did not register the zipfile module — look at " ..
-    "sqlite3_zipfile_init in whilp/cosmopolitan tool/net/lsqlite3.c")
+    "sqlite3_zipfile_init in cosmic-lua/cosmopolitan tool/net/lsqlite3.c")
   check.equal(tostring(row.name), "zipfile")
   assert(db:close())
 end
