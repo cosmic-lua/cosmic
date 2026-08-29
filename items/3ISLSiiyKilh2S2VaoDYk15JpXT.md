@@ -1,28 +1,63 @@
-`gitboard spec ID FILE` rewrites an item's spec sidecar in any phase,
-with no claim check and no phase check, so a refining session can
-silently replace the definition of work a DIFFERENT session has already
-built and handed to review.
+## Change
 
-Observed 2026-08-26, sessions f00d09f2 and 7b2d5794 on item 3ISJKfRg.
-`next` (f00d09f2) answered `refine 3ISJKfRg … plan holds` and that
-session began measuring. While it measured, 7b2d5794 claimed the item,
-implemented it and opened PR #1406, moving it `do -> check` at 14:02.
-f00d09f2's `gitboard spec 3ISJKfRg …` then succeeded at 14:0x against an
-item in `check` carrying another session's claim, replacing the
-one-paragraph spec the PR was built from with a five-section one. The
-reviewer now judges a diff against a spec written after it, by a session
-that never saw the diff. Here the two happened to describe the same two
-edits, so nothing was harmed; a spec that had asked for anything more
-would have failed a PR for not implementing a requirement that did not
-exist when it was written.
+`gitboard spec` refuses to rewrite the spec of an item that is in
+flight under another session, unless forced on the record.
 
-The push-as-compare-and-swap does not cover this: it refuses two sessions
-editing the same item only when their commits race, and these did not —
-the `move` landed first and the `spec` rebased cleanly on top of it.
+Reproduced 2026-08-29 on a scratch board (merged two-state machinery,
+board head f10c9b6): builder-a `take` then `take --pr 7`; then
 
-Candidate shapes: `spec` refuses an item in `do`/`check`/`land` unless
-`--force`, the way the ready bar's other invariants are enforced; or it
-refuses only when the item carries a claim belonging to a different
-session, which still allows a claimant to refresh measured facts at pull
-(the slice loop's step 2 requires exactly that). The second is the
-narrower rule and matches what the skill already says the verb is for.
+    GITBOARD_SESSION=refiner-b gitboard spec ID new.md --base base.md
+    gitboard-spec: 3Ib1Jdko's spec replaced
+
+— a foreign session silently replaced the definition of work another
+session had already built and handed to review. The `--base`
+compare-and-swap only proves the writer READ the current text, not
+that the item is theirs to redefine. (Original incident: sessions
+f00d09f2/7b2d5794 on 3ISJKfRg, PR #1406.)
+
+The change, in three files:
+
+1. `_work/gitgate.tl` (198 lines now — `wc -l < _work/gitgate.tl`):
+   move `base_refusal` verbatim from `_work/gitverbs.tl` (lines
+   42-79 there) into gitgate beside the other gates, and add one new
+   guard beside it:
+
+       spec_refusal(it, session): string | nil
+
+   returning a refusal exactly when `flow.is_doing(it)` and
+   `(it.claim or "") ~= ""` and `it.claim ~= (session or "")` — an
+   in-flight item's spec is its claim holder's to move. The refusal
+   text names the holder and the override: rewriting another
+   session's live build needs `--force --why`. Export both from the
+   gitgate record.
+2. `_work/gitverbs.tl` (494 lines now — `wc -l < _work/gitverbs.tl`,
+   6 under the 500 cap, which is why `base_refusal` moves OUT):
+   `cmd_spec` gains `session`, `force`, `why` parameters; it applies
+   `gate.force_refusal` (as `take`/`done` do), then `gate.spec_refusal`
+   unless forced, then the moved `gate.base_refusal`. A forced write
+   appends `gate.forced_suffix` to the commit subject. Net line
+   delta for this file must be negative.
+3. `_work/gitboard.tl`: the `spec` command spec gains `--session`,
+   `--force`, `--why` flags (same help text shape as `drop`'s), and
+   the dispatch passes `session.resolve(...)` and the two flags.
+
+What stays legal, deliberately: the claim HOLDER rewriting their own
+item's spec at any point (spec-only rework answering a bounce is a
+designed path — the verdict pair and `show`'s spec-changed-since
+line make it visible), and any write to an UNCLAIMED item (todo, or
+a dropped one). Only the foreign-live-claim write gains a gate.
+
+Tests in `_work/gitspec_test.tl`: the reproduced scenario refuses
+(foreign session, claim + pr standing) and the item file and sidecar
+are unchanged after the refusal; the holder's own rewrite with
+`--base` still lands; `--force` without `--why` refuses; with both
+it lands and the commit subject carries the forced suffix. Existing
+base-CAS tests keep passing unchanged except for the added
+parameters at call sites.
+
+## Non-goals
+
+Existing verdict-line formats and refusal texts are unchanged (new
+refusals only, in the standing `REFUSED: ...` shape). No new verb.
+No claim check on any other verb. The reviewer field holds no spec
+lock — only the build claim gates.
