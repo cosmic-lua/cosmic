@@ -43,7 +43,7 @@ runs:
         esac
         body=$(printf '{"state":"%s","context":"%s","description":"cosmic gate: %s","target_url":"%s/%s/actions/runs/%s"}' \
           "$state" "$CONTEXT" "$JOB_STATUS" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
-        curl -sS -X POST \
+        curl -sS --fail-with-body -X POST \
           -H "Authorization: Bearer $GH_TOKEN" \
           -H "Accept: application/vnd.github+json" \
           "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$SHA" \
