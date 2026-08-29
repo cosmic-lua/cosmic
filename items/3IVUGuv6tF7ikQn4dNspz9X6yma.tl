@@ -4,5 +4,6 @@ return {
   ["id"] = "3IVUGuv6tF7ikQn4dNspz9X6yma",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1503,
+  ["reviewer"] = "review-3IVUGuv6-1788019157",
   ["title"] = "a verdict can record a verdict_head that is not the PR head it judged, and land depends on that field",
 }
