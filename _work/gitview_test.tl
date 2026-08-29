@@ -127,6 +127,29 @@ local function test_next_names_one_action_and_its_rule()
 end
 test_next_names_one_action_and_its_rule()
 
+-- A drop's subject carries the gap; `next`'s offer surfaces it so the
+-- next session starts from the recorded gap instead of re-discovering
+-- it. A reviewer-release drop is not a bounce, and neither is a take.
+local function test_bounce_note_reads_a_drops_why()
+  local note = view.bounce_note(
+    "drop 3Ib4mK2b: the encoding question is unanswered")
+  assert(note == " (last bounce: the encoding question is unanswered)",
+    note)
+end
+test_bounce_note_reads_a_drops_why()
+
+local function test_bounce_note_is_silent_on_a_reviewer_release()
+  assert(view.bounce_note("drop 3Ib4mK2b review: not this build's gap")
+    == "", "a reviewer's release is not a bounce")
+end
+test_bounce_note_is_silent_on_a_reviewer_release()
+
+local function test_bounce_note_is_silent_on_a_take()
+  assert(view.bounce_note("take 3Ib4mK2b by session-a") == "",
+    "a take names no gap")
+end
+test_bounce_note_is_silent_on_a_take()
+
 -- Cross-repo work is visible exactly where it was invisible: `show ID`
 -- prints a `repo:` line, and the status report appends
 -- ` [owner/name]` to the item's line. The default (empty `repo`) is
