@@ -14,7 +14,7 @@ description: >
 
 # The system of work for cosmic
 
-how work on cosmic (and its C core, whilp/cosmopolitan) is defined,
+how work on cosmic (and its C core, cosmic-lua/cosmopolitan) is defined,
 prioritized, implemented, reviewed, and landed. the design goal is
 flow with quality: many concurrent agents pulling from one ordered
 queue, with rework kept rare by exactly two gates — a spec a session
@@ -24,7 +24,7 @@ limits, no ceremony a gate does not pay for.
 
 ## the board
 
-ALL work state lives on the orphan `board` branch of whilp/cosmic:
+ALL work state lives on the orphan `board` branch of cosmic-lua/cosmic:
 one committed file per item (`items/<ksuid>.tl`) with its spec prose
 in the sidecar `items/<ksuid>.md`. the branch carries its own
 machinery and trust root, so it is a runnable cosmic project; reach
@@ -102,7 +102,9 @@ stage columns and no per-column WIP limits:
   build; PR open, no verdict — review it, at a distance; `request
   changes` — rework on the same PR; `accept` — merge it and `done`
   the item; a gap the spec cannot answer — release the claim with the
-  gap named, and the item is todo again.
+  gap named, and the item is todo again. landing differs by repo: a
+  main-repo accept is landed by enabling auto-merge, so the queue
+  merges it, while a board PR merges at accept as before.
 
 two WIP rules, not a number per column. each worker holds ONE claim,
 so capacity spreads with the number of agents. and the board holds one

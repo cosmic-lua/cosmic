@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The merge queue's own trigger: GitHub fires this for each queued
+  # merge candidate. No pull_request payload rides along, so
+  # .github/actions/gate-status's SHA expression
+  # (github.event.pull_request.head.sha || github.sha) falls back to
+  # github.sha here — which on merge_group already IS the candidate's
+  # head, the same fallback push and workflow_dispatch rely on. Statuses
+  # land on the SHA the queue is judging with no change to that action.
+  merge_group:
   workflow_dispatch:
 
 permissions:
