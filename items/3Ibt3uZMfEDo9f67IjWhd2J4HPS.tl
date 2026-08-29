@@ -4,5 +4,6 @@ return {
   ["id"] = "3Ibt3uZMfEDo9f67IjWhd2J4HPS",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1535,
+  ["reviewer"] = "review-3Ibt3uZM-20260829T2320",
   ["title"] = "owner-rename residue: point pins, URLs and prose at cosmic-lua across the cosmic tree",
 }
