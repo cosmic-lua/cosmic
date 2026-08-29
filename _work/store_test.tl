@@ -329,6 +329,12 @@ local function test_sync_refuses_a_diverged_local_commit()
   local ok, err = publish.sync(b)
   assert(not ok, "a diverged sync must be refused")
   assert(err ~= store.LOST_RACE, "a sync refusal is not a race refusal: " .. err)
+  assert(err:find("local commits", 1, true),
+    "the refusal names the cause: " .. err)
+  assert(err:find("git log", 1, true),
+    "the refusal names the remedy: " .. err)
+  assert(err:find("--dir", 1, true),
+    "the refusal points a _work/** slice at its own clone: " .. err)
   assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
     "no rebase is ever attempted, so none is left in progress")
   assert(check.must(store.load(b, contested.id)).claim == "session-b",

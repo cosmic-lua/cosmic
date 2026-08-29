@@ -115,7 +115,12 @@ local function rebase_onto_remote(s: store.Store): boolean, string
     return false, ("%s — a _work/** slice belongs in its own clone; "
       .. "sync and mutate it there with --dir <private clone>"):format(detail)
   end
-  return false, ("git fetch/merge failed: %s"):format(detail)
+  return false, ("this checkout carries local commits %s does not have "
+    .. "(%s) — the board is append-only and mutations publish one commit "
+    .. "at a time, so local-only history means something outside the "
+    .. "verbs wrote here; inspect `git log %s..HEAD`, then publish or "
+    .. "drop those commits — a _work/** slice belongs in its own clone, "
+    .. "driven with --dir"):format(target, detail, target)
 end
 
 --- Pull concurrent state. A store with no origin is local-only and
