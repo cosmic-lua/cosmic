@@ -5,12 +5,9 @@ return {
   },
   ["blocked_by"] = "3IQtfuCxCSIf6gYSrAjOcxC07Df 3IQtg7Sm2UyFfiqgJ55GGh4yWOs",
   ["builders"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
-  ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3IQtkyRAjkDhAWLpbS5sk6L5RDB",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
   ["pr"] = 1395,
   ["resolution"] = "completed",
   ["title"] = "cosmic: consume the exact contracts — pin bump, retire the join and clock asserts",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "d582c5813d06f11bc307a64fa01a8b66eee615e6",
 }

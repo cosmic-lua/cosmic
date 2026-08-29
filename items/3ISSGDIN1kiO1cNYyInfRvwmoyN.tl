@@ -4,12 +4,9 @@ return {
   },
   ["blocked_by"] = "3ITo9InvDKnofScNuZYfUluM4o8",
   ["builders"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
-  ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3ISSGDIN1kiO1cNYyInfRvwmoyN",
   ["parent"] = "3ISJI4Lgn9UobC9gFoEk04B1HON",
   ["pr"] = 1442,
   ["resolution"] = "completed",
   ["title"] = "tl patch: carry is-fact narrowing into closures via an enclosing-body assigned_anywhere scan",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "d25e889162f551b7dd9b989168ae757f8424ec51",
 }

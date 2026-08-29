@@ -4,6 +4,4 @@ return {
   ["pr"] = 1209,
   ["resolution"] = "completed",
   ["title"] = "eval suite v1: score, checks, verdict",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "f9444e1",
 }

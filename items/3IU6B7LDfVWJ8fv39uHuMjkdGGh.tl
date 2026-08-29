@@ -7,6 +7,5 @@ return {
   ["blocked_by"] = "3IU62YqO7uyYrJt53x6fmaE6dlJ 3IP9ijhvSdH0h5uTjb4xOlgZKZ9 3IUJSV7eIcrpVIs1kmGBvCTQuSC",
   ["id"] = "3IU6B7LDfVWJ8fv39uHuMjkdGGh",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
-  ["phase"] = "backlog",
   ["title"] = "migrate to runner mode, batch 4/7: cosmic/{sqlite,quicksand,fetch,net,doc}",
 }

@@ -12,6 +12,5 @@ return {
   ["blocked_by"] = "3IU6AZExaHemD7J7BUV51EqhwmG 3IU6AgNNxVcDWuDwet2j1TW1wCb 3IU6AsZCkkWRx5KsSpAAJ3fUQ48 3IU6B7LDfVWJ8fv39uHuMjkdGGh 3IU6BPFgDZ6TepaxWJQ4h1AtssL 3IU6BiCHnY5hN9Zc58gq6ZRbM4l 3IU6BjUIPUntCq03oooMyT6pmLS 3IVAhnTjMIOeJhGxynVs7AuF45a",
   ["id"] = "3IU95gOWz7YJl5imQVOmqEVIAVH",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
-  ["phase"] = "backlog",
   ["title"] = "runner-mode end state: flip the prose and prove the tree is all-runner",
 }

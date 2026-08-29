@@ -5,11 +5,9 @@ return {
   },
   ["blocked_by"] = "3IU62YqO7uyYrJt53x6fmaE6dlJ 3IP9ijhvSdH0h5uTjb4xOlgZKZ9",
   ["builders"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
-  ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IU6AgNNxVcDWuDwet2j1TW1wCb",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1459,
   ["resolution"] = "completed",
   ["title"] = "migrate to runner mode, batch 2/7: _cli, _make",
-  ["verdict"] = "accept",
 }

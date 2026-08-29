@@ -4,12 +4,9 @@ return {
   },
   ["blocked_by"] = "3IRasZJA6521NcegdHoKNDAvZo8",
   ["builders"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6 9d68ddeb-5f07-55e3-a794-d4c44cff03a2",
-  ["claim"] = "7b2d5794-d8f2-5252-98a4-78fd6c9236e6",
   ["id"] = "3ISNVQBg0Zu4xX7DuDnP0CfMkGD",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1412,
   ["resolution"] = "completed",
   ["title"] = "lint: the -- throws:/-- exits: justification grammar D30 defines has no enforcement",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "a9845d471f052f3f32f909a3bae1a98fc7c27c45",
 }

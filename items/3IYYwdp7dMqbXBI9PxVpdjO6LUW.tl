@@ -4,11 +4,8 @@ return {
   },
   ["blocked_by"] = "3IYiZ9MdXuIO4iHVgZsNW4IFBUw",
   ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
-  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IYYwdp7dMqbXBI9PxVpdjO6LUW",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["resolution"] = "completed",
   ["title"] = "the review guard keys on claim-holding, not authorship: a discarded competing build disqualifies a reviewer",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "db981771e5bdc7fb8e10f14e1a909a94815b293c",
 }
