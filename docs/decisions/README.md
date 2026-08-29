@@ -68,5 +68,6 @@ build when the committed copy drifts.
 | D31 | the perf gate reads noise from every same-binary pair it already measured | active | [→](d31-gate-noise-from-every-control-pair.md) |
 | D32 | the metatable is-rescue judges the resolved shape, not the spelling | amended 2026-08 (D33 closed the value-type hole) | [→](d32-metatable-rescue-judges-resolved-shape.md) |
 | D33 | the metatable is-rescue narrows to the target's kind, not the target | active | [→](d33-metatable-rescue-carries-the-kind.md) |
-| D34 | the perf gate judges reproduction against the re-measured baseline | amended 2026-08 (D35 closed the dismissal asymmetry) | [→](d34-reproduction-against-remeasured-baseline.md) |
-| D35 | a dismissed perf regression owes the same evidence a credited one does | active | [→](d35-dismissal-owes-evidence.md) |
+| D34 | the perf gate judges reproduction against the re-measured baseline | superseded by D36 | [→](d34-reproduction-against-remeasured-baseline.md) |
+| D35 | a dismissed perf regression owes the same evidence a credited one does | amended 2026-08 (D36 disproved the baseline-pair credit) | [→](d35-dismissal-owes-evidence.md) |
+| D36 | a disagreeing baseline pair earns a third reading and is judged by the median | active | [→](d36-baseline-tiebreak-third-reading.md) |

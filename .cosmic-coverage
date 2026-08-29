@@ -120,6 +120,7 @@ return {
   ["_perf/reproduce.tl"] = {["covered"] = 51, ["total"] = 51},
   ["_perf/run.tl"] = {["covered"] = 97, ["total"] = 191},
   ["_perf/stats.tl"] = {["covered"] = 67, ["total"] = 67},
+  ["_perf/tiebreak.tl"] = {["covered"] = 77, ["total"] = 82},
   ["_tool/benchmark.tl"] = {["covered"] = 145, ["total"] = 172},
   ["_tool/coverage/baseline.tl"] = {["covered"] = 151, ["total"] = 165},
   ["_tool/coverage/lines.tl"] = {["covered"] = 65, ["total"] = 71},

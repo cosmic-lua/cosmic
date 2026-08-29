@@ -1,7 +1,7 @@
 # D35 — a dismissed perf regression owes the same evidence a credited one does
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08 (D36 disproved the baseline-pair credit)
 - **context:** `_perf/gate.tl`'s compare gate fails a regression only
   when two independent current-side samples flag it
   ([D34](d34-reproduction-against-remeasured-baseline.md)). The two ways
@@ -150,3 +150,16 @@
   would say the region is credited noise rather than a straddling
   regression — and the fix then is the baseline-pair credit above, or
   giving an under-bar control pair its own credit, not a wider bar.
+
+- **amended 2026-08 (D36 disproved the baseline-pair credit):** the last
+  rejected option above refers the baseline-pair credit forward as
+  "still the instrument that fixes the false red D34 accepted". It is
+  not: [D36](d36-baseline-tiebreak-third-reading.md) measured that at
+  `TRIAGE_K = 2` the credit reclassifies the masked regression as well
+  as the false red, and that no value of `K` separates them. The false
+  red is closed instead by a third baseline reading and a median.
+  `compare.loudest_control`, exported by this record for that slice,
+  keeps the caller it already has in `_perf/reproduce.tl`. What this
+  record decided, that a dismissed regression owes the same evidence a
+  credited one does, is unchanged, and so is every other option in its
+  rejected list.
