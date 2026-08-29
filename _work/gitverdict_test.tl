@@ -173,3 +173,44 @@ local function test_a_verdict_consumes_the_review_claim()
     "the verdict consumed the claim")
 end
 test_a_verdict_consumes_the_review_claim()
+
+-- The head is verified before anything commits: a malformed --head is
+-- refused whether it is too short to be a real sha or is not hex at
+-- all, and refusing leaves no trace in the item or the log.
+local function test_a_malformed_head_refuses_before_any_commit()
+  local s = init_state_repo("verdict-bad-head")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, 51)
+  local before = check.must(store.load(s, leaf))
+  local before_events = check.must(store.history(s, leaf))
+
+  assert(vrd.cmd_verdict(s, leaf, "accept", 51, "xyz") ~= 0,
+    "a non-hex head is refused")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 51, "abc123") ~= 0,
+    "a 6-character head is too short to be a real sha")
+
+  local after = check.must(store.load(s, leaf))
+  assert(after.verdict == before.verdict
+    and after.verdict_head == before.verdict_head,
+    "neither refusal touched the item")
+  local after_events = check.must(store.history(s, leaf))
+  assert(#after_events == #before_events, "neither refusal committed")
+end
+test_a_malformed_head_refuses_before_any_commit()
+
+-- A well-formed head over a local-only board (no origin to check it
+-- against) lands exactly as it always has: the shape check is a new
+-- floor, not a new ceiling.
+local function test_a_wellformed_head_still_lands_on_a_local_board()
+  local s = init_state_repo("verdict-good-head")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, 52)
+  assert(not store.has_origin(s), "the fixture board has no origin")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 52, "cafe1234", "review-1") == 0,
+    "a shape-valid head over a local board is judged")
+  local it = check.must(store.load(s, leaf))
+  assert(it.verdict == "accept", "the accept stands")
+  assert(it.verdict_head == "cafe1234",
+    "the caller's own head is recorded verbatim with no PR to canonicalize it")
+end
+test_a_wellformed_head_still_lands_on_a_local_board()

@@ -156,6 +156,36 @@ local function blocks_land(p: Pull, verdict_head: string, id: string): string
   return msg
 end
 
+--- The refusal a verdict's `--head` earns, or nil when it may be
+--- recorded.
+---
+--- The shape half applies whether or not a request stands to check
+--- against: everything downstream (the pair guard, `head_moved`)
+--- treats the stored field as an opaque string, and a non-hex value
+--- would just make those silently never match instead of refusing
+--- where the mistake is legible. The PR half applies only when `p` is
+--- given: the caller may pass a short sha, so the true test is a
+--- PREFIX match against the PR's own full head — nothing shorter is
+--- honest, and nothing here trusts the caller past that.
+--- @param p Pull | nil The PR to verify against, when one was read
+--- @param head string The head the caller wants recorded
+--- @return string | nil The refusal
+local function head_refusal(p: Pull | nil, head: string): string
+  local h = head or ""
+  if not h:match("^[0-9a-f]+$") or #h < 7 or #h > 40 then
+    return ("--head %q is not a git sha — 7 to 40 lowercase hex characters")
+    :format(h)
+  end
+  if p ~= nil then
+    local full = p.head_sha or ""
+    if full:sub(1, #h) ~= h then
+      return ("--head %s does not match PR #%d's head %s"):format(
+        h, p.number, full:sub(1, 7))
+    end
+  end
+  return nil
+end
+
 local record review
   type Pull = Pull
   type CheckRun = CheckRun
@@ -164,6 +194,7 @@ local record review
   head_moved: function(p: Pull, verdict_head: string): boolean
   blocks_land: function(p: Pull, verdict_head: string, id: string): string
   blocks_on_ci: function(runs: {CheckRun}): string
+  head_refusal: function(p: Pull | nil, head: string): string
 end
 
 local M: review = {
@@ -172,6 +203,7 @@ local M: review = {
   head_moved = head_moved,
   blocks_land = blocks_land,
   blocks_on_ci = blocks_on_ci,
+  head_refusal = head_refusal,
 }
 
 return M

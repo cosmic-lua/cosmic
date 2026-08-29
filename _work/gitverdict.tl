@@ -72,6 +72,32 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
     return gate.verdict_line("verdict", false,
       ("REFUSED: %s already carries an accept — land it"):format(id:sub(1, 8)))
   end
+  -- The head is verified before anything downstream treats it as
+  -- true: the shape half always, because a non-hex value would just
+  -- make the pair guard and `head_moved` silently never match; the PR
+  -- half whenever a request stands to check against, because a gate
+  -- that waves a head through when it cannot see the PR is worse than
+  -- no gate at all.
+  local judged = (pr or 0) ~= 0 and pr or it.pr
+  local shape_err = review.head_refusal(nil, head)
+  if shape_err then
+    return gate.verdict_line("verdict", false, "REFUSED: " .. shape_err)
+  end
+  if store.has_origin(s) then
+    local p, perr = gh.pull(s, judged, it.repo)
+    if p == nil then
+      return gate.verdict_line("verdict", false,
+        ("REFUSED: cannot verify --head against PR #%d: %s"):format(
+          judged, perr or ""))
+    end
+    local head_err = review.head_refusal(p, head)
+    if head_err then
+      return gate.verdict_line("verdict", false, "REFUSED: " .. head_err)
+    end
+    -- The PR's own full head is canonical; the caller may have passed
+    -- a short prefix.
+    head = p.head_sha
+  end
   -- A verdict judges a head AND the spec that head is measured
   -- against: a rework can answer a bounce by rewriting the spec,
   -- which moves no commit. Judging the same PAIR twice says nothing
@@ -93,7 +119,6 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- has no land that could succeed. A read that FAILS is not a
   -- refusal — an outage must not wedge reviews — so the ordinary path
   -- carries on and `land` stays the backstop it already is.
-  local judged = (pr or 0) ~= 0 and pr or it.pr
   local merged_sha = ""
   if kind == "accept" and judged ~= 0 and store.has_origin(s) then
     local p = gh.pull(s, judged, it.repo)
