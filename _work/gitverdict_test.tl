@@ -112,8 +112,9 @@ end
 test_the_builder_may_verdict_its_own_item()
 
 -- Every board commit is authored as one fixed identity, so the subject
--- is the only place the log can record who judged — without it, "no
--- session accepts its own work" is unauditable after the fact.
+-- is the only place the log can record who judged — without it,
+-- whether an accept came from the item's own builder is unauditable
+-- after the fact.
 local function test_verdict_subject_names_the_reviewer()
   local s = init_state_repo("verdict-subject")
   local _, leaf = root_with_leaf(s)

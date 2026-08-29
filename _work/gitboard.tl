@@ -106,9 +106,9 @@ local CSPEC: flags.CommandSpec = {
       .. "the kind of action means",
       spec = {flags = {dir_flag(),
           {long = "session", arg = "SESSION",
-            help = "this session; skips work another session claimed and "
-            .. "reviews of what this one built. Omit to derive it from the "
-            .. "environment (GITBOARD_SESSION, else a runner's own id)"},
+            help = "this session; skips work and reviews another session "
+            .. "holds. Omit to derive it from the environment "
+            .. "(GITBOARD_SESSION, else a runner's own id)"},
           {long = "take",
             help = "claim the offered work in the same call: a review is "
             .. "claimed, a pull is moved to do, a refine is claimed in "
@@ -140,8 +140,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "enable", arg = "VALUE",
             help = "countermeasure a non-accept verdict files: ID or 'none: why'"},
           {long = "session", arg = "SESSION",
-            help = "the reviewing session; refused when it built the item. "
-            .. "Omit to derive it from the environment"}}}},
+            help = "the reviewing session; it rides in the commit "
+            .. "subject. Omit to derive it from the environment"}}}},
     {name = "done", summary = "end ID, recording why",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "reason", arg = "REASON", default = "completed",

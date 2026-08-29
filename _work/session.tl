@@ -15,9 +15,10 @@
 --- identity from the environment that is already unique per session
 --- and already stable across the many processes one session runs.
 ---
---- Nothing here refuses: an unnamed session remains legal (it collides
---- with nobody and is offered no verdict on anything), which is what a
---- checkout with none of these variables set still gets.
+--- Nothing here refuses: an unnamed session remains legal — it
+--- collides with nobody, so no claim is ever withheld from it and its
+--- own moves record no holder — which is what a checkout with none of
+--- these variables set still gets.
 local os_getenv = os.getenv
 
 --- The environment a session is read from, in order. Each entry is a

@@ -9,11 +9,10 @@
 --- nothing new to say, and a non-accept verdict files the
 --- countermeasure its bounce is evidence for.
 ---
---- `--session` is the builder-distance half. A session that names
---- itself as the item's claimant is refused, and the name it gives
---- rides in the commit subject — every board commit is authored as
---- one fixed identity, so the subject is the only place the log can
---- record who judged.
+--- `--session` is the audit half. Nothing here refuses on it: the
+--- name it gives rides in the commit subject — every board commit is
+--- authored as one fixed identity, so the subject is the only place
+--- the log can record who judged.
 ---
 --- An ACCEPT also reads the pull request it judges, because an accept
 --- asserts the work is fit to land and two request states make that

@@ -38,13 +38,12 @@
 --- A claim is a LOCK, and this is where that means something twice
 --- over. `do` holds five because five sessions run at once, so a
 --- session that names itself is never handed work another session
---- claimed. The claim survives the move into `check`, so it also
---- names who BUILT the thing awaiting a verdict — and this hands that
---- item to somebody else, because a review is worth what the distance
---- between builder and reviewer is worth. Neither skip applies to a
---- session that names nothing: it has nobody to collide with and no
---- distance to keep, and sees every claim rendered in the reason
---- instead.
+--- claimed. `check` carries a lock of its own — the review claim
+--- (`_work.gitreview`), pushed before the reading starts — so a
+--- session is never handed a diff another session is already reading.
+--- Neither skip applies to a session that names nothing: it has
+--- nobody to collide with, so it is handed the claimed item anyway
+--- rather than stepped past it.
 local decision = require("_work.decision")
 local flow = require("_work.flow")
 local health = require("_work.health")
@@ -96,10 +95,9 @@ end
 --- a send-back ends the progress it was locking: the item is back in
 --- the queue with concrete gaps named on its PR, which is a thing any
 --- session can pick up. The claim stays put rather than being cleared,
---- because it is also the record of who BUILT the item and that is
---- what keeps the next verdict at arm's length — so a session taking
---- over a rework hands it back with `--claim <itself>`, which the
---- reason line says.
+--- because it names the session that built the thing and would
+--- ordinarily carry it on — so a session taking over a rework hands it
+--- back with `--claim <itself>`, which the reason line says.
 ---
 --- A STALE claim is anyone's for the same reason: the lease
 --- (`_work.health`) expiring means the claiming session stopped
@@ -155,15 +153,14 @@ local function held_names(b: flow.Board, session: string,
   return table.concat(out, ", ")
 end
 
---- The first item awaiting a verdict that this session did not build
---- and nobody else is reviewing, with what it stepped over on the
---- way: its own builds, and items under another session's LIVE
---- review claim. The claim skip is what fans concurrent reviewers
---- out — without it every non-builder was handed the same top item
---- and the collision surfaced at the verdict, after the work. A
+--- The first item awaiting a verdict that nobody else is reviewing,
+--- with what it stepped over on the way: items under another
+--- session's LIVE review claim. That skip is what fans concurrent
+--- reviewers out — without it every session was handed the same top
+--- item and the collision surfaced at the verdict, after the work. A
 --- stale review claim (`_work.health`'s review lease) is anyone's,
 --- like every other expired lease; a session that names nothing is
---- skipped past nothing, and sees the claims rendered instead.
+--- skipped past nothing, and is offered the claimed item too.
 --- @param b flow.Board The board
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
@@ -171,8 +168,9 @@ end
 --- record: the fallible-returns rule allows a nil-admitting slot one
 --- exactly one companion, and this walk has two counts to report.
 local record ReviewPick
-  --- The item to review; absent when nothing here is this session's
-  --- to judge.
+  --- The item to review; absent when `check` offers this walk
+  --- nothing — it is empty, or every item in it is under another
+  --- session's live review claim.
   item: Item
   --- Further reviewable items past the first, best first — the
   --- alternates a session falls to when the claim on the first is

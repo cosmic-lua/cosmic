@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
--- A session's identity is what the board's whole review distance rests
--- on, so the resolver is pinned three ways: an explicit name always
+-- A session's identity is what every claim on the board rests on, so
+-- the resolver is pinned three ways: an explicit name always
 -- wins, an omitted one is DERIVED from the environment in a fixed
 -- source order, and a session the environment cannot name stays
 -- anonymous rather than borrowing a shared default. The note is what a

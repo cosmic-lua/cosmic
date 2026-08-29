@@ -183,11 +183,11 @@ local function cmd_move(s: store.Store, id: string, target: string,
           .. " has no ## Result section"):format(id:sub(1, 8)))
     end
   end
-  -- The claim is what `next` reads to withhold a verdict from the
-  -- item's builder, so a handover naming nobody hands the diff to
-  -- everyone, its builder included. Rework is where this bites: the
-  -- claim stays with the first builder by design, so a second session
-  -- taking the rework has to say so.
+  -- The claim is what says who built the diff a reviewer is about to
+  -- read, so a handover naming nobody hands over a diff with no
+  -- author, and no way to ask about it. Rework
+  -- is where this bites: the claim stays with the first builder by
+  -- design, so a second session taking the rework has to say so.
   if target == "check" and (claim or "") == "" and (it.claim or "") == ""
   and not force then
     return gate.verdict_line("move", false,
@@ -224,9 +224,11 @@ local function cmd_move(s: store.Store, id: string, target: string,
   -- below clears it. The builder returns their own work freely (a
   -- bounce is the system correcting itself); anyone else abandoning
   -- a live claim says so with --force --why, exactly like the
-  -- replacement takeover. Claims on `check`/`land` mark the builder
-  -- for review distance, and reviewer-driven leftward motion out of
-  -- those phases flows through cmd_verdict, so `do` is the bound.
+  -- replacement takeover. `check` and `land` hold nothing in
+  -- progress — the claim there records who built the diff, and
+  -- leaving those phases abandons no loop — so `do` is the bound.
+  -- Overwriting the claim itself is still guarded everywhere, by the
+  -- takeover rule below.
   if flow.is_return(from, target) and from == "do"
   and (it.claim or "") ~= "" and it.claim ~= (mover or "")
   and (claim or "") == "" and not force then
@@ -238,8 +240,9 @@ local function cmd_move(s: store.Store, id: string, target: string,
   end
   -- A claim is a lease over work in progress. Taking over a live one
   -- is legitimate — a session dies, another picks the item up — but it
-  -- is never SILENT: the takeover disqualifies the earlier holder as
-  -- reviewer, so it goes through --force --why and into the log.
+  -- is never SILENT: the earlier holder may still be mid loop on a
+  -- machine the board cannot see, so it goes through --force --why
+  -- and into the log.
   if claim ~= nil and claim ~= "" and claim ~= it.claim
   and (it.claim or "") ~= "" and not force then
     return gate.verdict_line("move", false,

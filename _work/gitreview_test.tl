@@ -86,8 +86,8 @@ local function test_unnamed_sessions_and_other_phases_are_refused()
 end
 test_unnamed_sessions_and_other_phases_are_refused()
 
--- The verdict consumes the claim — from the claimant or any other
--- non-builder, because the claim is mutual exclusion, not authority.
+-- The verdict consumes the claim — from the claimant or from any
+-- other session, because the claim is mutual exclusion, not authority.
 local function test_a_verdict_consumes_the_claim()
   local s = init_state_repo("review-verdict")
   local _, leaf = root_with_leaf(s)

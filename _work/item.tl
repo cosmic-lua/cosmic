@@ -55,10 +55,12 @@ local record Item
   --- one "name name" string — the literal domain has no lists.
   ---
   --- The claim is a LEASE and moves: a return clears it and the next
-  --- pull writes a new one. So the claim alone cannot answer "did this
-  --- session build this", which is the question the no-self-accept
-  --- rule turns on. This is that answer, and it is never cleared while
-  --- the item is open — whoever built stays disqualified as reviewer.
+  --- pull writes a new one, so the claim alone cannot answer "who has
+  --- worked this item". This is that answer — the audit record, never
+  --- cleared while the item is open, so who built and who took over
+  --- stays readable in the committed file and in the log after the
+  --- fact. Outside this module nothing reads it: no verb renders it
+  --- and none refuses on it.
   builders: {string}
   --- The session reviewing it in `check`; "" when nobody claimed the
   --- review. A lease like `claim`, on a shorter horizon
@@ -289,10 +291,11 @@ end
 --- Record that `session` has held this item's claim.
 ---
 --- The claim answers who holds the item NOW and moves with every
---- return; `builders` answers who has BUILT it and never moves, which
---- is the question the no-self-accept rule turns on. A session
---- reclaiming an item it already held is already in the list, and the
---- record carries no repeats — `problems` refuses one.
+--- return; `builders` answers who has HELD it and never moves, which
+--- is what makes the sequence of holders auditable once the claim has
+--- moved on. A session reclaiming an item it already held is already
+--- in the list, and the record carries no repeats — `problems`
+--- refuses one.
 --- @param it Item The item being claimed
 --- @param session string The claiming session
 local function record_builder(it: Item, session: string)
