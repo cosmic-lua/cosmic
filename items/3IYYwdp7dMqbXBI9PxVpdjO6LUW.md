@@ -379,3 +379,152 @@ inversion, in a tree that already builds. Note the scope correction —
 this is not "deletion plus one test": five source files and five test
 files move, ten test functions are inverted or deleted, and Change 7
 carries the measurement that establishes it.
+
+## Result
+
+**Landed by direct push, not by a PR.** Board-branch code lands on
+`board` itself, so there is no pull request to name. The reviewable
+diff is:
+
+```
+git diff 5e697c27..db981771
+```
+
+- commit: `db981771e5bdc7fb8e10f14e1a909a94815b293c` — "remove the
+  identity review gate from the board machinery"
+- parent: `5e697c2709cf1d4b340605b5b02a8e0fd6114462` (`5e697c27`), the
+  `move 3IYYwdp7 ready -> do` commit, so the diff is exactly this
+  slice and nothing else
+- ten files, `+108 / -226`: `_work/` `action.tl`, `flow.tl`,
+  `gitreview.tl`, `gitverdict.tl`, `session.tl` and the five test
+  files `action_test.tl`, `converge_test.tl`, `flow_test.tl`,
+  `gitreview_test.tl`, `gitverdict_test.tl`
+
+This hands over with `--evidence` for a mechanical reason, not because
+the deliverable is findings: `move ... check` accepts a PR number or an
+evidence handover and has no third form for a slice that landed as a
+commit. The section is therefore being used as the reviewer's pointer
+to a diff. The gap is filed as its own board item; the workaround is
+recorded here rather than hidden.
+
+**The gates, both of them.**
+
+- board CI: run
+  [33230984580](https://github.com/whilp/cosmic/actions/runs/33230984580)
+  — workflow `board`, event `push`, head sha
+  `db981771e5bdc7fb8e10f14e1a909a94815b293c`, conclusion **`success`**
+- local, from the `board` worktree: `bin/cosmic --make ci` ends
+  **`ci: PASS (4 stages)`**. It also prints `ci: HEAD is not a
+  descendant of origin/main (origin/main 2901192367a9); this gate
+  judged the branch, CI judges the merge` — expected on an orphan
+  branch, and the reason the CI run above is the one that judges what
+  landed
+
+**Acceptance, re-measured against the landed commit on 2026-08-29 —
+every number matches what the spec asked for.** Each was run fresh from
+the `board` worktree at `db981771`, not copied from the implementer's
+notes.
+
+| acceptance check | asked | measured |
+|---|---|---|
+| `bin/cosmic --make ci` | `ci: PASS` | `ci: PASS (4 stages)` |
+| `bin/cosmic --make check` | `check: PASS (58 files)` | `check: PASS (58 files)` |
+| `bin/cosmic --make test _work/` | `test: PASS (29 files)` | `test: PASS (29 files)`, 29 of 29 passed |
+| `action_test.tl` test functions | 25 | 25 |
+| `converge_test.tl` test functions | 4 | 4 |
+| `flow_test.tl` test functions | 11 | 11 |
+| `gitreview_test.tl` test functions | 7 | 7 |
+| `gitverdict_test.tl` test functions | 9 | 9 |
+| `grep -rc 'built_by' _work/*.tl` | `0` every file | `0` every file; `0` hits in all of `_work/` |
+| `grep -c 'mine' _work/action.tl` | `0` | `0` |
+| `grep -c '^local function root(' _work/flow.tl` | `0` | `0` |
+| `grep -c '_work.flow' _work/gitreview.tl` | `0` | `0` |
+| `grep -rc 'wave separator' _work/*.tl` | `0` every file | `0` every file |
+| `grep -c 'record_builder' _work/item.tl` | `3` | `3` |
+| `wc -l _work/flow.tl` | `< 500` | `458` |
+
+No number differs from the spec's target, and none differs from what
+the implementer recorded. The two behavioural acceptance items — the
+reversal and the deadlock — are asserted as named tests and both pass:
+`test_the_builder_may_verdict_its_own_item` in
+`_work/gitverdict_test.tl` and `test_a_full_check_of_its_own_is_now_a_review`
+in `_work/action_test.tl`.
+
+**The ten test functions — eight inverted, two deleted.** Change 7
+predicted exactly this set and the landed diff matches it.
+
+Inverted, renamed to state the new behaviour:
+
+- `_work/action_test.tl`: `test_a_session_is_not_handed_its_own_work_to_review`
+  → `test_a_session_is_handed_its_own_work_to_review`; the
+  `built by this session` reason assertion is dropped with the reason text
+- `_work/action_test.tl`: `test_skipping_its_own_review_falls_through`
+  → `test_its_own_review_outranks_a_pull` — the answer flips from
+  `pull` to `review`, which is rightmost-phase-first with nothing
+  skipped
+- `_work/action_test.tl`: `test_a_full_check_of_its_own_is_not_a_finish_action`
+  → `test_a_full_check_of_its_own_is_now_a_review` — the Evidence
+  section's deadlock, repaired: a `check` full of the session's own
+  work answers `review`, not `none`
+- `_work/action_test.tl`: `test_reviewable_skips_a_past_builder`
+  → `test_reviewable_offers_a_past_builder` — the two `~= "review"`
+  probes become `== "review"`, the third is unchanged
+- `_work/gitreview_test.tl`: `test_the_builder_is_refused_the_claim`
+  → `test_the_builder_may_claim_the_review` — `cmd_review` returns 0
+  and stamps the reviewer
+- `_work/gitverdict_test.tl`: `test_verdict_refuses_the_builder`
+  → `test_the_builder_may_verdict_its_own_item` — the reversal test,
+  placed here for the store fixture; the item moves `check -> land`
+- `_work/gitverdict_test.tl`: `test_verdict_refuses_a_past_builder`
+  → `test_a_past_builder_may_verdict` — one accept lands, and the
+  "standing rework verdict is untouched" assertion goes with the
+  premise that both were refused
+
+Inverted, keeping its name because the name stayed true:
+
+- `_work/action_test.tl`: `test_a_full_check_still_leaves_the_intake_half`
+  — the answer moves from `refine` to `review`; its comment moves with
+  it, since a full `check` no longer strands the session by falling
+  through to intake but because it can judge what is in front of it
+
+Deleted, because the premise itself is gone:
+
+- `_work/action_test.tl`: `test_review_skips_the_minting_orchestrator`
+  — the last behavioural consumer of the `/` wave-separator rule that
+  Change 1 removed; `orch` and `orch/3IVKVslE` are now two unrelated
+  names. Its leading comment went too
+- `_work/flow_test.tl`: `test_built_by_roots_names` — `flow.built_by`
+  no longer exists, so it could not compile and had nothing left to
+  assert
+
+Plus, as Change 7 specified, the four-line inner assertion at
+`_work/converge_test.tl:335-338` is deleted while
+`test_no_walk_ever_names_a_move_the_gate_refuses` is kept whole.
+
+**Two doc-comment corrections beyond the literal Changes, both
+correct.** Change 5 named `session.tl`'s two comments; the implementer
+found two more places the removal falsified and fixed them in the same
+commit. Both are prose-only — no behaviour, no assertion.
+
+- `_work/gitreview.tl`'s module header. Two sentences went stale. The
+  header said the claim excludes nobody so "every non-builder that
+  asked `next` was handed the same top item" — after Change 3 there
+  are no non-builders, so it now reads "every session that asked
+  `next`". More importantly the header ended "A verdict from any
+  non-builder stands and consumes the claim", which Change 3 leaves
+  outright false: the whole point is that a builder's verdict now
+  stands too. It now reads "A verdict from any session stands". This
+  is a real correction, not a tidy-up — the module's own header would
+  otherwise document the gate it just deleted.
+- three `_work/converge_test.tl` comments, none of them assertions,
+  each of which cited the removed rule as its reason: the
+  session-per-wake comment at `:319-325` said "a single name could
+  never review anything and the walk would never reach `land`" and now
+  justifies the rotation as exercising real handovers instead; the
+  SAFETY block above `test_a_solo_session_never_names_an_answer_it_cannot_act_on`
+  at `:379-391` said a solo session "may not judge its own work, and so
+  cannot drain the phase it fills" and now says it judges what it built
+  and drains what it fills, under one name; and the wake-ending comment
+  at `:437-446` referred to "the review this one was refused on its own
+  work" and now says "what this one left standing". The test itself
+  passed unchanged throughout — only its prose was wrong.
