@@ -46,6 +46,9 @@ local record perf_types
 
   --- Environment metadata recorded alongside each results file.
   record Meta
+    --- When the results file was written, in UNIX epoch seconds, UTC.
+    --- Recorded at the END of the run, after every scenario has been
+    --- measured -- so it dates the reading, not its start.
     timestamp: number
     bin: string
     --- The measured binary's sha256, hex. The identity, where `bin` is
