@@ -1,6 +1,5 @@
 return {
   ["_work/action.tl"] = {["covered"] = 156, ["total"] = 159},
-  ["_work/alias.tl"] = {["covered"] = 46, ["total"] = 47},
   ["_work/api.tl"] = {["covered"] = 10, ["total"] = 27},
   ["_work/decision.tl"] = {["covered"] = 7, ["total"] = 7},
   ["_work/fixture.tl"] = {["covered"] = 87, ["total"] = 89},
@@ -25,5 +24,6 @@ return {
   ["_work/session.tl"] = {["covered"] = 44, ["total"] = 44},
   ["_work/spec.tl"] = {["covered"] = 31, ["total"] = 31},
   ["_work/store.tl"] = {["covered"] = 190, ["total"] = 222},
+  ["_work/tail.tl"] = {["covered"] = 37, ["total"] = 37},
   ["cmd/gitboard/main.tl"] = {["covered"] = 0, ["total"] = 2},
 }

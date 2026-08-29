@@ -33,11 +33,11 @@
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
-local alias = require("_work.alias")
 local cmp = require("_work.gitcompare")
 local graph = require("_work.gitgraph")
 local session = require("_work.session")
 local store = require("_work.store")
+local tail = require("_work.tail")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
 local show = require("_work.gitshow")
@@ -215,18 +215,18 @@ local function main(...: string): integer
     return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "")
   end
   -- An id prefix is tried first; only when that refuses AND the input
-  -- has an alias's shape (8 Crockford characters, one optional
-  -- hyphen) does a board-wide alias search follow, so a plain id-
-  -- prefix typo still gets store.resolve's own message.
+  -- has a tail's shape (8 base62 characters, one optional hyphen)
+  -- does a board-wide tail search follow, so a plain id-prefix typo
+  -- still gets store.resolve's own message.
   local input = d.parsed.args[1] or ""
   local id, rerr = store.resolve(s, input)
-  if id == nil and alias.is_alias_shape(input) then
+  if id == nil and tail.is_tail_shape(input) then
     local all, aerr = store.list(s)
     if all == nil then
       io.stderr:write(tostring(aerr) .. "\n")
       return 1
     end
-    id, rerr = alias.resolve(all, input)
+    id, rerr = tail.resolve(all, input)
   end
   if id == nil then
     io.stderr:write(tostring(rerr) .. "\n")

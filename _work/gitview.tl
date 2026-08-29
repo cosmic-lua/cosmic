@@ -9,7 +9,6 @@
 --- that prints it: what a session reads is the contract, and a report
 --- that returns its lines can be asserted on without capturing
 --- stdout.
-local alias = require("_work.alias")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local guide = require("_work.guidance")
@@ -19,6 +18,7 @@ local act = require("_work.action")
 local prio = require("_work.priority")
 local sess = require("_work.session")
 local store = require("_work.store")
+local tail = require("_work.tail")
 
 local verdict_line = gate.verdict_line
 
@@ -63,14 +63,13 @@ end
 --- of the queue is what a session acts on; the rest is the count.
 local TODO_SHOWN < const >: integer = 8
 
---- The id and title every rendered item line leads with: the id8
---- chunked for legibility, the derived alias bracketed after the
---- title so a session reading the board can retype either back.
+--- The id and title every rendered item line leads with: the id's
+--- tail — the last 8 characters, pure entropy and a literal
+--- substring of the id — chunked for legibility.
 --- @param it item.Item The item
---- @return string "id8-chunked title [alias]"
+--- @return string "tail-chunked title"
 local function id_line(it: item.Item): string
-  return ("%s %s [%s]"):format(alias.chunk(it.id:sub(1, 8)), it.title,
-    alias.of(it.id))
+  return ("%s %s"):format(tail.chunk(it.id), it.title)
 end
 
 --- The board: doing item by item against the one bound, the top of
@@ -188,8 +187,7 @@ local function render_action(action: act.Action): string
   end
   for _, alt in ipairs(action.alternates or {}) do
     if alt.item then
-      out[#out + 1] = ("  or: %s %s %s"):format(alt.kind,
-        alt.item.id:sub(1, 8), alt.item.title)
+      out[#out + 1] = ("  or: %s %s"):format(alt.kind, id_line(alt.item))
     end
   end
   return table.concat(out, "\n")
