@@ -9,6 +9,7 @@
 --- that prints it: what a session reads is the contract, and a report
 --- that returns its lines can be asserted on without capturing
 --- stdout.
+local alias = require("_work.alias")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local guide = require("_work.guidance")
@@ -62,6 +63,16 @@ end
 --- of the queue is what a session acts on; the rest is the count.
 local TODO_SHOWN < const >: integer = 8
 
+--- The id and title every rendered item line leads with: the id8
+--- chunked for legibility, the derived alias bracketed after the
+--- title so a session reading the board can retype either back.
+--- @param it item.Item The item
+--- @return string "id8-chunked title [alias]"
+local function id_line(it: item.Item): string
+  return ("%s %s [%s]"):format(alias.chunk(it.id:sub(1, 8)), it.title,
+    alias.of(it.id))
+end
+
 --- The board: doing item by item against the one bound, the top of
 --- todo with its pullable marks, the triage queue, and board-wide
 --- graph health. Health reports HERE rather than in the spec bar:
@@ -90,7 +101,7 @@ local function status_report(all: {item.Item}, specs: act.Specs,
       marks = marks .. (" [claim stale %dh]"):format(
         health.stale_hours(i, aged))
     end
-    out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
+    out[#out + 1] = ("  %s%s"):format(id_line(i), marks)
   end
   local todo = flow.in_state(all, "todo", pos)
   local pullable = 0
@@ -108,7 +119,7 @@ local function status_report(all: {item.Item}, specs: act.Specs,
     end
     if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
     if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
-    out[#out + 1] = ("  %s %s%s"):format(i.id:sub(1, 8), i.title, marks)
+    out[#out + 1] = ("  %s%s"):format(id_line(i), marks)
   end
   if #todo > TODO_SHOWN then
     out[#out + 1] = ("  ... %d more"):format(#todo - TODO_SHOWN)
@@ -167,7 +178,7 @@ end
 local function render_action(action: act.Action): string
   local target = ""
   if action.item then
-    target = (" %s %s"):format(action.item.id:sub(1, 8), action.item.title)
+    target = " " .. id_line(action.item)
   end
   local out: {string} = {
     ("%s%s — %s"):format(action.kind, target, action.reason),

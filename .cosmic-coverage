@@ -1,5 +1,6 @@
 return {
   ["_work/action.tl"] = {["covered"] = 156, ["total"] = 159},
+  ["_work/alias.tl"] = {["covered"] = 46, ["total"] = 47},
   ["_work/api.tl"] = {["covered"] = 10, ["total"] = 27},
   ["_work/decision.tl"] = {["covered"] = 7, ["total"] = 7},
   ["_work/fixture.tl"] = {["covered"] = 87, ["total"] = 89},
