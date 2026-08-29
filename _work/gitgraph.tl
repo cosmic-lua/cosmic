@@ -265,10 +265,20 @@ local function cmd_set(s: store.Store, id: string, title: string | nil,
     fields[#fields + 1] = "title"
   end
   if repo ~= nil then
+    if repo:match("%S") == nil then
+      return gate.verdict_line("set", false,
+        "REFUSED: --repo cannot be empty — clearing it is not supported; "
+        .. "set --repo <owner>/<name> to change it")
+    end
     it.repo = repo
     fields[#fields + 1] = "repo"
   end
   if new_base ~= nil then
+    if new_base:match("%S") == nil then
+      return gate.verdict_line("set", false,
+        "REFUSED: --base cannot be empty — clearing it is not supported; "
+        .. "set --base <branch> to change it")
+    end
     it.base = new_base
     fields[#fields + 1] = "base"
   end
