@@ -3,6 +3,7 @@ return {
   ["claim"] = "wave15-d-1788043044",
   ["id"] = "3IbpI2YD4rDo9Vi29KMYcmeL9ZL",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["pr"] = 1534,
   ["speccers"] = "wave15-d-1788043044",
   ["title"] = "record the merge-queue evaluation as deferred: unavailable on personal-account repos",
 }
