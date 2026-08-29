@@ -9,6 +9,7 @@
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local flow = require("_work.flow")
+local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
@@ -194,7 +195,7 @@ local function test_take_pr_collision_forced_lands_with_the_suffix()
       "repairing a duplicate PR record") == 0,
     "--force --why overrides the collision")
   assert(check.must(store.load(s, b)).pr == 7, "the number lands")
-  local events = check.must(store.history(s, b))
+  local events = check.must(publish.history(s, b))
   assert(events[1].subject:find("forced: repairing a duplicate", 1, true),
     "the reason rides the commit: " .. events[1].subject)
 end
@@ -216,7 +217,7 @@ local function test_drop_clears_the_locks_and_names_the_gap()
   assert(dropped.claim == "" and dropped.pr == 0 and dropped.verdict == "",
     "the claim, the PR and any verdict clear together")
   assert(not flow.is_doing(dropped), "the item is todo again")
-  local events = check.must(store.history(s, leaf))
+  local events = check.must(publish.history(s, leaf))
   assert(events[1].subject:find("which encoding wins", 1, true),
     "the gap is in the log: " .. events[1].subject)
   assert(verbs.cmd_drop(s, leaf, "session-a", "again", false) ~= 0,
@@ -296,7 +297,7 @@ local function test_force_states_its_reason_and_the_log_keeps_it()
   assert(check.must(store.load(s, leaf)).claim == "", "and changes nothing")
   assert(verbs.cmd_take(s, leaf, "session-a", 0, true,
       "repairing a claim the importer mangled") == 0)
-  local events = check.must(store.history(s, leaf))
+  local events = check.must(publish.history(s, leaf))
   assert(events[1].subject:find("forced: repairing a claim", 1, true),
     "the reason rides the commit: " .. events[1].subject)
 end
@@ -308,7 +309,7 @@ local function test_a_take_survives_a_lost_race()
   local a, b = init_shared("take-race")
   local goal, leaf = root_with_leaf(a)
   give_spec(a, leaf)
-  assert(store.sync(b))
+  assert(publish.sync(b))
   assert(graph.cmd_new(b, "theirs", goal, nil, "") == 0)
   assert(verbs.cmd_take(a, leaf, "session-a", 0, false, "") ~= 0,
     "the stale run is refused, not replayed")

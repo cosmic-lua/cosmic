@@ -13,6 +13,7 @@ local gh = require("_work.gh")
 local flow = require("_work.flow")
 local item = require("_work.item")
 local prio = require("_work.priority")
+local publish = require("_work.publish")
 local review = require("_work.review")
 local store = require("_work.store")
 
@@ -141,7 +142,7 @@ local function commit_and_publish(s: store.Store, it: item.Item, body: string,
   if not saved then
     return false, serr
   end
-  return store.publish(s)
+  return publish.publish(s)
 end
 
 --- The locks a decomposition clears on the parent that just gained a
@@ -178,7 +179,7 @@ local function handover_refusal(s: store.Store, id: string,
     number: integer, repo: string | nil): string
   -- A local-only board has no pull requests to ask about, the same
   -- reason publishing there is a no-op.
-  if not store.has_origin(s) then
+  if not publish.has_origin(s) then
     return nil
   end
   local p, perr = gh.pull(s, number, repo)

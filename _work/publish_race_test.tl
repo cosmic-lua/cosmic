@@ -14,6 +14,7 @@ local flow = require("_work.flow")
 local graph = require("_work.gitgraph")
 local health = require("_work.health")
 local item = require("_work.item")
+local publish = require("_work.publish")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 
@@ -28,7 +29,7 @@ local function test_a_lost_block_race_cannot_land_a_cycle()
   local a, b = init_shared("race-block")
   local x = file_item(a, "x, the one that waits", "")
   local y = file_item(a, "y, the one it waits on", "")
-  assert(store.sync(b))
+  assert(publish.sync(b))
 
   assert(graph.cmd_block(a, x, y, false, "x needs y's contract") == 0)
   -- b's read predates a's edge, exactly the reciprocal-block race.
@@ -59,7 +60,7 @@ local function test_a_lost_done_race_reopens_the_parent()
   local parent = file_item(a, "a slice being decomposed", root)
   local c1 = file_item(a, "the first child", parent)
   local c2 = file_item(a, "the second child", parent)
-  assert(store.sync(b))
+  assert(publish.sync(b))
 
   assert(verbs.cmd_done(a, c1, "completed", false, "") == 0)
   -- b still sees c1 open, so its stale run would not see the parent
@@ -72,7 +73,7 @@ local function test_a_lost_done_race_reopens_the_parent()
   -- again by derivation.
   assert(verbs.cmd_done(b, c2, "completed", false, "") == 0,
     "the re-run lands against the merged state")
-  assert(store.sync(a))
+  assert(publish.sync(a))
   assert(not item.is_open(check.must(store.load(a, c2))), "c2 is closed")
   local all = check.must(store.list(a))
   local back = check.must(store.load(a, parent))

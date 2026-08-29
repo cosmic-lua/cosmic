@@ -8,6 +8,7 @@ local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
 local fs = require("cosmic.fs")
+local publish = require("_work.publish")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -88,7 +89,7 @@ local function test_the_builder_may_verdict_its_own_item()
   handed_over(s, leaf, 11)
   assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a") == 0,
     "the session that built it may accept it")
-  local events = check.must(store.history(s, leaf))
+  local events = check.must(publish.history(s, leaf))
   assert(events[1].subject:find(" by session-a", 1, true),
     "and the log says who judged: " .. events[1].subject)
 end
@@ -101,13 +102,13 @@ local function test_verdict_subject_names_the_reviewer()
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 12)
   assert(vrd.cmd_verdict(s, leaf, "accept", 12, "abc1234", "review-1") == 0)
-  local events = check.must(store.history(s, leaf))
+  local events = check.must(publish.history(s, leaf))
   assert(events[1].subject:find(" by review-1", 1, true),
     "the reviewer rides in the subject: " .. events[1].subject)
 end
 test_verdict_subject_names_the_reviewer()
 
--- The PR read is guarded by `store.has_origin`, the same guard
+-- The PR read is guarded by `publish.has_origin`, the same guard
 -- `gate.handover_refusal` uses, so a local-only board never reaches
 -- for GitHub — pinned here rather than left as a property nothing
 -- asserts.
@@ -115,7 +116,7 @@ local function test_accept_without_an_origin_still_stands()
   local s = init_state_repo("verdict-no-origin")
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 21)
-  assert(not store.has_origin(s), "the fixture board has no origin")
+  assert(not publish.has_origin(s), "the fixture board has no origin")
   assert(vrd.cmd_verdict(s, leaf, "accept", 21, "abc1234", "review-1") == 0,
     "the accept is not refused for want of a PR read")
   local landed = check.must(store.load(s, leaf))
@@ -182,7 +183,7 @@ local function test_a_malformed_head_refuses_before_any_commit()
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 51)
   local before = check.must(store.load(s, leaf))
-  local before_events = check.must(store.history(s, leaf))
+  local before_events = check.must(publish.history(s, leaf))
 
   assert(vrd.cmd_verdict(s, leaf, "accept", 51, "xyz") ~= 0,
     "a non-hex head is refused")
@@ -193,7 +194,7 @@ local function test_a_malformed_head_refuses_before_any_commit()
   assert(after.verdict == before.verdict
     and after.verdict_head == before.verdict_head,
     "neither refusal touched the item")
-  local after_events = check.must(store.history(s, leaf))
+  local after_events = check.must(publish.history(s, leaf))
   assert(#after_events == #before_events, "neither refusal committed")
 end
 test_a_malformed_head_refuses_before_any_commit()
@@ -205,7 +206,7 @@ local function test_a_wellformed_head_still_lands_on_a_local_board()
   local s = init_state_repo("verdict-good-head")
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 52)
-  assert(not store.has_origin(s), "the fixture board has no origin")
+  assert(not publish.has_origin(s), "the fixture board has no origin")
   assert(vrd.cmd_verdict(s, leaf, "accept", 52, "cafe1234", "review-1") == 0,
     "a shape-valid head over a local board is judged")
   local it = check.must(store.load(s, leaf))

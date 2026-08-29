@@ -8,7 +8,7 @@
 --- receive FULL ids — the dispatcher resolves prefixes — and every
 --- verb prints a `gitboard-<verb>:` verdict line and returns its exit
 --- code. Mutations commit locally and publish through
---- `store.publish`, whose rejected-push path drops the mutation
+--- `publish.publish`, whose rejected-push path drops the mutation
 --- whole, re-syncs, and refuses — re-running the verb re-applies
 --- every gate against the merged board.
 local child = require("cosmic.child")
@@ -19,6 +19,7 @@ local fs = require("cosmic.fs")
 local health = require("_work.health")
 local item = require("_work.item")
 local lanes = require("_work.lanes")
+local publish = require("_work.publish")
 local review = require("_work.review")
 local store = require("_work.store")
 
@@ -97,7 +98,7 @@ end
 local function age_of(s: store.Store, it: item.Item): health.Ages
   local ages: health.Ages = {}
   local now = os.time()
-  local t = store.touched_at(s, it.id)
+  local t = publish.touched_at(s, it.id)
   if t ~= nil and t <= now then
     ages[it.id] = now - t
   end
@@ -396,7 +397,7 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   -- happened is the one fact the board cannot hold itself, so the
   -- request is read every time (a local-only board has none to read).
   if (it.pr or 0) ~= 0 and (it.verdict or "") == "accept"
-  and store.has_origin(s) and not force then
+  and publish.has_origin(s) and not force then
     local p, perr = gh.pull(s, it.pr, it.repo)
     if p == nil then
       return gate.verdict_line("done", false,
@@ -458,7 +459,7 @@ end
 -- record / mint pipeline and hands back the lines to print, keeping
 -- this module under its 500-line cap.
 local function cmd_sync(s: store.Store): integer
-  local ok, err = store.sync(s)
+  local ok, err = publish.sync(s)
   if not ok then
     return gate.verdict_line("sync", false, err)
   end

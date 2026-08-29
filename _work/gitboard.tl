@@ -37,6 +37,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local cmp = require("_work.gitcompare")
 local graph = require("_work.gitgraph")
+local publish = require("_work.publish")
 local session = require("_work.session")
 local store = require("_work.store")
 local tail = require("_work.tail")
@@ -192,7 +193,7 @@ local function main(...: string): integer
     return 1
   end
   if MUTATES[d.command] then
-    local synced, syerr = store.sync(s)
+    local synced, syerr = publish.sync(s)
     if not synced then
       io.stderr:write(("gitboard-%s: could not sync before mutating: %s\n")
         :format(d.command, syerr))

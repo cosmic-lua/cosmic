@@ -12,6 +12,7 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local publish = require("_work.publish")
 local store = require("_work.store")
 
 local init_shared = fixture.init_shared
@@ -47,7 +48,7 @@ local function test_a_lost_race_drops_the_mutation_and_refuses()
   -- against a remote it has not seen.
   local touched = make_item()
   assert(store.save(a, touched, "a moves the remote forward"))
-  assert(store.publish(a))
+  assert(publish.publish(a))
 
   local mine = make_item()
   local ok, err = gate.commit_and_publish(b, mine, "a spec touch",
@@ -67,7 +68,7 @@ local function test_the_rerun_publishes_against_the_merged_state()
   local a, b = init_shared("gate-rerun")
   local touched = make_item()
   assert(store.save(a, touched, "a moves the remote forward"))
-  assert(store.publish(a))
+  assert(publish.publish(a))
 
   local mine = make_item()
   local ok, err = gate.commit_and_publish(b, mine, "a spec touch",
@@ -76,7 +77,7 @@ local function test_the_rerun_publishes_against_the_merged_state()
   local again, aerr = gate.commit_and_publish(b, mine, "a spec touch",
     ("spec %s"):format(mine.id:sub(1, 8)))
   assert(again, "the re-run publishes: " .. tostring(aerr))
-  assert(store.sync(a))
+  assert(publish.sync(a))
   assert(check.must(store.load(a, mine.id)).id == mine.id,
     "and the mutation reaches the remote")
 end
@@ -91,8 +92,8 @@ local function test_the_merged_board_carries_the_doing_bound()
     assert(store.save(a, make_item({claim = ("wake-%d"):format(k)}),
         "filler " .. fresh_id():sub(1, 8)))
   end
-  assert(store.publish(a))
-  assert(store.sync(b))
+  assert(publish.publish(a))
+  assert(publish.sync(b))
   local merged = check.must(store.list(b))
   assert(flow.doing_refusal(merged) ~= nil,
     "a take against the merged board is the verb's to refuse")

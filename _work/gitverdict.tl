@@ -27,6 +27,7 @@
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
 local item = require("_work.item")
+local publish = require("_work.publish")
 local review = require("_work.review")
 local spec = require("_work.spec")
 local store = require("_work.store")
@@ -87,7 +88,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- fetching the PR again: one snapshot decides both which head was
   -- judged and whether it is fit to land.
   local p: review.Pull | nil = nil
-  if store.has_origin(s) then
+  if publish.has_origin(s) then
     local perr: string
     p, perr = gh.pull(s, judged, it.repo)
     if p == nil then

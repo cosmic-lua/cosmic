@@ -14,6 +14,7 @@ local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local prio = require("_work.priority")
+local publish = require("_work.publish")
 local spec = require("_work.spec")
 local store = require("_work.store")
 local tail = require("_work.tail")
@@ -38,12 +39,12 @@ end
 --- @param it item.Item The item
 --- @param all {item.Item} Every item
 --- @param body string Its spec sidecar, "" when it has none
---- @param events {store.Event} Its git history, newest first
+--- @param events {publish.Event} Its git history, newest first
 --- @param problems {string} The take gate's problem list, possibly empty
 --- @return {string} The lines to print
 --- @return string The verdict detail
 local function show_report(it: item.Item, all: {item.Item}, body: string,
-    events: {store.Event}, problems: {string}): {string}, string
+    events: {publish.Event}, problems: {string}): {string}, string
   local out: {string} = {("%s %s [%s]"):format(tail.handle(it.id), it.title,
       it.id)}
   out[#out + 1] = ("role: %s"):format(flow.role(it, all))
@@ -163,7 +164,7 @@ local function cmd_show(s: store.Store, id: string): integer
     return verdict_line("show", false, aerr)
   end
   local body = store.read_spec(s, id)
-  local events, herr = store.history(s, id)
+  local events, herr = publish.history(s, id)
   if events == nil then
     return verdict_line("show", false, herr)
   end
@@ -180,7 +181,7 @@ end
 
 local record gitshow
   show_report: function(it: item.Item, all: {item.Item}, body: string,
-  events: {store.Event}, problems: {string}): {string}, string
+  events: {publish.Event}, problems: {string}): {string}, string
   cmd_show: function(s: store.Store, id: string): integer
 end
 

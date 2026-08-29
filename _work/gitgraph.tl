@@ -4,7 +4,7 @@
 --- is `_work.gitverbs`. Verbs receive FULL ids — the dispatcher
 --- resolves prefixes — and every verb prints a `gitboard-<verb>:`
 --- verdict line and returns its exit code. Mutations commit locally
---- and publish through `store.publish`, whose rejected-push path
+--- and publish through `publish.publish`, whose rejected-push path
 --- drops the mutation whole, re-syncs, and refuses — re-running the
 --- verb re-applies every gate against the merged board.
 ---
