@@ -1,18 +1,15 @@
 --- The one answer to "what should I do now": a pure function from the
---- item list to a single action. The graph rules it reads are
---- `_work.flow`; this module is only the decision, split out so the
---- rules module is not also the policy that consults them.
+--- item list (plus the spec sidecars) to a single action. The graph
+--- rules it reads are `_work.flow`; this module is only the decision,
+--- split out so the rules module is not also the policy that consults
+--- them.
 ---
 --- There is ONE worker and one ordering. Work flows right to left —
 --- whatever is closest to completion moves first, because finishing
 --- beats starting — so an accepted PR is merged before a verdict is
---- written, a verdict before work is finished, and finishing before
---- pulling. Only then does anything new enter, and those rungs are
---- `_work.intake`: a triage drain past its bound, refinement of what
---- is already committed, promotion of the next thing, a sweep of what
---- has rotted, the triage remainder, and decomposition last. An inbox
---- nobody empties is a channel that only takes, which is why the
---- bound jumps its queue ahead of refinement.
+--- written, a verdict before a build is finished, and finishing
+--- before pulling. Only then does anything new enter, and those rungs
+--- are `_work.intake`: triage, refinement, and decomposition.
 ---
 --- Doing SEVERAL actions is running this again after each one. The
 --- board moved, so the answer may have moved with it: nothing here
@@ -20,30 +17,24 @@
 --- times.
 ---
 --- Which is why every action this returns must be one the verb gates
---- would ACCEPT. An action naming a move the WIP gate refuses does not
---- move the board, so asking again returns the same answer, and the
---- loop never terminates. Each branch below therefore checks the phase
---- its move ARRIVES in, not just the one it leaves: `finish` from `do`
---- and `pull` both need room in `check`, and `pull` needs room in `do`
---- as well. When the room is not there the ordering falls through to
---- the intake half — refining, triage and decomposition are real work
+--- would ACCEPT: a pull is offered only under the doing bound and
+--- only for items that pass the spec bar, or asking again would
+--- return the same refused answer forever. When nothing in flight is
+--- this session's to move and nothing passes, the ordering falls
+--- through to the intake half — triage and refinement are real work
 --- and no gate refuses them — and if that is empty too, the answer is
---- `none` with the binding phase named. A stall the session can see is
---- worth more than an instruction it cannot carry out.
+--- `none` with the binding fact named.
 ---
 --- Every queue this reads is PRIORITY order with age as the last
---- word (`_work.priority`), so "the next ready item" is really "the
+--- word (`_work.priority`), so "the next todo item" is really "the
 --- most important one, oldest among equals".
 ---
 --- A claim is a LOCK, and this is where that means something twice
---- over. `do` holds five because five sessions run at once, so a
---- session that names itself is never handed work another session
---- claimed. `check` carries a lock of its own — the review claim
---- (`_work.gitreview`), pushed before the reading starts — so a
---- session is never handed a diff another session is already reading.
---- Neither skip applies to a session that names nothing: it has
---- nobody to collide with, so it is handed the claimed item anyway
---- rather than stepped past it.
+--- over: a session that names itself is never handed work another
+--- session's live claim holds, and never handed a diff another
+--- session's live review claim is reading. Neither skip applies to a
+--- session that names nothing: it has nobody to collide with, so it
+--- is handed the claimed item anyway rather than stepped past it.
 local decision = require("_work.decision")
 local flow = require("_work.flow")
 local health = require("_work.health")
@@ -53,193 +44,41 @@ local prio = require("_work.priority")
 
 local type Item = item.Item
 local type Action = decision.Action
+local type Specs = intake.Specs
 
---- Whether an item carries a standing verdict that sent it BACK. A
---- `request changes` verdict returns the item to `do` with the claim
---- naming who built it. A LIVE claim over rework is the builder mid
---- build-test-push loop — the board sees none of that activity, so
---- liveness is the lease's to judge, the same as every other claim;
---- a rework whose claimant stopped waking surfaces when the lease
---- expires and is taken over through the same --force takeover any
---- stale claim gets. This predicate only decorates the takeover
---- guidance with whose build it was.
+--- Whether a doing item is this session's to finish: unclaimed, its
+--- own, or under a claim gone stale. A live foreign claim is a
+--- builder mid loop on a machine the board cannot see.
 --- @param i Item The item
---- @return boolean True when a non-accept verdict stands on it
-local function is_rework(i: Item): boolean
-  local verdict = i.verdict or ""
-  return verdict ~= "" and verdict ~= "accept"
+--- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
+--- @return boolean True when this session may act on it
+local function is_mine(i: Item, session: string, ages: health.Ages): boolean
+  if (i.claim or "") == "" or session == "" or i.claim == session then
+    return true
+  end
+  return health.is_stale(i, ages)
 end
 
---- What one phase's draw offered and what it stepped over.
-local record Draw
-  --- The item to act on; absent when nothing here is this session's.
-  item: Item
-  --- Items another session holds.
+--- What the in-flight half decided, and what it stepped over on the
+--- way. The counts ride on the record rather than in further return
+--- slots: an absent `action` is the interesting case, and a caller
+--- cannot read past slot two.
+local record Phased
+  --- The decision, absent when nothing in flight is this session's.
+  action: Action
+  --- Items held by other sessions' live claims.
   held: integer
-  --- Items an open blocker parks: they cannot be finished, so they
-  --- are stepped over — while still occupying their phase's slot, so
-  --- the WIP limit reads them exactly as before.
-  blocked: integer
-  --- The highest-placed parked item, for naming the chain that holds
-  --- it when nothing else on the board fires; absent when none is.
-  stuck: Item
-end
-
---- The first item of a phase this session may take, and what it
---- stepped over on the way — another session's holds, and blocked
---- items no session could finish. An unclaimed item is anyone's; a
---- session's own claim is its own; with no session named nothing is
---- held.
----
---- Rework is anyone's too. A claim is a lock on work in progress, and
---- a send-back ends the progress it was locking: the item is back in
---- the queue with concrete gaps named on its PR, which is a thing any
---- session can pick up. The claim stays put rather than being cleared,
---- because it names the session that built the thing and would
---- ordinarily carry it on — so a session taking over a rework hands it
---- back with `--claim <itself>`, which the reason line says.
----
---- A STALE claim is anyone's for the same reason: the lease
---- (`_work.health`) expiring means the claiming session stopped
---- moving the board, and the sessions that claim work here cannot
---- return an item when they die — so the lock outliving its holder is
---- the expected failure, not an edge case. Absent ages disable the
---- lease rather than guessing.
---- @param b flow.Board The board
---- @param phase string The phase to draw from
---- @param session string This session's name, "" when unnamed
---- @param pos {string: prio.Position} Position by item id
---- @param ages health.Ages Seconds since last board commit, by id
---- @param index flow.Index Items by id
---- @param seed string Per-session tie-break seed, "" for age order
---- @return Draw What the phase offered and what was stepped over
-local function unheld(b: flow.Board, phase: string, session: string,
-    pos: {string: prio.Position}, ages: health.Ages, index: flow.Index,
-    seed: string): Draw
-  local out: Draw = {held = 0, blocked = 0}
-  for _, i in ipairs(flow.queued(b, phase, pos, seed)) do
-    if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    and not health.is_stale(i, ages) then
-      out.held = out.held + 1
-    elseif flow.is_blocked(i, index) then
-      out.blocked = out.blocked + 1
-      if out.stuck == nil then
-        out.stuck = i
-      end
-    elseif out.item == nil then
-      out.item = i
-    end
-  end
-  return out
-end
-
---- The `do` items another session holds, as one readable list
---- ("3I3z2gOF @claude-scheduled"). Built only for the terminal reason
---- that reports them, so the ordering's hot path never pays for it.
---- @param b flow.Board The board
---- @param session string This session's name, "" when unnamed
---- @param pos {string: prio.Position} Position by item id
---- @param ages health.Ages Seconds since last board commit, by id
---- @return string The held items, empty when none are
-local function held_names(b: flow.Board, session: string,
-    pos: {string: prio.Position}, ages: health.Ages): string
-  local out: {string} = {}
-  for _, i in ipairs(flow.queued(b, "do", pos)) do
-    if (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    and not health.is_stale(i, ages) then
-      out[#out + 1] = ("%s @%s"):format(i.id:sub(1, 8), i.claim)
-    end
-  end
-  return table.concat(out, ", ")
-end
-
---- The first item awaiting a verdict that nobody else is reviewing,
---- with what it stepped over on the way: items under another
---- session's LIVE review claim. That skip is what fans concurrent
---- reviewers out — without it every session was handed the same top
---- item and the collision surfaced at the verdict, after the work. A
---- stale review claim (`_work.health`'s review lease) is anyone's,
---- like every other expired lease; a session that names nothing is
---- skipped past nothing, and is offered the claimed item too.
---- @param b flow.Board The board
---- @param session string This session's name, "" when unnamed
---- @param pos {string: prio.Position} Position by item id
---- What the check queue offered and what it stepped over, as one
---- record: the fallible-returns rule allows a nil-admitting slot one
---- exactly one companion, and this walk has two counts to report.
-local record ReviewPick
-  --- The item to review; absent when `check` offers this walk
-  --- nothing — it is empty, or every item in it is under another
-  --- session's live review claim.
-  item: Item
-  --- Further reviewable items past the first, best first — the
-  --- alternates a session falls to when the claim on the first is
-  --- lost to somebody faster.
-  more: {Item}
   --- Items under another session's live review claim.
   reviewing: integer
-end
-
---- @param ages health.Ages Seconds since last board commit, by id
---- @return ReviewPick The pick and what was stepped over
-local function reviewable(b: flow.Board, session: string,
-    pos: {string: prio.Position}, ages: health.Ages,
-    seed: string): ReviewPick
-  local pick: ReviewPick = {more = {}, reviewing = 0}
-  for _, i in ipairs(flow.queued(b, "check", pos, seed)) do
-    if (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
-    and not health.is_review_stale(i, ages) then
-      pick.reviewing = pick.reviewing + 1
-    elseif pick.item == nil then
-      pick.item = i
-    else
-      pick.more[#pick.more + 1] = i
-    end
-  end
-  return pick
-end
-
---- The ready items this session may pull, best first: no open
---- blocker, not held by another session, and no more than `cap` —
---- the caller passes `do`'s free slots, so the list never offers a
---- pull the WIP gate would refuse.
---- @param b flow.Board The board
---- @param index flow.Index Items by id
---- @param session string This session's name, "" when unnamed
---- @param pos {string: prio.Position} Position by item id
---- @param cap integer The most items to return
---- @param seed string Per-session tie-break seed, "" for age order
---- @return {Item} The pullable items, possibly empty
-local function pullables(b: flow.Board, index: flow.Index,
-    session: string, pos: {string: prio.Position}, cap: integer,
-    seed: string): {Item}
-  local out: {Item} = {}
-  for _, i in ipairs(flow.queued(b, "ready", pos, seed)) do
-    local held = (i.claim or "") ~= "" and session ~= "" and i.claim ~= session
-    if not held and not flow.is_blocked(i, index) and #out < cap then
-      out[#out + 1] = i
-    end
-  end
-  return out
-end
-
---- What the phased half of the ordering decided, and what it stepped
---- over on the way. The counts ride on the record rather than in
---- further return slots: an absent `action` is the interesting case,
---- and a caller cannot read past slot two.
-local record Phased
-  --- The decision, absent when the board holds nothing this session
-  --- may move.
-  action: Action
-  --- Items held by other sessions.
-  held: integer
-  --- Items in `check` under another session's live review claim.
-  reviewing: integer
-  --- Blocked `do` items stepped over, and the highest-placed of
-  --- them: a `do` column nothing can finish must surface its chain
-  --- like a starved `ready` does, not vanish into a generic stall.
+  --- Blocked, bar-passing todo items stepped over, and the
+  --- highest-placed of them: a queue nothing can enter must surface
+  --- its chain, not vanish into a generic stall.
   parked: integer
   stuck: Item
+  --- Pullable items the saturated doing bound refused to offer: the
+  --- bound must name itself, or the stall reads as an empty queue.
+  suppressed: integer
 end
 
 --- How many candidates one ask hands out, the primary included.
@@ -247,102 +86,140 @@ end
 --- it the list is stale before anyone reaches its tail.
 local CANDIDATES < const >: integer = 4
 
---- The phased half of the ordering: land, review, finish, pull. The
---- decision is a LIST — the best action first and up to `CANDIDATES`
---- more behind it, crossing rungs when the best one is thin — so a
---- session that loses the claim race on the first has somewhere to
---- go without another round trip. Rung order still holds within the
---- list: every land precedes every review precedes the finish
---- precedes every pull.
---- @param b flow.Board The board
+--- The doing items another session's live claim holds, as one
+--- readable list ("3I3z2gOF @claude-scheduled"). Built only for the
+--- terminal reason that reports them.
+--- @param doing {Item} The doing queue
+--- @param session string This session's name, "" when unnamed
+--- @param ages health.Ages Seconds since last board commit, by id
+--- @return string The held items, empty when none are
+local function held_names(doing: {Item}, session: string,
+    ages: health.Ages): string
+  local out: {string} = {}
+  for _, i in ipairs(doing) do
+    if not is_mine(i, session, ages) then
+      out[#out + 1] = ("%s @%s"):format(i.id:sub(1, 8), i.claim)
+    end
+  end
+  return table.concat(out, ", ")
+end
+
+--- Whether a todo item passes the pure half of the spec bar: placed
+--- in the priority order, spec sections filled. The take gate asks
+--- more (blocker ids exist, the chain traces); this is the half a
+--- pure walk can answer, and a candidate the gate still refuses
+--- surfaces as one refused take, not a loop.
+--- @param i Item The item
+--- @param specs Specs Spec sidecar body, by item id
+--- @param pos {string: prio.Position} Position by item id
+--- @return boolean True when the item may be offered as a pull
+local function passes_bar(i: Item, specs: Specs,
+    pos: {string: prio.Position}): boolean
+  if not prio.is_placed(pos, i.id) then
+    return false
+  end
+  return #flow.ready_gaps(specs[i.id] or "") == 0
+end
+
+--- The in-flight half of the ordering — land, review, finish — and
+--- the pull that starts new work under the doing bound. The decision
+--- is a LIST: the best action first and up to `CANDIDATES` more
+--- behind it, so a session that loses the claim race on the first has
+--- somewhere to go without another round trip. Rung order holds
+--- within the list.
+--- @param items {Item} All items
+--- @param specs Specs Spec sidecar body, by item id
 --- @param index flow.Index Items by id
 --- @param session string This session's name, "" when unnamed
 --- @param pos {string: prio.Position} Position by item id
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @param seed string Per-session tie-break seed, "" for age order
 --- @return Phased The decision and what it stepped over
-local function phased_action(b: flow.Board, index: flow.Index, session: string,
-    pos: {string: prio.Position}, ages: health.Ages, seed: string): Phased
+local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
+    session: string, pos: {string: prio.Position}, ages: health.Ages,
+    seed: string): Phased
+  local doing = flow.in_state(items, "doing", pos, seed)
   local acts: {Action} = {}
-  local landing = flow.queued(b, "land", pos, seed)
-  for _, l in ipairs(landing) do
-    if #acts < CANDIDATES then
+  local held = 0
+  local reviewing = 0
+  for _, i in ipairs(doing) do
+    if flow.substate(i) == "accepted" and #acts < CANDIDATES then
       acts[#acts + 1] = {
         kind = "finish",
-        item = l,
-        reason = ("land holds %d — %s is accepted, awaiting merge"):format(
-          #landing, l.id:sub(1, 8)),
+        item = i,
+        reason = ("%s is accepted, awaiting merge — finishing beats "
+          .. "starting"):format(i.id:sub(1, 8)),
       }
     end
   end
-  local picked = reviewable(b, session, pos, ages, seed)
-  local reviewing = picked.reviewing
-  if picked.item then
-    local why = "check is the rightmost phase awaiting a decision — "
-    .. "verdicts before new work"
-    if #acts < CANDIDATES then
-      acts[#acts + 1] = {kind = "review", item = picked.item, reason = why}
-    end
-    for _, m in ipairs(picked.more) do
-      if #acts < CANDIDATES then
-        acts[#acts + 1] = {kind = "review", item = m, reason = why}
+  for _, i in ipairs(doing) do
+    if flow.substate(i) == "review" then
+      if (i.reviewer or "") ~= "" and session ~= "" and i.reviewer ~= session
+      and not health.is_review_stale(i, ages) then
+        reviewing = reviewing + 1
+      elseif #acts < CANDIDATES then
+        acts[#acts + 1] = {
+          kind = "review",
+          item = i,
+          reason = "a PR awaits a verdict — verdicts before new work",
+        }
       end
     end
   end
-  -- A handover into `check` is a move the WIP gate refuses once check
-  -- is full, and pulling adds work whose only exit is that same move.
-  -- Reaching here with check full means every item in it is under
-  -- another session's live review claim (`reviewable` would have
-  -- returned any other), so the ordering has no verdict to offer this
-  -- session that would drain it. Handing out either action would name
-  -- a move the gate rejects, and `next` would repeat it forever; fall
-  -- through to the intake half instead, which is still real work, and
-  -- let `next_action` say what is holding.
-  local handover_open = #(b["check"] or {}) < flow.LIMITS["check"]
-  -- And `do` has to have room for the pull itself. Reaching the pull
-  -- branch with `do` full means every slot is another session's claim
-  -- or a blocker's parking spot (an unheld, unblocked one would have
-  -- been finished above), so the limit binds against this session and
-  -- the move would be refused.
-  local room = flow.LIMITS["do"] - #(b["do"] or {})
-  local drawn = unheld(b, "do", session, pos, ages, index, seed)
-  local doing = drawn.item
-  local held = drawn.held
-  if doing and handover_open and #acts < CANDIDATES then
-    local whose = ""
-    if session ~= "" and (doing.claim or "") ~= ""
-    and doing.claim ~= session then
-      -- An offered item holding another session's claim is stale by
-      -- construction (a live foreign claim is held). The takeover
-      -- moves the claim, so the guidance carries everything the move
-      -- guard demands — --force --why, on the record.
-      local kind = is_rework(doing) and
-      ("rework of %s's build; "):format(doing.claim) or ""
-      whose = (" (%sclaim stale %dh — take it over: move it with "
-        .. "--claim %s --force --why <reason>)"):format(kind,
-        health.stale_hours(doing, ages), session)
-    elseif (doing.claim or "") ~= "" then
-      whose = (" (claimed by %s)"):format(doing.claim)
+  for _, i in ipairs(doing) do
+    local sub = flow.substate(i)
+    if sub == "building" or sub == "rework" then
+      if not is_mine(i, session, ages) then
+        held = held + 1
+      elseif #acts < CANDIDATES then
+        local whose = ""
+        if session ~= "" and (i.claim or "") ~= "" and i.claim ~= session then
+          whose = (" (claim stale %dh — take it over: `take ID`, on the "
+            .. "record)"):format(health.stale_hours(i, ages))
+        elseif (i.claim or "") ~= "" then
+          whose = (" (claimed by %s)"):format(i.claim)
+        end
+        acts[#acts + 1] = {
+          kind = "finish",
+          item = i,
+          reason = ("%s is %s — finish before pulling%s"):format(
+            i.id:sub(1, 8), sub, whose),
+        }
+      end
     end
-    local parked = ""
-    if drawn.blocked > 0 then
-      parked = (", %d blocked and skipped"):format(drawn.blocked)
-    end
-    acts[#acts + 1] = {
-      kind = "finish",
-      item = doing,
-      reason = ("do holds %d/%d — finish before pulling%s%s"):format(
-        #(b["do"] or {}), flow.LIMITS["do"], parked, whose),
-    }
   end
-  if handover_open and room > 0 then
+  local parked = 0
+  local stuck: Item = nil
+  local suppressed = 0
+  local room = flow.DOING_LIMIT - #doing
+  if room > 0 then
     local cap = math.min(room, CANDIDATES - #acts)
-    for _, i in ipairs(pullables(b, index, session, pos, cap, seed)) do
-      acts[#acts + 1] = {
-        kind = "pull",
-        item = i,
-        reason = "highest-priority ready item with no open blocker",
-      }
+    for _, i in ipairs(flow.in_state(items, "todo", pos, seed)) do
+      if passes_bar(i, specs, pos) then
+        if flow.is_blocked(i, index) then
+          parked = parked + 1
+          if stuck == nil then
+            stuck = i
+          end
+        elseif cap > 0 then
+          acts[#acts + 1] = {
+            kind = "pull",
+            item = i,
+            reason = "highest-priority todo item passing the spec bar "
+            .. "with no open blocker",
+          }
+          cap = cap - 1
+        end
+      end
+    end
+  else
+    -- The bound refused to offer anything: count what it withheld,
+    -- so the terminal answer can name the bound instead of reading
+    -- as an empty queue.
+    for _, i in ipairs(flow.in_state(items, "todo", pos, seed)) do
+      if passes_bar(i, specs, pos) and not flow.is_blocked(i, index) then
+        suppressed = suppressed + 1
+      end
     end
   end
   if #acts > 0 then
@@ -354,130 +231,103 @@ local function phased_action(b: flow.Board, index: flow.Index, session: string,
       end
       primary.alternates = alts
     end
-    return {action = primary, held = held,
-      reviewing = reviewing, parked = drawn.blocked, stuck = drawn.stuck}
+    return {action = primary, held = held, reviewing = reviewing,
+      parked = parked, stuck = stuck, suppressed = suppressed}
   end
-  return {held = held, reviewing = reviewing,
-    parked = drawn.blocked, stuck = drawn.stuck}
+  return {held = held, reviewing = reviewing, parked = parked,
+    stuck = stuck, suppressed = suppressed}
 end
 
 --- The one action to take now, right to left. Ages are optional the
 --- way the session is: a caller without git in reach (the pure tests)
---- omits them, and the lease and starvation reporting stand down
---- rather than guessing.
+--- omits them, and the lease reporting stands down rather than
+--- guessing.
 --- @param items {Item} All items
+--- @param specs Specs Spec sidecar body, by item id
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
+--- @param seed string Per-session tie-break seed, "" for age order
 --- @return Action The decision
-local function next_action(items: {Item}, session?: string,
+local function next_action(items: {Item}, specs: Specs, session?: string,
     ages?: health.Ages, seed?: string): Action
   local who = session or ""
   local aged = ages or {}
   local salt = seed or ""
-  local b = flow.board(items)
   local index = flow.by_id(items)
   local pos = prio.positions(items)
-  local ph = phased_action(b, index, who, pos, aged, salt)
+  local ph = phased_action(items, specs, index, who, pos, aged, salt)
   local phased = ph.action
   if phased then
     return phased
   end
-  -- Starvation outranks the intake half only when it BINDS: every
-  -- ready item blocked AND ready at its limit, so no refinement can
-  -- feed a pullable item past them. Below the limit the blocked
-  -- items occupy slots without consuming the pull, so intake keeps
-  -- working around them and the chain root surfaces as the fallback
-  -- when intake has nothing left — named either way, never a silent
-  -- stall (which is how a stalled board used to answer "refine"
-  -- forever).
-  local root, starving = health.starved(b, index, aged)
-  if root ~= nil and #(b["ready"] or {}) >= flow.LIMITS["ready"] then
-    return {kind = "unblock", item = root,
-      reason = starving .. " (ready is at its limit)"}
+  -- Bar-passing work held up by blockers outranks taking anything new
+  -- in: the queue is stuck, and decomposing more onto it would only
+  -- deepen what cannot move.
+  if ph.stuck ~= nil then
+    local bottom = health.chain_root(index, ph.stuck)
+    return {kind = "unblock", item = bottom,
+      reason = ("%d takeable item(s) wait on open blockers; the chain "
+        .. "bottoms at %s %s"):format(
+        ph.parked, bottom.id:sub(1, 8), bottom.title)}
   end
-  local taking = intake.intake_action(items, b, index, pos, aged, who)
+  -- Pullable work the saturated bound withheld outranks intake
+  -- advice: the honest answer is the bound, named — a session sent
+  -- to decompose while ten builds are in flight and work waits at
+  -- the gate would only deepen what cannot enter.
+  if ph.suppressed > 0 then
+    return {
+      kind = "none",
+      reason = ("doing is at %d/%d and %d pullable item(s) wait — the "
+        .. "bound throttles starting; nothing here is yours until "
+        .. "something in flight finishes"):format(
+        #flow.in_state(items, "doing", pos), flow.DOING_LIMIT,
+        ph.suppressed),
+    }
+  end
+  local taking = intake.intake_action(items, specs, index, pos)
   if taking then
     return taking
   end
-  if root ~= nil then
-    return {kind = "unblock", item = root,
-      reason = starving .. " — and intake holds nothing to work past them"}
-  end
-  -- The `do` half of the same promise: a column where every item
-  -- waits on an open blocker used to fall through to a terminal
-  -- whose every clause was about OTHER phases — a silent stall with
-  -- a wrong reason. Name the chain the way a starved ready does.
-  if ph.stuck ~= nil then
-    local bottom = health.chain_root(index, ph.stuck)
-    local where = bottom.phase
-    if where == "" then
-      where = "unphased"
-    end
-    return {kind = "unblock", item = bottom,
-      reason = ("%d do item(s) wait on open blockers and nothing else "
-        .. "fires; the chain bottoms at %s %s (%s)"):format(
-        ph.parked, bottom.id:sub(1, 8), bottom.title, where)}
-  end
   if ph.reviewing > 0 then
-    -- Full with nothing offered is not "somebody will get to it":
-    -- every item here is another session's review to write, and the
-    -- handover waits until one of them lands. Say what holds each
-    -- item — another session's live review claim covers it.
-    local shape = ("%d under another session's review"):format(ph.reviewing)
-    if #(b["check"] or {}) >= flow.LIMITS["check"] then
-      return {
-        kind = "none",
-        reason = ("check is at %d/%d with nothing this session may "
-          .. "judge (%s) — nothing can be handed over until a verdict "
-          .. "lands"):format(#(b["check"] or {}), flow.LIMITS["check"], shape),
-      }
-    end
     return {
       kind = "none",
-      reason = ("nothing in check is this session's to judge (%s) — "
-        .. "their verdicts land elsewhere"):format(shape),
+      reason = ("nothing here is this session's to move: %d item(s) are "
+        .. "under another session's live review — their verdicts land "
+        .. "elsewhere"):format(ph.reviewing),
     }
   end
   if ph.held > 0 then
-    -- Name them. A claim is a lock with no expiry, so an abandoned
-    -- session's claim strands its item and everything waiting on it
-    -- until a person takes it back; a bare count says something is
-    -- held without saying what to go and look at.
+    local doing = flow.in_state(items, "doing", pos)
     return {
       kind = "none",
-      reason = ("%d do item(s) are claimed by other sessions and nothing "
-        .. "is ready to pull: %s — take one over with `move <id> do "
-        .. "--claim <session>`"):format(ph.held, held_names(b, who, pos, aged)),
+      reason = ("%d item(s) are other sessions' live claims and nothing "
+        .. "else fires: %s — a claim past its lease is anyone's again")
+      :format(ph.held, held_names(doing, who, aged)),
     }
   end
   return {
     kind = "none",
-    reason = "plan and ready are at limit, backlog holds nothing "
-    .. "promotable, and there is nothing to check — implementation has "
-    .. "to catch up before intake adds more",
+    reason = "nothing in flight, nothing passing the spec bar, and "
+    .. "nothing to triage, refine, or decompose",
   }
 end
 
 local record action
   type Action = Action
   type Phased = Phased
-  type Draw = Draw
-  unheld: function(b: flow.Board, phase: string, session: string,
-  pos: {string: prio.Position}, ages: health.Ages, index: flow.Index,
-  seed: string): Draw
-  type ReviewPick = ReviewPick
-  reviewable: function(b: flow.Board, session: string,
-  pos: {string: prio.Position}, ages: health.Ages, seed: string): ReviewPick
-  pullables: function(b: flow.Board, index: flow.Index, session: string,
-  pos: {string: prio.Position}, cap: integer, seed: string): {Item}
-  next_action: function(items: {Item}, session?: string,
+  type Specs = Specs
+  passes_bar: function(i: Item, specs: Specs,
+  pos: {string: prio.Position}): boolean
+  phased_action: function(items: {Item}, specs: Specs, index: flow.Index,
+  session: string, pos: {string: prio.Position}, ages: health.Ages,
+  seed: string): Phased
+  next_action: function(items: {Item}, specs: Specs, session?: string,
   ages?: health.Ages, seed?: string): Action
 end
 
 local M: action = {
-  unheld = unheld,
-  reviewable = reviewable,
-  pullables = pullables,
+  passes_bar = passes_bar,
+  phased_action = phased_action,
   next_action = next_action,
 }
 

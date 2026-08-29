@@ -106,29 +106,31 @@ end
 local PARENT = check.must(ksuid.encode(1690000000, ("\1"):rep(16)))
 
 --- A minimal valid workable item (under a parent the store never
---- checks — graph rules are flow's, exercised in flow_test).
-local function make_item(phase: string): item.Item
+--- checks — graph rules are flow's, exercised in flow_test). The
+--- claim doubles as the mutable payload the round-trip tests edit.
+local function make_item(claim?: string): item.Item
   return check.must(item.decode({
-        id = fresh_id(), title = "an item", parent = PARENT, phase = phase,
+        id = fresh_id(), title = "an item", parent = PARENT,
+        claim = claim or "",
       }))
 end
 
 local function test_save_load_spec_and_history()
   local root = init_state_repo("roundtrip")
   local s = check.must(store.open(root))
-  local it = make_item("plan")
+  local it = make_item("session-a")
   local short = it.id:sub(1, 8)
-  assert(store.save(s, it, "new " .. short, "## Goal\nG1\n"))
+  assert(store.save(s, it, "new " .. short, "## Change\nG1\n"))
   local loaded = check.must(store.load(s, it.id))
-  assert(loaded.phase == "plan", "phase: " .. loaded.phase)
-  assert(store.read_spec(s, it.id) == "## Goal\nG1\n", "spec sidecar")
-  loaded.phase = "ready"
-  assert(store.save(s, loaded, "move " .. short .. " plan -> ready"))
-  assert(store.read_spec(s, it.id) == "## Goal\nG1\n",
+  assert(loaded.claim == "session-a", "claim: " .. loaded.claim)
+  assert(store.read_spec(s, it.id) == "## Change\nG1\n", "spec sidecar")
+  loaded.claim = "session-b"
+  assert(store.save(s, loaded, "take " .. short .. " by session-b"))
+  assert(store.read_spec(s, it.id) == "## Change\nG1\n",
     "a nil spec leaves the sidecar alone")
   local events = check.must(store.history(s, it.id))
   assert(#events == 2, "want 2 events, got " .. #events)
-  assert(events[1].subject:find("plan %-> ready"), events[1].subject)
+  assert(events[1].subject:find("by session%-b"), events[1].subject)
   local missing, merr = store.load(s, fresh_id())
   assert(missing == nil and merr:find("no item", 1, true), "missing item")
 end
@@ -140,10 +142,10 @@ test_save_load_spec_and_history()
 local function test_history_covers_the_spec_sidecar()
   local root = init_state_repo("sidecar-history")
   local s = check.must(store.open(root))
-  local it = make_item("plan")
+  local it = make_item()
   local short = it.id:sub(1, 8)
-  assert(store.save(s, it, "new " .. short, "## Goal\nG1\n"))
-  assert(store.save(s, it, "spec " .. short, "## Goal\nG8\n"))
+  assert(store.save(s, it, "new " .. short, "## Change\nG1\n"))
+  assert(store.save(s, it, "spec " .. short, "## Change\nG8\n"))
   local events = check.must(store.history(s, it.id))
   assert(#events == 2, "want 2 events, got " .. #events)
   assert(events[1].subject == "spec " .. short,
@@ -154,8 +156,8 @@ test_history_covers_the_spec_sidecar()
 local function test_resolve_prefixes()
   local root = init_state_repo("resolve")
   local s = check.must(store.open(root))
-  local a = make_item("plan")
-  local b = make_item("plan")
+  local a = make_item()
+  local b = make_item()
   assert(store.save(s, a, "new a"))
   assert(store.save(s, b, "new b"))
   assert(check.must(store.resolve(s, a.id)) == a.id, "full ids resolve")
@@ -175,17 +177,17 @@ test_resolve_prefixes()
 local function test_save_writes_every_touched_item_as_one_commit()
   local root = init_state_repo("atomic")
   local s = check.must(store.open(root))
-  local parent = make_item("plan")
+  local parent = make_item("session-a")
   assert(store.save(s, parent, "new parent"))
   local before = commit_count(root)
-  local kid = make_item("plan")
-  parent.phase = ""
+  local kid = make_item()
+  parent.claim = ""
   assert(store.save(s, kid, "new kid", nil, {parent}))
   assert(commit_count(root) == before + 1,
     ("one mutation, one commit: %d -> %d"):format(before, commit_count(root)))
-  assert(check.must(store.load(s, parent.id)).phase == "",
-    "the de-phased parent is in that commit")
-  assert(check.must(store.load(s, kid.id)).phase == "plan", "so is the child")
+  assert(check.must(store.load(s, parent.id)).claim == "",
+    "the unlocked parent is in that commit")
+  assert(check.must(store.load(s, kid.id)).id == kid.id, "so is the child")
 end
 test_save_writes_every_touched_item_as_one_commit()
 
@@ -194,9 +196,9 @@ test_save_writes_every_touched_item_as_one_commit()
 local function test_save_refuses_a_no_op()
   local root = init_state_repo("noop")
   local s = check.must(store.open(root))
-  local it = make_item("plan")
+  local it = make_item()
   assert(store.save(s, it, "new item"))
-  local ok, err = store.save(s, it, "move it nowhere")
+  local ok, err = store.save(s, it, "take it nowhere")
   assert(not ok, "an unchanged item is not a commit")
   assert(err:find("nothing to record", 1, true), "got: " .. err)
 end
@@ -206,30 +208,31 @@ local function test_publish_fast_forward()
   local bare, clones = init_shared("ff", 2)
   assert(bare)
   local a = check.must(store.open(clones[1]))
-  local it = make_item("plan")
+  local it = make_item("session-a")
   assert(store.save(a, it, "new item"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
   local got = check.must(store.load(b, it.id))
-  assert(got.phase == "plan", "the published item reaches the second clone")
+  assert(got.claim == "session-a",
+    "the published item reaches the second clone")
 end
 test_publish_fast_forward()
 
--- Two sessions race the do limit (5): both see 4/5 and move a ready
--- item in. The first push wins; the loser's publish drops its commit
--- whole, re-syncs, and refuses with LOST_RACE — the verb re-runs
--- against the merged board, whose up-front WIP gate refuses the
--- arrival, which is the compare-and-swap the label board's lagged
--- index cannot give.
+-- Two sessions race the last doing slot: both see room and take. The
+-- first push wins; the loser's publish drops its commit whole,
+-- re-syncs, and refuses with LOST_RACE — the verb re-runs against the
+-- merged board, whose doing bound refuses the take, which is the
+-- compare-and-swap a lagged index cannot give.
 local function test_publish_drops_a_lost_race()
   local _, clones = init_shared("cas", 2)
   local a = check.must(store.open(clones[1]))
-  for i = 1, 4 do
-    assert(store.save(a, make_item("do"), ("busy %d"):format(i)))
+  for i = 1, flow.DOING_LIMIT - 1 do
+    assert(store.save(a, make_item(("busy-%d"):format(i)),
+        ("busy %d"):format(i)))
   end
-  local mine = make_item("ready")
-  local yours = make_item("ready")
+  local mine = make_item()
+  local yours = make_item()
   assert(store.save(a, mine, "new mine"))
   assert(store.save(a, yours, "new yours"))
   assert(store.publish(a))
@@ -237,23 +240,24 @@ local function test_publish_drops_a_lost_race()
   assert(store.sync(b))
 
   local ia = check.must(store.load(a, mine.id))
-  ia.phase = "do"
-  assert(store.save(a, ia, "move mine ready -> do"))
+  ia.claim = "session-a"
+  assert(store.save(a, ia, "take mine by session-a"))
   assert(store.publish(a))
 
   local ib = check.must(store.load(b, yours.id))
-  ib.phase = "do"
-  assert(store.save(b, ib, "move yours ready -> do"))
+  ib.claim = "session-b"
+  assert(store.save(b, ib, "take yours by session-b"))
   local ok, err = store.publish(b)
-  assert(not ok, "the losing move must be refused")
+  assert(not ok, "the losing take must be refused")
   assert(err == store.LOST_RACE, "got: " .. err)
   local back = check.must(store.load(b, yours.id))
-  assert(back.phase == "ready", "the dropped mutation is undone whole")
+  assert(back.claim == "", "the dropped mutation is undone whole")
   local winner = check.must(store.load(b, mine.id))
-  assert(winner.phase == "do", "the winning move is visible after the sync")
-  local merged = flow.board(check.must(store.list(b)))
-  assert(#(merged["do"] or {}) == 5, "do holds exactly its limit — the "
-    .. "re-run verb's own gate now refuses this arrival")
+  assert(winner.claim == "session-a",
+    "the winning take is visible after the sync")
+  assert(flow.doing_refusal(check.must(store.list(b))) ~= nil,
+    "doing holds exactly its bound — the re-run verb's own gate now "
+    .. "refuses this take")
 end
 test_publish_drops_a_lost_race()
 
@@ -266,22 +270,21 @@ test_publish_drops_a_lost_race()
 local function test_publish_drops_a_lost_edit_of_the_same_item()
   local _, clones = init_shared("conflict", 2)
   local a = check.must(store.open(clones[1]))
-  local contested = make_item("ready")
+  local contested = make_item()
   assert(store.save(a, contested, "new contested"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
 
   local ia = check.must(store.load(a, contested.id))
-  ia.phase = "do"
   ia.claim = "session-a"
-  assert(store.save(a, ia, "move contested ready -> do"))
+  assert(store.save(a, ia, "take contested by session-a"))
   assert(store.publish(a))
 
   local ib = check.must(store.load(b, contested.id))
-  ib.phase = "check"
+  ib.claim = "session-b"
   ib.pr = 7
-  assert(store.save(b, ib, "move contested ready -> check"))
+  assert(store.save(b, ib, "take contested by session-b"))
   local ok, err = store.publish(b)
   assert(not ok, "the losing edit of the same item must be refused")
   assert(err == store.LOST_RACE, "got: " .. err)
@@ -289,8 +292,8 @@ local function test_publish_drops_a_lost_edit_of_the_same_item()
   assert(not fs.is_present(fs.join(clones[2], ".git", "rebase-merge")),
     "no rebase may be left in progress")
   local after = check.must(store.load(b, contested.id))
-  assert(after.phase == "do" and after.claim == "session-a",
-    "the loser's checkout holds the winner's state: " .. after.phase)
+  assert(after.claim == "session-a" and after.pr == 0,
+    "the loser's checkout holds the winner's state: " .. after.claim)
   assert(store.list(b), "the board stays readable after the refusal")
 end
 test_publish_drops_a_lost_edit_of_the_same_item()
@@ -304,22 +307,21 @@ test_publish_drops_a_lost_edit_of_the_same_item()
 local function test_sync_unwinds_a_conflicting_rebase()
   local _, clones = init_shared("sync-conflict", 2)
   local a = check.must(store.open(clones[1]))
-  local contested = make_item("ready")
+  local contested = make_item()
   assert(store.save(a, contested, "new contested"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
 
   local ia = check.must(store.load(a, contested.id))
-  ia.phase = "do"
   ia.claim = "session-a"
-  assert(store.save(a, ia, "move contested ready -> do"))
+  assert(store.save(a, ia, "take contested by session-a"))
   assert(store.publish(a))
 
   local ib = check.must(store.load(b, contested.id))
-  ib.phase = "check"
+  ib.claim = "session-b"
   ib.pr = 7
-  assert(store.save(b, ib, "hand-edit contested ready -> check"))
+  assert(store.save(b, ib, "hand-edit contested for session-b"))
   local ok, err = store.sync(b)
   assert(not ok, "a conflicting sync must be refused")
   assert(err:find("concurrent edit", 1, true), "got: " .. err)
@@ -340,25 +342,24 @@ test_sync_unwinds_a_conflicting_rebase()
 local function test_publish_names_the_drop_when_the_resync_conflicts()
   local _, clones = init_shared("drop-conflict", 2)
   local a = check.must(store.open(clones[1]))
-  local contested = make_item("ready")
+  local contested = make_item()
   assert(store.save(a, contested, "new contested"))
   assert(store.publish(a))
   local b = check.must(store.open(clones[2]))
   assert(store.sync(b))
 
   local ia = check.must(store.load(a, contested.id))
-  ia.phase = "do"
   ia.claim = "session-a"
-  assert(store.save(a, ia, "move contested ready -> do"))
+  assert(store.save(a, ia, "take contested by session-a"))
   assert(store.publish(a))
 
   -- b's hand-edit of the contested item, unpublished, then a verb's
   -- mutation of another item on top of it.
   local ib = check.must(store.load(b, contested.id))
-  ib.phase = "check"
+  ib.claim = "session-b"
   ib.pr = 9
-  assert(store.save(b, ib, "hand-edit contested ready -> check"))
-  local mine = make_item("plan")
+  assert(store.save(b, ib, "hand-edit contested for session-b"))
+  local mine = make_item()
   assert(store.save(b, mine, "new mine"))
   local ok, err = store.publish(b)
   assert(not ok, "the push is rejected and the rebase then conflicts")
@@ -368,7 +369,7 @@ local function test_publish_names_the_drop_when_the_resync_conflicts()
   local gone = store.load(b, mine.id)
   assert(gone == nil, "the verb's mutation is gone whole")
   local kept = check.must(store.load(b, contested.id))
-  assert(kept.phase == "check" and kept.pr == 9,
+  assert(kept.claim == "session-b" and kept.pr == 9,
     "the unpublished hand-edit beneath it survives the unwind")
 end
 test_publish_names_the_drop_when_the_resync_conflicts()
@@ -386,7 +387,7 @@ local function test_publish_keeps_the_mutation_on_a_policy_rejection()
       "#!/bin/sh\necho 'policy: board is read-only' >&2\nexit 1\n"))
   assert(fs.set_mode(hook, fs.octal("755")))
 
-  local it = make_item("plan")
+  local it = make_item("session-a")
   assert(store.save(a, it, "new under policy"))
   local before = commit_count(clones[1])
   local ok, err = store.publish(a)
@@ -399,7 +400,7 @@ local function test_publish_keeps_the_mutation_on_a_policy_rejection()
     .. "commit survives: " .. err)
   assert(commit_count(clones[1]) == before,
     "the mutation was not destroyed")
-  assert(check.must(store.load(a, it.id)).phase == "plan",
+  assert(check.must(store.load(a, it.id)).claim == "session-a",
     "and still reads back")
 end
 test_publish_keeps_the_mutation_on_a_policy_rejection()

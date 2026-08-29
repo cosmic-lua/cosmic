@@ -4,12 +4,9 @@ return {
   },
   ["blocked_by"] = "3IVF3HbVUGBgHw6ZKvy6PYhTXOg",
   ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c 05f7c552-0c90-51cb-99b3-e018759c6ed5",
-  ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IVLAF3ZGqRL59hrEAL5NRY48fr",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["pr"] = 1486,
   ["resolution"] = "completed",
   ["title"] = "perf gate: stampless files pass identity refusals and join the same-binary noise controls",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "2a29c4d3981e9a8fadf8d9833862c67a65d25e09",
 }

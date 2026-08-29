@@ -1,91 +1,99 @@
---- The `compare` and `uncompare` verbs: the priority relation as a
---- mutation, so a judgment about which of two items matters more is
---- recorded the same way every other board fact is — one commit, one
---- verdict line, one refusal when it does not hold.
+--- The `compare` verb: the priority relation as a mutation, so a
+--- judgment about which of two items matters more is recorded the
+--- same way every other board fact is — one commit, one verdict line,
+--- one refusal when it does not hold.
 ---
 --- Its own module rather than another entry in `_work.gitverbs`,
 --- which sits close enough to the file-length cap that the cap has
---- already caused a defect there once. `_work.gitland` and
---- `_work.gitverdict` split out for the same reason.
+--- already caused a defect there once.
 ---
 --- The edge is written on the WINNER, as one more id in its `beats`.
---- Recording `A > B` therefore touches exactly one item file, and the
---- order everything renders in is derived from the accumulated edges
---- by `_work.priority` rather than stored anywhere.
+--- Recording `A > B` therefore touches exactly one item file — unless
+--- the direct reverse edge stands, in which case the reversal is one
+--- commit over both items: the old judgment removed where it lives,
+--- the new one added, never half of each. An order that puts the
+--- loser above the winner only TRANSITIVELY is refused — no single
+--- edge can honestly reverse a conclusion several comparisons built.
 local gate = require("_work.gitgate")
+local item = require("_work.item")
 local prio = require("_work.priority")
 local store = require("_work.store")
 
---- Record (or drop) `winner` outranking `loser`.
----
---- A comparison is ASKED one pair at a time and transitivity closes
---- the rest, so this deliberately refuses an edge that contradicts
---- one already committed instead of quietly reversing it: the earlier
---- judgment is data. Overturning it is `uncompare` then `compare` —
---- two commits, both of them in the log.
+--- Record `winner` outranking `loser`, reversing a standing direct
+--- edge the other way in the same commit.
 --- @param s store.Store The store
 --- @param winner string The item ranked above
 --- @param loser string The item ranked below
---- @param remove boolean True to drop the edge instead of adding it
 --- @return integer 0 on success, 1 otherwise
-local function cmd_compare(s: store.Store, winner: string, loser: string,
-    remove: boolean): integer
-  local verb = remove and "uncompare" or "compare"
+local function cmd_compare(s: store.Store, winner: string,
+    loser: string): integer
   local all, aerr = store.list(s)
   if all == nil then
-    return gate.verdict_line(verb, false, aerr)
+    return gate.verdict_line("compare", false, aerr)
   end
   local index = prio.index_of(all)
   local it = index[winner]
   if it == nil then
-    return gate.verdict_line(verb, false, ("no item %s"):format(winner))
+    return gate.verdict_line("compare", false, ("no item %s"):format(winner))
   end
-  if not remove then
-    local refusal = prio.edge_refusal(index, winner, loser)
-    if refusal then
-      return gate.verdict_line(verb, false, "REFUSED: " .. refusal)
+  -- A standing direct edge the other way is reversed, not refused:
+  -- the overturned judgment leaves the log in the same commit that
+  -- records its replacement. Removed in memory first, so the cycle
+  -- check below judges the order as the write would leave it.
+  local lo = index[loser]
+  local reversed = false
+  if lo ~= nil then
+    local kept: {string} = {}
+    for _, b in ipairs(lo.beats or {}) do
+      if b == winner then
+        reversed = true
+      else
+        kept[#kept + 1] = b
+      end
     end
+    if reversed then
+      lo.beats = kept
+    end
+  end
+  local refusal = prio.edge_refusal(index, winner, loser)
+  if refusal then
+    return gate.verdict_line("compare", false, "REFUSED: " .. refusal)
   end
   local kept: {string} = {}
   local seen: {string: boolean} = {}
-  local had = false
   for _, b in ipairs(it.beats or {}) do
-    if b == loser then
-      had = true
-    elseif not seen[b] then
+    if not seen[b] and b ~= loser then
       seen[b] = true
       kept[#kept + 1] = b
     end
   end
-  if remove and not had then
-    return gate.verdict_line(verb, false,
-      ("%s does not outrank %s"):format(winner:sub(1, 8), loser:sub(1, 8)))
-  end
-  if not remove then
-    kept[#kept + 1] = loser
-  end
+  kept[#kept + 1] = loser
   it.beats = kept
+  local also: {item.Item} = {}
+  local note = ""
+  if reversed then
+    also[#also + 1] = lo
+    note = (" (reversing %s over %s)"):format(loser:sub(1, 8),
+      winner:sub(1, 8))
+  end
   local ok, err = gate.commit_and_publish(s, it, nil,
-    ("%s %s over %s"):format(verb, winner:sub(1, 8), loser:sub(1, 8)))
+    ("compare %s over %s%s"):format(winner:sub(1, 8), loser:sub(1, 8), note),
+    also)
   if not ok then
-    return gate.verdict_line(verb, false, err)
+    return gate.verdict_line("compare", false, err)
   end
   -- The standing after the write, not the edge just made: one edge is
   -- a judgment, and what the session wants to see is where the item
   -- now sits once transitivity has closed everything it implies.
   local band, own = prio.key_of(prio.positions(store.list(s) or all), winner)
-  local shape = "now outranks"
-  if remove then
-    shape = "no longer outranks"
-  end
-  return gate.verdict_line(verb, true,
-    ("%s %s %s (band %d, outranks %d)"):format(winner:sub(1, 8), shape,
-      loser:sub(1, 8), band, own))
+  return gate.verdict_line("compare", true,
+    ("%s now outranks %s%s (band %d, outranks %d)"):format(winner:sub(1, 8),
+      loser:sub(1, 8), note, band, own))
 end
 
 local record gitcompare
-  cmd_compare: function(s: store.Store, winner: string, loser: string,
-  remove: boolean): integer
+  cmd_compare: function(s: store.Store, winner: string,
+  loser: string): integer
 end
 
 local M: gitcompare = {

@@ -4,12 +4,9 @@ return {
   },
   ["blocked_by"] = "3IOCdHTMLfZoga1s1BqhqJI2D3v",
   ["builders"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
-  ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IOCdZCAMtWFj6fsMr7fG02QUh5",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["pr"] = 1456,
   ["resolution"] = "completed",
   ["title"] = "testrun and report: per-test statuses in .tests, totals by test, --filter passthrough",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "334b20a1",
 }

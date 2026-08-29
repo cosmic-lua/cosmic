@@ -3,11 +3,8 @@
 -- dropped whole, the checkout re-synced, and the refusal is
 -- `store.LOST_RACE` — never a replay of a commit whose preconditions
 -- the winner may have falsified. The re-run is the verb's, and it
--- decides afresh: a re-run of a drainable write publishes, and a
--- re-run of an over-limit arrival meets the verb's own up-front
--- `wip_refusal` on the merged board — where the old post-race closure
--- re-asked only the limit and had to reproduce the verbs' own
--- admission semantics to avoid reversing decisions already made.
+-- decides afresh against the merged board — where every gate,
+-- the doing bound included, is re-applied.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
@@ -29,23 +26,16 @@ end
 
 local PARENT = check.must(ksuid.encode(1690000000, ("\1"):rep(16)))
 
---- A minimal valid workable item in `phase` — under a parent the store
---- never checks, the same convention `store_test.tl` uses.
-local function make_item(phase: string): item.Item
-  return check.must(item.decode({
-        id = fresh_id(), title = "filler", parent = PARENT, phase = phase,
-      }))
-end
-
---- Push `plan` one item past its limit — one save per filler, one
---- publish for the lot, so the column starts over-limit with no gate
---- ever having refused an arrival (that up-front WIP check lives in
---- `cmd_new`/`cmd_move`, not here).
-local function fill_plan_over_limit(s: store.Store)
-  for _ = 1, flow.LIMITS["plan"] + 1 do
-    assert(store.save(s, make_item("plan"), "filler " .. fresh_id():sub(1, 8)))
+--- A minimal valid workable item — under a parent the store never
+--- checks, the same convention `store_test.tl` uses.
+local function make_item(over?: {string: any}): item.Item
+  local t: {string: any} = {
+    id = fresh_id(), title = "filler", parent = PARENT,
+  }
+  for k, v in pairs(over or {}) do
+    t[k] = v
   end
-  assert(store.publish(s))
+  return check.must(item.decode(t))
 end
 
 -- A lost race is a refusal, not a replay: the commit is dropped, the
@@ -53,16 +43,13 @@ end
 -- identity.
 local function test_a_lost_race_drops_the_mutation_and_refuses()
   local a, b = init_shared("gate-lost")
-  fill_plan_over_limit(a)
-  assert(store.sync(b))
-
-  -- `a` moves the remote forward once more, so `b`'s push below is
-  -- rejected against a remote it has not seen.
-  local touched = make_item("plan")
+  -- `a` moves the remote forward, so `b`'s push below is rejected
+  -- against a remote it has not seen.
+  local touched = make_item()
   assert(store.save(a, touched, "a moves the remote forward"))
   assert(store.publish(a))
 
-  local mine = make_item("plan")
+  local mine = make_item()
   local ok, err = gate.commit_and_publish(b, mine, "a spec touch",
     ("spec %s"):format(mine.id:sub(1, 8)))
   assert(not ok and err == store.LOST_RACE, "got: " .. tostring(err))
@@ -78,13 +65,11 @@ test_a_lost_race_drops_the_mutation_and_refuses()
 -- decided and committed again against the merged state, publishes.
 local function test_the_rerun_publishes_against_the_merged_state()
   local a, b = init_shared("gate-rerun")
-  fill_plan_over_limit(a)
-  assert(store.sync(b))
-  local touched = make_item("plan")
+  local touched = make_item()
   assert(store.save(a, touched, "a moves the remote forward"))
   assert(store.publish(a))
 
-  local mine = make_item("plan")
+  local mine = make_item()
   local ok, err = gate.commit_and_publish(b, mine, "a spec touch",
     ("spec %s"):format(mine.id:sub(1, 8)))
   assert(not ok and err == store.LOST_RACE, "got: " .. tostring(err))
@@ -97,46 +82,34 @@ local function test_the_rerun_publishes_against_the_merged_state()
 end
 test_the_rerun_publishes_against_the_merged_state()
 
--- What the re-run's gate would see: the verb's own up-front WIP
--- refusal, applied to the merged board, refuses an over-limit
--- arrival — the check the deleted post-race closure approximated.
-local function test_the_merged_board_carries_the_wip_refusal()
-  local a, b = init_shared("gate-wip")
-  fill_plan_over_limit(a)
+-- What a re-run's take would see: the doing bound, applied to the
+-- merged board — a board another session filled while this one was
+-- deciding refuses the take the stale read would have admitted.
+local function test_the_merged_board_carries_the_doing_bound()
+  local a, b = init_shared("gate-bound")
+  for k = 1, flow.DOING_LIMIT do
+    assert(store.save(a, make_item({claim = ("wake-%d"):format(k)}),
+        "filler " .. fresh_id():sub(1, 8)))
+  end
+  assert(store.publish(a))
   assert(store.sync(b))
   local merged = check.must(store.list(b))
-  assert(gate.wip_refusal(flow.board(merged), nil, "plan") ~= nil,
-    "an arrival into the over-limit column is the verb's to refuse")
+  assert(flow.doing_refusal(merged) ~= nil,
+    "a take against the merged board is the verb's to refuse")
 end
-test_the_merged_board_carries_the_wip_refusal()
+test_the_merged_board_carries_the_doing_bound()
 
--- The two grounds `land_refusal` reports are different repairs — one
--- needs a review, the other a PR number — so each is checked for the
--- message it carries, not merely for refusing.
-local function test_land_refusal_names_what_is_missing()
-  local ready = make_item("check")
-  ready.verdict = "accept"
-  ready.pr = 42
-  assert(gate.land_refusal(ready) == nil,
-    "an accept naming its PR enters land")
-
-  local unjudged = make_item("check")
-  unjudged.pr = 42
-  local no_verdict = gate.land_refusal(unjudged)
-  assert(no_verdict ~= nil and no_verdict:find("has no verdict", 1, true),
-    "got: " .. tostring(no_verdict))
-
-  local bounced = make_item("check")
-  bounced.verdict = "request changes"
-  bounced.pr = 42
-  local wrong = gate.land_refusal(bounced)
-  assert(wrong ~= nil and wrong:find("has request changes", 1, true),
-    "a non-accept verdict is named as what it is: " .. tostring(wrong))
-
-  local unnumbered = make_item("check")
-  unnumbered.verdict = "accept"
-  local no_pr = gate.land_refusal(unnumbered)
-  assert(no_pr ~= nil and no_pr:find("names none", 1, true),
-    "an accept with no PR has nothing to merge: " .. tostring(no_pr))
+-- A decomposition clears the locks on the item that became a
+-- container: a claim or review standing on it locks nothing anyone
+-- can build. The write travels with the child's commit, which is why
+-- it is returned rather than saved.
+local function test_containered_clears_the_locks()
+  local untouched = make_item()
+  assert(#gate.containered(untouched) == 0,
+    "an unclaimed parent has nothing to clear")
+  local held = make_item({claim = "session-A", reviewer = "review-1"})
+  local out = gate.containered(held)
+  assert(#out == 1 and out[1].claim == "" and out[1].reviewer == "",
+    "the claim and the review clear together")
 end
-test_land_refusal_names_what_is_missing()
+test_containered_clears_the_locks()

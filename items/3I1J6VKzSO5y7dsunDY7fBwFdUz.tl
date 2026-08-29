@@ -4,6 +4,4 @@ return {
   ["pr"] = 1242,
   ["resolution"] = "completed",
   ["title"] = "cosmic.literal: a stated duplicate-key contract, so a committed floor can union-merge",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "425ae05",
 }

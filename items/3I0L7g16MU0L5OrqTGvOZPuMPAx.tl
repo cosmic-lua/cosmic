@@ -4,6 +4,4 @@ return {
   ["pr"] = 1247,
   ["resolution"] = "completed",
   ["title"] = "the feedback half emits prose, not issues: four countermeasures went unfiled today",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "e4c72c4",
 }

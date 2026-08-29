@@ -5,12 +5,9 @@ return {
   },
   ["blocked_by"] = "3IUBNQZZ8UHrBZD8Tgb7BgEx2zD 3IVLAF3ZGqRL59hrEAL5NRY48fr",
   ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
-  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IWU4i0lsjlYkUehAG25BsSXCaH",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["pr"] = 1496,
   ["resolution"] = "completed",
   ["title"] = "perf gate: a regression quiet on pass 2 gets two samples and no A/A control",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "2e0c95707c21cb98879bada014454789c8817306",
 }

@@ -4,7 +4,6 @@ return {
   },
   ["blocked_by"] = "3ITt7slj1bzcreOs8gKt9oRgATz",
   ["builders"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
-  ["claim"] = "0177c77f-81b5-5fbc-9731-86abcfb395ca",
   ["id"] = "3ITqoN98A2nOmtmVGVu3ZCsgsLi",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["resolution"] = "completed",

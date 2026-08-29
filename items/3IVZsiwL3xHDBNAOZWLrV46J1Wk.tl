@@ -5,12 +5,9 @@ return {
   },
   ["blocked_by"] = "3IVL5DSrJBTQigWm90vJmNSvwZc 3IVQJa0bAOwB8ywV1P1rystknKJ",
   ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
-  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IVZsiwL3xHDBNAOZWLrV46J1Wk",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1478,
   ["resolution"] = "completed",
   ["title"] = "tl patch: the closure boundary widens the enclosing continuation too, so a guard then a lambda then a use fails where stock passed",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "faa416af614ee761f1641959f32b5997b0943882",
 }

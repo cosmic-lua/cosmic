@@ -13,22 +13,31 @@ items/       the board: one <ksuid>.tl per item (cosmic.literal data)
              with its spec prose in the matching <ksuid>.md
 _work/       the machinery: gitboard (CLI), gitverbs (mutations),
              gitcompare (the priority relation as a verb), gitview
-             (reads), gitgate (the WIP and ready gates, and the
+             (reads), gitgate (the spec bar, the doing bound, and the
              commit-and-publish every mutation goes through), store
-             (git-backed persistence), flow (the rules), priority (the
-             comparison relation and the order derived from it), spec
-             (the ready bar's section grammar), item (the record),
-             ksuid (ids)
+             (git-backed persistence), flow (the derived states and
+             graph rules), priority (the comparison relation and the
+             order derived from it), spec (the spec bar's section
+             grammar), item (the record), ksuid (ids)
 cmd/gitboard the binary this branch builds: `o/bin/gitboard`
-docs/        the flow review: what the WIP limits were measured
-             against, and the tripwires that re-open the question
 bin/cosmic   the trust root: fetches the one pinned cosmic and execs it
 ```
+
+A workable item's state is DERIVED from the facts its file carries,
+never declared: open, unclaimed, and PR-less is `todo` (pullable once
+its spec passes the bar `show ID` prints); a claim or a PR makes it
+`doing`; a resolution ends it. Which claim a `take` makes is derived
+the same way — an item awaiting a verdict, taken by a session that is
+not its builder, is the review claim. Within doing the same facts say what happens
+next — building, awaiting review, rework, accepted. One WIP bound,
+`_work/flow.tl`'s `DOING_LIMIT`, covers the whole in-flight span:
+taking NEW work is refused at the limit, finishing motions never
+are.
 
 Roles derive from the graph — there is no kind field and no goal
 tier: an item with open children is a container being decomposed, a
 parentless one is a root, and a parented leaf is workable (the only
-thing that holds a board phase).
+thing with a board state).
 
 Which items matter more is a RELATION, not a number an item asserts
 about itself. `compare A B` commits one judgment — A outranks B — as
@@ -37,8 +46,8 @@ from the accumulated edges: transitivity closes the pairs nobody was
 asked about, a comparison at any height places everything beneath it,
 and age is the last word among items no comparison separates. An item
 no edge reaches, at any height, is UNPLACED, and that is exactly what
-the triage queue holds; `check` refuses to promote work with no
-position, which is the property the goal trace used to carry. A cycle
+the triage queue holds; `take` refuses work with no position, so an
+unplaced item is never pulled. A cycle
 is reported, never averaged away: it means the comparison question was
 ambiguous, so the pair is restated and re-asked.
 
@@ -49,12 +58,9 @@ tree — nothing here derives from it, and nothing checks it.
 What the verbs ARE lives here and only here: `gitboard help` lists
 them, `gitboard help <verb>` gives one its options, and both are
 generated from the CLI, so neither can drift from the tool. The
-phases' WIP limits are `_work/flow.tl`'s `LIMITS`, printed by `status`
-as each phase against its own; `docs/flow-review.md` is the
-measurement each of those numbers rests on, and the tripwires that
-call for measuring them again. The `work` skill on `main` says what
-the verbs are FOR and when a session reaches for which; it deliberately
-restates none of the above, so a verb added here needs no edit there.
+`work` skill on `main` says what the verbs are FOR and when a session
+reaches for which; it deliberately restates none of the above, so a
+verb added here needs no edit there.
 
 ## Using it from a cosmic checkout
 
@@ -65,7 +71,7 @@ worktree — `--dir` then defaults to it and needs no argument:
 git worktree add o/board board     # once per checkout
 cd o/board
 bin/cosmic --make build            # once, on a cold worktree
-o/bin/gitboard status
+o/bin/gitboard show
 o/bin/gitboard next
 ```
 

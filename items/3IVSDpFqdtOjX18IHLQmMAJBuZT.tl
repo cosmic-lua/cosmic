@@ -4,12 +4,9 @@ return {
   },
   ["blocked_by"] = "3IVL4phwsJAbiVq2t9GF0EFTfuH",
   ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
-  ["claim"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c",
   ["id"] = "3IVSDpFqdtOjX18IHLQmMAJBuZT",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1477,
   ["resolution"] = "completed",
   ["title"] = "tl patch: the metatable is-dispatch rescue is inline-only — a named alias of a map is refused like a record",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "e178d4402fb4f34c31d3578fb79a1f5cc9e13923",
 }

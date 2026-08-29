@@ -4,12 +4,9 @@ return {
   },
   ["blocked_by"] = "3IVF3HbVUGBgHw6ZKvy6PYhTXOg",
   ["builders"] = "0b13d2b4-bb26-5bc1-8635-407acd85452c e532d9f6-4b7d-5145-9534-7c6759ebc0d8 0b13d2b4-bb26-5bc1-8635-407acd85452c/3IUBNQZZ",
-  ["claim"] = "05f7c552-0c90-51cb-99b3-e018759c6ed5",
   ["id"] = "3IUBNQZZ8UHrBZD8Tgb7BgEx2zD",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["pr"] = 1485,
   ["resolution"] = "completed",
   ["title"] = "codec compare rows are state-split: derive per-scenario noise floors from cross-window A/A history",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "37ea41cb5d3216403fb8508920e1c811502d15a1",
 }

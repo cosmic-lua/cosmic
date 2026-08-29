@@ -1,56 +1,49 @@
 #!/usr/bin/env cosmic
--- The claim as a LEASE: who holds it, who has held it, what it takes
--- to move it, and what a handover to `check` must name. The claim is
--- mutual exclusion by exact string and the name a handover records,
--- so the rules about who may write it decide whether two sessions can
--- collide over one item — and correcting one must not cost the item
--- two spurious transitions.
+-- The claim as a LEASE: who holds it, who has held it, and what it
+-- takes to move it. The claim is the lock a take writes and a drop
+-- clears; `builders` is the durable record of every holder, which is
+-- what makes the sequence auditable after the claim has moved on.
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
-local vrd = require("_work.gitverdict")
 
 local init_state_repo = fixture.init_state_repo
-local commits = fixture.commits
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
 
--- The claim moves; the record of who built does not. A return clears
--- the lease so the next session may pull, and `builders` keeps every
--- holder — the audit record of that sequence, which nothing outside
--- `item.tl` reads.
-local function test_claim_appends_a_builder_and_a_return_keeps_it()
+-- The claim moves; the record of who built does not. A drop clears
+-- the lease so the next session may take, and `builders` keeps every
+-- holder.
+local function test_take_appends_a_builder_and_a_drop_keeps_it()
   local s = init_state_repo("builders")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
   assert(check.must(store.load(s, leaf)).builders[1] == "session-a",
     "the claiming session is recorded as a builder")
 
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", false,
-      "session-a") == 0)
-  local returned = check.must(store.load(s, leaf))
-  assert(returned.claim == "", "the return drops the lease")
-  assert(#returned.builders == 1 and returned.builders[1] == "session-a",
+  assert(verbs.cmd_drop(s, leaf, "session-a", "under-specified", false) == 0)
+  local dropped = check.must(store.load(s, leaf))
+  assert(dropped.claim == "", "the drop clears the lease")
+  assert(#dropped.builders == 1 and dropped.builders[1] == "session-a",
     "but not the record of who built")
 
-  assert(verbs.cmd_move(s, leaf, "do", "session-b", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-b", 0, false, "") == 0)
   local both = check.must(store.load(s, leaf))
   assert(#both.builders == 2 and both.builders[2] == "session-b",
     "the second holder joins it: " .. table.concat(both.builders, ","))
 
   -- A session reclaiming an item it already held is already in the
   -- list, and the record carries no repeats.
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "", false,
-      "session-b") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_drop(s, leaf, "session-b", "still under-specified",
+      false) == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
   assert(#check.must(store.load(s, leaf)).builders == 2,
-    "a re-pull by an earlier holder adds no second entry")
+    "a re-take by an earlier holder adds no second entry")
 end
-test_claim_appends_a_builder_and_a_return_keeps_it()
+test_take_appends_a_builder_and_a_drop_keeps_it()
 
 -- A live claim is a lease held by one session. Taking it over is
 -- legitimate and is never silent: without --force the overwrite is
@@ -59,99 +52,35 @@ local function test_a_live_claim_needs_force_to_take_over()
   local s = init_state_repo("takeover")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 55, false, "") ~= 0,
-    "moving a claimed item under another session's name is refused")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-b", 55, false, "") ~= 0,
+    "recording a PR under another session's name is refused")
   local held = check.must(store.load(s, leaf))
   assert(held.claim == "session-a", "and the claim does not move")
-  assert(held.phase == "do", "nor does the item")
+  assert(held.pr == 0, "nor does the PR land")
 
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 55, true,
+  assert(verbs.cmd_take(s, leaf, "session-b", 55, true,
       "session-a went quiet") == 0, "--force --why performs the takeover")
   local taken = check.must(store.load(s, leaf))
   assert(taken.claim == "session-b", "the lease moved")
+  assert(taken.pr == 55, "the PR rode the takeover")
   assert(#taken.builders == 2, "and both holders are on the record: "
     .. table.concat(taken.builders, ","))
 end
 test_a_live_claim_needs_force_to_take_over()
 
--- The reviewer follows the pr field to the diff, and so does the
--- landing step that reads it back, so the handover must name one.
-local function test_check_refuses_a_handover_with_no_pr()
-  local s = init_state_repo("check-pr")
-  local _, leaf = root_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
-    "a handover naming no PR is refused")
-  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  assert(verbs.cmd_move(s, leaf, "check", nil, 99, false, "") == 0)
-  -- Rework returns to `do` and comes back on the SAME PR, already
-  -- recorded, so the second handover needs no --pr of its own.
-  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234", "none: test") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") == 0,
-    "the recorded PR carries the rework back")
-end
-test_check_refuses_a_handover_with_no_pr()
-
--- The claim is what names the builder of the diff a reviewer is about
--- to read, so a handover naming nobody hands over an unattributed one.
--- Rework is where this bites: a second session taking it over must say
--- so, and correcting that must not need a phase round trip.
-local function test_check_handover_names_its_builder()
+-- The claim is what joins a diff to its builder, so a handover is a
+-- write on a claim: `take --pr` from a session with no claim on a
+-- todo item claims and hands over in one act, and the record then
+-- names both the PR and the builder.
+local function test_a_handover_names_its_builder()
   local s = init_state_repo("handover-claim")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 33, false, "") ~= 0,
-    "an unclaimed item cannot be handed over")
-  assert(check.must(store.load(s, leaf)).phase == "do", "and does not move")
-  assert(verbs.cmd_move(s, leaf, "check", "session-a", 33, false, "") == 0,
-    "--claim names the builder and the handover goes through")
-  assert(check.must(store.load(s, leaf)).claim == "session-a", "recorded")
+  assert(verbs.cmd_take(s, leaf, "session-a", 33, false, "") == 0,
+    "take with --pr claims and hands over in one act")
+  local it = check.must(store.load(s, leaf))
+  assert(it.claim == "session-a", "the builder is on the claim")
+  assert(it.pr == 33, "and the diff is joined to the item")
 end
-test_check_handover_names_its_builder()
-
--- A same-phase move used to exit 0 having written nothing, so the only
--- way to correct a claim was a leftward-then-rightward round trip that
--- writes two transitions a flow instrument reads as real dwell.
-local function test_same_phase_move_applies_its_flags()
-  local s = init_state_repo("same-phase")
-  local _, leaf = root_with_leaf(s)
-  give_spec(s, leaf)
-  assert(verbs.cmd_move(s, leaf, "ready", nil, 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "do", "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_move(s, leaf, "check", nil, 44, false, "") == 0)
-
-  local before = commits(s)
-  -- The in-place write obeys the same takeover rule as the crossing
-  -- move: overwriting a live foreign claim silently was the hole a
-  -- session lost its item through nine seconds after pulling it.
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, false, "") ~= 0,
-    "a same-phase claim overwrite of a live foreign claim is refused")
-  assert(check.must(store.load(s, leaf)).claim == "session-a",
-    "and the claim does not move")
-  assert(commits(s) == before, "nor does anything commit")
-
-  assert(verbs.cmd_move(s, leaf, "check", "session-b", 0, true,
-      "session-a went quiet") == 0,
-    "--force --why performs the in-place takeover")
-  local fixed = check.must(store.load(s, leaf))
-  assert(fixed.claim == "session-b", "the claim was corrected in place")
-  assert(fixed.phase == "check", "without a phase change")
-  assert(fixed.pr == 44, "and the PR it did not name is untouched")
-  assert(commits(s) == before + 1, "one mutation, one commit")
-
-  -- A field the guard has nothing to say about still writes freely:
-  -- setting the PR moves no lock.
-  assert(verbs.cmd_move(s, leaf, "check", nil, 55, false, "") == 0,
-    "an in-place pr write needs no force")
-  assert(check.must(store.load(s, leaf)).pr == 55, "and lands")
-
-  assert(verbs.cmd_move(s, leaf, "check", nil, 0, false, "") ~= 0,
-    "with nothing to set it still refuses")
-end
-test_same_phase_move_applies_its_flags()
+test_a_handover_names_its_builder()

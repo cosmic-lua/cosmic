@@ -6,12 +6,9 @@ return {
   },
   ["blocked_by"] = "3IKSjEgWykc32GY73Zq69pJV00d 3IKSi0JNJkjQaHoJKn6UGk8IjYo 3IKgKs34ktEveeMUkymg4g6PRFC",
   ["builders"] = "426b3897-c70a-5b25-8311-2ccd7b0f0922",
-  ["claim"] = "426b3897-c70a-5b25-8311-2ccd7b0f0922",
   ["id"] = "3IKSjS8NuSGgr3LjGED24NXRq9G",
   ["parent"] = "3IK8E4XFNSEMc6fXtc6qbUxiLVO",
   ["pr"] = 1362,
   ["resolution"] = "completed",
   ["title"] = "adopt the C literal parser behind cosmic.literal.parse, differentially fuzzed against the Teal reader",
-  ["verdict"] = "accept",
-  ["verdict_head"] = "4a8fee8d2a3a2b09d8cc1fb01ef67bea70c379fd",
 }

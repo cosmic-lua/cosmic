@@ -32,16 +32,10 @@ assert(env.set("GIT_CONFIG_GLOBAL", hermetic_config))
 assert(env.set("GIT_CONFIG_NOSYSTEM", "1"))
 
 local READY_SPEC < const > = [[
-## Goal
-Serves the outcome above it.
 ## Change
 Do exactly this.
 ## Non-goals
 Not that.
-## Acceptance
-`cosmic --make ci`
-## Enablement
-Nothing needed.
 ]]
 
 --- Run one git command in `cwd`, failing loudly — fixture setup.
@@ -135,7 +129,7 @@ end
 local function root_with_leaf(s: store.Store): string, string
   local root = file_item(s, "an outcome", "")
   local peer = file_item(s, "a lesser outcome", "")
-  assert(cmp.cmd_compare(s, root, peer, false) == 0,
+  assert(cmp.cmd_compare(s, root, peer) == 0,
     "compare should be accepted")
   return root, file_item(s, "a workable slice", root)
 end

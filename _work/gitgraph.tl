@@ -1,6 +1,6 @@
 --- The graph verbs: `new`, `attach`, `block` and its `unblock` half —
 --- the mutations that shape the item GRAPH (an item's existence, a
---- parent edge, a blocker edge) rather than crossing a phase, which
+--- parent edge, a blocker edge) rather than moving work state, which
 --- is `_work.gitverbs`. Verbs receive FULL ids — the dispatcher
 --- resolves prefixes — and every verb prints a `gitboard-<verb>:`
 --- verdict line and returns its exit code. Mutations commit locally
@@ -10,11 +10,11 @@
 ---
 --- Decomposition and triage are both `attach`: giving an item a
 --- parent is the whole operation, because roles derive from the graph
---- — a captured item becomes work by gaining a parent, and a phased
---- item becomes a container (losing its phase) the moment a child
---- attaches under it. Priority is the other half of triage and has
---- its own verb, `compare`, because an item can be placed without
---- being adopted and adopted without being compared.
+--- — a captured item becomes work by gaining a parent, and a workable
+--- item becomes a container the moment a child attaches under it.
+--- Priority is the other half of triage and has its own verb,
+--- `compare`, because an item can be placed without being adopted and
+--- adopted without being compared.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
@@ -28,18 +28,16 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     return gate.verdict_line("new", false, aerr)
   end
   local index = flow.by_id(all)
-  local phase = ""
   local parent_item: item.Item = nil
   if parent ~= "" then
     parent_item = index[parent]
     if parent_item == nil then
       return gate.verdict_line("new", false, ("no item %s"):format(parent))
     end
-    phase = "backlog"
   end
   local it: item.Item = {
     id = ksuid.new(), title = title, parent = parent, repo = repo or "",
-    phase = phase, beats = {},
+    beats = {},
     blocked_by = {}, claim = "", pr = 0, verdict = "",
     verdict_head = "", resolution = "",
   }
@@ -47,12 +45,13 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   if #bad > 0 then
     return gate.verdict_line("new", false, table.concat(bad, "; "))
   end
-  -- No gate: a filed child always enters `backlog`, which is
-  -- unbounded by design — the queue intake writes into can always
-  -- accept, which is what keeps the cheap decision cheap.
+  -- No gate: a filed child always enters `todo`, which is unbounded
+  -- by design — the queue intake writes into can always accept,
+  -- which is what keeps the cheap decision cheap. The bound binds at
+  -- take, where committing to work is the expensive decision.
   local also: {item.Item} = {}
   if parent_item ~= nil then
-    also = gate.dephased_container(parent_item)
+    also = gate.containered(parent_item)
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
     ("new %s %s"):format(it.id:sub(1, 8), title), also)
@@ -60,8 +59,8 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     return gate.verdict_line("new", false, err)
   end
   local entered = "triage — attach it under something, or compare it"
-  if phase ~= "" then
-    entered = "backlog"
+  if parent ~= "" then
+    entered = "todo"
   end
   return gate.verdict_line("new", true, ("%s enters %s"):format(it.id, entered))
 end
@@ -97,29 +96,27 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
     cur = index[cur.parent or ""]
   end
   it.parent = parent
-  -- Adoption makes a leaf workable: it enters `backlog`, ungated.
-  -- Triage answers one cheap question — is this real, and under which
-  -- outcome — and placing an item is not committing to refine it.
-  -- The expensive question is the promotion into `plan`, which is
-  -- WIP-gated; fusing the two is what let a triage drain deposit a
-  -- batch of commitments nobody had sized.
-  if item.is_open(it) and (it.phase or "") == ""
-  and not flow.has_open_children(all, id) then
-    it.phase = "backlog"
-  end
+  -- Adoption makes a leaf workable: it is todo by derivation, with
+  -- nothing to write. Triage answers one cheap question — is this
+  -- real, and under which outcome — and placing an item is not
+  -- committing to build it; the expensive decision is the take, where
+  -- the spec bar and the doing bound bind.
   local bad = item.problems(it)
   if #bad > 0 then
     return gate.verdict_line("attach", false, table.concat(bad, "; "))
   end
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("attach %s under %s"):format(id:sub(1, 8), parent:sub(1, 8)),
-    gate.dephased_container(parent_item))
+    gate.containered(parent_item))
   if not ok then
     return gate.verdict_line("attach", false, err)
   end
+  local workable = ""
+  if not flow.has_open_children(all, id) then
+    workable = " — workable, in todo"
+  end
   return gate.verdict_line("attach", true,
-    ("%s now under %s%s"):format(id:sub(1, 8), parent:sub(1, 8),
-      (it.phase ~= "" and " — workable, in backlog") or ""))
+    ("%s now under %s%s"):format(id:sub(1, 8), parent:sub(1, 8), workable))
 end
 
 --- block/unblock: the `blocked_by` field as a verb, so the landing
