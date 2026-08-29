@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- tail is a pure derivation over an item's id: chunking, shape
+-- tail is a pure derivation over an item's id: handle rendering, shape
 -- detection, and resolve's exact/case-folded/refusal arms are pinned
 -- directly, with no store and no git involved.
 
@@ -8,7 +8,7 @@ local item = require("_work.item")
 local tail = require("_work.tail")
 
 --- A 27-char id with a chosen 8-char tail, so a test controls exactly
---- what `resolve` and `chunk` see without depending on real KSUID
+--- what `resolve` and `handle` see without depending on real KSUID
 --- randomness. Two distinct fillers keep two same-tail items from
 --- sharing one id.
 --- @param t string The last 8 characters
@@ -26,15 +26,16 @@ local function make(id: string, title: string): item.Item
   return check.must(item.decode({id = id, title = title}))
 end
 
-local function test_chunk_hyphenates_the_last_eight_characters()
+local function test_handle_hyphenates_and_wraps_the_last_eight_characters()
   local id = make_id("Q4TX9GMD")
-  assert(tail.chunk(id) == "Q4TX-9GMD", tail.chunk(id))
+  assert(tail.handle(id) == "«Q4TX-9GMD»", tail.handle(id))
 end
-test_chunk_hyphenates_the_last_eight_characters()
+test_handle_hyphenates_and_wraps_the_last_eight_characters()
 
 local function test_is_tail_shape_accepts_both_forms()
   assert(tail.is_tail_shape("s1WSJ6A3"), "hyphen-free")
   assert(tail.is_tail_shape("s1WS-J6A3"), "hyphenated after the 4th")
+  assert(tail.is_tail_shape("«s1WS-J6A3»"), "a pasted, wrapped handle")
 end
 test_is_tail_shape_accepts_both_forms()
 
@@ -54,6 +55,14 @@ local function test_resolve_matches_exactly_hyphenated_or_not()
   assert(check.must(tail.resolve(all, "Q4TX-9GMD")) == id, "hyphenated")
 end
 test_resolve_matches_exactly_hyphenated_or_not()
+
+local function test_resolve_accepts_a_pasted_wrapped_handle()
+  local id = make_id("d0x137YJ")
+  local all: {item.Item} = {make(id, "a slice")}
+  assert(check.must(tail.resolve(all, "«d0x1-37YJ»")) == id,
+    "a copy-pasted rendered handle resolves like any other tail")
+end
+test_resolve_accepts_a_pasted_wrapped_handle()
 
 local function test_resolve_falls_back_to_case_folded_match()
   local id = make_id("Q4TXaBcD")

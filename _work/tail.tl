@@ -10,22 +10,26 @@
 --- collision-free across every item, exact and case-folded.
 local item = require("_work.item")
 
---- Render an item's tail as two hyphenated 4-char chunks.
+--- Render an item's tail as two hyphenated 4-char chunks, wrapped in
+--- guillemets so a reader can tell a handle from a word, a count, or
+--- the `[full id]` bracket on sight.
 --- @param id string A full item id (a 27-char KSUID)
---- @return string "XXXX-XXXX"
-local function chunk(id: string): string
+--- @return string "«XXXX-XXXX»"
+local function handle(id: string): string
   local t = id:sub(20)
-  return t:sub(1, 4) .. "-" .. t:sub(5, 8)
+  return "«" .. t:sub(1, 4) .. "-" .. t:sub(5, 8) .. "»"
 end
 
 --- Whether input has a tail's shape: 8 base62 characters, with at
 --- most one hyphen, which — when present — sits right after the 4th
---- character. So a caller can tell a tail attempt from an id prefix
+--- character, optionally wrapped in the guillemets a rendered handle
+--- carries. So a caller can tell a tail attempt from an id prefix
 --- before asking `resolve` to search.
 --- @param input string Candidate input
 --- @return boolean True when it has tail shape
 local function is_tail_shape(input: string): boolean
   return input:match("^%w%w%w%w%-?%w%w%w%w$") ~= nil
+  or input:match("^«%w%w%w%w%-?%w%w%w%w»$") ~= nil
 end
 
 --- Resolve a tail against every item's `id:sub(20)`. An exact match
@@ -39,7 +43,7 @@ end
 --- @return string | nil The matching item's id
 --- @return string Error message
 local function resolve(items: {item.Item}, input: string): string | nil, string
-  local normalized = (input:gsub("%-", ""))
+  local normalized = (input:gsub("[«»%-]", ""))
   local exact_ids: {string} = {}
   local exact_tails: {string} = {}
   for _, it in ipairs(items) do
@@ -73,13 +77,13 @@ local function resolve(items: {item.Item}, input: string): string | nil, string
 end
 
 local record tail
-  chunk: function(id: string): string
+  handle: function(id: string): string
   is_tail_shape: function(input: string): boolean
   resolve: function(items: {item.Item}, input: string): string | nil, string
 end
 
 local M: tail = {
-  chunk = chunk,
+  handle = handle,
   is_tail_shape = is_tail_shape,
   resolve = resolve,
 }

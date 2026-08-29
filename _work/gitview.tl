@@ -69,7 +69,7 @@ local TODO_SHOWN < const >: integer = 8
 --- @param it item.Item The item
 --- @return string "tail-chunked title"
 local function id_line(it: item.Item): string
-  return ("%s %s"):format(tail.chunk(it.id), it.title)
+  return ("%s %s"):format(tail.handle(it.id), it.title)
 end
 
 --- The board: doing item by item against the one bound, the top of
@@ -128,7 +128,7 @@ local function status_report(all: {item.Item}, specs: act.Specs,
   local triage = flow.untriaged(all)
   out[#out + 1] = ("%-6s %d"):format("triage", #triage)
   for _, f in ipairs(triage) do
-    out[#out + 1] = ("  %s %s"):format(f.id:sub(1, 8), f.title)
+    out[#out + 1] = ("  %s %s"):format(tail.handle(f.id), f.title)
   end
   local graph = flow.graph_problems(all)
   for _, p in ipairs(health.blocker_cycle_problems(all)) do

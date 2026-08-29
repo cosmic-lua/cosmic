@@ -40,8 +40,9 @@ local function has(lines: {string}, pattern: string): boolean
 end
 
 --- Escape a derived value's Lua-pattern metacharacters — here just
---- the hyphen the tail chunking introduces — so it can be spliced
---- into a `has` pattern as literal text.
+--- the hyphen the rendered handle carries — so it can be spliced
+--- into a `has` pattern as literal text. The guillemets the handle
+--- wraps in are not Lua-pattern magic, so they need no escaping.
 local function lit(s: string): string
   return (s:gsub("%-", "%%-"))
 end
@@ -81,9 +82,9 @@ local function test_status_renders_doing_against_the_bound()
   assert(has(lines, "^todo   1 %(1 pullable%)$"),
     "todo renders its depth and its pullable count: "
     .. table.concat(lines, "\n"))
-  assert(has(lines, "^  " .. lit(tail.chunk(FRESH))
+  assert(has(lines, "^  " .. lit(tail.handle(FRESH))
       .. " a fresh leaf %[pullable%]$"),
-    "the top of todo shows the chunked tail and its marks: "
+    "the top of todo shows the wrapped handle and its marks: "
     .. table.concat(lines, "\n"))
   assert(verdict == "doing 1/10", verdict)
 end
@@ -98,8 +99,9 @@ local function test_status_lists_the_triage_queue()
         title = "a capture"}))
   local lines = view.status_report(items, full_specs())
   assert(has(lines, "^triage 1$"), table.concat(lines, "\n"))
-  assert(has(lines, "^  " .. capture:sub(1, 8) .. " a capture$"),
-    "each untriaged root is listed: " .. table.concat(lines, "\n"))
+  assert(has(lines, "^  " .. lit(tail.handle(capture)) .. " a capture$"),
+    "each untriaged root is listed with its wrapped handle, not the "
+    .. "unchunked head-8 prefix: " .. table.concat(lines, "\n"))
 end
 test_status_lists_the_triage_queue()
 
@@ -129,7 +131,7 @@ test_status_reports_the_bound_binding()
 local function test_next_names_one_action_and_its_rule()
   local report = view.next_report(board_items(), full_specs())
   assert(report:find("review", 1, true)
-    and report:find(tail.chunk(LEAF), 1, true),
+    and report:find(tail.handle(LEAF), 1, true),
     "a PR awaiting a verdict is judged before anything is pulled: "
     .. report)
   assert(report:find("—", 1, true),
@@ -137,9 +139,9 @@ local function test_next_names_one_action_and_its_rule()
   -- The `or:` alternate line's full rendered format, pinned directly:
   -- a prior review found no test covered it, and reverting that
   -- line's format left every render test green.
-  assert(report:find("or: pull " .. tail.chunk(FRESH) .. " a fresh leaf",
+  assert(report:find("or: pull " .. tail.handle(FRESH) .. " a fresh leaf",
       1, true),
-    "the alternate names its kind, tail, and title: " .. report)
+    "the alternate names its kind, wrapped handle, and title: " .. report)
 end
 test_next_names_one_action_and_its_rule()
 
