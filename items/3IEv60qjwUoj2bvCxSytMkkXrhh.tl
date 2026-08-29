@@ -2,5 +2,6 @@ return {
   ["beats"] = "3IIm7ZyNiGaoHsru09SkxFtbsTF",
   ["id"] = "3IEv60qjwUoj2bvCxSytMkkXrhh",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["resolution"] = "not-planned",
   ["title"] = "land has no lease and no exit check: two sessions get the same finish, and done from land records completed without reading the PR",
 }
