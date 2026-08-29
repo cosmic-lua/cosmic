@@ -114,6 +114,17 @@ local function commits(s: store.Store): integer
   return math.tointeger(tonumber((r.stdout:gsub("%s+$", "")))) or -1
 end
 
+--- HEAD's committer-recorded author email — what a reader (GitHub's
+--- verified badge, a `git log`) actually sees a board commit as.
+--- @param s store.Store The store
+--- @return string The author email HEAD carries
+local function commit_author_email(s: store.Store): string
+  local r = check.must(child.run({"git", "log", "-1", "--format=%ae"},
+      {cwd = s.root}))
+  assert(r.ok, "git log failed: " .. r.stderr)
+  return (r.stdout:gsub("%s+$", ""))
+end
+
 --- A spec sidecar meeting the ready bar, through the spec verb.
 local function give_spec(s: store.Store, id: string)
   local path = fs.join(tmpdir, "ready-spec.md")
@@ -147,6 +158,7 @@ local record fixture
   file_item: function(s: store.Store, title: string,
   parent: string): string
   commits: function(s: store.Store): integer
+  commit_author_email: function(s: store.Store): string
   give_spec: function(s: store.Store, id: string)
   root_with_leaf: function(s: store.Store): string, string
 end
@@ -159,6 +171,7 @@ local M: fixture = {
   init_shared = init_shared,
   file_item = file_item,
   commits = commits,
+  commit_author_email = commit_author_email,
   give_spec = give_spec,
   root_with_leaf = root_with_leaf,
 }

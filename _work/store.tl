@@ -40,7 +40,7 @@ local LOST_RACE < const > = "lost the push race — the mutation was dropped "
 --- mounts CI containers run tests on, and `-c` propagates this to the
 --- local receive-pack a file:// push spawns.
 local GIT_DEFAULTS: {string} = {
-  "-c", "user.email=board@cosmic", "-c", "user.name=cosmic-board",
+  "-c", "user.email=noreply@anthropic.com", "-c", "user.name=Claude",
   "-c", "core.createObject=rename",
 }
 

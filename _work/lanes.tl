@@ -171,8 +171,8 @@ local function record(s: store.Store, facts: {string: string}): boolean, string
     return false, ("git add lanes_state.tl failed: %s"):format(
       added and added.stderr or "could not start git")
   end
-  local committed = child.run({"git", "-c", "user.email=board@cosmic",
-      "-c", "user.name=cosmic-board", "-c", "core.createObject=rename",
+  local committed = child.run({"git", "-c", "user.email=noreply@anthropic.com",
+      "-c", "user.name=Claude", "-c", "core.createObject=rename",
       "commit", "-q", "-m", "sync lanes: " .. table.concat(parts, " ")},
     {cwd = s.root})
   if committed == nil or not committed.ok then

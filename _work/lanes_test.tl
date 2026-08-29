@@ -138,6 +138,23 @@ local function test_record_commit_subject_is_exact()
 end
 test_record_commit_subject_is_exact()
 
+-- Every board mutation commits under the bot identity, not the host's
+-- ambient git config or a name GitHub renders "Unverified" — item
+-- mutations (`store.tl`'s shared GIT_DEFAULTS) and lane syncs
+-- (`record`'s own `git -c` pair) commit through two separate call
+-- sites, so this checks both: a revert of either one must turn this
+-- red, not just the site nobody happened to touch.
+local function test_board_commits_carry_the_claude_identity()
+  local s = init_state_repo("identity")
+  fixture.file_item(s, "an outcome", "")
+  assert(fixture.commit_author_email(s) == "noreply@anthropic.com",
+    "item mutation author: " .. fixture.commit_author_email(s))
+  assert(lanes.record(s, RED), "a new observation commits")
+  assert(fixture.commit_author_email(s) == "noreply@anthropic.com",
+    "lane sync author: " .. fixture.commit_author_email(s))
+end
+test_board_commits_carry_the_claude_identity()
+
 -- `report` is what `cmd_sync` calls (via `at_sync`) after a real
 -- `observe` returns facts; a `record` failure must show up in its
 -- lines rather than vanish the way `cmd_sync` used to discard it.
