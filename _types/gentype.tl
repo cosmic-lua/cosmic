@@ -327,7 +327,7 @@ local record Result
   error: string
 end
 
-local UPSTREAM_HINT = "; fix the annotation upstream in whilp/cosmopolitan"
+local UPSTREAM_HINT = "; fix the annotation upstream in cosmic-lua/cosmopolitan"
 .. " tool/net/definitions.lua (its test_definitions_coverage.lua check 9"
 .. " validates the same type grammar)"
 

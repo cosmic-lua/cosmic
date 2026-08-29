@@ -3,7 +3,7 @@
 chapter of the `optimize` skill (`SKILL.md` in this directory) — read
 that first. this file makes C-layer optimization as mechanical as the
 cosmic-layer loop: you edit C
-in a whilp/cosmopolitan checkout, rebuild a `lua` binary locally in
+in a cosmic-lua/cosmopolitan checkout, rebuild a `lua` binary locally in
 seconds, stand it in as the runtime a cosmic build embeds onto, and
 judge it with the same scenarios and the same compare gate. no release,
 no pin bump, no CI round-trip until the change has already proven itself.
@@ -23,7 +23,7 @@ thin") is measuring almost nothing else.
 
 ## prerequisites
 
-- a checkout of whilp/cosmopolitan (any path; `~/cosmopolitan` in the
+- a checkout of cosmic-lua/cosmopolitan (any path; `~/cosmopolitan` in the
   examples below). Linux + GNU make, x86_64 or aarch64.
 - the first build downloads the cosmocc toolchain into `.cosmocc/`
   (network needed once); after that everything is hermetic.
@@ -102,7 +102,7 @@ COSMO=~/cosmopolitan   # your checkout
 
 3. **hypothesis, then the smallest C diff that tests it** — one
    hypothesis per commit, exactly like the cosmic layer. pick from the
-   board's open C-layer hypotheses (items naming whilp/cosmopolitan
+   board's open C-layer hypotheses (items naming cosmic-lua/cosmopolitan
    as their landing repo) or find your own (below).
 
 4. **gate 1 — correctness:**
@@ -182,7 +182,7 @@ established when it lives under the bar.
 the pinned binary only changes through a release, so shipping is a
 two-repo dance — but only AFTER the local loop already proved the win:
 
-1. PR the C change to whilp/cosmopolitan (its AGENTS.md has the repo's
+1. PR the C change to cosmic-lua/cosmopolitan (its AGENTS.md has the repo's
    own conventions). quote the local `perf-compare` numbers in the PR.
 2. once merged, the release workflow publishes a new cosmos release
    tagged `YYYY.MM.DD-<sha>` with a `cosmos.zip` + SHA256SUMS.
@@ -246,7 +246,7 @@ two-repo dance — but only AFTER the local loop already proved the win:
   what `definitions.lua` documents and what cosmic's generated types
   encode. a contract change is a separate, deliberate commit with a
   cosmic-side type regen — never part of an optimization.
-- keep the fork mergeable: whilp/cosmopolitan tracks upstream
+- keep the fork mergeable: cosmic-lua/cosmopolitan tracks upstream
   jart/cosmopolitan. prefer surgical diffs in the files listed above;
   don't reformat or restructure around them.
 - measure both binaries in the same tree state. `--make build`
