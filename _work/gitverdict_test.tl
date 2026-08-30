@@ -25,6 +25,37 @@ local function handed_over(s: store.Store, leaf: string, pr: integer)
   assert(verbs.cmd_take(s, leaf, "session-a", pr, false, "") == 0)
 end
 
+--- Run vrd.cmd_verdict and capture exactly what it prints via print()
+--- -- the verdict line every verb writes through gate.verdict_line --
+--- the same swap-and-restore pattern _tool/example.tl,
+--- _tool/benchmark.tl and _eval/score_test.tl use to pin a CLI's exact
+--- console output, without paying for a real subprocess spawn.
+--- @param s store.Store The store
+--- @param id string The item under verdict
+--- @param kind string accept | request changes | reject
+--- @param pr integer The PR the verdict judges, 0 to use the item's own
+--- @param head string The head commit the verdict judges
+--- @return integer cmd_verdict's exit code
+--- @return string Every print()'d line, newline-joined
+local function verdict_and_capture(s: store.Store, id: string, kind: string,
+    pr: integer, head: string): integer, string
+  local old_print = _G.print
+  local lines: {string} = {}
+  _G.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local ok, result = pcall(vrd.cmd_verdict, s, id, kind, pr, head)
+  _G.print = old_print
+  if not ok then
+    error(result, 0)
+  end
+  return result, table.concat(lines, "\n")
+end
+
 -- A verdict judges a diff, so an item with no PR has nothing for it
 -- to say — and a standing accept is landed, not judged again.
 local function test_verdict_judges_a_pr_awaiting_one()
@@ -65,8 +96,14 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
   assert(verbs.cmd_take(s, leaf, "session-a", 6, false, "") == 0)
   assert(flow.substate(check.must(store.load(s, leaf))) == "review",
     "the handover re-opens the verdict")
-  assert(vrd.cmd_verdict(s, leaf, "request changes", 6, "cafe123") ~= 0,
-    "the same head over the same spec has nothing new to judge")
+  local code, printed = verdict_and_capture(s, leaf, "request changes", 6, "cafe123")
+  assert(code ~= 0, "the same head over the same spec has nothing new to judge")
+  assert(printed:find("was already judged with this spec", 1, true) ~= nil,
+    "the printed refusal says what happened: " .. printed)
+  assert(printed:find("gitboard spec", 1, true) ~= nil,
+    "and names the tool for the cure: " .. printed)
+  assert(printed:find("record the verdict again", 1, true) ~= nil,
+    "and names the way forward: " .. printed)
   -- A spec rewrite alone is a fresh round: the diff stood still and
   -- the other half of the evidence moved.
   local base = fs.join(fixture.tmpdir, "pair-base.md")
