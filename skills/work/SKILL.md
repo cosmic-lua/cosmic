@@ -167,9 +167,13 @@ mints one distinct name per agent it spawns.
 5. open the PR READY for review (not draft) with `Board: <id>` in
    the body, and record the PR number on the item. the body carries
    no evidence: CI proves the gate on the head mechanically, and a
-   pasted verdict line could only agree with the checks tab or lie.
-   run the gate locally before pushing — a red head burns a review
-   round — but the run is for you, not for the record.
+   pasted verdict line could only agree with the checks tab or lie —
+   this covers a spec's `## Acceptance` bullets too, if it has any:
+   reproducing their command output in the PR body is the same lie
+   in more words, and a builder who runs them to build confidence
+   does so in a scratch shell, never in what gets pushed to the
+   record. run the gate locally before pushing — a red head burns a
+   review round — but the run is for you, not for the record.
 6. rejoin the loop. never merge unreviewed work, and never accept
    your own: the verdict comes from a fresh-context review, however
    the loop routes you back to this item.
@@ -190,9 +194,16 @@ acceptance is not per-item: `bin/cosmic --make ci` ending `ci: PASS`
 is the one definition of done every item shares, and proof specific
 to a change rides the DIFF as a test or ratchet the gate runs. a
 gate outlives the sidecar that asked for it; a sidecar command runs
-at most twice and dies with the item. `gitboard show ID` prints the
-bar's problems — the Change's presence, the item's placement;
-everything else is a
+at most twice and dies with the item. an `## Acceptance` section,
+where a spec still carries one, is that: the refiner's own worked
+proof that the Change's claims held at measurement time, read once
+by the puller to sanity-check the shape still holds and once by the
+reviewer to spot-check a claim — never re-executed bullet by bullet
+as a second gate the builder owes beyond `## Change` plus
+`ci: PASS`. a bound worth enforcing permanently is a test or ratchet
+IN THE DIFF, not a bullet a builder re-derives by hand each pull.
+`gitboard show ID` prints the bar's problems — the Change's
+presence, the item's placement; everything else is a
 reader's judgment, and the test for every sentence: could a
 competent but literal-minded session, with nothing beyond this spec
 and AGENTS.md, get it wrong? if yes, it is not ready.
@@ -250,10 +261,14 @@ builder: a subagent whose context window never held the build. its
 brief carries the item id, the PR number, and this section — not the
 builder's reasoning, and not a summary of what the change was trying
 to achieve, which would hand back the commitment a fresh window
-exists to be without. it claims the review first (the claim is the
-lock; losing the race there costs seconds, losing it at the verdict
-costs the whole verification), names itself, reads the spec off the
-board and the diff off the PR, and records the verdict itself.
+exists to be without. fill `review-brief.md` rather than hand-writing
+one, for the same reason `builder-brief.md` exists: the review verdict
+never fans out (below), so a drifted brief here is not one bad build
+among many but the one check the whole wave rests on. it claims the
+review first (the claim is the lock; losing the race there costs
+seconds, losing it at the verdict costs the whole verification), names
+itself, reads the spec off the board and the diff off the PR, and
+records the verdict itself.
 
 the posture is adversarial — the job is to make the diff fail, and a
 review that only reads has verified nothing:
@@ -315,14 +330,20 @@ board worktree or push rights to `board`:
   `bin/cosmic --make fetch`; a copied or moved tree drops its stale
   `o/` first, or its first gate result is fiction.
 - **the brief carries the spec verbatim** — "read the board and do
-  it" turns a specified item back into an interpretation — plus the
-  branch name off the latest `origin/main`, honest gate timeouts
-  (`--make ci` takes minutes), the PR form (ready, `Board: <id>` in
-  the body), do-not-merge, the capture rule
-  (report findings as one evidence paragraph each in the final
-  message; the orchestrator files them), and the bounce rule
-  verbatim: stopping on an under-specified spec is a good outcome. an
-  agent told to finish WILL improvise unless the brief says that.
+  it" turns a specified item back into an interpretation. fill
+  `builder-brief.md` rather than hand-writing one: a hand-written
+  brief drifts (this session it once dropped the `Board:` line on a
+  cross-repo item, and once told a builder to re-verify
+  `## Acceptance` bullets as a second gate), and the template already
+  carries the branch name off the latest `origin/main`, honest gate
+  timeouts (`--make ci` takes minutes), the PR form (ready, `Board:
+  <id>` in the body, no pasted `## Acceptance` output — see the spec
+  bar), the builder's own bar (`## Change` plus `ci: PASS`), do-not-
+  merge, the capture rule (report findings as one evidence paragraph
+  each in the final message; the orchestrator files them), and the
+  bounce rule verbatim: stopping on an under-specified spec is a good
+  outcome. an agent told to finish WILL improvise unless the brief
+  says that.
 - **reconcile the wave.** finished with a PR: record it on the item.
   dead (no PR, no branch): release the claim so the item is pullable
   again. still running: leave it. then the PRs are yours to watch —
