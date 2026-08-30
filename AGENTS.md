@@ -101,7 +101,7 @@ bindings from Cosmopolitan Libc; `cosmic.*` modules are the typed Teal
 wrappers with error handling and docs.
 
 - **library internals** (`cosmic/*.tl`): use `cosmo.*` to implement wrappers — the one place `require("cosmo")` is expected.
-- **examples, tests, scripts**: always use `cosmic.*`, never `cosmo.*` directly — e.g. `cosmo.Barf`/`cosmo.Slurp` are `cosmic.fs`'s `write`/`read`; `cosmic --docs <module>` serves the full mapping for every wrapper.
+- **examples, tests, scripts** (`*_example.tl`, `*_test.tl`, user scripts): always use `cosmic.*`, never `cosmo.*` directly — e.g. `cosmo.Barf`/`cosmo.Slurp` are `cosmic.fs`'s `write`/`read`; `cosmic --docs <module>` serves the full mapping for every wrapper.
 
 ### Common Patterns
 
@@ -113,29 +113,26 @@ the pattern table and worked snippets ship in the binary
 (`cosmic --docs guide.modules`, `cosmic --examples errors`); the
 doctrine prose is [docs/stdlib.md](docs/stdlib.md). the shape rules:
 
-**honest nil — the type must admit failure:**
-- **Fallible value**: `T | nil, string` — callers must narrow, and the checker
-  only makes them at an index (`cosmic --docs guide.checking`).
-- **Fallible effect**: `boolean, string` (returns `false, msg` on failure).
-- **Infallible**: bare value.
+**honest nil — the type must admit failure:** fallible value is `T | nil,
+string` (callers must narrow; the checker only makes them at an index,
+`cosmic --docs guide.checking`); fallible effect is `boolean, string`
+(`false, msg` on failure); infallible is a bare value.
 
 Errors are strings by default (`nil, err, errno` from `cosmo.unix`, formatted
-via `errno.format`, branched via `errno.is_code`). A module whose failures
+via `errno.format`, branched via `errno.is_code`); a module whose failures
 carry structure returns **its own concrete error record** in slot 2 instead
 ([D24](docs/decisions/d24-structured-failures.md)) — classify by FIELD, never
 `is` (unsound); render with `tostring(err)` or `.message`.
-`cosmic.errors.Failure` is the one sink-side supertype (`check.must` accepts
+`cosmic.errors.Failure` is the sink-side supertype (`check.must` accepts
 `string | Failure`).
 
 **A fallible return has TWO slots**, nothing in a third — enforced by the
 `fallible-returns` lint, settled as [D20](docs/decisions/d20-naming-charter.md)
 rule 11. Extras ride on the value's record (`fs.find`'s `.errors`); a
 `cosmo.*` binding's tuple is exempt by position (already in the `.d.tl`).
-
-Narrowing a `T | nil`, `check.must`, `is`, and cast justification are worked
-in `cosmic --docs guide.checking` and `guide.gotchas`; `cast-justify` and
-`find-needle` are lint rules documented in `guide.lint`;
-[docs/stdlib.md](docs/stdlib.md) carries the doctrine.
+Narrowing a `T | nil`, `check.must`, and `is` are worked in `cosmic --docs
+guide.checking` and `guide.gotchas`; `cast-justify`, `fallible-returns`, and
+`find-needle` are lint rules documented in `guide.lint`.
 
 rules:
 - never throw from library code — exempt: `cosmic.check`'s assertions and
