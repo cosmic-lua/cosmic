@@ -9,7 +9,7 @@ pull request.**
 
 ## Evidence
 
-Measured 2026-08-26 against whilp/cosmopolitan `fe7c36c4` (master; the
+Measured 2026-08-26 against cosmic-lua/cosmopolitan `fe7c36c4` (master; the
 release cosmic pins as `2026.08.26-fe7c36c4c`), from the repo root.
 
 - **The two sets.**
@@ -120,7 +120,7 @@ second.
 children of `3IOCgCWG`, each blocked on this item:
 
 ```text
-gitboard new "<title>" --parent 3IOCgCWG --repo whilp/cosmopolitan --spec-file F
+gitboard new "<title>" --parent 3IOCgCWG --repo cosmic-lua/cosmopolitan --spec-file F
 gitboard block <new id> 3ISCk9jy
 ```
 
@@ -144,7 +144,7 @@ report. Do not manufacture slices to fill a quota.
 - **No code, and no PR.** Nothing under `tool/lua/`, `test/tool/net/`,
   `tool/net/`, `.github/workflows/**` or any `BUILD.mk` is edited by
   this slice. Its entire output is board state. A diff in
-  whilp/cosmopolitan means the slice was misread.
+  cosmic-lua/cosmopolitan means the slice was misread.
 - **Do not build or run `o//test/tool/net`.** The comparison is a read.
   The lane's pass/fail split is the parent's recorded evidence and is
   not re-measured here.
@@ -158,7 +158,7 @@ report. Do not manufacture slices to fill a quota.
   are frozen. A test that will not port because a binding differs from
   redbean is a `retired` row and evidence for the table — never a
   reason to move the binding.
-- **Do not touch anything in whilp/cosmic.** No pin bump, no type
+- **Do not touch anything in cosmic-lua/cosmic.** No pin bump, no type
   regen, no wrapper change.
 - **Do not re-decide the parent's split.** Which checks are
   redbean-contract failures is settled in `3INxo51I`; this table records
@@ -166,7 +166,7 @@ report. Do not manufacture slices to fill a quota.
 
 ## Acceptance
 
-Every command below runs **from the whilp/cosmopolitan repo root**,
+Every command below runs **from the cosmic-lua/cosmopolitan repo root**,
 after setting two variables once — `ID` is this item's full ksuid and
 `BOARD` is the board worktree of the cosmic checkout:
 
@@ -177,7 +177,7 @@ SPEC="$BOARD/items/$ID.md"
 ```
 
 - `git status --porcelain` prints nothing — this slice writes no file in
-  whilp/cosmopolitan.
+  cosmic-lua/cosmopolitan.
 - `grep -c '^| test/tool/net/' "$SPEC"` prints `38`.
 - Every row's file exists and every file has a row — no output:
 
@@ -213,10 +213,31 @@ SPEC="$BOARD/items/$ID.md"
   grep -E '^\| test/tool/net/(json|ljson)' "$SPEC" | grep -c '| none |'   # 9
   ```
 
-- `"$BOARD"/o/bin/gitboard tree 3IOCgCWG` lists one port child per
-  group, each showing `[blocked]`, and
-  `"$BOARD"/o/bin/gitboard check <id>` passes for every port child
-  filed.
+- **The port children exist, one per group, each blocked on this
+  item** — this corrects a spec bug found 2026-08-30: `gitboard tree`
+  and `gitboard check` are not real verbs (`gitboard help` lists only
+  `init, new, attach, compare, block, unblock, set, spec, next, take,
+  drop, verdict, done, show, sync`), so the two bullets that named them
+  could never be satisfied as written. The board is a git checkout of
+  committed item files, so both facts are readable directly, from the
+  board worktree (`$BOARD`):
+
+  ```text
+  grep -l '\["parent"\] = "3IOCgCWG"' "$BOARD"/items/*.tl
+  ```
+
+  lists one file per port-child group filed here, and each listed
+  child's `.tl` file carries a `["blocked_by"]` entry naming this
+  item's id (`3ISCk9jyvgHUio3gPwQuZkSURUB`):
+
+  ```text
+  grep -l '3ISCk9jyvgHUio3gPwQuZkSURUB' "$BOARD"/items/*.tl
+  ```
+
+  — the intersection of the two listings is every port child, and each
+  passes its own ready bar when `"$BOARD"/o/bin/gitboard show <id>`
+  prints no `bar:` line (a `bar:` line is exactly how `show` reports a
+  spec-bar problem — its absence is the pass).
 - The port children's `Change` sections collectively name every `none`
   row exactly once. Quote that count in the report beside
   `grep -c '| none |' "$SPEC"` and show they agree.
@@ -229,5 +250,5 @@ mechanism the port slices must name is `tool/lua/BUILD.mk:222-260`,
 read there, not invented; the three-verdict vocabulary and the
 `retired` test are defined in `## Change` above rather than left to
 judgment; and the parent (`3INxo51I`) carries the decision this table
-records. Conventions are whilp/cosmopolitan's AGENTS.md. The ready-bar
-form for the port slices this one files is `decompose.md`.
+records. Conventions are cosmic-lua/cosmopolitan's AGENTS.md. The
+ready-bar form for the port slices this one files is `decompose.md`.
