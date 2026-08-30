@@ -21,6 +21,7 @@
 
 local fs = require("cosmic.fs")
 local records = require("_tool.records")
+local seam = require("_tool.seam")
 local teal = require("cosmic.teal")
 local deps = require("_make.deps")
 local project = require("_make.project")
@@ -136,6 +137,13 @@ end
 --- Type-check the selected files, writing issues to stderr as they are
 --- found rather than at the end — a long check reports its first error
 --- while the rest is still running.
+---
+--- Goes through the D29 seam, same as the build's compile step and
+--- `--check types`: a runner-mode test file is checked WITH its
+--- generated tail, so the checker sees what runs and the uncalled-local
+--- warning that mode exists to prevent never fires. This is the one
+--- call site that reaches files a tree has never built, which is
+--- exactly when that warning would otherwise surface.
 --- @param files {File} Files to check
 --- @return integer Number of files that failed
 local function check_files(files: {File}): integer
@@ -146,15 +154,22 @@ local function check_files(files: {File}): integer
   local include_dirs = {"."}
   local failed = 0
   for _, f in ipairs(files) do
-    local result = teal.check_file(f.path, {include_dirs = include_dirs})
-    if #result.warnings > 0 then
-      io.stderr:write(teal.format_issues(result.warnings, {hints = true}) .. "\n")
-    end
-    if #result.errors > 0 then
-      io.stderr:write(teal.format_issues(result.errors, {hints = true}) .. "\n")
-    end
-    if not result.ok then
+    local aug, aerr = seam.augment(f.path)
+    if aug == nil then
+      io.stderr:write("cosmic-lua: " .. aerr .. "\n")
       failed = failed + 1
+    else
+      local result = teal.check(aug.source,
+        {include_dirs = include_dirs, chunk_name = f.path})
+      if #result.warnings > 0 then
+        io.stderr:write(teal.format_issues(result.warnings, {hints = true}) .. "\n")
+      end
+      if #result.errors > 0 then
+        io.stderr:write(teal.format_issues(result.errors, {hints = true}) .. "\n")
+      end
+      if not result.ok then
+        failed = failed + 1
+      end
     end
   end
   return failed

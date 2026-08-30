@@ -1,0 +1,4 @@
+-- A runner-mode *_test.tl, checked from a tree that has never built.
+-- `test_one` is defined and never self-called; the D29 seam is what
+-- makes it a used local, and `--make check` is the one call site that
+-- reaches an unbuilt tree directly.

@@ -108,6 +108,13 @@ end
 -- The smallest project that is a project.
 fixture("hello", {hello = "hello from hello"})
 
+-- A runner-mode *_test.tl, checked from a tree that has never built:
+-- `fixture` runs `--make check` before anything has a chance to build
+-- the graph, so this is where a check that bypasses the compile seam
+-- would surface as an uncalled-local warning on a defined-but-unrun
+-- test case.
+fixture("runner", {runner = "hello from runner"})
+
 -- Import path is position: greet/init.tl is `greet`, greet/loud.tl is
 -- `greet.loud`, and nothing declares either.
 fixture("pkg", {pkg = "hi pkg"})
