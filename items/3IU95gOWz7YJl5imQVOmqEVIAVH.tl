@@ -6,5 +6,6 @@ return {
   ["id"] = "3IU95gOWz7YJl5imQVOmqEVIAVH",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1569,
+  ["reviewer"] = "review-3IU95gOW-1788107282",
   ["title"] = "runner-mode end state: flip the prose and prove the tree is all-runner",
 }
