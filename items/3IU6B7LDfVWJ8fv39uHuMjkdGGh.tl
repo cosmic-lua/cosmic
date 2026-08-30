@@ -6,5 +6,6 @@ return {
   ["id"] = "3IU6B7LDfVWJ8fv39uHuMjkdGGh",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1559,
+  ["reviewer"] = "review-uMjkdGGh-1788060538",
   ["title"] = "migrate to runner mode, batch 4/7: cosmic/{sqlite,quicksand,fetch,net,doc}",
 }
