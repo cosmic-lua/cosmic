@@ -1,5 +1,7 @@
 return {
   ["beats"] = "3ILxnhaKL5YDmOKs5Tqx5gUh61r",
+  ["builders"] = "7f36c898-4cc9-563e-850d-ceafecd74025",
+  ["claim"] = "7f36c898-4cc9-563e-850d-ceafecd74025",
   ["id"] = "3ILxmuNEcpQjGfx2P09d0x137YJ",
   ["parent"] = "3IK8EfvOAfjHp77uBwhoyggJ5z8",
   ["speccers"] = "d453b471-2a09-5300-8651-425990fc97cd",
