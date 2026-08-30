@@ -5,6 +5,7 @@ return {
   ["claim"] = "work9b-agent-3",
   ["id"] = "3Idu0o1iaFDDbhAEO2uYwAKxdkH",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 289,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage cosmo.unix.setenv/unsetenv/clearenv tests",
 }
