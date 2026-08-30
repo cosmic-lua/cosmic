@@ -5,5 +5,6 @@ return {
   ["claim"] = "wk5-a1-ca143d92-7e34-569b-b008-1f69817ffff5",
   ["id"] = "3IU6B7LDfVWJ8fv39uHuMjkdGGh",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
+  ["pr"] = 1559,
   ["title"] = "migrate to runner mode, batch 4/7: cosmic/{sqlite,quicksand,fetch,net,doc}",
 }
