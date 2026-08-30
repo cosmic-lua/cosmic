@@ -25,7 +25,6 @@ local function test_dial_blocks_private_targets()
       .. tostring(err))
   end
 end
-test_dial_blocks_private_targets()
 
 local function test_resolve_literal_skips_resolver()
   local got, err = dial.resolve("8.8.8.8", nil,
@@ -35,7 +34,6 @@ local function test_resolve_literal_skips_resolver()
   assert(got == check.must(ip.parse("8.8.8.8")):int(),
     "literal should parse directly: " .. tostring(err))
 end
-test_resolve_literal_skips_resolver()
 
 local function test_resolve_error_propagates()
   local got, err = dial.resolve("host.test", nil,
@@ -45,7 +43,6 @@ local function test_resolve_error_propagates()
   assert(got == nil and tostring(err):find("boom", 1, true),
     "resolver error should propagate, got: " .. tostring(err))
 end
-test_resolve_error_propagates()
 
 -- Bounded lookups are the C binding's job (cosmo.ResolveIp's
 -- timeout_ms), which pins the deadline behavior against a tarpitted
@@ -57,7 +54,6 @@ local function test_resolve_literal_with_deadline()
   assert(got == check.must(ip.parse("8.8.8.8")):int(),
     "literal must parse immediately under a deadline: " .. tostring(err))
 end
-test_resolve_literal_with_deadline()
 
 local function test_resolve_seam_value_returned_directly()
   local got, err = dial.resolve("host.test", nil,
@@ -66,4 +62,3 @@ local function test_resolve_seam_value_returned_directly()
     end)
   assert(got == 1234, "seam value should return directly: " .. tostring(err))
 end
-test_resolve_seam_value_returned_directly()

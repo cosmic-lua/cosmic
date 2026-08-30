@@ -19,14 +19,12 @@ local function test_single_statements_pass()
   assert(not multi("SELECT [a;b] FROM t"), "semicolon in a bracket")
   assert(not multi("SELECT 1 -- ; not a statement\n+ 1"), "semi in line comment")
 end
-test_single_statements_pass()
 
 local function test_second_statements_are_caught()
   assert(multi("SELECT 1; SELECT 2"), "two statements")
   assert(multi("SELECT 1;;SELECT 2"), "double semicolon")
   assert(multi("SELECT 1; 'even a string'"), "a string is content too")
 end
-test_second_statements_are_caught()
 
 -- A CREATE TRIGGER body is ONE prepared statement whose semicolons
 -- are internal: sqlite3_prepare compiles the whole trigger, so the
@@ -53,13 +51,11 @@ local function test_a_trigger_body_is_one_statement()
       "BEGIN UPDATE t SET n = 1; END"),
     "comments between the keywords do not split the arming sequence")
 end
-test_a_trigger_body_is_one_statement()
 
 local function test_a_trigger_plus_more_is_still_caught()
   assert(multi(TRIGGER .. "; SELECT 1"), "statement after the trigger")
   assert(multi("SELECT 1; " .. TRIGGER), "statement before the trigger")
 end
-test_a_trigger_plus_more_is_still_caught()
 
 -- The recognizer arms only on the exact CREATE [TEMP] TRIGGER
 -- sequence, and only a real keyword closes a body — identifiers that
@@ -76,7 +72,6 @@ local function test_lookalikes_do_not_confuse_the_scan()
       "UPDATE t SET x = \"end\"; UPDATE [end] SET y = 1; END; SELECT 1"),
     "a quoted or bracketed end never closes the body")
 end
-test_lookalikes_do_not_confuse_the_scan()
 
 -- Ambiguity stays a refusal: a semicolon before the body opens is
 -- top-level (it is not legal trigger SQL either way), so the scan
@@ -85,7 +80,6 @@ local function test_a_semicolon_before_begin_counts()
   assert(multi("CREATE TRIGGER trg; SELECT 1"),
     "a semicolon between TRIGGER and BEGIN is top-level")
 end
-test_a_semicolon_before_begin_counts()
 
 -- A body that never closes is the deliberate exception: the depth
 -- never returns to zero, so the scan answers false whatever follows.
@@ -98,4 +92,3 @@ local function test_an_unclosed_body_defers_to_prepare()
       "BEGIN SELECT 1; DROP TABLE users"),
     "past an unclosed BEGIN every semicolon reads as internal")
 end
-test_an_unclosed_body_defers_to_prepare()

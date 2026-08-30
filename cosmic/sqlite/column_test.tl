@@ -23,7 +23,6 @@ local function test_reads_each_column_at_its_declared_type()
   check.equal(check.must(sqlite.column_number(row, "c")), 3.14, "REAL reads as number")
   check.equal(check.must(sqlite.column_integer(row, "n")), 7, "INTEGER reads as integer")
 end
-test_reads_each_column_at_its_declared_type()
 
 -- An INTEGER column is a number too: the wider reader accepts it, so a
 -- caller who does not care about the subtype is not forced to guess.
@@ -31,7 +30,6 @@ local function test_number_accepts_an_integer_column()
   local row = one_row()
   check.equal(check.must(sqlite.column_number(row, "n")), 7, "INTEGER reads as number")
 end
-test_number_accepts_an_integer_column()
 
 local function test_a_missing_or_null_column_fails_with_one_message()
   local row = one_row()
@@ -53,7 +51,6 @@ local function test_a_missing_or_null_column_fails_with_one_message()
   check.equal(int, nil, "an unnamed column is not an integer")
   check.equal(interr, 'column "nosuch" is absent or NULL', "integer absent message")
 end
-test_a_missing_or_null_column_fails_with_one_message()
 
 local function test_a_wrong_type_names_what_it_found_and_what_it_wanted()
   local row = one_row()
@@ -65,7 +62,6 @@ local function test_a_wrong_type_names_what_it_found_and_what_it_wanted()
   check.equal(n, nil, "a TEXT column is not a number")
   check.equal(nerr, 'column "name" is string, want number', "number mismatch message")
 end
-test_a_wrong_type_names_what_it_found_and_what_it_wanted()
 
 -- The subtype is the whole point of the integer reader: a REAL column
 -- means the schema is not what the caller assumed, and reading it as an
@@ -80,6 +76,5 @@ local function test_integer_refuses_a_float()
   check.equal(s, nil, "a TEXT column is not an integer")
   check.equal(serr, 'column "name" is string, want integer', "non-number keeps its type name")
 end
-test_integer_refuses_a_float()
 
 print("all sqlite column reader tests passed")

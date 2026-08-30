@@ -21,7 +21,6 @@ local function test_send_all_basic()
   assert(a:close())
   assert(b:close())
 end
-test_send_all_basic()
 
 local function test_send_all_empty()
   local a, b = pair()
@@ -30,7 +29,6 @@ local function test_send_all_empty()
   assert(a:close())
   assert(b:close())
 end
-test_send_all_empty()
 
 local function test_send_all_large()
   local a, b = pair()
@@ -42,7 +40,6 @@ local function test_send_all_large()
   assert(a:close())
   assert(b:close())
 end
-test_send_all_large()
 
 local function test_send_all_closed_socket()
   local a, b = pair()
@@ -52,7 +49,6 @@ local function test_send_all_closed_socket()
   assert(err ~= nil, "expected an error message")
   assert(b:close())
 end
-test_send_all_closed_socket()
 
 -- recv_exact tests
 
@@ -65,7 +61,6 @@ local function test_recv_exact_across_sends()
   assert(a:close())
   assert(b:close())
 end
-test_recv_exact_across_sends()
 
 local function test_recv_exact_leaves_rest()
   local a, b = pair()
@@ -77,7 +72,6 @@ local function test_recv_exact_leaves_rest()
   assert(a:close())
   assert(b:close())
 end
-test_recv_exact_leaves_rest()
 
 local function test_recv_exact_zero()
   local a, b = pair()
@@ -86,7 +80,6 @@ local function test_recv_exact_zero()
   assert(a:close())
   assert(b:close())
 end
-test_recv_exact_zero()
 
 local function test_recv_exact_early_close()
   local a, b = pair()
@@ -98,7 +91,6 @@ local function test_recv_exact_early_close()
   assert(a:close())
   assert(b:close())
 end
-test_recv_exact_early_close()
 
 -- line iteration: Socket is a stream.Reader, so stream.lines is the
 -- one line algorithm. It splits on "\n" alone, leaving any "\r" in the
@@ -126,7 +118,6 @@ local function test_lines_basic()
   assert(a:close())
   assert(b:close())
 end
-test_lines_basic()
 
 local function test_lines_empty_line()
   local a, b = pair()
@@ -139,7 +130,6 @@ local function test_lines_empty_line()
   assert(a:close())
   assert(b:close())
 end
-test_lines_empty_line()
 
 local function test_lines_long_line_multiple_chunks()
   local a, b = pair()
@@ -152,7 +142,6 @@ local function test_lines_long_line_multiple_chunks()
   assert(a:close())
   assert(b:close())
 end
-test_lines_long_line_multiple_chunks()
 
 -- set_timeout_ms tests
 
@@ -166,7 +155,6 @@ local function test_set_timeout_ms_recv_times_out()
   assert(a:close())
   assert(b:close())
 end
-test_set_timeout_ms_recv_times_out()
 
 local function test_set_timeout_ms_clear_restores_blocking()
   local a, b = pair()
@@ -178,7 +166,6 @@ local function test_set_timeout_ms_clear_restores_blocking()
   assert(a:close())
   assert(b:close())
 end
-test_set_timeout_ms_clear_restores_blocking()
 
 local function test_set_timeout_ms_bounds_line_iteration()
   local a, b = pair()
@@ -190,7 +177,6 @@ local function test_set_timeout_ms_bounds_line_iteration()
   assert(a:close())
   assert(b:close())
 end
-test_set_timeout_ms_bounds_line_iteration()
 
 local function test_set_timeout_ms_closed_socket()
   local a, b = pair()
@@ -199,7 +185,6 @@ local function test_set_timeout_ms_closed_socket()
   assert(not ok and err ~= nil, "expected set_timeout_ms on closed socket to fail")
   assert(b:close())
 end
-test_set_timeout_ms_closed_socket()
 
 -- Socket implements the stream interfaces: a socket can be handed to
 -- any consumer of stream.Reader / stream.Writer (e.g. cosmic.sse).
@@ -216,7 +201,6 @@ local function test_socket_is_stream()
   assert(eof == nil, "expected bare nil at end of stream")
   assert(b:close())
 end
-test_socket_is_stream()
 
 -- signal-safety wave: a blocking recv interrupted by a signal is
 -- retried automatically instead of surfacing EINTR. The handler supplies
@@ -253,7 +237,6 @@ local function test_recv_retries_eintr()
   assert(a:close())
   assert(b:close())
 end
-test_recv_retries_eintr()
 
 -- send exposes the binding's offset parameter — a partial-send
 -- loop can window the buffer without copying via data:sub.
@@ -268,7 +251,6 @@ local function test_send_offset()
   assert(a:close())
   assert(b:close())
 end
-test_send_offset()
 
 -- recv(0) reads "" from the kernel on a stream socket, which is
 -- indistinguishable from "peer closed" unless max_bytes is rejected
@@ -282,7 +264,6 @@ local function test_recv_zero_max_bytes_is_error()
   assert(a:close())
   assert(b:close())
 end
-test_recv_zero_max_bytes_is_error()
 
 local function test_recv_negative_max_bytes_is_error()
   local a, b = pair()
@@ -293,7 +274,6 @@ local function test_recv_negative_max_bytes_is_error()
   assert(a:close())
   assert(b:close())
 end
-test_recv_negative_max_bytes_is_error()
 
 -- Socket:fd() is a method, not a field, and it reports -1 once closed —
 -- the fd.Handle shape. That is what lets poll.add reject a descriptor
@@ -309,7 +289,6 @@ local function test_fd_is_minus_one_after_close()
   assert(err ~= nil, "expected an error message")
   assert(b:close())
 end
-test_fd_is_minus_one_after_close()
 
 -- accept bounds its own wait: the listener's send/recv semantics stay
 -- untouched, which set_timeout_ms on the listener could not promise.
@@ -325,7 +304,6 @@ local function test_accept_times_out()
     .. tostring(elapsed_ms) .. "ms")
   assert(srv:close())
 end
-test_accept_times_out()
 
 local function test_accept_within_timeout_returns_the_connection()
   local srv = check.must(net.listen_tcp("127.0.0.1", 0))
@@ -338,4 +316,3 @@ local function test_accept_within_timeout_returns_the_connection()
   assert(conn:close())
   assert(srv:close())
 end
-test_accept_within_timeout_returns_the_connection()

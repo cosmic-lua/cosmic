@@ -10,7 +10,6 @@ local function test_parse_rule()
   h, p = rules.parse_rule("example.com:*")
   assert(h == "example.com" and p == nil, "explicit wildcard port")
 end
-test_parse_rule()
 
 local function test_match()
   local idx = rules.index({
@@ -36,7 +35,6 @@ local function test_match()
   assert(rules.match(idx, "unlisted.example.net", 80) == nil,
     "unlisted host denied")
 end
-test_match()
 
 -- A typo'd rule must fail loudly at validation, never degrade to
 -- pass-through: this proxy is the security boundary for boxed egress.
@@ -59,7 +57,6 @@ local function test_validate_rejects_malformed_rules()
       .. tostring(case[2]) .. ", got: " .. err)
   end
 end
-test_validate_rejects_malformed_rules()
 
 -- A malformed port in a *key* must fail loudly, never silently widen to
 -- "any port": in an egress allowlist that is fail-open. parse_rule's
@@ -84,7 +81,6 @@ local function test_validate_rejects_malformed_port_keys()
       "db.internal", 9999) ~= nil,
     "sanity: an unvalidated bad port DOES widen to any port (why we validate)")
 end
-test_validate_rejects_malformed_port_keys()
 
 -- Well-formed port keys (and the any-port forms) still pass.
 local function test_validate_accepts_valid_port_keys()
@@ -97,7 +93,6 @@ local function test_validate_accepts_valid_port_keys()
     assert(ok, "key should be accepted: " .. key .. ", got: " .. tostring(err))
   end
 end
-test_validate_accepts_valid_port_keys()
 
 local function test_validate_accepts_pass_through_and_complete_rules()
   assert(rules.validate({}), "empty allowlist")
@@ -113,7 +108,6 @@ local function test_validate_accepts_pass_through_and_complete_rules()
         },
       }), "complete rules of every type")
 end
-test_validate_accepts_pass_through_and_complete_rules()
 
 local function test_auth_header()
   local n, v = rules.auth_header({type = "bearer", token = "tok"})
@@ -130,7 +124,6 @@ local function test_auth_header()
   -- cast: deliberate invalid input: raw config can smuggle `true` past the types
   assert(rules.auth_header(true as rules.ProxyRule) == nil, "true injects nothing")
 end
-test_auth_header()
 
 -- A nil port means "no port constraint" in both directions: the
 -- declarations say `integer | nil` because the code already puts nil
@@ -149,4 +142,3 @@ local function test_nil_port_query()
   assert(h == "example.com" and p == nil,
     "parse_rule returns a nil port for a bare host: " .. tostring(p))
 end
-test_nil_port_query()

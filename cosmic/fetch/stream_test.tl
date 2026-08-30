@@ -60,7 +60,6 @@ local function test_stream_reads_body_and_reports_url()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_stream_reads_body_and_reports_url()
 
 local function test_stream_lines_iterates()
   local port, pid = serve({body_response("one\ntwo\nthree")})
@@ -75,7 +74,6 @@ local function test_stream_lines_iterates()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_stream_lines_iterates()
 
 local function test_stream_204_is_clean_eof()
   -- a bodyless 204 must read as EOF (nil, no error), not "reader closed"
@@ -88,7 +86,6 @@ local function test_stream_204_is_clean_eof()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_stream_204_is_clean_eof()
 
 local function test_stream_truncated_body_surfaces_error()
   -- Content-Length promises 100 bytes but the server closes after 21:
@@ -110,7 +107,6 @@ local function test_stream_truncated_body_surfaces_error()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_stream_truncated_body_surfaces_error()
 
 local function test_stream_lines_propagates_error_then_stops()
   -- lines() yields nil, err once for a mid-stream failure, then plain nil;
@@ -131,7 +127,6 @@ local function test_stream_lines_propagates_error_then_stops()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_stream_lines_propagates_error_then_stops()
 
 local function test_stream_reader_close_idempotent()
   local port, pid = serve({body_response("x")})
@@ -144,7 +139,6 @@ local function test_stream_reader_close_idempotent()
   assert(chunk == nil and err == "reader closed", "read after close is an error")
   assert(proc.wait(pid))
 end
-test_stream_reader_close_idempotent()
 
 local function test_read_until_multibyte_and_mixing()
   -- "alpha\r\n\r\nbravo\r\ncharlie": a multi-byte delimiter, adjacent
@@ -171,7 +165,6 @@ local function test_read_until_multibyte_and_mixing()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_read_until_multibyte_and_mixing()
 
 local function test_read_until_remainder_guards_and_close()
   -- A delimiter-free body arrives whole as the EOF remainder, once;
@@ -194,7 +187,6 @@ local function test_read_until_remainder_guards_and_close()
     "read_until after close errors like read, got: " .. tostring(cerr))
   assert(proc.wait(pid))
 end
-test_read_until_remainder_guards_and_close()
 
 local function test_stream_validation_and_error_kind()
   local result, verr = fetch.stream("ftp://example.com/x")
@@ -214,4 +206,3 @@ local function test_stream_validation_and_error_kind()
   assert(berr and berr.kind == "blocked",
     "kind should be 'blocked', got " .. tostring(berr))
 end
-test_stream_validation_and_error_kind()

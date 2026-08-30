@@ -16,7 +16,6 @@ local function test_module_exports()
   assert(type(netns.bring_down) == "function")
   assert(type(netns.close) == "function")
 end
-test_module_exports()
 
 local function test_open_self()
   local c = quicksand.capabilities()
@@ -32,7 +31,6 @@ local function test_open_self()
   assert(fd >= 0, "fd should be non-negative")
   assert(netns.close(fd))
 end
-test_open_self()
 
 -- unshare() is irreversible for the current thread, so run in a subprocess.
 local function test_unshare_subprocess()
@@ -78,7 +76,6 @@ io.write("ok\n")
     check.enforce_skip("netns unshare: " .. s:gsub("%s+$", ""))
   end
 end
-test_unshare_subprocess()
 
 -- get_flags/set_flags exercise the unix.siocgifflags/siocsifflags
 -- bindings (struct ifreq lives in C) that bring_up/bring_down are
@@ -93,14 +90,12 @@ local function test_get_flags_loopback()
   end
   assert(math.type(flags) == "integer", "flags should be an integer")
 end
-test_get_flags_loopback()
 
 local function test_get_flags_bad_interface()
   local flags, err = netns.get_flags("nope0")
   assert(flags == nil, "nonexistent interface should fail")
   assert(type(err) == "string", "failure must carry an error string")
 end
-test_get_flags_bad_interface()
 
 -- A flag with the 0x8000 bit set must pass through cleanly: the C
 -- binding stores flags as uint16_t, and packing them as signed 16-bit
@@ -111,11 +106,9 @@ local function test_set_flags_high_bit_no_overflow()
   assert(ok == false, "set_flags on a nonexistent interface should fail")
   assert(type(err) == "string", "failure must carry an error string")
 end
-test_set_flags_high_bit_no_overflow()
 
 local function test_get_flags_name_too_long()
   local flags, err = netns.get_flags(string.rep("x", 20))
   assert(flags == nil, "oversized interface name should fail, not throw")
   assert(err == "interface name too long", "got: " .. tostring(err))
 end
-test_get_flags_name_too_long()

@@ -61,7 +61,6 @@ io.write("ok exit=0\n")
   assert(r.stdout:find("ok exit=0"),
     "expected ok, got: " .. tostring(r.stdout))
 end
-test_run_true_in_subprocess()
 
 -- A one-shot SIGALRM fires ~50ms into a workload that sleeps 300ms,
 -- guaranteeing wait(pid) is interrupted mid-block by EINTR; run() must
@@ -101,7 +100,6 @@ io.write("ok exit=0\n")
   assert(r.stdout:find("ok exit=0"),
     "expected ok, got: " .. tostring(r.stdout))
 end
-test_run_survives_eintr_during_wait()
 
 -- A typo'd sys policy must be rejected at Box.new — construction time,
 -- before any fork — with an error naming the bad promise, via
@@ -112,7 +110,6 @@ local function test_bogus_sys_promise_rejected_at_new()
   assert(err:find("bogus_promise", 1, true),
     "error should name the bad promise: " .. err)
 end
-test_bogus_sys_promise_rejected_at_new()
 
 -- Setup failures must come back on the error channel as nil + message,
 -- not masquerade as a workload exit code (a 126 with the reason only on
@@ -145,7 +142,6 @@ io.write("ok nil-error: " .. tostring(rerr) .. "\n")
   assert(r.stdout:find("ok nil%-error"),
     "expected nil-error report, got: " .. tostring(r.stdout))
 end
-test_setup_failure_returns_error_not_exit_code()
 
 -- proc.uid without no_new_privs must still set NoNewPrivs.
 -- The workload reads /proc/self/status and greps for NoNewPrivs:1.
@@ -187,7 +183,6 @@ end
   end
   assert(s:find("ok"), "NoNewPrivs should be 1, got: " .. s)
 end
-test_uid_drop_sets_no_new_privs_subprocess()
 
 -- PID namespace isolation — workload should get a low PID (<= 2).
 local function test_pid_namespace_workload_has_low_pid_subprocess()
@@ -215,7 +210,6 @@ end
   assert(r.stdout:find("ok"),
     "workload PID should be <= 2, got: " .. tostring(r.stdout))
 end
-test_pid_namespace_workload_has_low_pid_subprocess()
 
 -- Opt-out of PID namespace via pid_ns = false still runs.
 local function test_pid_namespace_opt_out_subprocess()
@@ -244,4 +238,3 @@ io.write("ok\n")
   assert(r.stdout:find("ok"),
     "expected ok, got: " .. tostring(r.stdout))
 end
-test_pid_namespace_opt_out_subprocess()

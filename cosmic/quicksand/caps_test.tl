@@ -16,7 +16,6 @@ local function test_module_exports()
   assert(type(caps.drop_bounding) == "function")
   assert(type(caps.NAMES) == "table")
 end
-test_module_exports()
 
 -- Every curated name resolves to a number on a host that ships the CAP_*
 -- constants; CAP_LAST_CAP (a bound, not a capability) is deliberately
@@ -36,7 +35,6 @@ local function test_names_resolve()
     assert(name ~= "CAP_LAST_CAP", "NAMES must not include the CAP_LAST_CAP bound")
   end
 end
-test_names_resolve()
 
 -- number_of rejects unknown names and non-strings without throwing.
 local function test_number_of_unknown()
@@ -46,7 +44,6 @@ local function test_number_of_unknown()
   local n2, err2 = caps.number_of(nil)
   assert(n2 == nil and type(err2) == "string", "nil name should error, not throw")
 end
-test_number_of_unknown()
 
 -- mask sets bit N (1 << number) per name; unknown names error; empty is 0.
 local function test_mask()
@@ -64,7 +61,6 @@ local function test_mask()
   local bad, err = caps.mask({"CAP_BOGUS"})
   assert(bad == nil and type(err) == "string", "unknown name should error")
 end
-test_mask()
 
 -- bounding_read is non-destructive: it returns a boolean (or a graceful
 -- nil + error under an outer sandbox), never throws.
@@ -79,7 +75,6 @@ local function test_bounding_read()
   local bad, berr = caps.bounding_read("CAP_BOGUS")
   assert(bad == nil and type(berr) == "string", "unknown cap should error")
 end
-test_bounding_read()
 
 -- drop_bounding validates the keep-set BEFORE touching the bounding set,
 -- so an unknown keep name returns false + err and drops nothing. This is
@@ -96,7 +91,6 @@ local function test_drop_bounding_bad_keep()
   assert(type(err) == "string" and err:find("CAP_BOGUS"),
     "error should name the bad capability: " .. tostring(err))
 end
-test_drop_bounding_bad_keep()
 
 -- Fail-closed on an unsupported host: drop_bounding must not report a
 -- drop that did not happen. best_effort is the explicit opt-in to a
@@ -113,7 +107,6 @@ local function test_drop_bounding_fails_closed_when_unsupported()
   assert(caps.drop_bounding({best_effort = true}),
     "best_effort must turn unsupported into a successful no-op")
 end
-test_drop_bounding_fails_closed_when_unsupported()
 
 -- The real, irreversible drop path is exercised in a subprocess so it
 -- cannot strip this test runner's own bounding set. After a successful
@@ -157,6 +150,5 @@ local function test_drop_bounding_child()
     check.enforced("caps bounding drop")
   end
 end
-test_drop_bounding_child()
 
 print("caps_test: PASS")

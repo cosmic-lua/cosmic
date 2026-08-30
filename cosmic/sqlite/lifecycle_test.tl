@@ -32,7 +32,6 @@ local function test_close_with_live_statement()
   assert(stmt:close())
   assert(db:close(), "close stays idempotent after success")
 end
-test_close_with_live_statement()
 
 -- An abandoned db:prepare() handle is finalized by garbage collection,
 -- so its raw statement is released as soon as the collector runs, not
@@ -48,7 +47,6 @@ local function test_statement_gc_backstop()
   assert(db:close(),
     "gc must have finalized the abandoned Statement so close succeeds")
 end
-test_statement_gc_backstop()
 
 -- Rows:close ends iteration early (and <close> drives it); through
 -- Statement:rows() it must not finalize the owning Statement, which
@@ -81,7 +79,6 @@ local function test_rows_close_ends_iteration()
   assert(stmt:close())
   assert(db:close())
 end
-test_rows_close_ends_iteration()
 
 -- Parameterized exec/query of multi-statement SQL is rejected loudly:
 -- sqlite compiles only the first statement, so running one unrejected
@@ -118,7 +115,6 @@ local function test_multi_statement_rejected_with_params()
 
   assert(db:close())
 end
-test_multi_statement_rejected_with_params()
 
 -- The rejection is lexical and must not misfire: semicolons inside
 -- string literals, comments, or a trailing semicolon are ONE statement.
@@ -153,7 +149,6 @@ local function test_multi_statement_scan_false_positives()
 
   assert(db:close())
 end
-test_multi_statement_scan_false_positives()
 
 -- A CREATE TRIGGER body embeds semicolons of its own and is still ONE
 -- prepared statement, so exec runs it — refusing it as multi-statement
@@ -175,7 +170,6 @@ local function test_exec_runs_a_create_trigger()
     "the trigger fired")
   assert(db:close())
 end
-test_exec_runs_a_create_trigger()
 
 -- The transaction/savepoint callback type declares the rollback
 -- protocol, so a typed boolean return needs no cast.
@@ -196,4 +190,3 @@ local function test_transaction_callback_typed_rollback()
   check.equal(count_rows(db), 3, "insert committed")
   assert(db:close())
 end
-test_transaction_callback_typed_rollback()

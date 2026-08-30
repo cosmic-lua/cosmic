@@ -13,21 +13,18 @@ local function test_open_memory()
   local db = check.must(sqlite.open(":memory:"))
   assert(db:close())
 end
-test_open_memory()
 
 local function test_open_file()
   local dbpath = fs.join(TEST_TMPDIR, "test.db")
   local db = check.must(sqlite.open(dbpath))
   assert(db:close())
 end
-test_open_file()
 
 local function test_open_invalid_path()
   local db, err = sqlite.open("/nonexistent/path/to/db.sqlite")
   assert(db == nil, "should fail on invalid path")
   assert(err, "should return error message")
 end
-test_open_invalid_path()
 
 -- Execution
 
@@ -37,7 +34,6 @@ local function test_exec_create_table()
   assert(ok, "exec should succeed: " .. tostring(err))
   assert(db:close())
 end
-test_exec_create_table()
 
 local function test_exec_invalid_sql()
   local db = check.must(sqlite.open(":memory:"))
@@ -46,7 +42,6 @@ local function test_exec_invalid_sql()
   assert(err, "should return error message")
   assert(db:close())
 end
-test_exec_invalid_sql()
 
 local function test_last_insert_rowid()
   local db = check.must(sqlite.open(":memory:"))
@@ -57,7 +52,6 @@ local function test_last_insert_rowid()
   assert(db:last_insert_rowid() == 2, "second insert should have rowid 2")
   assert(db:close())
 end
-test_last_insert_rowid()
 
 local function test_changes()
   local db = check.must(sqlite.open(":memory:"))
@@ -68,7 +62,6 @@ local function test_changes()
   assert(db:changes() == 2, "should report 2 changes after delete")
   assert(db:close())
 end
-test_changes()
 
 local function test_exec_with_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -86,7 +79,6 @@ local function test_exec_with_params()
   assert(db:changes() == 1, "should have deleted 1 row")
   assert(db:close())
 end
-test_exec_with_params()
 
 local function test_exec_multiple_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -102,7 +94,6 @@ local function test_exec_multiple_params()
   end
   assert(db:close())
 end
-test_exec_multiple_params()
 
 local function test_exec_no_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -112,7 +103,6 @@ local function test_exec_no_params()
   assert(ok, "exec without params should succeed: " .. tostring(err))
   assert(db:close())
 end
-test_exec_no_params()
 
 -- Prepared statements
 
@@ -132,7 +122,6 @@ local function test_prepare_bind_exec()
   assert(stmt:close())
   assert(db:close())
 end
-test_prepare_bind_exec()
 
 local function test_prepare_invalid_sql()
   local db = check.must(sqlite.open(":memory:"))
@@ -141,7 +130,6 @@ local function test_prepare_invalid_sql()
   assert(err, "should return error message")
   assert(db:close())
 end
-test_prepare_invalid_sql()
 
 local function test_statement_reset()
   local db = check.must(sqlite.open(":memory:"))
@@ -162,7 +150,6 @@ local function test_statement_reset()
   assert(count == 2, "should have 2 rows after reset and reuse")
   assert(db:close())
 end
-test_statement_reset()
 
 -- Query iteration
 
@@ -182,7 +169,6 @@ local function test_query_rows()
   assert(names[3] == "Carol", "third name should be Carol")
   assert(db:close())
 end
-test_query_rows()
 
 local function test_query_with_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -199,7 +185,6 @@ local function test_query_with_params()
   assert(names[2] == "Carol", "second should be Carol")
   assert(db:close())
 end
-test_query_with_params()
 
 local function test_query_empty_results()
   local db = check.must(sqlite.open(":memory:"))
@@ -212,7 +197,6 @@ local function test_query_empty_results()
   assert(count == 0, "should get 0 rows from empty table")
   assert(db:close())
 end
-test_query_empty_results()
 
 local function test_statement_rows_positional_lookup()
   local db = check.must(sqlite.open(":memory:"))
@@ -229,7 +213,6 @@ local function test_statement_rows_positional_lookup()
   assert(stmt:close())
   assert(db:close())
 end
-test_statement_rows_positional_lookup()
 
 -- Iterator error surfacing (step errors must not masquerade as end-of-rows)
 
@@ -247,7 +230,6 @@ local function test_query_err_nil_on_clean_iteration()
   assert(iter:err() == nil, "clean iteration should report no error")
   assert(db:close())
 end
-test_query_err_nil_on_clean_iteration()
 
 local function test_query_step_error_surfaced()
   local db = check.must(sqlite.open(":memory:"))
@@ -259,7 +241,6 @@ local function test_query_step_error_surfaced()
     "error should mention overflow: " .. tostring(err))
   assert(db:close())
 end
-test_query_step_error_surfaced()
 
 local function test_query_one_step_error()
   local db = check.must(sqlite.open(":memory:"))
@@ -268,7 +249,6 @@ local function test_query_one_step_error()
   assert(type(err) == "string", "query_one should surface the step error")
   assert(db:close())
 end
-test_query_one_step_error()
 
 -- A NULL first column is an ordinary row through rows(): a map row can
 -- never be mistaken for end-of-iteration.
@@ -285,7 +265,6 @@ local function test_rows_null_first_column()
   assert(stmt:close())
   assert(db:close())
 end
-test_rows_null_first_column()
 
 -- Use-after-close returns errors instead of throwing/crashing
 local function test_use_after_close()
@@ -301,7 +280,6 @@ local function test_use_after_close()
   local nchanged, cerr = db:changes()
   assert(nchanged == nil and type(cerr) == "string", "changes after close: nil, err")
 end
-test_use_after_close()
 
 -- Index conversion (1-indexed)
 
@@ -320,7 +298,6 @@ local function test_column_name_1indexed()
   assert(stmt:close())
   assert(db:close())
 end
-test_column_name_1indexed()
 
 -- Resource cleanup
 
@@ -330,7 +307,6 @@ local function test_manual_close()
   -- second close should be safe (no error)
   assert(db:close())
 end
-test_manual_close()
 
 local function test_auto_close()
   -- Test that db can be opened and closed without issue
@@ -338,7 +314,6 @@ local function test_auto_close()
   assert(db:exec("CREATE TABLE t (id INTEGER)"))
   assert(db:close())
 end
-test_auto_close()
 
 local function test_statement_close()
   local db = check.must(sqlite.open(":memory:"))
@@ -347,7 +322,6 @@ local function test_statement_close()
   assert(stmt:close())
   assert(db:close())
 end
-test_statement_close()
 
 local function test_double_close_safe()
   local db = check.must(sqlite.open(":memory:"))
@@ -357,7 +331,6 @@ local function test_double_close_safe()
   assert(db:close())
   assert(db:close())
 end
-test_double_close_safe()
 
 -- Integration tests
 
@@ -386,7 +359,6 @@ local function test_transaction()
   assert(count == 1, "should have 1 row after commit")
   assert(db:close())
 end
-test_transaction()
 
 local function test_multiple_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -404,7 +376,6 @@ local function test_multiple_params()
   end
   assert(db:close())
 end
-test_multiple_params()
 
 local function test_null_values()
   local db = check.must(sqlite.open(":memory:"))
@@ -416,7 +387,6 @@ local function test_null_values()
   end
   assert(db:close())
 end
-test_null_values()
 
 local function test_nested_queries()
   local db = check.must(sqlite.open(":memory:"))
@@ -439,7 +409,6 @@ local function test_nested_queries()
   assert(results[3] == "Bob->Child3", "third pair")
   assert(db:close())
 end
-test_nested_queries()
 
 -- Error return paths (no-throw on invalid SQL)
 
@@ -450,7 +419,6 @@ local function test_query_invalid_sql()
   assert(type(err) == "string", "should return error string")
   assert(db:close())
 end
-test_query_invalid_sql()
 
 local function test_query_params_invalid_sql()
   local db = check.must(sqlite.open(":memory:"))
@@ -459,7 +427,6 @@ local function test_query_params_invalid_sql()
   assert(type(err) == "string", "should return error string")
   assert(db:close())
 end
-test_query_params_invalid_sql()
 
 local function test_query_one_invalid_sql()
   local db = check.must(sqlite.open(":memory:"))
@@ -468,7 +435,6 @@ local function test_query_one_invalid_sql()
   assert(type(err) == "string", "should return error string")
   assert(db:close())
 end
-test_query_one_invalid_sql()
 
 -- query_one must finalize the prepared statement so db:close() succeeds
 -- and subsequent queries work (statement leak regression test).
@@ -488,4 +454,3 @@ local function test_query_one_close_after_hit()
   -- db:close() must succeed without error (lsqlite3 fails if stmts unfinalized)
   assert(db:close())
 end
-test_query_one_close_after_hit()

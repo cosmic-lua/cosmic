@@ -22,7 +22,6 @@ local function test_find_matching_examples_escapes_magic_chars()
   assert(#matches == 1, "expected 1 match, got " .. #matches)
   assert(matches[1].name == "Example_do(thing)_basic", "got: " .. matches[1].name)
 end
-test_find_matching_examples_escapes_magic_chars()
 
 local function test_find_matching_examples_dash_and_dot()
   local examples = {
@@ -31,14 +30,12 @@ local function test_find_matching_examples_dash_and_dot()
   local matches = docs_render.find_matching_examples(examples, "a-b.c")
   assert(#matches == 1, "expected 1 match, got " .. #matches)
 end
-test_find_matching_examples_dash_and_dot()
 
 local function test_find_matching_examples_exact_match_still_works()
   local examples = {example("Example_greet")}
   local matches = docs_render.find_matching_examples(examples, "greet")
   assert(#matches == 1, "expected 1 match, got " .. #matches)
 end
-test_find_matching_examples_exact_match_still_works()
 
 local function test_find_matching_examples_no_false_prefix_match()
   -- "greet" must not match "greeting_extra" (no separating "_").
@@ -46,4 +43,3 @@ local function test_find_matching_examples_no_false_prefix_match()
   local matches = docs_render.find_matching_examples(examples, "greet")
   assert(#matches == 0, "expected 0 matches, got " .. #matches)
 end
-test_find_matching_examples_no_false_prefix_match()

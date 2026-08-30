@@ -7,7 +7,6 @@ local function test_module_exports()
   assert(type(quicksand.capabilities) == "function", "capabilities should be a function")
   assert(type(quicksand.is_supported) == "function", "is_supported should be a function")
 end
-test_module_exports()
 
 local function test_capabilities_shape()
   local c = quicksand.capabilities()
@@ -24,14 +23,12 @@ local function test_capabilities_shape()
   assert(type(c.pledge) == "boolean", "capabilities().pledge should be boolean")
   assert(type(c.unveil) == "boolean", "capabilities().unveil should be boolean")
 end
-test_capabilities_shape()
 
 local function test_capabilities_cached()
   local a = quicksand.capabilities()
   local b = quicksand.capabilities()
   assert(a == b, "capabilities() must return the same cached table on repeat calls")
 end
-test_capabilities_cached()
 
 -- capabilities().user_ns comes from a scratch-child unshare probe, not
 -- the compile-time CLONE_NEWUSER constant: that constant is defined even
@@ -48,7 +45,6 @@ local function test_user_ns_agrees_with_scratch_probe()
     check.equal(c.user_ns, false, "user_ns must be false off Linux")
   end
 end
-test_user_ns_agrees_with_scratch_probe()
 
 -- is_supported: pinned to the capability report it is
 -- derived from (which the shape test above proves is all booleans),
@@ -61,7 +57,6 @@ local function test_is_supported_matches_capabilities()
   assert(quicksand.is_supported() == expected,
     "is_supported() must be deterministic across calls")
 end
-test_is_supported_matches_capabilities()
 
 -- Build a synthetic failed binding returning the failure triple —
 -- `nil, err (string), errno (number)` — with a fixed errno number, so the
@@ -83,13 +78,11 @@ end
 local function test_probe_nil_binding_is_unavailable()
   check.equal(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
 end
-test_probe_nil_binding_is_unavailable()
 
 local function test_probe_success_is_available()
   check.equal(quicksand.probe(function(): any return true end), true,
     "a successful no-op call means the syscall is wired up")
 end
-test_probe_success_is_available()
 
 local function test_probe_enosys_is_unavailable()
   local enosys = errno.code_of("ENOSYS")
@@ -98,7 +91,6 @@ local function test_probe_enosys_is_unavailable()
       mk_fail("prctl: ENOSYS: Function not implemented", enosys)), false,
     "ENOSYS means the syscall is absent -> unavailable (the branch that was dead pre-fix)")
 end
-test_probe_enosys_is_unavailable()
 
 local function test_probe_policy_error_is_available()
   local eperm = errno.code_of("EPERM")
@@ -107,7 +99,6 @@ local function test_probe_policy_error_is_available()
       mk_fail("prctl: EPERM: Operation not permitted", eperm)), true,
     "a policy error (EPERM) still proves the syscall is wired up")
 end
-test_probe_policy_error_is_available()
 
 local function test_probe_string_only_failure_is_available()
   -- A failure that carries no numeric errno (third slot nil) cannot be
@@ -118,7 +109,6 @@ local function test_probe_string_only_failure_is_available()
       end), true,
     "an error string without a numeric errno is never classified as ENOSYS")
 end
-test_probe_string_only_failure_is_available()
 
 -- Re-verify against the real host: on Linux both pledge (seccomp) and,
 -- when the kernel advertises landlock, unveil are genuinely present, so the
@@ -140,7 +130,6 @@ local function test_real_pledge_unveil_probe()
   end
   check.enforced("quicksand pledge/unveil probe")
 end
-test_real_pledge_unveil_probe()
 
 local function test_capabilities_does_not_self_brick()
   -- capabilities() must never invoke the destructive
@@ -160,7 +149,6 @@ local function test_capabilities_does_not_self_brick()
   assert(f ~= nil, "capabilities() must not sandbox the calling process")
   if f then f:close() end
 end
-test_capabilities_does_not_self_brick()
 
 local function test_unveil_matches_landlock_on_linux()
   -- On Linux, cosmo implements unveil via Landlock, so the derived unveil
@@ -173,7 +161,6 @@ local function test_unveil_matches_landlock_on_linux()
   check.equal(c.unveil, c.landlock,
     "on Linux unveil is derived from landlock and must equal it")
 end
-test_unveil_matches_landlock_on_linux()
 
 local function test_new_and_merge_on_umbrella()
   -- quicksand.new/quicksand.merge are the constructor and composer;
@@ -183,4 +170,3 @@ local function test_new_and_merge_on_umbrella()
   local q = quicksand as {string: any} -- cast: record as map for introspection
   assert(q["Box"] == nil, "the Box VALUE re-export is gone (#989)")
 end
-test_new_and_merge_on_umbrella()

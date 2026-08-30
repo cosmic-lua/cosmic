@@ -7,14 +7,12 @@ local function test_module_exports()
   assert(type(Box.new) == "function")
   assert(type(Box.merge) == "function")
 end
-test_module_exports()
 
 local function test_new_empty()
   local j = check.must(Box.new(nil))
   assert(type(j.run) == "function")
   assert(type(j.close) == "function")
 end
-test_new_empty()
 
 local function test_new_with_opts()
   local j = check.must(Box.new({
@@ -28,7 +26,6 @@ local function test_new_with_opts()
   assert(j.opts.hostname == "work")
   assert(j.opts.cwd == "/tmp")
 end
-test_new_with_opts()
 
 -- Raw tables, so the cases can carry the deliberately malformed opts the
 -- declared BoxOptions forbids; check.refuses makes the call past that
@@ -54,7 +51,6 @@ local function test_new_rejects_bad_types()
       "expected error to mention '" .. c.want .. "', got: " .. err)
   end
 end
-test_new_rejects_bad_types()
 
 local function test_run_requires_argv()
   local j = check.must(Box.new())
@@ -65,7 +61,6 @@ local function test_run_requires_argv()
   assert(code == nil)
   assert(err2 and err2:find("argv", 1, true), "got: " .. tostring(err2))
 end
-test_run_requires_argv()
 
 local function test_run_on_non_linux_returns_specific_error()
   local c = quicksand.capabilities()
@@ -76,7 +71,6 @@ local function test_run_on_non_linux_returns_specific_error()
   assert(err and err:find("Linux only", 1, true),
     "expected 'Linux only' error, got: " .. tostring(err))
 end
-test_run_on_non_linux_returns_specific_error()
 
 local function test_run_on_linux_returns_clean_shape()
   -- On Linux, either preflight fails with a specific capability error,
@@ -94,7 +88,6 @@ local function test_run_on_linux_returns_clean_shape()
     assert(type(code) == "number", "got type: " .. type(code))
   end
 end
-test_run_on_linux_returns_clean_shape()
 
 local function test_run_after_close_fails()
   local j = check.must(Box.new())
@@ -103,14 +96,12 @@ local function test_run_after_close_fails()
   assert(code == nil)
   assert(err and err:find("closed", 1, true))
 end
-test_run_after_close_fails()
 
 local function test_close_idempotent()
   local j = check.must(Box.new())
   assert(j:close())
   assert(j:close(), "second close should be a no-op")
 end
-test_close_idempotent()
 
 local function test_merge_reexported()
   local a = {fs = {ro = {"/usr"}}}
@@ -120,7 +111,6 @@ local function test_merge_reexported()
   assert(#ro == 2 and ro[1] == "/usr" and ro[2] == "/etc")
   assert(out.fs.rw[1] == "/tmp")
 end
-test_merge_reexported()
 
 -- The decoy fs.deny knob is gone: the fs policy is an allowlist, so a
 -- deny list never did anything. Passing one must fail loudly at new()
@@ -134,4 +124,3 @@ local function test_fs_deny_rejected_at_new()
   assert(err2:find("deny", 1, true),
     "deny next to an allowlist is still rejected: " .. err2)
 end
-test_fs_deny_rejected_at_new()

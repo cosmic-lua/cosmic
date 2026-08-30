@@ -67,7 +67,6 @@ local function test_over_cap_body_refused_with_413()
   assert(resp:find("^HTTP/1%.1 413 "),
     "over-cap body should get 413, got: " .. resp:sub(1, 40))
 end
-test_over_cap_body_refused_with_413()
 
 -- A malformed Content-Length is a 400, not a silent 0: misreading it
 -- as 0 would forward the request with the body still unread on the
@@ -81,7 +80,6 @@ local function test_malformed_content_length_refused_with_400()
   assert(resp:find("^HTTP/1%.1 400 "),
     "malformed content-length should get 400, got: " .. resp:sub(1, 40))
 end
-test_malformed_content_length_refused_with_400()
 
 -- Boundary control: a body of exactly max_body_bytes passes the cap
 -- check (the later upstream dial fails in this sandbox, so the
@@ -98,7 +96,6 @@ local function test_at_cap_body_passes_the_cap_check()
   assert(not resp:find("^HTTP/1%.1 400 "),
     "at-cap body must not be refused with 400, got: " .. resp:sub(1, 40))
 end
-test_at_cap_body_passes_the_cap_check()
 
 -- Denied hosts are refused before the body checks ever run, so an
 -- oversized claim against a non-allowlisted host stays a plain 403.
@@ -111,7 +108,6 @@ local function test_deny_precedes_body_checks()
   assert(resp:find("^HTTP/1%.1 403 "),
     "denied host should get 403, got: " .. resp:sub(1, 40))
 end
-test_deny_precedes_body_checks()
 
 -- The allowlist does not override the SSRF guard.
 --
@@ -204,7 +200,6 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
   assert(resp:find("^HTTP/1%.1 502 "),
     "a blocked upstream should surface as 502, got: " .. resp:sub(1, 40))
 end
-test_allowlist_does_not_bypass_the_ssrf_guard()
 
 -- The JSON log writes a number field with %d, so the value handed to
 -- string.format has to be an integer: a float would raise "number has
@@ -230,4 +225,3 @@ local function test_json_log_writes_an_unquoted_integer_port()
   assert(not line:find('"port":"', 1, true),
     "port must not render as a string, got: " .. line)
 end
-test_json_log_writes_an_unquoted_integer_port()

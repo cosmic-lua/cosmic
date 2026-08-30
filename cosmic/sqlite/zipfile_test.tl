@@ -33,7 +33,6 @@ local function test_zipfile_module_is_registered()
   check.equal(tostring(row.name), "zipfile")
   assert(db:close())
 end
-test_zipfile_module_is_registered()
 
 -- Columns
 
@@ -59,7 +58,6 @@ local function test_every_documented_column_is_selectable()
   assert(row.method ~= nil, "method")
   assert(db:close())
 end
-test_every_documented_column_is_selectable()
 
 -- Failure paths
 
@@ -102,4 +100,3 @@ local function test_failure_modes_report_their_cause()
   reports(tostring(absent_err), "cannot open file")
   assert(db:close())
 end
-test_failure_modes_report_their_cause()

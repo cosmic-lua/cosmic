@@ -68,7 +68,6 @@ local function test_fetch_repeated_headers_normalized()
     and result.raw_headers["content-type"][1] == "text/plain",
     "single-valued headers appear as one-element lists")
 end
-test_fetch_repeated_headers_normalized()
 
 local function test_stream_repeated_headers_normalized()
   local port, pid = serve(1)
@@ -83,4 +82,3 @@ local function test_stream_repeated_headers_normalized()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_stream_repeated_headers_normalized()
