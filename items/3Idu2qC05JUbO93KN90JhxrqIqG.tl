@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 288,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "orchestrator-5-1788119236",
   ["title"] = "salvage cosmo.unix pledge/dup/gmtime/copy_file_range/opendir tests",
 }
