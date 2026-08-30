@@ -1,9 +1,9 @@
 return {
   ["builders"] = "wave16-c-1788048600 review-3IHwkB1z-1788049700-rev2",
-  ["claim"] = "review-3IHwkB1z-1788049700-rev2",
   ["id"] = "3IHwkB1zuL7q2qbWNsyftoz3sAY",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1538,
+  ["resolution"] = "not-planned",
   ["speccers"] = "6a2e9d71-e166-59f3-9fc2-389928bb6f3e",
   ["title"] = "PR bodies are HTML-sanitized in transit: tag-shaped text is deleted and quotes are entity-escaped, in code blocks too",
   ["verdict"] = "request changes",
