@@ -130,9 +130,9 @@ cosmic/hash_test.tl	169	type-defeating test probe
 cosmic/hash_test.tl	263	type-defeating test probe
 cosmic/hash_test.tl	302	type-defeating test probe
 cosmic/literal_example.tl	20	decoded data shaping
-cosmic/log_test.tl	111	type-defeating test probe
-cosmic/log_test.tl	123	type-defeating test probe
-cosmic/log_test.tl	176	type-defeating test probe
+cosmic/log_test.tl	103	type-defeating test probe
+cosmic/log_test.tl	114	type-defeating test probe
+cosmic/log_test.tl	163	type-defeating test probe
 cosmic/net/connect.tl	96	function shape
 cosmic/net/socket.tl	334	function shape
 cosmic/net/socket.tl	397	function shape
@@ -156,8 +156,8 @@ cosmic/quicksand/proxy.tl	144	function shape
 cosmic/quicksand/proxy.tl	146	function shape
 cosmic/quicksand/proxy/rules_test.tl	57	container variance
 cosmic/quicksand/proxy/rules_test.tl	131	type-defeating test probe
-cosmic/rand_test.tl	104	type-defeating test probe
-cosmic/rand_test.tl	184	container variance
+cosmic/rand_test.tl	95	type-defeating test probe
+cosmic/rand_test.tl	168	container variance
 cosmic/re.tl	200	proved-value narrowing
 cosmic/re.tl	287	binding contract shape
 cosmic/re.tl	333	binding contract shape
@@ -170,7 +170,7 @@ cosmic/sandbox/init_test.tl	110	container variance
 cosmic/sandbox/init_test.tl	119	type-defeating test probe
 cosmic/searcher.tl	98	proved-value narrowing
 cosmic/searcher.tl	324	proved-value narrowing
-cosmic/searcher_test.tl	59	dynamic name lookup
+cosmic/searcher_test.tl	58	dynamic name lookup
 cosmic/shape.tl	279	generic T
 cosmic/shm.tl	146	pcall return shape
 cosmic/shm.tl	171	pcall return shape

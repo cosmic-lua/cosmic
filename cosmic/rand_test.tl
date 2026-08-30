@@ -6,14 +6,12 @@ local function test_bytes_returns_requested_length()
   local b = rand.bytes(16)
   assert(#b == 16, "bytes(16) should return 16 bytes, got " .. #b)
 end
-test_bytes_returns_requested_length()
 
 local function test_bytes_different_each_call()
   local b1 = assert(rand.bytes(32))
   local b2 = assert(rand.bytes(32))
   assert(b1 ~= b2, "bytes should return different values each call")
 end
-test_bytes_different_each_call()
 
 local function test_bytes_various_sizes()
   for _, size in ipairs({1, 8, 16, 32, 64, 128}) do
@@ -21,7 +19,6 @@ local function test_bytes_various_sizes()
     assert(#b == size, "bytes(" .. size .. ") should return " .. size .. " bytes, got " .. #b)
   end
 end
-test_bytes_various_sizes()
 
 local function test_bytes_statistical_sanity()
   -- 4096 draws should touch nearly all 256 byte values: the chance a
@@ -41,7 +38,6 @@ local function test_bytes_statistical_sanity()
   assert(distinct >= 250,
     "4096 random bytes should cover >=250 distinct values, got " .. distinct)
 end
-test_bytes_statistical_sanity()
 
 -- Fast pseudo-random tests (non-cryptographic).
 
@@ -52,7 +48,6 @@ local function test_rand64()
   local n2 = rand.insecure64()
   assert(n ~= n2, "insecure64 should return different values each call")
 end
-test_rand64()
 
 -- Crypto-grade bounded integers
 
@@ -63,12 +58,10 @@ local function test_int_bounds()
     assert(math.type(n) == "integer", "int should return an integer")
   end
 end
-test_int_bounds()
 
 local function test_int_degenerate_range()
   assert(rand.int(5, 5) == 5, "int(5, 5) must return 5")
 end
-test_int_degenerate_range()
 
 local function test_int_distribution_smoke()
   -- Every value of a small range should appear in a modest sample
@@ -82,7 +75,6 @@ local function test_int_distribution_smoke()
     assert(seen[v], "int(0, 3) never produced " .. v .. " in 400 draws")
   end
 end
-test_int_distribution_smoke()
 
 local function test_int_wide_range()
   -- Multi-byte sampling path: range needs more than one random byte.
@@ -92,7 +84,6 @@ local function test_int_wide_range()
     assert(n >= lo and n <= hi, "int(0, 100000) out of bounds: " .. n)
   end
 end
-test_int_wide_range()
 
 local function test_int_invalid_args()
   -- Contract violations throw: a caller error is not a runtime
@@ -108,7 +99,6 @@ local function test_int_invalid_args()
   assert(not ok, "overflowing range must throw")
   assert(tostring(err):match("range"), "expected range error, got: " .. tostring(err))
 end
-test_int_invalid_args()
 
 -- float
 
@@ -119,14 +109,12 @@ local function test_float_range()
     assert(math.type(f) == "float", "float() should return a float")
   end
 end
-test_float_range()
 
 local function test_float_varies()
   local a = assert(rand.float())
   local b = assert(rand.float())
   assert(a ~= b, "two float() draws should differ")
 end
-test_float_varies()
 
 -- choice
 
@@ -137,7 +125,6 @@ local function test_choice_picks_member()
     assert(v == "a" or v == "b" or v == "c", "choice returned non-member: " .. tostring(v))
   end
 end
-test_choice_picks_member()
 
 local function test_choice_covers_all()
   local seen: {string: boolean} = {}
@@ -146,14 +133,12 @@ local function test_choice_covers_all()
   end
   assert(seen.x and seen.y and seen.z, "choice never produced some member in 200 draws")
 end
-test_choice_covers_all()
 
 local function test_choice_single_and_empty()
   assert(rand.choice({42}) == 42, "single-element choice must return it")
   local v = rand.choice({})
   assert(v == nil, "empty list yields nil, the one nil this module returns")
 end
-test_choice_single_and_empty()
 
 -- shuffle
 
@@ -170,7 +155,6 @@ local function test_shuffle_permutes()
     assert(seen[v], "shuffle lost element " .. v)
   end
 end
-test_shuffle_permutes()
 
 local function test_shuffle_actually_shuffles()
   -- With 20 elements, 30 identity shuffles in a row is impossible in
@@ -193,14 +177,12 @@ local function test_shuffle_actually_shuffles()
   end
   assert(moved, "shuffle never changed the order")
 end
-test_shuffle_actually_shuffles()
 
 local function test_shuffle_small()
   assert(#assert(rand.shuffle({})) == 0, "empty shuffle should be a no-op")
   local one = check.must(rand.shuffle({7}))
   assert(#one == 1 and one[1] == 7, "single-element shuffle should be a no-op")
 end
-test_shuffle_small()
 
 -- token
 
@@ -209,7 +191,6 @@ local function test_token_default()
   assert(#t == 32, "default token length should be 32, got " .. #t)
   assert(t:match("^[%w]+$"), "token must be alphanumeric, got: " .. t)
 end
-test_token_default()
 
 local function test_token_length_and_uniqueness()
   local t = assert(rand.token(8))
@@ -218,14 +199,12 @@ local function test_token_length_and_uniqueness()
   local b = assert(rand.token(24))
   assert(a ~= b, "two tokens should differ")
 end
-test_token_length_and_uniqueness()
 
 local function test_token_invalid_length()
   local ok, err = pcall(rand.token, 0)
   assert(not ok, "token(0) must throw")
   assert(tostring(err):match("positive"), "got: " .. tostring(err))
 end
-test_token_invalid_length()
 
 -- insecure_source
 
@@ -241,7 +220,6 @@ local function test_insecure_source_reproducible()
       "same-seed Sources must produce identical float() draws")
   end
 end
-test_insecure_source_reproducible()
 
 local function test_insecure_source_differs_by_seed()
   local a = rand.insecure_source(1)
@@ -255,7 +233,6 @@ local function test_insecure_source_differs_by_seed()
   end
   assert(differed, "different seeds should not produce an identical sequence")
 end
-test_insecure_source_differs_by_seed()
 
 local function test_insecure_source_independent_of_math_random()
   local a = rand.insecure_source(7)
@@ -278,7 +255,6 @@ local function test_insecure_source_independent_of_math_random()
       "Source draws must not depend on interleaved math.random() calls")
   end
 end
-test_insecure_source_independent_of_math_random()
 
 local function test_insecure_source_int_bounds()
   local src = rand.insecure_source(99)
@@ -288,7 +264,6 @@ local function test_insecure_source_int_bounds()
     assert(math.type(n) == "integer", "Source:int should return an integer")
   end
 end
-test_insecure_source_int_bounds()
 
 local function test_insecure_source_float_range()
   local src = rand.insecure_source(101)
@@ -298,4 +273,3 @@ local function test_insecure_source_float_range()
     assert(math.type(f) == "float", "Source:float() should return a float")
   end
 end
-test_insecure_source_float_range()

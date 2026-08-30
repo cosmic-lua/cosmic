@@ -21,7 +21,6 @@ local function test_poll_constants()
   assert(poll.POLLPRI ~= nil, "POLLPRI not defined")
   assert(poll.POLLRDHUP ~= nil, "POLLRDHUP not defined")
 end
-test_poll_constants()
 
 local function test_poller_new()
   local p = poll.new()
@@ -32,7 +31,6 @@ local function test_poller_new()
   assert(p.wait ~= nil, "wait method missing")
   assert(p:is_empty(), "new poller should be empty")
 end
-test_poller_new()
 
 local function test_poller_add_remove_raw_fd()
   local p = poll.new()
@@ -46,7 +44,6 @@ local function test_poller_add_remove_raw_fd()
   p:clear()
   assert(p:is_empty(), "poller should be empty after clear")
 end
-test_poller_add_remove_raw_fd()
 
 local function test_poll_pipe_readable()
   local pipe = check.must(cfd.pipe())
@@ -67,7 +64,6 @@ local function test_poll_pipe_readable()
 
   assert(pipe:close())
 end
-test_poll_pipe_readable()
 
 local function test_poll_pipe_writable()
   local pipe = check.must(cfd.pipe())
@@ -83,7 +79,6 @@ local function test_poll_pipe_writable()
 
   assert(pipe:close())
 end
-test_poll_pipe_writable()
 
 local function test_poll_multiple_fds()
   local pipe1 = check.must(cfd.pipe())
@@ -107,7 +102,6 @@ local function test_poll_multiple_fds()
   assert(pipe1:close())
   assert(pipe2:close())
 end
-test_poll_multiple_fds()
 
 local function test_poll_timeout()
   local pipe = check.must(cfd.pipe())
@@ -123,7 +117,6 @@ local function test_poll_timeout()
 
   assert(pipe:close())
 end
-test_poll_timeout()
 
 local function test_poll_with_socket()
   local sp = check.must(net.socket_pair())
@@ -145,7 +138,6 @@ local function test_poll_with_socket()
   assert(sock1:close())
   assert(sock2:close())
 end
-test_poll_with_socket()
 
 local function test_poll_with_child_pipes()
   -- Redirect the child's stdout into a pipe we own, then poll the read end.
@@ -165,7 +157,6 @@ local function test_poll_with_child_pipes()
   assert(pp.reader:close())
   assert(h:wait())
 end
-test_poll_with_child_pipes()
 
 local function test_poll_nonblocking()
   local pipe = check.must(cfd.pipe())
@@ -180,7 +171,6 @@ local function test_poll_nonblocking()
 
   assert(pipe:close())
 end
-test_poll_nonblocking()
 
 local function test_poll_hangup()
   local pipe = check.must(cfd.pipe())
@@ -198,7 +188,6 @@ local function test_poll_hangup()
 
   assert(pipe.reader:close())
 end
-test_poll_hangup()
 
 -- Error fidelity: add(nil)/add(-1) return false + err instead of
 -- silently doing nothing, and wait() surfaces a hard poll error in
@@ -215,7 +204,6 @@ local function test_add_bad_fd_errors()
   assert(err2 and err2:find("-1", 1, true), "error names the fd: " .. tostring(err2))
   assert(p:is_empty(), "failed adds register nothing")
 end
-test_add_bad_fd_errors()
 
 local function test_wait_surfaces_hard_error()
   -- Provoke a real poll failure: more fds than RLIMIT_NOFILE is EINVAL.
@@ -230,6 +218,5 @@ local function test_wait_surfaces_hard_error()
   end
   assert(perr:match("E%u+"), "wait error should name the errno, got: " .. perr)
 end
-test_wait_surfaces_hard_error()
 
 print("all poll tests passed")

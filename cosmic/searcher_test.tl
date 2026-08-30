@@ -42,7 +42,6 @@ local function test_resolves_and_loads_a_tl_module()
   assert(mod is {string: integer}, "the module must come back as its own table")
   assert(mod.answer == 42, "the module's own value must come back")
 end
-test_resolves_and_loads_a_tl_module()
 
 -- A miss returns a STRING, which is what package.searchers expects of a
 -- searcher that declines: require() then reports its own "module not
@@ -64,7 +63,6 @@ local function test_a_miss_declines_rather_than_throws()
   end
   assert(found, "the installed .tl searcher must decline with its message")
 end
-test_a_miss_declines_rather_than_throws()
 
 -- Loud failures are the point of owning the searcher: tl's own
 -- loader ran tl.check and generated code without ever looking at the
@@ -77,7 +75,6 @@ local function test_a_compile_error_fails_the_require()
   assert(tostring(err):find(name, 1, true),
     "the failure must name the module, got: " .. tostring(err))
 end
-test_a_compile_error_fails_the_require()
 
 -- install() is idempotent: the embed wrapper installs it before an app
 -- entry that may itself be the dispatcher, which installs it too.
@@ -89,7 +86,6 @@ local function test_install_is_idempotent()
   assert(after <= before + 1,
     "install() must add at most one searcher, went " .. before .. " -> " .. after)
 end
-test_install_is_idempotent()
 
 --- Ask the searcher at `seat` about a module, the way require does.
 --- @param seat integer Index into package.searchers
@@ -137,7 +133,6 @@ local function test_the_zip_searcher_loads_a_carried_module()
   assert(path == "/zip/cosmic/json.lua",
     "and to its /zip path, got: " .. tostring(path))
 end
-test_the_zip_searcher_loads_a_carried_module()
 
 -- It sits AHEAD of the default file searcher, or it would resolve
 -- nothing the binary already carries -- the whole point of the seat.
@@ -150,7 +145,6 @@ local function test_the_zip_searcher_outranks_the_file_searcher()
     "the /zip searcher must sit ahead of it, got " ..
     zip_seat() .. " vs " .. file_seat)
 end
-test_the_zip_searcher_outranks_the_file_searcher()
 
 -- install_zip() de-duplicates the zip templates: the embed wrapper and
 -- the dispatcher each prepend the pair, and a wrapped artifact runs
@@ -167,7 +161,6 @@ local function test_the_zip_templates_appear_once_on_the_path()
       template .. " must appear exactly once on package.path, saw " .. seen)
   end
 end
-test_the_zip_templates_appear_once_on_the_path()
 
 -- install_zip() is idempotent for the same reason install() is: the
 -- wrapper installs it before an entry that may install it again.
@@ -179,7 +172,6 @@ local function test_install_zip_is_idempotent()
     "install_zip() must not add a second searcher, went " ..
     before .. " -> " .. #package.searchers)
 end
-test_install_zip_is_idempotent()
 
 local env = require("cosmic.env")
 assert(env.unset("TL_PATH"))

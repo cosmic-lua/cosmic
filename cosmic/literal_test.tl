@@ -38,7 +38,6 @@ local function test_escapes_decode()
   assert(read([[return { s = "\u{263A}" }]]).s == "\u{263A}", "unicode escape")
   assert(read("return { s = 'sq\\ngl' }").s == "sq\ngl", "single quotes too")
 end
-test_escapes_decode()
 
 -- Every escape above sits at the END of its string, which is the one
 -- position where a wrong resume index is invisible: overshooting past
@@ -58,7 +57,6 @@ local function test_escapes_resume_at_the_right_index()
   -- A bracketed key runs the same decoder, so it needs the same pin.
   assert(read([[return { ["\u{41}k"] = "v" }]]).Ak == "v", "\\u{} in a key")
 end
-test_escapes_resume_at_the_right_index()
 
 -- `\z` skips the whitespace that follows it, NEWLINES included — that
 -- is what the escape is for, and `load` accepts it — while a raw
@@ -76,7 +74,6 @@ local function test_z_escape_crosses_newlines()
   assert(err:find(":3:", 1, true),
     "the line count crosses the spanned string, got: " .. err)
 end
-test_z_escape_crosses_newlines()
 
 -- The lexer is this module's own rather than tl's, so a config reader
 -- does not depend on the Teal compiler (see the module header). These
@@ -98,7 +95,6 @@ local function test_lexing()
   assert(refused("return { end = 1 }"):find("<literal>", 1, true),
     "a keyword is not an identifier")
 end
-test_lexing()
 
 -- Input that cannot be finished has no next token to complain about, so
 -- the lexer refuses it itself -- with the line, like every other refusal.
@@ -110,7 +106,6 @@ local function test_unfinishable_input_is_refused()
   assert(refused("--[[ oops\nreturn { a = 1 }"):find("unterminated long comment", 1, true),
     "unterminated long comment")
 end
-test_unfinishable_input_is_refused()
 
 -- Input that ends mid-table reports where the input ran out, in the
 -- end-of-input wording — the lexer's sentinel spelling is internal and
@@ -127,7 +122,6 @@ local function test_truncated_tables_report_the_end_of_input()
       "the sentinel spelling leaked for: " .. src)
   end
 end
-test_truncated_tables_report_the_end_of_input()
 
 -- Long brackets take no escapes and drop one leading newline, and the
 -- delimiter is as many `=` as were written -- so stripping a fixed one
@@ -140,7 +134,6 @@ local function test_long_brackets()
   assert(read([==[return { s = [[a\nb]] }]==]).s == "a\\nb",
     "a long bracket is literal: no escape decoding")
 end
-test_long_brackets()
 
 -- A bracketed key is a string token like any other, so it decodes the
 -- same way.
@@ -149,7 +142,6 @@ local function test_bracketed_keys()
   assert(t["a\tb"] == "v", "an escaped key decodes")
   assert(t["a\\tb"] == nil, "and not to its raw bytes")
 end
-test_bracketed_keys()
 
 -- The lexer emits `-` as its own token, so a negative number arrives
 -- as two tokens and is easy to mistake for an operator. Nothing about
@@ -159,7 +151,6 @@ local function test_negative_numbers()
   assert(read("return { n = -1.5 }").n == -1.5, "negative float")
   assert(read("return { n = 2 }").n == 2, "positive still works")
 end
-test_negative_numbers()
 
 -- Depth is stack depth in a recursive-descent parser, so without a cap
 -- a crafted literal THROWS `stack overflow` out of a library that
@@ -183,7 +174,6 @@ local function test_deep_nesting_is_refused_not_thrown()
   assert(c is {string: any}, "level 4 is a table")
   assert(c.d == 1, "4 levels still read")
 end
-test_deep_nesting_is_refused_not_thrown()
 
 -- Nesting was the first way a crafted file could throw out of this
 -- module; these are the other two, and they are the same bug wearing
@@ -217,7 +207,6 @@ local function test_a_crafted_value_is_refused_not_thrown()
   assert(read("return { x = -1, y = 2.5, z = 0x10 }").z == 16,
     "ordinary numbers still read")
 end
-test_a_crafted_value_is_refused_not_thrown()
 
 -- The grammar itself: a file read this way cannot do anything.
 local function test_a_literal_cannot_be_code()
@@ -230,7 +219,6 @@ local function test_a_literal_cannot_be_code()
   assert(refused("return 42"):find("table literal", 1, true),
     "a non-table return is refused")
 end
-test_a_literal_cannot_be_code()
 
 -- format is the writer half: parse(format(v)) is identity on
 -- the literal domain, and format's output IS a literal file — prefix,
@@ -251,7 +239,6 @@ local function test_format_round_trips_the_literal_domain()
   assert(nested is {string: any}, "the nested table survives the round trip")
   assert(nested.x == 1.5 and nested.y == "two", "nesting survives the round trip")
 end
-test_format_round_trips_the_literal_domain()
 
 -- The layout is not an accident of some encoder: it is the contract.
 -- One sorted, bracketed entry per line, two spaces per nesting depth,
@@ -275,7 +262,6 @@ local function test_format_writes_the_layout_it_promises()
   assert(src == want, "rendered:\n" .. src)
   assert(literal.format({}) == "return {}\n", "an empty table is `return {}`")
 end
-test_format_writes_the_layout_it_promises()
 
 -- Exact bytes are one half; the other is that those bytes read back as
 -- the same value, which is the property the pair exists for.
@@ -291,7 +277,6 @@ local function test_format_round_trips_a_nested_fixture()
   assert(inner is {string: any}, "the tab-keyed entry is a table")
   assert(inner.inner == "x", "the nested table survives")
 end
-test_format_round_trips_a_nested_fixture()
 
 -- A flat nested table (every value a scalar) renders on one line, the
 -- same shape a committed floor's rows need for `merge=union` to merge
@@ -311,7 +296,6 @@ local function test_a_flat_nested_table_renders_inline()
   assert(row is {string: any}, "the inline row is a table")
   assert(row.covered == 1 and row.total == 2, "the inline row survives parsing")
 end
-test_a_flat_nested_table_renders_inline()
 
 -- The empty table's inline spelling, `{},`, also round-trips.
 local function test_an_empty_nested_table_renders_inline_and_round_trips()
@@ -322,7 +306,6 @@ local function test_an_empty_nested_table_renders_inline_and_round_trips()
   assert(row is {string: any}, "the empty inline row is a table")
   assert(next(row) == nil, "the empty row survives parsing")
 end
-test_an_empty_nested_table_renders_inline_and_round_trips()
 
 -- A nested table that itself contains a table keeps the multi-line
 -- layout -- inlining is for flat (all-scalar) tables only.
@@ -335,7 +318,6 @@ local function test_a_doubly_nested_table_stays_multi_line()
   '}\n'
   assert(src == want, "rendered:\n" .. src)
 end
-test_a_doubly_nested_table_stays_multi_line()
 
 -- format refuses exactly what parse would refuse, and says which key
 -- path it choked on -- so a caller fixes the value rather than reading
@@ -360,7 +342,6 @@ local function test_format_refuses_what_parse_would_refuse()
   assert(top and top:find("not a literal table", 1, true),
     "a non-table top value is refused: " .. tostring(top))
 end
-test_format_refuses_what_parse_would_refuse()
 
 -- Depth is a cap on both halves or neither: format must stop where
 -- parse stops, or it writes a file the reader refuses.
@@ -378,7 +359,6 @@ local function test_format_refuses_nesting_past_the_cap()
   assert(err and err:find("nests deeper", 1, true),
     "named by reason, got: " .. tostring(err))
 end
-test_format_refuses_nesting_past_the_cap()
 
 local function test_format_file_round_trips_through_parse_file()
   local fs = require("cosmic.fs")
@@ -391,7 +371,6 @@ local function test_format_file_round_trips_through_parse_file()
   assert(got.url == "https://example.com" and got.n == 3,
     "format_file writes what parse_file reads")
 end
-test_format_file_round_trips_through_parse_file()
 
 -- A repeated key is invisible in a pin (a typo silently keeping the last
 -- value) and unsafe in a committed floor, where a union merge produces
@@ -404,7 +383,6 @@ local function test_duplicate_key_refused_by_default()
   assert(err:find("t:3:", 1, true), "names the repeating line, got: " .. err)
   assert(err:find("first at line 2", 1, true), "names the first line, got: " .. err)
 end
-test_duplicate_key_refused_by_default()
 
 -- The two key spellings are the same key: `a =` and `["a"] =` must be
 -- caught as one duplicate, not read as two different entries.
@@ -416,7 +394,6 @@ local function test_duplicate_key_across_spellings()
   assert(err:find("first at line 2", 1, true),
     "names the identifier line, got: " .. err)
 end
-test_duplicate_key_across_spellings()
 
 -- The check runs at every depth, not just the root table.
 local function test_duplicate_key_inside_a_nested_table()
@@ -425,7 +402,6 @@ local function test_duplicate_key_inside_a_nested_table()
     "names the key, got: " .. err)
   assert(err:find("first at line 3", 1, true), "names the first line, got: " .. err)
 end
-test_duplicate_key_inside_a_nested_table()
 
 -- `seen` is per table: the same key in two DIFFERENT nested tables is
 -- not a duplicate, because a union merge across independent floors is
@@ -439,7 +415,6 @@ local function test_same_key_in_different_nested_tables_is_not_a_duplicate()
     assert(false, "x and y must both read as tables")
   end
 end
-test_same_key_in_different_nested_tables_is_not_a_duplicate()
 
 -- The opt-in resolver: when set, a repeated key is never refused, and
 -- whatever it returns is stored as-is -- including nil.
@@ -458,7 +433,6 @@ local function test_on_duplicate_resolves_instead_of_refusing()
   assert(seen[1] == 1 and seen[2] == 2,
     "the resolver saw the first and second values")
 end
-test_on_duplicate_resolves_instead_of_refusing()
 
 -- `string.format("%q", ...)` zero-pads a numeric escape to three digits
 -- when a digit follows it, so byte 11 is written `\011`. Decoding those
@@ -479,7 +453,6 @@ local function test_every_byte_round_trips_before_a_digit()
   assert(#broken == 0,
     "bytes that changed across the round trip: " .. table.concat(broken, ","))
 end
-test_every_byte_round_trips_before_a_digit()
 
 -- The zero-padded form specifically, written as this file writes every
 -- other escape test: the expected value is the same escape spelled in
@@ -490,6 +463,5 @@ local function test_zero_padded_decimal_escape_is_decimal()
   assert(read([[return { s = "\011" }]]).s == "\11", "padded decimal escape")
   assert(read([[return { s = "\0110" }]]).s == "\11" .. "0", "padded, then a digit")
 end
-test_zero_padded_decimal_escape_is_decimal()
 
 print("all literal tests passed")

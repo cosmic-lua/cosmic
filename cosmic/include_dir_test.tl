@@ -46,7 +46,6 @@ print(s)
   assert(ok, "compile with --include-dir should succeed: " .. tostring(out))
   assert(out:find("local custommod"), "output should contain compiled Lua")
 end
-test_compile_include_dir()
 
 -- Test --include-dir with --check types
 local function test_check_types_include_dir()
@@ -70,7 +69,6 @@ print(s)
   local ok_with, out = __r3.ok, __r3.stdout
   assert(ok_with, "check with --include-dir should succeed: " .. tostring(out))
 end
-test_check_types_include_dir()
 
 -- Test multiple --include-dir flags
 local function test_multiple_include_dirs()
@@ -108,7 +106,6 @@ print(mod_a.hello() .. mod_b.world())
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "check with multiple --include-dir should succeed: " .. tostring(out))
 end
-test_multiple_include_dirs()
 
 -- Test --include-dir combined with --write-if-changed and --output
 local function test_compile_include_dir_with_output()
@@ -135,7 +132,6 @@ print(custommod.greet("test"))
   f:close()
   assert(content:find("local custommod"), "output should contain compiled Lua")
 end
-test_compile_include_dir_with_output()
 
 -- Test that --include-dir merges with default include dirs
 local function test_include_dir_merges_with_defaults()
@@ -155,6 +151,5 @@ print(s, p)
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "check with --include-dir should still find built-in types: " .. tostring(out))
 end
-test_include_dir_merges_with_defaults()
 
 print("All include-dir tests passed!")

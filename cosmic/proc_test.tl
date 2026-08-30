@@ -14,14 +14,12 @@ local function test_getpid_returns_number()
   assert(type(pid) == "number", "expected number, got " .. type(pid))
   assert(pid > 0, "expected positive pid, got " .. tostring(pid))
 end
-test_getpid_returns_number()
 
 local function test_getpid_is_consistent()
   local pid1 = proc.getpid()
   local pid2 = proc.getpid()
   assert(pid1 == pid2, "expected consistent pid, got " .. tostring(pid1) .. " and " .. tostring(pid2))
 end
-test_getpid_is_consistent()
 
 -- getppid tests --
 
@@ -30,14 +28,12 @@ local function test_getppid_returns_number()
   assert(type(ppid) == "number", "expected number, got " .. type(ppid))
   assert(ppid > 0, "expected positive ppid, got " .. tostring(ppid))
 end
-test_getppid_returns_number()
 
 local function test_getppid_different_from_pid()
   local pid = proc.getpid()
   local ppid = proc.getppid()
   assert(pid ~= ppid, "expected pid and ppid to be different")
 end
-test_getppid_different_from_pid()
 
 -- which tests --
 
@@ -45,13 +41,11 @@ local function test_which_finds_ls()
   local path_to_ls = check.must(proc.which("ls"), "expected to find 'ls' command")
   assert(path_to_ls:find("/", 1, true), "expected absolute path, got " .. tostring(path_to_ls))
 end
-test_which_finds_ls()
 
 local function test_commandv_returns_nil_for_nonexistent()
   local result = proc.which("nonexistent_command_xyz_12345")
   assert(result == nil, "expected nil for nonexistent command, got " .. tostring(result))
 end
-test_commandv_returns_nil_for_nonexistent()
 
 -- getpgrp / getpgid tests --
 
@@ -60,14 +54,12 @@ local function test_getpgrp_returns_number()
   assert(type(pgrp) == "number", "expected number, got " .. type(pgrp))
   assert(pgrp > 0, "expected positive pgrp, got " .. tostring(pgrp))
 end
-test_getpgrp_returns_number()
 
 local function test_getpgid_for_self()
   local pgid = proc.getpgid(proc.getpid())
   local pgrp = proc.getpgrp()
   assert(pgid == pgrp, "expected getpgid(getpid()) == getpgrp(), got " .. tostring(pgid) .. " vs " .. tostring(pgrp))
 end
-test_getpgid_for_self()
 
 -- getsid test --
 
@@ -76,7 +68,6 @@ local function test_getsid_returns_number()
   assert(type(sid) == "number", "expected number, got " .. type(sid))
   assert(sid > 0, "expected positive sid, got " .. tostring(sid))
 end
-test_getsid_returns_number()
 
 -- getrusage tests --
 
@@ -86,7 +77,6 @@ local function test_getrusage_returns_rusage()
   assert(type(utime_sec) == "number", "expected utime seconds to be number")
   assert(type(utime_nsec) == "number", "expected utime nanos to be number")
 end
-test_getrusage_returns_rusage()
 
 local function test_getrusage_maxrss()
   local rusage = check.must(proc.getrusage(proc.RUSAGE_SELF))
@@ -94,7 +84,6 @@ local function test_getrusage_maxrss()
   assert(type(maxrss) == "number", "expected maxrss to be number")
   assert(maxrss >= 0, "expected non-negative maxrss")
 end
-test_getrusage_maxrss()
 
 -- is_main tests --
 
@@ -102,7 +91,6 @@ local function test_is_main_returns_boolean()
   local result = proc.is_main()
   assert(type(result) == "boolean", "expected boolean, got " .. type(result))
 end
-test_is_main_returns_boolean()
 
 local function test_is_main_true_when_run_directly()
   local script_path = fs.join(TEST_TMPDIR, "is_main_direct.lua")
@@ -119,7 +107,6 @@ end
   local exit_code = r.code
   assert(exit_code == 0, "expected is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
 end
-test_is_main_true_when_run_directly()
 
 local function test_proc_is_main_true_when_run_directly()
   local script_path = fs.join(TEST_TMPDIR, "proc_is_main_direct.lua")
@@ -136,7 +123,6 @@ end
   local exit_code = r.code
   assert(exit_code == 0, "expected proc.is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
 end
-test_proc_is_main_true_when_run_directly()
 
 local function test_is_main_false_when_required()
   local mod_path = fs.join(TEST_TMPDIR, "is_main_module.lua")
@@ -160,7 +146,6 @@ end
   local exit_code = r.code
   assert(exit_code == 0, "expected is_main to return false when script is required, got exit code " .. tostring(exit_code))
 end
-test_is_main_false_when_required()
 
 -- Constants tests --
 
@@ -170,7 +155,6 @@ local function test_rusage_constants_defined()
   assert(type(proc.RUSAGE_THREAD) == "number", "RUSAGE_THREAD should be a number")
   assert(type(proc.RUSAGE_BOTH) == "number", "RUSAGE_BOTH should be a number")
 end
-test_rusage_constants_defined()
 
 -- Resource limit tests --
 
@@ -182,14 +166,12 @@ local function test_rlimit_constants_defined()
   assert(type(proc.RLIMIT_NPROC) == "number", "RLIMIT_NPROC should be a number")
   assert(type(proc.RLIMIT_RSS) == "number", "RLIMIT_RSS should be a number")
 end
-test_rlimit_constants_defined()
 
 local function test_getrlimit_returns_numbers()
   local rl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
   assert(type(rl.soft) == "number", "soft should be a number, got " .. type(rl.soft))
   assert(type(rl.hard) == "number", "hard should be a number, got " .. type(rl.hard))
 end
-test_getrlimit_returns_numbers()
 
 local function test_getrlimit_soft_le_hard()
   local rl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
@@ -197,7 +179,6 @@ local function test_getrlimit_soft_le_hard()
   assert(rl.hard > 0, "hard limit should be positive")
   assert(rl.soft <= rl.hard, "soft limit should not exceed hard limit")
 end
-test_getrlimit_soft_le_hard()
 
 local function test_setrlimit()
   local rl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
@@ -210,7 +191,6 @@ local function test_setrlimit()
     assert(proc.setrlimit(proc.RLIMIT_NOFILE, rl.soft, rl.hard))
   end
 end
-test_setrlimit()
 
 -- Priority tests --
 
@@ -219,20 +199,17 @@ local function test_priority_constants_defined()
   assert(type(proc.PRIO_PGRP) == "number", "PRIO_PGRP should be a number")
   assert(type(proc.PRIO_USER) == "number", "PRIO_USER should be a number")
 end
-test_priority_constants_defined()
 
 local function test_getpriority_returns_number()
   local prio = proc.getpriority(proc.PRIO_PROCESS, 0)
   assert(type(prio) == "number", "getpriority should return number, got " .. type(prio))
 end
-test_getpriority_returns_number()
 
 local function test_getpriority_range()
   local prio = proc.getpriority(proc.PRIO_PROCESS, 0)
   assert(prio >= -20, "priority should be >= -20, got " .. tostring(prio))
   assert(prio <= 19, "priority should be <= 19, got " .. tostring(prio))
 end
-test_getpriority_range()
 
 local function test_nice()
   local before = proc.getpriority(proc.PRIO_PROCESS, 0)
@@ -240,7 +217,6 @@ local function test_nice()
   assert(type(after) == "number", "nice should return number")
   assert(after == before, "nice(0) should not change priority")
 end
-test_nice()
 
 local function test_setpriority()
   local current = proc.getpriority(proc.PRIO_PROCESS, 0)
@@ -248,7 +224,6 @@ local function test_setpriority()
   assert(type(ok) == "boolean", "setpriority should return boolean")
   assert(ok == true, "setpriority to current value should succeed: " .. tostring(err))
 end
-test_setpriority()
 
 -- Scheduling tests --
 
@@ -256,7 +231,6 @@ local function test_sched_yield()
   -- sched_yield should complete without error; if it throws, the test fails
   proc.sched_yield()
 end
-test_sched_yield()
 
 -- Process control (children) --
 -- These low-level fork/wait/kill/W* passthroughs moved here from cosmic.child,
@@ -277,7 +251,6 @@ local function test_fork_and_wait()
       "expected exit code 42, got " .. tostring(proc.WEXITSTATUS(wr.status)))
   end
 end
-test_fork_and_wait()
 
 local function test_fork_success_has_no_error()
   local pid, err = proc.fork()
@@ -288,7 +261,6 @@ local function test_fork_success_has_no_error()
   assert(err == nil, "successful fork should have no error, got: " .. tostring(err))
   assert(proc.wait(live_pid))
 end
-test_fork_success_has_no_error()
 
 local function test_fork_child_has_different_pid()
   local parent_pid = proc.getpid()
@@ -312,7 +284,6 @@ local function test_fork_child_has_different_pid()
     assert(child_pid == pid, "expected child pid " .. tostring(pid) .. ", got " .. tostring(child_pid))
   end
 end
-test_fork_child_has_different_pid()
 
 local function test_wexitstatus_values()
   for _, expected_code in ipairs({0, 1, 42, 127, 255}) do
@@ -327,7 +298,6 @@ local function test_wexitstatus_values()
     end
   end
 end
-test_wexitstatus_values()
 
 local function test_wifsignaled_on_kill()
   local pid = check.must(proc.fork())
@@ -342,7 +312,6 @@ local function test_wifsignaled_on_kill()
       "expected SIGKILL (" .. tostring(signal.SIGKILL) .. "), got " .. tostring(proc.WTERMSIG(status)))
   end
 end
-test_wifsignaled_on_kill()
 
 local function test_wnohang_returns_zero_for_running_process()
   local pid = check.must(proc.fork())
@@ -357,7 +326,6 @@ local function test_wnohang_returns_zero_for_running_process()
     end
   end
 end
-test_wnohang_returns_zero_for_running_process()
 
 local function test_wait_option_constants_defined()
   assert(type(proc.WNOHANG) == "number", "WNOHANG should be a number")
@@ -365,7 +333,6 @@ local function test_wait_option_constants_defined()
   assert(proc.WCONTINUED == nil or type(proc.WCONTINUED) == "number",
     "WCONTINUED should be a number or nil")
 end
-test_wait_option_constants_defined()
 
 -- Error fidelity: failed session/group/priority/rlimit/exec
 -- calls must surface the binding's errno string, not truncate it.
@@ -377,7 +344,6 @@ local function test_setpgid_error_names_errno()
   assert(type(err) == "string" and err:match("E%u+"),
     "setpgid error should name the errno, got: " .. tostring(err))
 end
-test_setpgid_error_names_errno()
 
 local function test_getsid_error_names_errno()
   local sid, err = proc.getsid(999999999)
@@ -385,7 +351,6 @@ local function test_getsid_error_names_errno()
   assert(type(err) == "string" and err:match("ESRCH"),
     "getsid error should name ESRCH, got: " .. tostring(err))
 end
-test_getsid_error_names_errno()
 
 local function test_getpriority_error_names_errno()
   local prio, err = proc.getpriority(999999, 0)
@@ -393,7 +358,6 @@ local function test_getpriority_error_names_errno()
   assert(type(err) == "string" and err:match("EINVAL"),
     "getpriority error should name EINVAL, got: " .. tostring(err))
 end
-test_getpriority_error_names_errno()
 
 local function test_getrlimit_error_names_errno()
   local rl, err = proc.getrlimit(999999)
@@ -401,7 +365,6 @@ local function test_getrlimit_error_names_errno()
   assert(type(err) == "string" and err:match("EINVAL"),
     "getrlimit error should name EINVAL, got: " .. tostring(err))
 end
-test_getrlimit_error_names_errno()
 
 local function test_execve_error_names_errno()
   local _, err = proc.execve("/nonexistent/binary/xyz", {"/nonexistent/binary/xyz"}, {})
@@ -410,7 +373,6 @@ local function test_execve_error_names_errno()
   assert(err:match("/nonexistent/binary/xyz"),
     "execve error should name the program, got: " .. tostring(err))
 end
-test_execve_error_names_errno()
 
 -- interpreter tests --
 
@@ -420,7 +382,6 @@ local function test_interpreter_resolves_running_binary()
   assert(fs.is_file(exe), "interpreter path should name a real file, got: " .. exe)
   assert(exe ~= "/zip/main.lua", "interpreter must not be the embedded script path")
 end
-test_interpreter_resolves_running_binary()
 
 local function test_interpreter_is_cached_and_spawnable()
   local exe = check.must(proc.interpreter())
@@ -431,4 +392,3 @@ local function test_interpreter_is_cached_and_spawnable()
   assert(tostring(out):find("from child", 1, true),
     "spawned interpreter should run code, got: " .. tostring(out))
 end
-test_interpreter_is_cached_and_spawnable()
