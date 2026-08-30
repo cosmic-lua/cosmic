@@ -17,6 +17,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
+local clean = require("_make.clean")
 
 local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -147,8 +148,41 @@ local function test_clean_keeps_a_git_worktree()
     "the worktree survives: " .. r.out)
   assert(r.out:find("kept board (git worktree)", 1, true),
     "and clean says so: " .. r.out)
+  -- The summary detail must name what was ACTUALLY kept: a worktree
+  -- only, not the bootstrap it never mentions, so a reader is not told
+  -- "kept the verified bootstrap" for a tree that never had one.
+  assert(r.out:find("kept 1 git worktree", 1, true),
+    "and names the worktree: " .. r.out)
+  assert(not r.out:find("bootstrap", 1, true),
+    "and does not claim a bootstrap it never kept: " .. r.out)
   assert(not fs.is_present(fs.join(root, "o/bin")),
     "everything else still goes: " .. r.out)
+end
+
+-- kept_detail is pure and in-process: direct assertions over every
+-- branch rather than another subprocess round-trip through `make`.
+local function test_kept_detail_names_nothing_when_nothing_kept()
+  assert(clean.kept_detail(false, 0) == "", "got: " .. clean.kept_detail(false, 0))
+end
+
+local function test_kept_detail_names_the_bootstrap_alone()
+  assert(clean.kept_detail(true, 0) == "the verified bootstrap",
+    "got: " .. clean.kept_detail(true, 0))
+end
+
+local function test_kept_detail_names_one_worktree_singular()
+  assert(clean.kept_detail(false, 1) == "1 git worktree",
+    "got: " .. clean.kept_detail(false, 1))
+end
+
+local function test_kept_detail_names_many_worktrees_plural()
+  assert(clean.kept_detail(false, 3) == "3 git worktrees",
+    "got: " .. clean.kept_detail(false, 3))
+end
+
+local function test_kept_detail_joins_bootstrap_and_worktrees()
+  assert(clean.kept_detail(true, 2) == "the verified bootstrap and 2 git worktrees",
+    "got: " .. clean.kept_detail(true, 2))
 end
 
 print("all clean tests passed")
