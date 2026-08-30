@@ -4,6 +4,7 @@ return {
   ["id"] = "3IcKa63cZzO9ZXwy7CGOCW5Kmwi",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1562,
+  ["reviewer"] = "review-OCW5Kmwi-1788063938",
   ["speccers"] = "orchestrator-w18 ca143d92-7e34-569b-b008-1f69817ffff5",
   ["title"] = "cosmic/fs/glob_test.tl brackets its cases with a top-level fixture, so runner mode tears it down before any case runs",
 }
