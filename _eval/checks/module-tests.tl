@@ -43,19 +43,19 @@ local function check(workspace: string): integer, {string}
   end
 
   local res, err = support.run(workspace, BIN, {"Hello, World!"})
-  if support.expect_exit(acc, "slug 'Hello, World!'", res, err, true) then
+  if support.expect_exit(acc, "slug 'Hello, World!'", res, err, true) and res then
     support.expect_stdout(acc, "slug 'Hello, World!'", res, "hello-world\n")
   end
 
   res, err = support.run(workspace, BIN, {"  --Multi--  Space__Test  "})
-  if support.expect_exit(acc, "slug multi-space", res, err, true) then
+  if support.expect_exit(acc, "slug multi-space", res, err, true) and res then
     support.expect_stdout(acc, "slug multi-space", res, "multi-space-test\n")
   end
 
   -- All-punctuation input has no letters/digits, so the slug (and the
   -- printed line) is empty.
   res, err = support.run(workspace, BIN, {"!!!"})
-  if support.expect_exit(acc, "slug '!!!'", res, err, true) then
+  if support.expect_exit(acc, "slug '!!!'", res, err, true) and res then
     support.expect_stdout(acc, "slug '!!!'", res, "\n")
   end
 

@@ -39,14 +39,14 @@ local function check(workspace: string): integer, {string}
   support.expect_source_contains(acc, workspace, ".apply(")
 
   local res, err = support.run(workspace, BIN, {"caps"})
-  if support.expect_exit(acc, "copybox caps", res, err, true) then
+  if support.expect_exit(acc, "copybox caps", res, err, true) and res then
     support.expect_stdout(acc, "copybox caps", res, "fs=true\n")
   end
 
   -- Denied mode first: the denial must be enforced, not simulated --
   -- the destination file must not exist afterward.
   res, err = support.run(workspace, BIN, {"--deny-write", "testdata/in.txt", "o/denied"})
-  if support.expect_exit(acc, "copybox --deny-write", res, err, false) then
+  if support.expect_exit(acc, "copybox --deny-write", res, err, false) and res then
     support.expect_stdout_starts_with(acc, "copybox --deny-write", res,
       "denied: write to o/denied")
     support.expect_stdout_contains(acc, "copybox --deny-write", res, "fs.rw")
@@ -58,7 +58,7 @@ local function check(workspace: string): integer, {string}
 
   -- Granted mode, in a separate process (application is irreversible).
   res, err = support.run(workspace, BIN, {"testdata/in.txt", "o/out"})
-  if support.expect_exit(acc, "copybox testdata/in.txt o/out", res, err, true) then
+  if support.expect_exit(acc, "copybox testdata/in.txt o/out", res, err, true) and res then
     support.expect_stdout(acc, "copybox testdata/in.txt o/out", res, "copied 6 bytes\n")
   end
   local copied = fs.read(fs.join(workspace, "o/out/in.txt"))
@@ -67,7 +67,7 @@ local function check(workspace: string): integer, {string}
   end
 
   res, err = support.run(workspace, BIN, {"testdata/absent.txt", "o/out"})
-  if support.expect_exit(acc, "copybox absent source", res, err, false) then
+  if support.expect_exit(acc, "copybox absent source", res, err, false) and res then
     support.expect_empty_stdout(acc, "copybox absent source", res)
     support.expect_nonempty_stderr(acc, "copybox absent source", res)
   end

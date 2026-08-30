@@ -46,17 +46,17 @@ local function check(workspace: string): integer, {string}
   -- S-trap: the on-the-hour boundary must fall in the bucket it
   -- starts, both approaching (11:00:00) and leaving (12:00:01) it.
   local res, err = support.run(workspace, BIN, {"testdata/events.log"})
-  if support.expect_exit(acc, "logreport events.log", res, err, true) then
+  if support.expect_exit(acc, "logreport events.log", res, err, true) and res then
     support.expect_stdout(acc, "logreport events.log", res, WANT_REPORT)
   end
 
   res, err = support.run(workspace, BIN, {"empty.log"})
-  if support.expect_exit(acc, "logreport empty.log", res, err, true) then
+  if support.expect_exit(acc, "logreport empty.log", res, err, true) and res then
     support.expect_stdout(acc, "logreport empty.log", res, "total 0\n")
   end
 
   res, err = support.run(workspace, BIN, {"testdata/absent.log"})
-  if support.expect_exit(acc, "logreport absent.log", res, err, false) then
+  if support.expect_exit(acc, "logreport absent.log", res, err, false) and res then
     support.expect_empty_stdout(acc, "logreport absent.log", res)
     support.expect_nonempty_stderr(acc, "logreport absent.log", res)
   end

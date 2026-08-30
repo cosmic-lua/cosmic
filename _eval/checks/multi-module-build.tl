@@ -70,7 +70,7 @@ local function check(workspace: string): integer, {string}
   -- S-trap-adjacent: ties among count-1 words break alphabetically, so
   -- "barks" (count 1) must beat "brown" (also count 1) into the top 3.
   local res, err = support.run(workspace, BIN, {"testdata/sample.txt"})
-  if support.expect_exit(acc, "wordbag sample.txt", res, err, true) then
+  if support.expect_exit(acc, "wordbag sample.txt", res, err, true) and res then
     support.expect_stdout(acc, "wordbag sample.txt", res, WANT_REPORT)
   end
 

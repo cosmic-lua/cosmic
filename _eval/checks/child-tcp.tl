@@ -64,7 +64,7 @@ local function check(workspace: string): integer, {string}
   for i = 1, RUNS do
     local res, err = support.run(workspace, BIN, {})
     local label = "echotrip run " .. i
-    if support.expect_exit(acc, label, res, err, true) then
+    if support.expect_exit(acc, label, res, err, true) and res then
       support.expect_stdout(acc, label, res, WANT_STDOUT)
     end
     if process_running(bin_path) then
