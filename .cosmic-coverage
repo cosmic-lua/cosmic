@@ -62,7 +62,7 @@ return {
   ["_make/binaries.tl"] = {["covered"] = 24, ["total"] = 24},
   ["_make/bytecode.tl"] = {["covered"] = 14, ["total"] = 16},
   ["_make/check.tl"] = {["covered"] = 93, ["total"] = 95},
-  ["_make/clean.tl"] = {["covered"] = 34, ["total"] = 57},
+  ["_make/clean.tl"] = {["covered"] = 44, ["total"] = 58},
   ["_make/converge.tl"] = {["covered"] = 34, ["total"] = 62},
   ["_make/deps.tl"] = {["covered"] = 73, ["total"] = 73},
   ["_make/docs.tl"] = {["covered"] = 13, ["total"] = 31},

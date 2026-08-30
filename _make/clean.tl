@@ -123,11 +123,13 @@ end
 local record CleanModule
   KEEP: {string: boolean}
   run: function(proj: Project, paths: {string}, cosmic: string): integer
+  kept_detail: function(bootstrap: boolean, worktrees: integer): string
 end
 
 local M: CleanModule = {
   KEEP = KEEP,
   run = run,
+  kept_detail = kept_detail,
 }
 
 return M
