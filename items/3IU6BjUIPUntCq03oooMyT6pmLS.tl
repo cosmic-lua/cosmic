@@ -6,5 +6,6 @@ return {
   ["id"] = "3IU6BjUIPUntCq03oooMyT6pmLS",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1557,
+  ["reviewer"] = "review-MyT6pmLS-1788062700",
   ["title"] = "migrate to runner mode, batch 7/7: cosmic/*_test.tl, stream through zip",
 }
