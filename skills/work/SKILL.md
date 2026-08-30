@@ -351,7 +351,9 @@ board worktree or push rights to `board`:
 - **what never fans out:** the review verdict — one review, in one
   fresh subagent, however many PRs a wave opened; N agents reviewing
   N PRs is N unreviewed merges wearing a costume — and refinement,
-  because two parallel refiners decompose the same outcome twice.
+  because two parallel refiners decompose the same outcome twice. if
+  either is delegated, fill `review-brief.md` or `refiner-brief.md`
+  rather than hand-writing one, same reason as `builder-brief.md`.
 
 ## /work N — the standing loop
 
