@@ -206,10 +206,12 @@ local function test_a_review_claim_coexists_with_a_build_claim()
   local _, b = root_with_leaf(s)
   give_spec(s, a)
   handed_over(s, b, "builder-b")
-  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0,
-    "session-a claims a's build")
+  -- The review comes first by rule, not by choice: while b's verdict
+  -- is unclaimed, a's pull is review debt and `take` refuses it.
   assert(verbs.cmd_take(s, b, "session-a", 0, false, "") == 0,
-    "and, under the same name, claims b's review too")
+    "session-a claims b's review")
+  assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0,
+    "and, under the same name, claims a's build too")
   check.equal(check.must(store.load(s, b)).reviewer, "session-a")
   check.equal(check.must(store.load(s, a)).claim, "session-a")
 end

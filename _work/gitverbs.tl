@@ -206,6 +206,10 @@ local function cmd_take(s: store.Store, id: string, session: string,
       if bound then
         return gate.verdict_line("take", false, "REFUSED: " .. bound)
       end
+      local unreviewed = gate.review_debt_refusal(all, session, it)
+      if unreviewed then
+        return gate.verdict_line("take", false, "REFUSED: " .. unreviewed)
+      end
     end
   end
   -- One claim per session, never forced away: a collision here is
@@ -275,11 +279,10 @@ end
 --- own item (`new`, parented so it is placed), the item `block`s on
 --- it, and only then does the claim return, so it waits on the answer
 --- instead of bouncing cold to a session that would hit the same
---- wall. A drop is never refused for flow; the one guard is over
---- somebody else's LIVE claim, which is a takeover of the abandoning
---- kind and says so on the record. The claim, the PR, and any
---- standing verdict clear together: what remains is the item, its
---- spec, its blockers, and the trail.
+--- wall. Never refused for flow; the one guard is somebody else's
+--- LIVE claim (a takeover of the abandoning kind, said on the
+--- record). Claim, PR, and any standing verdict clear together:
+--- what remains is the item, its spec, its blockers, and the trail.
 --- @param s store.Store The store
 --- @param id string The item to drop
 --- @param session string The dropping session
@@ -335,12 +338,10 @@ local function cmd_drop(s: store.Store, id: string, session: string,
   if not ok then
     return gate.verdict_line("drop", false, err)
   end
-  -- Which queue the released item lands in decides the line: behind
-  -- an open blocker it waits on its question, so saying "todo" would
-  -- promise a re-offer that never comes; bare todo IS re-offered
-  -- as-is, so the line says what a bare drop asserts and names the
-  -- block-first recovery while the dropping session still has the
-  -- context to file the question.
+  -- Which queue the released item lands in decides the line: blocked
+  -- items wait on their question, bare todo is re-offered as-is, and
+  -- the bare line names the block-first recovery while the dropping
+  -- session still has the context to file the question.
   local all, _lerr = store.list(s)
   if all ~= nil and flow.is_blocked(it, flow.by_id(all)) then
     return gate.verdict_line("drop", true,

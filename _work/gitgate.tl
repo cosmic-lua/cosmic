@@ -169,6 +169,58 @@ local function distance_refusal(it: item.Item, session: string): string | nil
   return nil
 end
 
+--- The unclaimed verdicts standing between a session and NEW work:
+--- open workable items whose facts say review (a PR, no verdict),
+--- with no reviewer recorded, at a distance from the session (it
+--- neither built nor specced them — the same `distance_refusal` the
+--- review claim asks). The take gate refuses a todo pull while this
+--- is non-empty — verdicts before new work, mechanically, so a
+--- session that never read the doctrine still cannot out-pull its
+--- reviews. Deliberately LAXER than `next`'s review rung on one
+--- point: any recorded reviewer clears an item here, stale or live,
+--- because staleness needs per-item git ages this gate does not
+--- read — a stale review still drains through `next`, which offers
+--- taking it over ahead of any pull. Laxer is the safe direction:
+--- every pull `next` offers as a primary must pass this gate.
+--- @param items {item.Item} All items
+--- @param session string The session asking to pull
+--- @return {item.Item} The debt, possibly empty
+local function review_debt(items: {item.Item},
+    session: string): {item.Item}
+  local out: {item.Item} = {}
+  for _, i in ipairs(items) do
+    if item.is_open(i) and flow.role(i, items) == "work"
+    and flow.substate(i) == "review"
+    and (i.reviewer or "") == ""
+    and distance_refusal(i, session) == nil then
+      out[#out + 1] = i
+    end
+  end
+  return out
+end
+
+--- `review_debt` as the take gate's refusal, nil while the session
+--- may pull. A lane-repair take never asks — the same arrival the
+--- doing bound never holds back: a red lane's fix cannot wait on a
+--- review queue it did not grow.
+--- @param items {item.Item} All items
+--- @param session string The session asking to pull
+--- @param taking item.Item The item about to be taken
+--- @return string | nil The refusal
+local function review_debt_refusal(items: {item.Item}, session: string,
+    taking: item.Item): string | nil
+  if (taking.lane or "") ~= "" then
+    return nil
+  end
+  local debt = review_debt(items, session)
+  if #debt == 0 then
+    return nil
+  end
+  return ("%d diff(s) await a verdict you can give — verdicts before "
+    .. "new work: `take %s` claims the first review; a recorded "
+    .. "reviewer clears it"):format(#debt, debt[1].id:sub(1, 8))
+end
+
 --- The refusal a NEW claim earns when `session` already holds a live
 --- claim on another open item, or nil when it is free to claim. One
 --- claim per name, so two runners sharing a session name collide
@@ -346,6 +398,9 @@ local record gitgate
   spec_refusal: function(it: item.Item, session: string): string
   age_of: function(s: store.Store, it: item.Item): health.Ages
   distance_refusal: function(it: item.Item, session: string): string
+  review_debt: function(items: {item.Item}, session: string): {item.Item}
+  review_debt_refusal: function(items: {item.Item}, session: string,
+  taking: item.Item): string
   second_claim_refusal: function(s: store.Store, all: {item.Item},
   id: string, session: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
@@ -367,6 +422,8 @@ local M: gitgate = {
   spec_refusal = spec_refusal,
   age_of = age_of,
   distance_refusal = distance_refusal,
+  review_debt = review_debt,
+  review_debt_refusal = review_debt_refusal,
   second_claim_refusal = second_claim_refusal,
   commit_and_publish = commit_and_publish,
   containered = containered,

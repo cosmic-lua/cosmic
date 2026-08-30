@@ -319,18 +319,20 @@ The standing loop (a session invoked as an orchestrator with a
 width N) runs ONE bounded pass and ends it. Never wait inside a
 pass — not for a wave agent, not for CI, not for an answer; the
 single exception is a review subagent. Reviews outrank pulls
-inside the pass, not just between actions: builds fan out N at a
-time while reviews drain one at a time, so a loop that reviews
-less than it pulls accumulates open PRs until the doing bound
-refuses every take — drain first and the bound never has to:
+inside the pass, and the tool holds that mechanically: `take`
+refuses a todo pull while an unclaimed diff the session could
+review awaits a verdict — builds fan out N at a time while
+reviews drain one at a time, so a loop that reviewed less than it
+pulled accumulated open PRs until the doing bound refused every
+take. Drain first and neither refusal ever fires:
 
 1. `sync`, then reconcile the previous wave (above).
 2. Merge whatever carries an accept.
 3. Drain the reviews: while items await a verdict, review them —
    one fresh subagent at a time, sequentially, a distinct minted
-   review session for each. The wave does not fill while a
-   reviewable diff waits; work nearly done always beats work not
-   yet started.
+   review session for each. Only the sequencing is yours to hold;
+   that the wave cannot fill past waiting verdicts, the take gate
+   already holds.
 4. Fill the wave: claim then spawn in the background, up to the
    smallest of N and what is actually disjoint. Zero agents is a
    legitimate pass.
