@@ -156,19 +156,20 @@ local function stage(dir: string, p: Peer): string | nil, string
   if not wok then
     return nil, "write " .. path .. ": " .. tostring(werr)
   end
-  if p.build_argv == nil then
+  local build_argv = p.build_argv
+  if build_argv == nil then
     return path
   end
-  local r, rerr = child.run(p.build_argv, {cwd = dir})
+  local r, rerr = child.run(build_argv, {cwd = dir})
   if r == nil then
     return nil, "build: " .. tostring(rerr)
   end
   if not r.ok then
     return nil, "build exit " .. tostring(r.code) .. ": " .. tostring(r.stderr)
   end
-  local out_name = build_output(p.build_argv)
+  local out_name = build_output(build_argv)
   if out_name == nil then
-    return nil, "build_argv " .. table.concat(p.build_argv, " ") .. " has no -o output"
+    return nil, "build_argv " .. table.concat(build_argv, " ") .. " has no -o output"
   end
   return fs.join(dir, out_name)
 end

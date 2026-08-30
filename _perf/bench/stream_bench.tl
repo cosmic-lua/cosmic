@@ -129,7 +129,9 @@ local function scenarios(): {pt.Scenario}, string
         local last: string = nil
         for line in reader:lines() do
           count = count + 1
-          last = line
+          if line then
+            last = line
+          end
         end
         local _ok, _err = reader:close()
         local stats: LineStats = {count = count, last = last}

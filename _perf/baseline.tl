@@ -154,10 +154,12 @@ local function list_releases(repo: string): {Release} | nil, string
   if token and token ~= "" then
     headers["authorization"] = "Bearer " .. token
   end
-  local resp, err = fetch.get(API_URL:format(repo), {
-      headers = headers,
-      proxy = env.get("HTTPS_PROXY") or env.get("https_proxy"),
-    })
+  local opts: fetch.Options = {headers = headers}
+  local proxy = env.get("HTTPS_PROXY") or env.get("https_proxy")
+  if proxy then
+    opts.proxy = proxy
+  end
+  local resp, err = fetch.get(API_URL:format(repo), opts)
   if resp == nil then
     return nil, "GET releases: " .. tostring(err)
   end

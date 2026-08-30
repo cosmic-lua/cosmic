@@ -65,11 +65,12 @@ local function measure_row(p: Peer, dir: string, hopts: pt.Options): Row
   end
 
   local exe_path = p.exe
+  local build_argv = p.build_argv
   local provenance: string
   if p.id == "cosmic-lua" then
     provenance = "prebuilt (--bin)"
-  elseif p.build_argv then
-    provenance = "compiled at setup: " .. table.concat(p.build_argv, " ")
+  elseif build_argv then
+    provenance = "compiled at setup: " .. table.concat(build_argv, " ")
     exe_path = target
   else
     local resolved, werr = proc.which(p.exe)
@@ -149,7 +150,7 @@ local function measure(opts: MeasureOptions): Report | nil, string
 
   local meta: PeerMeta = {
     timestamp = time.now(), os = csys.host_os(), isa = csys.host_isa(),
-    nproc = csys.nproc(), samples = samples, min_sample_secs = min_secs,
+    nproc = csys.nproc() or 0, samples = samples, min_sample_secs = min_secs,
     runner = env.get("ImageOS") or "local", cosmic_bin = opts.bin,
     cosmic_bin_sha = cosmic_sha, cosmic_version = cosmic_version,
   }

@@ -273,8 +273,9 @@ end
 local function format_results(file_path: string, run_result: RunResult): string
   local lines: {string} = {}
 
-  if run_result.message then
-    table.insert(lines, file_path .. ": ERROR: " .. run_result.message)
+  local message = run_result.message
+  if message then
+    table.insert(lines, file_path .. ": ERROR: " .. message)
     return table.concat(lines, "\n")
   end
 
@@ -292,8 +293,9 @@ local function format_results(file_path: string, run_result: RunResult): string
       end
     else
       table.insert(lines, file_path .. ": " .. result.name .. ": FAIL")
-      if result.error then
-        table.insert(lines, "  error: " .. result.error)
+      local err = result.error
+      if err then
+        table.insert(lines, "  error: " .. err)
       else
         table.insert(lines, "  expected:")
         for line in result.expected:gmatch("[^\n]*") do

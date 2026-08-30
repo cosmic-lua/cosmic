@@ -55,7 +55,11 @@ local function content(names: {string}): string
   local lines: {string} = {}
   for _, n in ipairs(sorted) do
     local v = env.get(n)
-    lines[#lines + 1] = v == nil and n or (n .. "=" .. v)
+    if v == nil then
+      lines[#lines + 1] = n
+    else
+      lines[#lines + 1] = n .. "=" .. v
+    end
   end
   return hash.sha256_hex(table.concat(lines, "\n")) .. "\n"
 end

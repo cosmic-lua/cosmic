@@ -126,7 +126,7 @@ local function collect_meta(samples: integer, min_secs: number): pt.Meta
     min_sample_secs = min_secs,
     os = csys.host_os(),
     isa = csys.host_isa(),
-    nproc = csys.nproc(),
+    nproc = csys.nproc() or 0,
   }
   local argv_last = rawget(arg, -1)
   meta.bin = os.getenv("PERF_BIN") or (argv_last is string and argv_last) or "unknown"
