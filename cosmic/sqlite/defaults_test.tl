@@ -22,7 +22,6 @@ local function test_foreign_keys_enforced_by_default()
     "error should name the FOREIGN KEY constraint, got: " .. tostring(err))
   assert(db:close())
 end
-test_foreign_keys_enforced_by_default()
 
 local function test_foreign_keys_opt_out()
   local db = check.must(sqlite.open(":memory:", {foreign_keys = false}))
@@ -32,7 +31,6 @@ local function test_foreign_keys_opt_out()
   assert(ok, "foreign_keys=false should restore raw behavior: " .. tostring(err))
   assert(db:close())
 end
-test_foreign_keys_opt_out()
 
 -- WAL + synchronous defaults
 
@@ -45,7 +43,6 @@ local function test_wal_default_on_file_db()
   assert(sync == 1, "WAL default should set synchronous=NORMAL(1), got: " .. tostring(sync))
   assert(db:close())
 end
-test_wal_default_on_file_db()
 
 local function test_wal_opt_out()
   local path = fs.join(TEST_TMPDIR, "wal_optout.db")
@@ -56,7 +53,6 @@ local function test_wal_opt_out()
   assert(sync == 2, "wal=false should keep synchronous=FULL(2), got: " .. tostring(sync))
   assert(db:close())
 end
-test_wal_opt_out()
 
 local function test_memory_db_ignores_wal()
   local db = check.must(sqlite.open(":memory:"))
@@ -66,7 +62,6 @@ local function test_memory_db_ignores_wal()
   assert(db:exec("INSERT INTO t (v) VALUES (?)", {"x"}))
   assert(db:close())
 end
-test_memory_db_ignores_wal()
 
 local function test_read_only_skips_wal()
   local path = fs.join(TEST_TMPDIR, "ro_defaults.db")
@@ -82,7 +77,6 @@ local function test_read_only_skips_wal()
   assert(row and row.v == "hello", "read-only handle should read data")
   assert(rdb:close())
 end
-test_read_only_skips_wal()
 
 local function test_wal_readers_not_blocked_by_writer()
   -- WAL persists in the file, so the second connection shares it; a
@@ -103,4 +97,3 @@ local function test_wal_readers_not_blocked_by_writer()
   assert(a:close())
   assert(b:close())
 end
-test_wal_readers_not_blocked_by_writer()

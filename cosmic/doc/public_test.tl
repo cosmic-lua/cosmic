@@ -41,7 +41,6 @@ local function test_listing_hides_internal_modules()
   end
   print("test_listing_hides_internal_modules: PASS")
 end
-test_listing_hides_internal_modules()
 
 local function test_listing_is_exactly_the_public_surface()
   local names = topic_names()
@@ -60,7 +59,6 @@ local function test_listing_is_exactly_the_public_surface()
   end
   print("test_listing_is_exactly_the_public_surface: PASS")
 end
-test_listing_is_exactly_the_public_surface()
 
 local function test_directory_modules_indexed_under_their_name()
   assert(idx.modules["cosmic.fs"],
@@ -70,7 +68,6 @@ local function test_directory_modules_indexed_under_their_name()
   assert(docs.query("fs"), "--docs fs must resolve to the fs module page")
   print("test_directory_modules_indexed_under_their_name: PASS")
 end
-test_directory_modules_indexed_under_their_name()
 
 local function test_internal_modules_stay_searchable_with_badge()
   local results = docs.search("child.io")
@@ -87,7 +84,6 @@ local function test_internal_modules_stay_searchable_with_badge()
     "search results must badge internal modules with (internal)")
   print("test_internal_modules_stay_searchable_with_badge: PASS")
 end
-test_internal_modules_stay_searchable_with_badge()
 
 local function test_internal_doc_page_carries_header()
   local page = check.must(docs.query("cosmic.child.io"))
@@ -98,4 +94,3 @@ local function test_internal_doc_page_carries_header()
     "public module page must not carry the internal-module header")
   print("test_internal_doc_page_carries_header: PASS")
 end
-test_internal_doc_page_carries_header()

@@ -21,7 +21,6 @@ local function test_exec_trailing_nils()
   end
   assert(db:close())
 end
-test_exec_trailing_nils()
 
 local function test_exec_middle_nils()
   local db = check.must(sqlite.open(":memory:"))
@@ -37,7 +36,6 @@ local function test_exec_middle_nils()
   end
   assert(db:close())
 end
-test_exec_middle_nils()
 
 local function test_bind_trailing_nils()
   local db = check.must(sqlite.open(":memory:"))
@@ -56,7 +54,6 @@ local function test_bind_trailing_nils()
   end
   assert(db:close())
 end
-test_bind_trailing_nils()
 
 -- bind_list
 
@@ -78,7 +75,6 @@ local function test_bind_list()
   end
   assert(db:close())
 end
-test_bind_list()
 
 -- exec_list
 
@@ -100,7 +96,6 @@ local function test_exec_list_params()
   end
   assert(db:close())
 end
-test_exec_list_params()
 
 local function test_exec_params_all_nils()
   local db = check.must(sqlite.open(":memory:"))
@@ -118,7 +113,6 @@ local function test_exec_params_all_nils()
   end
   assert(db:close())
 end
-test_exec_params_all_nils()
 
 -- query_list
 
@@ -136,7 +130,6 @@ local function test_query_list_params()
   assert(rows[1].a == "x", "a should be 'x'")
   assert(db:close())
 end
-test_query_list_params()
 
 -- query_one
 
@@ -150,7 +143,6 @@ local function test_query_one_found()
   assert(row.name == "Alice", "name should be Alice")
   assert(db:close())
 end
-test_query_one_found()
 
 local function test_query_one_not_found()
   local db = check.must(sqlite.open(":memory:"))
@@ -160,7 +152,6 @@ local function test_query_one_not_found()
   assert(row == nil, "should return nil for no match")
   assert(db:close())
 end
-test_query_one_not_found()
 
 local function test_query_one_returns_first()
   local db = check.must(sqlite.open(":memory:"))
@@ -172,7 +163,6 @@ local function test_query_one_returns_first()
   assert(row.name == "Alice", "should return first row (Alice)")
   assert(db:close())
 end
-test_query_one_returns_first()
 
 -- transaction
 
@@ -193,7 +183,6 @@ local function test_transaction_commit()
   assert(count == 1, "should have 1 row after committed transaction")
   assert(db:close())
 end
-test_transaction_commit()
 
 local function test_transaction_rollback_on_error()
   local db = check.must(sqlite.open(":memory:"))
@@ -213,7 +202,6 @@ local function test_transaction_rollback_on_error()
   assert(count == 0, "should have 0 rows after rollback")
   assert(db:close())
 end
-test_transaction_rollback_on_error()
 
 local function test_transaction_multiple_ops()
   local db = check.must(sqlite.open(":memory:"))
@@ -234,7 +222,6 @@ local function test_transaction_multiple_ops()
   assert(count == 3, "should have 3 rows")
   assert(db:close())
 end
-test_transaction_multiple_ops()
 
 local function test_transaction_rollback_on_false()
   -- A body that returns `false, err` (the library's own failure convention)
@@ -258,7 +245,6 @@ local function test_transaction_rollback_on_false()
   assert(count == 0, "row must roll back when body returns false, got " .. tostring(count))
   assert(db:close())
 end
-test_transaction_rollback_on_false()
 
 local function test_transaction_rejects_nil_verdict()
   -- `nil, err` is not a verdict: the callback contract is explicit
@@ -283,7 +269,6 @@ local function test_transaction_rejects_nil_verdict()
   assert(count == 0, "row must roll back when body returns nil, err, got " .. tostring(count))
   assert(db:close())
 end
-test_transaction_rejects_nil_verdict()
 
 local function test_transaction_rolls_back_on_missing_verdict()
   -- A missing verdict (a body that returns nothing) is the most
@@ -306,7 +291,6 @@ local function test_transaction_rolls_back_on_missing_verdict()
   assert(count == 0, "row must roll back on a missing verdict, got " .. tostring(count))
   assert(db:close())
 end
-test_transaction_rolls_back_on_missing_verdict()
 
 local function test_nested_transaction_fails_inner_only()
   -- BEGIN does not nest in SQLite: an inner db:transaction
@@ -331,7 +315,6 @@ local function test_nested_transaction_fails_inner_only()
   assert(row.c == 1, "the outer write must commit, got " .. tostring(row.c))
   assert(db:close())
 end
-test_nested_transaction_fails_inner_only()
 
 -- A failing COMMIT (e.g. a deferred foreign-key violation, only checked at
 -- COMMIT/RELEASE time) must roll back instead of leaving the connection
@@ -365,7 +348,6 @@ local function test_transaction_commit_failure_rolls_back()
   assert(db:exec("ROLLBACK"))
   assert(db:close())
 end
-test_transaction_commit_failure_rolls_back()
 
 -- Named parameters
 
@@ -386,7 +368,6 @@ local function test_bind_named()
   end
   assert(db:close())
 end
-test_bind_named()
 
 local function test_exec_named_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -404,7 +385,6 @@ local function test_exec_named_params()
   end
   assert(db:close())
 end
-test_exec_named_params()
 
 local function test_exec_named_params_params_all_nil()
   local db = check.must(sqlite.open(":memory:"))
@@ -420,7 +400,6 @@ local function test_exec_named_params_params_all_nil()
   end
   assert(db:close())
 end
-test_exec_named_params_params_all_nil()
 
 local function test_query_named_params()
   local db = check.must(sqlite.open(":memory:"))
@@ -438,7 +417,6 @@ local function test_query_named_params()
   assert(names[2] == "Carol", "second should be Carol")
   assert(db:close())
 end
-test_query_named_params()
 
 --- A nested query for the SAME SQL text as a still-open outer query must
 --- not corrupt either cursor: db:query's statement cache (see
@@ -471,6 +449,5 @@ local function test_same_sql_nested_query_reentrant()
   assert(row ~= nil, "query after nested reentrant use should still work: " .. tostring(err))
   assert(db:close())
 end
-test_same_sql_nested_query_reentrant()
 
 print("All sqlite tests passed")

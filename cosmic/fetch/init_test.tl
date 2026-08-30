@@ -68,7 +68,6 @@ local function test_module_loads()
   assert(type(fetch.fetch) == "function", "fetch.fetch should be a function")
   assert(type(fetch.stream) == "function", "fetch.stream should be a function")
 end
-test_module_loads()
 
 local function test_failure_shape()
   -- A failure is nil, Error and nothing past it — no
@@ -86,7 +85,6 @@ local function test_failure_shape()
     "tostring(err) renders the classified form, got " .. tostring(err))
   assert(getmetatable(err) ~= nil, "every Error carries its __tostring metatable")
 end
-test_failure_shape()
 
 local function test_loopback_get()
   local port, pid = serve({body_response("200 OK", "hello loopback")})
@@ -101,7 +99,6 @@ local function test_loopback_get()
   assert(err == nil, "err should be nil on success")
   assert(result:is_success() == true, "is_success must be true for 200")
 end
-test_loopback_get()
 
 local function test_http_error_status_is_a_response()
   local port, pid = serve({body_response("404 Not Found", "nope")})
@@ -112,7 +109,6 @@ local function test_http_error_status_is_a_response()
   assert(err == nil, "err should be nil when a response arrived")
   assert(result:is_success() == false, "is_success must be false for 404")
 end
-test_http_error_status_is_a_response()
 
 local function test_post_body_reaches_server()
   local port, pid = serve({"echo"})
@@ -124,7 +120,6 @@ local function test_post_body_reaches_server()
   assert(result.body:find("hello=world", 1, true) ~= nil,
     "server should have seen the POST body")
 end
-test_post_body_reaches_server()
 
 local function test_ssrf_guard_blocks_private_by_default()
   local port, pid = serve({body_response("200 OK", "x")})
@@ -137,7 +132,6 @@ local function test_ssrf_guard_blocks_private_by_default()
   assert(unblock ~= nil, "allow_private fetch should succeed")
   assert(proc.wait(pid))
 end
-test_ssrf_guard_blocks_private_by_default()
 
 local function test_error_kind_connect_for_refused_port()
   local resp, err = fetch.fetch("http://127.0.0.1:1/", {allow_private = true})
@@ -145,7 +139,6 @@ local function test_error_kind_connect_for_refused_port()
   assert(err and err.kind == "connect",
     "kind should be 'connect', got " .. tostring(err))
 end
-test_error_kind_connect_for_refused_port()
 
 local function test_follow_redirects_false_returns_redirect()
   local port, pid = serve({
@@ -159,7 +152,6 @@ local function test_follow_redirects_false_returns_redirect()
   assert(result.headers.location == "http://127.0.0.1:1/next",
     "location header should be exposed, got " .. tostring(result.headers.location))
 end
-test_follow_redirects_false_returns_redirect()
 
 local function test_redirect_followed_reports_final_url()
   -- serve() can't express a redirect that targets its own port (the
@@ -195,7 +187,6 @@ local function test_redirect_followed_reports_final_url()
   assert(result.url == final_url,
     "result.url should be the post-redirect URL, got " .. tostring(result.url))
 end
-test_redirect_followed_reports_final_url()
 
 local function test_opts_table_not_mutated()
   local srv = net.listen_tcp("127.0.0.1", 0)
@@ -240,7 +231,6 @@ local function test_opts_table_not_mutated()
   assert(headers["Authorization"] == "Bearer secret",
     "Authorization must not be deleted from the caller's table")
 end
-test_opts_table_not_mutated()
 
 -- scheme validation tests
 
@@ -250,7 +240,6 @@ local function test_fetch_empty_url_rejected()
   assert(err.kind == "invalid_request" and err.message == "empty URL",
     "expected kind invalid_request with a clean message, got: " .. tostring(err))
 end
-test_fetch_empty_url_rejected()
 
 local function test_fetch_unsupported_scheme_rejected()
   local resp, err = fetch.fetch("ftp://example.com/file.txt")
@@ -258,7 +247,6 @@ local function test_fetch_unsupported_scheme_rejected()
   assert(err.message:find("unsupported URL scheme") ~= nil,
     "error should mention unsupported scheme, got: " .. tostring(err))
 end
-test_fetch_unsupported_scheme_rejected()
 
 local function test_fetch_file_scheme_rejected()
   local resp, err = fetch.fetch("file:///etc/passwd")
@@ -266,7 +254,6 @@ local function test_fetch_file_scheme_rejected()
   assert(err.message:find("unsupported URL scheme") ~= nil,
     "error should mention unsupported scheme, got: " .. tostring(err))
 end
-test_fetch_file_scheme_rejected()
 
 local function test_fetch_no_scheme_rejected()
   local resp, err = fetch.fetch("example.com/path")
@@ -274,7 +261,6 @@ local function test_fetch_no_scheme_rejected()
   assert(err.message:find("unsupported URL scheme") ~= nil,
     "error should mention unsupported scheme, got: " .. tostring(err))
 end
-test_fetch_no_scheme_rejected()
 
 local function test_fetch_missing_host_rejected()
   local resp, err = fetch.fetch("http://")
@@ -282,7 +268,6 @@ local function test_fetch_missing_host_rejected()
   assert(err.kind == "invalid_request" and err.message == "missing URL host",
     "expected kind invalid_request with a clean message, got: " .. tostring(err))
 end
-test_fetch_missing_host_rejected()
 
 -- The scheme comparison is case-insensitive: an uppercase scheme must
 -- get past the scheme check (this host-less URL then fails on the host,
@@ -293,7 +278,6 @@ local function test_fetch_uppercase_scheme_accepted()
   assert(err.kind == "invalid_request" and err.message == "missing URL host",
     "uppercase scheme should pass the scheme check, got: " .. tostring(err))
 end
-test_fetch_uppercase_scheme_accepted()
 
 local function test_fetch_with_proxy_nonexistent_socket()
   -- the proxy option is passed through to cosmo.Fetch: a socket path that
@@ -303,7 +287,6 @@ local function test_fetch_with_proxy_nonexistent_socket()
   assert(resp == nil, "a nonexistent proxy socket must fail")
   assert(err ~= nil, "err should describe the failure")
 end
-test_fetch_with_proxy_nonexistent_socket()
 
 local function test_timeout_option_accepted()
   local port, pid = serve({body_response("200 OK", "quick")})
@@ -312,7 +295,6 @@ local function test_timeout_option_accepted()
   assert(proc.wait(pid))
   assert(result ~= nil, "fetch with timeout option should succeed: " .. tostring(err))
 end
-test_timeout_option_accepted()
 
 local function test_max_response_bytes_enforced()
   local port, pid = serve({body_response("200 OK", string.rep("x", 4096))})
@@ -323,4 +305,3 @@ local function test_max_response_bytes_enforced()
   assert(err and err.kind == "too_large",
     "kind should be 'too_large', got " .. tostring(err))
 end
-test_max_response_bytes_enforced()

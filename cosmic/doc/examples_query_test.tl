@@ -57,7 +57,6 @@ local function test_show_module_examples_function_filter()
     print("test_show_module_examples_function_filter: PASS (no suitable module+function found)")
   end
 end
-test_show_module_examples_function_filter()
 
 -- Test show_module_examples with nonexistent function returns error
 local function test_show_module_examples_no_match()
@@ -86,7 +85,6 @@ local function test_show_module_examples_no_match()
     print("test_show_module_examples_no_match: PASS (no module with examples found)")
   end
 end
-test_show_module_examples_no_match()
 
 -- Test show_module_examples still works with plain module name
 local function test_show_module_examples_module_only()
@@ -115,7 +113,6 @@ local function test_show_module_examples_module_only()
     print("test_show_module_examples_module_only: PASS (no module with examples found)")
   end
 end
-test_show_module_examples_module_only()
 
 -- Test that bare module name resolves in show_module_examples (bug 4)
 local function test_show_module_examples_bare_name()
@@ -129,7 +126,6 @@ local function test_show_module_examples_bare_name()
     "bare 'child' should not fail with module not found: " .. tostring(rerr))
   print("test_show_module_examples_bare_name: PASS")
 end
-test_show_module_examples_bare_name()
 
 -- Regression for a query that names BOTH a module with no examples
 -- (cosmic.quicksand.box.run, from box/run.tl) and a function of the parent
@@ -151,4 +147,3 @@ local function test_show_module_examples_module_function_collision()
   assert((output or qerr):match("run"), "output should mention run")
   print("test_show_module_examples_module_function_collision: PASS")
 end
-test_show_module_examples_module_function_collision()

@@ -12,7 +12,6 @@ local LOOPBACK_STR < const > = "127.0.0.1"
 local function test_module_exports()
   assert(type(proxy.start) == "function")
 end
-test_module_exports()
 
 -- Drive one request through a live proxy and return everything the
 -- server sends back before closing.
@@ -44,7 +43,6 @@ local function test_start_rejects_invalid_rules_pre_fork()
   assert(err:find("token", 1, true),
     "error should cite the missing token, got: " .. tostring(err))
 end
-test_start_rejects_invalid_rules_pre_fork()
 
 -- start() forks a child; exercise the full lifecycle on Linux and
 -- verify stop() kills + reaps idempotently. Skip on non-Linux since
@@ -82,7 +80,6 @@ local function test_start_stop_lifecycle()
   h:stop()
   assert(not h:alive(), "alive() should be false after stop()")
 end
-test_start_stop_lifecycle()
 
 -- Deny-by-default: a client request for a host not in the allowlist
 -- gets 403 back, for both plain-HTTP and CONNECT.
@@ -116,7 +113,6 @@ local function test_deny_unknown_host()
   handle:stop()
   check.enforced("proxy deny-by-default")
 end
-test_deny_unknown_host()
 
 -- Wire-level input validation: malformed request lines and
 -- origin-form targets get 400; chunked request bodies get 411.
@@ -153,7 +149,6 @@ local function test_malformed_and_chunked_requests()
 
   handle:stop()
 end
-test_malformed_and_chunked_requests()
 
 -- SSRF protection end to end: an allowlisted host that resolves to a
 -- private address is refused at dial time, surfacing as 502 — the
@@ -184,7 +179,6 @@ local function test_allowed_private_upstream_gets_502()
   handle:stop()
   check.enforced("proxy SSRF guard")
 end
-test_allowed_private_upstream_gets_502()
 
 -- stop() escalation: a child that never handles SIGTERM (simulated
 -- with SIGSTOP) is SIGKILL'd after the timeout and still reaped.
@@ -208,4 +202,3 @@ local function test_stop_escalates_to_sigkill()
   assert(handle.pid == 0, "escalation should reap and zero the pid")
   assert(os.time() - before < 10, "escalation should happen promptly")
 end
-test_stop_escalates_to_sigkill()

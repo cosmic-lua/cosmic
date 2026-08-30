@@ -18,19 +18,16 @@ local function test_rejects_crlf_in_header_value()
   assert(err.message:find("CR, LF, or NUL") ~= nil,
     "error should explain the forbidden bytes, got: " .. tostring(err))
 end
-test_rejects_crlf_in_header_value()
 
 local function test_rejects_lf_only_in_header_value()
   local result, _err = fetch.fetch(dead, {headers = {["X-Test"] = "a\nb"}})
   assert(result == nil, "a bare LF in a header value must be rejected")
 end
-test_rejects_lf_only_in_header_value()
 
 local function test_rejects_cr_only_in_header_value()
   local result, _err = fetch.fetch(dead, {headers = {["X-Test"] = "a\rb"}})
   assert(result == nil, "a bare CR in a header value must be rejected")
 end
-test_rejects_cr_only_in_header_value()
 
 local function test_rejects_crlf_in_header_name()
   local result, err = fetch.fetch(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
@@ -38,7 +35,6 @@ local function test_rejects_crlf_in_header_name()
   assert(err ~= nil and err.message:find("header name") ~= nil,
     "error should mention the header name, got: " .. tostring(err))
 end
-test_rejects_crlf_in_header_name()
 
 local function test_rejects_nul_in_header_value()
   local result, err = fetch.fetch(dead, {headers = {["X-Test"] = "a\0b"}})
@@ -46,7 +42,6 @@ local function test_rejects_nul_in_header_value()
   assert(err ~= nil and err.message:find("CR, LF, or NUL") ~= nil,
     "error should explain the forbidden bytes, got: " .. tostring(err))
 end
-test_rejects_nul_in_header_value()
 
 local function test_rejects_empty_header_name()
   local result, err = fetch.fetch(dead, {headers = {[""] = "value"}})
@@ -54,7 +49,6 @@ local function test_rejects_empty_header_name()
   assert(err ~= nil and err.message:find("empty") ~= nil,
     "error should mention the empty name, got: " .. tostring(err))
 end
-test_rejects_empty_header_name()
 
 local function test_allows_clean_headers()
   -- Well-formed headers must pass validation; the connection to the dead
@@ -67,7 +61,6 @@ local function test_allows_clean_headers()
       "clean headers must pass validation, got: " .. tostring(err))
   end
 end
-test_allows_clean_headers()
 
 local function test_stream_rejects_crlf_in_header_value()
   local result, err = fetch.stream(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
@@ -75,7 +68,6 @@ local function test_stream_rejects_crlf_in_header_value()
   assert(err ~= nil and err.message:find("CR, LF, or NUL") ~= nil,
     "stream error should explain the forbidden bytes, got: " .. tostring(err))
 end
-test_stream_rejects_crlf_in_header_value()
 
 local function test_stream_rejects_crlf_in_header_name()
   local result, err = fetch.stream(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
@@ -83,4 +75,3 @@ local function test_stream_rejects_crlf_in_header_name()
   assert(err ~= nil and err.message:find("header name") ~= nil,
     "stream error should mention the header name, got: " .. tostring(err))
 end
-test_stream_rejects_crlf_in_header_name()

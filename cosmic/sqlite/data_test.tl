@@ -23,7 +23,6 @@ local function test_blob_bind_affinity()
   assert(row.v == payload, "blob bytes should round-trip")
   assert(db:close())
 end
-test_blob_bind_affinity()
 
 local function test_plain_string_stays_text()
   local db = check.must(sqlite.open(":memory:"))
@@ -33,7 +32,6 @@ local function test_plain_string_stays_text()
   assert(row.ty == "text", "bare string should keep text affinity")
   assert(db:close())
 end
-test_plain_string_stays_text()
 
 local function test_blob_in_query_params()
   -- db:query binds through the hot-path row iterator; make sure the blob
@@ -46,7 +44,6 @@ local function test_blob_in_query_params()
   while iter() ~= nil do end
   assert(db:close())
 end
-test_blob_in_query_params()
 
 local function test_blob_bind_and_bind_list()
   local db = check.must(sqlite.open(":memory:"))
@@ -71,7 +68,6 @@ local function test_blob_bind_and_bind_list()
   assert(n == 2, "should have inserted 2 rows, got " .. n)
   assert(db:close())
 end
-test_blob_bind_and_bind_list()
 
 local function test_blob_named_binds_with_blob_affinity()
   -- Named binding routes through the same shared bind step as
@@ -86,7 +82,6 @@ local function test_blob_named_binds_with_blob_affinity()
   assert(row.v == payload, "blob bytes should round-trip through :name binding")
   assert(db:close())
 end
-test_blob_named_binds_with_blob_affinity()
 
 -- Busy timeout
 
@@ -108,7 +103,6 @@ local function test_busy_timeout_applied()
   assert(row.timeout == 0, "busy_timeout_ms=0 should disable waiting, got " .. tostring(row.timeout))
   assert(db:close())
 end
-test_busy_timeout_applied()
 
 -- read_only option
 
@@ -127,7 +121,6 @@ local function test_read_only_open()
   assert(err, "read-only write failure should carry an error message")
   assert(rdb:close())
 end
-test_read_only_open()
 
 local function test_read_only_missing_file_fails()
   local path = fs.join(TEST_TMPDIR, "missing.db")
@@ -135,7 +128,6 @@ local function test_read_only_missing_file_fails()
   assert(db == nil, "read-only open of a missing file should fail")
   assert(err, "should return an error message")
 end
-test_read_only_missing_file_fails()
 
 -- constraint violations: exec must return false plus the
 -- constraint's own message, never throw or silently succeed.
@@ -152,7 +144,6 @@ local function test_unique_constraint_violation()
   assert(row.c == 1, "the failed insert must not add a row")
   assert(db:close())
 end
-test_unique_constraint_violation()
 
 local function test_not_null_constraint_violation()
   local db = check.must(sqlite.open(":memory:"))
@@ -163,7 +154,6 @@ local function test_not_null_constraint_violation()
     "error should name the NOT NULL constraint, got: " .. tostring(err))
   assert(db:close())
 end
-test_not_null_constraint_violation()
 
 -- SQLITE_BUSY: real lock contention between two connections
 -- to the same file, not just the busy_timeout PRAGMA readback above.
@@ -189,4 +179,3 @@ local function test_busy_second_connection_write_blocked()
   assert(a:close())
   assert(b:close())
 end
-test_busy_second_connection_write_blocked()

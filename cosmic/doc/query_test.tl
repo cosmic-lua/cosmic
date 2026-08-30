@@ -16,14 +16,12 @@ local function test_module_loads()
   assert(docs.render_search_results, "docs.render_search_results should exist")
   print("test_module_loads: PASS")
 end
-test_module_loads()
 
 local function test_has_docs()
   local result = docs.is_available()
   assert(type(result) == "boolean", "has_docs should return a boolean")
   print("test_has_docs: PASS")
 end
-test_has_docs()
 
 local function test_load_index()
   local index, err = docs.embedded_index()
@@ -37,7 +35,6 @@ local function test_load_index()
     print("test_load_index: PASS (no docs: " .. err .. ")")
   end
 end
-test_load_index()
 
 local function test_run_list()
   local output, qerr = docs.query()
@@ -50,7 +47,6 @@ local function test_run_list()
   end
   print("test_run_list: PASS")
 end
-test_run_list()
 
 -- Test run with a module query
 local function test_run_module()
@@ -65,7 +61,6 @@ local function test_run_module()
   end
   print("test_run_module: PASS")
 end
-test_run_module()
 
 local function test_run_symbol()
   local output, qerr = docs.query("cosmic.doc.parse")
@@ -78,7 +73,6 @@ local function test_run_symbol()
   end
   print("test_run_symbol: PASS")
 end
-test_run_symbol()
 
 -- Test run with invalid query
 local function test_run_invalid()
@@ -92,7 +86,6 @@ local function test_run_invalid()
   end
   print("test_run_invalid: PASS")
 end
-test_run_invalid()
 
 local function test_list_topics()
   local topics = docs.topics()
@@ -105,7 +98,6 @@ local function test_list_topics()
   end
   print("test_list_topics: PASS (found " .. #topics .. " topics)")
 end
-test_list_topics()
 
 -- Test search functionality
 local function test_search()
@@ -120,7 +112,6 @@ local function test_search()
   end
   print("test_search: PASS (found " .. #results .. " results)")
 end
-test_search()
 
 -- Test render_search_results
 local function test_render_search_results()
@@ -131,7 +122,6 @@ local function test_render_search_results()
     "search results output should contain relevant content")
   print("test_render_search_results: PASS")
 end
-test_render_search_results()
 
 -- Test empty search results
 local function test_search_no_results()
@@ -140,7 +130,6 @@ local function test_search_no_results()
   assert(output:match("No results"), "empty search should mention no results")
   print("test_search_no_results: PASS")
 end
-test_search_no_results()
 
 -- Test search finds record methods
 local function test_search_methods()
@@ -161,7 +150,6 @@ local function test_search_methods()
     io.stderr:write("SKIP: test_search_methods content assertions (no docs available)\n")
   end
 end
-test_search_methods()
 
 -- Test run with method lookup (module.Record.method pattern)
 local function test_run_method()
@@ -175,7 +163,6 @@ local function test_run_method()
   end
   print("test_run_method: PASS")
 end
-test_run_method()
 
 -- Test cosmo module shows tip about cosmic equivalent
 local function test_cosmic_equivalent_tip()
@@ -189,7 +176,6 @@ local function test_cosmic_equivalent_tip()
   end
   print("test_cosmic_equivalent_tip: PASS")
 end
-test_cosmic_equivalent_tip()
 
 -- Test search finds bind methods
 local function test_search_bind_methods()
@@ -203,7 +189,6 @@ local function test_search_bind_methods()
   end
   print("test_search_bind_methods: PASS (found " .. method_count .. " method results)")
 end
-test_search_bind_methods()
 
 -- Test search relevance: name matches rank higher than description matches
 local function test_search_relevance()
@@ -235,7 +220,6 @@ local function test_search_relevance()
     print("test_search_relevance: PASS (not enough results to verify ordering)")
   end
 end
-test_search_relevance()
 
 -- Test that module name matches boost related symbols
 local function test_module_path_boost()
@@ -259,7 +243,6 @@ local function test_module_path_boost()
     print("test_module_path_boost: PASS (no results)")
   end
 end
-test_module_path_boost()
 
 -- Test that list_topics excludes cosmo.* modules by default
 local function test_list_topics_excludes_cosmo()
@@ -274,7 +257,6 @@ local function test_list_topics_excludes_cosmo()
   assert(not found_cosmo, "list_topics should exclude cosmo.* modules by default")
   print("test_list_topics_excludes_cosmo: PASS")
 end
-test_list_topics_excludes_cosmo()
 
 -- Test that list_topics(true) includes cosmo.* modules
 local function test_list_topics_includes_cosmo_when_requested()
@@ -297,7 +279,6 @@ local function test_list_topics_includes_cosmo_when_requested()
   end
   print("test_list_topics_includes_cosmo_when_requested: PASS")
 end
-test_list_topics_includes_cosmo_when_requested()
 
 -- Test that search excludes cosmo.* results by default
 local function test_search_excludes_cosmo()
@@ -313,7 +294,6 @@ local function test_search_excludes_cosmo()
   assert(not found_cosmo, "search should exclude cosmo.* modules by default")
   print("test_search_excludes_cosmo: PASS")
 end
-test_search_excludes_cosmo()
 
 -- Test that search(query, true) includes cosmo.* results
 local function test_search_includes_cosmo_when_requested()
@@ -332,7 +312,6 @@ local function test_search_includes_cosmo_when_requested()
   end
   print("test_search_includes_cosmo_when_requested: PASS")
 end
-test_search_includes_cosmo_when_requested()
 
 -- Test that explicit cosmo module lookup still works
 local function test_explicit_cosmo_access()
@@ -346,7 +325,6 @@ local function test_explicit_cosmo_access()
   end
   print("test_explicit_cosmo_access: PASS")
 end
-test_explicit_cosmo_access()
 
 -- Test symbol lookup finds re-exported record methods (bug 1) and quick example (bug 3)
 local function test_run_reexported_and_quick_example()
@@ -364,7 +342,6 @@ local function test_run_reexported_and_quick_example()
   end
   print("test_run_reexported_and_quick_example: PASS")
 end
-test_run_reexported_and_quick_example()
 
 print("")
 print("All docs tests passed!")

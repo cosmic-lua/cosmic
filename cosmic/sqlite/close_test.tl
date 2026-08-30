@@ -29,7 +29,6 @@ local function test_query_close_releases_early()
   assert(n == 3, "re-query after close should see all rows, got: " .. tostring(n))
   assert(db:close())
 end
-test_query_close_releases_early()
 
 local function test_query_close_idempotent()
   local db = check.must(sqlite.open(":memory:"))
@@ -45,7 +44,6 @@ local function test_query_close_idempotent()
   assert(drained:close())
   assert(db:close())
 end
-test_query_close_idempotent()
 
 local function test_query_to_be_closed_scope()
   local db = check.must(sqlite.open(":memory:"))
@@ -72,7 +70,6 @@ local function test_query_to_be_closed_scope()
   assert(n == 2, "re-query after <close> should see all rows, got: " .. tostring(n))
   assert(db:close())
 end
-test_query_to_be_closed_scope()
 
 local function test_query_abandoned_iterator_collected()
   local db = check.must(sqlite.open(":memory:"))
@@ -94,7 +91,6 @@ local function test_query_abandoned_iterator_collected()
   assert(n == 1, "query after GC of abandoned iterator should work")
   assert(db:close())
 end
-test_query_abandoned_iterator_collected()
 
 local function test_query_list_close_early()
   local db = check.must(sqlite.open(":memory:"))
@@ -108,7 +104,6 @@ local function test_query_list_close_early()
   assert(rows() == nil, "closed query_list iterator must yield nil")
   assert(db:close())
 end
-test_query_list_close_early()
 
 -- Statement:rows() shares row_iter.tl's iteration body with db:query (see
 -- cosmic.sqlite.row_iter); this exercises it directly, plus close
@@ -136,7 +131,6 @@ local function test_statement_rows_basic_iteration()
   assert(stmt:close())
   assert(db:close())
 end
-test_statement_rows_basic_iteration()
 
 local function test_statement_rows_close_does_not_finalize_statement()
   local db = check.must(sqlite.open(":memory:"))
@@ -163,7 +157,6 @@ local function test_statement_rows_close_does_not_finalize_statement()
   assert(stmt:close())
   assert(db:close())
 end
-test_statement_rows_close_does_not_finalize_statement()
 
 local function test_statement_rows_to_be_closed_scope()
   local db = check.must(sqlite.open(":memory:"))
@@ -194,7 +187,6 @@ local function test_statement_rows_to_be_closed_scope()
   assert(stmt:close())
   assert(db:close())
 end
-test_statement_rows_to_be_closed_scope()
 
 local function test_statement_rows_close_idempotent()
   local db = check.must(sqlite.open(":memory:"))
@@ -208,4 +200,3 @@ local function test_statement_rows_close_idempotent()
   assert(stmt:close())
   assert(db:close())
 end
-test_statement_rows_close_idempotent()

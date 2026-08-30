@@ -22,7 +22,6 @@ local function test_query_one_scalar_with_params()
   check.equal(scored.score, 1.5)
   assert(db:close())
 end
-test_query_one_scalar_with_params()
 
 local function test_query_one_null_column_is_not_a_missing_row()
   local db = open_db()
@@ -34,7 +33,6 @@ local function test_query_one_null_column_is_not_a_missing_row()
   check.equal(err, nil, "an empty result is not a failure")
   assert(db:close())
 end
-test_query_one_null_column_is_not_a_missing_row()
 
 local function test_query_one_on_a_closed_db_fails()
   local db = open_db()
@@ -42,7 +40,6 @@ local function test_query_one_on_a_closed_db_fails()
   local row, err = db:query_one("SELECT 1 AS one")
   assert(row == nil and err ~= nil, "expected failure on closed database")
 end
-test_query_one_on_a_closed_db_fails()
 
 -- savepoint tests
 
@@ -61,7 +58,6 @@ local function test_savepoint_commit()
   assert(count(db) == 3, "expected insert to persist")
   assert(db:close())
 end
-test_savepoint_commit()
 
 local function test_savepoint_rollback_on_error()
   local db = open_db()
@@ -74,7 +70,6 @@ local function test_savepoint_rollback_on_error()
   assert(count(db) == 2, "expected insert rolled back")
   assert(db:close())
 end
-test_savepoint_rollback_on_error()
 
 local function test_savepoint_rollback_on_false()
   local db = open_db()
@@ -86,7 +81,6 @@ local function test_savepoint_rollback_on_false()
   assert(count(db) == 2, "expected insert rolled back")
   assert(db:close())
 end
-test_savepoint_rollback_on_false()
 
 local function test_savepoint_rejects_nil_verdict()
   -- nil is not a verdict: the callback contract is explicit, so a
@@ -102,7 +96,6 @@ local function test_savepoint_rejects_nil_verdict()
   assert(count(db) == 2, "expected insert rolled back")
   assert(db:close())
 end
-test_savepoint_rejects_nil_verdict()
 
 local function test_savepoint_nested_inner_rollback()
   local db = open_db()
@@ -122,7 +115,6 @@ local function test_savepoint_nested_inner_rollback()
     "expected inner insert gone")
   assert(db:close())
 end
-test_savepoint_nested_inner_rollback()
 
 local function test_savepoint_inside_transaction()
   local db = open_db()
@@ -139,7 +131,6 @@ local function test_savepoint_inside_transaction()
   assert(count(db) == 3, "expected transaction insert kept, savepoint rolled back")
   assert(db:close())
 end
-test_savepoint_inside_transaction()
 
 -- A failing RELEASE (e.g. a deferred foreign-key violation, checked when
 -- the outermost savepoint releases like an implicit COMMIT) must roll back
@@ -172,4 +163,3 @@ local function test_savepoint_release_failure_rolls_back()
   assert(db:exec("ROLLBACK"))
   assert(db:close())
 end
-test_savepoint_release_failure_rolls_back()

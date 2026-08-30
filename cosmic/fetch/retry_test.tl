@@ -73,7 +73,6 @@ local function test_default_policy_retries_transport_error()
     "transport error must be retried under the default policy, got: " .. tostring(err))
   assert(result.body == "recovered", "second attempt's body expected")
 end
-test_default_policy_retries_transport_error()
 
 local function test_default_policy_retries_503()
   local port, pid = serve({
@@ -86,7 +85,6 @@ local function test_default_policy_retries_503()
   assert(result.status == 200,
     "503 must be retried under the default policy, got " .. tostring(result.status))
 end
-test_default_policy_retries_503()
 
 local function test_default_policy_does_not_retry_post()
   -- POST is not idempotent: the default policy must return the 503
@@ -100,7 +98,6 @@ local function test_default_policy_does_not_retry_post()
   assert(result.status == 503,
     "POST must not be retried by default, got " .. tostring(result.status))
 end
-test_default_policy_does_not_retry_post()
 
 local function test_default_policy_does_not_retry_404()
   local port, pid = serve({body_response("404 Not Found", "gone")})
@@ -111,7 +108,6 @@ local function test_default_policy_does_not_retry_404()
   assert(result.status == 404,
     "404 is not retryable, got " .. tostring(result.status))
 end
-test_default_policy_does_not_retry_404()
 
 local function test_custom_should_retry_sees_failures()
   -- a custom predicate is consulted for failed attempts too, rather
@@ -132,7 +128,6 @@ local function test_custom_should_retry_sees_failures()
   assert(#seen == 1 and seen[1] == false,
     "should_retry must have been consulted with the failed result")
 end
-test_custom_should_retry_sees_failures()
 
 local function test_custom_should_retry_false_stops()
   local port, pid = serve({body_response("503 Service Unavailable", "busy")})
@@ -151,7 +146,6 @@ local function test_custom_should_retry_false_stops()
   assert(result.status == 503, "the 503 must be returned as-is")
   assert(attempts == 1, "should_retry must be asked exactly once, got " .. attempts)
 end
-test_custom_should_retry_false_stops()
 
 local function test_exhausted_attempts_return_last_failure()
   local port, pid = serve({"", ""})
@@ -162,7 +156,6 @@ local function test_exhausted_attempts_return_last_failure()
   assert(err and err.kind == "connect",
     "the transport failure kind survives, got " .. tostring(err))
 end
-test_exhausted_attempts_return_last_failure()
 
 -- max_attempts <= 0 is clamped to 1 real attempt: unclamped it would
 -- skip the fetch loop entirely and return nothing.
@@ -174,7 +167,6 @@ local function test_max_attempts_zero_is_clamped_to_one()
   assert(result ~= nil and result.body == "ok",
     "max_attempts=0 should still make one real attempt, got: " .. tostring(err))
 end
-test_max_attempts_zero_is_clamped_to_one()
 
 local function test_max_attempts_negative_is_clamped_to_one()
   local port, pid = serve({body_response("200 OK", "ok")})
@@ -183,7 +175,6 @@ local function test_max_attempts_negative_is_clamped_to_one()
   assert(proc.wait(pid))
   assert(result ~= nil, "max_attempts=-5 should still make one real attempt")
 end
-test_max_attempts_negative_is_clamped_to_one()
 
 local function test_validation_error_is_invalid_request_and_never_retries()
   -- validation failures carry kind invalid_request, which the retry
@@ -196,4 +187,3 @@ local function test_validation_error_is_invalid_request_and_never_retries()
   assert(err.message:find("unsupported URL scheme") ~= nil,
     "the validation error must survive retries untouched")
 end
-test_validation_error_is_invalid_request_and_never_retries()

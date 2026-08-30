@@ -33,7 +33,6 @@ local function test_interfaces()
   end
   assert(has_loopback, "should have loopback interface")
 end
-test_interfaces()
 
 local function test_interfaces_format()
   -- Test that we can format interface IPs (skips under sandbox like
@@ -49,7 +48,6 @@ local function test_interfaces_format()
     assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
   end
 end
-test_interfaces_format()
 
 -- Socket dirs come from TMPDIR, not TEST_TMPDIR and not a literal
 -- /tmp: sun_path caps a unix socket path at ~108 bytes, TEST_TMPDIR's
@@ -108,7 +106,6 @@ local function test_unix_domain_socket_bind_connect()
   assert(os.remove(path))
   assert(os.remove(tmpdir))
 end
-test_unix_domain_socket_bind_connect()
 
 local function test_listen_unix_dial_unix()
   local tmpdir = assert(fs.temp_dir(fs.join(sock_base, "cosmic_net_XXXXXX")))
@@ -145,7 +142,6 @@ local function test_listen_unix_dial_unix()
   assert(os.remove(path))
   assert(os.remove(tmpdir))
 end
-test_listen_unix_dial_unix()
 
 local function test_connect_with_timeout_loopback()
   -- ConnectOptions.timeout_ms: connect with a bound, get back a
@@ -171,7 +167,6 @@ local function test_connect_with_timeout_loopback()
   assert(accepted:close())
   assert(server:close())
 end
-test_connect_with_timeout_loopback()
 
 local function test_connect_with_timeout_refused()
   -- Connect to localhost port 1 — should be refused, inside the bound
@@ -179,7 +174,6 @@ local function test_connect_with_timeout_refused()
   assert(sock == nil, "expected connect to fail on refused port")
   assert(conn_err ~= nil, "expected error message from refused connect")
 end
-test_connect_with_timeout_refused()
 
 -- connect() to the broadcast address fails SYNCHRONOUSLY with ENETUNREACH
 -- (no EINPROGRESS at all — unlike a refused port, which the kernel usually
@@ -199,7 +193,6 @@ local function test_connect_timeout_synchronous_failure_is_immediate()
   assert(t1 - t0 < 1, "a synchronous connect failure must not wait out"
     .. " the poll timeout, took " .. tostring(t1 - t0) .. "s")
 end
-test_connect_timeout_synchronous_failure_is_immediate()
 
 -- Error fidelity: socket()/socket_pair()/hostname() must surface the
 -- binding's real errno, not a generic "X creation failed" string.
@@ -209,7 +202,6 @@ local function test_socket_error_names_errno()
   assert(err ~= nil and err:match("E%u+"),
     "socket error should name the errno, got: " .. tostring(err))
 end
-test_socket_error_names_errno()
 
 local function test_socket_pair_error_names_errno()
   -- socket_pair() only supports AF_UNIX; AF_INET fails synchronously.
@@ -218,7 +210,6 @@ local function test_socket_pair_error_names_errno()
   assert(err ~= nil and err:match("E%u+"),
     "socket_pair error should name the errno, got: " .. tostring(err))
 end
-test_socket_pair_error_names_errno()
 
 local function test_dial_tcp()
   -- Create a listening socket
@@ -258,7 +249,6 @@ local function test_dial_tcp()
   assert(server:close())
   check.reap(pid, "the tcp client")
 end
-test_dial_tcp()
 
 local function test_dial_accepts_string_and_addr()
   local raw_server, lerr = net.listen_tcp("127.0.0.1", 0)
@@ -281,7 +271,6 @@ local function test_dial_accepts_string_and_addr()
 
   assert(server:close())
 end
-test_dial_accepts_string_and_addr()
 
 local function test_dial_rejects_ipv6_literals()
   -- A colon marks an address literal, not a DNS name: dial reports why
@@ -291,7 +280,6 @@ local function test_dial_rejects_ipv6_literals()
   assert(err6 ~= nil and err6:find("IPv6 not supported", 1, true) ~= nil,
     "expected 'IPv6 not supported', got: " .. tostring(err6))
 end
-test_dial_rejects_ipv6_literals()
 
 local function test_connect_error_message()
   -- Connect to a port with no listener — should get a descriptive error, not just "connect failed"
@@ -305,7 +293,6 @@ local function test_connect_error_message()
 
   assert(sock:close())
 end
-test_connect_error_message()
 
 print("All net tests passed")
 
@@ -323,7 +310,6 @@ local function test_bind_error_names_errno()
   assert(second:close())
   assert(first:close())
 end
-test_bind_error_names_errno()
 
 local function test_dial()
   -- dial is the stable name-and-shape entry point (from):
@@ -348,7 +334,6 @@ local function test_dial()
   assert(berr ~= nil and berr:find("dial", 1, true) ~= nil,
     "dial failure names the operation: " .. tostring(berr))
 end
-test_dial()
 
 -- listen_tcp socket options are configurable — SO_REUSEADDR stays
 -- the default but can be opted out, and SO_REUSEPORT can be opted in.
@@ -376,7 +361,6 @@ local function test_listen_tcp_socket_options()
     "reuse_port=true should set SO_REUSEPORT, got " .. tostring(rp))
   assert(p:close())
 end
-test_listen_tcp_socket_options()
 
 -- dial_unix takes ConnectOptions, so a unix-domain connect can be
 -- bounded too; connect_unix has no options and thus no bound at all.
@@ -400,7 +384,6 @@ local function test_dial_unix_with_timeout()
   assert(os.remove(path))
   assert(os.remove(tmpdir))
 end
-test_dial_unix_with_timeout()
 
 -- A full listener backlog makes a non-blocking AF_UNIX connect fail
 -- with EAGAIN on Linux. The bounded dial must RETRY until its budget
@@ -449,11 +432,9 @@ local function test_dial_unix_timeout_waits_out_a_full_backlog()
   end
   assert(server:close())
 end
-test_dial_unix_timeout_waits_out_a_full_backlog()
 
 local function test_dial_unix_missing_path_fails()
   local sock, err = net.dial_unix(sock_base .. "/cosmic-no-such-socket", {timeout_ms = 1000})
   assert(sock == nil, "dial_unix to a nonexistent path should fail")
   assert(err ~= nil, "expected an error message")
 end
-test_dial_unix_missing_path_fails()

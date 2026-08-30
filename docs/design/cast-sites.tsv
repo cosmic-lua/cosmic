@@ -140,13 +140,13 @@ cosmic/net/socket.tl	437	function shape
 cosmic/quicksand/box/init.tl	86	runtime capability probe
 cosmic/quicksand/box/merge.tl	135	map view of a declared value
 cosmic/quicksand/box/merge.tl	138	incremental record construction
-cosmic/quicksand/box/merge_test.tl	111	type-defeating test probe
-cosmic/quicksand/box/merge_test.tl	166	type-defeating test probe
-cosmic/quicksand/box/merge_test.tl	167	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	101	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	151	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
 cosmic/quicksand/box/run.tl	211	record union after guard
 cosmic/quicksand/caps.tl	63	binding constant by name
 cosmic/quicksand/init.tl	73	function shape
-cosmic/quicksand/init_test.tl	183	type-defeating test probe
+cosmic/quicksand/init_test.tl	170	type-defeating test probe
 cosmic/quicksand/proc.tl	259	binding constant by name
 cosmic/quicksand/proc.tl	262	binding constant by name
 cosmic/quicksand/proxy.tl	115	container variance
@@ -154,8 +154,8 @@ cosmic/quicksand/proxy.tl	141	record union after guard
 cosmic/quicksand/proxy.tl	143	function shape
 cosmic/quicksand/proxy.tl	144	function shape
 cosmic/quicksand/proxy.tl	146	function shape
-cosmic/quicksand/proxy/rules_test.tl	57	container variance
-cosmic/quicksand/proxy/rules_test.tl	131	type-defeating test probe
+cosmic/quicksand/proxy/rules_test.tl	55	container variance
+cosmic/quicksand/proxy/rules_test.tl	125	type-defeating test probe
 cosmic/rand_test.tl	95	type-defeating test probe
 cosmic/rand_test.tl	168	container variance
 cosmic/re.tl	200	proved-value narrowing
@@ -181,13 +181,13 @@ cosmic/sqlite/bind.tl	49	metatable access
 cosmic/sqlite/bind.tl	56	binding contract shape
 cosmic/sqlite/bind.tl	111	container variance
 cosmic/sqlite/bind.tl	115	container variance
+cosmic/sqlite/close_test.tl	59	metatable access
 cosmic/sqlite/close_test.tl	61	metatable access
-cosmic/sqlite/close_test.tl	63	metatable access
-cosmic/sqlite/close_test.tl	179	metatable access
-cosmic/sqlite/close_test.tl	181	metatable access
+cosmic/sqlite/close_test.tl	172	metatable access
+cosmic/sqlite/close_test.tl	174	metatable access
 cosmic/sqlite/extras.tl	63	pcall return shape
 cosmic/sqlite/extras.tl	106	pcall return shape
-cosmic/sqlite/extras_test.tl	51	sqlite row column read
+cosmic/sqlite/extras_test.tl	48	sqlite row column read
 cosmic/sqlite/init.tl	214	incremental record construction
 cosmic/sqlite/init.tl	295	incremental record construction
 cosmic/sqlite/lifecycle_test.tl	12	sqlite row column read

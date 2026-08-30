@@ -17,7 +17,6 @@ local function test_parse_request_line()
   assert(http.parse_request_line("get / HTTP/1.1\r\n") == nil,
     "lowercase method rejected")
 end
-test_parse_request_line()
 
 local function test_parse_connect_target()
   local h, p = http.parse_connect_target("a.example.com:443")
@@ -27,7 +26,6 @@ local function test_parse_connect_target()
   assert(http.parse_connect_target("a.example.com:x") == nil,
     "non-numeric port rejected")
 end
-test_parse_connect_target()
 
 -- A digit run no integer can hold reads as a float, so math.tointeger
 -- yields nil: the target must be refused rather than handed on as a
@@ -43,7 +41,6 @@ local function test_parse_connect_target_unrepresentable_port()
   local h, p = http.parse_connect_target("a.example.com:65535")
   assert(h == "a.example.com" and p == 65535, "the top of the range still parses")
 end
-test_parse_connect_target_unrepresentable_port()
 
 local function test_parse_absolute_uri()
   local u = check.must(http.parse_absolute_uri("http://a.example.com/x/y"))
@@ -59,7 +56,6 @@ local function test_parse_absolute_uri()
   assert(http.parse_absolute_uri("ftp://a.example.com/") == nil,
     "non-http scheme rejected")
 end
-test_parse_absolute_uri()
 
 local function test_parse_absolute_uri_unrepresentable_port()
   local huge = string.rep("9", 19)
@@ -72,7 +68,6 @@ local function test_parse_absolute_uri_unrepresentable_port()
   local u = check.must(http.parse_absolute_uri("http://a.example.com:65535/x"))
   assert(u.port == 65535, "the top of the range still parses")
 end
-test_parse_absolute_uri_unrepresentable_port()
 
 local function test_headers_and_content_length()
   local block = "GET / HTTP/1.1\r\nHost: a.example.com\r\n"
@@ -84,7 +79,6 @@ local function test_headers_and_content_length()
   assert(http.content_length(headers) == 5, "content-length parsed")
   assert(http.content_length({}) == 0, "absent content-length is 0")
 end
-test_headers_and_content_length()
 
 -- Content-Length is 1*DIGIT (RFC 7230). tonumber() leniency would let a
 -- client name a hex, exponent, or negative body size; anything but a
@@ -107,7 +101,6 @@ local function test_content_length_strict()
   assert(cl("99999999999999999999999999") == nil,
     "integer overflow is malformed")
 end
-test_content_length_strict()
 
 local function test_rebuild_request_injects_and_strips()
   local block = "POST http://a.example.com/p HTTP/1.1\r\n"
@@ -139,7 +132,6 @@ local function test_rebuild_request_injects_and_strips()
     "end-to-end headers preserved")
   assert(req:sub(-5) == "hello", "body appended")
 end
-test_rebuild_request_injects_and_strips()
 
 -- The injected auth header must REPLACE any client-supplied header of
 -- the same name — the boxed workload must not be able to smuggle its
@@ -162,7 +154,6 @@ local function test_rebuild_request_replaces_client_auth()
   assert(req:find("Content-Length: 0\r\n", 1, true) ~= nil,
     "bodyless request gets content-length 0")
 end
-test_rebuild_request_replaces_client_auth()
 
 -- Regression: pump() used to return (tearing down the CONNECT tunnel)
 -- on ANY unix.poll failure, including EINTR. A one-shot SIGALRM fires
@@ -216,4 +207,3 @@ local function test_pump_relays_data_across_eintr()
   assert(u1:close())
   assert(proc.wait(pid))
 end
-test_pump_relays_data_across_eintr()

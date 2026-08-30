@@ -17,7 +17,6 @@ local function test_module_exports()
   assert(type(proc.become_init) == "function")
   assert(type(proc.DEFAULT_SIGNALS) == "table")
 end
-test_module_exports()
 
 -- setup_userns_maps outside a fresh user namespace must fail with an
 -- error string (writing "0 uid 1" to uid_map is rejected once the map
@@ -54,7 +53,6 @@ end
     check.enforce_skip("userns maps: " .. s:gsub("%s+$", ""))
   end
 end
-test_setup_userns_maps_returns_error_outside_userns()
 
 local function test_default_signals_shape()
   local s = proc.DEFAULT_SIGNALS
@@ -63,13 +61,11 @@ local function test_default_signals_shape()
     assert(type(name) == "string", "signals should be strings: " .. tostring(name))
   end
 end
-test_default_signals_shape()
 
 local function test_drop_privs_nil_is_noop()
   local ok, err = proc.drop_privs(nil, nil)
   assert(ok, "drop_privs(nil) should succeed: " .. tostring(err))
 end
-test_drop_privs_nil_is_noop()
 
 -- no_new_privs is irreversible, barrier signals are observable side
 -- effects on file descriptors — run in subprocesses.
@@ -106,7 +102,6 @@ io.write("ok\n")
     check.enforce_skip("no_new_privs: " .. s:gsub("%s+$", ""))
   end
 end
-test_no_new_privs_subprocess()
 
 local function test_barrier_signal_wait()
   local c = quicksand.capabilities()
@@ -153,7 +148,6 @@ io.write("done\n")
     check.enforce_skip("barrier: " .. s:gsub("%s+$", ""))
   end
 end
-test_barrier_signal_wait()
 
 --- Regression for the race Barrier exists to prevent: EINTR arriving
 --- mid-read must be retried, not treated as "signaled". A child sends
@@ -219,7 +213,6 @@ io.write("ok=" .. tostring(ok) .. " err=" .. tostring(werr)
   assert(elapsed >= 150,
     "wait() returned too early -- EINTR treated as signaled? " .. s)
 end
-test_barrier_retries_eintr()
 
 -- become_init: the PID-1 supervisor loop.
 --
@@ -282,7 +275,6 @@ io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
   end
   assert(out:find("code=42"), "expected code=42, got: " .. out)
 end
-test_become_init_returns_child_exit_status()
 
 --- The documented 128+signum case. SIGKILL is unblockable, so the kill
 --- lands whatever the child is doing -- no sleep/race to lose.
@@ -304,7 +296,6 @@ io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
   -- 128 + SIGKILL(9)
   assert(out:find("code=137"), "expected code=137, got: " .. out)
 end
-test_become_init_maps_signal_death_to_128_plus_signum()
 
 --- Signal forwarding plus the unknown-child reap, in one scenario: a
 --- killer child SIGTERMs the supervisor, whose handler forwards it to
@@ -336,7 +327,6 @@ io.write("code=" .. tostring(qproc.become_init(main)) .. "\n")
   -- 128 + SIGTERM(15)
   assert(out:find("code=143"), "expected code=143, got: " .. out)
 end
-test_become_init_forwards_signals_to_main()
 
 --- A sidecar exiting before main: on_sidecar_exit fires with that
 --- sidecar's pid, main is killed, and the supervisor reports 1.
@@ -366,4 +356,3 @@ io.write("code=" .. tostring(code)
   assert(out:find("fired=true"),
     "on_sidecar_exit should fire with the sidecar pid, got: " .. out)
 end
-test_become_init_sidecar_exit_kills_main()

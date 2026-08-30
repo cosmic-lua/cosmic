@@ -21,7 +21,6 @@ local function test_guide_no_topic()
   assert(s:find("cosmic", 1, true), "default guide output should mention cosmic")
   assert(s:find("Quick Reference", 1, true), "default guide output should contain Quick Reference")
 end
-test_guide_no_topic()
 
 local function test_guide_testing()
   local __r2 = check.must(check.must(child.start({cosmic, "--docs", "guide.testing"}, {env = clean_env()})):wait())
@@ -31,7 +30,6 @@ local function test_guide_testing()
   assert(s:find("Testing", 1, true), "testing guide should contain Testing header")
   assert(s:find("test_", 1, true), "testing guide should show test_ pattern")
 end
-test_guide_testing()
 
 local function test_guide_checking()
   local __r3 = check.must(check.must(child.start({cosmic, "--docs", "guide.checking"}, {env = clean_env()})):wait())
@@ -40,7 +38,6 @@ local function test_guide_checking()
   local s = out
   assert(s:find("Type Checking", 1, true), "checking guide should contain Type Checking header")
 end
-test_guide_checking()
 
 local function test_guide_formatting()
   local __r4 = check.must(check.must(child.start({cosmic, "--docs", "guide.formatting"}, {env = clean_env()})):wait())
@@ -50,7 +47,6 @@ local function test_guide_formatting()
   assert(s:find("Formatting", 1, true), "formatting guide should contain Formatting header")
   assert(s:find("2%-space", 1, false), "formatting guide should mention 2-space indent")
 end
-test_guide_formatting()
 
 local function test_guide_lint()
   local __r11 = check.must(check.must(child.start({cosmic, "--docs", "guide.lint"}, {env = clean_env()})):wait())
@@ -62,7 +58,6 @@ local function test_guide_lint()
   assert(s:find("call-after-define", 1, true), "lint guide should document call-after-define")
   assert(s:find("find-needle", 1, true), "lint guide should document find-needle")
 end
-test_guide_lint()
 
 local function test_guide_quickstart()
   local __r12 = check.must(check.must(child.start({cosmic, "--docs", "guide.quickstart"}, {env = clean_env()})):wait())
@@ -74,7 +69,6 @@ local function test_guide_quickstart()
   assert(s:find("--make build", 1, true), "quickstart guide should build the project")
   assert(s:find("--make ci", 1, true), "quickstart guide should run the gate")
 end
-test_guide_quickstart()
 
 -- There is no guide.makefile: one flag, one guide, and the Makefile
 -- generator it would document does not exist. A topic with nothing
@@ -90,7 +84,6 @@ local function test_guide_makefile_is_retired()
   assert(said:find("\n  make\n", 1, true),
     "the miss should list the guides that do exist, got: " .. said)
 end
-test_guide_makefile_is_retired()
 
 local function test_guide_modules()
   local __r6 = check.must(check.must(child.start({cosmic, "--docs", "guide.modules"}, {env = clean_env()})):wait())
@@ -100,7 +93,6 @@ local function test_guide_modules()
   assert(s:find("Modules", 1, true), "modules guide should contain Modules header")
   assert(s:find("cosmic.json", 1, true), "modules guide should list cosmic.json")
 end
-test_guide_modules()
 
 local function test_guide_docs()
   local __r7 = check.must(check.must(child.start({cosmic, "--docs", "guide.docs"}, {env = clean_env()})):wait())
@@ -109,7 +101,6 @@ local function test_guide_docs()
   local s = out
   assert(s:find("Documentation", 1, true), "docs guide should contain Documentation header")
 end
-test_guide_docs()
 
 local function test_guide_make()
   local __r8 = check.must(check.must(child.start({cosmic, "--docs", "guide.make"}, {env = clean_env()})):wait())
@@ -120,7 +111,6 @@ local function test_guide_make()
   assert(s:find("--make check", 1, true), "make guide should document the check verb")
   assert(s:find("import path", 1, true), "make guide should document the project model")
 end
-test_guide_make()
 
 local function test_guide_platforms()
   local __r10 = check.must(check.must(child.start({cosmic, "--docs", "guide.platforms"}, {env = clean_env()})):wait())
@@ -131,7 +121,6 @@ local function test_guide_platforms()
   assert(s:find("Sandbox Behavior", 1, true), "platforms guide should cover per-OS sandbox behavior")
   assert(s:find("is_absolute", 1, true), "platforms guide should document Windows path handling")
 end
-test_guide_platforms()
 
 local function test_guide_artifacts()
   local __r11 = check.must(check.must(child.start({cosmic, "--docs", "guide.artifacts"}, {env = clean_env()})):wait())
@@ -142,7 +131,6 @@ local function test_guide_artifacts()
   assert(s:find("zipfile", 1, true), "artifacts guide should name the zipfile virtual table")
   assert(s:find("proc.interpreter", 1, true), "artifacts guide should say how a program reaches its own artifact")
 end
-test_guide_artifacts()
 
 local function test_guide_unknown()
   local r = check.must(child.run(
@@ -151,4 +139,3 @@ local function test_guide_unknown()
   assert(not ok, "cosmic --docs guide.nonexistent should fail")
   assert(code == 1, "expected exit code 1, got " .. tostring(code))
 end
-test_guide_unknown()

@@ -13,7 +13,6 @@ local function test_socket_creation()
   local udp = check.must(net.socket({family = net.AF_INET, socket_type = net.SOCK_DGRAM}))
   assert(udp:close())
 end
-test_socket_creation()
 
 local function test_socket_pair()
   local sp = check.must(net.socket_pair())
@@ -29,7 +28,6 @@ local function test_socket_pair()
   assert(sock1:close())
   assert(sock2:close())
 end
-test_socket_pair()
 
 local function test_send_to_closed_peer_returns_error()
   -- Sending to a peer that has closed must return nil, err, not kill
@@ -51,7 +49,6 @@ local function test_send_to_closed_peer_returns_error()
   assert(serr and serr:match("EPIPE"), "send error should name EPIPE, got: " .. tostring(serr))
   assert(a:close())
 end
-test_send_to_closed_peer_returns_error()
 
 local function test_bind_and_local_endpoint()
   local sock = check.must(net.socket())
@@ -66,7 +63,6 @@ local function test_bind_and_local_endpoint()
 
   assert(sock:close())
 end
-test_bind_and_local_endpoint()
 
 local function test_listen_accept_connect()
   -- Create server socket
@@ -130,14 +126,12 @@ local function test_listen_accept_connect()
   -- Wait for child
   check.reap(pid, "the tcp client")
 end
-test_listen_accept_connect()
 
 local function test_hostname()
   local name, err = net.hostname()
   assert(name ~= nil, "hostname failed: " .. tostring(err))
   assert(#name > 0, "expected non-empty hostname")
 end
-test_hostname()
 
 local function test_shutdown()
   local sp = check.must(net.socket_pair())
@@ -155,7 +149,6 @@ local function test_shutdown()
   assert(sock1:close())
   assert(sock2:close())
 end
-test_shutdown()
 
 local function test_poll_readiness()
   -- Sockets compose with the Poller directly via their fd.
@@ -176,7 +169,6 @@ local function test_poll_readiness()
   assert(sock1:close())
   assert(sock2:close())
 end
-test_poll_readiness()
 
 local function test_udp_send_to_recv_from()
   -- Create two UDP sockets
@@ -205,7 +197,6 @@ local function test_udp_send_to_recv_from()
   assert(sender:close())
   assert(receiver:close())
 end
-test_udp_send_to_recv_from()
 
 local function test_socket_options()
   local sock = check.must(net.socket())
@@ -229,7 +220,6 @@ local function test_socket_options()
 
   assert(sock:close())
 end
-test_socket_options()
 
 local function test_constants_exist()
   -- Address families
@@ -262,7 +252,6 @@ local function test_constants_exist()
   assert(net.MSG_PEEK ~= nil, "MSG_PEEK not defined")
   assert(net.MSG_WAITALL ~= nil, "MSG_WAITALL not defined")
 end
-test_constants_exist()
 
 local function test_socket_closed_method()
   local sock = check.must(net.socket())
@@ -281,7 +270,6 @@ local function test_socket_closed_method()
   assert(ok == true, "expected close() to be idempotent")
   assert(sock:closed() == true, "expected socket to remain closed")
 end
-test_socket_closed_method()
 
 local function test_socket_methods_after_close()
   local sock = check.must(net.socket())
@@ -303,7 +291,6 @@ local function test_socket_methods_after_close()
   local shok, sherr = sock:shutdown()
   assert(shok == false and sherr == "socket closed", "shutdown: " .. tostring(sherr))
 end
-test_socket_methods_after_close()
 
 local function test_socket_has_close_metamethod()
   -- Verify socket has __close metamethod for Lua 5.4 to-be-closed support
@@ -328,7 +315,6 @@ local function test_socket_has_close_metamethod()
   end
   assert(sock:closed() == true, "expected socket to remain closed")
 end
-test_socket_has_close_metamethod()
 
 local function test_socket_pair_has_close_metamethod()
   -- Verify socket_pair sockets also have __close
@@ -343,7 +329,6 @@ local function test_socket_pair_has_close_metamethod()
   assert(sock1:close())
   assert(sock2:close())
 end
-test_socket_pair_has_close_metamethod()
 
 local function test_accept_socket_has_close_metamethod()
   -- Create server socket
@@ -387,7 +372,6 @@ local function test_accept_socket_has_close_metamethod()
   assert(server:close())
   check.reap(pid, "the connecting client")
 end
-test_accept_socket_has_close_metamethod()
 
 local function test_listen_tcp_ephemeral_port()
   -- listen_tcp with port 0: the OS-assigned port comes from getsockname
@@ -398,7 +382,6 @@ local function test_listen_tcp_ephemeral_port()
   assert(port > 0, "expected non-zero port, got " .. tostring(port))
   assert(srv:close())
 end
-test_listen_tcp_ephemeral_port()
 
 local function test_listen_tcp_dial_returned_port()
   -- bind on 127.0.0.1:0, then dial the bound port
@@ -430,7 +413,6 @@ local function test_listen_tcp_dial_returned_port()
   assert(srv:close())
   check.reap(pid, "the ephemeral-port client")
 end
-test_listen_tcp_dial_returned_port()
 
 local function test_listen_tcp_double_bind_same_port_fails()
   -- Bind a specific port, then try to bind the same port again without
@@ -449,7 +431,6 @@ local function test_listen_tcp_double_bind_same_port_fails()
 
   assert(srv:close())
 end
-test_listen_tcp_double_bind_same_port_fails()
 
 local function test_listen_tcp_invalid_ip_bind_fails()
   -- Attempt to bind to a non-local IP should fail
@@ -457,4 +438,3 @@ local function test_listen_tcp_invalid_ip_bind_fails()
   assert(srv == nil, "expected listen_tcp to fail on non-local IP")
   assert(serr ~= nil, "expected error message")
 end
-test_listen_tcp_invalid_ip_bind_fails()

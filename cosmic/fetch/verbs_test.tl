@@ -103,7 +103,6 @@ local function test_verbs_set_method()
     end)
   assert(req:find("^DELETE /x HTTP/1") ~= nil, "expected DELETE line")
 end
-test_verbs_set_method()
 
 -- query tests
 
@@ -114,7 +113,6 @@ local function test_query_appended_sorted_and_encoded()
   assert(req:find("GET /s?a=1&q=hello%20world HTTP", 1, true) ~= nil,
     "expected sorted, percent-encoded query, got: " .. req:sub(1, 60))
 end
-test_query_appended_sorted_and_encoded()
 
 local function test_query_appends_to_existing()
   local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
@@ -122,7 +120,6 @@ local function test_query_appends_to_existing()
     end)
   assert(req:find("GET /s?x=1&y=2 HTTP", 1, true) ~= nil, "expected & continuation")
 end
-test_query_appends_to_existing()
 
 -- json body tests
 
@@ -136,7 +133,6 @@ local function test_json_body_and_default_post()
     "expected json content type")
   assert(req:find('{"n":7}', 1, true) ~= nil, "expected encoded json body")
 end
-test_json_body_and_default_post()
 
 local function test_json_respects_caller_content_type()
   local req = echo_request(function(base: string): (fetch.Response, fetch.Error)
@@ -151,7 +147,6 @@ local function test_json_respects_caller_content_type()
   assert(req:lower():find("content-type: application/json\r\n", 1, true) == nil,
     "expected no second content type")
 end
-test_json_respects_caller_content_type()
 
 -- form body tests
 
@@ -163,7 +158,6 @@ local function test_form_body()
     "expected form content type")
   assert(req:find("\r\n\r\na=1&b=two%20words", 1, true) ~= nil, "expected sorted encoded form body")
 end
-test_form_body()
 
 -- multipart tests
 
@@ -185,7 +179,6 @@ local function test_multipart_body()
     "expected file part with content type")
   assert(req:find("--" .. boundary .. "--", 1, true) ~= nil, "expected closing boundary")
 end
-test_multipart_body()
 
 -- option validation tests
 
@@ -195,13 +188,11 @@ local function test_conflicting_body_options()
   assert(err and err.message:find("at most one", 1, true),
     "expected conflict error, got: " .. tostring(err))
 end
-test_conflicting_body_options()
 
 local function test_multipart_validation()
   local r, err = fetch.post("http://127.0.0.1:1/x", {multipart = {{name = 'bad"name', value = "v"}}})
   assert(r == nil and err ~= nil, "expected bad multipart name rejected")
 end
-test_multipart_validation()
 
 -- Result:json() tests
 
@@ -213,7 +204,6 @@ local function test_result_json()
   local body: JsonBody = check.must(shape.into(v, BODY))
   assert(body.answer == 42, "expected decoded json body")
 end
-test_result_json()
 
 local function test_result_json_bad_body()
   local port, pid = serve({"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nnot-json"})
@@ -222,7 +212,6 @@ local function test_result_json_bad_body()
   local v, err = r:json()
   assert(v == nil and err ~= nil, "expected decode failure for bad json")
 end
-test_result_json_bad_body()
 
 -- download tests
 
@@ -237,7 +226,6 @@ local function test_download_success()
   assert(fs.read(path) == "file-content", "expected file written")
   assert(fs.remove(path))
 end
-test_download_success()
 
 local function test_download_non_2xx_writes_nothing()
   local path = fs.join(TEST_TMPDIR, "dl404.bin")
@@ -248,7 +236,6 @@ local function test_download_non_2xx_writes_nothing()
   assert(r.body == "not found", "expected diagnostic body, got: " .. tostring(r.body))
   assert(not fs.is_present(path), "expected no file for non-2xx")
 end
-test_download_non_2xx_writes_nothing()
 
 local function test_download_transport_failure()
   local path = fs.join(TEST_TMPDIR, "dlfail.bin")
@@ -256,4 +243,3 @@ local function test_download_transport_failure()
   assert(r == nil and derr ~= nil, "expected connect failure")
   assert(not fs.is_present(path), "expected no file on transport failure")
 end
-test_download_transport_failure()
