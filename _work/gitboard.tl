@@ -166,8 +166,8 @@ local CSPEC: flags.CommandSpec = {
       .. "board facts filled",
       spec = {usage = "KIND ID [options]",
         summary = "print one role's subagent prompt for ID — KIND is "
-        .. "builder, review,\nrefine, or decompose — with the item's "
-        .. "spec verbatim and every\nboard-known placeholder filled. "
+        .. "builder, research,\nreview, refine, or decompose — with "
+        .. "the item's spec verbatim and every\nboard-known placeholder filled. "
         .. "The closing verdict line names what is\nleft to fill (a "
         .. "worktree path, a bounce paragraph, the review\nsession); "
         .. "fill those, then paste the body as the agent's prompt — "

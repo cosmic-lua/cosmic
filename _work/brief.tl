@@ -1,5 +1,5 @@
 --- `brief`: emit the prompt a subagent runs one role from — builder,
---- review, refine, decompose — with every placeholder the board can
+--- research, review, refine, decompose — with every placeholder the board can
 --- answer already filled: the item's id, handle, title, spec sidecar
 --- verbatim, repo and base branch, the item branch, the PR under
 --- review, and this checkout's own absolute path. Templates are
@@ -19,13 +19,14 @@ local tail = require("_work.tail")
 
 local KINDS < const >: {string: string} = {
   builder = brieftext.BUILDER,
+  research = brieftext.RESEARCH,
   review = brieftext.REVIEW,
   refine = brieftext.REFINE,
   decompose = brieftext.DECOMPOSE,
 }
 
 --- The kind names, alphabetical, for refusals and help.
-local KIND_LIST < const > = "builder, decompose, refine, review"
+local KIND_LIST < const > = "builder, decompose, refine, research, review"
 
 --- Replace every `<UPPER_SNAKE>` placeholder that `values` answers;
 --- one the map does not answer survives verbatim.
@@ -59,7 +60,7 @@ end
 --- The body prints first and the verdict line closes it (the `show`
 --- shape), naming the placeholders left for the caller.
 --- @param s store.Store The store
---- @param kind string builder | review | refine | decompose
+--- @param kind string builder | research | review | refine | decompose
 --- @param id string The item the brief is about
 --- @return integer Exit code
 local function cmd_brief(s: store.Store, kind: string, id: string): integer
