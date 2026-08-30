@@ -41,7 +41,7 @@ end
 --- Call `vcs.diverged()` with the process's cwd pointed at `root`,
 --- restoring the original cwd before returning -- `diverged` takes no
 --- path argument, so this is how a test gives it a repo to read.
-local function diverged_in(root: string): string
+local function diverged_in(root: string): string | nil
   local saved = check.must(fs.cwd())
   assert(fs.set_cwd(root))
   local sha = vcs.diverged()

@@ -5,6 +5,7 @@
 --- Results are fabricated in memory (and, for the path-taking calls, on
 --- disk), so no benchmark runs.
 
+local check = require("cosmic.check")
 local compare = require("_perf.compare")
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
@@ -29,7 +30,7 @@ local function write_results(path: string, names: {string}, wall: {number})
     rows[#rows + 1] = {name = name, wall_ns = wall[i], spread_pct = 2}
   end
   local payload: {string: any} = {meta = {bin_sha = "bbbb2222"}, results = rows}
-  local encoded = json.encode(payload)
+  local encoded = check.must(json.encode(payload))
   assert(fs.write(path, encoded))
 end
 

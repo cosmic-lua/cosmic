@@ -121,7 +121,8 @@ end
 -- and what goes first on the child PATH.
 local function test_binaries_go_on_the_path()
   local env = require("cosmic.env")
-  local saved_path, saved_bin = env.get("PATH"), env.get("TEST_BIN")
+  local saved_path = check.must(env.get("PATH"))
+  local saved_bin = check.must(env.get("TEST_BIN"))
   local proj: types.Project = {root = "/p", binaries = {}, files = {}}
   assert(env.set("PATH", "/usr/bin", true))
   stage.binaries_on_path(proj)

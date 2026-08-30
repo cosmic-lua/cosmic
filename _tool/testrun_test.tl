@@ -114,15 +114,12 @@ else
 fi
 ]], {mode = tonumber("755", 8)}))
 
-  local had_prior, prior = true, env.get("COSMIC_MAKE_ROOT")
-  if prior == nil then
-    had_prior = false
-  end
+  local prior = env.get("COSMIC_MAKE_ROOT")
   assert(env.set("COSMIC_MAKE_ROOT", "/should/not/leak", true))
 
   local exit_code = testrun.run({script}, output_base)
 
-  if had_prior then
+  if prior then
     assert(env.set("COSMIC_MAKE_ROOT", prior, true))
   else
     assert(env.unset("COSMIC_MAKE_ROOT"))

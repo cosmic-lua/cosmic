@@ -6,6 +6,7 @@
 --- measure function is injected, so each path is exercised with
 --- fabricated results files and no real benchmarks.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local gate = require("_perf.gate")
 local json = require("cosmic.json")
@@ -22,7 +23,7 @@ local function write_multi(path: string, rows: {string: number}, bin_sha?: strin
     }
   end
   local payload: {string: any} = {meta = {bin_sha = bin_sha}, results = results}
-  local encoded = json.encode(payload)
+  local encoded = check.must(json.encode(payload))
   assert(fs.write(path, encoded))
 end
 

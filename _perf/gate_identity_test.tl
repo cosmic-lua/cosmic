@@ -5,6 +5,7 @@
 --- cannot prove two runs measured the same one, so it may neither join
 --- the control set nor stand in for an A/A noise floor.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local gate = require("_perf.gate")
 local json = require("cosmic.json")
@@ -20,7 +21,7 @@ local function write_results(path: string, wall_ns: number, bin_sha?: string)
         samples_ns = {}, iterations = 1,
       }},
   }
-  local encoded = json.encode(payload)
+  local encoded = check.must(json.encode(payload))
   assert(fs.write(path, encoded))
 end
 

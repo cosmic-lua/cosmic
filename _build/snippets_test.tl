@@ -229,7 +229,7 @@ local function test_every_snippet_is_a_formatter_fixpoint()
         checked = checked + 1
         if result.code ~= fence.body .. "\n" then
           offenders[#offenders + 1] = fence.file .. ":" .. fence.line ..
-          ": formatter disagrees; formatted form:\n" .. result.code
+          ": formatter disagrees; formatted form:\n" .. check.must(result.code)
         end
       end
     end
