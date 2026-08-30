@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  statuses: write
 
 # A superseded PR run answers a question nobody is asking any more.
 # Pushes to main are never cancelled AND never queued behind each other:
