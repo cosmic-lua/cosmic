@@ -1,24 +1,35 @@
-A blocker edge carries a `--reason`, and that reason goes stale faster
-than the edge does: the thing it names as undecided gets decided while
-the edge itself stays correct. There is no verb that edits it.
+## Change
 
-Measured 2026-08-27 (session 0b13d2b4), board at `63e1a754`:
+Measured 2026-08-30 on the current board head (post-#1539):
+`cmd_block` (`_work/gitgraph.tl:164+`) stores reasons per blocker in
+the item's `block_reason` map (`_work/item.tl:59` declares
+`block_reason: {string: string}`; `reasons[blocker] = reason` on add,
+`= nil` on remove), but the existing-edge branch refuses BEFORE ever
+reading the incoming reason: `if not remove and had then return
+gate.verdict_line(verb, false, ("%s already waits on %s")...)` — so a
+stale reason cannot be corrected except by unblock+block (two commits,
+and a race window where the edge is gone). The guard's own comment
+says a second block "would silently rewrite the first one's" — which
+is true only because the code never compares them.
 
-```
-$ o/bin/gitboard block 3IUBNQZZ 3IVF3HbV --reason "…"
-gitboard-block: 3IUBNQZZ already waits on 3IVF3HbV
-```
+The change, in `_work/gitgraph.tl` (`cmd_block`) only: when the edge
+already exists and the incoming `--reason` DIFFERS from
+`block_reason[blocker]`, replace the stored reason and commit (one
+mutation; verdict line states the reason was updated, e.g. `<id8>
+still waits on <id8> — reason updated`); when it is IDENTICAL (or the
+existing-edge call carries the same text), keep the current refusal so
+re-runs stay no-ops with no empty commits. `blocked_by` is untouched
+in the update path. Update the comment above the branch to describe
+the compare-then-replace rule.
 
-`block` refuses an edge that exists rather than restating its reason,
-and the only other route — `unblock` then `block` — drops a live
-blocker for one commit, during which `next` would offer the item as
-pullable. So the reason was updated by editing
-`items/3IUBNQZZ8UHrBZD8Tgb7BgEx2zD.tl`'s `block_reason` table and
-committing (`3f80716e`), which is the one-off workaround the work
-skill allows when a verb is missing.
+Tests in `_work/gitgraph_test.tl`: re-block with a new reason updates
+`block_reason[blocker]` and leaves `blocked_by` unchanged; re-block
+with the identical reason refuses without committing; unblock still
+clears the map entry. Mutation-verify the compare (make the update
+path fire on identical reasons too, watch the no-op test go red).
 
-Two shapes would fix it, and picking between them is this item's job:
-`block` becoming idempotent-with-restatement (an existing edge plus a
-new `--reason` rewrites the reason and says so in the verdict line), or
-a separate `reason` verb. The first keeps the vocabulary small; the
-second keeps `block` honest about creating edges only.
+## Non-goals
+
+No new verbs or flags. No change to unblock, the deadlock check, or
+the require-a-reason refusal. cmd_new/cmd_attach untouched (recently
+reworked by #1539 — rebase cleanly on current board).
