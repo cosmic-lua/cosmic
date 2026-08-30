@@ -252,3 +252,46 @@ read there, not invented; the three-verdict vocabulary and the
 judgment; and the parent (`3INxo51I`) carries the decision this table
 records. Conventions are cosmic-lua/cosmopolitan's AGENTS.md. The
 ready-bar form for the port slices this one files is `decompose.md`.
+
+## Inventory
+
+| file | surface | covered by | verdict |
+|------|---------|-----------|---------|
+| test/tool/net/argon2_test.lua | cosmo.argon2 hash_encoded/verify via the removed numeric `variants` table | tool/lua/test_argon2.lua | retired |
+| test/tool/net/base64_test.lua | cosmo.EncodeBase64/DecodeBase64 RFC 4648 padding vectors | — | none |
+| test/tool/net/clearenv_test.lua | cosmo.unix.clearenv / cosmo.unix.environ | — | none |
+| test/tool/net/daemon_test.lua | cosmo.unix.daemon | — | none |
+| test/tool/net/encodejson_test.lua | cosmo.EncodeJson pretty-print, indent, maxdepth, cyclic-table refusal | tool/lua/test_data_formats.lua | none |
+| test/tool/net/encodelua_test.lua | cosmo.EncodeLua default-mode number/table spelling, pretty-print, cyclic/maxdepth placeholders | tool/lua/test_data_formats.lua | none |
+| test/tool/net/execvp_test.lua | cosmo.unix.execvp / execvpe / fexecve success paths | tool/lua/test_unix_proc.lua | none |
+| test/tool/net/futex_test.lua | cosmo.unix.mapshared futex-based mutex (wait/wake); reap loop calls `:errno()` | tool/lua/test_unix_errno.lua | retired |
+| test/tool/net/getlogin_test.lua | cosmo.unix.getlogin | — | none |
+| test/tool/net/jsonorg_fail_test.lua | cosmo.DecodeJson conformance corpus (json.org fail cases) | — | none |
+| test/tool/net/jsonorg_pass_test.lua | cosmo.DecodeJson conformance corpus (json.org pass cases) | — | none |
+| test/tool/net/jsontestsuite_fail1_test.lua | cosmo.DecodeJson conformance corpus (JSONTestSuite n_ group 1) | — | none |
+| test/tool/net/jsontestsuite_fail2_test.lua | cosmo.DecodeJson conformance corpus (JSONTestSuite n_ group 2) | — | none |
+| test/tool/net/jsontestsuite_fail3_test.lua | cosmo.DecodeJson conformance corpus (JSONTestSuite n_ group 3, deep-nesting stress) | — | none |
+| test/tool/net/jsontestsuite_fail4_test.lua | cosmo.DecodeJson conformance corpus (JSONTestSuite n_ group 4) | — | none |
+| test/tool/net/jsontestsuite_okay_test.lua | cosmo.DecodeJson conformance corpus (JSONTestSuite i_ implementation-defined cases) | — | none |
+| test/tool/net/jsontestsuite_pass_test.lua | cosmo.DecodeJson conformance corpus (JSONTestSuite y_ cases) | — | none |
+| test/tool/net/lfetch_test.lua | cosmo.Fetch HTTP proxy (CONNECT tunneling, Proxy-Authorization, http_proxy env) plus extended redirect/SSRF/status/timeout coverage | tool/lua/test_fetch_local.lua tool/lua/test_fetch_unix_proxy.lua | none |
+| test/tool/net/lfetchstream_test.lua | cosmo.FetchStream malformed-chunked-encoding edge cases and SSE-style event parsing | tool/lua/test_fetch_local.lua | none |
+| test/tool/net/lfuncs_test.lua | cosmo Encode*/Decode*/Escape*/ParseUrl/GetMonospaceWidth/IP-classify/Crc32/Deflate value-correctness against known vectors | tool/lua/test_definitions_conformance.lua | none |
+| test/tool/net/ljson_test.lua | cosmo.DecodeJson error-message vocabulary, integer/float overflow spelling, UTF-16 surrogate handling, depth cap | tool/lua/test_data_formats.lua | none |
+| test/tool/net/lre_test.lua | cosmo.re compile/search via the removed `re.Errno` userdata error object | tool/lua/test_re.lua | retired |
+| test/tool/net/lua_test.lua | Lua VM syntax extensions (binary/octal numeral literals, `*` string-repeat, `%` string-format operators) plus the redbean-only `ProgramContentType` global | — | none |
+| test/tool/net/lunix_test.lua | cosmo.unix pledge sandbox enforcement, dup/dup2, gmtime, ranged open/fstat/ftruncate/lseek/read/write, copy_file_range, opendir/getdents | tool/lua/test_signal.lua tool/lua/test_unix_proc.lua | none |
+| test/tool/net/mapshared_test.lua | cosmo.unix.mapshared cross-process atomics (xchg/cmpxchg/fetch_add/fetch_xor/fetch_and/fetch_or); reap loop calls `:errno()` | tool/lua/test_unix_errno.lua | retired |
+| test/tool/net/path_test.lua | cosmo.path.dirname/basename/join value-correctness across edge cases | tool/lua/test_definitions_conformance.lua | none |
+| test/tool/net/readlink_test.lua | cosmo.unix.readlink relative-path resolution and bufsiz clamping | — | none |
+| test/tool/net/setenv_test.lua | cosmo.unix.setenv overwrite semantics | — | none |
+| test/tool/net/sha_test.lua | cosmo.Sha256 / cosmo.GetCryptoHash sha256 known-answer vectors (RFC 6234) | tool/lua/test_crypto_hash.lua | covered |
+| test/tool/net/slurp_test.lua | cosmo.Slurp start/end substring-range reads | tool/lua/test_slurp_barf.lua | none |
+| test/tool/net/spinlock_test.lua | cosmo.unix.mapshared xchg-based spinlock, cross-process counter contention; reap loop calls `:errno()` | tool/lua/test_unix_errno.lua | retired |
+| test/tool/net/sqlite_test.lua | cosmo.lsqlite3 Database:readonly() / Statement:readonly() | — | none |
+| test/tool/net/sysconf_test.lua | cosmo.unix.sysconf SC_* queries; failure path calls `:errno()` | tool/lua/test_unix_errno.lua | retired |
+| test/tool/net/tcattr_test.lua | cosmo.unix.tcgetattr / tcsetattr termios | — | none |
+| test/tool/net/uname_test.lua | cosmo.unix.uname | — | none |
+| test/tool/net/unsetenv_test.lua | cosmo.unix.unsetenv | — | none |
+| test/tool/net/uuidv4_test.lua | cosmo.UuidV4 format/version/variant | tool/lua/test_uuid.lua | covered |
+| test/tool/net/uuidv7_test.lua | cosmo.UuidV7 format/version/variant | tool/lua/test_uuid.lua | covered |
