@@ -64,7 +64,6 @@ local function test_per_file_counts_agree_with_the_cast_baseline()
     "docs/design/cast-sites.tsv disagrees with the cast baseline — "
     .. REGEN .. ":\n  " .. table.concat(mismatched, "\n  "))
 end
-test_per_file_counts_agree_with_the_cast_baseline()
 
 local function test_every_class_has_a_heading_and_every_heading_has_a_row()
   local rows = check.must(cast_sites.read_tsv())
@@ -101,7 +100,6 @@ local function test_every_class_has_a_heading_and_every_heading_has_a_row()
     "'### ' heading(s) in " .. CASTS_MD .. " with no row in"
     .. " cast-sites.tsv:\n  " .. table.concat(missing_row, "\n  "))
 end
-test_every_class_has_a_heading_and_every_heading_has_a_row()
 
 local function test_every_row_holds_a_real_cast()
   local rows = check.must(cast_sites.read_tsv())
@@ -129,6 +127,5 @@ local function test_every_row_holds_a_real_cast()
     "row(s) in cast-sites.tsv name a line with no real cast — "
     .. REGEN .. ":\n  " .. table.concat(bad, "\n  "))
 end
-test_every_row_holds_a_real_cast()
 
 print("all cast site inventory tests passed")

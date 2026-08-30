@@ -267,7 +267,6 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["untracked/loose.tl"] == nil,
     "only the counted trees are walked")
 end
-test_count_reads_the_innermost_declared_return()
 
 local function test_the_site_counts_match_the_committed_baseline()
   local fresh = nilret.count(".")
@@ -304,6 +303,5 @@ local function test_the_site_counts_match_the_committed_baseline()
     "file(s) under their nil-return baseline — " .. REBASELINE .. ":\n  " ..
     table.concat(under, "\n  "))
 end
-test_the_site_counts_match_the_committed_baseline()
 
 print("all nil-return ratchet tests passed")

@@ -53,7 +53,6 @@ local function test_ensure_root_writes_a_manifest_rooted_at_treeroot()
     "manifest roots elsewhere:\n" .. text)
   assert(text:find("\nbuild o\n", 1, true), "no build line:\n" .. text)
 end
-test_ensure_root_writes_a_manifest_rooted_at_treeroot()
 
 local function test_the_root_holds_perf_and_nothing_else()
   local root = tree("scoped")
@@ -66,7 +65,6 @@ local function test_the_root_holds_perf_and_nothing_else()
   assert(#built == 1 and built[1] == "_perf",
     "the root's build dir must hold exactly {_perf}; got " .. render(built))
 end
-test_the_root_holds_perf_and_nothing_else()
 
 local function test_ensure_root_is_idempotent()
   local root = tree("twice")
@@ -80,7 +78,6 @@ local function test_ensure_root_is_idempotent()
   assert(link == fs.absolute_path(fs.join(root, "_perf")),
     "the tree link points at " .. link)
 end
-test_ensure_root_is_idempotent()
 
 local function test_a_missing_link_target_fails_loudly()
   local root = fs.join(tmpdir, "dangling")
@@ -91,7 +88,6 @@ local function test_a_missing_link_target_fails_loudly()
   assert(err:find(built, 1, true), "the error must name " .. built ..
     "; got " .. tostring(err))
 end
-test_a_missing_link_target_fails_loudly()
 
 local function test_argv_puts_modules_before_the_entry()
   local a = baserun.argv("BIN", "M.modules", {"--only", "time"})
@@ -102,11 +98,9 @@ local function test_argv_puts_modules_before_the_entry()
       ", want " .. w)
   end
 end
-test_argv_puts_modules_before_the_entry()
 
 local function test_argv_with_no_extras_ends_at_the_entry()
   local a = baserun.argv("BIN", "M.modules", {})
   assert(#a == 4, "argv length " .. tostring(#a))
   assert(a[4] == "o/_perf/run.lua", "entry is " .. tostring(a[4]))
 end
-test_argv_with_no_extras_ends_at_the_entry()

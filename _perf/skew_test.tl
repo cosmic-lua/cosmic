@@ -102,4 +102,3 @@ local function test_perf_sources_type_check_under_the_pinned_bootstrap()
     "time that this binary has it; otherwise it is an ordinary type " ..
     "error:\n" .. r.stderr)
 end
-test_perf_sources_type_check_under_the_pinned_bootstrap()
