@@ -36,6 +36,28 @@ local function is_worktree_root(path: string): boolean
   return fs.is_present(fs.join(path, ".git"))
 end
 
+--- The summary detail's "kept ..." clause, naming only what was
+--- actually kept -- the unconditional "kept the verified bootstrap"
+--- used to run even when the only thing kept was a worktree.
+--- @param bootstrap boolean Whether `o/bootstrap` was kept
+--- @param worktrees integer How many git worktrees were kept
+--- @return string "the verified bootstrap", "N git worktree(s)", both
+---   joined with "and", or "" when nothing was kept
+local function kept_detail(bootstrap: boolean, worktrees: integer): string
+  local parts: {string} = {}
+  if bootstrap then
+    parts[#parts + 1] = "the verified bootstrap"
+  end
+  if worktrees > 0 then
+    local noun = worktrees == 1 and "git worktree" or "git worktrees"
+    parts[#parts + 1] = worktrees .. " " .. noun
+  end
+  if #parts == 2 then
+    return parts[1] .. " and " .. parts[2]
+  end
+  return parts[1] or ""
+end
+
 --- `clean` — remove the build directory, in process. Driving this
 --- through the graph would mean reading rules out of the directory
 --- being deleted.
@@ -56,12 +78,16 @@ local function run(_proj: Project, _paths: {string},
   end
   local removed = 0
   local kept = 0
+  local kept_bootstrap = false
+  local kept_worktrees = 0
   for _, path in ipairs(entries) do
     if KEEP[fs.basename(path)] then
       kept = kept + 1
+      kept_bootstrap = true
     elseif is_worktree_root(path) then
       print("clean: kept " .. fs.basename(path) .. " (git worktree)")
       kept = kept + 1
+      kept_worktrees = kept_worktrees + 1
     else
       local ok, err = fs.remove_all(path)
       if not ok then
@@ -89,7 +115,7 @@ local function run(_proj: Project, _paths: {string},
   end
   local detail = project.BUILD_DIR
   if kept > 0 then
-    detail = detail .. ", kept the verified bootstrap"
+    detail = detail .. ", kept " .. kept_detail(kept_bootstrap, kept_worktrees)
   end
   return stage.verdict("clean", true, detail)
 end

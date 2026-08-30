@@ -141,6 +141,13 @@ local function test_clean_keeps_a_git_worktree()
     "the worktree survives: " .. r.out)
   assert(r.out:find("kept board (git worktree)", 1, true),
     "and clean says so: " .. r.out)
+  -- The summary detail must name what was ACTUALLY kept: a worktree
+  -- only, not the bootstrap it never mentions, so a reader is not told
+  -- "kept the verified bootstrap" for a tree that never had one.
+  assert(r.out:find("kept 1 git worktree", 1, true),
+    "and names the worktree: " .. r.out)
+  assert(not r.out:find("bootstrap", 1, true),
+    "and does not claim a bootstrap it never kept: " .. r.out)
   assert(not fs.is_present(fs.join(root, "o/bin")),
     "everything else still goes: " .. r.out)
 end
