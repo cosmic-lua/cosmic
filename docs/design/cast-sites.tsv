@@ -19,9 +19,9 @@ _make/runverb.tl	144	proved-value narrowing
 _make/stage.tl	183	record union after guard
 _perf/bench/micro_bench.tl	192	record union after guard
 _perf/perf_test.tl	31	proved-value narrowing
-_tool/coverage/baseline.tl	159	decoded data shaping
-_tool/coverage/baseline.tl	165	decoded data shaping
-_tool/coverage/baseline_test.tl	459	decoded data shaping
+_tool/coverage/baseline.tl	133	decoded data shaping
+_tool/coverage/baseline.tl	139	decoded data shaping
+_tool/coverage/baseline_test.tl	486	decoded data shaping
 _tool/coverage/lines.tl	86	tl compiler surface
 _tool/coverage/lines.tl	98	tl compiler surface
 _tool/coverage/lines.tl	133	tl compiler surface

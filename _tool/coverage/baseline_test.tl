@@ -41,6 +41,24 @@ local function assert_row(text: string, path: string, covered: integer, total: i
       e and (e.covered .. "/" .. e.total) or "missing"))
 end
 
+--- A directory `report.compute` can read: one source file with three
+--- executable lines and one `.cov` file (compute refuses a run with no
+--- coverage data), measuring 0 of 3.
+--- @param name string Subdirectory of TEST_TMPDIR to build it in
+--- @return string The fixture root
+--- @return string The display path its one row carries
+local function coverage_fixture(name: string): string, string
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local root = fs.join(tmpdir, name)
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(fs.join(root, "lib")))
+  local src = fs.join(root, "lib/a.tl")
+  assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))
+  assert(fs.write(fs.join(root, "one.cov"),
+      '{version=1,hits={["' .. src .. '"]={[1]=1}}}'))
+  return root, src
+end
+
 local function test_render_parse_roundtrip()
   local text = check.must(baseline.render(reports({
           {"lib/a.tl", 9, 10},
@@ -189,62 +207,89 @@ local function test_lowered_is_silent_when_it_cannot_tell()
     "an unparseable baseline reports nothing")
 end
 
--- The rewrite is ONE-WAY. `.cosmic-coverage` is a floor, and several rows were
--- set to what the strictest environment measures; a rebaseline from a
--- machine that measures more must not raise them, or CI fails on a row
--- nobody edited.
-local function test_render_never_raises_a_committed_floor()
-  local base_floor = check.must(baseline.parse(
-      fixture({{"kept.tl", 4, 10}, {"worse.tl", 9, 10}, {"grown.tl", 8, 10}}))).rows
-  local text = check.must(baseline.render(reports({
-          -- measures better than its floor: the floor is kept verbatim
-          {"kept.tl", 9, 10},
-          -- measures worse: that is what a rebaseline is for
-          {"worse.tl", 5, 10},
-          -- more lines AND a better ratio: still not a reason to raise
-          {"grown.tl", 11, 12},
-          -- absent from the floor: recorded as measured
-          {"new.tl", 3, 4},
-        }), base_floor))
-  assert_row(text, "kept.tl", 4, 10)
-  assert_row(text, "worse.tl", 5, 10)
-  assert_row(text, "grown.tl", 8, 10)
-  assert_row(text, "new.tl", 3, 4)
-end
-
--- A rewrite lowers a row only when the ratchet would have FAILED on it.
--- Everything else keeps the committed numbers, so a regeneration is a
--- near-empty diff: a percentage that held, a percentage that held while
--- the file grew, and a dip inside the per-file slack all leave the row
--- exactly as it was.
-local function test_render_rewrites_only_rows_the_ratchet_would_fail()
-  local before = fixture({{"flat.tl", 40, 50}, {"slack.tl", 180, 200}, {"real.tl", 180, 200}})
-  local base_floor = check.must(baseline.parse(before)).rows
-  local text = check.must(baseline.render(reports({
-          -- 80% either way: identical percentage, different counts
-          {"flat.tl", 44, 55},
-          -- 0.5pp down, inside the file's 1.0pp slack
-          {"slack.tl", 179, 200},
-          -- 10pp down, well outside it: this is the one that moves
-          {"real.tl", 160, 200},
-        }), base_floor))
-  assert_row(text, "flat.tl", 40, 50)
-  assert_row(text, "slack.tl", 180, 200)
-  assert_row(text, "real.tl", 160, 200)
-  local moved = baseline.lowered(before, text)
-  assert(#moved == 1, "only the failing row moved, got " .. #moved ..
+-- `render` no longer reads a previous floor -- whatever this run
+-- measured IS the row, raises included, and `lowered` narrates a raise
+-- the same way it narrates a decline.
+local function test_render_raises_a_wrongly_low_floor_row()
+  local before = fixture({{"kept.tl", 4, 10}, {"worse.tl", 9, 10}})
+  local after = check.must(baseline.render(reports({
+          {"kept.tl", 9, 10}, -- measures far better than its floor
+          {"worse.tl", 5, 10}, -- measures worse: no special treatment
+        })))
+  assert_row(after, "kept.tl", 9, 10)
+  assert_row(after, "worse.tl", 5, 10)
+  local moved = baseline.lowered(before, after)
+  table.sort(moved)
+  assert(#moved == 2, "both rows moved, got " .. #moved ..
     ": " .. table.concat(moved, "; "))
-  assert(moved[1]:find("real.tl", 1, true), "got: " .. moved[1])
-  assert(moved[1]:find("90.0% -> 80.0%", 1, true), "got: " .. moved[1])
+  assert(moved[1]:find("kept.tl", 1, true) and moved[1]:find("40.0% -> 90.0%", 1, true),
+    "a raise must be narrated too, got: " .. moved[1])
+  assert(moved[2]:find("worse.tl", 1, true) and moved[2]:find("90.0% -> 50.0%", 1, true),
+    "got: " .. moved[2])
 end
 
--- A tiny file's slack is two lines rather than a percentage, and the
--- rewrite reads the same slack the check does: one line of nine is a
--- 11pp drop the ratchet forgives, so the floor holds.
-local function test_render_keeps_a_tiny_files_floor_within_its_line_slack()
-  local base_floor = check.must(baseline.parse(fixture({{"tiny.tl", 9, 9}}))).rows
-  local text = check.must(baseline.render(reports({{"tiny.tl", 8, 9}}), base_floor))
-  assert_row(text, "tiny.tl", 9, 9)
+-- No floor, no slack, no clamp: a percentage inside what `compare`
+-- would forgive as a decline still becomes the row verbatim.
+local function test_render_writes_exactly_what_this_run_measured()
+  local text = check.must(baseline.render(reports({
+          {"slack.tl", 179, 200}, {"tiny.tl", 8, 9},
+        })))
+  assert_row(text, "slack.tl", 179, 200)
+  assert_row(text, "tiny.tl", 8, 9)
+end
+
+-- Breadth, not magnitude: 3 of 4 committed floor rows lowering at once
+-- is what a partial or stale run looks like, not a decision, so the
+-- whole rewrite refuses -- and the message names the count.
+local function test_corpus_guard_refuses_a_majority_lowering_rewrite()
+  local before = fixture({
+      {"a.tl", 9, 10}, {"b.tl", 9, 10}, {"c.tl", 9, 10}, {"d.tl", 9, 10},
+    })
+  local after = check.must(baseline.render(reports({
+          {"a.tl", 1, 10}, {"b.tl", 1, 10}, {"c.tl", 1, 10}, {"d.tl", 9, 10},
+        })))
+  local ok, refusal = baseline.corpus_guard(before, after)
+  assert(not ok, "3 of 4 floor rows lowering must refuse")
+  assert(refusal:find("REFUSED", 1, true), "got: " .. refusal)
+  assert(refusal:find("lower 3 of 4 floor rows", 1, true),
+    "the refusal must name the count, got: " .. refusal)
+end
+
+-- 1 of 4 is not a majority: the guard lets it through, and `lowered`
+-- still narrates the one row that moved.
+local function test_corpus_guard_allows_a_minority_lowering_rewrite()
+  local before = fixture({
+      {"a.tl", 9, 10}, {"b.tl", 9, 10}, {"c.tl", 9, 10}, {"d.tl", 9, 10},
+    })
+  local after = check.must(baseline.render(reports({
+          {"a.tl", 1, 10}, {"b.tl", 9, 10}, {"c.tl", 9, 10}, {"d.tl", 9, 10},
+        })))
+  local ok, refusal = baseline.corpus_guard(before, after)
+  assert(ok, "1 of 4 lowering must not refuse, got: " .. refusal)
+  local moved = baseline.lowered(before, after)
+  assert(#moved == 1 and moved[1]:find("a.tl", 1, true),
+    "the one real decline is still narrated, got " .. #moved ..
+    ": " .. table.concat(moved, "; "))
+end
+
+-- Wiring proof: `text_for` really calls the guard. One real file with
+-- a floor row committed above what this run measures is a single-row
+-- floor lowering, always "more than half" of one row, so it refuses.
+local function test_text_for_refuses_through_the_corpus_guard()
+  local root, src = coverage_fixture("text-for-guard-refuses")
+  local previous = fixture({{src, 3, 3}})
+  local text, err = baseline.text_for({root}, previous)
+  assert(not text, "a majority-lowering rewrite must refuse: " .. tostring(text))
+  assert(err and err:find("REFUSED", 1, true), "got: " .. tostring(err))
+  assert(err:find("lower 1 of 1 floor rows", 1, true), "got: " .. err)
+end
+
+-- No committed floor means nothing to guard against: the first run
+-- always writes.
+local function test_text_for_writes_on_a_first_run_with_no_floor()
+  local root, src = coverage_fixture("text-for-no-floor")
+  local text = check.must(baseline.text_for({root}))
+  assert_row(text, src, 0, 3)
 end
 
 -- `.cosmic-coverage` merges with git's `union` strategy, so a row two
@@ -340,24 +385,6 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
     "the one-line summary must be LAST, got: " .. last)
   assert(last:find(src, 1, true),
     "and must name every declining file, got: " .. last)
-end
-
---- A directory `report.compute` can read: one source file with three
---- executable lines and one `.cov` file (compute refuses a run with no
---- coverage data), measuring 0 of 3.
---- @param name string Subdirectory of TEST_TMPDIR to build it in
---- @return string The fixture root
---- @return string The display path its one row carries
-local function coverage_fixture(name: string): string, string
-  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
-  local root = fs.join(tmpdir, name)
-  assert(fs.remove_all(root))
-  assert(fs.make_dirs(fs.join(root, "lib")))
-  local src = fs.join(root, "lib/a.tl")
-  assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))
-  assert(fs.write(fs.join(root, "one.cov"),
-      '{version=1,hits={["' .. src .. '"]={[1]=1}}}'))
-  return root, src
 end
 
 -- The two ways `check` refuses before it can compare anything: no
