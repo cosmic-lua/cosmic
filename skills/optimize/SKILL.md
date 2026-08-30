@@ -266,8 +266,8 @@ code. the workflow that has worked:
 
 ## the hypothesis backlog
 
-the work board holds the log (`skills/work/SKILL.md` has the system;
-the board branch's own README has the tool) — one item per concrete,
+the work board holds the log (`skills/work/SKILL.md` has the
+bootstrap; `gitboard help` has the system) — one item per concrete,
 evidence-backed starting point, filed as an unparented capture:
 `gitboard new "<title>" --spec-file F`. a capture takes no `--repo`;
 when the fix lands in the C layer, the spec names cosmic-lua/cosmopolitan

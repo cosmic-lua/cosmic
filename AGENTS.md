@@ -467,9 +467,10 @@ one prioritized queue of items in two states — `todo` and `doing` (claimed) �
 with quality held by a spec bar at pull and a fresh-context review before
 merge, not by stage columns. the board lives on the orphan `board` branch —
 one `items/<ksuid>.tl` per item, the machinery beside it — reached as a worktree.
-the skill has the bootstrap and what the system means; the board branch's own
-README and `gitboard help` have the tool. issues remain only the inbound
-queue; pull requests carry fixes and review as before.
+the skill has the bootstrap; the tool serves the system itself —
+`gitboard help <topic>` for the doctrine, `gitboard help <verb>` for the
+mechanics, `gitboard brief` for subagent prompts. issues remain only the
+inbound queue; pull requests carry fixes and review as before.
 
 ## CI
 
