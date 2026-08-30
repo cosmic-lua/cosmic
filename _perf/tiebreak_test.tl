@@ -46,7 +46,6 @@ local function test_a_quiet_pair_does_not_disagree()
   assert(not tiebreak.disagrees(a, b, 10),
     "a 5% move is under the 10% bar and is not a disagreement")
 end
-test_a_quiet_pair_does_not_disagree()
 
 local function test_a_faster_second_reading_disagrees()
   local a = reading({s = 1000})
@@ -54,7 +53,6 @@ local function test_a_faster_second_reading_disagrees()
   assert(tiebreak.disagrees(a, b, 10),
     "a -30% move past the bar is a disagreement in the faster direction")
 end
-test_a_faster_second_reading_disagrees()
 
 local function test_a_slower_second_reading_disagrees()
   local a = reading({s = 1000})
@@ -62,7 +60,6 @@ local function test_a_slower_second_reading_disagrees()
   assert(tiebreak.disagrees(a, b, 10),
     "a +30% move past the bar is a disagreement")
 end
-test_a_slower_second_reading_disagrees()
 
 local function test_the_median_follows_the_majority()
   -- The lone HIGH reading loses, and so does the lone LOW one.
@@ -75,7 +72,6 @@ local function test_the_median_follows_the_majority()
   assert(wall_of(low, "s") == 1000,
     "the majority 1000 outvotes a lone 700, got " .. tostring(wall_of(low, "s")))
 end
-test_the_median_follows_the_majority()
 
 local function test_a_row_missing_from_one_reading_is_carried_through()
   local first = reading({s = 1300, only_here = 500})
@@ -86,7 +82,6 @@ local function test_a_row_missing_from_one_reading_is_carried_through()
     "a row absent from a reading keeps the first reading's number, got " ..
     tostring(wall_of(median, "only_here")))
 end
-test_a_row_missing_from_one_reading_is_carried_through()
 
 local function test_an_agreeing_pair_costs_one_measurement()
   local base = fs.join(tmpdir, "tb-agree-base.json")
@@ -102,7 +97,6 @@ local function test_an_agreeing_pair_costs_one_measurement()
   assert(side:match("%-retry%.json$"),
     "the retry IS the baseline side when the pair agrees, got " .. side)
 end
-test_an_agreeing_pair_costs_one_measurement()
 
 local function test_a_disagreeing_pair_buys_a_third_and_medians_it()
   local base = fs.join(tmpdir, "tb-split-base.json")
@@ -122,7 +116,6 @@ local function test_a_disagreeing_pair_buys_a_third_and_medians_it()
     "the median file carries the majority number, got " ..
     tostring(wall_of(written, "s")))
 end
-test_a_disagreeing_pair_buys_a_third_and_medians_it()
 
 local function test_a_third_reading_of_another_binary_is_refused()
   local base = fs.join(tmpdir, "tb-identity-base.json")
@@ -137,7 +130,6 @@ local function test_a_third_reading_of_another_binary_is_refused()
   assert(err:find("DIFFERENT binaries", 1, true) ~= nil,
     "the refusal names the identity mismatch, got " .. tostring(err))
 end
-test_a_third_reading_of_another_binary_is_refused()
 
 local function test_a_failed_measurement_is_reported()
   local base = fs.join(tmpdir, "tb-failed-base.json")
@@ -149,4 +141,3 @@ local function test_a_failed_measurement_is_reported()
   assert(err:find("re-measurement", 1, true) ~= nil,
     "the failure is reported rather than swallowed, got " .. tostring(err))
 end
-test_a_failed_measurement_is_reported()
