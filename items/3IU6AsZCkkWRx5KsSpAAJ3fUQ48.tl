@@ -4,5 +4,6 @@ return {
   ["builders"] = "wave18-a-1788060000",
   ["id"] = "3IU6AsZCkkWRx5KsSpAAJ3fUQ48",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
+  ["speccers"] = "orchestrator-w18",
   ["title"] = "migrate to runner mode, batch 3/7: cosmic/{fs,child,format,flags,coverage,sandbox}",
 }
