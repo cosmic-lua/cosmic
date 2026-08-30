@@ -1,7 +1,10 @@
 return {
   ["_work/action.tl"] = {["covered"] = 156, ["total"] = 159},
   ["_work/api.tl"] = {["covered"] = 10, ["total"] = 27},
+  ["_work/brief.tl"] = {["covered"] = 68, ["total"] = 79},
+  ["_work/brieftext.tl"] = {["covered"] = 6, ["total"] = 10},
   ["_work/decision.tl"] = {["covered"] = 7, ["total"] = 7},
+  ["_work/doctrine.tl"] = {["covered"] = 41, ["total"] = 41},
   ["_work/fixture.tl"] = {["covered"] = 87, ["total"] = 89},
   ["_work/flow.tl"] = {["covered"] = 142, ["total"] = 149},
   ["_work/flowstats.tl"] = {["covered"] = 141, ["total"] = 175},

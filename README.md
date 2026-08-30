@@ -60,9 +60,15 @@ tree — nothing here derives from it, and nothing checks it.
 What the verbs ARE lives here and only here: `gitboard help` lists
 them, `gitboard help <verb>` gives one its options, and both are
 generated from the CLI, so neither can drift from the tool. The
-`work` skill on `main` says what the verbs are FOR and when a session
-reaches for which; it deliberately restates none of the above, so a
-verb added here needs no edit there.
+SYSTEM lives here too: `gitboard help <topic>` serves the doctrine
+pages (`_work/doctrine.tl`) — the states and their exits, the spec
+bar, building, review, orchestration — and `gitboard brief` emits
+the subagent prompts with the board's own facts filled
+(`_work/brief.tl`), so a brief cannot drift from the item it is
+about. The `work` skill on `main` is only the bootstrap: it points
+here and restates none of this, so a verb, topic, or brief changed
+here needs no edit there and reaches every session on its next
+sync.
 
 ## Using it from a cosmic checkout
 
