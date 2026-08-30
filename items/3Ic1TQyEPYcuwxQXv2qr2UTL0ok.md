@@ -1,44 +1,49 @@
 ## Change
 
-Reproduced twice independently (builder and reviewer of PR #1541,
-2026-08-30): with a live mutation in `_make/clean.tl` and the mutated
-module confirmed embedded in the rebuilt binary, the narrow
-`bin/cosmic --make test _make/clean_test.tl` reported an IDENTICAL
-green (same counts, same wall time) — a stale cached result — while
-directly running the compiled `o/_make/clean_test.lua` went red.
-Root cause as measured: the test's cached outcome
-(`.test.time`/`.test.out` beside the compiled test) was not
-invalidated when a DEPENDENCY of the test changed; the test file
-itself was unchanged, so its cache replayed. The build already
-computes each source's transitive import closure
-(`o/project.mk`'s `srcdeps_<stem>` vars; rules live in the committed
-`embed/cosmic.mk` — constant rules, generated facts).
+Corrected after a build bounce (2026-08-30) that falsified the first
+spec's root cause with hard evidence — trust this version. The false
+green reproduces exactly as first measured (mutate `_make/clean.tl`,
+rebuild, `--make test _make/clean_test.tl` green with identical wall
+time while the direct compiled run goes red). But the test rule in
+`embed/cosmic.mk` ALREADY carries `$$(deps_$$*)` as a prerequisite
+(verbatim since the file's origin commit 7b9f0749), and
+`_cli/build/work.tl`'s `do_record` keys its content-addressed skip on
+the same deps list. The real gap: `deps_<stem>` is the REQUIRE-edge
+closure (`_make/deps.tl`), and `_make/clean_test.tl` never requires
+`_make.clean` — it validates behavior by SPAWNING the freshly built
+binary — so neither the make prerequisite nor the record key sees
+`clean.lua`, and the recipe re-fires but `do_record` short-circuits on
+an unchanged key (only `.got` is touched; `.test.in`/`.test.time`
+stay stale). A deliberate design decision (the "d17 rule" noted
+inline) declines to name the project binary as a test prerequisite —
+that wall stands.
 
-The change: make the test-run rule's prerequisites include the
-test's transitive dependency closure so a changed import re-runs the
-test. Work in this order and STOP AND REPORT if the shape breaks:
-1. REPRODUCE first, exactly as measured (mutate clean.tl, rebuild,
-   narrow test green, direct run red). Paste both outputs.
-2. Locate the rule that produces/consults `.test.time`/`.test.out`
-   (read `embed/cosmic.mk` and whatever in `_make/`/`_tool/` drives
-   `--make test`); identify why srcdeps are absent from its prereqs.
-3. Fix minimally — prefer wiring the existing `srcdeps_<stem>` vars
-   into the existing rule over any new mechanism. Remember
-   `embed/cosmic.mk` is byte-identical for every project and no rule
-   is ever generated: the fix must hold that invariant.
-4. Show the SAME reproduction now goes red through the narrow path,
-   then restore and show green. That before/after pair is the proof;
-   also add whatever regression test the harness can carry (a
-   `_make`/`_build` test asserting the rule's prereqs include the
-   deps var, if the fixture seams allow; if no seam can express it,
-   say so rather than forcing one).
-Full `--make ci` PASS before pushing; mind the fixpoint/convergence
-notes in AGENTS.md (a make-rule change is toolchain-facing — if the
-converged gate passes but you suspect a cold-build interaction, run
-the fixtures test `_make/fixtures_test.tl` too and say what you saw).
+The fix uses the EXISTING declared-reads mechanism (`--- reads:`
+comments, consumed by `_make/imports.tl`'s `reads_scan` and wired
+through `_make/graph.tl` into `deps_<stem>`/the record key; live
+precedents: `_build/coldbuild_test.tl`, `_perf/skew_test.tl`):
+
+1. Add `--- reads: _make/clean.tl` to `_make/clean_test.tl`, with a
+   one-line comment stating why (the test asserts clean's behavior
+   through the spawned binary, so the module under test is a real
+   dependency the require graph cannot see).
+2. Audit the sibling subprocess-driving `_make/*_test.tl` files
+   (grep for the spawn pattern; the bounce named `build_test.tl`,
+   `fixtures_test.tl`, `fixpoint_test.tl`) and add the analogous
+   `--- reads:` for the module(s) whose behavior each asserts. Name
+   MODULES under test, never the binary (the d17 wall).
+3. PROOF, the same pair the bounce ran: with the annotation, the
+   clean.tl mutation must flip the NARROW `--make test
+   _make/clean_test.tl` red (fresh record run), and restoring goes
+   green. Paste both.
+4. Regression coverage: if an existing `_make`/`_build` test seam can
+   assert that project.mk's `deps__make/clean_test` includes the
+   annotated read, add that one assertion; if no seam fits, say so.
+
+Full `--make ci` PASS before pushing.
 
 ## Non-goals
 
-No change to test discovery, runner mode, or coverage; no per-project
-generated rules; no weakening of the cache (correct invalidation, not
-cache removal).
+No embed/cosmic.mk changes (the rule is correct). No `_make/deps.tl`
+closure-semantics changes. No binary-as-prerequisite (the d17 wall).
+No cache weakening.
