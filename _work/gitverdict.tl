@@ -116,54 +116,75 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if all == nil then
     return gate.verdict_line("verdict", false, aerr)
   end
-  if (it.pr or 0) == 0 and (pr or 0) == 0 then
-    return gate.verdict_line("verdict", false,
-      ("%s has no PR — a verdict judges a diff"):format(id:sub(1, 8)))
-  end
   if (it.verdict or "") == "accept" then
     return gate.verdict_line("verdict", false,
       ("REFUSED: %s already carries an accept — land it"):format(id:sub(1, 8)))
+  end
+  -- A verdict judges evidence: a diff, or a claimed item's recorded
+  -- work. Neither exists on an item still sitting untouched in
+  -- todo — nothing was done yet for a reviewer to read. Once claimed,
+  -- a PR-less item judges its evidence the same way a PR judges its
+  -- diff: no head to verify shape against, no request to fetch, and
+  -- the stored `verdict_head` stays empty — the reviewer's job is the
+  -- one SKILL.md names, re-running the spec's recorded checks.
+  local judged = (pr or 0) ~= 0 and pr or it.pr
+  local pr_less = judged == 0
+  if pr_less and (it.claim or "") == "" then
+    return gate.verdict_line("verdict", false,
+      ("%s has no PR and is not claimed — nothing to judge yet"):format(
+        id:sub(1, 8)))
   end
   -- The head is verified before anything downstream treats it as
   -- true: the shape half always, because a non-hex value would just
   -- make the pair guard and `head_moved` silently never match; the PR
   -- half whenever a request stands to check against, because a gate
   -- that waves a head through when it cannot see the PR is worse than
-  -- no gate at all.
-  local judged = (pr or 0) ~= 0 and pr or it.pr
-  local shape_err = review.head_refusal(nil, head)
-  if shape_err then
-    return gate.verdict_line("verdict", false, "REFUSED: " .. shape_err)
-  end
-  -- Hoisted so the accept path below reuses this same read instead of
-  -- fetching the PR again: one snapshot decides both which head was
-  -- judged and whether it is fit to land.
+  -- no gate at all. Neither half applies with no PR to judge.
   local p: review.Pull | nil = nil
-  if publish.has_origin(s) then
-    local perr: string
-    p, perr = gh.pull(s, judged, it.repo)
-    if p == nil then
-      return gate.verdict_line("verdict", false,
-        ("REFUSED: cannot verify --head against PR #%d: %s"):format(
-          judged, perr or ""))
+  if pr_less then
+    head = ""
+  else
+    local shape_err = review.head_refusal(nil, head)
+    if shape_err then
+      return gate.verdict_line("verdict", false, "REFUSED: " .. shape_err)
     end
-    local head_err = review.head_refusal(p, head)
-    if head_err then
-      return gate.verdict_line("verdict", false, "REFUSED: " .. head_err)
+    -- Hoisted so the accept path below reuses this same read instead of
+    -- fetching the PR again: one snapshot decides both which head was
+    -- judged and whether it is fit to land.
+    if publish.has_origin(s) then
+      local perr: string
+      p, perr = gh.pull(s, judged, it.repo)
+      if p == nil then
+        return gate.verdict_line("verdict", false,
+          ("REFUSED: cannot verify --head against PR #%d: %s"):format(
+            judged, perr or ""))
+      end
+      local head_err = review.head_refusal(p, head)
+      if head_err then
+        return gate.verdict_line("verdict", false, "REFUSED: " .. head_err)
+      end
+      -- The PR's own full head is canonical; the caller may have passed
+      -- a short prefix.
+      head = p.head_sha
     end
-    -- The PR's own full head is canonical; the caller may have passed
-    -- a short prefix.
-    head = p.head_sha
   end
   -- A verdict judges a head AND the spec that head is measured
   -- against: a rework can answer a bounce by rewriting the spec,
   -- which moves no commit. Judging the same PAIR twice says nothing
   -- new happened between them — that is "nothing to judge" rather
   -- than a fresh round. An unrecorded revision refuses nothing: the
-  -- board cannot say what spec an older verdict read.
+  -- board cannot say what spec an older verdict read. A PR-less item
+  -- has no head to pair, so the guard degrades to the spec revision
+  -- alone — an unchanged spec is still nothing new to judge.
   local judged_spec = spec.revision(store.read_spec(s, id))
-  if (head or "") ~= "" and head == (it.verdict_head or "")
-  and (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec then
+  local paired: boolean
+  if pr_less then
+    paired = (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec
+  else
+    paired = (head or "") ~= "" and head == (it.verdict_head or "")
+    and (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec
+  end
+  if paired then
     return gate.verdict_line("verdict", false,
       "REFUSED: " .. already_judged_refusal(id, head))
   end

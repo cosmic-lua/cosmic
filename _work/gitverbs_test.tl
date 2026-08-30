@@ -14,6 +14,7 @@ local store = require("_work.store")
 local fixture = require("_work.fixture")
 local verbs = require("_work.gitverbs")
 local graph = require("_work.gitgraph")
+local vrd = require("_work.gitverdict")
 
 local init_state_repo = fixture.init_state_repo
 local init_shared = fixture.init_shared
@@ -266,8 +267,12 @@ end
 test_a_foreign_drop_needs_force()
 
 -- `done` under an unjudged PR is refused: the diff still exists on
--- GitHub, and ending the item makes it vanish from the board. The
--- claimant's no-PR work ends freely — a research item, a dedupe.
+-- GitHub, and ending the item makes it vanish from the board. Claimed
+-- no-PR work is evidence mid-review the same way — an item nobody
+-- ever claimed carries no such claim of success, and ends freely, but
+-- a claimant's research slice needs its accept the same as a diff
+-- does; `--force --why` remains the repair for ending one nothing
+-- will ever review (an obsolete slice, a duplicate).
 local function test_done_guards_an_unjudged_pr()
   local s = init_state_repo("done-guard")
   local goal, leaf = root_with_leaf(s)
@@ -282,12 +287,48 @@ local function test_done_guards_an_unjudged_pr()
   local other = file_item(s, "a research slice", goal)
   give_spec(s, other)
   assert(verbs.cmd_take(s, other, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_done(s, other, "completed", false, "") ~= 0,
+    "claimed no-PR work with no accept holds the item open too")
+  assert(vrd.cmd_verdict(s, other, "accept", 0, "", "reviewer-a") == 0,
+    "an evidence-only item takes a verdict too — no --head needed")
   assert(verbs.cmd_done(s, other, "completed", false, "") == 0,
-    "claimed no-PR work ends freely")
+    "an accept clears the way")
   local ended = check.must(store.load(s, other))
   assert(ended.claim == "", "and done clears the claim")
+  local dup = file_item(s, "a duplicate of the slice above", goal)
+  give_spec(s, dup)
+  assert(verbs.cmd_take(s, dup, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_done(s, dup, "completed", true,
+      "duplicate of the research slice above") == 0,
+    "--force --why still ends an item nothing will ever review")
 end
 test_done_guards_an_unjudged_pr()
+
+-- `drop` clears the live claim but never touches `builders` — the
+-- append-only record of every session that ever held it — so the
+-- PR-less done gate above must key on that history, not the live
+-- claim. Keying on the live claim let take -> drop -> done slip a
+-- worked research item past review with no verdict and no --force:
+-- the exact bypass this test pins shut.
+local function test_done_guards_a_dropped_items_worked_history()
+  local s = init_state_repo("drop-then-done")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_drop(s, leaf, "session-a",
+      "pausing to rethink the approach", false) == 0)
+  local dropped = check.must(store.load(s, leaf))
+  assert(dropped.claim == "" and #dropped.builders == 1,
+    "the claim clears but the builders record survives the drop")
+  assert(verbs.cmd_done(s, leaf, "completed", false, "") ~= 0,
+    "a dropped item with worked history still owes a verdict")
+  assert(verbs.cmd_done(s, leaf, "completed", true,
+      "abandoning this line of research") == 0,
+    "--force --why remains the repair path")
+  local ended = check.must(store.load(s, leaf))
+  assert(ended.claim == "", "and done clears the claim")
+end
+test_done_guards_a_dropped_items_worked_history()
 
 -- Closing the last child makes the container workable again by
 -- derivation — nothing is written to it, and the verdict line says

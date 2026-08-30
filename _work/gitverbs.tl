@@ -355,6 +355,26 @@ local function cmd_done(s: store.Store, id: string, reason: string,
       ("REFUSED: %s has PR #%d awaiting a verdict — done after an accept, "
         .. "or drop it with the gap named"):format(id:sub(1, 8), it.pr))
   end
+  -- A PR-less item that was ever worked is evidence mid-review the same
+  -- way: `verdict` now judges it too (re-running the spec's recorded
+  -- checks in place of a diff, per skills/work/SKILL.md), so ending it
+  -- here with no accept would carry the same unreviewed claim of
+  -- success the PR guard above exists to stop. This keys on `builders`
+  -- — the append-only record of every session that ever held the claim
+  -- — rather than the LIVE claim: `drop` clears `claim` without
+  -- touching `builders`, so a live-claim check lets take -> drop -> done
+  -- complete worked research silently, with no verdict and no --force.
+  -- An item never claimed (no builders, ever) carries no such claim of
+  -- success, so it is untouched. `--force --why` is the same repair —
+  -- ending an item nothing will ever review (an obsolete slice, a
+  -- duplicate) still goes through, named on the record.
+  if (it.pr or 0) == 0 and #(it.builders or {}) > 0 and (it.verdict or "") ~= "accept"
+  and not force then
+    return gate.verdict_line("done", false,
+      ("REFUSED: %s has no PR and no accept — an evidence-only item takes "
+        .. "a verdict too; record one (`gitboard verdict`), or end it "
+        .. "without review via --force --why"):format(id:sub(1, 8)))
+  end
   -- The accepted path verifies the merge before ending the item: an
   -- item ended over an unmerged request says the work landed when it
   -- did not, and nothing downstream would catch it. Whether the merge
