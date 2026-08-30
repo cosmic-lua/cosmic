@@ -32,4 +32,3 @@ local function test_read_retries_eintr()
     .. tostring(data) .. " (err: " .. tostring(err) .. ")")
   assert(h:wait())
 end
-test_read_retries_eintr()

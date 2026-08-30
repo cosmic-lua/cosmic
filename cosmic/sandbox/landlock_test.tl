@@ -16,7 +16,6 @@ local function test_module_exports()
   assert(type(landlock.RW) == "number", "RW should be a number constant")
   assert(type(landlock.ALL) == "number", "ALL should be a number constant")
 end
-test_module_exports()
 
 local function test_access_mask_composition()
   -- READ must include READ_FILE and READ_DIR; the underlying module
@@ -51,13 +50,11 @@ local function test_access_mask_composition()
   assert((landlock.RW & landlock.WRITE_FILE) == landlock.WRITE_FILE,
     "RW should include WRITE_FILE")
 end
-test_access_mask_composition()
 
 local function test_available_returns_boolean()
   local v = landlock.available()
   assert(type(v) == "boolean", "available() should return a boolean, got " .. type(v))
 end
-test_available_returns_boolean()
 
 -- Applied landlock can't be undone, so run restrict() in a subprocess.
 local function test_restrict_denies_outside_allowlist()
@@ -131,7 +128,6 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   assert(s:find("denied-blocked", 1, true), "denied path must be blocked: " .. s)
   check.enforced("landlock")
 end
-test_restrict_denies_outside_allowlist()
 
 -- A rule whose path is a regular file must work with the composite
 -- READ mask: READ bundles READ_DIR, and the kernel EINVALs a
@@ -190,7 +186,6 @@ if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked
     "sibling outside the rule must be blocked: " .. s)
   check.enforced("landlock single-file rule")
 end
-test_restrict_single_file_rule()
 
 -- The rule-loop error path runs before any enforcement, so it is safe
 -- in-process. This exercises the O_PATH open of each rule path (the
@@ -256,7 +251,6 @@ if f then io.write("allowed-ok\n"); f:close() else io.write("allowed-broken\n") 
   assert(type(err) == "string" and err:find("open(", 1, true),
     "error should identify the failing open: " .. tostring(err))
 end
-test_restrict_bad_rule_path_returns_error()
 
 -- An rw grant must admit moving an entry between two directories of
 -- its own tree: REFER rides in WRITE (like TRUNCATE), or rename(2)
@@ -323,7 +317,6 @@ io.write(leaked and "across-leaked\n" or "across-blocked\n")
     "rename into a read-only tree must stay denied: " .. out)
   check.enforced("landlock rw rename")
 end
-test_rw_grant_allows_rename_within_its_tree()
 
 -- Options.handled narrows which access categories the ruleset
 -- controls; a rule's access must be intersected against the ACTUAL
@@ -374,7 +367,6 @@ io.write("restrict-ok\n")
     "restrict must succeed when a rule's access exceeds handled: " .. out)
   check.enforced("landlock handled/rule-access intersection")
 end
-test_narrowed_handled_intersects_rule_access()
 
 -- Landlock ABI knowledge lives in exactly one place: this module's own
 -- bare probe of the kernel's ABI syscall. A second bare call site
@@ -400,4 +392,3 @@ local function test_only_landlock_tl_probes_the_bare_abi_call()
   assert(sites[1] == "cosmic/sandbox/landlock.tl",
     "the one bare call site must be cosmic/sandbox/landlock.tl, got: " .. sites[1])
 end
-test_only_landlock_tl_probes_the_bare_abi_call()

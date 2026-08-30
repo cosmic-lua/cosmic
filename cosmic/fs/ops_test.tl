@@ -51,7 +51,6 @@ local function test_copy_preserves_mode()
 
   teardown(test_dir)
 end
-test_copy_preserves_mode()
 
 local function test_copy_missing_source()
   local test_dir = setup()
@@ -60,7 +59,6 @@ local function test_copy_missing_source()
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
   teardown(test_dir)
 end
-test_copy_missing_source()
 
 -- signal-safety wave: copy()'s read/write loops retry automatically
 -- instead of surfacing EINTR (matching cosmic.fd's posture). A regular
@@ -111,7 +109,6 @@ local function test_copy_retries_eintr_on_read()
   assert(p:close())
   teardown(test_dir)
 end
-test_copy_retries_eintr_on_read()
 
 local function test_copy_retries_eintr_on_write()
   if not fs.is_dir("/proc/self/fd") then
@@ -163,7 +160,6 @@ local function test_copy_retries_eintr_on_write()
   assert(p:close())
   teardown(test_dir)
 end
-test_copy_retries_eintr_on_write()
 
 local function test_move_same_filesystem()
   local test_dir = setup()
@@ -181,7 +177,6 @@ local function test_move_same_filesystem()
 
   teardown(test_dir)
 end
-test_move_same_filesystem()
 
 local function test_move_missing_source()
   local test_dir = setup()
@@ -190,7 +185,6 @@ local function test_move_missing_source()
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
   teardown(test_dir)
 end
-test_move_missing_source()
 
 local function test_touch_creates_and_updates()
   local test_dir = setup()
@@ -214,7 +208,6 @@ local function test_touch_creates_and_updates()
 
   teardown(test_dir)
 end
-test_touch_creates_and_updates()
 
 -- `touch` stamps first and creates only when that fails, which is what
 -- `touch(1)` does and what opening for write cannot: utimensat asks for
@@ -246,7 +239,6 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
 
   teardown(test_dir)
 end
-test_touch_stamps_what_it_cannot_open_for_write()
 
 local function test_write_atomic_roundtrip()
   local test_dir = setup()
@@ -271,7 +263,6 @@ local function test_write_atomic_roundtrip()
 
   teardown(test_dir)
 end
-test_write_atomic_roundtrip()
 
 local function test_write_atomic_failure_keeps_original()
   local test_dir = setup()
@@ -291,7 +282,6 @@ local function test_write_atomic_failure_keeps_original()
 
   teardown(test_dir)
 end
-test_write_atomic_failure_keeps_original()
 
 -- write_atomic()'s write loop uses the identical retry construct proven
 -- above for copy() (fs/ops.tl's copy and fs/file.tl's write_atomic share
@@ -312,7 +302,6 @@ local function test_tmpfile_success_contract()
   assert(t.handle:close())
   teardown(test_dir)
 end
-test_tmpfile_success_contract()
 
 -- remove_all failure path: a path whose parent component is a
 -- regular file fails with ENOTDIR regardless of privileges.
@@ -327,7 +316,6 @@ local function test_rmrf_failure_reports_error()
   assert(fs.is_file(blocker), "the blocking file must be untouched")
   teardown(test_dir)
 end
-test_rmrf_failure_reports_error()
 
 local function test_tmpfile_failure_contract()
   -- One record on success; the error in slot 2 on failure.
@@ -335,7 +323,6 @@ local function test_tmpfile_failure_contract()
   assert(tf == nil, "temp_file should fail in a missing directory")
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
 end
-test_tmpfile_failure_contract()
 
 local function test_write_mode_applies_on_overwrite()
   -- Barf's mode applies only at creation; fs.write enforces the exact
@@ -352,7 +339,6 @@ local function test_write_mode_applies_on_overwrite()
   assert(fs.read(path) == "two", "content overwritten")
   assert(fs.remove_all(path))
 end
-test_write_mode_applies_on_overwrite()
 
 local function test_set_umask_round_trips()
   local original = fs.set_umask(0)
@@ -360,4 +346,3 @@ local function test_set_umask_round_trips()
   assert(prev == 0, "the previous mask comes back, got " .. tostring(prev))
   fs.set_umask(original)
 end
-test_set_umask_round_trips()

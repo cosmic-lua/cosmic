@@ -49,7 +49,6 @@ local function test_set_times_sets_exact_times()
 
   teardown(test_dir)
 end
-test_set_times_sets_exact_times()
 
 -- Keep-current semantics key off *_secs, not *_nsecs: a nil secs must
 -- leave that timestamp untouched no matter what nsecs is, and a real
@@ -76,7 +75,6 @@ local function test_set_times_omitted_field_keeps_current()
 
   teardown(test_dir)
 end
-test_set_times_omitted_field_keeps_current()
 
 local function test_set_times_bare_secs_means_zero_nsecs()
   local test_dir = setup()
@@ -99,7 +97,6 @@ local function test_set_times_bare_secs_means_zero_nsecs()
 
   teardown(test_dir)
 end
-test_set_times_bare_secs_means_zero_nsecs()
 
 local function test_set_times_missing_path()
   local test_dir = setup()
@@ -108,7 +105,6 @@ local function test_set_times_missing_path()
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
   teardown(test_dir)
 end
-test_set_times_missing_path()
 
 local function test_set_times_fd_sets_exact_times()
   local test_dir = setup()
@@ -130,7 +126,6 @@ local function test_set_times_fd_sets_exact_times()
 
   teardown(test_dir)
 end
-test_set_times_fd_sets_exact_times()
 
 local function test_set_times_fd_omitted_field_keeps_current()
   local test_dir = setup()
@@ -156,13 +151,11 @@ local function test_set_times_fd_omitted_field_keeps_current()
 
   teardown(test_dir)
 end
-test_set_times_fd_omitted_field_keeps_current()
 
 local function test_set_times_fd_bad_fd()
   local ok, err = fs.set_times_fd(9999, {atime = {secs = 1}, mtime = {secs = 1}})
   assert(not ok, "set_times_fd on a bad fd should fail")
   assert(err and err:match("EBADF"), "error should name EBADF: " .. (err or ""))
 end
-test_set_times_fd_bad_fd()
 
 print("all fs times tests passed")

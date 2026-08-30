@@ -26,7 +26,6 @@ local function test_home_from_env()
   assert(dir == "/home/tester", "expected /home/tester, got " .. tostring(dir) .. " (" .. tostring(err) .. ")")
   restore()
 end
-test_home_from_env()
 
 local function test_home_userprofile_fallback()
   assert(env.unset("HOME"))
@@ -35,7 +34,6 @@ local function test_home_userprofile_fallback()
   assert(dir == "/users/tester", "expected USERPROFILE fallback, got " .. tostring(dir))
   restore()
 end
-test_home_userprofile_fallback()
 
 local function test_home_unset()
   assert(env.unset("HOME"))
@@ -45,7 +43,6 @@ local function test_home_unset()
   assert(err ~= nil, "expected an error message")
   restore()
 end
-test_home_unset()
 
 -- expanduser tests
 
@@ -54,7 +51,6 @@ local function test_expanduser_bare_tilde()
   assert(fs.expand_user("~") == "/home/tester", "expected bare ~ expanded")
   restore()
 end
-test_expanduser_bare_tilde()
 
 local function test_expanduser_tilde_slash()
   assert(env.set("HOME", "/home/tester"))
@@ -62,7 +58,6 @@ local function test_expanduser_tilde_slash()
     "expected ~/ expanded, got " .. fs.expand_user("~/docs/x.txt"))
   restore()
 end
-test_expanduser_tilde_slash()
 
 local function test_expanduser_trailing_slash_home()
   assert(env.set("HOME", "/home/tester/"))
@@ -70,7 +65,6 @@ local function test_expanduser_trailing_slash_home()
   assert(p == "/home/tester/docs", "expected joined path without double slash, got " .. p)
   restore()
 end
-test_expanduser_trailing_slash_home()
 
 local function test_expanduser_untouched_forms()
   assert(env.set("HOME", "/home/tester"))
@@ -81,7 +75,6 @@ local function test_expanduser_untouched_forms()
   assert(fs.expand_user("") == "", "empty path must be unchanged")
   restore()
 end
-test_expanduser_untouched_forms()
 
 local function test_expanduser_no_home()
   assert(env.unset("HOME"))
@@ -90,4 +83,3 @@ local function test_expanduser_no_home()
   assert(fs.expand_user("~") == "~", "expected bare ~ unchanged when no home is set")
   restore()
 end
-test_expanduser_no_home()

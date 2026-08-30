@@ -41,7 +41,6 @@ local function test_stat_file()
 
   teardown(test_dir)
 end
-test_stat_file()
 
 local function test_stat_directory()
   local test_dir = setup()
@@ -52,7 +51,6 @@ local function test_stat_directory()
 
   teardown(test_dir)
 end
-test_stat_directory()
 
 local function test_stat_symlink()
   local test_dir = setup()
@@ -72,14 +70,12 @@ local function test_stat_symlink()
 
   teardown(test_dir)
 end
-test_stat_symlink()
 
 local function test_stat_nonexistent()
   local st, err = fs.stat("/nonexistent/path/that/does/not/exist")
   assert(st == nil, "stat should fail for nonexistent path")
   assert(err, "should return error message")
 end
-test_stat_nonexistent()
 
 local function test_fstat()
   local test_dir = setup()
@@ -95,7 +91,6 @@ local function test_fstat()
   unix.close(fd)
   teardown(test_dir)
 end
-test_fstat()
 
 -- Directory operations
 
@@ -111,7 +106,6 @@ local function test_mkdir()
 
   teardown(test_dir)
 end
-test_mkdir()
 
 local function test_mkdir_with_mode()
   local test_dir = setup()
@@ -126,7 +120,6 @@ local function test_mkdir_with_mode()
 
   teardown(test_dir)
 end
-test_mkdir_with_mode()
 
 local function test_makedirs()
   local test_dir = setup()
@@ -140,7 +133,6 @@ local function test_makedirs()
 
   teardown(test_dir)
 end
-test_makedirs()
 
 local function test_mkdir_error_message()
   local test_dir = setup()
@@ -155,7 +147,6 @@ local function test_mkdir_error_message()
   assert(not err:match("^mkdir: " .. missing_parent:gsub("[%-]", "%%-") .. "$"),
     "error should include errno details, got: " .. err)
 end
-test_mkdir_error_message()
 
 local function test_mkdir_eexist_error()
   local test_dir = setup()
@@ -170,7 +161,6 @@ local function test_mkdir_eexist_error()
 
   teardown(test_dir)
 end
-test_mkdir_eexist_error()
 
 local function test_makedirs_error_message()
   local test_dir = setup()
@@ -191,7 +181,6 @@ local function test_makedirs_error_message()
 
   teardown(test_dir)
 end
-test_makedirs_error_message()
 
 local function test_rmdir()
   local test_dir = setup()
@@ -206,7 +195,6 @@ local function test_rmdir()
 
   teardown(test_dir)
 end
-test_rmdir()
 
 local function test_getcwd_and_chdir()
   local original_cwd = fs.cwd()
@@ -228,7 +216,6 @@ local function test_getcwd_and_chdir()
   assert(fs.set_cwd(original_cwd))
   teardown(test_dir)
 end
-test_getcwd_and_chdir()
 
 local function test_opendir()
   local test_dir = setup()
@@ -254,7 +241,6 @@ local function test_opendir()
 
   teardown(test_dir)
 end
-test_opendir()
 
 -- File operations
 
@@ -271,7 +257,6 @@ local function test_unlink()
 
   teardown(test_dir)
 end
-test_unlink()
 
 local function test_move_same_directory()
   -- fs.rename does not exist; move covers same-filesystem renames.
@@ -288,7 +273,6 @@ local function test_move_same_directory()
 
   teardown(test_dir)
 end
-test_move_same_directory()
 
 local function test_link()
   local test_dir = setup()
@@ -305,7 +289,6 @@ local function test_link()
 
   teardown(test_dir)
 end
-test_link()
 
 local function test_symlink_and_readlink()
   local test_dir = setup()
@@ -322,7 +305,6 @@ local function test_symlink_and_readlink()
 
   teardown(test_dir)
 end
-test_symlink_and_readlink()
 
 local function test_realpath()
   local test_dir = setup()
@@ -339,7 +321,6 @@ local function test_realpath()
 
   teardown(test_dir)
 end
-test_realpath()
 
 local function test_rmrf()
   local test_dir = setup()
@@ -355,7 +336,6 @@ local function test_rmrf()
 
   teardown(test_dir)
 end
-test_rmrf()
 
 -- Permission operations
 
@@ -371,7 +351,6 @@ local function test_access()
 
   teardown(test_dir)
 end
-test_access()
 
 local function test_chmod()
   local test_dir = setup()
@@ -387,7 +366,6 @@ local function test_chmod()
 
   teardown(test_dir)
 end
-test_chmod()
 
 -- Temporary file operations
 
@@ -404,7 +382,6 @@ local function test_mkdtemp()
 
   assert(fs.remove_all(tmpdir))
 end
-test_mkdtemp()
 
 local function test_tmpfile()
   local tf = check.must(fs.temp_file(fs.join(tmp_base, "fs_test_XXXXXX")))
@@ -417,7 +394,6 @@ local function test_tmpfile()
   assert(hh:close())
   assert(fs.remove(tf.path))
 end
-test_tmpfile()
 
 local function test_tmpfd()
   -- temp_fd returns an open Handle.
@@ -429,7 +405,6 @@ local function test_tmpfd()
 
   assert(h:close())
 end
-test_tmpfd()
 
 -- Type checking functions
 
@@ -454,4 +429,3 @@ local function test_is_type_functions()
 
   teardown(test_dir)
 end
-test_is_type_functions()

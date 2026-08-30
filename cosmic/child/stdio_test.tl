@@ -52,7 +52,6 @@ io.stderr:write("captured=[" .. (r.stdout or "") .. "]\n")
   assert(r.stderr:find("captured=[]", 1, true),
     "an inherited stream must leave Result.stdout empty, got: " .. r.stderr)
 end
-test_inherit_reaches_the_real_descriptor()
 
 --- spawn must not close an inherited descriptor: if it did, the
 --- parent's next write would hit a closed fd -- and worse, a later
@@ -72,7 +71,6 @@ io.stdout:flush()
   assert(written:find("STILL_OPEN", 1, true),
     "spawn must not close an inherited descriptor, file was: " .. written)
 end
-test_inherit_leaves_our_descriptor_open()
 
 --- stderr = "inherit" is wired to fd 2, not fd 1. A copy-paste that
 --- resolved both to 1 would still pass the tests above, so this one
@@ -95,7 +93,6 @@ io.stderr:write("captured=[" .. (r.stderr or "") .. "]\n")
   assert(r.stderr:find("captured=[]", 1, true),
     "an inherited stream must leave Result.stderr empty, got: " .. r.stderr)
 end
-test_inherit_stderr_is_separate_from_stdout()
 
 --- The default is unchanged: with no disposition given, spawn still
 --- captures into Result rather than leaking to our streams.
@@ -112,7 +109,6 @@ io.stderr:write("got=[" .. (r.stdout or ""):gsub("%s+$", "") .. "]\n")
   assert(r.stderr:find("got=[CAPTURED]", 1, true),
     "the default must still capture into Result.stdout, got: " .. r.stderr)
 end
-test_default_still_captures()
 
 --- The dup2-ordering hazard: stdout is captured (the default, a pipe)
 --- while stderr is routed to fd.wrap(1) -- what is CURRENTLY the
@@ -139,7 +135,6 @@ io.stderr:write("stdout=[" .. (r.stdout or "") .. "]\n")
   assert(r.stderr:find("stdout=[OUT\n]", 1, true),
     "Result.stdout must hold only the grandchild's stdout, got: " .. r.stderr)
 end
-test_stderr_fd_wrap_does_not_clobber_captured_stdout()
 
 --- The full swap: stdout AND stderr each point at what the OTHER
 --- started as. A fix that only handled the single-alias case above
@@ -172,4 +167,3 @@ io.stderr:write("stdout=[" .. (r.stdout or "") .. "] stderr=[" ..
     "spawn captured neither stream once both were redirected via " ..
     "fd.wrap, but got: " .. r.stderr)
 end
-test_full_stdio_swap_routes_each_stream_correctly()

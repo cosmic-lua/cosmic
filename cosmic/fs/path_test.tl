@@ -26,25 +26,21 @@ local function test_dirname_with_file()
   local result = fs.dirname("/usr/lib")
   assert(result == "/usr", "expected '/usr', got '" .. result .. "'")
 end
-test_dirname_with_file()
 
 local function test_dirname_root()
   local result = fs.dirname("/")
   assert(result == "/", "expected '/', got '" .. result .. "'")
 end
-test_dirname_root()
 
 local function test_basename_with_file()
   local result = fs.basename("/usr/lib")
   assert(result == "lib", "expected 'lib', got '" .. result .. "'")
 end
-test_basename_with_file()
 
 local function test_join_basic()
   local result = fs.join("/usr", "lib")
   assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
 end
-test_join_basic()
 
 -- join semantics: pin the documented edge cases so a change
 -- in the underlying C binding surfaces as a failure, not silent drift.
@@ -53,13 +49,11 @@ local function test_join_absolute_later_arg_resets()
   assert(fs.join("a", "/abs") == "/abs",
     "an absolute later component must reset the result")
 end
-test_join_absolute_later_arg_resets()
 
 local function test_join_empty_components_skipped()
   assert(fs.join("a", "", "b") == "a/b", "empty middle component is skipped")
   assert(fs.join("", "b") == "b", "empty first component is skipped")
 end
-test_join_empty_components_skipped()
 
 -- join declares a plain string because the C binding does: calling
 -- with no arguments, or with every argument nil, is a caller error
@@ -69,67 +63,56 @@ local function test_join_returns_a_plain_string()
   assert(type(joined) == "string", "join returns a string, not a union")
   assert(joined == "a/b", "expected 'a/b', got '" .. joined .. "'")
 end
-test_join_returns_a_plain_string()
 
 local function test_join_with_no_arguments_throws()
   local ok = pcall(function() fs.join() end)
   assert(not ok, "join with no arguments must throw")
 end
-test_join_with_no_arguments_throws()
 
 local function test_join_no_doubled_separator()
   assert(fs.join("a/", "b") == "a/b",
     "a trailing slash on the left must not double the separator")
 end
-test_join_no_doubled_separator()
 
 local function test_join_single_component()
   assert(fs.join("a") == "a", "a single component joins to itself")
 end
-test_join_single_component()
 
 local function test_join_does_not_normalize()
   -- join concatenates; it does not resolve ".." (that is normalize's job).
   assert(fs.join("a", "..", "b") == "a/../b",
     "join must not collapse '..' segments")
 end
-test_join_does_not_normalize()
 
 local function test_join_multiple()
   local result = fs.join("/usr", "local", "bin")
   assert(result == "/usr/local/bin", "expected '/usr/local/bin', got '" .. result .. "'")
 end
-test_join_multiple()
 
 local function test_exists_current_dir()
   local result = fs.is_present(".")
   assert(result == true, "expected current directory to exist")
 end
-test_exists_current_dir()
 
 local function test_exists_nonexistent()
   local result = fs.is_present("/nonexistent/path/that/does/not/exist")
   assert(result == false, "expected false for nonexistent path")
 end
-test_exists_nonexistent()
 
 local function test_isfile_directory()
   local result = fs.is_file(".")
   assert(result == false, "expected false for directory")
 end
-test_isfile_directory()
 
 local function test_isdir_current()
   local result = fs.is_dir(".")
   assert(result == true, "expected true for current directory")
 end
-test_isdir_current()
 
 local function test_islink_regular_dir()
   local result = fs.is_link(".")
   assert(result == false, "expected false for regular directory")
 end
-test_islink_regular_dir()
 
 -- Directory walking tests
 
@@ -167,7 +150,6 @@ local function test_collect_with_glob()
   assert(names["file4.lua"], "expected file4.lua")
   teardown(walk_dir)
 end
-test_collect_with_glob()
 
 local function test_collect_glob_escapes_brackets()
   -- A glob's [ ] must be literal, not a Lua class: "*[1].lua" matches nothing.
@@ -176,7 +158,6 @@ local function test_collect_glob_escapes_brackets()
   assert(#found == 0, "expected brackets treated literally, got " .. #found)
   teardown(walk_dir)
 end
-test_collect_glob_escapes_brackets()
 
 local function test_collect_with_lua_pattern()
   local walk_dir = setup_walk()
@@ -186,7 +167,6 @@ local function test_collect_with_lua_pattern()
   assert(fs.basename(found[1]) == "file2.txt", "expected file2.txt")
   teardown(walk_dir)
 end
-test_collect_with_lua_pattern()
 
 local function test_walk_with_visitor()
   local walk_dir = setup_walk()
@@ -205,7 +185,6 @@ local function test_walk_with_visitor()
   assert(ctx.dirs == 2, "expected 2 dirs, got " .. ctx.dirs)
   teardown(walk_dir)
 end
-test_walk_with_visitor()
 
 local function test_find_info()
   local walk_dir = setup_walk()
@@ -222,7 +201,6 @@ local function test_find_info()
   assert(found[fs.join(walk_dir, "file1.lua")].mode ~= nil, "expected mode property")
   teardown(walk_dir)
 end
-test_find_info()
 
 local function test_files_iterator()
   local walk_dir = setup_walk()
@@ -238,7 +216,6 @@ local function test_files_iterator()
   assert(not found["file2.txt"], "should not find file2.txt")
   teardown(walk_dir)
 end
-test_files_iterator()
 
 local function test_files_iterator_all()
   local walk_dir = setup_walk()
@@ -251,7 +228,6 @@ local function test_files_iterator_all()
   assert(count == 4, "expected 4 files, got " .. count)
   teardown(walk_dir)
 end
-test_files_iterator_all()
 
 local function test_walk_empty_directory()
   local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
@@ -260,7 +236,6 @@ local function test_walk_empty_directory()
   assert(#found == 0, "expected 0 files, got " .. #found)
   assert(fs.remove_all(empty_dir))
 end
-test_walk_empty_directory()
 
 -- normalize tests
 
@@ -268,91 +243,76 @@ local function test_normalize_dot_component()
   local result = fs.normalize("/usr/./lib")
   assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
 end
-test_normalize_dot_component()
 
 local function test_normalize_dotdot_component()
   local result = fs.normalize("/usr/lib/../bin")
   assert(result == "/usr/bin", "expected '/usr/bin', got '" .. result .. "'")
 end
-test_normalize_dotdot_component()
 
 local function test_normalize_relative_dotdot()
   local result = fs.normalize("a/b/../c")
   assert(result == "a/c", "expected 'a/c', got '" .. result .. "'")
 end
-test_normalize_relative_dotdot()
 
 local function test_normalize_leading_dotdot()
   local result = fs.normalize("../foo")
   assert(result == "../foo", "expected '../foo', got '" .. result .. "'")
 end
-test_normalize_leading_dotdot()
 
 local function test_normalize_redundant_slashes()
   local result = fs.normalize("//usr///lib//")
   assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
 end
-test_normalize_redundant_slashes()
 
 local function test_normalize_empty()
   local result = fs.normalize("")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
-test_normalize_empty()
 
 local function test_normalize_multiple_dotdot()
   local result = fs.normalize("a/b/c/../../d")
   assert(result == "a/d", "expected 'a/d', got '" .. result .. "'")
 end
-test_normalize_multiple_dotdot()
 
 local function test_normalize_absolute_dotdot_at_root()
   local result = fs.normalize("/../foo")
   assert(result == "/foo", "expected '/foo', got '" .. result .. "'")
 end
-test_normalize_absolute_dotdot_at_root()
 
 local function test_normalize_just_slashes()
   local result = fs.normalize("///")
   assert(result == "/", "expected '/', got '" .. result .. "'")
 end
-test_normalize_just_slashes()
 
 local function test_normalize_just_dot()
   local result = fs.normalize(".")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
-test_normalize_just_dot()
 
 local function test_normalize_relative_multiple_leading_dotdot()
   local result = fs.normalize("../../foo/bar")
   assert(result == "../../foo/bar", "expected '../../foo/bar', got '" .. result .. "'")
 end
-test_normalize_relative_multiple_leading_dotdot()
 
 local function test_normalize_simple_dotdot()
   local result = fs.normalize("a/../b")
   assert(result == "b", "expected 'b', got '" .. result .. "'")
 end
-test_normalize_simple_dotdot()
 
 local function test_normalize_relative_leading_double_dotdot()
   local result = fs.normalize("../../a")
   assert(result == "../../a", "expected '../../a', got '" .. result .. "'")
 end
-test_normalize_relative_leading_double_dotdot()
 
 local function test_normalize_absolute_double_dotdot()
   local result = fs.normalize("/../../a")
   assert(result == "/a", "expected '/a', got '" .. result .. "'")
 end
-test_normalize_absolute_double_dotdot()
 
 local function test_normalize_multiple_up_and_down()
   local result = fs.normalize("a/b/../../c")
   assert(result == "c", "expected 'c', got '" .. result .. "'")
 end
-test_normalize_multiple_up_and_down()
 
 -- abspath tests
 
@@ -362,31 +322,26 @@ local function test_abspath_relative()
   local result = fs.absolute_path("foo")
   assert(result == cwd .. "/foo", "expected '" .. cwd .. "/foo', got '" .. result .. "'")
 end
-test_abspath_relative()
 
 local function test_abspath_dot_relative()
   local result = fs.absolute_path("./foo")
   assert(result == cwd .. "/foo", "expected '" .. cwd .. "/foo', got '" .. result .. "'")
 end
-test_abspath_dot_relative()
 
 local function test_abspath_already_absolute()
   local result = fs.absolute_path("/usr/lib")
   assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
 end
-test_abspath_already_absolute()
 
 local function test_abspath_empty()
   local result = fs.absolute_path("")
   assert(result == cwd, "expected '" .. cwd .. "', got '" .. result .. "'")
 end
-test_abspath_empty()
 
 local function test_abspath_normalizes()
   local result = fs.absolute_path("/usr/../lib")
   assert(result == "/lib", "expected '/lib', got '" .. result .. "'")
 end
-test_abspath_normalizes()
 
 -- relpath tests
 
@@ -394,37 +349,31 @@ local function test_relpath_child()
   local result = fs.relative_path("/usr/lib", "/usr")
   assert(result == "lib", "expected 'lib', got '" .. result .. "'")
 end
-test_relpath_child()
 
 local function test_relpath_sibling()
   local result = fs.relative_path("/usr/lib", "/usr/bin")
   assert(result == "../lib", "expected '../lib', got '" .. result .. "'")
 end
-test_relpath_sibling()
 
 local function test_relpath_different_tree()
   local result = fs.relative_path("/foo", "/bar")
   assert(result == "../foo", "expected '../foo', got '" .. result .. "'")
 end
-test_relpath_different_tree()
 
 local function test_relpath_same_path()
   local result = fs.relative_path("/usr/lib", "/usr/lib")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
-test_relpath_same_path()
 
 local function test_relpath_deeper()
   local result = fs.relative_path("/a/b/c/d", "/a/b")
   assert(result == "c/d", "expected 'c/d', got '" .. result .. "'")
 end
-test_relpath_deeper()
 
 local function test_relpath_go_up_more()
   local result = fs.relative_path("/a", "/a/b/c")
   assert(result == "../..", "expected '../..', got '" .. result .. "'")
 end
-test_relpath_go_up_more()
 
 -- relpath implicit-base (cwd) tests: p is relative, base is omitted.
 -- These exercise the fast path that returns normalize(p) directly
@@ -434,37 +383,31 @@ local function test_relpath_implicit_empty()
   local result = fs.relative_path("")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
-test_relpath_implicit_empty()
 
 local function test_relpath_implicit_dot()
   local result = fs.relative_path(".")
   assert(result == ".", "expected '.', got '" .. result .. "'")
 end
-test_relpath_implicit_dot()
 
 local function test_relpath_implicit_internal_cancel()
   local result = fs.relative_path("a/../b")
   assert(result == "b", "expected 'b', got '" .. result .. "'")
 end
-test_relpath_implicit_internal_cancel()
 
 local function test_relpath_implicit_dot_segments()
   local result = fs.relative_path("./a/./b")
   assert(result == "a/b", "expected 'a/b', got '" .. result .. "'")
 end
-test_relpath_implicit_dot_segments()
 
 local function test_relpath_implicit_trailing_slash()
   local result = fs.relative_path("a/b/")
   assert(result == "a/b", "expected 'a/b', got '" .. result .. "'")
 end
-test_relpath_implicit_trailing_slash()
 
 local function test_relpath_implicit_plain()
   local result = fs.relative_path("a/b/c")
   assert(result == "a/b/c", "expected 'a/b/c', got '" .. result .. "'")
 end
-test_relpath_implicit_plain()
 
 -- These must take the slow (walk-up-from-cwd) path: p escapes above cwd.
 
@@ -472,10 +415,8 @@ local function test_relpath_implicit_parent()
   local result = fs.relative_path("..")
   assert(result == "..", "expected '..', got '" .. result .. "'")
 end
-test_relpath_implicit_parent()
 
 local function test_relpath_implicit_parent_child()
   local result = fs.relative_path("../x")
   assert(result == "../x", "expected '../x', got '" .. result .. "'")
 end
-test_relpath_implicit_parent_child()

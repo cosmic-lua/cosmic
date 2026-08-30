@@ -14,7 +14,6 @@ local function test_is_absolute_posix()
   assert(not fs.is_absolute("./x"), "explicit relative")
   assert(not fs.is_absolute(""), "empty path")
 end
-test_is_absolute_posix()
 
 local function test_is_absolute_drive()
   assert(fs.is_absolute("C:/foo"), "forward-slash drive root")
@@ -26,7 +25,6 @@ local function test_is_absolute_drive()
   assert(not fs.is_absolute("1:/foo"), "non-letter drive")
   assert(not fs.is_absolute("CC:/foo"), "multi-letter drive")
 end
-test_is_absolute_drive()
 
 local function test_is_absolute_unc_and_backslash()
   assert(fs.is_absolute("\\\\server\\share"), "UNC root")
@@ -35,7 +33,6 @@ local function test_is_absolute_unc_and_backslash()
   assert(not fs.is_absolute("\\foo"), "single backslash is relative")
   assert(not fs.is_absolute("a\\b"), "interior backslash is relative")
 end
-test_is_absolute_unc_and_backslash()
 
 -- normalize: drive-letter roots
 
@@ -45,7 +42,6 @@ local function test_normalize_drive_separators()
   assert(fs.normalize("C:/foo//bar") == "C:/foo/bar", "redundant slashes")
   assert(fs.normalize("C:\\foo/bar") == "C:/foo/bar", "mixed separators")
 end
-test_normalize_drive_separators()
 
 local function test_normalize_drive_dots()
   assert(fs.normalize("c:/a/./b/../c") == "C:/a/c",
@@ -53,14 +49,12 @@ local function test_normalize_drive_dots()
   assert(fs.normalize("C:\\..") == "C:/", ".. at the root is ignored")
   assert(fs.normalize("C:/") == "C:/", "bare root unchanged")
 end
-test_normalize_drive_dots()
 
 local function test_normalize_drive_idempotent()
   local once = fs.normalize("c:\\a\\..\\b\\.\\c")
   assert(once == "C:/b/c", "got: " .. once)
   assert(fs.normalize(once) == once, "normalize is idempotent")
 end
-test_normalize_drive_idempotent()
 
 -- normalize: UNC roots keep the backslash form
 
@@ -71,7 +65,6 @@ local function test_normalize_unc()
   assert(unc == "\\\\server\\share", "got: " .. unc)
   assert(fs.normalize(unc) == unc, "UNC normalize is idempotent")
 end
-test_normalize_unc()
 
 -- normalize: POSIX paths still treat "\" as a filename character
 
@@ -79,7 +72,6 @@ local function test_normalize_posix_backslash_preserved()
   assert(fs.normalize("a\\b/c") == "a\\b/c", "backslash inside component")
   assert(fs.normalize("/a\\b/../c") == "/c", "backslash component pops as one")
 end
-test_normalize_posix_backslash_preserved()
 
 -- abspath: Windows-absolute paths never get cwd prepended
 
@@ -87,13 +79,11 @@ local function test_abspath_drive()
   assert(fs.absolute_path("C:\\foo") == "C:/foo", "drive path stays rooted")
   assert(fs.absolute_path("c:/a/../b") == "C:/b", "drive path normalizes")
 end
-test_abspath_drive()
 
 local function test_abspath_unc()
   assert(fs.absolute_path("\\\\srv\\share\\x") == "\\\\srv\\share\\x",
     "UNC path stays rooted")
 end
-test_abspath_unc()
 
 -- relpath: same drive walks, different roots return the absolute target
 
@@ -103,7 +93,6 @@ local function test_relpath_same_drive()
   assert(fs.relative_path("C:\\a\\b", "c:\\a") == "b", "mixed case and separators")
   assert(fs.relative_path("C:/a", "C:/a") == ".", "same path")
 end
-test_relpath_same_drive()
 
 local function test_relpath_different_roots()
   assert(fs.relative_path("C:/x", "D:/y") == "C:/x", "different drives")
@@ -112,7 +101,6 @@ local function test_relpath_different_roots()
   assert(fs.relative_path("\\\\srv\\s\\x", "C:/a") == "\\\\srv\\s\\x",
     "UNC vs drive")
 end
-test_relpath_different_roots()
 
 local function test_relpath_unc()
   assert(fs.relative_path("\\\\srv\\s\\a\\b", "\\\\srv\\s\\a") == "b",
@@ -120,4 +108,3 @@ local function test_relpath_unc()
   assert(fs.relative_path("\\\\srv\\a\\x", "\\\\srv\\b\\y") == "\\\\srv\\a\\x",
     "different shares have no relative form")
 end
-test_relpath_unc()
