@@ -6,6 +6,8 @@ return {
   ["id"] = "3IU95gOWz7YJl5imQVOmqEVIAVH",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1569,
-  ["reviewer"] = "review-3IU95gOW-1788107282",
   ["title"] = "runner-mode end state: flip the prose and prove the tree is all-runner",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "c4989b4a6144afab3bad334cb850233c5e975ced",
+  ["verdict_spec"] = "1791d3d986e8dddb9cfc94eb723744a7643822b5b9c2562d0c8837153bac3479",
 }
