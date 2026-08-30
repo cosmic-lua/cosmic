@@ -1,7 +1,7 @@
 # D38 — main lands through a GitHub merge queue; board keeps merge-at-accept
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08 (gate/* mirror retired)
 - **context:** the orchestrator lands a main-repo PR by merging it at
   accept time; `done` then re-reads the PR and verifies it actually
   merged before ending the item (`_work/gitverbs.tl` `cmd_done`, gated
@@ -79,3 +79,12 @@
   under this repo's gate runtime (~2 minutes ci, up to 25 minutes
   cold) turns out to serialize landings slower than the tax it
   replaced.
+- **amended 2026-08 (gate/* mirror retired):** the operator configured
+  the merge-queue ruleset to require the Actions check-run names
+  (`pr / ci|build|repro|smoke`) rather than the `gate/*` commit-status
+  mirror this record's context and consequences described.
+  `.github/actions/gate-status` and its four invocations in `pr.yml`
+  are deleted; nothing posts a `gate/*` status any more. The PR #1522
+  lost-run recovery `gate-status` provided is superseded: a lost
+  `pull_request` run is now recovered by re-running that run, not by a
+  `workflow_dispatch` run satisfying an event-independent status.
