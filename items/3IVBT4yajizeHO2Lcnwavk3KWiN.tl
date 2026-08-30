@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["pr"] = 287,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-avk3KWiN-1788064467",
   ["title"] = "cosmo.DecodeLua accepts a raw \\r inside a short string, which load refuses",
 }
