@@ -215,6 +215,50 @@ local function test_a_review_claim_coexists_with_a_build_claim()
 end
 test_a_review_claim_coexists_with_a_build_claim()
 
+-- Evidence from PR #1538's rework loop: a bounced item keeps its
+-- stale "request changes" verdict field until the fresh verdict
+-- lands, so that state must route the same way the empty-verdict
+-- state does — a session that is not the recorded builder claims the
+-- review, not a second build. The builder's own take still reworks.
+local function test_a_bounced_item_still_routes_a_fresh_take_to_review()
+  local s = init_state_repo("review-bounced")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, "builder-a")
+  assert(verbs.cmd_take(s, leaf, "reviewer-b", 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 7, "abc1234",
+      "reviewer-b") == 0)
+  local bounced = check.must(store.load(s, leaf))
+  check.equal(bounced.verdict, "request changes")
+  check.equal(bounced.reviewer, "", "the claim was consumed by the verdict")
+  -- The builder's own re-take, with nothing new to record, is still
+  -- the build no-op: the stale verdict does not steer it into review.
+  assert(verbs.cmd_take(s, leaf, "builder-a", 0, false, "") == 0,
+    "the builder's own take stays on the build path")
+  check.equal(check.must(store.load(s, leaf)).reviewer, "",
+    "no reviewer was stamped by the builder's own take")
+  -- A fresh session's take, with no PR to record, is the review claim
+  -- again — the stale verdict does not fall through to the build path.
+  assert(verbs.cmd_take(s, leaf, "reviewer-c", 0, false, "") == 0,
+    "a fresh session claims the review, not a second build")
+  local claimed = check.must(store.load(s, leaf))
+  check.equal(claimed.reviewer, "reviewer-c")
+  check.equal(claimed.claim, "builder-a", "the build claim is untouched")
+  assert(#claimed.builders == 1 and claimed.builders[1] == "builder-a",
+    "the reviewer never joins builders: "
+    .. table.concat(claimed.builders, ","))
+  -- The original builder's rework — a new head to judge — clears the
+  -- stale verdict and still lands on the build path, not the review.
+  assert(verbs.cmd_drop(s, leaf, "reviewer-c",
+      "handing back for the rework", false) == 0)
+  assert(verbs.cmd_take(s, leaf, "builder-a", 8, false, "") == 0,
+    "the builder's rework is the build path, not a review claim")
+  local reworked = check.must(store.load(s, leaf))
+  check.equal(reworked.pr, 8, "the new head lands")
+  check.equal(reworked.verdict, "", "the stale verdict clears on the new head")
+  check.equal(reworked.reviewer, "", "no reviewer was stamped")
+end
+test_a_bounced_item_still_routes_a_fresh_take_to_review()
+
 -- The review lease is the short one, and staleness is a property of
 -- the ages the caller reads — pinned here at the boundary values.
 local function test_the_review_lease_is_short_and_exact()

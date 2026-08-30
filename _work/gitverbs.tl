@@ -149,9 +149,14 @@ local function cmd_take(s: store.Store, id: string, session: string,
       ("%s is done (%s)"):format(id:sub(1, 8), it.resolution))
   end
   -- An item awaiting a verdict, taken by a session that is not its
-  -- builder with no PR to record, is the review claim.
-  if (pr or 0) == 0 and (it.pr or 0) ~= 0 and (it.verdict or "") == ""
-  and (it.claim or "") ~= session then
+  -- builder with no PR to record, is the review claim. A bounced item
+  -- keeps its stale "request changes" verdict until the fresh verdict
+  -- lands, so that state routes the same way for a session that is
+  -- not the recorded builder — the original builder's own takes still
+  -- fall through to the build path below (the rework).
+  local verdict = it.verdict or ""
+  if (pr or 0) == 0 and (it.pr or 0) ~= 0 and (it.claim or "") ~= session
+  and (verdict == "" or verdict == "request changes") then
     return take_review(s, it, session, force, why)
   end
   -- Re-taking your own claim with nothing new to record is a no-op,
