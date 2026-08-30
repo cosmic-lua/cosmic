@@ -207,17 +207,23 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
     return gate.verdict_line(verb, false,
       ("%s does not wait on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
   end
-  -- Refused rather than re-recorded: a second block with a new reason
-  -- would silently rewrite the first one's, and the reason is the
-  -- record a later unblock is judged against.
-  if not remove and had then
+  -- An edge that already exists is compared, not blindly refused: the
+  -- SAME reason re-run stays a no-op (so re-running block never writes
+  -- an empty commit), but a DIFFERENT reason replaces the stored one in
+  -- place — one mutation, where the old refusal forced an unblock+block
+  -- pair with a race window where the edge was briefly gone.
+  local had_reason = (it.block_reason or {})[blocker]
+  local updating = not remove and had and had_reason ~= reason
+  if not remove and had and not updating then
     return gate.verdict_line(verb, false,
       ("%s already waits on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
   end
-  if not remove then
-    kept[#kept + 1] = blocker
+  if not updating then
+    if not remove then
+      kept[#kept + 1] = blocker
+    end
+    it.blocked_by = kept
   end
-  it.blocked_by = kept
   local reasons = it.block_reason or {}
   if remove then
     reasons[blocker] = nil
@@ -229,6 +235,11 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
     ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)))
   if not ok then
     return gate.verdict_line(verb, false, err)
+  end
+  if updating then
+    return gate.verdict_line(verb, true,
+      ("%s still waits on %s — reason updated"):format(
+        id:sub(1, 8), blocker:sub(1, 8)))
   end
   local shape = "now waits on"
   if remove then
