@@ -108,7 +108,8 @@ pin bump. The three `print` epilogues are 3IcH4Snp's, not this item's.
   ```
   find cosmic/fs cosmic/child cosmic/format cosmic/flags cosmic/coverage cosmic/sandbox -name '*_test.tl' ! -path 'cosmic/fs/glob_test.tl' | xargs grep -c '^test_[A-Za-z0-9_]*()$' | grep -v ':0$'
   ```
-  prints nothing, and the `find` names 29 files.
+  prints nothing, and the `find` names 28 files (29 in scope, minus the
+  carved-out `glob_test.tl`).
 - The `*_test.tl` diff is deletions only:
   `git diff origin/main --numstat -- '*_test.tl' | awk '{a+=$1} END {print a+0}'`
   → `0` insertions. (`docs/design/cast-sites.tsv` is the one non-test
