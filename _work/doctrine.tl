@@ -65,13 +65,19 @@ a spent budget — and asserts the item is fine to re-offer as-is
 Two WIP rules: each worker holds ONE claim, and one bound covers
 `doing` as a whole — at the limit, taking NEW work is refused until
 something in flight finishes; finishing motions are never refused.
-Work flows right to left — finishing beats starting: merge what is
-accepted, review what awaits a verdict, rework what was returned,
-build what you claimed, triage what arrived, refine the top of todo,
-decompose an undriven outcome — in that order. `next` names the one
-next action by exactly this ordering; do it and ask again — acting
-moves the board, so the second answer derives from the board the
-first left behind. Stop when it says `none`: do not invent work.
+Work flows right to left — finishing beats starting — and that is
+ONE derived order, not advice: every queue ranks stage first
+(accepted, review, rework, building, lane repair, todo) and the
+comparison order within a stage, age last. Stage is
+lexicographically supreme — no comparison edge lifts a todo item
+past a waiting verdict, because an unreviewed diff is a wasting
+asset and a hot pull's delay is at most one review. `next` offers
+the queue's head, and `take` refuses what a visibly unclaimed
+verdict outranks. Do what `next` names and ask again — acting moves
+the board, so the second answer derives from the board the first
+left behind. Stop when it says `none`: do not invent work. Beyond
+the queue: triage what arrived, refine the top of todo, decompose
+an undriven outcome — in that order.
 
 Session identity: never pass --session — the tool derives a
 unique-per-run identity from the environment, and an invented name

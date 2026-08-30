@@ -164,3 +164,61 @@ local function test_untriaged_holds_unplaced_childless_roots()
     "compared roots and adopted leaves are not triage")
 end
 test_untriaged_holds_unplaced_childless_roots()
+
+-- The unified order: ONE queue, stage first — accepted, review,
+-- rework, building, lane repair, todo — then the priority order
+-- within a stage. Stage is lexicographically supreme: no comparison
+-- edge lifts a todo item past a waiting verdict, however hot.
+local function test_unified_ranks_stage_before_priority()
+  local lesser = make({})
+  local goal = make({})
+  goal.beats = {lesser.id}
+  local accepted = make({parent = goal.id, claim = "s1", pr = 4,
+      verdict = "accept"})
+  local reviewable = make({parent = goal.id, claim = "s2", pr = 5})
+  local reworking = make({parent = goal.id, claim = "s3", pr = 6,
+      verdict = "request changes"})
+  local building = make({parent = goal.id, claim = "s4"})
+  local repair = make({parent = goal.id, lane = "release.yml"})
+  local hot = make({parent = goal.id})
+  -- The todo item outranks EVERYTHING in the comparison order…
+  hot.beats = {accepted.id, reviewable.id, reworking.id, building.id,
+    repair.id}
+  local items: {item.Item} = {lesser, goal, hot, repair, building,
+    reworking, reviewable, accepted}
+  assert(flow.stage_rank(accepted) == flow.STAGE_ACCEPTED)
+  assert(flow.stage_rank(reviewable) == flow.STAGE_REVIEW)
+  assert(flow.stage_rank(reworking) == flow.STAGE_REWORK)
+  assert(flow.stage_rank(building) == flow.STAGE_BUILDING)
+  assert(flow.stage_rank(repair) == flow.STAGE_REPAIR)
+  assert(flow.stage_rank(hot) == flow.STAGE_TODO)
+  local queue = flow.unified(items, prio.positions(items))
+  local order: {string} = {}
+  for _, i in ipairs(queue) do
+    order[#order + 1] = i.id
+  end
+  -- …and still ranks last: stage beats priority, priority only
+  -- breaks ties within a stage.
+  assert(#queue == 6, "every open workable item, roots excluded")
+  assert(order[1] == accepted.id and order[2] == reviewable.id
+    and order[3] == reworking.id and order[4] == building.id
+    and order[5] == repair.id and order[6] == hot.id,
+    "stage-lexicographic: " .. table.concat(order, " "))
+end
+test_unified_ranks_stage_before_priority()
+
+-- Within one stage the priority order decides: a compared-up todo
+-- item comes before its uncompared sibling.
+local function test_unified_breaks_stage_ties_by_priority()
+  local lesser = make({})
+  local goal = make({})
+  goal.beats = {lesser.id}
+  local plain = make({parent = goal.id})
+  local hot = make({parent = goal.id})
+  hot.beats = {plain.id}
+  local items: {item.Item} = {lesser, goal, plain, hot}
+  local queue = flow.unified(items, prio.positions(items))
+  assert(#queue == 2 and queue[1].id == hot.id and queue[2].id == plain.id,
+    "the comparison order holds within the stage")
+end
+test_unified_breaks_stage_ties_by_priority()

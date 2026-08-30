@@ -75,6 +75,43 @@ local function substate(i: Item): string
   return "building"
 end
 
+--- The stage half of the unified order: how close an item is to
+--- done, lower ranks first. ONE declaration — every queue, offer,
+--- and refusal that says "finishing beats starting" derives from
+--- this ranking rather than restating it: accepted work merges
+--- before verdicts land, verdicts before rework, rework before
+--- builds, and only then does anything new start — a red lane's
+--- repair first (the pull that cannot wait), ordinary todo last.
+local STAGE_ACCEPTED < const >: integer = 1
+local STAGE_REVIEW < const >: integer = 2
+local STAGE_REWORK < const >: integer = 3
+local STAGE_BUILDING < const >: integer = 4
+local STAGE_REPAIR < const >: integer = 5
+local STAGE_TODO < const >: integer = 6
+
+--- An open workable item's stage rank.
+--- @param i Item The item
+--- @return integer The rank, STAGE_ACCEPTED through STAGE_TODO
+local function stage_rank(i: Item): integer
+  if is_doing(i) then
+    local sub = substate(i)
+    if sub == "accepted" then
+      return STAGE_ACCEPTED
+    end
+    if sub == "review" then
+      return STAGE_REVIEW
+    end
+    if sub == "rework" then
+      return STAGE_REWORK
+    end
+    return STAGE_BUILDING
+  end
+  if (i.lane or "") ~= "" then
+    return STAGE_REPAIR
+  end
+  return STAGE_TODO
+end
+
 --- Items indexed by id.
 --- @param items {Item} All items
 --- @return Index The index
@@ -132,6 +169,38 @@ local function in_state(items: {Item}, state: string,
     end
   end
   return prio.sorted(out, pos, seed)
+end
+
+--- Every open workable item in ONE queue: stage first (`stage_rank`),
+--- then the priority order within a stage — the comparison relation,
+--- blocker lift, age last (`prio.sorted`). `next` offers this queue's
+--- head and the take gate refuses what its prefix outranks, so the
+--- right-to-left doctrine is this derivation, not restated advice.
+--- @param items {Item} All items
+--- @param pos {string: prio.Position} Position by item id
+--- @param seed string Per-session tie-break seed, "" for age order
+--- @return {Item} The queue, closest-to-done first
+local function unified(items: {Item},
+    pos: {string: prio.Position}, seed?: string): {Item}
+  local buckets: {integer: {Item}} = {}
+  for _, i in ipairs(items) do
+    if it.is_open(i) and role(i, items) == "work" then
+      local rank = stage_rank(i)
+      local bucket = buckets[rank]
+      if bucket == nil then
+        bucket = {}
+        buckets[rank] = bucket
+      end
+      bucket[#bucket + 1] = i
+    end
+  end
+  local out: {Item} = {}
+  for rank = STAGE_ACCEPTED, STAGE_TODO do
+    for _, i in ipairs(prio.sorted(buckets[rank] or {}, pos, seed)) do
+      out[#out + 1] = i
+    end
+  end
+  return out
 end
 
 --- The refusal a NEW take earns from the doing bound, or nil while
@@ -336,8 +405,17 @@ local record flow
   type Item = Item
   type Index = Index
   DOING_LIMIT: integer
+  STAGE_ACCEPTED: integer
+  STAGE_REVIEW: integer
+  STAGE_REWORK: integer
+  STAGE_BUILDING: integer
+  STAGE_REPAIR: integer
+  STAGE_TODO: integer
   is_doing: function(i: Item): boolean
   substate: function(i: Item): string
+  stage_rank: function(i: Item): integer
+  unified: function(items: {Item}, pos: {string: prio.Position},
+  seed?: string): {Item}
   by_id: function(items: {Item}): Index
   has_open_children: function(items: {Item}, id: string): boolean
   role: function(i: Item, items: {Item}): string
@@ -358,8 +436,16 @@ end
 
 local M: flow = {
   DOING_LIMIT = DOING_LIMIT,
+  STAGE_ACCEPTED = STAGE_ACCEPTED,
+  STAGE_REVIEW = STAGE_REVIEW,
+  STAGE_REWORK = STAGE_REWORK,
+  STAGE_BUILDING = STAGE_BUILDING,
+  STAGE_REPAIR = STAGE_REPAIR,
+  STAGE_TODO = STAGE_TODO,
   is_doing = is_doing,
   substate = substate,
+  stage_rank = stage_rank,
+  unified = unified,
   by_id = by_id,
   has_open_children = has_open_children,
   role = role,
