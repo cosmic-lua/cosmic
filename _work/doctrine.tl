@@ -65,13 +65,19 @@ a spent budget — and asserts the item is fine to re-offer as-is
 Two WIP rules: each worker holds ONE claim, and one bound covers
 `doing` as a whole — at the limit, taking NEW work is refused until
 something in flight finishes; finishing motions are never refused.
-Work flows right to left — finishing beats starting: merge what is
-accepted, review what awaits a verdict, rework what was returned,
-build what you claimed, triage what arrived, refine the top of todo,
-decompose an undriven outcome — in that order. `next` names the one
-next action by exactly this ordering; do it and ask again — acting
-moves the board, so the second answer derives from the board the
-first left behind. Stop when it says `none`: do not invent work.
+Work flows right to left — finishing beats starting — and that is
+ONE derived order, not advice: every queue ranks stage first
+(accepted, review, rework, building, lane repair, todo) and the
+comparison order within a stage, age last. Stage is
+lexicographically supreme — no comparison edge lifts a todo item
+past a waiting verdict, because an unreviewed diff is a wasting
+asset and a hot pull's delay is at most one review. `next` offers
+the queue's head, and `take` refuses what a visibly unclaimed
+verdict outranks. Do what `next` names and ask again — acting moves
+the board, so the second answer derives from the board the first
+left behind. Stop when it says `none`: do not invent work. Beyond
+the queue: triage what arrived, refine the top of todo, decompose
+an undriven outcome — in that order.
 
 Session identity: never pass --session — the tool derives a
 unique-per-run identity from the environment, and an invented name
@@ -308,19 +314,31 @@ worktree or push rights to `board`:
   release the claim (`drop ID --why`, a worker-side reason) so the
   item is pullable again. Still running: leave it. Then the PRs are
   yours to watch — the agents are gone.
-- What never fans out: the review verdict — one review, in one
-  fresh subagent, however many PRs a wave opened; N agents reviewing
-  N PRs is N unreviewed merges wearing a costume — and refinement,
-  because two parallel refiners decompose the same outcome twice.
+- What never fans out: the review verdict — reviews run one fresh
+  subagent AT A TIME, however many PRs await; N agents reviewing N
+  PRs in parallel is N unreviewed merges wearing a costume — and
+  refinement, because two parallel refiners decompose the same
+  outcome twice. Sequential is not fanning out: a pass MAY run
+  several reviews back to back, each in its own fresh subagent.
 
 The standing loop (a session invoked as an orchestrator with a
 width N) runs ONE bounded pass and ends it. Never wait inside a
 pass — not for a wave agent, not for CI, not for an answer; the
-single exception is the one review subagent:
+single exception is a review subagent. Reviews outrank pulls
+inside the pass, and the tool holds that mechanically: `take`
+refuses a todo pull while an unclaimed diff the session could
+review awaits a verdict — builds fan out N at a time while
+reviews drain one at a time, so a loop that reviewed less than it
+pulled accumulated open PRs until the doing bound refused every
+take. Drain first and neither refusal ever fires:
 
 1. `sync`, then reconcile the previous wave (above).
 2. Merge whatever carries an accept.
-3. Review at most one item awaiting a verdict.
+3. Drain the reviews: while items await a verdict, review them —
+   one fresh subagent at a time, sequentially, a distinct minted
+   review session for each. Only the sequencing is yours to hold;
+   that the wave cannot fill past waiting verdicts, the take gate
+   already holds.
 4. Fill the wave: claim then spawn in the background, up to the
    smallest of N and what is actually disjoint. Zero agents is a
    legitimate pass.

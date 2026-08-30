@@ -6,7 +6,7 @@ return {
   ["_work/decision.tl"] = {["covered"] = 7, ["total"] = 7},
   ["_work/doctrine.tl"] = {["covered"] = 41, ["total"] = 41},
   ["_work/fixture.tl"] = {["covered"] = 87, ["total"] = 89},
-  ["_work/flow.tl"] = {["covered"] = 142, ["total"] = 149},
+  ["_work/flow.tl"] = {["covered"] = 182, ["total"] = 195},
   ["_work/flowstats.tl"] = {["covered"] = 141, ["total"] = 175},
   ["_work/gh.tl"] = {["covered"] = 19, ["total"] = 62},
   ["_work/gitboard.tl"] = {["covered"] = 0, ["total"] = 113},

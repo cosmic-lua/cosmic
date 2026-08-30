@@ -169,6 +169,78 @@ local function distance_refusal(it: item.Item, session: string): string | nil
   return nil
 end
 
+--- The visibly unactioned finishing work standing between a session
+--- and anything the unified order ranks below it: items at
+--- `flow.STAGE_REVIEW` with no reviewer recorded, at a distance from
+--- the session (the same `distance_refusal` the review claim asks).
+--- Review is the one stage whose neglect the board can SEE — an
+--- empty reviewer field is proof nobody is on it — where an accepted
+--- item's merge and a claimed build leave no such trace, so only
+--- review debt turns the ranking into a refusal. Deliberately LAXER
+--- than `next`'s review rung on one point: any recorded reviewer
+--- clears an item here, stale or live, because staleness needs
+--- per-item git ages this gate does not read — a stale review still
+--- drains through `next`, which offers taking it over ahead of any
+--- pull. Laxer is the safe direction: every pull `next` offers as a
+--- primary must pass this gate.
+--- @param items {item.Item} All items
+--- @param session string The session asking to pull
+--- @return {item.Item} The debt, possibly empty
+local function review_debt(items: {item.Item},
+    session: string): {item.Item}
+  local out: {item.Item} = {}
+  for _, i in ipairs(items) do
+    if item.is_open(i) and flow.role(i, items) == "work"
+    and flow.stage_rank(i) == flow.STAGE_REVIEW
+    and (i.reviewer or "") == ""
+    and distance_refusal(i, session) == nil then
+      out[#out + 1] = i
+    end
+  end
+  return out
+end
+
+--- The unified order as a take refusal, nil while the session may
+--- take: refused when some debt item outranks the take by STAGE
+--- (`flow.stage_rank`) — the same order `next` serves the head of,
+--- so the refusal is the ranking made binding, not a second rule.
+--- The named review is the debt's head in queue order. One stated
+--- carve-out: a lane-repair take never asks — the same arrival the
+--- doing bound never holds back, because a red lane's fix cannot
+--- wait on a review queue it did not grow.
+--- @param items {item.Item} All items
+--- @param session string The session asking to pull
+--- @param taking item.Item The item about to be taken
+--- @return string | nil The refusal
+local function review_debt_refusal(items: {item.Item}, session: string,
+    taking: item.Item): string | nil
+  if (taking.lane or "") ~= "" then
+    return nil
+  end
+  local debt = review_debt(items, session)
+  local ahead = 0
+  for _, d in ipairs(debt) do
+    if flow.stage_rank(d) < flow.stage_rank(taking) then
+      ahead = ahead + 1
+    end
+  end
+  if ahead == 0 then
+    return nil
+  end
+  local first = debt[1]
+  for _, i in ipairs(flow.unified(items, prio.positions(items))) do
+    if flow.stage_rank(i) == flow.STAGE_REVIEW
+    and (i.reviewer or "") == ""
+    and distance_refusal(i, session) == nil then
+      first = i
+      break
+    end
+  end
+  return ("%d diff(s) await a verdict you can give and outrank this "
+    .. "take — verdicts before new work: `take %s` claims the first; "
+    .. "a recorded reviewer clears it"):format(ahead, first.id:sub(1, 8))
+end
+
 --- The refusal a NEW claim earns when `session` already holds a live
 --- claim on another open item, or nil when it is free to claim. One
 --- claim per name, so two runners sharing a session name collide
@@ -346,6 +418,9 @@ local record gitgate
   spec_refusal: function(it: item.Item, session: string): string
   age_of: function(s: store.Store, it: item.Item): health.Ages
   distance_refusal: function(it: item.Item, session: string): string
+  review_debt: function(items: {item.Item}, session: string): {item.Item}
+  review_debt_refusal: function(items: {item.Item}, session: string,
+  taking: item.Item): string
   second_claim_refusal: function(s: store.Store, all: {item.Item},
   id: string, session: string): string
   commit_and_publish: function(s: store.Store, it: item.Item, body: string,
@@ -367,6 +442,8 @@ local M: gitgate = {
   spec_refusal = spec_refusal,
   age_of = age_of,
   distance_refusal = distance_refusal,
+  review_debt = review_debt,
+  review_debt_refusal = review_debt_refusal,
   second_claim_refusal = second_claim_refusal,
   commit_and_publish = commit_and_publish,
   containered = containered,

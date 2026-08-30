@@ -12,6 +12,7 @@ local flow = require("_work.flow")
 local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
+local gate = require("_work.gitgate")
 local verbs = require("_work.gitverbs")
 local graph = require("_work.gitgraph")
 local vrd = require("_work.gitverdict")
@@ -248,6 +249,37 @@ local function test_drop_clears_the_locks_and_names_the_reason()
     "dropping what is not in flight is a typo, not a mutation")
 end
 test_drop_clears_the_locks_and_names_the_reason()
+
+-- Verdicts before new work, mechanically: a todo pull is refused
+-- while an unclaimed diff the session could review awaits a verdict.
+-- The review claim itself is a finishing motion the gate never
+-- refuses, a recorded reviewer clears the debt, and the item's own
+-- builder — who could not give the verdict — is never held back by
+-- it.
+local function test_take_refuses_a_pull_past_an_unclaimed_verdict()
+  local s = init_state_repo("review-debt")
+  local goal, built = root_with_leaf(s)
+  local second = file_item(s, "the next slice", goal)
+  give_spec(s, built)
+  give_spec(s, second)
+  assert(verbs.cmd_take(s, built, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, built, "session-a", 77, false, "") == 0,
+    "the handover records the PR")
+  local all = check.must(store.list(s))
+  assert(#gate.review_debt(all, "session-b") == 1,
+    "the unclaimed verdict is session-b's debt")
+  assert(#gate.review_debt(all, "session-a") == 0,
+    "the builder could not give the verdict, so it is not their debt")
+  assert(verbs.cmd_take(s, second, "session-b", 0, false, "") ~= 0,
+    "a pull past the waiting verdict is refused")
+  assert(check.must(store.load(s, second)).claim == "",
+    "and the refused pull claimed nothing")
+  assert(verbs.cmd_take(s, built, "session-b", 0, false, "") == 0,
+    "the review claim itself is a finishing motion, never refused")
+  assert(verbs.cmd_take(s, second, "session-c", 0, false, "") == 0,
+    "a recorded reviewer clears the debt and the queue moves again")
+end
+test_take_refuses_a_pull_past_an_unclaimed_verdict()
 
 -- A drop returns the lease and touches nothing else: an edge wired
 -- mid-build (the block-first exit for an item that cannot proceed)
