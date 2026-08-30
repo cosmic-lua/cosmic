@@ -155,13 +155,15 @@ local function distance_refusal(it: item.Item, session: string): string | nil
   for _, name in ipairs(it.builders or {}) do
     if name == session then
       return ("REFUSED: %s built/specced %s — the verdict needs a fresh "
-        .. "context"):format(session, it.id:sub(1, 8))
+        .. "context; recording it anyway needs --force --why"):format(
+        session, it.id:sub(1, 8))
     end
   end
   for _, name in ipairs(it.speccers or {}) do
     if name == session then
       return ("REFUSED: %s built/specced %s — the verdict needs a fresh "
-        .. "context"):format(session, it.id:sub(1, 8))
+        .. "context; recording it anyway needs --force --why"):format(
+        session, it.id:sub(1, 8))
     end
   end
   return nil
