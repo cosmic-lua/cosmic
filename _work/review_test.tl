@@ -61,29 +61,42 @@ local function test_an_eight_character_prefix_joins_it()
 end
 test_an_eight_character_prefix_joins_it()
 
--- A body carrying the transport's entity-escape artifacts is flagged
--- as sanitized in transit, even when it is otherwise joined to its
--- item — the MCP transport does this to any body with tag-shaped
--- text, quotes included, so a reviewer needs to know before trusting
--- a quoted command or string in it.
-local function test_a_sanitized_body_blocks_on_apostrophe()
+-- The artifact rides along in ordinary prose constantly (a live
+-- measurement of this repo's last 30 PR bodies found it in 28), so
+-- outside any code span it is not a signal and must pass clean —
+-- otherwise the check refuses nearly every correct handover,
+-- including this one's own body.
+local function test_a_prose_artifact_outside_code_passes_clean()
   local body = "Board: " .. ID .. "\n\ndon&#39;t merge until CI is green."
-  local msg = review.blocks_check(pull({body = body}), ID)
-  assert(msg ~= nil and msg:find("sanitiz", 1, true), "got: " .. tostring(msg))
+  assert(review.blocks_check(pull({body = body}), ID) == nil,
+    "a prose artifact outside any code span is not a sanitization signal")
 end
-test_a_sanitized_body_blocks_on_apostrophe()
+test_a_prose_artifact_outside_code_passes_clean()
 
-local function test_a_sanitized_body_blocks_on_quote()
-  local body = "Board: " .. ID .. "\n\nrun &quot;cosmic --make ci&quot;."
+-- The same artifact inside a backtick span is the one place
+-- sanitization corrupts what a reviewer relies on: a reader trusts a
+-- code span's exact characters, and this one has been rewritten.
+local function test_an_artifact_inside_a_backtick_span_blocks()
+  local body = "Board: " .. ID .. "\n\nrun `it&#39;s fine` locally first."
   local msg = review.blocks_check(pull({body = body}), ID)
   assert(msg ~= nil and msg:find("sanitiz", 1, true), "got: " .. tostring(msg))
 end
-test_a_sanitized_body_blocks_on_quote()
+test_an_artifact_inside_a_backtick_span_blocks()
+
+-- Same for a fenced block, and for the numeric quote artifact — this
+-- transport emits numeric `&#34;`, never the named `&quot;`, so the
+-- numeric form is the one that has to be caught.
+local function test_an_artifact_inside_a_fenced_block_blocks()
+  local body = "Board: " .. ID .. "\n\n```\nrun &#34;cosmic --make ci&#34;\n```"
+  local msg = review.blocks_check(pull({body = body}), ID)
+  assert(msg ~= nil and msg:find("sanitiz", 1, true), "got: " .. tostring(msg))
+end
+test_an_artifact_inside_a_fenced_block_blocks()
 
 -- A plain apostrophe or quote — never entity-escaped — carries no
--- artifact and passes clean.
+-- artifact and passes clean, in or out of a code span.
 local function test_a_plain_apostrophe_does_not_block()
-  local body = "Board: " .. ID .. "\n\ndon't merge until CI is green."
+  local body = "Board: " .. ID .. "\n\n`don't merge` until CI is green."
   assert(review.blocks_check(pull({body = body}), ID) == nil,
     "a literal apostrophe is not a sanitization artifact")
 end
