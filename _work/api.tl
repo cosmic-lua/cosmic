@@ -51,11 +51,17 @@ local CACHE_DIR < const > = "gh-cache"
 --- One cached exchange: enough to revalidate (the ETag) and reuse
 --- (the body) without a live call. `status` is what was reported
 --- when the ETag was minted — reused verbatim on a 304, since GitHub
---- sends none of its own.
+--- sends none of its own. `body_sha256` is a sha256 hex digest of
+--- `body`, checked by `read_cache` on every load: a body that still
+--- parses as a valid literal but disagrees with its digest (a bit
+--- flipped in place, rather than a truncation that breaks brace or
+--- quote balance and already falls back to a miss) is a corrupted
+--- entry, not a value to replay on a 304.
 local record CacheEntry
   status: integer
   etag: string
   body: string
+  body_sha256: string
 end
 
 --- The path a request's cache entry lives at: a hash of method+path so
@@ -71,10 +77,12 @@ local function cache_path(root: string, method: string, path: string): string
 end
 
 --- Read a request's cached entry. nil means a cache miss — no entry
---- yet, or one that fails to parse (a half-written file, a format
---- this code no longer reads) — never a failure the caller must
---- handle; a miss just means the request goes out with no
---- `If-None-Match`.
+--- yet, one that fails to parse (a half-written file, a format this
+--- code no longer reads), one predating `body_sha256` (an old entry
+--- simply repopulates on the next fetch — no migration to handle), or
+--- one whose body disagrees with its digest (corrupted in place) —
+--- never a failure the caller must handle; a miss just means the
+--- request goes out with no `If-None-Match`.
 --- @param root string The store checkout root ("" disables the cache)
 --- @param method string HTTP method
 --- @param path string Request path
@@ -90,8 +98,13 @@ local function read_cache(root: string, method: string, path: string): CacheEntr
   local status = t["status"]
   local etag = t["etag"]
   local body = t["body"]
-  if status is integer and etag is string and body is string then
-    return {status = status, etag = etag, body = body}
+  local body_sha256 = t["body_sha256"]
+  if status is integer and etag is string and body is string
+  and body_sha256 is string then
+    if hash.sha256_hex(body) ~= body_sha256 then
+      return nil
+    end
+    return {status = status, etag = etag, body = body, body_sha256 = body_sha256}
   end
   return nil
 end
@@ -114,7 +127,8 @@ local function write_cache(root: string, method: string, path: string,
   -- to cache — see the header note above.
   local _ok, _err = fs.make_dirs(fs.join(root, "o", CACHE_DIR))
   local _wok, _werr = literal.format_file(cache_path(root, method, path),
-    {status = entry.status, etag = entry.etag, body = entry.body})
+    {status = entry.status, etag = entry.etag, body = entry.body,
+      body_sha256 = entry.body_sha256})
 end
 
 --- Fold a live response against what was cached for this request:
@@ -140,7 +154,8 @@ local function reconcile(cached: CacheEntry | nil, status: integer,
   if status >= 200 and status < 300 then
     local etag = headers["etag"]
     if etag ~= nil and etag ~= "" then
-      fresh = {status = status, etag = etag, body = body}
+      fresh = {status = status, etag = etag, body = body,
+        body_sha256 = hash.sha256_hex(body)}
     end
   end
   return status, body, fresh
