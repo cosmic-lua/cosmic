@@ -28,7 +28,13 @@
 ---   cosmic --make run _work/gitboard.tl drop 2akQ --why "wave agent died"
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
+---   cosmic --make run _work/gitboard.tl brief builder 2akQ
 ---   cosmic --make run _work/gitboard.tl sync
+---   cosmic --make run _work/gitboard.tl help system
+---
+--- `help <topic>` serves the doctrine pages (`_work.doctrine`) — the
+--- system of work itself, not one verb's options — and the overview
+--- help lists the topics.
 ---
 --- This file is the argument parsing, prefix resolution, and dispatch
 --- half; the verbs themselves are `_work.gitverbs` (the state
@@ -36,7 +42,9 @@
 local flags = require("cosmic.flags")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
+local brief = require("_work.brief")
 local cmp = require("_work.gitcompare")
+local doctrine = require("_work.doctrine")
 local graph = require("_work.gitgraph")
 local gitspec = require("_work.gitspec")
 local publish = require("_work.publish")
@@ -154,6 +162,18 @@ local CSPEC: flags.CommandSpec = {
             .. "has claimed, work and reviews alike. Omit to derive it "
             .. "from the environment (GITBOARD_SESSION, else a runner's "
             .. "own id)"}}}},
+    {name = "brief", summary = "print KIND's subagent prompt for ID, "
+      .. "board facts filled",
+      spec = {usage = "KIND ID [options]",
+        summary = "print one role's subagent prompt for ID — KIND is "
+        .. "builder, review,\nrefine, or decompose — with the item's "
+        .. "spec verbatim and every\nboard-known placeholder filled. "
+        .. "The closing verdict line names what is\nleft to fill (a "
+        .. "worktree path, a bounce paragraph, the review\nsession); "
+        .. "fill those, then paste the body as the agent's prompt — "
+        .. "never\nparaphrase or summarize it, and never hand-write a "
+        .. "brief instead: a\nhand-written brief drifts.",
+        flags = {dir_flag()}}},
     {name = "take", summary = "claim ID: the pull (spec bar and doing "
       .. "bound apply), its review when it awaits a verdict, or record "
       .. "its PR",
@@ -215,14 +235,32 @@ local CSPEC: flags.CommandSpec = {
 --- @param ... string Command-line arguments
 --- @return integer Exit code
 local function main(...: string): integer
-  local d, derr = flags.command(CSPEC, {...})
+  -- `help <topic>` serves doctrine before the dispatcher sees it —
+  -- topics are not commands, so flags.command would refuse them as
+  -- unknown. A topic never shadows a verb (`_work/doctrine_test.tl`
+  -- pins that), so a verb's own help page always wins this race by
+  -- construction.
+  local argv = {...}
+  if argv[1] == "help" and argv[2] ~= nil then
+    local topic = doctrine.page(argv[2])
+    if topic ~= nil then
+      print(topic)
+      return 0
+    end
+  end
+  local d, derr = flags.command(CSPEC, argv)
   if d == nil then
     io.stderr:write(tostring(derr) .. "\n")
-    io.stderr:write(flags.command_help(CSPEC))
+    io.stderr:write(flags.command_help(CSPEC)
+      .. "\n\n" .. doctrine.listing() .. "\n")
     return 1
   end
   if d.help or d.command == nil then
-    print(flags.command_help(CSPEC, d.command))
+    local text = flags.command_help(CSPEC, d.command)
+    if d.command == nil then
+      text = text .. "\n\n" .. doctrine.listing()
+    end
+    print(text)
     return 0
   end
   if d.command == "init" then
@@ -252,6 +290,21 @@ local function main(...: string): integer
   -- with every other id-taking verb.
   if d.command == "show" and (d.parsed.args[1] or "") == "" then
     return view.cmd_status(s)
+  end
+  -- `brief`'s first argument is the KIND, not an id, so it cannot
+  -- ride the shared id resolution below. A missing id passes through
+  -- as "" so an unknown kind refuses on the kind, not on the id.
+  if d.command == "brief" then
+    local target = d.parsed.args[2] or ""
+    if target ~= "" then
+      local resolved, berr = resolve_id(s, target)
+      if resolved == nil then
+        io.stderr:write(tostring(berr) .. "\n")
+        return 1
+      end
+      target = resolved
+    end
+    return brief.cmd_brief(s, d.parsed.args[1] or "", target)
   end
   if d.command == "new" then
     local title = d.parsed.args[1]
