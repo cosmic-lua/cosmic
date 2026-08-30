@@ -74,7 +74,6 @@ local function test_extract_files_dirs_modes()
   local mode = st:mode()
   assert(mode % 2 == 1, "tool should keep the exec bit, mode: " .. string.format("%o", mode))
 end
-test_extract_files_dirs_modes()
 
 -- A pax record's length prefix counts the whole record including itself:
 -- iterate to the fixpoint (the digit count can shift the total).
@@ -105,7 +104,6 @@ local function test_pax_path_override()
   assert(fs.read(fs.join(dest, long)) == "payload\n", "pax path override should win")
   assert(not fs.stat(fs.join(dest, "short-name")), "header name must not also be written")
 end
-test_pax_path_override()
 
 local function test_symlink_entry()
   local dest = fs.join(tmpdir, "untar-link")
@@ -118,7 +116,6 @@ local function test_symlink_entry()
   assert(ok, "symlink extract failed: " .. tostring(err))
   assert(fs.readlink(fs.join(dest, "alias.txt")) == "real.txt", "symlink target")
 end
-test_symlink_entry()
 
 local function test_rejects_traversal()
   local dest = fs.join(tmpdir, "untar-evil")
@@ -130,7 +127,6 @@ local function test_rejects_traversal()
   assert(not ok, "traversal entry must be rejected")
   assert(err and err:match("unsafe path"), "expected unsafe path error, got: " .. tostring(err))
 end
-test_rejects_traversal()
 
 local function test_rejects_absolute_symlink_target()
   local dest = fs.join(tmpdir, "untar-evil-link")
@@ -142,7 +138,6 @@ local function test_rejects_absolute_symlink_target()
   assert(not ok, "absolute symlink target must be rejected")
   assert(err and err:match("unsafe symlink"), "expected unsafe symlink error, got: " .. tostring(err))
 end
-test_rejects_absolute_symlink_target()
 
 local function test_rejects_bad_checksum()
   local dest = fs.join(tmpdir, "untar-badsum")
@@ -155,7 +150,6 @@ local function test_rejects_bad_checksum()
   assert(not ok, "corrupt header must be rejected")
   assert(err and err:match("checksum"), "expected checksum error, got: " .. tostring(err))
 end
-test_rejects_bad_checksum()
 
 local function test_rejects_truncated_archive()
   local dest = fs.join(tmpdir, "untar-trunc")
@@ -168,7 +162,6 @@ local function test_rejects_truncated_archive()
   assert(not ok, "truncated archive must be rejected")
   assert(err and err:match("truncated"), "expected truncated error, got: " .. tostring(err))
 end
-test_rejects_truncated_archive()
 
 local function test_rejects_unknown_entry_type()
   local dest = fs.join(tmpdir, "untar-hardlink")
@@ -180,7 +173,6 @@ local function test_rejects_unknown_entry_type()
   assert(not ok, "hardlink entry must be rejected loudly")
   assert(err and err:match("unsupported"), "expected unsupported error, got: " .. tostring(err))
 end
-test_rejects_unknown_entry_type()
 
 -- A control character in an archive-controlled name has no legitimate
 -- use, and a newline in one poisons every downstream format that
@@ -203,7 +195,6 @@ local function test_rejects_control_characters_in_names()
   assert(not lok, "a newline in a link target must be refused")
   assert(lerr and lerr:match("unsafe"), "expected an unsafe error, got: " .. tostring(lerr))
 end
-test_rejects_control_characters_in_names()
 
 -- Falling off the end without the two zero blocks was accepted as
 -- success, so a truncation landing on a 512-byte boundary after
@@ -224,7 +215,6 @@ local function test_truncated_archive_is_refused()
   assert(err and err:match("no end%-of%-archive"),
     "the message names the reason, got: " .. tostring(err))
 end
-test_truncated_archive_is_refused()
 
 -- Plain (uncompressed) .tar: gzip is detected from the magic bytes, so
 -- an archive that never went through gzip extracts with the same call.
@@ -238,7 +228,6 @@ local function test_plain_tar_extracts()
   assert(ok, "plain tar extract failed: " .. tostring(err))
   assert(fs.read(fs.join(dest, "plain.txt")) == "no gzip here\n", "plain tar content")
 end
-test_plain_tar_extracts()
 
 -- max_archive_bytes caps the unpacked size, so a small compressed file
 -- cannot balloon into an unbounded decompression.
@@ -255,7 +244,6 @@ local function test_max_archive_bytes_caps_decompression()
   local ok2, err2 = untar.extract(ar, dest, {max_archive_bytes = 64 * 1024})
   assert(ok2, "the same archive under the cap extracts: " .. tostring(err2))
 end
-test_max_archive_bytes_caps_decompression()
 
 local function test_entry_name_guard()
   -- The guard is fs.is_unsafe_entry_name; these tar-motivated cases
@@ -278,4 +266,3 @@ local function test_entry_name_guard()
   assert(not unsafe("a/b.txt"), "plain path is safe")
   assert(not unsafe("ab:c.txt"), "a colon that is not a drive is fine")
 end
-test_entry_name_guard()

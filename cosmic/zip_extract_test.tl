@@ -36,7 +36,6 @@ local function test_extract_basic()
   local mode = st:mode() & tonumber("777", 8)
   assert(mode == tonumber("755", 8), "mode from the archive should apply, got " .. string.format("%o", mode))
 end
-test_extract_basic()
 
 -- Craft an archive with a traversal entry. cosmic's own zip writer refuses
 -- ".." names, so write a same-length placeholder name and byte-patch it
@@ -68,7 +67,6 @@ local function test_extract_rejects_traversal()
   assert(not fs.is_present(fs.join(TEST_TMPDIR, "escaped.txt")), "escaping file must not be written")
   assert(not fs.is_present(dest), "destination must stay untouched on rejection")
 end
-test_extract_rejects_traversal()
 
 local function test_extract_rejects_absolute()
   local data = crafted_archive("/e/escaped.txt")
@@ -81,7 +79,6 @@ local function test_extract_rejects_absolute()
   assert(err and err:match("unsafe path"), "expected unsafe path error, got: " .. tostring(err))
   assert(not fs.is_present(dest), "destination must stay untouched on rejection")
 end
-test_extract_rejects_absolute()
 
 local function test_extract_rejects_backslash_traversal()
   local data = crafted_archive("..\\escaped.txt")
@@ -93,7 +90,6 @@ local function test_extract_rejects_backslash_traversal()
   assert(not ok, "extract should reject a ..\\ entry")
   assert(err and err:match("unsafe path"), "expected unsafe path error, got: " .. tostring(err))
 end
-test_extract_rejects_backslash_traversal()
 
 -- A control character in a member name does not escape the destination,
 -- and is refused anyway: the name travels onward into line-oriented
@@ -113,7 +109,6 @@ local function test_extract_rejects_control_characters()
   assert(err and err:match("unsafe path"),
     "expected unsafe path error, got: " .. tostring(err))
 end
-test_extract_rejects_control_characters()
 
 local function test_extract_max_file_size()
   local p = zip_path("extract_size.zip")
@@ -131,7 +126,6 @@ local function test_extract_max_file_size()
   assert(err and err:match("max_file_size_bytes"), "expected size error, got: " .. tostring(err))
   assert(not fs.is_present(fs.join(dest, "small.txt")), "no partial output on size rejection")
 end
-test_extract_max_file_size()
 
 local function test_extract_from_path()
   local p = zip_path("extract_path.zip")
@@ -150,4 +144,3 @@ local function test_extract_from_path()
   assert(bad_err and bad_err:find("cannot open", 1, true),
     "error should say the open failed, got: " .. tostring(bad_err))
 end
-test_extract_from_path()

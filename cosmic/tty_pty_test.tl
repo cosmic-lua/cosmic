@@ -63,7 +63,6 @@ local function test_openpty_yields_a_real_terminal()
   assert(ws.rows ~= nil and ws.cols ~= nil, "window_size should report a size")
   close_pty(pty)
 end
-test_openpty_yields_a_real_terminal()
 
 --- attributes on a terminal returns settings, and a fresh pty starts in
 --- the cooked state -- ECHO and ICANON on. Asserted explicitly because
@@ -76,7 +75,6 @@ local function test_getattr_on_a_terminal_starts_cooked()
   assert(t.lflag & tty.ICANON ~= 0, "a fresh pty should start canonical")
   close_pty(pty)
 end
-test_getattr_on_a_terminal_starts_cooked()
 
 --- make_raw is documented as pure. Verified against a real Termios
 --- rather than a hand-built one, since the input is the shape the
@@ -94,7 +92,6 @@ local function test_make_raw_is_pure()
   assert(rawt.lflag ~= lflag, "the returned attrs should differ")
   close_pty(pty)
 end
-test_make_raw_is_pure()
 
 --- raw() applied to a real terminal, read back through the kernel.
 --- restore() must then put every one of those fields back.
@@ -121,7 +118,6 @@ local function test_raw_then_restore_round_trips()
     "restore must put the cc table back")
   close_pty(pty)
 end
-test_raw_then_restore_round_trips()
 
 --- keep_signals is the one documented knob on raw(); without a terminal
 --- there was no way to tell it did anything.
@@ -135,7 +131,6 @@ local function test_raw_keep_signals_leaves_isig()
     "keep_signals should still leave raw mode otherwise")
   close_pty(pty)
 end
-test_raw_keep_signals_leaves_isig()
 
 --- disable_echo is narrower than raw: echo off, line editing untouched.
 local function test_noecho_clears_only_echo()
@@ -150,7 +145,6 @@ local function test_noecho_clears_only_echo()
     "disable_echo must not touch signal generation")
   close_pty(pty)
 end
-test_noecho_clears_only_echo()
 
 --- Is the byte we wrote to the manager echoed back by the terminal?
 --- A short poll timeout, so "no echo" cannot hang the suite.
@@ -181,7 +175,6 @@ local function test_noecho_actually_stops_echo()
     "after disable_echo the terminal must not echo")
   close_pty(pty)
 end
-test_noecho_actually_stops_echo()
 
 --- Same observable for raw(), which clears ECHO among much else, and
 --- restore() must bring echoing back.
@@ -193,7 +186,6 @@ local function test_raw_stops_echo_and_restore_revives_it()
   assert(echo_observed(pty), "restore must bring echoing back")
   close_pty(pty)
 end
-test_raw_stops_echo_and_restore_revives_it()
 
 -- read_password, the last path listed. It reads fd 0 specifically and
 -- only suppresses echo when fd 0 is a terminal, so covering it needs a
@@ -278,7 +270,6 @@ local function test_getpass_reads_without_echoing()
     "read_password must not echo what was typed, but the terminal returned: "
     .. seen)
 end
-test_getpass_reads_without_echoing()
 
 --- read_password restores the terminal when it is done, so a caller that
 --- prompts for a password does not leave the user's terminal mute.
@@ -314,4 +305,3 @@ local function test_getpass_restores_echo_afterwards()
     "read_password must leave canonical mode as it found it")
   close_pty(pty)
 end
-test_getpass_restores_echo_afterwards()

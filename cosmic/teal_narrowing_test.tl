@@ -30,7 +30,6 @@ print(f(1))
   assert(not result.ok,
     "T | nil must not narrow to nil in the negated branch (T may be boolean)")
 end
-test_typevar_union_is_not_truthiness_narrowed()
 
 -- The direct boolean case the skip list has always covered, pinned so
 -- the typevar fix above cannot regress it by loosening the scan.
@@ -51,7 +50,6 @@ print(f(true))
   assert(not result.ok,
     "boolean | nil must not narrow to nil in the negated branch")
 end
-test_boolean_union_is_not_truthiness_narrowed()
 
 -- Control: with no guard at all, `any` must not satisfy a typed
 -- parameter. Without this, test_early_exit_is_guard_narrows below would
@@ -71,7 +69,6 @@ f("hi")
   assert(not result.ok,
     "an unguarded `any` must not satisfy a typed parameter")
 end
-test_bare_any_does_not_satisfy_a_typed_parameter()
 
 -- `is` narrowing of a plain variable DOES survive a return-terminated
 -- early-exit guard, for a primitive, a record, and an array type. This
@@ -118,7 +115,6 @@ f_array({"a"})
     "an `is` guard ending in return must narrow the variable below it: "
     .. table.concat(msgs, "; "))
 end
-test_early_exit_is_guard_narrows()
 
 -- `is` narrows to a FUNCTION type as well, in all three spellings the
 -- tree relies on: the anonymous `function(A): (B, C)` form, a named
@@ -161,7 +157,6 @@ f_assert(thaw)
     "an `is` guard must narrow a variable to a function type: "
     .. table.concat(msgs, "; "))
 end
-test_is_guard_narrows_a_function_type()
 
 -- The negative twin: `type(v) ~= "function"` does NOT narrow, which is
 -- why the guards above had to be rewritten rather than left alone.
@@ -187,7 +182,6 @@ end)
   assert(not result.ok,
     "a `type(v) ~= \"function\"` guard must not narrow v to a function type")
 end
-test_type_eq_function_does_not_narrow()
 
 -- A guard whose block ends in `error(...)` is terminal, so it narrows
 -- below itself exactly as a `return`-terminated one does.
@@ -213,7 +207,6 @@ print(f())
     "a guard ending in error(...) must narrow below itself: "
     .. table.concat(msgs, "; "))
 end
-test_error_terminated_guard_narrows()
 
 -- The other terminators that are not `return`: `break` leaves the loop,
 -- `goto` jumps away, and `os.exit` ends the process. A branch ending in
@@ -259,7 +252,6 @@ print(by_break(), by_goto(), by_exit())
     "break, goto and os.exit must terminate a guard's branch: "
     .. table.concat(msgs, "; "))
 end
-test_non_return_exits_narrow()
 
 -- The pack-n patch: MIXED arguments fall to table.pack's any... overload,
 -- which the carried patch types PackTable<any> instead of {any:any}, so
@@ -282,4 +274,3 @@ print(table.unpack(results, 2, results.n))
   assert(result.ok,
     "mixed table.pack must keep .n integer: " .. table.concat(msgs, "; "))
 end
-test_mixed_pack_keeps_n_integer()

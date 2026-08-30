@@ -45,7 +45,6 @@ print(a:upper())
   assert(not teal.check_file(both).ok,
     "`x or y` with both operands nil-carrying must stay a union")
 end
-test_or_fallback_drops_nil()
 
 -- A disjunctive guard distributes: every arm of an `or` is false in the
 -- fall-through branch, so a `== nil` arm narrows there even when the
@@ -77,7 +76,6 @@ print(by_eq(), by_truthy())
     "each arm of an `or` guard is false below it, so the nil arm narrows: "
     .. table.concat(msgs, "; "))
 end
-test_disjunctive_guard_narrows()
 
 -- The left operand of `and` is read for its truthiness wherever the
 -- expression sits, not only inside an `if`: when it is falsy the right
@@ -108,7 +106,6 @@ print(assigned(), returned())
     "`x and x:m()` must narrow x outside a boolean context too: "
     .. table.concat(msgs, "; "))
 end
-test_and_operand_narrows_in_value_position()
 
 -- The other half of the honest-nil doctrine, and the one the prose used
 -- to get wrong: the checker DEMANDS a guard in exactly one position, an
@@ -146,7 +143,6 @@ print(gs() .. "x", m, t)
     .. "parameter must all admit an unnarrowed T | nil: "
     .. table.concat(msgs, "; "))
 end
-test_nil_union_is_admitted_outside_an_index()
 
 -- The negative twin: an index is the position that does refuse. Without
 -- it the test above would still pass under a checker that grew strict
@@ -164,4 +160,3 @@ print(s:upper())
   assert(not result.ok,
     "indexing an unnarrowed string | nil must be refused")
 end
-test_nil_union_is_refused_at_an_index()

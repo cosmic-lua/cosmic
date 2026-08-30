@@ -61,7 +61,6 @@ end
   assert(out:find("PASS"),
     "searcher[2] should not be tl_package_loader: " .. tostring(out))
 end
-test_tl_loader_not_at_position_2()
 
 --- Test that the tl_package_loader is still present (as a later searcher)
 --- so that .tl-only modules can still be loaded.
@@ -117,7 +116,6 @@ end
   assert(out2:find("PASS"),
     "tl_package_loader should still be present: " .. tostring(out2))
 end
-test_tl_loader_still_available()
 
 --- A required .tl module that fails to compile must fail the require()
 --- with the compile issues — tl's old loader type-checked and then
@@ -149,7 +147,6 @@ print("should not get here: " .. tostring(badmod))
   assert(not out:find("should not get here", 1, true),
     "broken module must not run: " .. out)
 end
-test_require_fails_on_compile_error()
 
 --- Required .tl modules go through the content-hash compile cache, so a
 --- script's require tree compiles once per content+build, not per run.
@@ -181,6 +178,5 @@ print("value=" .. require("goodmod").value)
   assert(n[1] > 0,
     "compile cache should hold the required module's output")
 end
-test_require_uses_compile_cache()
 
 print("All tl_loader tests passed!")

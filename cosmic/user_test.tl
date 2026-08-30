@@ -8,7 +8,6 @@ local function test_getuid_returns_number()
   assert(type(uid) == "number", "getuid should return a number, got " .. type(uid))
   assert(uid >= 0, "uid should be non-negative, got " .. tostring(uid))
 end
-test_getuid_returns_number()
 
 -- getgid tests
 
@@ -17,7 +16,6 @@ local function test_getgid_returns_number()
   assert(type(gid) == "number", "getgid should return a number, got " .. type(gid))
   assert(gid >= 0, "gid should be non-negative, got " .. tostring(gid))
 end
-test_getgid_returns_number()
 
 -- geteuid tests
 
@@ -26,7 +24,6 @@ local function test_geteuid_returns_number()
   assert(type(euid) == "number", "geteuid should return a number, got " .. type(euid))
   assert(euid >= 0, "euid should be non-negative, got " .. tostring(euid))
 end
-test_geteuid_returns_number()
 
 -- getegid tests
 
@@ -35,7 +32,6 @@ local function test_getegid_returns_number()
   assert(type(egid) == "number", "getegid should return a number, got " .. type(egid))
   assert(egid >= 0, "egid should be non-negative, got " .. tostring(egid))
 end
-test_getegid_returns_number()
 
 -- For non-setuid binaries, effective ids should match real ids
 
@@ -48,7 +44,6 @@ local function test_effective_matches_real_for_normal_process()
   assert(uid == euid, "for non-setuid process, uid (" .. uid .. ") should equal euid (" .. euid .. ")")
   assert(gid == egid, "for non-setgid process, gid (" .. gid .. ") should equal egid (" .. egid .. ")")
 end
-test_effective_matches_real_for_normal_process()
 
 -- getlogin tests
 
@@ -60,7 +55,6 @@ local function test_getlogin_returns_string_or_nil()
     assert(#login > 0, "login name should not be empty")
   end
 end
-test_getlogin_returns_string_or_nil()
 
 -- setuid/setgid tests (only test that setting to current id works)
 
@@ -69,14 +63,12 @@ local function test_setuid_to_current_uid()
   local ok = user.setuid(uid)
   assert(ok, "setuid to current uid should succeed")
 end
-test_setuid_to_current_uid()
 
 local function test_setgid_to_current_gid()
   local gid = user.getgid()
   local ok = user.setgid(gid)
   assert(ok, "setgid to current gid should succeed")
 end
-test_setgid_to_current_gid()
 
 -- setresuid/setresgid tests (test with -1 to leave unchanged)
 
@@ -84,10 +76,8 @@ local function test_setresuid_with_no_change()
   local ok = user.setresuid(-1, -1, -1)
   assert(ok, "setresuid with all -1 should succeed")
 end
-test_setresuid_with_no_change()
 
 local function test_setresgid_with_no_change()
   local ok = user.setresgid(-1, -1, -1)
   assert(ok, "setresgid with all -1 should succeed")
 end
-test_setresgid_with_no_change()

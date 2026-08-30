@@ -80,7 +80,6 @@ local function test_tlconfig_matches_teal_defaults()
     end
   end
 end
-test_tlconfig_matches_teal_defaults()
 
 -- The compile rule's `--include-dir` flags must equal the mirror
 -- compiled into cosmic.teal — the build and the library must agree on
@@ -118,4 +117,3 @@ local function test_build_include_dirs_match_mirror()
       .. "', cosmic.teal mirror says '" .. d .. "'")
   end
 end
-test_build_include_dirs_match_mirror()

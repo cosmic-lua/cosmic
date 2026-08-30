@@ -47,7 +47,6 @@ local function test_fd_handle_conforms()
   check_reader(p.reader, "fd bytes", "fd.Handle")
   assert(p.reader:close())
 end
-test_fd_handle_conforms()
 
 local function test_socket_recv_eof_is_nil()
   local sp = check.must(net.socket_pair())
@@ -73,7 +72,6 @@ local function test_socket_recv_eof_is_nil()
   local d, cerr = b:recv()
   assert(d == nil and cerr == "socket closed", "closed-socket recv shape")
 end
-test_socket_recv_eof_is_nil()
 
 local function test_socket_zero_byte_datagram_stays_empty()
   -- "" is reserved for the one honest case: a zero-byte datagram on a
@@ -93,14 +91,12 @@ local function test_socket_zero_byte_datagram_stays_empty()
   assert(a:close())
   assert(b:close())
 end
-test_socket_zero_byte_datagram_stays_empty()
 
 local function test_child_handle_conforms()
   local h = check.must(child.start({lua_bin, "-e", "io.write('child bytes'); io.flush()"}))
   check_reader(h, "child bytes", "child.Handle")
   assert(h:wait())
 end
-test_child_handle_conforms()
 
 --- Fork a loopback server answering one request, closing right after.
 local function serve_once(response: string): integer, integer
@@ -138,13 +134,11 @@ local function test_fetch_reader_conforms()
   assert(result.reader:close())
   assert(proc.wait(pid))
 end
-test_fetch_reader_conforms()
 
 local function test_new_reader_conforms()
   check_reader(stream.new_reader("in-memory bytes"), "in-memory bytes",
     "stream.new_reader")
 end
-test_new_reader_conforms()
 
 local function test_new_reader_chunks_and_edges()
   -- n bounds each chunk; the tail chunk may be short.
@@ -163,7 +157,6 @@ local function test_new_reader_chunks_and_edges()
   local got, bad_err = bad:read(0)
   assert(got == nil and bad_err ~= nil, "n must be positive")
 end
-test_new_reader_chunks_and_edges()
 
 local function test_new_reader_feeds_lines()
   local iter: stream.LineIter = stream.lines(stream.new_reader("one\ntwo\nthree"))
@@ -172,7 +165,6 @@ local function test_new_reader_feeds_lines()
   check.equal(iter(), "three", "final unterminated line")
   check.equal(iter(), nil, "then nil")
 end
-test_new_reader_feeds_lines()
 
 local function test_new_buffer_collects_writes()
   local buf = stream.new_buffer()
@@ -182,7 +174,6 @@ local function test_new_buffer_collects_writes()
   check.equal(buf:contents(), "collected bytes", "contents is everything written")
   check.equal(buf:contents(), "collected bytes", "contents is repeatable")
 end
-test_new_buffer_collects_writes()
 
 local function test_new_buffer_round_trips_through_copy()
   local buf = stream.new_buffer()
@@ -190,4 +181,3 @@ local function test_new_buffer_round_trips_through_copy()
   check.equal(copied, 10, "copy reports the byte count")
   check.equal(buf:contents(), "round trip", "new_reader -> new_buffer round-trips")
 end
-test_new_buffer_round_trips_through_copy()
