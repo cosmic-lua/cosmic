@@ -68,6 +68,38 @@ local function test_attach_refuses_a_cycle()
 end
 test_attach_refuses_a_cycle()
 
+--- Run graph.cmd_block and capture exactly what it prints via print() --
+--- the same swap-and-restore pattern verdict_and_capture in
+--- gitverdict_test.tl uses -- so a test can pin the exact refusal text,
+--- not just the exit code (a store-level no-op refusal and the
+--- edge-already-exists refusal both return nonzero, and only the text
+--- tells them apart).
+--- @param s store.Store The store
+--- @param id string The waiting item
+--- @param blocker string The item it waits on
+--- @param remove boolean True to drop the blocker instead of adding it
+--- @param reason string What concretely cannot proceed; required to add
+--- @return integer cmd_block's exit code
+--- @return string Every print()'d line, newline-joined
+local function block_and_capture(s: store.Store, id: string, blocker: string,
+    remove: boolean, reason: string): integer, string
+  local old_print = _G.print
+  local lines: {string} = {}
+  _G.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local ok, result = pcall(graph.cmd_block, s, id, blocker, remove, reason)
+  _G.print = old_print
+  if not ok then
+    error(result, 0)
+  end
+  return result, table.concat(lines, "\n")
+end
+
 -- Landing order is a board fact like any other: one verb, one commit,
 -- and refusals where hand-editing the field wrote nonsense.
 local function test_block_records_landing_order_and_refuses_nonsense()
@@ -81,8 +113,27 @@ local function test_block_records_landing_order_and_refuses_nonsense()
   assert(#waited.blocked_by == 1, "the blocker is recorded")
   assert(waited.block_reason[first] == "first lands the API",
     "the reason rides on the edge")
-  assert(graph.cmd_block(s, second, first, false, "again") ~= 0,
-    "recording it twice records nothing")
+  local before_noop = commits(s)
+  local noop_code, noop_line = block_and_capture(s, second, first, false,
+    "first lands the API")
+  assert(noop_code ~= 0, "an identical reason is refused as a no-op")
+  assert(noop_line:find("already waits on", 1, true) ~= nil,
+    "refused as the standing edge, not laundered through store's own " ..
+    "empty-diff refusal: " .. noop_line)
+  assert(commits(s) == before_noop, "a no-op writes no commit")
+  local unchanged = check.must(store.load(s, second))
+  assert(#unchanged.blocked_by == 1, "the blocker list is untouched")
+  assert(unchanged.block_reason[first] == "first lands the API",
+    "the reason is untouched")
+  local before_update = commits(s)
+  assert(graph.cmd_block(s, second, first, false, "the API grew a v2 path") == 0,
+    "a different reason updates the edge instead of refusing")
+  assert(commits(s) == before_update + 1, "the update is one commit")
+  local updated = check.must(store.load(s, second))
+  assert(#updated.blocked_by == 1, "blocked_by is untouched by the update")
+  assert(updated.blocked_by[1] == first, "still the same blocker")
+  assert(updated.block_reason[first] == "the API grew a v2 path",
+    "the reason was replaced")
   assert(graph.cmd_block(s, second, second, false, "self") ~= 0,
     "an item cannot block itself")
   assert(graph.cmd_block(s, first, second, false, "reverse") ~= 0,
