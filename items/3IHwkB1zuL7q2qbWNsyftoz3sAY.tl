@@ -7,6 +7,6 @@ return {
   ["speccers"] = "6a2e9d71-e166-59f3-9fc2-389928bb6f3e",
   ["title"] = "PR bodies are HTML-sanitized in transit: tag-shaped text is deleted and quotes are entity-escaped, in code blocks too",
   ["verdict"] = "request changes",
-  ["verdict_head"] = "2096e0503f2d70dbbac95e331626b75f96ab8553",
-  ["verdict_spec"] = "ea95b39efb0b4d5c4ec474bafb6d581fdb1999bee3ffde8de4381c459fee7832",
+  ["verdict_head"] = "274c6f974d20c3344b1372b7233fc85420abc4e8",
+  ["verdict_spec"] = "f9bb25fb0561bd08f10af9caaf079541fd127e3929f40e380d4510533c8742d4",
 }
