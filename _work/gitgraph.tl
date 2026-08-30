@@ -26,8 +26,18 @@ local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local store = require("_work.store")
 
+--- File a new item into the graph, todo if it has a parent and triage
+--- otherwise. `spec` is nil to leave the sidecar file unwritten — an
+--- empty string would instead write an empty `items/<id>.md`, which is
+--- a different, visible outcome.
+--- @param s store.Store The store
+--- @param title string The item's title
+--- @param parent string The parent id, or "" to file it without one
+--- @param spec string | nil Sidecar prose to write, or nil to write none
+--- @param repo string The item's repo field; nil becomes ""
+--- @return integer 0 on success, 1 otherwise
 local function cmd_new(s: store.Store, title: string, parent: string,
-    spec: string, repo: string): integer
+    spec: string | nil, repo: string): integer
   local all, aerr = store.list(s)
   if all == nil then
     return gate.verdict_line("new", false, aerr)
@@ -70,6 +80,13 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   return gate.verdict_line("new", true, ("%s enters %s"):format(it.id, entered))
 end
 
+--- Give an item a parent, moving it from triage into todo. Refuses a
+--- self-parent, a missing id on either side, and a parent whose own
+--- chain would cycle back to the item being attached.
+--- @param s store.Store The store
+--- @param id string The item gaining a parent
+--- @param parent string The new parent id
+--- @return integer 0 on success, 1 otherwise
 local function cmd_attach(s: store.Store, id: string, parent: string): integer
   local all, aerr = store.list(s)
   if all == nil then
@@ -297,7 +314,7 @@ end
 
 local record gitgraph
   cmd_new: function(s: store.Store, title: string, parent: string,
-  spec: string, repo: string): integer
+  spec: string | nil, repo: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer
