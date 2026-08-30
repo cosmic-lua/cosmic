@@ -23,6 +23,19 @@ local type Project = types.Project
 --- project unbuildable offline.
 local KEEP < const >: {string: boolean} = {bootstrap = true}
 
+--- Is `path` the root of a git worktree? A worktree root carries a
+--- `.git` entry directly inside it -- a FILE (`gitdir: <path>`) for a
+--- linked worktree, a DIRECTORY for the main checkout -- so a bare
+--- filesystem check is enough; no `git` invocation, no registry read.
+--- `skills/work/SKILL.md` and the board branch's README both have
+--- callers run `git worktree add o/board board`, so a live board
+--- worktree can sit directly under `o/` and must survive a clean.
+--- @param path string A direct child of the build directory
+--- @return boolean True when path/.git is present
+local function is_worktree_root(path: string): boolean
+  return fs.is_present(fs.join(path, ".git"))
+end
+
 --- `clean` — remove the build directory, in process. Driving this
 --- through the graph would mean reading rules out of the directory
 --- being deleted.
@@ -45,6 +58,9 @@ local function run(_proj: Project, _paths: {string},
   local kept = 0
   for _, path in ipairs(entries) do
     if KEEP[fs.basename(path)] then
+      kept = kept + 1
+    elseif is_worktree_root(path) then
+      print("clean: kept " .. fs.basename(path) .. " (git worktree)")
       kept = kept + 1
     else
       local ok, err = fs.remove_all(path)

@@ -120,4 +120,29 @@ local function test_clean_keeps_the_verified_bootstrap()
     "everything else still goes: " .. r.out)
 end
 
+-- ...and a live git worktree. `skills/work/SKILL.md` and the board
+-- branch's README both have callers run `git worktree add o/board
+-- board`, so a worktree root can sit directly under `o/`; clean must
+-- not delete it (and strand its admin entry in `.git/worktrees`).
+-- Detection is the filesystem `.git` marker alone -- a plain file here
+-- stands in for the real `gitdir: <path>` linked-worktree marker, with
+-- no `git` invocation needed to prove the skip.
+local function test_clean_keeps_a_git_worktree()
+  local root = app("cleanwt")
+  assert(make(root, "build").code == 0, "build first")
+  local wt = fs.join(root, "o/board")
+  assert(fs.make_dirs(wt))
+  assert(fs.write(fs.join(wt, ".git"), "gitdir: /elsewhere/.git/worktrees/board\n"))
+  assert(fs.write(fs.join(wt, "README.md"), "board contents\n"))
+
+  local r = make(root, "clean")
+  assert(r.code == 0, "clean should succeed: " .. r.err)
+  assert(fs.is_file(fs.join(wt, "README.md")),
+    "the worktree survives: " .. r.out)
+  assert(r.out:find("kept board (git worktree)", 1, true),
+    "and clean says so: " .. r.out)
+  assert(not fs.is_present(fs.join(root, "o/bin")),
+    "everything else still goes: " .. r.out)
+end
+
 print("all clean tests passed")
