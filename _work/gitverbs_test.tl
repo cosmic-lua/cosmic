@@ -304,6 +304,32 @@ local function test_done_guards_an_unjudged_pr()
 end
 test_done_guards_an_unjudged_pr()
 
+-- `drop` clears the live claim but never touches `builders` — the
+-- append-only record of every session that ever held it — so the
+-- PR-less done gate above must key on that history, not the live
+-- claim. Keying on the live claim let take -> drop -> done slip a
+-- worked research item past review with no verdict and no --force:
+-- the exact bypass this test pins shut.
+local function test_done_guards_a_dropped_items_worked_history()
+  local s = init_state_repo("drop-then-done")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_drop(s, leaf, "session-a",
+      "pausing to rethink the approach", false) == 0)
+  local dropped = check.must(store.load(s, leaf))
+  assert(dropped.claim == "" and #dropped.builders == 1,
+    "the claim clears but the builders record survives the drop")
+  assert(verbs.cmd_done(s, leaf, "completed", false, "") ~= 0,
+    "a dropped item with worked history still owes a verdict")
+  assert(verbs.cmd_done(s, leaf, "completed", true,
+      "abandoning this line of research") == 0,
+    "--force --why remains the repair path")
+  local ended = check.must(store.load(s, leaf))
+  assert(ended.claim == "", "and done clears the claim")
+end
+test_done_guards_a_dropped_items_worked_history()
+
 -- Closing the last child makes the container workable again by
 -- derivation — nothing is written to it, and the verdict line says
 -- what to do with it.
