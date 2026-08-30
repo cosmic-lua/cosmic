@@ -7,7 +7,8 @@
 --- test or ratchet the gate runs — a gate outlives the sidecar that
 --- asked for it. The bar checks only what a machine can check
 --- honestly: whether the Change decides enough is the puller's
---- judgment (a wrong call comes back as a drop with the gap named),
+--- judgment (a wrong call comes back as a question the item gets
+--- blocked on, or as a release),
 --- and optional prose sections ride along untouched.
 ---
 --- It also names a spec's REVISION, because the sidecar is half of

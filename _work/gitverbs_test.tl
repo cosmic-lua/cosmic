@@ -225,29 +225,53 @@ local function test_take_pr_collision_forced_lands_with_the_suffix()
 end
 test_take_pr_collision_forced_lands_with_the_suffix()
 
--- A drop names its gap, clears every lock together, and is never
+-- A drop names its reason, clears every lock together, and is never
 -- refused for flow — leftward motion is the system correcting itself.
-local function test_drop_clears_the_locks_and_names_the_gap()
+local function test_drop_clears_the_locks_and_names_the_reason()
   local s = init_state_repo("drop")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
   assert(verbs.cmd_take(s, leaf, "session-a", 77, false, "") == 0)
   assert(verbs.cmd_drop(s, leaf, "session-a", "", false) ~= 0,
-    "a drop with no gap named is refused")
+    "a drop with no reason named is refused")
   assert(verbs.cmd_drop(s, leaf, "session-a",
-      "the spec does not say which encoding wins", false) == 0)
+      "session out of budget mid-slice", false) == 0)
   local dropped = check.must(store.load(s, leaf))
   assert(dropped.claim == "" and dropped.pr == 0 and dropped.verdict == "",
     "the claim, the PR and any verdict clear together")
   assert(not flow.is_doing(dropped), "the item is todo again")
   local events = check.must(publish.history(s, leaf))
-  assert(events[1].subject:find("which encoding wins", 1, true),
-    "the gap is in the log: " .. events[1].subject)
+  assert(events[1].subject:find("out of budget", 1, true),
+    "the reason is in the log: " .. events[1].subject)
   assert(verbs.cmd_drop(s, leaf, "session-a", "again", false) ~= 0,
     "dropping what is not in flight is a typo, not a mutation")
 end
-test_drop_clears_the_locks_and_names_the_gap()
+test_drop_clears_the_locks_and_names_the_reason()
+
+-- A drop returns the lease and touches nothing else: an edge wired
+-- mid-build (the block-first exit for an item that cannot proceed)
+-- survives the drop, so the released item waits on its question
+-- instead of re-entering the pull queue.
+local function test_drop_leaves_blockers_standing()
+  local s = init_state_repo("drop-blocked")
+  local goal, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  local question = file_item(s, "which premise still holds?", goal)
+  assert(graph.cmd_block(s, leaf, question, false,
+      "the measured premise no longer reproduces") == 0)
+  assert(verbs.cmd_drop(s, leaf, "session-a",
+      "blocked on the question", false) == 0)
+  local dropped = check.must(store.load(s, leaf))
+  assert(dropped.claim == "", "the lease returned")
+  assert(#dropped.blocked_by == 1 and dropped.blocked_by[1] == question,
+    "the blocker edge survives the drop")
+  local index = flow.by_id(check.must(store.list(s)))
+  assert(flow.is_blocked(dropped, index),
+    "the released item waits on its open question")
+end
+test_drop_leaves_blockers_standing()
 
 -- Another session's live claim refuses a drop without force: the
 -- builder may be mid loop on a machine the board cannot see.

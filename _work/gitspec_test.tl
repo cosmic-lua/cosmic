@@ -280,22 +280,22 @@ local function test_spec_refuses_a_flag_shaped_session()
 end
 test_spec_refuses_a_flag_shaped_session()
 
--- The reproduced incident: a bounce's gap lived only in the board
+-- The reproduced incident: a drop's why lived only in the board
 -- log, so the next session that pulled the same item re-discovered
--- it. `next`'s offer now carries the gap from the drop already on
--- record.
-local function test_next_carries_the_last_bounce_gap()
+-- it. `next`'s offer now carries the why from the drop already on
+-- record, so the puller sees which side stopped before claiming.
+local function test_next_carries_the_last_drops_why()
   local s = init_state_repo("bouncenote")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
   assert(verbs.cmd_drop(s, leaf, "session-a",
-      "the encoding question is unanswered", false) == 0)
+      "the builder session hit its budget", false) == 0)
   local all = check.must(store.list(s))
   local report = view.next_report_live(s, all, view.read_specs(s, all),
     "", {})
-  assert(report:find("last bounce:", 1, true) ~= nil, report)
-  assert(report:find("the encoding question is unanswered", 1, true) ~= nil,
+  assert(report:find("last drop:", 1, true) ~= nil, report)
+  assert(report:find("the builder session hit its budget", 1, true) ~= nil,
     report)
 end
-test_next_carries_the_last_bounce_gap()
+test_next_carries_the_last_drops_why()
