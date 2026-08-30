@@ -52,6 +52,17 @@ local ARTIFACTS: {string} = {"&#39;", "&#34;"}
 --- their own backtick delimiters are spent before the inline pass sees
 --- them, rather than pairing into bogus one-character spans — then
 --- inline `...` spans over what is left.
+---
+--- An opening fence with no closing fence is dropped, opener and all
+--- the text after it, rather than left in `rest`: leaving it would let
+--- its unpaired third backtick survive into the inline pass, where it
+--- can pair with any later, unrelated single backtick and produce a
+--- phantom span covering everything in between — including ordinary
+--- prose. Whether the dropped remainder itself held a real code
+--- artifact is undecidable from a stray fence, so it is scanned by
+--- neither pass: false positives, not misses, are what a prior review
+--- round on this item bounced twice, so an unclosed fence's content
+--- reads as NOT a code span rather than risk another one.
 --- @param body string The body to scan
 --- @return {string} Each span's inner text, in no particular order
 local function code_spans(body: string): {string}
@@ -61,7 +72,10 @@ local function code_spans(body: string): {string}
     local s = rest:find("```", 1, true)
     if not s then break end
     local e = rest:find("```", s + 3, true)
-    if not e then break end
+    if not e then
+      rest = rest:sub(1, s - 1)
+      break
+    end
     spans[#spans + 1] = rest:sub(s + 3, e - 1)
     rest = rest:sub(1, s - 1) .. rest:sub(e + 3)
   end

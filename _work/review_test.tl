@@ -102,6 +102,35 @@ local function test_a_plain_apostrophe_does_not_block()
 end
 test_a_plain_apostrophe_does_not_block()
 
+-- An opening fence with no closing fence must not leak its third
+-- backtick into the inline pass: if it did, that backtick would pair
+-- with the later, unrelated inline backtick around "real code" and
+-- produce a phantom span covering all the ordinary prose in between —
+-- including this artifact, which sits in that prose, not in any real
+-- code span.
+local function test_an_unclosed_fence_does_not_leak_into_inline_pass()
+  local body = "Board: " .. ID .. "\n\n"
+  .. "```oops i opened a fence and forgot to close it. "
+  .. "meanwhile, in unrelated prose way down here, don&#39;t worry, "
+  .. "it's fine -- until later someone writes `real code`."
+  assert(review.blocks_check(pull({body = body}), ID) == nil,
+    "an unclosed fence must not turn intervening prose into a phantom span")
+end
+test_an_unclosed_fence_does_not_leak_into_inline_pass()
+
+-- An unclosed fence's own remainder is ambiguous — it could be code
+-- that never got its closing fence, or prose that merely started with
+-- three backticks — so an artifact inside it does not fire either.
+-- False positives, not misses, are what bounced this item twice, so
+-- the ambiguous case reads as NOT a code span.
+local function test_an_unclosed_fence_remainder_artifact_does_not_block()
+  local body = "Board: " .. ID .. "\n\n"
+  .. "```run &#34;cosmic --make ci&#34; but forgot the closing fence"
+  assert(review.blocks_check(pull({body = body}), ID) == nil,
+    "an unclosed fence's own content is not treated as a code span")
+end
+test_an_unclosed_fence_remainder_artifact_does_not_block()
+
 -- An item that names a base is refused when the PR targets something
 -- else — the mismatch names both sides and the fix (retarget, or set
 -- --base), never one alone.
