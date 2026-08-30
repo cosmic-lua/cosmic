@@ -1,0 +1,6 @@
+return {
+  ["id"] = "3Idu2bXn7v5T14LfXWZlIn8Hcv9",
+  ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["repo"] = "cosmic-lua/cosmopolitan",
+  ["title"] = "salvage the Lua syntax-extension tests",
+}
