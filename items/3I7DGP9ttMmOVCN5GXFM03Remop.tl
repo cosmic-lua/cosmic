@@ -6,7 +6,6 @@ return {
   ["parent"] = "3HyRcrR35sYRwZl3guddvOBhFoK",
   ["pr"] = 1574,
   ["title"] = "AGENTS.md Language and Conventions shrinks toward the gates that enforce it, and the cap decision gets its record",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "950c244baa9ac23e8d97308685243778203d3dbb",
   ["verdict_spec"] = "65bc47c6fdf29e2bd5ffc16fd7e322652745da97e95f1feaef30f366684e8df6",
 }
