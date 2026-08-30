@@ -129,6 +129,14 @@ local function status_report(all: {item.Item}, specs: act.Specs,
   if row then
     out[#out + 1] = row
   end
+  -- A flagged record `list` read past rather than aborting on is
+  -- nobody's surprise if nothing says so: one line, board-level like
+  -- `lanes`/`todo`, not a mark on the one item among many that carries
+  -- it — `""` when nothing was flagged prints nothing at all.
+  local flagged = store.flagged_summary(all)
+  if flagged ~= "" then
+    out[#out + 1] = flagged
+  end
   local todo = flow.in_state(all, "todo", pos)
   local pullable = 0
   for _, i in ipairs(todo) do
