@@ -223,7 +223,10 @@ nothing establishes that the PATTERN matched nothing, never that the
 thing is absent — widen it, or name what the narrow one could miss.
 no lint can tell an executed claim from a plausible one; this is a
 rule the refiner applies and the reviewer checks, demanding the
-output beside the command in spec and bounce alike.
+output beside the command in spec and bounce alike. the same rule
+covers removals: a Change that relocates or deletes a mechanism names
+the sweep it ran for sites still asserting the old one — the grep and
+its match count — the same way a measured claim carries its command.
 
 **sizing:** one PR one session holds in its head (~400 changed lines
 is the smell threshold, not a rule). an "and" between two independent
