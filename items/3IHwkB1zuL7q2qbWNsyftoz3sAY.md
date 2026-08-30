@@ -20,3 +20,21 @@ existing review test seam; mutation-verify the detection.
 No transport fix (the sanitizer is upstream). No SKILL.md authoring
 rule (PR bodies carry no evidence by doctrine already). No entity
 decoding/rewriting of bodies.
+
+## Rework (2026-08-30, request changes on PR #1538)
+
+Live measurement by the reviewer (last 30 PR bodies on this repo):
+28/30 carry `&#39;` and/or `&#34;` from ordinary prose possessives, so
+an any-artifact blocking refusal refuses ~93% of correct handovers —
+including PR #1538's own body — and the named entity `&quot;` appears
+in zero live bodies (the transport emits numeric `&#34;`). The
+detection narrows: fire only when an artifact appears INSIDE a code
+span (between backticks or inside a fenced ``` block) — the one place
+sanitization corrupts the meaning a reviewer relies on — and match
+numeric `&#34;` (keep `&#39;`; the named forms may ride alongside but
+are not the live signal). Blocking severity then stands, matching the
+existing single-channel shape. Tests: a prose-apostrophe artifact
+outside any code span passes clean; `&#39;` inside a backtick span
+blocks; `&#34;` inside a fenced block blocks; mutation-verify the
+span-scoping (widen the check back to whole-body, watch the
+prose-passes-clean test go red).
