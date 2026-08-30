@@ -43,6 +43,15 @@ local FAILED: {string: boolean} = {
 
 --- The refusal a pull request earns before it may carry an item into
 --- `check`, or nil when it may.
+---
+--- One of these findings is not about the request's shape but about
+--- its transport: the MCP transport that authors PR bodies HTML-
+--- sanitizes them, entity-escaping quotes even inside code blocks and
+--- deleting tag-shaped text. That is detected here, never fixed —
+--- decoding or rewriting the body is out of scope, and so is stopping
+--- the sanitizer, which lives upstream. Flagging it before handover is
+--- what keeps a reviewer from trusting a quoted command or string the
+--- transport already garbled.
 --- @param p Pull The fetched pull request
 --- @param id string The item's id
 --- @return string | nil The refusal
@@ -60,6 +69,11 @@ local function blocks_check(p: Pull, id: string): string
   and not body:find("Board: " .. id:sub(1, 8), 1, true) then
     return ("PR #%d's body does not carry `Board: %s`, so nothing joins the "
       .. "request to its item"):format(p.number, id:sub(1, 8))
+  end
+  if body:find("&#39;", 1, true) or body:find("&quot;", 1, true) then
+    return ("PR #%d's body carries entity-escape artifacts (&#39; or "
+      .. "&quot;) — the MCP transport HTML-sanitized it in transit, so any "
+      .. "quoted command or text in it may not be reliable"):format(p.number)
   end
   return nil
 end

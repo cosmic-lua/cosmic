@@ -61,6 +61,34 @@ local function test_an_eight_character_prefix_joins_it()
 end
 test_an_eight_character_prefix_joins_it()
 
+-- A body carrying the transport's entity-escape artifacts is flagged
+-- as sanitized in transit, even when it is otherwise joined to its
+-- item — the MCP transport does this to any body with tag-shaped
+-- text, quotes included, so a reviewer needs to know before trusting
+-- a quoted command or string in it.
+local function test_a_sanitized_body_blocks_on_apostrophe()
+  local body = "Board: " .. ID .. "\n\ndon&#39;t merge until CI is green."
+  local msg = review.blocks_check(pull({body = body}), ID)
+  assert(msg ~= nil and msg:find("sanitiz", 1, true), "got: " .. tostring(msg))
+end
+test_a_sanitized_body_blocks_on_apostrophe()
+
+local function test_a_sanitized_body_blocks_on_quote()
+  local body = "Board: " .. ID .. "\n\nrun &quot;cosmic --make ci&quot;."
+  local msg = review.blocks_check(pull({body = body}), ID)
+  assert(msg ~= nil and msg:find("sanitiz", 1, true), "got: " .. tostring(msg))
+end
+test_a_sanitized_body_blocks_on_quote()
+
+-- A plain apostrophe or quote — never entity-escaped — carries no
+-- artifact and passes clean.
+local function test_a_plain_apostrophe_does_not_block()
+  local body = "Board: " .. ID .. "\n\ndon't merge until CI is green."
+  assert(review.blocks_check(pull({body = body}), ID) == nil,
+    "a literal apostrophe is not a sanitization artifact")
+end
+test_a_plain_apostrophe_does_not_block()
+
 -- An item that names a base is refused when the PR targets something
 -- else — the mismatch names both sides and the fix (retarget, or set
 -- --base), never one alone.
