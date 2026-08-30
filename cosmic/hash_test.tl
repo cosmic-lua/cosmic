@@ -9,27 +9,23 @@ local function test_sha256_returns_32_bytes()
   local digest = hash.sha256("hello")
   assert(#digest == 32, "sha256 should return 32 bytes, got " .. #digest)
 end
-test_sha256_returns_32_bytes()
 
 local function test_sha256_deterministic()
   local hash1 = hash.sha256("test data")
   local hash2 = hash.sha256("test data")
   assert(hash1 == hash2, "sha256 should be deterministic")
 end
-test_sha256_deterministic()
 
 local function test_sha256_different_inputs_different_outputs()
   local hash1 = hash.sha256("input1")
   local hash2 = hash.sha256("input2")
   assert(hash1 ~= hash2, "different inputs should produce different hashes")
 end
-test_sha256_different_inputs_different_outputs()
 
 local function test_sha256_empty_string()
   local digest = hash.sha256("")
   assert(#digest == 32, "sha256 of empty string should return 32 bytes")
 end
-test_sha256_empty_string()
 
 -- NIST FIPS 180-4 vectors: the canonical empty and "abc"
 -- inputs, asserted byte-for-byte, not just by length.
@@ -40,7 +36,6 @@ local function test_sha256_nist_empty_vector()
   assert(digest == expected,
     "sha256('') should match the NIST vector, got " .. digest)
 end
-test_sha256_nist_empty_vector()
 
 local function test_sha256_nist_abc_vector()
   local digest = hash.sha256_hex("abc")
@@ -48,19 +43,16 @@ local function test_sha256_nist_abc_vector()
   assert(digest == expected,
     "sha256('abc') should match the NIST vector, got " .. digest)
 end
-test_sha256_nist_abc_vector()
 
 local function test_sha256_hex_returns_64_chars()
   local digest = hash.sha256_hex("hello")
   assert(#digest == 64, "sha256_hex should return 64 characters, got " .. #digest)
 end
-test_sha256_hex_returns_64_chars()
 
 local function test_sha256_hex_is_lowercase_hex()
   local digest = hash.sha256_hex("test")
   assert(digest:match("^[0-9a-f]+$"), "sha256_hex should be lowercase hex, got " .. digest)
 end
-test_sha256_hex_is_lowercase_hex()
 
 local function test_sha256_hex_known_value()
   -- SHA-256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
@@ -68,7 +60,6 @@ local function test_sha256_hex_known_value()
   local expected = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
   assert(digest == expected, "sha256_hex('hello') should be " .. expected .. ", got " .. digest)
 end
-test_sha256_hex_known_value()
 
 -- Password hashing tests
 
@@ -78,7 +69,6 @@ local function test_password_returns_encoded_string()
   assert(type(encoded) == "string", "password should return a string")
   assert(#encoded > 0, "password should return non-empty string")
 end
-test_password_returns_encoded_string()
 
 local function test_password_different_each_call()
   local encoded1, err1 = hash.hash_password("password123")
@@ -87,7 +77,6 @@ local function test_password_different_each_call()
   assert(encoded2, "second password should succeed: " .. tostring(err2))
   assert(encoded1 ~= encoded2, "password should use different salt each time")
 end
-test_password_different_each_call()
 
 local function test_verify_password_correct()
   local encoded, err = hash.hash_password("correct_password")
@@ -95,7 +84,6 @@ local function test_verify_password_correct()
   local valid = hash.verify_password(encoded, "correct_password")
   assert(valid == true, "verify_password should return true for correct password")
 end
-test_verify_password_correct()
 
 local function test_verify_password_wrong()
   local encoded, err = hash.hash_password("correct_password")
@@ -103,7 +91,6 @@ local function test_verify_password_wrong()
   local valid = hash.verify_password(encoded, "wrong_password")
   assert(valid == false, "verify_password should return false for wrong password")
 end
-test_verify_password_wrong()
 
 local function test_password_with_options()
   local encoded, err = hash.hash_password("password", {
@@ -116,7 +103,6 @@ local function test_password_with_options()
   local valid = hash.verify_password(encoded, "password")
   assert(valid == true, "verify_password should work with custom options hash")
 end
-test_password_with_options()
 
 local function test_password_empty()
   -- Empty passwords should be allowed (useful for testing, user validation should be done elsewhere)
@@ -125,7 +111,6 @@ local function test_password_empty()
   local valid = hash.verify_password(encoded, "")
   assert(valid == true, "verify_password should verify empty password")
 end
-test_password_empty()
 
 local function test_password_unicode()
   local encoded, err = hash.hash_password("пароль")
@@ -133,7 +118,6 @@ local function test_password_unicode()
   local valid = hash.verify_password(encoded, "пароль")
   assert(valid == true, "verify_password should verify unicode password")
 end
-test_password_unicode()
 
 -- argon2i / argon2d variants: happy-path round trips, not
 -- just the invalid-variant guard below.
@@ -149,7 +133,6 @@ local function test_password_argon2i_roundtrip()
   assert(hash.verify_password(encoded, "wrong") == false,
     "argon2i verify should reject a wrong password")
 end
-test_password_argon2i_roundtrip()
 
 local function test_password_argon2d_roundtrip()
   local encoded = check.must(hash.hash_password("pw-d", {
@@ -162,7 +145,6 @@ local function test_password_argon2d_roundtrip()
   assert(hash.verify_password(encoded, "wrong") == false,
     "argon2d verify should reject a wrong password")
 end
-test_password_argon2d_roundtrip()
 
 local function test_password_invalid_variant()
   -- cast: deliberate invalid input past Variant enum, for runtime guard
@@ -171,7 +153,6 @@ local function test_password_invalid_variant()
   assert(encoded == nil, "password should fail with invalid variant")
   assert(err and err:match("invalid variant"), "error should mention invalid variant")
 end
-test_password_invalid_variant()
 
 -- Malformed hash is an error, not a mismatch: nil + message, so a
 -- corrupt credential store can never read as a failed login.
@@ -180,7 +161,6 @@ local function test_verify_password_malformed_hash()
   assert(ok == nil, "verify_password should return nil for malformed hash, got: " .. tostring(ok))
   assert(err ~= nil, "verify_password should return error message for malformed hash")
 end
-test_verify_password_malformed_hash()
 
 local function test_verify_password_returns_two_values_on_mismatch()
   local encoded = hash.hash_password("correct")
@@ -188,7 +168,6 @@ local function test_verify_password_returns_two_values_on_mismatch()
   assert(ok == false, "verify_password should return false for wrong password")
   assert(err == nil, "verify_password should NOT return error for clean mismatch (wrong password)")
 end
-test_verify_password_returns_two_values_on_mismatch()
 
 -- Default memory should be 19456 KiB (OWASP minimum 19 MiB)
 local function test_password_default_mcost_is_19456()
@@ -196,7 +175,6 @@ local function test_password_default_mcost_is_19456()
   if not encoded then error("password with default memory should succeed: " .. tostring(err)) end
   assert(string.match(encoded, "m=19456"), "default memory_kb should be 19456, encoded string: " .. encoded)
 end
-test_password_default_mcost_is_19456()
 
 -- HMAC-SHA256: RFC 4231 test vectors
 
@@ -207,7 +185,6 @@ local function test_hmac_sha256_rfc4231_case1()
   assert(hex == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
     "RFC 4231 case 1 mismatch: " .. hex)
 end
-test_hmac_sha256_rfc4231_case1()
 
 local function test_hmac_sha256_rfc4231_case2()
   local tag = check.must(hash.hmac("sha256", "Jefe", "what do ya want for nothing?"))
@@ -215,7 +192,6 @@ local function test_hmac_sha256_rfc4231_case2()
   assert(hex == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
     "RFC 4231 case 2 mismatch: " .. hex)
 end
-test_hmac_sha256_rfc4231_case2()
 
 -- digest: NIST FIPS 180 / RFC 1321 / RFC 7693 "abc" vectors
 
@@ -236,7 +212,6 @@ local function test_digest_known_answers()
     assert(hex == expected, "digest(" .. algo .. ", 'abc') mismatch: " .. hex)
   end
 end
-test_digest_known_answers()
 
 local function test_digest_raw_bytes_length()
   local lengths: {hash.Algo: number} = {
@@ -249,13 +224,11 @@ local function test_digest_raw_bytes_length()
       "digest(" .. algo .. ") should return " .. len .. " raw bytes")
   end
 end
-test_digest_raw_bytes_length()
 
 local function test_digest_matches_sha256_convenience()
   local d = hash.digest("sha256", "hello")
   assert(d == hash.sha256("hello"), "digest('sha256') should match sha256()")
 end
-test_digest_matches_sha256_convenience()
 
 local function test_digest_unknown_algo()
   -- A value smuggled past the Algo enum is a contract violation.
@@ -265,7 +238,6 @@ local function test_digest_unknown_algo()
   assert(tostring(err):match("unknown algorithm"),
     "error should name the problem, got: " .. tostring(err))
 end
-test_digest_unknown_algo()
 
 -- hmac: RFC 4231 test vectors
 
@@ -276,7 +248,6 @@ local function test_hmac_rfc4231_case2_sha256()
   assert(hex == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
     "RFC 4231 case 2 (sha256) mismatch: " .. hex)
 end
-test_hmac_rfc4231_case2_sha256()
 
 local function test_hmac_rfc4231_case2_sha512()
   local tag, err = hash.hmac("sha512", "Jefe", "what do ya want for nothing?")
@@ -286,7 +257,6 @@ local function test_hmac_rfc4231_case2_sha512()
     .. "9758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737",
     "RFC 4231 case 2 (sha512) mismatch: " .. hex)
 end
-test_hmac_rfc4231_case2_sha512()
 
 local function test_hmac_rfc2202_case1_sha1()
   -- RFC 2202 section 3 case 1
@@ -295,7 +265,6 @@ local function test_hmac_rfc2202_case1_sha1()
   assert(hex == "b617318655057264e28bc0b6fb378c8ef146be00",
     "RFC 2202 case 1 (sha1) mismatch: " .. hex)
 end
-test_hmac_rfc2202_case1_sha1()
 
 local function test_hmac_unknown_algo()
   -- cast: deliberate invalid input
@@ -304,7 +273,6 @@ local function test_hmac_unknown_algo()
   assert(tostring(err):match("unknown algorithm"),
     "error should name the problem, got: " .. tostring(err))
 end
-test_hmac_unknown_algo()
 
 local function test_hmac_empty_key_rejected()
   -- The C binding treats an empty key as "no key" and silently computes
@@ -314,7 +282,6 @@ local function test_hmac_empty_key_rejected()
   assert(tag == nil, "hmac should return nil for empty key")
   assert(err and err:match("key"), "error should mention the key, got: " .. tostring(err))
 end
-test_hmac_empty_key_rejected()
 
 -- Constant-time comparison
 
@@ -330,7 +297,6 @@ local function test_is_equal_constant_time()
   assert(hash.is_equal_constant_time(d1, d2), "identical digests compare equal")
   assert(not hash.is_equal_constant_time(d1, d3), "different digests compare unequal")
 end
-test_is_equal_constant_time()
 
 -- Hex twins: every raw-bytes function has one, emitting lowercase hex.
 
@@ -340,7 +306,6 @@ local function test_digest_hex_twin()
   assert(hash.digest_hex("sha256", "hello") == hash.sha256_hex("hello"),
     "digest_hex('sha256') should match sha256_hex()")
 end
-test_digest_hex_twin()
 
 local function test_hmac_hex_twin()
   local hex = check.must(hash.hmac_hex("sha256", "Jefe", "what do ya want for nothing?"))
@@ -349,4 +314,3 @@ local function test_hmac_hex_twin()
   local tag, err = hash.hmac_hex("sha256", "", "data")
   assert(tag == nil and err ~= nil, "hmac_hex should propagate the empty-key error")
 end
-test_hmac_hex_twin()

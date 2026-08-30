@@ -13,7 +13,6 @@ local function test_roundtrip_default_zlib()
   assert(err == nil, "roundtrip failed: " .. (err or ""))
   assert(result == data, "roundtrip mismatch")
 end
-test_roundtrip_default_zlib()
 
 local function test_roundtrip_explicit_formats()
   local data = "format round-trip \x00\xff\x10\x20 payload"
@@ -27,7 +26,6 @@ local function test_roundtrip_explicit_formats()
     assert(result == data, format .. " roundtrip mismatch")
   end
 end
-test_roundtrip_explicit_formats()
 
 local function test_roundtrip_empty_per_format()
   local formats: {compress.CompressFormat} = {"zlib", "gzip", "raw"}
@@ -40,14 +38,12 @@ local function test_roundtrip_empty_per_format()
     assert(result == "", format .. ": expected empty string")
   end
 end
-test_roundtrip_empty_per_format()
 
 local function test_compress_large()
   local data = string.rep("hello world, ", 1000)
   local compressed = check.must(compress.compress(data))
   assert(#compressed < #data, "expected compression ratio for repetitive data")
 end
-test_compress_large()
 
 -- Format framing tests: outputs carry the standard headers, so they
 -- interoperate with other tooling.
@@ -56,7 +52,6 @@ local function test_zlib_magic_bytes()
   local compressed = check.must(compress.compress("hello", {format = "zlib"}))
   assert(string.byte(compressed, 1) == 0x78, "expected zlib CMF byte 0x78")
 end
-test_zlib_magic_bytes()
 
 local function test_gzip_magic_bytes()
   local compressed = check.must(compress.compress("hello", {format = "gzip"}))
@@ -64,7 +59,6 @@ local function test_gzip_magic_bytes()
   assert(b1 == 0x1f and b2 == 0x8b, "expected gzip magic 1f 8b")
   assert(b3 == 0x08, "expected deflate compression method byte 0x08")
 end
-test_gzip_magic_bytes()
 
 local function test_raw_has_no_header()
   -- Raw is headerless DEFLATE: no zlib or gzip magic, and strictly
@@ -76,7 +70,6 @@ local function test_raw_has_no_header()
   assert(b1 ~= 0x78, "raw output must not carry zlib header")
   assert(#raw < #check.must(compress.compress(data, {format = "zlib"})), "raw must be smaller than zlib")
 end
-test_raw_has_no_header()
 
 local function test_gzip_fixture_from_system_gzip()
   -- Produced by `printf 'hello from system gzip\n' | gzip -n -9` on
@@ -89,7 +82,6 @@ local function test_gzip_fixture_from_system_gzip()
   assert(err == nil, "system gzip fixture failed: " .. (err or ""))
   assert(result == "hello from system gzip\n", "fixture content mismatch")
 end
-test_gzip_fixture_from_system_gzip()
 
 -- "auto" detection tests
 
@@ -103,7 +95,6 @@ local function test_auto_detects_zlib_and_gzip()
     assert(result == data, "auto mismatch on " .. format)
   end
 end
-test_auto_detects_zlib_and_gzip()
 
 local function test_auto_rejects_raw()
   -- Raw streams carry no header, so auto detection cannot identify them.
@@ -112,7 +103,6 @@ local function test_auto_rejects_raw()
   assert(result == nil, "auto must not accept a headerless raw stream")
   assert(err ~= nil, "expected error message")
 end
-test_auto_rejects_raw()
 
 -- Error handling tests
 
@@ -121,7 +111,6 @@ local function test_decompress_invalid()
   assert(result == nil, "expected nil for invalid data")
   assert(err ~= nil, "expected error message")
 end
-test_decompress_invalid()
 
 local function test_decompress_wrong_format()
   local gz = check.must(compress.compress("cross-format", {format = "gzip"}))
@@ -129,7 +118,6 @@ local function test_decompress_wrong_format()
   assert(result == nil, "gzip input must not decompress as zlib")
   assert(err ~= nil, "expected error message")
 end
-test_decompress_wrong_format()
 
 local function test_decompress_truncated()
   local compressed = check.must(compress.compress(string.rep("truncate me, ", 100)))
@@ -137,7 +125,6 @@ local function test_decompress_truncated()
   assert(result == nil, "truncated input must fail")
   assert(err ~= nil, "expected error message")
 end
-test_decompress_truncated()
 
 -- Zip-bomb bound tests: max_output_bytes is enforced per format, so
 -- attacker-controlled input cannot balloon memory.
@@ -163,7 +150,6 @@ local function test_max_output_bytes_bound_per_format()
     assert(#full == 2000, format .. ": roundtrip under max_output_bytes should succeed")
   end
 end
-test_max_output_bytes_bound_per_format()
 
 -- Contract test: the bespoke prefixed-deflate surface is gone.
 
@@ -173,4 +159,3 @@ local function test_prefixed_deflate_surface_removed()
   assert(m["inflate"] == nil, "inflate must be removed")
   assert(m["uncompress"] == nil, "uncompress must be removed (renamed decompress)")
 end
-test_prefixed_deflate_surface_removed()

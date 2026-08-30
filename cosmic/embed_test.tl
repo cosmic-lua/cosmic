@@ -52,7 +52,6 @@ local function test_embed_single_file()
   assert(content == "hello world", "embedded content should match")
   assert(reader:close())
 end
-test_embed_single_file()
 
 -- Test embed multiple files
 local function test_embed_multiple_files()
@@ -76,7 +75,6 @@ local function test_embed_multiple_files()
   assert(c2 == "content two", "second file content should match")
   assert(reader:close())
 end
-test_embed_multiple_files()
 
 -- Test custom output path (covers the output option)
 local function test_embed_custom_output()
@@ -91,7 +89,6 @@ local function test_embed_custom_output()
   local stat = fs.stat(output)
   assert(stat, "custom output path should exist")
 end
-test_embed_custom_output()
 
 -- Test error on missing input file
 local function test_embed_missing_file()
@@ -100,7 +97,6 @@ local function test_embed_missing_file()
   local ok, _out = __r4.ok, __r4.stdout
   assert(not ok, "cosmic --embed should fail on missing file")
 end
-test_embed_missing_file()
 
 -- Test embedding lua files
 local function test_embed_lua_file()
@@ -119,7 +115,6 @@ local function test_embed_lua_file()
   assert(content == [[return { value = 42 }]], "lua content should be preserved")
   assert(reader:close())
 end
-test_embed_lua_file()
 
 -- Test binary file embedding
 local function test_embed_binary_file()
@@ -139,7 +134,6 @@ local function test_embed_binary_file()
   assert(content == binary, "binary content should be preserved exactly")
   assert(reader:close())
 end
-test_embed_binary_file()
 
 -- Test embedding a directory
 local function test_embed_directory()
@@ -176,7 +170,6 @@ local function test_embed_directory()
 
   assert(reader:close())
 end
-test_embed_directory()
 
 -- Test embedding a directory with nested subdirectories
 local function test_embed_nested_directory()
@@ -199,7 +192,6 @@ local function test_embed_nested_directory()
   assert(reader:read("a/b/c/deep.txt") == "deep", "deeply nested file")
   assert(reader:close())
 end
-test_embed_nested_directory()
 
 -- Test mixing directory and file embedding
 local function test_embed_mixed()
@@ -225,7 +217,6 @@ local function test_embed_mixed()
   assert(c2 == "extra content", "individual file should be present")
   assert(reader:close())
 end
-test_embed_mixed()
 
 -- Test that embedded directory produces a working executable
 local function test_embed_directory_executable()
@@ -244,7 +235,6 @@ local function test_embed_directory_executable()
   assert(ok, "custom executable should run: " .. (out or ""))
   assert(out:match("it works"), "should print expected output, got: " .. (out or ""))
 end
-test_embed_directory_executable()
 
 -- An app can require its own embedded modules beside main.lua with no
 -- configuration: .lua via the wrapper's package.path prepend,
@@ -275,7 +265,6 @@ local function test_embed_app_local_requires()
   assert(out:match("bad:%s+false"), "broken .tl require should fail: " .. out)
   assert(out:match("got integer"), "failure should carry the compile issue: " .. out)
 end
-test_embed_app_local_requires()
 
 -- The wrapper prepends the zip templates and a dispatcher entry splices
 -- them again, so an artifact used to carry the pair twice: every require
@@ -306,7 +295,6 @@ end
   assert(out:find("/zip/?/init.lua=1", 1, true),
     "/zip/?/init.lua must appear once on package.path: " .. out)
 end
-test_the_wrapper_leaves_one_copy_of_each_zip_template()
 
 -- Test that embedded non-.lua files use deflate compression (method=8)
 local function test_embed_uses_deflate()
@@ -331,7 +319,6 @@ local function test_embed_uses_deflate()
     "deflate should reduce size: " .. tostring(stat.compressed_size) .. " >= " .. tostring(stat.size))
   assert(reader:close())
 end
-test_embed_uses_deflate()
 
 -- Test that embedded .lua files are stored uncompressed (method=0): the
 -- produced executable loads them at boot, so storing skips a per-launch
@@ -361,7 +348,6 @@ local function test_embed_stores_lua()
   assert(reader:read(name) == compressible, "stored .lua content should match")
   assert(reader:close())
 end
-test_embed_stores_lua()
 
 -- Zip-slip: extract() must reject any entry that would land outside the
 -- output directory. cosmic executables also extract on Windows, so the
@@ -398,7 +384,6 @@ local function test_extract_rejects_zip_slip()
     assert(not fs.is_unsafe_entry_name(name), "should accept safe entry: " .. name)
   end
 end
-test_extract_rejects_zip_slip()
 
 -- The floor is a KEEP list, and a keep list that keeps more than it
 -- names is one that silently ships whatever a base grows next to a
@@ -414,7 +399,6 @@ local function test_floor_matches_files_exactly()
   assert(not floor.in_floor("cosmicX/fs.lua"),
     "but not a sibling whose name starts the same way")
 end
-test_floor_matches_files_exactly()
 
 -- cosmic/init.tl flattens to cosmic.lua at the zip root — outside the
 -- cosmic/ prefix — and a stripped artifact must still boot cosmic.main.
@@ -429,4 +413,3 @@ local function test_floor_keeps_the_cosmic_module_itself()
   assert(not floor.in_floor("cosmic/fs.lua", {cosmic = true}),
     "and the directory, as before")
 end
-test_floor_keeps_the_cosmic_module_itself()

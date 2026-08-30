@@ -27,7 +27,6 @@ local function test_short_and_long_forms()
   assert(#p.args == 2 and p.args[1] == "alice" and p.args[2] == "bob")
   assert(p.help == false and p.version == false)
 end
-test_short_and_long_forms()
 
 local function test_defaults_and_absent_flags()
   local p = must(spec, {"--count", "1"})
@@ -35,13 +34,11 @@ local function test_defaults_and_absent_flags()
   assert(p.switches["verbose"] == false, "absent flag should be false, not nil")
   assert(#p.args == 0)
 end
-test_defaults_and_absent_flags()
 
 local function test_repeated_valued_option_keeps_last()
   local p = must(spec, {"--count", "1", "-o", "a", "-o", "b"})
   assert(p.values["output"] == "b", "got: " .. p.values["output"])
 end
-test_repeated_valued_option_keeps_last()
 
 local function test_missing_required_option()
   local p, err = flags.parse(spec, {"-v"})
@@ -49,7 +46,6 @@ local function test_missing_required_option()
   assert(err and err:find("missing required option: --count", 1, true),
     "got: " .. tostring(err))
 end
-test_missing_required_option()
 
 local function test_unknown_option()
   local p, err = flags.parse(spec, {"--count", "1", "--nope"})
@@ -57,7 +53,6 @@ local function test_unknown_option()
   assert(err and err:find("unknown option: --nope", 1, true),
     "got: " .. tostring(err))
 end
-test_unknown_option()
 
 local function test_missing_value()
   local p, err = flags.parse(spec, {"--output"})
@@ -65,7 +60,6 @@ local function test_missing_value()
   assert(err and err:find("option requires a value: --output", 1, true),
     "got: " .. tostring(err))
 end
-test_missing_value()
 
 local function test_auto_help()
   -- --help must work even though the required --count is absent.
@@ -74,7 +68,6 @@ local function test_auto_help()
   local p2 = must(spec, {"-h"})
   assert(p2.help == true)
 end
-test_auto_help()
 
 local function test_auto_version()
   local p = must(spec, {"--version"})
@@ -84,7 +77,6 @@ local function test_auto_version()
   assert(not p2, "expected --version to be unknown without spec.version")
   assert(err and err:find("unknown option", 1, true), "got: " .. tostring(err))
 end
-test_auto_version()
 
 -- A spec with NO version string that declares its own --version
 -- boolean flag must not have that flag mirrored onto parsed.version too
@@ -99,7 +91,6 @@ local function test_user_declared_version_flag_not_mirrored()
   assert(p.version == false,
     "parsed.version must stay false: spec.version was never set")
 end
-test_user_declared_version_flag_not_mirrored()
 
 local function test_spec_claims_help_name()
   local custom: flags.Spec = {
@@ -110,7 +101,6 @@ local function test_spec_claims_help_name()
   assert(p.values["help"] == "parsing")
   assert(p.help == false, "user-claimed valued --help must not read as a help request")
 end
-test_spec_claims_help_name()
 
 local function test_invalid_specs()
   local cases: {{flags.Spec, string}} = {
@@ -130,7 +120,6 @@ local function test_invalid_specs()
       "case " .. tostring(i) .. " got: " .. tostring(err))
   end
 end
-test_invalid_specs()
 
 local function test_help_rendering()
   local text = flags.help(spec)
@@ -145,7 +134,6 @@ local function test_help_rendering()
   assert(text:find("--version", 1, true), text)
   assert(not text:find("\n$"), "trailing newline")
 end
-test_help_rendering()
 
 local function test_help_rows_align()
   local text = flags.help(spec)
@@ -162,7 +150,6 @@ local function test_help_rows_align()
   assert(verbose_col and output_col, "option rows missing from help output")
   assert(verbose_col == output_col, "descriptions are not column-aligned")
 end
-test_help_rows_align()
 
 -- flags.command: dispatch on argv[1], each command its own Spec.
 local function make_cspec(): flags.CommandSpec
@@ -195,7 +182,6 @@ local function test_command_dispatches_with_options()
   assert(#d2.parsed.args == 2 and d2.parsed.args[1] == "buy",
     "positionals reach the subcommand")
 end
-test_command_dispatches_with_options()
 
 local function test_command_errors_name_the_commands()
   local d, err = flags.command(make_cspec(), {})
@@ -213,7 +199,6 @@ local function test_command_errors_name_the_commands()
   assert(err3:find("unknown option: --bogus", 1, true), "got: " .. err3)
   assert(not err3:find("todo", 1, true), "unprefixed: " .. err3)
 end
-test_command_errors_name_the_commands()
 
 local function test_command_option_before_command_names_the_order()
   -- The generic "unknown command '--file'" read like a spec problem;
@@ -225,7 +210,6 @@ local function test_command_option_before_command_names_the_order()
   assert(err:find("options follow the command", 1, true), "got: " .. err)
   assert(err:find("add, list", 1, true), "the commands are still named: " .. err)
 end
-test_command_option_before_command_names_the_order()
 
 local function test_command_help_and_version_forms()
   for _, argv in ipairs({{"--help"}, {"-h"}, {"help"}}) do
@@ -247,7 +231,6 @@ local function test_command_help_and_version_forms()
   local v = check.must(flags.command(make_cspec(), {"--version"}))
   assert(v.version and not v.help, "top-level --version")
 end
-test_command_help_and_version_forms()
 
 local function test_command_validates_the_spec()
   local none, err = flags.command({name = "x", commands = {}}, {"y"})
@@ -260,7 +243,6 @@ local function test_command_validates_the_spec()
   assert(dup == nil and err2:find("duplicate command", 1, true),
     "got: " .. tostring(err2))
 end
-test_command_validates_the_spec()
 
 local function test_command_help_renders_overview_and_page()
   local overview = flags.command_help(make_cspec())
@@ -274,7 +256,6 @@ local function test_command_help_renders_overview_and_page()
     "per-command page carries the qualified name: " .. page)
   assert(page:find("--all", 1, true), "per-command page lists its options")
 end
-test_command_help_renders_overview_and_page()
 
 -- Repeated flags collect in lists, arg_optional flags
 -- read as "" when bare, and Dispatched.parsed is never nil.
@@ -298,7 +279,6 @@ local function test_repeated_flag_collects_lists()
   assert(empty.lists["define"] ~= nil and #empty.lists["define"] == 0,
     "declared repeated flag always has a (possibly empty) list")
 end
-test_repeated_flag_collects_lists()
 
 local function test_arg_optional_flag()
   local ospec: flags.Spec = {
@@ -312,7 +292,6 @@ local function test_arg_optional_flag()
   local absent = check.must(flags.parse(ospec, {}))
   assert(absent.values["docs"] == nil, "absent flag stays nil")
 end
-test_arg_optional_flag()
 
 local function test_dispatched_parsed_never_nil()
   for _, argv in ipairs({{"--help"}, {"help"}, {"--version"}}) do
@@ -321,4 +300,3 @@ local function test_dispatched_parsed_never_nil()
     assert(#d.parsed.args == 0, "and safely empty")
   end
 end
-test_dispatched_parsed_never_nil()

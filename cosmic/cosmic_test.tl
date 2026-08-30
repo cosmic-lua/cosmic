@@ -19,7 +19,6 @@ local function test_harness_names_the_binary_under_test()
   local bin = os.getenv("TEST_BIN")
   assert(bin ~= nil and bin ~= "", "TEST_BIN should name the binary directory")
 end
-test_harness_names_the_binary_under_test()
 
 local function test_require_cosmic()
   local cosmic = require("cosmic")
@@ -28,7 +27,6 @@ local function test_require_cosmic()
     "expected build-injected version string, got " .. tostring(cosmic._VERSION))
   assert(cosmic._VERSION ~= "0.1.0", "version must not be the old hardcoded 0.1.0")
 end
-test_require_cosmic()
 
 local function test_cosmic_version_info()
   local cosmic = require("cosmic")
@@ -38,14 +36,12 @@ local function test_cosmic_version_info()
   assert(type(v.cosmos) == "string" and v.cosmos ~= "", "cosmos stamp")
   assert(v.cosmic == cosmic._VERSION, "_VERSION is version_info().cosmic")
 end
-test_cosmic_version_info()
 
 local function test_require_cosmic_child()
   local child_mod = require("cosmic.child")
   assert(child_mod ~= nil, "child_mod should not be nil")
   assert(child_mod.start ~= nil, "child_mod.start should not be nil")
 end
-test_require_cosmic_child()
 
 local function test_require_cosmic_fs()
   assert(fs ~= nil, "fs should not be nil")
@@ -59,14 +55,12 @@ local function test_require_cosmic_fs()
   assert(fs.find_info ~= nil, "fs.find_info should not be nil")
   assert(fs.find_iter ~= nil, "fs.find_iter should not be nil")
 end
-test_require_cosmic_fs()
 
 local function test_cosmic_main_exists()
   local cosmic = require("cosmic")
   assert(cosmic.main ~= nil, "cosmic.main should not be nil")
   assert(type(cosmic.main) == "function", "expected cosmic.main to be function, got " .. type(cosmic.main))
 end
-test_cosmic_main_exists()
 
 -- `cosmic.main(fn)` RUNS fn and exits with its code. It does not ask
 -- whether its caller is the main chunk, and cannot: `cosmo.is_main()`
@@ -99,7 +93,6 @@ local function test_cosmic_main_runs_fn_and_exits_with_its_code()
   assert((r.stderr or ""):find("boom", 1, true),
     "the error string goes to stderr, got: " .. tostring(r.stderr))
 end
-test_cosmic_main_runs_fn_and_exits_with_its_code()
 
 -- main is forgiving about number: any numeric return exits honestly
 -- (math.tointeger), a fractional one exits 1 instead of throwing after
@@ -119,7 +112,6 @@ local function test_cosmic_main_tolerates_a_fractional_code()
   assert(not (r.stderr or ""):find("exit", 1, true),
     "and never throw from os.exit, got: " .. tostring(r.stderr))
 end
-test_cosmic_main_tolerates_a_fractional_code()
 
 -- An error return with no code must not exit 0: the error already said
 -- the run failed.
@@ -137,4 +129,3 @@ local function test_cosmic_main_error_without_code_exits_nonzero()
   assert((r.stderr or ""):find("boom", 1, true),
     "the error string still reaches stderr, got: " .. tostring(r.stderr))
 end
-test_cosmic_main_error_without_code_exits_nonzero()

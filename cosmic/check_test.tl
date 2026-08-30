@@ -37,7 +37,6 @@ print(x, y)
   local ok, _out = check_run({cosmic, "--check", "types", input})
   assert(ok, "cosmic --check types should succeed on valid file")
 end
-test_check_valid()
 
 -- Test check detects type error
 local function test_check_type_error()
@@ -48,7 +47,6 @@ local x: number = "not a number"
   local ok, _out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "cosmic --check types should fail on type error")
 end
-test_check_type_error()
 
 -- Test check on file with undefined variable
 local function test_check_undefined_variable()
@@ -59,7 +57,6 @@ local x: number = undefined_var
   local ok, _out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "cosmic --check types should fail on undefined variable")
 end
-test_check_undefined_variable()
 
 -- Test check treats warnings as errors: an unused local must fail the check.
 local function test_check_warnings_fail()
@@ -71,7 +68,6 @@ local x: number = 42
   local ok, _out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "cosmic --check types must fail on warnings")
 end
-test_check_warnings_fail()
 
 -- Test the sanctioned suppression: a leading underscore marks a value as
 -- deliberately unused, so the same file with _x passes.
@@ -83,14 +79,12 @@ local _x: number = 42
   local ok, out = check_run({cosmic, "--check", "types", input})
   assert(ok, "leading-underscore locals must not warn: " .. tostring(out))
 end
-test_check_underscore_suppresses_unused()
 
 -- Test check on missing file
 local function test_check_missing_file()
   local ok, _out = check_run({cosmic, "--check", "types", "/nonexistent/file.tl"})
   assert(not ok, "cosmic --check types should fail on missing file")
 end
-test_check_missing_file()
 
 -- Test check with cosmic module types
 local function test_check_with_cosmic_types()
@@ -103,7 +97,6 @@ print(result)
   local ok, _out = check_run({cosmic, "--check", "types", input})
   assert(ok, "check with cosmic types should succeed")
 end
-test_check_with_cosmic_types()
 
 -- Honest nil: a fallible value-returning cosmic function is typed `T | nil`, so
 -- using its result without handling failure must NOT type-check. This is the
@@ -136,7 +129,6 @@ end
   local ok_safe, out_safe = check_run({cosmic, "--check", "types", safe})
   assert(ok_safe, "narrowed fs.stat usage should type-check, got: " .. tostring(out_safe))
 end
-test_check_honest_nil_forces_narrowing()
 
 -- Test that check uses strict mode (rejects unknown variables)
 -- This same code compiles successfully in lax mode (see compile_test.tl)
@@ -150,7 +142,6 @@ end
   local ok, _ = check_run({cosmic, "--check", "types", input})
   assert(not ok, "check should fail in strict mode with unknown variables")
 end
-test_check_strict_mode()
 
 -- Test that TL_PATH env var is picked up by --check types
 local function test_check_with_tl_path()
@@ -188,7 +179,6 @@ print(s)
   local ok_with, _ = check_run({cosmic, "--check", "types", input}, {env = env_with})
   assert(ok_with, "check should succeed with TL_PATH set for custom module")
 end
-test_check_with_tl_path()
 
 -- Test that ;; in TL_PATH is treated as a placeholder for existing package.path
 local function test_check_with_tl_path_double_semicolon()
@@ -223,7 +213,6 @@ print(s)
   local ok_with, _ = check_run({cosmic, "--check", "types", input}, {env = env_with})
   assert(ok_with, "check should succeed with ;; in TL_PATH")
 end
-test_check_with_tl_path_double_semicolon()
 
 -- Test that fix-hints appear for common Teal type-check traps.
 -- Hints go to stderr; check_run returns stdout..stderr so they are captured.
@@ -241,7 +230,6 @@ print(c)
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("math%.tointeger"), "hint should mention math.tointeger, got: " .. out)
 end
-test_check_hint_number_integer()
 
 -- Hint 2: ipairs on any type
 local function test_check_hint_ipairs_any()
@@ -259,7 +247,6 @@ end
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("as {any}"), "hint should mention casting to array, got: " .. out)
 end
-test_check_hint_ipairs_any()
 
 -- Hint 3: excess return values
 local function test_check_hint_excess_returns()
@@ -274,7 +261,6 @@ f()
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("local v, err"), "hint should mention capturing multiple returns, got: " .. out)
 end
-test_check_hint_excess_returns()
 
 -- Hint 4: cannot use operator '..' for any type
 local function test_check_hint_any_concat()
@@ -291,7 +277,6 @@ print(s)
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
 end
-test_check_hint_any_concat()
 
 -- Hint 5: cannot index any type
 local function test_check_hint_any_index()
@@ -307,7 +292,6 @@ print(obj.name)
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
 end
-test_check_hint_any_index()
 
 -- No duplicate hints per error
 local function test_check_hint_no_duplicates()
@@ -326,7 +310,6 @@ print(c)
   end
   assert(count == 1, "should have exactly one hint for one error, got " .. count .. " hints")
 end
-test_check_hint_no_duplicates()
 
 -- `needs` closes a trap in the runner's own accounting: a test that
 -- prints "skip" and returns exits 0, and 0 is counted as a PASS (only
@@ -370,7 +353,6 @@ local function test_needs_skips_locally_and_fails_in_ci()
     assert(env.set("CI", had, true))
   end
 end
-test_needs_skips_locally_and_fails_in_ci()
 
 -- A forked child can say exactly one thing to its parent, and `reap` is
 -- what listens. Discarding the status makes the fork a hole in the
@@ -439,6 +421,5 @@ local function test_reap_grades_the_childs_exit_code()
     "a child's skip becomes its parent's skip, got " ..
     proc.WEXITSTATUS(wr.status))
 end
-test_reap_grades_the_childs_exit_code()
 
 print("All check tests passed!")

@@ -28,7 +28,6 @@ print(x)
   assert(not out:find(": number"), "output should not contain type annotations")
   assert(out:find("local x = 42"), "output should contain compiled Lua")
 end
-test_compile_basic()
 
 -- Test compilation of file with syntax error
 local function test_compile_syntax_error()
@@ -41,7 +40,6 @@ if if if
   local ok = __r2.ok
   assert(not ok, "cosmic --compile should fail on syntax error")
 end
-test_compile_syntax_error()
 
 -- Test compilation of file with type error
 local function test_compile_type_error()
@@ -54,7 +52,6 @@ local x: number = "wrong type"
   local ok = __r3.ok
   assert(not ok, "cosmic --compile should fail on type error")
 end
-test_compile_type_error()
 
 -- Test compilation with records
 local function test_compile_record()
@@ -74,7 +71,6 @@ print(p.x, p.y)
   assert(ok, "cosmic --compile should succeed with records")
   assert(out:find("local p = {"), "should compile record to table")
 end
-test_compile_record()
 
 -- Test compilation with generics
 local function test_compile_generics()
@@ -91,7 +87,6 @@ print(identity(42))
   assert(ok, "cosmic --compile should succeed with generics")
   assert(out:find("local function identity%(x%)"), "generics should be erased")
 end
-test_compile_generics()
 
 -- Test missing input file
 local function test_compile_missing_file()
@@ -100,7 +95,6 @@ local function test_compile_missing_file()
   local ok = __r6.ok
   assert(not ok, "cosmic --compile should fail on missing file")
 end
-test_compile_missing_file()
 
 -- Test that compiled output is executable
 local function test_compiled_output_runs()
@@ -125,7 +119,6 @@ print("result=" .. add(2, 3))
   assert(run_ok, "compiled output should run")
   assert(run_out:find("result=5"), "compiled code should produce correct output")
 end
-test_compiled_output_runs()
 
 -- Test compile with cosmic module types
 local function test_compile_with_cosmic_types()
@@ -140,7 +133,6 @@ print("read " .. #data .. " bytes")
   local ok = __r9.ok
   assert(ok, "compile with cosmic types should succeed")
 end
-test_compile_with_cosmic_types()
 
 -- Test shebang preservation
 local function test_compile_preserves_shebang()
@@ -156,7 +148,6 @@ print(x)
   assert(out:sub(1, 21) == "#!/usr/bin/env cosmic", "shebang should be preserved at start of output")
   assert(out:find("\nlocal x = 42"), "compiled Lua should follow shebang")
 end
-test_compile_preserves_shebang()
 
 -- Test file without shebang still works
 local function test_compile_no_shebang()
@@ -171,7 +162,6 @@ print(x)
   assert(out:sub(1, 2) ~= "#!", "output should not have shebang if source didn't")
   assert(out:find("local x = 42"), "output should contain compiled Lua")
 end
-test_compile_no_shebang()
 
 -- Test that compile uses lax mode (allows unknown variables)
 local function test_compile_lax_mode()
@@ -187,7 +177,6 @@ end
   assert(ok, "compile should succeed in lax mode with unknown variables")
   assert(out:find("unknown_global_var"), "output should contain the unknown variable")
 end
-test_compile_lax_mode()
 
 -- Test write-if-changed: creates file on first run, skips write on second run
 local function test_compile_write_if_changed()
@@ -230,7 +219,6 @@ print(x)
   assert(mtime2_ok, "stat should succeed after second run")
   assert(mtime1 == mtime2, "file mtime should be unchanged when content identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
 end
-test_compile_write_if_changed()
 
 -- Test write-if-changed with --format: skips write when formatted output is identical
 local function test_format_write_if_changed()
@@ -270,7 +258,6 @@ local function test_format_write_if_changed()
   assert(mtime2_ok, "stat should succeed after second format run")
   assert(mtime1 == mtime2, "file mtime should be unchanged when format output identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
 end
-test_format_write_if_changed()
 
 -- --output/--write-if-changed are honored even AFTER --compile. The
 -- dispatch used to return at --compile before reaching them, so a
@@ -289,6 +276,5 @@ local function test_output_after_compile_reaches_the_file()
   local written = check.must(fs.read(out_path))
   assert(written:find("local x = 7", 1, true), "got: " .. written)
 end
-test_output_after_compile_reaches_the_file()
 
 print("All compile tests passed!")

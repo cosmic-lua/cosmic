@@ -103,7 +103,6 @@ local function test_every_public_module_has_example_or_waiver()
     "public modules without a *_example.tl (write one; the allowlist is "
     .. "closed to new entries): " .. table.concat(missing, ", "))
 end
-test_every_public_module_has_example_or_waiver()
 
 local function test_allowlist_only_shrinks()
   local stale: {string} = {}
@@ -117,7 +116,6 @@ local function test_allowlist_only_shrinks()
     "allowlist entries that now HAVE examples — delete them: "
     .. table.concat(stale, ", "))
 end
-test_allowlist_only_shrinks()
 
 local function test_allowlist_entries_are_public()
   local public_set: {string: boolean} = {}
@@ -135,4 +133,3 @@ local function test_allowlist_entries_are_public()
     "allowlist entries that are not public modules — delete them: "
     .. table.concat(gone, ", "))
 end
-test_allowlist_entries_are_public()

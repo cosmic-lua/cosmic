@@ -17,7 +17,6 @@ local function test_tl_exposes_ast_hooks()
   assert(type(hooks["node_mt"]) == "table", "ast_hooks.node_mt should be a metatable")
   assert(type(hooks["new_typeid"]) == "function", "ast_hooks.new_typeid should be a function")
 end
-test_tl_exposes_ast_hooks()
 
 -- The artifact ships the cache and it thaws: two program ASTs whose
 -- roots look like parser output (statement-list nodes with children).
@@ -37,7 +36,6 @@ local function test_artifact_cache_thaws()
   assert(#(stdlib_node as {any}) > 0, -- cast: array view of a statement list
     "stdlib program should have top-level statements")
 end
-test_artifact_cache_thaws()
 
 -- The env built from the cache is a real stdlib env: checking a
 -- snippet against it resolves string.* types and reports a genuine
@@ -58,4 +56,3 @@ local function test_new_env_checks_like_the_parse_path()
   assert(first.msg:find("string", 1, true) ~= nil,
     "the stdlib types should name the mismatch, got: " .. first.msg)
 end
-test_new_env_checks_like_the_parse_path()

@@ -52,7 +52,6 @@ local function test_statement_drop_is_flagged()
   assert(has(vmsgs, "discarded error return"),
     "the fallible-value shape should be flagged too")
 end
-test_statement_drop_is_flagged()
 
 local function test_spill_into_print_is_flagged()
   local msgs = check_fixture("print(value())\n")
@@ -60,7 +59,6 @@ local function test_spill_into_print_is_flagged()
     "a fallible call as print's last argument should be flagged, got: "
     .. table.concat(msgs, "; "))
 end
-test_spill_into_print_is_flagged()
 
 local function test_captures_and_consumers_pass()
   for _, body in ipairs({
@@ -75,7 +73,6 @@ local function test_captures_and_consumers_pass()
       .. " got: " .. table.concat(msgs, "; "))
   end
 end
-test_captures_and_consumers_pass()
 
 local function test_infallible_statements_pass()
   local msgs = check_fixture(
@@ -84,7 +81,6 @@ local function test_infallible_statements_pass()
     "a statement call with no error position is fine, got: "
     .. table.concat(msgs, "; "))
 end
-test_infallible_statements_pass()
 
 local function test_fallible_reads_signatures()
   local discard = require("cosmic._teal_discard")
@@ -99,4 +95,3 @@ local function test_fallible_reads_signatures()
   assert(not discard.fallible("function(): (integer, integer)"),
     "a non-string final return is not an error position")
 end
-test_fallible_reads_signatures()

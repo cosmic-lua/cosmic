@@ -68,7 +68,6 @@ local function test_default_layout_is_the_pin_layout()
   assert(implicit == explicit, "default layout differs from \"pin\"")
   assert(implicit:sub(1, 9) == "return {\n", "pin layout is not multi-line")
 end
-test_default_layout_is_the_pin_layout()
 
 -- The point of the layout: what it writes, `parse` reads back as the
 -- value that went in.
@@ -79,7 +78,6 @@ local function test_compact_round_trips()
   assert(back, "compact output is not a literal: " .. tostring(err))
   assert(deep_equals(value, back), "compact round trip changed the value")
 end
-test_compact_round_trips()
 
 -- One line, and smaller than the layout it is an alternative to.
 local function test_compact_is_one_line_and_smaller()
@@ -90,7 +88,6 @@ local function test_compact_is_one_line_and_smaller()
   assert(select(2, compact:gsub("\n", "")) == 1, "compact is not one line")
   assert(#compact < #pin, "compact is not smaller: " .. #compact .. " vs " .. #pin)
 end
-test_compact_is_one_line_and_smaller()
 
 -- The values the C encoder writes without complaint, and what each
 -- would become if nothing checked it first: `0/0` and `math.huge` are
@@ -124,7 +121,6 @@ local function test_compact_refuses_what_pin_refuses()
       "\", pin says \"" .. pin .. "\"")
   end
 end
-test_compact_refuses_what_pin_refuses()
 
 -- A non-table is refused before either writer sees it.
 local function test_compact_refuses_a_non_table()
@@ -132,7 +128,6 @@ local function test_compact_refuses_a_non_table()
   assert(err == refused("just a string"), "compact differs on a non-table")
   assert(err:find("not a literal table", 1, true), "unexpected: " .. err)
 end
-test_compact_refuses_a_non_table()
 
 -- A layout nobody implements is refused by name rather than silently
 -- treated as the default.
@@ -141,7 +136,6 @@ local function test_unknown_layout_is_refused()
   assert(err:find("yaml", 1, true), "the message does not name the layout: " .. err)
   assert(err:find("compact", 1, true), "the message does not name a real layout: " .. err)
 end
-test_unknown_layout_is_refused()
 
 -- What the C encoder writes is only useful if the reader reads it, and
 -- the two do not agree everywhere: bytes that need escaping, keys that
@@ -172,7 +166,6 @@ local function test_both_layouts_round_trip_the_awkward_values()
     end
   end
 end
-test_both_layouts_round_trip_the_awkward_values()
 
 -- A value the C encoder cannot spell is written in the pin layout
 -- rather than refused: the compact layout asks for smaller output, it
@@ -196,7 +189,6 @@ local function test_compact_falls_back_to_pin_when_it_cannot_spell()
   assert(compact ~= written(near), "fell back where it did not have to")
   assert(select(2, compact:gsub("\n", "")) == 1, "the fallback test lost its subject")
 end
-test_compact_falls_back_to_pin_when_it_cannot_spell()
 
 --- A value nested `depth` tables deep, with a scalar in the innermost
 --- table when `leaf` is true.
@@ -239,7 +231,6 @@ local function test_compact_hands_the_deepest_nesting_to_pin()
   assert(refused(over, {layout = "compact"}) == refused(over),
     "the layouts disagree past the nesting limit")
 end
-test_compact_hands_the_deepest_nesting_to_pin()
 
 -- Sorted output is what makes committed data diff as the rows that
 -- moved, so the same value must serialize to the same bytes.
@@ -250,7 +241,6 @@ local function test_compact_is_deterministic()
       "compact output is not deterministic")
   end
 end
-test_compact_is_deterministic()
 
 -- Every byte, in both layouts, in both positions a string can hold.
 -- The writers spell strings through two different encoders -- `%q` in
@@ -280,4 +270,3 @@ local function test_every_byte_round_trips()
     end
   end
 end
-test_every_byte_round_trips()

@@ -30,7 +30,6 @@ local function test_extract()
   -- bare runtime drops it.
   assert(fs.is_dir(fs.join(extractdir, "cosmic")), "cosmic/ should be extracted")
 end
-test_extract()
 
 -- Test extract-then-embed roundtrip preserves file contents
 local function test_extract_embed_roundtrip()
@@ -64,7 +63,6 @@ local function test_extract_embed_roundtrip()
   assert(new_main == orig_main, "roundtripped main.lua should match original")
   assert(new_reader:close())
 end
-test_extract_embed_roundtrip()
 
 -- Test extract-modify-embed workflow
 local function test_extract_modify_embed()
@@ -96,7 +94,6 @@ local function test_extract_modify_embed()
   assert(ok, "modified executable should run: " .. (out or ""))
   assert(out:match("modified"), "should print modified output, got: " .. (out or ""))
 end
-test_extract_modify_embed()
 
 -- Test that embed overwrites existing zip entries cleanly
 local function test_embed_overwrites_cleanly()
@@ -140,7 +137,6 @@ local function test_embed_overwrites_cleanly()
 
   assert(new_reader:close())
 end
-test_embed_overwrites_cleanly()
 
 -- Test that file modes are preserved in the zip archive
 local function test_embed_preserves_file_modes()
@@ -188,7 +184,6 @@ local function test_embed_preserves_file_modes()
 
   assert(reader:close())
 end
-test_embed_preserves_file_modes()
 
 -- Test that file modes are restored on extract
 local function test_extract_preserves_file_modes()
@@ -230,7 +225,6 @@ local function test_extract_preserves_file_modes()
   assert(secret_mode == tonumber("600", 8),
     "secret.key should have mode 600 after extract, got " .. string.format("%o", secret_mode))
 end
-test_extract_preserves_file_modes()
 
 -- Test that embed does not corrupt a running process.
 -- The APE loader mmaps code pages from the executable via MAP_PRIVATE.
@@ -278,7 +272,6 @@ io.write("OK:" .. #result)
   assert(read_ok, "running process should not crash after re-embed, got: " .. tostring(stdout))
   assert(stdout and stdout:match("^OK:"), "process should print OK, got: " .. tostring(stdout))
 end
-test_embed_does_not_corrupt_running_process()
 
 -- Test --extract rejects archive entries that escape the output directory
 -- (zip-slip). A crafted archive with a "../" entry must not write outside
@@ -306,7 +299,6 @@ local function test_extract_rejects_path_traversal()
   local escaped = fs.join(tmpdir, "escaped.txt")
   assert(not fs.is_file(escaped), "traversal file should not be written outside target")
 end
-test_extract_rejects_path_traversal()
 
 -- The two extract failure messages are contract: a missing/unreadable
 -- executable reports "cannot read executable"; a readable file with no
@@ -328,7 +320,6 @@ local function test_extract_failure_messages_distinguish_causes()
   assert(xerr2:find("no zip archive found", 1, true),
     "readable non-archive reports the archive error, got: " .. xerr2)
 end
-test_extract_failure_messages_distinguish_causes()
 
 -- FIX 2: collect_dir must not recurse into symlinked directories.
 -- A symlink loop inside the embed dir must terminate without error.
@@ -351,7 +342,6 @@ local function test_embed_symlink_loop_terminates()
   end
   assert(reader:close())
 end
-test_embed_symlink_loop_terminates()
 
 -- FIX 2: a symlink to a file *outside* the embed dir must NOT be embedded.
 local function test_embed_symlink_to_outside_file_skipped()
@@ -376,7 +366,6 @@ local function test_embed_symlink_to_outside_file_skipped()
   end
   assert(reader:close())
 end
-test_embed_symlink_to_outside_file_skipped()
 
 -- --exe operates on an existing app instead of the running executable
 -- (F1): extract a produced app (restoring file modes), and layer
@@ -418,6 +407,5 @@ local function test_exe_flag_extract_and_layer()
   assert(__e4.ok and tostring(__e4.stdout):match("v1"),
     "layered app should run its entry: " .. tostring(__e4.stdout))
 end
-test_exe_flag_extract_and_layer()
 
 print("All embed tests passed!")

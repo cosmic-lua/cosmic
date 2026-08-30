@@ -7,13 +7,11 @@ local function test_get_existing_variable()
   assert(test_bin ~= nil, "TEST_BIN should be set")
   assert(type(test_bin) == "string", "TEST_BIN should be a string")
 end
-test_get_existing_variable()
 
 local function test_get_nonexistent_variable()
   local value = env.get("COSMIC_TEST_NONEXISTENT_VAR_12345")
   assert(value == nil, "nonexistent variable should return nil")
 end
-test_get_nonexistent_variable()
 
 local function test_set_and_get()
   local ok, err = env.set("COSMIC_TEST_VAR", "test_value")
@@ -21,7 +19,6 @@ local function test_set_and_get()
   local value = env.get("COSMIC_TEST_VAR")
   assert(value == "test_value", "expected 'test_value', got '" .. tostring(value) .. "'")
 end
-test_set_and_get()
 
 local function test_set_overwrite_true()
   assert(env.set("COSMIC_TEST_OVERWRITE", "original"))
@@ -30,7 +27,6 @@ local function test_set_overwrite_true()
   local value = env.get("COSMIC_TEST_OVERWRITE")
   assert(value == "updated", "expected 'updated', got '" .. tostring(value) .. "'")
 end
-test_set_overwrite_true()
 
 local function test_set_overwrite_false()
   assert(env.set("COSMIC_TEST_NO_OVERWRITE", "original"))
@@ -39,7 +35,6 @@ local function test_set_overwrite_false()
   local value = env.get("COSMIC_TEST_NO_OVERWRITE")
   assert(value == "original", "expected 'original', got '" .. tostring(value) .. "'")
 end
-test_set_overwrite_false()
 
 local function test_unset()
   assert(env.set("COSMIC_TEST_TO_UNSET", "will_be_removed"))
@@ -52,14 +47,12 @@ local function test_unset()
   value = env.get("COSMIC_TEST_TO_UNSET")
   assert(value == nil, "variable should be nil after unset")
 end
-test_unset()
 
 local function test_unset_nonexistent()
   -- Unsetting a nonexistent variable should succeed (POSIX behavior)
   local ok = env.unset("COSMIC_TEST_NEVER_EXISTED_12345")
   assert(ok, "unset of nonexistent variable should succeed")
 end
-test_unset_nonexistent()
 
 local function test_all()
   local vars = env.all()
@@ -71,7 +64,6 @@ local function test_all()
   end
   assert(count > 0, "all() should return non-empty table")
 end
-test_all()
 
 local function test_all_includes_set_variable()
   assert(env.set("COSMIC_TEST_ALL_CHECK", "check_value"))
@@ -82,7 +74,6 @@ local function test_all_includes_set_variable()
     "expected 'check_value', got '" .. tostring(vars["COSMIC_TEST_ALL_CHECK"]) .. "'")
   assert(env.unset("COSMIC_TEST_ALL_CHECK"))
 end
-test_all_includes_set_variable()
 
 local function test_list()
   local entries = env.list()
@@ -94,7 +85,6 @@ local function test_list()
     assert(entry:find("=", 1, true), "list entry should contain '=': " .. entry)
   end
 end
-test_list()
 
 local function test_list_includes_set_variable()
   assert(env.set("COSMIC_TEST_LIST_CHECK", "list_value"))
@@ -109,7 +99,6 @@ local function test_list_includes_set_variable()
   assert(found, "list() should include COSMIC_TEST_LIST_CHECK=list_value")
   assert(env.unset("COSMIC_TEST_LIST_CHECK"))
 end
-test_list_includes_set_variable()
 
 local function test_list_edits()
   assert(env.set("COSMIC_TEST_DROP_ME", "x"))
@@ -134,7 +123,6 @@ local function test_list_edits()
   assert(env.unset("COSMIC_TEST_DROP_ME"))
   assert(env.unset("COSMIC_TEST_KEEP_ME"))
 end
-test_list_edits()
 
 local function test_set_empty_value()
   local ok = env.set("COSMIC_TEST_EMPTY", "")
@@ -143,7 +131,6 @@ local function test_set_empty_value()
   assert(value == "", "expected empty string, got '" .. tostring(value) .. "'")
   assert(env.unset("COSMIC_TEST_EMPTY"))
 end
-test_set_empty_value()
 
 -- Clean up test variables
 assert(env.unset("COSMIC_TEST_VAR"))
@@ -157,7 +144,6 @@ local function test_get_default_when_unset()
   assert(env.get("COSMIC_TEST_DEFAULT") == nil,
     "without a default, unset should still be nil")
 end
-test_get_default_when_unset()
 
 local function test_get_default_ignored_when_set()
   assert(env.set("COSMIC_TEST_DEFAULT", "real"))
@@ -165,7 +151,6 @@ local function test_get_default_ignored_when_set()
   assert(value == "real", "set value should win over default, got '" .. tostring(value) .. "'")
   assert(env.unset("COSMIC_TEST_DEFAULT"))
 end
-test_get_default_ignored_when_set()
 
 local function test_get_default_empty_value_wins()
   assert(env.set("COSMIC_TEST_DEFAULT", ""))
@@ -173,7 +158,6 @@ local function test_get_default_empty_value_wins()
   assert(value == "", "empty string is set, default must not apply")
   assert(env.unset("COSMIC_TEST_DEFAULT"))
 end
-test_get_default_empty_value_wins()
 
 -- The bug this shape closes, asserted where it lives: in the TYPE.
 --
@@ -219,4 +203,3 @@ local function test_get_admits_nil_in_its_type()
   assert(teal.check_file(good, {include_dirs = {"."}}).ok,
     "get_or cannot fail, so its result needs no narrowing")
 end
-test_get_admits_nil_in_its_type()

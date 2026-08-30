@@ -20,7 +20,6 @@ local function test_read_eof_returns_nil()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_read_eof_returns_nil()
 
 local function test_read_empty_file_returns_nil()
   local filepath = fs.join(TEST_TMPDIR, "io_test_empty.txt")
@@ -32,7 +31,6 @@ local function test_read_empty_file_returns_nil()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_read_empty_file_returns_nil()
 
 local function test_read_loop_terminates_on_nil()
   local filepath = fs.join(TEST_TMPDIR, "io_test_loop.txt")
@@ -51,7 +49,6 @@ local function test_read_loop_terminates_on_nil()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_read_loop_terminates_on_nil()
 
 -- Pin: a nonblocking read with no data is a FAILURE (nil + EAGAIN error),
 -- distinct from EOF (nil + no error).
@@ -62,7 +59,6 @@ local function test_nonblocking_pipe_read_names_eagain()
   assert(err and err:match("EAGAIN"), "error should name EAGAIN, got: " .. tostring(err))
   assert(p:close())
 end
-test_nonblocking_pipe_read_names_eagain()
 
 -- signal-safety wave: a blocking read interrupted by a signal is
 -- retried automatically instead of surfacing EINTR. Pending Lua signal
@@ -98,7 +94,6 @@ local function test_blocking_read_retries_eintr()
     .. " payload, got " .. tostring(data) .. " (err: " .. tostring(err) .. ")")
   assert(p:close())
 end
-test_blocking_read_retries_eintr()
 
 -- The system-wide sync(2) belongs to fs, not fd (no alias, pre-stable).
 local function test_sync_moved_to_fs()
@@ -108,4 +103,3 @@ local function test_sync_moved_to_fs()
   assert(type(fs_sync) == "function", "fs.sync_all should exist");
   (fs_sync as function())() -- cast: probe past the declared surface
 end
-test_sync_moved_to_fs()

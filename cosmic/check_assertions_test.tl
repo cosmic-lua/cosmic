@@ -21,40 +21,33 @@ local function test_equal_numbers()
   check.equal(0, 0)
   check.equal(-5, -5)
 end
-test_equal_numbers()
 
 local function test_equal_strings()
   check.equal("hello", "hello")
   check.equal("", "")
 end
-test_equal_strings()
 
 local function test_equal_booleans()
   check.equal(true, true)
   check.equal(false, false)
 end
-test_equal_booleans()
 
 local function test_equal_nil()
   check.equal(nil, nil)
 end
-test_equal_nil()
 
 local function test_equal_tables_shallow()
   check.equal({1, 2, 3}, {1, 2, 3})
   check.equal({a = 1, b = 2}, {a = 1, b = 2})
 end
-test_equal_tables_shallow()
 
 local function test_equal_tables_nested()
   check.equal({a = {b = {c = 42}}}, {a = {b = {c = 42}}})
 end
-test_equal_tables_nested()
 
 local function test_equal_with_label()
   check.equal(7, 7, "score check")
 end
-test_equal_with_label()
 
 -- equal: failing cases
 
@@ -65,14 +58,12 @@ local function test_equal_fails_on_number_mismatch()
   assert(msg:match("expected 4"), "expected '4' in message, got: " .. msg)
   assert(msg:match("got 3"), "expected '3' in message, got: " .. msg)
 end
-test_equal_fails_on_number_mismatch()
 
 local function test_equal_fails_on_string_mismatch()
   local threw, msg = must_fail(function(): string check.equal("actual", "expected") return "" end)
   assert(threw, "expected equal to throw")
   assert(msg:match("equal failed"), "expected 'equal failed' in message")
 end
-test_equal_fails_on_string_mismatch()
 
 local function test_equal_fails_with_label_prefix()
   local threw, msg = must_fail(function(): string check.equal(1, 2, "my label") return "" end)
@@ -80,21 +71,18 @@ local function test_equal_fails_with_label_prefix()
   assert(msg:match("my label"), "expected label in message, got: " .. msg)
   assert(msg:match("equal failed"), "expected 'equal failed' in message, got: " .. msg)
 end
-test_equal_fails_with_label_prefix()
 
 local function test_equal_fails_on_table_mismatch()
   local threw, msg = must_fail(function(): string check.equal({a = 1}, {a = 2}) return "" end)
   assert(threw, "expected equal to throw for table mismatch")
   assert(msg:match("equal failed"), "expected 'equal failed' in message")
 end
-test_equal_fails_on_table_mismatch()
 
 local function test_equal_fails_nil_vs_value()
   local threw, msg = must_fail(function(): string check.equal(nil, 42) return "" end)
   assert(threw, "expected equal to throw when nil vs 42")
   assert(msg:match("equal failed"), "expected 'equal failed' in message")
 end
-test_equal_fails_nil_vs_value()
 
 -- not_equal: passing cases
 
@@ -102,30 +90,25 @@ local function test_not_equal_numbers()
   check.not_equal(1, 2)
   check.not_equal(0, -1)
 end
-test_not_equal_numbers()
 
 local function test_not_equal_strings()
   check.not_equal("hello", "world")
   check.not_equal("", "nonempty")
 end
-test_not_equal_strings()
 
 local function test_not_equal_different_types()
   -- cast: cross-type not_equal is a check-time error; exercise runtime
   check.not_equal(1 as any, "1")
   check.not_equal(nil, false)
 end
-test_not_equal_different_types()
 
 local function test_not_equal_tables_different_content()
   check.not_equal({a = 1}, {a = 2})
 end
-test_not_equal_tables_different_content()
 
 local function test_not_equal_with_label()
   check.not_equal(1, 2, "value check")
 end
-test_not_equal_with_label()
 
 -- not_equal: failing cases
 
@@ -135,14 +118,12 @@ local function test_not_equal_fails_when_equal()
   assert(msg:match("not_equal failed"), "expected 'not_equal failed' in message, got: " .. msg)
   assert(msg:match("5"), "expected value in message")
 end
-test_not_equal_fails_when_equal()
 
 local function test_not_equal_fails_when_tables_equal()
   local threw, msg = must_fail(function(): string check.not_equal({x = 1}, {x = 1}) return "" end)
   assert(threw, "expected not_equal to throw for equal tables")
   assert(msg:match("not_equal failed"), "expected 'not_equal failed' in message")
 end
-test_not_equal_fails_when_tables_equal()
 
 local function test_not_equal_fails_with_label()
   local threw, msg = must_fail(function(): string check.not_equal("same", "same", "tag") return "" end)
@@ -150,7 +131,6 @@ local function test_not_equal_fails_with_label()
   assert(msg:match("tag"), "expected label in message")
   assert(msg:match("not_equal failed"), "expected 'not_equal failed' in message")
 end
-test_not_equal_fails_with_label()
 
 -- truthy: passing cases
 
@@ -161,12 +141,10 @@ local function test_truthy_truthy_values()
   check.truthy({})
   check.truthy(0) -- 0 is truthy in Lua
 end
-test_truthy_truthy_values()
 
 local function test_truthy_with_label()
   check.truthy(true, "must be set")
 end
-test_truthy_with_label()
 
 -- truthy: failing cases
 
@@ -176,7 +154,6 @@ local function test_truthy_fails_on_nil()
   assert(msg:match("truthy failed"), "expected 'truthy failed' in message, got: " .. msg)
   assert(msg:match("nil"), "expected nil in message")
 end
-test_truthy_fails_on_nil()
 
 local function test_truthy_fails_on_false()
   local threw, msg = must_fail(function(): string check.truthy(false) return "" end)
@@ -184,7 +161,6 @@ local function test_truthy_fails_on_false()
   assert(msg:match("truthy failed"), "expected 'truthy failed' in message")
   assert(msg:match("false"), "expected false in message")
 end
-test_truthy_fails_on_false()
 
 local function test_truthy_fails_with_label()
   local threw, msg = must_fail(function(): string check.truthy(nil, "result") return "" end)
@@ -192,19 +168,16 @@ local function test_truthy_fails_with_label()
   assert(msg:match("result"), "expected label in message")
   assert(msg:match("truthy failed"), "expected 'truthy failed' in message")
 end
-test_truthy_fails_with_label()
 
 -- err: passing cases
 
 local function test_failed_nil_with_message()
   check.failed(nil, "something went wrong")
 end
-test_failed_nil_with_message()
 
 local function test_failed_with_label()
   check.failed(nil, "oops", "network call")
 end
-test_failed_with_label()
 
 -- err: failing cases
 
@@ -214,14 +187,12 @@ local function test_failed_when_value_is_non_nil()
   assert(msg:match("failed:"), "expected 'failed:' in message, got: " .. msg)
   assert(msg:match("42"), "expected value in message")
 end
-test_failed_when_value_is_non_nil()
 
 local function test_failed_when_error_string_is_empty()
   local threw, msg = must_fail(function(): string check.failed(nil, "") return "" end)
   assert(threw, "expected err to throw for empty error string")
   assert(msg:match("failed:"), "expected 'failed:' in message, got: " .. msg)
 end
-test_failed_when_error_string_is_empty()
 
 local function test_failed_reports_with_label()
   local threw, msg = must_fail(function(): string check.failed("whoops", "err msg", "ctx") return "" end)
@@ -229,7 +200,6 @@ local function test_failed_reports_with_label()
   assert(msg:match("ctx"), "expected label in message")
   assert(msg:match("failed:"), "expected 'failed:' in message")
 end
-test_failed_reports_with_label()
 
 -- must: passing cases
 
@@ -250,21 +220,18 @@ local function test_must_narrows_record_union()
   local w = check.must(make_widget(false))
   check.equal(w.name, "gear")
 end
-test_must_narrows_record_union()
 
 local function test_must_narrows_scalar_with_method_syntax()
   local s: string | nil = "hello"
   local narrowed = check.must(s)
   check.equal(narrowed:upper(), "HELLO")
 end
-test_must_narrows_scalar_with_method_syntax()
 
 local function test_must_passes_false_through()
   -- must narrows nil only; false is a real value, unlike assert()
   local b: boolean | nil = false
   check.equal(check.must(b), false)
 end
-test_must_passes_false_through()
 
 -- must: one declared return (the assert-parity contract)
 --
@@ -291,7 +258,6 @@ local function test_must_returns_exactly_one_value()
   -- print()/varargs contexts, and none for the checker either
   check.equal(select("#", check.must(make_widget(false))), 1)
 end
-test_must_returns_exactly_one_value()
 
 local function widget_or_throw(): Widget
   -- return position: `assert` type-checks here and so does must
@@ -301,7 +267,6 @@ end
 local function test_must_composes_in_return_position()
   check.equal(widget_or_throw().name, "gear")
 end
-test_must_composes_in_return_position()
 
 local function test_must_composes_as_last_argument()
   -- no parenthesis-truncation: must contributes one argument, not three
@@ -311,7 +276,6 @@ local function test_must_composes_as_last_argument()
   check.equal(#parts, 1)
   check.equal(parts[1], "x")
 end
-test_must_composes_as_last_argument()
 
 local function test_must_drives_a_for_in_loop()
   -- a two-slot fallible iterator needs the value alone; anything the
@@ -322,7 +286,6 @@ local function test_must_drives_a_for_in_loop()
   end
   check.equal(seen, 2)
 end
-test_must_drives_a_for_in_loop()
 
 -- must: failing cases
 
@@ -337,7 +300,6 @@ local function test_must_uses_err_string_from_multi_return()
   assert(msg:match("widget factory exploded"),
     "expected the callee's error string, got: " .. msg)
 end
-test_must_uses_err_string_from_multi_return()
 
 local function test_must_renders_structured_error()
   -- Slot 2 may be a structured Failure: a concrete error record
@@ -353,7 +315,6 @@ local function test_must_renders_structured_error()
   assert(msg:match("invalid_request: "),
     "expected the rendered structured error, got: " .. msg)
 end
-test_must_renders_structured_error()
 
 local function test_must_default_message()
   local threw, msg = must_fail(function(): string
@@ -363,7 +324,6 @@ local function test_must_default_message()
   assert(threw, "expected must to throw on nil")
   assert(msg:match("must failed"), "expected default message, got: " .. msg)
 end
-test_must_default_message()
 
 -- caller line attribution: error level 2 means throw points at caller
 
@@ -372,7 +332,6 @@ local function test_equal_error_points_at_caller()
   assert(threw, "expected throw")
   assert(type(msg) == "string", "expected string error, got: " .. tostring(msg))
 end
-test_equal_error_points_at_caller()
 
 -- enforcing / skip / enforced: enforcement-lane helpers
 
@@ -388,7 +347,6 @@ local function test_enforcing_reflects_env()
   with_enforce(false, function() check.equal(check.enforcing(), false, "unset") end)
   with_enforce(true, function() check.equal(check.enforcing(), true, "set") end)
 end
-test_enforcing_reflects_env()
 
 local function test_skip_soft_never_throws()
   -- A non-strict skip is visibility-only: it must never throw, even when
@@ -398,7 +356,6 @@ local function test_skip_soft_never_throws()
       assert(not threw, "soft skip must not throw under enforcement")
     end)
 end
-test_skip_soft_never_throws()
 
 local function test_skip_strict_throws_only_under_enforce()
   -- Off the lane, even a strict skip is tolerated (the outer sandbox is
@@ -415,7 +372,6 @@ local function test_skip_strict_throws_only_under_enforce()
       assert(msg:match("blocked"), "expected reason in message, got: " .. msg)
     end)
 end
-test_skip_strict_throws_only_under_enforce()
 
 local function test_enforced_never_throws()
   with_enforce(true, function()
@@ -423,7 +379,6 @@ local function test_enforced_never_throws()
       assert(not threw, "enforced() is a marker and must not throw")
     end)
 end
-test_enforced_never_throws()
 
 -- refuses: one untyped call, a typed message back
 
@@ -434,7 +389,6 @@ local function test_refuses_returns_the_refusal_message()
   local msg = check.refuses(probe, 42)
   assert(msg == "cwd must be a string", "got: " .. msg)
 end
-test_refuses_returns_the_refusal_message()
 
 local function test_refuses_throws_when_the_call_succeeds()
   local function probe(_cwd: string): string | nil, string
@@ -444,7 +398,6 @@ local function test_refuses_throws_when_the_call_succeeds()
   assert(threw, "refuses must throw when the call returns a value")
   assert(msg:find("expected a refusal", 1, true), "got: " .. msg)
 end
-test_refuses_throws_when_the_call_succeeds()
 
 local function test_refuses_throws_on_an_empty_message()
   local function probe(_cwd: string): string | nil, string
@@ -454,4 +407,3 @@ local function test_refuses_throws_on_an_empty_message()
   assert(threw, "refuses must throw on an empty refusal message")
   assert(msg:find("expected a refusal", 1, true), "got: " .. msg)
 end
-test_refuses_throws_on_an_empty_message()
