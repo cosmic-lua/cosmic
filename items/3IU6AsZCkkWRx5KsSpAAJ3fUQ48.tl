@@ -6,6 +6,7 @@ return {
   ["id"] = "3IU6AsZCkkWRx5KsSpAAJ3fUQ48",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1558,
+  ["reviewer"] = "review-AJ3fUQ48-1788065100",
   ["speccers"] = "orchestrator-w18 wave18-a2-1788064500",
   ["title"] = "migrate to runner mode, batch 3/7: cosmic/{fs,child,format,flags,coverage,sandbox}",
 }
