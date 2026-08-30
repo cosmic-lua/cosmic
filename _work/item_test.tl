@@ -110,24 +110,33 @@ local function test_done_items_hold_no_locks()
 end
 test_done_items_hold_no_locks()
 
--- A verdict is a judgment of a diff, so an item with no PR cannot
--- carry one: the pair is what lets every reader derive the review
--- substate from the file alone.
-local function test_a_verdict_needs_a_pr()
+-- A verdict judges a diff when there is a PR, and a claimed item's
+-- recorded evidence when there is none — `gitverdict` decides which
+-- may be RECORDED; the codec only pins that either shape decodes
+-- clean, and stands just as clean once `done` clears the claim after
+-- it (already-completed PR-less items are stored state, not
+-- re-validated).
+local function test_a_verdict_may_stand_with_or_without_a_pr()
   local t = base()
   t.parent = PARENT
   t.claim = "session-a"
   t.verdict = "accept"
   local it = check.must(item.decode(t))
-  assert(has_problem(it, "carries no verdict"),
-    "a verdict with no PR decodes flagged: "
+  assert(not item.is_flagged(it),
+    "a claimed PR-less verdict decodes clean: "
     .. table.concat(it.decode_problems or {}, "; "))
   t.pr = 7
-  local clean = check.must(item.decode(t))
-  assert(clean.verdict == "accept" and not item.is_flagged(clean),
-    "with the PR it decodes clean")
+  local withpr = check.must(item.decode(t))
+  assert(withpr.verdict == "accept" and not item.is_flagged(withpr),
+    "with a PR it decodes clean too")
+  t.pr = nil
+  t.claim = nil
+  t.resolution = "completed"
+  local ended = check.must(item.decode(t))
+  assert(not item.is_flagged(ended),
+    "and a completed PR-less item's own accept still stands with the claim gone")
 end
-test_a_verdict_needs_a_pr()
+test_a_verdict_may_stand_with_or_without_a_pr()
 
 local function test_repo_scopes_a_workable_items_pr()
   local t = base()

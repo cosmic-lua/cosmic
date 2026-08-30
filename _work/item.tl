@@ -223,9 +223,6 @@ local function problems(it: Item): {string}
     out[#out + 1] =
     "claim/reviewer/pr/verdict/repo/base belong to worked items, not roots"
   end
-  if (it.verdict or "") ~= "" and (it.pr or 0) == 0 then
-    out[#out + 1] = "a verdict judges a PR; an item with none carries no verdict"
-  end
   if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
     out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
   end

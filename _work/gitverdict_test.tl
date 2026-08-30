@@ -61,17 +61,21 @@ local function verdict_and_capture(s: store.Store, id: string, kind: string,
   return result, table.concat(lines, "\n")
 end
 
--- A verdict judges a diff, so an item with no PR has nothing for it
--- to say — and a standing accept is landed, not judged again.
+-- A verdict judges evidence, so a todo item — never claimed, no PR —
+-- has nothing for it to say. Once claimed, a PR-less item IS
+-- judgeable (its recorded work stands in for a diff); a standing
+-- accept is landed, not judged again, whichever way it got there.
 local function test_verdict_judges_a_pr_awaiting_one()
   local s = init_state_repo("verdict-guard")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
   assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234") ~= 0,
-    "a todo item has nothing to judge")
+    "an unclaimed todo item has nothing to judge")
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
-  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "abc1234") ~= 0,
-    "nor has a build with no PR yet")
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "abc1234") == 0,
+    "a claimed PR-less build is judgeable too")
+  assert(flow.substate(check.must(store.load(s, leaf))) == "rework",
+    "and the send-back stands the same way")
   assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0)
   assert(vrd.cmd_verdict(s, leaf, "accept", 7, "abc1234") == 0,
     "a PR awaiting a verdict is judged")
@@ -81,6 +85,74 @@ local function test_verdict_judges_a_pr_awaiting_one()
     "a standing accept is landed, not re-judged")
 end
 test_verdict_judges_a_pr_awaiting_one()
+
+-- A claimed PR-less item is judged the same way a PR is: recorded
+-- (accept and request changes alike), verdict_head stays empty since
+-- there is no head to verify, and the pair guard degrades to the spec
+-- revision alone — an unchanged spec still has nothing new to say, and
+-- a spec rewrite is still a fresh round.
+local function test_a_pr_less_item_records_both_verdict_kinds()
+  local s = init_state_repo("verdict-pr-less")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "reviewer-a") == 0,
+    "an evidence-only item takes an accept — no --head needed")
+  local it = check.must(store.load(s, leaf))
+  assert(it.verdict == "accept", "the accept stands")
+  assert(it.verdict_head == "", "no PR, so no head is recorded")
+  assert(it.resolution == "", "and the item is not ended here — done finishes it")
+end
+test_a_pr_less_item_records_both_verdict_kinds()
+
+-- The middle verdict on a PR-less item is the same send-back: the
+-- claim and the judged spec revision stand, ready for the claimant to
+-- rework in place and record a fresh verdict over the moved spec.
+local function test_a_pr_less_pair_guard_degrades_to_the_spec_alone()
+  local s = init_state_repo("verdict-pr-less-pair")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "request changes", 0, "", "reviewer-a") == 0)
+  local back = check.must(store.load(s, leaf))
+  assert(flow.substate(back) == "rework", "the send-back stands")
+  assert(back.claim == "session-a", "with the builder's claim kept")
+  assert((back.verdict_spec or "") ~= "",
+    "the judged spec revision is on the record")
+  local code, printed = verdict_and_capture(s, leaf, "request changes", 0, "",
+    "reviewer-a")
+  assert(code ~= 0, "the same unchanged spec has nothing new to judge")
+  assert(printed:find("was already judged with this spec", 1, true) ~= nil,
+    "the printed refusal says what happened: " .. printed)
+  -- A spec rewrite alone is a fresh round, exactly as it is for a PR.
+  local base = fs.join(fixture.tmpdir, "pr-less-pair-base.md")
+  assert(fs.write(base, store.read_spec(s, leaf)))
+  local moved = fs.join(fixture.tmpdir, "pr-less-pair-moved.md")
+  assert(fs.write(moved, store.read_spec(s, leaf)
+      .. "\nMeasured again at rework.\n"))
+  assert(gitspec.cmd_spec(s, leaf, moved, base, "session-a") == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "reviewer-a") == 0,
+    "the same (absent) head over a moved spec is judgeable")
+end
+test_a_pr_less_pair_guard_degrades_to_the_spec_alone()
+
+-- The distance guard binds a PR-less item exactly as it binds a PR:
+-- the session that claimed it may not accept it, and only `--force
+-- --why` records it anyway — the audited repair path, unchanged.
+local function test_a_pr_less_item_keeps_the_distance_guard()
+  local s = init_state_repo("verdict-pr-less-distance")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  local code, printed = verdict_and_capture(s, leaf, "accept", 0, "", "session-a")
+  assert(code ~= 0, "the session that claimed it may not accept it")
+  assert(printed:find("needs a fresh context", 1, true) ~= nil,
+    "the printed refusal says what happened: " .. printed)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "session-a", true,
+      "solo repair, nobody else to review it") == 0,
+    "--force --why records it")
+end
+test_a_pr_less_item_keeps_the_distance_guard()
 
 -- A verdict judges a pair — the head and the spec revision it is
 -- measured against. The same pair twice says nothing happened in
