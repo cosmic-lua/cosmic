@@ -192,10 +192,16 @@ local function read_spec(s: Store, id: string): string
   return body or ""
 end
 
---- Every item in the store, done ones included, sorted by id.
+--- Every item in the store, done ones included, sorted by id. An item
+--- `item.decode` flags with content problems (a multiline title from
+--- an older, less careful writer; any other `item.problems` failure)
+--- is included anyway, `.decode_problems` and all — one bad record no
+--- longer aborts the whole read, only a genuinely corrupt one does
+--- (unparseable literal, wrong field type). `flagged_summary` renders
+--- what this returned into the one line a caller prints.
 --- @param s Store The store
---- @return {item.Item} | nil The items
---- @return string Error message naming the first unreadable item
+--- @return {item.Item} | nil The items, some possibly flagged
+--- @return string Error message naming the first genuinely corrupt item
 local function list(s: Store): {item.Item} | nil, string
   local found, ferr = fs.find(fs.join(s.root, "items"),
     {glob = "*.tl", max_depth = 1, sorted = true})
@@ -215,6 +221,26 @@ local function list(s: Store): {item.Item} | nil, string
     out[#out + 1] = it
   end
   return out
+end
+
+--- One line summarizing every item `list` flagged, in list order; ""
+--- when nothing was. A caller decides whether and where to print
+--- it — this only formats what `list` already returned, so surfacing
+--- it never needs a second read of the store.
+--- @param items {item.Item} Items from `list`
+--- @return string "N unreadable/flagged: <id8> — <reason>[; ...]", or ""
+local function flagged_summary(items: {item.Item}): string
+  local parts: {string} = {}
+  for _, it in ipairs(items) do
+    if item.is_flagged(it) then
+      parts[#parts + 1] = ("%s — %s"):format(it.id:sub(1, 8),
+        table.concat(it.decode_problems or {}, ", "))
+    end
+  end
+  if #parts == 0 then
+    return ""
+  end
+  return ("%d unreadable/flagged: %s"):format(#parts, table.concat(parts, "; "))
 end
 
 --- Write one item and its spec sidecar, and stage both.
@@ -303,6 +329,7 @@ local record store
   resolve: function(s: Store, prefix: string): string | nil, string
   read_spec: function(s: Store, id: string): string
   list: function(s: Store): {item.Item} | nil, string
+  flagged_summary: function(items: {item.Item}): string
   stage: function(s: Store, it: item.Item, spec?: string): boolean, string
   save: function(s: Store, it: item.Item, message: string, spec?: string,
   also?: {item.Item}): boolean, string
@@ -320,6 +347,7 @@ local M: store = {
   resolve = resolve,
   read_spec = read_spec,
   list = list,
+  flagged_summary = flagged_summary,
   stage = stage,
   save = save,
 }

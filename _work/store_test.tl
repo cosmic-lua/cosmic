@@ -14,6 +14,7 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local literal = require("cosmic.literal")
 local publish = require("_work.publish")
 local store = require("_work.store")
 
@@ -114,6 +115,14 @@ local function make_item(claim?: string): item.Item
         id = fresh_id(), title = "an item", parent = PARENT,
         claim = claim or "",
       }))
+end
+
+--- Write a content-invalid item file directly, bypassing `stage`'s
+--- refusal — a pre-refusal writer's shape, or a hand edit.
+--- @param s store.Store The store
+--- @param bad item.Item An item whose `item.problems` is non-empty
+local function write_unchecked(s: store.Store, bad: item.Item)
+  assert(literal.format_file(store.item_path(s, bad.id), item.encode(bad)))
 end
 
 -- init_repo prepares a fresh directory whole: a git worktree (created
@@ -233,6 +242,51 @@ local function test_save_refuses_a_no_op()
   assert(err:find("nothing to record", 1, true), "got: " .. err)
 end
 test_save_refuses_a_no_op()
+
+-- The bricking incident: a multiline title must not abort `list` — the
+-- rest still reads, the bad one comes back flagged, not dropped, and
+-- write-refusal is unchanged (`stage` still refuses the same shape).
+local function test_list_tolerates_a_bad_title_but_stage_still_refuses()
+  local root = init_state_repo("list-tolerant")
+  local s = check.must(store.open(root))
+  local good = make_item()
+  assert(store.save(s, good, "new good"))
+  local bad = check.must(item.decode({id = fresh_id(), title = "one line"}))
+  bad.title = "broken\ntitle"
+  local ok, serr = store.stage(s, bad)
+  assert(not ok and serr:find("title must be one line", 1, true) ~= nil,
+    "stage refuses the same shape: " .. tostring(serr))
+  write_unchecked(s, bad)
+  local all = check.must(store.list(s))
+  assert(#all == 2, "the bad record is included, not dropped: got " .. #all)
+  for _, it in ipairs(all) do
+    assert(item.is_flagged(it) == (it.id == bad.id), "flagged iff bad")
+  end
+  local summary = store.flagged_summary(all)
+  assert(summary:find(bad.id:sub(1, 8), 1, true) and
+    summary:find("title must be one line", 1, true), "summary: " .. summary)
+end
+test_list_tolerates_a_bad_title_but_stage_still_refuses()
+
+-- Repairability falls out: `set --title` loads through this same
+-- tolerant decode, so overwriting the bad title and saving clears it.
+local function test_a_bad_title_is_repairable_through_the_tolerant_decode()
+  local root = init_state_repo("repair")
+  local s = check.must(store.open(root))
+  local seed = check.must(item.decode({id = fresh_id(), title = "one line"}))
+  seed.title = "broken\ntitle"
+  write_unchecked(s, seed)
+  local loaded = check.must(store.load(s, seed.id))
+  assert(item.is_flagged(loaded), "the bad record still loads, flagged")
+  loaded.title = "a repaired one-line title"
+  assert(store.save(s, loaded, "set " .. seed.id:sub(1, 8) .. " title"),
+    "the repair commits: problems(it) is now empty")
+  local fixed = check.must(store.load(s, seed.id))
+  assert(not item.is_flagged(fixed) and fixed.title == loaded.title, "clean")
+  assert(store.flagged_summary(check.must(store.list(s))) == "",
+    "listing recovers: nothing left flagged")
+end
+test_a_bad_title_is_repairable_through_the_tolerant_decode()
 
 local function test_publish_fast_forward()
   local bare, clones = init_shared("ff", 2)

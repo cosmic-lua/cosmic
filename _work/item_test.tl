@@ -19,6 +19,18 @@ local function base(): {string: any}
   return {id = ID, title = "an item"}
 end
 
+--- Whether a decoded item's `decode_problems` names `needle` anywhere
+--- in the list — `problems(it)` can return several at once, so a test
+--- of one does not assume it is first.
+local function has_problem(it: item.Item, needle: string): boolean
+  for _, p in ipairs(it.decode_problems or {}) do
+    if p:find(needle, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
 local function test_root_round_trips_minimal()
   local it = check.must(item.decode(base()))
   assert(item.is_root(it) and item.is_open(it), "a bare item is an open root")
@@ -59,23 +71,26 @@ local function test_roots_hold_edges_not_locks()
     "a root's priority edge decodes")
   local claimed = base()
   claimed.claim = "session-a"
-  local cbad, cerr = item.decode(claimed)
-  assert(cbad == nil and cerr:find("not roots", 1, true),
-    "a claimed root is refused: " .. tostring(cerr))
+  local it = check.must(item.decode(claimed))
+  assert(has_problem(it, "not roots"),
+    "a claimed root decodes flagged: "
+    .. table.concat(it.decode_problems or {}, "; "))
 end
 test_roots_hold_edges_not_locks()
 
 local function test_priority_edges_name_other_items()
   local looping = base()
   looping.beats = ID
-  local bad, err = item.decode(looping)
-  assert(bad == nil and err:find("nothing outranks itself", 1, true),
-    "a self-edge is refused: " .. tostring(err))
+  local it = check.must(item.decode(looping))
+  assert(has_problem(it, "nothing outranks itself"),
+    "a self-edge decodes flagged: "
+    .. table.concat(it.decode_problems or {}, "; "))
   local junk = base()
   junk.beats = "not-an-id"
-  local jbad, jerr = item.decode(junk)
-  assert(jbad == nil and jerr:find("beats names a non-id", 1, true),
-    "a non-id edge is refused: " .. tostring(jerr))
+  local jit = check.must(item.decode(junk))
+  assert(has_problem(jit, "beats names a non-id"),
+    "a non-id edge decodes flagged: "
+    .. table.concat(jit.decode_problems or {}, "; "))
 end
 test_priority_edges_name_other_items()
 
@@ -84,12 +99,14 @@ local function test_done_items_hold_no_locks()
   t.parent = PARENT
   t.claim = "session-a"
   t.resolution = "completed"
-  local bad, err = item.decode(t)
-  assert(bad == nil and err:find("no claim", 1, true),
-    "a done claimed item is refused: " .. tostring(err))
+  local it = check.must(item.decode(t))
+  assert(has_problem(it, "no claim"),
+    "a done claimed item decodes flagged: "
+    .. table.concat(it.decode_problems or {}, "; "))
   t.claim = nil
   local done = check.must(item.decode(t))
   assert(not item.is_open(done), "resolution IS done")
+  assert(not item.is_flagged(done), "a clean done item is not flagged")
 end
 test_done_items_hold_no_locks()
 
@@ -101,12 +118,14 @@ local function test_a_verdict_needs_a_pr()
   t.parent = PARENT
   t.claim = "session-a"
   t.verdict = "accept"
-  local bad, err = item.decode(t)
-  assert(bad == nil and err:find("carries no verdict", 1, true),
-    "a verdict with no PR is refused: " .. tostring(err))
+  local it = check.must(item.decode(t))
+  assert(has_problem(it, "carries no verdict"),
+    "a verdict with no PR decodes flagged: "
+    .. table.concat(it.decode_problems or {}, "; "))
   t.pr = 7
-  assert(check.must(item.decode(t)).verdict == "accept",
-    "with the PR it decodes")
+  local clean = check.must(item.decode(t))
+  assert(clean.verdict == "accept" and not item.is_flagged(clean),
+    "with the PR it decodes clean")
 end
 test_a_verdict_needs_a_pr()
 
@@ -128,15 +147,17 @@ local function test_repo_scopes_a_workable_items_pr()
   local garbage = base()
   garbage.parent = PARENT
   garbage.repo = "not-a-slug"
-  local gbad, gerr = item.decode(garbage)
-  assert(gbad == nil and gerr:find("repo must be owner/name", 1, true),
-    "a malformed repo is refused: " .. tostring(gerr))
+  local gflagged = check.must(item.decode(garbage))
+  assert(has_problem(gflagged, "repo must be owner/name"),
+    "a malformed repo decodes flagged: "
+    .. table.concat(gflagged.decode_problems or {}, "; "))
 
   local rooted = base()
   rooted.repo = "whilp/cosmopolitan"
-  local rbad, rerr = item.decode(rooted)
-  assert(rbad == nil and rerr:find("not roots", 1, true),
-    "a repo on a root is refused: " .. tostring(rerr))
+  local rflagged = check.must(item.decode(rooted))
+  assert(has_problem(rflagged, "not roots"),
+    "a repo on a root decodes flagged: "
+    .. table.concat(rflagged.decode_problems or {}, "; "))
 end
 test_repo_scopes_a_workable_items_pr()
 
@@ -160,15 +181,17 @@ local function test_base_names_the_prs_target_branch()
   local garbage = base()
   garbage.parent = PARENT
   garbage.base = "not a branch!"
-  local gbad, gerr = item.decode(garbage)
-  assert(gbad == nil and gerr:find("base must be a branch name", 1, true),
-    "a malformed base is refused: " .. tostring(gerr))
+  local gflagged = check.must(item.decode(garbage))
+  assert(has_problem(gflagged, "base must be a branch name"),
+    "a malformed base decodes flagged: "
+    .. table.concat(gflagged.decode_problems or {}, "; "))
 
   local rooted = base()
   rooted.base = "release"
-  local rbad, rerr = item.decode(rooted)
-  assert(rbad == nil and rerr:find("not roots", 1, true),
-    "a base on a root is refused: " .. tostring(rerr))
+  local rflagged = check.must(item.decode(rooted))
+  assert(has_problem(rflagged, "not roots"),
+    "a base on a root decodes flagged: "
+    .. table.concat(rflagged.decode_problems or {}, "; "))
 end
 test_base_names_the_prs_target_branch()
 
@@ -178,36 +201,38 @@ test_base_names_the_prs_target_branch()
 -- entry over-reports the blocker count and renders twice in `show`.
 -- Refused rather than folded — silently deduping would hide whichever
 -- writer produced them.
-local function test_list_fields_refuse_a_repeated_entry()
+local function test_list_fields_flag_a_repeated_entry()
   local blocked = base()
   blocked.blocked_by = PARENT .. " " .. OTHER .. " " .. PARENT
-  local bbad, berr = item.decode(blocked)
-  assert(bbad == nil and berr:find("blocked_by repeats " .. PARENT, 1, true),
-    "a repeated blocker is refused: " .. tostring(berr))
+  local bflagged = check.must(item.decode(blocked))
+  assert(has_problem(bflagged, "blocked_by repeats " .. PARENT),
+    "a repeated blocker decodes flagged: "
+    .. table.concat(bflagged.decode_problems or {}, "; "))
 
   local ranked = base()
   ranked.beats = PARENT .. " " .. OTHER .. " " .. OTHER
-  local rbad, rerr = item.decode(ranked)
-  assert(rbad == nil and rerr:find("beats repeats " .. OTHER, 1, true),
-    "a repeated beat is refused: " .. tostring(rerr))
+  local rflagged = check.must(item.decode(ranked))
+  assert(has_problem(rflagged, "beats repeats " .. OTHER),
+    "a repeated beat decodes flagged: "
+    .. table.concat(rflagged.decode_problems or {}, "; "))
 
   local distinct = base()
   distinct.blocked_by = PARENT .. " " .. OTHER
   distinct.beats = PARENT .. " " .. OTHER
   local ok = check.must(item.decode(distinct))
-  assert(#ok.blocked_by == 2 and #ok.beats == 2,
-    "distinct entries in each list are accepted")
+  assert(#ok.blocked_by == 2 and #ok.beats == 2 and not item.is_flagged(ok),
+    "distinct entries in each list decode clean")
 end
-test_list_fields_refuse_a_repeated_entry()
+test_list_fields_flag_a_repeated_entry()
 
 local function test_id_discipline()
-  local bad, err = item.decode({id = "not-a-ksuid", title = "t"})
-  assert(bad == nil and err:find("ksuid", 1, true), "ids are ksuids")
+  local it = check.must(item.decode({id = "not-a-ksuid", title = "t"}))
+  assert(has_problem(it, "ksuid"), "a non-ksuid id decodes flagged")
   local blocked = base()
   blocked.blocked_by = "junk"
-  local bbad, berr = item.decode(blocked)
-  assert(bbad == nil and berr:find("non%-id"), "blocker ids are ksuids: "
-    .. tostring(berr))
+  local bflagged = check.must(item.decode(blocked))
+  assert(has_problem(bflagged, "non-id"), "a non-id blocker decodes flagged: "
+    .. table.concat(bflagged.decode_problems or {}, "; "))
 end
 test_id_discipline()
 
@@ -236,9 +261,10 @@ local function test_an_item_cannot_wait_on_itself()
   local t = base()
   t.parent = PARENT
   t.blocked_by = ID
-  local bad, err = item.decode(t)
-  assert(bad == nil and err:find("itself", 1, true),
-    "a self-block is invalid: " .. tostring(err))
+  local it = check.must(item.decode(t))
+  assert(has_problem(it, "itself"),
+    "a self-block decodes flagged: "
+    .. table.concat(it.decode_problems or {}, "; "))
 end
 test_an_item_cannot_wait_on_itself()
 
@@ -262,9 +288,10 @@ local function test_builders_round_trip()
   assert(item.encode(it).builders == nil, "an empty list is not written")
 
   t.builders = "session-a session-a"
-  local bad, err = item.decode(t)
-  assert(bad == nil and err:find("builders repeats", 1, true),
-    "a repeated builder is invalid: " .. tostring(err))
+  local flagged = check.must(item.decode(t))
+  assert(has_problem(flagged, "builders repeats"),
+    "a repeated builder decodes flagged: "
+    .. table.concat(flagged.decode_problems or {}, "; "))
 end
 test_builders_round_trip()
 
@@ -285,9 +312,10 @@ local function test_speccers_round_trip()
   assert(item.encode(it).speccers == nil, "an empty list is not written")
 
   t.speccers = "session-a session-a"
-  local bad, err = item.decode(t)
-  assert(bad == nil and err:find("speccers repeats", 1, true),
-    "a repeated speccer is invalid: " .. tostring(err))
+  local flagged = check.must(item.decode(t))
+  assert(has_problem(flagged, "speccers repeats"),
+    "a repeated speccer decodes flagged: "
+    .. table.concat(flagged.decode_problems or {}, "; "))
 end
 test_speccers_round_trip()
 
@@ -369,3 +397,29 @@ local function test_an_unknown_key_still_decodes()
     "an unknown key does not block decode")
 end
 test_an_unknown_key_still_decodes()
+
+-- The bricking incident itself: a multiline title (the one shape a
+-- pre-refusal writer could have committed, crafted here with a valid
+-- `\<newline>` escape) must decode, flagged, rather than fail the way
+-- it used to — a `store.list` over 172 good items and this one bad
+-- record can no longer die on the first bad file it reads.
+local function test_a_multiline_title_decodes_flagged_not_refused()
+  local t = base()
+  t.title = "first line\nsecond line"
+  local it = check.must(item.decode(t))
+  assert(item.is_flagged(it), "a multiline title decodes flagged")
+  assert(has_problem(it, "title must be one line"),
+    "naming the reason: " .. table.concat(it.decode_problems or {}, "; "))
+  assert(it.title == "first line\nsecond line",
+    "the raw title survives decode, so a repair can still see it")
+end
+test_a_multiline_title_decodes_flagged_not_refused()
+
+-- A clean item never carries `decode_problems` at all — flagged is a
+-- read-time fact about THIS decode, not a field every item grows.
+local function test_a_clean_item_is_not_flagged()
+  local it = check.must(item.decode(base()))
+  assert(not item.is_flagged(it) and it.decode_problems == nil,
+    "a well-formed item decodes with no problems attached")
+end
+test_a_clean_item_is_not_flagged()

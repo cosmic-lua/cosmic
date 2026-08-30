@@ -100,6 +100,13 @@ local record Item
   --- Why a finished item ended: "completed" | "not-planned"; "" while
   --- open. A non-empty resolution IS what "done" means.
   resolution: string
+  --- Content problems `decode` found on this item (`problems(it)`,
+  --- possibly several), carried alongside a successful decode instead
+  --- of failing it — a read-time snapshot, not a stored fact: nil for
+  --- an item built directly (never decoded) or freshly re-decoded
+  --- clean, and never written back by `encode`. See `decode` and
+  --- `is_flagged`.
+  decode_problems: {string} | nil
 end
 
 --- The shape `decode`'s input must have. Every field is optional —
@@ -269,12 +276,26 @@ local function problems(it: Item): {string}
 end
 
 --- An item from the table `cosmic.literal` parsed, with zero values
---- filled in and every field validated. Unknown keys are ignored, so
---- a file carrying retired fields still reads — and sheds them on its
---- next write.
+--- filled in and every field shape-checked. Unknown keys are ignored,
+--- so a file carrying retired fields still reads — and sheds them on
+--- its next write.
+---
+--- This fails hard only on genuine corruption: an unparseable literal
+--- (the caller's `literal.parse_file`) or a field of the wrong type
+--- (`shape.into` against `SPEC`, below). A CONTENT problem —
+--- `problems(it)` non-empty: a multiline title, a claimed root, a
+--- repeated blocker, and so on — does not fail the decode; the
+--- constructed `Item` comes back with `problems(it)` attached at
+--- `.decode_problems` instead (`is_flagged` reads it). A store with
+--- one such record, written by an older or less careful writer, still
+--- decodes every item, and the bad one can still be corrected in
+--- place (`gitboard set --title ...` loads through this same decode).
+--- The write path is unaffected: `store.stage` and `cmd_new` call
+--- `problems(it)` directly and refuse there, before a bad record is
+--- ever committed.
 --- @param t {string: any} Parsed literal table
---- @return Item | nil The item
---- @return string Error message listing every problem
+--- @return Item | nil The item, present even with content problems
+--- @return string Error message; set only when the literal is corrupt
 local function decode(t: {string: any}): Item | nil, string
   local raw, err: Raw | nil, string = shape.into(t, SPEC)
   if not raw then
@@ -322,9 +343,18 @@ local function decode(t: {string: any}): Item | nil, string
   }
   local bad = problems(it)
   if #bad > 0 then
-    return nil, table.concat(bad, "; ")
+    it.decode_problems = bad
   end
   return it
+end
+
+--- Whether `decode` flagged content problems on this item. Read-path
+--- tolerance only: a freshly `decode`d item that is actually clean
+--- reports false the same as one built directly and never decoded.
+--- @param it Item The item
+--- @return boolean True when `.decode_problems` names at least one
+local function is_flagged(it: Item): boolean
+  return #(it.decode_problems or {}) > 0
 end
 
 --- The literal table an item writes: zero values omitted, so the file
@@ -430,6 +460,7 @@ local record item
   type Item = Item
   is_open: function(it: Item): boolean
   is_root: function(it: Item): boolean
+  is_flagged: function(it: Item): boolean
   problems: function(it: Item): {string}
   identity_refusal: function(session: string): string
   record_involvement: function(list: {string}, session: string): boolean, string
@@ -440,6 +471,7 @@ end
 local M: item = {
   is_open = is_open,
   is_root = is_root,
+  is_flagged = is_flagged,
   problems = problems,
   identity_refusal = identity_refusal,
   record_involvement = record_involvement,
