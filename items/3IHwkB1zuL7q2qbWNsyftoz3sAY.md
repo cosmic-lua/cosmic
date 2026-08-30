@@ -38,3 +38,18 @@ outside any code span passes clean; `&#39;` inside a backtick span
 blocks; `&#34;` inside a fenced block blocks; mutation-verify the
 span-scoping (widen the check back to whole-body, watch the
 prose-passes-clean test go red).
+
+## Resolution (2026-08-30) — rejected, not-planned
+
+Operator decision after two review rounds. What was learned: the
+transit sanitizer's harmful half (tag-shaped text DELETED) leaves no
+artifact and is undetectable from the body side; the detectable half
+(entity-escaped quotes) is lossless in rendered prose and corrupts
+only code spans — a cosmetic case on a field the doctrine already
+demotes (PR bodies carry no evidence). Scoping detection to code
+spans required a markdown span parser inside board machinery, which
+produced a real phantom-span bug on its first cut; the maintenance
+surface exceeds the value of guarding a non-load-bearing field
+against its recoverable failure mode. PR #1538 closed unmerged; the
+branch retains the working span-scoped implementation if this is ever
+revisited.
