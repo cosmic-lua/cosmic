@@ -96,10 +96,15 @@ not yet carry is in [docs/design/make/](docs/design/make/).
   `cosmic --make lint` run. `.d.tl` type declaration files are exempt
   (they describe C binding interfaces and cannot be split due to Teal's
   record system).
-- **test files call each test where they define it**: a `test_*` function
-  in a `_test.tl` is called on the line after its `end`, so a failing run
-  names the function. Helpers are exempt (they are called from the tests),
-  and `Example_*` functions are called by the example runner.
+- **a test file is legacy or runner mode, never mixed**: a top-level
+  `local function test_*` in a `_test.tl` is either called on the line
+  after its `end` (legacy) or not referenced anywhere else in the file
+  (runner) — the toolchain discovers runner-mode definitions and calls
+  them via a generated tail ([D29](docs/decisions/d29-tests-run-because-defined.md)).
+  Mixing the two shapes in one file is a lint failure. Write new test
+  files in runner mode: define `test_*` functions and call none of them.
+  Helpers are exempt (they are called from the tests), and `Example_*`
+  functions are called by the example runner.
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
 - **tests**: `*_test.tl` files alongside source, run via `cosmic --make test`
 - **examples**: `*_example.tl` files with `Example_*` functions, run via `cosmic --make example`
