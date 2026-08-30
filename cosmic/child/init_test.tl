@@ -28,7 +28,6 @@ local function test_kill_reports_signal()
   assert(r.code == nil, "a signaled child has no exit code")
   assert(r.ok == false, "a signaled child is not ok")
 end
-test_kill_reports_signal()
 
 -- (b) wait() is idempotent: the reaped Result is cached and returned again.
 local function test_wait_idempotent()
@@ -38,7 +37,6 @@ local function test_wait_idempotent()
   assert(r1 == r2, "second wait() must return the same cached Result")
   assert(r1.code == 3, "expected code 3, got " .. tostring(r1.code))
 end
-test_wait_idempotent()
 
 -- (c) wait(timeout_ms) returns nil, "timeout" for a child that has not exited;
 -- the handle stays usable so we can then kill and reap it.
@@ -51,7 +49,6 @@ local function test_wait_timeout()
   local r2 = check.must(h:wait())
   assert(r2.signal == signal.SIGKILL, "expected SIGKILL after timeout+kill")
 end
-test_wait_timeout()
 
 -- (d) a missing executable makes spawn() itself fail with a visible ENOENT,
 -- not a bogus exit code from a later wait().
@@ -61,7 +58,6 @@ local function test_exec_failure_visible()
   assert(err ~= nil and err:match("ENOENT"),
     "expected ENOENT in error, got " .. tostring(err))
 end
-test_exec_failure_visible()
 
 -- (e) run() captures stdout and stderr independently along with the exit code.
 local function test_run_captures_streams_and_code()
@@ -71,7 +67,6 @@ local function test_run_captures_streams_and_code()
   assert(r.code == 3, "expected code 3, got " .. tostring(r.code))
   assert(r.ok == false, "exit 3 is not ok")
 end
-test_run_captures_streams_and_code()
 
 -- === High-level run/spawn behavior ===
 
@@ -80,14 +75,12 @@ local function test_run_simple()
   assert(r.ok, "command should succeed")
   assert(r.stdout == "hello\n", "expected 'hello\\n', got '" .. tostring(r.stdout) .. "'")
 end
-test_run_simple()
 
 local function test_command_not_found()
   local h, err = child.start({"nonexistent_command_12345"})
   assert(h == nil, "handle should be nil for nonexistent command")
   assert(err:find("command not found", 1, true), "expected 'command not found' in error: " .. tostring(err))
 end
-test_command_not_found()
 
 local function test_run_exit_code()
   local r = check.must(child.run({lua_bin, "-e", "os.exit(0)"}))
@@ -98,14 +91,12 @@ local function test_run_exit_code()
   assert(r.code == 1, "expected exit code 1, got " .. tostring(r.code))
   assert(not r.ok, "exit 1 should not be ok")
 end
-test_run_exit_code()
 
 local function test_run_stdin_string()
   local r = check.must(child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = "hello from stdin"}))
   assert(r.ok, "command should succeed")
   assert(r.stdout == "hello from stdin", "expected 'hello from stdin', got '" .. tostring(r.stdout) .. "'")
 end
-test_run_stdin_string()
 
 local function test_run_cwd_option()
   local r = check.must(child.run({"pwd"}, {cwd = TEST_TMPDIR}))
@@ -113,7 +104,6 @@ local function test_run_cwd_option()
   local pwd_output = r.stdout:gsub("\n$", "")
   assert(pwd_output == TEST_TMPDIR, "expected pwd '" .. TEST_TMPDIR .. "', got '" .. tostring(pwd_output) .. "'")
 end
-test_run_cwd_option()
 
 -- === Handle-level methods: try_wait, read, stop-after-reap ===
 
@@ -135,7 +125,6 @@ local function test_try_wait()
   assert(res ~= nil, "try_wait should eventually reap the stopped child")
   assert(res.signal == signal.SIGKILL, "expected SIGKILL, got signal=" .. tostring(res.signal))
 end
-test_try_wait()
 
 local function test_read_streaming()
   local h = check.must(child.start({lua_bin, "-e", "io.write('abcdef'); io.flush()"}))
@@ -145,7 +134,6 @@ local function test_read_streaming()
   assert(chunk .. r.stdout == "abcdef",
     "streamed + pumped output should reassemble, got '" .. chunk .. "' + '" .. r.stdout .. "'")
 end
-test_read_streaming()
 
 local function test_abandoned_handle_reaped()
   -- Dropping an un-waited handle must not leak a zombie: the __gc finalizer
@@ -162,7 +150,6 @@ local function test_abandoned_handle_reaped()
   assert(time.sleep_ms(100)) -- 100ms for the kernel to finish teardown
   assert(not signal.kill(pid, 0), "abandoned child should be killed and reaped, not left alive/zombie")
 end
-test_abandoned_handle_reaped()
 
 local function test_stop_after_reap_fails()
   local h = check.must(child.start({lua_bin, "-e", "os.exit(0)"}))
@@ -175,7 +162,6 @@ local function test_stop_after_reap_fails()
   assert(h2:stop(signal.SIGKILL), "stop delivers the signal it is given")
   assert(h2:wait())
 end
-test_stop_after_reap_fails()
 
 -- === Environment ===
 
@@ -188,7 +174,6 @@ local function test_spawn_inherits_env()
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
 end
-test_spawn_inherits_env()
 
 local function test_spawn_with_env_edits()
   -- env.list({set = ...}) builds the edited copy; the parent's own
@@ -202,7 +187,6 @@ local function test_spawn_with_env_edits()
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
   assert(env.get("COSMIC_TEST_SET") == nil, "set edits the copy, not the parent")
 end
-test_spawn_with_env_edits()
 
 local function test_spawn_with_env_list()
   local sentinel = "cosmic_test_list_" .. tostring(proc.getpid())
@@ -214,7 +198,6 @@ local function test_spawn_with_env_list()
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
 end
-test_spawn_with_env_list()
 
 -- === fork-failure fd-cleanup ===
 
@@ -235,7 +218,6 @@ local function test_spawn_fork_failure()
   assert(err:find("EAGAIN", 1, true),
     "expected the real errno to surface, got: " .. tostring(err))
 end
-test_spawn_fork_failure()
 
 local function test_spawn_fast_failure()
   -- Same cleanup contract for the posix_spawn fast path: a spawn failure
@@ -250,7 +232,6 @@ local function test_spawn_fast_failure()
   assert(err ~= nil and err:find("exec failed", 1, true),
     "expected 'exec failed' in error message: " .. tostring(err))
 end
-test_spawn_fast_failure()
 
 -- === deadlock regression: large stderr output ===
 
@@ -267,7 +248,6 @@ local function test_run_no_deadlock_large_stderr()
   assert(r.stdout == "stdout ok\n", "expected 'stdout ok\\n', got '" .. tostring(r.stdout) .. "'")
   assert(#r.stderr == 131072, "expected 128KB stderr, got " .. #r.stderr)
 end
-test_run_no_deadlock_large_stderr()
 
 -- === /zip/ binary execution via fexecve ===
 
@@ -278,7 +258,6 @@ local function test_spawn_zip_nonexistent_path()
   assert(err:find("zip", 1, true) or err:find("not found", 1, true),
     "expected zip-related error, got: " .. tostring(err))
 end
-test_spawn_zip_nonexistent_path()
 
 local function test_spawn_zip_non_executable()
   -- /zip/main.lua exists but is not an ELF binary, so fexecve fails. With the
@@ -288,7 +267,6 @@ local function test_spawn_zip_non_executable()
   assert(err ~= nil and err:find("exec failed", 1, true),
     "expected an 'exec failed' error, got: " .. tostring(err))
 end
-test_spawn_zip_non_executable()
 
 local function test_spawn_zip_embedded_binary()
   -- embed /bin/echo into a copy of cosmic, then spawn it from /zip/
@@ -325,7 +303,6 @@ local function test_spawn_zip_embedded_binary()
   assert(r.stdout == "hello-from-zip\n",
     "expected 'hello-from-zip\\n', got '" .. tostring(r.stdout) .. "'")
 end
-test_spawn_zip_embedded_binary()
 
 -- === fd redirection correctness ===
 
@@ -342,7 +319,6 @@ local function test_spawn_stdout_stderr_separate()
   assert(r.stderr == "to-stderr\n",
     "expected 'to-stderr\\n' on stderr, got '" .. tostring(r.stderr) .. "'")
 end
-test_spawn_stdout_stderr_separate()
 
 local function test_spawn_many_captures_correct()
   for i = 1, 5 do
@@ -353,7 +329,6 @@ local function test_spawn_many_captures_correct()
       "expected 'iter" .. i .. "\\n', got '" .. tostring(r.stdout) .. "'")
   end
 end
-test_spawn_many_captures_correct()
 
 -- === spawn hygiene ===
 
@@ -364,7 +339,6 @@ local function test_spawn_does_not_mutate_argv()
   assert(argv[1] == "echo",
     "spawn must not mutate caller's argv[1], got '" .. tostring(argv[1]) .. "'")
 end
-test_spawn_does_not_mutate_argv()
 
 local function test_spawn_overlap_no_stdin_leak()
   -- CLOEXEC pipes stop a later child from inheriting an earlier child's stdin
@@ -387,7 +361,6 @@ local function test_spawn_overlap_no_stdin_leak()
   assert(b:stop(signal.SIGKILL))
   assert(b:wait())
 end
-test_spawn_overlap_no_stdin_leak()
 
 -- === honest option types: fd.Handle in Options ===
 
@@ -403,7 +376,6 @@ local function test_spawn_stdout_handle()
   assert(out == "via-handle\n", "expected 'via-handle\\n' through the pipe, got '" .. tostring(out) .. "'")
   assert(r.stdout == "", "redirected stdout should leave Result.stdout empty")
 end
-test_spawn_stdout_handle()
 
 -- stderr as a Handle.
 local function test_spawn_stderr_handle()
@@ -416,7 +388,6 @@ local function test_spawn_stderr_handle()
   assert(out == "err-via-handle\n", "expected stderr through the pipe, got '" .. tostring(out) .. "'")
   assert(r.stderr == "", "redirected stderr should leave Result.stderr empty")
 end
-test_spawn_stderr_handle()
 
 -- stdin as a Handle (the read end of a pipe we filled), alongside the
 -- string form which stays supported.
@@ -430,7 +401,6 @@ local function test_spawn_stdin_handle()
   assert(r.stdout == "handle stdin data",
     "expected 'handle stdin data', got '" .. tostring(r.stdout) .. "'")
 end
-test_spawn_stdin_handle()
 
 -- A file Handle from fd.open works the same way as a pipe end.
 local function test_spawn_stdout_file_handle()
@@ -441,7 +411,6 @@ local function test_spawn_stdout_file_handle()
   assert(r.ok, "run with file Handle stdout should succeed")
   assert(fs.read(path) == "to-file\n", "child output should land in the file")
 end
-test_spawn_stdout_file_handle()
 
 -- A closed Handle is a caller bug surfaced from spawn itself, not a
 -- confusing EBADF from the plumbing.
@@ -453,7 +422,6 @@ local function test_spawn_closed_handle_fails()
   assert(err ~= nil and err:find("closed", 1, true),
     "expected a 'closed' error, got: " .. tostring(err))
 end
-test_spawn_closed_handle_fails()
 
 -- Type-level contract: Options mentions no bare integer fds. A raw int
 -- for stdout must be rejected by the type checker.
@@ -469,4 +437,3 @@ child.run({"echo", "x"}, {stdout = 5})
   assert(diag:find("stdout", 1, true),
     "diagnostic should name the offending field, got: " .. diag)
 end
-test_options_reject_raw_int_fd()

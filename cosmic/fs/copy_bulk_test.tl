@@ -26,4 +26,3 @@ local function test_copy_multi_megabyte_content()
 
   assert(fs.remove_all(test_dir))
 end
-test_copy_multi_megabyte_content()

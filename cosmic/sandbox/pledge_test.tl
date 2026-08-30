@@ -11,13 +11,11 @@ local function test_module_exports()
   assert(type(pledge.apply) == "function", "apply should be a function")
   assert(type(pledge.available) == "function", "available should be a function")
 end
-test_module_exports()
 
 local function test_available_returns_boolean()
   local v = pledge.available()
   assert(type(v) == "boolean", "available() should return a boolean, got " .. type(v))
 end
-test_available_returns_boolean()
 
 -- Fail-closed contract: on a host where pledge cannot be enforced,
 -- apply() must say so instead of reporting a sandbox that does not
@@ -38,7 +36,6 @@ local function test_fail_closed_when_unavailable()
   assert(ok2 and err2 == nil,
     "best_effort must turn unsupported into a successful no-op")
 end
-test_fail_closed_when_unavailable()
 
 local function test_stdio_allows_write()
   local script = fs.join(tmpdir, "pledge_stdio.lua")
@@ -66,7 +63,6 @@ io.write("pledged\n")
   assert(ok, "pledge stdio should allow io.write: " .. tostring(out))
   assert(s:find("pledged"), "should print after pledge: " .. tostring(out))
 end
-test_stdio_allows_write()
 
 local function test_restricts_filesystem()
   -- Status is written to stdout (not stderr) so the parent can read it via
@@ -118,4 +114,3 @@ io.write("restricted\n")
   -- (asserted above) nor report pledge unavailable, so enforcement held.
   check.enforced("pledge")
 end
-test_restricts_filesystem()

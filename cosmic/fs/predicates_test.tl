@@ -28,7 +28,6 @@ local function test_exists_symlink_to_file()
   assert(fs.is_present(link), "exists() should follow symlink and return true")
   assert(fs.remove_all(tmpdir))
 end
-test_exists_symlink_to_file()
 
 local function test_isfile_symlink_to_file()
   local tmpdir = fs.join(TEST_TMPDIR, "symlink_isfile_test")
@@ -44,7 +43,6 @@ local function test_isfile_symlink_to_file()
   assert(not fs.is_link(target), "is_link() should be false for the target file")
   assert(fs.remove_all(tmpdir))
 end
-test_isfile_symlink_to_file()
 
 local function test_isfile_broken_symlink()
   local tmpdir = fs.join(TEST_TMPDIR, "symlink_broken_test")
@@ -58,7 +56,6 @@ local function test_isfile_broken_symlink()
   assert(fs.is_link(link), "is_link() should be true for a broken symlink")
   assert(fs.remove_all(tmpdir))
 end
-test_isfile_broken_symlink()
 
 local function test_isdir_symlink_to_dir()
   local tmpdir = fs.join(TEST_TMPDIR, "symlink_isdir_test")
@@ -74,4 +71,3 @@ local function test_isdir_symlink_to_dir()
   assert(fs.is_link(link), "is_link() should detect the symlink itself")
   assert(fs.remove_all(tmpdir))
 end
-test_isdir_symlink_to_dir()

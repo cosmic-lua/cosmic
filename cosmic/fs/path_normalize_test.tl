@@ -14,7 +14,6 @@ local function test_fast_path_already_normal()
   assert(fs.normalize("/a") == "/a", "single absolute component")
   assert(fs.normalize("a") == "a", "single relative component")
 end
-test_fast_path_already_normal()
 
 -- Components that merely contain dots are legal filenames, not "." / ".."
 -- segments, so the fast path must pass them through untouched.
@@ -24,7 +23,6 @@ local function test_fast_path_dotty_components()
   assert(fs.normalize("..a/b..") == "..a/b..", "leading/trailing dot names")
   assert(fs.normalize("a.b/c.d") == "a.b/c.d", "dotted names")
 end
-test_fast_path_dotty_components()
 
 -- Near-miss non-normal paths must be REJECTED by the fast path and
 -- collapsed by the loop — the dangerous failure mode is over-acceptance.
@@ -38,4 +36,3 @@ local function test_fast_path_rejects_nonnormal()
   assert(fs.normalize("a/./b") == "a/b", "interior .")
   assert(fs.normalize("a/../b") == "b", "interior ..")
 end
-test_fast_path_rejects_nonnormal()

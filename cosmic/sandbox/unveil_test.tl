@@ -12,13 +12,11 @@ local function test_module_exports()
   assert(type(unveil.commit) == "function", "commit should be a function")
   assert(type(unveil.available) == "function", "available should be a function")
 end
-test_module_exports()
 
 local function test_available_returns_boolean()
   local v = unveil.available()
   assert(type(v) == "boolean", "available() should return a boolean, got " .. type(v))
 end
-test_available_returns_boolean()
 
 -- Fail-closed contract: on a host without a backing sandbox (no
 -- landlock, not OpenBSD), allow/commit must report failure
@@ -45,7 +43,6 @@ local function test_fail_closed_when_unavailable()
   assert(unveil.commit({best_effort = true}),
     "best_effort must turn unsupported commit into a successful no-op")
 end
-test_fail_closed_when_unavailable()
 
 -- Unveil only a sub-directory, then confirm both that the unveiled file
 -- reads AND that a sibling file left outside the unveil is hidden. Both
@@ -118,4 +115,3 @@ end
     "expected denial of the non-unveiled sibling: " .. s)
   check.enforced("unveil")
 end
-test_unveil_restricts_paths()

@@ -18,7 +18,6 @@ local function test_short_options_no_args()
   assert(opts[1] == "h", "expected first option 'h', got '" .. opts[1] .. "'")
   assert(opts[2] == "v", "expected second option 'v', got '" .. opts[2] .. "'")
 end
-test_short_options_no_args()
 
 local function test_short_option_with_required_arg()
   local r = check.must(getopt.parse({"-o", "output.txt"}, "o:"))
@@ -26,14 +25,12 @@ local function test_short_option_with_required_arg()
   assert(r.opts[1].opt == "o", "expected option 'o', got '" .. tostring(r.opts[1].opt) .. "'")
   assert(r.opts[1].arg == "output.txt", "expected arg 'output.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
-test_short_option_with_required_arg()
 
 local function test_short_option_with_attached_arg()
   local r = check.must(getopt.parse({"-ooutput.txt"}, "o:"))
   assert(r.opts[1].opt == "o", "expected option 'o'")
   assert(r.opts[1].arg == "output.txt", "expected arg 'output.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
-test_short_option_with_attached_arg()
 
 local function test_combined_short_options()
   local r = check.must(getopt.parse({"-hv"}, "hv"))
@@ -42,7 +39,6 @@ local function test_combined_short_options()
   assert(opts[1] == "h", "expected 'h' first")
   assert(opts[2] == "v", "expected 'v' second")
 end
-test_combined_short_options()
 
 local function test_long_options_with_short_alias()
   -- When long options have short aliases, parse yields the short form
@@ -55,7 +51,6 @@ local function test_long_options_with_short_alias()
   assert(opts[1] == "h", "expected 'h', got '" .. opts[1] .. "'")
   assert(opts[2] == "v", "expected 'v', got '" .. opts[2] .. "'")
 end
-test_long_options_with_short_alias()
 
 local function test_long_option_with_equals_arg()
   -- Returns short alias 'o' since one is defined
@@ -65,7 +60,6 @@ local function test_long_option_with_equals_arg()
   assert(r.opts[1].opt == "o", "expected 'o', got '" .. tostring(r.opts[1].opt) .. "'")
   assert(r.opts[1].arg == "file.txt", "expected 'file.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
-test_long_option_with_equals_arg()
 
 local function test_long_option_with_separate_arg()
   -- Returns short alias 'o' since one is defined
@@ -75,7 +69,6 @@ local function test_long_option_with_separate_arg()
   assert(r.opts[1].opt == "o", "expected 'o'")
   assert(r.opts[1].arg == "file.txt", "expected 'file.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
-test_long_option_with_separate_arg()
 
 local function test_remaining_args()
   local r = check.must(getopt.parse({"-v", "file1.txt", "file2.txt"}, "v"))
@@ -83,7 +76,6 @@ local function test_remaining_args()
   assert(r.args[1] == "file1.txt", "expected 'file1.txt'")
   assert(r.args[2] == "file2.txt", "expected 'file2.txt'")
 end
-test_remaining_args()
 
 local function test_double_dash_stops_parsing()
   local r = check.must(getopt.parse({"-v", "--", "-h", "file.txt"}, "vh"))
@@ -93,7 +85,6 @@ local function test_double_dash_stops_parsing()
   assert(r.args[1] == "-h", "expected '-h' as remaining")
   assert(r.args[2] == "file.txt", "expected 'file.txt' as remaining")
 end
-test_double_dash_stops_parsing()
 
 local function test_unknown_options()
   local r = check.must(getopt.parse({"-x", "-y", "-v"}, "v"))
@@ -104,7 +95,6 @@ local function test_unknown_options()
   -- the recognized option is still parsed
   assert(#r.opts == 1 and r.opts[1].opt == "v", "expected 'v' to still parse")
 end
-test_unknown_options()
 
 local function test_missing_required_arg()
   -- A required argument that's absent lands in `missing` (not `unknown`),
@@ -115,7 +105,6 @@ local function test_missing_required_arg()
   assert(#r.unknown == 0, "a missing argument is not an unknown option")
   assert(#r.opts == 0, "the incomplete option is not reported as parsed")
 end
-test_missing_required_arg()
 
 local function test_repeated_options()
   local r = check.must(getopt.parse({"-e", "foo", "-e", "bar", "-e", "baz"}, "e:"))
@@ -130,7 +119,6 @@ local function test_repeated_options()
   assert(excludes[2] == "bar", "expected 'bar'")
   assert(excludes[3] == "baz", "expected 'baz'")
 end
-test_repeated_options()
 
 local function test_mixed_short_and_long()
   -- All options return short form since short aliases are defined
@@ -145,7 +133,6 @@ local function test_mixed_short_and_long()
   assert(r.opts[2].arg == "out.txt", "expected 'out.txt' arg")
   assert(r.opts[3].opt == "h", "expected 'h' third")
 end
-test_mixed_short_and_long()
 
 local function test_empty_args()
   local r = check.must(getopt.parse({}, "hv"))
@@ -154,7 +141,6 @@ local function test_empty_args()
   assert(#r.unknown == 0, "expected no unknown options")
   assert(#r.missing == 0, "expected no missing options")
 end
-test_empty_args()
 
 local function test_only_positional_args()
   local r = check.must(getopt.parse({"file1.txt", "file2.txt"}, "hv"))
@@ -163,7 +149,6 @@ local function test_only_positional_args()
   assert(r.args[1] == "file1.txt", "expected 'file1.txt'")
   assert(r.args[2] == "file2.txt", "expected 'file2.txt'")
 end
-test_only_positional_args()
 
 local function test_long_option_without_short()
   local r = check.must(getopt.parse({"--config", "app.json"}, "", {
@@ -172,4 +157,3 @@ local function test_long_option_without_short()
   assert(r.opts[1].opt == "config", "expected 'config', got '" .. tostring(r.opts[1].opt) .. "'")
   assert(r.opts[1].arg == "app.json", "expected 'app.json'")
 end
-test_long_option_without_short()

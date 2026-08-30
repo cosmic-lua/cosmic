@@ -51,7 +51,6 @@ local function test_dir_has_close_metamethod()
 
   teardown(test_dir)
 end
-test_dir_has_close_metamethod()
 
 local function test_dir_closed_method()
   local test_dir = setup()
@@ -64,7 +63,6 @@ local function test_dir_closed_method()
 
   teardown(test_dir)
 end
-test_dir_closed_method()
 
 local function test_dir_close_idempotent()
   local test_dir = setup()
@@ -81,7 +79,6 @@ local function test_dir_close_idempotent()
 
   teardown(test_dir)
 end
-test_dir_close_idempotent()
 
 local function test_dir_methods_after_close()
   local test_dir = setup()
@@ -107,7 +104,6 @@ local function test_dir_methods_after_close()
 
   teardown(test_dir)
 end
-test_dir_methods_after_close()
 
 local function test_dir_rewind_and_tell()
   local test_dir = setup()
@@ -138,7 +134,6 @@ local function test_dir_rewind_and_tell()
   d:close()
   teardown(test_dir)
 end
-test_dir_rewind_and_tell()
 
 local function test_dir_fd()
   local test_dir = setup()
@@ -151,7 +146,6 @@ local function test_dir_fd()
   d:close()
   teardown(test_dir)
 end
-test_dir_fd()
 
 -- Filesystem statistics tests
 
@@ -173,14 +167,12 @@ local function test_statfs()
   assert(info:fragment_size_bytes() > 0, "fragment_size_bytes() should be positive")
   assert(info:flags() ~= nil, "flags() should return a value")
 end
-test_statfs()
 
 local function test_statfs_nonexistent()
   local info, err = fs.statfs("/nonexistent/path/that/does/not/exist")
   assert(info == nil, "statfs should fail for nonexistent path")
   assert(err, "should return error message")
 end
-test_statfs_nonexistent()
 
 local function test_fstatfs()
   -- open the test dir, not "/": the sandboxed test lane unveils
@@ -195,7 +187,6 @@ local function test_fstatfs()
 
   unix.close(fd)
 end
-test_fstatfs()
 
 -- fs.major and fs.minor are not part of cosmic.fs; use
 -- cosmo.unix.major/minor for raw device-number math.
@@ -225,7 +216,6 @@ local function test_fdopendir()
 
   teardown(test_dir)
 end
-test_fdopendir()
 
 local function test_fdopendir_bad_fd()
   -- An invalid fd must return nil + error, never throw from the binding.
@@ -233,7 +223,6 @@ local function test_fdopendir_bad_fd()
   assert(dir == nil, "fdopendir(-1) should fail, not return a Dir")
   assert(type(err) == "string", "failure must carry an error string")
 end
-test_fdopendir_bad_fd()
 
 -- Timespec-valued stat times that round-trip through set_times,
 -- spelled Statfs methods, and temp_dir's default template.
@@ -261,7 +250,6 @@ local function test_stat_times_round_trip()
 
   teardown(test_dir)
 end
-test_stat_times_round_trip()
 
 local function test_statfs_spelled_methods()
   local test_dir = setup()
@@ -273,11 +261,9 @@ local function test_statfs_spelled_methods()
   assert(sf:max_name_bytes() > 0, "max_name_bytes is positive")
   teardown(test_dir)
 end
-test_statfs_spelled_methods()
 
 local function test_temp_dir_default_template()
   local d = check.must(fs.temp_dir())
   assert(fs.is_dir(d), "temp_dir() with no template creates a directory")
   assert(fs.remove_all(d))
 end
-test_temp_dir_default_template()

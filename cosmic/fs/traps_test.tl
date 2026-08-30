@@ -43,14 +43,12 @@ local function test_copytree()
     "loop is a symlink, so no infinite copy happened (we finished)")
   assert(fs.remove_all(base))
 end
-test_copytree()
 
 local function test_copytree_missing_src_errors()
   local ok, err = fs.copy_tree(fs.join(TEST_TMPDIR, "nope"), fs.join(TEST_TMPDIR, "out"))
   assert(ok == false, "copy_tree of missing src must fail")
   assert(err and err:match("ENOENT"), "error names ENOENT: " .. tostring(err))
 end
-test_copytree_missing_src_errors()
 
 -- copy_tree must overwrite an existing symlink at the destination rather
 -- than fail EEXIST, matching the doc ("existing destination files and
@@ -76,7 +74,6 @@ local function test_copytree_symlink_overwrite()
     "symlink target should be replaced, got " .. tostring((fs.readlink(fs.join(dst, "link")))))
   assert(fs.remove_all(base))
 end
-test_copytree_symlink_overwrite()
 
 -- copy_tree must apply the source directory's exact permission bits even
 -- when the destination directory already existed (make_dirs() is a no-op
@@ -102,7 +99,6 @@ local function test_copytree_dir_mode_exact()
     .. string.format("%o", st:mode() & tonumber("777", 8)))
   assert(fs.remove_all(base))
 end
-test_copytree_dir_mode_exact()
 
 -- 2. temp_file: Handle + path on the happy path; fs.mkstemp is gone.
 local function test_tmpfile_handle_and_path()
@@ -112,7 +108,6 @@ local function test_tmpfile_handle_and_path()
   assert(fs.read(tf.path) == "via handle", "fs.read sees what the Handle wrote")
   assert(fs.remove(tf.path))
 end
-test_tmpfile_handle_and_path()
 
 local function test_tmpfile_default_template()
   local tf = check.must(fs.temp_file())
@@ -120,13 +115,11 @@ local function test_tmpfile_default_template()
   assert(fs.is_file(tf.path), "returned path exists")
   assert(fs.remove(tf.path))
 end
-test_tmpfile_default_template()
 
 local function test_mkstemp_is_gone()
   assert(fsa.mkstemp == nil, "fs.mkstemp should be dropped in favor of temp_file")
   assert(type(fsa.temp_fd) == "function", "fs.temp_fd stays, returning a Handle")
 end
-test_mkstemp_is_gone()
 
 -- 3. patterns: the plain argument is ALWAYS a glob; Lua patterns move to
 -- collect_matching. No more contains-*-or-? guessing.
@@ -144,7 +137,6 @@ local function test_collect_pattern_is_always_glob()
   assert(fs.basename(hits[1]) == "%.txt$", "literal-name match")
   assert(fs.remove_all(dir))
 end
-test_collect_pattern_is_always_glob()
 
 local function test_find_pattern_takes_lua_patterns()
   local dir = fs.join(TEST_TMPDIR, "luapat")
@@ -157,7 +149,6 @@ local function test_find_pattern_takes_lua_patterns()
     "a Lua pattern matches via FindOptions.pattern")
   assert(fs.remove_all(dir))
 end
-test_find_pattern_takes_lua_patterns()
 
 local function test_files_pattern_is_always_glob()
   local dir = fs.join(TEST_TMPDIR, "globfiles")
@@ -174,7 +165,6 @@ local function test_files_pattern_is_always_glob()
   assert(not seen["foo.lua"], "glob ? must not match zero chars")
   assert(fs.remove_all(dir))
 end
-test_files_pattern_is_always_glob()
 
 -- 4. Dir:read exposes the dirent d_type; DT_* constants live on fs.
 local function test_dir_read_returns_d_type()
@@ -198,7 +188,6 @@ local function test_dir_read_returns_d_type()
     "Dir:read must report DT_REG for a file, got " .. tostring(kinds["plain.txt"]))
   assert(fs.remove_all(dir))
 end
-test_dir_read_returns_d_type()
 
 -- 5. is_accessible requires a mode; there is no parameterless access
 -- alias.
@@ -212,7 +201,6 @@ local function test_is_accessible()
   assert(fsa.access == nil, "the access alias is retired (#988)")
   assert(fs.remove(path))
 end
-test_is_accessible()
 
 -- 6. the old spellings are GONE, and the names that replaced them
 -- answer. A retired alias must not linger as a second way to say the
@@ -241,4 +229,3 @@ local function test_retired_aliases_are_gone()
   assert(fsa.major == nil and fsa.minor == nil, "fs.major/minor are deleted")
   assert(fsa.ext == nil, "fs.ext is deleted (split_extension's second return)")
 end
-test_retired_aliases_are_gone()

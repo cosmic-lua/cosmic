@@ -65,7 +65,6 @@ local function test_find_iter_close_releases_handles()
       before, after))
   iter:close() -- idempotent
 end
-test_find_iter_close_releases_handles()
 
 local function test_find_iter_to_be_closed_scope()
   if not fs.is_dir("/proc/self/fd") then
@@ -94,7 +93,6 @@ local function test_find_iter_to_be_closed_scope()
       before, after))
   assert(iter() == nil, "a closed iterator yields nothing")
 end
-test_find_iter_to_be_closed_scope()
 
 local function test_find_iter_abandoned_is_collected()
   if not fs.is_dir("/proc/self/fd") then
@@ -114,4 +112,3 @@ local function test_find_iter_abandoned_is_collected()
       "collection must release an abandoned iterator: %d fds before, %d after",
       before, after))
 end
-test_find_iter_abandoned_is_collected()

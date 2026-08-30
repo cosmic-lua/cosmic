@@ -57,7 +57,6 @@ local function test_walk_symlink_cycle_terminates()
   assert(max_depth_seen <= 1,
     "walk recursed into symlink cycle: max depth " .. tostring(max_depth_seen))
 end
-test_walk_symlink_cycle_terminates()
 
 -- FIX 1b: find_info() must not recurse into symlinked directories
 local function test_find_all_symlink_cycle_terminates()
@@ -76,7 +75,6 @@ local function test_find_all_symlink_cycle_terminates()
   end
   assert(files[fs.join(base, "sub/real.txt")] ~= nil, "real.txt should be found")
 end
-test_find_all_symlink_cycle_terminates()
 
 -- FIX 1c: files() iterator must not recurse into symlinked directories
 local function test_find_iter_symlink_cycle_terminates()
@@ -96,7 +94,6 @@ local function test_find_iter_symlink_cycle_terminates()
   assert(#collected == 1, "expected 1 lua file, got " .. tostring(#collected))
   assert(collected[1]:match("real%.lua$"), "expected real.lua, got " .. tostring(collected[1]))
 end
-test_find_iter_symlink_cycle_terminates()
 
 -- FIX 1d: symlinked regular files should still be visited (not skipped)
 -- Only symlinked *directories* are not recursed into.
@@ -117,7 +114,6 @@ local function test_walk_symlink_file_visited()
   -- alias.txt: walk calls lstat, sees S_ISLNK (not S_ISDIR), visits it
   assert(found["alias.txt"], "symlinked file should be visited")
 end
-test_walk_symlink_file_visited()
 
 -- Error propagation: a missing root is an error, not an empty result.
 
@@ -129,7 +125,6 @@ local function test_walk_missing_root_errors()
   assert(err and err:match("ENOENT"),
     "walk error should name ENOENT: " .. tostring(err))
 end
-test_walk_missing_root_errors()
 
 local function test_find_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
@@ -138,7 +133,6 @@ local function test_find_missing_root_errors()
   assert(err and err:match("ENOENT"),
     "collect error should name ENOENT: " .. tostring(err))
 end
-test_find_missing_root_errors()
 
 local function test_find_all_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
@@ -147,7 +141,6 @@ local function test_find_all_missing_root_errors()
   assert(err and err:match("ENOENT"),
     "find_info error should name ENOENT: " .. tostring(err))
 end
-test_find_all_missing_root_errors()
 
 local function test_find_iter_missing_root_errors()
   -- Strict, like find — a typo'd directory must be an error, not an
@@ -158,7 +151,6 @@ local function test_find_iter_missing_root_errors()
   assert(err and err:match("ENOENT"),
     "files error should name ENOENT: " .. tostring(err))
 end
-test_find_iter_missing_root_errors()
 
 -- Error propagation: an unreadable subdirectory does not stop the walk,
 -- but the error is surfaced alongside the context — a
@@ -190,7 +182,6 @@ local function test_walk_permission_denied_subdir_reports_error()
   assert(err and err:match("EACCES"),
     "walk must surface the denied subdir: " .. tostring(err))
 end
-test_walk_permission_denied_subdir_reports_error()
 
 -- files() gets the same contract as walk(): an unreadable subdirectory
 -- does not stop iteration, and the first such error is surfaced once
@@ -225,7 +216,6 @@ local function test_find_iter_permission_denied_subdir_reports_error()
     "find_iter must surface the denied subdir once exhausted: "
     .. tostring(suberrs and suberrs[1]))
 end
-test_find_iter_permission_denied_subdir_reports_error()
 
 -- Visitor return protocol — "skip" prunes a subtree, "stop" ends
 -- the walk. Visitors that return nothing keep the default behavior.
@@ -262,7 +252,6 @@ local function test_walk_skip_prunes_subtree()
   assert(not ctx.visited["b.txt"],
     "children of a skipped dir must not be visited")
 end
-test_walk_skip_prunes_subtree()
 
 local record StopCtx
   count: integer
@@ -286,7 +275,6 @@ local function test_walk_stop_ends_walk()
   assert(ctx.count == 1,
     "stop must end the walk after the first visit, got " .. tostring(ctx.count))
 end
-test_walk_stop_ends_walk()
 
 local function test_walk_stop_in_subtree_aborts_walk()
   local base = mksubdir("walk_stop_deep")
@@ -311,7 +299,6 @@ local function test_walk_stop_in_subtree_aborts_walk()
   assert(ctx.after == 0, "no entry may be visited after stop, got "
     .. tostring(ctx.after))
 end
-test_walk_stop_in_subtree_aborts_walk()
 
 local function test_walk_skip_with_symlink_cycle_terminates()
   local base = mksubdir("walk_skip_cycle")
@@ -332,7 +319,6 @@ local function test_walk_skip_with_symlink_cycle_terminates()
   -- sub, real.txt, loop — pruning on top of cycle safety must terminate.
   assert(ctx.count == 3, "expected 3 entries, got " .. tostring(ctx.count))
 end
-test_walk_skip_with_symlink_cycle_terminates()
 
 local function test_find_success_has_no_error()
   local base = mksubdir("collect_ok")
@@ -343,7 +329,6 @@ local function test_find_success_has_no_error()
   assert(results.errors == nil, "a clean walk carries no .errors")
   assert(#(results) == 1, "expected exactly one match")
 end
-test_find_success_has_no_error()
 
 -- visit(): the Entry record carries path/name/stat/depth, and the
 -- subtree-error list rides on the result as `.errors` — never beside
@@ -367,7 +352,6 @@ local function test_visit_entry_and_depth()
   assert(depths["sub"] == 1, "the subdir itself is depth 1")
   assert(depths["deep.txt"] == 2, "entries one level down are depth 2")
 end
-test_visit_entry_and_depth()
 
 local function test_visit_denied_subdir_lands_in_errors()
   if user.geteuid() == 0 then
@@ -385,7 +369,6 @@ local function test_visit_denied_subdir_lands_in_errors()
   assert(suberrs and suberrs[1] and suberrs[1]:match("EACCES"),
     "the denied subdir must land in .errors: " .. tostring(suberrs and suberrs[1]))
 end
-test_visit_denied_subdir_lands_in_errors()
 
 -- FindOptions: depth bounds, directory inclusion, sorting.
 
@@ -407,7 +390,6 @@ local function test_find_max_depth_and_recursive()
   local flat = check.must(fs.find(base, {glob = "*.txt", recursive = false}))
   assert(#flat == 1, "recursive = false equals max_depth = 1")
 end
-test_find_max_depth_and_recursive()
 
 local function test_find_include_dirs_and_sorted()
   local base = setup_depth_tree()
@@ -417,7 +399,6 @@ local function test_find_include_dirs_and_sorted()
   assert(everything[2]:match("bdir$"), "sorted: bdir second")
   assert(everything[3]:match("c%.txt$"), "sorted: c.txt last")
 end
-test_find_include_dirs_and_sorted()
 
 local function test_find_iter_honors_depth_and_dirs()
   local base = setup_depth_tree()
@@ -428,7 +409,6 @@ local function test_find_iter_honors_depth_and_dirs()
   assert(names["a.txt"] and names["bdir"], "top level yielded, dirs included")
   assert(not names["c.txt"], "max_depth = 1 must not descend")
 end
-test_find_iter_honors_depth_and_dirs()
 
 local function test_find_info_full_paths_and_options()
   local base = setup_depth_tree()
@@ -437,4 +417,3 @@ local function test_find_info_full_paths_and_options()
   assert(info[fs.join(base, "bdir/c.txt")] == nil, "max_depth bounds find_info too")
   assert(info[fs.join(base, "a.txt")].mode ~= nil, "FileInfo carries mode")
 end
-test_find_info_full_paths_and_options()

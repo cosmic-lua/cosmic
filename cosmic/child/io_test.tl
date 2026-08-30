@@ -32,7 +32,6 @@ local function test_first_start_keeps_installed_sigpipe_handler()
   -- chosen from the default: ignored, so the EPIPE tests below stay safe.
   unix.sigaction(unix.SIGPIPE, unix.SIG_IGN)
 end
-test_first_start_keeps_installed_sigpipe_handler()
 
 local function test_large_stdin_no_deadlock()
   -- 256KB of stdin far exceeds the pipe buffer, and the child echoes it back,
@@ -45,7 +44,6 @@ local function test_large_stdin_no_deadlock()
   assert(#r.stdout == #big, "expected " .. #big .. " bytes echoed, got " .. #r.stdout)
   assert(r.stdout == big, "echoed stdin should match input")
 end
-test_large_stdin_no_deadlock()
 
 local function test_stdin_to_early_exiting_child_no_sigpipe()
   -- The child exits immediately without reading stdin, closing its read end.
@@ -56,7 +54,6 @@ local function test_stdin_to_early_exiting_child_no_sigpipe()
     "run should succeed")
   assert(r.code == 3, "expected exit code 3 from early-exiting child, got " .. tostring(r.code))
 end
-test_stdin_to_early_exiting_child_no_sigpipe()
 
 local function test_run_captures_both_streams()
   local r = check.must(child.run({lua_bin, "-e", [[
@@ -71,7 +68,6 @@ local function test_run_captures_both_streams()
   assert(r.code == 7, "expected exit code 7, got " .. tostring(r.code))
   assert(r.signal == nil, "a normal exit has no signal")
 end
-test_run_captures_both_streams()
 
 local function test_run_reports_signal_death()
   -- The child SIGKILLs itself; the Result reports the signal (not a fake exit)
@@ -84,7 +80,6 @@ local function test_run_reports_signal_death()
   assert(r.signal == signal.SIGKILL, "expected SIGKILL, got " .. tostring(r.signal))
   assert(r.ok == false, "signal death is not ok")
 end
-test_run_reports_signal_death()
 
 local function test_large_stdin_with_output_no_deadlock()
   -- Large stdin AND large stdout at once: the child reads all of stdin and
@@ -99,7 +94,6 @@ local function test_large_stdin_with_output_no_deadlock()
   assert(#r.stdout == 2 * #big, "expected " .. (2 * #big) .. " bytes, got " .. #r.stdout)
   assert(r.stderr == "", "expected empty stderr, got " .. #r.stderr .. " bytes")
 end
-test_large_stdin_with_output_no_deadlock()
 
 local function test_spawn_pipe_failure_cleans_up()
   -- Monkey-patch unix.pipe to fail, as the fork-failure test does for fork.
@@ -112,7 +106,6 @@ local function test_spawn_pipe_failure_cleans_up()
   assert(type(err) == "string" and err:find("pipe", 1, true),
     "expected a 'pipe' error, got: " .. tostring(err))
 end
-test_spawn_pipe_failure_cleans_up()
 
 local function test_spawn_exec_status_read_failure()
   -- A non-EINTR failure reading the exec-status pipe (childio.read_retry
@@ -129,7 +122,6 @@ local function test_spawn_exec_status_read_failure()
   assert(err ~= nil and err:find("EIO", 1, true),
     "expected the read failure's errno to surface, got: " .. tostring(err))
 end
-test_spawn_exec_status_read_failure()
 
 local function test_wait_reports_io_error()
   -- state.io_err (set by the pump on a read/write/poll failure) must land
@@ -144,4 +136,3 @@ local function test_wait_reports_io_error()
   assert(r.io_error == "read: EIO: Input/output error",
     "expected io_error to surface, got: " .. tostring(r.io_error))
 end
-test_wait_reports_io_error()

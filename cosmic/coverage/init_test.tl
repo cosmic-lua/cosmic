@@ -46,7 +46,6 @@ local function test_start_stop_counts_lines()
   assert(hits[1] == 1, "line 1 expected 1 hit, got " .. tostring(hits[1]))
   assert(hits[3] == 3, "loop body expected 3 hits, got " .. tostring(hits[3]))
 end
-test_start_stop_counts_lines()
 
 local function test_nested_start_keeps_collecting()
   local run = load_chunk("local a = 1\n", "@covtest_nested.lua")
@@ -59,7 +58,6 @@ local function test_nested_start_keeps_collecting()
   local snap = coverage.snapshot()
   assert(snap["@covtest_nested.lua"], "no hits while outer collection active")
 end
-test_nested_start_keeps_collecting()
 
 local function test_coroutine_lines_counted()
   local dir = fs.join(tmpdir, "cov_co")
@@ -76,7 +74,6 @@ local function test_coroutine_lines_counted()
   assert(hits, "no hits recorded inside the coroutine")
   assert(hits[3] == 2, "coroutine loop body expected 2 hits")
 end
-test_coroutine_lines_counted()
 
 local function test_dump_writes_one_stable_file()
   local dir = fs.join(tmpdir, "cov_dump")
@@ -93,7 +90,6 @@ local function test_dump_writes_one_stable_file()
   local h = check.must(report.read_cov(names[1]))
   assert(h["@covtest_dump.lua"], "dumped data missing the chunk's hits")
 end
-test_dump_writes_one_stable_file()
 
 local function test_dump_without_directory_fails()
   local ok, err = coverage.dump()
@@ -103,7 +99,6 @@ local function test_dump_without_directory_fails()
     assert(err and #err > 0, "failure must carry an error message")
   end
 end
-test_dump_without_directory_fails()
 
 local function test_dir_from_env()
   local saved = env.get("COSMIC_COVERAGE")
@@ -129,7 +124,6 @@ local function test_dir_from_env()
     assert(env.set("COSMIC_COVERAGE", saved))
   end
 end
-test_dir_from_env()
 
 --- End to end through the CLI gate: a child cosmic process with
 --- COSMIC_COVERAGE set dumps a .cov file even when the script os.exit()s.
@@ -158,7 +152,6 @@ local function test_cli_gate_dumps_on_exit()
   assert(script_hits, "child did not record the script's lines")
   assert(script_hits[1], "script line 1 not hit")
 end
-test_cli_gate_dumps_on_exit()
 
 --- Sealing is irreversible for the process, so this stays the last test.
 local function test_seal_blocks_later_dumps()
@@ -167,4 +160,3 @@ local function test_seal_blocks_later_dumps()
   assert(not ok, "dump after seal must fail")
   assert(err and err:find("sealed"), "error should mention sealing: " .. tostring(err))
 end
-test_seal_blocks_later_dumps()

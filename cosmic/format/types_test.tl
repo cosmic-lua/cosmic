@@ -43,7 +43,6 @@ local function test_type_continued_after_a_line_break()
   "return f\n"
   assert_format(src, src, "a function type continued after `as`", "test.tl")
 end
-test_type_continued_after_a_line_break()
 
 -- The same break after a `:` -- a record field or a return type whose
 -- function type wraps. Same one bit, the other token that opens type
@@ -57,7 +56,6 @@ local function test_type_continued_after_a_colon()
   "return R\n"
   assert_format(src, src, "a function type continued after `:`", "test.tl")
 end
-test_type_continued_after_a_colon()
 
 -- A wrap longer than two lines, which is where carrying a BIT instead
 -- of a depth failed: the middle line opens and closes nothing, so a
@@ -79,7 +77,6 @@ local function test_a_type_wrapped_over_three_lines()
   "return R\n"
   assert_format(src, src, "a function type wrapped over three lines", "test.tl")
 end
-test_a_type_wrapped_over_three_lines()
 
 -- The depth is a count, not a flag: four lines, a nested `{string:
 -- {string}}` inside the wrap, and a comment on a middle line (which
@@ -95,7 +92,6 @@ local function test_a_deeper_wrap_keeps_its_depth()
   "return R\n"
   assert_format(src, src, "a four-line wrap with a nested map", "test.tl")
 end
-test_a_deeper_wrap_keeps_its_depth()
 
 -- `?` marks an optional record field as a SUFFIX (`name?: string`) and
 -- an optional argument type as a PREFIX inside a function type. The
@@ -110,7 +106,6 @@ local function test_optional_argument_types_keep_their_space()
   assert_format(src, src, "optional argument types keep the separator space",
     "test.tl")
 end
-test_optional_argument_types_keep_their_space()
 
 -- `record` is a legal table KEY, and reading it as a type declaration
 -- opens a block that never closes -- so every following line indents
@@ -146,7 +141,6 @@ local function test_type_keywords_as_table_keys_do_not_open_blocks()
   "return Outer\n"
   assert_format(decl, decl, "a real declaration still indents", "test.tl")
 end
-test_type_keywords_as_table_keys_do_not_open_blocks()
 
 -- A wrapped function TYPE leaves its `(` open, and the matching `)`
 -- lands on the next line. That `)` belonged to nobody: the marking
@@ -191,7 +185,6 @@ local function test_a_wrapped_function_type_does_not_dedent()
   local again = check.must(fmt.format(out, "test.tl").code)
   assert(again == out, "and formatting is idempotent: " .. again)
 end
-test_a_wrapped_function_type_does_not_dedent()
 
 -- A comment decides nothing about type position. Dropping the carried
 -- bit at a comment made the `function` on the next line read as a
@@ -208,7 +201,6 @@ local function test_a_comment_carries_type_position_through()
   assert_format(src, src, "a comment between `:` and its type carries it",
     "test.tl")
 end
-test_a_comment_carries_type_position_through()
 
 -- A parenthesized union. `mark_function_type` cannot reach this shape:
 -- it marks from a `function` whose NEXT token is `(`, and here the `(`
@@ -239,7 +231,6 @@ local function test_a_parenthesized_union_opens_no_block()
   "return x, y, z\n"
   assert_format(colon, colon, "a parenthesized union after `:`", "test.tl")
 end
-test_a_parenthesized_union_opens_no_block()
 
 -- `as` lexes as an identifier -- Teal keeps it usable as a name -- so
 -- the "no space before `(` in a call" rule claimed it and wrote
@@ -256,7 +247,6 @@ local function test_as_keeps_its_space_before_a_parenthesized_type()
   assert_format(call, call, "a call keeps no space before its `(`",
     "test.tl")
 end
-test_as_keeps_its_space_before_a_parenthesized_type()
 
 -- `function` in type position after the `is` operator. The backward
 -- scan knew `:` and `as` put what follows in type position, but not
@@ -285,7 +275,6 @@ local function test_is_function_is_a_type_not_a_definition()
   assert_format(twice, twice, "two `is function` lines bank no levels",
     "test.tl")
 end
-test_is_function_is_a_type_not_a_definition()
 
 -- A bare `function` type is the whole type by itself. Marking past the
 -- keyword claims the enclosing call's own tokens: its `)` is marked
@@ -299,7 +288,6 @@ local function test_a_bare_function_type_claims_nothing_after_it()
   assert_format(src, src, "`as function` inside a call claims only itself",
     "test.tl")
 end
-test_a_bare_function_type_claims_nothing_after_it()
 
 -- A GENERIC function type that wraps: `function<T>(a,` puts `<`, not
 -- `(`, after the keyword. Calling that a bare type stops the marking
@@ -314,7 +302,6 @@ local function test_a_generic_function_type_still_carries_its_wrap()
   assert_format(src, src, "a wrapped generic function type carries",
     "test.tl")
 end
-test_a_generic_function_type_still_carries_its_wrap()
 
 -- The workaround shape from the issue this pins: a named
 -- `function(): T` alias, discriminated with `type()` and cast. It must
@@ -330,7 +317,6 @@ local function test_a_function_type_alias_still_opens_no_block()
   "return loader_of\n"
   assert_format(src, src, "a `function(): T` alias opens no block", "test.tl")
 end
-test_a_function_type_alias_still_opens_no_block()
 
 -- A function type in an if-condition: the return list used to run to
 -- the end of the line, claiming the `then`, so the line never counted
@@ -349,7 +335,6 @@ local function test_a_function_type_guard_keeps_its_then()
   assert_format(src, src, "`is function(): any then` indents its guard body",
     "test.tl")
 end
-test_a_function_type_guard_keeps_its_then()
 
 -- The `do` spelling of the same stop: a while-condition's function
 -- type ends at the `do`, which must still open the loop body.
@@ -366,7 +351,6 @@ local function test_a_function_type_guard_keeps_its_do()
   assert_format(src, src, "`is function(): any do` indents its loop body",
     "test.tl")
 end
-test_a_function_type_guard_keeps_its_do()
 
 -- `nil` is a KEYWORD the return list legitimately contains: the stop
 -- that saves `then` must not cut a union short at `| nil`.
@@ -381,6 +365,5 @@ local function test_a_nil_union_return_list_still_marks_whole()
   assert_format(src, src, "`function(): string | nil then` keeps its union",
     "test.tl")
 end
-test_a_nil_union_return_list_still_marks_whole()
 
 print("all format type-position tests passed")

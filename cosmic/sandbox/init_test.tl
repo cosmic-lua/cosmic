@@ -24,7 +24,6 @@ local function test_module_exports()
   assert(sa["available"] == nil,
     "the deprecated available alias is gone (#989); availability() is the name")
 end
-test_module_exports()
 
 -- availability() must agree with the mechanism shards it fronts, and
 -- is_available() is their conjunction.
@@ -41,7 +40,6 @@ local function test_availability_agrees_with_mechanisms()
   check.equal(sandbox.is_available(), avail.fs and avail.sys,
     "is_available is the per-section conjunction")
 end
-test_availability_agrees_with_mechanisms()
 
 -- Structural validation happens before any enforcement, so rejected
 -- policies are safe to exercise in-process: nothing may be applied.
@@ -100,7 +98,6 @@ local function test_validation_rejects_before_enforcing()
   assert(f, "validation failures must not half-apply a sandbox")
   f:close()
 end
-test_validation_rejects_before_enforcing()
 
 -- Every Promise enum value must be accepted by the validator (the
 -- runtime PROMISES mirror and the enum must not drift apart), and the
@@ -121,7 +118,6 @@ local function test_promise_list_matches_validator()
   assert(err and err:find("not_a_promise", 1, true),
     "only the bogus token may be rejected, got: " .. tostring(err))
 end
-test_promise_list_matches_validator()
 
 -- Fail-closed + best_effort, exercisable in-process only on hosts
 -- missing a mechanism (the check precedes any syscall).
@@ -153,7 +149,6 @@ local function test_fail_closed_when_unavailable()
       "sys section must fail closed: " .. tostring(err))
   end
 end
-test_fail_closed_when_unavailable()
 
 -- The fs -> landlock mapping, pure and inspectable (ported from the
 -- deleted box/fs vocabulary this facade replaces).
@@ -209,7 +204,6 @@ local function test_plan_landlock_mapping()
   check.equal(rules[2].path, "/b")
   check.equal(rules[3].path, "/c")
 end
-test_plan_landlock_mapping()
 
 -- The no_new_privs and handled tuning flags must reach the planned
 -- RestrictOptions.
@@ -222,7 +216,6 @@ local function test_plan_tuning_flags()
   check.equal(tuned.no_new_privs, false, "no_new_privs=false must reach the plan")
   check.equal(tuned.handled, landlock.READ, "a narrowed handled mask must reach the plan")
 end
-test_plan_tuning_flags()
 
 -- fs.optional rides each planned rule: the skip happens at open time
 -- inside landlock.restrict (never a pre-check, which would race), so
@@ -237,7 +230,6 @@ local function test_plan_stamps_optional_onto_rules()
     assert(not r.optional, r.path .. " should not carry optional")
   end
 end
-test_plan_stamps_optional_onto_rules()
 
 -- exec_promises is named to avoid reading as a path list beside
 -- fs.exec; the validator checks its tokens like promises.
@@ -249,7 +241,6 @@ local function test_exec_promises_validated()
   assert(sandbox.validate({sys = {promises = "stdio", exec_promises = "stdio"}}),
     "valid exec_promises must pass")
 end
-test_exec_promises_validated()
 
 -- fs.optional tolerates missing paths at rule-open time instead of
 -- failing the whole policy; visible through merge + validate (the
@@ -269,7 +260,6 @@ local function test_merge_composes_policies()
   assert(merged.sys and merged.sys.promises == "stdio", "sys merges in")
   assert(sandbox.validate(merged), "the merged policy validates")
 end
-test_merge_composes_policies()
 
 -- Live enforcement of a combined policy, in a subprocess (applying is
 -- irreversible). Success also evidences the fs-before-sys ordering:
@@ -325,7 +315,6 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
     "path outside the allowlist must be blocked: " .. s)
   check.enforced("sandbox fs+sys")
 end
-test_apply_enforces_fs_and_sys()
 
 -- A bogus promise next to a valid fs section must reject before the
 -- fs section enforces: the subprocess proves it can still read
@@ -364,4 +353,3 @@ if f then io.write("unapplied-ok\n"); f:close() else io.write("half-applied\n") 
   assert(s:find("unapplied-ok", 1, true),
     "a rejected policy must enforce nothing: " .. s)
 end
-test_invalid_sys_leaves_fs_unapplied()

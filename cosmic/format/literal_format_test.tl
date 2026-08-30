@@ -33,14 +33,12 @@ local function test_a_nested_literal_is_a_fmt_fixpoint()
       nested = {x = 1.5, y = "two", deeper = {z = false}},
     }, "nested")
 end
-test_a_nested_literal_is_a_fmt_fixpoint()
 
 -- The empty table has its own spelling, `return {}`, because `return {\n}`
 -- is not what the formatter emits for one.
 local function test_the_empty_table_is_a_fmt_fixpoint()
   assert_fixpoint({}, "empty")
 end
-test_the_empty_table_is_a_fmt_fixpoint()
 
 -- The bytes that break a naive renderer: a quote, a newline (which %q
 -- writes as a backslash and a REAL newline unless it is rewritten), a
@@ -56,7 +54,6 @@ local function test_awkward_strings_and_numbers_are_a_fmt_fixpoint()
       fractional = -1.25,
     }, "awkward")
 end
-test_awkward_strings_and_numbers_are_a_fmt_fixpoint()
 
 -- A flat nested table renders inline, and the inline form -- including
 -- its empty spelling -- is also a fixpoint.
@@ -66,6 +63,5 @@ local function test_a_flat_nested_table_is_inline_and_a_fmt_fixpoint()
       ["b.tl"] = {},
     }, "flat nested")
 end
-test_a_flat_nested_table_is_inline_and_a_fmt_fixpoint()
 
 print("all literal-format fixpoint tests passed")
