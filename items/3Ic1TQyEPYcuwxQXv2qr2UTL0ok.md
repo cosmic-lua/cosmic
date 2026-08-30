@@ -1,29 +1,44 @@
-Evidence (builder of PR #1541, 2026-08-30, reproduced twice): with a
-real mutation live in `_make/clean.tl` (`is_worktree_root` stubbed to
-`return false`) and the mutated `_make/clean.lua` confirmed embedded
-byte-for-byte in the rebuilt `o/bin/cosmic`, the narrow test command
-`bin/cosmic --make test _make/clean_test.tl` reported GREEN, while
-running the compiled `o/_make/clean_test.lua` directly under the same
-binary correctly reported the failure
-(`✗ test_clean_keeps_a_git_worktree ... 2 passed, 1 failed`), and a
-hand-built fixture project outside the harness agreed with the direct
-run (the worktree got deleted). A false green from the narrow path
-can mask a real regression for any session that trusts
-`--make test <path>` — the exact command AGENTS.md and every builder
-brief recommend for fast iteration. To reproduce: mutate
-is_worktree_root in _make/clean.tl, rebuild, compare
-`--make test _make/clean_test.tl` against directly running the
-compiled test file. Root-cause where the narrow path diverges (stale
-compiled test? discovery skipping the file? runner-mode tail?) and fix
-so the narrow form runs what the full run runs.
+## Change
 
-Root cause confirmed independently (review of PR #1541, 2026-08-30):
-after a rebuild with a live mutation in `_make/clean.tl`, the narrow
-`--make test _make/clean_test.tl` reported an IDENTICAL green (same
-`3 tests: 3 passed`, same `281ms` wall time) — a stale cached result:
-the mutated `clean.lua` recompiled, but `clean_test.lua` was not
-recompiled and its `.test.time`/`.test.out` cache went untouched, so
-the runner replayed the old outcome. The direct compiled run
-(`o/bin/cosmic o/_make/clean_test.lua`) went red correctly. Fix shape:
-the test-result cache must key on the transitive closure the test
-depends on (srcdeps), not the test file alone.
+Reproduced twice independently (builder and reviewer of PR #1541,
+2026-08-30): with a live mutation in `_make/clean.tl` and the mutated
+module confirmed embedded in the rebuilt binary, the narrow
+`bin/cosmic --make test _make/clean_test.tl` reported an IDENTICAL
+green (same counts, same wall time) — a stale cached result — while
+directly running the compiled `o/_make/clean_test.lua` went red.
+Root cause as measured: the test's cached outcome
+(`.test.time`/`.test.out` beside the compiled test) was not
+invalidated when a DEPENDENCY of the test changed; the test file
+itself was unchanged, so its cache replayed. The build already
+computes each source's transitive import closure
+(`o/project.mk`'s `srcdeps_<stem>` vars; rules live in the committed
+`embed/cosmic.mk` — constant rules, generated facts).
+
+The change: make the test-run rule's prerequisites include the
+test's transitive dependency closure so a changed import re-runs the
+test. Work in this order and STOP AND REPORT if the shape breaks:
+1. REPRODUCE first, exactly as measured (mutate clean.tl, rebuild,
+   narrow test green, direct run red). Paste both outputs.
+2. Locate the rule that produces/consults `.test.time`/`.test.out`
+   (read `embed/cosmic.mk` and whatever in `_make/`/`_tool/` drives
+   `--make test`); identify why srcdeps are absent from its prereqs.
+3. Fix minimally — prefer wiring the existing `srcdeps_<stem>` vars
+   into the existing rule over any new mechanism. Remember
+   `embed/cosmic.mk` is byte-identical for every project and no rule
+   is ever generated: the fix must hold that invariant.
+4. Show the SAME reproduction now goes red through the narrow path,
+   then restore and show green. That before/after pair is the proof;
+   also add whatever regression test the harness can carry (a
+   `_make`/`_build` test asserting the rule's prereqs include the
+   deps var, if the fixture seams allow; if no seam can express it,
+   say so rather than forcing one).
+Full `--make ci` PASS before pushing; mind the fixpoint/convergence
+notes in AGENTS.md (a make-rule change is toolchain-facing — if the
+converged gate passes but you suspect a cold-build interaction, run
+the fixtures test `_make/fixtures_test.tl` too and say what you saw).
+
+## Non-goals
+
+No change to test discovery, runner mode, or coverage; no per-project
+generated rules; no weakening of the cache (correct invalidation, not
+cache removal).
