@@ -41,26 +41,17 @@ committed file), or the verbs that reach GitHub fail every call with
 
 start every session with `sync`. every verb ends with a
 `gitboard-<verb>:` verdict line — read that, never a piped exit
-status.
-
-- `gitboard help` — the verbs, and the topic list.
-- `gitboard help <verb>` — one verb's options and contract.
-- `gitboard help <topic>` — the doctrine: `system` (states, order,
-  exits, rules), `bar` (the spec bar), `build`, `review`,
-  `orchestrate` (concurrent agents and the standing loop).
-- `gitboard next` — the one next action, by the system's own
-  ordering; do it and ask again. `none` is an answer.
-- `gitboard brief <kind> ID` — the subagent prompt for a builder,
-  review, refine, or decompose role, spec verbatim and board facts
-  filled; fill what its verdict line names, then paste it verbatim.
+status. `gitboard help` lists the verbs and the doctrine topics;
+`gitboard help <verb>` and `gitboard help <topic>` serve everything
+else. this file deliberately restates none of it — the doctrine
+ships with the tool, so a change to how the board is operated never
+needs an edit here.
 
 ## /work N — the standing loop
 
 invoked with a number (typically under `/loop`): bootstrap if
-needed, then run ONE bounded orchestrator pass exactly as
-`gitboard help orchestrate` describes — reconcile, merge accepts,
-one review at most, fill the wave with disjoint claims, spare width
-to refine/triage, report a terse ledger — and end the pass. under
-`/loop` in dynamic mode a pass that moved nothing is a no-op tick;
-agents in flight notify on completion, so the wakeup is a long
-fallback, never a poll.
+needed, run ONE bounded orchestrator pass exactly as `gitboard help
+orchestrate` describes, and end the pass. under `/loop` in dynamic
+mode a pass that moved nothing is a no-op tick; agents in flight
+notify on completion, so the wakeup is a long fallback, never a
+poll.
