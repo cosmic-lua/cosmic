@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 289,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-YwAK-work9c",
   ["title"] = "salvage cosmo.unix.setenv/unsetenv/clearenv tests",
 }
