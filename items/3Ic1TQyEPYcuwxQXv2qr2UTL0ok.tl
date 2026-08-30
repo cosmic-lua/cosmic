@@ -3,6 +3,7 @@ return {
   ["claim"] = "wave17-h-1788053000",
   ["id"] = "3Ic1TQyEPYcuwxQXv2qr2UTL0ok",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["pr"] = 1554,
   ["speccers"] = "6a2e9d71-e166-59f3-9fc2-389928bb6f3e",
   ["title"] = "narrow --make test <path> reported green under a live mutation the direct run catches",
 }
