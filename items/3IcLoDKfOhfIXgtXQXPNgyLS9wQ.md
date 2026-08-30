@@ -1,45 +1,100 @@
-## Problem
+## Change
 
-`cosmic/format/init_test.tl` is a test file with **zero** `test_*`
-function definitions: 425 lines whose body is top-level
-`assert_format(...)` / `assert_idempotent(...)` calls (51 at column 1,
-plus more inside three top-level `do ... end` blocks). Measured on
-origin/main c9b0b31f:
+`cosmic/format/init_test.tl` has no `test_*` functions at all: 425
+lines whose entire body is top-level `assert_format(...)` /
+`assert_format_fails(...)` / `assert_idempotent(...)` calls. It would
+classify `empty` under `_tool/discover` and so satisfy the migration
+container's exit test while defeating its point — its assertions run as
+a bare chunk with no per-test identity, no continue-past-failure (the
+first failed assert ends the file), and no `--filter` reachability.
+**`empty` is not an acceptable terminal state for a file that is
+manifestly a test**; these are rewritten as cases the runner can see.
+Measured against origin/main 45f56e81, 2026-08-30.
+
+**The grouping is settled: one `test_*` function per comment-delimited
+block.** The file already carries the structure — every group of
+assertions is introduced by a `-- Test <thing>` or `-- Bug N: <thing>`
+header, and there are 53 such blocks (a header line whose predecessor
+is not itself a comment line):
 
 ```
-grep -c 'local function test_' cosmic/format/init_test.tl   -> 0
-wc -l < cosmic/format/init_test.tl                          -> 425
-grep -cE '^assert_(format|idempotent)\(' cosmic/format/init_test.tl -> 51
+awk 'NR>=36{ if ($0 ~ /^-- / && prev !~ /^-- /) n++; prev=$0 } END {print n}' cosmic/format/init_test.tl
 ```
+→ `53`
 
-Because it has no `test_*` functions it has no self-call lines, so the
-runner-mode migration batches correctly never touch it — batch 3
-(3IU6AsZC) has it in scope and leaves it alone, which is why its `find`
-names 28 files while only 27 are modified.
+Each block becomes `local function test_<slug>()` wrapping its
+statements, named from its own header (`-- Test repeat/until` →
+`test_repeat_until`, `-- Bug 2: method call colon should NOT get space`
+→ `test_bug2_method_call_colon_no_space`). The header comment stays
+above the function. The three top-level `do ... end` blocks (lines 216,
+225, 232) become functions directly — their `do`/`end` is replaced by
+the function header and `end`, not nested inside one. No case is
+self-called: the file is runner mode (D29).
 
-The problem is what happens at the container's exit. 3IOCdooE states
-its exit test as "every `*_test.tl` classifies `runner` or `empty`
-under `_tool/discover`". This file will classify `empty` and satisfy
-that test — while its assertions run as a bare chunk with no per-test
-identity, no continue-past-failure (the first failed assert ends the
-file), and no reachability from `--filter`. That is precisely what D29
-("tests run because they are defined") exists to prevent, so the
-container would declare its outcome met on a file that most defeats it.
+**The file must also be SPLIT, and this is not optional.** Wrapping 53
+blocks adds two lines each, projecting 425 + 2×53 = **531 lines**,
+over the hard 500-line cap that `cosmic --check lint` enforces:
 
-The decision this needs, and does not yet have: is `empty` an
-acceptable terminal state for a file that is manifestly a test? If not,
-the change is to give this file `test_*` functions grouping its
-assertions — but how to group 425 lines of format fixtures (one case
-per fixture, per fixture-family, or per `do` block) is unsettled, and
-the case count and the coverage row both move with the answer. Refine
-by choosing the grouping and naming it here before this is pullable.
+```
+awk 'NR>=36{ if ($0 ~ /^-- / && prev !~ /^-- /) n++; prev=$0 } END {print 425 + 2*n}' cosmic/format/init_test.tl
+```
+→ `531`
 
-A sweep for other `*_test.tl` with zero `test_*` definitions has NOT
-been run; this file was found incidentally while reviewing batch 3. Run
-that sweep during refinement — the item may be larger than one file.
+Split on the seam the file already has — general formatting behaviour
+versus numbered bug regressions. Measured: 29 blocks / 206 lines are
+`-- Bug` blocks, 24 blocks / 184 lines are not.
+
+- `cosmic/format/init_test.tl` keeps the 24 general blocks. Projected
+  35 (preamble + helpers) + 184 + 2×24 = **267 lines**.
+- `cosmic/format/regressions_test.tl` is new and takes the 29 `-- Bug`
+  blocks. Projected 35 + 206 + 2×29 = **299 lines**.
+
+Both are comfortably under the cap. `cosmic/format/` already holds
+sibling test files (`types_test.tl`, `literal_format_test.tl`), so a
+second one is the established shape.
+
+**Duplicate the three helpers** (`assert_format`,
+`assert_format_fails`, `assert_idempotent`, lines 7-34) into the new
+file rather than extracting them. Position is the manifest: a shared
+`cosmic/format/testhelp.tl` would be `cosmic.format.testhelp` — public
+API — for three four-line test helpers. Duplication is the cheaper
+wrong.
+
+**Delete the trailing `print("All format tests passed!")`** (line 425).
+Under runner mode it would fire at module load, before any case runs,
+asserting something not yet true; the runner's own summary is what
+reports. This is the same defect as item 3IcH4Snp, which names three
+other files — this one instance rides along here because this item
+rewrites the file wholesale; do not touch 3IcH4Snp's three.
+
+**No other file in the tree needs this.** Swept 2026-08-30 at 45f56e81
+for `*_test.tl` with zero `local function test_` definitions: the only
+hits besides this file are fourteen `_eval/testdata/**` fixtures of 1-2
+lines each, which are deliberate fixture inputs for the eval runner,
+not tests. So this item closes the class.
 
 ## Non-goals
 
-No assertion changes: whatever grouping is chosen, the file must keep
-testing exactly what it tests. No change to `_tool/discover.tl`'s
-classification rules as a way of dodging the question.
+No assertion changes: every `assert_format`/`assert_idempotent` call
+keeps its input, expected output and message byte-identical, and the
+total assertion count must not move. No formatter behaviour change, and
+no change to `cosmic/format/init.tl`, `rules.tl` or `types.tl`. No
+change to `_tool/discover.tl`'s classification rules as a way of
+dodging the question. No renames of the three helpers. No reflow of
+assertion bodies beyond the indent their new enclosing function
+requires.
+
+## Acceptance
+
+- `bin/cosmic --make ci` ends `ci: PASS`.
+- `_tool/discover` classifies both files `runner`, and neither
+  `legacy` nor `empty`.
+- `grep -c 'local function test_' cosmic/format/init_test.tl` → `24`,
+  and the same on `cosmic/format/regressions_test.tl` → `29`.
+- No self-calls: `grep -c '^test_[A-Za-z0-9_]*()$'` → `0` in both.
+- Both files are ≤500 lines (`wc -l`), which `--check lint` also gates.
+- The assertion count is preserved: the sum of
+  `grep -cE '^\s*assert_(format|format_fails|idempotent)\('` across the
+  two files equals the count on `origin/main`'s single file.
+- `bin/cosmic --make test cosmic/format/` passes and reports 53 test
+  functions across the two files.
