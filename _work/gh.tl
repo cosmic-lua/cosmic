@@ -53,7 +53,7 @@ local function pull(s: store.Store, number: integer, repo: string | nil):
     return nil, serr
   end
   local path = ("/repos/%s/pulls/%d"):format(slugged, number)
-  local res, err = api.call("GET", path)
+  local res, err = api.call("GET", path, s.root)
   if res == nil then
     return nil, err
   end
@@ -101,7 +101,7 @@ local function checks(s: store.Store, sha: string, repo: string | nil):
     return nil, serr
   end
   local path = ("/repos/%s/commits/%s/check-runs?per_page=100"):format(slugged, sha)
-  local res, err = api.call("GET", path)
+  local res, err = api.call("GET", path, s.root)
   if res == nil then
     return nil, err
   end

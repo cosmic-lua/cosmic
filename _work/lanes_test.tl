@@ -8,7 +8,9 @@
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
+local env = require("cosmic.env")
 local action = require("_work.action")
+local api = require("_work.api")
 local cmp = require("_work.gitcompare")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
@@ -243,3 +245,59 @@ local function test_a_minted_repair_is_offered_and_admitted()
     "and the doing bound never holds a lane repair back")
 end
 test_a_minted_repair_is_offered_and_admitted()
+
+-- The freshness window: an observation noted moments ago skips the
+-- read entirely, with one line saying so. `at_sync` never reaches
+-- `observe` on this path, so a checkout with no origin (which
+-- `observe` would refuse) still passes — the skip is provably before
+-- any network is even considered.
+local function test_at_sync_skips_within_the_freshness_window()
+  local s = init_state_repo("lanes-fresh")
+  lanes.touch_observed_at(s)
+  local lines = lanes.at_sync(s)
+  assert(#lines == 1, table.concat(lines, " | "))
+  assert(lines[1]:find("skipped", 1, true) ~= nil, "got: " .. lines[1])
+  assert(lines[1]:find("freshness window", 1, true) ~= nil, "got: " .. lines[1])
+end
+test_at_sync_skips_within_the_freshness_window()
+
+-- The env override forces past the window: with it set, `at_sync`
+-- proceeds to `observe`, which fails loudly for a checkout with no
+-- origin — proof the override is felt, not silently absorbed by the
+-- skip it is meant to bypass.
+local function test_fresh_env_forces_past_the_freshness_window()
+  local s = init_state_repo("lanes-fresh-forced")
+  lanes.touch_observed_at(s)
+  assert(env.set(lanes.FRESH_ENV, "1"))
+  local lines = lanes.at_sync(s)
+  assert(env.unset(lanes.FRESH_ENV))
+  assert(#lines == 1, table.concat(lines, " | "))
+  assert(lines[1]:find("unknown", 1, true) ~= nil, "got: " .. lines[1])
+  assert(lines[1]:find("no origin remote", 1, true) ~= nil, "got: " .. lines[1])
+end
+test_fresh_env_forces_past_the_freshness_window()
+
+-- A quota below the floor skips the read too, with its own notice —
+-- and, like the freshness skip, never reaches `observe` (no rate file
+-- yet means no freshness skip first, so this proves the SECOND gate).
+local function test_at_sync_skips_on_low_remaining()
+  local s = init_state_repo("lanes-low-remaining")
+  api.write_rate(s.root, lanes.LOW_REMAINING - 1, 1735689600)
+  local lines = lanes.at_sync(s)
+  assert(#lines == 1, table.concat(lines, " | "))
+  assert(lines[1]:find("rate limit low", 1, true) ~= nil, "got: " .. lines[1])
+end
+test_at_sync_skips_on_low_remaining()
+
+-- A quota at or above the floor changes nothing: `at_sync` still
+-- reaches `observe`, which fails loudly for a checkout with no
+-- origin — the degrade only ever narrows what a healthy quota does,
+-- never replaces it.
+local function test_at_sync_proceeds_on_healthy_remaining()
+  local s = init_state_repo("lanes-healthy-remaining")
+  api.write_rate(s.root, lanes.LOW_REMAINING + 100, 1735689600)
+  local lines = lanes.at_sync(s)
+  assert(#lines == 1, table.concat(lines, " | "))
+  assert(lines[1]:find("no origin remote", 1, true) ~= nil, "got: " .. lines[1])
+end
+test_at_sync_proceeds_on_healthy_remaining()
