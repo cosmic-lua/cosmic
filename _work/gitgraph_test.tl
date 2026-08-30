@@ -149,6 +149,39 @@ local function test_block_records_landing_order_and_refuses_nonsense()
 end
 test_block_records_landing_order_and_refuses_nonsense()
 
+-- `block` is a pure graph edit, and its verdict line carries the
+-- block-first procedure's two edges: a claim on the waiting item
+-- stands through it (releasing is `drop`'s, said on the line), and an
+-- UNPLACED blocker still wires — the edge is real — but the line
+-- warns, because `take` refuses unplaced work, so the chain would
+-- park behind a question nobody can pull.
+local function test_block_keeps_the_claim_and_warns_on_an_unplaced_blocker()
+  local s = init_state_repo("block-guidance")
+  local goal, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  local placed = file_item(s, "the placed question", goal)
+  local code, line = block_and_capture(s, leaf, placed,
+    false, "the decision is open")
+  assert(code == 0, "blocking a claimed item is not refused")
+  assert(line:find("`drop` releases it", 1, true) ~= nil,
+    "a claimed item's line points the release at drop: " .. line)
+  assert(line:find("UNPLACED", 1, true) == nil,
+    "a placed blocker earns no placement warning: " .. line)
+  assert(check.must(store.load(s, leaf)).claim == "session-a",
+    "the claim stands through the block — a graph edit moves no lease")
+  local stray = file_item(s, "an unplaced question", "")
+  local code2, line2 = block_and_capture(s, leaf, stray,
+    false, "awaiting a decision nobody has placed")
+  assert(code2 == 0,
+    "an unplaced blocker still wires — the warning is advisory")
+  assert(line2:find("UNPLACED", 1, true) ~= nil,
+    "the line warns that the chain parks behind unplaced work: " .. line2)
+  assert(#check.must(store.load(s, leaf)).blocked_by == 2,
+    "both edges stand")
+end
+test_block_keeps_the_claim_and_warns_on_an_unplaced_blocker()
+
 -- `new --repo` scopes the item's PR to a foreign repo; the field is
 -- what makes cross-repo work (a cosmopolitan fix serving a cosmic
 -- goal) visible instead of a URL buried in prose.

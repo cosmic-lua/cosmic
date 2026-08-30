@@ -1,5 +1,5 @@
 --- The state verbs: `take` (claim work, record its PR), `drop`
---- (release a claim with the gap named), `done`, and the
+--- (return a lease, the item untouched), `done`, and the
 --- housekeeping `init` and `sync` — every `cmd_*` behind
 --- `_work/gitboard.tl`'s dispatch that is not a graph mutation. The
 --- verbs that shape the graph — `new`, `attach`, `block` and its
@@ -264,26 +264,35 @@ local function cmd_take(s: store.Store, id: string, session: string,
     ("%s is yours%s%s"):format(id:sub(1, 8), taken, handed))
 end
 
---- drop: release an item back to todo, the gap named.
+--- drop: return the lease — the claim (or the review claim alone)
+--- releases, and the ITEM, its blockers included, is untouched.
 ---
---- A drop is the system correcting itself — an under-specified spec
---- caught before a wrong guess — so it is never refused for flow;
---- the one guard is over somebody else's LIVE claim, which is a
---- takeover of the abandoning kind and says so on the record. The
---- claim, the PR, and any standing verdict clear together: what
---- remains is the item, its spec, and the trail.
+--- Releasing without blocking is an assertion about which side
+--- stopped: a drop says the WORKER did (a dead wave agent, a session
+--- out of budget, a review nobody can finish), so the item is safe to
+--- re-offer as-is. An item that cannot proceed — a spec gap, a
+--- reopened decision — is not dropped bare: the question becomes its
+--- own item (`new`, parented so it is placed), the item `block`s on
+--- it, and only then does the claim return, so it waits on the answer
+--- instead of bouncing cold to a session that would hit the same
+--- wall. A drop is never refused for flow; the one guard is over
+--- somebody else's LIVE claim, which is a takeover of the abandoning
+--- kind and says so on the record. The claim, the PR, and any
+--- standing verdict clear together: what remains is the item, its
+--- spec, its blockers, and the trail.
 --- @param s store.Store The store
 --- @param id string The item to drop
 --- @param session string The dropping session
---- @param why string The gap, recorded in the commit subject
+--- @param why string Why the session lets go, in the commit subject
 --- @param force boolean Drop another session's live claim
 --- @return integer Exit code
 local function cmd_drop(s: store.Store, id: string, session: string,
     why: string, force: boolean): integer
   if (why or ""):match("%S") == nil then
     return gate.verdict_line("drop", false,
-      "REFUSED: a drop names the gap — pass --why '<what the spec "
-      .. "cannot answer>'; the next session refines from it")
+      "REFUSED: a drop names why the session lets go — pass --why "
+      .. "'<the worker-side reason>'. An ITEM that cannot proceed is "
+      .. "not dropped bare: `new` the question and `block` on it first")
   end
   local it, lerr = store.load(s, id)
   if it == nil then
@@ -305,7 +314,7 @@ local function cmd_drop(s: store.Store, id: string, session: string,
       return gate.verdict_line("drop", false, rerr)
     end
     return gate.verdict_line("drop", true,
-      ("%s's review is anyone's again — the gap is in the log"):format(
+      ("%s's review is anyone's again — the reason is in the log"):format(
         id:sub(1, 8)))
   end
   if (it.claim or "") ~= "" and it.claim ~= (session or "")
@@ -326,8 +335,22 @@ local function cmd_drop(s: store.Store, id: string, session: string,
   if not ok then
     return gate.verdict_line("drop", false, err)
   end
+  -- Which queue the released item lands in decides the line: behind
+  -- an open blocker it waits on its question, so saying "todo" would
+  -- promise a re-offer that never comes; bare todo IS re-offered
+  -- as-is, so the line says what a bare drop asserts and names the
+  -- block-first recovery while the dropping session still has the
+  -- context to file the question.
+  local all, _lerr = store.list(s)
+  if all ~= nil and flow.is_blocked(it, flow.by_id(all)) then
+    return gate.verdict_line("drop", true,
+      ("%s released — it waits on its open blocker(s), not the queue")
+      :format(id:sub(1, 8)))
+  end
   return gate.verdict_line("drop", true,
-    ("%s is todo again — the gap is in the log"):format(id:sub(1, 8)))
+    ("%s is todo again, re-offered as-is — a bare drop says the item "
+      .. "is fine; if it cannot proceed, `new` the question and "
+      .. "`block %s <question>` first"):format(id:sub(1, 8), id:sub(1, 8)))
 end
 
 local function cmd_done(s: store.Store, id: string, reason: string,
@@ -353,7 +376,7 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   if (it.pr or 0) ~= 0 and (it.verdict or "") ~= "accept" and not force then
     return gate.verdict_line("done", false,
       ("REFUSED: %s has PR #%d awaiting a verdict — done after an accept, "
-        .. "or drop it with the gap named"):format(id:sub(1, 8), it.pr))
+        .. "or `drop` releases the handover"):format(id:sub(1, 8), it.pr))
   end
   -- A PR-less item that was ever worked is evidence mid-review the same
   -- way: `verdict` now judges it too (re-running the spec's recorded

@@ -24,6 +24,7 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local prio = require("_work.priority")
 local store = require("_work.store")
 
 --- File a new item into the graph, todo if it has a parent and triage
@@ -231,6 +232,25 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
     reasons[blocker] = reason
   end
   it.block_reason = reasons
+  -- Guidance for the add path, decided against the same board the
+  -- gates read. Both notes are the block-first procedure's edges: a
+  -- blocker no comparison reaches is one `take` refuses, so the chain
+  -- would park behind work nobody can pull (a blocker LIFTS its order
+  -- from its waiters, but never its placement); and a claim is
+  -- `drop`'s to release — this verb is a graph edit and must not
+  -- touch a lease, least of all somebody else's.
+  local notes = ""
+  if not remove then
+    if not prio.is_placed(prio.positions(all), blocker) then
+      notes = notes .. ("; blocker %s is UNPLACED — attach or compare "
+        .. "it, or nobody can take it and this chain stays parked")
+      :format(blocker:sub(1, 8))
+    end
+    if (it.claim or "") ~= "" then
+      notes = notes .. ("; the claim on %s still stands — `drop` "
+        .. "releases it"):format(id:sub(1, 8))
+    end
+  end
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)))
   if not ok then
@@ -238,16 +258,16 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
   end
   if updating then
     return gate.verdict_line(verb, true,
-      ("%s still waits on %s — reason updated"):format(
-        id:sub(1, 8), blocker:sub(1, 8)))
+      ("%s still waits on %s — reason updated%s"):format(
+        id:sub(1, 8), blocker:sub(1, 8), notes))
   end
   local shape = "now waits on"
   if remove then
     shape = "no longer waits on"
   end
   return gate.verdict_line(verb, true,
-    ("%s %s %s (%d blocker(s))"):format(id:sub(1, 8), shape,
-      blocker:sub(1, 8), #kept))
+    ("%s %s %s (%d blocker(s))%s"):format(id:sub(1, 8), shape,
+      blocker:sub(1, 8), #kept, notes))
 end
 
 --- set: repair one of the three destination-fact fields directly —

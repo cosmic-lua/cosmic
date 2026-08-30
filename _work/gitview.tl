@@ -256,25 +256,27 @@ local function next_report(all: {item.Item}, specs: act.Specs,
   return render_action(act.next_action(all, specs, session, ages, session))
 end
 
---- The gap named by an item's most recent board commit, when that
---- commit was a bounce (`drop ID: <why>`) rather than a take or a
---- reviewer's release (`drop ID review: <why>` — the review comes
---- free again, but the build was never dropped).
+--- The reason named by an item's most recent board commit, when that
+--- commit was a drop (`drop ID: <why>` — the lease returned, the item
+--- re-offered as-is) rather than a take or a reviewer's release
+--- (`drop ID review: <why>` — the review comes free again, but the
+--- build was never dropped). A drop's why is worker-side by contract
+--- (an item that cannot proceed is blocked on its question instead),
+--- so surfacing it tells the next session which side stopped.
 --- @param subject string The most recent board-commit subject
---- @return string " (last bounce: <why>)", or "" when it was not one
+--- @return string " (last drop: <why>)", or "" when it was not one
 local function bounce_note(subject: string): string
   local why = subject:match("^drop %S+: (.+)$")
   if why == nil then
     return ""
   end
-  return (" (last bounce: %s)"):format(why)
+  return (" (last drop: %s)"):format(why)
 end
 
---- `next_report`, but for a decided `pull` the reason carries the gap
---- named by the item's last bounce, read once for the one decided
---- action rather than once per candidate: a session that dropped an
---- item and asks again starts from the recorded gap instead of
---- re-discovering it.
+--- `next_report`, but for a decided `pull` the reason carries the
+--- why named by the item's last drop, read once for the one decided
+--- action rather than once per candidate: a session offered an item
+--- that bounced sees why it came back before claiming it.
 --- @param s store.Store The store
 --- @param all {item.Item} Every item
 --- @param specs act.Specs Sidecar body by id

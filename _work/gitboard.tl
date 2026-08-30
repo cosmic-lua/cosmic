@@ -25,7 +25,7 @@
 ---   cosmic --make run _work/gitboard.tl show [2akQ]
 ---   cosmic --make run _work/gitboard.tl next [--session S]
 ---   cosmic --make run _work/gitboard.tl take 2akQ [--pr 42]
----   cosmic --make run _work/gitboard.tl drop 2akQ --why "the gap"
+---   cosmic --make run _work/gitboard.tl drop 2akQ --why "wave agent died"
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
 ---   cosmic --make run _work/gitboard.tl sync
@@ -110,7 +110,20 @@ local CSPEC: flags.CommandSpec = {
       .. "(a standing reverse edge is reversed)",
       spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
     {name = "block", summary = "record that ID waits on BLOCKER",
-      spec = {usage = "ID BLOCKER [options]", flags = {dir_flag(),
+      spec = {usage = "ID BLOCKER [options]",
+        summary = "record that ID waits on BLOCKER, the reason on the "
+        .. "item.\n\nAn item that cannot proceed — a spec gap, a reopened "
+        .. "decision, a falsified\npremise — is never dropped bare. The "
+        .. "procedure, in this order:\n\n"
+        .. "  1. `new '<the question>' --parent <ID's parent> --spec-file Q.md`\n"
+        .. "     (parented, so the question is placed and takeable)\n"
+        .. "  2. `block ID <question> --reason '<what cannot proceed>'`\n"
+        .. "  3. `drop ID --why 'blocked on <question>'` if holding the claim\n\n"
+        .. "ID is then never offered while the question is open, and the "
+        .. "question's\n`done` unblocks it by itself — no unblock needed. "
+        .. "A blocker is ordered up\nby what waits on it, so blocking lifts "
+        .. "the question's place in the queue.",
+        flags = {dir_flag(),
           {long = "reason", arg = "WHY",
             help = "what concretely cannot proceed until BLOCKER ends"}}}},
     {name = "unblock", summary = "drop BLOCKER from ID's blockers",
@@ -153,11 +166,21 @@ local CSPEC: flags.CommandSpec = {
           {long = "force", help = "take over another session's LIVE claim "
             .. "(a stale one needs no force), or skip the take gates"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
-    {name = "drop", summary = "release ID back to todo, the gap named",
-      spec = {usage = "ID [options]", flags = {dir_flag(),
+    {name = "drop", summary = "return ID's lease; the item, blockers "
+      .. "included, is untouched",
+      spec = {usage = "ID [options]",
+        summary = "return ID's lease: the claim (or the review claim "
+        .. "alone) releases; the\nitem, its blockers included, is "
+        .. "untouched.\n\nA bare drop asserts the WORKER stopped — a dead "
+        .. "wave agent, a session out\nof budget, a review nobody can "
+        .. "finish — so the item is safe to re-offer\nas-is. An ITEM that "
+        .. "cannot proceed is never dropped bare: `new` the\nquestion, "
+        .. "`block` ID on it, then drop (see `help block` for the "
+        .. "procedure).",
+        flags = {dir_flag(),
           {long = "why", arg = "REASON",
-            help = "what the spec cannot answer; the next session refines "
-            .. "from it"},
+            help = "why the session lets go (a dead agent, a build out of "
+            .. "budget) — worker-side, never the item's gap"},
           {long = "session", arg = "SESSION",
             help = "the dropping session. Omit to derive it from the "
             .. "environment"},
