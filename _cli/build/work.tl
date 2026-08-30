@@ -177,11 +177,11 @@ end
 --- name the one toolchain), so spawning a separate process to compile
 --- would only buy identity the step already has, at a full child boot
 --- per compiled file. Same compile a spawned bootstrap would run
---- (teal.compile_file, strict), same failure bytes on stderr, same
---- write/restamp semantics on the output. The flag vocabulary is
---- closed like the verb vocabulary above it: `--include-dir DIR`,
---- repeated, is what the graph emits, and anything else is refused
---- loudly rather than interpreted.
+--- (teal.compile through the seam, strict), same failure bytes on
+--- stderr, same write/restamp semantics on the output. The flag
+--- vocabulary is closed like the verb vocabulary above it:
+--- `--include-dir DIR`, repeated, is what the graph emits, and
+--- anything else is refused loudly rather than interpreted.
 --- @param src string The source path
 --- @param out string The output path
 --- @param flags {string} The line's flags (between out and --deps)

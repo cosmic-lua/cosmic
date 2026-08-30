@@ -3,6 +3,11 @@
 --- self-called), append the toolchain-generated tail so the checker
 --- checks what runs and the chunk runs what is defined.
 ---
+--- Three callers, all internal (outside `cosmic/**`, which the strip
+--- floor bars from requiring `_tool.discover`): the build's compile
+--- step (`_cli/build/work.tl`), `--compile` and `--check types`
+--- (`_cli/main_handlers.tl`), and `--make check` (`_make/check.tl`).
+---
 --- The tail is `os.exit(require("cosmic.test").main({...}))`, one
 --- entry per case in source order. `os.exit`, not a bare `return`:
 --- the script host discards a chunk's return value (measured — a
