@@ -13,7 +13,7 @@ local type Address = net_socket.Address
 -- Shared by the inet and unix paths, which differ only in the connect(2)
 -- call that starts them.
 local function await(s: Socket, fd: integer, timeout_ms: integer,
-    ok: boolean, err: string, eno: integer): boolean, string
+    ok: boolean | nil, err: string, eno: integer): boolean, string
   if ok then return true end
   -- A nonblocking connect that returns EINPROGRESS (or is interrupted,
   -- EINTR) is still pending — poll for the outcome. Any other errno is a

@@ -88,9 +88,9 @@ cosmic/fetch/init.tl	214	enum relation
 cosmic/fetch/init.tl	220	incremental record construction
 cosmic/fetch/init.tl	239	binding contract shape
 cosmic/fetch/init.tl	241	binding contract shape
-cosmic/fetch/init.tl	363	binding contract shape
 cosmic/fetch/init.tl	367	binding contract shape
-cosmic/fetch/init.tl	384	map view of a declared value
+cosmic/fetch/init.tl	371	binding contract shape
+cosmic/fetch/init.tl	388	map view of a declared value
 cosmic/format/init.tl	118	incremental record construction
 cosmic/format/init.tl	141	numeric narrowing
 cosmic/format/init.tl	142	numeric narrowing

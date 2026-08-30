@@ -81,8 +81,8 @@ end
 --- @param opts Options? pretty, sorted, indent, max_depth, nan_as_null, sparse_as_null
 --- @return string | nil The JSON string representation
 --- @return string? Error message if encoding failed
-local function encode(value: any, opts?: Options): string | nil, string
-  local result: string
+local function encode(value: any, opts?: Options): string | nil, string | nil
+  local result: string | nil
   local err: string | nil
   if opts then
     -- Build a plain table to avoid a nominal type conflict with

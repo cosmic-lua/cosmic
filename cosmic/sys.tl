@@ -53,7 +53,11 @@ end
 --- targets, but the type admits it honestly).
 --- @return HostOs The operating system name
 local function host_os(): HostOs
-  return normalize_host_os(cosmo.GetHostOs() or "unknown")
+  local raw = cosmo.GetHostOs()
+  if not raw then
+    return normalize_host_os("unknown")
+  end
+  return normalize_host_os(raw)
 end
 
 --- Get the CPU architecture (instruction set architecture).

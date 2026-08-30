@@ -210,7 +210,7 @@ local record ForwardSpec
   headers: {Header}
   body: string
   host_hdr: string
-  inject_name: string
+  inject_name: string | nil
   inject_value: string
 end
 
@@ -219,7 +219,8 @@ end
 --- stripped, our injected auth header replacing any client-supplied
 --- one of the same name, and Connection: close.
 local function rebuild_request(spec: ForwardSpec): string
-  local injected_lower = spec.inject_name and spec.inject_name:lower() or nil
+  local inject_name = spec.inject_name
+  local injected_lower = inject_name and inject_name:lower() or nil
   local out: {string} = {
     string.format("%s %s HTTP/1.1\r\n", spec.method, spec.path),
   }
@@ -234,8 +235,8 @@ local function rebuild_request(spec: ForwardSpec): string
       table.insert(out, oname .. ": " .. value .. "\r\n")
     end
   end
-  if spec.inject_name then
-    table.insert(out, spec.inject_name .. ": " .. spec.inject_value .. "\r\n")
+  if inject_name then
+    table.insert(out, inject_name .. ": " .. spec.inject_value .. "\r\n")
   end
   table.insert(out, "Connection: close\r\n")
   if spec.body and #spec.body > 0 then

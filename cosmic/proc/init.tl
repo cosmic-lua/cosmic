@@ -42,7 +42,8 @@ end
 --- Gets process group id of calling process; does not fail.
 --- @return integer The process group id
 local function getpgrp(): integer
-  return (unix.getpgrp())
+  -- assert: getpgrp(2) is always successful per POSIX
+  return (assert(unix.getpgrp()))
 end
 
 --- Gets process group id for a specific process.
@@ -174,7 +175,7 @@ end
 --- cannot change the answer.
 --- @return string | nil The interpreter's absolute path
 --- @return string? Error message when argv0 is missing or unresolvable
-local function interpreter(): string | nil, string
+local function interpreter(): string | nil, string | nil
   return interpreter_path, interpreter_err
 end
 

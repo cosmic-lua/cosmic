@@ -124,7 +124,8 @@ end
 local function encode_base32(data: string): string
   -- The binding is fallible only when a custom alphabet of invalid
   -- length is supplied; with the default alphabet it cannot fail.
-  return (cosmo.EncodeBase32(data))
+  -- assert: default alphabet is always valid length
+  return (assert(cosmo.EncodeBase32(data)))
 end
 
 --- Decode a base32 string to binary data.

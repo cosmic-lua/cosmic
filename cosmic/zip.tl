@@ -251,7 +251,7 @@ local function open_string(data: string, opts?: OpenOptions): Archive | nil, str
     return nil, "zip: open_string is read-only (mode=" .. opts.mode .. ")"
   end
   local raw_opts = to_raw_options(opts)
-  local handle: zip.Reader
+  local handle: zip.Reader | nil
   local err: string
   if raw_opts then
     handle, err = zip.from(data, raw_opts)
