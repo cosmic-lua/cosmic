@@ -59,8 +59,10 @@ status.
 invoked with a number (typically under `/loop`): bootstrap if
 needed, then run ONE bounded orchestrator pass exactly as
 `gitboard help orchestrate` describes — reconcile, merge accepts,
-one review at most, fill the wave with disjoint claims, spare width
-to refine/triage, report a terse ledger — and end the pass. under
+drain the reviews (one fresh subagent at a time, while any diff
+awaits a verdict — work nearly done beats work not started), then
+fill the wave with disjoint claims, spare width to refine/triage,
+report a terse ledger — and end the pass. under
 `/loop` in dynamic mode a pass that moved nothing is a no-op tick;
 agents in flight notify on completion, so the wakeup is a long
 fallback, never a poll.
