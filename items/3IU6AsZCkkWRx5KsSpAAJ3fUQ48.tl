@@ -6,7 +6,9 @@ return {
   ["id"] = "3IU6AsZCkkWRx5KsSpAAJ3fUQ48",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1558,
-  ["reviewer"] = "review-AJ3fUQ48-1788065100",
   ["speccers"] = "orchestrator-w18 wave18-a2-1788064500",
   ["title"] = "migrate to runner mode, batch 3/7: cosmic/{fs,child,format,flags,coverage,sandbox}",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "ed329053dbcb7fbb6ca2e9303b0b7fa3fa3381c2",
+  ["verdict_spec"] = "f03d851a80c93e892e43dfd29e0fec3f9f1de56d61a554e09afb37d64a8e827c",
 }
