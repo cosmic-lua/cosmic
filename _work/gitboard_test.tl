@@ -17,6 +17,30 @@ local tail = require("_work.tail")
 local init_state_repo = fixture.init_state_repo
 local file_item = fixture.file_item
 
+--- Run gitboard.main(...) and capture exactly what it prints via
+--- print() -- the same swap-and-restore pattern _eval/score_test.tl
+--- uses to pin a CLI's exact console output, without a real subprocess.
+--- @param ... string Arguments to pass to gitboard.main, as on argv
+--- @return integer gitboard.main's exit code
+--- @return string Every print()'d line, newline-joined, no trailing newline
+local function gitboard_and_capture(...: string): integer, string
+  local old_print = _G.print
+  local lines: {string} = {}
+  _G.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local ok, result = pcall(gitboard.main, ...)
+  _G.print = old_print
+  if not ok then
+    error(result, 0)
+  end
+  return result, table.concat(lines, "\n")
+end
+
 -- `attach`'s PARENT slot: a handle-form second argument resolves the
 -- same as a prefix would, so a session pasting a handle from `show`
 -- output can attach with it directly.
@@ -60,3 +84,28 @@ local function test_secondary_slot_refuses_a_handle_that_matches_nothing()
     "the store is still writable after the refusal")
 end
 test_secondary_slot_refuses_a_handle_that_matches_nothing()
+
+-- `gitboard help` names the two id forms a session actually meets:
+-- the handle every render leads with, and the branch prefix that is a
+-- DIFFERENT string from it -- the confusion this item exists to close.
+local function test_help_documents_the_id_forms()
+  local code, printed = gitboard_and_capture("help")
+  assert(code == 0, "help should exit 0, got " .. code)
+  assert(printed:find("KSUIDs", 1, true),
+    "help should say ids are KSUIDs\ngot: " .. printed)
+  assert(printed:find("last 8", 1, true),
+    "help should name the handle as the id's last 8 characters\ngot: " .. printed)
+  assert(printed:find("«d0x1_37YJ»", 1, true),
+    "help should carry the worked handle example\ngot: " .. printed)
+  assert(printed:find("bare or wrapped", 1, true),
+    "help should say a handle is accepted bare or wrapped\ngot: " .. printed)
+  assert(printed:find("unambiguous prefix", 1, true),
+    "help should say an unambiguous prefix also works\ngot: " .. printed)
+  assert(printed:find("branches are named", 1, true),
+    "help should describe how branches are named\ngot: " .. printed)
+  assert(printed:find("first 8", 1, true),
+    "help should name the branch as the id's first 8 characters\ngot: " .. printed)
+  assert(printed:find("different string", 1, true),
+    "help should call out that the branch differs from the handle\ngot: " .. printed)
+end
+test_help_documents_the_id_forms()
