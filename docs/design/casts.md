@@ -94,7 +94,7 @@ runtime guard can be exercised. `check.refuses` is the shared helper
 for the invalid-input half and carries the class's one library cast.
 
 ```text
--- cosmic/hash_test.tl:169
+-- cosmic/hash_test.tl:151
   local bad = {variant = "invalid"} as hash.Options
 ```
 

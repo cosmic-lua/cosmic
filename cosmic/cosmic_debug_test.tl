@@ -16,7 +16,6 @@ local function test_cosmic_debug_version()
   local want = "Lua"
   assert(got:find(want, 1, true), "expected '" .. want .. "' in output, got: " .. got)
 end
-test_cosmic_debug_version()
 
 local function test_cosmic_debug_runs_lua()
   local bin = fs.join(TEST_BIN, "cosmic-debug")
@@ -27,7 +26,6 @@ local function test_cosmic_debug_runs_lua()
   local want = "hello from debug"
   assert(got:find(want, 1, true), "expected '" .. want .. "' in output, got: " .. got)
 end
-test_cosmic_debug_runs_lua()
 
 local function test_cosmic_debug_help()
   local bin = fs.join(TEST_BIN, "cosmic-debug")
@@ -38,6 +36,5 @@ local function test_cosmic_debug_help()
   local want = "cosmic"
   assert(got:lower():find(want, 1, true), "expected '" .. want .. "' in help output, got: " .. got)
 end
-test_cosmic_debug_help()
 
 print("cosmic_debug: all tests passed")

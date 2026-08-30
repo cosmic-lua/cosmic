@@ -31,7 +31,6 @@ local function test_basic_load()
   assert(env.unset("COSMIC_ENVD_TEST_A"))
   assert(env.unset("COSMIC_ENVD_TEST_B"))
 end
-test_basic_load()
 
 local function test_no_overwrite()
   local dir = make_envd("nooverwrite")
@@ -46,7 +45,6 @@ local function test_no_overwrite()
 
   assert(env.unset("COSMIC_ENVD_TEST_EXISTING"))
 end
-test_no_overwrite()
 
 local function test_comments_skipped()
   local dir = make_envd("comments")
@@ -59,7 +57,6 @@ local function test_comments_skipped()
 
   assert(env.unset("COSMIC_ENVD_TEST_C"))
 end
-test_comments_skipped()
 
 local function test_blank_lines_and_comment_only_files()
   local dir = make_envd("blanks")
@@ -73,7 +70,6 @@ local function test_blank_lines_and_comment_only_files()
 
   assert(env.unset("COSMIC_ENVD_TEST_D"))
 end
-test_blank_lines_and_comment_only_files()
 
 local function test_lexical_order_concat()
   local dir = make_envd("order")
@@ -89,7 +85,6 @@ local function test_lexical_order_concat()
 
   assert(env.unset("COSMIC_ENVD_TEST_ORDER"))
 end
-test_lexical_order_concat()
 
 local function test_value_with_equals()
   local dir = make_envd("equals")
@@ -103,7 +98,6 @@ local function test_value_with_equals()
 
   assert(env.unset("COSMIC_ENVD_TEST_EQ"))
 end
-test_value_with_equals()
 
 local function test_empty_value()
   local dir = make_envd("emptyval")
@@ -117,7 +111,6 @@ local function test_empty_value()
 
   assert(env.unset("COSMIC_ENVD_TEST_EMPTY"))
 end
-test_empty_value()
 
 local function test_invalid_key_lines_skipped()
   local dir = make_envd("invalidkey")
@@ -130,7 +123,6 @@ local function test_invalid_key_lines_skipped()
 
   assert(env.unset("COSMIC_ENVD_TEST_OK"))
 end
-test_invalid_key_lines_skipped()
 
 -- A directory that cannot be opened is a reported error like any
 -- other; the absent-is-ordinary case lives in load_embedded_dotenv,
@@ -144,7 +136,6 @@ local function test_missing_dir_is_an_error()
   assert(result.errors[1]:find(missing, 1, true),
     "error should name the directory, got: " .. result.errors[1])
 end
-test_missing_dir_is_an_error()
 
 -- The test binary embeds no env.d, so the embedded load is the
 -- absent-directory case: a clean empty result, not an error.
@@ -154,21 +145,18 @@ local function test_load_embedded_dotenv_clean_when_absent()
   assert(#result.errors == 0, "absent embedded env.d is not an error, got: "
     .. tostring(result.errors[1]))
 end
-test_load_embedded_dotenv_clean_when_absent()
 
 local function test_load_result_source()
   local dir = make_envd("source")
   local result = env.load_dotenv(dir)
   assert(result.source == dir, "source should be the dir path")
 end
-test_load_result_source()
 
 local function test_parse_basic()
   local vars = env.parse_dotenv("FOO=bar\nBAZ=qux\n")
   assert(vars["FOO"] == "bar", "expected 'bar', got '" .. tostring(vars["FOO"]) .. "'")
   assert(vars["BAZ"] == "qux", "expected 'qux', got '" .. tostring(vars["BAZ"]) .. "'")
 end
-test_parse_basic()
 
 local function test_parse_comments_and_blanks()
   local vars = env.parse_dotenv("# comment\n\nKEY=val\n  # indented comment\n")
@@ -177,7 +165,6 @@ local function test_parse_comments_and_blanks()
   assert(count == 1, "expected 1 key, got " .. tostring(count))
   assert(vars["KEY"] == "val")
 end
-test_parse_comments_and_blanks()
 
 local function test_multiple_files_merge()
   local dir = make_envd("merge")
@@ -199,7 +186,6 @@ local function test_multiple_files_merge()
   assert(env.unset("COSMIC_ENVD_TEST_Y"))
   assert(env.unset("COSMIC_ENVD_TEST_Z"))
 end
-test_multiple_files_merge()
 
 local function test_underscore_prefix_key()
   local dir = make_envd("underscore")
@@ -212,7 +198,6 @@ local function test_underscore_prefix_key()
 
   assert(env.unset("_COSMIC_ENVD_TEST_UNDER"))
 end
-test_underscore_prefix_key()
 
 -- format_dotenv: the format half of parse_dotenv.
 
@@ -220,12 +205,10 @@ local function test_format_sorts_keys_and_terminates_lines()
   local text = env.format_dotenv({B = "2", A = "1", C = "3"})
   assert(text == "A=1\nB=2\nC=3\n", "got: " .. text)
 end
-test_format_sorts_keys_and_terminates_lines()
 
 local function test_format_empty_map_is_empty_string()
   assert(env.format_dotenv({}) == "", "empty map should format to \"\"")
 end
-test_format_empty_map_is_empty_string()
 
 local function test_format_round_trips_through_parse()
   local vars: {string: string} = {HOST = "localhost", PORT = "8080", EMPTY = ""}
@@ -237,7 +220,6 @@ local function test_format_round_trips_through_parse()
   for _ in pairs(parsed) do count = count + 1 end
   assert(count == 3, "expected 3 keys back, got " .. tostring(count))
 end
-test_format_round_trips_through_parse()
 
 -- variable expansion
 
@@ -246,14 +228,12 @@ local function test_expand_plain_var()
   assert(vars["BASE"] == "/opt", "expected '/opt', got '" .. tostring(vars["BASE"]) .. "'")
   assert(vars["PATH_VAR"] == "/opt/bin", "expected '/opt/bin', got '" .. tostring(vars["PATH_VAR"]) .. "'")
 end
-test_expand_plain_var()
 
 local function test_expand_undefined_var()
   assert(env.unset("COSMIC_ENVD_TEST_UNDEF"))
   local vars = env.parse_dotenv("VAL=${COSMIC_ENVD_TEST_UNDEF}rest\n")
   assert(vars["VAL"] == "rest", "undefined should expand to empty, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_undefined_var()
 
 local function test_expand_from_env()
   assert(env.set("COSMIC_ENVD_TEST_FROMENV", "envval"))
@@ -261,53 +241,45 @@ local function test_expand_from_env()
   assert(vars["VAL"] == "envval", "expected 'envval', got '" .. tostring(vars["VAL"]) .. "'")
   assert(env.unset("COSMIC_ENVD_TEST_FROMENV"))
 end
-test_expand_from_env()
 
 local function test_expand_default_unset()
   assert(env.unset("COSMIC_ENVD_TEST_NOSUCH"))
   local vars = env.parse_dotenv("VAL=${COSMIC_ENVD_TEST_NOSUCH:-fallback}\n")
   assert(vars["VAL"] == "fallback", "expected 'fallback', got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_default_unset()
 
 local function test_expand_default_empty()
   local vars = env.parse_dotenv("EMPTY=\nVAL=${EMPTY:-fallback}\n")
   assert(vars["VAL"] == "fallback", ":-default should trigger on empty, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_default_empty()
 
 local function test_expand_default_set()
   local vars = env.parse_dotenv("BASE=real\nVAL=${BASE:-fallback}\n")
   assert(vars["VAL"] == "real", ":-default should not trigger when set, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_default_set()
 
 local function test_expand_dash_default_unset()
   assert(env.unset("COSMIC_ENVD_TEST_NOSUCH2"))
   local vars = env.parse_dotenv("VAL=${COSMIC_ENVD_TEST_NOSUCH2-fallback}\n")
   assert(vars["VAL"] == "fallback", "expected 'fallback', got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_dash_default_unset()
 
 local function test_expand_dash_default_empty()
   local vars = env.parse_dotenv("EMPTY=\nVAL=${EMPTY-fallback}\n")
   assert(vars["VAL"] == "", "-default should NOT trigger on empty, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_dash_default_empty()
 
 local function test_expand_multiple_refs()
   local vars = env.parse_dotenv("HOST=localhost\nPORT=8080\nURL=http://${HOST}:${PORT}/api\n")
   assert(vars["URL"] == "http://localhost:8080/api",
     "expected 'http://localhost:8080/api', got '" .. tostring(vars["URL"]) .. "'")
 end
-test_expand_multiple_refs()
 
 local function test_expand_with_ctx()
   local ctx: {string: string} = {PRIOR = "fromctx"}
   local vars = env.parse_dotenv("VAL=${PRIOR}/more\n", ctx)
   assert(vars["VAL"] == "fromctx/more", "expected 'fromctx/more', got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_with_ctx()
 
 local function test_expand_across_files()
   local dir = make_envd("expand_across")
@@ -326,35 +298,30 @@ local function test_expand_across_files()
   assert(env.unset("COSMIC_ENVD_TEST_BASE"))
   assert(env.unset("COSMIC_ENVD_TEST_DERIVED"))
 end
-test_expand_across_files()
 
 local function test_expand_no_expansion_without_braces()
   local vars = env.parse_dotenv("BASE=val\nVAL=$BASE/rest\n")
   assert(vars["VAL"] == "$BASE/rest",
     "$VAR without braces should not expand, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_no_expansion_without_braces()
 
 local function test_expand_malformed_expr()
   local vars = env.parse_dotenv("VAL=${123BAD}\n")
   assert(vars["VAL"] == "${123BAD}",
     "malformed should be left as-is, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_malformed_expr()
 
 local function test_expand_nested_default()
   local vars = env.parse_dotenv("VAL=${NOSUCH:-a=b}\n")
   assert(vars["VAL"] == "a=b",
     "default can contain =, got '" .. tostring(vars["VAL"]) .. "'")
 end
-test_expand_nested_default()
 
 local function test_expand_function_directly()
   local ctx: {string: string} = {FOO = "bar"}
   local result = env.expand("hello ${FOO} world", ctx)
   assert(result == "hello bar world", "expected 'hello bar world', got '" .. result .. "'")
 end
-test_expand_function_directly()
 
 -- parse must strip trailing \r from CRLF dotenv files.
 local function test_parse_crlf_no_trailing_cr()
@@ -365,7 +332,6 @@ local function test_parse_crlf_no_trailing_cr()
   assert(vars["COSMIC_ENVD_CRLF_B"] == "world",
     "CRLF: expected 'world' (len 5), got len=" .. tostring(#tostring(vars["COSMIC_ENVD_CRLF_B"] or "")))
 end
-test_parse_crlf_no_trailing_cr()
 
 local function test_load_dotenv_crlf_file()
   local dir = make_envd("crlf_dir")
@@ -380,7 +346,6 @@ local function test_load_dotenv_crlf_file()
     "CRLF file: expected 'crvalue', got '" .. tostring(val) .. "'")
   assert(env.unset("COSMIC_ENVD_CRLF_C"))
 end
-test_load_dotenv_crlf_file()
 
 -- COSMIC_DEBUG='' (empty string) must NOT enable debug mode; only a
 -- non-empty value should. Capture the debug channel (the loader
@@ -410,7 +375,6 @@ local function test_cosmic_debug_empty_not_enabled()
     "COSMIC_DEBUG='' must not emit debug output, got: " .. captured)
   assert(env.unset("COSMIC_ENVD_DEBUG_TEST"))
 end
-test_cosmic_debug_empty_not_enabled()
 
 local function test_cosmic_debug_nonempty_emits_debug()
   local dir = make_envd("debug_on")
@@ -426,7 +390,6 @@ local function test_cosmic_debug_nonempty_emits_debug()
     "COSMIC_DEBUG=1 must log each set variable, got: " .. captured)
   assert(env.unset("COSMIC_ENVD_DEBUG_TEST2"))
 end
-test_cosmic_debug_nonempty_emits_debug()
 
 -- The "[env] set" debug line must not print when env.set failed.
 -- The loader calls set through the module table (a plain table, like
@@ -452,7 +415,6 @@ local function test_debug_set_not_logged_on_failure()
   assert(not captured:match("%[env%] set"),
     "must not log '[env] set' when env.set failed, got: " .. captured)
 end
-test_debug_set_not_logged_on_failure()
 
 -- LoadResult.errors: per-file read failures are collected instead of
 -- being visible only under COSMIC_DEBUG.
@@ -468,7 +430,6 @@ local function test_errors_empty_on_clean_load()
     .. tostring(result.errors[1]))
   assert(env.unset("COSMIC_ENVD_ERR_TEST_A"))
 end
-test_errors_empty_on_clean_load()
 
 local function test_errors_collect_unreadable_entries()
   local dir = make_envd("errunreadable")
@@ -484,4 +445,3 @@ local function test_errors_collect_unreadable_entries()
   assert(result.errors[1]:match("10%-subdir"), "error should name the entry, got: " .. result.errors[1])
   assert(env.unset("COSMIC_ENVD_ERR_TEST_B"))
 end
-test_errors_collect_unreadable_entries()

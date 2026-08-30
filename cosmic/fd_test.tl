@@ -23,7 +23,6 @@ local function test_open_read_write_close()
 
   assert(os.remove(filepath))
 end
-test_open_read_write_close()
 
 local function test_seek()
   local filepath = fs.join(TEST_TMPDIR, "io_test_seek.txt")
@@ -50,7 +49,6 @@ local function test_seek()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_seek()
 
 local function test_handle_truncate()
   local filepath = fs.join(TEST_TMPDIR, "io_test_htrunc.txt")
@@ -69,7 +67,6 @@ local function test_handle_truncate()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_handle_truncate()
 
 local function test_truncate()
   local filepath = fs.join(TEST_TMPDIR, "io_test_trunc.txt")
@@ -90,7 +87,6 @@ local function test_truncate()
 
   assert(os.remove(filepath))
 end
-test_truncate()
 
 local function test_dup()
   local filepath = fs.join(TEST_TMPDIR, "io_test_dup.txt")
@@ -110,7 +106,6 @@ local function test_dup()
   assert(f2h:close())
   assert(os.remove(filepath))
 end
-test_dup()
 
 local function test_pipe()
   local ph = check.must(cfd.pipe())
@@ -128,7 +123,6 @@ local function test_pipe()
   assert(ph:close())
   assert(ph:closed(), "pipe should be closed")
 end
-test_pipe()
 
 local function test_sync()
   local filepath = fs.join(TEST_TMPDIR, "io_test_sync.txt")
@@ -142,7 +136,6 @@ local function test_sync()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_sync()
 
 local function test_constants()
   assert(cfd.O_RDONLY ~= nil, "O_RDONLY not exported")
@@ -172,7 +165,6 @@ local function test_constants()
 
   assert(cfd.AT_FDCWD ~= nil, "AT_FDCWD not exported")
 end
-test_constants()
 
 local function test_fcntl()
   local filepath = fs.join(TEST_TMPDIR, "io_test_fcntl.txt")
@@ -191,14 +183,12 @@ local function test_fcntl()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_fcntl()
 
 local function test_open_nonexistent_fails()
   local f, err = cfd.open("/nonexistent/path/to/file.txt", cfd.O_RDONLY)
   assert(f == nil, "opening nonexistent file should fail")
   assert(err ~= nil, "should have error message")
 end
-test_open_nonexistent_fails()
 
 local function test_append_mode()
   local filepath = fs.join(TEST_TMPDIR, "io_test_append.txt")
@@ -218,7 +208,6 @@ local function test_append_mode()
 
   assert(os.remove(filepath))
 end
-test_append_mode()
 
 local function test_read_write_roundtrip()
   local filepath = fs.join(TEST_TMPDIR, "io_test_slurp.txt")
@@ -233,14 +222,12 @@ local function test_read_write_roundtrip()
 
   assert(os.remove(filepath))
 end
-test_read_write_roundtrip()
 
 local function test_read_nonexistent()
   local data, err = fs.read("/nonexistent/file/path.txt")
   assert(data == nil, "fs.read of nonexistent file should return nil")
   assert(err ~= nil, "fs.read of nonexistent file should return error")
 end
-test_read_nonexistent()
 
 -- Errors carry the errno name and enough context to act on:
 -- a failed read names ENOENT, a failed open names both the path and the
@@ -251,13 +238,11 @@ local function test_read_error_names_errno()
   assert(err:match("ENOENT"), "fs.read error should name ENOENT, got: " .. err)
   assert(err:match("/nonexistent/file/path%.txt"), "fs.read error should name the path, got: " .. err)
 end
-test_read_error_names_errno()
 
 local function test_write_path_error_names_errno()
   local _, err = fs.write("/nonexistent/dir/file.txt", "data")
   assert(err:match("ENOENT"), "fs.write error should name ENOENT, got: " .. err)
 end
-test_write_path_error_names_errno()
 
 local function test_wrap_tmpfd()
   -- fs.temp_fd returns a Handle; take its fd to exercise wrap.
@@ -271,7 +256,6 @@ local function test_wrap_tmpfd()
   assert(h:close(), "close through wrapped handle")
   assert(h:closed(), "wrapped handle should report closed")
 end
-test_wrap_tmpfd()
 
 local function test_tmpfile_handle()
   local tf = check.must(fs.temp_file(fs.join(TEST_TMPDIR, "wrap_XXXXXX")),
@@ -281,14 +265,12 @@ local function test_tmpfile_handle()
   assert(fs.read(tf.path) == "via temp_file", "data lands in the temp_file")
   assert(fs.remove(tf.path))
 end
-test_tmpfile_handle()
 
 local function test_open_error_names_path_and_errno()
   local _, err = cfd.open("/nonexistent/path/to/file.txt", cfd.O_RDONLY)
   assert(err:match("ENOENT"), "open error should name ENOENT, got: " .. err)
   assert(err:match("/nonexistent/path/to/file%.txt"), "open error should name the path, got: " .. err)
 end
-test_open_error_names_path_and_errno()
 
 local function test_truncate_error_names_path_and_errno()
   local ok, err = fs.truncate("/nonexistent/path/to/file.txt")
@@ -296,7 +278,6 @@ local function test_truncate_error_names_path_and_errno()
   assert(err:match("ENOENT"), "truncate error should name ENOENT, got: " .. err)
   assert(err:match("/nonexistent/path/to/file%.txt"), "truncate error should name the path, got: " .. err)
 end
-test_truncate_error_names_path_and_errno()
 
 local function test_write_error_names_errno()
   local filepath = fs.join(TEST_TMPDIR, "io_test_rdonly.txt")
@@ -308,7 +289,6 @@ local function test_write_error_names_errno()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_write_error_names_errno()
 
 local function test_closed_handle()
   local filepath = fs.join(TEST_TMPDIR, "io_test_closed.txt")
@@ -329,7 +309,6 @@ local function test_closed_handle()
 
   assert(os.remove(filepath))
 end
-test_closed_handle()
 
 local function test_fd_method()
   local filepath = fs.join(TEST_TMPDIR, "io_test_fd.txt")
@@ -343,7 +322,6 @@ local function test_fd_method()
 
   assert(os.remove(filepath))
 end
-test_fd_method()
 
 local function test_close_metamethod_exists()
   local filepath = fs.join(TEST_TMPDIR, "io_test_meta.txt")
@@ -360,7 +338,6 @@ local function test_close_metamethod_exists()
 
   assert(os.remove(filepath))
 end
-test_close_metamethod_exists()
 
 -- Pipe:close must surface a close failure instead of always returning
 -- true, and it must still close BOTH ends even when one fails.
@@ -379,7 +356,6 @@ local function test_pipe_close_propagates_error_and_closes_both()
   assert(err ~= nil and err:match("EBADF"), "expected EBADF, got: " .. tostring(err))
   assert(p.writer:closed(), "writer should still be closed despite the reader failing")
 end
-test_pipe_close_propagates_error_and_closes_both()
 
 local function test_pipe_close_metamethod_exists()
   local p = check.must(cfd.pipe())
@@ -392,7 +368,6 @@ local function test_pipe_close_metamethod_exists()
   end
   assert(p:closed(), "pipe should be closed after __close")
 end
-test_pipe_close_metamethod_exists()
 
 local function test_read_write_with_offset()
   local filepath = fs.join(TEST_TMPDIR, "io_test_pread.txt")
@@ -417,7 +392,6 @@ local function test_read_write_with_offset()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_read_write_with_offset()
 
 local function test_write_with_mode()
   local filepath = fs.join(TEST_TMPDIR, "io_test_barf_mode.txt")
@@ -431,7 +405,6 @@ local function test_write_with_mode()
 
   assert(os.remove(filepath))
 end
-test_write_with_mode()
 
 local function test_datasync()
   local filepath = fs.join(TEST_TMPDIR, "io_test_datasync.txt")
@@ -445,7 +418,6 @@ local function test_datasync()
   assert(f:close())
   assert(os.remove(filepath))
 end
-test_datasync()
 
 -- handle:close() must propagate unix.close() failure instead of
 -- always returning true.  The error path is hard to trigger directly, so we
@@ -470,4 +442,3 @@ local function test_close_returns_boolean_and_is_idempotent()
 
   assert(os.remove(filepath))
 end
-test_close_returns_boolean_and_is_idempotent()

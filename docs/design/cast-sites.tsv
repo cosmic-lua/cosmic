@@ -47,9 +47,9 @@ cosmic/_literal_format.tl	131	container variance
 cosmic/_literal_lex.tl	198	numeric narrowing
 cosmic/_literal_lex.tl	226	numeric narrowing
 cosmic/_literal_lex.tl	230	numeric narrowing
+cosmic/_teal_ast_test.tl	33	tl compiler surface
 cosmic/_teal_ast_test.tl	34	tl compiler surface
-cosmic/_teal_ast_test.tl	35	tl compiler surface
-cosmic/_teal_ast_test.tl	37	tl compiler surface
+cosmic/_teal_ast_test.tl	36	tl compiler surface
 cosmic/_teal_discard.tl	183	tl compiler surface
 cosmic/_teal_discard.tl	205	tl compiler surface
 cosmic/_teal_discard.tl	258	tl compiler surface
@@ -59,13 +59,13 @@ cosmic/_teal_engine.tl	232	tl compiler surface
 cosmic/_teal_engine.tl	251	pcall return shape
 cosmic/check.tl	121	type-defeating test probe
 cosmic/check.tl	287	record union after guard
-cosmic/check_assertions_test.tl	115	type-defeating test probe
-cosmic/check_assertions_test.tl	360	type-defeating test probe
-cosmic/check_assertions_test.tl	382	function shape
-cosmic/compress_test.tl	25	enum relation
-cosmic/compress_test.tl	38	enum relation
-cosmic/compress_test.tl	152	enum relation
-cosmic/compress_test.tl	171	type-defeating test probe
+cosmic/check_assertions_test.tl	101	type-defeating test probe
+cosmic/check_assertions_test.tl	321	type-defeating test probe
+cosmic/check_assertions_test.tl	341	function shape
+cosmic/compress_test.tl	24	enum relation
+cosmic/compress_test.tl	36	enum relation
+cosmic/compress_test.tl	139	enum relation
+cosmic/compress_test.tl	157	type-defeating test probe
 cosmic/coverage/init.tl	44	module surface record
 cosmic/coverage/init.tl	45	module surface record
 cosmic/coverage/init.tl	92	map view of a declared value
@@ -77,9 +77,9 @@ cosmic/embed/init.tl	103	userdata boundary
 cosmic/errno.tl	52	binding constant by name
 cosmic/errno.tl	119	binding constant by name
 cosmic/fd.tl	187	binding contract shape
-cosmic/fd_read_test.tl	106	type-defeating test probe
-cosmic/fd_read_test.tl	107	type-defeating test probe
-cosmic/fd_read_test.tl	109	type-defeating test probe
+cosmic/fd_read_test.tl	101	type-defeating test probe
+cosmic/fd_read_test.tl	102	type-defeating test probe
+cosmic/fd_read_test.tl	104	type-defeating test probe
 cosmic/fetch/extras.tl	184	generic T
 cosmic/fetch/extras.tl	199	generic T
 cosmic/fetch/extras.tl	202	generic T
@@ -122,13 +122,13 @@ cosmic/fs/walk.tl	89	record union after guard
 cosmic/fs/walk.tl	116	userdata boundary
 cosmic/fs/walk.tl	146	generic T
 cosmic/fs/walk.tl	157	userdata boundary
-cosmic/fuzzy_test.tl	88	type-defeating test probe
+cosmic/fuzzy_test.tl	79	type-defeating test probe
 cosmic/hash.tl	104	enum relation
 cosmic/hash.tl	141	enum relation
 cosmic/hash.tl	203	enum relation
-cosmic/hash_test.tl	169	type-defeating test probe
-cosmic/hash_test.tl	263	type-defeating test probe
-cosmic/hash_test.tl	302	type-defeating test probe
+cosmic/hash_test.tl	151	type-defeating test probe
+cosmic/hash_test.tl	236	type-defeating test probe
+cosmic/hash_test.tl	271	type-defeating test probe
 cosmic/literal_example.tl	20	decoded data shaping
 cosmic/log_test.tl	103	type-defeating test probe
 cosmic/log_test.tl	114	type-defeating test probe

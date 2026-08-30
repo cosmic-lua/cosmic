@@ -38,7 +38,6 @@ local function test_copy_is_independent()
   assert(deep.equal(orig.nested.b, {2, 3}),
     "mutating the copy leaked into the original")
 end
-test_copy_is_independent()
 
 local function test_copy_passes_scalars_through()
   assert(deep.copy(42) == 42)
@@ -46,7 +45,6 @@ local function test_copy_passes_scalars_through()
   assert(deep.copy(nil) == nil)
   assert(deep.copy(true) == true)
 end
-test_copy_passes_scalars_through()
 
 local function test_copy_preserves_cycles()
   local orig: CopyFixture = {name = "root"}
@@ -56,7 +54,6 @@ local function test_copy_preserves_cycles()
   assert(copy ~= orig, "copy is the original")
   assert(copy.name == "root")
 end
-test_copy_preserves_cycles()
 
 local function test_copy_preserves_shared_references()
   local shared: {integer} = {1}
@@ -65,7 +62,6 @@ local function test_copy_preserves_shared_references()
   assert(copy.x == copy.y, "shared reference duplicated")
   assert(copy.x ~= shared, "shared table not copied")
 end
-test_copy_preserves_shared_references()
 
 local function test_copy_copies_table_keys()
   local key: {string: string} = {id = "k"}
@@ -80,7 +76,6 @@ local function test_copy_copies_table_keys()
   end
   assert(found, "copied table is empty")
 end
-test_copy_copies_table_keys()
 
 -- equal
 
@@ -88,14 +83,12 @@ local function test_equal_nested()
   assert(deep.equal({a = {1, {2}}, b = "x"}, {a = {1, {2}}, b = "x"}))
   assert(not deep.equal({a = {1, {2}}}, {a = {1, {3}}}))
 end
-test_equal_nested()
 
 local function test_equal_key_sets_must_match()
   assert(not deep.equal({a = 1}, {a = 1, b = 2}), "extra key in b")
   assert(not deep.equal({a = 1, b = 2}, {a = 1}), "extra key in a")
   assert(deep.equal({}, {}), "empty tables differ")
 end
-test_equal_key_sets_must_match()
 
 local function test_equal_scalars_and_mixed()
   assert(deep.equal(1, 1))
@@ -103,7 +96,6 @@ local function test_equal_scalars_and_mixed()
   assert(not deep.equal({1}, 1))
   assert(not deep.equal(nil, {}))
 end
-test_equal_scalars_and_mixed()
 
 local function test_equal_handles_cycles()
   local a: {string: any} = {v = 1}
@@ -115,7 +107,6 @@ local function test_equal_handles_cycles()
   c.self = c
   assert(not deep.equal(a, c), "unequal cyclic tables compared equal")
 end
-test_equal_handles_cycles()
 
 -- merge
 
@@ -135,7 +126,6 @@ local function test_merge_recurses_and_overrides()
         debug = true,
       }), "unexpected merge result")
 end
-test_merge_recurses_and_overrides()
 
 local function test_merge_override_wins_on_type_conflict()
   local nested: {string: any} = {a = {nested = true}}
@@ -145,7 +135,6 @@ local function test_merge_override_wins_on_type_conflict()
   local merged2 = deep.merge(flat, nested)
   assert(deep.equal(merged2, {a = {nested = true}}))
 end
-test_merge_override_wins_on_type_conflict()
 
 local function test_merge_mutates_neither_input()
   local base: Conf = {limits = {mem = 64}}
@@ -158,11 +147,9 @@ local function test_merge_mutates_neither_input()
   assert(base.limits.mem == 64,
     "merge result shares tables with base")
 end
-test_merge_mutates_neither_input()
 
 local function test_merge_arrays_merge_by_index()
   local merged = deep.merge({list = {1, 2, 3}}, {list = {9}})
   assert(deep.equal(merged, {list = {9, 2, 3}}),
     "documented by-index array semantics changed")
 end
-test_merge_arrays_merge_by_index()

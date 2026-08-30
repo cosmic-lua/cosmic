@@ -51,7 +51,6 @@ local function test_embed_via_env()
   assert(content == "env hello world", "embedded content should match via env var")
   assert(reader:close())
 end
-test_embed_via_env()
 
 -- Test extract via COSMIC_EXTRACT env var
 local function test_extract_via_env()
@@ -73,7 +72,6 @@ local function test_extract_via_env()
   -- main.lua should be extracted
   assert(fs.is_file(fs.join(extractdir, "main.lua")), "main.lua should be extracted via env var")
 end
-test_extract_via_env()
 
 -- Test that CLI args take priority over env vars
 local function test_cli_priority_over_env()
@@ -110,6 +108,5 @@ local function test_cli_priority_over_env()
 
   assert(reader:close())
 end
-test_cli_priority_over_env()
 
 print("All embed env tests passed!")

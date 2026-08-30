@@ -7,19 +7,16 @@ local function test_encode_hex_basic()
   local result = codec.encode_hex("hello")
   assert(result == "68656c6c6f", "expected '68656c6c6f', got '" .. result .. "'")
 end
-test_encode_hex_basic()
 
 local function test_encode_hex_empty()
   local result = codec.encode_hex("")
   assert(result == "", "expected empty string")
 end
-test_encode_hex_empty()
 
 local function test_encode_hex_binary()
   local result = codec.encode_hex("\x00\xff\x10")
   assert(result == "00ff10", "expected '00ff10', got '" .. result .. "'")
 end
-test_encode_hex_binary()
 
 -- Hex decoding tests
 
@@ -28,21 +25,18 @@ local function test_decode_hex_basic()
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
-test_decode_hex_basic()
 
 local function test_decode_hex_uppercase()
   local result, err = codec.decode_hex("48454C4C4F")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "HELLO", "expected 'HELLO', got '" .. (result or "nil") .. "'")
 end
-test_decode_hex_uppercase()
 
 local function test_decode_hex_empty()
   local result, err = codec.decode_hex("")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "", "expected empty string")
 end
-test_decode_hex_empty()
 
 local function test_decode_hex_odd_length()
   local result, err = codec.decode_hex("abc")
@@ -50,7 +44,6 @@ local function test_decode_hex_odd_length()
   assert(err ~= nil, "expected error message")
   assert(err:match("uneven"), "error should mention uneven length, got: " .. err)
 end
-test_decode_hex_odd_length()
 
 local function test_decode_hex_invalid_char()
   local result, err = codec.decode_hex("ghij")
@@ -58,7 +51,6 @@ local function test_decode_hex_invalid_char()
   assert(err ~= nil, "expected error message")
   assert(err:match("non%-hex"), "error should mention non-hex character, got: " .. err)
 end
-test_decode_hex_invalid_char()
 
 local function test_hex_roundtrip()
   local original = "Hello, World! \x00\xff"
@@ -67,7 +59,6 @@ local function test_hex_roundtrip()
   assert(err == nil, "roundtrip decode failed: " .. (err or ""))
   assert(decoded == original, "roundtrip mismatch")
 end
-test_hex_roundtrip()
 
 -- Lua value serialization lives in cosmic.literal:
 -- format/parse round-trip tests live in cosmic/literal_test.tl.
@@ -78,40 +69,34 @@ local function test_encode_base64_basic()
   local result = codec.encode_base64("hello")
   assert(result == "aGVsbG8=", "expected 'aGVsbG8=', got '" .. result .. "'")
 end
-test_encode_base64_basic()
 
 local function test_encode_base64_empty()
   local result = codec.encode_base64("")
   assert(result == "", "expected empty string")
 end
-test_encode_base64_empty()
 
 local function test_encode_base64_binary()
   local result = codec.encode_base64("\x00\xff")
   assert(result == "AP8=", "expected 'AP8=', got '" .. result .. "'")
 end
-test_encode_base64_binary()
 
 local function test_decode_base64_basic()
   local result, err = codec.decode_base64("aGVsbG8=")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
-test_decode_base64_basic()
 
 local function test_decode_base64_no_padding()
   local result, err = codec.decode_base64("aGVsbG8")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
-test_decode_base64_no_padding()
 
 local function test_decode_base64_empty()
   local result, err = codec.decode_base64("")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "", "expected empty string")
 end
-test_decode_base64_empty()
 
 local function test_decode_base64_invalid_char()
   local result, err = codec.decode_base64("invalid!base64")
@@ -119,7 +104,6 @@ local function test_decode_base64_invalid_char()
   assert(err ~= nil, "expected error message")
   assert(err:match("invalid"), "error should mention invalid")
 end
-test_decode_base64_invalid_char()
 
 local function test_decode_base64_invalid_padding()
   local result, err = codec.decode_base64("abc===")
@@ -127,14 +111,12 @@ local function test_decode_base64_invalid_padding()
   assert(err ~= nil, "expected error message")
   assert(err:match("padding"), "error should mention padding")
 end
-test_decode_base64_invalid_padding()
 
 local function test_decode_base64_padding_in_middle()
   local result, err = codec.decode_base64("ab=cd")
   assert(result == nil, "expected nil for padding in middle")
   assert(err ~= nil, "expected error message")
 end
-test_decode_base64_padding_in_middle()
 
 local function test_base64_roundtrip()
   local original = "Hello, World! \x00\xff\x10"
@@ -143,7 +125,6 @@ local function test_base64_roundtrip()
   assert(err == nil, "roundtrip decode failed: " .. (err or ""))
   assert(decoded == original, "roundtrip mismatch")
 end
-test_base64_roundtrip()
 
 -- Base32 encoding tests (z-base-32)
 
@@ -151,27 +132,23 @@ local function test_encode_base32_basic()
   local result = codec.encode_base32("hello")
   assert(result == "d1jprv3f", "expected 'd1jprv3f', got '" .. result .. "'")
 end
-test_encode_base32_basic()
 
 local function test_encode_base32_empty()
   local result = codec.encode_base32("")
   assert(result == "", "expected empty string")
 end
-test_encode_base32_empty()
 
 local function test_decode_base32_basic()
   local result, err = codec.decode_base32("d1jprv3f")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
-test_decode_base32_basic()
 
 local function test_decode_base32_empty()
   local result, err = codec.decode_base32("")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "", "expected empty string")
 end
-test_decode_base32_empty()
 
 local function test_decode_base32_invalid_char()
   -- base32 alphabet excludes i, l, o, u
@@ -180,7 +157,6 @@ local function test_decode_base32_invalid_char()
   assert(err ~= nil, "expected error message")
   assert(err:match("invalid"), "error should mention invalid")
 end
-test_decode_base32_invalid_char()
 
 local function test_decode_base32_uppercase_invalid()
   -- base32 is lowercase only
@@ -188,7 +164,6 @@ local function test_decode_base32_uppercase_invalid()
   assert(result == nil, "expected nil for uppercase (base32 is lowercase)")
   assert(err ~= nil, "expected error message")
 end
-test_decode_base32_uppercase_invalid()
 
 local function test_base32_roundtrip()
   local original = "Hello, World!"
@@ -197,7 +172,6 @@ local function test_base32_roundtrip()
   assert(err == nil, "roundtrip decode failed: " .. (err or ""))
   assert(decoded == original, "roundtrip mismatch")
 end
-test_base32_roundtrip()
 
 -- Latin-1 encoding tests
 
@@ -206,27 +180,23 @@ local function test_encode_latin1_ascii()
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
-test_encode_latin1_ascii()
 
 local function test_encode_latin1_accented()
   local result, err = codec.encode_latin1("café")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(#result == 4, "expected 4 bytes, got " .. #result)
 end
-test_encode_latin1_accented()
 
 local function test_encode_latin1_out_of_range()
   local result, err = codec.encode_latin1("日本語")
   assert(result == nil, "expected nil for out-of-range characters")
   assert(err ~= nil, "expected error message")
 end
-test_encode_latin1_out_of_range()
 
 local function test_decode_latin1_basic()
   local result = codec.decode_latin1("hello")
   assert(result == "hello", "expected 'hello', got '" .. result .. "'")
 end
-test_decode_latin1_basic()
 
 local function test_latin1_roundtrip()
   local original = "café résumé naïve"
@@ -235,7 +205,6 @@ local function test_latin1_roundtrip()
   local decoded = codec.decode_latin1(encoded)
   assert(decoded == original, "roundtrip mismatch: got '" .. decoded .. "'")
 end
-test_latin1_roundtrip()
 
 -- CRC-32 checksum tests
 
@@ -245,7 +214,6 @@ local function test_crc32_check_vector()
   assert(result == 0xCBF43926,
     "crc32 check vector mismatch: " .. string.format("%x", result))
 end
-test_crc32_check_vector()
 
 local function test_crc32c_check_vector()
   -- The standard CRC-32C (Castagnoli) check value: 0xE3069283
@@ -253,13 +221,11 @@ local function test_crc32c_check_vector()
   assert(result == 0xE3069283,
     "crc32c check vector mismatch: " .. string.format("%x", result))
 end
-test_crc32c_check_vector()
 
 local function test_crc32_empty()
   assert(codec.crc32("") == 0, "crc32 of empty string should be 0")
   assert(codec.crc32c("") == 0, "crc32c of empty string should be 0")
 end
-test_crc32_empty()
 
 local function test_crc32_incremental()
   local whole = codec.crc32("hello world")
@@ -269,7 +235,6 @@ local function test_crc32_incremental()
   local partial_c = codec.crc32c(" world", codec.crc32c("hello"))
   assert(whole_c == partial_c, "incremental crc32c should match whole-input crc32c")
 end
-test_crc32_incremental()
 
 local function test_crc32_unsigned_range()
   -- Values are unsigned 32-bit integers, never negative.
@@ -277,7 +242,6 @@ local function test_crc32_unsigned_range()
   assert(result >= 0 and result <= 0xFFFFFFFF,
     "crc32 should be an unsigned 32-bit value, got " .. tostring(result))
 end
-test_crc32_unsigned_range()
 
 -- base64url tests
 
@@ -289,7 +253,6 @@ local function test_base64url_roundtrip()
     assert(dec == s, "round-trip failed for '" .. s .. "': " .. tostring(err))
   end
 end
-test_base64url_roundtrip()
 
 local function test_base64url_alphabet()
   -- 0xfb 0xff encodes to "-_8" in base64url ("+/8" in standard base64).
@@ -299,20 +262,17 @@ local function test_base64url_alphabet()
   local dec = codec.decode_base64url("-_8")
   assert(dec == "\xfb\xff", "expected 0xfb 0xff back")
 end
-test_base64url_alphabet()
 
 local function test_base64url_no_padding_emitted()
   -- "f" encodes to "Zg==" in padded base64; base64url emits "Zg".
   assert(codec.encode_base64url("f") == "Zg", "expected unpadded 'Zg'")
   assert(codec.encode_base64url("fo") == "Zm8", "expected unpadded 'Zm8'")
 end
-test_base64url_no_padding_emitted()
 
 local function test_base64url_decode_accepts_padding()
   assert(codec.decode_base64url("Zg==") == "f", "padded input should decode")
   assert(codec.decode_base64url("Zg") == "f", "unpadded input should decode")
 end
-test_base64url_decode_accepts_padding()
 
 local function test_base64url_rejects_standard_alphabet()
   local dec, err = codec.decode_base64url("+_8")
@@ -320,7 +280,6 @@ local function test_base64url_rejects_standard_alphabet()
   dec, err = codec.decode_base64url("a/b")
   assert(dec == nil and err ~= nil, "expected '/' to be rejected")
 end
-test_base64url_rejects_standard_alphabet()
 
 local function test_base64url_rejects_bad_input()
   local dec, err = codec.decode_base64url("a b")
@@ -330,7 +289,6 @@ local function test_base64url_rejects_bad_input()
   dec, err = codec.decode_base64url("Zg===")
   assert(dec == nil and err ~= nil, "expected over-long padding to be rejected")
 end
-test_base64url_rejects_bad_input()
 
 local function test_base64url_binary_roundtrip()
   local all_bytes: {string} = {}
@@ -341,4 +299,3 @@ local function test_base64url_binary_roundtrip()
   local dec = codec.decode_base64url(codec.encode_base64url(blob))
   assert(dec == blob, "all-bytes blob should round-trip")
 end
-test_base64url_binary_roundtrip()

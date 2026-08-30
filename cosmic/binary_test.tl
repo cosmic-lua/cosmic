@@ -21,7 +21,6 @@ local function test_cosmic_child()
   assert(ok, "cosmic exited with error")
   assert(out:find("ok", 1, true), "expected output to contain 'ok'")
 end
-test_cosmic_child()
 
 local function test_cosmic_visit()
   local h2 = check.must(child.start({cosmic, "-e", "local fs = require('cosmic.fs'); print(fs.visit and 'ok' or 'fail')"}, {env = clean_env()}))
@@ -30,7 +29,6 @@ local function test_cosmic_visit()
   assert(ok, "cosmic exited with error")
   assert(out:find("ok", 1, true), "expected output to contain 'ok'")
 end
-test_cosmic_visit()
 
 local function test_cosmic_help()
   local h3 = check.must(child.start({cosmic, "--help"}, {env = clean_env()}))
@@ -41,7 +39,6 @@ local function test_cosmic_help()
   assert(out:find("%-%-help", 1, false), "expected output to contain '--help'")
   assert(out:find("Low%-level cosmo", 1, false), "expected output to contain note about cosmo bindings")
 end
-test_cosmic_help()
 
 local function test_warnings_flag()
   -- -W should convert warnings to errors; the warning message lands on stderr
@@ -52,7 +49,6 @@ local function test_warnings_flag()
   assert(out:find("warning: test warning", 1, true), "expected output to contain 'warning: test warning'")
   assert(code == 1, "expected exit code 1, got " .. tostring(code))
 end
-test_warnings_flag()
 
 local function test_warnings_without_flag()
   -- without -W, warnings should not cause errors
@@ -62,7 +58,6 @@ local function test_warnings_without_flag()
   assert(ok, "cosmic should succeed without -W")
   assert(out:find("ok", 1, true), "expected output to contain 'ok'")
 end
-test_warnings_without_flag()
 
 local function test_interactive_mode()
   -- -i should enter interactive mode (REPL)
@@ -73,7 +68,6 @@ local function test_interactive_mode()
   assert(out:find("Lua 5.4", 1, true), "expected output to contain 'Lua 5.4'")
   assert(out:find("hello", 1, true), "expected output to contain 'hello'")
 end
-test_interactive_mode()
 
 local function test_repl_no_args()
   -- no args should enter REPL
@@ -84,4 +78,3 @@ local function test_repl_no_args()
   assert(out:find("Lua 5.4", 1, true), "expected output to contain 'Lua 5.4'")
   assert(out:find("repl test", 1, true), "expected output to contain 'repl test'")
 end
-test_repl_no_args()
