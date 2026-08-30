@@ -81,73 +81,31 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 
 ## Language and Conventions
 
-- **source language**: Teal (`.tl` files) — typed Lua that compiles to Lua 5.4
-- **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
-- **doc comments**: `---` prefix with `@param` and `@return` tags
-- **naming**: the charter is [D20](docs/decisions/d20-naming-charter.md); a
-  deviation in new code is a bug. Headlines: `snake_case` spelled out, units in the
-  identifier (`_ms`), `is_*` predicates, `Options`/`opts`, lowercase constructors.
-- **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check fmt`
-- **column width**: 90 columns is house style and the one style rule that is NOT a
-  gate (the tree has ~800 lines over it). Write to 90; expect no failure if you don't.
-- **warnings are errors**: `--check types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
-- **file length**: all files must be ≤500 lines. no exceptions. enforced
-  by `cosmic --check lint`, which is what both `--make lint` and
-  `cosmic --make lint` run. `.d.tl` type declaration files are exempt
-  (they describe C binding interfaces and cannot be split due to Teal's
-  record system).
-- **a test runs because the toolchain found it, not because its file
-  called it**: a top-level `local function test_*` in a `_test.tl` IS
-  the enrolment — the compile seam appends a generated tail that calls
-  every case in source order
-  ([D29](docs/decisions/d29-tests-run-because-defined.md)). Write new
-  test files in runner mode: define `test_*` functions and call none
-  of them. Self-calling a test right below its own `end` is the legacy
-  mode; it is on its way out (3IOCdvXF), and mixing the two shapes in
-  one file is a lint failure today. Helpers are exempt (they are
-  called from the tests), and `Example_*` functions are called by the
-  example runner.
-- **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
-- **tests**: `*_test.tl` files alongside source, run via `cosmic --make test`
-- **examples**: `*_example.tl` files with `Example_*` functions, run via `cosmic --make example`
+- **source language**: Teal (`.tl`) — typed Lua compiled to Lua 5.4
+- **error handling**: return `value, string` (nil + message on failure); never throw from library code
+- **doc comments**: `---` prefix with `@param`/`@return` tags
+- **naming**: charter is [D20](docs/decisions/d20-naming-charter.md), a deviation in new code is a bug — `snake_case` spelled out, units in the identifier (`_ms`), `is_*` predicates, `Options`/`opts`, lowercase constructors
+- **formatting**: 2-space indent, LF endings, enforced by `cosmic --check fmt`
+- **column width**: 90 is house style and the one rule that is NOT a gate; write to it, expect no failure if you don't
+- **warnings are errors**: `--check types` fails on any Teal warning; mark deliberate non-use with a leading underscore (`local _out`, `_self: Poller`)
+- **file length**: ≤500 lines, no exceptions, enforced by `cosmic --check lint` (`--make lint` runs it too); `.d.tl` files are exempt — C binding interfaces Teal's record system cannot split ([D39](docs/decisions/d39-no-prose-exemption-from-the-file-cap.md))
+- **tests are enrolled by being defined, not by being called**: a top-level `local function test_*` in a `_test.tl` IS the enrolment — the compile seam calls every case in source order ([D29](docs/decisions/d29-tests-run-because-defined.md)); write new files in runner mode, the legacy self-calling shape is on its way out
+- **imports**: prefer `cosmic.*` over raw `cosmo.*`; `cosmo.*` is for library internals implementing wrappers
+- **tests**: `*_test.tl` alongside source, run via `cosmic --make test`
+- **examples**: `*_example.tl` with `Example_*` functions, run via `cosmic --make example`
 
 ### cosmo vs cosmic
 
-`cosmo` and `cosmo.*` (e.g. `cosmo.unix`, `cosmo.path`) are low-level C bindings from Cosmopolitan Libc. `cosmic.*` modules are the typed Teal wrappers with error handling and docs.
+`cosmo` and `cosmo.*` (`cosmo.unix`, `cosmo.path`, ...) are low-level C
+bindings from Cosmopolitan Libc; `cosmic.*` modules are the typed Teal
+wrappers with error handling and docs.
 
-- **library internals** (`cosmic/*.tl`): use `cosmo.*` to implement wrappers. this is the one place `require("cosmo")` is expected.
-- **examples, tests, scripts** (`*_example.tl`, `*_test.tl`, user scripts): always use `cosmic.*`. never call `cosmo.*` directly.
-
-common mappings:
-
-| cosmo | cosmic |
-|-------|--------|
-| `cosmo.Barf(path, data)` | `require("cosmic.fs").write(path, data)` |
-| `cosmo.Slurp(path)` | `require("cosmic.fs").read(path)` |
-| `cosmo.path.join(...)` | `require("cosmic.fs").join(...)` |
-| `cosmo.path.isfile(p)` | `require("cosmic.fs").is_file(p)` |
-| `cosmo.unix.mkdtemp(t)` | `require("cosmic.fs").temp_dir(t)` |
-| `cosmo.unix.rmrf(p)` | `require("cosmic.fs").remove_all(p)` |
-| `cosmo.unix.makedirs(p)` | `require("cosmic.fs").make_dirs(p)` |
-| `cosmo.unix.chmod(p, m)` | `require("cosmic.fs").set_mode(p, m)` |
-| `cosmo.DecodeJson(s)` | `require("cosmic.json").decode(s)` |
-| `cosmo.EncodeJson(v)` | `require("cosmic.json").encode(v)` |
-| `cosmo.Fetch(url, opts)` | `require("cosmic.fetch").fetch(url, opts)` |
+- **library internals** (`cosmic/*.tl`): use `cosmo.*` to implement wrappers — the one place `require("cosmo")` is expected.
+- **examples, tests, scripts**: always use `cosmic.*`, never `cosmo.*` directly — e.g. `cosmo.Barf`/`cosmo.Slurp` are `cosmic.fs`'s `write`/`read`; `cosmic --docs <module>` serves the full mapping for every wrapper.
 
 ### Common Patterns
 
-**dual-use modules with `is_main()`**: use `require("cosmic.proc").is_main()` to write files that work both as standalone scripts and as importable modules. prefer `cosmic.proc.is_main()` over the low-level `cosmo.is_main()`.
-
-```teal
-local proc = require("cosmic.proc")
-local function greet(name: string): string
-  return "hello, " .. name
-end
-if proc.is_main() then
-  print(greet(arg[1] or "world"))
-end
-return {greet = greet}
-```
+**dual-use modules with `is_main()`**: `require("cosmic.proc").is_main()` writes a file that works as both a standalone script and an importable module; prefer it over the low-level `cosmo.is_main()`. Worked example: `cosmic --docs guide`.
 
 ### Error Handling Patterns
 
@@ -161,95 +119,32 @@ doctrine prose is [docs/stdlib.md](docs/stdlib.md). the shape rules:
 - **Fallible effect**: `boolean, string` (returns `false, msg` on failure).
 - **Infallible**: bare value.
 
-Errors are strings by default: failed `cosmo.unix` calls return `nil, err,
-errno` (a formatted string plus the numeric errno), wrappers add context with
-`errno.format(err, prefix)`, and branch on the numeric errno via
-`errno.is_code(errno_value, "EINTR")`. A module whose failures carry real
-structure returns **its own concrete error record** in slot 2 instead
-([D24](docs/decisions/d24-structured-failures.md)): `fetch.fetch` returns
-`Response | nil, fetch.Error`, where `record Error is Failure` adds a typed
-`kind` field. Classify by FIELD (`err.kind == "timeout"`), never by `is` on a
-concrete record (unsound — `is` only sees "table"); render with
-`tostring(err)` (`"<kind>: <detail>"`) or read the clean `.message` — `..` on
-an error record is a deliberate compile error. `cosmic.errors.Failure` is the
-one sink-side supertype (`check.must` accepts `string | Failure`); a module
-carrying another module's structured failure translates it into its own error
-type at the boundary.
+Errors are strings by default (`nil, err, errno` from `cosmo.unix`, formatted
+via `errno.format`, branched via `errno.is_code`). A module whose failures
+carry structure returns **its own concrete error record** in slot 2 instead
+([D24](docs/decisions/d24-structured-failures.md)) — classify by FIELD, never
+`is` (unsound); render with `tostring(err)` or `.message`.
+`cosmic.errors.Failure` is the one sink-side supertype (`check.must` accepts
+`string | Failure`).
 
-**Narrowing nil unions.** A guard on a plain variable narrows `T | nil` for every
-`T`: truthiness (`if not r then return end`), `assert(r)`, `r and r.field`, and
-`== nil`/`~= nil` —
-which is exact, so it narrows boolean unions the other two deliberately skip — via
-the carried tl patch (`3p/tl/tl_patch/`; mechanism in `_make/patch.tl`). The same
-patch makes `assert` narrow as an EXPRESSION, so `local db =
-assert(sqlite.open(p))` is a plain `Database` — the primitive a Lua programmer
-reaches for works, with no cosmic-specific combinator in the way. An early-exit
-guard narrows below itself whenever its branch cannot fall through, which is more
-than `return`: `break`, `goto`, `error(...)` and `os.exit(...)` all end it. Every arm
-of a disjunctive guard (`if x == nil or x == "" then return end`) is false below it,
-so the nil arm narrows there. `r and r.field` carries the same fact in value
-position, not only inside an `if`. And `x or fallback` is the plain type when the
-fallback cannot be nil — two nil-carrying operands stay a union. What
-still does NOT narrow: record FIELDS (copy the field to a local and guard the
-local). And what the checker never DEMANDS: an unnarrowed `T | nil` passes into a
-non-nil parameter, a declared non-nil local, arithmetic and concatenation —
-only an index refuses it, so an unguarded union becomes a runtime nil
-downstream (pinned in `cosmic/teal_narrowing_test.tl`). The other tools:
+**A fallible return has TWO slots**, nothing in a third — enforced by the
+`fallible-returns` lint, settled as [D20](docs/decisions/d20-naming-charter.md)
+rule 11. Extras ride on the value's record (`fs.find`'s `.errors`); a
+`cosmo.*` binding's tuple is exempt by position (already in the `.d.tl`).
 
-- **In tests and examples, use `check.must`** for fallible returns: `local db =
-  check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua
-  passes multiple returns through, so a failing call reports the callee's own error
-  string. `must` narrows nil only (`false` passes through), and it throws, so it is for
-  tests/examples, never library code. Like `assert`, it declares ONE return, so it
-  composes anywhere a value goes — `return check.must(f())`, `g(x, check.must(f()))`,
-  `for row in check.must(db:query(sql))` — with no parenthesis-truncation. Never write
-  `assert(x) as T` in a test — `check.must` replaces it.
-- **Use `is` for dispatch past nil**: `if sock is net.Socket then sock:send(...)
-  end` narrows inside the positive branch (one `type(x) == "table"` check); also
-  dispatch over `any` (`if v is {string: any} then`). A record whose runtime
-  values are userdata needs Teal's `userdata` member in its OWN source (see
-  re.tl's Regex) — then `is` compiles to a `type(x) == "userdata"` test
-  everywhere (`fs.Stat` is one, so `st is fs.Stat` narrows). `is` works
-  with required `cosmo.*` classes too — the cosmic searcher is the only loader
-  cosmic installs, and it resolves `.d.tl` markers. The one unsupported path is
-  user code calling `require("tl").loader()`, which shadows it with tl's silent one.
-- **Cast in linear code and at userdata boundaries**: after an assert, `(x as Rec).field`, `(x as {K:V})[k]`.
-
-Every `as` cast must carry a justification (enforced by `--make lint`):
-a line containing a cast needs `-- cast: <reason>` trailing on the line,
-or as a comment on the line directly above when the 90-column width
-won't fit it. Write the actual reason (`from any`, `userdata boundary`,
-`tuple element`, `record union after guard`, ...) — a cast you cannot
-justify is one to remove, via `is`, `check.must`, or a precise type.
-
-**A fallible return has TWO slots.** If slot 1 admits nil (`T | nil`, or
-`any`), slot 2 is the error and there is nothing after it — enforced by the
-`fallible-returns` lint, in every project cosmic builds, and settled as
-[D20](docs/decisions/d20-naming-charter.md) rule 11. Extras ride on the value's
-record (`fs.find`'s `.errors`, `sqlite`'s `Checkout`), never in slot 3, because
-`local v, err = f()` and `check.must(f())` are the only two call shapes anyone
-writes and neither can see past the second. An infallible tuple is untouched
-(`string.partition` returns three strings and none of them could be an error).
-A `cosmo.*` binding's tuple is not ours to fold — but it is already declared in
-the generated `.d.tl`, which lint exempts by position, so name that type instead
-of retyping its shape. Full rule: `cosmic --docs guide.lint`.
-
-**`find` says whether it means a pattern.** A variable needle in
-`s:find(x)` needs `, 1, true` (substring) or `, 1, false` (real
-pattern) — the `find-needle` lint asks which you meant, and
-`cosmic --docs guide.lint` (its shipped home) has the full rule,
-including the `match`/`gmatch`/`gsub` corollary.
+Narrowing a `T | nil`, `check.must`, `is`, and cast justification are worked
+in `cosmic --docs guide.checking` and `guide.gotchas`; `cast-justify` and
+`find-needle` are lint rules documented in `guide.lint`;
+[docs/stdlib.md](docs/stdlib.md) carries the doctrine.
 
 rules:
-- never throw from library code — three shapes are exempt
-  ([D23](docs/decisions/d23-check-throws.md)): `cosmic.check`'s assertions and
-  its `needs`/`reap` exits, the CSPRNG's throw-on-failure, and an `assert` on a
-  `cosmo.*` return whose declared `| nil` cannot occur for the arguments that
-  call passes — which carries a trailing `-- assert: <why>` naming the reason —
-  plus [D30](docs/decisions/d30-throw-exit-boundaries.md)'s three: a Lua
-  protocol whose error channel is the throw, a process boundary with no caller,
-  and an infallible-by-type contract violation — each site carrying a trailing
-  `-- throws: <why>` / `-- exits: <why>` naming the reason
+- never throw from library code — exempt: `cosmic.check`'s assertions and
+  `needs`/`reap` exits, the CSPRNG's throw-on-failure, a justified `assert`
+  on an impossible `cosmo.*` nil ([D23](docs/decisions/d23-check-throws.md)),
+  and D30's three boundaries — a Lua protocol whose error channel is the
+  throw, a process boundary with no caller, an infallible-by-type contract
+  violation ([D30](docs/decisions/d30-throw-exit-boundaries.md)); each site
+  carries a trailing `-- assert:`/`-- throws:`/`-- exits: <why>`
 - never silently discard errors
 - be consistent within a module — pick one pattern and use it throughout
 - infallible functions (encoding, compression, escaping) return just a value

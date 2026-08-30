@@ -73,3 +73,4 @@ build when the committed copy drifts.
 | D36 | a disagreeing baseline pair earns a third reading and is judged by the median | active | [→](d36-baseline-tiebreak-third-reading.md) |
 | D37 | the board holds two states; quality is two gates, not stages | amended 2026-08 | [→](d37-two-states-two-gates.md) |
 | D38 | main lands through a GitHub merge queue; board keeps merge-at-accept | amended 2026-08 (gate/* mirror retired) | [→](d38-merge-queue-on-main.md) |
+| D39 | no prose exemption from the file cap; reclaim before you split | active | [→](d39-no-prose-exemption-from-the-file-cap.md) |
