@@ -36,26 +36,26 @@ end
 
 local function test_normalize_maps_compiled_artifact_to_source()
   -- cosmic/codec.tl exists in the repo, so its compiled artifact maps
-  local display = report.normalize("@o/cosmic/codec.lua", "")
+  local display = report.normalize("@o/cosmic/codec.lua", "", {})
   assert(display == "cosmic/codec.tl", "got: " .. tostring(display))
 end
 
 local function test_normalize_strips_cwd_prefix()
   local cwd = check.must(fs.cwd(), "cwd failed")
-  local display = report.normalize("@" .. cwd .. "/o/cosmic/codec.lua", cwd)
+  local display = report.normalize("@" .. cwd .. "/o/cosmic/codec.lua", cwd, {})
   assert(display == "cosmic/codec.tl", "got: " .. tostring(display))
   -- a ./-prefixed spelling of the same chunk must merge into the same row
-  local dotted = report.normalize("@./o/cosmic/codec.lua", cwd)
+  local dotted = report.normalize("@./o/cosmic/codec.lua", cwd, {})
   assert(dotted == "cosmic/codec.tl", "got: " .. tostring(dotted))
 end
 
 local function test_normalize_skips_non_files_and_foreign_paths()
-  assert(report.normalize("=stdin", "") == nil, "non-file chunk must skip")
-  assert(report.normalize("@/zip/cosmic/no_such_module.lua", "") == nil,
+  assert(report.normalize("=stdin", "", {}) == nil, "non-file chunk must skip")
+  assert(report.normalize("@/zip/cosmic/no_such_module.lua", "", {}) == nil,
     "an embedded module with no source in this tree must skip")
-  assert(report.normalize("@o/cosmic/codec_test.lua", "") == nil,
+  assert(report.normalize("@o/cosmic/codec_test.lua", "", {}) == nil,
     "test files must skip")
-  assert(report.normalize("@o/cosmic/no_such_module.lua", "") == nil,
+  assert(report.normalize("@o/cosmic/no_such_module.lua", "", {}) == nil,
     "artifact without a .tl source must skip")
 end
 
@@ -63,9 +63,9 @@ end
 -- executes `/zip/cosmic/fs.lua`, whose source is `cosmic/fs/init.tl`.
 -- Mapping only the leaf spelling attributed nothing to any of them.
 local function test_normalize_maps_embedded_directory_modules()
-  assert(report.normalize("@/zip/cosmic/url.lua", "") == "cosmic/url.tl",
+  assert(report.normalize("@/zip/cosmic/url.lua", "", {}) == "cosmic/url.tl",
     "a leaf module maps to its own source")
-  assert(report.normalize("@/zip/cosmic/fs.lua", "") == "cosmic/fs/init.tl",
+  assert(report.normalize("@/zip/cosmic/fs.lua", "", {}) == "cosmic/fs/init.tl",
     "a directory module maps to its init.tl")
 end
 
@@ -76,7 +76,7 @@ local function test_normalize_maps_lua_only_source_with_no_tl()
   local saved = check.must(fs.cwd(), "cwd failed")
   assert(fs.write(fs.join(tmpdir, "greet.lua"), "print('hi')\n"))
   assert(fs.set_cwd(tmpdir))
-  local display = report.normalize("@o/greet.lua", "")
+  local display = report.normalize("@o/greet.lua", "", {})
   assert(fs.set_cwd(saved))
   assert(display == "greet.lua", "got: " .. tostring(display))
 end
@@ -87,11 +87,80 @@ local function test_normalize_accepts_existing_tl_script()
   local saved = check.must(fs.cwd(), "cwd failed")
   assert(fs.write(fs.join(tmpdir, "direct.tl"), "local x = 1\nreturn x\n"))
   assert(fs.set_cwd(tmpdir))
-  local display = report.normalize("@direct.tl", "")
-  local abs_display = report.normalize("@" .. fs.join(tmpdir, "direct.tl"), tmpdir)
+  local display = report.normalize("@direct.tl", "", {})
+  local abs_display = report.normalize("@" .. fs.join(tmpdir, "direct.tl"), tmpdir, {})
   assert(fs.set_cwd(saved))
   assert(display == "direct.tl", "got: " .. tostring(display))
   assert(abs_display == "direct.tl", "got: " .. tostring(abs_display))
+end
+
+-- .cosmicignore-derived exclusions (compute reads the scanned root's own
+-- .cosmicignore, so a project need not also hand-maintain the exclusion
+-- here — see _make/project.tl's read_ignore/is_ignored).
+
+--- Whether a computed report carries a row for the given display path.
+--- @param reports {report.FileReport} Results from report.compute
+--- @param display string The path to look for
+--- @return boolean
+local function has_row(reports: {report.FileReport}, display: string): boolean
+  for _, r in ipairs(reports) do
+    if r.display == display then
+      return true
+    end
+  end
+  return false
+end
+
+--- Build a fixture tree with a `keep.tl`, an `excluded_dir/x.tl`, a
+--- `testdata/y.tl`, and one empty .cov file (so compute has data to
+--- report on), then compute a report against it with `cwd` set to the
+--- fixture root. `ignore` is the `.cosmicignore` body, or nil to omit
+--- the file entirely.
+--- @param name string A distinct fixture directory name
+--- @param ignore string | nil The `.cosmicignore` body, or nil to omit it
+--- @return {report.FileReport} Sorted results
+local function compute_with_ignore(name: string, ignore: string | nil): {report.FileReport}
+  local root = fs.join(tmpdir, name)
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(fs.join(root, "excluded_dir")))
+  assert(fs.make_dirs(fs.join(root, "testdata")))
+  assert(fs.write(fs.join(root, "keep.tl"), "return 1\n"))
+  assert(fs.write(fs.join(root, "excluded_dir", "x.tl"), "return 1\n"))
+  assert(fs.write(fs.join(root, "testdata", "y.tl"), "return 1\n"))
+  assert(fs.write(fs.join(root, "data.cov"), cov_body("{version = 1, hits = {}}")))
+  if ignore then
+    assert(fs.write(fs.join(root, ".cosmicignore"), ignore))
+  end
+  local saved = check.must(fs.cwd(), "cwd failed")
+  assert(fs.set_cwd(root))
+  local reports, err = report.compute({"."})
+  assert(fs.set_cwd(saved))
+  return check.must(reports, tostring(err))
+end
+
+local function test_cosmicignore_named_subdir_is_excluded()
+  local reports = compute_with_ignore("cosmicignore_excluded", "excluded_dir/\n")
+  assert(has_row(reports, "keep.tl"), "keep.tl must still be reported")
+  assert(not has_row(reports, "excluded_dir/x.tl"),
+    "a .cosmicignore-named subdir must be excluded")
+end
+
+local function test_without_cosmicignore_subdir_is_included()
+  local reports = compute_with_ignore("cosmicignore_absent", nil)
+  assert(has_row(reports, "keep.tl"), "keep.tl must be reported")
+  assert(has_row(reports, "excluded_dir/x.tl"),
+    "with no .cosmicignore, the subdir must be reported")
+end
+
+local function test_testdata_excluded_regardless_of_cosmicignore()
+  -- testdata/ is coverage doctrine, not project configuration: it stays
+  -- excluded whether or not a .cosmicignore exists, and whether or not
+  -- it names testdata/ itself.
+  for _, ignore in ipairs({nil, "excluded_dir/\n"}) do
+    local reports = compute_with_ignore("cosmicignore_testdata", ignore)
+    assert(not has_row(reports, "testdata/y.tl"),
+      "testdata/ must stay excluded regardless of .cosmicignore")
+  end
 end
 
 -- read_cov

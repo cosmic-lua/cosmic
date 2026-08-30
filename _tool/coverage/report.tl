@@ -7,6 +7,7 @@
 local fs = require("cosmic.fs")
 local shape = require("cosmic.shape")
 local cov_lines = require("_tool.coverage.lines")
+local project = require("_make.project")
 
 --- A .cov file as the collector writes it: hit counts per chunk
 --- source, keyed by line. The line keys are sparse — only executed
@@ -46,18 +47,22 @@ end
 --- project's code at all — it holds fixtures, which for `cosmic --make`
 --- are whole little projects with their own roots. Measuring their
 --- coverage would report on a program this repo does not ship.
+---
+--- `patterns` (the scanned root's `.cosmicignore`) is checked one path
+--- segment at a time, so an ignored ancestor directory excludes it too.
 --- @param path string A source path
+--- @param patterns {string} The scanned root's `.cosmicignore`
 --- @return boolean
-local function is_excluded(path: string): boolean
+local function is_excluded(path: string, patterns: {string}): boolean
   if path:find("/testdata/", 1, true) or path:sub(1, 9) == "testdata/" then
     return true
   end
-  -- The work board's item files (items/<ksuid>.tl on the `board`
-  -- branch, whose checkouts this binary operates on) are literal data
-  -- like pins — read by cosmic.literal, never executed — so the report
-  -- excludes them by position wherever such a checkout sits.
-  if path:find("/items/", 1, true) or path:sub(1, 6) == "items/" then
-    return true
+  local prefix = ""
+  for _, seg in ipairs(project.segments(path)) do
+    prefix = prefix == "" and seg or (prefix .. "/" .. seg)
+    if project.is_ignored(patterns, prefix, seg) then
+      return true
+    end
   end
   if path:match("_test%.tl$") or path:match("_test%.lua$") then
     return true
@@ -120,8 +125,9 @@ end
 --- own /zip modules), and excluded files.
 --- @param src string A chunk source as recorded by the collector (e.g. "@o/lib/x.lua")
 --- @param cwd string The working directory to relativize against
+--- @param patterns {string} Patterns from the scanned root's `.cosmicignore`
 --- @return string | nil The display path, or nil to skip this chunk
-local function normalize(src: string, cwd: string): string | nil
+local function normalize(src: string, cwd: string, patterns: {string}): string | nil
   if src:sub(1, 1) ~= "@" then
     return nil
   end
@@ -149,7 +155,7 @@ local function normalize(src: string, cwd: string): string | nil
     -- in at zero: the same "ratchet holds nothing" failure the mapping
     -- above exists to fix, for 14 of this repo's own modules.
     for _, source in ipairs({zipped .. ".tl", zipped .. "/init.tl"}) do
-      if not is_excluded(source) and fs.is_file(source) then
+      if not is_excluded(source, patterns) and fs.is_file(source) then
         return source
       end
     end
@@ -158,7 +164,7 @@ local function normalize(src: string, cwd: string): string | nil
   if p:sub(1, 1) == "/" then
     return nil
   end
-  if is_excluded(p) then
+  if is_excluded(p, patterns) then
     return nil
   end
   if p:match("^o/") and p:match("%.lua$") then
@@ -171,7 +177,7 @@ local function normalize(src: string, cwd: string): string | nil
     local rel = p:sub(3)
     local tl_path = rel:gsub("%.lua$", ".tl")
     for _, source in ipairs({tl_path, rel}) do
-      if not is_excluded(source) and fs.is_file(source) then
+      if not is_excluded(source, patterns) and fs.is_file(source) then
         return source
       end
     end
@@ -189,7 +195,9 @@ end
 --- @param dir string Directory to scan recursively
 --- @param cov_files {string} Collects .cov file paths
 --- @param src_files {string} Collects .tl source paths
-local function scan_dir(dir: string, cov_files: {string}, src_files: {string})
+--- @param patterns {string} The scanned root's `.cosmicignore`
+local function scan_dir(dir: string, cov_files: {string},
+    src_files: {string}, patterns: {string})
   local _ok, _err = fs.visit(dir, function(e: fs.Entry, _ctx: {boolean})
       local path = e.path
       if e.stat:is_dir() then
@@ -205,7 +213,7 @@ local function scan_dir(dir: string, cov_files: {string}, src_files: {string})
       end
       if path:match("%.cov$") then
         cov_files[#cov_files + 1] = path
-      elseif path:match("%.tl$") and not is_excluded(path) then
+      elseif path:match("%.tl$") and not is_excluded(path, patterns) then
         src_files[#src_files + 1] = path
       end
     end, {})
@@ -402,11 +410,13 @@ end
 --- @return {FileReport} | nil Sorted results, or nil when no coverage data was found
 --- @return string? Error message when no data was found
 local function compute(paths: {string}): {FileReport} | nil, string
+  local cwd = fs.cwd() or ""
+  local patterns = project.read_ignore(cwd)
   local cov_files: {string} = {}
   local src_files: {string} = {}
   for _, p in ipairs(paths) do
     if fs.is_dir(p) then
-      scan_dir(p, cov_files, src_files)
+      scan_dir(p, cov_files, src_files, patterns)
     elseif p:match("%.cov$") then
       cov_files[#cov_files + 1] = p
     else
@@ -427,7 +437,6 @@ local function compute(paths: {string}): {FileReport} | nil, string
   -- dumps missing is the second.
   io.stderr:write(string.format("coverage: read %d .cov files\n", #cov_files))
 
-  local cwd = fs.cwd() or ""
   local entries: {string: FileEntry} = {}
   for _, path in ipairs(cov_files) do
     local hits, err = read_cov(path)
@@ -435,7 +444,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
       io.stderr:write("coverage: " .. path .. ": " .. (err or "unreadable") .. "\n")
     else
       for src, lines in pairs(hits) do
-        local display = normalize(src, cwd)
+        local display = normalize(src, cwd, patterns)
         if display then
           merge_hits(entries, display, lines)
         end
@@ -475,7 +484,7 @@ local record ReportModule
   type FileReport = FileReport
   report: function(paths: {string}): integer
   compute: function(paths: {string}): {FileReport} | nil, string
-  normalize: function(src: string, cwd: string): string | nil
+  normalize: function(src: string, cwd: string, patterns: {string}): string | nil
   format_ranges: function(lines: {integer}, max_ranges: integer): string
   read_cov: function(path: string): {string: {integer: integer}} | nil, string
 end

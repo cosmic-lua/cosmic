@@ -464,6 +464,8 @@ local record ProjectModule
   segments: function(rel: string): {string}
   paths_of: function(files: {File}): {string}
   source_dirs: function(proj: Project): {string}
+  read_ignore: function(root: string): {string}
+  is_ignored: function(patterns: {string}, rel: string, name: string): boolean
 end
 
 local M: ProjectModule = {
@@ -482,6 +484,8 @@ local M: ProjectModule = {
   segments = segments,
   paths_of = paths_of,
   source_dirs = source_dirs,
+  read_ignore = read_ignore,
+  is_ignored = is_ignored,
 }
 
 return M
