@@ -53,19 +53,47 @@ Both are comfortably under the cap. `cosmic/format/` already holds
 sibling test files (`types_test.tl`, `literal_format_test.tl`), so a
 second one is the established shape.
 
-**Duplicate the three helpers** (`assert_format`,
-`assert_format_fails`, `assert_idempotent`, lines 7-34) into the new
-file rather than extracting them. Position is the manifest: a shared
-`cosmic/format/testhelp.tl` would be `cosmic.format.testhelp` — public
-API — for three four-line test helpers. Duplication is the cheaper
-wrong.
+**Duplicate only the helpers each file actually calls — not all three,
+verbatim, unconditionally.** This corrects a bounce measured on this
+item 2026-08-30: `assert_format_fails` is called exactly once in the
+whole file (line 44, inside `-- Test syntax error rejection`, a
+GENERAL block — it stays in `init_test.tl`, never moves to
+`regressions_test.tl`):
+
+```
+$ grep -n "assert_format_fails(" cosmic/format/init_test.tl
+17:local function assert_format_fails(input: string, msg: string, filename?: string)
+44:assert_format_fails("if if if\n", "should reject syntax errors")
+```
+
+and none of the 29 `-- Bug` blocks call it:
+
+```
+$ awk '/^-- Bug/{p=1} /^-- Test/{p=0} p' cosmic/format/init_test.tl | grep -c "assert_format_fails("
+0
+```
+
+So `cosmic/format/regressions_test.tl` duplicates only the two helpers
+its own blocks call — `assert_format` and `assert_idempotent` (both
+used inside the `-- Bug` blocks) — from lines 7-16 and 25-34 of the
+original file. It does NOT duplicate `assert_format_fails`; that
+helper (lines 17-24) stays solely in `cosmic/format/init_test.tl`,
+which keeps calling it at its one call site. Position is the manifest:
+a shared `cosmic/format/testhelp.tl` would be `cosmic.format.testhelp`
+— public API — for test helpers used by only two files, so duplication
+(of exactly what each file needs) is still the cheaper wrong; this is
+the same precedent `cosmic/format/types_test.tl` already sets, which
+duplicates only the one helper (`assert_format`) it needs rather than
+all three from `init_test.tl`.
 
 **Delete the trailing `print("All format tests passed!")`** (line 425).
 Under runner mode it would fire at module load, before any case runs,
 asserting something not yet true; the runner's own summary is what
 reports. This is the same defect as item 3IcH4Snp, which names three
 other files — this one instance rides along here because this item
-rewrites the file wholesale; do not touch 3IcH4Snp's three.
+rewrites the file wholesale; do not touch 3IcH4Snp's three
+(`cosmic/fs/times_test.tl`, `cosmic/format/types_test.tl`,
+`cosmic/format/literal_format_test.tl` — leave those alone).
 
 **No other file in the tree needs this.** Swept 2026-08-30 at 45f56e81
 for `*_test.tl` with zero `local function test_` definitions: the only
@@ -75,14 +103,17 @@ not tests. So this item closes the class.
 
 ## Non-goals
 
-No assertion changes: every `assert_format`/`assert_idempotent` call
-keeps its input, expected output and message byte-identical, and the
-total assertion count must not move. No formatter behaviour change, and
-no change to `cosmic/format/init.tl`, `rules.tl` or `types.tl`. No
-change to `_tool/discover.tl`'s classification rules as a way of
-dodging the question. No renames of the three helpers. No reflow of
-assertion bodies beyond the indent their new enclosing function
-requires.
+No assertion changes: every `assert_format`/`assert_format_fails`/`assert_idempotent`
+call keeps its input, expected output and message byte-identical, and
+the total assertion count must not move. No formatter behaviour
+change, and no change to `cosmic/format/init.tl`, `rules.tl` or
+`types.tl`. No change to `_tool/discover.tl`'s classification rules as
+a way of dodging the question. No renames of `assert_format` or
+`assert_idempotent` in either file, and no reference (silencing or
+otherwise) to `assert_format_fails` in `regressions_test.tl` — it is
+simply absent from that file, matching the precedent that a file
+duplicates only what it calls. No reflow of assertion bodies beyond
+the indent their new enclosing function requires.
 
 ## Acceptance
 
@@ -93,6 +124,8 @@ requires.
   and the same on `cosmic/format/regressions_test.tl` → `29`.
 - No self-calls: `grep -c '^test_[A-Za-z0-9_]*()$'` → `0` in both.
 - Both files are ≤500 lines (`wc -l`), which `--check lint` also gates.
+- `grep -c 'local function assert_format_fails' cosmic/format/regressions_test.tl`
+  → `0` (it must not be duplicated there).
 - The assertion count is preserved: the sum of
   `grep -cE '^\s*assert_(format|format_fails|idempotent)\('` across the
   two files equals the count on `origin/main`'s single file.
