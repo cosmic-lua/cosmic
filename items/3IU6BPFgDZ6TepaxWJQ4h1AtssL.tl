@@ -6,6 +6,8 @@ return {
   ["id"] = "3IU6BPFgDZ6TepaxWJQ4h1AtssL",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
   ["pr"] = 1560,
-  ["reviewer"] = "review-4h1AtssL-1788061235",
   ["title"] = "migrate to runner mode, batch 5/7: cosmic/*_test.tl, _literal_format through hash",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "70733d711acf61e5ea2f653afa506d629aec62a1",
+  ["verdict_spec"] = "5f4ff83660fe8ca04a1ba1d91f0fe8c76056d5a08b2c7ddbf6f791adf1ff83f4",
 }
