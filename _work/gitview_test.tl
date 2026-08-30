@@ -167,6 +167,28 @@ local function test_status_omits_the_lanes_row_when_unsynced()
 end
 test_status_omits_the_lanes_row_when_unsynced()
 
+-- A flagged record `list` read past rather than aborting on gets ONE
+-- board-level summary line beside `lanes`/`todo`, not a per-item mark
+-- lost among many — and a clean board prints no such line at all.
+local function test_status_prints_one_summary_line_for_flagged_items()
+  local items = board_items()
+  local bad = check.must(item.decode({id = fresh_id(),
+        title = "broken\ntitle", parent = CONTAINER}))
+  items[#items + 1] = bad
+  local lines = view.status_report(items, full_specs())
+  assert(has(lines, "^1 unreadable/flagged: " .. lit(bad.id:sub(1, 8))
+      .. " \u{2014} title must be one line"),
+    "one summary line names the flagged record: "
+    .. table.concat(lines, "\n"))
+
+  local clean_lines = view.status_report(board_items(), full_specs())
+  for _, line in ipairs(clean_lines) do
+    assert(not line:match("unreadable/flagged"),
+      "no flagged records, no summary line: " .. line)
+  end
+end
+test_status_prints_one_summary_line_for_flagged_items()
+
 local function test_next_names_one_action_and_its_rule()
   local report = view.next_report(board_items(), full_specs())
   assert(report:find("review", 1, true)

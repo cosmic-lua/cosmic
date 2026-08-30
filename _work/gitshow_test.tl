@@ -171,6 +171,23 @@ test_show_separates_binding_blockers_from_cleared_ones()
 -- and `show` is what a re-reviewer reads to decide whether there is
 -- anything new to see. A rework answering a bounce on the spec moves
 -- the sidecar and no commit, so the head alone cannot answer it.
+-- A flagged item's `decode_problems` print beside the bar problems —
+-- `decode`'s own tolerance snapshot, not something a session has to go
+-- looking for elsewhere. A clean item prints no `flagged:` line at all.
+local function test_show_prints_a_flagged_items_decode_problems()
+  local all = a_board()
+  local flagged = check.must(item.decode({id = next_id(),
+        title = "broken\ntitle", parent = UNDER}))
+  all[#all + 1] = flagged
+  local lines = show.show_report(flagged, all, "", {}, {})
+  assert(matched(lines, "^flagged: title must be one line"),
+    table.concat(lines, "\n"))
+
+  local clean = show.show_report(all[4], all, "", {}, {})
+  assert(not matched(clean, "^flagged:"), "no problems, no flagged lines")
+end
+test_show_prints_a_flagged_items_decode_problems()
+
 local function test_show_says_whether_the_spec_moved_since_the_verdict()
   local all = a_board()
   local judged = spec.revision(SIDECAR)

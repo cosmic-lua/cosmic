@@ -141,6 +141,13 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
   for _, p in ipairs(problems) do
     out[#out + 1] = "bar: " .. p
   end
+  -- `decode`'s own tolerance snapshot, beside the bar problems: a
+  -- flagged record read past silently teaches nobody it needs repair,
+  -- so the read that shows everything else about the item shows this
+  -- too (`set --title` and friends fix it, but only once seen).
+  for _, p in ipairs(it.decode_problems or {}) do
+    out[#out + 1] = "flagged: " .. p
+  end
   if body ~= "" then
     out[#out + 1] = "--- spec ---"
     out[#out + 1] = (body:gsub("\n$", ""))
