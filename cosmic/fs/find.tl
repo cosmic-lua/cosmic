@@ -93,54 +93,6 @@ local function find_depth(opts?: FindOptions): integer
   return (opts and opts.max_depth) or 0
 end
 
---- Recursively collect paths under dir whose basename matches.
---- Slot 2 means the root failed; subtree failures ride on the result
---- as `found.errors`, never beside a non-nil result.
---- @param dir string The directory to search
---- @param opts FindOptions? Selection and depth options (default: all files)
---- @return Found | nil Matching paths (plus .errors), or nil if the root failed
---- @return string The root-open error when slot 1 is nil
-local function find(dir: string, opts?: FindOptions): Found | nil, string
-  local lua_pattern = find_pattern(opts)
-  local include_dirs = opts and opts.include_dirs
-  local results: Found = {}
-  local walked, fatal = fs_walk.visit(dir, function(e: Entry, acc: Found)
-      if (include_dirs or not e.stat:is_dir()) and e.name:match(lua_pattern) then
-        table.insert(acc, e.path)
-      end
-    end, results, {max_depth = find_depth(opts)})
-  if not walked then
-    return nil, fatal
-  end
-  if opts and opts.sorted then
-    table.sort(results)
-  end
-  results.errors = walked.errors
-  return results
-end
-
---- Recursively collect matching files with their FileInfo, keyed by
---- FULL path like every sibling. Directories are never included
---- (FileInfo describes regular files); selection and depth follow
---- FindOptions.
---- @param dir string The directory to search
---- @param opts FindOptions? Selection and depth options (default: all files)
---- @return FoundInfo | nil .files by full path (plus .errors), or nil if the root failed
---- @return string The root-open error when slot 1 is nil
-local function find_info(dir: string, opts?: FindOptions): FoundInfo | nil, string
-  local lua_pattern = find_pattern(opts)
-  local files: {string: FileInfo} = {}
-  local walked, fatal = fs_walk.visit(dir, function(e: Entry, acc: {string: FileInfo})
-      if e.stat:is_file() and e.name:match(lua_pattern) then
-        acc[e.path] = {mode = e.stat:mode() & 0x1ff}
-      end
-    end, files, {max_depth = find_depth(opts)})
-  if not walked then
-    return nil, fatal
-  end
-  return {files = files, errors = walked.errors}
-end
-
 --- Iterator over file paths, as returned by find_iter(). Callable:
 --- `for f in iter do ... end`. The second return is nil while paths
 --- remain; once the tree is exhausted every further call returns
@@ -300,6 +252,53 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
       __index = {close = close_all},
     })
   return iter
+end
+
+--- Recursively collect paths under dir whose basename matches, by
+--- draining find_iter(). Slot 2 means the root failed; subtree
+--- failures ride on the result as `found.errors`, never beside a
+--- non-nil result.
+--- @param dir string The directory to search
+--- @param opts FindOptions? Selection and depth options (default: all files)
+--- @return Found | nil Matching paths (plus .errors), or nil if the root failed
+--- @return string The root-open error when slot 1 is nil
+local function find(dir: string, opts?: FindOptions): Found | nil, string
+  local iter, ierr = find_iter(dir, opts)
+  if not iter then
+    return nil, ierr
+  end
+  local results: Found = {}
+  for p in iter do
+    table.insert(results, p)
+  end
+  local _, errs = iter()
+  if opts and opts.sorted then
+    table.sort(results)
+  end
+  results.errors = errs
+  return results
+end
+
+--- Recursively collect matching files with their FileInfo, keyed by
+--- FULL path like every sibling. Directories are never included
+--- (FileInfo describes regular files); selection and depth follow
+--- FindOptions.
+--- @param dir string The directory to search
+--- @param opts FindOptions? Selection and depth options (default: all files)
+--- @return FoundInfo | nil .files by full path (plus .errors), or nil if the root failed
+--- @return string The root-open error when slot 1 is nil
+local function find_info(dir: string, opts?: FindOptions): FoundInfo | nil, string
+  local lua_pattern = find_pattern(opts)
+  local files: {string: FileInfo} = {}
+  local walked, fatal = fs_walk.visit(dir, function(e: Entry, acc: {string: FileInfo})
+      if e.stat:is_file() and e.name:match(lua_pattern) then
+        acc[e.path] = {mode = e.stat:mode() & 0x1ff}
+      end
+    end, files, {max_depth = find_depth(opts)})
+  if not walked then
+    return nil, fatal
+  end
+  return {files = files, errors = walked.errors}
 end
 
 --- List entries in one directory whose name matches a glob component.

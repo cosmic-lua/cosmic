@@ -105,6 +105,26 @@ local function scenarios(): {pt.Scenario}, string
       end,
     },
     {
+      -- Exercises fs.find() itself (not find_iter directly): the scenario
+      -- the fs_walk_tree vs fs_files_tree gap was never gated on.
+      name = "fs_find_tree",
+      fn = function(_: any): any
+        local found = check.must(fs.find(tmpdir, {glob = "*.txt"}))
+        return #found
+      end,
+      check = function(_: any, res: any): boolean, string
+        if not (res is integer) then
+          return false, "fs_find_tree: result is not an integer"
+        end
+        local count = res
+        if count ~= DIRS * FILES_PER_DIR then
+          return false, string.format("found %s *.txt files, want %d",
+            tostring(count), DIRS * FILES_PER_DIR)
+        end
+        return true
+      end,
+    },
+    {
       name = "fs_barf_slurp_64k",
       fn = function(_: any): any
         local wok, werr = fs.write(blob_path, BLOB)
