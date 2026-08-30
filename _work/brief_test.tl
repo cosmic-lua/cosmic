@@ -49,6 +49,7 @@ local function test_fill_answers_only_what_the_map_holds()
   assert(#left == 1 and left[1] == "<TWO>",
     "lowercase brackets are prose, not placeholders")
 end
+test_fill_answers_only_what_the_map_holds()
 
 local function test_builder_brief_carries_the_item_and_names_the_rest()
   local s = init_state_repo("brief-builder")
@@ -69,6 +70,7 @@ local function test_builder_brief_carries_the_item_and_names_the_rest()
     and out:find("<WORKTREE>", #out - 400, true) ~= nil,
     "the verdict line names the survivors: " .. out:sub(#out - 200))
 end
+test_builder_brief_carries_the_item_and_names_the_rest()
 
 local function test_review_brief_needs_the_handover()
   local s = init_state_repo("brief-review")
@@ -86,6 +88,7 @@ local function test_review_brief_needs_the_handover()
   assert(out:find("<REVIEW_SESSION>", 1, true) ~= nil,
     "the minted review session stays the orchestrator's to fill")
 end
+test_review_brief_needs_the_handover()
 
 local function test_brief_refusals_and_the_spec_less_decompose()
   local s = init_state_repo("brief-refusals")
@@ -101,6 +104,7 @@ local function test_brief_refusals_and_the_spec_less_decompose()
   local it = check.must(store.load(s, leaf))
   assert(it.claim == "", "brief is a read: no claim moved")
 end
+test_brief_refusals_and_the_spec_less_decompose()
 
 local function test_refine_brief_carries_the_current_spec_as_base()
   local s = init_state_repo("brief-refine")
@@ -114,3 +118,4 @@ local function test_refine_brief_carries_the_current_spec_as_base()
   assert(out:find("<GAP>", 1, true) ~= nil,
     "the gap paragraph stays the orchestrator's to fill")
 end
+test_refine_brief_carries_the_current_spec_as_base()
