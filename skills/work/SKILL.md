@@ -167,9 +167,13 @@ mints one distinct name per agent it spawns.
 5. open the PR READY for review (not draft) with `Board: <id>` in
    the body, and record the PR number on the item. the body carries
    no evidence: CI proves the gate on the head mechanically, and a
-   pasted verdict line could only agree with the checks tab or lie.
-   run the gate locally before pushing — a red head burns a review
-   round — but the run is for you, not for the record.
+   pasted verdict line could only agree with the checks tab or lie —
+   this covers a spec's `## Acceptance` bullets too, if it has any:
+   reproducing their command output in the PR body is the same lie
+   in more words, and a builder who runs them to build confidence
+   does so in a scratch shell, never in what gets pushed to the
+   record. run the gate locally before pushing — a red head burns a
+   review round — but the run is for you, not for the record.
 6. rejoin the loop. never merge unreviewed work, and never accept
    your own: the verdict comes from a fresh-context review, however
    the loop routes you back to this item.
@@ -190,9 +194,16 @@ acceptance is not per-item: `bin/cosmic --make ci` ending `ci: PASS`
 is the one definition of done every item shares, and proof specific
 to a change rides the DIFF as a test or ratchet the gate runs. a
 gate outlives the sidecar that asked for it; a sidecar command runs
-at most twice and dies with the item. `gitboard show ID` prints the
-bar's problems — the Change's presence, the item's placement;
-everything else is a
+at most twice and dies with the item. an `## Acceptance` section,
+where a spec still carries one, is that: the refiner's own worked
+proof that the Change's claims held at measurement time, read once
+by the puller to sanity-check the shape still holds and once by the
+reviewer to spot-check a claim — never re-executed bullet by bullet
+as a second gate the builder owes beyond `## Change` plus
+`ci: PASS`. a bound worth enforcing permanently is a test or ratchet
+IN THE DIFF, not a bullet a builder re-derives by hand each pull.
+`gitboard show ID` prints the bar's problems — the Change's
+presence, the item's placement; everything else is a
 reader's judgment, and the test for every sentence: could a
 competent but literal-minded session, with nothing beyond this spec
 and AGENTS.md, get it wrong? if yes, it is not ready.
@@ -318,7 +329,10 @@ board worktree or push rights to `board`:
   it" turns a specified item back into an interpretation — plus the
   branch name off the latest `origin/main`, honest gate timeouts
   (`--make ci` takes minutes), the PR form (ready, `Board: <id>` in
-  the body), do-not-merge, the capture rule
+  the body, no pasted `## Acceptance` output — see the spec bar), the
+  builder's own bar (`## Change` plus `ci: PASS`; a spec's
+  `## Acceptance` bullets are theirs to sanity-check, never a
+  checklist to reproduce in the PR), do-not-merge, the capture rule
   (report findings as one evidence paragraph each in the final
   message; the orchestrator files them), and the bounce rule
   verbatim: stopping on an under-specified spec is a good outcome. an
