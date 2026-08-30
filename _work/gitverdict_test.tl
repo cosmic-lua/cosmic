@@ -35,10 +35,14 @@ end
 --- @param kind string accept | request changes | reject
 --- @param pr integer The PR the verdict judges, 0 to use the item's own
 --- @param head string The head commit the verdict judges
+--- @param session string | nil The reviewing session; rides in the subject
+--- @param force boolean | nil Record over the distance guard — repair only
+--- @param why string | nil Why --force was needed
 --- @return integer cmd_verdict's exit code
 --- @return string Every print()'d line, newline-joined
 local function verdict_and_capture(s: store.Store, id: string, kind: string,
-    pr: integer, head: string): integer, string
+    pr: integer, head: string, session?: string, force?: boolean,
+    why?: string): integer, string
   local old_print = _G.print
   local lines: {string} = {}
   _G.print = function(...: any)
@@ -48,7 +52,8 @@ local function verdict_and_capture(s: store.Store, id: string, kind: string,
     end
     lines[#lines + 1] = table.concat(parts, "\t")
   end
-  local ok, result = pcall(vrd.cmd_verdict, s, id, kind, pr, head)
+  local ok, result = pcall(vrd.cmd_verdict, s, id, kind, pr, head, session,
+    force, why)
   _G.print = old_print
   if not ok then
     error(result, 0)
@@ -128,6 +133,10 @@ local function test_already_judged_refusal_names_the_way_forward()
     "names the tool for the cure: " .. msg)
   assert(msg:find("record the verdict again", 1, true) ~= nil,
     "names the way forward: " .. msg)
+  assert(msg:find("trips the distance guard", 1, true) ~= nil,
+    "warns that a same-session re-record trips the next guard: " .. msg)
+  assert(msg:find("--force --why <reason>", 1, true) ~= nil,
+    "and names that guard's own repair escape: " .. msg)
 end
 test_already_judged_refusal_names_the_way_forward()
 
@@ -139,8 +148,13 @@ local function test_the_builder_needs_force_to_verdict_its_own_item()
   local s = init_state_repo("verdict-session")
   local _, leaf = root_with_leaf(s)
   handed_over(s, leaf, 11)
-  assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a") ~= 0,
-    "the session that built it may not accept it")
+  local code, printed = verdict_and_capture(s, leaf, "accept", 11, "abc1234",
+    "session-a")
+  assert(code ~= 0, "the session that built it may not accept it")
+  assert(printed:find("needs a fresh context", 1, true) ~= nil,
+    "the printed refusal says what happened: " .. printed)
+  assert(printed:find("--force --why", 1, true) ~= nil,
+    "and names its own repair escape: " .. printed)
   assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a",
       true) ~= 0, "--force without --why is refused")
   assert(vrd.cmd_verdict(s, leaf, "accept", 11, "abc1234", "session-a",

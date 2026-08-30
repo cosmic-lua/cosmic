@@ -62,7 +62,10 @@ local function already_judged_refusal(id: string, head: string): string
   return ("%s's head %s was already judged with this spec — neither "
     .. "the diff nor the spec has moved since. If something outside "
     .. "the PR cured it, append a short Rework note to the item's "
-    .. "spec (`gitboard spec`) and record the verdict again."):format(
+    .. "spec (`gitboard spec`) and record the verdict again. Recording "
+    .. "from the SAME session that just respecced it trips the "
+    .. "distance guard next — `--force --why <reason>` is the "
+    .. "audited repair path for that."):format(
     id:sub(1, 8), head:sub(1, 7))
 end
 
