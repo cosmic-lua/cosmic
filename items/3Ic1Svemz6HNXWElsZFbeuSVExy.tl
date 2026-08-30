@@ -1,10 +1,10 @@
 return {
   ["builders"] = "wave16-h-1788048600",
-  ["claim"] = "wave16-h-1788048600",
   ["id"] = "3Ic1Svemz6HNXWElsZFbeuSVExy",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 285,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["resolution"] = "completed",
   ["title"] = "cosmopolitan pr.yml lacks the merge_group trigger: the enabled queue times out every merge to master",
   ["verdict"] = "accept",
   ["verdict_head"] = "c0f97696c1d5d1bf72d446da8bd98af33d6d655a",
