@@ -1,9 +1,16 @@
 #!/usr/bin/env cosmic
+--- reads: _make/deps.tl _cli/build/work.tl
 -- Incremental-build tests for the graph verbs: staleness detection,
 -- dependency propagation, and per-test rerun scope. Split out of
 -- build_test.tl on the seam it already had -- these are the tests
 -- about WHAT triggers a rebuild, not about a verb's end-to-end
 -- behaviour.
+--
+-- Unlike build_test.tl, this file requires no `_make` module -- it
+-- asserts staleness/rerun behavior purely through the spawned binary,
+-- so the two modules that implement it (the import closure and the
+-- content-addressed record/compile skip) are real dependencies the
+-- require graph cannot see.
 --
 -- Like build_test.tl these drive a REAL make over fixture projects,
 -- because incrementality is not observable from the Teal side. The
