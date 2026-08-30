@@ -5,5 +5,6 @@ return {
   ["claim"] = "wk9-b2-1788106264",
   ["id"] = "3IU95gOWz7YJl5imQVOmqEVIAVH",
   ["parent"] = "3IOCdooEOElQSPH42nr5xOrAQVn",
+  ["pr"] = 1569,
   ["title"] = "runner-mode end state: flip the prose and prove the tree is all-runner",
 }
