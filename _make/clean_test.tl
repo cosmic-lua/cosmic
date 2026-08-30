@@ -1,5 +1,11 @@
 #!/usr/bin/env cosmic
+--- reads: _make/clean.tl
 -- `clean`, and the one thing it must not remove.
+--
+-- This file asserts clean's behavior through the spawned binary, not
+-- through `require`, so the module under test is a real dependency the
+-- require graph cannot see -- the declared read above is what puts it
+-- in this rule's make prerequisite and the record's content key.
 --
 -- Split from build_test.tl when that file reached the 500-line cap, on
 -- the seam the code already has: `clean` is the one verb about the

@@ -1,5 +1,12 @@
 #!/usr/bin/env cosmic
+--- reads: _make/select.tl _make/law.tl _make/binaries.tl
 -- What a PATH means to each verb.
+--
+-- Unlike build_test.tl, this file requires no `_make` module -- it
+-- asserts selection and refusal behavior purely through the spawned
+-- binary, so the modules that implement the law (`_make/select.tl`,
+-- `_make/law.tl`) and binary-selection resolution (`_make/binaries.tl`)
+-- are real dependencies the require graph cannot see.
 --
 -- One rule decides all of these: selection names targets of the verb's
 -- own kind, and never changes what a target means. `test` states it as

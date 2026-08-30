@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- reads: _make/artifact.tl cmd/cosmic/embed_gen.tl
 -- The fixpoint: a `--make`-built cosmic builds cosmic again, and the
 -- second generation equals the third byte for byte.
 --
@@ -8,6 +9,12 @@
 -- shape -- lose `tl.lua` and the type tree, or every compiled `_cli/**`
 -- and `_make/**` module, and the binary still builds and still boots,
 -- failing only when something first requires the missing piece.
+--
+-- Requires no `_make` module -- the two files declared above (base
+-- selection and embedding, and the cosmic binary's own payload
+-- generator) are the ones this file's own header names as its subject,
+-- and are real dependencies the require graph cannot see through a
+-- spawned build.
 --
 -- Why gen2 AND gen3. gen2 proves the product WORKS; gen3 proves the
 -- process CONVERGES, which is a separate claim and the easier one to

@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- reads: _make/generate.tl _make/artifact.tl
 -- The fixture projects: small, committed, hello-world-sized trees, each
 -- exercising one thing `cosmic --make` promises.
 --
@@ -8,6 +9,17 @@
 -- These live on disk (_make/testdata/**) so they can be read as
 -- examples, edited by hand, and built by hand with the same two commands
 -- a user would type.
+--
+-- This file requires no `_make` module and drives check+build+test+
+-- benchmark through the spawned binary, so in principle it pins nearly
+-- the whole engine -- too broad to name in full without the declaration
+-- degenerating into a whole-tree read no more informative than
+-- `_build/coldbuild_test.tl`'s. The two declared above are what its
+-- assertions verify BY NAME (project.mk's `deps_*` fact strings, and
+-- the embedded artifact's zip contents), so they are what the require
+-- graph most concretely cannot see; the rest of the engine's behavior
+-- here is exercised but not independently pinned by this file's own
+-- assertions.
 --
 -- Each is copied to a scratch directory before building: `--make` writes
 -- `o/` into the project root, and the repo's own tree stays clean.
