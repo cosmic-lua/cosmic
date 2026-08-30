@@ -41,7 +41,6 @@ print(s:sub(1, n))
   assert(msg:find("got number, expected integer", 1, true), "wrong error: " .. msg)
   assert(hint:find("math.tointeger", 1, true), "wrong hint: " .. hint)
 end
-test_hint_number_expected_integer()
 
 local function test_hint_nil_union_not_narrowed()
   -- tl 0.24.8 accepts a plain `T | nil` where `T` is expected (nil is a
@@ -61,7 +60,6 @@ print(g(f()))
     "wrong error: " .. msg)
   assert(hint:find("narrow first", 1, true), "wrong hint: " .. hint)
 end
-test_hint_nil_union_not_narrowed()
 
 -- The carried tl patch's canary (3p/tl/tl_patch/narrow.tl): a plain variable's
 -- nil union narrows through truthiness (positive branch and negated
@@ -154,7 +152,6 @@ print(early() + positive() + arr() + via_assert() + via_assert_expression()
   assert(result.ok, "guards must narrow a nil union (carried tl patch): "
     .. (result.ok and "" or teal.format_issues(result.errors)))
 end
-test_narrowing_canary()
 
 -- Record FIELDS still do not narrow — a guard on `o.sub` leaves `o.sub`
 -- un-narrowed at the use; the error names the type but not the cause,
@@ -180,7 +177,6 @@ print(use({}))
   assert(hint:find("do not narrow", 1, true), "wrong hint: " .. hint)
   assert(hint:find("guide.checking", 1, true), "wrong hint: " .. hint)
 end
-test_hint_index_through_nil_union()
 
 local function test_hint_for_loop_nil_union_iterator()
   local msg, hint = first_hinted_error("h_for_union.tl", [[
@@ -200,7 +196,6 @@ use()
     "wrong error: " .. msg)
   assert(hint:find("fallible call", 1, true), "wrong hint: " .. hint)
 end
-test_hint_for_loop_nil_union_iterator()
 
 local function test_hint_ipairs_on_nil_union()
   local msg, hint = first_hinted_error("h_ipairs_union.tl", [[
@@ -219,7 +214,6 @@ use()
     "wrong error: " .. msg)
   assert(hint:find("does not narrow", 1, true), "wrong hint: " .. hint)
 end
-test_hint_ipairs_on_nil_union()
 
 local function test_hint_unexported_type()
   -- The dep module declares its record standalone (file-local), so the
@@ -249,7 +243,6 @@ print(label(depmod.make()))
   assert(msg:find("unknown type", 1, true), "wrong error: " .. msg)
   assert(hint:find("interface record", 1, true), "wrong hint: " .. hint)
 end
-test_hint_unexported_type()
 
 local function test_hint_scalar_method_call_unguarded()
   -- Any guard on the variable narrows it and the method call works;
@@ -273,7 +266,6 @@ print(use())
     "wrong error: " .. msg)
   assert(hint:find("do not narrow", 1, true), "wrong hint: " .. hint)
 end
-test_hint_scalar_method_call_unguarded()
 
 local function test_hint_colon_call_on_module_function()
   local msg, hint = first_hinted_error("h_colon.tl", [[
@@ -292,7 +284,6 @@ print(add(store, "x"), use(store))
   assert(msg:find("invalid key", 1, true), "wrong error: " .. msg)
   assert(hint:find("dot%-called", 1, false), "wrong hint: " .. hint)
 end
-test_hint_colon_call_on_module_function()
 
 local function test_hint_unannotated_nil_local()
   -- `local x = nil` infers the type nil itself; the assignment error is
@@ -314,7 +305,6 @@ print(lowest({3, 1}))
     "wrong error: " .. msg)
   assert(hint:find("type nil forever", 1, true), "wrong hint: " .. hint)
 end
-test_hint_unannotated_nil_local()
 
 local function test_hint_excess_return_values()
   local msg, hint = first_hinted_error("h_excess.tl", [[
@@ -326,7 +316,6 @@ print(f())
   assert(msg:find("excess return values", 1, true), "wrong error: " .. msg)
   assert(hint:find("capture multiple returns", 1, true), "wrong hint: " .. hint)
 end
-test_hint_excess_return_values()
 
 -- A multi-return call in the LAST argument slot spreads its declared
 -- tuple into the argument list, so the call site presents more
@@ -345,7 +334,6 @@ print(one(pair()))
   assert(msg:find("wrong number of arguments", 1, true), "wrong error: " .. msg)
   assert(hint:find("parenthesize", 1, true), "wrong hint: " .. hint)
 end
-test_hint_multi_return_spread_in_last_argument()
 
 local function test_hint_ipairs_on_any()
   local msg, hint = first_hinted_error("h_ipairs.tl", [[
@@ -359,7 +347,6 @@ f({})
   assert(msg:find("attempting ipairs", 1, true), "wrong error: " .. msg)
   assert(hint:find("as {any}", 1, true), "wrong hint: " .. hint)
 end
-test_hint_ipairs_on_any()
 
 local function test_hint_concat_any()
   local msg, hint = first_hinted_error("h_concat.tl", [[
@@ -372,7 +359,6 @@ print(f(1))
     and msg:find("<any type>", 1, true), "wrong error: " .. msg)
   assert(hint:find("as string", 1, true), "wrong hint: " .. hint)
 end
-test_hint_concat_any()
 
 local function test_hint_index_any()
   local msg, hint = first_hinted_error("h_index.tl", [[
@@ -385,7 +371,6 @@ f({})
     and msg:find("<any type>", 1, true), "wrong error: " .. msg)
   assert(hint:find("as {string: any}", 1, true), "wrong hint: " .. hint)
 end
-test_hint_index_any()
 
 -- The lax/strict contract, asserted rather than only documented:
 -- --compile (default) is the permissive gradual-typing on-ramp; strict
@@ -420,7 +405,6 @@ local function test_compile_lax_strict_contract()
   assert(strict_warn.errors[1].severity == "warning",
     "the failure should carry the warning issue")
 end
-test_compile_lax_strict_contract()
 
 -- A clean file must generate identical code both ways (same AST, same
 -- 5.4 target), and 5.4-only syntax must survive the strict path.
@@ -447,7 +431,6 @@ local function test_strict_compile_codegen()
   assert(string.find(sc.code or "", "<close>", 1, true),
     "strict compile must keep the 5.4 <close> attribute")
 end
-test_strict_compile_codegen()
 
 -- gen_compat must actually reach tl's codegen: targeting a pre-5.4
 -- runtime with gen_compat="required" inserts a table.pack polyfill;
@@ -468,7 +451,6 @@ local function test_compile_gen_compat_wired()
   assert(string.find(required.code or "", "_tl_table_pack", 1, true),
     "gen_compat=required must add a table.pack compat shim when targeting 5.3")
 end
-test_compile_gen_compat_wired()
 
 -- tl.new_env itself rejects gen_target="5.4" paired with a non-"off"
 -- gen_compat; compile must surface that as an ordinary ok=false error
@@ -481,7 +463,6 @@ local function test_compile_rejects_incompatible_gen_target_and_compat()
   assert(#result.errors > 0 and result.errors[1].message:find("tl.new_env", 1, true),
     "expected a tl.new_env error, got: " .. teal.format_issues(result.errors))
 end
-test_compile_rejects_incompatible_gen_target_and_compat()
 
 local function test_no_hint_for_plain_errors()
   -- A message outside every known trap must produce no hint at all.
@@ -490,4 +471,3 @@ local function test_no_hint_for_plain_errors()
   assert(teal.hint_for_message("syntax error, expected 'end'") == nil,
     "syntax error should have no hint")
 end
-test_no_hint_for_plain_errors()

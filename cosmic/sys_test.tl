@@ -9,13 +9,11 @@ local function test_host_os_returns_string()
   assert(type(os_name) == "string", "host_os should return a string, got " .. type(os_name))
   assert(#os_name > 0, "host_os should return a non-empty string")
 end
-test_host_os_returns_string()
 
 local function test_host_os_is_lowercase()
   local os_name = sys.host_os() as string -- cast: enum to plain string
   assert(os_name == os_name:lower(), "host_os should return lowercase, got " .. os_name)
 end
-test_host_os_is_lowercase()
 
 local function test_host_os_is_known_value()
   local os_name = sys.host_os()
@@ -24,7 +22,6 @@ local function test_host_os_is_known_value()
   or os_name == "metal"
   assert(is_known, "host_os should return a known OS, got " .. os_name)
 end
-test_host_os_is_known_value()
 
 local function test_host_os_never_returns_raw_token()
   -- The raw cosmopolitan token for macOS is "XNU"; host_os() must never
@@ -32,7 +29,6 @@ local function test_host_os_never_returns_raw_token()
   local os_name = sys.host_os() as string -- cast: enum to plain string
   assert(os_name ~= "xnu", "host_os must translate XNU to macos, got " .. os_name)
 end
-test_host_os_never_returns_raw_token()
 
 -- host_isa tests
 
@@ -41,20 +37,17 @@ local function test_host_isa_returns_string()
   assert(type(isa) == "string", "host_isa should return a string, got " .. type(isa))
   assert(#isa > 0, "host_isa should return a non-empty string")
 end
-test_host_isa_returns_string()
 
 local function test_host_isa_is_lowercase()
   local isa = sys.host_isa()
   assert(isa == isa:lower(), "host_isa should return lowercase, got " .. isa)
 end
-test_host_isa_is_lowercase()
 
 local function test_host_isa_is_known_value()
   local isa = sys.host_isa()
   local is_known = isa == "x86_64" or isa == "aarch64"
   assert(is_known, "host_isa should return a known ISA, got " .. isa)
 end
-test_host_isa_is_known_value()
 
 -- platform tests
 
@@ -63,13 +56,11 @@ local function test_platform_returns_string()
   assert(type(plat) == "string", "platform should return a string, got " .. type(plat))
   assert(#plat > 0, "platform should return a non-empty string")
 end
-test_platform_returns_string()
 
 local function test_platform_contains_hyphen()
   local plat = sys.platform()
   assert(plat:find("-"), "platform should contain a hyphen separator, got " .. plat)
 end
-test_platform_contains_hyphen()
 
 local function test_platform_matches_os_and_isa()
   local os_name = sys.host_os()
@@ -78,13 +69,11 @@ local function test_platform_matches_os_and_isa()
   local plat = sys.platform()
   assert(plat == expected, "platform should be " .. expected .. ", got " .. plat)
 end
-test_platform_matches_os_and_isa()
 
 local function test_platform_is_lowercase()
   local plat = sys.platform()
   assert(plat == plat:lower(), "platform should be lowercase, got " .. plat)
 end
-test_platform_is_lowercase()
 
 -- sysconf / nproc / page_size tests
 
@@ -95,7 +84,6 @@ local function test_nproc_positive()
     "nproc should return a number, got " .. type(n))
   assert(n >= 1, "nproc should be at least 1, got " .. tostring(n))
 end
-test_nproc_positive()
 
 local function test_page_size_positive()
   local sz, err = sys.page_size()
@@ -104,7 +92,6 @@ local function test_page_size_positive()
   -- Page sizes are always a power of two.
   assert(sz & (sz - 1) == 0, "page_size should be a power of two, got " .. tostring(sz))
 end
-test_page_size_positive()
 
 -- uname tests
 
@@ -119,4 +106,3 @@ local function test_uname_fields()
   assert(type(u.machine) == "string" and #u.machine > 0,
     "uname.machine should be a non-empty string")
 end
-test_uname_fields()

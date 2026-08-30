@@ -62,7 +62,6 @@ local function test_every_case_runs_past_a_failure()
     "the output names the failing case: " .. out)
   check.equal(last_line(out), "3 checks: 2 passed, 1 failed", out)
 end
-test_every_case_runs_past_a_failure()
 
 local function test_all_passing_returns_zero()
   local code, out = capture({
@@ -73,7 +72,6 @@ local function test_all_passing_returns_zero()
   check.equal(last_line(out), "2 checks: 2 passed", out)
   check.truthy(not out:find("✗", 1, true), "nothing failed: " .. out)
 end
-test_all_passing_returns_zero()
 
 local function test_failure_output_names_the_function_and_carries_a_traceback()
   local _code, out = capture({
@@ -91,7 +89,6 @@ local function test_failure_output_names_the_function_and_carries_a_traceback()
   check.truthy(out:find("test_test", 1, true),
     "and its frames name this file: " .. out)
 end
-test_failure_output_names_the_function_and_carries_a_traceback()
 
 local function test_source_order_is_run_order()
   local ran: {string} = {}
@@ -108,14 +105,12 @@ local function test_source_order_is_run_order()
   check.equal(table.concat(ran, ","), table.concat(names, ","),
     "the runner never reorders")
 end
-test_source_order_is_run_order()
 
 local function test_empty_case_list_is_a_skip()
   local code, out = capture({})
   check.equal(code, 2, "a file with no tests is a skip, not a pass")
   check.equal(out, "0 checks: 0 passed\n", out)
 end
-test_empty_case_list_is_a_skip()
 
 local function test_filter_selects_by_substring()
   local ran: {string} = {}
@@ -128,7 +123,6 @@ local function test_filter_selects_by_substring()
   check.equal(table.concat(ran, ","), "beta", "only the match ran")
   check.equal(last_line(out), "1 checks: 1 passed", out)
 end
-test_filter_selects_by_substring()
 
 local function test_filter_matching_nothing_is_a_skip()
   local code, out = capture({
@@ -140,7 +134,6 @@ local function test_filter_matching_nothing_is_a_skip()
     "the skip says what was asked for: " .. out)
   check.equal(last_line(out), "0 checks: 0 passed", out)
 end
-test_filter_matching_nothing_is_a_skip()
 
 local function test_the_env_var_is_the_filter_when_no_option_is_passed()
   local cases: {Case} = {
@@ -164,7 +157,6 @@ local function test_the_env_var_is_the_filter_when_no_option_is_passed()
   check.must(env.unset("COSMIC_TEST_FILTER"))
   check.truthy(env.get("COSMIC_TEST_FILTER") == nil, "the variable is gone")
 end
-test_the_env_var_is_the_filter_when_no_option_is_passed()
 
 local function test_an_explicit_filter_beats_the_environment()
   check.must(env.set("COSMIC_TEST_FILTER", "alpha", true))
@@ -176,7 +168,6 @@ local function test_an_explicit_filter_beats_the_environment()
   check.equal(code, 0, "the option's case passed")
   check.equal(last_line(out), "1 checks: 1 passed", out)
 end
-test_an_explicit_filter_beats_the_environment()
 
 local function test_a_failing_case_does_not_leak_io_write()
   local before = io.write
@@ -185,6 +176,5 @@ local function test_a_failing_case_does_not_leak_io_write()
     })
   check.equal(io.write, before, "io.write is the real one again")
 end
-test_a_failing_case_does_not_leak_io_write()
 
 print("all test-runner tests passed")

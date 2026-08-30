@@ -13,7 +13,6 @@ local function test_v_flag()
   assert(r.ok, "cosmic -v should succeed")
   assert(r.stdout:find("Lua 5.4"), "should contain Lua version, got: " .. r.stdout)
 end
-test_v_flag()
 
 --- cosmic --version should produce the same output as -v
 local function test_version_flag()
@@ -21,7 +20,6 @@ local function test_version_flag()
   assert(r.ok, "cosmic --version should succeed")
   assert(r.stdout:find("Lua 5.4"), "should contain Lua version, got: " .. r.stdout)
 end
-test_version_flag()
 
 --- -v and --version should produce identical output
 local function test_v_and_version_match()
@@ -29,7 +27,6 @@ local function test_v_and_version_match()
   local rver = check.must(child.run({cosmic, "--version"}))
   assert(rv.stdout == rver.stdout, "-v and --version should match: " .. rv.stdout .. " vs " .. rver.stdout)
 end
-test_v_and_version_match()
 
 --- when cosmic.version is embedded, output should match the full format
 local function test_full_version_format()
@@ -47,7 +44,6 @@ local function test_full_version_format()
     assert(output == "Lua 5.4", "fallback should be plain 'Lua 5.4', got: " .. output)
   end
 end
-test_full_version_format()
 
 --- version output should be a single line
 local function test_version_single_line()
@@ -59,7 +55,6 @@ local function test_version_single_line()
   end
   assert(lines == 1, "version should be a single line, got " .. tostring(lines))
 end
-test_version_single_line()
 
 --- cosmic.version module should be requireable
 local function test_require_version_module()
@@ -72,4 +67,3 @@ local function test_require_version_module()
   end
   -- if require fails, that's ok — means version.lua wasn't embedded (bootstrap)
 end
-test_require_version_module()

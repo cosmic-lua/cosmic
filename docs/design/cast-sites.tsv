@@ -193,12 +193,12 @@ cosmic/sqlite/init.tl	295	incremental record construction
 cosmic/sqlite/lifecycle_test.tl	12	sqlite row column read
 cosmic/sqlite/row_iter.tl	64	incremental record construction
 cosmic/stream.tl	237	runtime capability probe
-cosmic/string_test.tl	34	type-defeating test probe
-cosmic/string_test.tl	36	type-defeating test probe
-cosmic/string_test.tl	269	proved-value narrowing
+cosmic/string_test.tl	30	type-defeating test probe
+cosmic/string_test.tl	32	type-defeating test probe
+cosmic/string_test.tl	235	proved-value narrowing
 cosmic/sys.tl	46	enum relation
-cosmic/sys_test.tl	15	enum relation
-cosmic/sys_test.tl	32	enum relation
+cosmic/sys_test.tl	14	enum relation
+cosmic/sys_test.tl	29	enum relation
 cosmic/time.tl	89	binding contract shape
 cosmic/time.tl	132	binding contract shape
 cosmic/time.tl	137	binding contract shape

@@ -29,7 +29,6 @@ local function test_writer()
   local data = fs.read(p)
   assert(data and #data > 0, "zip file should exist and have content")
 end
-test_writer()
 
 local function test_writer_multiple_files()
   local p = zip_path("multi_test.zip")
@@ -42,7 +41,6 @@ local function test_writer_multiple_files()
   local data = fs.read(p)
   assert(data and #data > 0, "zip file should exist")
 end
-test_writer_multiple_files()
 
 -- Basic read operations
 
@@ -57,7 +55,6 @@ local function test_reader()
   local reader = check.must(zip.open(p))
   assert(reader:close())
 end
-test_reader()
 
 local function test_read_list()
   local p = zip_path("list_test.zip")
@@ -85,7 +82,6 @@ local function test_read_list()
   assert(found_b, "should contain b.txt")
   assert(found_d, "should contain c/d.txt")
 end
-test_read_list()
 
 local function test_read_content()
   local p = zip_path("content_test.zip")
@@ -100,7 +96,6 @@ local function test_read_content()
   assert(content, "should read content: " .. tostring(err))
   assert(content == "Hello, ZIP!", "content should match, got: " .. tostring(content))
 end
-test_read_content()
 
 local function test_read_stat()
   local p = zip_path("stat_test.zip")
@@ -114,7 +109,6 @@ local function test_read_stat()
 
   assert(st.size == 10, "size should be 10, got " .. tostring(st.size))
 end
-test_read_stat()
 
 local function test_read_nonexistent_file()
   local p = zip_path("nonexistent_test.zip")
@@ -128,7 +122,6 @@ local function test_read_nonexistent_file()
 
   assert(content == nil, "should not find nonexistent file")
 end
-test_read_nonexistent_file()
 
 -- Append operations
 
@@ -157,7 +150,6 @@ local function test_appender()
   assert(first_content == "First file", "first file content should match")
   assert(second_content == "Second file", "second file content should match")
 end
-test_appender()
 
 -- Appender:remove.
 
@@ -186,7 +178,6 @@ local function test_appender_remove()
     "reading a removed entry should say not found, got: " .. tostring(read_err))
   assert(r:close())
 end
-test_appender_remove()
 
 local function test_appender_remove_missing_entry()
   local p = zip_path("remove_missing_test.zip")
@@ -206,7 +197,6 @@ local function test_appender_remove_missing_entry()
   assert(r:read("only.txt") == "here", "existing entry must survive a failed remove")
   assert(r:close())
 end
-test_appender_remove_missing_entry()
 
 -- In-memory reading with from()
 
@@ -224,7 +214,6 @@ local function test_from_memory()
 
   assert(content == "In-memory content", "should read correct content from memory")
 end
-test_from_memory()
 
 -- Error handling
 
@@ -233,7 +222,6 @@ local function test_reader_invalid_path()
   assert(r == nil, "should fail on invalid path")
   assert(err, "should return error message")
 end
-test_reader_invalid_path()
 
 local function test_appender_creates_missing_archive()
   -- append has create-or-append semantics: a missing archive is created.
@@ -246,21 +234,18 @@ local function test_appender_creates_missing_archive()
   assert(r:read("x.txt") == "hi", "created archive should contain the entry")
   assert(r:close())
 end
-test_appender_creates_missing_archive()
 
 local function test_appender_invalid_path()
   local a, err = zip.open("/nonexistent/dir/x.zip", {mode = "append"})
   assert(a == nil, "should fail when the parent directory is missing")
   assert(err, "should return error message")
 end
-test_appender_invalid_path()
 
 local function test_from_invalid_data()
   local r, err = zip.open_string("not valid zip data")
   assert(r == nil, "should fail on invalid data")
   assert(err, "should return error message")
 end
-test_from_invalid_data()
 
 -- Compression options
 
@@ -286,7 +271,6 @@ local function test_add_with_options()
   assert(deflated_st.compressed_size < deflated_st.size,
     "deflated should be smaller: " .. tostring(deflated_st.compressed_size) .. " < " .. tostring(deflated_st.size))
 end
-test_add_with_options()
 
 local function test_writer_with_compression_level()
   local p = zip_path("level_test.zip")
@@ -304,7 +288,6 @@ local function test_writer_with_compression_level()
   assert(st.size == 4000, "uncompressed size should be 4000")
   assert(st.compressed_size < st.size, "compressed size should be smaller")
 end
-test_writer_with_compression_level()
 
 -- Mode dispatch: one Archive answers every operation, and an operation
 -- outside the archive's mode fails with an error naming the mode.
@@ -320,7 +303,6 @@ local function test_mode_field_and_default()
   check.equal(r.mode, "read", "open() should default to read mode")
   assert(r:close())
 end
-test_mode_field_and_default()
 
 local function test_mode_errors_name_the_mode()
   local p = zip_path("mode_errors.zip")
@@ -344,7 +326,6 @@ local function test_mode_errors_name_the_mode()
     "remove error should name append, got: " .. tostring(remove_err))
   assert(r:close())
 end
-test_mode_errors_name_the_mode()
 
 local function test_remove_needs_append_not_write()
   local p = zip_path("mode_remove_write.zip")
@@ -356,7 +337,6 @@ local function test_remove_needs_append_not_write()
     "remove error should name append, got: " .. tostring(remove_err))
   assert(w:close())
 end
-test_remove_needs_append_not_write()
 
 local function test_closed_archive_refuses_and_close_is_idempotent()
   local p = zip_path("closed.zip")
@@ -369,7 +349,6 @@ local function test_closed_archive_refuses_and_close_is_idempotent()
   assert(err and err:find("closed", 1, true),
     "error should say the archive is closed, got: " .. tostring(err))
 end
-test_closed_archive_refuses_and_close_is_idempotent()
 
 local function test_save_matches_read()
   local p = zip_path("save_test.zip")
@@ -392,7 +371,6 @@ local function test_save_matches_read()
   assert(err and #err > 0, "save error should carry the binding's message")
   assert(r:close())
 end
-test_save_matches_read()
 
 local function test_save_and_add_file_name_the_mode()
   local p = zip_path("mode_save.zip")
@@ -408,7 +386,6 @@ local function test_save_and_add_file_name_the_mode()
     "add_file error should name append, got: " .. tostring(add_err))
   assert(w:close())
 end
-test_save_and_add_file_name_the_mode()
 
 local function test_add_file_roundtrip()
   local src = zip_path("add_file.src")
@@ -432,7 +409,6 @@ local function test_add_file_roundtrip()
     "explicit mode option must override the source's bits")
   assert(r:close())
 end
-test_add_file_roundtrip()
 
 local function test_open_string_is_read_only()
   local a, err = zip.open_string("irrelevant", {mode = "write"})
@@ -440,4 +416,3 @@ local function test_open_string_is_read_only()
   assert(err and err:find("read%-only"),
     "error should say read-only, got: " .. tostring(err))
 end
-test_open_string_is_read_only()

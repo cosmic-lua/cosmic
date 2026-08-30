@@ -11,7 +11,6 @@ local function test_module_exports()
   assert(tty.is_tty ~= nil, "is_tty function should be exported")
   assert(tty.window_size ~= nil, "window_size function should be exported")
 end
-test_module_exports()
 
 -- is_tty: assert real verdicts on fds whose tty-ness is
 -- known, instead of only checking the return type.
@@ -23,12 +22,10 @@ local function test_is_tty_regular_file_is_false()
   assert(tty.is_tty(h:fd()) == false, "a regular file fd is not a tty")
   assert(h:close())
 end
-test_is_tty_regular_file_is_false()
 
 local function test_is_tty_bad_fd_is_false()
   assert(tty.is_tty(999) == false, "an unopened fd is not a tty")
 end
-test_is_tty_bad_fd_is_false()
 
 local function test_is_tty_pty_master_is_true()
   -- A pty master is the one fd guaranteed to BE a tty. /dev/ptmx exists
@@ -40,12 +37,10 @@ local function test_is_tty_pty_master_is_true()
   assert(tty.is_tty(h:fd()) == true, "a pty master must report as a tty")
   assert(h:close())
 end
-test_is_tty_pty_master_is_true()
 
 local function test_is_tty_defaults_to_stdout()
   assert(tty.is_tty() == tty.is_tty(1), "no-arg is_tty asks about stdout")
 end
-test_is_tty_defaults_to_stdout()
 
 -- Test window_size function
 
@@ -67,7 +62,6 @@ local function test_winsize_non_tty()
     end
   end
 end
-test_winsize_non_tty()
 
 local function test_winsize_structure()
   -- If stdout is a tty, verify window_size returns proper structure
@@ -86,7 +80,6 @@ local function test_winsize_structure()
     assert(w.cols > 0, "cols should be positive")
   end
 end
-test_winsize_structure()
 
 -- Test termios function exports
 
@@ -97,7 +90,6 @@ local function test_termios_exports()
   assert(tty.disable_echo ~= nil, "disable_echo function should be exported")
   assert(tty.restore ~= nil, "restore function should be exported")
 end
-test_termios_exports()
 
 local function test_termios_constants()
   assert(tty.NOW ~= nil, "NOW constant should be exported")
@@ -108,7 +100,6 @@ local function test_termios_constants()
   assert(tty.ISIG ~= nil, "ISIG constant should be exported")
   assert(tty.IEXTEN ~= nil, "IEXTEN constant should be exported")
 end
-test_termios_constants()
 
 local function test_getattr_non_tty()
   -- When not a tty, attributes should fail with error
@@ -118,7 +109,6 @@ local function test_getattr_non_tty()
     assert(err ~= nil, "attributes should return error message for non-tty")
   end
 end
-test_getattr_non_tty()
 
 local function test_getattr_structure()
   -- If stdin is a tty, verify attributes returns proper structure
@@ -138,7 +128,6 @@ local function test_getattr_structure()
     assert(type(t.lflag) == "number", "lflag should be number")
   end
 end
-test_getattr_structure()
 
 local function test_raw_non_tty()
   -- When not a tty, raw should fail with error
@@ -148,7 +137,6 @@ local function test_raw_non_tty()
     assert(err ~= nil, "raw should return error message for non-tty")
   end
 end
-test_raw_non_tty()
 
 local function test_noecho_non_tty()
   -- When not a tty, disable_echo should fail with error
@@ -158,7 +146,6 @@ local function test_noecho_non_tty()
     assert(err ~= nil, "disable_echo should return error message for non-tty")
   end
 end
-test_noecho_non_tty()
 
 -- read_password: exercised end-to-end in a subprocess with a
 -- piped (non-tty) stdin, instead of only checking the export exists.
@@ -185,7 +172,6 @@ local function test_getpass_non_tty_reads_one_line()
   assert(r.stderr:match("^pw: "),
     "the prompt must go to stderr, got: " .. tostring(r.stderr))
 end
-test_getpass_non_tty_reads_one_line()
 
 local function test_getpass_non_tty_eof()
   local h = check.must(child.start({cosmic_bin, getpass_script}, {stdin = ""}),
@@ -195,7 +181,6 @@ local function test_getpass_non_tty_eof()
   assert(r.stdout == "ERR:EOF",
     "read_password at stdin EOF should return nil, 'EOF', got: " .. tostring(r.stdout))
 end
-test_getpass_non_tty_eof()
 
 -- make_raw: pure raw-mode computation, unit-testable without a tty
 -- (review item 35).
@@ -228,7 +213,6 @@ local function test_make_raw_clears_input_and_output_flags()
   assert(raw.lflag & tty.ISIG == 0, "raw mode must clear ISIG by default")
   assert(raw.lflag & tty.IEXTEN == 0, "raw mode must clear IEXTEN")
 end
-test_make_raw_clears_input_and_output_flags()
 
 local function test_make_raw_sets_vmin_vtime()
   local t = fixture_termios()
@@ -238,7 +222,6 @@ local function test_make_raw_sets_vmin_vtime()
   assert(raw.cc[vmin] == 1, "raw mode must set VMIN=1")
   assert(raw.cc[vtime] == 0, "raw mode must set VTIME=0")
 end
-test_make_raw_sets_vmin_vtime()
 
 local function test_make_raw_keep_signals()
   local t = fixture_termios()
@@ -246,7 +229,6 @@ local function test_make_raw_keep_signals()
   assert(raw.lflag & tty.ISIG ~= 0, "keep_signals must preserve ISIG")
   assert(raw.lflag & tty.ECHO == 0, "keep_signals still clears ECHO")
 end
-test_make_raw_keep_signals()
 
 local function test_make_raw_does_not_alias_or_mutate_input()
   local t = fixture_termios()
@@ -260,7 +242,6 @@ local function test_make_raw_does_not_alias_or_mutate_input()
   raw.cc[1] = 999
   assert(t.cc[1] ~= 999, "mutating the result must not corrupt the input")
 end
-test_make_raw_does_not_alias_or_mutate_input()
 
 local function test_winsize_error_names_errno()
   local ws, err = tty.window_size(999)
@@ -268,7 +249,6 @@ local function test_winsize_error_names_errno()
   assert(type(err) == "string" and err:match("E%u+"),
     "window_size error should name the errno, got: " .. tostring(err))
 end
-test_winsize_error_names_errno()
 
 -- restore accepts a tcsetattr action (NOW default, DRAIN, FLUSH)
 -- instead of hard-coding TCSANOW. No pty here, so exercise the
@@ -283,4 +263,3 @@ local function test_restore_accepts_action()
   assert(type(err) == "string", "expected an error message")
   assert(p:close())
 end
-test_restore_accepts_action()

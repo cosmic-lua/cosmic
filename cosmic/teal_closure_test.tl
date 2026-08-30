@@ -48,7 +48,6 @@ print(use())
 ]])
   assert(ok, "a never-assigned narrow must carry into the closure: " .. msgs)
 end
-test_an_unassigned_narrow_carries_into_a_closure()
 
 -- An assignment anywhere in the file widens the narrow at the
 -- boundary, wherever the assignment sits relative to the closure.
@@ -67,7 +66,6 @@ print(use())
 ]])
   assert(not ok, "a reassigned name must widen at the closure boundary")
 end
-test_an_assignment_anywhere_widens_at_the_boundary()
 
 -- An else block carries no condition, so the if-node's children table
 -- starts at a nil hole with the branch body behind it. An `ipairs`
@@ -95,7 +93,6 @@ print(use())
   assert(not ok, "an assignment in an else block must widen at the boundary")
   assert(msgs:find("in return value: got string | integer, expected string", 1, true), msgs)
 end
-test_an_assignment_in_an_else_block_widens_at_the_boundary()
 
 -- A stepless `for i = a, b do` leaves the same kind of hole: the
 -- missing step expression sits ahead of the body in the children
@@ -119,7 +116,6 @@ print(use())
   assert(not ok, "an assignment in a stepless fornum body must widen at the boundary")
   assert(msgs:find("in return value: got string | integer, expected string", 1, true), msgs)
 end
-test_an_assignment_in_a_stepless_fornum_body_widens_at_the_boundary()
 
 -- The third hole is in an ASSIGNMENT STATEMENT's rvalue: `assignment`,
 -- `local_declaration` and `global_declaration` all walk through
@@ -148,7 +144,6 @@ print(use(), z)
   assert(not ok, "an assignment in an assignment rvalue must widen at the boundary")
   assert(msgs:find("in return value: got string | integer, expected string", 1, true), msgs)
 end
-test_an_assignment_in_an_assignment_rvalue_widens_at_the_boundary()
 
 -- The stock hole this closes: an ANONYMOUS closure used to widen only
 -- names assigned inside its own body, so `v = 2` after the definition
@@ -168,7 +163,6 @@ print(use())
 ]])
   assert(not ok, "an anonymous closure must widen a reassigned name")
 end
-test_the_anonymous_reassignment_hole_is_closed()
 
 -- Why the scan scope is the chunk and not the nearest enclosing body:
 -- a narrowed upvalue carried into a child that ESCAPES its parent
@@ -194,7 +188,6 @@ print(c())
 ]])
   assert(not ok, "an escaped child must not keep a narrow the file reassigns")
 end
-test_an_escaped_child_does_not_keep_an_upvalue_narrow()
 
 -- A global is not governed by this file: scope 1's vars table IS
 -- env.globals, shared by every file checked in one environment, so
@@ -211,7 +204,6 @@ print(use())
 ]])
   assert(not ok, "a global narrow must not carry into a closure")
 end
-test_a_global_narrow_does_not_carry_into_a_closure()
 
 -- The same at a NAMED function boundary, where stock tl widened
 -- everything and the closure-* patch introduced the carry: a global
@@ -227,7 +219,6 @@ print(use())
 ]])
   assert(not ok, "a global narrow must not carry into a named function")
 end
-test_a_global_narrow_does_not_carry_into_a_named_function()
 
 -- The over-approximation guard. env.globals also holds the stdlib, so
 -- `self.st[1].vars[name] ~= nil` is TRUE for a local merely sharing a
@@ -251,7 +242,6 @@ print(use())
 ]])
   assert(msgs == "", "a local shadowing a stdlib global must keep its narrow: " .. msgs)
 end
-test_a_local_shadowing_a_stdlib_global_still_carries()
 
 -- A global's narrow drops at a loop boundary too. Each of the four loop
 -- forms widens against its own node, and a global is always-assigned
@@ -283,7 +273,6 @@ print(gv:upper())
     assert(n == 1, form[1] .. ": expected one diagnostic, got: " .. msgs)
   end
 end
-test_a_global_narrow_does_not_carry_into_a_loop_body()
 
 -- The chunk-root scan governs what the closure BODY may rely on. The
 -- enclosing CONTINUATION after the definition is straight-line code,
@@ -305,7 +294,6 @@ print(v:upper())
 ]])
   assert(ok, "a lambda must not widen the enclosing continuation: " .. msgs)
 end
-test_a_lambda_does_not_widen_the_enclosing_continuation()
 
 -- The macroexp expression form is the other anonymous boundary, and
 -- restores its continuation the same way.
@@ -325,7 +313,6 @@ print(v:upper())
 ]])
   assert(ok, "a record macroexp must not widen the continuation: " .. msgs)
 end
-test_a_record_macroexp_does_not_widen_the_continuation()
 
 -- What the continuation gives up: an assignment inside the lambda's
 -- OWN body can run at any later point, so the narrow below the
@@ -344,7 +331,6 @@ print(v:upper())
 ]])
   assert(not ok, "a lambda that assigns must still widen the continuation")
 end
-test_a_lambda_that_assigns_still_widens_the_continuation()
 
 -- The restore reaches the continuation only, never the body: the
 -- anonymous twin of test_an_escaped_child_does_not_keep_an_upvalue_narrow,
@@ -370,7 +356,6 @@ print(c())
 ]])
   assert(not ok, "an escaped lambda child must not keep a narrow the file reassigns")
 end
-test_an_escaped_lambda_child_does_not_keep_an_upvalue_narrow()
 
 -- Only the two anonymous sites restore. Stock widened every narrow in
 -- the continuation at the five named-function boundaries, so the
@@ -390,6 +375,5 @@ print(v:upper())
 ]])
   assert(not ok, "a named function must still widen the continuation")
 end
-test_a_named_function_still_widens_the_continuation()
 
 print("all closure carry tests passed")

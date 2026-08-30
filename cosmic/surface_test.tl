@@ -64,7 +64,6 @@ local function test_the_rule_actually_partitions()
     "a shard of a directory module is not itself public")
   assert(visibility.is_public("cosmic.fs"), "…but its entry point is")
 end
-test_the_rule_actually_partitions()
 
 --- Every public module loads. This is the check the manifest existed
 --- for, now asked of the set the tree defines.
@@ -74,7 +73,6 @@ local function test_public_modules_load()
     assert(ok, "public module " .. name .. " failed to load: " .. tostring(err))
   end
 end
-test_public_modules_load()
 
 --- Require-compat per converted family: the public entry
 --- point of each directory module still loads under its old top-level
@@ -100,7 +98,6 @@ local function test_directory_module_entry_points()
   assert(type(doc["query"]) == "function", "cosmic.doc must expose query()")
   assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")
 end
-test_directory_module_entry_points()
 
 --- Documented <=> public: every public module must have an
 --- entry in the embedded docs index. doc/public_test.tl checks the
@@ -118,7 +115,6 @@ local function test_public_modules_are_documented()
   assert(#undocumented == 0,
     "public modules with no docs entry: " .. table.concat(undocumented, ", "))
 end
-test_public_modules_are_documented()
 
 --- The index generator applies the same rule inline, because it also
 --- runs under the pinned bootstrap, whose stdlib may not carry this
@@ -136,6 +132,5 @@ local function test_index_visibility_agrees_with_the_rule()
     end
   end
 end
-test_index_visibility_agrees_with_the_rule()
 
 print("all surface tests passed")
