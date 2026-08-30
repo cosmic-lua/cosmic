@@ -4,5 +4,6 @@ return {
   ["id"] = "3I2vPS4a4S5LW5rLX3ns7kInGPr",
   ["parent"] = "3HyRcrR35sYRwZl3guddvOBhFoK",
   ["pr"] = 1567,
+  ["reviewer"] = "review-3I2vPS4a-1788106264",
   ["title"] = "coverage report should derive its exclusions from .cosmicignore",
 }
