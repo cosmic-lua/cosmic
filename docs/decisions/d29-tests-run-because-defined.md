@@ -3,7 +3,7 @@
 - **date:** 2026-08
 - **status:** active
 - **context:** a `*_test.tl` is a script. every zero-argument
-  `local function test_*` must call itself on the line after its `end`,
+  `local function test_*` must call itself right below its own `end`,
   and today that is **2,870 call lines across 266 files** — one per
   definition, so the tree is entirely self-calling. three mechanisms hold
   the convention up: the `call-after-define` lint in `_cli/lint.tl`
