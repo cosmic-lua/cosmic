@@ -72,6 +72,28 @@ local function test_builder_brief_carries_the_item_and_names_the_rest()
 end
 test_builder_brief_carries_the_item_and_names_the_rest()
 
+local function test_research_brief_recommends_rather_than_writes()
+  local s = init_state_repo("brief-research")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  local code, out = brief_and_capture(s, "research", leaf)
+  assert(code == 0, "a specced item earns its research brief")
+  assert(out:find(leaf, 1, true) ~= nil, "the full id rides the brief")
+  assert(out:find("Do exactly this.", 1, true) ~= nil,
+    "the spec sidecar rides verbatim")
+  assert(out:find("ignore that instruction", 1, true) ~= nil,
+    "the research brief tells the agent to recommend, not to write the board, "
+    .. "even when the item's own spec says otherwise")
+  assert(out:find("never open a PR", 1, true) ~= nil,
+    "the rules say plainly: no PR")
+  assert(out:find("Open a PR", 1, true) == nil
+    and out:find("git push", 1, true) == nil,
+    "a research slice has no diff, so no push/PR step")
+  assert(out:find("<WORKTREE>", 1, true) ~= nil,
+    "what the board cannot answer survives the fill")
+end
+test_research_brief_recommends_rather_than_writes()
+
 local function test_review_brief_needs_the_handover()
   local s = init_state_repo("brief-review")
   local _, leaf = root_with_leaf(s)

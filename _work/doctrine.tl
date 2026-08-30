@@ -252,7 +252,11 @@ decision uses the block-first exit: file the question as an item
 and block this one on it, so the learning holds the item back until
 answered. Rejection is cheap by design; wrong work merged is
 expensive. A research item takes the same verdicts, re-running its
-recorded checks in place of a diff.
+recorded checks in place of a diff — checks its spec carries because
+whoever claimed it (an orchestrator applying a `brief research ID`
+agent's recommendation, or a solo session) already wrote them there;
+there is no PR to fetch, so `verdict` judges the claim and the spec
+revision instead.
 
 When a container's last child ends, verify the container's stated
 outcome actually holds — run its observable test, not the
@@ -280,17 +284,30 @@ worktree or push rights to `board`:
   result is fiction.
 - The brief carries the spec verbatim — "read the board and do it"
   turns a specified item back into an interpretation. Emit briefs
-  with `brief builder ID` / `brief review ID` / `brief refine ID` /
-  `brief decompose ID` rather than hand-writing them: a hand-written
-  brief drifts, and the emitted one already carries the spec, the
-  item's coordinates, and the standing rules (ready PR with the
-  Board: line, no pasted gate output, do-not-merge, the capture
-  rule, the bounce rule).
+  with `brief builder ID` / `brief research ID` / `brief review ID` /
+  `brief refine ID` / `brief decompose ID` rather than hand-writing
+  them: a hand-written brief drifts, and the emitted one already
+  carries the spec, the item's coordinates, and the standing rules
+  (ready PR with the Board: line, no pasted gate output, do-not-merge,
+  the capture rule, the bounce rule).
+- A research slice (its spec says its deliverable is board state, not
+  a diff — no product PR) still gets a claim and a spawned agent, via
+  `brief research ID` in place of `brief builder ID`: the agent does
+  the measuring and drafts its recommendation — the item's full new
+  spec, and each capture ready for `new`/`attach`/`block` — but never
+  runs a `gitboard` command itself, even when the item's own spec
+  tells it to. Applying that recommendation (`spec`, then `new` /
+  `attach` / `block` per drafted capture) is yours, same as landing a
+  PR is; only once it is applied does the claimed, PR-less item carry
+  anything to `verdict`.
 - Reconcile the wave. Finished with a PR: record it on the item
-  (`take ID --pr N`). Dead (no PR, no branch): release the claim
-  (`drop ID --why`, a worker-side reason) so the item is pullable
-  again. Still running: leave it. Then the PRs are yours to watch —
-  the agents are gone.
+  (`take ID --pr N`). Finished with a research recommendation: apply
+  it (above), which leaves the item claimed and PR-less, ready for a
+  verdict same as any other claimed item — `review.md`'s
+  research-slice clause. Dead (no PR, no recommendation, no branch):
+  release the claim (`drop ID --why`, a worker-side reason) so the
+  item is pullable again. Still running: leave it. Then the PRs are
+  yours to watch — the agents are gone.
 - What never fans out: the review verdict — one review, in one
   fresh subagent, however many PRs a wave opened; N agents reviewing
   N PRs is N unreviewed merges wearing a costume — and refinement,
