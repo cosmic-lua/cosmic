@@ -71,5 +71,5 @@ build when the committed copy drifts.
 | D34 | the perf gate judges reproduction against the re-measured baseline | superseded by D36 | [→](d34-reproduction-against-remeasured-baseline.md) |
 | D35 | a dismissed perf regression owes the same evidence a credited one does | amended 2026-08 (D36 disproved the baseline-pair credit) | [→](d35-dismissal-owes-evidence.md) |
 | D36 | a disagreeing baseline pair earns a third reading and is judged by the median | active | [→](d36-baseline-tiebreak-third-reading.md) |
-| D37 | the board holds two states; quality is two gates, not stages | active | [→](d37-two-states-two-gates.md) |
+| D37 | the board holds two states; quality is two gates, not stages | amended 2026-08 | [→](d37-two-states-two-gates.md) |
 | D38 | main lands through a GitHub merge queue; board keeps merge-at-accept | amended 2026-08 (gate/* mirror retired) | [→](d38-merge-queue-on-main.md) |

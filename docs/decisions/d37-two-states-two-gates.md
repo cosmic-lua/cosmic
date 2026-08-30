@@ -1,7 +1,7 @@
 # D37 — the board holds two states; quality is two gates, not stages
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-08
 - **context:** the flow system ran a six-phase kanban (`backlog` →
   `plan` → `ready` → `do` → `check` → `land`) with per-phase WIP
   limits in `_work/flow.tl`, a triage bound, a hand-run flow review
@@ -99,3 +99,16 @@
   legible. revisit if the rework rate rises (the bar or the review
   weakening) or claim contention becomes the bottleneck (too little
   queue structure for the number of agents).
+- **amended 2026-08:** the release exit is now two exits, split by
+  which side stopped. a gap in the ITEM — a spec that cannot answer,
+  a reopened decision, a falsified premise — is no longer released
+  bare: the question becomes its own item (parented, so it is
+  placed), the stuck item takes a `blocked_by` edge on it, and only
+  then does the claim return — the item waits on the answer instead
+  of re-entering todo to bounce again, and the question's `done`
+  unblocks it with no further verb, while a blocker's queue order is
+  lifted by what waits on it. a bare `drop` narrows to the
+  WORKER-side release — a dead session, a spent budget — and asserts
+  the item is fine to re-offer as-is. the derived-state doctrine is
+  unchanged: blocked-todo already existed, and no third state was
+  added.

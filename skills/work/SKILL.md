@@ -101,8 +101,13 @@ stage columns and no per-column WIP limits:
   again. within doing, the facts say what happens next: no PR yet —
   build; PR open, no verdict — review it, at a distance; `request
   changes` — rework on the same PR; `accept` — merge it and `done`
-  the item; a gap the spec cannot answer — release the claim with the
-  gap named, and the item is todo again. landing differs by repo: a
+  the item; a gap the spec cannot answer — file the question as its
+  own item, block this one on it, then release the claim: the item
+  waits on the answer, not the queue, and the question's `done`
+  unblocks it by itself. a bare release (`drop`) asserts the WORKER
+  stopped and the item is fine to re-offer as-is — the two exits and
+  their order are the tool's to teach (`gitboard help drop`,
+  `gitboard help block`). landing differs by repo: a
   main-repo accept is landed by enabling auto-merge, so the queue
   merges it, while a board PR merges at accept as before.
 
@@ -149,11 +154,19 @@ mints one distinct name per agent it spawns.
 2. re-run the spec's measured commands before building — the queue
    ages faster than the tree stands still. numbers moved but the
    shape holds: refresh them in place (`gitboard spec`) and proceed.
-   a fresh fact that breaks the shape or reopens a decision: release
-   the claim with the gap named. a bounce is a good outcome — the bar
-   failing loudly instead of a silent wrong guess — and refining the
-   item back may well be your own next action; do that from the spec
-   and the tree, not from what you remember wanting.
+   a fresh fact that breaks the shape or reopens a decision: file the
+   question as its own item (`new`, parented beside this one so it is
+   placed, the evidence in its spec), block this item on it, then
+   release the claim — the order matters (blocked before released, so
+   no session is offered it bare) and `gitboard help block` carries
+   the procedure. a bounce is a good outcome — the bar failing loudly
+   instead of a silent wrong guess — and the blocked item now waits
+   on the answer instead of bouncing cold to a session that would hit
+   the same wall; answering the question may well be your own next
+   action. do that from the spec and the tree, not from what you
+   remember wanting. a bare `drop` is for worker problems only (a
+   dead session, a spent budget): it asserts the item is fine to
+   re-offer as-is.
 3. one item = one fresh branch off the latest `origin/main`, named
    for the id prefix = one PR. never stack a second item on a branch,
    and never reuse a branch whose PR is open. a runner-assigned
@@ -301,7 +314,9 @@ three verdicts: **accept** — merge, then `done ID`; **request
 changes** — the concrete gaps quoted on the PR, the claimant reworks
 on the same PR; **reject** — the approach is wrong: close the PR,
 record what was learned on the item, clear the claim — it is todo
-again. rejection is cheap by design; wrong work merged is expensive.
+again. a reject that reopens a decision uses the same block-first
+exit builders do: file the question as an item and block this one on
+it, so the learning holds the item back until it is answered. rejection is cheap by design; wrong work merged is expensive.
 a research item takes the same verdicts, re-running its recorded
 checks in place of a diff.
 
