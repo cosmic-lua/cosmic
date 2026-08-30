@@ -261,10 +261,14 @@ builder: a subagent whose context window never held the build. its
 brief carries the item id, the PR number, and this section — not the
 builder's reasoning, and not a summary of what the change was trying
 to achieve, which would hand back the commitment a fresh window
-exists to be without. it claims the review first (the claim is the
-lock; losing the race there costs seconds, losing it at the verdict
-costs the whole verification), names itself, reads the spec off the
-board and the diff off the PR, and records the verdict itself.
+exists to be without. fill `review-brief.md` rather than hand-writing
+one, for the same reason `builder-brief.md` exists: the review verdict
+never fans out (below), so a drifted brief here is not one bad build
+among many but the one check the whole wave rests on. it claims the
+review first (the claim is the lock; losing the race there costs
+seconds, losing it at the verdict costs the whole verification), names
+itself, reads the spec off the board and the diff off the PR, and
+records the verdict itself.
 
 the posture is adversarial — the job is to make the diff fail, and a
 review that only reads has verified nothing:
@@ -326,17 +330,20 @@ board worktree or push rights to `board`:
   `bin/cosmic --make fetch`; a copied or moved tree drops its stale
   `o/` first, or its first gate result is fiction.
 - **the brief carries the spec verbatim** — "read the board and do
-  it" turns a specified item back into an interpretation — plus the
-  branch name off the latest `origin/main`, honest gate timeouts
-  (`--make ci` takes minutes), the PR form (ready, `Board: <id>` in
-  the body, no pasted `## Acceptance` output — see the spec bar), the
-  builder's own bar (`## Change` plus `ci: PASS`; a spec's
-  `## Acceptance` bullets are theirs to sanity-check, never a
-  checklist to reproduce in the PR), do-not-merge, the capture rule
-  (report findings as one evidence paragraph each in the final
-  message; the orchestrator files them), and the bounce rule
-  verbatim: stopping on an under-specified spec is a good outcome. an
-  agent told to finish WILL improvise unless the brief says that.
+  it" turns a specified item back into an interpretation. fill
+  `builder-brief.md` rather than hand-writing one: a hand-written
+  brief drifts (this session it once dropped the `Board:` line on a
+  cross-repo item, and once told a builder to re-verify
+  `## Acceptance` bullets as a second gate), and the template already
+  carries the branch name off the latest `origin/main`, honest gate
+  timeouts (`--make ci` takes minutes), the PR form (ready, `Board:
+  <id>` in the body, no pasted `## Acceptance` output — see the spec
+  bar), the builder's own bar (`## Change` plus `ci: PASS`), do-not-
+  merge, the capture rule (report findings as one evidence paragraph
+  each in the final message; the orchestrator files them), and the
+  bounce rule verbatim: stopping on an under-specified spec is a good
+  outcome. an agent told to finish WILL improvise unless the brief
+  says that.
 - **reconcile the wave.** finished with a PR: record it on the item.
   dead (no PR, no branch): release the claim so the item is pullable
   again. still running: leave it. then the PRs are yours to watch —
