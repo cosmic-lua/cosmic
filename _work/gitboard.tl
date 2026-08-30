@@ -89,7 +89,12 @@ end
 
 local CSPEC: flags.CommandSpec = {
   name = "gitboard",
-  summary = "the work board over committed item files: todo, doing, done",
+  summary = "the work board over committed item files: todo, doing, done\n\n"
+  .. "ids are KSUIDs; the board renders each item by its handle, the id's last 8 "
+  .. "characters\n(e.g. «d0x1_37YJ»), accepted by every verb bare or wrapped, any "
+  .. "divider, any case;\nan unambiguous prefix or the full id also work "
+  .. "everywhere; item branches are named\nby the id's first 8 characters — a "
+  .. "different string from the handle.",
   commands = {
     {name = "init", summary = "create items/ (and a git repo if needed)",
       spec = {flags = {dir_flag()}}},
