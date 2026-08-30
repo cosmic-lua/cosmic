@@ -35,7 +35,6 @@ print("answer=" .. x)
   assert(ok, "cosmic should execute .tl file")
   assert(out:find("answer=42"), "output should contain expected result")
 end
-test_execute_teal_file()
 
 -- Test execution of .lua file (regression test)
 local function test_execute_lua_file()
@@ -50,7 +49,6 @@ print("value=" .. x)
   assert(ok, "cosmic should execute .lua file")
   assert(out:find("value=99"), "output should contain expected result")
 end
-test_execute_lua_file()
 
 -- Test .tl file with type error should fail gracefully
 local function test_teal_type_error()
@@ -66,7 +64,6 @@ print(x)
   assert(not ok, "cosmic should fail on .tl file with type error")
   assert(out:find("type_error.tl"), "error should reference the file name")
 end
-test_teal_type_error()
 
 -- Test .tl file with syntax error should fail gracefully
 local function test_teal_syntax_error()
@@ -79,7 +76,6 @@ if if if
   local ok = __r4.ok
   assert(not ok, "cosmic should fail on .tl file with syntax error")
 end
-test_teal_syntax_error()
 
 -- Test .tl file with records
 local function test_teal_with_records()
@@ -99,7 +95,6 @@ print("point=" .. p.x .. "," .. p.y)
   assert(ok, "cosmic should execute .tl file with records")
   assert(out:find("point=10,20"), "output should contain expected result")
 end
-test_teal_with_records()
 
 -- Test .tl file with generics
 local function test_teal_with_generics()
@@ -116,7 +111,6 @@ print("result=" .. identity(123))
   assert(ok, "cosmic should execute .tl file with generics")
   assert(out:find("result=123"), "output should contain expected result")
 end
-test_teal_with_generics()
 
 -- Test .tl file can require cosmic modules
 local function test_teal_require_cosmic()
@@ -132,7 +126,6 @@ print("bytes=" .. #data)
   assert(ok, "cosmic should execute .tl file with cosmic module requires")
   assert(out:find("bytes=0"), "output should contain expected result")
 end
-test_teal_require_cosmic()
 
 -- Test script arguments are passed correctly to .tl files
 local function test_teal_script_args()
@@ -150,7 +143,6 @@ print("arg2=" .. (arg[2] or "nil"))
   assert(out:find("arg1=first"), "arg[1] should be first argument")
   assert(out:find("arg2=second"), "arg[2] should be second argument")
 end
-test_teal_script_args()
 
 -- Test script arguments are passed correctly to .lua files (regression)
 local function test_lua_script_args()
@@ -166,7 +158,6 @@ print("arg1=" .. (arg[1] or "nil"))
   assert(out:find("arg0=" .. script, 1, true), "arg[0] should be script path")
   assert(out:find("arg1=test"), "arg[1] should be argument")
 end
-test_lua_script_args()
 
 -- Test .tl file with shebang
 local function test_teal_with_shebang()
@@ -185,7 +176,6 @@ print("shebang=" .. x)
   assert(ok, "cosmic should execute .tl file with shebang, got: " .. tostring(out))
   assert(out:find("shebang=777"), "output should contain expected result, got: " .. tostring(out))
 end
-test_teal_with_shebang()
 
 -- Test that running a .tl script twice reuses cosmic._script_cache's
 -- compiled output (a cache hit), and that changing the script's content
@@ -220,7 +210,6 @@ print("value=" .. x)
   assert(out:find("value=2"),
     "expected value=2 after script change (stale cache?), got: " .. tostring(out))
 end
-test_script_cache_reuse_and_invalidation()
 
 -- The compile cache holds CODE THAT WILL BE EXECUTED, and its key --
 -- sha256(path .. content .. build id) -- is computable by anyone who
@@ -286,7 +275,6 @@ local function test_cache_refuses_a_shared_directory()
   assert(not shared:find("PLANTED", 1, true),
     "and must never execute what it holds: " .. shared)
 end
-test_cache_refuses_a_shared_directory()
 
 -- The cache key is the bytes that were COMPILED, not the bytes present
 -- when the entry is written. A source edited between those two moments
@@ -302,6 +290,5 @@ local function test_cache_never_binds_stale_code_to_new_content()
   assert(not cache.load(path, "return 2\n"),
     "and different bytes are a miss, whatever is on disk now")
 end
-test_cache_never_binds_stale_code_to_new_content()
 
 print("all script tests passed")

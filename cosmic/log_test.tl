@@ -23,7 +23,6 @@ local function test_default_threshold_suppresses_debug()
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
   assert(captured[1]:find("visible", 1, true), "got: " .. captured[1])
 end
-test_default_threshold_suppresses_debug()
 
 local function test_line_format()
   reset("info")
@@ -32,7 +31,6 @@ local function test_line_format()
   assert(line:match(iso_pattern), "no ISO timestamp: " .. line)
   assert(line:find("INFO    server started", 1, true), "got: " .. line)
 end
-test_line_format()
 
 local function test_level_tags()
   reset("debug")
@@ -46,7 +44,6 @@ local function test_level_tags()
   assert(captured[3]:find("WARNING w", 1, true), "got: " .. captured[3])
   assert(captured[4]:find("ERROR   e", 1, true), "got: " .. captured[4])
 end
-test_level_tags()
 
 local function test_error_threshold_suppresses_warning()
   reset("error")
@@ -57,7 +54,6 @@ local function test_error_threshold_suppresses_warning()
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
   assert(captured[1]:find("ERROR   visible", 1, true), "got: " .. captured[1])
 end
-test_error_threshold_suppresses_warning()
 
 local function test_fields_sorted_by_key()
   reset("info")
@@ -65,7 +61,6 @@ local function test_fields_sorted_by_key()
   local line = captured[1]
   assert(line:find("req alpha=ok middle=true zebra=1", 1, true), "got: " .. line)
 end
-test_fields_sorted_by_key()
 
 -- Field values render with the shared grammar (cosmic._fields): "%"
 -- and spaces percent-encode, so a value never splits a key=value
@@ -88,7 +83,6 @@ local function test_field_values_use_shared_grammar()
   assert(line:find("n=42", 1, true), "got: " .. line)
   assert(line:find("b=false", 1, true), "got: " .. line)
 end
-test_field_values_use_shared_grammar()
 
 local function test_generic_log_function()
   reset("info")
@@ -96,7 +90,6 @@ local function test_generic_log_function()
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
   assert(captured[1]:find("WARNING generic code=7", 1, true), "got: " .. captured[1])
 end
-test_generic_log_function()
 
 local function test_level_getter_tracks_set_level()
   reset("info")
@@ -104,7 +97,6 @@ local function test_level_getter_tracks_set_level()
   assert(log.set_level("warning"))
   assert(log.level() == "warning", "got: " .. log.level())
 end
-test_level_getter_tracks_set_level()
 
 local function test_set_level_rejects_runtime_garbage()
   reset("info")
@@ -114,7 +106,6 @@ local function test_set_level_rejects_runtime_garbage()
     "got: " .. tostring(err))
   assert(log.level() == "info", "threshold corrupted: " .. log.level())
 end
-test_set_level_rejects_runtime_garbage()
 
 -- log() itself must not throw "compare nil with number" when a
 -- runtime string smuggled in through a cast has no entry in severity[].
@@ -123,7 +114,6 @@ local function test_log_rejects_runtime_garbage_level()
   log.log("verbose" as log.Level, "boom") -- cast: deliberate invalid input
   assert(#captured == 0, "an unknown level must be suppressed, not emitted")
 end
-test_log_rejects_runtime_garbage_level()
 
 local function test_format_does_not_emit()
   reset("info")
@@ -132,7 +122,6 @@ local function test_format_does_not_emit()
   assert(line:match(iso_pattern), "no ISO timestamp: " .. line)
   assert(line:find("ERROR   standalone id=3", 1, true), "got: " .. line)
 end
-test_format_does_not_emit()
 
 -- The sink contract: every emitted line arrives with its
 -- level, so a destination that speaks severities (the syslog sink)
@@ -150,7 +139,6 @@ local function test_sink_receives_level()
   assert(#seen == 1, "expected 1 line, got " .. tostring(#seen))
   assert(seen[1]:match("^error:"), "sink must receive the level, got: " .. seen[1])
 end
-test_sink_receives_level()
 
 -- The sink maps log's four levels onto RFC 5424 wire severities
 -- internally, so the falsifiable in-process contract is that every
@@ -167,7 +155,6 @@ local function test_syslog_output_accepts_every_level_and_never_throws()
     assert(ok, "syslog_output(" .. level .. ") must not throw: " .. tostring(thrown))
   end
 end
-test_syslog_output_accepts_every_level_and_never_throws()
 
 -- An unknown level smuggled through a cast is dropped, not thrown
 -- (mirrors log() and set_level()).
@@ -178,7 +165,6 @@ local function test_syslog_output_drops_runtime_garbage_level()
     end)
   assert(ok, "unknown level must be dropped, not thrown: " .. tostring(thrown))
 end
-test_syslog_output_drops_runtime_garbage_level()
 
 local function test_set_output_restores_stderr_default()
   reset("info")
@@ -193,4 +179,3 @@ local function test_set_output_restores_stderr_default()
   log.info("captured again")
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
 end
-test_set_output_restores_stderr_default()

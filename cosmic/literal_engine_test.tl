@@ -52,7 +52,6 @@ local function test_engines_agree_on_a_nested_payload()
   local as_teal = check.must(literal.format(read(NESTED, "teal")))
   assert(as_c == as_teal, "engines disagree:\n" .. as_c .. "\n" .. as_teal)
 end
-test_engines_agree_on_a_nested_payload()
 
 -- Every refusal is written once, in the Teal reader, and the C path
 -- discards its own message to re-read and report that one — so each of
@@ -80,7 +79,6 @@ local function test_refusals_are_byte_identical()
     assert(c:sub(1, 2) == "t:", "refusal lost its file label: " .. c)
   end
 end
-test_refusals_are_byte_identical()
 
 -- A resolver is the one option the C reader cannot honour -- it refuses
 -- a repeat outright, with no hook -- so `parse` keeps the source on the
@@ -95,7 +93,6 @@ local function test_on_duplicate_still_resolves_under_auto()
   assert(v, "expected a literal, got: " .. tostring(err))
   assert(v.a == 2, "resolver did not run: " .. tostring(v.a))
 end
-test_on_duplicate_still_resolves_under_auto()
 
 -- An engine nobody implements is a caller's typo, and one that read the
 -- file anyway would hide which reader ran. The message names the three.
@@ -106,7 +103,6 @@ local function test_unknown_engine_is_refused()
     err:find('"c"', 1, true), "message does not name the engines: " .. err)
   assert(err:find("rust", 1, true), "message does not name the ask: " .. err)
 end
-test_unknown_engine_is_refused()
 
 -- `parse_file` takes the same options, so an engine chosen there must
 -- reach the reader rather than being dropped on the way.
@@ -119,7 +115,6 @@ local function test_parse_file_carries_the_engine()
   assert(err == refused("return {a = foo}", "teal"),
     "parse_file's refusal is not the reader's: " .. err)
 end
-test_parse_file_carries_the_engine()
 
 -- Lua's lexer folds each line break inside a long bracket -- \n, \r,
 -- \r\n or \n\r -- to one \n and drops one break right after the
@@ -143,4 +138,3 @@ local function test_engines_agree_on_long_bracket_line_endings()
     end
   end
 end
-test_engines_agree_on_long_bracket_line_endings()

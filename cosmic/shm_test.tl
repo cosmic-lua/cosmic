@@ -8,7 +8,6 @@ local function test_module_exports()
   assert(shm.open ~= nil, "open function should be exported")
   assert(type(shm.open) == "function", "open should be a function")
 end
-test_module_exports()
 
 -- Test basic shared memory creation
 
@@ -16,7 +15,6 @@ local function test_open_creates_memory()
   local mem = check.must(shm.open(4096))
   assert(mem ~= nil, "open should return a memory object")
 end
-test_open_creates_memory()
 
 -- Test memory read/write operations
 -- Note: write/read with no arguments uses null-terminated string semantics
@@ -27,7 +25,6 @@ local function test_memory_write_read()
   local data = mem:read() -- reads until null terminator
   assert(data == "hello", "expected 'hello', got '" .. tostring(data) .. "'")
 end
-test_memory_write_read()
 
 local function test_memory_write_read_with_offset()
   local mem = check.must(shm.open(4096))
@@ -36,7 +33,6 @@ local function test_memory_write_read_with_offset()
   local data = mem:read()
   assert(data == "world", "expected 'world', got '" .. tostring(data) .. "'")
 end
-test_memory_write_read_with_offset()
 
 -- Test atomic word operations
 
@@ -46,7 +42,6 @@ local function test_memory_store_load()
   local value = mem:load(0)
   assert(value == 42, "expected 42, got " .. tostring(value))
 end
-test_memory_store_load()
 
 local function test_memory_store_load_different_index()
   local mem = check.must(shm.open(4096))
@@ -57,7 +52,6 @@ local function test_memory_store_load_different_index()
   assert(v0 == 100, "expected 100 at index 0, got " .. tostring(v0))
   assert(v1 == 200, "expected 200 at index 1, got " .. tostring(v1))
 end
-test_memory_store_load_different_index()
 
 -- Test atomic exchange
 
@@ -69,7 +63,6 @@ local function test_memory_exchange()
   local current = mem:load(0)
   assert(current == 20, "after exchange, value should be 20, got " .. tostring(current))
 end
-test_memory_exchange()
 
 -- Test compare-and-exchange
 
@@ -82,7 +75,6 @@ local function test_memory_compare_exchange_success()
   local current = mem:load(0)
   assert(current == 200, "after successful compare_exchange, value should be 200, got " .. tostring(current))
 end
-test_memory_compare_exchange_success()
 
 local function test_memory_compare_exchange_failure()
   local mem = check.must(shm.open(4096))
@@ -93,7 +85,6 @@ local function test_memory_compare_exchange_failure()
   local current = mem:load(0)
   assert(current == 100, "after failed compare_exchange, value should still be 100, got " .. tostring(current))
 end
-test_memory_compare_exchange_failure()
 
 -- Test fetch_add
 
@@ -105,7 +96,6 @@ local function test_memory_fetch_add()
   local current = mem:load(0)
   assert(current == 15, "after fetch_add, value should be 15, got " .. tostring(current))
 end
-test_memory_fetch_add()
 
 -- Test fetch_and
 
@@ -117,7 +107,6 @@ local function test_memory_fetch_and()
   local current = mem:load(0)
   assert(current == 0x0F, "after fetch_and, value should be 15, got " .. tostring(current))
 end
-test_memory_fetch_and()
 
 -- Test fetch_or
 
@@ -129,7 +118,6 @@ local function test_memory_fetch_or()
   local current = mem:load(0)
   assert(current == 0xFF, "after fetch_or, value should be 255, got " .. tostring(current))
 end
-test_memory_fetch_or()
 
 -- Test fetch_xor
 
@@ -141,7 +129,6 @@ local function test_memory_fetch_xor()
   local current = mem:load(0)
   assert(current == 0xF0, "after fetch_xor, value should be 240, got " .. tostring(current))
 end
-test_memory_fetch_xor()
 
 -- Test wake (basic call, no waiters)
 
@@ -152,7 +139,6 @@ local function test_memory_wake_no_waiters()
   -- With no waiters, wake should return 0
   assert(woken == 0, "wake with no waiters should return 0, got " .. tostring(woken))
 end
-test_memory_wake_no_waiters()
 
 -- A real wrapper with error slots: invalid sizes and out-of-range
 -- accesses return nil, err instead of throwing.
@@ -163,7 +149,6 @@ local function test_open_size_not_multiple_of_word()
   assert(type(err) == "string" and err:find("multiple"),
     "error should mention the word-size multiple, got: " .. tostring(err))
 end
-test_open_size_not_multiple_of_word()
 
 local function test_open_rejects_nonpositive_size()
   local mem, err = shm.open(0)
@@ -171,13 +156,11 @@ local function test_open_rejects_nonpositive_size()
   local mem2, err2 = shm.open(-8)
   assert(mem2 == nil and type(err2) == "string", "open(-8) should fail with an error")
 end
-test_open_rejects_nonpositive_size()
 
 local function test_memory_size()
   local mem = check.must(shm.open(4096))
   assert(mem:size() == 4096, "size() should return the mapped size, got " .. tostring(mem:size()))
 end
-test_memory_size()
 
 local function test_memory_read_out_of_range()
   local mem = check.must(shm.open(64))
@@ -186,7 +169,6 @@ local function test_memory_read_out_of_range()
   assert(type(err) == "string" and err:find("range"),
     "read error should mention range, got: " .. tostring(err))
 end
-test_memory_read_out_of_range()
 
 local function test_memory_write_out_of_range()
   local mem = check.must(shm.open(8))
@@ -195,7 +177,6 @@ local function test_memory_write_out_of_range()
   assert(type(err) == "string" and err:find("range"),
     "write error should mention range, got: " .. tostring(err))
 end
-test_memory_write_out_of_range()
 
 -- write must honor an explicit offset: raw.write's real C argument
 -- order is (offset, data, bytes), not (data, offset, bytes), so this
@@ -210,7 +191,6 @@ local function test_memory_write_at_explicit_offset()
   assert(data == "XXXworld",
     "expected 'XXXworld' at bytes 0-7, got: " .. tostring(data):gsub("%z", "\\0"))
 end
-test_memory_write_at_explicit_offset()
 
 -- write must clamp `bytes` to the actual data length before it reaches
 -- the binding: passing the caller's raw (over-large) count instead of
@@ -223,7 +203,6 @@ local function test_memory_write_clamps_bytes_to_data_length()
   local data = check.must(mem:read(0, 2))
   assert(data == "hi", "expected 'hi', got: " .. tostring(data))
 end
-test_memory_write_clamps_bytes_to_data_length()
 
 local function test_memory_word_index_out_of_range()
   local mem = check.must(shm.open(64))
@@ -236,7 +215,6 @@ local function test_memory_word_index_out_of_range()
   assert(type(serr) == "string" and serr:find("range"),
     "store error should mention range, got: " .. tostring(serr))
 end
-test_memory_word_index_out_of_range()
 
 local function test_memory_wait_wrong_expect_returns_eagain()
   local mem = check.must(shm.open(64))
@@ -246,7 +224,6 @@ local function test_memory_wait_wrong_expect_returns_eagain()
   assert(type(err) == "string" and err:match("EAGAIN"),
     "wait error should name EAGAIN, got: " .. tostring(err))
 end
-test_memory_wait_wrong_expect_returns_eagain()
 
 -- signal-safety wave: a futex wait interrupted by a signal is retried
 -- automatically — the absolute deadline keeps the timeout exact across
@@ -276,7 +253,6 @@ local function test_memory_wait_retries_eintr_until_deadline()
     "interrupted wait should retry to the deadline (ETIMEDOUT), got: "
     .. tostring(err))
 end
-test_memory_wait_retries_eintr_until_deadline()
 
 -- close releases the mapping deterministically instead of waiting
 -- for the garbage collector. Idempotent and returns NOTHING; afterwards
@@ -299,4 +275,3 @@ local function test_memory_close()
   assert(woken == nil and wake_err and wake_err:find("unmapped", 1, true),
     "wake after unmap is a caller bug and must say so, got: " .. tostring(wake_err))
 end
-test_memory_close()

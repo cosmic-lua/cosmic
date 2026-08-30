@@ -81,7 +81,6 @@ local function test_a_manifest_without_a_root_is_refused()
   assert(searcher.install_manifest(path) == false,
     "a manifest with no root line must be refused")
 end
-test_a_manifest_without_a_root_is_refused()
 
 -- A missing manifest is a MISS, not an error: a child with no manifest
 -- is an ordinary cosmic, and that is the case every hand-run script is.
@@ -89,7 +88,6 @@ local function test_a_missing_manifest_is_a_miss()
   assert(searcher.install_manifest(fs.join(tmp, "st-nothing", "m")) == false,
     "a missing manifest must not throw")
 end
-test_a_missing_manifest_is_a_miss()
 
 -- A module in no layer at all is a MISS rather than a throw: a
 -- searcher that cannot help must RETURN a string so require can
@@ -100,7 +98,6 @@ local function test_the_searcher_misses_without_a_manifest()
   assert(got:find("nothing.at.all", 1, true),
     "the miss must name the module: " .. tostring(got))
 end
-test_the_searcher_misses_without_a_manifest()
 
 -- The install itself: it lands at index 2, ahead of the default file
 -- searcher, because beating `/zip` is the entire point. Appended, it
@@ -126,7 +123,6 @@ local function test_install_lands_ahead_of_the_file_searcher()
   assert(#package.searchers == after_first,
     "a repeat install_manifest must not add a second copy of the searcher")
 end
-test_install_lands_ahead_of_the_file_searcher()
 
 -- The /zip searcher takes the same seat at boot, so this insert DEMOTES
 -- it: in a project, the tree answers; outside one, the binary does. The
@@ -152,7 +148,6 @@ local function test_the_tree_searcher_outranks_the_zip_searcher()
   assert(zip_seat > 2,
     "the /zip searcher must sit behind the tree, got seat " .. zip_seat)
 end
-test_the_tree_searcher_outranks_the_zip_searcher()
 
 -- Now that a manifest is installed, the layers. A closure entry is
 -- loaded from the file the graph built, verbatim.
@@ -168,7 +163,6 @@ local function test_the_closure_layer_loads_the_built_file()
   local loader = check.must(loader_of(got))
   assert(loader() == "BUILT", "a closure entry must load the built file")
 end
-test_the_closure_layer_loads_the_built_file()
 
 -- The build-directory layer: an import no closure names, but that the
 -- graph built anyway. This is what keeps the dispatcher's own modules
@@ -180,7 +174,6 @@ local function test_the_build_layer_covers_what_no_closure_names()
   local loader = check.must(loader_of(got))
   assert(loader() == "UNNAMED", "must resolve from the build directory")
 end
-test_the_build_layer_covers_what_no_closure_names()
 
 -- An `init.lua` is its package, the same way `init.tl` is.
 local function test_an_init_is_its_package()
@@ -191,7 +184,6 @@ local function test_an_init_is_its_package()
   local loader = check.must(loader_of(got))
   assert(loader() == "INIT", "an init resolves as its package")
 end
-test_an_init_is_its_package()
 
 -- The source layer, strict-compiled. This is the one that covers a
 -- COMPUTED require -- invisible to the import scanner, so no closure
@@ -204,7 +196,6 @@ local function test_the_source_layer_compiles_from_the_tree()
   local loader = check.must(loader_of(got))
   assert(loader() == "SOURCE", "must compile from the tree's source")
 end
-test_the_source_layer_compiles_from_the_tree()
 
 -- Strict means TYPE ERRORS fail the require. That is what keeps a
 -- tree-first resolution from being a downgrade from the binary's
@@ -216,7 +207,6 @@ local function test_a_type_error_fails_the_require()
   assert(not ok, "a type error must fail the require")
   assert(tostring(err):find("broken.tl", 1, true), "got: " .. tostring(err))
 end
-test_a_type_error_fails_the_require()
 
 -- Strict does NOT mean werror. `--check types` is the style gate; a
 -- shadowed or unused local must not become a runtime failure of
@@ -229,7 +219,6 @@ local function test_a_warning_does_not_fail_the_require()
   local loader = check.must(loader_of(got))
   assert(loader() == "WARNED", "a warning must not fail the require")
 end
-test_a_warning_does_not_fail_the_require()
 
 -- And a module in no layer at all misses, naming itself, so require's
 -- aggregate report says the right thing.
@@ -239,7 +228,6 @@ local function test_a_module_in_no_layer_misses()
   assert(got:find("no.such.module", 1, true),
     "got: " .. tostring(got))
 end
-test_a_module_in_no_layer_misses()
 
 -- A closure entry that names a file which is not there is an ERROR, not
 -- a miss: the manifest is the graph's own statement about what it
@@ -257,7 +245,6 @@ local function test_a_broken_closure_entry_is_loud()
   assert(not ok, "a closure entry that is not there must be loud")
   assert(tostring(err):find("gone", 1, true), "got: " .. tostring(err))
 end
-test_a_broken_closure_entry_is_loud()
 
 -- compile_tree's re-entrancy guard (`compiling`) must clear even when
 -- the compiler itself THROWS instead of returning nil, err: left up,
@@ -288,7 +275,6 @@ local function test_compiling_guard_clears_after_a_throw()
   local loader = check.must(loader_of(got))
   assert(loader() == "OK", "resolution after a throw must still work")
 end
-test_compiling_guard_clears_after_a_throw()
 
 -- The argv scan is the channel's other half, and its rule is where the
 -- scan stops: at the first non-flag, which is where getopt stops too.
@@ -305,6 +291,5 @@ local function test_install_argv_manifest_stops_at_the_first_positional()
   assert(named_ok == false and named_err ~= nil,
     "a flag with no argument is a failure that says why (#1001)")
 end
-test_install_argv_manifest_stops_at_the_first_positional()
 
 print("all searcher tree tests passed")

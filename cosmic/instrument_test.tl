@@ -14,7 +14,6 @@ local function test_begin_returns_span()
     "expected file, got " .. tostring(span.file))
   assert(span.start_wall > 0, "expected positive start_wall")
 end
-test_begin_returns_span()
 
 -- finish always measures: with instrumentation off it still returns
 -- the data (it just writes no stderr line).
@@ -29,7 +28,6 @@ local function test_finish_measures_when_disabled()
   assert(data.exit == 0, "expected exit=0")
   assert(data.wall_ms >= 0, "expected wall_ms >= 0")
 end
-test_finish_measures_when_disabled()
 
 -- test finish data formats to a line via format_line
 
@@ -44,7 +42,6 @@ local function test_finish_and_format_line()
   assert(line:match("exit=0"), "expected exit=0 in: " .. line)
   assert(line:match("wall_ms=%d+"), "expected wall_ms= in: " .. line)
 end
-test_finish_and_format_line()
 
 -- test finish captures cpu_ms and maxrss_kb
 
@@ -58,7 +55,6 @@ local function test_finish_includes_cpu_and_maxrss()
   assert(data.cpu_ms >= 0, "expected cpu_ms >= 0")
   assert(data.maxrss_kb > 0, "expected maxrss_kb > 0")
 end
-test_finish_includes_cpu_and_maxrss()
 
 -- test finish with non-zero exit code
 
@@ -67,7 +63,6 @@ local function test_finish_nonzero_exit()
   local data = instrument.finish(span, 1)
   assert(data.exit == 1, "expected exit=1, got " .. tostring(data.exit))
 end
-test_finish_nonzero_exit()
 
 -- test is_enabled() reflects env var
 
@@ -82,7 +77,6 @@ local function test_is_enabled()
   assert(instrument.is_enabled(), "expected enabled when set to true")
   assert(env.unset("COSMIC_INSTRUMENTATION"))
 end
-test_is_enabled()
 
 -- test format_line/parse_line round-trip on real measured data
 
@@ -100,7 +94,6 @@ local function test_round_trip()
   assert(parsed.cpu_ms == data.cpu_ms, "cpu_ms must round-trip exactly")
   assert(parsed.maxrss_kb == data.maxrss_kb, "maxrss_kb must round-trip exactly")
 end
-test_round_trip()
 
 -- test parse_line returns nil for non-instrument lines
 
@@ -110,7 +103,6 @@ local function test_parse_line_non_instrument()
   parsed = instrument.parse_line("")
   assert(parsed == nil, "expected nil for empty line")
 end
-test_parse_line_non_instrument()
 
 -- test parse_lines extracts from mixed stderr content
 
@@ -126,7 +118,6 @@ local function test_parse_lines()
   assert(results[2].op == "compile", "expected op=compile")
   assert(results[2].exit == 1, "expected exit=1")
 end
-test_parse_lines()
 
 -- A file path with a space must round-trip whole: the line format is
 -- space-delimited key=value pairs and parse_line reads each value back
@@ -144,7 +135,6 @@ local function test_file_with_space_round_trips()
   assert(not line:find("my file.tl", 1, true),
     "the raw space must not appear verbatim in the emitted line: " .. line)
 end
-test_file_with_space_round_trips()
 
 -- A literal "%" in a path must also round-trip, and must not be
 -- misinterpreted as an escape sequence introduced by the encoder.
@@ -155,7 +145,6 @@ local function test_file_with_percent_round_trips()
   assert(parsed.file == "cosmic/100%.tl",
     "expected the percent to survive round-trip, got: " .. tostring(parsed.file))
 end
-test_file_with_percent_round_trips()
 
 -- The emitted stderr line is gated on COSMIC_INSTRUMENTATION, and it
 -- is exactly format_line of the returned data.
@@ -167,4 +156,3 @@ local function test_emission_gated_on_env()
   local line = instrument.format_line(data)
   assert(line:find("file=gated.tl", 1, true), "got: " .. line)
 end
-test_emission_gated_on_env()

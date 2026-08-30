@@ -8,7 +8,6 @@ local function test_decode_object()
   assert(result.a == 1, "expected a=1")
   assert(result.b == "hello", "expected b='hello'")
 end
-test_decode_object()
 
 local function test_decode_array()
   local result = json.decode('[1,2,3]')
@@ -17,7 +16,6 @@ local function test_decode_array()
   assert(result[2] == 2, "expected [2]=2")
   assert(result[3] == 3, "expected [3]=3")
 end
-test_decode_array()
 
 local function test_decode_object_typed()
   local obj = check.must(json.decode_object('{"a":1,"b":"hello"}'))
@@ -26,7 +24,6 @@ local function test_decode_object_typed()
   local empty = check.must(json.decode_object("{}"))
   assert(next(empty) == nil, "expected empty object")
 end
-test_decode_object_typed()
 
 local function test_decode_object_wrong_shape()
   for input, kind in pairs({["[1,2]"] = "array", ["[]"] = "array",
@@ -41,7 +38,6 @@ local function test_decode_object_wrong_shape()
   assert(invalid == nil, "expected nil for invalid JSON")
   assert(invalid_err ~= nil, "expected a decode error for invalid JSON")
 end
-test_decode_object_wrong_shape()
 
 local function test_decode_array_typed()
   local items = check.must(json.decode_array('[1,"two",true]'))
@@ -52,7 +48,6 @@ local function test_decode_array_typed()
   assert(#empty == 0, "expected empty array")
   assert(json.encode(empty) == "[]", "typed empty array should re-encode as []")
 end
-test_decode_array_typed()
 
 local function test_decode_array_wrong_shape()
   for input, kind in pairs({['{"a":1}'] = "object", ["{}"] = "object",
@@ -66,7 +61,6 @@ local function test_decode_array_wrong_shape()
   assert(invalid == nil, "expected nil for invalid JSON")
   assert(invalid_err ~= nil, "expected a decode error for invalid JSON")
 end
-test_decode_array_wrong_shape()
 
 local function test_decode_primitives()
   assert(json.decode("42") == 42, "expected 42")
@@ -75,19 +69,16 @@ local function test_decode_primitives()
   assert(json.decode("false") == false, "expected false")
   assert(json.decode("null") == nil, "expected nil")
 end
-test_decode_primitives()
 
 local function test_encode_object()
   local result = json.encode({a = 1})
   assert(result == '{"a":1}', "expected '{\"a\":1}', got '" .. result .. "'")
 end
-test_encode_object()
 
 local function test_encode_array()
   local result = json.encode({1, 2, 3})
   assert(result == "[1,2,3]", "expected '[1,2,3]', got '" .. result .. "'")
 end
-test_encode_array()
 
 local function test_encode_primitives()
   assert(json.encode(42) == "42", "expected '42'")
@@ -95,7 +86,6 @@ local function test_encode_primitives()
   assert(json.encode(true) == "true", "expected 'true'")
   assert(json.encode(false) == "false", "expected 'false'")
 end
-test_encode_primitives()
 
 local function test_roundtrip()
   local original = {name = "test", values = {1, 2, 3}, nested = {flag = true}}
@@ -107,7 +97,6 @@ local function test_roundtrip()
   assert(nested is {string: boolean}, "the nested value decodes to a table")
   assert(nested.flag == original.nested.flag, "nested flag mismatch")
 end
-test_roundtrip()
 
 local function test_decode_invalid_json()
   local result, err = json.decode("{invalid json}")
@@ -115,21 +104,18 @@ local function test_decode_invalid_json()
   assert(err ~= nil, "expected error message")
   assert(type(err) == "string", "error should be a string")
 end
-test_decode_invalid_json()
 
 local function test_decode_truncated_json()
   local result, err = json.decode('{"key":')
   assert(result == nil, "expected nil for truncated json")
   assert(err ~= nil, "expected error message for truncated json")
 end
-test_decode_truncated_json()
 
 local function test_decode_empty_string()
   local result, err = json.decode("")
   assert(result == nil, "expected nil for empty string")
   assert(err ~= nil, "expected error message for empty string")
 end
-test_decode_empty_string()
 
 local function test_encode_invalid_value()
   local result, err = json.encode(function() end)
@@ -137,7 +123,6 @@ local function test_encode_invalid_value()
   assert(err ~= nil, "expected error message for function")
   assert(type(err) == "string", "error should be a string")
 end
-test_encode_invalid_value()
 
 -- Encode options must reach the encoder, not be silently ignored
 
@@ -146,7 +131,6 @@ local function test_encode_pretty()
     "pretty encode should succeed")
   assert(string.match(result, "\n"), "pretty output should contain a newline, got: " .. tostring(result))
 end
-test_encode_pretty()
 
 local function test_encode_pretty_indent()
   local result = check.must(
@@ -154,20 +138,17 @@ local function test_encode_pretty_indent()
     "pretty encode with indent should succeed")
   assert(string.match(result, "\n    "), "output should use the custom indent, got: " .. tostring(result))
 end
-test_encode_pretty_indent()
 
 local function test_encode_default_stays_compact()
   local result = json.encode({a = 1, b = 2})
   assert(result == '{"a":1,"b":2}', "default encode should stay compact, got: " .. tostring(result))
 end
-test_encode_default_stays_compact()
 
 local function test_encode_max_depth()
   local result, err = json.encode({a = {b = {c = 1}}}, {max_depth = 2})
   assert(result == nil, "encode past max_depth should fail")
   assert(err ~= nil, "max_depth failure should carry an error message")
 end
-test_encode_max_depth()
 
 -- Null policy: these pin the documented (lossy) behavior so a change in the
 -- C encoder/decoder shows up as a test failure, not a silent contract drift.
@@ -180,7 +161,6 @@ local function test_null_object_key_dropped()
   local reencoded = json.encode(decoded)
   assert(reencoded == '{"b":1}', "null key is documented to vanish on re-encode, got: " .. tostring(reencoded))
 end
-test_null_object_key_dropped()
 
 -- A null array element decodes to a hole by default, but the
 -- hole is LOUD on re-encode rather than a silent truncation, and
@@ -196,7 +176,6 @@ local function test_null_array_element_is_a_loud_hole()
   assert(err and err:find("sparse", 1, true),
     "the refusal names the condition, got: " .. tostring(err))
 end
-test_null_array_element_is_a_loud_hole()
 
 local function test_sparse_as_null_round_trips_an_array()
   local decoded = json.decode("[1,null,2]")
@@ -204,7 +183,6 @@ local function test_sparse_as_null_round_trips_an_array()
   assert(json.encode(decoded, {sparse_as_null = true}) == "[1,null,2]",
     "sparse_as_null re-encodes the hole as null, losslessly")
 end
-test_sparse_as_null_round_trips_an_array()
 
 local function test_null_value_sentinel_survives_the_round_trip()
   local arr = json.decode("[1,null,2]", {null_value = json.null})
@@ -220,7 +198,6 @@ local function test_null_value_sentinel_survives_the_round_trip()
   local top, terr = json.decode("null", {null_value = json.null})
   assert(top == json.null and terr == nil, "top-level null decodes to the sentinel")
 end
-test_null_value_sentinel_survives_the_round_trip()
 
 local function test_nan_inf_encoding()
   -- Non-finite numbers are rejected by default: encoding them silently
@@ -237,7 +214,6 @@ local function test_nan_inf_encoding()
   local inf_null = json.encode({math.huge, -math.huge}, {nan_as_null = true})
   assert(inf_null == "[null,null]", "Inf with nan_as_null should encode, got: " .. tostring(inf_null))
 end
-test_nan_inf_encoding()
 
 -- Precision, nesting, \uXXXX escapes, and NUL bytes.
 
@@ -253,7 +229,6 @@ local function test_integer_precision_roundtrip()
   assert(math.type(decoded) == "integer",
     "decoded integer should stay an integer")
 end
-test_integer_precision_roundtrip()
 
 local function test_float_precision_roundtrip()
   for _, f in ipairs({0.1, 3.141592653589793, 1e308, -2.5e-10}) do
@@ -263,7 +238,6 @@ local function test_float_precision_roundtrip()
       .. " -> " .. tostring(decoded))
   end
 end
-test_float_precision_roundtrip()
 
 local function test_decode_unicode_escapes()
   assert(json.decode('"\\u0041"') == "A", "\\u0041 should decode to A")
@@ -274,7 +248,6 @@ local function test_decode_unicode_escapes()
   assert(emoji == "\xf0\x9f\x98\x80",
     "surrogate pair should decode to 4-byte UTF-8, got " .. tostring(emoji))
 end
-test_decode_unicode_escapes()
 
 local function test_nul_byte_roundtrip()
   local decoded = json.decode('"\\u0000"')
@@ -287,7 +260,6 @@ local function test_nul_byte_roundtrip()
   local rt = json.decode(check.must(json.encode("a\0b")))
   assert(rt == "a\0b" and #rt == 3, "NUL inside a string must round-trip")
 end
-test_nul_byte_roundtrip()
 
 local function test_decode_depth_limit()
   -- 63 nested arrays decode; 64 exceed the C decoder's depth limit and
@@ -300,7 +272,6 @@ local function test_decode_depth_limit()
   assert(err and err:match("depth"),
     "error should name the depth limit, got: " .. tostring(err))
 end
-test_decode_depth_limit()
 
 local function test_encode_default_depth_limit()
   -- Without an explicit max_depth, a very deep table still fails cleanly.
@@ -315,7 +286,6 @@ local function test_encode_default_depth_limit()
   assert(encoded == nil, "encoding a 200-deep table should fail")
   assert(err ~= nil, "deep-table failure should carry an error message")
 end
-test_encode_default_depth_limit()
 
 local function test_empty_array_roundtrip()
   -- Decoded arrays carry the shared array marker, so [] survives a
@@ -329,4 +299,3 @@ local function test_empty_array_roundtrip()
   local marked = json.array({1, 2})
   assert(json.encode(marked) == "[1,2]", "array() must not disturb elements")
 end
-test_empty_array_roundtrip()

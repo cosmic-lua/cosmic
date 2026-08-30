@@ -14,27 +14,23 @@ local function test_parse_ipv4_basic()
   assert(a:int() == 3232235777, "expected 3232235777, got " .. tostring(a:int()))
   assert(a.family == "inet", "expected family 'inet', got " .. tostring(a.family))
 end
-test_parse_ipv4_basic()
 
 local function test_parse_localhost()
   local a = p("127.0.0.1")
   assert(a:int() == 2130706433, "expected 2130706433, got " .. tostring(a:int()))
 end
-test_parse_localhost()
 
 local function test_parse_invalid_returns_nil()
   local result, err = ip.parse("invalid")
   assert(result == nil, "expected nil for invalid IP, got " .. tostring(result))
   assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
-test_parse_invalid_returns_nil()
 
 local function test_parse_out_of_range()
   local result, err = ip.parse("256.1.1.1")
   assert(result == nil, "expected nil for out-of-range IP, got " .. tostring(result))
   assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
-test_parse_out_of_range()
 
 local function test_parse_shorthand_rejected()
   -- inet_aton-style shorthand ("127.1" == 127.0.0.1 in some parsers)
@@ -43,14 +39,12 @@ local function test_parse_shorthand_rejected()
   assert(result == nil, "expected nil for '127.1', got " .. tostring(result))
   assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
-test_parse_shorthand_rejected()
 
 local function test_parse_five_octets_rejected()
   local result, err = ip.parse("1.2.3.4.5")
   assert(result == nil, "expected nil for '1.2.3.4.5', got " .. tostring(result))
   assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
-test_parse_five_octets_rejected()
 
 local function test_parse_leading_zero_rejected()
   -- "010" reads as octal in other parsers; ambiguity is rejected outright.
@@ -58,13 +52,11 @@ local function test_parse_leading_zero_rejected()
   assert(result == nil, "expected nil for leading-zero octet, got " .. tostring(result))
   assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
-test_parse_leading_zero_rejected()
 
 local function test_parse_zero_octets_ok()
   local a = p("0.0.0.0")
   assert(a:int() == 0, "expected 0 for '0.0.0.0'")
 end
-test_parse_zero_octets_ok()
 
 local function test_parse_ipv6_rejected_with_clear_error()
   local result, err = ip.parse("::1")
@@ -72,21 +64,18 @@ local function test_parse_ipv6_rejected_with_clear_error()
   assert(err ~= nil and err:find("IPv6 not supported") ~= nil,
     "expected 'IPv6 not supported' error, got " .. tostring(err))
 end
-test_parse_ipv6_rejected_with_clear_error()
 
 local function test_parse_empty_rejected()
   local result, err = ip.parse("")
   assert(result == nil, "expected nil for empty string")
   assert(type(err) == "string", "expected error message")
 end
-test_parse_empty_rejected()
 
 local function test_parse_broadcast()
   -- 255.255.255.255 is a valid dotted quad, not an error sentinel.
   local a = p("255.255.255.255")
   assert(a:int() == 4294967295, "expected 4294967295, got " .. tostring(a:int()))
 end
-test_parse_broadcast()
 
 -- Addr value semantics
 
@@ -97,7 +86,6 @@ local function test_addr_equality()
   assert(p("10.0.0.1") ~= p("10.0.0.2"), "different addresses must be ~=")
   assert(p("127.0.0.1") == ip.from_int(2130706433), "parse and addr agree")
 end
-test_addr_equality()
 
 local function test_addr_family()
   local a = p("8.8.8.8")
@@ -105,7 +93,6 @@ local function test_addr_family()
   local b = ip.from_int(0)
   assert(b.family == "inet", "constructed Addr carries family too")
 end
-test_addr_family()
 
 -- format / tostring
 
@@ -115,13 +102,11 @@ local function test_format_roundtrip()
   assert(formatted == original,
     "expected roundtrip to preserve '" .. original .. "', got '" .. formatted .. "'")
 end
-test_format_roundtrip()
 
 local function test_addr_tostring()
   local a = p("10.0.0.1")
   assert(tostring(a) == "10.0.0.1", "expected '10.0.0.1', got '" .. tostring(a) .. "'")
 end
-test_addr_tostring()
 
 -- categorize
 
@@ -129,19 +114,16 @@ local function test_categorize_loopback()
   local result = p("127.0.0.1"):categorize()
   assert(result == "LOOPBACK", "expected 'LOOPBACK', got '" .. result .. "'")
 end
-test_categorize_loopback()
 
 local function test_categorize_private_192()
   local result = p("192.168.1.1"):categorize()
   assert(result == "PRIVATE", "expected 'PRIVATE', got '" .. result .. "'")
 end
-test_categorize_private_192()
 
 local function test_categorize_private_10()
   local result = p("10.0.0.1"):categorize()
   assert(result == "PRIVATE", "expected 'PRIVATE', got '" .. result .. "'")
 end
-test_categorize_private_10()
 
 local function test_categorize_public()
   local result = p("8.8.8.8"):categorize()
@@ -149,7 +131,6 @@ local function test_categorize_public()
   assert(result ~= "LOOPBACK" and result ~= "PRIVATE",
     "expected public category, got '" .. result .. "'")
 end
-test_categorize_public()
 
 -- is_loopback
 
@@ -157,12 +138,10 @@ local function test_is_loopback_true()
   assert(p("127.0.0.1"):is_loopback() == true, "expected true for loopback")
   assert(p("127.255.255.255"):is_loopback() == true, "expected true for 127.255.255.255")
 end
-test_is_loopback_true()
 
 local function test_is_loopback_false()
   assert(p("192.168.1.1"):is_loopback() == false, "expected false for non-loopback")
 end
-test_is_loopback_false()
 
 -- is_private
 
@@ -172,7 +151,6 @@ local function test_is_private_ranges()
   assert(p("172.16.0.1"):is_private() == true, "expected true for 172.16.x.x")
   assert(p("8.8.8.8"):is_private() == false, "expected false for public IP")
 end
-test_is_private_ranges()
 
 -- is_public
 
@@ -182,7 +160,6 @@ local function test_is_public()
   assert(p("192.168.1.1"):is_public() == false, "expected false for private IP")
   assert(p("127.0.0.1"):is_public() == false, "expected false for loopback")
 end
-test_is_public()
 
 -- lookup tests
 
@@ -194,7 +171,6 @@ local function test_lookup_localhost()
   assert(aa:int() == 2130706433, "expected 127.0.0.1, got " .. tostring(aa:int()))
   assert(aa == p("127.0.0.1"), "lookup and parse agree by value")
 end
-test_lookup_localhost()
 
 local function test_lookup_invalid_returns_nil()
   local a, err = ip.resolve("this.host.does.not.exist.invalid")
@@ -202,7 +178,6 @@ local function test_lookup_invalid_returns_nil()
   assert(err ~= nil, "expected error message for invalid hostname")
   assert(err:find("lookup failed"), "expected 'lookup failed' in error: " .. tostring(err))
 end
-test_lookup_invalid_returns_nil()
 
 -- addr constructor (the int-to-Addr escape hatch for the C boundary)
 
@@ -210,7 +185,6 @@ local function test_addr_int()
   local a = ip.from_int(2130706433)
   assert(a:int() == 2130706433, "expected 2130706433, got " .. tostring(a:int()))
 end
-test_addr_int()
 
 local function test_addr_methods()
   local a = ip.from_int(p("127.0.0.1"):int())
@@ -219,7 +193,6 @@ local function test_addr_methods()
   assert(a:is_loopback() == true, "expected loopback")
   assert(a:is_public() == false, "expected not public")
 end
-test_addr_methods()
 
 local function test_lookup_returns_addr_with_methods()
   local aa = check.must(ip.resolve("localhost"))
@@ -227,7 +200,6 @@ local function test_lookup_returns_addr_with_methods()
   assert(aa:is_loopback() == true, "expected loopback")
   assert(tostring(aa) == "127.0.0.1", "expected tostring '127.0.0.1'")
 end
-test_lookup_returns_addr_with_methods()
 
 -- CIDR tests
 
@@ -238,14 +210,12 @@ local function test_cidr_parse()
   assert(tostring(c) == "192.168.0.0/16", "expected tostring 192.168.0.0/16")
   assert(c:format() == "192.168.0.0/16", "expected format to match tostring")
 end
-test_cidr_parse()
 
 local function test_cidr_masks_host_bits()
   local c = check.must(ip.parse_cidr("10.1.2.3/8"))
   assert(tostring(c:network()) == "10.0.0.0", "expected host bits masked away")
   assert(tostring(c) == "10.0.0.0/8", "expected canonical form")
 end
-test_cidr_masks_host_bits()
 
 local function test_cidr_netmask_broadcast_size()
   local c = check.must(ip.parse_cidr("192.168.1.0/24"))
@@ -263,7 +233,6 @@ local function test_cidr_netmask_broadcast_size()
   assert(tostring(all:broadcast()) == "255.255.255.255", "expected /0 broadcast")
   assert(all:size() == 4294967296, "expected 2^32 addresses")
 end
-test_cidr_netmask_broadcast_size()
 
 -- contains takes the typed Addr only: a raw string would make an
 -- unparseable input indistinguishable from a non-member — fail-open
@@ -291,7 +260,6 @@ local function test_cidr_contains()
   assert(host:contains(self_addr), "expected /32 to contain itself")
   assert(not host:contains(neighbor), "expected /32 to exclude neighbors")
 end
-test_cidr_contains()
 
 local function test_cidr_equality()
   local a = check.must(ip.parse_cidr("10.0.0.0/8"))
@@ -300,7 +268,6 @@ local function test_cidr_equality()
   assert(a == b, "expected same masked block to compare equal")
   assert(a ~= c, "expected different prefix to differ")
 end
-test_cidr_equality()
 
 local function test_cidr_invalid()
   local cases = {
@@ -321,4 +288,3 @@ local function test_cidr_invalid()
     assert(err ~= nil, "expected error message for '" .. s .. "'")
   end
 end
-test_cidr_invalid()

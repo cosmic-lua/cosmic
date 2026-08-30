@@ -10,7 +10,6 @@ local function test_strsignal()
   assert(signal.strsignal(signal.SIGINT) == "SIGINT", "expected SIGINT")
   assert(signal.strsignal(9) == "SIGKILL", "expected SIGKILL for signal 9")
 end
-test_strsignal()
 
 local function test_signal_constants()
   -- Verify key signal constants are defined and have expected values
@@ -35,7 +34,6 @@ local function test_signal_constants()
   -- Verify timer constants
   assert(signal.ITIMER_REAL ~= nil, "ITIMER_REAL should be defined")
 end
-test_signal_constants()
 
 local function test_sigset()
   -- Test Sigset constructor
@@ -60,7 +58,6 @@ local function test_sigset()
   set:fill()
   assert(set:contains(signal.SIGTERM), "set should contain all signals after fill")
 end
-test_sigset()
 
 local function test_sigprocmask()
   -- Block SIGUSR1, then verify we can unblock it
@@ -71,7 +68,6 @@ local function test_sigprocmask()
   -- Restore old mask
   assert(signal.sigprocmask(signal.SIG_SETMASK, oldmask))
 end
-test_sigprocmask()
 
 local function test_sigaction_ignore()
   -- Set up SIGUSR1 to be ignored
@@ -84,7 +80,6 @@ local function test_sigaction_ignore()
   -- Restore old handler
   assert(signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask))
 end
-test_sigaction_ignore()
 
 local function test_sigaction_handler()
   -- Test that we can install a Lua function as a signal handler
@@ -115,7 +110,6 @@ local function test_sigaction_handler()
   -- Restore old handler
   assert(signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask))
 end
-test_sigaction_handler()
 
 local function test_kill()
   -- Test kill by sending signal 0 (which just checks permissions)
@@ -123,7 +117,6 @@ local function test_kill()
   local ok = signal.kill(pid, 0)
   assert(ok, "kill with signal 0 should succeed for own process")
 end
-test_kill()
 
 local function test_kill_error_names_errno()
   -- A pid this large should never be in use: kill(pid, 0) just probes
@@ -133,7 +126,6 @@ local function test_kill_error_names_errno()
   assert(type(err) == "string" and err:match("ESRCH"),
     "kill error should name ESRCH, got: " .. tostring(err))
 end
-test_kill_error_names_errno()
 
 local function test_raise()
   -- Set up handler for SIGUSR2
@@ -153,7 +145,6 @@ local function test_raise()
   -- Restore old handler
   assert(signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask))
 end
-test_raise()
 
 local function test_setitimer()
   -- Test that setitimer with opts record fires SIGALRM
@@ -192,7 +183,6 @@ local function test_setitimer()
       }))
   assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 end
-test_setitimer()
 
 -- Error fidelity: failures surface the binding's errno
 -- string instead of being fabricated or discarded.
@@ -203,7 +193,6 @@ local function test_raise_error_names_errno()
   assert(type(err) == "string" and err:match("EINVAL"),
     "raise error should name EINVAL, got: " .. tostring(err))
 end
-test_raise_error_names_errno()
 
 local function test_setitimer_error_names_errno()
   local result, err = signal.setitimer({
@@ -215,7 +204,6 @@ local function test_setitimer_error_names_errno()
   assert(type(err) == "string" and err:match("EINVAL"),
     "setitimer error should name EINVAL, got: " .. tostring(err))
 end
-test_setitimer_error_names_errno()
 
 local function test_sigprocmask_error_names_errno()
   local mask = signal.sigset(signal.SIGUSR1)
@@ -224,7 +212,6 @@ local function test_sigprocmask_error_names_errno()
   assert(type(err) == "string" and err:match("EINVAL"),
     "sigprocmask error should name EINVAL, got: " .. tostring(err))
 end
-test_sigprocmask_error_names_errno()
 
 local function test_sigsuspend_succeeds_on_delivery()
   -- The EINTR that ends a sigsuspend IS its success. Arm a
@@ -243,4 +230,3 @@ local function test_sigsuspend_succeeds_on_delivery()
   assert(signal.setitimer(prev_timer))
   assert(signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask))
 end
-test_sigsuspend_succeeds_on_delivery()
