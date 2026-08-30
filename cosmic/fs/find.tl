@@ -269,6 +269,10 @@ local function find(dir: string, opts?: FindOptions): Found | nil, string
   end
   local results: Found = {}
   for p in iter do
+    -- iter's __call is honestly `string | nil, {string}` (nil signals
+    -- exhaustion); the generic-for loop never runs this body with a nil
+    -- p, but the guard lets the checker see it too.
+    if not p then break end
     table.insert(results, p)
   end
   local _, errs = iter()

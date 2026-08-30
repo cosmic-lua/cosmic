@@ -14,7 +14,7 @@ local function wrap_dir(raw: unix.Dir): Dir
     -- The second return is the dirent d_type (fs.DT_DIR / DT_REG /
     -- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
     -- so "is this entry a directory" needs no stat(2) call.
-    read = function(_self: Dir): string, integer
+    read = function(_self: Dir): string | nil, integer
       if is_closed then return nil end
       local name, kind = raw:read()
       return name, kind
@@ -27,14 +27,18 @@ local function wrap_dir(raw: unix.Dir): Dir
     end,
     fd = function(_self: Dir): integer
       if is_closed then return -1 end
-      return (raw:fd())
+      -- raw:fd() reports EOPNOTSUPP (nil) on a /zip/... path or on
+      -- Windows; -1 is the same not-a-live-fd sentinel close() uses.
+      return raw:fd() or -1
     end,
     rewind = function(_self: Dir)
       if not is_closed then raw:rewind() end
     end,
     tell = function(_self: Dir): integer
       if is_closed then return -1 end
-      return (raw:tell())
+      -- raw:tell() reports EOPNOTSUPP (nil) on a /zip/... path or on
+      -- Windows; -1 is the same not-a-live-position sentinel fd() uses.
+      return raw:tell() or -1
     end,
     closed = function(_self: Dir): boolean
       return is_closed
