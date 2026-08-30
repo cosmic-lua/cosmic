@@ -31,47 +31,40 @@ local function test_glob_single_level_not_recursive()
   assert(rel[1] == ".hidden.lua" and rel[2] == "a.lua" and rel[3] == "b.lua",
     "expected sorted dotfile-inclusive matches, got " .. table.concat(rel, ","))
 end
-test_glob_single_level_not_recursive()
 
 local function test_glob_path_components()
   local paths = check.must(fs.glob(root, "src/*.lua"))
   local rel = names(paths)
   assert(#rel == 1 and rel[1] == "src/x.lua", "expected src/x.lua, got " .. table.concat(rel, ","))
 end
-test_glob_path_components()
 
 local function test_glob_component_wildcard_dir()
   local paths = check.must(fs.glob(root, "*/deep/*.lua"))
   local rel = names(paths)
   assert(#rel == 1 and rel[1] == "src/deep/z.lua", "expected src/deep/z.lua")
 end
-test_glob_component_wildcard_dir()
 
 local function test_glob_matches_directories_too()
   local paths = check.must(fs.glob(root, "s?c"))
   local rel = names(paths)
   assert(#rel == 1 and rel[1] == "src", "expected the src directory itself")
 end
-test_glob_matches_directories_too()
 
 local function test_glob_literal_component()
   local paths = check.must(fs.glob(root, "a.lua"))
   assert(#paths == 1, "expected exact-name match")
 end
-test_glob_literal_component()
 
 local function test_glob_no_match_and_missing_dirs()
   assert(#check.must(fs.glob(root, "*.nope")) == 0, "expected no matches")
   assert(#check.must(fs.glob(root, "missing/*.lua")) == 0,
     "expected no matches through a missing directory")
 end
-test_glob_no_match_and_missing_dirs()
 
 local function test_glob_root_failure()
   local paths, err = fs.glob(fs.join(root, "nonexistent"), "*.lua")
   assert(paths == nil and err ~= nil, "expected nil, err for missing root")
 end
-test_glob_root_failure()
 
 local function test_glob_invalid_patterns()
   local paths, err = fs.glob(root, "/etc/*")
@@ -79,7 +72,6 @@ local function test_glob_invalid_patterns()
   paths, err = fs.glob(root, "")
   assert(paths == nil and err ~= nil, "expected empty pattern rejected")
 end
-test_glob_invalid_patterns()
 
 -- walk max_depth tests
 
@@ -106,14 +98,12 @@ local function test_walk_max_depth_one()
   assert(has(seen, "a.lua") and has(seen, "src"), "expected top-level entries")
   assert(not has(seen, "src/x.lua"), "expected no descent at max_depth=1")
 end
-test_walk_max_depth_one()
 
 local function test_walk_max_depth_two()
   local seen = collect_depth(2)
   assert(has(seen, "src/x.lua") and has(seen, "src/deep"), "expected depth-2 entries")
   assert(not has(seen, "src/deep/z.lua"), "expected no depth-3 entries")
 end
-test_walk_max_depth_two()
 
 local function test_walk_unlimited_by_default()
   local seen: {string} = {}
@@ -124,6 +114,3 @@ local function test_walk_unlimited_by_default()
   local zero = collect_depth(0)
   assert(has(zero, "src/deep/z.lua"), "expected max_depth=0 to mean unlimited")
 end
-test_walk_unlimited_by_default()
-
-assert(fs.remove_all(root))
