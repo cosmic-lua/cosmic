@@ -295,8 +295,9 @@ local function find_info(dir: string, opts?: FindOptions): FoundInfo | nil, stri
   local lua_pattern = find_pattern(opts)
   local files: {string: FileInfo} = {}
   local walked, fatal = fs_walk.visit(dir, function(e: Entry, acc: {string: FileInfo})
-      if e.stat:is_file() and e.name:match(lua_pattern) then
-        acc[e.path] = {mode = e.stat:mode() & 0x1ff}
+      local st, _serr = e:stat()
+      if st and st:is_file() and e.name:match(lua_pattern) then
+        acc[e.path] = {mode = st:mode() & 0x1ff}
       end
     end, files, {max_depth = find_depth(opts)})
   if not walked then

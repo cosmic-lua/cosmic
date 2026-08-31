@@ -90,7 +90,8 @@ end
 local function prune_internal(docs_dir: string)
   local internal: {string} = {}
   local _ok, _err = fs.visit(docs_dir, function(e: fs.Entry, acc: {string})
-      if not e.stat:is_dir() and e.name:match("%.md$") then
+      local st, _serr = e:stat()
+      if st and not st:is_dir() and e.name:match("%.md$") then
         local rel_path = e.path:sub(#docs_dir + 2)
         if rel_path ~= "README.md" and not is_public_page(rel_path) then
           table.insert(acc, e.path)

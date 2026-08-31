@@ -302,7 +302,7 @@ end
 --- Visit one entry: prune what the project never sees, classify the
 --- rest.
 local function visit(e: Entry, ctx: Scan): WalkAction
-  local path, name, st = e.path, e.name, e.stat
+  local path, name = e.path, e.name
   local rel = path:sub(#ctx.root + 2)
   -- Dotfiles are invisible to the model — except under `embed/`, where
   -- the point is a verbatim mapping and the dot is doing work: a
@@ -315,7 +315,10 @@ local function visit(e: Entry, ctx: Scan): WalkAction
   if is_ignored(ctx.patterns, rel, name) then
     return "skip"
   end
-  if st:is_dir() then
+  local st, _serr = e:stat()
+  if not st then
+    return
+  elseif st:is_dir() then
     if rel == BUILD_DIR then
       return "skip"
     end

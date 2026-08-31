@@ -212,7 +212,8 @@ local function generated_payload(root: string, unit: string, out: {Staged})
     return
   end
   local _ok, _err = fs.visit(dir, function(e: fs.Entry): fs.WalkAction
-      if e.stat:is_file() then
+      local st, _serr = e:stat()
+      if st and st:is_file() then
         local inside = e.path:sub(#dir + 2)
         out[#out + 1] = {source = fs.join(rel, inside), stored = inside, is_module = bytecode.is_module_path(inside)}
       end

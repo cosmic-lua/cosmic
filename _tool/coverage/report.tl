@@ -199,10 +199,9 @@ end
 local function scan_dir(dir: string, cov_files: {string},
     src_files: {string}, patterns: {string})
   local _ok, _err = fs.visit(dir, function(e: fs.Entry, _ctx: {boolean})
+      local st, _serr = e:stat()
+      if not st or st:is_dir() then return end
       local path = e.path
-      if e.stat:is_dir() then
-        return
-      end
       -- Scanning `.` yields `./x.tl`, scanning `o` yields `o/x.tl`, and
       -- a display path has to be the same either way: it is the key the
       -- committed ratchet is looked up by, so a `./` makes every file

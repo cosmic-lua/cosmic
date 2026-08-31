@@ -34,7 +34,12 @@ local function strip_into(from: string, to: string, strip: integer,
   local prefix = string.rep("[^/]+/", strip)
   local failure: string = nil
   local ok, werr = fs.visit(from, function(e: fs.Entry): fs.WalkAction
-      local path, st = e.path, e.stat
+      local path = e.path
+      local st, serr = e:stat()
+      if not st then
+        failure = path:sub(#from + 2) .. ": " .. serr
+        return "stop"
+      end
       if st:is_link() then
         -- Loudly, not silently. `cosmic.tar` deliberately preserves
         -- archive-internal symlinks (relative, no `..`), and this walk

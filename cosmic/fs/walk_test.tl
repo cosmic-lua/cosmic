@@ -111,7 +111,8 @@ local function test_walk_symlink_file_visited()
   -- (walk visits entries without distinguishing symlinked files from real ones,
   -- since we only skip recursion into symlinked dirs)
   assert(found["real.txt"], "real.txt should be visited")
-  -- alias.txt: walk calls lstat, sees S_ISLNK (not S_ISDIR), visits it
+  -- alias.txt: walk classifies it from d_type (DT_LNK, not DT_DIR)
+  -- without a stat, and visits it.
   assert(found["alias.txt"], "symlinked file should be visited")
 end
 
@@ -351,6 +352,28 @@ local function test_visit_entry_and_depth()
   assert(depths["top.txt"] == 1, "top-level entries are depth 1")
   assert(depths["sub"] == 1, "the subdir itself is depth 1")
   assert(depths["deep.txt"] == 2, "entries one level down are depth 2")
+end
+
+-- D41: a decisive-d_type entry is handed to the visitor even when its
+-- stat would fail, and that failure comes back honestly through
+-- e:stat() rather than crashing the walk or silently vanishing.
+local function test_visit_stat_is_lazy_and_honest()
+  local base = mksubdir("visit_lazy_stat")
+  write_file(fs.join(base, "target.txt"), "x")
+  local saw = false
+  local walked, err = fs.visit(base, function(e: fs.Entry, _c: {string})
+      if e.name == "target.txt" then
+        saw = true
+        assert(fs.remove(e.path), "setup: could not remove target.txt")
+        local st, serr = e:stat()
+        assert(st == nil, "stat on a removed entry must fail")
+        assert(serr and serr:match("target%.txt"), "got: " .. tostring(serr))
+      end
+    end, {})
+  assert(saw, "the visitor must still see an entry whose later stat fails")
+  assert(walked ~= nil, "the walk itself must not fail: " .. tostring(err))
+  assert(walked.errors and walked.errors[1] and walked.errors[1]:match("target%.txt"),
+    "the stat failure must still land in walked.errors once e:stat() was called")
 end
 
 local function test_visit_denied_subdir_lands_in_errors()

@@ -43,7 +43,7 @@ return {
   ["cosmic/fs/ops.tl"] = 2,
   ["cosmic/fs/tree.tl"] = 1,
   ["cosmic/fs/types.tl"] = 12,
-  ["cosmic/fs/walk.tl"] = 4,
+  ["cosmic/fs/walk.tl"] = 3,
   ["cosmic/hash.tl"] = 3,
   ["cosmic/hash_test.tl"] = 2,
   ["cosmic/literal_example.tl"] = 1,

@@ -113,7 +113,7 @@ narrow such a record, but cannot type an untyped handle in the first
 place.
 
 ```text
--- cosmic/fs/types.tl:279
+-- cosmic/fs/types.tl:280
     return raw as fs_types.Stat -- cast: userdata boundary
 ```
 
