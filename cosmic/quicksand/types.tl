@@ -39,6 +39,14 @@ local record NetRule
   header_value: string
 end
 
+--- `allow` is the hostname allowlist enforced by the sidecar proxy.
+--- Containment around the proxy itself has two tiers: with a network
+--- namespace (`net_ns`) the workload can reach nothing but the proxy by
+--- construction; without one but with a Landlock net tier (ABI >= 4,
+--- `landlock_net`), the workload runs in the host's real network
+--- namespace and Box confines its outbound TCP to the proxy's port
+--- instead — degraded, not none. Both apply together when available
+--- (defense in depth). With neither, Box:run refuses.
 local record NetOptions
   proxy_env: boolean -- set HTTP(S)_PROXY in the child env
   allow: {string: NetRule}
@@ -104,6 +112,7 @@ local record Capabilities
   pivot_root: boolean -- unix.pivot_root exported
   cap_net_admin: boolean -- holds CAP_NET_ADMIN (e.g. effective uid 0)
   landlock: boolean -- kernel advertises landlock ABI >= 1
+  landlock_net: boolean -- kernel advertises landlock ABI >= 4 (per-port TCP policy)
   pledge: boolean -- unix.pledge non-ENOSYS (Linux via seccomp + OpenBSD)
   unveil: boolean -- unix.unveil non-ENOSYS (OpenBSD, or Linux+Landlock)
   caps: boolean -- prctl capability bounding-set API available (PR_CAPBSET_*)

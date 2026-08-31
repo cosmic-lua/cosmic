@@ -132,12 +132,16 @@ cosmic/net/socket.tl	334	function shape
 cosmic/net/socket.tl	397	function shape
 cosmic/net/socket.tl	437	function shape
 cosmic/quicksand/box/init.tl	86	runtime capability probe
+cosmic/quicksand/box/init_test.tl	140	map view of a declared value
+cosmic/quicksand/box/init_test.tl	142	map view of a declared value
+cosmic/quicksand/box/init_test.tl	143	map view of a declared value
+cosmic/quicksand/box/init_test.tl	145	map view of a declared value
 cosmic/quicksand/box/merge.tl	135	map view of a declared value
 cosmic/quicksand/box/merge.tl	138	incremental record construction
 cosmic/quicksand/box/merge_test.tl	101	type-defeating test probe
 cosmic/quicksand/box/merge_test.tl	151	type-defeating test probe
 cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
-cosmic/quicksand/box/run.tl	211	record union after guard
+cosmic/quicksand/box/run.tl	247	record union after guard
 cosmic/quicksand/caps.tl	63	binding constant by name
 cosmic/quicksand/init.tl	73	function shape
 cosmic/quicksand/proc.tl	259	binding constant by name

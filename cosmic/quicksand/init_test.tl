@@ -20,6 +20,7 @@ local function test_capabilities_shape()
   assert(type(c.pivot_root) == "boolean", "capabilities().pivot_root should be boolean")
   assert(type(c.cap_net_admin) == "boolean", "capabilities().cap_net_admin should be boolean")
   assert(type(c.landlock) == "boolean", "capabilities().landlock should be boolean")
+  assert(type(c.landlock_net) == "boolean", "capabilities().landlock_net should be boolean")
   assert(type(c.pledge) == "boolean", "capabilities().pledge should be boolean")
   assert(type(c.unveil) == "boolean", "capabilities().unveil should be boolean")
 end
@@ -160,6 +161,20 @@ local function test_unveil_matches_landlock_on_linux()
   end
   check.equal(c.unveil, c.landlock,
     "on Linux unveil is derived from landlock and must equal it")
+end
+
+-- landlock_net is a stricter gate than landlock (ABI >= 4 implies ABI >=
+-- 1), and off Linux both must be false. Pin the relationship instead of
+-- just its type, so a probe that reports the ABI-4 tier without the
+-- underlying ABI-1 one — or the reverse on a non-Linux host — fails here.
+local function test_landlock_net_implies_landlock()
+  local c = quicksand.capabilities()
+  if c.landlock_net then
+    check.truthy(c.landlock, "landlock_net true must imply landlock true (ABI >= 4 implies ABI >= 1)")
+  end
+  if not c.linux then
+    check.equal(c.landlock_net, false, "landlock_net must be false off Linux")
+  end
 end
 
 local function test_new_and_merge_on_umbrella()

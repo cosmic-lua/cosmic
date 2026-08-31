@@ -115,8 +115,14 @@ local function preflight(opts: BoxOptions): boolean, string
     return false, "quicksand: user namespaces unavailable"
   end
   if opts then
-    if opts.net and not c.net_ns then
+    -- A net policy without net_ns still runs when this host's Landlock
+    -- ABI is >= 4: run() falls back to the host network namespace and
+    -- confines the workload's outbound TCP to the proxy port instead
+    -- (see clone_flags/workload_setup) — degraded containment, not
+    -- none. Only refuse when NEITHER tier can enforce anything.
+    if opts.net and not c.net_ns and not c.landlock_net then
       return false, "quicksand: network namespaces unavailable"
+      .. " (and landlock net tier unavailable: needs ABI >= 4)"
     end
     if opts.hostname and not c.uts_ns then
       return false, "quicksand: UTS namespace unavailable (hostname requested)"

@@ -84,6 +84,14 @@ local function probe_landlock(): boolean
   return landlock.available()
 end
 
+--- True when this host's Landlock ABI is >= 4 — the per-port TCP
+--- rights (NET_BIND_TCP / NET_CONNECT_TCP) that back the sandbox `net`
+--- section. Delegates to the same cached abi() probe as probe_landlock,
+--- so no extra syscall.
+local function probe_landlock_net(): boolean
+  return (landlock.abi() or 0) >= 4
+end
+
 --- Probe whether the Box namespace trio can actually be entered: a
 --- scratch child attempts unshare(CLONE_NEWUSER | CLONE_NEWNET |
 --- CLONE_NEWNS) followed by the uid_map / gid_map writes — exactly the
@@ -155,6 +163,7 @@ local function capabilities(): Capabilities
     pivot_root = is_linux and unix.pivot_root ~= nil,
     cap_net_admin = is_linux and unix.geteuid ~= nil and unix.geteuid() == 0,
     landlock = has_landlock,
+    landlock_net = is_linux and probe_landlock_net(),
     pledge = probe(unix.pledge),
     -- unveil is DERIVED, never probed: for unveil, unix.unveil(nil, nil) is
     -- the commit call -- probing it would lock this very process into a

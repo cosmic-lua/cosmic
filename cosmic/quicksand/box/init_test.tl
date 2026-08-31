@@ -124,3 +124,61 @@ local function test_fs_deny_rejected_at_new()
   assert(err2:find("deny", 1, true),
     "deny next to an allowlist is still rejected: " .. err2)
 end
+
+-- Monkeypatching quicksand.capabilities (the same technique
+-- landlock_net_test.tl uses on cosmic.sandbox.landlock) exercises
+-- preflight's net-tier logic deterministically: a live host's net_ns
+-- and landlock_net are whatever they are, never independently
+-- controllable, so this is the only way to prove both the refusal and
+-- the fallback without a specific kernel to match each case. run()
+-- always forks before it unshares (see box/run.tl), so calling it
+-- directly here — as test_run_on_linux_returns_clean_shape already
+-- does — never touches this process's own namespaces.
+local function with_mock_capabilities(overrides: {string: any}, body: function(): boolean)
+  local real = quicksand.capabilities()
+  local mocked: {string: any} = {}
+  for k, v in pairs(real as {string: any}) do mocked[k] = v end -- cast: record to map probe
+  for k, v in pairs(overrides) do mocked[k] = v end
+  local saved = (quicksand as {string: function}).capabilities; -- cast: record to map probe
+  (quicksand as {string: function}).capabilities = function(): any return mocked end -- cast: record to map probe
+  local ok, err = pcall(body);
+  (quicksand as {string: function}).capabilities = saved -- cast: record to map probe
+  if not ok then error(err, 0) end
+end
+
+-- Non-goal: a host with neither tier refuses a net policy outright,
+-- naming both gaps — the "as it does today" refusal this item must not
+-- weaken.
+local function test_net_refuses_with_neither_tier()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = false,
+    }, function(): boolean
+      local code, err = j:run({"/bin/true"})
+      assert(code == nil, "must refuse when neither net tier is available")
+      assert(err and err:find("network namespaces unavailable", 1, true)
+        and err:find("landlock net tier unavailable", 1, true),
+        "error should name both gaps: " .. tostring(err))
+      return true
+    end)
+end
+
+-- The Landlock net tier alone must not trip the netns-specific refusal:
+-- preflight lets the box proceed past that check. Whatever happens
+-- next (a real unshare can still fail on a host without genuine
+-- user_ns support) is a different, real error — never this one.
+local function test_net_proceeds_with_landlock_net_only()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = true,
+    }, function(): boolean
+      local code, err = j:run({"/bin/true"})
+      if code == nil then
+        assert(not err:find("network namespaces unavailable", 1, true),
+          "landlock_net = true must not hit the netns refusal: " .. tostring(err))
+      end
+      return true
+    end)
+end

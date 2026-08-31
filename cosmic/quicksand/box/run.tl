@@ -10,13 +10,18 @@
 ---   2. parent fork()s the supervisor and wait()s for it.
 ---   3. supervisor unshares USER | NET | NS (+ UTS if hostname), writes
 ---      uid_map / gid_map, brings up lo, optionally calls
----      sethostname(2).
+---      sethostname(2). NET is skipped when a net policy is requested
+---      but net_ns is unavailable and the Landlock net tier covers it
+---      instead (preflight already confirmed one of the two holds); the
+---      workload then runs in the host's real network namespace with
+---      its outbound TCP confined to the proxy port (step 5).
 ---   4. supervisor starts the allowlist proxy sidecar if net.allow is
 ---      set, and prepends HTTP(S)_PROXY into the workload env when
 ---      net.proxy_env is not explicitly false.
 ---   5. supervisor forks the workload. Workload does chdir, the
----      sandbox fs policy (landlock), no_new_privs, drop_privs,
----      pledge, then execvpe(argv, env).
+---      sandbox fs policy (landlock), the net tier backstop (landlock,
+---      when applicable), no_new_privs, drop_privs, pledge, then
+---      execvpe(argv, env).
 ---   6. supervisor runs become_init(workload_pid, {sidecars={proxy_pid}})
 ---      and os.exit()s with the returned code. parent maps wait status
 ---      to an exit code and returns it from run().
@@ -52,8 +57,30 @@ local record CapsModule
   capabilities: function(): types.Capabilities
 end
 
-local function clone_flags(opts: BoxOptions): integer
-  local flags = NEWUSER | NEWNET | NEWNS
+-- Lazy require: the umbrella re-exports Box, so a top-level require here
+-- would be a cycle. A failed lookup reads as "nothing available" (every
+-- field nil/falsy), matching box/init.tl's caps() fail-closed default.
+local function get_caps(): types.Capabilities
+  local qs = require("cosmic.quicksand")
+  if not (qs is CapsModule) then return {} end
+  return qs.capabilities()
+end
+
+local function clone_flags(opts: BoxOptions, caps: types.Capabilities): integer
+  local flags = NEWUSER | NEWNS
+  -- CLONE_NEWNET isolates the workload's whole network stack by
+  -- default. A requested net policy this host cannot back with a real
+  -- netns (net_ns unavailable) but CAN back with the Landlock net tier
+  -- falls back to the host's network namespace here — preflight already
+  -- confirmed landlock_net covers it, and workload_setup applies that
+  -- backstop post-fork.
+  local want_net_ns = true
+  if opts and opts.net and not caps.net_ns and caps.landlock_net then
+    want_net_ns = false
+  end
+  if want_net_ns then
+    flags = flags | NEWNET
+  end
   if opts and opts.hostname then
     flags = flags | NEWUTS
   end
@@ -62,13 +89,8 @@ local function clone_flags(opts: BoxOptions): integer
   -- the capability. After unshare(CLONE_NEWPID) the supervisor stays in
   -- the old PID ns; the first forked child (proxy or workload) becomes
   -- PID 1 of the new namespace.
-  if opts == nil or opts.pid_ns ~= false then
-    -- Lazy require: the umbrella re-exports Box, so a top-level
-    -- require here would be a cycle.
-    local qs = require("cosmic.quicksand")
-    if qs is CapsModule and qs.capabilities().pid_ns then
-      flags = flags | NEWPID
-    end
+  if (opts == nil or opts.pid_ns ~= false) and caps.pid_ns then
+    flags = flags | NEWPID
   end
   return flags
 end
@@ -101,8 +123,11 @@ end
 
 -- Apply post-fork workload restrictions. Returns nil on success or an
 -- error string so the caller can emit one consistent diagnostic and
--- exit with a well-known status (126).
-local function workload_setup(opts: BoxOptions): string
+-- exit with a well-known status (126). `proxy_port` is the sidecar's
+-- bound port when net.allow started one (nil otherwise); `caps` is the
+-- host capability report supervisor() already fetched.
+local function workload_setup(
+    opts: BoxOptions, proxy_port: integer, caps: types.Capabilities): string
   if opts and opts.cwd then
     local ok, err = unix.chdir(opts.cwd)
     if not ok then return "chdir: " .. tostring(err) end
@@ -115,6 +140,16 @@ local function workload_setup(opts: BoxOptions): string
     -- policy — fs = { ro = {} } denies everything — matching apply.
     local ok, err = sandbox.apply({fs = fs})
     if not ok then return tostring(err) end
+  end
+  local net = opts and opts.net
+  if net and proxy_port and caps.landlock_net then
+    -- The Landlock net tier: confines the workload's outbound TCP to
+    -- the proxy's own port, before any exec. Applies whenever this
+    -- host's ABI supports it, whether or not a real netns is also
+    -- isolating the workload (defense in depth — see clone_flags for
+    -- the fallback case where it is the ONLY tier).
+    local ok, err = sandbox.apply({net = {connect_tcp = {proxy_port}}})
+    if not ok then return "net: " .. tostring(err) end
   end
   local pr = opts and opts.proc
   if pr and (pr.no_new_privs or pr.uid ~= nil) then
@@ -164,7 +199,8 @@ local function supervisor(
     unix.write(err_fd, msg)
     os.exit(126) -- exits: supervisor child; setup failure is on the parent's pipe
   end
-  local flags = clone_flags(opts)
+  local caps = get_caps()
+  local flags = clone_flags(opts, caps)
   local ok, err = unix.unshare(flags)
   if not ok then
     die("unshare: " .. tostring(err))
@@ -230,7 +266,7 @@ local function supervisor(
     return -- unreachable
   end
   if pid == 0 then
-    local serr = workload_setup(opts)
+    local serr = workload_setup(opts, proxy_port, caps)
     if serr then
       unix.write(err_fd, serr)
       os.exit(126) -- exits: workload child; setup failure is on the parent's pipe
