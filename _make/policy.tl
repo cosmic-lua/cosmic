@@ -18,6 +18,7 @@ local types = require("_make.types")
 local vcs = require("_make.vcs")
 
 local type Kind = types.Kind
+local type Move = baseline.Move
 local type Project = types.Project
 local type Verb = types.Verb
 
@@ -84,6 +85,37 @@ local function run_coverage(v: Verb, proj: Project, paths: {string},
   return stage.verdict(v.name, code == 0, detail)
 end
 
+--- Turn `baseline.moved`'s rows into printable narration, one line per
+--- row, labeled by direction — a raise is "RAISES", a drop is "LOWERS"
+--- — plus how many of each `write_baseline`'s closing summary counts.
+---
+--- Split out of `write_baseline` so the labeling can be asserted
+--- directly against synthetic rows, with no coverage run or filesystem
+--- involved: `baseline.moved` used to be `baseline.lowered`, which
+--- named every moved row without saying which direction it moved, and
+--- this call site printed "LOWERS" on every one of them regardless —
+--- a raise read as a decline in the one place an operator running
+--- `--baseline` actually sees the output.
+--- @param moves {Move} What `baseline.moved(floor, fresh)` found
+--- @return {string} One "coverage: baseline RAISES/LOWERS …" line per row
+--- @return integer How many of those rows raised
+--- @return integer How many lowered
+local function narrate_moves(moves: {Move}): {string}, integer, integer
+  local lines: {string} = {}
+  local raised_count = 0
+  local lowered_count = 0
+  for _, row in ipairs(moves) do
+    if row.raised then
+      lines[#lines + 1] = "coverage: baseline RAISES " .. row.message
+      raised_count = raised_count + 1
+    else
+      lines[#lines + 1] = "coverage: baseline LOWERS " .. row.message
+      lowered_count = lowered_count + 1
+    end
+  end
+  return lines, raised_count, lowered_count
+end
+
 --- `coverage --baseline` — rewrite the committed floor from a run.
 --- @param proj Project The scanned project
 --- @return integer Exit code
@@ -92,10 +124,15 @@ local function write_baseline(proj: Project): integer
   for _, dir in ipairs(project.source_dirs(proj)) do
     report[#report + 1] = dir
   end
-  -- The baseline being replaced is an INPUT to its own rewrite: a row
-  -- this run would not have failed the ratchet on keeps the floor it
-  -- already had, so a rebaseline on any machine lowers only the rows a
-  -- check would have rejected and leaves the rest of the file still.
+  -- The baseline being replaced is an INPUT to its own rewrite only for
+  -- `corpus_guard`: `render` writes the fresh measurement verbatim, so a
+  -- row this run measures higher than the floor raises and one it
+  -- measures lower lowers, exactly like any other edit to a committed
+  -- file. What the previous floor still guards against is breadth — a
+  -- rewrite that would lower more than half the committed rows at once
+  -- refuses outright, the signature of a partial or stale run rather
+  -- than a real decline — and every row that moved, in either
+  -- direction, is narrated below.
   local previous = fs.read(BASELINE)
   local floor = previous is string and previous or nil
   local text, err = baseline.text_for(report, floor)
@@ -104,11 +141,13 @@ local function write_baseline(proj: Project): integer
     return stage.verdict("coverage", false, "no data")
   end
   local fresh = text
-  local moved = 0
+  local raised_count = 0
+  local lowered_count = 0
   if floor then
-    for _, row in ipairs(baseline.lowered(floor, fresh)) do
-      io.write("coverage: baseline LOWERS " .. row .. "\n")
-      moved = moved + 1
+    local lines: {string}
+    lines, raised_count, lowered_count = narrate_moves(baseline.moved(floor, fresh))
+    for _, line in ipairs(lines) do
+      io.write(line .. "\n")
     end
   end
   local wok, werr = fs.write(BASELINE, fresh)
@@ -116,9 +155,9 @@ local function write_baseline(proj: Project): integer
     io.stderr:write((werr or "cannot write " .. BASELINE) .. "\n")
     return stage.verdict("coverage", false, BASELINE)
   end
-  io.write("coverage: wrote " .. BASELINE .. " (" .. moved
-    .. " row(s) lowered; a floor only moves up by hand — see "
-    .. "cosmic/coverage/SENSITIVITY.md)\n")
+  io.write("coverage: wrote " .. BASELINE .. " (" .. lowered_count
+    .. " row(s) lowered, " .. raised_count .. " raised; a floor only"
+    .. " moves up by hand — see cosmic/coverage/SENSITIVITY.md)\n")
   return stage.verdict("coverage", true, BASELINE)
 end
 
@@ -249,6 +288,7 @@ local record PolicyModule
   STAGES: {Stage}
   has: function(proj: Project, kinds: {Kind}): boolean
   run_coverage: function(v: Verb, proj: Project, paths: {string}, cosmic: string): integer
+  narrate_moves: function(moves: {Move}): {string}, integer, integer
   fix: function(proj: Project, paths: {string}): integer
   write_baseline: function(proj: Project): integer
   run_ci: function(by_name: function(string): Verb | nil, proj: Project, _paths: {string}, cosmic: string): integer
@@ -260,6 +300,7 @@ local M: PolicyModule = {
   STAGES = STAGES,
   has = has,
   run_coverage = run_coverage,
+  narrate_moves = narrate_moves,
   fix = fix,
   write_baseline = write_baseline,
   run_ci = run_ci,

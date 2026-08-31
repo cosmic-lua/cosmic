@@ -10,7 +10,7 @@
 --- entry). `cosmic --make coverage` runs the check; `cosmic --make
 --- coverage --baseline` rewrites it with the HONEST measurement — every
 --- row becomes exactly what this run measured, raises included, and
---- `lowered` narrates every row that moved, in either direction, on
+--- `moved` narrates every row that moved, in either direction, on
 --- stderr. The one guard left is on breadth, not direction: a rewrite
 --- that would lower more than half the committed floor's rows refuses
 --- outright, because that is what a partial or stale run produces (a
@@ -26,8 +26,7 @@
 --- forwards.
 ---
 --- A library module: `require`d for its API (`gate`, `text_for`,
---- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
---- here.
+--- `moved`, ...) by the `coverage` verb. There is no standalone CLI here.
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local rep = require("_tool.coverage.report")
@@ -76,9 +75,9 @@ end
 --- floor and does not clamp — a row this run measures higher than the
 --- committed floor raises, and a row it measures lower lowers, exactly
 --- like any other edit to a committed file. Saying which rows moved is
---- `lowered`'s job, not this one's, and refusing a rewrite that moves
---- too many of them at once is `corpus_guard`'s, called from
---- `text_for` before this function's output ever reaches disk.
+--- `moved`'s job, not this one's, and refusing a rewrite that moves too
+--- many of them at once is `corpus_guard`'s, called from `text_for`
+--- before this function's output ever reaches disk.
 --- @param reports {FileReport} Sorted results from report.compute
 --- @return string | nil The rendered baseline
 --- @return string? Error message when a row falls outside the floor format's domain
@@ -312,19 +311,24 @@ local function gate(baseline_path: string, only: string, paths: {string}): integ
   return check(baseline_path, paths)
 end
 
+--- One row a rewrite moved, in either direction.
+local record Move
+  path: string
+  raised: boolean -- true when `after` covers more than `before`
+  message: string -- the rendered "path before% -> after% (c/t -> c/t)" line
+end
+
 --- Which rows a rewrite MOVED, and by how much — in either direction.
----
---- `render` now writes the fresh measurement verbatim (see above), so a
---- rewrite is not a refresh: it can raise a row that was wrongly low,
---- lower one a partial run under-measured, or leave a row untouched,
---- and nothing else in this module says which happened. This names
---- every row whose percentage changed, in path order, so the rewrite's
---- stderr carries the fact whether or not the diff gets opened.
---- `corpus_guard` needs drops only, not this — see `dropped_count`.
+--- `render` writes the fresh measurement verbatim (see above), so a
+--- rewrite can raise a row that was wrongly low, lower one a partial
+--- run under-measured, or leave a row untouched. The direction rides
+--- alongside each message: `write_baseline` (`_make/policy.tl`) must
+--- not print a raise as though it were a drop. `corpus_guard` needs
+--- drops only, not this — see `dropped_count`.
 --- @param before string The existing baseline text
 --- @param after string The text about to replace it
---- @return {string} One message per row that moved, in path order
-local function lowered(before: string, after: string): {string}
+--- @return {Move} One entry per row that moved, in path order
+local function moved(before: string, after: string): {Move}
   local old_parsed = parse(before)
   local new_parsed = parse(after)
   if not old_parsed or not new_parsed then
@@ -337,14 +341,18 @@ local function lowered(before: string, after: string): {string}
     paths[#paths + 1] = path
   end
   table.sort(paths)
-  local out: {string} = {}
+  local out: {Move} = {}
   local function note(path: string, was: Entry, now: Entry)
     local before_pct = pct(was.covered, was.total)
     local after_pct = pct(now.covered, now.total)
     if after_pct ~= before_pct then
-      out[#out + 1] = string.format("%s %.1f%% -> %.1f%% (%d/%d -> %d/%d)",
-        path, before_pct, after_pct, was.covered, was.total,
-        now.covered, now.total)
+      out[#out + 1] = {
+        path = path,
+        raised = after_pct > before_pct,
+        message = string.format("%s %.1f%% -> %.1f%% (%d/%d -> %d/%d)",
+          path, before_pct, after_pct, was.covered, was.total,
+          now.covered, now.total),
+      }
     end
   end
   for _, path in ipairs(paths) do
@@ -356,14 +364,10 @@ local function lowered(before: string, after: string): {string}
 end
 
 --- How many of `before`'s rows would strictly LOWER in `after` — drops
---- only, never raises.
----
---- Kept separate from `lowered` above: that function narrates every row
---- that MOVED, in either direction, for the rewrite's stderr output, so
---- its count is not what `corpus_guard` means by "dropped." A row that
---- raised is not a drop no matter how many other rows moved alongside
---- it, so the guard needs its own count rather than the length of
---- `lowered`'s result.
+--- only, never raises. Kept separate from `moved` above: `moved` finds
+--- every row that moved in EITHER direction, so its count is not what
+--- `corpus_guard` means by "dropped" — a raised row is not a drop no
+--- matter how many others moved alongside it.
 --- @param before string The existing baseline text
 --- @param after string The text about to replace it
 --- @return integer How many rows strictly lowered
@@ -470,13 +474,14 @@ end
 local record BaselineModule
   type Entry = Entry
   type Baseline = Baseline
+  type Move = Move
   render: function(reports: {FileReport}): string | nil, string
   parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
   check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string
-  lowered: function(before: string, after: string): {string}
+  moved: function(before: string, after: string): {Move}
   corpus_guard: function(before: string, after: string): boolean, string
 end
 
@@ -487,7 +492,7 @@ local M: BaselineModule = {
   check = check,
   gate = gate,
   text_for = text_for,
-  lowered = lowered,
+  moved = moved,
   corpus_guard = corpus_guard,
 }
 

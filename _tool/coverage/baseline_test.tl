@@ -188,11 +188,11 @@ local function test_lowered_names_only_real_declines()
   local before = fixture({{"a.tl", 8, 10}, {"b.tl", 5, 10}, {"c.tl", 10, 10}})
   -- a.tl unchanged, b.tl lowered, c.tl grew but stayed 100%
   local after = fixture({{"a.tl", 8, 10}, {"b.tl", 3, 10}, {"c.tl", 12, 12}})
-  local rows = baseline.lowered(before, after)
-  assert(#rows == 1, "want only b.tl, got " .. #rows ..
-    ": " .. table.concat(rows, "; "))
-  assert(rows[1]:find("b.tl", 1, true), "got: " .. rows[1])
-  assert(rows[1]:find("50.0% -> 30.0%", 1, true), "got: " .. rows[1])
+  local rows = baseline.moved(before, after)
+  assert(#rows == 1, "want only b.tl, got " .. #rows)
+  assert(rows[1].message:find("b.tl", 1, true), "got: " .. rows[1].message)
+  assert(rows[1].message:find("50.0% -> 30.0%", 1, true), "got: " .. rows[1].message)
+  assert(not rows[1].raised, "a decline must not be labeled raised")
 end
 
 -- A file the rewrite does not mention cannot have been lowered by it,
@@ -201,15 +201,15 @@ end
 local function test_lowered_is_silent_when_it_cannot_tell()
   local before = fixture({{"gone.tl", 9, 10}})
   local after = fixture({})
-  assert(#baseline.lowered(before, after) == 0,
-    "a row the rewrite dropped is not a lowered row")
-  assert(#baseline.lowered("nonsense", after) == 0,
+  assert(#baseline.moved(before, after) == 0,
+    "a row the rewrite dropped is not a moved row")
+  assert(#baseline.moved("nonsense", after) == 0,
     "an unparseable baseline reports nothing")
 end
 
 -- `render` no longer reads a previous floor -- whatever this run
--- measured IS the row, raises included, and `lowered` narrates a raise
--- the same way it narrates a decline.
+-- measured IS the row, raises included, and `moved` finds a raise the
+-- same way it finds a decline.
 local function test_render_raises_a_wrongly_low_floor_row()
   local before = fixture({{"kept.tl", 4, 10}, {"worse.tl", 9, 10}})
   local after = check.must(baseline.render(reports({
@@ -218,14 +218,15 @@ local function test_render_raises_a_wrongly_low_floor_row()
         })))
   assert_row(after, "kept.tl", 9, 10)
   assert_row(after, "worse.tl", 5, 10)
-  local moved = baseline.lowered(before, after)
-  table.sort(moved)
-  assert(#moved == 2, "both rows moved, got " .. #moved ..
-    ": " .. table.concat(moved, "; "))
-  assert(moved[1]:find("kept.tl", 1, true) and moved[1]:find("40.0% -> 90.0%", 1, true),
-    "a raise must be narrated too, got: " .. moved[1])
-  assert(moved[2]:find("worse.tl", 1, true) and moved[2]:find("90.0% -> 50.0%", 1, true),
-    "got: " .. moved[2])
+  local rows = baseline.moved(before, after) -- already path-sorted
+  assert(#rows == 2, "both rows moved, got " .. #rows)
+  assert(rows[1].message:find("kept.tl", 1, true) and
+    rows[1].message:find("40.0% -> 90.0%", 1, true),
+    "a raise must be found too, got: " .. rows[1].message)
+  assert(rows[1].raised, "kept.tl raised, got raised=" .. tostring(rows[1].raised))
+  assert(rows[2].message:find("worse.tl", 1, true) and
+    rows[2].message:find("90.0% -> 50.0%", 1, true), "got: " .. rows[2].message)
+  assert(not rows[2].raised, "worse.tl declined, got raised=" .. tostring(rows[2].raised))
 end
 
 -- No floor, no slack, no clamp: a percentage inside what `compare`
@@ -255,8 +256,8 @@ local function test_corpus_guard_refuses_a_majority_lowering_rewrite()
     "the refusal must name the count, got: " .. refusal)
 end
 
--- 1 of 4 is not a majority: the guard lets it through, and `lowered`
--- still narrates the one row that moved.
+-- 1 of 4 is not a majority: the guard lets it through, and `moved`
+-- still finds the one row that moved.
 local function test_corpus_guard_allows_a_minority_lowering_rewrite()
   local before = fixture({
       {"a.tl", 9, 10}, {"b.tl", 9, 10}, {"c.tl", 9, 10}, {"d.tl", 9, 10},
@@ -266,10 +267,9 @@ local function test_corpus_guard_allows_a_minority_lowering_rewrite()
         })))
   local ok, refusal = baseline.corpus_guard(before, after)
   assert(ok, "1 of 4 lowering must not refuse, got: " .. refusal)
-  local moved = baseline.lowered(before, after)
-  assert(#moved == 1 and moved[1]:find("a.tl", 1, true),
-    "the one real decline is still narrated, got " .. #moved ..
-    ": " .. table.concat(moved, "; "))
+  local rows = baseline.moved(before, after)
+  assert(#rows == 1 and rows[1].message:find("a.tl", 1, true) and not rows[1].raised,
+    "the one real decline is still found, got " .. #rows)
 end
 
 -- Wiring proof: `text_for` really calls the guard. One real file with

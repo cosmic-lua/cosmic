@@ -6,6 +6,7 @@
 -- stage, so the ORDER, the material gating and the failure reporting
 -- are asserted directly rather than inferred from a real run.
 
+local baseline = require("_tool.coverage.baseline")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local policy = require("_make.policy")
@@ -117,6 +118,70 @@ local function test_the_baseline_is_a_convention()
   local absent = not fs.is_file(policy.BASELINE)
   check.must(fs.set_cwd(cwd))
   assert(absent, "the fixture must not have a floor")
+end
+
+--- A baseline text literal from `{path, covered, total}` rows, the same
+--- shape `_tool/coverage/baseline_test.tl`'s `fixture` builds.
+--- @param rows {{string, integer, integer}} path, covered, total triples
+--- @return string A `return { ["path"] = {covered = C, total = T}, ... }` literal
+local function baseline_fixture(rows: {{string, integer, integer}}): string
+  local parts: {string} = {}
+  for _, row in ipairs(rows) do
+    parts[#parts + 1] = string.format("  [%s] = {covered = %d, total = %d},",
+      string.format("%q", row[1]), row[2], row[3])
+  end
+  return "return {\n" .. table.concat(parts, "\n") .. "\n}\n"
+end
+
+-- The bug this guards: `write_baseline` used to hand every row
+-- `baseline.lowered` named to this narration unconditionally labeled
+-- "LOWERS", so a row that raised printed as though it had declined. A
+-- real `--baseline` regen showed exactly that: a raise from 69.0% to
+-- 81.2% printed "coverage: baseline LOWERS ...". A mixed rewrite here
+-- -- one row raised, one lowered, one untouched -- must label and
+-- count each direction correctly.
+local function test_narrate_moves_labels_each_direction()
+  local before = baseline_fixture({
+      {"raised.tl", 5, 10}, {"lowered.tl", 9, 10}, {"same.tl", 10, 10},
+    })
+  local after = baseline_fixture({
+      {"raised.tl", 9, 10}, {"lowered.tl", 3, 10}, {"same.tl", 10, 10},
+    })
+  local moves = baseline.moved(before, after)
+  local lines, raised_count, lowered_count = policy.narrate_moves(moves)
+
+  assert(#lines == 2, "same.tl did not move, want 2 lines, got " ..
+    #lines .. ": " .. table.concat(lines, "; "))
+  assert(raised_count == 1, "got raised_count=" .. raised_count)
+  assert(lowered_count == 1, "got lowered_count=" .. lowered_count)
+
+  local raise_line: string
+  local drop_line: string
+  for _, line in ipairs(lines) do
+    if line:find("raised.tl", 1, true) then raise_line = line end
+    if line:find("lowered.tl", 1, true) then drop_line = line end
+  end
+  assert(raise_line, "no line for raised.tl in: " .. table.concat(lines, "; "))
+  assert(drop_line, "no line for lowered.tl in: " .. table.concat(lines, "; "))
+  assert(raise_line:find("coverage: baseline RAISES", 1, true),
+    "a raise must be labeled RAISES, not LOWERS: " .. raise_line)
+  assert(not raise_line:find("LOWERS", 1, true),
+    "a raise must never be labeled LOWERS: " .. raise_line)
+  assert(drop_line:find("coverage: baseline LOWERS", 1, true),
+    "a decline must be labeled LOWERS: " .. drop_line)
+  assert(not drop_line:find("RAISES", 1, true),
+    "a decline must never be labeled RAISES: " .. drop_line)
+end
+
+-- No moves, no lines, no counts -- the untouched-baseline case
+-- `write_baseline` hits every time nothing moved.
+local function test_narrate_moves_is_empty_for_no_movement()
+  local text = baseline_fixture({{"stable.tl", 7, 10}})
+  local lines, raised_count, lowered_count =
+  policy.narrate_moves(baseline.moved(text, text))
+  assert(#lines == 0, "got: " .. table.concat(lines, "; "))
+  assert(raised_count == 0 and lowered_count == 0,
+    "want 0/0, got raised=" .. raised_count .. " lowered=" .. lowered_count)
 end
 
 print("all policy tests passed")
