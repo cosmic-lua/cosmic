@@ -55,6 +55,19 @@ footgun") — that one call becomes `Barf(path, 'XX', {offset = 3})` on
 the way over; every other assertion in the file (the `Slurp` range
 reads) moves verbatim.
 
+`path_test.lua` also has two assertions (`assert(nil == path.join(nil))`,
+`assert(nil == path.join(nil, nil))`) that contradict `path.join`'s
+CURRENT, frozen contract: `tool/net/lpath.c:78-118`'s `LuaPathJoin`
+raises `"missing argument"` on an all-nil call rather than returning
+`nil`, already asserted the new way in
+`tool/lua/test_definitions_conformance.lua:390-391`
+(`assert(not pcall(path.join, nil), "join(nil) must raise")` and the
+two-nil equivalent). Running the two `path_test.lua` lines as literally
+written against the current `o/tool/lua/lua.dbg` fails both. Resolved
+(`3IfEKZQg`): adapt the two lines to the pcall form on the way over,
+the same adaptation class as the `Barf` call above — a still-live
+function's calling convention changed, not a binding change.
+
 ## Change
 
 | source | destination | prelude |
@@ -67,6 +80,18 @@ reads) moves verbatim.
 source) becomes `Barf(Path('foo'), 'XX', {offset = 3})` in the ported
 file; every other line moves unchanged.
 
+`path_test.lua`'s two `assert(nil == path.join(nil[, nil]))` lines
+become:
+
+```lua
+assert(not pcall(path.join, nil), "join(nil) must raise")
+assert(not pcall(path.join, nil, nil), "join(nil, nil) must raise")
+```
+
+every other assertion in the file (all `dirname`/`basename` cases,
+every other `join` case including the long-string stress case and the
+numeric-coercion case) moves unchanged.
+
 `tool/lua/BUILD.mk:222-251` gets three new three-line rules
 (`o/$(MODE)/tool/lua/test_path_values.ok: o/$(MODE)/tool/lua/lua.dbg
 tool/lua/test_path_values.lua`, run, `@touch $@`, and the equivalent
@@ -76,10 +101,11 @@ for `test_unix_readlink` and `test_slurp_ranges`), and three new
 ## Non-goals
 
 - No binding change. `path.dirname`/`basename`/`join`, `unix.readlink`,
-  and `Slurp`'s range semantics are frozen; the one adapted `Barf` call
-  moves to the CURRENT options-table contract because the OLD
-  positional form no longer exists to call — that is a syntax
-  adaptation of a still-live function, not a binding change.
+  and `Slurp`'s range semantics are frozen; the adapted `Barf` call and
+  the two adapted `path.join(nil[, nil])` assertions move to their
+  CURRENT calling convention because the OLD form no longer behaves
+  that way — that is a syntax adaptation of a still-live function, not
+  a binding change.
 - Do not touch `test/tool/net/**` or `test/tool/BUILD.mk`; retirement is
   `3IOCgtWA`.
 - Do not touch `tool/lua/test_slurp_barf.lua` or
