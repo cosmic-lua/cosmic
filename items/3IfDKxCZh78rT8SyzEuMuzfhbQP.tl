@@ -5,5 +5,5 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "e277faa5-ee02-55c9-8d7e-4d688b76f501",
-  ["title"] = "Lua 5.5: what moving the whole distribution off the closed 5.4 line would take",
+  ["title"] = "Lua 5.5 is cheap on both sides — Teal has no released version that targets it",
 }
