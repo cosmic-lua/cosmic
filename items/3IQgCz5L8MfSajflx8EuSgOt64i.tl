@@ -5,5 +5,6 @@ return {
   ["id"] = "3IQgCz5L8MfSajflx8EuSgOt64i",
   ["parent"] = "3IPXQuYuMp4cgz8Q98id6zXhql2",
   ["pr"] = 1575,
+  ["reviewer"] = "review-uSgO_t64i-w9p2",
   ["title"] = "library latent-nil: the _eval and _docs sites",
 }
