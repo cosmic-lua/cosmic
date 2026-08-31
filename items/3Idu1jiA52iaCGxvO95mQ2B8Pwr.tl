@@ -8,4 +8,7 @@ return {
   ["pr"] = 296,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage cosmo.FetchStream chunked-edge-case tests",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "428bc9b890fc3bb3a4bfe98b28eab014a1e17d0f",
+  ["verdict_spec"] = "b3b9aa8bdcc014ff5dde5af6e7e55feaf5ba77e904bf626c7f9b164ea2fef24d",
 }
